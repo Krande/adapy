@@ -134,7 +134,7 @@ function extract_input_params(builder: Builder, params: string[], procedure: Pro
             continue
         }
         let input = param_div.getElementsByTagName('input')[0]
-        if (!input) return
+        if (!input) continue
 
         input_params.push()
     }
@@ -169,6 +169,7 @@ export function run_procedure(props: { id: string, data: Record<string, string |
             console.error('No file object connected to this procedure')
             return
         }
+
         const connectedNode = nodes.find(node => node.id === connectedEdges[0].target)
         if (!connectedNode) {
             console.error('Could not find connected file object node')

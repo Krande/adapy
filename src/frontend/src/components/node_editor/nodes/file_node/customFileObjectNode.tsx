@@ -45,7 +45,7 @@ function CustomFileObjectNode(props: { id: string, data: Record<string, string |
 
             <div className={"flex justify-center items-center text-xs p-1"}>
                 <button
-                    className="bg-blue-500 hover:bg-blue-700 text-white p-1 rounded"
+                    className="nodrag bg-blue-500 hover:bg-blue-700 text-white p-1 rounded"
                     onClick={() => {
                         view_file_object_from_server(props.data.fileobject as FileObject);
                     }}

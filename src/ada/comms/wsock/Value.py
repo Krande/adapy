@@ -102,9 +102,16 @@ class Value(object):
             return self._tab.Get(flatbuffers.number_types.Int8Flags, o + self._tab.Pos)
         return 0
 
+    # Value
+    def ArrayAnyLength(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(20))
+        if o != 0:
+            return bool(self._tab.Get(flatbuffers.number_types.BoolFlags, o + self._tab.Pos))
+        return False
+
 
 def ValueStart(builder):
-    builder.StartObject(8)
+    builder.StartObject(9)
 
 
 def Start(builder):
@@ -181,6 +188,14 @@ def ValueAddArrayType(builder, arrayType):
 
 def AddArrayType(builder, arrayType):
     ValueAddArrayType(builder, arrayType)
+
+
+def ValueAddArrayAnyLength(builder, arrayAnyLength):
+    builder.PrependBoolSlot(8, arrayAnyLength, 0)
+
+
+def AddArrayAnyLength(builder, arrayAnyLength):
+    ValueAddArrayAnyLength(builder, arrayAnyLength)
 
 
 def ValueEnd(builder):

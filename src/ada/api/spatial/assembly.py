@@ -192,7 +192,7 @@ class Assembly(Part):
         if isinstance(fem_format, str):
             fem_format = FEATypes.from_str(fem_format)
 
-        scratch_dir = Config().fem_analysis_scratch_dir if scratch_dir is None else pathlib.Path(scratch_dir)
+        scratch_dir = Config().fea_scratch_dir if scratch_dir is None else pathlib.Path(scratch_dir)
 
         write_to_fem(
             self, name, fem_format, overwrite, fem_converter, scratch_dir, metadata, make_zip_file, model_data_only

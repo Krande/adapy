@@ -143,8 +143,9 @@ table Value {
     boolean_value: bool;    // Value when type is BOOLEAN
     array_value: [Value];     // Array of values
     array_value_type: ParameterType; // Array of numbers (e.g., [1.0, 2.0, 3.0])
-    array_length: int;      // Length of the array
+    array_length: int;      // Length of the array,
     array_type: ArrayType; // Type of the array
+    array_any_length: bool; // Boolean to indicate if the array can have any length
 }
 
 // Define a Parameter table that uses a union type for value

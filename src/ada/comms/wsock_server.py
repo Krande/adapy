@@ -78,6 +78,7 @@ class WebSocketAsyncServer:
         on_unsent_message: Optional[
             Callable[[WebSocketAsyncServer, bytes, ConnectedClient, MessageDC, int], None]
         ] = retry_message_sending,
+        debug=False,
     ):
         self.host = host
         self.port = port
@@ -91,6 +92,7 @@ class WebSocketAsyncServer:
         self.instance_id = random.randint(0, 2**31 - 1)  # Generates a random int32 value
         self.msg_queue = asyncio.Queue()
         self.procedure_store = ProcedureStore()
+        self.debug = debug
 
     async def handle_client(self, websocket: websockets.WebSocketServerProtocol, path: str):
         client = await process_client(websocket, path)

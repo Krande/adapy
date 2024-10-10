@@ -115,7 +115,7 @@ class Config:
             ],
         ),
         ConfigSection(
-            "fem_analysis",
+            "fea",
             [
                 ConfigEntry("execute_dir", str, None, False),
                 ConfigEntry(

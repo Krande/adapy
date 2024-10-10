@@ -167,6 +167,7 @@ def deserialize_value(fb_obj) -> ValueDC | None:
         array_value_type=ParameterTypeDC(fb_obj.ArrayValueType()),
         array_length=fb_obj.ArrayLength(),
         array_type=ArrayTypeDC(fb_obj.ArrayType()),
+        array_any_length=fb_obj.ArrayAnyLength(),
     )
 
 

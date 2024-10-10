@@ -73,8 +73,13 @@ arrayType():ArrayType {
   return offset ? this.bb!.readInt8(this.bb_pos + offset) : ArrayType.TUPLE;
 }
 
+arrayAnyLength():boolean {
+  const offset = this.bb!.__offset(this.bb_pos, 20);
+  return offset ? !!this.bb!.readInt8(this.bb_pos + offset) : false;
+}
+
 static startValue(builder:flatbuffers.Builder) {
-  builder.startObject(8);
+  builder.startObject(9);
 }
 
 static addStringValue(builder:flatbuffers.Builder, stringValueOffset:flatbuffers.Offset) {
@@ -121,12 +126,16 @@ static addArrayType(builder:flatbuffers.Builder, arrayType:ArrayType) {
   builder.addFieldInt8(7, arrayType, ArrayType.TUPLE);
 }
 
+static addArrayAnyLength(builder:flatbuffers.Builder, arrayAnyLength:boolean) {
+  builder.addFieldInt8(8, +arrayAnyLength, +false);
+}
+
 static endValue(builder:flatbuffers.Builder):flatbuffers.Offset {
   const offset = builder.endObject();
   return offset;
 }
 
-static createValue(builder:flatbuffers.Builder, stringValueOffset:flatbuffers.Offset, floatValue:number, integerValue:number, booleanValue:boolean, arrayValueOffset:flatbuffers.Offset, arrayValueType:ParameterType, arrayLength:number, arrayType:ArrayType):flatbuffers.Offset {
+static createValue(builder:flatbuffers.Builder, stringValueOffset:flatbuffers.Offset, floatValue:number, integerValue:number, booleanValue:boolean, arrayValueOffset:flatbuffers.Offset, arrayValueType:ParameterType, arrayLength:number, arrayType:ArrayType, arrayAnyLength:boolean):flatbuffers.Offset {
   Value.startValue(builder);
   Value.addStringValue(builder, stringValueOffset);
   Value.addFloatValue(builder, floatValue);
@@ -136,6 +145,7 @@ static createValue(builder:flatbuffers.Builder, stringValueOffset:flatbuffers.Of
   Value.addArrayValueType(builder, arrayValueType);
   Value.addArrayLength(builder, arrayLength);
   Value.addArrayType(builder, arrayType);
+  Value.addArrayAnyLength(builder, arrayAnyLength);
   return Value.endValue(builder);
 }
 
@@ -148,7 +158,8 @@ unpack(): ValueT {
     this.bb!.createObjList<Value, ValueT>(this.arrayValue.bind(this), this.arrayValueLength()),
     this.arrayValueType(),
     this.arrayLength(),
-    this.arrayType()
+    this.arrayType(),
+    this.arrayAnyLength()
   );
 }
 
@@ -162,6 +173,7 @@ unpackTo(_o: ValueT): void {
   _o.arrayValueType = this.arrayValueType();
   _o.arrayLength = this.arrayLength();
   _o.arrayType = this.arrayType();
+  _o.arrayAnyLength = this.arrayAnyLength();
 }
 }
 
@@ -174,7 +186,8 @@ constructor(
   public arrayValue: (ValueT)[] = [],
   public arrayValueType: ParameterType = ParameterType.UNKNOWN,
   public arrayLength: number = 0,
-  public arrayType: ArrayType = ArrayType.TUPLE
+  public arrayType: ArrayType = ArrayType.TUPLE,
+  public arrayAnyLength: boolean = false
 ){}
 
 
@@ -190,7 +203,8 @@ pack(builder:flatbuffers.Builder): flatbuffers.Offset {
     arrayValue,
     this.arrayValueType,
     this.arrayLength,
-    this.arrayType
+    this.arrayType,
+    this.arrayAnyLength
   );
 }
 }

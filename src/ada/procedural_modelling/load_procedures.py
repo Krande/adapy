@@ -106,22 +106,30 @@ def arg_to_param(arg: ast.arg, default: ast.expr, decorator_config: dict) -> Par
             array_type = ArrayTypeDC.SET
         else:
             raise NotImplementedError(f"Parameter type {arg_type} not implemented")
-        if array_value_type == ParameterTypeDC.FLOAT:
-            default_values = [ValueDC(float_value=x) for x in default_arg_value]
-        elif array_value_type == ParameterTypeDC.INTEGER:
-            default_values = [ValueDC(integer_value=x) for x in default_arg_value]
-        elif array_value_type == ParameterTypeDC.STRING:
-            default_values = [ValueDC(string_value=x) for x in default_arg_value]
-        elif array_value_type == ParameterTypeDC.BOOLEAN:
-            default_values = [ValueDC(boolean_value=x) for x in default_arg_value]
-        else:
-            raise NotImplementedError(f"Parameter type {arg_type} not implemented")
+
+        array_is_any_length = False
+        if len(value_types) > 1 and value_types[1] == "...":
+            array_is_any_length = True
+
+        default_values = None
+        if default_arg_value is not None:
+            if array_value_type == ParameterTypeDC.FLOAT:
+                default_values = [ValueDC(float_value=x) for x in default_arg_value]
+            elif array_value_type == ParameterTypeDC.INTEGER:
+                default_values = [ValueDC(integer_value=x) for x in default_arg_value]
+            elif array_value_type == ParameterTypeDC.STRING:
+                default_values = [ValueDC(string_value=x) for x in default_arg_value]
+            elif array_value_type == ParameterTypeDC.BOOLEAN:
+                default_values = [ValueDC(boolean_value=x) for x in default_arg_value]
+            else:
+                raise NotImplementedError(f"Parameter type {arg_type} not implemented")
 
         default_value = ValueDC(
             array_value=default_values,
             array_length=len(value_types),
             array_type=array_type,
             array_value_type=array_value_type,
+            array_any_length=array_is_any_length,
         )
     else:
         raise NotImplementedError(f"Parameter type {arg_type} not implemented")

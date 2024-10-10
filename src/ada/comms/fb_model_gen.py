@@ -154,6 +154,7 @@ class ValueDC:
     array_value_type: Optional[ParameterTypeDC] = None
     array_length: int = None
     array_type: Optional[ArrayTypeDC] = None
+    array_any_length: bool = None
 
 
 @dataclass

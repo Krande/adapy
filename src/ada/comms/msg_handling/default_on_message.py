@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import traceback
 from typing import TYPE_CHECKING
 
 from ada.comms.fb_deserializer import deserialize_root_message
@@ -43,5 +44,8 @@ def default_on_message(server: WebSocketAsyncServer, client: ConnectedClient, me
             on_error_reply(server, client, error_message=f"Unknown command type: {message.command_type}")
 
     except Exception as e:
+        trace_str = traceback.format_exc()
         logger.error(f"Error handling message: {e}")
+        if server.debug:
+            logger.error(trace_str)
         on_error_reply(server, client, error_message=str(e))

@@ -8,7 +8,7 @@ export function ProcedureNode({id, data}: { id: string; data: Record<string, any
     return (
         <div className="bg-bl-background text-gray-200 rounded min-w-40 h-30">
             {/* Header Row */}
-            <ProcedureHeader label={data.label as string} onRun={() => run_procedure({id, data})}/>
+            <ProcedureHeader is_component={data.procedure.isComponent()} label={data.label as string} onRun={() => run_procedure({id, data})}/>
 
             <div className="flex flex-row w-full h-full py-2">
                 {/* Handle Rows Left */}

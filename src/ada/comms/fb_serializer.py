@@ -303,6 +303,8 @@ def serialize_value(builder: flatbuffers.Builder, obj: Optional[ValueDC]) -> Opt
         Value.AddArrayLength(builder, obj.array_length)
     if obj.array_type is not None:
         Value.AddArrayType(builder, obj.array_type.value)
+    if obj.array_any_length is not None:
+        Value.AddArrayAnyLength(builder, obj.array_any_length)
     return Value.End(builder)
 
 
