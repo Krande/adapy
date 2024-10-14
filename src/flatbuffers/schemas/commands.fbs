@@ -40,6 +40,7 @@ enum FileType : byte {
     IFC = 0,
     GLB = 1,
     SQLITE = 2,
+    XLSX = 3,
 }
 
 table WebClient {
@@ -107,15 +108,18 @@ enum ProcedureState : byte {
     ERROR = 3,
 }
 
+table FileArg {
+    arg_name: string;
+    file_type: FileType;
+}
+
 table Procedure {
     name: string;
     description: string;
     script_file_location: string;
     parameters: [Parameter];
-    input_file_var: string;
-    input_file_type: FileType;
-    export_file_type: FileType;
-    export_file_var: string;
+    file_inputs: [FileArg];
+    file_outputs: [FileArg];
     state: ProcedureState;      // State of the procedure
     is_component: bool;         // Boolean to indicate if the procedure is a component
 }
@@ -171,7 +175,7 @@ table Error {
 
 table ServerReply {
   message: string;
-  file_object: FileObject;
+  file_objects: [FileObject];
   reply_to: CommandType;
   error: Error;
 }

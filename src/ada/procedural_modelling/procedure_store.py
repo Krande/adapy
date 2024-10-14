@@ -24,12 +24,9 @@ class ProcedureStore:
 
     def update_procedures(self):
         proc_script_dir = Config().procedures_script_dir
-        components_dir = Config().procedures_components_dir
         local_scripts = {}
         if proc_script_dir is not None:
             local_scripts.update(get_procedures_from_script_dir(proc_script_dir))
-        if components_dir is not None:
-            local_scripts.update(get_procedures_from_script_dir(components_dir))
 
         self.procedures = local_scripts
 

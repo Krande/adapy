@@ -16,6 +16,8 @@ def list_procedures(server: WebSocketAsyncServer, client: ConnectedClient, messa
     logger.info(f"Message: {message}")
 
     server.procedure_store.update_procedures()
+    server.scene.update_local_file_object()
+
     procedure_store_dc = server.procedure_store.to_procedure_dc()
 
     reply_message = MessageDC(

@@ -10,7 +10,7 @@ import websockets
 
 from ada.comms.fb_model_gen import CommandTypeDC, MessageDC, TargetTypeDC
 from ada.comms.msg_handling.default_on_message import default_on_message
-from ada.comms.scene_model import Scene
+from ada.comms.scene_model import SceneBackend
 from ada.comms.wsock import Message
 from ada.comms.wsockets_utils import client_from_str
 from ada.config import logger
@@ -88,7 +88,7 @@ class WebSocketAsyncServer:
         self.on_disconnect = on_disconnect
         self.on_message = on_message
         self.on_unsent_message = on_unsent_message
-        self.scene = Scene()
+        self.scene = SceneBackend()
         self.instance_id = random.randint(0, 2**31 - 1)  # Generates a random int32 value
         self.msg_queue = asyncio.Queue()
         self.procedure_store = ProcedureStore()

@@ -2,10 +2,10 @@ import pathlib
 
 import ada
 from ada.comms.fb_model_gen import FileTypeDC
-from ada.procedural_modelling.components_base import app, component_decorator
+from ada.procedural_modelling.procedures_base import ComponentDecorator, app
 
 
-@component_decorator(export_file_type=FileTypeDC.IFC)
+@ComponentDecorator(outputs=dict(output_file=FileTypeDC.IFC))
 def main(
     name: str = "floor1",
     origin: tuple[float, float, float] = (0, 0, 0),

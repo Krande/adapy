@@ -6,58 +6,58 @@ import flatbuffers
 from flatbuffers.compat import import_numpy
 np = import_numpy()
 
-class Error(object):
+class FileArg(object):
     __slots__ = ['_tab']
 
     @classmethod
     def GetRootAs(cls, buf, offset=0):
         n = flatbuffers.encode.Get(flatbuffers.packer.uoffset, buf, offset)
-        x = Error()
+        x = FileArg()
         x.Init(buf, n + offset)
         return x
 
     @classmethod
-    def GetRootAsError(cls, buf, offset=0):
+    def GetRootAsFileArg(cls, buf, offset=0):
         """This method is deprecated. Please switch to GetRootAs."""
         return cls.GetRootAs(buf, offset)
-    # Error
+    # FileArg
     def Init(self, buf, pos):
         self._tab = flatbuffers.table.Table(buf, pos)
 
-    # Error
-    def Code(self):
+    # FileArg
+    def ArgName(self):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
-        if o != 0:
-            return self._tab.Get(flatbuffers.number_types.Int32Flags, o + self._tab.Pos)
-        return 0
-
-    # Error
-    def Message(self):
-        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
         if o != 0:
             return self._tab.String(o + self._tab.Pos)
         return None
 
-def ErrorStart(builder):
+    # FileArg
+    def FileType(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Int8Flags, o + self._tab.Pos)
+        return 0
+
+def FileArgStart(builder):
     builder.StartObject(2)
 
 def Start(builder):
-    ErrorStart(builder)
+    FileArgStart(builder)
 
-def ErrorAddCode(builder, code):
-    builder.PrependInt32Slot(0, code, 0)
+def FileArgAddArgName(builder, argName):
+    builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(argName), 0)
 
-def AddCode(builder, code):
-    ErrorAddCode(builder, code)
+def AddArgName(builder, argName):
+    FileArgAddArgName(builder, argName)
 
-def ErrorAddMessage(builder, message):
-    builder.PrependUOffsetTRelativeSlot(1, flatbuffers.number_types.UOffsetTFlags.py_type(message), 0)
+def FileArgAddFileType(builder, fileType):
+    builder.PrependInt8Slot(1, fileType, 0)
 
-def AddMessage(builder, message):
-    ErrorAddMessage(builder, message)
+def AddFileType(builder, fileType):
+    FileArgAddFileType(builder, fileType)
 
-def ErrorEnd(builder):
+def FileArgEnd(builder):
     return builder.EndObject()
 
 def End(builder):
-    return ErrorEnd(builder)
+    return FileArgEnd(builder)
