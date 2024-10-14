@@ -1,17 +1,18 @@
 from __future__ import annotations
 
 import ast
-import tokenize
 import io
 import pathlib
+import tokenize
 from typing import Callable
 
 from ada.comms.fb_model_gen import (
     ArrayTypeDC,
+    FileArgDC,
     FileTypeDC,
     ParameterDC,
     ParameterTypeDC,
-    ValueDC, FileArgDC,
+    ValueDC,
 )
 
 from .procedure_model import Procedure
@@ -29,21 +30,22 @@ def remove_comments_from_code(code: str) -> str:
         if toknum == tokenize.COMMENT:
             continue  # Skip comments
         elif toknum == tokenize.NL:
-            output_tokens.append('\n')  # Add newlines
+            output_tokens.append("\n")  # Add newlines
             last_lineno += 1
             last_col = 0
         else:
             if start[0] > last_lineno:
                 # New line
-                output_tokens.append('\n' * (start[0] - last_lineno))
+                output_tokens.append("\n" * (start[0] - last_lineno))
                 last_col = 0
             if start[1] > last_col:
                 # Indentation or spaces
-                output_tokens.append(' ' * (start[1] - last_col))
+                output_tokens.append(" " * (start[1] - last_col))
             output_tokens.append(tokval)
             last_lineno, last_col = end
 
-    return ''.join(output_tokens)
+    return "".join(output_tokens)
+
 
 def get_procedures_from_script_dir(script_dir: pathlib.Path) -> dict[str, Procedure]:
     procedures = {}
@@ -72,12 +74,14 @@ def str_to_filetype(filetype: str) -> FileTypeDC:
     else:
         raise NotImplementedError(f"Filetype {filetype} not implemented")
 
+
 def keyword_to_file_args(key_value: ast.Call) -> list[FileArgDC]:
     output = []
     for keyword in key_value.keywords:
         output.append(FileArgDC(keyword.arg, str_to_filetype(keyword.value.attr)))
 
     return output
+
 
 def extract_decorator_options(decorator: ast.Call) -> dict[str, str | list[FileArgDC] | None]:
     options = dict(inputs={}, outputs={})

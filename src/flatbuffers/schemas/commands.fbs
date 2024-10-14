@@ -16,6 +16,7 @@ enum CommandType : byte {
   VIEW_FILE_OBJECT = 12,
   DELETE_FILE_OBJECT = 13,
   START_NEW_NODE_EDITOR = 14,
+  START_FILE_IN_LOCAL_APP = 15,
 }
 
 enum TargetType : byte {
@@ -91,6 +92,7 @@ table Server {
     get_file_object_by_name: string;
     get_file_object_by_path: string;
     delete_file_object: FileObject;
+    start_file_in_local_app: FileObject;
 }
 
 // Procedures are picked up by the server and executed

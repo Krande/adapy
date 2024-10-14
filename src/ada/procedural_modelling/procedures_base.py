@@ -3,15 +3,16 @@ from __future__ import annotations
 from typing import Any, Callable
 
 from ada.comms.fb_model_gen import FileTypeDC
+
 from .cli_utils import app
 
 
 class BaseDecorator:
     def __init__(
-            self,
-            inputs: dict[str, FileTypeDC] | None = None,
-            outputs: dict[str, FileTypeDC] | None = None,
-            options: dict[str, list[Any]] | None = None
+        self,
+        inputs: dict[str, FileTypeDC] | None = None,
+        outputs: dict[str, FileTypeDC] | None = None,
+        options: dict[str, list[Any]] | None = None,
     ) -> None:
         self.inputs = inputs
         self.outputs = outputs
@@ -33,20 +34,20 @@ class BaseDecorator:
 
 class ProcedureDecorator(BaseDecorator):
     def __init__(
-            self,
-            inputs: dict[str, FileTypeDC] | None = None,
-            outputs: dict[str, FileTypeDC] | None = None,
-            options: dict[str, list[Any]] | None = None
+        self,
+        inputs: dict[str, FileTypeDC] | None = None,
+        outputs: dict[str, FileTypeDC] | None = None,
+        options: dict[str, list[Any]] | None = None,
     ) -> None:
         super().__init__(inputs=inputs, outputs=outputs, options=options)
 
 
 class ComponentDecorator(BaseDecorator):
     def __init__(
-            self,
-            inputs: dict[str, FileTypeDC] | None = None,
-            outputs: dict[str, FileTypeDC] | None = None,
-            options: dict[str, list[Any]] | None = None
+        self,
+        inputs: dict[str, FileTypeDC] | None = None,
+        outputs: dict[str, FileTypeDC] | None = None,
+        options: dict[str, list[Any]] | None = None,
     ) -> None:
         super().__init__(inputs=inputs, outputs=outputs, options=options)
 
