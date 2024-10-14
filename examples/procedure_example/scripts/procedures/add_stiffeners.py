@@ -4,7 +4,7 @@ import numpy as np
 
 import ada
 from ada.comms.fb_model_gen import FileTypeDC
-from ada.procedural_modelling.procedures_base import app, procedure_decorator
+from ada.procedural_modelling.procedures_base import app, ProcedureDecorator
 
 THIS_FILE = pathlib.Path(__file__).resolve().absolute()
 
@@ -42,9 +42,9 @@ def add_stiffeners(pl: ada.Plate, spacing, stiffener_section) -> list[ada.Beam]:
     return stiffeners
 
 
-@procedure_decorator(
-    input_file_type=FileTypeDC.IFC,
-    export_file_type=FileTypeDC.IFC,
+@ProcedureDecorator(
+    inputs=dict(input_file=FileTypeDC.IFC),
+    outputs=dict(output_file=FileTypeDC.IFC),
     options={"hp_section": ["HP180x8", "HP200x10", "HP220x12"]},
 )
 def main(

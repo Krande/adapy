@@ -4,7 +4,7 @@
 
 import * as flatbuffers from 'flatbuffers';
 
-import { FileType } from './file-type';
+import { FileArg, FileArgT } from '../wsock/file-arg.js';
 import { Parameter, ParameterT } from '../wsock/parameter.js';
 import { ProcedureState } from './procedure-state';
 
@@ -58,42 +58,38 @@ parametersLength():number {
   return offset ? this.bb!.__vector_len(this.bb_pos + offset) : 0;
 }
 
-inputFileVar():string|null
-inputFileVar(optionalEncoding:flatbuffers.Encoding):string|Uint8Array|null
-inputFileVar(optionalEncoding?:any):string|Uint8Array|null {
+fileInputs(index: number, obj?:FileArg):FileArg|null {
   const offset = this.bb!.__offset(this.bb_pos, 12);
-  return offset ? this.bb!.__string(this.bb_pos + offset, optionalEncoding) : null;
+  return offset ? (obj || new FileArg()).__init(this.bb!.__indirect(this.bb!.__vector(this.bb_pos + offset) + index * 4), this.bb!) : null;
 }
 
-inputFileType():FileType {
+fileInputsLength():number {
+  const offset = this.bb!.__offset(this.bb_pos, 12);
+  return offset ? this.bb!.__vector_len(this.bb_pos + offset) : 0;
+}
+
+fileOutputs(index: number, obj?:FileArg):FileArg|null {
   const offset = this.bb!.__offset(this.bb_pos, 14);
-  return offset ? this.bb!.readInt8(this.bb_pos + offset) : FileType.IFC;
+  return offset ? (obj || new FileArg()).__init(this.bb!.__indirect(this.bb!.__vector(this.bb_pos + offset) + index * 4), this.bb!) : null;
 }
 
-exportFileType():FileType {
-  const offset = this.bb!.__offset(this.bb_pos, 16);
-  return offset ? this.bb!.readInt8(this.bb_pos + offset) : FileType.IFC;
-}
-
-exportFileVar():string|null
-exportFileVar(optionalEncoding:flatbuffers.Encoding):string|Uint8Array|null
-exportFileVar(optionalEncoding?:any):string|Uint8Array|null {
-  const offset = this.bb!.__offset(this.bb_pos, 18);
-  return offset ? this.bb!.__string(this.bb_pos + offset, optionalEncoding) : null;
+fileOutputsLength():number {
+  const offset = this.bb!.__offset(this.bb_pos, 14);
+  return offset ? this.bb!.__vector_len(this.bb_pos + offset) : 0;
 }
 
 state():ProcedureState {
-  const offset = this.bb!.__offset(this.bb_pos, 20);
+  const offset = this.bb!.__offset(this.bb_pos, 16);
   return offset ? this.bb!.readInt8(this.bb_pos + offset) : ProcedureState.IDLE;
 }
 
 isComponent():boolean {
-  const offset = this.bb!.__offset(this.bb_pos, 22);
+  const offset = this.bb!.__offset(this.bb_pos, 18);
   return offset ? !!this.bb!.readInt8(this.bb_pos + offset) : false;
 }
 
 static startProcedure(builder:flatbuffers.Builder) {
-  builder.startObject(10);
+  builder.startObject(8);
 }
 
 static addName(builder:flatbuffers.Builder, nameOffset:flatbuffers.Offset) {
@@ -124,28 +120,44 @@ static startParametersVector(builder:flatbuffers.Builder, numElems:number) {
   builder.startVector(4, numElems, 4);
 }
 
-static addInputFileVar(builder:flatbuffers.Builder, inputFileVarOffset:flatbuffers.Offset) {
-  builder.addFieldOffset(4, inputFileVarOffset, 0);
+static addFileInputs(builder:flatbuffers.Builder, fileInputsOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(4, fileInputsOffset, 0);
 }
 
-static addInputFileType(builder:flatbuffers.Builder, inputFileType:FileType) {
-  builder.addFieldInt8(5, inputFileType, FileType.IFC);
+static createFileInputsVector(builder:flatbuffers.Builder, data:flatbuffers.Offset[]):flatbuffers.Offset {
+  builder.startVector(4, data.length, 4);
+  for (let i = data.length - 1; i >= 0; i--) {
+    builder.addOffset(data[i]!);
+  }
+  return builder.endVector();
 }
 
-static addExportFileType(builder:flatbuffers.Builder, exportFileType:FileType) {
-  builder.addFieldInt8(6, exportFileType, FileType.IFC);
+static startFileInputsVector(builder:flatbuffers.Builder, numElems:number) {
+  builder.startVector(4, numElems, 4);
 }
 
-static addExportFileVar(builder:flatbuffers.Builder, exportFileVarOffset:flatbuffers.Offset) {
-  builder.addFieldOffset(7, exportFileVarOffset, 0);
+static addFileOutputs(builder:flatbuffers.Builder, fileOutputsOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(5, fileOutputsOffset, 0);
+}
+
+static createFileOutputsVector(builder:flatbuffers.Builder, data:flatbuffers.Offset[]):flatbuffers.Offset {
+  builder.startVector(4, data.length, 4);
+  for (let i = data.length - 1; i >= 0; i--) {
+    builder.addOffset(data[i]!);
+  }
+  return builder.endVector();
+}
+
+static startFileOutputsVector(builder:flatbuffers.Builder, numElems:number) {
+  builder.startVector(4, numElems, 4);
 }
 
 static addState(builder:flatbuffers.Builder, state:ProcedureState) {
-  builder.addFieldInt8(8, state, ProcedureState.IDLE);
+  builder.addFieldInt8(6, state, ProcedureState.IDLE);
 }
 
 static addIsComponent(builder:flatbuffers.Builder, isComponent:boolean) {
-  builder.addFieldInt8(9, +isComponent, +false);
+  builder.addFieldInt8(7, +isComponent, +false);
 }
 
 static endProcedure(builder:flatbuffers.Builder):flatbuffers.Offset {
@@ -153,16 +165,14 @@ static endProcedure(builder:flatbuffers.Builder):flatbuffers.Offset {
   return offset;
 }
 
-static createProcedure(builder:flatbuffers.Builder, nameOffset:flatbuffers.Offset, descriptionOffset:flatbuffers.Offset, scriptFileLocationOffset:flatbuffers.Offset, parametersOffset:flatbuffers.Offset, inputFileVarOffset:flatbuffers.Offset, inputFileType:FileType, exportFileType:FileType, exportFileVarOffset:flatbuffers.Offset, state:ProcedureState, isComponent:boolean):flatbuffers.Offset {
+static createProcedure(builder:flatbuffers.Builder, nameOffset:flatbuffers.Offset, descriptionOffset:flatbuffers.Offset, scriptFileLocationOffset:flatbuffers.Offset, parametersOffset:flatbuffers.Offset, fileInputsOffset:flatbuffers.Offset, fileOutputsOffset:flatbuffers.Offset, state:ProcedureState, isComponent:boolean):flatbuffers.Offset {
   Procedure.startProcedure(builder);
   Procedure.addName(builder, nameOffset);
   Procedure.addDescription(builder, descriptionOffset);
   Procedure.addScriptFileLocation(builder, scriptFileLocationOffset);
   Procedure.addParameters(builder, parametersOffset);
-  Procedure.addInputFileVar(builder, inputFileVarOffset);
-  Procedure.addInputFileType(builder, inputFileType);
-  Procedure.addExportFileType(builder, exportFileType);
-  Procedure.addExportFileVar(builder, exportFileVarOffset);
+  Procedure.addFileInputs(builder, fileInputsOffset);
+  Procedure.addFileOutputs(builder, fileOutputsOffset);
   Procedure.addState(builder, state);
   Procedure.addIsComponent(builder, isComponent);
   return Procedure.endProcedure(builder);
@@ -174,10 +184,8 @@ unpack(): ProcedureT {
     this.description(),
     this.scriptFileLocation(),
     this.bb!.createObjList<Parameter, ParameterT>(this.parameters.bind(this), this.parametersLength()),
-    this.inputFileVar(),
-    this.inputFileType(),
-    this.exportFileType(),
-    this.exportFileVar(),
+    this.bb!.createObjList<FileArg, FileArgT>(this.fileInputs.bind(this), this.fileInputsLength()),
+    this.bb!.createObjList<FileArg, FileArgT>(this.fileOutputs.bind(this), this.fileOutputsLength()),
     this.state(),
     this.isComponent()
   );
@@ -189,10 +197,8 @@ unpackTo(_o: ProcedureT): void {
   _o.description = this.description();
   _o.scriptFileLocation = this.scriptFileLocation();
   _o.parameters = this.bb!.createObjList<Parameter, ParameterT>(this.parameters.bind(this), this.parametersLength());
-  _o.inputFileVar = this.inputFileVar();
-  _o.inputFileType = this.inputFileType();
-  _o.exportFileType = this.exportFileType();
-  _o.exportFileVar = this.exportFileVar();
+  _o.fileInputs = this.bb!.createObjList<FileArg, FileArgT>(this.fileInputs.bind(this), this.fileInputsLength());
+  _o.fileOutputs = this.bb!.createObjList<FileArg, FileArgT>(this.fileOutputs.bind(this), this.fileOutputsLength());
   _o.state = this.state();
   _o.isComponent = this.isComponent();
 }
@@ -204,10 +210,8 @@ constructor(
   public description: string|Uint8Array|null = null,
   public scriptFileLocation: string|Uint8Array|null = null,
   public parameters: (ParameterT)[] = [],
-  public inputFileVar: string|Uint8Array|null = null,
-  public inputFileType: FileType = FileType.IFC,
-  public exportFileType: FileType = FileType.IFC,
-  public exportFileVar: string|Uint8Array|null = null,
+  public fileInputs: (FileArgT)[] = [],
+  public fileOutputs: (FileArgT)[] = [],
   public state: ProcedureState = ProcedureState.IDLE,
   public isComponent: boolean = false
 ){}
@@ -218,18 +222,16 @@ pack(builder:flatbuffers.Builder): flatbuffers.Offset {
   const description = (this.description !== null ? builder.createString(this.description!) : 0);
   const scriptFileLocation = (this.scriptFileLocation !== null ? builder.createString(this.scriptFileLocation!) : 0);
   const parameters = Procedure.createParametersVector(builder, builder.createObjectOffsetList(this.parameters));
-  const inputFileVar = (this.inputFileVar !== null ? builder.createString(this.inputFileVar!) : 0);
-  const exportFileVar = (this.exportFileVar !== null ? builder.createString(this.exportFileVar!) : 0);
+  const fileInputs = Procedure.createFileInputsVector(builder, builder.createObjectOffsetList(this.fileInputs));
+  const fileOutputs = Procedure.createFileOutputsVector(builder, builder.createObjectOffsetList(this.fileOutputs));
 
   return Procedure.createProcedure(builder,
     name,
     description,
     scriptFileLocation,
     parameters,
-    inputFileVar,
-    this.inputFileType,
-    this.exportFileType,
-    exportFileVar,
+    fileInputs,
+    fileOutputs,
     this.state,
     this.isComponent
   );

@@ -2,8 +2,8 @@
 
 # namespace: wsock
 
-
 class FileType(object):
     IFC = 0
     GLB = 1
     SQLITE = 2
+    XLSX = 3

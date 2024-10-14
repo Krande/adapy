@@ -1,6 +1,5 @@
 import React from 'react';
-import {ParameterType, ValueT} from "../../../../flatbuffers/wsock";
-import {Parameter} from "../../../../flatbuffers/wsock/parameter";
+import {ParameterT, ParameterType, ValueT} from "../../../../flatbuffers/wsock";
 
 
 export function ParameterItem({
@@ -10,15 +9,15 @@ export function ParameterItem({
                                   paramDefaultValue,
                                   paramOptions,
                               }: {
-    param: Parameter;
+    param: ParameterT;
     paramId: string;
     paramName: string;
     paramDefaultValue: any;
     paramOptions: any;
 }) {
-    switch (param.type()) {
+    switch (param.type) {
         case ParameterType.STRING:
-            const defaultStringValue = paramDefaultValue?.stringValue()?.toString() || '';
+            const defaultStringValue = paramDefaultValue?.stringValue?.toString() || '';
             return (
                 <div className="flex flex-row items-center ml-1" id={paramId}>
                     {paramOptions && paramOptions.length > 0 ? (
@@ -43,7 +42,7 @@ export function ParameterItem({
                 </div>
             );
         case ParameterType.FLOAT:
-            const defaultFloatValue = paramDefaultValue?.floatValue();
+            const defaultFloatValue = paramDefaultValue?.floatValue;
             return (
                 <div className="flex flex-row items-center w-26 ml-1" id={paramId}>
                     {paramOptions && paramOptions.length > 0 ? (
@@ -70,14 +69,14 @@ export function ParameterItem({
                 </div>
             );
         case ParameterType.ARRAY:
-            const arrayValueType = paramDefaultValue?.arrayValueType();
-            if (param.defaultValue()?.arrayAnyLength() === false) {
+            const arrayValueType = paramDefaultValue?.arrayValueType;
+            if (param.defaultValue?.arrayAnyLength === false) {
                 const values = [];
-                for (let i = 0; i < paramDefaultValue?.arrayLength(); i++) {
-                    const value = paramDefaultValue.arrayValue(i);
+                for (let i = 0; i < paramDefaultValue?.arrayLength; i++) {
+                    const value = paramDefaultValue.arrayValue[i];
                     if (value) {
                         values.push(
-                            arrayValueType === ParameterType.FLOAT ? value.floatValue() : value.stringValue()
+                            arrayValueType === ParameterType.FLOAT ? value.floatValue : value.stringValue
                         );
                     }
                 }
@@ -119,7 +118,7 @@ export function ParameterItem({
             }
 
         default:
-            console.error(`Unknown parameter type: ${param.type()}`);
+            console.error(`Unknown parameter type: ${param.type}`);
             return null;
     }
 }

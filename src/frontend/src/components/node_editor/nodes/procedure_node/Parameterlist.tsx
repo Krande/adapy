@@ -1,39 +1,47 @@
 import React from 'react';
 import DynamicHandle from "../DynamicHandle";
 import {ParameterItem} from "./ParameterItem";
-import {Parameter} from "../../../../flatbuffers/wsock/parameter";
+import {ParameterT} from "../../../../flatbuffers/wsock/parameter";
+import {ProcedureT} from "../../../../flatbuffers/wsock/procedure";
 
 export function ParameterList({id, data}: { id: string; data: Record<string, any> }) {
-    const parametersLength = data.procedure.parametersLength();
+    const procedure: ProcedureT = data.procedure;
+    const parametersLength = procedure.parameters.length;
 
-    if (!parametersLength) return null;
+    const fileInputsMap = data.fileInputsMap;
+    const fileOutputsMap = data.fileOutputsMap;
+
+    if (!parametersLength && procedure.fileInputs.length === 0) return null;
 
     return (
         <>
             {Array.from({length: parametersLength}).map((_, index) => {
-                const param: Parameter = data.procedure.parameters(index);
+                const param: ParameterT = procedure.parameters[index];
                 if (!param) return null;
 
-                const paramName = param.name();
+                const paramName = param.name?.toString();
                 if (!paramName) return null;
-
-                if (paramName === 'output_file') return null;
+                // if the parameter is an output file, don't render it here
+                if (fileOutputsMap[paramName]) return null;
                 if (!data.paramids)
                     data.paramids = [];
 
-                const procedure = data.procedure;
                 const paramIds = data.paramids;
-                const paramDefaultValue = param.defaultValue();
-                let param_length = param.optionsLength();
+                const paramDefaultValue = param.defaultValue;
+                let param_length = param.options.length;
                 let paramOptions = null;
 
                 if (param_length > 0) {
                     paramOptions = [];
                     for (let i = 0; i < param_length; i++) {
-                        paramOptions[i] = param.options(i)?.unpack();
+                        paramOptions[i] = param.options[i];
                     }
                 }
-                const procedureName = data.procedure.name();
+                const procedureName = procedure.name;
+                if (!procedureName) {
+                    console.error("Procedure name is not defined");
+                    return null;
+                }
                 const paramKey = `${procedureName}-${index}`;
                 const paramId = `param-${paramName}-${paramKey}`;
 
@@ -41,7 +49,7 @@ export function ParameterList({id, data}: { id: string; data: Record<string, any
                     paramIds.push(paramId);
                 }
 
-                if (paramName === procedure.inputFileVar()) {
+                if (fileInputsMap[paramName]) {
                     return (
                         <DynamicHandle
                             key={paramKey}

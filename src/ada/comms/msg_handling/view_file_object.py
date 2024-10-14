@@ -35,15 +35,15 @@ def view_file_object(server: WebSocketAsyncServer, client: ConnectedClient, file
             file_obj=data,
             file_type="glb",
         )
-        file_object = FileObjectDC(
+        glb_file_object = FileObjectDC(
             name=glb_file_obj.name, file_type=FileTypeDC.GLB, purpose=glb_file_obj.purpose, filedata=data.getvalue()
         )
 
         msg = MessageDC(
             instance_id=server.instance_id,
             command_type=CommandTypeDC.SERVER_REPLY,
-            server_reply=ServerReplyDC(reply_to=CommandTypeDC.VIEW_FILE_OBJECT, file_object=file_object),
-            scene=SceneDC(current_file=file_object),
+            server_reply=ServerReplyDC(reply_to=CommandTypeDC.VIEW_FILE_OBJECT, file_objects=[glb_file_object]),
+            scene=SceneDC(current_file=glb_file_object),
             target_id=client.instance_id,
             target_group=client.group_type,
         )

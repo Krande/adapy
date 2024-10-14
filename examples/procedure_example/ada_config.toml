@@ -1,10 +1,10 @@
 [procedures]
-script_dir = "./procedures"
-components_dir = "./components"
+script_dir = "./scripts"
 use_ifc_convert = false
 
 [websockets]
 server_temp_dir = "./server_temp"
+external_files_dirs = ["./external_files"]
 auto_load_temp_files = true
 
 [ifc]

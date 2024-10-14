@@ -6,6 +6,7 @@ export { ArrayType } from './wsock/array-type.js';
 export { CameraParams, CameraParamsT } from './wsock/camera-params.js';
 export { CommandType } from './wsock/command-type.js';
 export { Error, ErrorT } from './wsock/error.js';
+export { FileArg, FileArgT } from './wsock/file-arg.js';
 export { FileObject, FileObjectT } from './wsock/file-object.js';
 export { FilePurpose } from './wsock/file-purpose.js';
 export { FileType } from './wsock/file-type.js';
