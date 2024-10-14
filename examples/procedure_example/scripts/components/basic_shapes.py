@@ -1,10 +1,12 @@
 import pathlib
 
+import pandas as pd
+
 import ada
-from ada.comms.fb_model_gen import FileTypeDC, FilePurposeDC
+from ada.comms.fb_model_gen import FilePurposeDC, FileTypeDC
 from ada.geom.surfaces import Plane
 from ada.procedural_modelling.procedures_base import ComponentDecorator, app
-import pandas as pd
+
 
 @ComponentDecorator(inputs=dict(xl_file=FileTypeDC.XLSX), outputs=dict(output_file=FileTypeDC.IFC))
 def make_basic_shapes(output_file: pathlib.Path = None, xl_file: pathlib.Path = None) -> None:

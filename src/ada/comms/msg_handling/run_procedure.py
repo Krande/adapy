@@ -32,6 +32,11 @@ def run_procedure(server: WebSocketAsyncServer, client: ConnectedClient, message
     start_procedure = message.procedure_store.start_procedure
 
     procedure: Procedure = server.procedure_store.get(start_procedure.procedure_name)
+    if procedure is None:
+        server.procedure_store.update_procedures()
+        procedure = server.procedure_store.get(start_procedure.procedure_name)
+        if procedure is None:
+            raise ValueError(f"Procedure {start_procedure.procedure_name} not found")
     if start_procedure.parameters is None:
         params = {}
     else:

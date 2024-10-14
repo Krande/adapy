@@ -44,8 +44,8 @@ class SceneBackend:
                 del_file_obj.filepath.unlink()
             if del_file_obj.ifcsqlite_file is not None and del_file_obj.ifcsqlite_file.filepath is not None:
                 if (
-                        self.ifc_sql_store is not None
-                        and self.ifc_sql_store.filepath == del_file_obj.ifcsqlite_file.filepath
+                    self.ifc_sql_store is not None
+                    and self.ifc_sql_store.filepath == del_file_obj.ifcsqlite_file.filepath
                 ):
                     self.ifc_sql_store.db.close()
                     self.ifc_sql_store = None
@@ -103,7 +103,11 @@ class SceneBackend:
 
     def update_local_file_object(self):
         server_temp_dir = Config().websockets_server_temp_dir
-        if server_temp_dir is not None and server_temp_dir.exists() and Config().websockets_auto_load_temp_files is True:
+        if (
+            server_temp_dir is not None
+            and server_temp_dir.exists()
+            and Config().websockets_auto_load_temp_files is True
+        ):
             self.load_files_from_dir(server_temp_dir)
 
         external_files_dirs = Config().websockets_external_files_dirs

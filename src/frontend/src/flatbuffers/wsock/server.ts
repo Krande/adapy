@@ -59,8 +59,13 @@ deleteFileObject(obj?:FileObject):FileObject|null {
   return offset ? (obj || new FileObject()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
 }
 
+startFileInLocalApp(obj?:FileObject):FileObject|null {
+  const offset = this.bb!.__offset(this.bb_pos, 14);
+  return offset ? (obj || new FileObject()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
+}
+
 static startServer(builder:flatbuffers.Builder) {
-  builder.startObject(5);
+  builder.startObject(6);
 }
 
 static addNewFileObject(builder:flatbuffers.Builder, newFileObjectOffset:flatbuffers.Offset) {
@@ -95,6 +100,10 @@ static addDeleteFileObject(builder:flatbuffers.Builder, deleteFileObjectOffset:f
   builder.addFieldOffset(4, deleteFileObjectOffset, 0);
 }
 
+static addStartFileInLocalApp(builder:flatbuffers.Builder, startFileInLocalAppOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(5, startFileInLocalAppOffset, 0);
+}
+
 static endServer(builder:flatbuffers.Builder):flatbuffers.Offset {
   const offset = builder.endObject();
   return offset;
@@ -107,7 +116,8 @@ unpack(): ServerT {
     this.bb!.createObjList<FileObject, FileObjectT>(this.allFileObjects.bind(this), this.allFileObjectsLength()),
     this.getFileObjectByName(),
     this.getFileObjectByPath(),
-    (this.deleteFileObject() !== null ? this.deleteFileObject()!.unpack() : null)
+    (this.deleteFileObject() !== null ? this.deleteFileObject()!.unpack() : null),
+    (this.startFileInLocalApp() !== null ? this.startFileInLocalApp()!.unpack() : null)
   );
 }
 
@@ -118,6 +128,7 @@ unpackTo(_o: ServerT): void {
   _o.getFileObjectByName = this.getFileObjectByName();
   _o.getFileObjectByPath = this.getFileObjectByPath();
   _o.deleteFileObject = (this.deleteFileObject() !== null ? this.deleteFileObject()!.unpack() : null);
+  _o.startFileInLocalApp = (this.startFileInLocalApp() !== null ? this.startFileInLocalApp()!.unpack() : null);
 }
 }
 
@@ -127,7 +138,8 @@ constructor(
   public allFileObjects: (FileObjectT)[] = [],
   public getFileObjectByName: string|Uint8Array|null = null,
   public getFileObjectByPath: string|Uint8Array|null = null,
-  public deleteFileObject: FileObjectT|null = null
+  public deleteFileObject: FileObjectT|null = null,
+  public startFileInLocalApp: FileObjectT|null = null
 ){}
 
 
@@ -137,6 +149,7 @@ pack(builder:flatbuffers.Builder): flatbuffers.Offset {
   const getFileObjectByName = (this.getFileObjectByName !== null ? builder.createString(this.getFileObjectByName!) : 0);
   const getFileObjectByPath = (this.getFileObjectByPath !== null ? builder.createString(this.getFileObjectByPath!) : 0);
   const deleteFileObject = (this.deleteFileObject !== null ? this.deleteFileObject!.pack(builder) : 0);
+  const startFileInLocalApp = (this.startFileInLocalApp !== null ? this.startFileInLocalApp!.pack(builder) : 0);
 
   Server.startServer(builder);
   Server.addNewFileObject(builder, newFileObject);
@@ -144,6 +157,7 @@ pack(builder:flatbuffers.Builder): flatbuffers.Offset {
   Server.addGetFileObjectByName(builder, getFileObjectByName);
   Server.addGetFileObjectByPath(builder, getFileObjectByPath);
   Server.addDeleteFileObject(builder, deleteFileObject);
+  Server.addStartFileInLocalApp(builder, startFileInLocalApp);
 
   return Server.endServer(builder);
 }

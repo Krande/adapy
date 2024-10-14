@@ -2,6 +2,7 @@
 
 # namespace: wsock
 
+
 class CommandType(object):
     PING = 0
     PONG = 1
@@ -18,3 +19,4 @@ class CommandType(object):
     VIEW_FILE_OBJECT = 12
     DELETE_FILE_OBJECT = 13
     START_NEW_NODE_EDITOR = 14
+    START_FILE_IN_LOCAL_APP = 15
