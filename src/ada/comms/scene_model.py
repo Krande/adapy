@@ -99,6 +99,9 @@ class SceneBackend:
             if fp.suffix == ".ifc":
                 self._load_ifc(fp)
             elif fp.suffix == ".xlsx":
+                if fp.name.startswith("~$"):
+                    # Ignore temp files
+                    continue
                 self._load_xlsx(fp)
 
     def update_local_file_object(self):

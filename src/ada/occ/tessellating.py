@@ -106,6 +106,17 @@ def shape_to_tri_mesh(shape: TopoDS_Shape, rgba_color: Iterable[float, float, fl
     return mesh
 
 
+def scene_from_meshes(meshes: list[MeshStore]) -> trimesh.Scene:
+    scene = trimesh.Scene()
+    mesh_map = []
+    for mat_id, meshes in groupby(meshes, lambda x: x.material):
+        meshes = list(meshes)
+        merged_store = concatenate_stores(meshes)
+        mesh_map.append((mat_id, meshes, merged_store))
+        merged_mesh_to_trimesh_scene(scene, merged_store, bt.get_mat_by_id(mat_id), mat_id, bg.graph)
+    return scene
+
+
 @dataclass
 class BatchTessellator:
     quality: float = 1.0
@@ -196,14 +207,14 @@ class BatchTessellator:
                 continue
 
     def meshes_to_trimesh(
-        self, shapes_tess_iter: Iterable[MeshStore], graph, merge_meshes: bool = True
+        self, shapes_tess_iter: Iterable[MeshStore], graph=None, merge_meshes: bool = True
     ) -> trimesh.Scene:
         import trimesh
 
         all_shapes = sorted(shapes_tess_iter, key=lambda x: x.material)
 
         # filter out all shapes associated with an animation,
-        scene = trimesh.Scene(base_frame=graph.top_level.name)
+        scene = trimesh.Scene(base_frame=graph.top_level.name if graph is not None else "root")
         for mat_id, meshes in groupby(all_shapes, lambda x: x.material):
             if merge_meshes:
                 merged_store = concatenate_stores(meshes)

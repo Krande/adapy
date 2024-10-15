@@ -7,16 +7,29 @@ import {ProcedureT} from "../../../../flatbuffers/wsock/procedure";
 export function ParameterList({id, data}: { id: string; data: Record<string, any> }) {
     const procedure: ProcedureT = data.procedure;
     const parametersLength = procedure.parameters.length;
-
     const fileInputsMap = data.fileInputsMap;
     const fileOutputsMap = data.fileOutputsMap;
+    // sort elements in procedure.parameters by having file objects first
+    const parameters: ParameterT[] = [];
+    for (let i = 0; i < parametersLength; i++) {
+        const param = procedure.parameters[i];
+        const pname = param.name
+        if (!pname) continue
+        if (fileInputsMap[pname.toString()]) {
+            parameters.unshift(param);
+        } else {
+            parameters.push(param);
+        }
+    }
+
+
 
     if (!parametersLength && procedure.fileInputs.length === 0) return null;
 
     return (
         <>
             {Array.from({length: parametersLength}).map((_, index) => {
-                const param: ParameterT = procedure.parameters[index];
+                const param: ParameterT = parameters[index];
                 if (!param) return null;
 
                 const paramName = param.name?.toString();

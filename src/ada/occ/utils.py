@@ -706,3 +706,7 @@ def make_arc_segment_using_occ(start, center, end, radius) -> list[LineSegment, 
     l2 = LineSegment(*ed2_p, edge_geom=ed2)
 
     return [l1, arc, l2]
+
+def from_pointer(pointer: int) -> TopoDS_Shape:
+    from OCC.Core.TopoDS import TopoDS_Shape
+    return TopoDS_Shape(pointer)
