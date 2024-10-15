@@ -52,7 +52,8 @@ class SceneBackend:
                 del_file_obj.ifcsqlite_file.filepath.unlink()
 
             if del_file_obj.glb_file is not None and del_file_obj.glb_file.filepath is not None:
-                del_file_obj.glb_file.filepath.unlink()
+                if del_file_obj.glb_file.filepath.relative_to(self.get_temp_dir()):
+                    del_file_obj.glb_file.filepath.unlink()
 
     def _load_ifc(self, fp: pathlib.Path):
         glb_fp = fp.with_suffix(".glb")
