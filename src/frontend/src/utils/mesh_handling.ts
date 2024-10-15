@@ -63,17 +63,18 @@ export function handleMeshEmptySpace(event: MouseEvent) {
 }
 
 
-function findNodeById(nodes: TreeNode, id: string): TreeNode | null {
-    if (nodes.id === id) {
-        return nodes;
+function findNodeById(node: TreeNode, id: string): TreeNode | null {
+    if (node.name === id) {
+        return node;
     }
-    if (Array.isArray(nodes.children)) {
-        for (let child of nodes.children) {
-            const result = findNodeById(child, id);
-            if (result) {
-                return result;
-            }
+    if (!Array.isArray(node.children)) {
+        return null;
+    }
+    for (let child of node.children) {
+        const result = findNodeById(child, id);
+        if (result) {
+            return result;
         }
     }
-    return null;
+    return null
 }
