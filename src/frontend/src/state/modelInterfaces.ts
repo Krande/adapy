@@ -1,5 +1,6 @@
 import * as THREE from "three";
-import {SceneAction} from "../utils/handleWebSocketMessage";
+import {SceneOperations} from "../flatbuffers/wsock/scene-operations";
+
 
 
 export interface GLTFResult {
@@ -9,6 +10,6 @@ export interface GLTFResult {
 
 export interface ModelProps {
     url: string;
-    scene_action: SceneAction | null;
+    scene_action: SceneOperations | null;
     scene_action_arg: string | null;
 }

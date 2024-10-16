@@ -123,6 +123,7 @@ class BatchTessellator:
     render_edges: bool = False
     parallel: bool = False
     material_store: dict[Color, int] = field(default_factory=dict)
+    _geom_id: int = 0
 
     def add_color(self, color: Color) -> int:
         mat_id = self.material_store.get(color, None)
@@ -132,6 +133,10 @@ class BatchTessellator:
         return mat_id
 
     def tessellate_occ_geom(self, occ_geom: TopoDS_Shape, geom_id, geom_color) -> MeshStore:
+        if geom_id is None:
+            geom_id = self._geom_id
+            self._geom_id += 1
+
         if isinstance(occ_geom, TopoDS_Edge):
             tess_shape = tessellate_edges(occ_geom)
             indices = tess_shape.indices

@@ -1,17 +1,17 @@
 // modelStore.ts
 import { create } from 'zustand';
-import { SceneAction } from '../utils/handleWebSocketMessage';
 import * as THREE from 'three';
+import {SceneOperations} from "../flatbuffers/wsock/scene-operations";
 
 interface ModelState {
   modelUrl: string | null;
-  scene_action: SceneAction | null;
+  scene_action: SceneOperations | null;
   scene_action_arg: string | null;
   translation: THREE.Vector3 | null;
   boundingBox: THREE.Box3 | null;
   setModelUrl: (
     url: string | null,
-    scene_action: SceneAction | null,
+    scene_action: SceneOperations | null,
     scene_action_arg: string | null
   ) => void;
   setTranslation: (translation: THREE.Vector3) => void;

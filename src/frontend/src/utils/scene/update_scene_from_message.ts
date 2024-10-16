@@ -24,5 +24,5 @@ export const update_scene_from_message = (message: Message) => {
     const blob = new Blob([data], {type: 'model/gltf-binary'});
     const url = URL.createObjectURL(blob);
 
-    useModelStore.getState().setModelUrl(url, null, ""); // Set the URL for the model
+    useModelStore.getState().setModelUrl(url, scene.operation(), ""); // Set the URL for the model
 }
