@@ -5,6 +5,8 @@ type State = {
     setIsOptionsVisible: (value: boolean) => void;
     showPerf: boolean;
     setShowPerf: (value: boolean) => void;
+    showEdges: boolean;
+    setShowEdges: (value: boolean) => void;
 };
 
 export const useOptionsStore = create<State>((set: StoreApi<State>['setState']) => ({
@@ -12,4 +14,6 @@ export const useOptionsStore = create<State>((set: StoreApi<State>['setState']) 
     setIsOptionsVisible: (value: boolean) => set(() => ({isOptionsVisible: value})),
     showPerf: false,
     setShowPerf: (value: boolean) => set(() => ({showPerf: value})),
+    showEdges: true,
+    setShowEdges: (value: boolean) => set(() => ({showEdges: value})),
 }));

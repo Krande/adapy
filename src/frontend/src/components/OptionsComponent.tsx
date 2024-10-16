@@ -7,7 +7,7 @@ import { useColorStore } from "../state/colorLegendStore";
 import { connect_to_jupyter } from "../utils/jupyter_connection";
 
 function OptionsComponent() {
-    const { showPerf, setShowPerf } = useOptionsStore();
+    const { showPerf, setShowPerf, showEdges, setShowEdges } = useOptionsStore();
     const { showLegend, setShowLegend } = useColorStore();
 
     const [size, setSize] = useState({ width: 300, height: 400 });
@@ -63,6 +63,12 @@ function OptionsComponent() {
                     onClick={() => setShowLegend(!showLegend)}
                 >
                     Show ColorLegend
+                </button>
+                <button
+                    className={`bg-blue-700 hover:bg-blue-700/50 ${showEdges ? 'text-white' : 'text-gray-400'} font-bold py-2 rounded`}
+                    onClick={() => setShowEdges(!showEdges)}
+                >
+                    Geometry Edges On/Off
                 </button>
                 <button
                     className={"bg-blue-700 hidden hover:bg-blue-700/50 text-white font-bold py-2 rounded"}
