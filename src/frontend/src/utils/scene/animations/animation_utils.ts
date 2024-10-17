@@ -1,5 +1,5 @@
 import React from "react";
-import {useAnimationStore} from "../state/animationStore";
+import {useAnimationStore} from "../../../state/animationStore";
 
 export function handleAnimationChange(e: React.ChangeEvent<HTMLSelectElement>) {
     const animationName = e.target.value;

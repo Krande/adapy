@@ -1,27 +1,16 @@
-import {useSelectedObjectStore} from "../state/selectedObjectStore";
-import {TreeNode, useTreeViewStore} from "../state/treeViewStore";
-import * as THREE from "three";
 import {ThreeEvent} from "@react-three/fiber";
-import {useObjectInfoStore} from "../state/objectInfoStore";
-import {query_ws_server_mesh_info} from "./mesh_select/send_mesh_selected_info_callback";
-
+import {useSelectedObjectStore} from "../../state/selectedObjectStore";
+import * as THREE from "three";
+import {useObjectInfoStore} from "../../state/objectInfoStore";
+import {query_ws_server_mesh_info} from "./comms/send_mesh_selected_info_callback";
+import {useTreeViewStore} from "../../state/treeViewStore";
+import {findNodeById} from "../tree_view/findNodeById";
+import {deselectObject} from "./deselectObject";
+import {defaultMaterial} from "../default_materials";
 
 const selectedMaterial = new THREE.MeshStandardMaterial({color: 'blue', side: THREE.DoubleSide});
-const defaultMaterial = new THREE.MeshStandardMaterial({color: 'white', side: THREE.DoubleSide});
 
-
-function deselectObject() {
-    const selectedObject = useSelectedObjectStore.getState().selectedObject;
-    const originalMaterial = useSelectedObjectStore.getState().originalMaterial;
-    if (selectedObject) {
-        selectedObject.material = originalMaterial ? originalMaterial : defaultMaterial;
-        useSelectedObjectStore.getState().setOriginalMaterial(null);
-        useSelectedObjectStore.getState().setSelectedObject(null);
-    }
-}
-
-
-export function handleMeshSelected(event: ThreeEvent<PointerEvent>) {
+export function handleClickMesh(event: ThreeEvent<PointerEvent>) {
     event.stopPropagation();
 
     const selectedObject = useSelectedObjectStore.getState().selectedObject;
@@ -55,26 +44,4 @@ export function handleMeshSelected(event: ThreeEvent<PointerEvent>) {
         deselectObject();
     }
 
-}
-
-export function handleMeshEmptySpace(event: MouseEvent) {
-    event.stopPropagation();
-    deselectObject();
-}
-
-
-function findNodeById(node: TreeNode, id: string): TreeNode | null {
-    if (node.name === id) {
-        return node;
-    }
-    if (!Array.isArray(node.children)) {
-        return null;
-    }
-    for (let child of node.children) {
-        const result = findNodeById(child, id);
-        if (result) {
-            return result;
-        }
-    }
-    return null
 }

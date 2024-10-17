@@ -1,6 +1,7 @@
 import React from 'react';
 import {SimpleTreeView, TreeItem} from '@mui/x-tree-view'; // Ensure you have @mui/lab installed
 import {useTreeViewStore, TreeNode} from '../../state/treeViewStore';
+import {handleClickedNode} from "../../utils/tree_view/handleClickedNode";
 
 const TreeViewComponent: React.FC = () => {
     const { treeData, selectedNodeId, setSelectedNodeId } = useTreeViewStore();
@@ -22,7 +23,7 @@ const TreeViewComponent: React.FC = () => {
 
     return (
         <div className={"h-full max-h-screen overflow-y-auto"}>
-            <SimpleTreeView selectedItems={selectedNodeId || ''} onSelectedItemsChange={handleNodeSelect}>
+            <SimpleTreeView selectedItems={selectedNodeId || ''} onSelectedItemsChange={handleClickedNode}>
                 {treeData && renderTree(treeData)}
             </SimpleTreeView>
         </div>

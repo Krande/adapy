@@ -1,6 +1,6 @@
 import React from 'react';
 import {useAnimationStore} from '../../state/animationStore';
-import {handleAnimationChange, stopAnimation, togglePlayPause} from "../../utils/animation_utils";
+import {handleAnimationChange, stopAnimation, togglePlayPause} from "../../utils/scene/animations/animation_utils";
 
 const playpause_svg = <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5}
                            stroke="currentColor" className="w-6 h-6">
