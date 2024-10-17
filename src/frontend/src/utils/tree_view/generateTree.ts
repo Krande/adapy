@@ -7,10 +7,13 @@ export const generateTree = (object: THREE.Object3D): TreeNode | null => {
     if (object instanceof THREE.LineSegments) {
         return null;
     }
-
+    let name = object.name  || object.type;
+    if (name == "Group") {
+        name = "Scene";
+    }
     return {
         id: object.uuid,
-        name: object.name || object.type,
+        name: name,
         // Filter out null children (those that are LineSegments)
         children: object.children
             .map((child) => generateTree(child))
