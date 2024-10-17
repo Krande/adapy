@@ -1,5 +1,5 @@
-import {Message} from "../../flatbuffers/wsock/message";
-import {useObjectInfoStore} from "../../state/objectInfoStore";
+import {Message} from "../../../flatbuffers/wsock/message";
+import {useObjectInfoStore} from "../../../state/objectInfoStore";
 
 export const receive_mesh_info_reply = (message: Message) => {
     if (message.meshInfo() && message.meshInfo()?.jsonData()) {

@@ -1,6 +1,6 @@
-import {CommandType, MeshInfo, Message, TargetType} from '../../flatbuffers/wsock'
+import {CommandType, MeshInfo, Message, TargetType} from '../../../flatbuffers/wsock'
 import * as flatbuffers from "flatbuffers";
-import {webSocketHandler} from "../websocket_connector";
+import {webSocketHandler} from "../../websocket_connector";
 
 export const query_ws_server_mesh_info = (mesh_name: string, face_index: number) => {
     console.log('Querying server for mesh info');

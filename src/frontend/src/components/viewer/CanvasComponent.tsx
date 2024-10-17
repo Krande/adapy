@@ -10,9 +10,9 @@ import OrientationGizmo from './OrientationGizmo';
 import {useModelStore} from '../../state/modelStore';
 import {useOptionsStore} from '../../state/optionsStore';
 import CameraControls from './CameraControls';
-import {handleMeshEmptySpace} from '../../utils/mesh_handling';
 import CameraLight from "./CameraLights";
 import DynamicGridHelper from './DynamicGridHelper';
+import {handleClickEmptySpace} from "../../utils/mesh_select/handleClickEmptySpace";
 
 const CanvasComponent: React.FC = () => {
     const {modelUrl, scene_action, scene_action_arg} = useModelStore();
@@ -37,7 +37,7 @@ const CanvasComponent: React.FC = () => {
                 <Canvas
                     shadows={true}
                     camera={cameraProps}
-                    onPointerMissed={handleMeshEmptySpace}
+                    onPointerMissed={handleClickEmptySpace}
                     style={{backgroundColor: '#393939'}}
                 >
                     {/* Add the CameraLight component */}

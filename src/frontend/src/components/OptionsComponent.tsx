@@ -4,7 +4,6 @@ import { Rnd } from 'react-rnd';
 import { useAnimationStore } from "../state/animationStore";
 import { useOptionsStore } from "../state/optionsStore";
 import { useColorStore } from "../state/colorLegendStore";
-import { connect_to_jupyter } from "../utils/jupyter_connection";
 
 function OptionsComponent() {
     const { showPerf, setShowPerf, showEdges, setShowEdges } = useOptionsStore();
@@ -69,12 +68,6 @@ function OptionsComponent() {
                     onClick={() => setShowEdges(!showEdges)}
                 >
                     Geometry Edges On/Off
-                </button>
-                <button
-                    className={"bg-blue-700 hidden hover:bg-blue-700/50 text-white font-bold py-2 rounded"}
-                    onClick={connect_to_jupyter}
-                >
-                    Jupyter Test
                 </button>
             </div>
         </Rnd>

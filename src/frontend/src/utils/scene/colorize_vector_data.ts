@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import {useColorStore} from "../state/colorLegendStore";
+import {useColorStore} from "../../state/colorLegendStore";
 
 type Vector = number[];
 type Matrix = Vector[];

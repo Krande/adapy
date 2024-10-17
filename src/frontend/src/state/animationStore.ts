@@ -2,7 +2,7 @@
 import {create} from 'zustand';
 import {AnimationMixer, AnimationAction, AnimationClip} from 'three';
 import * as THREE from 'three';
-import {colorVerticesBasedOnDeformation} from '../utils/colorize_vector_data';
+import {colorVerticesBasedOnDeformation} from '../utils/scene/colorize_vector_data';
 
 type State = {
     animations: AnimationClip[];

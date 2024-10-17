@@ -1,11 +1,11 @@
-import {FileObject} from "../../flatbuffers/wsock/file-object";
+import {FileObject} from "../../../flatbuffers/wsock/file-object";
 import * as flatbuffers from "flatbuffers";
-import {Message} from "../../flatbuffers/wsock/message";
-import {webSocketHandler} from "../websocket_connector";
-import {CommandType} from "../../flatbuffers/wsock/command-type";
-import {TargetType} from "../../flatbuffers/wsock/target-type";
-import {Server} from "../../flatbuffers/wsock/server";
-import {FileType} from "../../flatbuffers/wsock/file-type";
+import {Message} from "../../../flatbuffers/wsock/message";
+import {webSocketHandler} from "../../websocket_connector";
+import {CommandType} from "../../../flatbuffers/wsock/command-type";
+import {TargetType} from "../../../flatbuffers/wsock/target-type";
+import {Server} from "../../../flatbuffers/wsock/server";
+import {FileType} from "../../../flatbuffers/wsock/file-type";
 
 function start_file_in_local_app(fileobject: FileObject) {
     console.log("start_file_in_local_app" + fileobject.name());

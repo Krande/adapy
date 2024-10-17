@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import {TreeNode} from "../state/treeViewStore";
+import {TreeNode} from "../../state/treeViewStore";
 
 // Utility function to generate tree data from the scene, excluding LineSegments
 export const generateTree = (object: THREE.Object3D): TreeNode | null => {

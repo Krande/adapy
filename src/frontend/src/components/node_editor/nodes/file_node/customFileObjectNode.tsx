@@ -1,6 +1,6 @@
 import React, {memo} from 'react';
 import {Handle, Position} from '@xyflow/react';
-import {view_file_object_from_server} from "../../../../utils/scene/view_file_object_from_server";
+import {view_file_object_from_server} from "../../../../utils/scene/comms/view_file_object_from_server";
 import {FileObject} from "../../../../flatbuffers/wsock/file-object";
 
 
