@@ -13,7 +13,7 @@ from ada.comms.fb_model_gen import (
     ProcedureStoreDC,
     SceneDC,
     SceneOperationsDC,
-    TargetTypeDC,
+    TargetTypeDC, FileArgDC,
 )
 from ada.comms.fb_serializer import serialize_message
 
@@ -97,8 +97,8 @@ def test_procedure_store():
                     description="Add stiffeners to the structure",
                     parameters=[ParameterDC(name="ifc_file", type=ParameterTypeDC.STRING)],
                     state=ProcedureStateDC.IDLE,
-                    input_file_type=FileTypeDC.IFC,
-                    export_file_type=FileTypeDC.IFC,
+                    file_inputs=[FileArgDC("input_ifc_file", FileTypeDC.IFC)],
+                    file_outputs=[FileArgDC("output_ifc_file", FileTypeDC.IFC)],
                     is_component=True,
                 )
             ],
