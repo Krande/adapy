@@ -40,6 +40,7 @@ const CanvasComponent: React.FC = () => {
                     onPointerMissed={handleClickEmptySpace}
                     style={{backgroundColor: '#393939'}}
                 >
+                    <ambientLight intensity={Math.PI / 2} />
                     {/* Add the CameraLight component */}
                     <CameraLight/>
 
