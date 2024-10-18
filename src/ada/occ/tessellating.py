@@ -9,7 +9,6 @@ from OCC.Core.BRepMesh import BRepMesh_IncrementalMesh
 from OCC.Core.Tesselator import ShapeTesselator
 from OCC.Core.TopoDS import TopoDS_Edge, TopoDS_Shape
 from OCC.Extend.TopologyUtils import discretize_edge
-
 from ada.base.physical_objects import BackendGeom
 from ada.base.types import GeomRepr
 from ada.config import logger
@@ -104,17 +103,6 @@ def shape_to_tri_mesh(shape: TopoDS_Shape, rgba_color: Iterable[float, float, fl
         material=trimesh.visual.material.PBRMaterial(baseColorFactor=rgba_color)
     )
     return mesh
-
-
-def scene_from_meshes(meshes: list[MeshStore]) -> trimesh.Scene:
-    scene = trimesh.Scene()
-    mesh_map = []
-    for mat_id, meshes in groupby(meshes, lambda x: x.material):
-        meshes = list(meshes)
-        merged_store = concatenate_stores(meshes)
-        mesh_map.append((mat_id, meshes, merged_store))
-        merged_mesh_to_trimesh_scene(scene, merged_store, bt.get_mat_by_id(mat_id), mat_id, bg.graph)
-    return scene
 
 
 @dataclass

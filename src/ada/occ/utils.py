@@ -444,56 +444,55 @@ def make_edge(p1, p2) -> TopoDS_Edge:
 
 
 def make_ori_vector(
-    name, origin, csys, pnt_r=0.02, cyl_l: Union[float, list, tuple] = 0.3, cyl_r=0.02, units="m"
+    name,
+    origin,
+    csys: list[list[float, float, float]] | Placement,
+    pnt_r=0.02,
+    cyl_l: Union[float, list, tuple] = 0.3,
+    cyl_r=0.02,
+    units="m",
+    colors=("white", "BLUE", "GREEN", "RED"),
 ) -> "Part":
-    """
-    Visualize a local coordinate system with a sphere and 3 cylinders representing origin and.
-
-    :param name:
-    :param origin:
-    :param csys: Coordinate system
-    :param pnt_r:
-    :param cyl_l:
-    :type cyl_l: Union[float, list, tuple]
-    :param cyl_r:
-    :param units:
-    :return:
-    """
+    """Visualize a local coordinate system with a sphere (origin) and 3 cylinders (axes)"""
     from ada import Part, PrimCyl, PrimSphere
 
     origin = np.array(origin)
-    o_shape = PrimSphere(name + "_origin", origin, pnt_r, units=units, metadata=dict(origin=origin), colour="white")
+    o_shape = PrimSphere(name + "_origin", origin, pnt_r, units=units, metadata=dict(origin=origin), color=colors[0])
 
     if type(cyl_l) in (list, tuple):
         cyl_l_x, cyl_l_y, cyl_l_z = cyl_l
     else:
         cyl_l_x, cyl_l_y, cyl_l_z = cyl_l, cyl_l, cyl_l
 
+    xlen = np.array(csys[0]) * cyl_l_x
+    ylen = np.array(csys[1]) * cyl_l_y
+    zlen = np.array(csys[2]) * cyl_l_z
+
     x_vec_shape = PrimCyl(
         name + "_X",
         origin,
-        origin + np.array(csys[0]) * cyl_l_x,
+        origin + xlen,
         cyl_r,
         units=units,
-        colour="BLUE",
+        color=colors[1],
     )
 
     y_vec_shape = PrimCyl(
         name + "_Y",
         origin,
-        origin + np.array(csys[1]) * cyl_l_y,
+        origin + ylen,
         cyl_r,
         units=units,
-        colour="GREEN",
+        color=colors[2],
     )
 
     z_vec_shape = PrimCyl(
         name + "_Z",
         origin,
-        origin + np.array(csys[2]) * cyl_l_z,
+        origin + zlen,
         cyl_r,
         units=units,
-        colour="RED",
+        color=colors[3],
     )
     return Part(name, units=units) / (o_shape, x_vec_shape, y_vec_shape, z_vec_shape)
 
@@ -707,6 +706,8 @@ def make_arc_segment_using_occ(start, center, end, radius) -> list[LineSegment, 
 
     return [l1, arc, l2]
 
+
 def from_pointer(pointer: int) -> TopoDS_Shape:
     from OCC.Core.TopoDS import TopoDS_Shape
+
     return TopoDS_Shape(pointer)

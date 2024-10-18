@@ -126,6 +126,12 @@ class Config:
             ],
         ),
         ConfigSection(
+            "meshing",
+            [
+                ConfigEntry('open_viewer_breakpoint_names', list[str], None, required=False),
+            ]
+        ),
+        ConfigSection(
             "code_aster",
             [ConfigEntry("ca_experimental_id_numbering", bool, False)],
         ),
@@ -332,6 +338,8 @@ class Config:
         corrected_value = value
         if isinstance(value, str):
             if "[" in value:
+                if "'" in value:
+                    value = value.replace("'", '"')
                 corrected_value = json.loads(value)
             elif "," in value and "[" not in value:
                 corrected_value = value.split(",")

@@ -1,6 +1,7 @@
 from ada.comms.fb_deserializer import deserialize_root_message
 from ada.comms.fb_model_gen import (
     CommandTypeDC,
+    FileArgDC,
     FileObjectDC,
     FilePurposeDC,
     FileTypeDC,
@@ -13,7 +14,7 @@ from ada.comms.fb_model_gen import (
     ProcedureStoreDC,
     SceneDC,
     SceneOperationsDC,
-    TargetTypeDC, FileArgDC,
+    TargetTypeDC,
 )
 from ada.comms.fb_serializer import serialize_message
 
