@@ -709,6 +709,7 @@ class Part(BackendGeom):
         experimental_bm_splitting=True,
         experimental_pl_splitting=True,
         name=None,
+        debug_mode=False,
     ) -> FEM:
         from ada import Beam, Plate, Shape
         from ada.fem.elements import Mass
@@ -723,7 +724,7 @@ class Part(BackendGeom):
 
         options = GmshOptions(Mesh_Algorithm=8) if options is None else options
         masses: list[Shape] = []
-        with GmshSession(silent=silent, options=options) as gs:
+        with GmshSession(silent=silent, options=options, debug_mode=debug_mode) as gs:
             for obj in self.get_all_physical_objects(sub_elements_only=False):
                 if isinstance(obj, Beam):
                     gs.add_obj(obj, geom_repr=bm_repr, build_native_lines=False)
@@ -739,14 +740,9 @@ class Part(BackendGeom):
             if interactive is True:
                 gs.open_gui()
 
-            gs.split_plates_by_beams()
+            gs.partition_plates()
 
-            num_plates = len(list(self.get_all_physical_objects(by_type=Plate)))
-            if experimental_pl_splitting is True and num_plates > 1:
-                gs.split_plates_by_plates()
-
-            if experimental_bm_splitting is True and num_plates == 0:
-                gs.split_crossing_beams()
+            gs.partition_beams()
 
             if interactive is True:
                 gs.open_gui()
@@ -783,9 +779,10 @@ class Part(BackendGeom):
         stream_from_ifc=False,
     ) -> trimesh.Scene:
         from ada.occ.tessellating import BatchTessellator
+        from ada import Assembly
 
         bt = BatchTessellator()
-        if stream_from_ifc:
+        if stream_from_ifc and isinstance(self, Assembly):
             return bt.ifc_to_trimesh_scene(self.get_assembly().ifc_store, merge_meshes=merge_meshes)
 
         return bt.tessellate_part(

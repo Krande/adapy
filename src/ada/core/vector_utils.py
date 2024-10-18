@@ -359,3 +359,13 @@ def calc_zvec(x_vec, y_vec=None) -> np.ndarray:
         return z_vec
     else:
         return np.cross(x_vec, y_vec)
+
+
+def get_centroid(points):
+    x, y, z = 0, 0, 0
+    for p in points:
+        x += p[0]
+        y += p[1]
+        z += p[2]
+    n = len(points)
+    return x / n, y / n, z / n

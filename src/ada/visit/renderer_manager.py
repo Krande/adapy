@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING, Callable, Literal, Optional, OrderedDict
 
 import numpy as np
 import trimesh
-
 from ada.comms.fb_model_gen import (
     FileObjectDC,
     FilePurposeDC,
@@ -15,11 +14,13 @@ from ada.comms.fb_model_gen import (
     SceneOperationsDC,
 )
 from ada.config import Config
+from ada.visit.colors import Color
+from ada.visit.gltf.graph import GraphNode
 
 if TYPE_CHECKING:
     from IPython.display import HTML
 
-    from ada import Assembly, Part
+    from ada import Assembly, Part, FEM
     from ada.base.physical_objects import BackendGeom
     from ada.fem.results.common import FEAResult
 
@@ -114,6 +115,38 @@ def scene_from_fem_results(self: FEAResult, params: RenderParams):
 
     return scene
 
+def scene_from_fem(fem: FEM) -> trimesh.Scene:
+    from ada.visit.gltf.store import merged_mesh_to_trimesh_scene
+
+    shell_color = Color.from_str("white")
+    shell_color_id = 0
+    line_color = Color.from_str("gray")
+    line_color_id = 1
+    points_color = Color.from_str("black")
+    points_color_id = 2
+
+    scene = trimesh.Scene()
+    mesh = fem.to_mesh()
+    if fem.parent is not None:
+        graph = fem.parent.get_graph_store()
+        parent_node = graph.top_level
+    else:
+        from ada.visit.gltf.graph import GraphStore
+        parent_node = GraphNode("root", 0)
+        graph = GraphStore(top_level=parent_node, nodes={0: parent_node})
+
+    points_store, edge_store, face_store = mesh.create_mesh_stores(
+        fem.name, shell_color, line_color, points_color, graph, parent_node
+    )
+
+    if len(face_store.indices) > 0:
+        merged_mesh_to_trimesh_scene(scene, face_store, shell_color, shell_color_id)
+    if len(edge_store.indices) > 0:
+        merged_mesh_to_trimesh_scene(scene, edge_store, line_color, line_color_id)
+    if len(points_store.position) > 0:
+        merged_mesh_to_trimesh_scene(scene, points_store, points_color, points_color_id)
+
+    return scene
 
 def scene_from_object(physical_object: BackendGeom) -> trimesh.Scene:
     from itertools import groupby
@@ -220,8 +253,8 @@ class RendererManager:
 
         return renderer
 
-    def render(self, obj: BackendGeom | Part | Assembly | FEAResult, params: RenderParams) -> HTML | None:
-        from ada import Assembly, Part
+    def render(self, obj: BackendGeom | Part | Assembly | FEAResult | FEM, params: RenderParams) -> HTML | None:
+        from ada import Assembly, Part, FEM
         from ada.base.physical_objects import BackendGeom
         from ada.comms.wsock_client_sync import WebSocketClientSync
         from ada.fem.results.common import FEAResult
@@ -241,6 +274,8 @@ class RendererManager:
                 scene = scene_from_part_or_assembly(obj, params)
             elif isinstance(obj, BackendGeom):
                 scene = scene_from_object(obj)
+            elif isinstance(obj, FEM):
+                scene = scene_from_fem(obj)
             elif isinstance(obj, FEAResult):
                 scene = scene_from_fem_results(obj, params)
             else:

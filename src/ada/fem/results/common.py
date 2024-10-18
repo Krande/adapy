@@ -158,6 +158,7 @@ class Mesh:
                 except IndexError as e:
                     logger.error(e)
                     continue
+
                 if isinstance(elem_shape.type, (shape_def.LineShapes, shape_def.ConnectorTypes)):
                     continue
 

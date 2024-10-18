@@ -8,6 +8,7 @@ import numpy as np
 from ada import FEM, Beam, Node, Pipe, Plate, Shape
 from ada.api.transforms import Placement
 from ada.base.types import GeomRepr
+from ada.config import logger
 from ada.core.utils import make_name_fem_ready
 from ada.fem import Elem, FemSection, FemSet
 from ada.fem.shapes import ElemType
@@ -136,7 +137,11 @@ def get_bm_sections(model: gmsh.model, beam: Beam, gmsh_data, fem: FEM):
 
     tags = []
     for dim, ent in gmsh_data.entities:
-        _, tag, _ = model.mesh.getElements(1, ent)
+        try:
+            _, tag, _ = model.mesh.getElements(1, ent)
+        except BaseException as e:
+            logger.error(e)
+            continue
         tags += tag
 
     elements = [fem.elements.from_id(elid) for elid in chain.from_iterable(tags)]
@@ -238,7 +243,11 @@ def get_elements_from_entity(model: gmsh.model, ent, fem: FEM, dim) -> list[Elem
 def get_elements_from_entities(model: gmsh.model, entities, fem: FEM) -> list[Elem]:
     elements = []
     for dim, ent in entities:
-        elements += get_elements_from_entity(model, ent, fem, dim)
+        try:
+            elements += get_elements_from_entity(model, ent, fem, dim)
+        except BaseException as e:
+            logger.error(f"Error in get_elements_from_entities: {e}")
+
     return elements
 
 
