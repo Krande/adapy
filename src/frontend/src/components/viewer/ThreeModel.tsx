@@ -66,7 +66,16 @@ const ThreeModel: React.FC<ModelProps> = ({url}) => {
                 // Enable shadow casting and receiving
                 // object.castShadow = true;
                 // object.receiveShadow = true;
+            } else if (object instanceof THREE.LineSegments) {
+                // Line segments should by default not be clickable
+                //object.userData.clickable = false;
+                //object.layers.set(2)
+            } else if (object instanceof THREE.Points) {
+                // Set points material to double-sided
+                console.log(object.material);
+                object.layers.set(2)
             }
+
         });
 
         // Replace black materials with default gray material

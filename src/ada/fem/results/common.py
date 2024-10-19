@@ -39,7 +39,6 @@ class ElementBlock:
     node_refs: np.ndarray
     identifiers: np.ndarray
 
-
 @dataclass
 class FemNodes:
     coords: np.ndarray
@@ -151,6 +150,8 @@ class Mesh:
 
             nodes_copy = cell_block.node_refs.copy()
             nodes_copy[np.isin(nodes_copy, keys)] = np.vectorize(nmap.get)(nodes_copy[np.isin(nodes_copy, keys)])
+            if solid_beams and isinstance(el_type, (shape_def.LineShapes, shape_def.ConnectorTypes)):
+                continue
 
             for elem_id, elem in enumerate(nodes_copy, start=1):
                 elem_shape = ElemShape(el_type, elem)

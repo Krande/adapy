@@ -4,6 +4,7 @@ import subprocess
 
 import ada
 from ada.config import Config
+from ada.fem import Elem
 from ada.fem.shapes.definitions import LineShapes
 from dotenv import load_dotenv
 
@@ -57,7 +58,7 @@ def edges_intersect(use_xact=False):
             subprocess.run([xact, fem_file])
 
     n = p.fem.nodes.get_by_volume(p=(0.5, 0.5, 0))[0]
-    num_line_elem = len(list(filter(lambda x: x.type == LineShapes.LINE, n.refs)))
+    num_line_elem = len(list(filter(lambda x: isinstance(x, Elem) and x.type == LineShapes.LINE, n.refs)))
     assert num_line_elem == 4
 
 
