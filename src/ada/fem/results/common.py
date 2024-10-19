@@ -122,7 +122,14 @@ class Mesh:
         return edges, faces
 
     def create_mesh_stores(
-        self, parent_name: str, shell_color, line_color, points_color, graph: GraphStore, parent_node: GraphNode
+        self,
+        parent_name: str,
+        shell_color,
+        line_color,
+        points_color,
+        graph: GraphStore,
+        parent_node: GraphNode,
+        solid_beams=False,
     ) -> tuple[MergedMesh, MergedMesh, MergedMesh]:
         from ada.fem.shapes import ElemShape
         from ada.fem.shapes import definitions as shape_def
