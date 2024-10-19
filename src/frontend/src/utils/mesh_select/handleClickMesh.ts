@@ -2,7 +2,6 @@ import {ThreeEvent} from "@react-three/fiber";
 import {useSelectedObjectStore} from "../../state/selectedObjectStore";
 import * as THREE from "three";
 import {deselectObject} from "./deselectObject";
-import {defaultMaterial} from "../default_materials";
 import {setSelectedMesh} from "./setSelectedMesh";
 import {useTreeViewStore} from "../../state/treeViewStore";
 import {findNodeById} from "../tree_view/findNodeById";
@@ -14,6 +13,7 @@ export function handleClickMesh(event: ThreeEvent<PointerEvent>) {
     const mesh = event.object as THREE.Mesh;
 
     if (selectedObject !== mesh) {
+
         setSelectedMesh(mesh, event.faceIndex || 0);
 
         // Update the tree view selection
