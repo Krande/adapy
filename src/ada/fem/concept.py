@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Dict, Iterable, List, Union, Literal
 from ada.api.containers import Nodes
 from ada.comms.fb_model_gen import FilePurposeDC
 from ada.config import logger
-from ada.visit.renderer_manager import RenderParams, RendererManager
+from ada.visit.renderer_manager import RenderParams, RendererManager, FEARenderParams
 
 from .containers import FemElements, FemSections, FemSets
 from .sets import FemSet
@@ -392,6 +392,7 @@ class FEM:
         unique_id=None,
         purpose: FilePurposeDC = FilePurposeDC.ANALYSIS,
         params_override: RenderParams = None,
+        solid_beams=False,
         ping_timeout=1,
     ) -> None:
 
@@ -406,6 +407,7 @@ class FEM:
             ping_timeout=ping_timeout,
         )
 
+        fea_params = FEARenderParams(solid_beams=solid_beams)
         if params_override is None:
             params_override = RenderParams(
                 unique_id=unique_id,
@@ -414,6 +416,7 @@ class FEM:
                 add_ifc_backend=False,
                 purpose=purpose,
                 merge_meshes=False,
+                fea_params=fea_params
             )
 
         # Set up the renderer and WebSocket server

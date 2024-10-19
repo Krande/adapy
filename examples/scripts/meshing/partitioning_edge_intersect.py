@@ -19,9 +19,9 @@ def edges_intersect(use_xact=False):
     Config().update_config_globally(
         "meshing_open_viewer_breakpoint_names",
         [
-            "partition_bm_split_pre",
-            "partition_isect_bm_pre",
-            "partition_bm_split_cut_1"
+            #"partition_bm_split_pre",
+            #"partition_isect_bm_pre",
+            #"partition_bm_split_cut_1"
         ],
     )
     bm_name = ada.Counter(1, "bm")
@@ -43,11 +43,11 @@ def edges_intersect(use_xact=False):
 
     a = ada.Assembly() / (ada.Part("MyPart") / objects)
     p = a.get_part("MyPart")
-    a.show()
+    #a.show()
 
     p.fem = p.to_fem_obj(0.1, interactive=False)
     a.to_fem("MyIntersectingedge", "usfos", overwrite=True)
-    p.fem.show()
+    p.fem.show(solid_beams=True)
 
     # p.fem.show()
     if use_xact:

@@ -33,6 +33,7 @@ class FEARenderParams:
     warp_step: int = (None,)
     cfunc: Callable[[list[float]], float] = (None,)
     warp_scale: float = 1.0
+    solid_beams: bool = False
 
 
 @dataclass
@@ -115,7 +116,7 @@ def scene_from_fem_results(self: FEAResult, params: RenderParams):
 
     return scene
 
-def scene_from_fem(fem: FEM) -> trimesh.Scene:
+def scene_from_fem(fem: FEM, params: RenderParams) -> trimesh.Scene:
     from ada.visit.gltf.store import merged_mesh_to_trimesh_scene
 
     shell_color = Color.from_str("white")
@@ -138,6 +139,28 @@ def scene_from_fem(fem: FEM) -> trimesh.Scene:
     points_store, edge_store, face_store = mesh.create_mesh_stores(
         fem.name, shell_color, line_color, points_color, graph, parent_node
     )
+
+    if params.fea_params is not None and params.fea_params.solid_beams is True:
+        from ada.fem.formats.utils import line_elem_to_beam
+        from ada.occ.tessellating import BatchTessellator
+        from ada.fem.shapes.definitions import LineShapes
+        beams = []
+        nmap = {x: i for i, x in enumerate(mesh.nodes.identifiers)}
+        keys = np.array(list(nmap.keys()))
+        for cell_block in mesh.elements:
+            el_type = cell_block.elem_info.type
+
+            if el_type != LineShapes.LINE:
+                continue
+
+            nodes_copy = cell_block.node_refs.copy()
+            nodes_copy[np.isin(nodes_copy, keys)] = np.vectorize(nmap.get)(nodes_copy[np.isin(nodes_copy, keys)])
+
+            for elem_id, elem in enumerate(nodes_copy, start=1):
+                bm = line_elem_to_beam(elem, fem.parent)
+
+        bt = BatchTessellator()
+        mesh_stores = list(bt.batch_tessellate(beams))
 
     if len(face_store.indices) > 0:
         merged_mesh_to_trimesh_scene(scene, face_store, shell_color, shell_color_id)
@@ -275,7 +298,7 @@ class RendererManager:
             elif isinstance(obj, BackendGeom):
                 scene = scene_from_object(obj)
             elif isinstance(obj, FEM):
-                scene = scene_from_fem(obj)
+                scene = scene_from_fem(obj, params)
             elif isinstance(obj, FEAResult):
                 scene = scene_from_fem_results(obj, params)
             else:
