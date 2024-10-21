@@ -10,7 +10,7 @@ import {useModelStore} from '../../state/modelStore';
 import {replaceBlackMaterials} from '../../utils/scene/assignDefaultMaterial';
 import {useTreeViewStore} from '../../state/treeViewStore';
 import {useOptionsStore} from "../../state/optionsStore";
-import { generateTree } from '../../utils/tree_view/generateTree';
+import {buildTreeFromScene, buildTreeFromUserData} from '../../utils/tree_view/generateTree';
 import {handleClickMesh} from "../../utils/mesh_select/handleClickMesh";
 
 
@@ -102,8 +102,10 @@ const ThreeModel: React.FC<ModelProps> = ({url}) => {
         setTranslation(translation);
 
         setSelectedAnimation('No Animation');
+
         // Generate the tree data and update the store
-        const treeData = generateTree(scene);
+        const treeData = buildTreeFromUserData(scene);
+        // const treeData = buildTreeFromScene(scene);
         if (treeData)
             setTreeData(treeData); // Update the tree view store with the scene graph data
 

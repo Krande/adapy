@@ -49,7 +49,7 @@ def edges_intersect(use_xact=False):
     # a.show()
 
     p.fem = p.to_fem_obj(0.1, interactive=False)
-    a.to_fem("MyIntersectingedge", "usfos", overwrite=True)
+    # a.to_fem("MyIntersectingedge", "usfos", overwrite=True)
     p.fem.show(
         params_override=RenderParams(
             gltf_export_to_file="temp/fea_model.glb",

@@ -68,6 +68,7 @@ table MeshInfo {
   object_name: string;      // Mesh object name
   face_index: int;          // Mesh face index
   json_data: string;        // JSON data
+  file_name: string;        // Scene source file object name
 }
 
 table CameraParams {

@@ -1,15 +1,8 @@
 // replaceBlackMaterials.ts
 import * as THREE from 'three';
+import {defaultMaterial} from "../default_materials";
 
 export function replaceBlackMaterials(object: THREE.Object3D) {
-    const defaultMaterial = new THREE.MeshStandardMaterial({
-      color: 0x808080, // Gray color
-      metalness: 0.1,
-      roughness: 0.5,
-      flatShading: true, // Enable flat shading
-    });
-    defaultMaterial.side = THREE.DoubleSide;
-
   object.traverse((child) => {
     if (child instanceof THREE.Mesh) {
       const material = child.material;

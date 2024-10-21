@@ -4,12 +4,10 @@
 
 import flatbuffers
 from flatbuffers.compat import import_numpy
-
 np = import_numpy()
 
-
 class Scene(object):
-    __slots__ = ["_tab"]
+    __slots__ = ['_tab']
 
     @classmethod
     def GetRootAs(cls, buf, offset=0):
@@ -22,7 +20,6 @@ class Scene(object):
     def GetRootAsScene(cls, buf, offset=0):
         """This method is deprecated. Please switch to GetRootAs."""
         return cls.GetRootAs(buf, offset)
-
     # Scene
     def Init(self, buf, pos):
         self._tab = flatbuffers.table.Table(buf, pos)
@@ -40,7 +37,6 @@ class Scene(object):
         if o != 0:
             x = self._tab.Indirect(o + self._tab.Pos)
             from ada.comms.wsock.CameraParams import CameraParams
-
             obj = CameraParams()
             obj.Init(self._tab.Bytes, x)
             return obj
@@ -52,48 +48,37 @@ class Scene(object):
         if o != 0:
             x = self._tab.Indirect(o + self._tab.Pos)
             from ada.comms.wsock.FileObject import FileObject
-
             obj = FileObject()
             obj.Init(self._tab.Bytes, x)
             return obj
         return None
 
-
 def SceneStart(builder):
     builder.StartObject(3)
-
 
 def Start(builder):
     SceneStart(builder)
 
-
 def SceneAddOperation(builder, operation):
     builder.PrependInt8Slot(0, operation, 0)
-
 
 def AddOperation(builder, operation):
     SceneAddOperation(builder, operation)
 
-
 def SceneAddCameraParams(builder, cameraParams):
     builder.PrependUOffsetTRelativeSlot(1, flatbuffers.number_types.UOffsetTFlags.py_type(cameraParams), 0)
-
 
 def AddCameraParams(builder, cameraParams):
     SceneAddCameraParams(builder, cameraParams)
 
-
 def SceneAddCurrentFile(builder, currentFile):
     builder.PrependUOffsetTRelativeSlot(2, flatbuffers.number_types.UOffsetTFlags.py_type(currentFile), 0)
-
 
 def AddCurrentFile(builder, currentFile):
     SceneAddCurrentFile(builder, currentFile)
 
-
 def SceneEnd(builder):
     return builder.EndObject()
-
 
 def End(builder):
     return SceneEnd(builder)
