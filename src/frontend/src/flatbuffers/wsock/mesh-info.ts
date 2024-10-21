@@ -43,8 +43,15 @@ jsonData(optionalEncoding?:any):string|Uint8Array|null {
   return offset ? this.bb!.__string(this.bb_pos + offset, optionalEncoding) : null;
 }
 
+fileName():string|null
+fileName(optionalEncoding:flatbuffers.Encoding):string|Uint8Array|null
+fileName(optionalEncoding?:any):string|Uint8Array|null {
+  const offset = this.bb!.__offset(this.bb_pos, 10);
+  return offset ? this.bb!.__string(this.bb_pos + offset, optionalEncoding) : null;
+}
+
 static startMeshInfo(builder:flatbuffers.Builder) {
-  builder.startObject(3);
+  builder.startObject(4);
 }
 
 static addObjectName(builder:flatbuffers.Builder, objectNameOffset:flatbuffers.Offset) {
@@ -59,16 +66,21 @@ static addJsonData(builder:flatbuffers.Builder, jsonDataOffset:flatbuffers.Offse
   builder.addFieldOffset(2, jsonDataOffset, 0);
 }
 
+static addFileName(builder:flatbuffers.Builder, fileNameOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(3, fileNameOffset, 0);
+}
+
 static endMeshInfo(builder:flatbuffers.Builder):flatbuffers.Offset {
   const offset = builder.endObject();
   return offset;
 }
 
-static createMeshInfo(builder:flatbuffers.Builder, objectNameOffset:flatbuffers.Offset, faceIndex:number, jsonDataOffset:flatbuffers.Offset):flatbuffers.Offset {
+static createMeshInfo(builder:flatbuffers.Builder, objectNameOffset:flatbuffers.Offset, faceIndex:number, jsonDataOffset:flatbuffers.Offset, fileNameOffset:flatbuffers.Offset):flatbuffers.Offset {
   MeshInfo.startMeshInfo(builder);
   MeshInfo.addObjectName(builder, objectNameOffset);
   MeshInfo.addFaceIndex(builder, faceIndex);
   MeshInfo.addJsonData(builder, jsonDataOffset);
+  MeshInfo.addFileName(builder, fileNameOffset);
   return MeshInfo.endMeshInfo(builder);
 }
 
@@ -76,7 +88,8 @@ unpack(): MeshInfoT {
   return new MeshInfoT(
     this.objectName(),
     this.faceIndex(),
-    this.jsonData()
+    this.jsonData(),
+    this.fileName()
   );
 }
 
@@ -85,6 +98,7 @@ unpackTo(_o: MeshInfoT): void {
   _o.objectName = this.objectName();
   _o.faceIndex = this.faceIndex();
   _o.jsonData = this.jsonData();
+  _o.fileName = this.fileName();
 }
 }
 
@@ -92,18 +106,21 @@ export class MeshInfoT implements flatbuffers.IGeneratedObject {
 constructor(
   public objectName: string|Uint8Array|null = null,
   public faceIndex: number = 0,
-  public jsonData: string|Uint8Array|null = null
+  public jsonData: string|Uint8Array|null = null,
+  public fileName: string|Uint8Array|null = null
 ){}
 
 
 pack(builder:flatbuffers.Builder): flatbuffers.Offset {
   const objectName = (this.objectName !== null ? builder.createString(this.objectName!) : 0);
   const jsonData = (this.jsonData !== null ? builder.createString(this.jsonData!) : 0);
+  const fileName = (this.fileName !== null ? builder.createString(this.fileName!) : 0);
 
   return MeshInfo.createMeshInfo(builder,
     objectName,
     this.faceIndex,
-    jsonData
+    jsonData,
+    fileName
   );
 }
 }

@@ -1,41 +1,9 @@
+import flatbuffers
 from typing import Optional
 
-import flatbuffers
-from ada.comms.fb_model_gen import (
-    CameraParamsDC,
-    ErrorDC,
-    FileArgDC,
-    FileObjectDC,
-    MeshInfoDC,
-    MessageDC,
-    ParameterDC,
-    ProcedureDC,
-    ProcedureStartDC,
-    ProcedureStoreDC,
-    SceneDC,
-    ServerDC,
-    ServerReplyDC,
-    ValueDC,
-    WebClientDC,
-)
-from ada.comms.wsock import (
-    CameraParams,
-    Error,
-    FileArg,
-    FileObject,
-    MeshInfo,
-    Message,
-    Parameter,
-    Procedure,
-    ProcedureStart,
-    ProcedureStore,
-    Scene,
-    Server,
-    ServerReply,
-    Value,
-    WebClient,
-)
+from ada.comms.wsock import WebClient, FileObject, MeshInfo, CameraParams, Scene, Server, ProcedureStore, FileArg, Procedure, Value, Parameter, ProcedureStart, Error, ServerReply, Message
 
+from ada.comms.fb_model_gen import WebClientDC, FileObjectDC, MeshInfoDC, CameraParamsDC, SceneDC, ServerDC, ProcedureStoreDC, FileArgDC, ProcedureDC, ValueDC, ParameterDC, ProcedureStartDC, ErrorDC, ServerReplyDC, MessageDC
 
 def serialize_webclient(builder: flatbuffers.Builder, obj: Optional[WebClientDC]) -> Optional[int]:
     if obj is None:
@@ -112,6 +80,9 @@ def serialize_meshinfo(builder: flatbuffers.Builder, obj: Optional[MeshInfoDC]) 
     json_data_str = None
     if obj.json_data is not None:
         json_data_str = builder.CreateString(str(obj.json_data))
+    file_name_str = None
+    if obj.file_name is not None:
+        file_name_str = builder.CreateString(str(obj.file_name))
 
     MeshInfo.Start(builder)
     if object_name_str is not None:
@@ -120,6 +91,8 @@ def serialize_meshinfo(builder: flatbuffers.Builder, obj: Optional[MeshInfoDC]) 
         MeshInfo.AddFaceIndex(builder, obj.face_index)
     if json_data_str is not None:
         MeshInfo.AddJsonData(builder, json_data_str)
+    if file_name_str is not None:
+        MeshInfo.AddFileName(builder, file_name_str)
     return MeshInfo.End(builder)
 
 
@@ -439,7 +412,7 @@ def serialize_serverreply(builder: flatbuffers.Builder, obj: Optional[ServerRepl
     return ServerReply.End(builder)
 
 
-def serialize_message(message: MessageDC, builder: flatbuffers.Builder = None) -> bytes:
+def serialize_message(message: MessageDC, builder: flatbuffers.Builder=None) -> bytes:
     if builder is None:
         builder = flatbuffers.Builder(1024)
     scene_obj = None

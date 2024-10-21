@@ -4,12 +4,10 @@
 
 import flatbuffers
 from flatbuffers.compat import import_numpy
-
 np = import_numpy()
 
-
 class Procedure(object):
-    __slots__ = ["_tab"]
+    __slots__ = ['_tab']
 
     @classmethod
     def GetRootAs(cls, buf, offset=0):
@@ -22,7 +20,6 @@ class Procedure(object):
     def GetRootAsProcedure(cls, buf, offset=0):
         """This method is deprecated. Please switch to GetRootAs."""
         return cls.GetRootAs(buf, offset)
-
     # Procedure
     def Init(self, buf, pos):
         self._tab = flatbuffers.table.Table(buf, pos)
@@ -56,7 +53,6 @@ class Procedure(object):
             x += flatbuffers.number_types.UOffsetTFlags.py_type(j) * 4
             x = self._tab.Indirect(x)
             from ada.comms.wsock.Parameter import Parameter
-
             obj = Parameter()
             obj.Init(self._tab.Bytes, x)
             return obj
@@ -82,7 +78,6 @@ class Procedure(object):
             x += flatbuffers.number_types.UOffsetTFlags.py_type(j) * 4
             x = self._tab.Indirect(x)
             from ada.comms.wsock.FileArg import FileArg
-
             obj = FileArg()
             obj.Init(self._tab.Bytes, x)
             return obj
@@ -108,7 +103,6 @@ class Procedure(object):
             x += flatbuffers.number_types.UOffsetTFlags.py_type(j) * 4
             x = self._tab.Indirect(x)
             from ada.comms.wsock.FileArg import FileArg
-
             obj = FileArg()
             obj.Init(self._tab.Bytes, x)
             return obj
@@ -140,106 +134,80 @@ class Procedure(object):
             return bool(self._tab.Get(flatbuffers.number_types.BoolFlags, o + self._tab.Pos))
         return False
 
-
 def ProcedureStart(builder):
     builder.StartObject(8)
-
 
 def Start(builder):
     ProcedureStart(builder)
 
-
 def ProcedureAddName(builder, name):
     builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(name), 0)
-
 
 def AddName(builder, name):
     ProcedureAddName(builder, name)
 
-
 def ProcedureAddDescription(builder, description):
     builder.PrependUOffsetTRelativeSlot(1, flatbuffers.number_types.UOffsetTFlags.py_type(description), 0)
-
 
 def AddDescription(builder, description):
     ProcedureAddDescription(builder, description)
 
-
 def ProcedureAddScriptFileLocation(builder, scriptFileLocation):
     builder.PrependUOffsetTRelativeSlot(2, flatbuffers.number_types.UOffsetTFlags.py_type(scriptFileLocation), 0)
-
 
 def AddScriptFileLocation(builder, scriptFileLocation):
     ProcedureAddScriptFileLocation(builder, scriptFileLocation)
 
-
 def ProcedureAddParameters(builder, parameters):
     builder.PrependUOffsetTRelativeSlot(3, flatbuffers.number_types.UOffsetTFlags.py_type(parameters), 0)
-
 
 def AddParameters(builder, parameters):
     ProcedureAddParameters(builder, parameters)
 
-
 def ProcedureStartParametersVector(builder, numElems):
     return builder.StartVector(4, numElems, 4)
-
 
 def StartParametersVector(builder, numElems):
     return ProcedureStartParametersVector(builder, numElems)
 
-
 def ProcedureAddFileInputs(builder, fileInputs):
     builder.PrependUOffsetTRelativeSlot(4, flatbuffers.number_types.UOffsetTFlags.py_type(fileInputs), 0)
-
 
 def AddFileInputs(builder, fileInputs):
     ProcedureAddFileInputs(builder, fileInputs)
 
-
 def ProcedureStartFileInputsVector(builder, numElems):
     return builder.StartVector(4, numElems, 4)
-
 
 def StartFileInputsVector(builder, numElems):
     return ProcedureStartFileInputsVector(builder, numElems)
 
-
 def ProcedureAddFileOutputs(builder, fileOutputs):
     builder.PrependUOffsetTRelativeSlot(5, flatbuffers.number_types.UOffsetTFlags.py_type(fileOutputs), 0)
-
 
 def AddFileOutputs(builder, fileOutputs):
     ProcedureAddFileOutputs(builder, fileOutputs)
 
-
 def ProcedureStartFileOutputsVector(builder, numElems):
     return builder.StartVector(4, numElems, 4)
-
 
 def StartFileOutputsVector(builder, numElems):
     return ProcedureStartFileOutputsVector(builder, numElems)
 
-
 def ProcedureAddState(builder, state):
     builder.PrependInt8Slot(6, state, 0)
-
 
 def AddState(builder, state):
     ProcedureAddState(builder, state)
 
-
 def ProcedureAddIsComponent(builder, isComponent):
     builder.PrependBoolSlot(7, isComponent, 0)
-
 
 def AddIsComponent(builder, isComponent):
     ProcedureAddIsComponent(builder, isComponent)
 
-
 def ProcedureEnd(builder):
     return builder.EndObject()
-
 
 def End(builder):
     return ProcedureEnd(builder)

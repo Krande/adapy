@@ -128,7 +128,7 @@ def scene_from_fem(fem: FEM, params: RenderParams) -> trimesh.Scene:
     points_color = Color.from_str("black")
     points_color_id = 2
 
-    solid_bm_color = Color.from_str("gray")
+    solid_bm_color = Color.from_str("light-gray")
     solid_bm_color_id = 3
 
     if fem.parent is not None:
@@ -146,19 +146,16 @@ def scene_from_fem(fem: FEM, params: RenderParams) -> trimesh.Scene:
 
     use_solid_beams = params.fea_params is not None and params.fea_params.solid_beams is True
 
-    scene = trimesh.Scene()
+    base_frame = graph.top_level.name if graph is not None else "root"
+    scene = trimesh.Scene(base_frame=base_frame)
     if use_solid_beams:
         from ada.fem.formats.utils import line_elem_to_beam
         from ada.occ.tessellating import BatchTessellator
         from ada.visit.gltf.optimize import concatenate_stores
 
-        beams = []
-        for elem in fem.elements.lines:
-            bm = line_elem_to_beam(elem, fem.parent, "EL")
-            beams.append(bm)
-
+        beams = (line_elem_to_beam(elem, fem.parent, "EL") for elem in fem.elements.lines)
         bt = BatchTessellator()
-        meshes = list(bt.batch_tessellate(beams, graph_store=graph))
+        meshes = bt.batch_tessellate(beams, graph_store=graph)
         merged_store = concatenate_stores(meshes)
 
         merged_mesh_to_trimesh_scene(scene, merged_store, solid_bm_color, solid_bm_color_id, graph_store=graph)

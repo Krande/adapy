@@ -3,6 +3,8 @@ import {useSelectedObjectStore} from "../../state/selectedObjectStore";
 import {useObjectInfoStore} from "../../state/objectInfoStore";
 import {query_ws_server_mesh_info} from "./comms/send_mesh_selected_info_callback";
 import {defaultMaterial, selectedMaterial} from "../default_materials";
+import {useModelStore} from "../../state/modelStore";
+
 
 export function setSelectedMesh(mesh: THREE.Mesh, faceIndex: number) {
     const selectedObject = useSelectedObjectStore.getState().selectedObject;
@@ -17,8 +19,14 @@ export function setSelectedMesh(mesh: THREE.Mesh, faceIndex: number) {
     // Update the object info store
     useObjectInfoStore.getState().setName(mesh.name);
     useObjectInfoStore.getState().setFaceIndex(faceIndex);
+
     query_ws_server_mesh_info(mesh.name, faceIndex);
 
+    let scene = useModelStore.getState().scene
+    if (!scene) {
+        console.error("Scene not found in modelStore");
+        return;
+    }
     // Create a new material for the selected mesh
     mesh.material = selectedMaterial;
 }
