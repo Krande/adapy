@@ -25,7 +25,7 @@ def polygon_mesh():
 @pytest.fixture
 def bm_line_fem():
     bm = ada.Beam("bm1", n1=[0, 0, 0], n2=[2, 0, 0], sec="IPE220", color="red")
-    a = ada.Assembly() / (ada.Part("BeamFEM") / bm)
+    a = ada.Assembly() / (ada.Part("BeamFEMPart") / bm)
     part = a.get_part("BeamFEMPart")
     with GmshSession(silent=True) as gs:
         gs.add_obj(a.get_by_name("bm1"), geom_repr="line")
