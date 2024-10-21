@@ -22,11 +22,6 @@ export function setSelectedMesh(mesh: THREE.Mesh, faceIndex: number) {
 
     query_ws_server_mesh_info(mesh.name, faceIndex);
 
-    let scene = useModelStore.getState().scene
-    if (!scene) {
-        console.error("Scene not found in modelStore");
-        return;
-    }
     // Create a new material for the selected mesh
     mesh.material = selectedMaterial;
 }

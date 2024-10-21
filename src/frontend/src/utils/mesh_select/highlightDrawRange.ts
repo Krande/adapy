@@ -1,14 +1,25 @@
 import * as THREE from "three";
-import { selectedMaterial } from "../default_materials";
+import {defaultMaterial, selectedMaterial} from "../default_materials";
+import {useObjectInfoStore} from "../../state/objectInfoStore";
+import {useModelStore} from "../../state/modelStore";
+import {useSelectedObjectStore} from "../../state/selectedObjectStore";
 
-export function highlightDrawRange(mesh: THREE.Mesh, drawRange: [number, number]): void {
+export function highlightDrawRange(mesh: THREE.Mesh, drawRange: [string, number, number]): void {
     const geometry = mesh.geometry as THREE.BufferGeometry;
     if (!geometry || !drawRange) {
         console.warn("Invalid geometry or draw range");
         return;
     }
 
-    const [start, count] = drawRange;
+    const selectedObject = useSelectedObjectStore.getState().selectedObject;
+    if (selectedObject) {
+        selectedObject.geometry.clearGroups();
+    }
+
+    useSelectedObjectStore.getState().setSelectedObject(mesh);
+
+    const [rangeId, start, count] = drawRange;
+
     console.log("highlightDrawRange", start, count, mesh.name);
     // Clear existing groups
     geometry.clearGroups();
@@ -35,4 +46,14 @@ export function highlightDrawRange(mesh: THREE.Mesh, drawRange: [number, number]
     mesh.material.forEach(material => {
         material.needsUpdate = true;
     });
+
+    let scene = useModelStore.getState().scene;
+    let hierarchy: Record<string, [string, string | number]> = scene?.userData["id_hierarchy"];
+    let value = hierarchy[rangeId];
+    if (value) {
+        // Update the object info store
+        useObjectInfoStore.getState().setName(value[0]);
+    }
+
+
 }

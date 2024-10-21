@@ -24,6 +24,7 @@ export function handleClickMesh(event: ThreeEvent<PointerEvent>) {
         if (draw_range){
             highlightDrawRange(mesh, draw_range)
         }
+
         // Update the tree view selection
         const treeViewStore = useTreeViewStore.getState();
         if (treeViewStore.treeData) {

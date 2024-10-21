@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import {useModelStore} from "../../state/modelStore";
 
-export function getSelectedMeshDrawRange(mesh: THREE.Mesh, faceIndex: number): [number, number] | null {
+export function getSelectedMeshDrawRange(mesh: THREE.Mesh, faceIndex: number): [string, number, number] | null {
     let scene = useModelStore.getState().scene
 
     if (!mesh || !scene?.userData) {
@@ -20,7 +20,7 @@ export function getSelectedMeshDrawRange(mesh: THREE.Mesh, faceIndex: number): [
     for (const [rangeId, [start, length]] of Object.entries(drawRanges)) {
         const end = start + length;
         if (faceIndex >= start && faceIndex < end) {
-            return [start, length];
+            return [rangeId, start, length];
         }
     }
 
