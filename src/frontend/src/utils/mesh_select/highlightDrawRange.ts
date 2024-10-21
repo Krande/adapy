@@ -13,7 +13,8 @@ export function highlightDrawRange(mesh: THREE.Mesh, drawRange: [string, number,
 
     const selectedObject = useSelectedObjectStore.getState().selectedObject;
     if (selectedObject) {
-        selectedObject.geometry.clearGroups();
+        if (selectedObject.geometry)
+            selectedObject.geometry.clearGroups();
     }
 
     useSelectedObjectStore.getState().setSelectedObject(mesh);
