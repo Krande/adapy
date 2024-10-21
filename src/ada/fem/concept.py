@@ -411,11 +411,7 @@ class FEM:
         if params_override is None:
             params_override = RenderParams(
                 unique_id=unique_id,
-                auto_sync_ifc_store=False,
-                stream_from_ifc_store=False,
-                add_ifc_backend=False,
                 purpose=purpose,
-                merge_meshes=False,
                 fea_params=fea_params
             )
 

@@ -225,24 +225,35 @@ def merged_mesh_to_trimesh_scene(
 
     # Rotate the mesh to set Z up
     mesh.apply_transform(m4x4_z_up_rot)
+
     if isinstance(merged_mesh, MergedMesh):
         node_name = f"node{buffer_id}"
     else:
-        node_name = f"node{buffer_id}_{merged_mesh.node_id}"
+        node_name = f"node{buffer_id}_{merged_mesh.node_ref}"
+
+    parent_node_name = graph_store.top_level.name if graph_store else None
+    geom_name = f"node{buffer_id}"
 
     scene.add_geometry(
         mesh,
         node_name=node_name,
-        geom_name=f"node{buffer_id}",
-        parent_node_name=graph_store.top_level.name if graph_store else None,
+        geom_name=geom_name,
+        parent_node_name=parent_node_name,
     )
 
     if graph_store and isinstance(merged_mesh, MergedMesh):
         id_sequence = dict()
         for group in merged_mesh.groups:
-            n = graph_store.nodes.get(group.node_id)
+            n = None
+            if isinstance(group.node_ref, GraphNode):
+                n = group.node_ref
             if n is None:
-                raise ValueError(f"Node {group.node_id} not found in graph store")
-            id_sequence[n.hash] = (group.start, group.start + group.length - 1)
+                n = graph_store.nodes.get(group.node_ref)
+            if n is None:
+                n = graph_store.hash_map.get(group.node_ref)
+            if n is None:
+                raise ValueError(f"Node {group.node_ref} not found in graph store")
 
-        scene.metadata[f"id_sequence{buffer_id}"] = id_sequence
+            id_sequence[n.node_id] = (group.start, group.length)
+
+        scene.metadata[f"draw_ranges_node{buffer_id}"] = id_sequence

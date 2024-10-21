@@ -638,20 +638,28 @@ class Part(BackendGeom):
         return res
 
     def get_graph_store(self) -> GraphStore:
-        root = GraphNode(self.name, self.guid)
-        graph: dict[str, GraphNode] = {self.guid: root}
+        nid = 0
+        root = GraphNode(self.name, nid, hash=self.guid)
+        graph: dict[int, GraphNode] = {nid: root}
+        hash_map: dict[str, GraphNode] = {self.guid: root}
+        nid += 1
         objects = self.get_all_physical_objects(pipe_to_segments=True)
         containers = self.get_all_parts_in_assembly()
+
         for p in chain.from_iterable([containers, objects]):
-            if p.guid in graph.keys():
+            if p.guid in hash_map.keys():
+                logger.error(f"Duplicate GUID found for {p}")
                 continue
-            parent_node = graph.get(p.parent.guid)
-            n = GraphNode(p.name, hash=p.guid)
+            parent_node = hash_map.get(p.parent.guid)
+            n = GraphNode(p.name, nid, hash=p.guid)
+            nid += 1
             if parent_node is not None:
                 n.parent = parent_node
                 parent_node.children.append(n)
-            graph[p.guid] = n
-        return GraphStore(root, graph)
+            graph[n.node_id] = n
+            hash_map[p.guid] = n
+
+        return GraphStore(root, graph, hash_map)
 
     def beam_clash_check(self, margins=5e-5):
         """

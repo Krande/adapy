@@ -2,10 +2,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import TYPE_CHECKING
 
 import numpy as np
 
 from ada.visit.colors import Color
+
+if TYPE_CHECKING:
+    from ada.visit.gltf.graph import GraphNode
 
 
 class MeshType(Enum):
@@ -32,7 +36,7 @@ class MeshStore:
     normal: np.ndarray | None = field(repr=False)
     material: int | Color
     type: MeshType
-    node_id: int
+    node_ref: int | str | GraphNode
 
     def get_position3(self):
         return self.position.reshape(-1, 3)
@@ -46,7 +50,7 @@ class MeshStore:
 
 @dataclass
 class GroupReference:
-    node_id: int | str
+    node_ref: int | str | GraphNode
     start: int
     length: int
 

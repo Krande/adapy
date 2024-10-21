@@ -27,7 +27,10 @@ const ThreeModel: React.FC<ModelProps> = ({url}) => {
         if (useModelStore.getState().scene === null){
             useModelStore.getState().setScene(scene);
         }
+
         raycaster.params.Line.threshold = 0.01;
+        raycaster.params.Points.threshold = 0.01;
+
         scene.traverse((object) => {
             if (object instanceof THREE.Mesh) {
                 // Ensure geometry has normals

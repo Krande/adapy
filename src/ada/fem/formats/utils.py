@@ -521,7 +521,7 @@ def convert_part_elem_bm_to_beams(p: Part) -> Beams:
     return Beams([line_elem_to_beam(bm, p) for bm in p.fem.elements.lines], parent=p)
 
 
-def line_elem_to_beam(elem: Elem, parent: Part) -> Beam:
+def line_elem_to_beam(elem: Elem, parent: Part, prefix="bm") -> Beam:
     """Convert FEM line element to Beam"""
     from ada import Beam
 
@@ -542,7 +542,7 @@ def line_elem_to_beam(elem: Elem, parent: Part) -> Beam:
         logger.error(f"Beam elem {elem.id}  uses a GENBEAM which might not represent an actual cross section")
 
     return Beam(
-        f"bm{elem.id}",
+        f"{prefix}{elem.id}",
         n1,
         n2,
         sec=elem.fem_sec.section,

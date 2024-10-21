@@ -3,36 +3,42 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from ada.core.guid import create_guid
-from ada.visit.gltf.meshes import MeshRef
+from ada.visit.gltf.meshes import MeshRef, GroupReference
 
 
 @dataclass
 class GraphStore:
     top_level: GraphNode = field(repr=False)
     nodes: dict[int | str, GraphNode] = field(repr=False)
-    name_map: dict[str, GraphNode] = field(repr=False, init=False)
+    hash_map: dict[str, GraphNode] = field(repr=False, default=None)
+    draw_ranges: list[GroupReference] = field(default_factory=list, repr=False)
 
     def __post_init__(self):
         self.num_meshes = sum(len(n.mesh_indices) for n in self.nodes.values())
-        self.name_map = {n.name: n for n in self.nodes.values()}
+        if self.hash_map is None:
+            self.hash_map = {n.hash: n for n in self.nodes.values()}
 
-    def create_meta(self, suffix: str) -> dict[str, tuple[str, str]]:
+    def create_meta(self, suffix: str = "") -> dict[str, dict[str, tuple[str, str | int]]]:
         meta = dict()
         for n in self.nodes.values().__reversed__():
             if n.parent is not None:
-                p_name = n.parent.hash
+                p_id = n.parent.node_id
                 n_name = n.name
             else:
-                p_name = "*"
+                p_id = "*"
                 n_name = n.name + suffix
-            meta[n.hash] = (n_name, p_name)
-        return meta
+            meta[n.node_id] = (n_name, p_id)
+
+        return {"id_hierarchy": meta}
 
     def add_node(self, node: GraphNode) -> GraphNode:
         self.nodes[node.node_id] = node
-        self.name_map[node.name] = node
+        self.hash_map[node.name] = node
 
         return node
+
+    def next_node_id(self):
+        return len(self.nodes.keys())
 
     @staticmethod
     def from_json_data(data, split_level: int = 3):
@@ -87,7 +93,7 @@ class GraphStore:
 @dataclass
 class GraphNode:
     name: str
-    node_id: int | str = None
+    node_id: int
     children: list[GraphNode] = field(default_factory=list, repr=False)
     parent: GraphNode | None = field(default=None, repr=False)
     mesh_indices: list[MeshRef] = field(default_factory=list, repr=False)
