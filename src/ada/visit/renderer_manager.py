@@ -14,6 +14,7 @@ from ada.comms.fb_model_gen import (
     SceneOperationsDC,
 )
 from ada.config import Config
+from ada.core.guid import create_guid
 from ada.visit.colors import Color
 from ada.visit.gltf.graph import GraphNode
 
@@ -46,6 +47,7 @@ class RenderParams:
     scene: SceneDC = None
     gltf_buffer_postprocessor: Optional[Callable[[OrderedDict, dict], None]] = None
     gltf_tree_postprocessor: Optional[Callable[[OrderedDict], None]] = None
+    gltf_export_to_file: str | pathlib.Path = None
     add_ifc_backend: bool = False
     backend_file_dir: Optional[str] = None
     unique_id: int = None
@@ -129,20 +131,22 @@ def scene_from_fem(fem: FEM, params: RenderParams) -> trimesh.Scene:
     solid_bm_color = Color.from_str("gray")
     solid_bm_color_id = 3
 
-    scene = trimesh.Scene()
-    mesh = fem.to_mesh()
     if fem.parent is not None:
         graph = fem.parent.get_graph_store()
-        parent_node = graph.top_level
+        parent_node = graph.hash_map.get(fem.parent.guid)
     else:
         from ada.visit.gltf.graph import GraphStore
-        parent_node = GraphNode("root", 0)
+        parent_node = GraphNode("root", 0, hash=create_guid())
         graph = GraphStore(top_level=parent_node, nodes={0: parent_node})
 
+    mesh = fem.to_mesh()
     points_store, edge_store, face_store = mesh.create_mesh_stores(
         fem.name, shell_color, line_color, points_color, graph, parent_node
     )
+
     use_solid_beams = params.fea_params is not None and params.fea_params.solid_beams is True
+
+    scene = trimesh.Scene()
     if use_solid_beams:
         from ada.fem.formats.utils import line_elem_to_beam
         from ada.occ.tessellating import BatchTessellator
@@ -150,23 +154,25 @@ def scene_from_fem(fem: FEM, params: RenderParams) -> trimesh.Scene:
 
         beams = []
         for elem in fem.elements.lines:
-            bm = line_elem_to_beam(elem, None)
+            bm = line_elem_to_beam(elem, fem.parent, "EL")
             beams.append(bm)
 
         bt = BatchTessellator()
-        meshes = list(bt.batch_tessellate(beams))
-
+        meshes = list(bt.batch_tessellate(beams, graph_store=graph))
         merged_store = concatenate_stores(meshes)
-        merged_mesh_to_trimesh_scene(scene, merged_store, solid_bm_color, solid_bm_color_id)
+
+        merged_mesh_to_trimesh_scene(scene, merged_store, solid_bm_color, solid_bm_color_id, graph_store=graph)
 
     if len(edge_store.indices) > 0:
-        merged_mesh_to_trimesh_scene(scene, edge_store, line_color, line_color_id)
+        merged_mesh_to_trimesh_scene(scene, edge_store, line_color, line_color_id, graph_store=graph)
 
     if len(face_store.indices) > 0:
-        merged_mesh_to_trimesh_scene(scene, face_store, shell_color, shell_color_id)
+        merged_mesh_to_trimesh_scene(scene, face_store, shell_color, shell_color_id, graph_store=graph)
 
     if len(points_store.position) > 0:
-        merged_mesh_to_trimesh_scene(scene, points_store, points_color, points_color_id)
+        merged_mesh_to_trimesh_scene(scene, points_store, points_color, points_color_id, graph_store=graph)
+
+    scene.metadata.update(graph.create_meta())
 
     return scene
 
@@ -316,6 +322,9 @@ class RendererManager:
                 gltf_tree_postprocessor=params.gltf_tree_postprocessor,
                 target_id=target_id,
             )
+
+            if params.gltf_export_to_file is not None:
+                scene.export(params.gltf_export_to_file)
 
             if params.add_ifc_backend is True and type(obj) is Assembly:
                 server_temp = Config().websockets_server_temp_dir
