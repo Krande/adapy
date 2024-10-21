@@ -11,4 +11,4 @@ def test_sqlite_backend(example_files):
     backend.commit()
 
     mesh_data = backend.get_mesh_data_from_face_index(120, 8, "boxes_merged")
-    assert mesh_data.mesh_id == "24"
+    assert mesh_data.full_name == "n24"
