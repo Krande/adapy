@@ -160,10 +160,11 @@ class Mesh:
                     continue
                 try:
                     li_s = len(edges)
-                    edges += elem_shape.edges
+                    new_edges = elem_shape.edges
+                    edges += new_edges
 
                     node = graph.add_node(GraphNode(f"Li{elem_id}", graph.next_node_id(), hash=create_guid(), parent=line_node))
-                    li_groups.append(GroupReference(node, li_s, len(faces)))
+                    li_groups.append(GroupReference(node, li_s, len(new_edges)))
 
                 except IndexError as e:
                     logger.error(e)
@@ -173,9 +174,10 @@ class Mesh:
                     continue
 
                 face_s = len(faces)
-                faces += elem_shape.get_faces()
+                new_faces = elem_shape.get_faces()
+                faces += new_faces
                 node = graph.add_node(GraphNode(f"EL{elem_id}", graph.next_node_id(), hash=create_guid(), parent=face_node))
-                sh_groups.append(GroupReference(node, face_s, len(faces) - face_s))
+                sh_groups.append(GroupReference(node, face_s, len(new_faces)))
 
         coords = self.nodes.coords.flatten()
         po_groups = []
@@ -187,6 +189,7 @@ class Mesh:
         edges = MergedMesh(np.array(edges), coords, None, line_color, MeshType.LINES, groups=li_groups)
         points = MergedMesh(None, coords, None, points_color, MeshType.POINTS, groups=po_groups)
         face_mesh = MergedMesh(np.array(faces), coords, None, shell_color, MeshType.TRIANGLES, groups=sh_groups)
+
         return points, edges, face_mesh
 
 
