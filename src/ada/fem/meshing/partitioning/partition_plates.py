@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from ada.config import Config
+from ada.config import Config, logger
 from ada.core.clash_check import PlateConnections, filter_away_beams_along_plate_edges, find_beams_connected_to_plate
 from ada.fem.meshing import GmshSession
 
@@ -39,10 +39,13 @@ def partition_intersected_plates(plate_con: PlateConnections, gmsh_session: Gmsh
 
                 for pl2_dim, pl2_ent in pl2_gmsh_obj.entities:
                     intersecting_plates.add((pl2_dim, pl2_ent))
-
-            res, res_map = gmsh_session.model.occ.fragment(
-                list(intersecting_plates), [(pl1_dim, pl1_ent)], removeTool=False
-            )
+            try:
+                res, res_map = gmsh_session.model.occ.fragment(
+                    list(intersecting_plates), [(pl1_dim, pl1_ent)], removeTool=False
+                )
+            except Exception as e:
+                logger.error(f"Error while fragmenting plate: {pl1.name} using {pl2.name} {e}")
+                continue
             replaced_pl_entities += [(dim, r) for dim, r in res if dim == 2]
 
         pl1_gmsh_obj.entities = replaced_pl_entities

@@ -102,7 +102,11 @@ def get_sh_sections_for_shape_obj(model: gmsh.model, model_obj: Shape, gmsh_data
 def get_sh_sections_for_plate_obj(model: gmsh.model, model_obj: Plate, gmsh_data: GmshData, fem: FEM):
     tags = []
     for dim, ent in gmsh_data.entities:
-        _, tag, _ = model.mesh.getElements(2, ent)
+        try:
+            _, tag, _ = model.mesh.getElements(2, ent)
+        except BaseException as e:
+            logger.error(e)
+            continue
         tags += tag
 
     elements = [fem.elements.from_id(x) for x in chain.from_iterable(tags)]
