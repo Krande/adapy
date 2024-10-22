@@ -3,16 +3,32 @@ import {useTreeViewStore} from "../../state/treeViewStore";
 import {getMeshFromName} from "../scene/getMeshFromName";
 import * as THREE from 'three';
 import {setSelectedMesh} from "../mesh_select/setSelectedMesh";
+import {getDrawRangeByName} from "../mesh_select/getDrawRangeByName";
+import {highlightDrawRange} from "../mesh_select/highlightDrawRange";
+import {deselectObject} from "../mesh_select/deselectObject";
 
 export function handleClickedNode(event: React.SyntheticEvent, itemIds: string | null) {
         if (itemIds !== null) {
             let node_name = (event as React.BaseSyntheticEvent).currentTarget.innerText;
             console.log("itemIds", itemIds);
             console.log("node_name", node_name);
-            let mesh = getMeshFromName(node_name);
-            if (mesh) {
+
+            let draw_range_data = getDrawRangeByName(node_name);
+            if (!draw_range_data) {
+                console.error("Could not find draw range data for", node_name);
+                return;
+            }
+            const [key, rangeId, start, count] = draw_range_data;
+            let mesh_node_name = key.split("_")[2];
+
+            let mesh = getMeshFromName(mesh_node_name);
+
+            // if mesh is not null and mesh is instance of THREE.Mesh
+            if (mesh && !(mesh instanceof THREE.LineSegments) && !(mesh instanceof THREE.Points)) {
+                highlightDrawRange(mesh, [rangeId, start, count]);
                 console.log("mesh", mesh);
-                setSelectedMesh(mesh as THREE.Mesh, 0);
+            } else {
+                deselectObject();
             }
             useTreeViewStore.getState().setSelectedNodeId(itemIds);
         }

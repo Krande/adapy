@@ -3,6 +3,7 @@ import {defaultMaterial, selectedMaterial} from "../default_materials";
 import {useObjectInfoStore} from "../../state/objectInfoStore";
 import {useModelStore} from "../../state/modelStore";
 import {useSelectedObjectStore} from "../../state/selectedObjectStore";
+import {exists} from "node:fs";
 
 export function highlightDrawRange(mesh: THREE.Mesh, drawRange: [string, number, number]): void {
     const geometry = mesh.geometry as THREE.BufferGeometry;
@@ -11,17 +12,24 @@ export function highlightDrawRange(mesh: THREE.Mesh, drawRange: [string, number,
         return;
     }
 
-    const selectedObject = useSelectedObjectStore.getState().selectedObject;
-    if (selectedObject) {
-        if (selectedObject.geometry)
-            selectedObject.geometry.clearGroups();
+    const alreadySelectedObject = useSelectedObjectStore.getState().selectedObject;
+    if (alreadySelectedObject) {
+        if (alreadySelectedObject.geometry) {
+            alreadySelectedObject.geometry.clearGroups();
+        }
+
+        let existing_mat = useSelectedObjectStore.getState().originalMaterial
+        if (alreadySelectedObject.material && existing_mat) {
+            alreadySelectedObject.material = existing_mat;
+        }
+
     }
 
     useSelectedObjectStore.getState().setSelectedObject(mesh);
+    useSelectedObjectStore.getState().setOriginalMaterial(mesh.material as THREE.MeshBasicMaterial);
 
     const [rangeId, start, count] = drawRange;
 
-    console.log("highlightDrawRange", start, count, mesh.name);
     // Clear existing groups
     geometry.clearGroups();
 
@@ -48,13 +56,6 @@ export function highlightDrawRange(mesh: THREE.Mesh, drawRange: [string, number,
         material.needsUpdate = true;
     });
 
-    let scene = useModelStore.getState().scene;
-    let hierarchy: Record<string, [string, string | number]> = scene?.userData["id_hierarchy"];
-    let value = hierarchy[rangeId];
-    if (value) {
-        // Update the object info store
-        useObjectInfoStore.getState().setName(value[0]);
-    }
 
 
 }

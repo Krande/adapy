@@ -48,6 +48,7 @@ class RenderParams:
     gltf_buffer_postprocessor: Optional[Callable[[OrderedDict, dict], None]] = None
     gltf_tree_postprocessor: Optional[Callable[[OrderedDict], None]] = None
     gltf_export_to_file: str | pathlib.Path = None
+    gltf_asset_extras_dict: dict = None
     add_ifc_backend: bool = False
     backend_file_dir: Optional[str] = None
     unique_id: int = None
@@ -118,33 +119,40 @@ def scene_from_fem_results(self: FEAResult, params: RenderParams):
 
     return scene
 
+
 def scene_from_fem(fem: FEM, params: RenderParams) -> trimesh.Scene:
     from ada.visit.gltf.store import merged_mesh_to_trimesh_scene
 
     shell_color = Color.from_str("white")
-    shell_color_id = 0
+    shell_color_id = 100000
     line_color = Color.from_str("gray")
-    line_color_id = 1
+    line_color_id = 100001
     points_color = Color.from_str("black")
-    points_color_id = 2
-
+    points_color_id = 100002
     solid_bm_color = Color.from_str("light-gray")
-    solid_bm_color_id = 3
+    solid_bm_color_id = 100003
 
     if fem.parent is not None:
         graph = fem.parent.get_graph_store()
         parent_node = graph.hash_map.get(fem.parent.guid)
     else:
         from ada.visit.gltf.graph import GraphStore
+
         parent_node = GraphNode("root", 0, hash=create_guid())
         graph = GraphStore(top_level=parent_node, nodes={0: parent_node})
 
+    use_solid_beams = params.fea_params is not None and params.fea_params.solid_beams is True
+
     mesh = fem.to_mesh()
     points_store, edge_store, face_store = mesh.create_mesh_stores(
-        fem.name, shell_color, line_color, points_color, graph, parent_node
+        fem.name,
+        shell_color,
+        line_color,
+        points_color,
+        graph,
+        parent_node,
+        use_solid_beams=use_solid_beams,
     )
-
-    use_solid_beams = params.fea_params is not None and params.fea_params.solid_beams is True
 
     base_frame = graph.top_level.name if graph is not None else "root"
     scene = trimesh.Scene(base_frame=base_frame)
@@ -153,7 +161,12 @@ def scene_from_fem(fem: FEM, params: RenderParams) -> trimesh.Scene:
         from ada.occ.tessellating import BatchTessellator
         from ada.visit.gltf.optimize import concatenate_stores
 
-        beams = (line_elem_to_beam(elem, fem.parent, "EL") for elem in fem.elements.lines)
+        so_bm_node = graph.add_node(
+            GraphNode(fem.name + "_liSO", graph.next_node_id(), hash=create_guid(), parent=parent_node))
+        beams = [line_elem_to_beam(elem, fem.parent, "BM") for elem in fem.elements.lines]
+        for bm in beams:
+            graph.add_node(GraphNode(bm.name, graph.next_node_id(), hash=bm.guid, parent=so_bm_node))
+
         bt = BatchTessellator()
         meshes = bt.batch_tessellate(beams, graph_store=graph)
         merged_store = concatenate_stores(meshes)
@@ -172,6 +185,7 @@ def scene_from_fem(fem: FEM, params: RenderParams) -> trimesh.Scene:
     scene.metadata.update(graph.create_meta())
 
     return scene
+
 
 def scene_from_object(physical_object: BackendGeom) -> trimesh.Scene:
     from itertools import groupby
@@ -321,7 +335,8 @@ class RendererManager:
             )
 
             if params.gltf_export_to_file is not None:
-                scene.export(params.gltf_export_to_file)
+                gltf_tree_postprocess = GltfTreePostProcessor(params.gltf_asset_extras_dict)
+                scene.export(params.gltf_export_to_file, tree_postprocessor=gltf_tree_postprocess)
 
             if params.add_ifc_backend is True and type(obj) is Assembly:
                 server_temp = Config().websockets_server_temp_dir
@@ -345,3 +360,14 @@ class RendererManager:
                 )
 
         return renderer_instance
+
+
+class GltfTreePostProcessor:
+    def __init__(self, gltf_asset_extras_dict: dict):
+        self.gltf_asset_extras_dict = gltf_asset_extras_dict
+
+    def __call__(self, tree):
+        if self.gltf_asset_extras_dict is not None:
+            extras = tree.get("asset", {}).get("extras", {})
+            extras.update(self.gltf_asset_extras_dict)
+            tree["asset"]["extras"] = extras
