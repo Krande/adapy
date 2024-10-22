@@ -317,4 +317,6 @@ class BatchTessellator:
         shapes_tess_iter = self.iter_ifc_store(ifc_store)
 
         graph = ifc_store.assembly.get_graph_store()
-        return self.meshes_to_trimesh(shapes_tess_iter, graph, merge_meshes=merge_meshes)
+        scene = self.meshes_to_trimesh(shapes_tess_iter, graph, merge_meshes=merge_meshes)
+        scene.metadata.update(graph.create_meta())
+        return scene

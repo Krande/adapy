@@ -248,8 +248,12 @@ class GmshSession:
                 partition_objects_with_holes(model, self)
             else:
                 for dim, tag in model.entities:
+                    try:
+                        self.model.mesh.set_transfinite_surface(tag)
+                    except Exception as e:
+                        logger.error(f"Error while setting transfinite surface: {e}")
+                        continue
                     ents.append(tag)
-                    self.model.mesh.set_transfinite_surface(tag)
                     self.model.mesh.setRecombine(dim, tag)
 
     def make_hex(self):

@@ -1,4 +1,4 @@
-from ada.config import Config
+from ada.config import Config, logger
 from ada.fem.meshing import GmshSession
 
 
@@ -61,7 +61,11 @@ def split_intersecting_beams(gmsh_session: GmshSession, margins=5e-5, out_of_pla
                 continue
 
             # entities_1 = gmsh_session.model.occ.get_entities(1)
-            res, res_map = gmsh_session.model.occ.fragment(bm_gmsh_obj.entities, [(0, split_point)])
+            try:
+                res, res_map = gmsh_session.model.occ.fragment(bm_gmsh_obj.entities, [(0, split_point)])
+            except Exception as e:
+                logger.error(f"Error while fragmenting beam: {bm.name} using {n} {e}")
+                continue
 
             bm_gmsh_obj.entities = [x for x in res_map[0] if x[0] == 1]
             gmsh_session.model.occ.synchronize()
