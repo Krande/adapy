@@ -16,7 +16,7 @@ from ada.comms.fb_model_gen import (
 from ada.config import Config
 from ada.core.guid import create_guid
 from ada.visit.colors import Color
-from ada.visit.gltf.graph import GraphNode
+from ada.visit.gltf.graph import GraphNode, GraphStore
 
 if TYPE_CHECKING:
     from IPython.display import HTML
@@ -120,7 +120,7 @@ def scene_from_fem_results(self: FEAResult, params: RenderParams):
     return scene
 
 
-def scene_from_fem(fem: FEM, params: RenderParams) -> trimesh.Scene:
+def scene_from_fem(fem: FEM, params: RenderParams, graph: GraphStore=None, scene: trimesh.Scene=None) -> trimesh.Scene:
     from ada.visit.gltf.store import merged_mesh_to_trimesh_scene
 
     shell_color = Color.from_str("white")
@@ -132,14 +132,15 @@ def scene_from_fem(fem: FEM, params: RenderParams) -> trimesh.Scene:
     solid_bm_color = Color.from_str("light-gray")
     solid_bm_color_id = 100003
 
-    if fem.parent is not None:
-        graph = fem.parent.get_graph_store()
-        parent_node = graph.hash_map.get(fem.parent.guid)
+    if graph is None:
+        if fem.parent is not None:
+            graph = fem.parent.get_graph_store()
+            parent_node = graph.hash_map.get(fem.parent.guid)
+        else:
+            parent_node = GraphNode("root", 0, hash=create_guid())
+            graph = GraphStore(top_level=parent_node, nodes={0: parent_node})
     else:
-        from ada.visit.gltf.graph import GraphStore
-
-        parent_node = GraphNode("root", 0, hash=create_guid())
-        graph = GraphStore(top_level=parent_node, nodes={0: parent_node})
+        parent_node = graph.top_level
 
     use_solid_beams = params.fea_params is not None and params.fea_params.solid_beams is True
 
@@ -155,7 +156,8 @@ def scene_from_fem(fem: FEM, params: RenderParams) -> trimesh.Scene:
     )
 
     base_frame = graph.top_level.name if graph is not None else "root"
-    scene = trimesh.Scene(base_frame=base_frame)
+    scene = trimesh.Scene(base_frame=base_frame) if scene is None else scene
+
     if use_solid_beams:
         from ada.fem.formats.utils import line_elem_to_beam
         from ada.occ.tessellating import BatchTessellator
@@ -217,7 +219,7 @@ def scene_from_part_or_assembly(part_or_assembly: Part | Assembly, params: Rende
         part_or_assembly.ifc_store.sync()
 
     scene = part_or_assembly.to_trimesh_scene(
-        stream_from_ifc=params.stream_from_ifc_store, merge_meshes=params.merge_meshes
+        stream_from_ifc=params.stream_from_ifc_store, merge_meshes=params.merge_meshes, params=params
     )
     return scene
 

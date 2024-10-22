@@ -20,6 +20,7 @@ from ada.base.units import Units
 from ada.comms.fb_model_gen import FileObjectDC, FilePurposeDC, FileTypeDC
 from ada.config import logger
 from ada.visit.gltf.graph import GraphNode, GraphStore
+from ada.visit.renderer_manager import RenderParams
 
 if TYPE_CHECKING:
     import trimesh
@@ -750,7 +751,6 @@ class Part(BackendGeom):
             if interactive is True:
                 gs.open_gui()
 
-
             gs.partition_plates()
             gs.partition_beams()
 
@@ -787,6 +787,7 @@ class Part(BackendGeom):
         filter_by_guids=None,
         merge_meshes=True,
         stream_from_ifc=False,
+        params: RenderParams = None,
     ) -> trimesh.Scene:
         from ada.occ.tessellating import BatchTessellator
         from ada import Assembly

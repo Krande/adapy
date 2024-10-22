@@ -22,7 +22,7 @@ def edges_intersect(use_xact=False):
     Config().update_config_globally(
         "meshing_open_viewer_breakpoint_names",
         [
-            #"partition_isect_bm_loop",
+            # "partition_isect_bm_loop",
             # "partition_isect_bm_pre",
             # "partition_bm_split_cut_1"
         ],
@@ -46,11 +46,13 @@ def edges_intersect(use_xact=False):
 
     a = ada.Assembly() / (ada.Part("MyPart") / objects)
     p = a.get_part("MyPart")
-    # a.show()
+    a.show(
+        params_override=RenderParams(
+            gltf_export_to_file="temp/design_model.glb"
+        )
+    )
 
-    p.fem = p.to_fem_obj(0.1, interactive=False)
-    a.to_fem("MyIntersectingedge", "usfos", overwrite=True)
-    a.to_fem("MyIntersectingedge_aba", "abaqus", overwrite=True)
+    p.fem = p.to_fem_obj(0.3, interactive=False)
     p.fem.show(
         params_override=RenderParams(
             gltf_export_to_file="temp/fea_model.glb",
@@ -58,7 +60,6 @@ def edges_intersect(use_xact=False):
         )
     )
 
-    # p.fem.show()
     if use_xact:
         xact = os.getenv("XACT_EXE")
         if xact:

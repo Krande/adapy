@@ -56,8 +56,11 @@ def split_intersecting_beams(gmsh_session: GmshSession, margins=5e-5, out_of_pla
             if n == bm.n1 or n == bm.n2:
                 continue
             bm_gmsh_obj = gmsh_session.model_map[bm]
-            # entities_1 = gmsh_session.model.occ.get_entities(1)
+            if len(bm_gmsh_obj.entities) != 1:
+                # This beam has already been split
+                continue
 
+            # entities_1 = gmsh_session.model.occ.get_entities(1)
             res, res_map = gmsh_session.model.occ.fragment(bm_gmsh_obj.entities, [(0, split_point)])
 
             bm_gmsh_obj.entities = [x for x in res_map[0] if x[0] == 1]
