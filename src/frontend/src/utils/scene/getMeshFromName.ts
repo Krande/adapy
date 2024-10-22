@@ -6,7 +6,7 @@ export function getMeshFromName(meshName: string) {
         console.error("Scene is not set in model store");
         return null;
     }
-    const mesh = scene.getObjectByName(meshName);
+    const mesh = scene.getObjectByName(meshName) as THREE.Mesh;
     if (mesh) {
         return mesh;
     }

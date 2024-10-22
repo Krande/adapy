@@ -129,13 +129,16 @@ class Mesh:
         points_color,
         graph: GraphStore,
         parent_node: GraphNode,
-        solid_beams=False,
+        use_solid_beams=False,
     ) -> tuple[MergedMesh, MergedMesh, MergedMesh]:
         from ada.fem.shapes import ElemShape
         from ada.fem.shapes import definitions as shape_def
 
         face_node = graph.add_node(GraphNode(parent_name + "_sh", graph.next_node_id(), hash=create_guid(), parent=parent_node))
-        line_node = graph.add_node(GraphNode(parent_name + "_li", graph.next_node_id(), hash=create_guid(), parent=parent_node))
+        line_node = None
+        if use_solid_beams is False:
+            line_node = graph.add_node(GraphNode(parent_name + "_li", graph.next_node_id(), hash=create_guid(), parent=parent_node))
+
         points_node = graph.add_node(GraphNode(parent_name + "_po", graph.next_node_id(), hash=create_guid(), parent=parent_node))
 
         nmap = {x: i for i, x in enumerate(self.nodes.identifiers)}
@@ -151,24 +154,25 @@ class Mesh:
 
             nodes_copy = cell_block.node_refs.copy()
             nodes_copy[np.isin(nodes_copy, keys)] = np.vectorize(nmap.get)(nodes_copy[np.isin(nodes_copy, keys)])
-            if solid_beams and isinstance(el_type, (shape_def.LineShapes, shape_def.ConnectorTypes)):
+            if use_solid_beams and isinstance(el_type, (shape_def.LineShapes, shape_def.ConnectorTypes)):
                 continue
 
-            for elem_id, elem in enumerate(nodes_copy, start=1):
+            el_idmap = {i: x for i, x in enumerate(cell_block.identifiers)}
+
+            for elem_ref, elem in enumerate(nodes_copy, start=0):
+                elem_id = el_idmap[elem_ref]
                 elem_shape = ElemShape(el_type, elem)
                 if elem_shape.type in (MassTypes.MASS,):
                     continue
-                try:
-                    li_s = len(edges)
-                    new_edges = elem_shape.edges
-                    edges += new_edges
 
+
+                new_edges = elem_shape.edges
+                edges += new_edges
+
+                if line_node is not None:
+                    li_s = len(edges)
                     node = graph.add_node(GraphNode(f"Li{elem_id}", graph.next_node_id(), hash=create_guid(), parent=line_node))
                     li_groups.append(GroupReference(node, li_s, len(new_edges)))
-
-                except IndexError as e:
-                    logger.error(e)
-                    continue
 
                 if isinstance(elem_shape.type, (shape_def.LineShapes, shape_def.ConnectorTypes)):
                     continue

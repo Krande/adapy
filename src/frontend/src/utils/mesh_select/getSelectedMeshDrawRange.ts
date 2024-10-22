@@ -19,7 +19,7 @@ export function getSelectedMeshDrawRange(mesh: THREE.Mesh, faceIndex: number): [
     // Find the draw range that includes the specified face index
     for (const [rangeId, [start, length]] of Object.entries(drawRanges)) {
         const end = start + length;
-        if (faceIndex >= start && faceIndex < end) {
+        if (faceIndex*3 >= start && faceIndex*3 < end) {
             return [rangeId, start, length];
         }
     }

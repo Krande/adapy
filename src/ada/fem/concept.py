@@ -407,8 +407,8 @@ class FEM:
             ping_timeout=ping_timeout,
         )
 
-        fea_params = FEARenderParams(solid_beams=solid_beams)
         if params_override is None:
+            fea_params = FEARenderParams(solid_beams=solid_beams)
             params_override = RenderParams(
                 unique_id=unique_id,
                 purpose=purpose,

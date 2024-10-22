@@ -24,7 +24,7 @@ const ThreeModel: React.FC<ModelProps> = ({url}) => {
 
     useAnimationEffects(animations, scene);
     useEffect(() => {
-        if (useModelStore.getState().scene === null){
+        if (scene){
             useModelStore.getState().setScene(scene);
         }
 
