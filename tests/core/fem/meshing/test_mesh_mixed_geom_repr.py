@@ -5,7 +5,7 @@ from ada import Assembly, Beam, Part, Pipe, Plate, PrimBox, PrimSphere
 from ada.api.transforms import Placement
 from ada.fem.meshing.concepts import GmshOptions, GmshSession, GmshTask
 from ada.fem.meshing.multisession import multisession_gmsh_tasker
-from ada.fem.meshing.partitioning.partition_beams import make_ig_cutplanes
+from ada.fem.meshing.partitioning.partition_beam_interiors import make_ig_cutplanes
 
 
 @pytest.fixture

@@ -177,11 +177,13 @@ class GmshSession:
         self.model.geo.synchronize()
 
     def partition_beams(self):
-        from ada.fem.meshing.partitioning.partition_intersecting_beams import split_crossing_beams
+        from ada.fem.meshing.partitioning.partition_beams import split_crossing_beams, split_intersecting_beams
         plates = [obj for obj in self.model_map.keys() if type(obj) is Plate]
 
-        if len(plates) == 0: # For some reason this
+        if len(plates) == 0: # For some reason this breaks the model whenever plates are in the model
             split_crossing_beams(self)
+        else:
+            split_intersecting_beams(self)
 
     def partition_plates(self):
         """Split plates that are intersecting each other"""

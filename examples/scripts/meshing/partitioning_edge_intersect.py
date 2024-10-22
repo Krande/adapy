@@ -22,7 +22,7 @@ def edges_intersect(use_xact=False):
     Config().update_config_globally(
         "meshing_open_viewer_breakpoint_names",
         [
-            # "partition_bm_split_pre",
+            #"partition_isect_bm_loop",
             # "partition_isect_bm_pre",
             # "partition_bm_split_cut_1"
         ],

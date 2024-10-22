@@ -3,20 +3,24 @@ from __future__ import annotations
 import traceback
 from dataclasses import dataclass
 from itertools import chain
-from typing import Iterable, List
+from typing import Iterable, List, TYPE_CHECKING
 
 import numpy as np
 
 import ada
-from ada import Assembly, Beam, Node, Part, Pipe, PipeSegStraight, Plate, PrimCyl
+
 from ada.config import logger
 
 from ..api.transforms import EquationOfPlane
 from .utils import Counter
 from .vector_utils import intersect_calc, is_parallel, vector_length
 
+if TYPE_CHECKING:
+    from ada import Assembly, Beam, Node, Part, Pipe, PipeSegStraight, Plate, PrimCyl
+    from ada.api.containers import Beams
 
-def basic_intersect(bm: Beam, margins, all_parts: [Part]):
+
+def basic_intersect(bm: Beam, margins, all_beam_containers: [Beams]):
     if bm.section.type == "gensec":
         return bm, []
     try:
@@ -27,7 +31,7 @@ def basic_intersect(bm: Beam, margins, all_parts: [Part]):
     vol_in = [x for x in zip(vol[0], vol[1])]
     beams = filter(
         lambda x: x != bm,
-        chain.from_iterable([p.beams.get_beams_within_volume(vol_in, margins=margins) for p in all_parts]),
+        chain.from_iterable([beams.get_beams_within_volume(vol_in, margins=margins) for beams in all_beam_containers]),
     )
     return bm, beams
 
@@ -63,6 +67,8 @@ def beam_cross_check(bm1: Beam, bm2: Beam, outofplane_tol=0.1):
 
 def are_beams_connected(bm1: Beam, beams: List[Beam], out_of_plane_tol, point_tol, nodes, nmap) -> None:
     # TODO: Function should be renamed, or return boolean. Unclear what the function does at the moment
+    from ada import Node
+
     for bm2 in beams:
         if bm1 == bm2:
             continue
@@ -140,6 +146,7 @@ def filter_beams_along_plate_edges(pl: Plate, beams: Iterable[Beam]):
 def find_beams_connected_to_plate(pl: Plate, beams: list[Beam]) -> list[Beam]:
     """Return all beams with their midpoints inside a specified plate for a given list of beams"""
     from ada.api.containers import Nodes
+    from ada import Node
 
     nid = Counter(1)
     nodes = Nodes(

@@ -392,7 +392,7 @@ class FEM:
         unique_id=None,
         purpose: FilePurposeDC = FilePurposeDC.ANALYSIS,
         params_override: RenderParams = None,
-        solid_beams=False,
+        solid_beams=True,
         ping_timeout=1,
     ) -> None:
 

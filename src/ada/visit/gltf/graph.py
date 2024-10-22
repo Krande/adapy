@@ -33,7 +33,7 @@ class GraphStore:
 
     def add_node(self, node: GraphNode) -> GraphNode:
         self.nodes[node.node_id] = node
-        self.hash_map[node.name] = node
+        self.hash_map[node.hash] = node
 
         return node
 
