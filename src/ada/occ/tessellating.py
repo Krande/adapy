@@ -20,6 +20,7 @@ from ada.visit.gltf.graph import GraphStore, GraphNode
 from ada.visit.gltf.meshes import MeshStore, MeshType
 from ada.visit.gltf.optimize import concatenate_stores
 from ada.visit.gltf.store import merged_mesh_to_trimesh_scene
+from ada.visit.renderer_manager import RenderParams
 
 if TYPE_CHECKING:
     import trimesh
@@ -222,7 +223,7 @@ class BatchTessellator:
                     merged_mesh_to_trimesh_scene(scene, mesh_store, self.get_mat_by_id(mat_id), mat_id, graph)
         return scene
 
-    def append_fem_to_trimesh(self, scene: trimesh.Scene, part: Part, graph):
+    def append_fem_to_trimesh(self, scene: trimesh.Scene, part: Part, graph, params: RenderParams = None):
         shell_color = Color.from_str("white")
         shell_color_id = self.add_color(shell_color)
         line_color = Color.from_str("gray")
@@ -249,7 +250,7 @@ class BatchTessellator:
                 merged_mesh_to_trimesh_scene(scene, points_store, points_color, points_color_id, graph)
 
     def tessellate_part(
-        self, part: Part, filter_by_guids=None, render_override=None, merge_meshes=True
+        self, part: Part, filter_by_guids=None, render_override=None, merge_meshes=True, params: RenderParams = None
     ) -> trimesh.Scene:
 
         graph = part.get_graph_store()
