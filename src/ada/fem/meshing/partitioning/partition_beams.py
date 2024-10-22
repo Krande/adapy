@@ -1,67 +1,68 @@
-from typing import TYPE_CHECKING
+from ada.config import Config
+from ada.fem.meshing import GmshSession
 
-import numpy as np
 
-from ada import CurvePoly2d, Placement
-
-if TYPE_CHECKING:
+def split_crossing_beams(gmsh_session: GmshSession):
     from ada import Beam
+    br_names = Config().meshing_open_viewer_breakpoint_names
 
-    from ..concepts import GmshData, GmshSession
+    beams = [obj for obj in gmsh_session.model_map.keys() if type(obj) is Beam]
+    if len(beams) == 1:
+        return None
 
+    if br_names is not None and "partition_isect_bm_pre" in br_names:
+        gmsh_session.open_gui()
 
-def ibeam(model: "GmshData", gmsh_session: "GmshSession"):
-    # pass
-    bm_obj: "Beam" = model.obj
-    for cut in make_ig_cutplanes(bm_obj):
-        gmsh_session.add_cutting_plane(cut, [model])
+    intersecting_beams = []
+    int_bm_map = dict()
+    for bm in beams:
+        bm_gmsh_obj = gmsh_session.model_map[bm]
+        for li_dim, li_ent in bm_gmsh_obj.entities:
+            intersecting_beams.append((li_dim, li_ent))
+            int_bm_map[(li_dim, li_ent)] = bm_gmsh_obj
 
-    gmsh_session.make_cuts()
+    res, res_map = gmsh_session.model.occ.fragment(
+        intersecting_beams, intersecting_beams, removeTool=True, removeObject=True
+    )
 
-    for dim, tag in gmsh_session.model.get_entities():
-        if dim == 2:
-            gmsh_session.model.mesh.set_transfinite_surface(tag)
-            gmsh_session.model.mesh.setRecombine(dim, tag)
+    for i, int_bm in enumerate(intersecting_beams):
+        bm_gmsh_obj = int_bm_map[int_bm]
+        new_ents = res_map[i]
+        bm_gmsh_obj.entities = new_ents
 
-    for dim, tag in gmsh_session.model.get_entities():
-        if dim == 3:
-            gmsh_session.model.mesh.set_transfinite_volume(tag)
-            gmsh_session.model.mesh.setRecombine(dim, tag)
-
-    # gmsh_session.open_gui()
-
-    # raise NotImplementedError()
-
-
-def make_ig_cutplanes(bm: "Beam"):
-    from ..concepts import CutPlane
-
-    points2d = bm.section.get_section_profile().outer_curve.points2d
-    sec_place = Placement(bm.n1.p, bm.yvec, bm.up)
-    points3d = sec_place.transform_local_points_back_to_global(points2d)
-
-    minz = min([x[2] for x in points3d])
-    maxz = max([x[2] for x in points3d])
-    pmin, pmax = bm.bbox().p1, bm.bbox().p2
-    dx, dy, dz = (np.array(pmax) - np.array(pmin)) * 1.0
-    x, y, _ = pmin
-
-    sec = bm.section
-
-    cut1 = CutPlane((x, y, minz + sec.t_fbtn), dx=dx, dy=dy)
-    cut2 = CutPlane((x, y, maxz - sec.t_fbtn), dx=dx, dy=dy)
-
-    web_left = bm.n1.p - (sec.t_w / 2) * bm.yvec - (sec.h / 2) * bm.up
-    web_right = bm.n1.p + (sec.t_w / 2) * bm.yvec - (sec.h / 2) * bm.up
-    dy = sec.h
-    cut3 = CutPlane(web_left, dx=dx, dy=dy, plane="XZ")
-    cut4 = CutPlane(web_right, dx=dx, dy=dy, plane="XZ")
-
-    return [cut1, cut2, cut3, cut4]
+    gmsh_session.model.occ.synchronize()
 
 
-def get_bm_section_curve(bm: "Beam", origin=None) -> CurvePoly2d:
-    origin = origin if origin is not None else bm.n1.p
-    section_profile = bm.section.get_section_profile(True)
-    points2d = section_profile.outer_curve.points2d
-    return CurvePoly2d(points2d=points2d, origin=origin, xdir=bm.yvec, normal=bm.xvec, parent=bm.parent)
+def split_intersecting_beams(gmsh_session: GmshSession, margins=5e-5, out_of_plane_tol=0.1, point_tol=Config().general_point_tol):
+    from ada import Beam, Node
+    from ada.api.containers import Beams, Nodes
+    from ada.core.clash_check import basic_intersect, are_beams_connected
+
+    br_names = Config().meshing_open_viewer_breakpoint_names
+
+    all_beams = [obj for obj in gmsh_session.model_map.keys() if type(obj) is Beam]
+    bm_cont = Beams(all_beams)
+    if len(all_beams) == 1:
+        return None
+
+    nodes = Nodes()
+    nmap: dict[Node, list[Beam]] = dict()
+    for bm, cbeams in filter(None, [basic_intersect(bm, margins, [bm_cont]) for bm in all_beams]):
+        are_beams_connected(bm, cbeams, out_of_plane_tol, point_tol, nodes, nmap)
+
+    for n, beams in nmap.items():
+        split_point = gmsh_session.model.occ.addPoint(n.x, n.y, n.z)
+        for bm in beams:
+            if n == bm.n1 or n == bm.n2:
+                continue
+            bm_gmsh_obj = gmsh_session.model_map[bm]
+            # entities_1 = gmsh_session.model.occ.get_entities(1)
+
+            res, res_map = gmsh_session.model.occ.fragment(bm_gmsh_obj.entities, [(0, split_point)])
+
+            bm_gmsh_obj.entities = [x for x in res_map[0] if x[0] == 1]
+            gmsh_session.model.occ.synchronize()
+            if br_names is not None and "partition_isect_bm_loop" in br_names:
+                gmsh_session.open_gui()
+
+    gmsh_session.model.occ.synchronize()

@@ -673,8 +673,9 @@ class Part(BackendGeom):
 
         all_parts = self.get_all_subparts() + [self]
         all_beams = [bm for p in all_parts for bm in p.beams]
+        all_bm_containers = [p.beams for p in all_parts]
 
-        return filter(None, [basic_intersect(bm, margins, all_parts) for bm in all_beams])
+        return filter(None, [basic_intersect(bm, margins, all_bm_containers) for bm in all_beams])
 
     def move_all_mats_and_sec_here_from_subparts(self):
         for p in self.get_all_subparts():
@@ -732,6 +733,7 @@ class Part(BackendGeom):
 
         options = GmshOptions(Mesh_Algorithm=8) if options is None else options
         masses: list[Shape] = []
+
         with GmshSession(silent=silent, options=options, debug_mode=debug_mode) as gs:
             for obj in self.get_all_physical_objects(sub_elements_only=False):
                 if isinstance(obj, Beam):
@@ -748,8 +750,8 @@ class Part(BackendGeom):
             if interactive is True:
                 gs.open_gui()
 
-            gs.partition_plates()
 
+            gs.partition_plates()
             gs.partition_beams()
 
             if interactive is True:

@@ -1,12 +1,10 @@
 import * as THREE from "three";
-import {defaultMaterial, selectedMaterial} from "../default_materials";
-import {useObjectInfoStore} from "../../state/objectInfoStore";
-import {useModelStore} from "../../state/modelStore";
+import {selectedMaterial} from "../default_materials";
 import {useSelectedObjectStore} from "../../state/selectedObjectStore";
-import {exists} from "node:fs";
 
 export function highlightDrawRange(mesh: THREE.Mesh, drawRange: [string, number, number]): void {
     const geometry = mesh.geometry as THREE.BufferGeometry;
+
     if (!geometry || !drawRange) {
         console.warn("Invalid geometry or draw range");
         return;
@@ -51,11 +49,9 @@ export function highlightDrawRange(mesh: THREE.Mesh, drawRange: [string, number,
 
     // Set the materials array with the original and selected materials
     mesh.material = [originalMaterial, selectedMaterial];
+
     // Set needsUpdate for each material
     mesh.material.forEach(material => {
         material.needsUpdate = true;
     });
-
-
-
 }

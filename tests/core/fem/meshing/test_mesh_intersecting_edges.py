@@ -28,7 +28,7 @@ def test_edges_intersect(tmp_path):
     # p.connections.find()
 
     p.fem = p.to_fem_obj(0.1, interactive=False)
-
+    p.fem.show()
     n = p.fem.nodes.get_by_volume(p=(0.5, 0.5, 0))[0]
     assert len(list(filter(lambda x: x.type == LineShapes.LINE, n.refs))) == 4
     # a.to_fem("MyIntersectingedge_ufo", "usfos", overwrite=True, scratch_dir=tmp_path)
