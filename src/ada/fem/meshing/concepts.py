@@ -226,6 +226,11 @@ class GmshSession:
         self.apply_settings()
         self.model.geo.synchronize()
         self.model.mesh.setRecombine(3, -1)
+
+        br_names = Config().meshing_open_viewer_breakpoint_names
+        if br_names is not None and "before_meshing" in br_names:
+            self.open_gui()
+
         self.model.mesh.generate(3)
 
         self.model.mesh.removeDuplicateNodes()
@@ -239,6 +244,10 @@ class GmshSession:
 
     def make_quads(self):
         from ada.fem.meshing.partitioning.strategies import partition_objects_with_holes
+
+        br_names = Config().meshing_open_viewer_breakpoint_names
+        if br_names is not None and "pre_make_quads" in br_names:
+            self.open_gui()
 
         ents = []
         for obj, model in self.model_map.items():
@@ -255,6 +264,9 @@ class GmshSession:
                         continue
                     ents.append(tag)
                     self.model.mesh.setRecombine(dim, tag)
+
+        if br_names is not None and "post_make_quads" in br_names:
+            self.open_gui()
 
     def make_hex(self):
         from ada.fem.meshing.partitioning.strategies import partition_solid_beams

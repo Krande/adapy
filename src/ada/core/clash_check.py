@@ -263,9 +263,14 @@ def find_edge_connected_perpendicular_plates(plates: list[ada.Plate]) -> PlateCo
         place1 = pl1.placement.get_absolute_placement()
         eop = EquationOfPlane(pl1.poly.origin, pl1.poly.normal, pl1.poly.ydir)
         p13d = place1.origin + pl1.poly.points3d
+        n1 = pl1.poly.normal
+        parallel_plates = False
         for pl2 in plates:
             if pl1 == pl2:
                 continue
+            n2 = pl2.poly.normal
+            if n1.is_equal(n2):
+                parallel_plates = True
             place2 = pl2.placement.get_absolute_placement()
             p23d = place2.origin + pl2.poly.points3d
             res = eop.return_points_in_plane(np.asarray(p23d))
@@ -274,13 +279,17 @@ def find_edge_connected_perpendicular_plates(plates: list[ada.Plate]) -> PlateCo
 
             # pop out the elements in the numpy array res that are rows in p13d
             res_clear = [r for r in res if not any(np.all(r == p) for p in p13d)]
+            if parallel_plates and len(res_clear) == 2:
+                if pl1 not in edge_connected:
+                    edge_connected[pl1] = []
+                edge_connected[pl1].append(pl2)
 
             if len(res) == 2 and len(res_clear) == 0:
                 if pl1 not in edge_connected:
                     edge_connected[pl1] = []
                 edge_connected[pl1].append(pl2)
 
-            if len(res_clear) == 2:
+            if len(res_clear) == 2 and parallel_plates is False:
                 if pl1 not in mid_span_connected:
                     mid_span_connected[pl1] = []
                 mid_span_connected[pl1].append(pl2)

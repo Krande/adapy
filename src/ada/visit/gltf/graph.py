@@ -93,11 +93,14 @@ class GraphStore:
 @dataclass
 class GraphNode:
     name: str
-    node_id: int
+    node_id: str | int
     children: list[GraphNode] = field(default_factory=list, repr=False)
     parent: GraphNode | None = field(default=None, repr=False)
     mesh_indices: list[MeshRef] = field(default_factory=list, repr=False)
     hash: str = field(default_factory=create_guid, repr=False)
+
+    def __post_init__(self):
+        self.node_id = str(self.node_id)
 
     def get_safe_name(self):
         return self.name.replace("/", "")

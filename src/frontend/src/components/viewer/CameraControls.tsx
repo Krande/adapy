@@ -4,6 +4,8 @@ import {useThree} from '@react-three/fiber';
 import * as THREE from 'three';
 import {OrbitControls as OrbitControlsImpl} from 'three-stdlib';
 import React from 'react';
+import {useModelStore} from "../../state/modelStore";
+import {useSelectedObjectStore} from "../../state/selectedObjectStore";
 
 type CameraControlsProps = {
     orbitControlsRef: React.RefObject<OrbitControlsImpl>;
@@ -67,10 +69,21 @@ const CameraControls: React.FC<CameraControlsProps> = ({orbitControlsRef}) => {
         gl.domElement.addEventListener('pointerdown', handlePointerDown);
 
         const handleKeyDown = (event: KeyboardEvent) => {
-            if (event.key.toLowerCase() === 'f' && !event.ctrlKey && !event.altKey && !event.metaKey) {
-                if (selectedObjectRef.current) {
-                    centerViewOnObject(selectedObjectRef.current);
+            let currently_selected = useSelectedObjectStore.getState().selectedObject;
+            if (event.key.toLowerCase() === 'f' && event.shiftKey) {
+                if (currently_selected) {
+                    centerViewOnObject(currently_selected);
                 }
+            } else if (event.key.toLowerCase() === 'h' && event.shiftKey) {
+                // Perform an action when "ctrl+h" is pressed
+                console.log('SHIFT+H pressed');
+                // currently_selected?.layers.set(1);
+                // Example action: Reset the camera position to the default
+            } else if (event.key.toLowerCase() === 'g' && event.shiftKey) {
+                // Perform an action when "ctrl+h" is pressed
+                console.log('SHIFT+g pressed');
+                // loop over objects in layers 2 and set them to layer 0
+                // Example action: Reset the camera position to the default
             }
         };
 
