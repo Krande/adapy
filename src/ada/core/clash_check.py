@@ -13,7 +13,7 @@ from ada.config import logger
 
 from ..api.transforms import EquationOfPlane
 from .utils import Counter
-from .vector_utils import intersect_calc, is_parallel, vector_length
+from .vector_utils import intersect_calc, is_parallel, vector_length, is_between_endpoints
 
 if TYPE_CHECKING:
     from ada import Assembly, Beam, Node, Part, Pipe, PipeSegStraight, Plate, PrimCyl
@@ -107,11 +107,20 @@ def filter_away_beams_along_plate_edges(pl: Plate, beams: Iterable[Beam]) -> Lis
 
     # filter away all beams with both ends on any of corner points of the plate
     beams_not_along_plate_edge = []
-    # todo: check if beam aligned to the plate edge but exceed the plate edge and will not have a point inside edge
 
+    # todo: check if beam aligned to the plate edge but exceed the plate edge and will not have a point inside edge
     for bm in beams:
         t1 = tuple(bm.n1.p)
         t2 = tuple(bm.n2.p)
+
+        is_along_edge = False
+        for n in pl.nodes:
+            if is_between_endpoints(n.p, bm.n1.p, bm.n2.p, incl_endpoints=True):
+                is_along_edge = True
+                break
+
+        if is_along_edge:
+            continue
 
         if t1 in corners:
             cindex = corners.index(t1)

@@ -109,8 +109,6 @@ def split_plates_by_beams(gmsh_session: GmshSession):
                 if new_ents == bm_gmsh_obj.entities:
                     continue
                 if len(new_ents) == 1 and new_ents[0] in bm_gmsh_obj.entities:
-                    if len(bm_gmsh_obj.entities) > 1:
-                        raise ValueError(f"Beam {bm_gmsh_obj.name} was not split")
                     continue
                 old_entities = bm_gmsh_obj.entities
                 bm_gmsh_obj.entities = new_ents
