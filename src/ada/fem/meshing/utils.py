@@ -141,11 +141,7 @@ def get_bm_sections(model: gmsh.model, beam: Beam, gmsh_data, fem: FEM):
 
     tags = []
     for dim, ent in gmsh_data.entities:
-        try:
-            _, tag, _ = model.mesh.getElements(1, ent)
-        except BaseException as e:
-            logger.error(e)
-            continue
+        _, tag, _ = model.mesh.getElements(1, ent)
         tags += tag
 
     elements = [fem.elements.from_id(elid) for elid in chain.from_iterable(tags)]

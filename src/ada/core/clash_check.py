@@ -107,6 +107,7 @@ def filter_away_beams_along_plate_edges(pl: Plate, beams: Iterable[Beam]) -> Lis
 
     # filter away all beams with both ends on any of corner points of the plate
     beams_not_along_plate_edge = []
+    # todo: check if beam aligned to the plate edge but exceed the plate edge and will not have a point inside edge
 
     for bm in beams:
         t1 = tuple(bm.n1.p)
@@ -120,6 +121,7 @@ def filter_away_beams_along_plate_edges(pl: Plate, beams: Iterable[Beam]) -> Lis
 
             if t2 == nextp or t2 == prevp:
                 continue
+
         beams_not_along_plate_edge.append(bm)
 
     return beams_not_along_plate_edge

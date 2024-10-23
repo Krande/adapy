@@ -70,7 +70,7 @@ class CutPlane:
 
 @dataclass
 class GmshData:
-    entities: Iterable
+    entities: list[tuple]
     geom_repr: str | GeomRepr
     order: int
     obj: Shape | Beam | Plate | Pipe

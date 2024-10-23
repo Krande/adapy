@@ -3,6 +3,7 @@ import numpy as np
 import ada
 from ada.core.utils import Counter
 from ada.fem import Elem
+from ada.fem.meshing import GmshOptions
 from ada.fem.shapes.definitions import LineShapes
 
 
@@ -91,12 +92,38 @@ def test_beams_enclosing_beams(tmp_path):
     beams = ada.Beam.array_from_list_of_coords(p5x5, "IPE100", name_gen=name_gen)
 
     a = ada.Assembly() / (ada.Part("XBeams") / (pl, *beams, *beams_inner))
-    a.fem = a.to_fem_obj(0.3, interactive=False)
+
+    a.fem = a.to_fem_obj(1.0, interactive=False)
 
     line_elem = list(a.fem.elements.lines)
 
     for el in line_elem:
         assert el.fem_sec is not None
 
-    # a.to_fem("MyIntersectingedge_aba", "abaqus", overwrite=True, scratch_dir=tmp_path / 'abaqus')
-    a.to_fem("MyIntersectingedge_ufo", "usfos", overwrite=True, scratch_dir=tmp_path / "usfos")
+    a.fem.show()
+
+def test_intersect_edge_midpoint():
+    corner_points = [(0, 0), (1, 0), (1, 1), (0, 1)]
+
+    midpoints_input = [0.5]
+    plates = []
+    pl_btn = ada.Plate("pl_btn", corner_points, 0.01)
+    plates += [pl_btn]
+    beams = []
+    for j, midp in enumerate(midpoints_input):
+        midpoints = [(midp, 0, 0), (midp, 1, 0)]
+        midpoints_y = [(0, midp, 0), (1, midp, 0)]
+        pl_mid = ada.Plate(f'pl_mid{j}', corner_points, 0.01, origin=midpoints[0], n=(-1, 0, 0), xdir=(0, 0, 1))
+        plates.append(pl_mid)
+        mid_bm = ada.Beam(f'mid_bm{j}', *midpoints, sec="IPE100")
+        beams.append(mid_bm)
+        mid_bm_y = ada.Beam(f'mid_bm_y{j}', *midpoints_y, sec="IPE100")
+        beams.append(mid_bm_y)
+
+    beams += ada.Beam.array_from_list_of_coords([(*x, 0) for x in corner_points], sec="IPE100", make_closed=True)
+    columns = []
+
+    p = ada.Part('Stru') / (*beams, *columns, *plates)
+    # p.show()
+
+    p.fem = p.to_fem_obj(0.5, use_quads=False, options=GmshOptions(Mesh_Algorithm=6))
