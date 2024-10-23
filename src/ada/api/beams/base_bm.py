@@ -91,13 +91,21 @@ class Beam(BackendGeom):
 
     @staticmethod
     def array_from_list_of_coords(
-        list_of_coords: list[tuple], sec: Section | str, mat: Material | str = None, name_gen: Iterable = None
+        list_of_coords: list[tuple],
+        sec: Section | str,
+        mat: Material | str = None,
+        name_gen: Iterable = None,
+        make_closed=False,
     ) -> list[Beam]:
         """Create an array of beams from a list of coordinates"""
         beams = []
         ngen = name_gen if name_gen is not None else Counter(prefix="bm")
         for p1, p2 in zip(list_of_coords[:-1], list_of_coords[1:]):
             beams.append(Beam(next(ngen), p1, p2, sec, mat))
+
+        if make_closed and list_of_coords[0] != list_of_coords[-1]:
+            beams.append(Beam(next(ngen), list_of_coords[-1], list_of_coords[0], sec, mat))
+
         return beams
 
     def _init_orientation(self, angle=None, up=None) -> None:

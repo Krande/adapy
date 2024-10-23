@@ -90,7 +90,7 @@ def split_plates_by_beams(gmsh_session: GmshSession):
             if len(intersecting_beams) == 0:
                 continue
 
-            res, res_map = gmsh_session.model.occ.fragment(intersecting_beams, [(pl_dim, pl_ent)], removeTool=True, removeObject=False)
+            res, res_map = gmsh_session.model.occ.fragment(intersecting_beams, [(pl_dim, pl_ent)], removeTool=True, removeObject=True)
 
             replaced_pl_entities = [(dim, r) for dim, r in res if dim == 2]
             if len(replaced_pl_entities) == 0:
@@ -103,17 +103,32 @@ def split_plates_by_beams(gmsh_session: GmshSession):
                 gmsh_session.model.occ.synchronize()
                 gmsh_session.open_gui()
 
-            for i, int_bm in enumerate(intersecting_beams):
+            for i, int_bm in enumerate(intersecting_beams, start=0): # plates are at index 0
                 bm_gmsh_obj = int_bm_map[int_bm]
                 new_ents = res_map[i]
                 if new_ents == bm_gmsh_obj.entities:
                     continue
+                if len(new_ents) == 1 and new_ents[0] in bm_gmsh_obj.entities:
+                    if len(bm_gmsh_obj.entities) > 1:
+                        raise ValueError(f"Beam {bm_gmsh_obj.name} was not split")
+                    continue
+                old_entities = bm_gmsh_obj.entities
                 bm_gmsh_obj.entities = new_ents
+                for ent in new_ents:
+                    int_bm_map[(ent[0], ent[1])] = bm_gmsh_obj
+                # for ent in old_entities:
+                #     if ent not in new_ents:
+                #         int_bm_map.pop((ent[0], ent[1]), None)
 
             pl_gmsh_obj.entities = replaced_pl_entities
-
-
             gmsh_session.model.occ.synchronize()
+
+            # try:
+            #     gmsh_session.model.occ.synchronize()
+            # except Exception as e:
+            #     logger.error(f"Error while synchronizing after partitioning plate: {pl.name} {e}")
+            #     gmsh_session.open_gui()
+            #     continue
             if br_names is not None and "partition_bm_split_cut" in br_names:
                 gmsh_session.open_gui()
 

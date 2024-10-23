@@ -55,6 +55,7 @@ def split_intersecting_beams(gmsh_session: GmshSession, margins=5e-5, out_of_pla
         for bm in beams:
             if n == bm.n1 or n == bm.n2:
                 continue
+
             bm_gmsh_obj = gmsh_session.model_map[bm]
             if len(bm_gmsh_obj.entities) != 1:
                 # This beam has already been split
@@ -62,14 +63,29 @@ def split_intersecting_beams(gmsh_session: GmshSession, margins=5e-5, out_of_pla
 
             # entities_1 = gmsh_session.model.occ.get_entities(1)
             try:
-                res, res_map = gmsh_session.model.occ.fragment(bm_gmsh_obj.entities, [(0, split_point)])
+                res, res_map = gmsh_session.model.occ.fragment(bm_gmsh_obj.entities, [(0, split_point)], removeTool=False)
             except Exception as e:
                 logger.error(f"Error while fragmenting beam: {bm.name} using {n} {e}")
                 continue
 
             bm_gmsh_obj.entities = [x for x in res_map[0] if x[0] == 1]
             gmsh_session.model.occ.synchronize()
+
             if br_names is not None and "partition_isect_bm_loop" in br_names:
                 gmsh_session.open_gui()
 
     gmsh_session.model.occ.synchronize()
+
+
+def split_beams_by_plates(gmsh_session: GmshSession):
+    from ada import Beam, Plate, Node
+    from ada.api.containers import Beams, Nodes
+    from ada.core.clash_check import find_beams_connected_to_plate
+
+    br_names = Config().meshing_open_viewer_breakpoint_names
+
+    all_beams = [obj for obj in gmsh_session.model_map.keys() if type(obj) is Beam]
+    all_plates = [obj for obj in gmsh_session.model_map.keys() if type(obj) is Plate]
+    for pl in all_plates:
+        con_beams = find_beams_connected_to_plate(pl, all_beams)
+        # if any of the plates
