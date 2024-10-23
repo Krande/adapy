@@ -7,22 +7,29 @@ from ada.fem.meshing import GmshSession
 
 def fragment_plates(plate_con: PlateConnections, gmsh_session: GmshSession):
     """fragment plates (ie. making all interfaces conformal) that are connected at their edges"""
+    br_names = Config().meshing_open_viewer_breakpoint_names
+
+    if br_names is not None and "pre_fragment_plates" in br_names:
+        gmsh_session.open_gui()
 
     for pl1, con_plates in plate_con.edge_connected.items():
         pl1_gmsh_obj = gmsh_session.model_map[pl1]
         intersecting_plates = []
+        int_pl_map = dict()
+        for pl2 in con_plates:
+            pl2_gmsh_obj = gmsh_session.model_map[pl2]
+
+            for pl2_dim, pl2_ent in pl2_gmsh_obj.entities:
+                intersecting_plates.append((pl2_dim, pl2_ent))
+
         for pl_entity in pl1_gmsh_obj.entities:
             pl1_dim, pl1_ent = pl_entity
 
-            for pl2 in con_plates:
-                pl2_gmsh_obj = gmsh_session.model_map[pl2]
-
-                for pl2_dim, pl2_ent in pl2_gmsh_obj.entities:
-                    intersecting_plates.append((pl2_dim, pl2_ent))
-
-            gmsh_session.model.occ.fragment(intersecting_plates, [(pl1_dim, pl1_ent)], removeTool=False)
+            res, res_map = gmsh_session.model.occ.fragment(intersecting_plates, [(pl1_dim, pl1_ent)], removeTool=False, removeObject=False)
             gmsh_session.model.occ.synchronize()
 
+    if br_names is not None and "post_fragment_plates" in br_names:
+        gmsh_session.open_gui()
 
 def partition_intersected_plates(plate_con: PlateConnections, gmsh_session: GmshSession):
     """split plates that have plate connections at their mid-span"""
@@ -36,7 +43,8 @@ def partition_intersected_plates(plate_con: PlateConnections, gmsh_session: Gmsh
 
             for pl2 in con_plates:
                 pl2_gmsh_obj = gmsh_session.model_map[pl2]
-
+                if pl2 == pl1:
+                    continue
                 for pl2_dim, pl2_ent in pl2_gmsh_obj.entities:
                     intersecting_plates.add((pl2_dim, pl2_ent))
             try:
@@ -79,20 +87,31 @@ def split_plates_by_beams(gmsh_session: GmshSession):
 
             # Using Embed fails during meshing
             # res = self.model.mesh.embed(1, [t for e,t in intersecting_beams], 2, pl_ent)
+            if len(intersecting_beams) == 0:
+                continue
 
-            res, res_map = gmsh_session.model.occ.fragment(intersecting_beams, [(pl_dim, pl_ent)], removeTool=False, removeObject=False)
-
-            if br_names is not None and "partition_bm_split_cut_1" in br_names:
-                gmsh_session.open_gui()
+            res, res_map = gmsh_session.model.occ.fragment(intersecting_beams, [(pl_dim, pl_ent)], removeTool=True, removeObject=False)
 
             replaced_pl_entities = [(dim, r) for dim, r in res if dim == 2]
             if len(replaced_pl_entities) == 0:
                 continue
+
+            for dim, repl_ent in replaced_pl_entities:
+                gmsh_session.model.setPhysicalName(dim, repl_ent, f"{pl.name}_fragment_{repl_ent}")
+
+            if br_names is not None and "partition_bm_split_cut_1" in br_names:
+                gmsh_session.model.occ.synchronize()
+                gmsh_session.open_gui()
+
             for i, int_bm in enumerate(intersecting_beams):
                 bm_gmsh_obj = int_bm_map[int_bm]
                 new_ents = res_map[i]
+                if new_ents == bm_gmsh_obj.entities:
+                    continue
                 bm_gmsh_obj.entities = new_ents
+
             pl_gmsh_obj.entities = replaced_pl_entities
+
 
             gmsh_session.model.occ.synchronize()
             if br_names is not None and "partition_bm_split_cut" in br_names:

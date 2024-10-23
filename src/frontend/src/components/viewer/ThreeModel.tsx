@@ -10,12 +10,12 @@ import {useModelStore} from '../../state/modelStore';
 import {replaceBlackMaterials} from '../../utils/scene/assignDefaultMaterial';
 import {useTreeViewStore} from '../../state/treeViewStore';
 import {useOptionsStore} from "../../state/optionsStore";
-import {buildTreeFromScene, buildTreeFromUserData} from '../../utils/tree_view/generateTree';
+import {buildTreeFromUserData} from '../../utils/tree_view/generateTree';
 import {handleClickMesh} from "../../utils/mesh_select/handleClickMesh";
 
 
 const ThreeModel: React.FC<ModelProps> = ({url}) => {
-    const {raycaster} = useThree();
+    const {raycaster, camera} = useThree();
     const {scene, animations} = useGLTF(url, false) as unknown as GLTFResult;
     const {action, setCurrentKey, setSelectedAnimation} = useAnimationStore();
     const {setTranslation, setBoundingBox} = useModelStore();
@@ -30,6 +30,13 @@ const ThreeModel: React.FC<ModelProps> = ({url}) => {
 
         raycaster.params.Line.threshold = 0.01;
         raycaster.params.Points.threshold = 0.01;
+
+        // Set raycaster to only detect objects on layer 0
+        raycaster.layers.set(0);
+        raycaster.layers.disable(1);
+
+        camera.layers.enable(0);
+        camera.layers.enable(1);
 
         scene.traverse((object) => {
             if (object instanceof THREE.Mesh) {
@@ -61,7 +68,7 @@ const ThreeModel: React.FC<ModelProps> = ({url}) => {
                     edgeLine.position.copy(object.position);
                     edgeLine.rotation.copy(object.rotation);
                     edgeLine.scale.copy(object.scale);
-
+                    edgeLine.layers.set(1);
                     // Add edge lines to the scene
                     scene.add(edgeLine);
                 }
@@ -72,11 +79,14 @@ const ThreeModel: React.FC<ModelProps> = ({url}) => {
             } else if (object instanceof THREE.LineSegments) {
                 // Line segments should by default not be clickable
                 //object.userData.clickable = false;
-                //object.layers.set(2)
+                object.layers.set(1)
             } else if (object instanceof THREE.Points) {
                 // Set points material to double-sided
                 console.log(object.material);
-                object.layers.set(2)
+                object.layers.set(1)
+            } else {
+                console.log(`Unknown object type: ${object.type}`);
+
             }
 
         });

@@ -46,16 +46,23 @@ def edges_intersect(use_xact=False):
 
     a = ada.Assembly() / (ada.Part("MyPart") / objects)
     p = a.get_part("MyPart")
+    extra_props = {}
+    gltf_extra = os.getenv('GLTF_ASSET_EXTRAS_KEY_VAL', None)
+    if gltf_extra:
+        key,val = gltf_extra.split(';')
+        extra_props[key] = val
     a.show(
         params_override=RenderParams(
-            gltf_export_to_file="temp/design_model.glb"
+            gltf_export_to_file="temp/design_model.glb",
+            gltf_asset_extras_dict=extra_props if len(extra_props) > 0 else None,
         )
     )
 
-    p.fem = p.to_fem_obj(0.3, interactive=False)
+    p.fem = p.to_fem_obj(0.3, use_quads=False, interactive=False)
     p.fem.show(
         params_override=RenderParams(
             gltf_export_to_file="temp/fea_model.glb",
+            gltf_asset_extras_dict=extra_props if len(extra_props) > 0 else None,
             fea_params=FEARenderParams(solid_beams=True),
         )
     )
