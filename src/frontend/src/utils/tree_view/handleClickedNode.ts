@@ -2,7 +2,6 @@ import React from "react";
 import {useTreeViewStore} from "../../state/treeViewStore";
 import {getMeshFromName} from "../scene/getMeshFromName";
 import * as THREE from 'three';
-import {setSelectedMesh} from "../mesh_select/setSelectedMesh";
 import {getDrawRangeByName} from "../mesh_select/getDrawRangeByName";
 import {highlightDrawRange} from "../mesh_select/highlightDrawRange";
 import {deselectObject} from "../mesh_select/deselectObject";

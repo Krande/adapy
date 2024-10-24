@@ -41,9 +41,9 @@
   "dependencies": {
     "@emotion/react": "^11.13.3",
     "@emotion/styled": "^11.13.0",
-    "@mui/x-tree-view": "^7.17.0",
     "@xyflow/react": "^12.3.0",
     "flatbuffers": "^24.3.25",
+    "react-arborist": "^3.4.0",
     "react-json-view-lite": "^1.5.0",
     "react-rnd": "^10.4.13"
   }
