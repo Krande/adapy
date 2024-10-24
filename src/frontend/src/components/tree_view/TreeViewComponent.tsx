@@ -1,33 +1,59 @@
-import React from 'react';
-import {SimpleTreeView, TreeItem} from '@mui/x-tree-view'; // Ensure you have @mui/lab installed
-import {useTreeViewStore, TreeNode} from '../../state/treeViewStore';
-import {handleClickedNode} from "../../utils/tree_view/handleClickedNode";
+import React, {useEffect, useRef, useState} from 'react';
+import {useTreeViewStore} from '../../state/treeViewStore';
+import {Tree} from "react-arborist";
+import {CustomNode} from './CustomNode';
 
 const TreeViewComponent: React.FC = () => {
     const { treeData, selectedNodeId, setSelectedNodeId } = useTreeViewStore();
+    const containerRef = useRef<HTMLDivElement | null>(null);
+    const [treeHeight, setTreeHeight] = useState<number>(800); // Default height
 
-    const handleNodeSelect = (event: React.SyntheticEvent, itemIds: string | null) => {
-        if (itemIds !== null) {
-            setSelectedNodeId(itemIds);
+    const treeNodes = treeData ?  [{id: 'root', name: 'scene', children: [treeData]}] : [{id: 'root', name: 'root', children: []}];
+
+    // Update the tree height based on the container size using ResizeObserver
+    useEffect(() => {
+        const updateTreeHeight = () => {
+            if (containerRef.current) {
+                setTreeHeight(containerRef.current.clientHeight);
+            }
+        };
+
+        // Create a ResizeObserver to watch for changes in the container size
+        const resizeObserver = new ResizeObserver(() => updateTreeHeight());
+        if (containerRef.current) {
+            resizeObserver.observe(containerRef.current);
         }
-    };
 
+        // Set the initial height
+        updateTreeHeight();
 
-    const renderTree = (nodes: TreeNode) => (
-        <TreeItem key={nodes.id} itemId={nodes.id} label={nodes.name} sx={{ color: "white"}}>
-            {Array.isArray(nodes.children)
-                ? nodes.children.map((node: TreeNode) => renderTree(node))
-                : null}
-        </TreeItem>
-    );
+        // Cleanup the observer on component unmount
+        return () => {
+            resizeObserver.disconnect();
+        };
+    }, []);
 
     return (
-        <div className={"h-full max-h-screen overflow-y-auto"}>
-            <SimpleTreeView selectedItems={selectedNodeId || ''} onSelectedItemsChange={handleClickedNode}>
-                {treeData && renderTree(treeData)}
-            </SimpleTreeView>
-        </div>
+        <div ref={containerRef} className="h-full max-h-screen overflow-y-auto pr-2">
+            <Tree
+                className={"text-white"}
+                width={"100%"}
+                height={treeHeight} // Use the dynamic height
+                selectionFollowsFocus={true}
+                data={treeNodes}
+                selection={selectedNodeId ? selectedNodeId : "root"}
 
+                onSelect={(ids) => {
+                  if (ids.length > 0) {
+                    setSelectedNodeId(ids[0].id);
+                  } else {
+                    setSelectedNodeId(null);
+                  }
+                }}
+            >
+                {CustomNode}
+            </Tree>
+        </div>
     );
 };
 

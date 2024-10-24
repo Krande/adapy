@@ -12,7 +12,7 @@ if TYPE_CHECKING:
 def sets_str(fem: FEM) -> str:
     out_str = ""
 
-    for i, fs in enumerate(fem.sets.sets):
+    for i, fs in enumerate(fem.sets.sets, start=1):
         out_str += write_ff("TDSETNAM", [(4, i, 100 + len(fs.name), 0), (fs.name,)])
         nfield = len(fs.members) + 5
         mem_ids = [mem.id for mem in fs.members]
