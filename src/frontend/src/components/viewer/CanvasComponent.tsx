@@ -55,7 +55,7 @@ const CanvasComponent: React.FC = () => {
                     <DynamicGridHelper/>
 
                     {showPerf && <Perf/>}
-                    <OrbitControls ref={orbitControlsRef} enableDamping={false} makeDefault={false}/>
+                    <OrbitControls ref={orbitControlsRef} enableDamping={false} makeDefault={true}/>
                     <OrientationGizmo/>
 
                     {/* Render CameraControls inside the Canvas */}
