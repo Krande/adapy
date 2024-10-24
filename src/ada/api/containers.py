@@ -1048,13 +1048,14 @@ class Nodes:
     def remove(self, nodes: Union[Node, Iterable[Node]]):
         """Remove node(s) from the nodes container"""
         nodes = list(nodes) if isinstance(nodes, Iterable) else [nodes]
-        for node in nodes:
-            if node in self._nodes:
-                logger.debug(f"Removing {node}")
-                self._nodes.pop(self._nodes.index(node))
-                self.renumber()
+        ids = [node.id for node in nodes]
+        for node_id in ids:
+            if node_id in self._idmap.keys():
+                self._idmap.pop(node_id)
             else:
-                logger.error(f"'{node}' not found in node-container.")
+                logger.error(f"'{node_id}' not found in node-container.")
+        self._nodes = list(self._idmap.values())
+        self.renumber()
 
     def remove_standalones(self) -> None:
         """Remove nodes that are without any usage references"""

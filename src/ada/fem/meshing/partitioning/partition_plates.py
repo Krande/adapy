@@ -49,7 +49,7 @@ def partition_intersected_plates(plate_con: PlateConnections, gmsh_session: Gmsh
                     intersecting_plates.add((pl2_dim, pl2_ent))
             try:
                 res, res_map = gmsh_session.model.occ.fragment(
-                    list(intersecting_plates), [(pl1_dim, pl1_ent)], removeTool=False
+                    list(intersecting_plates), [(pl1_dim, pl1_ent)], removeTool=True
                 )
             except Exception as e:
                 logger.error(f"Error while fragmenting plate: {pl1.name} using {pl2.name} {e}")
@@ -114,9 +114,9 @@ def split_plates_by_beams(gmsh_session: GmshSession):
                 bm_gmsh_obj.entities = new_ents
                 for ent in new_ents:
                     int_bm_map[(ent[0], ent[1])] = bm_gmsh_obj
-                # for ent in old_entities:
-                #     if ent not in new_ents:
-                #         int_bm_map.pop((ent[0], ent[1]), None)
+                for ent in old_entities:
+                    if ent not in new_ents:
+                        int_bm_map.pop((ent[0], ent[1]), None)
 
             pl_gmsh_obj.entities = replaced_pl_entities
             gmsh_session.model.occ.synchronize()

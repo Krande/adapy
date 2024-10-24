@@ -242,7 +242,7 @@ def get_elements_from_entity(model: gmsh.model, ent, fem: FEM, dim) -> list[Elem
 
 def get_elements_from_entities(model: gmsh.model, entities, fem: FEM) -> list[Elem]:
     elements = []
-    for dim, ent in entities:
+    for dim, ent in set(entities):
         try:
             elements += get_elements_from_entity(model, ent, fem, dim)
         except BaseException as e:
