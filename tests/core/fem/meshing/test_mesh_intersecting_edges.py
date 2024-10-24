@@ -100,8 +100,6 @@ def test_beams_enclosing_beams(tmp_path):
     for el in line_elem:
         assert el.fem_sec is not None
 
-    a.fem.show()
-
 def test_intersect_edge_midpoint():
     corner_points = [(0, 0), (1, 0), (1, 1), (0, 1)]
 
