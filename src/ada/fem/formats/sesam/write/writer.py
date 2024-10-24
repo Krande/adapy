@@ -10,6 +10,7 @@ from ada.fem import FEM
 from ada.fem.exceptions.model_definition import DoesNotSupportMultiPart
 
 from .templates import top_level_fem_str
+from .write_sets import sets_str
 from .write_utils import write_ff
 
 if TYPE_CHECKING:
@@ -69,6 +70,7 @@ def to_fem(assembly, name, analysis_dir=None, metadata=None, model_data_only=Fal
         d.write(univec_str(part.fem))
         d.write(nodes_str(part.fem))
         d.write(mass_str(part.fem))
+        d.write(sets_str(part.fem))
         d.write(bc_str(part.fem) + bc_str(assembly.fem))
         d.write(constraint_str(part.fem) + constraint_str(assembly.fem))
         d.write(hinges_str(part.fem))

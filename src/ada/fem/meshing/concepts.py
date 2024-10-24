@@ -325,7 +325,8 @@ class GmshSession:
             # create a variable for all overlapping element ids
             overlapping_el_ids = existing_el_ids.intersection(el_ids)
             if overlapping_el_ids:
-                logger.warning("Overlapping element ids found")
+                logger.warning(f"Overlapping element ids found for {gmsh_data.obj.name}: {overlapping_el_ids}")
+
             elements.update({el.id: el for el in entity_elements})
 
         fem.elements = FemElements(elements.values(), fem_obj=fem)

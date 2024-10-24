@@ -8,7 +8,7 @@ const OrientationGizmo = () => {
             // Rotate the gizmo so that Z is treated as up
             matrix={[1, 0, 0, 0, 0, 0, 1, 0, 0, -1, 0, 0, 0, 0, 0, 1]}
         >
-            {/*<GizmoViewport axisColors={['red', 'green', 'blue']} labelColor="black" labels={["x", "z", "y"]}/>*/}
+            {/*<GizmoViewport axisColors={['red', 'blue', 'green']} labelColor="black" labels={["x", "z", "y"]}/>*/}
             <GizmoViewcube color={"blue"} textColor={"white"}/>
         </GizmoHelper>
     );

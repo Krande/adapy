@@ -720,6 +720,7 @@ class Part(BackendGeom):
         experimental_pl_splitting=True,
         name=None,
         debug_mode=False,
+            merge_coincident_nodes=True,
     ) -> FEM:
         from ada import Beam, Plate, Shape
         from ada.fem.elements import Mass
@@ -768,6 +769,12 @@ class Part(BackendGeom):
             cog_absolute = mass_shape.placement.get_absolute_placement().origin + mass_shape.cog
             n = fem.nodes.add(Node(cog_absolute))
             fem.add_mass(Mass(f"{mass_shape.name}_mass", [n], mass_shape.mass))
+
+        if merge_coincident_nodes:
+            n_before = len(fem.nodes)
+            fem.nodes.remove_standalones()
+            n_after = len(fem.nodes)
+            logger.info(f"Removed {n_before - n_after} standalone nodes")
 
         return fem
 

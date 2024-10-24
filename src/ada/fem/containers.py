@@ -613,7 +613,7 @@ class FemSections:
 
 
 class FemSets:
-    def __init__(self, sets: List[FemSet] = None, parent: FEM = None):
+    def __init__(self, sets: list[FemSet] = None, parent: FEM = None):
         self._fem_obj = parent
         self._sets = sorted(sets, key=attrgetter("type", "name")) if sets is not None else []
         # Merge same name sets
