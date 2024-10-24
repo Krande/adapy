@@ -2,12 +2,10 @@ import {ThreeEvent} from "@react-three/fiber";
 import {useSelectedObjectStore} from "../../state/selectedObjectStore";
 import * as THREE from "three";
 import {deselectObject} from "./deselectObject";
-import {setSelectedMesh} from "./setSelectedMesh";
 import {useTreeViewStore} from "../../state/treeViewStore";
 import {findNodeById} from "../tree_view/findNodeById";
 import {getSelectedMeshDrawRange} from "./getSelectedMeshDrawRange";
 import {highlightDrawRange} from "./highlightDrawRange";
-import {selectedMaterial} from "../default_materials";
 import {useObjectInfoStore} from "../../state/objectInfoStore";
 import {useModelStore} from "../../state/modelStore";
 
@@ -18,6 +16,17 @@ export function handleClickMesh(event: ThreeEvent<PointerEvent>) {
     const mesh = event.object as THREE.Mesh;
     const face_index = event.faceIndex || 0;
 
+    let translation = useModelStore.getState().translation
+
+    // Get the 3D coordinates from the click event
+    const clickPosition = event.point; // This is the 3D coordinate in world space
+    console.log("3D Click Position:", clickPosition);
+
+    // Update the object info store
+    if (translation) {
+        clickPosition.sub(translation);
+    }
+    useObjectInfoStore.getState().setClickCoordinate(clickPosition);
 
     if (face_index == useObjectInfoStore.getState().faceIndex && (mesh == selectedObject)) {
         deselectObject();
