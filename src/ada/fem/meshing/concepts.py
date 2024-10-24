@@ -241,6 +241,8 @@ class GmshSession:
 
         if use_quads is True or use_hex is True:
             self.model.mesh.recombine()
+            self.model.mesh.removeDuplicateNodes()
+            self.model.mesh.remove_duplicate_elements()
 
     def make_quads(self):
         from ada.fem.meshing.partitioning.strategies import partition_objects_with_holes
