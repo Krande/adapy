@@ -3,7 +3,7 @@ import pathlib
 import subprocess
 
 import ada
-from ada.config import Config
+from ada.config import Config, logger
 from ada.fem import Elem
 from ada.fem.shapes.definitions import LineShapes
 from dotenv import load_dotenv
@@ -58,7 +58,7 @@ def edges_intersect(use_xact=False):
         )
     )
 
-    p.fem = p.to_fem_obj(0.3, use_quads=False, interactive=False)
+    p.fem = p.to_fem_obj(0.1, use_quads=False, interactive=False)
     p.fem.show(
         params_override=RenderParams(
             gltf_export_to_file="temp/fea_model.glb",
@@ -79,4 +79,5 @@ def edges_intersect(use_xact=False):
 
 
 if __name__ == "__main__":
+    logger.setLevel("INFO")
     edges_intersect(use_xact=False)

@@ -20,8 +20,8 @@ export const CustomNode: React.FC<NodeRendererProps<TreeNodeData>> = ({style, no
         <div
             style={style}
             ref={dragHandle}
-            className={`flex items-center px-2 py-1 cursor-pointer ${
-                isSelected ? 'bg-blue-500' : ''
+            className={`flex items-center cursor-pointer ${
+                isSelected ? 'bg-blue-700' : ''
             }`}
             onClick={(event) => handleClickedNode(event, node.id)}
         >

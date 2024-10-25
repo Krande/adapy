@@ -72,6 +72,7 @@ def are_beams_connected(bm1: Beam, beams: List[Beam], out_of_plane_tol, point_to
     for bm2 in beams:
         if bm1 == bm2:
             continue
+
         res = beam_cross_check(bm1, bm2, out_of_plane_tol)
         if res is None:
             continue
@@ -104,7 +105,7 @@ def are_plates_touching(pl1: Plate, pl2: Plate, tol=1e-3):
 
 def filter_away_beams_along_plate_edges(pl: Plate, beams: Iterable[Beam]) -> List[Beam]:
     corners = [tuple(n) for n in pl.poly.points3d]
-
+    edge_vectors = [seg.direction for seg in pl.poly.segments3d]
     # filter away all beams with both ends on any of corner points of the plate
     beams_not_along_plate_edge = []
 
@@ -112,12 +113,17 @@ def filter_away_beams_along_plate_edges(pl: Plate, beams: Iterable[Beam]) -> Lis
     for bm in beams:
         t1 = tuple(bm.n1.p)
         t2 = tuple(bm.n2.p)
-
-        is_along_edge = False
-        for n in pl.nodes:
-            if is_between_endpoints(n.p, bm.n1.p, bm.n2.p, incl_endpoints=True):
-                is_along_edge = True
+        is_aligned_to_one_of_edges = False
+        for edge_vec in edge_vectors:
+            if edge_vec.is_equal(bm.xvec):
+                is_aligned_to_one_of_edges = True
                 break
+        is_along_edge = False
+        if is_aligned_to_one_of_edges:
+            for n in pl.nodes:
+                if is_between_endpoints(n.p, bm.n1.p, bm.n2.p, incl_endpoints=True):
+                    is_along_edge = True
+                    break
 
         if is_along_edge:
             continue
@@ -274,6 +280,7 @@ def find_edge_connected_perpendicular_plates(plates: list[ada.Plate]) -> PlateCo
         place1 = pl1.placement.get_absolute_placement()
         eop = EquationOfPlane(pl1.poly.origin, pl1.poly.normal, pl1.poly.ydir)
         p13d = place1.origin + pl1.poly.points3d
+
         n1 = pl1.poly.normal
         parallel_plates = False
         for pl2 in plates:
@@ -288,6 +295,9 @@ def find_edge_connected_perpendicular_plates(plates: list[ada.Plate]) -> PlateCo
             if len(res) < 1:
                 continue
 
+            if not are_plates_touching(pl1, pl2):
+                continue
+
             # pop out the elements in the numpy array res that are rows in p13d
             res_clear = [r for r in res if not any(np.all(r == p) for p in p13d)]
             if parallel_plates and len(res_clear) == 2:
@@ -299,6 +309,8 @@ def find_edge_connected_perpendicular_plates(plates: list[ada.Plate]) -> PlateCo
                 if pl1 not in edge_connected:
                     edge_connected[pl1] = []
                 edge_connected[pl1].append(pl2)
+
+
 
             if len(res_clear) == 2 and parallel_plates is False:
                 if pl1 not in mid_span_connected:

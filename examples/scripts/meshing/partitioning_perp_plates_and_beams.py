@@ -1,5 +1,6 @@
 import ada
-from ada.config import Config
+from ada.config import Config, logger
+from ada.fem.meshing import GmshOptions
 
 
 def main():
@@ -22,8 +23,9 @@ def main():
     pl3 = ada.Plate("pl3", p1x1, 0.01, orientation=ada.Placement(xdir=(1, 0, 0), zdir=(0, -1, 0)))
 
     p = ada.Part("MyFem") / [pl1_5, pl3, bm_1, bm_2]
+    p.show()
 
-    fem = p.to_fem_obj(1, bm_repr="line", pl_repr="shell")
+    fem = p.to_fem_obj(0.3, bm_repr="line", pl_repr="shell", options=GmshOptions(Mesh_Algorithm=6))
     fem.show(solid_beams=True)
     p.fem = fem
 
@@ -35,4 +37,5 @@ def main():
 
 
 if __name__ == "__main__":
+    logger.setLevel("INFO")
     main()
