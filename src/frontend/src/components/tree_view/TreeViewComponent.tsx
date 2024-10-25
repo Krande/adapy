@@ -42,6 +42,10 @@ const TreeViewComponent: React.FC = () => {
                 selectionFollowsFocus={true}
                 data={treeNodes}
                 selection={selectedNodeId ? selectedNodeId : "root"}
+                disableDrag={true}
+                disableDrop={true}
+                disableEdit={true}
+                openByDefault={false}
 
                 onSelect={(ids) => {
                   if (ids.length > 0) {
