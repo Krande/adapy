@@ -151,7 +151,7 @@ fem-doc-dev = { cmd="python doc_live_html.py", cwd="./tests/fem" }
 npm = { cmd="npm", cwd="./src/frontend" }
 wdev = { cmd="npm run dev", cwd="./src/frontend" }
 wbuild = { cmd="npm run build", cwd="./src/frontend" }
-
+depcheck = { cmd="depcheck", cwd="./src/frontend" }
 
 [tool.pixi.dependencies]
 pixi-pycharm = ">=0.0.6,<0.0.7"
