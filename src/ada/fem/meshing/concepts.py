@@ -196,17 +196,22 @@ class GmshSession:
 
         split_plates_by_beams(self)
 
+        self.check_model_entities()
+
         plates = [obj for obj in self.model_map.keys() if type(obj) is Plate]
 
-        if len(plates) <= 1:
+        if len(plates) < 2:
             return
 
         plate_con = find_edge_connected_perpendicular_plates(plates)
 
         if len(plate_con.edge_connected) > 0:
             fragment_plates(plate_con, self)
+            self.check_model_entities()
 
         partition_intersected_plates(plate_con, self)
+
+        self.check_model_entities()
 
     def mesh(self, size: float = None, use_quads=False, use_hex=False, perform_quality_check=False):
         if self.silent is True:
@@ -349,6 +354,14 @@ class GmshSession:
 
     def open_gui(self):
         self.gmsh.fltk.run()
+
+    def check_model_entities(self):
+        from ada.fem.meshing.utils import check_entities_exist
+        for map_obj in self.model_map.values():
+            existing, nonexisting = check_entities_exist(map_obj.entities, self.model)
+            if len(nonexisting) > 0:
+                self.open_gui()
+                raise ValueError(f"Entities not found in model for {map_obj}: {nonexisting}")
 
     def __enter__(self):
         logger.debug("Starting GMSH session")

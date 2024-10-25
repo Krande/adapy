@@ -720,7 +720,7 @@ class Part(BackendGeom):
         experimental_pl_splitting=True,
         name=None,
         debug_mode=False,
-            merge_coincident_nodes=True,
+        merge_coincident_nodes=True,
     ) -> FEM:
         from ada import Beam, Plate, Shape
         from ada.fem.elements import Mass
@@ -752,7 +752,9 @@ class Part(BackendGeom):
             if interactive is True:
                 gs.open_gui()
 
+            gs.check_model_entities()
             gs.partition_plates()
+            gs.check_model_entities()
             gs.partition_beams()
 
             if interactive is True:

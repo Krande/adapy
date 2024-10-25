@@ -1,5 +1,5 @@
 import ada
-from ada.config import Config
+from ada.config import Config, logger
 from ada.fem.meshing import GmshOptions
 
 Config().update_config_globally(
@@ -42,9 +42,10 @@ def main():
     p = ada.Part('Stru') / (*beams, *columns, *plates)
     p.show()
 
-    p.fem = p.to_fem_obj(0.5, use_quads=False, options=GmshOptions(Mesh_Algorithm=6))
+    p.fem = p.to_fem_obj(0.2, use_quads=False, options=GmshOptions(Mesh_Algorithm=6))
     p.fem.show()
 
 
 if __name__ == "__main__":
+    logger.setLevel("INFO")
     main()

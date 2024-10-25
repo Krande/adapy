@@ -16,6 +16,7 @@ from ada.fem.shapes.mesh_types import aba_to_meshio_types, gmsh_to_meshio_orderi
 
 from .common import gmsh_map
 from .concepts import GmshData
+from .exceptions import MeshExtrationError
 
 
 def add_fem_sections(model: gmsh.model, fem: FEM, model_obj: Beam | Plate | Pipe | Shape, gmsh_data: GmshData) -> None:
@@ -141,7 +142,11 @@ def get_bm_sections(model: gmsh.model, beam: Beam, gmsh_data, fem: FEM):
 
     tags = []
     for dim, ent in gmsh_data.entities:
-        _, tag, _ = model.mesh.getElements(1, ent)
+        try:
+            _, tag, _ = model.mesh.getElements(1, ent)
+        except BaseException as e:
+            raise MeshExtrationError(f"Failed to extract elements for {beam} due to {e}")
+
         tags += tag
 
     elements = [fem.elements.from_id(elid) for elid in chain.from_iterable(tags)]
@@ -324,3 +329,20 @@ def add_point(model: gmsh.model, p):
     point = [(0, model.geo.addPoint(*p))]
     model.geo.synchronize()
     return point
+
+
+def check_entities_exist(entity_list, gmsh_model: gmsh.model):
+    existing_entities = []
+    non_existing_entities = []
+
+    # Get all existing entities grouped by dimension
+    existing_entities_by_dim = {dim: gmsh_model.occ.getEntities(dim) for dim in range(4)}
+
+    for dim, tag in entity_list:
+        # Check if the entity exists in the list for its dimension
+        if (dim, tag) in existing_entities_by_dim.get(dim, []):
+            existing_entities.append((dim, tag))
+        else:
+            non_existing_entities.append((dim, tag))
+
+    return existing_entities, non_existing_entities

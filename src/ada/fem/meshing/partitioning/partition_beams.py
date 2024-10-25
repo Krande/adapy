@@ -3,7 +3,10 @@ from ada.fem.meshing import GmshSession
 
 
 def split_crossing_beams(gmsh_session: GmshSession):
+    logger.info("Running 'split_crossing_beams' partitioning function")
+
     from ada import Beam
+
     br_names = Config().meshing_open_viewer_breakpoint_names
 
     beams = [obj for obj in gmsh_session.model_map.keys() if type(obj) is Beam]
@@ -13,27 +16,40 @@ def split_crossing_beams(gmsh_session: GmshSession):
     if br_names is not None and "partition_isect_bm_pre" in br_names:
         gmsh_session.open_gui()
 
-    intersecting_beams = []
-    int_bm_map = dict()
     for bm in beams:
         bm_gmsh_obj = gmsh_session.model_map[bm]
-        for li_dim, li_ent in bm_gmsh_obj.entities:
-            intersecting_beams.append((li_dim, li_ent))
-            int_bm_map[(li_dim, li_ent)] = bm_gmsh_obj
+        for other_bm in beams:
+            if bm == other_bm:
+                continue
+            bm_other_gmsh_obj = gmsh_session.model_map[other_bm]
 
-    res, res_map = gmsh_session.model.occ.fragment(
-        intersecting_beams, intersecting_beams, removeTool=True, removeObject=True
-    )
+            res, res_map = gmsh_session.model.occ.fragment(
+                bm_gmsh_obj.entities, bm_other_gmsh_obj.entities, removeTool=False, removeObject=True
+            )
 
-    for i, int_bm in enumerate(intersecting_beams):
-        bm_gmsh_obj = int_bm_map[int_bm]
-        new_ents = res_map[i]
-        bm_gmsh_obj.entities = new_ents
+            num_object_entities = len(bm_gmsh_obj.entities)
 
-    gmsh_session.model.occ.synchronize()
+            # Split res_map into two parts: one for pl_gmsh_obj.entities and one for bm_gmsh_obj.entities
+            object_entities_new = []
+            tool_entities_new = []
 
+            for i, new_entities in enumerate(res_map):
+                if i < num_object_entities:
+                    # These correspond to the original object entities
+                    object_entities_new.extend(new_entities)
+                else:
+                    # These correspond to the original tool entities
+                    tool_entities_new.extend(new_entities)
 
-def split_intersecting_beams(gmsh_session: GmshSession, margins=5e-5, out_of_plane_tol=0.1, point_tol=Config().general_point_tol):
+            # Update the entities for both objects
+            bm_gmsh_obj.entities = object_entities_new
+            bm_other_gmsh_obj.entities = tool_entities_new
+            gmsh_session.model.occ.synchronize()
+
+def split_intersecting_beams(
+    gmsh_session: GmshSession, margins=5e-5, out_of_plane_tol=0.1, point_tol=Config().general_point_tol
+):
+    logger.info("Running 'split_intersecting_beams' partitioning function")
     from ada import Beam, Node
     from ada.api.containers import Beams, Nodes
     from ada.core.clash_check import basic_intersect, are_beams_connected
@@ -53,39 +69,30 @@ def split_intersecting_beams(gmsh_session: GmshSession, margins=5e-5, out_of_pla
     for n, beams in nmap.items():
         split_point = gmsh_session.model.occ.addPoint(n.x, n.y, n.z)
         for bm in beams:
-            if n == bm.n1 or n == bm.n2:
+            if n.p.is_equal(bm.n1.p) or n.p.is_equal(bm.n2.p):
                 continue
 
             bm_gmsh_obj = gmsh_session.model_map[bm]
-            if len(bm_gmsh_obj.entities) != 1:
-                # This beam has already been split
-                continue
+            res, res_map = gmsh_session.model.occ.fragment(bm_gmsh_obj.entities, [(0, split_point)], removeTool=True)
+            num_object_entities = len(bm_gmsh_obj.entities)
 
-            # entities_1 = gmsh_session.model.occ.get_entities(1)
-            try:
-                res, res_map = gmsh_session.model.occ.fragment(bm_gmsh_obj.entities, [(0, split_point)], removeTool=False)
-            except Exception as e:
-                logger.error(f"Error while fragmenting beam: {bm.name} using {n} {e}")
-                continue
+            # Split res_map into two parts: one for pl_gmsh_obj.entities and one for bm_gmsh_obj.entities
+            object_entities_new = []
+            tool_entities_new = []
 
-            bm_gmsh_obj.entities = [x for x in res_map[0] if x[0] == 1]
+            for i, new_entities in enumerate(res_map):
+                if i < num_object_entities:
+                    # These correspond to the original object entities
+                    object_entities_new.extend(new_entities)
+                else:
+                    # These correspond to the original tool entities
+                    tool_entities_new.extend(new_entities)
+
+            # Update the entities for both objects
+            bm_gmsh_obj.entities = object_entities_new
+
             gmsh_session.model.occ.synchronize()
+            gmsh_session.check_model_entities()
 
             if br_names is not None and "partition_isect_bm_loop" in br_names:
                 gmsh_session.open_gui()
-
-    gmsh_session.model.occ.synchronize()
-
-
-def split_beams_by_plates(gmsh_session: GmshSession):
-    from ada import Beam, Plate, Node
-    from ada.api.containers import Beams, Nodes
-    from ada.core.clash_check import find_beams_connected_to_plate
-
-    br_names = Config().meshing_open_viewer_breakpoint_names
-
-    all_beams = [obj for obj in gmsh_session.model_map.keys() if type(obj) is Beam]
-    all_plates = [obj for obj in gmsh_session.model_map.keys() if type(obj) is Plate]
-    for pl in all_plates:
-        con_beams = find_beams_connected_to_plate(pl, all_beams)
-        # if any of the plates
