@@ -1926,7 +1926,7 @@ packages:
   name: ada-py
   version: 0.3.2
   path: .
-  sha256: 4e55bb66f3a231eba73622a576fcc4d48c4dcd38d019cfb593b8b9149011e2dd
+  sha256: 5744783ba86b485e1b19ebedc3bde769507c95114ea81cc692d5ffb0a8072ded
   requires_python: '>=3.10'
   editable: true
 - kind: conda

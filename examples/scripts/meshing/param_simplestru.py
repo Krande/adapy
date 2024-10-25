@@ -22,7 +22,6 @@ def main():
 
     cog = param_model.fem.elements.calc_cog()
     tol = 0.01
-
     my_step = a.fem.add_step(ada.fem.StepImplicitStatic("static", total_time=1, max_incr=1, init_incr=1, nl_geom=False))
     my_step.add_load(ada.fem.Load("Gravity", "gravity", -9.81))
 

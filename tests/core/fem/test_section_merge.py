@@ -23,13 +23,13 @@ def test_merge_fem_sections(tmp_path):
     b = ada.from_fem(inp_path)
     pb = b.get_part("T1")
 
-    assert len(pb.fem.elsets) == 10
+    assert len(pb.fem.elsets) == 12
     assert len(pb.fem.sections) == 10
 
     pb.fem.sections.merge_by_properties()
 
     assert len(pb.fem.sections) == 2
-    assert len(pb.fem.elsets) == 2
+    assert len(pb.fem.elsets) == 4
 
     # b.to_fem("SectionsMerged", "abaqus", overwrite=True)
 
@@ -52,13 +52,13 @@ def test_merge_fem_sections2(tmp_path):
     b = ada.from_fem(inp_path)
     pb = b.get_part("T1")
 
-    assert len(pb.fem.elsets) == 10
+    assert len(pb.fem.elsets) == 12
     assert len(pb.fem.sections) == 10
 
     pb.fem.sections.merge_by_properties()
 
     assert len(pb.fem.sections) == 2
-    assert len(pb.fem.elsets) == 2
+    assert len(pb.fem.elsets) == 4
 
     # b.to_fem("SectionsMerged2", "abaqus", overwrite=True)
 
@@ -118,12 +118,12 @@ def test_merge_gen_beams(tmp_path):
     b = ada.from_fem(inp_path)
     pb = b.get_part("T1")
 
-    assert len(pb.fem.elsets) == 10
+    assert len(pb.fem.elsets) == 12
     assert len(pb.fem.sections) == 10
 
     pb.fem.sections.merge_by_properties()
 
     assert len(pb.fem.sections) == 2
-    assert len(pb.fem.elsets) == 2
+    assert len(pb.fem.elsets) == 4
 
     # b.to_fem("SectionsMerged3", "abaqus", overwrite=True)
