@@ -4,7 +4,7 @@ channels:
   - conda-forge
 dependencies:
   - ada-py
-  - ada-cpp
+#  - ada-cpp
   - bcf-client
   - hdf5=1.14.4.3
   - paradoc
