@@ -320,6 +320,10 @@ class Beam(BackendGeom):
     def up(self) -> Direction:
         return self._up
 
+    @up.setter
+    def up(self, value: Direction):
+        self._init_orientation(up=value)
+
     @property
     def xvec_e(self) -> Direction:
         """Local X-vector (including eccentricities)"""

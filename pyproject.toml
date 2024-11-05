@@ -154,4 +154,4 @@ wbuild = { cmd="npm run build", cwd="./src/frontend" }
 fdepcheck = { cmd="depcheck", cwd="./src/frontend" }
 
 [tool.pixi.dependencies]
-pixi-pycharm = ">=0.0.6,<0.0.7"
+pixi-pycharm = ">=0.0.7,<0.0.8"
