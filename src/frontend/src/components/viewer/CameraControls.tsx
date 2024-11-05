@@ -1,10 +1,8 @@
 // CameraControls.tsx
-import {useEffect, useRef} from 'react';
-import {useThree} from '@react-three/fiber';
 import * as THREE from 'three';
+import React, {useEffect} from 'react';
+import {useThree} from '@react-three/fiber';
 import {OrbitControls as OrbitControlsImpl} from 'three-stdlib';
-import React from 'react';
-import {useModelStore} from "../../state/modelStore";
 import {useSelectedObjectStore} from "../../state/selectedObjectStore";
 import {centerViewOnObject} from "../../utils/scene/centerViewOnObject";
 
@@ -14,7 +12,6 @@ type CameraControlsProps = {
 
 const CameraControls: React.FC<CameraControlsProps> = ({orbitControlsRef}) => {
     const {camera, gl, scene} = useThree();
-    const selectedObjectRef = useRef<THREE.Object3D | null>(null);
 
     useEffect(() => {
         const handlePointerDown = (event: PointerEvent) => {
