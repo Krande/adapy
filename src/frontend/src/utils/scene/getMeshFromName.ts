@@ -1,3 +1,4 @@
+import * as THREE from 'three';
 import {useModelStore} from "../../state/modelStore";
 
 export function getMeshFromName(meshName: string) {
