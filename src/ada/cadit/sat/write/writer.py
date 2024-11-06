@@ -1,11 +1,16 @@
-def create_vertex_string(vertex_id, vertex):
-    vertex_string = f"{vertex_id} vertex {vertex[0]} {vertex[1]} {vertex[2]} #\n"
+def create_point_string(point_id, coordinate):
+    point_str = f"-{point_id} point $-1 -1 -1 $-1 {coordinate[0]} {coordinate[1]} {coordinate[2]} #\n"
+    return point_str
+
+
+def create_vertex_string(vertex_id, edge_id, point_id):
+    vertex_string = f"-{vertex_id} vertex $-1 -1 -1 $-1 ${edge_id} ${point_id} #\n"
     return vertex_string
 
 
 def create_edge_string(edge_id, vertex_start_id, vertex_end_id, vertex):
     edge_string = (
-        f"{edge_id} edge -1 -1 -1 -1 {vertex_start_id} 0 {vertex_end_id} 0.51249999999999996 "
+        f"-{edge_id} edge -1 -1 -1 $-1 ${vertex_start_id} 0 ${vertex_end_id} 0.51249999999999996 "
         f"{vertex_start_id} {vertex_end_id} forward @7 unknown T"
         f" {vertex[0]} {vertex[1]} {vertex[2]} {vertex[0]} {vertex[1]} {vertex[2]} #\n"
     )
