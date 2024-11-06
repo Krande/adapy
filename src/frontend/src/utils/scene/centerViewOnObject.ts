@@ -1,103 +1,138 @@
 import * as THREE from "three";
+import {Camera} from "three";
 import React from "react";
 import {OrbitControls as OrbitControlsImpl} from "three-stdlib/controls/OrbitControls";
-import {Camera} from "three";
 import {useObjectInfoStore} from "../../state/objectInfoStore";
 import {getSelectedMeshDrawRange} from "../mesh_select/getSelectedMeshDrawRange";
 import {useSelectedObjectStore} from "../../state/selectedObjectStore";
-import {useModelStore} from "../../state/modelStore";
 
 export const centerViewOnObject = (
-    object: THREE.Object3D,
     orbitControlsRef: React.RefObject<OrbitControlsImpl>,
-    camera: Camera
+    camera: Camera,
+    fillFactor: number = 1 // Default to filling the entire view
 ) => {
-    let current_object = useSelectedObjectStore.getState().selectedObject;
-    let face_index = useObjectInfoStore.getState().faceIndex;
-    let translation = useModelStore.getState().translation;
+    const object = useSelectedObjectStore.getState().selectedObject;
+    const current_object = useSelectedObjectStore.getState().selectedObject;
+    const face_index = useObjectInfoStore.getState().faceIndex;
 
-    if (orbitControlsRef.current && camera && current_object && face_index) {
-        let draw_range = getSelectedMeshDrawRange(object as THREE.Mesh, face_index);
+    if (
+        orbitControlsRef.current &&
+        camera &&
+        current_object &&
+        face_index !== undefined && face_index !== null
+    ) {
+        const draw_range = getSelectedMeshDrawRange(
+            object as THREE.Mesh,
+            face_index
+        );
         if (draw_range) {
             const [rangeId, start, count] = draw_range;
 
-            // Ensure the object has a BufferGeometry
-            const geometry = (object as THREE.Mesh).geometry as THREE.BufferGeometry;
+            const mesh = object as THREE.Mesh;
+            const geometry = mesh.geometry as THREE.BufferGeometry;
 
-            // Check that the geometry has a position attribute
-            if (geometry && geometry.hasAttribute("position")) {
-                const position = geometry.getAttribute("position");
-                // if position is NA, return
-                if (!position) {
+            // Ensure that the geometry has a position attribute
+            const positionAttr = geometry.getAttribute("position");
+            const indexAttr = geometry.getIndex();
+
+            if (!positionAttr) {
+                console.warn("Geometry has no position attribute.");
+                return;
+            }
+
+            if (!indexAttr) {
+                console.warn("Geometry has no index buffer.");
+                return;
+            }
+
+            const positionArray = positionAttr.array;
+            const indexArray = indexAttr.array;
+            const itemSize = positionAttr.itemSize;
+
+            // Validate that start and count are within the index array bounds
+            if (start < 0 || start + count > indexArray.length) {
+                console.warn(
+                    `Draw range (start: ${start}, count: ${count}) is out of bounds of the index array (length: ${indexArray.length}).`
+                );
+                return;
+            }
+
+            // Create a bounding box based on the specified draw range
+            const boundingBox = new THREE.Box3();
+            const vertex = new THREE.Vector3();
+
+            for (let i = start; i < start + count; i++) {
+                const index = indexArray[i];
+
+                // Validate the index
+                if (index < 0 || index >= positionAttr.count) {
+                    console.warn(
+                        `Index ${index} at position ${i} is out of bounds of the position attribute (count: ${positionAttr.count}). Skipping.`
+                    );
+                    continue;
+                }
+
+                // Extract the vertex position at the specified index
+                vertex.fromBufferAttribute(positionAttr, index);
+
+                // Check for NaN values in the vertex position
+                if (
+                    isNaN(vertex.x) ||
+                    isNaN(vertex.y) ||
+                    isNaN(vertex.z)
+                ) {
+                    console.warn(
+                        `NaN detected in vertex position at index ${index}. Skipping this vertex.`
+                    );
+                    continue;
+                }
+
+                // Apply the object's world matrix to get the world position
+                mesh.localToWorld(vertex);
+                boundingBox.expandByPoint(vertex);
+            }
+
+            // Check if the bounding box is valid
+            if (!boundingBox.isEmpty()) {
+                // Compute bounding sphere from bounding box
+                const boundingSphere = new THREE.Sphere();
+                boundingBox.getBoundingSphere(boundingSphere);
+
+                // Get the center of the bounding sphere
+                const center = boundingSphere.center;
+                const radius = boundingSphere.radius;
+
+                if (radius === 0 || isNaN(radius)) {
+                    console.warn(
+                        "Object has zero size or invalid radius."
+                    );
                     return;
                 }
-                // Create a bounding box based on the specified draw range
-                const boundingBox = new THREE.Box3();
-                const boundingBoxLocal = new THREE.Box3();
-                const vertex = new THREE.Vector3();
 
-                for (let i = start; i < start + count; i++) {
-                    // Extract the vertex position at the specified index
-                    vertex.fromBufferAttribute(position, i);
-                    // if any of the vertex positions are NA, return
-                    if (vertex.x === null || vertex.y === null || vertex.z === null) {
-                        return;
-                    }
-                    // Apply the object's world matrix to get the world position
-                    boundingBoxLocal.expandByPoint(vertex);
-                    object.localToWorld(vertex);
-                    boundingBox.expandByPoint(vertex);
-                }
-
-                const scene = useModelStore.getState().scene;
-                if (scene) {
-                    // Delete the previous bounding box helper
-                    scene.children.forEach((child) => {
-                        if (child instanceof THREE.Box3Helper) {
-                            scene.remove(child);
-                        }
-                    });
-                    // Add a Box3Helper to visualize the bounding box
-                    const boundingBoxHelper = new THREE.Box3Helper(boundingBoxLocal, 0xff0000); // Red color for visibility
-
-                    // move the bounding box helper back using the opposite directed translation vector
-                    if (translation) {
-                        boundingBoxHelper.position.sub(translation);
-                    }
-
-                    scene.add(boundingBoxHelper);
-                }
-
-                // Get the center of the bounding box
-                const center = boundingBox.getCenter(new THREE.Vector3());
-                camera.lookAt(center);// Update the orbit controls
-                orbitControlsRef.current.target.copy(center);
-                orbitControlsRef.current.update();
-                // Update the camera's projection matrix
-                if (camera instanceof THREE.PerspectiveCamera || camera instanceof THREE.OrthographicCamera) {
+                let distance = 0;
+                if (camera instanceof THREE.PerspectiveCamera) {
+                    const fov = (camera.fov * Math.PI) / 180; // Convert FOV to radians
+                    distance = (radius / Math.sin(fov / 2)) / fillFactor;
+                } else if (camera instanceof THREE.OrthographicCamera) {
+                    const aspect = camera.right / camera.top;
+                    camera.top = radius / fillFactor;
+                    camera.bottom = -radius / fillFactor;
+                    camera.left = (-radius * aspect) / fillFactor;
+                    camera.right = (radius * aspect) / fillFactor;
                     camera.updateProjectionMatrix();
+                    distance = camera.position.distanceTo(center);
+                } else {
+                    console.warn("Unknown camera type");
+                    return;
                 }
-                // Log the center
-                console.log(`Bounding box center: ${center.x}, ${center.y}, ${center.z}`);
-
-                // Get the camera's current viewing direction
-                const direction = new THREE.Vector3();
-                camera.getWorldDirection(direction);
-
-                // Log the camera direction before moving
-                console.log(`Camera direction before: ${direction.x}, ${direction.y}, ${direction.z}`);
-
-                // Desired distance from center (3 meters)
-                const distance = 3;
 
                 // Calculate the new camera position
-                const new_position = center.clone().sub(direction.clone().multiplyScalar(distance));
-
-                // Log the new camera position
-                console.log(`New camera position: ${new_position.x}, ${new_position.y}, ${new_position.z}`);
-
-                // Move the camera to the new position
-                camera.position.copy(new_position);
+                const direction = new THREE.Vector3();
+                camera.getWorldDirection(direction);
+                const newPosition = center
+                    .clone()
+                    .sub(direction.multiplyScalar(distance));
+                camera.position.copy(newPosition);
 
                 // Ensure the camera's up vector is correct
                 camera.up.set(0, 1, 0); // Assuming Y-up coordinate system
@@ -106,21 +141,15 @@ export const centerViewOnObject = (
                 camera.lookAt(center);
 
                 // Update the camera's projection matrix
-                if (camera instanceof THREE.PerspectiveCamera || camera instanceof THREE.OrthographicCamera) {
-                    camera.updateProjectionMatrix();
-                }
-
-                // Update the camera's direction after moving
-                const new_direction = new THREE.Vector3();
-                camera.getWorldDirection(new_direction);
-
-                // Log the camera direction after moving
-                console.log(`Camera direction after: ${new_direction.x}, ${new_direction.y}, ${new_direction.z}`);
+                camera.updateProjectionMatrix();
 
                 // Update the orbit controls
                 orbitControlsRef.current.target.copy(center);
                 orbitControlsRef.current.update();
-                console.log(`Bounding box center: ${center.x}, ${center.y}, ${center.z}`);
+            } else {
+                console.warn(
+                    "Bounding box is empty after processing vertices. Cannot center view."
+                );
             }
         }
     }
