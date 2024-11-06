@@ -3,7 +3,6 @@ import {useTreeViewStore} from "../../state/treeViewStore";
 import {getMeshFromName} from "../scene/getMeshFromName";
 import * as THREE from 'three';
 import {getDrawRangeByName} from "../mesh_select/getDrawRangeByName";
-import {highlightDrawRange} from "../mesh_select/highlightDrawRange";
 import {deselectObject} from "../mesh_select/deselectObject";
 
 export function handleClickedNode(event: React.SyntheticEvent, itemIds: string | null) {
@@ -24,7 +23,7 @@ export function handleClickedNode(event: React.SyntheticEvent, itemIds: string |
 
             // if mesh is not null and mesh is instance of THREE.Mesh
             if (mesh && !(mesh instanceof THREE.LineSegments) && !(mesh instanceof THREE.Points)) {
-                highlightDrawRange(mesh, [rangeId, start, count]);
+
                 console.log("mesh", mesh);
             } else {
                 deselectObject();

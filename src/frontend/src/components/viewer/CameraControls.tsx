@@ -1,53 +1,51 @@
 // CameraControls.tsx
-import * as THREE from 'three';
-import React, {useEffect} from 'react';
-import {useThree} from '@react-three/fiber';
-import {OrbitControls as OrbitControlsImpl} from 'three-stdlib';
-import {useSelectedObjectStore} from "../../state/selectedObjectStore";
-import {centerViewOnObject} from "../../utils/scene/centerViewOnObject";
+import React, { useEffect } from 'react';
+import { useThree } from '@react-three/fiber';
+import { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
+import { useSelectedObjectStore } from '../../state/useSelectedObjectStore';
+import { centerViewOnSelection } from '../../utils/scene/centerViewOnSelection';
+import { CustomBatchedMesh } from '../../utils/mesh_select/CustomBatchedMesh';
 
 type CameraControlsProps = {
     orbitControlsRef: React.RefObject<OrbitControlsImpl>;
 };
 
-const CameraControls: React.FC<CameraControlsProps> = ({orbitControlsRef}) => {
-    const {camera, gl, scene} = useThree();
+const CameraControls: React.FC<CameraControlsProps> = ({ orbitControlsRef }) => {
+    const { camera, scene } = useThree();
 
     useEffect(() => {
-        const handlePointerDown = (event: PointerEvent) => {
-            if (event.ctrlKey && event.button === 0) {
-               console.log('CTRL+Left Click');
-            }
-        };
-
-        gl.domElement.addEventListener('pointerdown', handlePointerDown);
-
         const handleKeyDown = (event: KeyboardEvent) => {
-
-            if (event.key.toLowerCase() === 'f' && event.shiftKey) {
-                centerViewOnObject(orbitControlsRef, camera);
-            } else if (event.key.toLowerCase() === 'h' && event.shiftKey) {
-                // Perform an action when "ctrl+h" is pressed
-                console.log('SHIFT+H pressed');
-                // currently_selected?.layers.set(1);
-                // Example action: Reset the camera position to the default
-            } else if (event.key.toLowerCase() === 'g' && event.shiftKey) {
-                // Perform an action when "ctrl+h" is pressed
-                console.log('SHIFT+g pressed');
-                // loop over objects in layers 2 and set them to layer 0
-                // Example action: Reset the camera position to the default
+            if (event.shiftKey && event.key.toLowerCase() === 'h') {
+                // SHIFT+H pressed - Hide selected draw ranges
+                const selectedObjects = useSelectedObjectStore.getState().selectedObjects;
+                selectedObjects.forEach((drawRangeIds, mesh) => {
+                    drawRangeIds.forEach((drawRangeId) => {
+                        mesh.hideDrawRange(drawRangeId);
+                    });
+                    mesh.deselect();
+                });
+                useSelectedObjectStore.getState().clearSelectedObjects();
+            } else if (event.shiftKey && event.key.toLowerCase() === 'u') {
+                // SHIFT+U pressed - Unhide all
+                scene.traverse((object) => {
+                    if (object instanceof CustomBatchedMesh) {
+                        object.unhideAllDrawRanges();
+                    }
+                });
+            } else if (event.shiftKey && event.key.toLowerCase() === 'f') {
+                // SHIFT+F pressed - Center view on selection
+                centerViewOnSelection(orbitControlsRef, camera);
             }
         };
 
         window.addEventListener('keydown', handleKeyDown);
 
         return () => {
-            gl.domElement.removeEventListener('pointerdown', handlePointerDown);
             window.removeEventListener('keydown', handleKeyDown);
         };
-    }, [camera, gl, scene]);
+    }, [camera, orbitControlsRef, scene]);
 
-    return null; // This component doesn't render anything
+    return null;
 };
 
 export default CameraControls;
