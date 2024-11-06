@@ -1,66 +1,96 @@
-import {ThreeEvent} from "@react-three/fiber";
-import {useSelectedObjectStore} from "../../state/selectedObjectStore";
-import * as THREE from "three";
-import {deselectObject} from "./deselectObject";
-import {useTreeViewStore} from "../../state/treeViewStore";
-import {findNodeById} from "../tree_view/findNodeById";
-import {getSelectedMeshDrawRange} from "./getSelectedMeshDrawRange";
-import {highlightDrawRange} from "./highlightDrawRange";
-import {useObjectInfoStore} from "../../state/objectInfoStore";
-import {useModelStore} from "../../state/modelStore";
+// handleClickMesh.ts
+import {ThreeEvent} from '@react-three/fiber';
+import {useSelectedObjectStore} from '../../state/useSelectedObjectStore';
+import {useTreeViewStore} from '../../state/treeViewStore';
+import {findNodeById} from '../tree_view/findNodeById';
+import {getSelectedMeshDrawRange} from './getSelectedMeshDrawRange';
+import {useObjectInfoStore} from '../../state/objectInfoStore';
+import {useModelStore} from '../../state/modelStore';
+import {CustomBatchedMesh} from './CustomBatchedMesh';
 
 export function handleClickMesh(event: ThreeEvent<PointerEvent>) {
     event.stopPropagation();
 
-    const selectedObject = useSelectedObjectStore.getState().selectedObject;
-    const mesh = event.object as THREE.Mesh;
-    const face_index = event.faceIndex || 0;
-
-    let translation = useModelStore.getState().translation
-
-    // Get the 3D coordinates from the click event
-    const clickPosition = event.point; // This is the 3D coordinate in world space
-    console.log("3D Click Position:", clickPosition);
-
-    // Update the object info store
-    if (translation) {
-        clickPosition.sub(translation);
-    }
-    useObjectInfoStore.getState().setClickCoordinate(clickPosition);
-
-    if (face_index == useObjectInfoStore.getState().faceIndex && (mesh == selectedObject)) {
-        deselectObject();
-        useObjectInfoStore.getState().setFaceIndex(null);
+    // if right-click, return
+    if (event.button === 2) {
         return;
     }
 
-    useObjectInfoStore.getState().setFaceIndex(face_index);
-    let drawRange = getSelectedMeshDrawRange(mesh, face_index);
+    const mesh = event.object as CustomBatchedMesh;
+    const faceIndex = event.faceIndex || 0;
+    const shiftKey = event.nativeEvent.shiftKey;
 
-    if (!drawRange) {
-        return null;
+    const translation = useModelStore.getState().translation;
+
+    // Get the 3D coordinates from the click event
+    const clickPosition = event.point.clone();
+
+    // Adjust for translation if necessary
+    if (translation) {
+        clickPosition.sub(translation);
     }
 
-    highlightDrawRange(mesh, drawRange)
+    // Update the object info store
+    useObjectInfoStore.getState().setClickCoordinate(clickPosition);
+
+    // Get the draw range for the selected face
+    const drawRange = getSelectedMeshDrawRange(mesh, faceIndex);
+
+    if (!drawRange) {
+        return;
+    }
 
     const [rangeId, start, count] = drawRange;
 
-    let scene = useModelStore.getState().scene;
-    let hierarchy: Record<string, [string, string | number]> = scene?.userData["id_hierarchy"];
-    const [node_name, parent_node_name] = hierarchy[rangeId];
-    if (node_name) {
-        // Update the object info store
-        useObjectInfoStore.getState().setName(node_name);
+    const selectedObjects = useSelectedObjectStore.getState().selectedObjects;
+    const selectedRanges = selectedObjects.get(mesh);
+    const isAlreadySelected = selectedRanges ? selectedRanges.has(rangeId) : false;
+
+    if (shiftKey) {
+        if (isAlreadySelected) {
+            // If Shift is held and the draw range is already selected, deselect it
+            useSelectedObjectStore.getState().removeSelectedObject(mesh, rangeId);
+            selectedRanges?.delete(rangeId);
+            mesh.highlightDrawRanges(Array.from(selectedRanges || []));
+        } else {
+            // If Shift is held and the draw range is not selected, add it to selection
+            useSelectedObjectStore.getState().addSelectedObject(mesh, rangeId);
+            if (!selectedRanges) {
+                mesh.highlightDrawRanges([rangeId]);
+                selectedObjects.set(mesh, new Set([rangeId]));
+            } else {
+                selectedRanges?.add(rangeId);
+                mesh.highlightDrawRanges(Array.from(selectedRanges || []));
+            }
+        }
+    } else {
+        // If Shift is not held, clear previous selections and select the new draw range
+        // Deselect all previously selected draw ranges
+        selectedObjects.forEach((ranges, selectedMesh) => {
+            selectedMesh.deselect();
+        });
+        useSelectedObjectStore.getState().clearSelectedObjects();
+
+        // Select the new draw range
+        const newSet = new Set<string>();
+        newSet.add(rangeId);
+        useSelectedObjectStore.getState().addSelectedObject(mesh, rangeId);
+        mesh.highlightDrawRanges([rangeId]);
     }
 
-    // Update the tree view selection
-    const treeViewStore = useTreeViewStore.getState();
-    if (treeViewStore.treeData) {
-        const selectedNode = findNodeById(treeViewStore.treeData, node_name);
-        if (selectedNode) {
-            treeViewStore.setSelectedNodeId(selectedNode.id);
+    // Update object info and tree view selection
+    const scene = useModelStore.getState().scene;
+    const hierarchy: Record<string, [string, string | number]> = scene?.userData['id_hierarchy'];
+    const [nodeName] = hierarchy[rangeId];
+
+    if (nodeName) {
+        useObjectInfoStore.getState().setName(nodeName);
+        const treeViewStore = useTreeViewStore.getState();
+        if (treeViewStore.treeData) {
+            const selectedNode = findNodeById(treeViewStore.treeData, nodeName);
+            if (selectedNode) {
+                treeViewStore.setSelectedNodeId(selectedNode.id);
+            }
         }
     }
-
-
 }

@@ -1,8 +1,11 @@
-import * as THREE from "three";
-import {useModelStore} from "../../state/modelStore";
+import { CustomBatchedMesh } from "./CustomBatchedMesh"; // Adjust the import path
+import { useModelStore } from "../../state/modelStore";
 
-export function getSelectedMeshDrawRange(mesh: THREE.Mesh, faceIndex: number): [string, number, number] | null {
-    let scene = useModelStore.getState().scene
+export function getSelectedMeshDrawRange(
+    mesh: CustomBatchedMesh,
+    faceIndex: number
+): [string, number, number] | null {
+    const scene = useModelStore.getState().scene;
 
     if (!mesh || !scene?.userData) {
         return null;
@@ -10,7 +13,10 @@ export function getSelectedMeshDrawRange(mesh: THREE.Mesh, faceIndex: number): [
 
     // Extract draw ranges from userData for the given mesh name
     const meshName = mesh.name; // Assuming mesh name follows the pattern "node0", "node1", etc.
-    const drawRanges = scene.userData[`draw_ranges_${meshName}`] as Record<string, [number, number]>;
+    const drawRanges = scene.userData[`draw_ranges_${meshName}`] as Record<
+        string,
+        [number, number]
+    >;
 
     if (!drawRanges) {
         return null;
@@ -19,7 +25,7 @@ export function getSelectedMeshDrawRange(mesh: THREE.Mesh, faceIndex: number): [
     // Find the draw range that includes the specified face index
     for (const [rangeId, [start, length]] of Object.entries(drawRanges)) {
         const end = start + length;
-        if (faceIndex*3 >= start && faceIndex*3 < end) {
+        if (faceIndex * 3 >= start && faceIndex * 3 < end) {
             return [rangeId, start, length];
         }
     }

@@ -1,5 +1,4 @@
 import React from 'react';
-import {toggle_info_panel} from "../utils/info_panel_utils";
 import ObjectInfoBox from "./object_info_box/ObjectInfoBoxComponent";
 import {useObjectInfoStore} from "../state/objectInfoStore";
 import AnimationControls from "./viewer/AnimationControls";

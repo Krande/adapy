@@ -12,7 +12,7 @@ import {useTreeViewStore} from '../../state/treeViewStore';
 import {useOptionsStore} from "../../state/optionsStore";
 import {buildTreeFromUserData} from '../../utils/tree_view/generateTree';
 import {handleClickMesh} from "../../utils/mesh_select/handleClickMesh";
-
+import {CustomBatchedMesh} from '../../utils/mesh_select/CustomBatchedMesh';
 
 const ThreeModel: React.FC<ModelProps> = ({url}) => {
     const {raycaster, camera} = useThree();
@@ -23,9 +23,10 @@ const ThreeModel: React.FC<ModelProps> = ({url}) => {
     const {showEdges} = useOptionsStore();
 
     useAnimationEffects(animations, scene);
+
     useEffect(() => {
         THREE.Object3D.DEFAULT_UP.set(0, 0, 1);
-        if (scene){
+        if (scene) {
             useModelStore.getState().setScene(scene);
         }
 
@@ -39,58 +40,92 @@ const ThreeModel: React.FC<ModelProps> = ({url}) => {
         camera.layers.enable(0);
         camera.layers.enable(1);
 
+        const meshesToReplace: { original: THREE.Mesh; parent: THREE.Object3D }[] = [];
+
         scene.traverse((object) => {
             if (object instanceof THREE.Mesh) {
-                // Ensure geometry has normals
-                if (!object.geometry.hasAttribute('normal')) {
-                    object.geometry.computeVertexNormals();
-                }
+                meshesToReplace.push({original: object, parent: object.parent!});
+            } else if (object instanceof THREE.LineSegments) {
+                object.layers.set(1);
+            } else if (object instanceof THREE.Points) {
+                object.layers.set(1);
+            }
+        });
 
-                // Set materials to double-sided and enable flat shading
-                if (Array.isArray(object.material)) {
-                    object.material.forEach((mat) => {
+        // Replace meshes with CustomBatchedMesh instances
+        for (const {original, parent} of meshesToReplace) {
+            // Extract draw ranges from userData for the given mesh name
+            const meshName = original.name;
+            const drawRangesData = scene.userData[`draw_ranges_${meshName}`] as Record<string, [number, number]>;
+
+            // Convert drawRangesData to a Map
+            const drawRanges = new Map<string, [number, number]>();
+            if (drawRangesData) {
+                for (const [rangeId, [start, count]] of Object.entries(drawRangesData)) {
+                    drawRanges.set(rangeId, [start, count]);
+                }
+            }
+
+            const customMesh = new CustomBatchedMesh(
+                original.geometry,
+                original.material,
+                drawRanges
+            );
+
+            // Copy over properties from original mesh to customMesh
+            customMesh.position.copy(original.position);
+            customMesh.rotation.copy(original.rotation);
+            customMesh.scale.copy(original.scale);
+            customMesh.name = original.name;
+            customMesh.userData = original.userData;
+            customMesh.castShadow = original.castShadow;
+            customMesh.receiveShadow = original.receiveShadow;
+            customMesh.visible = original.visible;
+            customMesh.frustumCulled = original.frustumCulled;
+            customMesh.renderOrder = original.renderOrder;
+            customMesh.layers.mask = original.layers.mask;
+
+            // Set materials to double-sided and enable flat shading
+            if (Array.isArray(customMesh.material)) {
+                customMesh.material.forEach((mat) => {
+                    if (mat instanceof THREE.MeshStandardMaterial) {
                         mat.side = THREE.DoubleSide;
                         mat.flatShading = true;
                         mat.needsUpdate = true;
-                    });
-                } else {
-                    object.material.side = THREE.DoubleSide;
-                    object.material.flatShading = true;
-                    object.material.needsUpdate = true;
-                }
-
-                if (showEdges) {
-                    // Create edges geometry and add it as a line segment
-                    const edges = new THREE.EdgesGeometry(object.geometry);
-                    const lineMaterial = new THREE.LineBasicMaterial({color: 0x000000});
-                    const edgeLine = new THREE.LineSegments(edges, lineMaterial);
-
-                    // Make sure the edge line inherits position and rotation of the object
-                    edgeLine.position.copy(object.position);
-                    edgeLine.rotation.copy(object.rotation);
-                    edgeLine.scale.copy(object.scale);
-                    edgeLine.layers.set(1);
-                    // Add edge lines to the scene
-                    scene.add(edgeLine);
-                }
-
-                // Enable shadow casting and receiving
-                // object.castShadow = true;
-                // object.receiveShadow = true;
-            } else if (object instanceof THREE.LineSegments) {
-                // Line segments should by default not be clickable
-                //object.userData.clickable = false;
-                object.layers.set(1)
-            } else if (object instanceof THREE.Points) {
-                // Set points material to double-sided
-                console.log(object.material);
-                object.layers.set(1)
+                    } else {
+                        console.warn('Material is not an instance of MeshStandardMaterial');
+                    }
+                });
             } else {
-                console.log(`Unknown object type: ${object.type}`);
-
+                if (customMesh.material instanceof THREE.MeshStandardMaterial) {
+                    customMesh.material.side = THREE.DoubleSide;
+                    customMesh.material.flatShading = true;
+                    customMesh.material.needsUpdate = true;
+                } else {
+                    console.warn('Material is not an instance of MeshStandardMaterial');
+                }
             }
 
-        });
+            if (showEdges) {
+                // Create edges geometry and add it as a line segment
+                const edges = new THREE.EdgesGeometry(customMesh.geometry);
+                const lineMaterial = new THREE.LineBasicMaterial({color: 0x000000});
+                const edgeLine = new THREE.LineSegments(edges, lineMaterial);
+
+                // Ensure the edge line inherits transformations
+                edgeLine.position.copy(customMesh.position);
+                edgeLine.rotation.copy(customMesh.rotation);
+                edgeLine.scale.copy(customMesh.scale);
+                edgeLine.layers.set(1);
+
+                // Add edge lines to the scene
+                scene.add(edgeLine);
+            }
+
+            // Replace the original mesh with the custom mesh
+            parent.add(customMesh);
+            parent.remove(original);
+        }
 
         // Replace black materials with default gray material
         replaceBlackMaterials(scene);
@@ -106,6 +141,7 @@ const ThreeModel: React.FC<ModelProps> = ({url}) => {
         const minY = boundingBox.min.y;
         const bheight = boundingBox.max.y - minY;
         translation.y = -minY + bheight * 0.05;
+
         // Apply the translation to the model
         scene.position.add(translation);
 
@@ -116,9 +152,7 @@ const ThreeModel: React.FC<ModelProps> = ({url}) => {
 
         // Generate the tree data and update the store
         const treeData = buildTreeFromUserData(scene);
-        // const treeData = buildTreeFromScene(scene);
-        if (treeData)
-            setTreeData(treeData); // Update the tree view store with the scene graph data
+        if (treeData) setTreeData(treeData);
 
         // Cleanup when the component is unmounted
         return () => {
@@ -136,7 +170,7 @@ const ThreeModel: React.FC<ModelProps> = ({url}) => {
     return (
         <primitive
             object={scene}
-            onClick={handleClickMesh}
+            onPointerDown={handleClickMesh}
             dispose={null}
         />
     );

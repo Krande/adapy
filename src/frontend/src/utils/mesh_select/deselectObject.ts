@@ -1,15 +1,12 @@
-import {useSelectedObjectStore} from "../../state/selectedObjectStore";
-import {defaultMaterial} from "../default_materials";
+import {useSelectedObjectStore} from "../../state/useSelectedObjectStore";
 
 
 export function deselectObject() {
-    const selectedObject = useSelectedObjectStore.getState().selectedObject;
-    const originalMaterial = useSelectedObjectStore.getState().originalMaterial;
-    if (selectedObject) {
-        selectedObject.material = originalMaterial ? originalMaterial : defaultMaterial;
-        useSelectedObjectStore.getState().setOriginalMaterial(null);
-        useSelectedObjectStore.getState().setSelectedObject(null);
-    }
+    const selectedObjects = useSelectedObjectStore.getState().selectedObjects;
+    selectedObjects.forEach((drawRangeIds, mesh) => {
+        mesh.deselect();
+    });
+    useSelectedObjectStore.getState().clearSelectedObjects();
 }
 
 
