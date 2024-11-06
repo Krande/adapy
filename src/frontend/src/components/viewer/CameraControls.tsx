@@ -23,12 +23,9 @@ const CameraControls: React.FC<CameraControlsProps> = ({orbitControlsRef}) => {
         gl.domElement.addEventListener('pointerdown', handlePointerDown);
 
         const handleKeyDown = (event: KeyboardEvent) => {
-            let currently_selected = useSelectedObjectStore.getState().selectedObject;
 
             if (event.key.toLowerCase() === 'f' && event.shiftKey) {
-                if (currently_selected) {
-                    centerViewOnObject(currently_selected, orbitControlsRef, camera);
-                }
+                centerViewOnObject(orbitControlsRef, camera);
             } else if (event.key.toLowerCase() === 'h' && event.shiftKey) {
                 // Perform an action when "ctrl+h" is pressed
                 console.log('SHIFT+H pressed');
