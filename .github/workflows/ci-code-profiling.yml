@@ -30,7 +30,7 @@ jobs:
         with:
           swap-size-gb: 10
 
-      - uses: mamba-org/setup-micromamba@v1 # https://github.com/mamba-org/setup-micromamba
+      - uses: mamba-org/setup-micromamba@v2 # https://github.com/mamba-org/setup-micromamba
         with:
           cache-environment: false
           environment-name: testing

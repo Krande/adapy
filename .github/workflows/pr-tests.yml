@@ -10,7 +10,7 @@ concurrency:
   group: pr-tests-${{ github.ref_name }}
   cancel-in-progress: true
 
-# installs mamba-org/setup-micromamba@v1 on all 3 platforms using matrix and runs pytest:
+# installs mamba-org/setup-micromamba@v2 on all 3 platforms using matrix and runs pytest:
 jobs:
     lint:
         runs-on: ubuntu-latest
@@ -40,7 +40,7 @@ jobs:
           with:
             ref: ${{ github.event.pull_request.head.sha || github.ref }}
 
-        - uses: mamba-org/setup-micromamba@v1  # https://github.com/mamba-org/setup-micromamba
+        - uses: mamba-org/setup-micromamba@v2  # https://github.com/mamba-org/setup-micromamba
           with:
             cache-environment: false
             condarc: |
