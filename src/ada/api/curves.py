@@ -313,6 +313,10 @@ class CurvePoly2d(CurveOpen2d):
 
         return make_profile_from_geom(self.get_face_geom())
 
+    def get_centroid(self):
+        xyz_points = np.asarray([p for p in self.points3d])
+        centroid = Point(np.sum(xyz_points, axis=0) / len(xyz_points))
+        return centroid
 
 class CurveOpen3d:
     """A 3 dimensional open poly curve defined by a list of 3d points represented by line and arc segments."""
