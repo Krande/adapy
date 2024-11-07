@@ -36,7 +36,28 @@ def part_to_sat_writer(part: Part | Assembly) -> SatWriter:
         new_entities = plate_to_sat_entities(pl, face_name, GeomRepr.SHELL, sw)
         for entity in new_entities:
             sw.add_entity(entity)
+    # re-arrange entities and make sure all body, lump, shell and face elements are before any further elements
+    bodies = sw.get_entities_by_type(se.Body)
+    lumps = sw.get_entities_by_type(se.Lump)
+    shells = sw.get_entities_by_type(se.Shell)
+    faces = sw.get_entities_by_type(se.Face)
+    new_id = 0
 
+    first_entities = list(chain(bodies, lumps, shells, faces))
+    for i, entity in enumerate(first_entities):
+        if isinstance(entity, se.Lump) and len(lumps) > 1:
+            next_entity = first_entities[i+1]
+            if  isinstance(next_entity, se.Lump):
+                entity.next_lump = next_entity
+
+        entity.id = new_id
+        new_id += 1
+    for rest in sw.entities.values():
+        if type(rest) not in [se.Body, se.Lump, se.Shell, se.Face]:
+            rest.id = new_id
+            new_id += 1
+    # update map
+    sw.entities = {entity.id: entity for entity in sorted(sw.entities.values(), key=lambda x: x.id)}
     return sw
 
 
@@ -44,6 +65,7 @@ def part_to_sat_writer(part: Part | Assembly) -> SatWriter:
 class SatWriter:
     part: Part | Assembly
     entities: dict = field(default_factory=dict)
+
     header: str = HEADER_STR
     bbox: list[float] = field(default_factory=list)
     id_generator: IDGenerator = field(default_factory=IDGenerator)
@@ -53,14 +75,15 @@ class SatWriter:
         self.bbox = list(chain.from_iterable(zip(*self.part.nodes.bbox())))
 
     def add_entity(self, entity: SATEntity) -> None:
-        self.entities[entity.entity_id] = entity
+        self.entities[entity.id] = entity
 
     def write(self, file_path: str | pathlib.Path) -> None:
         with open(file_path, "w") as f:
-            f.write(self.header)
-            for entity in self.entities.values():
-                f.write(entity.to_string() + '\n')
-            f.write("End-of-ACIS-data")
+            f.write(self.to_str())
+
+    def to_str(self):
+        sorted_values = sorted(self.entities.values(), key=lambda x: x.id)
+        return self.header + '\n'.join(entity.to_string() for entity in sorted_values) + "\nEnd-of-ACIS-data"
 
     def get_entities_by_type(self, by_type) -> list[SATEntity]:
         return list(filter(lambda x: type(x) is by_type, self.entities.values()))

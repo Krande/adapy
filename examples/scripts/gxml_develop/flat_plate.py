@@ -20,8 +20,10 @@ def main():
     workspace.mkdir(parents=True, exist_ok=True)
 
     pl = ada.Plate("pl", [(0, 0), (10, 0), (10, 10), (0, 10)], 0.1)
+    pl2 = ada.Plate("pl2", [(0, 0), (10, 0), (10, 10), (0, 10)], 0.1, origin=(10, 10, 0))
+    pl3 = ada.Plate("pl3", [(0, 0), (10, 0), (10, 10), (0, 10)], 0.1, origin=(0, 0, 2))
 
-    a = ada.Assembly() / pl
+    a = ada.Assembly() / (pl, pl3, pl2)
     sw = part_to_sat_writer(a)
     sw.write(dest_sat_file)
 
