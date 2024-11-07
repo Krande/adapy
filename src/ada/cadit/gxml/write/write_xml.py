@@ -1,16 +1,21 @@
 from __future__ import annotations
 
+import base64
 import os
 import pathlib
 import xml.etree.ElementTree as ET
+import zipfile
+from io import BytesIO
 from typing import TYPE_CHECKING, Callable
 
 from .write_bcs import add_boundary_conditions
 from .write_beams import add_beams
 from .write_masses import add_masses
 from .write_materials import add_materials
+from .write_plates import add_plates
 from .write_sat_embedded import embed_sat_geometry
 from .write_sections import add_sections
+from ...sat.write.writer import part_to_sat_writer
 
 if TYPE_CHECKING:
     from ada import Part
@@ -41,18 +46,38 @@ def write_xml(part: Part, xml_file, embed_sat=False, writer_postprocessor: Calla
     add_materials(properties, part)
 
     # Add SAT geometry (maybe only applicable for plate geometry)
-    sat_map = dict()
+    sw = None
     if embed_sat:
-        sat_map = embed_sat_geometry(structure_domain, part)
+        sw = part_to_sat_writer(part)
+        embed_sat_geometry(structure_domain)
 
     # Add structural elements
-    add_beams(structures_elem, part, sat_map)
+    add_beams(structures_elem, part, sw)
+    add_plates(structure_domain, part, sw)
     add_boundary_conditions(structures_elem, part)
     add_masses(structures_elem, part)
 
     if writer_postprocessor:
         writer_postprocessor(root, part)
 
-    # Write the modified XML back to the file
-    os.makedirs(xml_file.parent, exist_ok=True)
-    tree.write(str(xml_file))
+    xml_file.parent.mkdir(exist_ok=True)
+    if embed_sat:
+        # Compress the SAT data
+        sat_bytes = bytes(sw.to_str(), encoding="utf-8")
+        compressed_io = BytesIO()
+        with zipfile.ZipFile(compressed_io, mode="w", compression=zipfile.ZIP_DEFLATED) as zipf:
+            zipf.writestr("b64temp.sat", sat_bytes)
+        compressed_data = compressed_io.getvalue()
+
+        # Encode the compressed data in base64
+        encoded_data = base64.b64encode(compressed_data).decode()
+        xml_str = ET.tostring(tree.getroot(), encoding="unicode")
+        cdata_section = f"<![CDATA[{encoded_data}]]>"
+        xml_str = xml_str.replace("__CDATA_PLACEHOLDER__", cdata_section)
+
+        # Write the modified XML string to the file
+        with open(xml_file, "w", encoding="utf-8") as file:
+            file.write(xml_str)
+    else:
+        # Write the modified XML back to the file
+        tree.write(str(xml_file), encoding="utf-8")
