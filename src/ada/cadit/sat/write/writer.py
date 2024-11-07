@@ -32,7 +32,7 @@ def part_to_sat_writer(part: Part | Assembly) -> SatWriter:
     # Plates
     for face_id, pl in enumerate(part.get_all_physical_objects(by_type=Plate), start=1):
         face_name = f"FACE{face_id:08d}"
-        sw.face_map[face_name] = pl.guid
+        sw.face_map[pl.guid] = face_name
         new_entities = plate_to_sat_entities(pl, face_name, GeomRepr.SHELL, sw)
         for entity in new_entities:
             sw.add_entity(entity)

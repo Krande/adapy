@@ -4,12 +4,13 @@ import xml.etree.ElementTree as ET
 from typing import TYPE_CHECKING
 
 from .write_utils import add_local_system
+from ...sat.write.writer import SatWriter
 
 if TYPE_CHECKING:
     from ada import Beam, Part
 
 
-def add_beams(root: ET.Element, part: Part, sat_map: dict):
+def add_beams(root: ET.Element, part: Part, sw: SatWriter = None):
     from ada import Beam
 
     for beam in part.get_all_physical_objects(by_type=Beam):
