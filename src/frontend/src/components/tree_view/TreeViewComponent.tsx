@@ -46,6 +46,7 @@ const TreeViewComponent: React.FC = () => {
                 disableDrop={true}
                 disableEdit={true}
                 openByDefault={false}
+                disableMultiSelection={false}
 
                 onSelect={(ids) => {
                   if (ids.length > 0) {
