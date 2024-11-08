@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import {getDrawRangeByName} from "../mesh_select/getDrawRangeByName";
 import {deselectObject} from "../mesh_select/deselectObject";
 import {perform_selection} from "../mesh_select/handleClickMesh";
+import {useObjectInfoStore} from "../../state/objectInfoStore";
 
 export function handleClickedNode(event: React.MouseEvent, itemIds: string | null) {
         if (itemIds !== null) {
@@ -26,6 +27,7 @@ export function handleClickedNode(event: React.MouseEvent, itemIds: string | nul
             if (mesh && !(mesh instanceof THREE.LineSegments) && !(mesh instanceof THREE.Points)) {
                 // console.log("mesh", mesh);
                 let shiftKey = event.shiftKey;
+                useObjectInfoStore.getState().setName(node_name);
                 perform_selection(mesh, shiftKey, rangeId);
             } else {
                 deselectObject();
