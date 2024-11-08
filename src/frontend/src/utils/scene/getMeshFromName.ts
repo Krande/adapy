@@ -1,5 +1,5 @@
-import * as THREE from 'three';
 import {useModelStore} from "../../state/modelStore";
+import {CustomBatchedMesh} from "../mesh_select/CustomBatchedMesh";
 
 export function getMeshFromName(meshName: string) {
     const scene = useModelStore.getState().scene;
@@ -7,7 +7,7 @@ export function getMeshFromName(meshName: string) {
         console.error("Scene is not set in model store");
         return null;
     }
-    const mesh = scene.getObjectByName(meshName) as THREE.Mesh;
+    const mesh = scene.getObjectByName(meshName) as CustomBatchedMesh;
     if (mesh) {
         return mesh;
     }

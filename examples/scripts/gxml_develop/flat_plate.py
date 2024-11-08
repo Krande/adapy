@@ -41,7 +41,9 @@ def main():
     plates.append(pl4)
     pl5 = ada.Plate("pl5", [(0, 0), (10, 0), (10, 10), (0, 10)], 0.01, n=(1, 0, 0), xdir=(0, 1, 0))
     plates.append(pl5)
-    beams += ada.Beam.array_from_list_of_segments(pl5.poly.segments3d, 'IPE300')
+    # beams += ada.Beam.array_from_list_of_segments(pl5.poly.segments3d, 'IPE300')
+    beams += ada.Beam.array_from_list_of_segments(pl.poly.segments3d, 'IPE300')
+    # beams += ada.Beam.array_from_list_of_segments(pl.poly.segments3d, 'IPE300')
 
     beams.append(ada.Beam("bm_yUP", (0, 0, 0), (0, 0, 10), 'IPE300', up=(0, 1, 0)))
     beams.append(ada.Beam("bm_xUP", (0, 0, 0), (0, 0, 10), 'IPE300', up=(1, 0, 0)))
@@ -68,7 +70,7 @@ def main():
         return
 
     args = f"\"{genie_exe}\" {workspace.absolute().as_posix()} /new /com={startup_js_file.resolve().absolute().as_posix()}"
-    subprocess.run(args, shell=True)
+    # subprocess.run(args, shell=True)
 
     # If you want to start an external process, you can use the following line:
     # subprocess.Popen(args, shell=True)

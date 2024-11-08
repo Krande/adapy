@@ -292,7 +292,9 @@ class BatchTessellator:
                     geom = shape.geometry
                     diffuse: ifcopenshell.ifcopenshell_wrapper.colour = geom.materials[0].diffuse
                     transp = geom.materials[0].transparency
-                    if transp is None:
+                    is_number = isinstance(transp, (float, int)) and np.isnan(transp) is False
+                    # check if transp is a valid float
+                    if transp is None or not is_number:
                         opacity = 1.0
                     else:
                         opacity = 1.0 - transp
@@ -301,7 +303,7 @@ class BatchTessellator:
                         shape.guid,
                         matrix=shape.transformation.matrix,
                         position=np.frombuffer(geom.verts_buffer, "d"),
-                        indices=np.frombuffer(geom.faces_buffer, dtype="i"),
+                        indices=np.frombuffer(geom.faces_buffer, dtype=np.uint32),
                         normal=None,
                         material=mat_id,
                         type=MeshType.TRIANGLES,
