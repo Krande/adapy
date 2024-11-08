@@ -39,8 +39,8 @@ class FEARenderParams:
 
 @dataclass
 class RenderParams:
-    auto_sync_ifc_store: bool = False
-    stream_from_ifc_store: bool = False
+    auto_sync_ifc_store: bool = True
+    stream_from_ifc_store: bool = True
     merge_meshes: bool = True
     scene_post_processor: Optional[Callable[[trimesh.Scene], trimesh.Scene]] = None
     purpose: Optional[FilePurposeDC] = FilePurposeDC.DESIGN
