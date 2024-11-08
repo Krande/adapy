@@ -20,6 +20,9 @@ def place1() -> Placement:
 def place2() -> Placement:
     return Placement(origin=(0, 0, 0), xdir=(1, 0, 0), zdir=(0, -1, 0))
 
+@pytest.fixture
+def place3() -> Placement:
+    return Placement(origin=(0, 0, 0), xdir=(0, 1, 0), zdir=(1, 0, 0))
 
 def test_flat_xy_plate_shell(place1):
     pl2 = ada.Plate("MyPl2", [(0, 0), (0, 5), (5, 5), (5, 0)], 20e-3, orientation=place1)
@@ -87,6 +90,45 @@ def test_flat_xz_plate_solid(place2):
     for p1, p2 in zip(pl2.poly.points2d, pl2_r.poly.points2d):
         assert p1.is_equal(p2)
 
+    nodes = {tuple(n.p) for n in pl2.nodes}
+    assert set(occ_verts_sh2) == nodes
+
+    segment_points = set()
+    for seg in pl2.poly.segments3d:
+        segment_points.add(tuple(seg.p1))
+        segment_points.add(tuple(seg.p2))
+
+    assert nodes == segment_points
+
+def test_flat_yz_plate_solid(place3):
+    pl2 = ada.Plate("MyPl2", [(0, 0), (0, 5), (5, 5), (5, 0)], 20e-3, orientation=place3)
+
+    occ_faces = list(iter_faces_with_normal(pl2.solid_occ(), pl2.poly.normal, point_in_plane=pl2.poly.origin))
+    occ_verts_sh2 = get_points_from_occ_shape(occ_faces[0])
+    occ_verts_sh2 = set_list_first_position_elem(occ_verts_sh2, tuple(pl2.poly.origin))
+
+    # Feed the points back to the Plate constructor and assert that the plate is the same
+    pl2_r = ada.Plate.from_3d_points("MyPl2", occ_verts_sh2, 20e-3, xdir=(0, 1, 0))
+
+    # Check that the plate is placed correctly
+    assert pl2_r.poly.xdir.is_equal(pl2.poly.xdir)
+    assert pl2_r.poly.ydir.is_equal(pl2.poly.ydir)
+    assert pl2_r.poly.normal.is_equal(pl2.poly.normal)
+    assert pl2_r.poly.origin.is_equal(pl2.poly.origin)
+
+    # Check the individual points
+    for p1, p2 in zip(pl2.poly.points2d, pl2_r.poly.points2d):
+        assert p1.is_equal(p2)
+
+    nodes = {tuple(n.p) for n in pl2.nodes}
+    assert set(occ_verts_sh2) == nodes
+
+    segment_points = set()
+    for seg in pl2.poly.segments3d:
+        segment_points.add(tuple(seg.p1))
+        segment_points.add(tuple(seg.p2))
+
+    assert nodes == segment_points
 
 def test_flat_xy_offset_plate_shell(place1):
     place1.origin = (0, 0, 1)

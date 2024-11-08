@@ -23,8 +23,8 @@ def plate_to_sat_entities(pl: ada.Plate, face_name: str, geo_repr: GeomRepr, sw:
     pmin = np.min(pl.poly.points3d, axis=0)
     pmax = np.max(pl.poly.points3d, axis=0)
     sat_entities = []
-    bbox2d = [*pmin, *pmax]
-    bbox2d = make_ints_if_possible(bbox2d)
+    bbox = [*pmin, *pmax]
+    bbox = make_ints_if_possible(bbox)
     # Initialize strings for each component
     # Create main entities using ID generator
 
@@ -34,7 +34,7 @@ def plate_to_sat_entities(pl: ada.Plate, face_name: str, geo_repr: GeomRepr, sw:
     if len(bodies) == 0:
         body_id = id_gen.next_id()
         lump_id = id_gen.next_id()
-        body = se.Body(body_id, lump_id, bbox2d)
+        body = se.Body(body_id, lump_id, bbox)
         sat_entities.append(body)
     else:
         body = bodies[0]
@@ -42,9 +42,9 @@ def plate_to_sat_entities(pl: ada.Plate, face_name: str, geo_repr: GeomRepr, sw:
 
     shell_id = id_gen.next_id()
     face_id = id_gen.next_id()
-    lump = se.Lump(lump_id, shell_id, body, bbox2d)
+    lump = se.Lump(lump_id, shell_id, body, bbox)
     sat_entities.append(lump)
-    shell = se.Shell(shell_id, face_id, bbox2d)
+    shell = se.Shell(shell_id, face_id, bbox)
 
     name_id = id_gen.next_id()
     loop_id = id_gen.next_id()
@@ -55,7 +55,7 @@ def plate_to_sat_entities(pl: ada.Plate, face_name: str, geo_repr: GeomRepr, sw:
                                                   pl.poly.normal)
     string_attrib_name = se.StringAttribName(name_id, face_name, face_id, cached_plane_attrib)
     face = se.Face(face_id, loop_id, shell, string_attrib_name, surface)
-    loop = se.Loop(loop_id, id_gen.next_id(), bbox2d)
+    loop = se.Loop(loop_id, id_gen.next_id(), bbox)
 
     edges = []
     coedges = []
@@ -71,7 +71,8 @@ def plate_to_sat_entities(pl: ada.Plate, face_name: str, geo_repr: GeomRepr, sw:
         coedge_ids.append(coedge_id)
 
     point_map = {}
-    for p in pl.poly.segments3d:
+    segments = pl.poly.segments3d
+    for p in segments:
         if tuple(p.p1) not in point_map.keys():
             point_map[tuple(p.p1)] = se.SatPoint(id_gen.next_id(), p.p1)
         if tuple(p.p2) not in point_map.keys():

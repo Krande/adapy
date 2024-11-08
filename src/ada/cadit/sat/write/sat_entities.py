@@ -83,7 +83,8 @@ class SatPoint(SATEntity):
     point: ada.Point
 
     def to_string(self) -> str:
-        return f"-{self.id} point $-1 -1 -1 $-1 {self.point.x} {self.point.y} {self.point.z} #"
+        point_str = " ".join(str(x) for x in make_ints_if_possible(self.point))
+        return f"-{self.id} point $-1 -1 -1 $-1 {point_str} #"
 
 @dataclass
 class CoEdge(SATEntity):
