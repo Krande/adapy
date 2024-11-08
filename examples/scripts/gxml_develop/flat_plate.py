@@ -29,20 +29,22 @@ def main():
     workspace = output_dir / "workspace/flat_plate_sesam_10x10"
     workspace.mkdir(parents=True, exist_ok=True)
     # _ = ada.from_genie_xml(output_dir / "exported_mixed_bm_shell.xml")
+    beams = []
     plates = []
-    # pl = ada.Plate("pl", [(0, 0), (10, 0), (10, 10), (0, 10)], 0.01)
-    # plates.append(pl)
-    # pl2 = ada.Plate("pl2", [(0, 0), (10, 0), (10, 10), (0, 10)], 0.01, origin=(10, 10, 0))
-    # plates.append(pl2)
-    # pl3 = ada.Plate("pl3", [(0, 0), (10, 0), (10, 2), (8, 2), (8, 4), (10, 4),(10,10), (0, 10)], 0.01, origin=(0, 0, 2))
-    # plates.append(pl3)
-    # pl4 = ada.Plate("pl4", [(0, 0), (10, 0), (10, 10), (0, 10)], 0.01, n=(0,1,0), xdir=(1,0,0))
-    # plates.append(pl4)
+    pl = ada.Plate("pl", [(0, 0), (10, 0), (10, 10), (0, 10)], 0.01)
+    plates.append(pl)
+    pl2 = ada.Plate("pl2", [(0, 0), (10, 0), (10, 10), (0, 10)], 0.01, origin=(10, 10, 0))
+    plates.append(pl2)
+    pl3 = ada.Plate("pl3", [(0, 0), (10, 0), (10, 2), (8, 2), (8, 4), (10, 4),(10,10), (0, 10)], 0.01, origin=(0, 0, 2))
+    plates.append(pl3)
+    pl4 = ada.Plate("pl4", [(0, 0), (10, 0), (10, 10), (0, 10)], 0.01, n=(0,1,0), xdir=(1,0,0))
+    plates.append(pl4)
     pl5 = ada.Plate("pl5", [(0, 0), (10, 0), (10, 10), (0, 10)], 0.01, n=(1, 0, 0), xdir=(0, 1, 0))
     plates.append(pl5)
-
-    beams = []
     beams += ada.Beam.array_from_list_of_segments(pl5.poly.segments3d, 'IPE300')
+
+    beams.append(ada.Beam("bm_yUP", (0, 0, 0), (0, 0, 10), 'IPE300', up=(0, 1, 0)))
+    beams.append(ada.Beam("bm_xUP", (0, 0, 0), (0, 0, 10), 'IPE300', up=(1, 0, 0)))
     sec = ada.Section.from_str('IPE300')
     # beams = [ada.Beam("bm", (0, 0, 0), (0, 10, 0), 'IPE300')]
     # beams = []

@@ -20,7 +20,7 @@ def add_beams(root: ET.Element, part: Part, sw: SatWriter = None):
 def add_straight_beam(beam: Beam, xml_root: ET.Element):
     structure_elem = ET.SubElement(xml_root, "structure")
     straight_beam = ET.SubElement(structure_elem,"straight_beam", {"name": beam.name})
-    add_curve_orientation(beam, straight_beam)
+    # add_curve_orientation(beam, straight_beam)
     straight_beam.append(add_local_system(beam.xvec, beam.yvec, beam.up))
     straight_beam.append(add_segments(beam))
     curve_offset = ET.SubElement(straight_beam, "curve_offset")
