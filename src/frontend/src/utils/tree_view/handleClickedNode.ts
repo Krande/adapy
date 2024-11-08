@@ -4,8 +4,9 @@ import {getMeshFromName} from "../scene/getMeshFromName";
 import * as THREE from 'three';
 import {getDrawRangeByName} from "../mesh_select/getDrawRangeByName";
 import {deselectObject} from "../mesh_select/deselectObject";
+import {perform_selection} from "../mesh_select/handleClickMesh";
 
-export function handleClickedNode(event: React.SyntheticEvent, itemIds: string | null) {
+export function handleClickedNode(event: React.MouseEvent, itemIds: string | null) {
         if (itemIds !== null) {
             let node_name = (event as React.BaseSyntheticEvent).currentTarget.innerText;
             console.log("itemIds", itemIds);
@@ -23,8 +24,9 @@ export function handleClickedNode(event: React.SyntheticEvent, itemIds: string |
 
             // if mesh is not null and mesh is instance of THREE.Mesh
             if (mesh && !(mesh instanceof THREE.LineSegments) && !(mesh instanceof THREE.Points)) {
-
-                console.log("mesh", mesh);
+                // console.log("mesh", mesh);
+                let shiftKey = event.shiftKey;
+                perform_selection(mesh, shiftKey, rangeId);
             } else {
                 deselectObject();
             }

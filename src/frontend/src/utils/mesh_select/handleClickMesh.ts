@@ -42,6 +42,26 @@ export function handleClickMesh(event: ThreeEvent<PointerEvent>) {
 
     const [rangeId, start, count] = drawRange;
 
+    perform_selection(mesh, shiftKey, rangeId);
+
+    // Update object info and tree view selection
+    const scene = useModelStore.getState().scene;
+    const hierarchy: Record<string, [string, string | number]> = scene?.userData['id_hierarchy'];
+    const [nodeName] = hierarchy[rangeId];
+
+    if (nodeName) {
+        useObjectInfoStore.getState().setName(nodeName);
+        const treeViewStore = useTreeViewStore.getState();
+        if (treeViewStore.treeData) {
+            const selectedNode = findNodeById(treeViewStore.treeData, nodeName);
+            if (selectedNode) {
+                treeViewStore.setSelectedNodeId(selectedNode.id);
+            }
+        }
+    }
+}
+
+export function perform_selection(mesh: CustomBatchedMesh, shiftKey: boolean, rangeId: string) {
     const selectedObjects = useSelectedObjectStore.getState().selectedObjects;
     const selectedRanges = selectedObjects.get(mesh);
     const isAlreadySelected = selectedRanges ? selectedRanges.has(rangeId) : false;
@@ -76,21 +96,5 @@ export function handleClickMesh(event: ThreeEvent<PointerEvent>) {
         newSet.add(rangeId);
         useSelectedObjectStore.getState().addSelectedObject(mesh, rangeId);
         mesh.highlightDrawRanges([rangeId]);
-    }
-
-    // Update object info and tree view selection
-    const scene = useModelStore.getState().scene;
-    const hierarchy: Record<string, [string, string | number]> = scene?.userData['id_hierarchy'];
-    const [nodeName] = hierarchy[rangeId];
-
-    if (nodeName) {
-        useObjectInfoStore.getState().setName(nodeName);
-        const treeViewStore = useTreeViewStore.getState();
-        if (treeViewStore.treeData) {
-            const selectedNode = findNodeById(treeViewStore.treeData, nodeName);
-            if (selectedNode) {
-                treeViewStore.setSelectedNodeId(selectedNode.id);
-            }
-        }
     }
 }

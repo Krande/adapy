@@ -25,7 +25,6 @@ const ThreeModel: React.FC<ModelProps> = ({url}) => {
     useAnimationEffects(animations, scene);
 
     useEffect(() => {
-        THREE.Object3D.DEFAULT_UP.set(0, 0, 1);
         if (scene) {
             useModelStore.getState().setScene(scene);
         }
