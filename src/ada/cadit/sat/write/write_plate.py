@@ -70,7 +70,13 @@ def plate_to_sat_entities(pl: ada.Plate, face_name: str, geo_repr: GeomRepr, sw:
             coedge_id = id_gen.next_id()
         coedge_ids.append(coedge_id)
 
-    point_map = {tuple(p): se.SatPoint(id_gen.next_id(), p) for p in pl.poly.points3d}
+    point_map = {}
+    for p in pl.poly.segments3d:
+        if tuple(p.p1) not in point_map.keys():
+            point_map[tuple(p.p1)] = se.SatPoint(id_gen.next_id(), p.p1)
+        if tuple(p.p2) not in point_map.keys():
+            point_map[tuple(p.p2)] = se.SatPoint(id_gen.next_id(), p.p2)
+
     points = list(point_map.values())
     vertex_map = {p.id: se.Vertex(id_gen.next_id(), None, p) for p in points}
     vertices = list(vertex_map.values())
@@ -89,6 +95,8 @@ def plate_to_sat_entities(pl: ada.Plate, face_name: str, geo_repr: GeomRepr, sw:
         # start
         edge_id = id_gen.next_id()
         p1 = point_map.get(tuple(edge.p1))
+        if p1 is None:
+            raise ValueError(f"Point {edge.p1} not found in point_map")
         v1 = vertex_map.get(p1.id)
         if v1.edge is None:
             v1.edge = edge_id
