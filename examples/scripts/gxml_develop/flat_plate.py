@@ -16,8 +16,6 @@ def main():
 
     dest_sat_file = output_dir / "flat_plate_sesam_10x10.sat"
     dest_gxml_file = output_dir / "flat_plate_sesam_10x10.xml"
-    exported_flat = output_dir / "exported_flat_plate_10x10.xml"
-    res = ada.from_genie_xml(exported_flat)
     startup_js_file = output_dir / 'startup.js'
     workspace = output_dir / "workspace/flat_plate_sesam_10x10"
     workspace.mkdir(parents=True, exist_ok=True)
@@ -26,7 +24,9 @@ def main():
     pl2 = ada.Plate("pl2", [(0, 0), (10, 0), (10, 10), (0, 10)], 0.1, origin=(10, 10, 0))
     pl3 = ada.Plate("pl3", [(0, 0), (10, 0), (10, 2), (8, 2), (8, 4), (10, 4),(10,10), (0, 10)], 0.1, origin=(0, 0, 2))
     plates = [pl] #, pl2, pl3]
-    a = ada.Assembly() / plates
+
+    beams = ada.Beam.array_from_list_of_segments(pl.poly.segments3d, 'IPE300')
+    a = ada.Assembly() / (ada.Part('MyPart') / plates, ada.Part('MyEmptyPart'), ada.Part('MyBeams') / beams)
     a.to_genie_xml(dest_gxml_file, embed_sat=True)
 
     sw = part_to_sat_writer(a)

@@ -72,7 +72,18 @@ class SatWriter:
     face_map: dict[str, str] = field(default_factory=dict)  # face_name -> plate guid
 
     def __post_init__(self):
-        self.bbox = list(chain.from_iterable(zip(*self.part.nodes.bbox())))
+        bboxes = []
+        for part in self.part.get_all_parts_in_assembly(include_self=True):
+            if len(part.nodes.nodes) == 0:
+                continue
+            bboxes.append(list(chain.from_iterable(zip(*part.nodes.bbox()))))
+        # Find the minimum values for the first 3 and the maximum values for the last 3
+        if len(bboxes) == 0:
+            raise ValueError("No nodes found in the part")
+
+        bbox_min = [min([bbox[i] for bbox in bboxes]) for i in range(3)]
+        bbox_max = [max([bbox[i+3] for bbox in bboxes]) for i in range(3)]
+        self.bbox = bbox_min + bbox_max
 
     def add_entity(self, entity: SATEntity) -> None:
         self.entities[entity.id] = entity

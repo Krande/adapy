@@ -53,7 +53,8 @@ def write_xml(part: Part, xml_file, embed_sat=False, writer_postprocessor: Calla
 
     # Add structural elements
     add_beams(structures_elem, part, sw)
-    add_plates(structure_domain, part, sw)
+    if embed_sat:
+        add_plates(structure_domain, part, sw)
     add_boundary_conditions(structures_elem, part)
     add_masses(structures_elem, part)
 
