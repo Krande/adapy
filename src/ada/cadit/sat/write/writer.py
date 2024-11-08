@@ -25,9 +25,9 @@ def part_to_sat_writer(part: Part | Assembly) -> SatWriter:
 
     sw = SatWriter(part)
 
-    # Beams
-    for bm in part.get_all_physical_objects(by_type=Beam):
-        pass
+    # Beams (not implemented, because it's not strictly necessary to embed in ACIS in order to import beams into Genie)
+    # for bm in part.get_all_physical_objects(by_type=Beam):
+    #     pass
 
     # Plates
     for face_id, pl in enumerate(part.get_all_physical_objects(by_type=Plate), start=1):
@@ -36,6 +36,7 @@ def part_to_sat_writer(part: Part | Assembly) -> SatWriter:
         new_entities = plate_to_sat_entities(pl, face_name, GeomRepr.SHELL, sw)
         for entity in new_entities:
             sw.add_entity(entity)
+
     # re-arrange entities and make sure all body, lump, shell and face elements are before any further elements
     bodies = sw.get_entities_by_type(se.Body)
     lumps = sw.get_entities_by_type(se.Lump)
