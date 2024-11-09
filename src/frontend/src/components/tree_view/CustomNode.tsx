@@ -1,7 +1,5 @@
-import React, {useEffect, useState} from 'react';
+import React from 'react';
 import {NodeRendererProps} from 'react-arborist';
-import {handleClickedNode} from "../../utils/tree_view/handleClickedNode";
-import {useSelectedObjectStore} from "../../state/useSelectedObjectStore";
 
 interface TreeNodeData {
     id: string;
@@ -27,7 +25,6 @@ export const CustomNode: React.FC<NodeRendererProps<TreeNodeData>> = ({style, no
             className={`flex items-center cursor-pointer ${
                 isSelected ? 'bg-blue-700' : ''
             }`}
-            onClick={(event) => handleClickedNode(event, node.id)}
         >
             {/* Conditionally render the icon */}
             {hasChildren && (

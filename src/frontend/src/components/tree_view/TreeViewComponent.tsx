@@ -2,14 +2,13 @@ import React, {useEffect, useRef, useState} from 'react';
 import {useTreeViewStore} from '../../state/treeViewStore';
 import {NodeApi, Tree} from "react-arborist";
 import {CustomNode} from './CustomNode';
-import {handleSelectionChange} from "../../utils/tree_view/handleClickedNode";
+import {handleTreeSelectionChange} from "../../utils/tree_view/handleClickedNode";
 
 const TreeViewComponent: React.FC = () => {
-    const {treeData, setTree} = useTreeViewStore();
+    const {treeData, setTree, searchTerm} = useTreeViewStore();
     const containerRef = useRef<HTMLDivElement | null>(null);
     const [treeHeight, setTreeHeight] = useState<number>(800); // Default height
     const treeRef = useRef<any>();  // Use 'any' to allow custom properties
-    const isProgrammaticChange = useRef(false);
 
     const treeNodes = treeData ? [{id: 'root', name: 'scene', children: [treeData]}] : [{
         id: 'root',
@@ -42,43 +41,54 @@ const TreeViewComponent: React.FC = () => {
 
     useEffect(() => {
         if (treeRef.current) {
-            // Access the Tree API
             const tree = treeRef.current
-            console.log(tree);
             setTree(tree);
         }
-
-        /* See the Tree API reference for all you can do with it. */
     }, []);
 
     const handleSelect = (ids: NodeApi[]) => {
         if (!treeRef.current?.isProgrammaticChange) {
-            handleSelectionChange(ids);
+            handleTreeSelectionChange(ids);
         }
     };
 
     return (
-        <div ref={containerRef} className="h-full max-h-screen overflow-y-auto pr-2">
-            <Tree
-                className={"text-white"}
-                width={"100%"}
-                height={treeHeight} // Use the dynamic height
-                selectionFollowsFocus={true}
-                data={treeNodes}
-                ref={treeRef}
-                disableDrag={true}
-                disableDrop={true}
-                disableEdit={true}
-                openByDefault={false}
-                disableMultiSelection={false}
+        <div ref={containerRef} className="h-full max-h-screen overflow-y-auto pl-1 pt-1 pr-1">
+            <div className={""}>
+                <input className={"bg-blue-800 text-white"} onInput={
+                    (event) => {
+                        useTreeViewStore.getState().setSearchTerm((event.target as HTMLInputElement).value);
+                    }
+                }/>
+            </div>
+            <div className={""}>
+                <Tree
+                    className={"text-white"}
+                    width={"100%"}
+                    height={treeHeight} // Use the dynamic height
+                    selectionFollowsFocus={true}
+                    data={treeNodes}
+                    ref={treeRef}
+                    disableDrag={true}
+                    disableDrop={true}
+                    disableEdit={true}
+                    openByDefault={false}
+                    disableMultiSelection={false}
 
-                // If I use this, it will also trigger when I modify the selection programmatically. And bad things happen.
-                onSelect={(ids) => {
-                    handleSelect(ids);
-                }}
-            >
-                {CustomNode}
-            </Tree>
+                    searchTerm={searchTerm}
+                    searchMatch={
+                        (node, term) => node.data.name.toLowerCase().includes(term.toLowerCase())
+                    }
+
+                    // If I use this, it will also trigger when I modify the selection programmatically. And bad things happen.
+                    onSelect={(ids) => {
+                        handleSelect(ids);
+                    }}
+                >
+                    {CustomNode}
+                </Tree>
+            </div>
+
         </div>
     );
 };
