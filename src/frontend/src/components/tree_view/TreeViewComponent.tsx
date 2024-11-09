@@ -1,14 +1,21 @@
 import React, {useEffect, useRef, useState} from 'react';
 import {useTreeViewStore} from '../../state/treeViewStore';
-import {Tree} from "react-arborist";
+import {NodeApi, Tree} from "react-arborist";
 import {CustomNode} from './CustomNode';
+import {handleSelectionChange} from "../../utils/tree_view/handleClickedNode";
 
 const TreeViewComponent: React.FC = () => {
-    const { treeData, selectedNodeId, setSelectedNodeId } = useTreeViewStore();
+    const {treeData, setTree} = useTreeViewStore();
     const containerRef = useRef<HTMLDivElement | null>(null);
     const [treeHeight, setTreeHeight] = useState<number>(800); // Default height
+    const treeRef = useRef<any>();  // Use 'any' to allow custom properties
+    const isProgrammaticChange = useRef(false);
 
-    const treeNodes = treeData ?  [{id: 'root', name: 'scene', children: [treeData]}] : [{id: 'root', name: 'root', children: []}];
+    const treeNodes = treeData ? [{id: 'root', name: 'scene', children: [treeData]}] : [{
+        id: 'root',
+        name: 'root',
+        children: []
+    }];
 
     // Update the tree height based on the container size using ResizeObserver
     useEffect(() => {
@@ -33,6 +40,23 @@ const TreeViewComponent: React.FC = () => {
         };
     }, []);
 
+    useEffect(() => {
+        if (treeRef.current) {
+            // Access the Tree API
+            const tree = treeRef.current
+            console.log(tree);
+            setTree(tree);
+        }
+
+        /* See the Tree API reference for all you can do with it. */
+    }, []);
+
+    const handleSelect = (ids: NodeApi[]) => {
+        if (!treeRef.current?.isProgrammaticChange) {
+            handleSelectionChange(ids);
+        }
+    };
+
     return (
         <div ref={containerRef} className="h-full max-h-screen overflow-y-auto pr-2">
             <Tree
@@ -41,19 +65,16 @@ const TreeViewComponent: React.FC = () => {
                 height={treeHeight} // Use the dynamic height
                 selectionFollowsFocus={true}
                 data={treeNodes}
-                selection={selectedNodeId ? selectedNodeId : "root"}
+                ref={treeRef}
                 disableDrag={true}
                 disableDrop={true}
                 disableEdit={true}
                 openByDefault={false}
                 disableMultiSelection={false}
 
+                // If I use this, it will also trigger when I modify the selection programmatically. And bad things happen.
                 onSelect={(ids) => {
-                  if (ids.length > 0) {
-                    setSelectedNodeId(ids[0].id);
-                  } else {
-                    setSelectedNodeId(null);
-                  }
+                    handleSelect(ids);
                 }}
             >
                 {CustomNode}

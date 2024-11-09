@@ -36,12 +36,14 @@ export const useSelectedObjectStore = create<SelectedObjectState>(
                     newSet.delete(drawRangeId);
 
                     if (newSet.size === 0) {
+                        mesh.deselect();
                         newMap.delete(mesh); // Remove the entry if the Set is empty
                     } else {
                         newMap.set(mesh, newSet); // Update with the modified Set
+                        mesh.highlightDrawRanges(Array.from(newSet || []));
                     }
+
                 }
-                mesh.highlightDrawRanges(Array.from(existingSet || []));
                 return {selectedObjects: newMap};
             }),
         clearSelectedObjects: () =>

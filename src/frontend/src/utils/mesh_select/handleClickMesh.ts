@@ -44,20 +44,34 @@ export function handleClickMesh(event: ThreeEvent<PointerEvent>) {
 
     perform_selection(mesh, shiftKey, rangeId);
 
-    // Update object info and tree view selection
     const scene = useModelStore.getState().scene;
     const hierarchy: Record<string, [string, string | number]> = scene?.userData['id_hierarchy'];
-    const [nodeName] = hierarchy[rangeId];
+    const [last_selected] = hierarchy[rangeId];
 
-    if (nodeName) {
-        useObjectInfoStore.getState().setName(nodeName);
-        const treeViewStore = useTreeViewStore.getState();
-        if (treeViewStore.treeData) {
-            const selectedNode = findNodeById(treeViewStore.treeData, nodeName);
-            if (selectedNode) {
-                treeViewStore.setSelectedNodeId(selectedNode.id);
+    // Update object info
+    useObjectInfoStore.getState().setName(last_selected);
+    const treeViewStore = useTreeViewStore.getState();
+    // Update tree view selection
+
+    if (treeViewStore.treeData && treeViewStore.tree) {
+
+        treeViewStore.tree.isProgrammaticChange = true;  // Set flag
+        const node_ids: string[] = [];
+        for (let selectedObjects of useSelectedObjectStore.getState().selectedObjects) {
+            const [mesh, selectedRanges] = selectedObjects;
+            for (let rangeId of selectedRanges) {
+                const [nodeName] = hierarchy[rangeId];
+                if (nodeName) {
+                    const selectedNode = findNodeById(treeViewStore.treeData, nodeName);
+                    if (selectedNode) {
+                        node_ids.push(selectedNode.id);
+                    }
+                }
             }
         }
+        let last_selected_node = findNodeById(treeViewStore.treeData, last_selected);
+        treeViewStore.tree.setSelection({ids: node_ids, mostRecent: last_selected_node, anchor: last_selected_node});
+        treeViewStore.tree.isProgrammaticChange = false;  // Clear flag after update
     }
 }
 
@@ -75,6 +89,7 @@ export function perform_selection(mesh: CustomBatchedMesh, shiftKey: boolean, ra
             useSelectedObjectStore.getState().addSelectedObject(mesh, rangeId);
         }
     } else {
+        // Clear the selection if the draw range is already selected
         useSelectedObjectStore.getState().clearSelectedObjects();
         // Select the new draw range
         useSelectedObjectStore.getState().addSelectedObject(mesh, rangeId);
