@@ -43,8 +43,9 @@ def main():
     # pl5 = ada.Plate("pl5", [(0, 0), (10, 0), (10, 10), (0, 10)], 0.01, n=(1, 0, 0), xdir=(0, 1, 0))
     # plates.append(pl5)
     # beams += ada.Beam.array_from_list_of_segments(pl5.poly.segments3d, 'IPE300')
-    beams += ada.Beam.array_from_list_of_segments(pl.poly.segments3d, 'IPE300')
-    beams += ada.Beam.array_from_list_of_segments(pl3.poly.segments3d, 'IPE300')
+    bm_gen = ada.Counter(prefix="bm")
+    beams += ada.Beam.array_from_list_of_segments(pl.poly.segments3d, 'IPE300', name_gen=bm_gen)
+    beams += ada.Beam.array_from_list_of_segments(pl3.poly.segments3d, 'IPE300', name_gen=bm_gen)
 
     # beams.append(ada.Beam("bm_yUP", (0, 0, 0), (0, 0, 10), 'IPE300', up=(0, 1, 0)))
     # beams.append(ada.Beam("bm_xUP", (0, 0, 0), (0, 0, 10), 'IPE300', up=(1, 0, 0)))

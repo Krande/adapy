@@ -1,6 +1,7 @@
-import React from 'react';
+import React, {useEffect, useState} from 'react';
 import {NodeRendererProps} from 'react-arborist';
 import {handleClickedNode} from "../../utils/tree_view/handleClickedNode";
+import {useSelectedObjectStore} from "../../state/useSelectedObjectStore";
 
 interface TreeNodeData {
     id: string;
@@ -11,6 +12,9 @@ interface TreeNodeData {
 
 export const CustomNode: React.FC<NodeRendererProps<TreeNodeData>> = ({style, node, dragHandle}) => {
     const {data, isSelected, isOpen, children} = node;
+
+
+    // data.visuallySelected = false;
     let hasChildren = false;
     if (children && children.length > 0) {
         hasChildren = true;
