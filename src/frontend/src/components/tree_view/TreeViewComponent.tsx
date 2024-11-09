@@ -54,14 +54,14 @@ const TreeViewComponent: React.FC = () => {
 
     return (
         <div ref={containerRef} className="h-full max-h-screen overflow-y-auto pl-1 pt-1 pr-1">
-            <div className={""}>
+            <div className={"h-10"}>
                 <input className={"bg-blue-800 text-white"} onInput={
                     (event) => {
                         useTreeViewStore.getState().setSearchTerm((event.target as HTMLInputElement).value);
                     }
                 }/>
             </div>
-            <div className={""}>
+            <div>
                 <Tree
                     className={"text-white"}
                     width={"100%"}
