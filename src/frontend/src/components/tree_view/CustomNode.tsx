@@ -34,7 +34,7 @@ export const CustomNode: React.FC<NodeRendererProps<TreeNodeData>> = ({style, no
                     }}
                     className="mr-2"
                 >
-                    {isOpen ? '-' : '+'}
+                    {isOpen ? '▼' : '▶'}
                 </div>
             )}
             <div>{data.name}</div>

@@ -70,31 +70,13 @@ export function perform_selection(mesh: CustomBatchedMesh, shiftKey: boolean, ra
         if (isAlreadySelected) {
             // If Shift is held and the draw range is already selected, deselect it
             useSelectedObjectStore.getState().removeSelectedObject(mesh, rangeId);
-            selectedRanges?.delete(rangeId);
-            mesh.highlightDrawRanges(Array.from(selectedRanges || []));
         } else {
             // If Shift is held and the draw range is not selected, add it to selection
             useSelectedObjectStore.getState().addSelectedObject(mesh, rangeId);
-            if (!selectedRanges) {
-                mesh.highlightDrawRanges([rangeId]);
-                selectedObjects.set(mesh, new Set([rangeId]));
-            } else {
-                selectedRanges?.add(rangeId);
-                mesh.highlightDrawRanges(Array.from(selectedRanges || []));
-            }
         }
     } else {
-        // If Shift is not held, clear previous selections and select the new draw range
-        // Deselect all previously selected draw ranges
-        selectedObjects.forEach((ranges, selectedMesh) => {
-            selectedMesh.deselect();
-        });
         useSelectedObjectStore.getState().clearSelectedObjects();
-
         // Select the new draw range
-        const newSet = new Set<string>();
-        newSet.add(rangeId);
         useSelectedObjectStore.getState().addSelectedObject(mesh, rangeId);
-        mesh.highlightDrawRanges([rangeId]);
     }
 }
