@@ -54,7 +54,7 @@ export function handleClickMesh(event: ThreeEvent<PointerEvent>) {
     // Update tree view selection
 
     if (treeViewStore.treeData && treeViewStore.tree) {
-
+        // @ts-ignore
         treeViewStore.tree.isProgrammaticChange = true;  // Set flag
         const node_ids: string[] = [];
         for (let selectedObjects of useSelectedObjectStore.getState().selectedObjects) {
@@ -71,6 +71,9 @@ export function handleClickMesh(event: ThreeEvent<PointerEvent>) {
         }
         let last_selected_node = findNodeById(treeViewStore.treeData, last_selected);
         treeViewStore.tree.setSelection({ids: node_ids, mostRecent: last_selected_node, anchor: last_selected_node});
+        if (last_selected_node)
+            treeViewStore.tree.scrollTo({id: last_selected_node.id});
+        // @ts-ignore
         treeViewStore.tree.isProgrammaticChange = false;  // Clear flag after update
     }
 }
