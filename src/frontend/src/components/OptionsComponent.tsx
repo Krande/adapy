@@ -6,7 +6,7 @@ import {useOptionsStore} from "../state/optionsStore";
 import {useColorStore} from "../state/colorLegendStore";
 
 function OptionsComponent() {
-    const {showPerf, setShowPerf, showEdges, setShowEdges} = useOptionsStore();
+    const {showPerf, setShowPerf, showEdges, setShowEdges, lockTranslation, setLockTranslation} = useOptionsStore();
     const {showLegend, setShowLegend} = useColorStore();
 
     const [size, setSize] = useState({width: 300, height: 400});
@@ -69,6 +69,12 @@ function OptionsComponent() {
                     onClick={() => setShowEdges(!showEdges)}
                 >
                     Geometry Edges On/Off
+                </button>
+                <button
+                    className={`bg-blue-700 hover:bg-blue-700/50 ${lockTranslation ? 'text-white' : 'text-gray-400'} font-bold py-2 rounded`}
+                    onClick={() => setLockTranslation(!lockTranslation)}
+                >
+                    Lock Translation
                 </button>
                 <div className={"flex flex-col w-full"}>
                     <button

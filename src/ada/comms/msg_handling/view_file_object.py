@@ -28,7 +28,11 @@ def view_file_object(server: WebSocketAsyncServer, client: ConnectedClient, file
     if result is None:
         raise ServerError(f"File object {file_object_name} not found")
 
-    glb_file_obj = result.glb_file
+    if result.file_type != FileTypeDC.GLB:
+        glb_file_obj = result.glb_file
+    else:
+        glb_file_obj = result
+
     scene = trimesh.load(glb_file_obj.filepath)
     with io.BytesIO() as data:
         scene.export(
