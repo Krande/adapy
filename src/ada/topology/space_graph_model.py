@@ -24,16 +24,13 @@ def shape_to_space(shape: Shape) -> Space:
 
 
 def space_graph_from_assembly(a: Assembly) -> SpaceGraphModel:
-    import ada.occ.geom.solids as geo_so
     from ada import Shape
 
     print("extracting shape graph from assembly")
 
     spaces = []
-    space_map = {}
     for shape in a.get_all_physical_objects(Shape):
         space = Space(shape.name, shape.geom.geometry)
-        occ_geom = geo_so.make_box_from_geom(shape.geom.geometry)
 
         spaces.append(space)
 

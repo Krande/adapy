@@ -100,6 +100,7 @@ def test_beams_enclosing_beams(tmp_path):
     for el in line_elem:
         assert el.fem_sec is not None
 
+
 def test_intersect_edge_midpoint():
     corner_points = [(0, 0), (1, 0), (1, 1), (0, 1)]
 
@@ -111,17 +112,17 @@ def test_intersect_edge_midpoint():
     for j, midp in enumerate(midpoints_input):
         midpoints = [(midp, 0, 0), (midp, 1, 0)]
         midpoints_y = [(0, midp, 0), (1, midp, 0)]
-        pl_mid = ada.Plate(f'pl_mid{j}', corner_points, 0.01, origin=midpoints[0], n=(-1, 0, 0), xdir=(0, 0, 1))
+        pl_mid = ada.Plate(f"pl_mid{j}", corner_points, 0.01, origin=midpoints[0], n=(-1, 0, 0), xdir=(0, 0, 1))
         plates.append(pl_mid)
-        mid_bm = ada.Beam(f'mid_bm{j}', *midpoints, sec="IPE100")
+        mid_bm = ada.Beam(f"mid_bm{j}", *midpoints, sec="IPE100")
         beams.append(mid_bm)
-        mid_bm_y = ada.Beam(f'mid_bm_y{j}', *midpoints_y, sec="IPE100")
+        mid_bm_y = ada.Beam(f"mid_bm_y{j}", *midpoints_y, sec="IPE100")
         beams.append(mid_bm_y)
 
     beams += ada.Beam.array_from_list_of_coords([(*x, 0) for x in corner_points], sec="IPE100", make_closed=True)
     columns = []
 
-    p = ada.Part('Stru') / (*beams, *columns, *plates)
+    p = ada.Part("Stru") / (*beams, *columns, *plates)
     # p.show()
 
     p.fem = p.to_fem_obj(0.5, use_quads=False, options=GmshOptions(Mesh_Algorithm=6))

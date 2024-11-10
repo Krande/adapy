@@ -245,7 +245,9 @@ class Assembly(Part):
         print("IFC file creation complete")
         return self.ifc_store.f
 
-    def to_genie_xml(self, destination_xml, writer_postprocessor: Callable[[ET.Element, Part], None] = None, embed_sat=False):
+    def to_genie_xml(
+        self, destination_xml, writer_postprocessor: Callable[[ET.Element, Part], None] = None, embed_sat=False
+    ):
         from ada.cadit.gxml.write.write_xml import write_xml
 
         write_xml(self, destination_xml, writer_postprocessor=writer_postprocessor, embed_sat=embed_sat)

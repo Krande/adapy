@@ -1,13 +1,12 @@
-import ada
-
 import pathlib
 
+import ada
 from ada.visit.renderer_manager import RenderParams
 
 fem_files = pathlib.Path(__file__).parent.parent.parent.parent / "files/fem_files"
 
 
-def view_it(num_elem = 1):
+def view_it(num_elem=1):
     if num_elem == 1:
         elem = "1EL_SHELL_R1"
     elif num_elem == 2:

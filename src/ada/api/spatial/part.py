@@ -798,8 +798,8 @@ class Part(BackendGeom):
         stream_from_ifc=False,
         params: RenderParams = None,
     ) -> trimesh.Scene:
-        from ada.occ.tessellating import BatchTessellator
         from ada import Assembly
+        from ada.occ.tessellating import BatchTessellator
 
         bt = BatchTessellator()
         if stream_from_ifc and isinstance(self, Assembly):

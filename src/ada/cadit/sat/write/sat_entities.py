@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from dataclasses import dataclass
 from typing import Literal
 
@@ -73,7 +74,6 @@ class Vertex(SATEntity):
     edge: Edge
     point: SatPoint
 
-
     def to_string(self) -> str:
         return f"-{self.id} vertex $-1 -1 -1 $-1 ${self.edge.id} ${self.point.id} #"
 
@@ -86,6 +86,7 @@ class SatPoint(SATEntity):
         point_str = " ".join(str(x) for x in make_ints_if_possible(self.point))
         return f"-{self.id} point $-1 -1 -1 $-1 {point_str} #"
 
+
 @dataclass
 class CoEdge(SATEntity):
     next_coedge: CoEdge
@@ -96,6 +97,7 @@ class CoEdge(SATEntity):
 
     def to_string(self) -> str:
         return f"-{self.id} coedge $-1 -1 -1 $-1 ${self.next_coedge.id} ${self.prev_coedge.id} $-1 ${self.edge.id} {self.orientation} ${self.loop.id} $-1 #"
+
 
 @dataclass
 class Edge(SATEntity):
@@ -108,8 +110,8 @@ class Edge(SATEntity):
     end_pt: ada.Point
 
     def to_string(self) -> str:
-        start_str = ' '.join([str(x) for x in make_ints_if_possible(self.start_pt)])
-        end_str = ' '.join([str(x) for x in make_ints_if_possible(self.end_pt)])
+        start_str = " ".join([str(x) for x in make_ints_if_possible(self.start_pt)])
+        end_str = " ".join([str(x) for x in make_ints_if_possible(self.end_pt)])
         # pos_str = f"{self.start_pt[0]} {self.start_pt[1]} {self.start_pt[2]} {self.end_pt[0]} {self.end_pt[1]} {self.end_pt[2]}"
         vec = ada.Direction(self.end_pt - self.start_pt)
         length = vec.get_length()
@@ -117,15 +119,17 @@ class Edge(SATEntity):
         s2 = make_ints_if_possible([length])[0]
         return f"-{self.id} edge $-1 -1 -1 $-1 ${self.vertex_start.id} {s1} ${self.vertex_end.id} {s2} ${self.coedge.id} ${self.straight_curve.id} forward @7 unknown T {start_str} {end_str} #"
 
+
 @dataclass
 class StraightCurve(SATEntity):
     start_pt: ada.Point
     direction: ada.Direction
 
     def to_string(self) -> str:
-        start_str = ' '.join([str(x) for x in make_ints_if_possible(self.start_pt)])
-        direction_str = ' '.join([str(x) for x in make_ints_if_possible(self.direction.get_normalized())])
+        start_str = " ".join([str(x) for x in make_ints_if_possible(self.start_pt)])
+        direction_str = " ".join([str(x) for x in make_ints_if_possible(self.direction.get_normalized())])
         return f"-{self.id} straight-curve $-1 -1 -1 $-1 {start_str} {direction_str} I I #"
+
 
 @dataclass
 class PlaneSurface(SATEntity):
@@ -133,12 +137,12 @@ class PlaneSurface(SATEntity):
     normal: ada.Direction
     xvec: ada.Direction
 
-
     def to_string(self) -> str:
-        centroid_str = ' '.join([str(x) for x in make_ints_if_possible(self.centroid)])
-        normal_str = ' '.join([str(x) for x in make_ints_if_possible(self.normal)])
-        xvec_str = ' '.join([str(x) for x in make_ints_if_possible(self.xvec)])
+        centroid_str = " ".join([str(x) for x in make_ints_if_possible(self.centroid)])
+        normal_str = " ".join([str(x) for x in make_ints_if_possible(self.normal)])
+        xvec_str = " ".join([str(x) for x in make_ints_if_possible(self.xvec)])
         return f"-{self.id} plane-surface $-1 -1 -1 $-1 {centroid_str} {normal_str} {xvec_str} forward_v I I I I #"
+
 
 @dataclass
 class StringAttribName(SATEntity):
@@ -150,6 +154,7 @@ class StringAttribName(SATEntity):
         cache_attrib = -1 if self.cache_attrib is None else self.cache_attrib.id
         return f"-{self.id} string_attrib-name_attrib-gen-attrib $-1 -1 ${cache_attrib} $-1 ${self.entity.id} 2 1 1 1 1 1 1 1 1 1 1 1 1 1 0 1 1 1 @6 dnvscp @12 {self.name} #"
 
+
 @dataclass
 class CachedPlaneAttribute(SATEntity):
     entity: SATEntity
@@ -158,6 +163,6 @@ class CachedPlaneAttribute(SATEntity):
     normal: ada.Direction
 
     def to_string(self) -> str:
-        centroid_str = ' '.join([str(x) for x in make_ints_if_possible(self.centroid)])
-        normal_str = ' '.join([str(x) for x in make_ints_if_possible(self.normal)])
+        centroid_str = " ".join([str(x) for x in make_ints_if_possible(self.centroid)])
+        normal_str = " ".join([str(x) for x in make_ints_if_possible(self.normal)])
         return f"-{self.id} CachedPlaneAttribute-DNV-attrib $-1 -1 $-1 ${self.name.id} ${self.entity.id} 1 1 1 1 1 1 1 1 1 1 1 1 0 1 0 1 1 1 {centroid_str} {normal_str} 1 #"

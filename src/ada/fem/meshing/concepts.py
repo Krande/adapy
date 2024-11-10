@@ -3,7 +3,7 @@ from __future__ import annotations
 import pathlib
 import time
 from dataclasses import dataclass, field
-from typing import Iterable, List, Union
+from typing import List, Union
 
 import gmsh
 import numpy as np
@@ -177,10 +177,14 @@ class GmshSession:
         self.model.geo.synchronize()
 
     def partition_beams(self):
-        from ada.fem.meshing.partitioning.partition_beams import split_crossing_beams, split_intersecting_beams
+        from ada.fem.meshing.partitioning.partition_beams import (
+            split_crossing_beams,
+            split_intersecting_beams,
+        )
+
         plates = [obj for obj in self.model_map.keys() if type(obj) is Plate]
 
-        if len(plates) == 0: # For some reason this breaks the model whenever plates are in the model
+        if len(plates) == 0:  # For some reason this breaks the model whenever plates are in the model
             split_crossing_beams(self)
         else:
             split_intersecting_beams(self)
@@ -357,6 +361,7 @@ class GmshSession:
 
     def check_model_entities(self):
         from ada.fem.meshing.utils import check_entities_exist
+
         for map_obj in self.model_map.values():
             existing, nonexisting = check_entities_exist(map_obj.entities, self.model)
             if len(nonexisting) > 0:

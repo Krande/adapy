@@ -1,6 +1,6 @@
-import ada
 import pytest
 
+import ada
 from ada.core.utils import roundoff
 from ada.param_models.basic_module import SimpleStru
 
@@ -33,6 +33,7 @@ def main():
     assert abs(roundoff(cog.p[2]) - 1.4695) < tol
     assert abs(roundoff(cog.tot_mass) - 6790.6268) < tol
     assert abs(roundoff(cog.tot_vol) - 0.865048) < tol
+
 
 if __name__ == "__main__":
     main()

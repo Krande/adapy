@@ -9,6 +9,7 @@ from OCC.Core.BRepMesh import BRepMesh_IncrementalMesh
 from OCC.Core.Tesselator import ShapeTesselator
 from OCC.Core.TopoDS import TopoDS_Edge, TopoDS_Shape
 from OCC.Extend.TopologyUtils import discretize_edge
+
 from ada.base.physical_objects import BackendGeom
 from ada.base.types import GeomRepr
 from ada.config import logger
@@ -16,7 +17,7 @@ from ada.geom import Geometry
 from ada.occ.exceptions import UnableToCreateTesselationFromSolidOCCGeom
 from ada.occ.geom import geom_to_occ_geom
 from ada.visit.colors import Color
-from ada.visit.gltf.graph import GraphStore, GraphNode
+from ada.visit.gltf.graph import GraphNode, GraphStore
 from ada.visit.gltf.meshes import MeshStore, MeshType
 from ada.visit.gltf.optimize import concatenate_stores
 from ada.visit.gltf.store import merged_mesh_to_trimesh_scene

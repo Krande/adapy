@@ -11,9 +11,7 @@ def main():
 
     Config().update_config_globally(
         "meshing_open_viewer_breakpoint_names",
-        [
-            "partition_isect_pl_after_fragment"
-        ],
+        ["partition_isect_pl_after_fragment"],
     )
 
     p1x1 = [(0, 0), (1, 0), (1, 1), (0, 1)]

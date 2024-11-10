@@ -52,11 +52,12 @@ def test_plates_perpendicular():
     assert len(fem.nodes) == 8
     assert len(fem.elements) == 6
 
+
 def test_plates_perpendicular_split_by_beams():
     p1x1 = [(0, 0), (1, 0), (1, 1), (0, 1)]
     pl1_5 = ada.Plate("pl1_5", p1x1, 0.01, orientation=ada.Placement((0, 0, 0.5)))
-    bm_1 = ada.Beam("bm1", (0, 0, 0.5), (1, 0, 0.5), 'IPE180', up=[0,0,1])
-    bm_2 = ada.Beam("bm2", (0.5, 0, 0.5), (0.5, 1, 0.5), 'HP180x8')
+    bm_1 = ada.Beam("bm1", (0, 0, 0.5), (1, 0, 0.5), "IPE180", up=[0, 0, 1])
+    bm_2 = ada.Beam("bm2", (0.5, 0, 0.5), (0.5, 1, 0.5), "HP180x8")
     pl3 = ada.Plate("pl3", p1x1, 0.01, orientation=ada.Placement(xdir=(1, 0, 0), zdir=(0, -1, 0)))
 
     p = ada.Part("MyFem") / [pl1_5, pl3, bm_1, bm_2]
@@ -64,6 +65,7 @@ def test_plates_perpendicular_split_by_beams():
 
     assert len(fem.nodes) == 10
     assert len(fem.elements) == 13
+
 
 def test_plates_perpendicular_varying_mesh():
     p1x1 = [(0, 0), (1, 0), (1, 1), (0, 1)]
@@ -77,6 +79,7 @@ def test_plates_perpendicular_varying_mesh():
 
     assert len(fem.nodes) == 10
     assert len(fem.elements) == 10
+
 
 def test_double_plates_perpendicular():
     p1x1 = [(0, 0), (1, 0), (1, 1), (0, 1)]

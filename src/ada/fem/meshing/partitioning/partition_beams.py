@@ -46,13 +46,14 @@ def split_crossing_beams(gmsh_session: GmshSession):
             bm_other_gmsh_obj.entities = tool_entities_new
             gmsh_session.model.occ.synchronize()
 
+
 def split_intersecting_beams(
     gmsh_session: GmshSession, margins=5e-5, out_of_plane_tol=0.1, point_tol=Config().general_point_tol
 ):
     logger.info("Running 'split_intersecting_beams' partitioning function")
     from ada import Beam, Node
     from ada.api.containers import Beams, Nodes
-    from ada.core.clash_check import basic_intersect, are_beams_connected
+    from ada.core.clash_check import are_beams_connected, basic_intersect
 
     br_names = Config().meshing_open_viewer_breakpoint_names
 

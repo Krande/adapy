@@ -2,13 +2,13 @@ import os
 import pathlib
 import subprocess
 
+from dotenv import load_dotenv
+
 import ada
 from ada.config import Config, logger
 from ada.fem import Elem
 from ada.fem.shapes.definitions import LineShapes
-from dotenv import load_dotenv
-
-from ada.visit.renderer_manager import RenderParams, FEARenderParams
+from ada.visit.renderer_manager import FEARenderParams, RenderParams
 
 load_dotenv()
 
@@ -47,9 +47,9 @@ def edges_intersect(use_xact=False):
     a = ada.Assembly() / (ada.Part("MyPart") / objects)
     p = a.get_part("MyPart")
     extra_props = {}
-    gltf_extra = os.getenv('GLTF_ASSET_EXTRAS_KEY_VAL', None)
+    gltf_extra = os.getenv("GLTF_ASSET_EXTRAS_KEY_VAL", None)
     if gltf_extra:
-        key,val = gltf_extra.split(';')
+        key, val = gltf_extra.split(";")
         extra_props[key] = val
     a.show(
         params_override=RenderParams(

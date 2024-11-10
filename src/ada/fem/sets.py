@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, List, Union, Literal
+from typing import TYPE_CHECKING, List, Literal, Union
 
 from ada.api.nodes import Node
 

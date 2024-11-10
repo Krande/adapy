@@ -124,7 +124,6 @@ def arg_to_param(arg: ast.arg, default: ast.expr | None, decorator_config: dict)
     else:
         arg_type = "Any"
 
-    no_default = default is None
     if default is None:
         default_arg_value = None
     elif isinstance(default, (ast.Tuple, ast.List)):

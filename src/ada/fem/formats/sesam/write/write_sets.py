@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from os import write
 from typing import TYPE_CHECKING
 
 from ada.fem.formats.sesam.write.write_utils import write_ff

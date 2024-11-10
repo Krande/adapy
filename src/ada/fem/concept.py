@@ -3,12 +3,12 @@ from __future__ import annotations
 import pathlib
 from dataclasses import dataclass, field
 from itertools import chain
-from typing import TYPE_CHECKING, Dict, Iterable, List, Union, Literal
+from typing import TYPE_CHECKING, Dict, Iterable, List, Literal, Union
 
 from ada.api.containers import Nodes
 from ada.comms.fb_model_gen import FilePurposeDC
 from ada.config import logger
-from ada.visit.renderer_manager import RenderParams, RendererManager, FEARenderParams
+from ada.visit.renderer_manager import FEARenderParams, RendererManager, RenderParams
 
 from .containers import FemElements, FemSections, FemSets
 from .sets import FemSet
@@ -409,11 +409,7 @@ class FEM:
 
         if params_override is None:
             fea_params = FEARenderParams(solid_beams=solid_beams)
-            params_override = RenderParams(
-                unique_id=unique_id,
-                purpose=purpose,
-                fea_params=fea_params
-            )
+            params_override = RenderParams(unique_id=unique_id, purpose=purpose, fea_params=fea_params)
 
         # Set up the renderer and WebSocket server
         renderer_instance = renderer_manager.render(self, params_override)

@@ -8,7 +8,6 @@ import ada
 from ada.base.types import GeomRepr
 from ada.cadit.sat.utils import make_ints_if_possible
 from ada.cadit.sat.write import sat_entities as se
-from ada.cadit.sat.write.utils import IDGenerator
 
 if TYPE_CHECKING:
     from ada.cadit.sat.write.writer import SatWriter
@@ -51,8 +50,9 @@ def plate_to_sat_entities(pl: ada.Plate, face_name: str, geo_repr: GeomRepr, sw:
 
     surface = se.PlaneSurface(id_gen.next_id(), pl.poly.get_centroid(), pl.poly.normal, pl.poly.xdir)
 
-    cached_plane_attrib = se.CachedPlaneAttribute(id_gen.next_id(), face_id, name_id, pl.poly.get_centroid(),
-                                                  pl.poly.normal)
+    cached_plane_attrib = se.CachedPlaneAttribute(
+        id_gen.next_id(), face_id, name_id, pl.poly.get_centroid(), pl.poly.normal
+    )
     string_attrib_name = se.StringAttribName(name_id, face_name, face_id, cached_plane_attrib)
     face = se.Face(face_id, loop_id, shell, string_attrib_name, surface)
     loop = se.Loop(loop_id, id_gen.next_id(), bbox)
@@ -106,22 +106,37 @@ def plate_to_sat_entities(pl: ada.Plate, face_name: str, geo_repr: GeomRepr, sw:
         if v2.edge is None:
             v2.edge = edge_id
         straight_curve = se.StraightCurve(id_gen.next_id(), p1.point, edge.direction)
-        edge = se.Edge(edge_id, v1, v2, coedge_id, straight_curve, p1.point, p2.point, )
+        edge = se.Edge(
+            edge_id,
+            v1,
+            v2,
+            coedge_id,
+            straight_curve,
+            p1.point,
+            p2.point,
+        )
 
         coedge = se.CoEdge(coedge_id, next_coedge_id, prev_coedge_id, edge, loop, "forward")
         coedges.append(coedge)
         edges.append(edge)
         straight_curves.append(straight_curve)
 
-    sat_entities += [
-                       shell,
-                       face,
-                       loop,
-                       string_attrib_name,
-                       cached_plane_attrib,
-                       surface,
-                   ] + coedges + edges + vertices + points + straight_curves
-    
+    sat_entities += (
+        [
+            shell,
+            face,
+            loop,
+            string_attrib_name,
+            cached_plane_attrib,
+            surface,
+        ]
+        + coedges
+        + edges
+        + vertices
+        + points
+        + straight_curves
+    )
+
     sat_entity_map = {entity.id: entity for entity in sat_entities}
     for entity in sat_entities:
         for key, value in entity.__dict__.items():
@@ -129,7 +144,7 @@ def plate_to_sat_entities(pl: ada.Plate, face_name: str, geo_repr: GeomRepr, sw:
                 continue
             if isinstance(value, int) and value in sat_entity_map.keys():
                 setattr(entity, key, sat_entity_map.get(value))
-        
+
     sorted_entities = sorted(sat_entities, key=lambda x: x.id)
-    
+
     return sorted_entities

@@ -1,16 +1,18 @@
 from __future__ import annotations
 
 import xml.etree.ElementTree as ET
-
 from typing import TYPE_CHECKING
+
 from ada.api.plates import PlateCurved
 from ada.cadit.gxml.read.read_beams import el_to_beam
 from ada.cadit.gxml.read.read_materials import get_materials
 from ada.cadit.gxml.read.read_sections import get_sections
 from ada.config import Config, logger
 from ada.geom import Geometry
+
 if TYPE_CHECKING:
     from ada import Part
+
 
 def iter_beams_from_xml(xml_path):
     from ada import Part

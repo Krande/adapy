@@ -10,9 +10,9 @@ def build_and_show():
         box = ada.PrimBox(f"box{i}", p1, p2)
         boxes.append(box)
 
-    p = ada.Part('MyPart') / boxes
+    p = ada.Part("MyPart") / boxes
     p.show()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     build_and_show()

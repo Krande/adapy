@@ -9,7 +9,7 @@ from ada.fem.formats.abaqus.config import AbaqusSetup
 from ada.fem.meshing import GmshOptions
 
 
-def main(overwrite=True, execute=True, test_gmsh_options=False, build_report=False):
+def main(overwrite=True, execute=True, test_gmsh_options=False, build_report=False, show=False):
     if ru.ODB_DUMP_EXE is not None:
         AbaqusSetup.set_default_post_processor(ru.post_processing_abaqus)
 
@@ -41,8 +41,8 @@ def main(overwrite=True, execute=True, test_gmsh_options=False, build_report=Fal
         options=gmsh_options if test_gmsh_options else None,
         perform_quality_check=False,
     )
-
-    # a.show()
+    if show:
+        a.show()
     # result.show()
 
     if build_report:

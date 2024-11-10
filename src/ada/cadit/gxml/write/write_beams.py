@@ -3,8 +3,8 @@ from __future__ import annotations
 import xml.etree.ElementTree as ET
 from typing import TYPE_CHECKING
 
-from .write_utils import add_local_system
 from ...sat.write.writer import SatWriter
+from .write_utils import add_local_system
 
 if TYPE_CHECKING:
     from ada import Beam, Part
@@ -19,12 +19,13 @@ def add_beams(root: ET.Element, part: Part, sw: SatWriter = None):
 
 def add_straight_beam(beam: Beam, xml_root: ET.Element):
     structure_elem = ET.SubElement(xml_root, "structure")
-    straight_beam = ET.SubElement(structure_elem,"straight_beam", {"name": beam.name})
+    straight_beam = ET.SubElement(structure_elem, "straight_beam", {"name": beam.name})
     # add_curve_orientation(beam, straight_beam)
     straight_beam.append(add_local_system(beam.xvec, beam.yvec, beam.up))
     straight_beam.append(add_segments(beam))
     curve_offset = ET.SubElement(straight_beam, "curve_offset")
     ET.SubElement(curve_offset, "reparameterized_beam_curve_offset")
+
 
 def add_curve_orientation(beam: Beam, straight_beam: ET.Element):
     curve_orientation = ET.SubElement(straight_beam, "curve_orientation")
@@ -34,8 +35,6 @@ def add_curve_orientation(beam: Beam, straight_beam: ET.Element):
     ET.SubElement(local_system, "x_vector", {"x": str(beam.xvec[0]), "y": str(beam.xvec[1]), "z": str(beam.xvec[2])})
     ET.SubElement(local_system, "y_vector", {"x": str(beam.yvec[0]), "y": str(beam.yvec[1]), "z": str(beam.yvec[2])})
     ET.SubElement(local_system, "up_vector", {"x": str(beam.up[0]), "y": str(beam.up[1]), "z": str(beam.up[2])})
-
-
 
 
 def add_segments(beam: Beam):

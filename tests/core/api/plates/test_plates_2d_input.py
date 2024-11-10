@@ -20,9 +20,11 @@ def place1() -> Placement:
 def place2() -> Placement:
     return Placement(origin=(0, 0, 0), xdir=(1, 0, 0), zdir=(0, -1, 0))
 
+
 @pytest.fixture
 def place3() -> Placement:
     return Placement(origin=(0, 0, 0), xdir=(0, 1, 0), zdir=(1, 0, 0))
+
 
 def test_flat_xy_plate_shell(place1):
     pl2 = ada.Plate("MyPl2", [(0, 0), (0, 5), (5, 5), (5, 0)], 20e-3, orientation=place1)
@@ -100,6 +102,7 @@ def test_flat_xz_plate_solid(place2):
 
     assert nodes == segment_points
 
+
 def test_flat_yz_plate_solid(place3):
     pl2 = ada.Plate("MyPl2", [(0, 0), (0, 5), (5, 5), (5, 0)], 20e-3, orientation=place3)
 
@@ -129,6 +132,7 @@ def test_flat_yz_plate_solid(place3):
         segment_points.add(tuple(seg.p2))
 
     assert nodes == segment_points
+
 
 def test_flat_xy_offset_plate_shell(place1):
     place1.origin = (0, 0, 1)

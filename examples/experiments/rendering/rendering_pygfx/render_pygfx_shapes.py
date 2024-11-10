@@ -19,7 +19,7 @@ from ada.visit.rendering.render_pygfx import RendererPyGFX
 
 def main():
     grid_size = 4
-    bg = ShapeGenerator(grid_size=grid_size)#, shape_function=random_i_beam_at_position)
+    bg = ShapeGenerator(grid_size=grid_size)  # , shape_function=random_i_beam_at_position)
     shape_grid = list(bg.generate_shape_grid())
 
     bt = BatchTessellator()

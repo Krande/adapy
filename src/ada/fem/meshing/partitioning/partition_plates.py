@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 from ada.config import Config, logger
-from ada.core.clash_check import PlateConnections, filter_away_beams_along_plate_edges, find_beams_connected_to_plate
+from ada.core.clash_check import (
+    PlateConnections,
+    filter_away_beams_along_plate_edges,
+    find_beams_connected_to_plate,
+)
 from ada.fem.meshing import GmshSession
-from ada.fem.meshing.utils import check_entities_exist
 
 
 def fragment_plates(plate_con: PlateConnections, gmsh_session: GmshSession):
@@ -19,7 +22,7 @@ def fragment_plates(plate_con: PlateConnections, gmsh_session: GmshSession):
         for pl2 in con_plates:
             pl2_gmsh_obj = gmsh_session.model_map[pl2]
             res, res_map = gmsh_session.model.occ.fragment(
-                pl1_gmsh_obj.entities, pl2_gmsh_obj.entities,  removeTool=False, removeObject=False
+                pl1_gmsh_obj.entities, pl2_gmsh_obj.entities, removeTool=False, removeObject=False
             )
 
             num_object_entities = len(pl1_gmsh_obj.entities)
@@ -36,16 +39,12 @@ def fragment_plates(plate_con: PlateConnections, gmsh_session: GmshSession):
                     # These correspond to the original tool entities
                     tool_entities_new.extend(new_entities)
 
-            old_tool_entities = pl2_gmsh_obj.entities
-            old_object_entities = pl1_gmsh_obj.entities
-
             # Update the entities for both objects
             pl1_gmsh_obj.entities = object_entities_new
             pl2_gmsh_obj.entities = tool_entities_new
 
             gmsh_session.model.occ.synchronize()
             gmsh_session.check_model_entities()
-
 
     if br_names is not None and "post_fragment_plates" in br_names:
         gmsh_session.open_gui()
@@ -81,9 +80,6 @@ def partition_intersected_plates(plate_con: PlateConnections, gmsh_session: Gmsh
                     # These correspond to the original tool entities
                     tool_entities_new.extend(new_entities)
 
-            old_tool_entities = pl2_gmsh_obj.entities
-            old_object_entities = pl1_gmsh_obj.entities
-
             # Update the entities for both objects
             pl1_gmsh_obj.entities = object_entities_new
             pl2_gmsh_obj.entities = tool_entities_new
@@ -92,6 +88,7 @@ def partition_intersected_plates(plate_con: PlateConnections, gmsh_session: Gmsh
             gmsh_session.check_model_entities()
 
     gmsh_session.check_model_entities()
+
 
 def split_plates_by_beams(gmsh_session: GmshSession):
     """split plates that are intersected by beams"""
@@ -136,10 +133,6 @@ def split_plates_by_beams(gmsh_session: GmshSession):
                 else:
                     # These correspond to the original tool entities
                     tool_entities_new.extend(new_entities)
-
-
-            old_object_entities = pl_gmsh_obj.entities
-            old_tool_entities = bm_gmsh_obj.entities
 
             # Update the entities for both objects
             pl_gmsh_obj.entities = object_entities_new

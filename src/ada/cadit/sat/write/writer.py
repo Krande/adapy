@@ -3,7 +3,7 @@ from __future__ import annotations
 import pathlib
 from dataclasses import dataclass, field
 from itertools import chain
-from typing import TYPE_CHECKING, Iterable
+from typing import TYPE_CHECKING
 
 from ada.base.types import GeomRepr
 from ada.cadit.sat.write import sat_entities as se
@@ -12,7 +12,7 @@ from ada.cadit.sat.write.utils import IDGenerator
 from ada.cadit.sat.write.write_plate import plate_to_sat_entities
 
 if TYPE_CHECKING:
-    from ada import Part, Assembly
+    from ada import Assembly, Part
 
 HEADER_STR = """2000 0 1 0
 18 SESAM - gmGeometry 14 ACIS 30.0.1 NT 24 Tue Jan 17 20:39:08 2023
@@ -21,7 +21,7 @@ HEADER_STR = """2000 0 1 0
 
 
 def part_to_sat_writer(part: Part | Assembly) -> SatWriter:
-    from ada import Beam, Plate
+    from ada import Plate
 
     sw = SatWriter(part)
 
@@ -47,8 +47,8 @@ def part_to_sat_writer(part: Part | Assembly) -> SatWriter:
     first_entities = list(chain(bodies, lumps, shells, faces))
     for i, entity in enumerate(first_entities):
         if isinstance(entity, se.Lump) and len(lumps) > 1:
-            next_entity = first_entities[i+1]
-            if  isinstance(next_entity, se.Lump):
+            next_entity = first_entities[i + 1]
+            if isinstance(next_entity, se.Lump):
                 entity.next_lump = next_entity
 
         entity.id = new_id
@@ -83,7 +83,7 @@ class SatWriter:
             raise ValueError("No nodes found in the part")
 
         bbox_min = [min([bbox[i] for bbox in bboxes]) for i in range(3)]
-        bbox_max = [max([bbox[i+3] for bbox in bboxes]) for i in range(3)]
+        bbox_max = [max([bbox[i + 3] for bbox in bboxes]) for i in range(3)]
         self.bbox = bbox_min + bbox_max
 
     def add_entity(self, entity: SATEntity) -> None:
@@ -95,7 +95,7 @@ class SatWriter:
 
     def to_str(self):
         sorted_values = sorted(self.entities.values(), key=lambda x: x.id)
-        return self.header + '\n'.join(entity.to_string() for entity in sorted_values) + "\nEnd-of-ACIS-data"
+        return self.header + "\n".join(entity.to_string() for entity in sorted_values) + "\nEnd-of-ACIS-data"
 
     def get_entities_by_type(self, by_type) -> list[SATEntity]:
         return list(filter(lambda x: type(x) is by_type, self.entities.values()))

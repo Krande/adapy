@@ -25,5 +25,6 @@ def create_sat_from_beams(part: Part) -> SATRefs:
 
     return SATRefs(sat_str, sat_map)
 
+
 def make_ints_if_possible(lst: list[float] | ada.Point | ada.Direction) -> list[float | int]:
     return [int(x) if x.is_integer() else x for x in lst]

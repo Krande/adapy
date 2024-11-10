@@ -134,12 +134,18 @@ class Mesh:
         from ada.fem.shapes import ElemShape
         from ada.fem.shapes import definitions as shape_def
 
-        face_node = graph.add_node(GraphNode(parent_name + "_sh", graph.next_node_id(), hash=create_guid(), parent=parent_node))
+        face_node = graph.add_node(
+            GraphNode(parent_name + "_sh", graph.next_node_id(), hash=create_guid(), parent=parent_node)
+        )
         line_node = None
         if use_solid_beams is False:
-            line_node = graph.add_node(GraphNode(parent_name + "_li", graph.next_node_id(), hash=create_guid(), parent=parent_node))
+            line_node = graph.add_node(
+                GraphNode(parent_name + "_li", graph.next_node_id(), hash=create_guid(), parent=parent_node)
+            )
 
-        points_node = graph.add_node(GraphNode(parent_name + "_po", graph.next_node_id(), hash=create_guid(), parent=parent_node))
+        points_node = graph.add_node(
+            GraphNode(parent_name + "_po", graph.next_node_id(), hash=create_guid(), parent=parent_node)
+        )
 
         nmap = {x: i for i, x in enumerate(self.nodes.identifiers)}
         keys = np.array(list(nmap.keys()))
@@ -165,13 +171,14 @@ class Mesh:
                 if elem_shape.type in (MassTypes.MASS,):
                     continue
 
-
                 new_edges = elem_shape.edges
                 edges += new_edges
 
                 if line_node is not None:
                     li_s = len(edges)
-                    node = graph.add_node(GraphNode(f"Li{elem_id}", graph.next_node_id(), hash=create_guid(), parent=line_node))
+                    node = graph.add_node(
+                        GraphNode(f"Li{elem_id}", graph.next_node_id(), hash=create_guid(), parent=line_node)
+                    )
                     li_groups.append(GroupReference(node, li_s, len(new_edges)))
 
                 if isinstance(elem_shape.type, (shape_def.LineShapes, shape_def.ConnectorTypes)):
@@ -180,7 +187,9 @@ class Mesh:
                 face_s = len(faces)
                 new_faces = elem_shape.get_faces()
                 faces += new_faces
-                node = graph.add_node(GraphNode(f"EL{elem_id}", graph.next_node_id(), hash=create_guid(), parent=face_node))
+                node = graph.add_node(
+                    GraphNode(f"EL{elem_id}", graph.next_node_id(), hash=create_guid(), parent=face_node)
+                )
                 sh_groups.append(GroupReference(node, face_s, len(new_faces)))
 
         coords = self.nodes.coords.flatten()

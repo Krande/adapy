@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from ada.core.guid import create_guid
-from ada.visit.gltf.meshes import MeshRef, GroupReference
+from ada.visit.gltf.meshes import GroupReference, MeshRef
 
 
 @dataclass

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import pathlib
-from typing import Iterable, TYPE_CHECKING
+from typing import TYPE_CHECKING, Iterable
 
 import numpy as np
 

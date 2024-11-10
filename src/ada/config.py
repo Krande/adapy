@@ -128,8 +128,8 @@ class Config:
         ConfigSection(
             "meshing",
             [
-                ConfigEntry('open_viewer_breakpoint_names', list[str], None, required=False),
-            ]
+                ConfigEntry("open_viewer_breakpoint_names", list[str], None, required=False),
+            ],
         ),
         ConfigSection(
             "code_aster",

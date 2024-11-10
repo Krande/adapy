@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Callable, Literal, Optional, OrderedDict
 
 import numpy as np
 import trimesh
+
 from ada.comms.fb_model_gen import (
     FileObjectDC,
     FilePurposeDC,
@@ -21,7 +22,7 @@ from ada.visit.gltf.graph import GraphNode, GraphStore
 if TYPE_CHECKING:
     from IPython.display import HTML
 
-    from ada import Assembly, Part, FEM
+    from ada import FEM, Assembly, Part
     from ada.base.physical_objects import BackendGeom
     from ada.fem.results.common import FEAResult
 
@@ -120,7 +121,9 @@ def scene_from_fem_results(self: FEAResult, params: RenderParams):
     return scene
 
 
-def scene_from_fem(fem: FEM, params: RenderParams, graph: GraphStore=None, scene: trimesh.Scene=None) -> trimesh.Scene:
+def scene_from_fem(
+    fem: FEM, params: RenderParams, graph: GraphStore = None, scene: trimesh.Scene = None
+) -> trimesh.Scene:
     from ada.visit.gltf.store import merged_mesh_to_trimesh_scene
 
     shell_color = Color.from_str("white")
@@ -164,7 +167,8 @@ def scene_from_fem(fem: FEM, params: RenderParams, graph: GraphStore=None, scene
         from ada.visit.gltf.optimize import concatenate_stores
 
         so_bm_node = graph.add_node(
-            GraphNode(fem.name + "_liSO", graph.next_node_id(), hash=create_guid(), parent=parent_node))
+            GraphNode(fem.name + "_liSO", graph.next_node_id(), hash=create_guid(), parent=parent_node)
+        )
         beams = [line_elem_to_beam(elem, fem.parent, "BM") for elem in fem.elements.lines]
         for bm in beams:
             graph.add_node(GraphNode(bm.name, graph.next_node_id(), hash=bm.guid, parent=so_bm_node))
@@ -295,7 +299,7 @@ class RendererManager:
         return renderer
 
     def render(self, obj: BackendGeom | Part | Assembly | FEAResult | FEM, params: RenderParams) -> HTML | None:
-        from ada import Assembly, Part, FEM
+        from ada import FEM, Assembly, Part
         from ada.base.physical_objects import BackendGeom
         from ada.comms.wsock_client_sync import WebSocketClientSync
         from ada.fem.results.common import FEAResult

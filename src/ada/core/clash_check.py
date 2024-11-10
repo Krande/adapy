@@ -3,20 +3,24 @@ from __future__ import annotations
 import traceback
 from dataclasses import dataclass
 from itertools import chain
-from typing import Iterable, List, TYPE_CHECKING
+from typing import TYPE_CHECKING, Iterable, List
 
 import numpy as np
 
 import ada
-
 from ada.config import logger
 
 from ..api.transforms import EquationOfPlane
 from .utils import Counter
-from .vector_utils import intersect_calc, is_parallel, vector_length, is_between_endpoints
+from .vector_utils import (
+    intersect_calc,
+    is_between_endpoints,
+    is_parallel,
+    vector_length,
+)
 
 if TYPE_CHECKING:
-    from ada import Assembly, Beam, Node, Part, Pipe, PipeSegStraight, Plate, PrimCyl
+    from ada import Assembly, Beam, Part, Pipe, PipeSegStraight, Plate, PrimCyl
     from ada.api.containers import Beams
 
 
@@ -162,8 +166,8 @@ def filter_beams_along_plate_edges(pl: Plate, beams: Iterable[Beam]):
 
 def find_beams_connected_to_plate(pl: Plate, beams: list[Beam]) -> list[Beam]:
     """Return all beams with their midpoints inside a specified plate for a given list of beams"""
-    from ada.api.containers import Nodes
     from ada import Node
+    from ada.api.containers import Nodes
 
     nid = Counter(1)
     nodes = Nodes(
@@ -309,8 +313,6 @@ def find_edge_connected_perpendicular_plates(plates: list[ada.Plate]) -> PlateCo
                 if pl1 not in edge_connected:
                     edge_connected[pl1] = []
                 edge_connected[pl1].append(pl2)
-
-
 
             if len(res_clear) == 2 and parallel_plates is False:
                 if pl1 not in mid_span_connected:
