@@ -7,6 +7,8 @@ import {useAnimationStore} from "../state/animationStore";
 import {useOptionsStore} from "../state/optionsStore";
 import {useTreeViewStore} from "../state/treeViewStore";
 import {request_list_of_nodes} from "../utils/node_editor/request_list_of_nodes";
+import {useServerInfoStore} from "../state/serverInfoStore";
+import ServerInfoBox from "./server_info/ServerInfoBox";
 
 const graph_btn_svg = <svg width="24px" height="24px" strokeWidth="1.5" viewBox="0 0 24 24" fill="none"
                            xmlns="http://www.w3.org/2000/svg" color="currentColor">
@@ -49,6 +51,16 @@ const update_icon = <svg width="24px" height="24px" viewBox="0 0 15 15" fill="no
         fill="#ffffff"
     />
 </svg>
+const server_icon = <svg width="24px" height="24px" strokeWidth="1.5" viewBox="0 0 24 24" fill="none"
+                         xmlns="http://www.w3.org/2000/svg" color="currentColor">
+    <path d="M3 19H12M21 19H12M12 19V13M12 13H18V5H6V13H12Z" stroke="currentColor" strokeWidth="1.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"></path>
+    <path d="M9 9.01L9.01 8.99889" stroke="#000000" strokeWidth="1.5" strokeLinecap="round"
+          strokeLinejoin="round"></path>
+    <path d="M12 9.01L12.01 8.99889" stroke="#000000" strokeWidth="1.5" strokeLinecap="round"
+          strokeLinejoin="round"></path>
+</svg>
 
 const Menu = () => {
     const {show_info_box} = useObjectInfoStore();
@@ -56,6 +68,7 @@ const Menu = () => {
     const {hasAnimation} = useAnimationStore();
     const {isOptionsVisible, setIsOptionsVisible} = useOptionsStore(); // use the useNavBarStore function
     const {isCollapsed, setIsCollapsed} = useTreeViewStore();
+    const {showServerInfoBox, setShowServerInfoBox} = useServerInfoStore();
 
     return (
         <div className="relative w-full h-full">
@@ -69,6 +82,7 @@ const Menu = () => {
                             {update_icon}
                         </button>
                     )}
+
                     <button
                         className={"bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 ml-2 rounded"}
                         hidden={use_node_editor_only}
@@ -93,14 +107,23 @@ const Menu = () => {
                     <button
                         className={"bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 ml-2 rounded"}
                         hidden={use_node_editor_only}
+                        onClick={() => setShowServerInfoBox(!showServerInfoBox)}
+                    >
+                        {server_icon}
+                    </button>
+                    <button
+                        className={"bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 ml-2 rounded"}
+                        hidden={use_node_editor_only}
                         onClick={useObjectInfoStore.getState().toggle}
                     >{info_svg}</button>
+
                     <div className="relative">
                         {hasAnimation && <AnimationControls/>}
                     </div>
-
                 </div>
+                {showServerInfoBox && <ServerInfoBox/>}
                 {show_info_box && <ObjectInfoBox/>}
+
             </div>
         </div>
     );

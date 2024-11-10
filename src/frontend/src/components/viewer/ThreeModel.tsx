@@ -20,7 +20,7 @@ const ThreeModel: React.FC<ModelProps> = ({url}) => {
     const {action, setCurrentKey, setSelectedAnimation} = useAnimationStore();
     const {setTranslation, setBoundingBox} = useModelStore();
     const {setTreeData, clearTreeData} = useTreeViewStore();
-    const {showEdges} = useOptionsStore();
+    const {showEdges, lockTranslation} = useOptionsStore();
 
     useAnimationEffects(animations, scene);
 
@@ -131,21 +131,22 @@ const ThreeModel: React.FC<ModelProps> = ({url}) => {
 
         // Compute the bounding box of the model
         const boundingBox = new THREE.Box3().setFromObject(scene);
-        setBoundingBox(boundingBox); // Store bounding box in model store
+            setBoundingBox(boundingBox); // Store bounding box in model store
+        if (!lockTranslation) {
+            const center = boundingBox.getCenter(new THREE.Vector3());
 
-        const center = boundingBox.getCenter(new THREE.Vector3());
+            // Compute the translation vector to move the model to the origin
+            const translation = center.clone().multiplyScalar(-1);
+            const minY = boundingBox.min.y;
+            const bheight = boundingBox.max.y - minY;
+            translation.y = -minY + bheight * 0.05;
 
-        // Compute the translation vector to move the model to the origin
-        const translation = center.clone().multiplyScalar(-1);
-        const minY = boundingBox.min.y;
-        const bheight = boundingBox.max.y - minY;
-        translation.y = -minY + bheight * 0.05;
+            // Apply the translation to the model
+            scene.position.add(translation);
 
-        // Apply the translation to the model
-        scene.position.add(translation);
-
-        // Store the translation vector in the model store
-        setTranslation(translation);
+            // Store the translation vector in the model store
+            setTranslation(translation);
+        }
 
         setSelectedAnimation('No Animation');
 

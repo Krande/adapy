@@ -108,6 +108,16 @@ class WebSocketClientBase(ABC):
         )
         return serialize_message(message)
 
+    def _view_file_object_prep(self, file_name: str) -> bytes:
+        message = MessageDC(
+            instance_id=self.instance_id,
+            command_type=CommandTypeDC.VIEW_FILE_OBJECT,
+            target_group=TargetTypeDC.SERVER,
+            client_type=TargetTypeDC.WEB,
+            server=ServerDC(get_file_object_by_name=file_name),
+        )
+        return serialize_message(message)
+
     def _list_server_file_objects_prep(self) -> bytes:
         message = MessageDC(
             instance_id=self.instance_id,
@@ -170,4 +180,8 @@ class WebSocketClientBase(ABC):
 
     @abstractmethod
     def run_procedure(self, procedure: ProcedureStartDC) -> None:
+        pass
+
+    @abstractmethod
+    def view_file_object(self, file_name: str) -> None:
         pass

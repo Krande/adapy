@@ -93,3 +93,6 @@ class WebSocketClientSync(WebSocketClientBase):
     def run_procedure(self, procedure: ProcedureStartDC) -> None:
         """Runs a procedure with the given name and arguments."""
         self.websocket.send(self._run_procedure_prep(procedure))
+
+    def view_file_object(self, file_name: str) -> None:
+        self.websocket.send(self._get_file_object_prep(file_name))
