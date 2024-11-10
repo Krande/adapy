@@ -39,16 +39,15 @@ jobs:
       - name: Set DATE env var
         run: echo "DATE=$(echo $(date +'%y%m%d'))" >> $GITHUB_ENV
 
-      - uses: mamba-org/setup-micromamba@v1 # https://github.com/mamba-org/setup-micromamba
+      - uses: mamba-org/setup-micromamba@v2 # https://github.com/mamba-org/setup-micromamba
         with:
           condarc: |
             channels:
-              - https://repo.prefix.dev/code-aster
               - conda-forge
-          environment-file: conda/environment.core.yml
           create-args: >-
             python=3.12
-            code-aster=*=*nompi*
+            ada-py
+            code-aster
             paradoc
             python-dotenv
             pytest

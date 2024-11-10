@@ -13,7 +13,7 @@ def main(overwrite=True, execute=True, test_gmsh_options=False, build_report=Fal
     if ru.ODB_DUMP_EXE is not None:
         AbaqusSetup.set_default_post_processor(ru.post_processing_abaqus)
 
-    fea_format = "calculix"
+    fea_format = "code_aster"
     geom_repr = "shell"
     elem_order = 1
     use_hex_quad = False
@@ -42,7 +42,7 @@ def main(overwrite=True, execute=True, test_gmsh_options=False, build_report=Fal
         perform_quality_check=False,
     )
 
-    a.show()
+    # a.show()
     # result.show()
 
     if build_report:
@@ -63,4 +63,4 @@ def main(overwrite=True, execute=True, test_gmsh_options=False, build_report=Fal
 
 if __name__ == "__main__":
     logger.setLevel("INFO")
-    main(overwrite=False, execute=True, test_gmsh_options=False, build_report=False)
+    main(overwrite=True, execute=True, test_gmsh_options=False, build_report=False)
