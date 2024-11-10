@@ -43,12 +43,11 @@ jobs:
         with:
           condarc: |
             channels:
-              - https://repo.prefix.dev/code-aster
               - conda-forge
-          environment-file: conda/environment.core.yml
           create-args: >-
             python=3.12
-            code-aster=*=*nompi*
+            ada-py
+            code-aster
             paradoc
             python-dotenv
             pytest
