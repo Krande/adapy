@@ -2,6 +2,20 @@
 
 
 
+## v0.3.3 (2024-11-10)
+
+### Chore
+
+* chore: bump mamba-org/setup-micromamba from 1 to 2 in the dependencies group (#117)
+
+Signed-off-by: dependabot[bot] &lt;support@github.com&gt;
+Co-authored-by: dependabot[bot] &lt;49699333+dependabot[bot]@users.noreply.github.com&gt; ([`8d846e8`](https://github.com/Krande/adapy/commit/8d846e8cb15678812e314fb6a827695a95c023f3))
+
+### Fix
+
+* fix: gxml plate support, mesh-partitioning and viewer improvements (#118) ([`88e57cc`](https://github.com/Krande/adapy/commit/88e57ccd7ee6d68518b32c16fb4203105f0bb0f7))
+
+
 ## v0.3.2 (2024-10-10)
 
 ### Fix
