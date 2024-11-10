@@ -1,6 +1,6 @@
 import React, {useEffect, useRef, useState} from 'react';
 import {useTreeViewStore} from '../../state/treeViewStore';
-import {NodeApi, Tree} from "react-arborist";
+import {NodeApi, Tree, TreeApi} from "react-arborist";
 import {CustomNode} from './CustomNode';
 import {handleTreeSelectionChange} from "../../utils/tree_view/handleClickedNode";
 
@@ -77,6 +77,24 @@ const TreeViewComponent: React.FC = () => {
                     disableEdit={true}
                     openByDefault={false}
                     disableMultiSelection={false}
+                    // evaluate if this is needed
+                    onToggle={(ids) => {
+                        console.log("Toggled", ids);
+                        let tree_api: TreeApi<any> = treeRef.current;
+                        if (ids.length != 1) {
+                            return;
+                        }
+                        // close children
+                        for (let id of ids) {
+                            let node = tree_api.get(id);
+
+                            if (node && node.children && node.children.length > 0) {
+                                for (let child of node.children) {
+                                    tree_api.close(child.id);
+                                }
+                            }
+                        }
+                    }}
 
                     searchTerm={searchTerm}
                     searchMatch={
