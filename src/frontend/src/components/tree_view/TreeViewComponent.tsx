@@ -6,9 +6,10 @@ import {handleTreeSelectionChange} from "../../utils/tree_view/handleClickedNode
 
 const TreeViewComponent: React.FC = () => {
     const {treeData, setTree, searchTerm} = useTreeViewStore();
-    const containerRef = useRef<HTMLDivElement | null>(null);
     const [treeHeight, setTreeHeight] = useState<number>(800); // Default height
     const treeRef = useRef<any>();  // Use 'any' to allow custom properties
+    const containerRef = useRef<HTMLDivElement | null>(null);
+    const headerRef = useRef<HTMLDivElement | null>(null);
 
     const treeNodes = treeData ? [{id: 'root', name: 'scene', children: [treeData]}] : [{
         id: 'root',
@@ -19,8 +20,10 @@ const TreeViewComponent: React.FC = () => {
     // Update the tree height based on the container size using ResizeObserver
     useEffect(() => {
         const updateTreeHeight = () => {
-            if (containerRef.current) {
-                setTreeHeight(containerRef.current.clientHeight);
+            if (containerRef.current && headerRef.current) {
+                const containerHeight = containerRef.current.offsetHeight;
+                const headerHeight = headerRef.current.offsetHeight;
+                setTreeHeight(containerHeight - headerHeight);
             }
         };
 
@@ -53,9 +56,9 @@ const TreeViewComponent: React.FC = () => {
     };
 
     return (
-        <div ref={containerRef} className="h-full max-h-screen overflow-y-auto pl-1 pt-1 pr-1">
-            <div className={"h-10"}>
-                <input className={"bg-blue-800 text-white"} onInput={
+        <div ref={containerRef} className="h-full w-full flex flex-col max-h-screen pl-1 pr-2">
+            <div ref={headerRef} className={"w-full pr-12 pt-1 "}>
+                <input className={"w-full bg-gray-600 text-white rounded pl-1"} onInput={
                     (event) => {
                         useTreeViewStore.getState().setSearchTerm((event.target as HTMLInputElement).value);
                     }
