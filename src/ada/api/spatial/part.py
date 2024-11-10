@@ -20,6 +20,7 @@ from ada.base.units import Units
 from ada.comms.fb_model_gen import FileObjectDC, FilePurposeDC, FileTypeDC
 from ada.config import logger
 from ada.visit.gltf.graph import GraphNode, GraphStore
+from ada.visit.renderer_manager import RenderParams
 
 if TYPE_CHECKING:
     import trimesh
@@ -638,20 +639,28 @@ class Part(BackendGeom):
         return res
 
     def get_graph_store(self) -> GraphStore:
-        root = GraphNode(self.name, self.guid)
-        graph: dict[str, GraphNode] = {self.guid: root}
+        nid = 0
+        root = GraphNode(self.name, nid, hash=self.guid)
+        graph: dict[int, GraphNode] = {nid: root}
+        hash_map: dict[str, GraphNode] = {self.guid: root}
+        nid += 1
         objects = self.get_all_physical_objects(pipe_to_segments=True)
         containers = self.get_all_parts_in_assembly()
+
         for p in chain.from_iterable([containers, objects]):
-            if p.guid in graph.keys():
+            if p.guid in hash_map.keys():
+                logger.error(f"Duplicate GUID found for {p}")
                 continue
-            parent_node = graph.get(p.parent.guid)
-            n = GraphNode(p.name, hash=p.guid)
+            parent_node = hash_map.get(p.parent.guid)
+            n = GraphNode(p.name, nid, hash=p.guid)
+            nid += 1
             if parent_node is not None:
                 n.parent = parent_node
                 parent_node.children.append(n)
-            graph[p.guid] = n
-        return GraphStore(root, graph)
+            graph[n.node_id] = n
+            hash_map[p.guid] = n
+
+        return GraphStore(root, graph, hash_map)
 
     def beam_clash_check(self, margins=5e-5):
         """
@@ -665,8 +674,9 @@ class Part(BackendGeom):
 
         all_parts = self.get_all_subparts() + [self]
         all_beams = [bm for p in all_parts for bm in p.beams]
+        all_bm_containers = [p.beams for p in all_parts]
 
-        return filter(None, [basic_intersect(bm, margins, all_parts) for bm in all_beams])
+        return filter(None, [basic_intersect(bm, margins, all_bm_containers) for bm in all_beams])
 
     def move_all_mats_and_sec_here_from_subparts(self):
         for p in self.get_all_subparts():
@@ -709,6 +719,8 @@ class Part(BackendGeom):
         experimental_bm_splitting=True,
         experimental_pl_splitting=True,
         name=None,
+        debug_mode=False,
+        merge_coincident_nodes=True,
     ) -> FEM:
         from ada import Beam, Plate, Shape
         from ada.fem.elements import Mass
@@ -723,7 +735,8 @@ class Part(BackendGeom):
 
         options = GmshOptions(Mesh_Algorithm=8) if options is None else options
         masses: list[Shape] = []
-        with GmshSession(silent=silent, options=options) as gs:
+
+        with GmshSession(silent=silent, options=options, debug_mode=debug_mode) as gs:
             for obj in self.get_all_physical_objects(sub_elements_only=False):
                 if isinstance(obj, Beam):
                     gs.add_obj(obj, geom_repr=bm_repr, build_native_lines=False)
@@ -739,14 +752,10 @@ class Part(BackendGeom):
             if interactive is True:
                 gs.open_gui()
 
-            gs.split_plates_by_beams()
-
-            num_plates = len(list(self.get_all_physical_objects(by_type=Plate)))
-            if experimental_pl_splitting is True and num_plates > 1:
-                gs.split_plates_by_plates()
-
-            if experimental_bm_splitting is True and num_plates == 0:
-                gs.split_crossing_beams()
+            gs.check_model_entities()
+            gs.partition_plates()
+            gs.check_model_entities()
+            gs.partition_beams()
 
             if interactive is True:
                 gs.open_gui()
@@ -762,6 +771,12 @@ class Part(BackendGeom):
             cog_absolute = mass_shape.placement.get_absolute_placement().origin + mass_shape.cog
             n = fem.nodes.add(Node(cog_absolute))
             fem.add_mass(Mass(f"{mass_shape.name}_mass", [n], mass_shape.mass))
+
+        if merge_coincident_nodes:
+            n_before = len(fem.nodes)
+            fem.nodes.remove_standalones()
+            n_after = len(fem.nodes)
+            logger.info(f"Removed {n_before - n_after} standalone nodes")
 
         return fem
 
@@ -781,11 +796,13 @@ class Part(BackendGeom):
         filter_by_guids=None,
         merge_meshes=True,
         stream_from_ifc=False,
+        params: RenderParams = None,
     ) -> trimesh.Scene:
+        from ada import Assembly
         from ada.occ.tessellating import BatchTessellator
 
         bt = BatchTessellator()
-        if stream_from_ifc:
+        if stream_from_ifc and isinstance(self, Assembly):
             return bt.ifc_to_trimesh_scene(self.get_assembly().ifc_store, merge_meshes=merge_meshes)
 
         return bt.tessellate_part(

@@ -1,10 +1,10 @@
 import {
-    CommandType,
+    CommandType, FileArgT,
     Message,
     Parameter, ParameterT, ParameterType,
     Procedure,
     ProcedureStart,
-    ProcedureStore,
+    ProcedureStore, ProcedureT,
     TargetType, Value
 } from '../../flatbuffers/wsock'
 import {useNodeEditorStore} from '../../state/useNodeEditorStore';
@@ -12,11 +12,9 @@ import * as flatbuffers from "flatbuffers"; // Import the node editor Zustand st
 import {webSocketHandler} from "../websocket_connector";
 import {Builder} from "flatbuffers";
 
-function extract_input_params(builder: Builder, params: string[], procedure: Procedure) {
+function extract_input_params(builder: Builder, params: string[], procedureT: ProcedureT) {
     // the param strings are div keys in the form of 'param-<procedure_name>-<index>'
     // we need to first get the parent div, then get the input value from the input element
-
-    let procedureT = procedure.unpack()
     let parameter_name_map: Record<string, ParameterT> = {}
 
     for (let i = 0; i < procedureT.parameters.length; i++) {
@@ -37,8 +35,7 @@ function extract_input_params(builder: Builder, params: string[], procedure: Pro
 
         if (parameter.options.length > 0) {
             param_input = param_div.getElementsByTagName('select')
-        }
-        else {
+        } else {
             param_input = param_div.getElementsByTagName('input')
         }
 
@@ -109,7 +106,7 @@ function extract_input_params(builder: Builder, params: string[], procedure: Pro
             // Create a vector for tuple_values
             Value.startValue(builder);
             Value.addArrayValue(builder, tuple_values_vector);
-            if (array_value_type){
+            if (array_value_type) {
                 Value.addArrayValueType(builder, array_value_type);
             }
             let array_value = Value.endValue(builder);
@@ -162,36 +159,43 @@ export function run_procedure(props: { id: string, data: Record<string, string |
 
     let parameters_list: number[] = []
 
-    let procedure = props.data.procedure as Procedure;
-    if (!procedure.isComponent()) {
-        const connectedEdges = edges.filter(edge => edge.target.startsWith('file-object'))
-        if (connectedEdges.length === 0) {
-            console.error('No file object connected to this procedure')
-            return
-        }
+    let procedure = props.data.procedure as ProcedureT;
+    const connectedEdges = edges.filter(edge => edge.target.startsWith('file-object'))
+    if (connectedEdges.length === 0) {
+        console.error('No file object connected to this procedure')
+        return
+    }
 
-        const connectedNode = nodes.find(node => node.id === connectedEdges[0].target)
-        if (!connectedNode) {
-            console.error('Could not find connected file object node')
-            return
-        }
+    for (let i=0; i< connectedEdges.length; i++) {
+        const edge = connectedEdges[i];
+        const connectedNode = nodes.find(node => node.id === edge.target)
+        if (!connectedNode) continue
 
+        const source_handle_name = edge.sourceHandle?.split('-')[1]
+        let fp_str = connectedNode.data.filepath?.toString();
         console.log(connectedNode)
 
-        let filepath_str = builder.createString(connectedNode.data?.filepath?.toString() || '')
-        let input_variable_name = builder.createString(thisProcedureNode.data?.inputFileVar?.toString() || '');
+        for (let i =0 ; i < procedure.fileInputs.length; i++) {
+            const input = procedure.fileInputs[i] as FileArgT
+            if (source_handle_name !== input.argName) continue
 
-        Value.startValue(builder);
-        Value.addStringValue(builder, filepath_str);
-        let filepath = Value.endValue(builder);
+            const arg_name = input.argName?.toString();
 
-        Parameter.startParameter(builder);
-        Parameter.addName(builder, input_variable_name);
-        Parameter.addValue(builder, filepath);
-        let input_file = Parameter.endParameter(builder);
-        parameters_list.push(input_file)
+            let filepath_str = builder.createString(fp_str);
+            let input_variable_name = builder.createString(arg_name);
+
+            Value.startValue(builder);
+            Value.addStringValue(builder, filepath_str);
+            let filepath = Value.endValue(builder);
+
+            Parameter.startParameter(builder);
+            Parameter.addName(builder, input_variable_name);
+            Parameter.addValue(builder, filepath);
+            let input_file = Parameter.endParameter(builder);
+            parameters_list.push(input_file)
+        }
     }
-    if (props.data.paramids){
+    if (props.data.paramids) {
         let input_params = extract_input_params(builder, props.data.paramids as string[], procedure);
         if (input_params)
             parameters_list.push(...input_params)
@@ -212,7 +216,7 @@ export function run_procedure(props: { id: string, data: Record<string, string |
     let procedureStore = ProcedureStore.endProcedureStore(builder);
 
     Message.startMessage(builder);
-    if ((window as any).TARGET_INSTANCE_ID){
+    if ((window as any).TARGET_INSTANCE_ID) {
         console.log('Overriding TARGET_ID:', (window as any).TARGET_INSTANCE_ID)
         Message.addInstanceId(builder, (window as any).TARGET_INSTANCE_ID);
     } else {

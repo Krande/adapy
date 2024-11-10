@@ -9,58 +9,6 @@ from ada.config import logger
 
 
 @dataclass
-class PartMesh:
-    name: str
-    id_map: dict[str, ObjectMesh]
-
-    def move_objects_to_center(self, override_center=None):
-        for omesh in self.id_map.values():
-            oc = override_center if override_center is not None else self.vol_center
-            omesh.translate(oc)
-
-    @property
-    def vol_center(self):
-        return (self.bbox[0] + self.bbox[1]) / 2
-
-    @property
-    def bbox(self):
-        res = np.concatenate([np.array(x.bbox) for x in self.id_map.values()])
-        return res.min(0), res.max(0)
-
-    @property
-    def num_polygons(self):
-        return sum([x.num_polygons for x in self.id_map.values()])
-
-    def to_custom_json(self):
-        return {
-            "name": self.name,
-            "rawdata": self.rawdata,
-            "guiParam": self.guiparam,
-            "id_map": {key: value.to_custom_json() for key, value in self.id_map.items()},
-        }
-
-    def merge_by_color(self):
-        from ..core.guid import create_guid
-        from .utils import merge_mesh_objects, organize_by_colour
-
-        colour_map = organize_by_colour(self.id_map.values())
-
-        id_map = dict()
-        for colour, elements in colour_map.items():
-            guid = create_guid()
-            pm = merge_mesh_objects(elements)
-            if len(pm.faces) == 0:
-                continue
-            id_map[guid] = pm
-
-        return PartMesh(name=self.name, id_map=id_map)
-
-    def __add__(self, other: PartMesh):
-        self.id_map.update(other.id_map)
-        return self
-
-
-@dataclass
 class ObjectMesh:
     guid: str
     faces: np.ndarray

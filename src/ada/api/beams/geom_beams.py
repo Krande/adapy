@@ -7,6 +7,7 @@ import numpy as np
 import ada.geom.curves
 import ada.geom.solids as geo_so
 import ada.geom.surfaces as geo_su
+from ada.config import Config
 from ada.core.vector_transforms import transform_csys_to_csys
 from ada.geom import Geometry
 from ada.geom.booleans import BooleanOperation
@@ -20,9 +21,17 @@ if TYPE_CHECKING:
 
 
 def straight_beam_to_geom(beam: Beam | PipeSegStraight, is_solid=True) -> Geometry:
+    vec = beam.xvec
+    yvec = beam.yvec
+    p1 = beam.n1.p
+    if Config().ifc_export_include_ecc and beam.e1 is not None:
+        e1 = beam.e1
+        vec = beam.xvec_e
+        p1 = tuple([float(x) + float(e1[i]) for i, x in enumerate(beam.n1.p.copy())])
+
     if is_solid:
         profile = section_to_arbitrary_profile_def_with_voids(beam.section)
-        place = Axis2Placement3D(location=beam.n1.p, axis=beam.xvec, ref_direction=beam.yvec)
+        place = Axis2Placement3D(location=p1, axis=vec, ref_direction=yvec)
         solid = geo_so.ExtrudedAreaSolid(profile, place, beam.length, Direction(0, 0, 1))
         geom = Geometry(beam.guid, solid, beam.color)
     else:

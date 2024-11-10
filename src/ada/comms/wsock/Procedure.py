@@ -75,50 +75,74 @@ class Procedure(object):
         return o == 0
 
     # Procedure
-    def InputFileVar(self):
+    def FileInputs(self, j):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(12))
         if o != 0:
-            return self._tab.String(o + self._tab.Pos)
+            x = self._tab.Vector(o)
+            x += flatbuffers.number_types.UOffsetTFlags.py_type(j) * 4
+            x = self._tab.Indirect(x)
+            from ada.comms.wsock.FileArg import FileArg
+
+            obj = FileArg()
+            obj.Init(self._tab.Bytes, x)
+            return obj
         return None
 
     # Procedure
-    def InputFileType(self):
-        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(14))
+    def FileInputsLength(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(12))
         if o != 0:
-            return self._tab.Get(flatbuffers.number_types.Int8Flags, o + self._tab.Pos)
+            return self._tab.VectorLen(o)
         return 0
 
     # Procedure
-    def ExportFileType(self):
+    def FileInputsIsNone(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(12))
+        return o == 0
+
+    # Procedure
+    def FileOutputs(self, j):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(14))
+        if o != 0:
+            x = self._tab.Vector(o)
+            x += flatbuffers.number_types.UOffsetTFlags.py_type(j) * 4
+            x = self._tab.Indirect(x)
+            from ada.comms.wsock.FileArg import FileArg
+
+            obj = FileArg()
+            obj.Init(self._tab.Bytes, x)
+            return obj
+        return None
+
+    # Procedure
+    def FileOutputsLength(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(14))
+        if o != 0:
+            return self._tab.VectorLen(o)
+        return 0
+
+    # Procedure
+    def FileOutputsIsNone(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(14))
+        return o == 0
+
+    # Procedure
+    def State(self):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(16))
         if o != 0:
             return self._tab.Get(flatbuffers.number_types.Int8Flags, o + self._tab.Pos)
         return 0
 
     # Procedure
-    def ExportFileVar(self):
-        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(18))
-        if o != 0:
-            return self._tab.String(o + self._tab.Pos)
-        return None
-
-    # Procedure
-    def State(self):
-        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(20))
-        if o != 0:
-            return self._tab.Get(flatbuffers.number_types.Int8Flags, o + self._tab.Pos)
-        return 0
-
-    # Procedure
     def IsComponent(self):
-        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(22))
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(18))
         if o != 0:
             return bool(self._tab.Get(flatbuffers.number_types.BoolFlags, o + self._tab.Pos))
         return False
 
 
 def ProcedureStart(builder):
-    builder.StartObject(10)
+    builder.StartObject(8)
 
 
 def Start(builder):
@@ -165,40 +189,40 @@ def StartParametersVector(builder, numElems):
     return ProcedureStartParametersVector(builder, numElems)
 
 
-def ProcedureAddInputFileVar(builder, inputFileVar):
-    builder.PrependUOffsetTRelativeSlot(4, flatbuffers.number_types.UOffsetTFlags.py_type(inputFileVar), 0)
+def ProcedureAddFileInputs(builder, fileInputs):
+    builder.PrependUOffsetTRelativeSlot(4, flatbuffers.number_types.UOffsetTFlags.py_type(fileInputs), 0)
 
 
-def AddInputFileVar(builder, inputFileVar):
-    ProcedureAddInputFileVar(builder, inputFileVar)
+def AddFileInputs(builder, fileInputs):
+    ProcedureAddFileInputs(builder, fileInputs)
 
 
-def ProcedureAddInputFileType(builder, inputFileType):
-    builder.PrependInt8Slot(5, inputFileType, 0)
+def ProcedureStartFileInputsVector(builder, numElems):
+    return builder.StartVector(4, numElems, 4)
 
 
-def AddInputFileType(builder, inputFileType):
-    ProcedureAddInputFileType(builder, inputFileType)
+def StartFileInputsVector(builder, numElems):
+    return ProcedureStartFileInputsVector(builder, numElems)
 
 
-def ProcedureAddExportFileType(builder, exportFileType):
-    builder.PrependInt8Slot(6, exportFileType, 0)
+def ProcedureAddFileOutputs(builder, fileOutputs):
+    builder.PrependUOffsetTRelativeSlot(5, flatbuffers.number_types.UOffsetTFlags.py_type(fileOutputs), 0)
 
 
-def AddExportFileType(builder, exportFileType):
-    ProcedureAddExportFileType(builder, exportFileType)
+def AddFileOutputs(builder, fileOutputs):
+    ProcedureAddFileOutputs(builder, fileOutputs)
 
 
-def ProcedureAddExportFileVar(builder, exportFileVar):
-    builder.PrependUOffsetTRelativeSlot(7, flatbuffers.number_types.UOffsetTFlags.py_type(exportFileVar), 0)
+def ProcedureStartFileOutputsVector(builder, numElems):
+    return builder.StartVector(4, numElems, 4)
 
 
-def AddExportFileVar(builder, exportFileVar):
-    ProcedureAddExportFileVar(builder, exportFileVar)
+def StartFileOutputsVector(builder, numElems):
+    return ProcedureStartFileOutputsVector(builder, numElems)
 
 
 def ProcedureAddState(builder, state):
-    builder.PrependInt8Slot(8, state, 0)
+    builder.PrependInt8Slot(6, state, 0)
 
 
 def AddState(builder, state):
@@ -206,7 +230,7 @@ def AddState(builder, state):
 
 
 def ProcedureAddIsComponent(builder, isComponent):
-    builder.PrependBoolSlot(9, isComponent, 0)
+    builder.PrependBoolSlot(7, isComponent, 0)
 
 
 def AddIsComponent(builder, isComponent):

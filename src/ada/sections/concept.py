@@ -99,6 +99,17 @@ class Section(Root):
             props += ["properties"]
         return tuple([getattr(self, p) for p in props])
 
+    @staticmethod
+    def from_str(section_str: str) -> Section | list[Section]:
+        """Create a section from a string representation. If tapered, returns a list of two sections"""
+        from ada.sections.utils import interpret_section_str
+
+        sec, tap = interpret_section_str(section_str)
+        if sec != tap:
+            return [sec, tap]
+
+        return sec
+
     @property
     def type(self) -> BaseTypes:
         return self._type

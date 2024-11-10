@@ -1,6 +1,6 @@
 // DynamicHandle.tsx
 import React from 'react';
-import {Connection, Handle, HandleType, Position} from '@xyflow/react';
+import {Connection, Handle, HandleType, Position, useUpdateNodeInternals} from '@xyflow/react';
 
 
 interface DynamicHandleProps {
@@ -24,6 +24,7 @@ const DynamicHandle: React.FC<DynamicHandleProps> = ({
     onConnect,
     left_side = true,
 }) => {
+
     return (
         left_side ? (
             <div className="flex flex-row items-center">

@@ -84,6 +84,9 @@ class Placement:
         if not isinstance(self.origin, Point):
             self.origin = Point(*self.origin)
 
+    def __getitem__(self, key):
+        return [self.xdir, self.ydir, self.zdir][key]
+
     @staticmethod
     def from_quaternion(quat: pq.Quaternion, origin=None):
         rot_mat = quat.rotation_matrix

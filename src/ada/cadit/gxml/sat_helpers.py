@@ -21,6 +21,7 @@ def xml_elem_to_sat_text(sat_el: ET.Element) -> str:
         zipdata = zipfile.ZipFile(byio)
     except zipfile.BadZipFile:
         return str(data, encoding="utf-8")
+
     res = {name: zipdata.read(name) for name in zipdata.namelist()}
     if len(res.keys()) != 1:
         raise NotImplementedError("No support for binary zip data containing multipart SAT file yet")

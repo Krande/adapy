@@ -105,21 +105,24 @@ class SqLiteBackend(RenderBackend):
     def commit(self):
         self.conn.commit()
 
-    def add_metadata(self, metadata: dict, tag: str) -> str:
+    def add_metadata(self, metadata: dict, tag: str, buffer_prefix="draw_ranges_node", tree_name="id_hierarchy") -> str:
         """Adds metadata to the database."""
         # For really large models this might provide a speedbump
         self.c.execute("""BEGIN TRANSACTION;""")
         id_sequence_data = {}
         for key, value in metadata.items():
-            if "id_sequence" not in key:
+            if not key.startswith(buffer_prefix):
                 continue
-            buffer_id = int(float(key.replace("id_sequence", "")))
+            buffer_id = int(float(key.replace(buffer_prefix, "")))
             for mesh_id, values in value.items():
                 id_sequence_data[mesh_id] = list(values) + [buffer_id]
 
-        for mesh_id, values in metadata.get("meta").items():
+        for mesh_id, values in metadata.get(tree_name).items():
             full_name, parent_id = values
-            start, end, buffer_id = id_sequence_data.get(mesh_id, [None, None, None])  # Get start, end values
+            start, length, buffer_id = id_sequence_data.get(mesh_id, [None, None, None])  # Get start, end values
+            if start is None:
+                continue
+            end = start + length
             row = (mesh_id, parent_id, full_name, start, end, buffer_id, tag)
             self.c.execute("INSERT INTO mesh VALUES (?,?,?,?,?,?,?)", row)
 

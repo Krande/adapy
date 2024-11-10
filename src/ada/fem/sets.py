@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, List, Union
+from typing import TYPE_CHECKING, List, Literal, Union
 
 from ada.api.nodes import Node
 
@@ -29,7 +29,14 @@ class FemSet(FemBase):
 
     TYPES = SetTypes
 
-    def __init__(self, name, members: None | list[Elem | Node], set_type=None, metadata=None, parent=None):
+    def __init__(
+        self,
+        name,
+        members: None | list[Elem | Node],
+        set_type: Literal["nset", "elset"] = None,
+        metadata=None,
+        parent=None,
+    ):
         super().__init__(name, metadata, parent)
         from ada.fem import Elem
 
@@ -66,7 +73,7 @@ class FemSet(FemBase):
         self._members += members
 
     @property
-    def type(self):
+    def type(self) -> str:
         return self._set_type.lower()
 
     @property

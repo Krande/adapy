@@ -1,7 +1,7 @@
 from typing import TYPE_CHECKING
 
 from ada import Beam, Plate, Section
-from ada.fem.meshing.partitioning.partition_beams import ibeam
+from ada.fem.meshing.partitioning.partition_beam_interiors import ibeam
 
 if TYPE_CHECKING:
     from ada.fem.meshing.concepts import GmshData, GmshSession

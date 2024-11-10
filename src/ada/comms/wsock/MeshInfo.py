@@ -48,9 +48,16 @@ class MeshInfo(object):
             return self._tab.String(o + self._tab.Pos)
         return None
 
+    # MeshInfo
+    def FileName(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
+        if o != 0:
+            return self._tab.String(o + self._tab.Pos)
+        return None
+
 
 def MeshInfoStart(builder):
-    builder.StartObject(3)
+    builder.StartObject(4)
 
 
 def Start(builder):
@@ -79,6 +86,14 @@ def MeshInfoAddJsonData(builder, jsonData):
 
 def AddJsonData(builder, jsonData):
     MeshInfoAddJsonData(builder, jsonData)
+
+
+def MeshInfoAddFileName(builder, fileName):
+    builder.PrependUOffsetTRelativeSlot(3, flatbuffers.number_types.UOffsetTFlags.py_type(fileName), 0)
+
+
+def AddFileName(builder, fileName):
+    MeshInfoAddFileName(builder, fileName)
 
 
 def MeshInfoEnd(builder):

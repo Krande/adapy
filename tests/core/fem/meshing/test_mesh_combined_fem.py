@@ -48,9 +48,37 @@ def test_plates_perpendicular():
     pl3 = ada.Plate("pl3", p1x1, 0.01, orientation=ada.Placement(xdir=(1, 0, 0), zdir=(0, -1, 0)))
 
     p = ada.Part("MyFem") / [pl1_5, pl3]
-    fem = p.to_fem_obj(1, "shell", interactive=False)
+    fem = p.to_fem_obj(1, pl_repr="shell", interactive=False)
     assert len(fem.nodes) == 8
     assert len(fem.elements) == 6
+
+
+def test_plates_perpendicular_split_by_beams():
+    p1x1 = [(0, 0), (1, 0), (1, 1), (0, 1)]
+    pl1_5 = ada.Plate("pl1_5", p1x1, 0.01, orientation=ada.Placement((0, 0, 0.5)))
+    bm_1 = ada.Beam("bm1", (0, 0, 0.5), (1, 0, 0.5), "IPE180", up=[0, 0, 1])
+    bm_2 = ada.Beam("bm2", (0.5, 0, 0.5), (0.5, 1, 0.5), "HP180x8")
+    pl3 = ada.Plate("pl3", p1x1, 0.01, orientation=ada.Placement(xdir=(1, 0, 0), zdir=(0, -1, 0)))
+
+    p = ada.Part("MyFem") / [pl1_5, pl3, bm_1, bm_2]
+    fem = p.to_fem_obj(1, bm_repr="line", pl_repr="shell")
+
+    assert len(fem.nodes) == 10
+    assert len(fem.elements) == 13
+
+
+def test_plates_perpendicular_varying_mesh():
+    p1x1 = [(0, 0), (1, 0), (1, 1), (0, 1)]
+    p0_5x0_5 = [(0, 0), (0.5, 0), (0.5, 1), (0, 1)]
+    pl1_5 = ada.Plate("pl1_5", p0_5x0_5, 0.01, orientation=ada.Placement((0, 0, 0.5)))
+    pl1_5_2 = ada.Plate("pl1_5_2", p0_5x0_5, 0.01, orientation=ada.Placement((0.5, 0, 0.5)))
+    pl3 = ada.Plate("pl3", p1x1, 0.01, orientation=ada.Placement(xdir=(1, 0, 0), zdir=(0, -1, 0)))
+
+    p = ada.Part("MyFem") / [pl1_5, pl1_5_2, pl3]
+    fem = p.to_fem_obj(1, "shell", interactive=False)
+
+    assert len(fem.nodes) == 10
+    assert len(fem.elements) == 10
 
 
 def test_double_plates_perpendicular():

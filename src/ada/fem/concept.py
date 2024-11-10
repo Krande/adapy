@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import pathlib
 from dataclasses import dataclass, field
 from itertools import chain
-from typing import TYPE_CHECKING, Dict, Iterable, List, Union
+from typing import TYPE_CHECKING, Dict, Iterable, List, Literal, Union
 
 from ada.api.containers import Nodes
+from ada.comms.fb_model_gen import FilePurposeDC
 from ada.config import logger
+from ada.visit.renderer_manager import FEARenderParams, RendererManager, RenderParams
 
 from .containers import FemElements, FemSections, FemSets
 from .sets import FemSet
@@ -377,6 +380,40 @@ class FEM:
             for load in step.loads:
                 loads.append(load)
         return loads
+
+    def show(
+        self,
+        renderer: Literal["react", "pygfx"] = "react",
+        host="localhost",
+        port=8765,
+        server_exe: pathlib.Path = None,
+        server_args: list[str] = None,
+        run_ws_in_thread=False,
+        unique_id=None,
+        purpose: FilePurposeDC = FilePurposeDC.ANALYSIS,
+        params_override: RenderParams = None,
+        solid_beams=True,
+        ping_timeout=1,
+    ) -> None:
+
+        # Use RendererManager to handle renderer setup and WebSocket connection
+        renderer_manager = RendererManager(
+            renderer=renderer,
+            host=host,
+            port=port,
+            server_exe=server_exe,
+            server_args=server_args,
+            run_ws_in_thread=run_ws_in_thread,
+            ping_timeout=ping_timeout,
+        )
+
+        if params_override is None:
+            fea_params = FEARenderParams(solid_beams=solid_beams)
+            params_override = RenderParams(unique_id=unique_id, purpose=purpose, fea_params=fea_params)
+
+        # Set up the renderer and WebSocket server
+        renderer_instance = renderer_manager.render(self, params_override)
+        return renderer_instance
 
     def to_mesh(self) -> Mesh:
         from ada.fem.results.common import Mesh

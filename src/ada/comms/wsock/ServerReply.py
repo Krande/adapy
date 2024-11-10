@@ -35,16 +35,30 @@ class ServerReply(object):
         return None
 
     # ServerReply
-    def FileObject(self):
+    def FileObjects(self, j):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
         if o != 0:
-            x = self._tab.Indirect(o + self._tab.Pos)
+            x = self._tab.Vector(o)
+            x += flatbuffers.number_types.UOffsetTFlags.py_type(j) * 4
+            x = self._tab.Indirect(x)
             from ada.comms.wsock.FileObject import FileObject
 
             obj = FileObject()
             obj.Init(self._tab.Bytes, x)
             return obj
         return None
+
+    # ServerReply
+    def FileObjectsLength(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
+        if o != 0:
+            return self._tab.VectorLen(o)
+        return 0
+
+    # ServerReply
+    def FileObjectsIsNone(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
+        return o == 0
 
     # ServerReply
     def ReplyTo(self):
@@ -82,12 +96,20 @@ def AddMessage(builder, message):
     ServerReplyAddMessage(builder, message)
 
 
-def ServerReplyAddFileObject(builder, fileObject):
-    builder.PrependUOffsetTRelativeSlot(1, flatbuffers.number_types.UOffsetTFlags.py_type(fileObject), 0)
+def ServerReplyAddFileObjects(builder, fileObjects):
+    builder.PrependUOffsetTRelativeSlot(1, flatbuffers.number_types.UOffsetTFlags.py_type(fileObjects), 0)
 
 
-def AddFileObject(builder, fileObject):
-    ServerReplyAddFileObject(builder, fileObject)
+def AddFileObjects(builder, fileObjects):
+    ServerReplyAddFileObjects(builder, fileObjects)
+
+
+def ServerReplyStartFileObjectsVector(builder, numElems):
+    return builder.StartVector(4, numElems, 4)
+
+
+def StartFileObjectsVector(builder, numElems):
+    return ServerReplyStartFileObjectsVector(builder, numElems)
 
 
 def ServerReplyAddReplyTo(builder, replyTo):

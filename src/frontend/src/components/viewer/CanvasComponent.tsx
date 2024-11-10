@@ -9,20 +9,14 @@ import {Perf} from 'r3f-perf';
 import OrientationGizmo from './OrientationGizmo';
 import {useModelStore} from '../../state/modelStore';
 import {useOptionsStore} from '../../state/optionsStore';
-import AnimationControls from './AnimationControls';
-import ObjectInfoBox from '../object_info_box/ObjectInfoBoxComponent';
-import {useObjectInfoStore} from '../../state/objectInfoStore';
 import CameraControls from './CameraControls';
-import {handleMeshEmptySpace} from '../../utils/mesh_handling';
 import CameraLight from "./CameraLights";
 import DynamicGridHelper from './DynamicGridHelper';
-import use3DConnexion from '../../hooks/use3DConnexion';
-import ThreeConnexionControls from "./ThreeConnexionControls";
+import {handleClickEmptySpace} from "../../utils/mesh_select/handleClickEmptySpace";
 
 const CanvasComponent: React.FC = () => {
     const {modelUrl, scene_action, scene_action_arg} = useModelStore();
     const {showPerf} = useOptionsStore();
-    const {show_info_box} = useObjectInfoStore();
 
     const orbitControlsRef = useRef<OrbitControlsImpl>(null);
 
@@ -43,14 +37,10 @@ const CanvasComponent: React.FC = () => {
                 <Canvas
                     shadows={true}
                     camera={cameraProps}
-                    onPointerMissed={handleMeshEmptySpace}
+                    onPointerMissed={handleClickEmptySpace}
                     style={{backgroundColor: '#393939'}}
                 >
-                    {/* Existing lights can be removed or kept based on your preference */}
-                    {/* Remove existing lights if they interfere with the new lighting */}
-                    {/*<ambientLight intensity={Math.PI / 2} />*/}
-                    {/*<pointLight position={[-10, -10, -10]} decay={0} intensity={Math.PI} />*/}
-
+                    <ambientLight intensity={Math.PI / 2} />
                     {/* Add the CameraLight component */}
                     <CameraLight/>
 
@@ -65,12 +55,13 @@ const CanvasComponent: React.FC = () => {
                     <DynamicGridHelper/>
 
                     {showPerf && <Perf/>}
-                    <OrbitControls ref={orbitControlsRef} enableDamping={false} makeDefault={false}/>
+                    <OrbitControls ref={orbitControlsRef} enableDamping={false} makeDefault={true}/>
                     <OrientationGizmo/>
 
                     {/* Render CameraControls inside the Canvas */}
                     <CameraControls orbitControlsRef={orbitControlsRef}/>
-                              {/* Integrate 3Dconnexion Controls */}
+
+                    {/* Todo: Integrate 3Dconnexion Controls */}
                     {/*<ThreeConnexionControls orbitControlsRef={orbitControlsRef} />*/}
                 </Canvas>
             </div>

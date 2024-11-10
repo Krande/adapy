@@ -34,9 +34,14 @@ message(optionalEncoding?:any):string|Uint8Array|null {
   return offset ? this.bb!.__string(this.bb_pos + offset, optionalEncoding) : null;
 }
 
-fileObject(obj?:FileObject):FileObject|null {
+fileObjects(index: number, obj?:FileObject):FileObject|null {
   const offset = this.bb!.__offset(this.bb_pos, 6);
-  return offset ? (obj || new FileObject()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
+  return offset ? (obj || new FileObject()).__init(this.bb!.__indirect(this.bb!.__vector(this.bb_pos + offset) + index * 4), this.bb!) : null;
+}
+
+fileObjectsLength():number {
+  const offset = this.bb!.__offset(this.bb_pos, 6);
+  return offset ? this.bb!.__vector_len(this.bb_pos + offset) : 0;
 }
 
 replyTo():CommandType {
@@ -57,8 +62,20 @@ static addMessage(builder:flatbuffers.Builder, messageOffset:flatbuffers.Offset)
   builder.addFieldOffset(0, messageOffset, 0);
 }
 
-static addFileObject(builder:flatbuffers.Builder, fileObjectOffset:flatbuffers.Offset) {
-  builder.addFieldOffset(1, fileObjectOffset, 0);
+static addFileObjects(builder:flatbuffers.Builder, fileObjectsOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(1, fileObjectsOffset, 0);
+}
+
+static createFileObjectsVector(builder:flatbuffers.Builder, data:flatbuffers.Offset[]):flatbuffers.Offset {
+  builder.startVector(4, data.length, 4);
+  for (let i = data.length - 1; i >= 0; i--) {
+    builder.addOffset(data[i]!);
+  }
+  return builder.endVector();
+}
+
+static startFileObjectsVector(builder:flatbuffers.Builder, numElems:number) {
+  builder.startVector(4, numElems, 4);
 }
 
 static addReplyTo(builder:flatbuffers.Builder, replyTo:CommandType) {
@@ -78,7 +95,7 @@ static endServerReply(builder:flatbuffers.Builder):flatbuffers.Offset {
 unpack(): ServerReplyT {
   return new ServerReplyT(
     this.message(),
-    (this.fileObject() !== null ? this.fileObject()!.unpack() : null),
+    this.bb!.createObjList<FileObject, FileObjectT>(this.fileObjects.bind(this), this.fileObjectsLength()),
     this.replyTo(),
     (this.error() !== null ? this.error()!.unpack() : null)
   );
@@ -87,7 +104,7 @@ unpack(): ServerReplyT {
 
 unpackTo(_o: ServerReplyT): void {
   _o.message = this.message();
-  _o.fileObject = (this.fileObject() !== null ? this.fileObject()!.unpack() : null);
+  _o.fileObjects = this.bb!.createObjList<FileObject, FileObjectT>(this.fileObjects.bind(this), this.fileObjectsLength());
   _o.replyTo = this.replyTo();
   _o.error = (this.error() !== null ? this.error()!.unpack() : null);
 }
@@ -96,7 +113,7 @@ unpackTo(_o: ServerReplyT): void {
 export class ServerReplyT implements flatbuffers.IGeneratedObject {
 constructor(
   public message: string|Uint8Array|null = null,
-  public fileObject: FileObjectT|null = null,
+  public fileObjects: (FileObjectT)[] = [],
   public replyTo: CommandType = CommandType.PING,
   public error: ErrorT|null = null
 ){}
@@ -104,12 +121,12 @@ constructor(
 
 pack(builder:flatbuffers.Builder): flatbuffers.Offset {
   const message = (this.message !== null ? builder.createString(this.message!) : 0);
-  const fileObject = (this.fileObject !== null ? this.fileObject!.pack(builder) : 0);
+  const fileObjects = ServerReply.createFileObjectsVector(builder, builder.createObjectOffsetList(this.fileObjects));
   const error = (this.error !== null ? this.error!.pack(builder) : 0);
 
   ServerReply.startServerReply(builder);
   ServerReply.addMessage(builder, message);
-  ServerReply.addFileObject(builder, fileObject);
+  ServerReply.addFileObjects(builder, fileObjects);
   ServerReply.addReplyTo(builder, this.replyTo);
   ServerReply.addError(builder, error);
 

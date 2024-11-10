@@ -32,29 +32,35 @@ def run_procedure(server: WebSocketAsyncServer, client: ConnectedClient, message
     start_procedure = message.procedure_store.start_procedure
 
     procedure: Procedure = server.procedure_store.get(start_procedure.procedure_name)
+    if procedure is None:
+        server.procedure_store.update_procedures()
+        procedure = server.procedure_store.get(start_procedure.procedure_name)
+        if procedure is None:
+            raise ValueError(f"Procedure {start_procedure.procedure_name} not found")
     if start_procedure.parameters is None:
         params = {}
     else:
         params = {p.name: p for p in start_procedure.parameters}
 
-    if "output_file" not in params.keys():
-        # add output_file if not exist
-        output_dir = procedure.get_output_dir()
-        if procedure.export_file_type == FileTypeDC.IFC:
-            suffix = ".ifc"
-        elif procedure.export_file_type == FileTypeDC.GLB:
-            suffix = ".glb"
-        else:
-            raise NotImplementedError(f"Export file type {procedure.export_file_type} not implemented")
+    for output in procedure.outputs:
+        if output.arg_name not in params.keys():
+            # add output_file if not exist
+            output_dir = procedure.get_output_dir()
+            if output.file_type == FileTypeDC.IFC:
+                suffix = ".ifc"
+            elif output.file_type == FileTypeDC.GLB:
+                suffix = ".glb"
+            else:
+                raise NotImplementedError(f"Export file type {procedure.outputs} not implemented")
 
-        # output_dir.mkdir(parents=True, exist_ok=True)
-        params["output_file"] = ParameterDC(
-            name="output_file",
-            type=ParameterTypeDC.STRING,
-            value=ValueDC(
-                string_value=(output_dir / f"{procedure.name}-{random.randint(10000,20000)}{suffix}").as_posix()
-            ),
-        )
+            # output_dir.mkdir(parents=True, exist_ok=True)
+            params[output.arg_name] = ParameterDC(
+                name=output.arg_name,
+                type=ParameterTypeDC.STRING,
+                value=ValueDC(
+                    string_value=(output_dir / f"{procedure.name}-{random.randint(10000,20000)}{suffix}").as_posix()
+                ),
+            )
 
     procedure(**params)
 
@@ -89,18 +95,25 @@ def update_server_on_successful_procedure_run(
             raise ValueError(f"Input file {input_file_path.stem} not found on server")
 
         purpose = server_file_object.purpose
+    new_file_objects = []
+    output_files = []
+    for output in procedure.outputs:
+        if output.arg_name not in parameters.keys():
+            raise ValueError(f"Output parameter {output.arg_name} not found in parameters")
+        output_file = pathlib.Path(parameters.get(output.arg_name).value.string_value)
+        output_files.append(output_file)
+        new_file_object = FileObjectDC(
+            name=output_file.stem,
+            filepath=output_file,
+            file_type=output.file_type,
+            purpose=purpose,
+            is_procedure_output=True,
+            procedure_parent=message.procedure_store.start_procedure,
+        )
 
-    output_file = pathlib.Path(parameters.get("output_file").value.string_value)
-    new_file_object = FileObjectDC(
-        name=output_file.stem,
-        filepath=output_file,
-        file_type=procedure.export_file_type,
-        purpose=purpose,
-        is_procedure_output=True,
-        procedure_parent=message.procedure_store.start_procedure,
-    )
+        update_server(server, client, new_file_object)
+        new_file_objects.append(new_file_object)
 
-    update_server(server, client, new_file_object)
     if message.instance_id != client.instance_id:
         # send the new file object to the target client instead of client triggering the procedure
         target_client = server.get_client_by_instance_id(message.instance_id)
@@ -115,13 +128,17 @@ def update_server_on_successful_procedure_run(
         server=ServerDC(all_file_objects=server.scene.file_objects),
         target_id=target_client.instance_id,
         target_group=client.group_type,
-        server_reply=ServerReplyDC(file_object=new_file_object, reply_to=message.command_type),
+        server_reply=ServerReplyDC(file_objects=new_file_objects, reply_to=message.command_type),
     )
 
     fb_message = serialize_message(reply_message)
 
     asyncio.run(client.websocket.send(fb_message))
 
-    view_file_object(server, target_client, new_file_object.name)
+    # view the last IFC file object
+    for new_file_object in new_file_objects:
+        if new_file_object.file_type == FileTypeDC.IFC:
+            view_file_object(server, target_client, new_file_object.name)
+            break
 
-    logger.info(f"Completed Procedure '{procedure.name}' and added the File Object '{output_file}' to the server")
+    logger.info(f"Completed Procedure '{procedure.name}' and added the File Objects '{output_files}' to the server")

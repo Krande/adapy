@@ -3,7 +3,7 @@ from __future__ import annotations
 import pathlib
 import time
 from dataclasses import dataclass, field
-from typing import Iterable, List, Union
+from typing import List, Union
 
 import gmsh
 import numpy as np
@@ -70,7 +70,7 @@ class CutPlane:
 
 @dataclass
 class GmshData:
-    entities: Iterable
+    entities: list[tuple]
     geom_repr: str | GeomRepr
     order: int
     obj: Shape | Beam | Plate | Pipe
@@ -176,108 +176,46 @@ class GmshSession:
         self.model.occ.synchronize()
         self.model.geo.synchronize()
 
-    def split_crossing_beams(self):
-        # Todo: base this algo on beams that are actually clashing
-
-        beams = [obj for obj in self.model_map.keys() if type(obj) is Beam]
-        if len(beams) == 1:
-            return None
-
-        intersecting_beams = []
-        int_bm_map = dict()
-        for bm in beams:
-            bm_gmsh_obj = self.model_map[bm]
-            for li_dim, li_ent in bm_gmsh_obj.entities:
-                intersecting_beams.append((li_dim, li_ent))
-                int_bm_map[(li_dim, li_ent)] = bm_gmsh_obj
-
-        res, res_map = self.model.occ.fragment(intersecting_beams, intersecting_beams)
-
-        for i, int_bm in enumerate(intersecting_beams):
-            bm_gmsh_obj = int_bm_map[int_bm]
-            new_ents = res_map[i]
-            bm_gmsh_obj.entities = new_ents
-
-        self.model.occ.synchronize()
-
-    def split_plates_by_beams(self):
-        from ada.core.clash_check import (
-            filter_away_beams_along_plate_edges,
-            find_beams_connected_to_plate,
+    def partition_beams(self):
+        from ada.fem.meshing.partitioning.partition_beams import (
+            split_crossing_beams,
+            split_intersecting_beams,
         )
 
-        beams = [obj for obj in self.model_map.keys() if type(obj) is Beam]
-        if len(beams) == 0:
-            return None
         plates = [obj for obj in self.model_map.keys() if type(obj) is Plate]
-        for pl in plates:
-            pl_gmsh_obj = self.model_map[pl]
-            for pl_dim, pl_ent in pl_gmsh_obj.entities:
-                intersecting_beams = []
-                int_bm_map = dict()
-                all_contained_beams = find_beams_connected_to_plate(pl, beams)
-                inside_beams = filter_away_beams_along_plate_edges(pl, all_contained_beams)
-                for bm in inside_beams:
-                    bm_gmsh_obj = self.model_map[bm]
-                    for li_dim, li_ent in bm_gmsh_obj.entities:
-                        intersecting_beams.append((li_dim, li_ent))
-                        int_bm_map[(li_dim, li_ent)] = bm_gmsh_obj
-                # Using Embed fails during meshing
 
-                # res = self.model.mesh.embed(1, [t for e,t in intersecting_beams], 2, pl_ent)
+        if len(plates) == 0:  # For some reason this breaks the model whenever plates are in the model
+            split_crossing_beams(self)
+        else:
+            split_intersecting_beams(self)
 
-                res, res_map = self.model.occ.fragment(intersecting_beams, [(pl_dim, pl_ent)])
-                replaced_pl_entities = [(dim, r) for dim, r in res if dim == 2]
-                if len(replaced_pl_entities) == 0:
-                    continue
-                for i, int_bm in enumerate(intersecting_beams):
-                    bm_gmsh_obj = int_bm_map[int_bm]
-                    new_ents = res_map[i]
-                    bm_gmsh_obj.entities = new_ents
-                pl_gmsh_obj.entities = replaced_pl_entities
-
-                self.model.occ.synchronize()
-
-    def split_plates_by_plates(self):
+    def partition_plates(self):
         """Split plates that are intersecting each other"""
         from ada.core.clash_check import find_edge_connected_perpendicular_plates
+        from ada.fem.meshing.partitioning.partition_plates import (
+            fragment_plates,
+            partition_intersected_plates,
+            split_plates_by_beams,
+        )
+
+        split_plates_by_beams(self)
+
+        self.check_model_entities()
 
         plates = [obj for obj in self.model_map.keys() if type(obj) is Plate]
+
+        if len(plates) < 2:
+            return
 
         plate_con = find_edge_connected_perpendicular_plates(plates)
 
-        # fragment plates (ie. making all interfaces conformal) that are connected at their edges
-        for pl1, con_plates in plate_con.edge_connected.items():
-            pl1_gmsh_obj = self.model_map[pl1]
-            intersecting_plates = []
-            pl1_dim, pl1_ent = pl1_gmsh_obj.entities[0]
+        if len(plate_con.edge_connected) > 0:
+            fragment_plates(plate_con, self)
+            self.check_model_entities()
 
-            for pl2 in con_plates:
-                pl2_gmsh_obj = self.model_map[pl2]
+        partition_intersected_plates(plate_con, self)
 
-                for pl2_dim, pl2_ent in pl2_gmsh_obj.entities:
-                    intersecting_plates.append((pl2_dim, pl2_ent))
-
-            self.model.occ.fragment(intersecting_plates, [(pl1_dim, pl1_ent)])
-            self.model.occ.synchronize()
-
-        # split plates that have plate connections at their mid-span
-        for pl1, con_plates in plate_con.mid_span_connected.items():
-            pl1_gmsh_obj = self.model_map[pl1]
-            intersecting_plates = []
-            pl1_dim, pl1_ent = pl1_gmsh_obj.entities[0]
-
-            for pl2 in con_plates:
-                pl2_gmsh_obj = self.model_map[pl2]
-
-                for pl2_dim, pl2_ent in pl2_gmsh_obj.entities:
-                    intersecting_plates.append((pl2_dim, pl2_ent))
-
-            res, res_map = self.model.occ.fragment(intersecting_plates, [(pl1_dim, pl1_ent)])
-            replaced_pl_entities = [(dim, r) for dim, r in res if dim == 2]
-            pl1_gmsh_obj.entities = replaced_pl_entities
-
-            self.model.occ.synchronize()
+        self.check_model_entities()
 
     def mesh(self, size: float = None, use_quads=False, use_hex=False, perform_quality_check=False):
         if self.silent is True:
@@ -297,6 +235,11 @@ class GmshSession:
         self.apply_settings()
         self.model.geo.synchronize()
         self.model.mesh.setRecombine(3, -1)
+
+        br_names = Config().meshing_open_viewer_breakpoint_names
+        if br_names is not None and "before_meshing" in br_names:
+            self.open_gui()
+
         self.model.mesh.generate(3)
 
         self.model.mesh.removeDuplicateNodes()
@@ -307,9 +250,15 @@ class GmshSession:
 
         if use_quads is True or use_hex is True:
             self.model.mesh.recombine()
+            self.model.mesh.removeDuplicateNodes()
+            self.model.mesh.remove_duplicate_elements()
 
     def make_quads(self):
         from ada.fem.meshing.partitioning.strategies import partition_objects_with_holes
+
+        br_names = Config().meshing_open_viewer_breakpoint_names
+        if br_names is not None and "pre_make_quads" in br_names:
+            self.open_gui()
 
         ents = []
         for obj, model in self.model_map.items():
@@ -319,9 +268,16 @@ class GmshSession:
                 partition_objects_with_holes(model, self)
             else:
                 for dim, tag in model.entities:
+                    try:
+                        self.model.mesh.set_transfinite_surface(tag)
+                    except Exception as e:
+                        logger.error(f"Error while setting transfinite surface: {e}")
+                        continue
                     ents.append(tag)
-                    self.model.mesh.set_transfinite_surface(tag)
                     self.model.mesh.setRecombine(dim, tag)
+
+        if br_names is not None and "post_make_quads" in br_names:
+            self.open_gui()
 
     def make_hex(self):
         from ada.fem.meshing.partitioning.strategies import partition_solid_beams
@@ -355,6 +311,7 @@ class GmshSession:
         start = time.time()
 
         fem = FEM(name)
+
         gmsh_nodes = get_nodes_from_gmsh(self.model, fem)
         fem.nodes = Nodes(gmsh_nodes, parent=fem)
         end = time.time()
@@ -377,7 +334,8 @@ class GmshSession:
             # create a variable for all overlapping element ids
             overlapping_el_ids = existing_el_ids.intersection(el_ids)
             if overlapping_el_ids:
-                logger.warning("Overlapping element ids found")
+                logger.warning(f"Overlapping element ids found for {gmsh_data.obj.name}: {overlapping_el_ids}")
+
             elements.update({el.id: el for el in entity_elements})
 
         fem.elements = FemElements(elements.values(), fem_obj=fem)
@@ -400,6 +358,15 @@ class GmshSession:
 
     def open_gui(self):
         self.gmsh.fltk.run()
+
+    def check_model_entities(self):
+        from ada.fem.meshing.utils import check_entities_exist
+
+        for map_obj in self.model_map.values():
+            existing, nonexisting = check_entities_exist(map_obj.entities, self.model)
+            if len(nonexisting) > 0:
+                self.open_gui()
+                raise ValueError(f"Entities not found in model for {map_obj}: {nonexisting}")
 
     def __enter__(self):
         logger.debug("Starting GMSH session")

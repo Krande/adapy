@@ -160,14 +160,15 @@ class CurveOpen2d:
 
         seg_list2d = build_polycurve(local_points2d, tol, Config().general_debug, debug_name)
         seg_list3d = []
+        abs_place = self.orientation
         # Convert from local to global coordinates
         for i, seg in enumerate(seg_list2d):
             if type(seg) is ArcSegment:
-                seg3d = transform_2d_arc_segment_to_3d(seg, self.orientation)
+                seg3d = transform_2d_arc_segment_to_3d(seg, abs_place)
                 seg_list3d.append(seg3d)
             else:
                 lpoints = [seg.p1, seg.p2]
-                gp = self.orientation.transform_local_points_to_global(lpoints)
+                gp = abs_place.transform_local_points_back_to_global(lpoints)
                 seg_list3d.append(LineSegment(gp[0], gp[1]))
 
         self._segments = seg_list2d
@@ -312,6 +313,11 @@ class CurvePoly2d(CurveOpen2d):
         from ada.occ.geom.surfaces import make_profile_from_geom
 
         return make_profile_from_geom(self.get_face_geom())
+
+    def get_centroid(self):
+        xyz_points = np.asarray([p for p in self.points3d])
+        centroid = Point(np.sum(xyz_points, axis=0) / len(xyz_points))
+        return centroid
 
 
 class CurveOpen3d:

@@ -1,88 +1,73 @@
 // CameraControls.tsx
-import {useEffect, useRef} from 'react';
-import {useThree} from '@react-three/fiber';
+import React, { useEffect } from 'react';
 import * as THREE from 'three';
-import {OrbitControls as OrbitControlsImpl} from 'three-stdlib';
-import React from 'react';
+import { useThree } from '@react-three/fiber';
+import { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
+import { useSelectedObjectStore } from '../../state/useSelectedObjectStore';
+import { centerViewOnSelection } from '../../utils/scene/centerViewOnSelection';
+import { CustomBatchedMesh } from '../../utils/mesh_select/CustomBatchedMesh';
 
 type CameraControlsProps = {
     orbitControlsRef: React.RefObject<OrbitControlsImpl>;
 };
 
-const CameraControls: React.FC<CameraControlsProps> = ({orbitControlsRef}) => {
-    const {camera, gl, scene} = useThree();
-    const selectedObjectRef = useRef<THREE.Object3D | null>(null);
+const CameraControls: React.FC<CameraControlsProps> = ({ orbitControlsRef }) => {
+    const { camera, scene } = useThree();
 
-    const centerViewOnObject = (object: THREE.Object3D) => {
-        if (orbitControlsRef.current && camera) {
-            const controls = orbitControlsRef.current;
-            const boundingBox = new THREE.Box3().setFromObject(object);
-            const center = boundingBox.getCenter(new THREE.Vector3());
+    const zoomToAll = () => {
+        // Compute the bounding box of the entire scene
+        const box = new THREE.Box3().setFromObject(scene);
+        const size = box.getSize(new THREE.Vector3()).length();
+        const center = box.getCenter(new THREE.Vector3());
 
-            // Update controls target
-            controls.target.copy(center);
+        // Adjust camera position and look direction
+        const scale = 0.5;
+        camera.position.set(center.x+ size * scale, center.y+ size * scale, center.z + size * scale);
+        camera.lookAt(center);
 
-            // Calculate appropriate camera position
-            const size = boundingBox.getSize(new THREE.Vector3());
-            const maxDim = Math.max(size.x, size.y, size.z);
-
-            if (camera instanceof THREE.PerspectiveCamera) {
-                const fov = (camera.fov * Math.PI) / 180;
-                const cameraDistance = maxDim / Math.tan(fov / 2);
-
-                camera.position.copy(
-                    center.clone().add(new THREE.Vector3(cameraDistance, cameraDistance, cameraDistance))
-                );
-
-                camera.updateProjectionMatrix();
-                controls.update();
-            } else {
-                console.warn('Camera is not a PerspectiveCamera');
-            }
+        if (orbitControlsRef.current) {
+            orbitControlsRef.current.target.copy(center); // Update the controls' target
+            orbitControlsRef.current.update();
         }
     };
 
     useEffect(() => {
-        const handlePointerDown = (event: PointerEvent) => {
-            if (event.ctrlKey && event.button === 0) {
-                const rect = gl.domElement.getBoundingClientRect();
-                const mouse = new THREE.Vector2(
-                    ((event.clientX - rect.left) / rect.width) * 2 - 1,
-                    -((event.clientY - rect.top) / rect.height) * 2 + 1
-                );
-
-                const raycaster = new THREE.Raycaster();
-                raycaster.setFromCamera(mouse, camera);
-
-                const intersects = raycaster.intersectObjects(scene.children, true);
-
-                if (intersects.length > 0) {
-                    const selectedObject = intersects[0].object;
-                    selectedObjectRef.current = selectedObject;
-                    centerViewOnObject(selectedObject);
-                }
-            }
-        };
-
-        gl.domElement.addEventListener('pointerdown', handlePointerDown);
-
         const handleKeyDown = (event: KeyboardEvent) => {
-            if (event.key.toLowerCase() === 'f' && !event.ctrlKey && !event.altKey && !event.metaKey) {
-                if (selectedObjectRef.current) {
-                    centerViewOnObject(selectedObjectRef.current);
-                }
+            if (event.shiftKey && event.key.toLowerCase() === 'h') {
+                // SHIFT+H pressed - Hide selected draw ranges
+                const selectedObjects = useSelectedObjectStore.getState().selectedObjects;
+                selectedObjects.forEach((drawRangeIds, mesh) => {
+                    drawRangeIds.forEach((drawRangeId) => {
+                        mesh.hideDrawRange(drawRangeId);
+                    });
+                    mesh.deselect();
+                });
+                useSelectedObjectStore.getState().clearSelectedObjects();
+            } else if (event.shiftKey && event.key.toLowerCase() === 'u') {
+                // SHIFT+U pressed - Unhide all
+                scene.traverse((object) => {
+                    if (object instanceof CustomBatchedMesh) {
+                        object.unhideAllDrawRanges();
+                    }
+                });
+            } else if (event.shiftKey && event.key.toLowerCase() === 'f') {
+                // SHIFT+F pressed - Center view on selection
+                centerViewOnSelection(orbitControlsRef, camera);
+            }
+            else if (event.shiftKey && event.key.toLowerCase() === 'a') {
+                // SHIFT+a pressed - Zoom to all
+                zoomToAll();
             }
         };
 
         window.addEventListener('keydown', handleKeyDown);
 
         return () => {
-            gl.domElement.removeEventListener('pointerdown', handlePointerDown);
             window.removeEventListener('keydown', handleKeyDown);
         };
-    }, [camera, gl, scene]);
+    }, [camera, orbitControlsRef, scene]);
 
-    return null; // This component doesn't render anything
+    return null;
 };
 
 export default CameraControls;

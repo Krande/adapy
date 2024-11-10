@@ -17,9 +17,11 @@ from ada.geom import Geometry
 from ada.occ.exceptions import UnableToCreateTesselationFromSolidOCCGeom
 from ada.occ.geom import geom_to_occ_geom
 from ada.visit.colors import Color
+from ada.visit.gltf.graph import GraphNode, GraphStore
 from ada.visit.gltf.meshes import MeshStore, MeshType
 from ada.visit.gltf.optimize import concatenate_stores
 from ada.visit.gltf.store import merged_mesh_to_trimesh_scene
+from ada.visit.renderer_manager import RenderParams
 
 if TYPE_CHECKING:
     import trimesh
@@ -112,6 +114,7 @@ class BatchTessellator:
     render_edges: bool = False
     parallel: bool = False
     material_store: dict[Color, int] = field(default_factory=dict)
+    _geom_id: int = 0
 
     def add_color(self, color: Color) -> int:
         mat_id = self.material_store.get(color, None)
@@ -120,7 +123,11 @@ class BatchTessellator:
             self.material_store[color] = mat_id
         return mat_id
 
-    def tessellate_occ_geom(self, occ_geom: TopoDS_Shape, geom_id, geom_color) -> MeshStore:
+    def tessellate_occ_geom(self, occ_geom: TopoDS_Shape, geom_ref: GraphNode | int | str, geom_color) -> MeshStore:
+        if geom_ref is None:
+            geom_ref = self._geom_id
+            self._geom_id += 1
+
         if isinstance(occ_geom, TopoDS_Edge):
             tess_shape = tessellate_edges(occ_geom)
             indices = tess_shape.indices
@@ -136,26 +143,21 @@ class BatchTessellator:
             self.material_store[geom_color] = mat_id
 
         return MeshStore(
-            geom_id,
+            geom_ref,
             None,
             tess_shape.positions,
             indices,
             tess_shape.normals,
             mat_id,
             mesh_type,
-            geom_id,
+            geom_ref,
         )
 
-    def tessellate_geom(self, geom: Geometry, obj: BackendGeom) -> MeshStore:
+    def tessellate_geom(self, geom: Geometry, obj: BackendGeom, graph_store: GraphStore = None) -> MeshStore:
         from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_Transform
         from OCC.Core.gp import gp_Trsf, gp_Vec
 
         occ_geom = geom_to_occ_geom(geom)
-
-        # try:
-        #     occ_geom = geom_to_occ_geom(geom)
-        # except RuntimeError as e:
-        #     raise UnableToCreateTesselationFromSolidOCCGeom(e)
 
         if obj is not None and obj.parent is not None and obj.parent.placement is not None:
             if not obj.parent.placement.is_identity(use_absolute_placement=True):
@@ -164,12 +166,19 @@ class BatchTessellator:
                 trsf = gp_Trsf()
                 trsf.SetTranslation(gp_Vec(*position.location))
                 occ_geom = BRepBuilderAPI_Transform(occ_geom, trsf, True).Shape()
-                # occ_geom = transform_shape_to_pos(occ_geom, position.location, position.axis, position.ref_direction)
 
-        return self.tessellate_occ_geom(occ_geom, getattr(obj, "guid", geom.id), geom.color)
+        if graph_store is not None:
+            node_ref = graph_store.hash_map.get(obj.guid)
+        else:
+            node_ref = getattr(obj, "guid", geom.id)
+
+        return self.tessellate_occ_geom(occ_geom, node_ref, geom.color)
 
     def batch_tessellate(
-        self, objects: Iterable[Geometry | BackendGeom], render_override: dict[str, GeomRepr] = None
+        self,
+        objects: Iterable[Geometry | BackendGeom],
+        render_override: dict[str, GeomRepr] = None,
+        graph_store: GraphStore = None,
     ) -> Iterable[MeshStore]:
         if render_override is None:
             render_override = dict()
@@ -190,20 +199,22 @@ class BatchTessellator:
 
             # resolve transform based on parent transforms
             try:
-                yield self.tessellate_geom(geom, ada_obj)
+                yield self.tessellate_geom(geom, ada_obj, graph_store=graph_store)
             except UnableToCreateTesselationFromSolidOCCGeom as e:
                 logger.error(e)
                 continue
 
     def meshes_to_trimesh(
-        self, shapes_tess_iter: Iterable[MeshStore], graph, merge_meshes: bool = True
+        self, shapes_tess_iter: Iterable[MeshStore], graph=None, merge_meshes: bool = True
     ) -> trimesh.Scene:
         import trimesh
 
         all_shapes = sorted(shapes_tess_iter, key=lambda x: x.material)
 
         # filter out all shapes associated with an animation,
-        scene = trimesh.Scene(base_frame=graph.top_level.name)
+        base_frame = graph.top_level.name if graph is not None else "root"
+
+        scene = trimesh.Scene(base_frame=base_frame)
         for mat_id, meshes in groupby(all_shapes, lambda x: x.material):
             if merge_meshes:
                 merged_store = concatenate_stores(meshes)
@@ -213,7 +224,7 @@ class BatchTessellator:
                     merged_mesh_to_trimesh_scene(scene, mesh_store, self.get_mat_by_id(mat_id), mat_id, graph)
         return scene
 
-    def append_fem_to_trimesh(self, scene: trimesh.Scene, part: Part, graph):
+    def append_fem_to_trimesh(self, scene: trimesh.Scene, part: Part, graph, params: RenderParams = None):
         shell_color = Color.from_str("white")
         shell_color_id = self.add_color(shell_color)
         line_color = Color.from_str("gray")
@@ -240,19 +251,22 @@ class BatchTessellator:
                 merged_mesh_to_trimesh_scene(scene, points_store, points_color, points_color_id, graph)
 
     def tessellate_part(
-        self, part: Part, filter_by_guids=None, render_override=None, merge_meshes=True
+        self, part: Part, filter_by_guids=None, render_override=None, merge_meshes=True, params: RenderParams = None
     ) -> trimesh.Scene:
-        shapes_tess_iter = self.batch_tessellate(
-            part.get_all_physical_objects(pipe_to_segments=True, filter_by_guids=filter_by_guids),
-            render_override=render_override,
-        )
 
         graph = part.get_graph_store()
+
+        shapes_tess_iter = self.batch_tessellate(
+            objects=part.get_all_physical_objects(pipe_to_segments=True, filter_by_guids=filter_by_guids),
+            render_override=render_override,
+            graph_store=graph,
+        )
+
         scene = self.meshes_to_trimesh(shapes_tess_iter, graph, merge_meshes=merge_meshes)
 
         self.append_fem_to_trimesh(scene, part, graph)
 
-        scene.metadata["meta"] = graph.create_meta(suffix="")
+        scene.metadata.update(graph.create_meta())
         return scene
 
     def get_mat_by_id(self, mat_id: int):
@@ -279,7 +293,9 @@ class BatchTessellator:
                     geom = shape.geometry
                     diffuse: ifcopenshell.ifcopenshell_wrapper.colour = geom.materials[0].diffuse
                     transp = geom.materials[0].transparency
-                    if transp is None:
+                    is_number = isinstance(transp, (float, int)) and np.isnan(transp) is False
+                    # check if transp is a valid float
+                    if transp is None or not is_number:
                         opacity = 1.0
                     else:
                         opacity = 1.0 - transp
@@ -288,11 +304,11 @@ class BatchTessellator:
                         shape.guid,
                         matrix=shape.transformation.matrix,
                         position=np.frombuffer(geom.verts_buffer, "d"),
-                        indices=np.frombuffer(geom.faces_buffer, dtype="i"),
+                        indices=np.frombuffer(geom.faces_buffer, dtype=np.uint32),
                         normal=None,
                         material=mat_id,
                         type=MeshType.TRIANGLES,
-                        node_id=shape.guid,
+                        node_ref=shape.guid,
                     )
                 else:
                     logger.warning(f"Shape {shape} is not a TopoDS_Shape")
@@ -304,4 +320,6 @@ class BatchTessellator:
         shapes_tess_iter = self.iter_ifc_store(ifc_store)
 
         graph = ifc_store.assembly.get_graph_store()
-        return self.meshes_to_trimesh(shapes_tess_iter, graph, merge_meshes=merge_meshes)
+        scene = self.meshes_to_trimesh(shapes_tess_iter, graph, merge_meshes=merge_meshes)
+        scene.metadata.update(graph.create_meta())
+        return scene

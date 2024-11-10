@@ -1,67 +1,99 @@
-from typing import TYPE_CHECKING
+from ada.config import Config, logger
+from ada.fem.meshing import GmshSession
 
-import numpy as np
 
-from ada import CurvePoly2d, Placement
+def split_crossing_beams(gmsh_session: GmshSession):
+    logger.info("Running 'split_crossing_beams' partitioning function")
 
-if TYPE_CHECKING:
     from ada import Beam
 
-    from ..concepts import GmshData, GmshSession
+    br_names = Config().meshing_open_viewer_breakpoint_names
+
+    beams = [obj for obj in gmsh_session.model_map.keys() if type(obj) is Beam]
+    if len(beams) == 1:
+        return None
+
+    if br_names is not None and "partition_isect_bm_pre" in br_names:
+        gmsh_session.open_gui()
+
+    for bm in beams:
+        bm_gmsh_obj = gmsh_session.model_map[bm]
+        for other_bm in beams:
+            if bm == other_bm:
+                continue
+            bm_other_gmsh_obj = gmsh_session.model_map[other_bm]
+
+            res, res_map = gmsh_session.model.occ.fragment(
+                bm_gmsh_obj.entities, bm_other_gmsh_obj.entities, removeTool=False, removeObject=True
+            )
+
+            num_object_entities = len(bm_gmsh_obj.entities)
+
+            # Split res_map into two parts: one for pl_gmsh_obj.entities and one for bm_gmsh_obj.entities
+            object_entities_new = []
+            tool_entities_new = []
+
+            for i, new_entities in enumerate(res_map):
+                if i < num_object_entities:
+                    # These correspond to the original object entities
+                    object_entities_new.extend(new_entities)
+                else:
+                    # These correspond to the original tool entities
+                    tool_entities_new.extend(new_entities)
+
+            # Update the entities for both objects
+            bm_gmsh_obj.entities = object_entities_new
+            bm_other_gmsh_obj.entities = tool_entities_new
+            gmsh_session.model.occ.synchronize()
 
 
-def ibeam(model: "GmshData", gmsh_session: "GmshSession"):
-    # pass
-    bm_obj: "Beam" = model.obj
-    for cut in make_ig_cutplanes(bm_obj):
-        gmsh_session.add_cutting_plane(cut, [model])
+def split_intersecting_beams(
+    gmsh_session: GmshSession, margins=5e-5, out_of_plane_tol=0.1, point_tol=Config().general_point_tol
+):
+    logger.info("Running 'split_intersecting_beams' partitioning function")
+    from ada import Beam, Node
+    from ada.api.containers import Beams, Nodes
+    from ada.core.clash_check import are_beams_connected, basic_intersect
 
-    gmsh_session.make_cuts()
+    br_names = Config().meshing_open_viewer_breakpoint_names
 
-    for dim, tag in gmsh_session.model.get_entities():
-        if dim == 2:
-            gmsh_session.model.mesh.set_transfinite_surface(tag)
-            gmsh_session.model.mesh.setRecombine(dim, tag)
+    all_beams = [obj for obj in gmsh_session.model_map.keys() if type(obj) is Beam]
+    bm_cont = Beams(all_beams)
+    if len(all_beams) == 1:
+        return None
 
-    for dim, tag in gmsh_session.model.get_entities():
-        if dim == 3:
-            gmsh_session.model.mesh.set_transfinite_volume(tag)
-            gmsh_session.model.mesh.setRecombine(dim, tag)
+    nodes = Nodes()
+    nmap: dict[Node, list[Beam]] = dict()
+    for bm, cbeams in filter(None, [basic_intersect(bm, margins, [bm_cont]) for bm in all_beams]):
+        are_beams_connected(bm, cbeams, out_of_plane_tol, point_tol, nodes, nmap)
 
-    # gmsh_session.open_gui()
+    for n, beams in nmap.items():
+        split_point = gmsh_session.model.occ.addPoint(n.x, n.y, n.z)
+        for bm in beams:
+            if n.p.is_equal(bm.n1.p) or n.p.is_equal(bm.n2.p):
+                continue
 
-    # raise NotImplementedError()
+            bm_gmsh_obj = gmsh_session.model_map[bm]
+            res, res_map = gmsh_session.model.occ.fragment(bm_gmsh_obj.entities, [(0, split_point)], removeTool=True)
+            num_object_entities = len(bm_gmsh_obj.entities)
 
+            # Split res_map into two parts: one for pl_gmsh_obj.entities and one for bm_gmsh_obj.entities
+            object_entities_new = []
+            tool_entities_new = []
 
-def make_ig_cutplanes(bm: "Beam"):
-    from ..concepts import CutPlane
+            for i, new_entities in enumerate(res_map):
+                if i < num_object_entities:
+                    # These correspond to the original object entities
+                    object_entities_new.extend(new_entities)
+                else:
+                    # These correspond to the original tool entities
+                    tool_entities_new.extend(new_entities)
 
-    points2d = bm.section.get_section_profile().outer_curve.points2d
-    sec_place = Placement(bm.n1.p, bm.yvec, bm.up)
-    points3d = sec_place.transform_local_points_back_to_global(points2d)
+            # Update the entities for both objects
+            bm_gmsh_obj.entities = object_entities_new
 
-    minz = min([x[2] for x in points3d])
-    maxz = max([x[2] for x in points3d])
-    pmin, pmax = bm.bbox().p1, bm.bbox().p2
-    dx, dy, dz = (np.array(pmax) - np.array(pmin)) * 1.0
-    x, y, _ = pmin
+            gmsh_session.model.occ.synchronize()
+            gmsh_session.check_model_entities()
 
-    sec = bm.section
-
-    cut1 = CutPlane((x, y, minz + sec.t_fbtn), dx=dx, dy=dy)
-    cut2 = CutPlane((x, y, maxz - sec.t_fbtn), dx=dx, dy=dy)
-
-    web_left = bm.n1.p - (sec.t_w / 2) * bm.yvec - (sec.h / 2) * bm.up
-    web_right = bm.n1.p + (sec.t_w / 2) * bm.yvec - (sec.h / 2) * bm.up
-    dy = sec.h
-    cut3 = CutPlane(web_left, dx=dx, dy=dy, plane="XZ")
-    cut4 = CutPlane(web_right, dx=dx, dy=dy, plane="XZ")
-
-    return [cut1, cut2, cut3, cut4]
-
-
-def get_bm_section_curve(bm: "Beam", origin=None) -> CurvePoly2d:
-    origin = origin if origin is not None else bm.n1.p
-    section_profile = bm.section.get_section_profile(True)
-    points2d = section_profile.outer_curve.points2d
-    return CurvePoly2d(points2d=points2d, origin=origin, xdir=bm.yvec, normal=bm.xvec, parent=bm.parent)
+            if br_names is not None and "partition_isect_bm_loop" in br_names:
+                gmsh_session.open_gui()

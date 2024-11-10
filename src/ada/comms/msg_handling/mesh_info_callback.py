@@ -22,6 +22,9 @@ def mesh_info_callback(server: WebSocketAsyncServer, client: ConnectedClient, me
     num = node_name.replace("node", "")
 
     meta = server.scene.mesh_meta.get(f"id_sequence{num}")
+    if meta is None:
+        logger.error(f"No meta data found for node {node_name}")
+        return
     guid = list(meta.keys())
     if len(guid) == 1:
         guid = guid[0]

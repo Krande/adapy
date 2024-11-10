@@ -7,8 +7,7 @@ PROCEDURE_EXAMPLE_DIR = (pathlib.Path(__file__).parent / "../../procedure_exampl
 
 
 def main():
-    Config().update_config_globally("procedures_script_dir", PROCEDURE_EXAMPLE_DIR / "procedures")
-    Config().update_config_globally("procedures_components_dir", PROCEDURE_EXAMPLE_DIR / "components")
+    Config().update_config_globally("procedures_script_dir", PROCEDURE_EXAMPLE_DIR / "scripts")
 
     ps = ProcedureStore()
     ps.update_procedures()

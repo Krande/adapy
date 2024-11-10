@@ -9,7 +9,7 @@ from ada.config import Config, logger
 
 
 @dataclass
-class Scene:
+class SceneBackend:
     file_objects: list[FileObjectDC] = field(default_factory=list)
     ifc_sql_store: IfcSqlModel = None
     mesh_meta: dict = None
@@ -52,52 +52,79 @@ class Scene:
                 del_file_obj.ifcsqlite_file.filepath.unlink()
 
             if del_file_obj.glb_file is not None and del_file_obj.glb_file.filepath is not None:
-                del_file_obj.glb_file.filepath.unlink()
+                if del_file_obj.glb_file.filepath.relative_to(self.get_temp_dir()):
+                    del_file_obj.glb_file.filepath.unlink()
 
-    def load_files_from_server_temp_dir(self):
-        # check temp directory for any file objects
-        if Config().websockets_server_temp_dir is None:
-            return None
+    def _load_ifc(self, fp: pathlib.Path):
+        glb_fp = fp.with_suffix(".glb")
+        ifc_sqlite_fp = fp.with_suffix(".sqlite")
+        ifc_sqlite_file = None
+        if ifc_sqlite_fp.exists():
+            ifc_sqlite_file = FileObjectDC(
+                name=fp.stem,
+                filepath=ifc_sqlite_fp,
+                file_type=FileTypeDC.IFC,
+                purpose=FilePurposeDC.DESIGN,
+            )
+        glb_file_object = None
+        if glb_fp.exists():
+            glb_file_object = FileObjectDC(
+                name=fp.stem,
+                filepath=glb_fp,
+                file_type=FileTypeDC.GLB,
+                purpose=FilePurposeDC.DESIGN,
+            )
+        file_object = FileObjectDC(
+            name=fp.stem,
+            filepath=fp,
+            file_type=FileTypeDC.IFC,
+            purpose=FilePurposeDC.DESIGN,
+            glb_file=glb_file_object,
+            ifcsqlite_file=ifc_sqlite_file,
+        )
+        self.add_file_object(file_object)
 
-        temp_dir = Config().websockets_server_temp_dir
-        if not temp_dir.exists():
-            return
+    def _load_xlsx(self, fp: pathlib.Path):
+        file_object = FileObjectDC(
+            name=fp.stem,
+            filepath=fp,
+            file_type=FileTypeDC.XLSX,
+            purpose=FilePurposeDC.DESIGN,
+        )
+        self.add_file_object(file_object)
 
-        for fp in temp_dir.iterdir():
+    def load_files_from_dir(self, files_dir: pathlib.Path):
+        for fp in files_dir.iterdir():
             if not fp.is_file():
                 continue
             if fp.suffix == ".ifc":
-                glb_fp = fp.with_suffix(".glb")
-                ifc_sqlite_fp = fp.with_suffix(".sqlite")
-                ifc_sqlite_file = None
-                if ifc_sqlite_fp.exists():
-                    ifc_sqlite_file = FileObjectDC(
-                        name=fp.stem,
-                        filepath=ifc_sqlite_fp,
-                        file_type=FileTypeDC.IFC,
-                        purpose=FilePurposeDC.DESIGN,
-                    )
-                glb_file_object = None
-                if glb_fp.exists():
-                    glb_file_object = FileObjectDC(
-                        name=fp.stem,
-                        filepath=glb_fp,
-                        file_type=FileTypeDC.GLB,
-                        purpose=FilePurposeDC.DESIGN,
-                    )
-                file_object = FileObjectDC(
-                    name=fp.stem,
-                    filepath=fp,
-                    file_type=FileTypeDC.IFC,
-                    purpose=FilePurposeDC.DESIGN,
-                    glb_file=glb_file_object,
-                    ifcsqlite_file=ifc_sqlite_file,
-                )
-                self.add_file_object(file_object)
+                self._load_ifc(fp)
+            elif fp.suffix == ".xlsx":
+                if fp.name.startswith("~$"):
+                    # Ignore temp files
+                    continue
+                self._load_xlsx(fp)
+
+    def update_local_file_object(self):
+        server_temp_dir = Config().websockets_server_temp_dir
+        if (
+            server_temp_dir is not None
+            and server_temp_dir.exists()
+            and Config().websockets_auto_load_temp_files is True
+        ):
+            self.load_files_from_dir(server_temp_dir)
+
+        external_files_dirs = Config().websockets_external_files_dirs
+        if external_files_dirs is None:
+            return
+
+        for ext_files_dir in external_files_dirs:
+            if isinstance(ext_files_dir, str):
+                ext_files_dir = pathlib.Path(ext_files_dir)
+            self.load_files_from_dir(ext_files_dir)
 
     def __post_init__(self):
-        if Config().websockets_auto_load_temp_files is True:
-            self.load_files_from_server_temp_dir()
+        self.update_local_file_object()
 
     @staticmethod
     def get_temp_dir() -> pathlib.Path:

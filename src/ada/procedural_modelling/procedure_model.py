@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from typing import Callable, Optional
 
 from ada.comms.fb_model_gen import (
+    FileArgDC,
     FileTypeDC,
     ParameterDC,
     ParameterTypeDC,
@@ -22,8 +23,8 @@ class Procedure:
     func: Callable | None = None
     script_path: Optional[pathlib.Path] = None
     params: dict[str, ParameterDC] = field(default_factory=dict)
-    input_file_type: FileTypeDC | None = None
-    export_file_type: FileTypeDC | None = None
+    inputs: list[FileArgDC] | None = None
+    outputs: list[FileArgDC] | None = None
     options: dict[str, list[ValueDC]] | None = None
     is_component: bool = False
 
@@ -73,25 +74,23 @@ class Procedure:
             description=self.description,
             script_file_location=self.script_path.as_posix() if self.script_path is not None else "",
             parameters=(params if self.params is not None else None),
-            input_file_var="input_file",
-            input_file_type=self.input_file_type,
-            export_file_type=self.export_file_type,
-            export_file_var="output_file",
+            file_inputs=self.inputs,
+            file_outputs=self.outputs,
             is_component=self.is_component,
         )
 
     def get_component_output_dir(self):
-        from ada.comms.scene_model import Scene
+        from ada.comms.scene_model import SceneBackend
 
-        temp_dir = Scene.get_temp_dir()
+        temp_dir = SceneBackend.get_temp_dir()
         component_dir = temp_dir / "components"
 
         return component_dir / self.name
 
     def get_procedure_output_dir(self) -> pathlib.Path:
-        from ada.comms.scene_model import Scene
+        from ada.comms.scene_model import SceneBackend
 
-        temp_dir = Scene.get_temp_dir()
+        temp_dir = SceneBackend.get_temp_dir()
         return temp_dir / "procedural" / self.name
 
     def get_procedure_output(self, input_file_name: str):
@@ -107,12 +106,12 @@ class Procedure:
         if output_file_path is None:
             raise FileNotFoundError(f"Output file for procedure {self.name} not found")
 
-        if self.export_file_type == FileTypeDC.IFC:
+        if self.outputs == FileTypeDC.IFC:
             return (output_file_path / self.name).with_suffix(".ifc")
-        elif self.export_file_type == FileTypeDC.GLB:
+        elif self.outputs == FileTypeDC.GLB:
             return (output_file_path / self.name).with_suffix(".glb")
         else:
-            raise NotImplementedError(f"Export file type {self.export_file_type} not implemented")
+            raise NotImplementedError(f"Export file type {self.outputs} not implemented")
 
     def get_output_dir(self) -> pathlib.Path:
         if self.is_component is False:

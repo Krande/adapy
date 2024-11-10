@@ -19,6 +19,9 @@ async def list_procedures():
             for fo in file_objects:
                 print(fo)
 
+        fo = file_objects[0]
+        await ws_client.view_file_object(fo.name)
+
 
 if __name__ == "__main__":
     asyncio.run(list_procedures())

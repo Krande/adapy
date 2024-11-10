@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 
 def get_sets(bulk_str: str, parent: "FEM") -> FemSets:
     set_reader = SetReader(bulk_str, parent)
-    return FemSets(list(set_reader.run()), parent=parent)
+    return FemSets(set_reader.run(), parent=parent)
 
 
 @dataclass
@@ -26,7 +26,7 @@ class SetReader:
 
     _set_type_map: dict = field(default_factory=dict)
 
-    def run(self) -> Iterable[FemSet]:
+    def iter_sets(self) -> Iterable[FemSet]:
         set_map = dict()
         set_groups = (self.get_setmap(m, self.parent) for m in cards.re_setmembs.finditer(self.bulk_str))
 
@@ -45,7 +45,11 @@ class SetReader:
             for fs in self.get_femsets(m, set_map, self.parent):
                 yield fs
 
-    def get_setmap(self, m, parent):
+    def run(self) -> list[FemSet]:
+        return list(self.iter_sets())
+
+    @staticmethod
+    def get_setmap(m, parent):
         d = m.groupdict()
         set_type = "nset" if str_to_int(d["istype"]) == 1 else "elset"
         mem_list = d["members"].split()

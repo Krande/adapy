@@ -15,11 +15,14 @@ from ada.comms.fb_model_gen import (
     SceneOperationsDC,
 )
 from ada.config import Config
+from ada.core.guid import create_guid
+from ada.visit.colors import Color
+from ada.visit.gltf.graph import GraphNode, GraphStore
 
 if TYPE_CHECKING:
     from IPython.display import HTML
 
-    from ada import Assembly, Part
+    from ada import FEM, Assembly, Part
     from ada.base.physical_objects import BackendGeom
     from ada.fem.results.common import FEAResult
 
@@ -32,18 +35,21 @@ class FEARenderParams:
     warp_step: int = (None,)
     cfunc: Callable[[list[float]], float] = (None,)
     warp_scale: float = 1.0
+    solid_beams: bool = False
 
 
 @dataclass
 class RenderParams:
-    auto_sync_ifc_store: bool = False
-    stream_from_ifc_store: bool = False
+    auto_sync_ifc_store: bool = True
+    stream_from_ifc_store: bool = True
     merge_meshes: bool = True
     scene_post_processor: Optional[Callable[[trimesh.Scene], trimesh.Scene]] = None
     purpose: Optional[FilePurposeDC] = FilePurposeDC.DESIGN
     scene: SceneDC = None
     gltf_buffer_postprocessor: Optional[Callable[[OrderedDict, dict], None]] = None
     gltf_tree_postprocessor: Optional[Callable[[OrderedDict], None]] = None
+    gltf_export_to_file: str | pathlib.Path = None
+    gltf_asset_extras_dict: dict = None
     add_ifc_backend: bool = False
     backend_file_dir: Optional[str] = None
     unique_id: int = None
@@ -115,6 +121,78 @@ def scene_from_fem_results(self: FEAResult, params: RenderParams):
     return scene
 
 
+def scene_from_fem(
+    fem: FEM, params: RenderParams, graph: GraphStore = None, scene: trimesh.Scene = None
+) -> trimesh.Scene:
+    from ada.visit.gltf.store import merged_mesh_to_trimesh_scene
+
+    shell_color = Color.from_str("white")
+    shell_color_id = 100000
+    line_color = Color.from_str("gray")
+    line_color_id = 100001
+    points_color = Color.from_str("black")
+    points_color_id = 100002
+    solid_bm_color = Color.from_str("light-gray")
+    solid_bm_color_id = 100003
+
+    if graph is None:
+        if fem.parent is not None:
+            graph = fem.parent.get_graph_store()
+            parent_node = graph.hash_map.get(fem.parent.guid)
+        else:
+            parent_node = GraphNode("root", 0, hash=create_guid())
+            graph = GraphStore(top_level=parent_node, nodes={0: parent_node})
+    else:
+        parent_node = graph.top_level
+
+    use_solid_beams = params.fea_params is not None and params.fea_params.solid_beams is True
+
+    mesh = fem.to_mesh()
+    points_store, edge_store, face_store = mesh.create_mesh_stores(
+        fem.name,
+        shell_color,
+        line_color,
+        points_color,
+        graph,
+        parent_node,
+        use_solid_beams=use_solid_beams,
+    )
+
+    base_frame = graph.top_level.name if graph is not None else "root"
+    scene = trimesh.Scene(base_frame=base_frame) if scene is None else scene
+
+    if use_solid_beams:
+        from ada.fem.formats.utils import line_elem_to_beam
+        from ada.occ.tessellating import BatchTessellator
+        from ada.visit.gltf.optimize import concatenate_stores
+
+        so_bm_node = graph.add_node(
+            GraphNode(fem.name + "_liSO", graph.next_node_id(), hash=create_guid(), parent=parent_node)
+        )
+        beams = [line_elem_to_beam(elem, fem.parent, "BM") for elem in fem.elements.lines]
+        for bm in beams:
+            graph.add_node(GraphNode(bm.name, graph.next_node_id(), hash=bm.guid, parent=so_bm_node))
+
+        bt = BatchTessellator()
+        meshes = bt.batch_tessellate(beams, graph_store=graph)
+        merged_store = concatenate_stores(meshes)
+
+        merged_mesh_to_trimesh_scene(scene, merged_store, solid_bm_color, solid_bm_color_id, graph_store=graph)
+
+    if len(edge_store.indices) > 0:
+        merged_mesh_to_trimesh_scene(scene, edge_store, line_color, line_color_id, graph_store=graph)
+
+    if len(face_store.indices) > 0:
+        merged_mesh_to_trimesh_scene(scene, face_store, shell_color, shell_color_id, graph_store=graph)
+
+    if len(points_store.position) > 0:
+        merged_mesh_to_trimesh_scene(scene, points_store, points_color, points_color_id, graph_store=graph)
+
+    scene.metadata.update(graph.create_meta())
+
+    return scene
+
+
 def scene_from_object(physical_object: BackendGeom) -> trimesh.Scene:
     from itertools import groupby
 
@@ -145,7 +223,7 @@ def scene_from_part_or_assembly(part_or_assembly: Part | Assembly, params: Rende
         part_or_assembly.ifc_store.sync()
 
     scene = part_or_assembly.to_trimesh_scene(
-        stream_from_ifc=params.stream_from_ifc_store, merge_meshes=params.merge_meshes
+        stream_from_ifc=params.stream_from_ifc_store, merge_meshes=params.merge_meshes, params=params
     )
     return scene
 
@@ -220,8 +298,8 @@ class RendererManager:
 
         return renderer
 
-    def render(self, obj: BackendGeom | Part | Assembly | FEAResult, params: RenderParams) -> HTML | None:
-        from ada import Assembly, Part
+    def render(self, obj: BackendGeom | Part | Assembly | FEAResult | FEM, params: RenderParams) -> HTML | None:
+        from ada import FEM, Assembly, Part
         from ada.base.physical_objects import BackendGeom
         from ada.comms.wsock_client_sync import WebSocketClientSync
         from ada.fem.results.common import FEAResult
@@ -241,6 +319,8 @@ class RendererManager:
                 scene = scene_from_part_or_assembly(obj, params)
             elif isinstance(obj, BackendGeom):
                 scene = scene_from_object(obj)
+            elif isinstance(obj, FEM):
+                scene = scene_from_fem(obj, params)
             elif isinstance(obj, FEAResult):
                 scene = scene_from_fem_results(obj, params)
             else:
@@ -259,6 +339,10 @@ class RendererManager:
                 gltf_tree_postprocessor=params.gltf_tree_postprocessor,
                 target_id=target_id,
             )
+
+            if params.gltf_export_to_file is not None:
+                gltf_tree_postprocess = GltfTreePostProcessor(params.gltf_asset_extras_dict)
+                scene.export(params.gltf_export_to_file, tree_postprocessor=gltf_tree_postprocess)
 
             if params.add_ifc_backend is True and type(obj) is Assembly:
                 server_temp = Config().websockets_server_temp_dir
@@ -282,3 +366,14 @@ class RendererManager:
                 )
 
         return renderer_instance
+
+
+class GltfTreePostProcessor:
+    def __init__(self, gltf_asset_extras_dict: dict):
+        self.gltf_asset_extras_dict = gltf_asset_extras_dict
+
+    def __call__(self, tree):
+        if self.gltf_asset_extras_dict is not None:
+            extras = tree.get("asset", {}).get("extras", {})
+            extras.update(self.gltf_asset_extras_dict)
+            tree["asset"]["extras"] = extras

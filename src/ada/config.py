@@ -126,6 +126,12 @@ class Config:
             ],
         ),
         ConfigSection(
+            "meshing",
+            [
+                ConfigEntry("open_viewer_breakpoint_names", list[str], None, required=False),
+            ],
+        ),
+        ConfigSection(
             "code_aster",
             [ConfigEntry("ca_experimental_id_numbering", bool, False)],
         ),
@@ -141,7 +147,6 @@ class Config:
             "procedures",
             [
                 ConfigEntry("script_dir", pathlib.Path, None, required=False),
-                ConfigEntry("components_dir", pathlib.Path, None, required=False),
                 ConfigEntry("use_ifc_convert", bool, False, required=False),
             ],
         ),
@@ -150,6 +155,7 @@ class Config:
             [
                 ConfigEntry("server_temp_dir", pathlib.Path, None, False),
                 ConfigEntry("auto_load_temp_files", bool, False, False),
+                ConfigEntry("external_files_dirs", list[pathlib.Path], None, required=False),
             ],
         ),
     ]
@@ -332,6 +338,8 @@ class Config:
         corrected_value = value
         if isinstance(value, str):
             if "[" in value:
+                if "'" in value:
+                    value = value.replace("'", '"')
                 corrected_value = json.loads(value)
             elif "," in value and "[" not in value:
                 corrected_value = value.split(",")

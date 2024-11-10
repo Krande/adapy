@@ -22,6 +22,7 @@ class CommandTypeDC(Enum):
     VIEW_FILE_OBJECT = 12
     DELETE_FILE_OBJECT = 13
     START_NEW_NODE_EDITOR = 14
+    START_FILE_IN_LOCAL_APP = 15
 
 
 class TargetTypeDC(Enum):
@@ -46,6 +47,7 @@ class FileTypeDC(Enum):
     IFC = 0
     GLB = 1
     SQLITE = 2
+    XLSX = 3
 
 
 class ProcedureStateDC(Enum):
@@ -96,6 +98,7 @@ class MeshInfoDC:
     object_name: str = ""
     face_index: int = None
     json_data: str = ""
+    file_name: str = ""
 
 
 @dataclass
@@ -123,6 +126,7 @@ class ServerDC:
     get_file_object_by_name: str = ""
     get_file_object_by_path: pathlib.Path | str = ""
     delete_file_object: Optional[FileObjectDC] = None
+    start_file_in_local_app: Optional[FileObjectDC] = None
 
 
 @dataclass
@@ -132,15 +136,19 @@ class ProcedureStoreDC:
 
 
 @dataclass
+class FileArgDC:
+    arg_name: str = ""
+    file_type: Optional[FileTypeDC] = None
+
+
+@dataclass
 class ProcedureDC:
     name: str = ""
     description: str = ""
     script_file_location: str = ""
     parameters: Optional[List[ParameterDC]] = None
-    input_file_var: str = ""
-    input_file_type: Optional[FileTypeDC] = None
-    export_file_type: Optional[FileTypeDC] = None
-    export_file_var: str = ""
+    file_inputs: Optional[List[FileArgDC]] = None
+    file_outputs: Optional[List[FileArgDC]] = None
     state: Optional[ProcedureStateDC] = None
     is_component: bool = None
 
@@ -183,7 +191,7 @@ class ErrorDC:
 @dataclass
 class ServerReplyDC:
     message: str = ""
-    file_object: Optional[FileObjectDC] = None
+    file_objects: Optional[List[FileObjectDC]] = None
     reply_to: Optional[CommandTypeDC] = None
     error: Optional[ErrorDC] = None
 

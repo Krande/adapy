@@ -3,7 +3,7 @@ import React, { useMemo } from 'react';
 import { GridHelper as ThreeGridHelper } from 'three';
 import { useThree } from '@react-three/fiber';
 import { useModelStore } from '../../state/modelStore';
-import { calculateGridSize } from '../../utils/calculateGridSize';
+import { calculateGridSize } from '../../utils/scene/calculateGridSize';
 
 const DynamicGridHelper: React.FC = () => {
   const { boundingBox } = useModelStore();
@@ -13,9 +13,8 @@ const DynamicGridHelper: React.FC = () => {
 
     if (boundingBox) {
       const size = calculateGridSize(boundingBox);
-      const divisions = size;
+      const divisions = Math.max(10, Math.floor(size / 10));
       grid = new ThreeGridHelper(size, divisions, 'white', 'gray');
-      //grid.position.y = boundingBox.min.y - (size * 0.05); // Adjust grid position if needed
     } else {
       // Default grid if no bounding box is available
       grid = new ThreeGridHelper(10, 10, 'white', 'gray');

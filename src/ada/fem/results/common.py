@@ -122,14 +122,30 @@ class Mesh:
         return edges, faces
 
     def create_mesh_stores(
-        self, parent_name: str, shell_color, line_color, points_color, graph: GraphStore, parent_node: GraphNode
+        self,
+        parent_name: str,
+        shell_color,
+        line_color,
+        points_color,
+        graph: GraphStore,
+        parent_node: GraphNode,
+        use_solid_beams=False,
     ) -> tuple[MergedMesh, MergedMesh, MergedMesh]:
         from ada.fem.shapes import ElemShape
         from ada.fem.shapes import definitions as shape_def
 
-        face_node = graph.add_node(GraphNode(parent_name + "_sh", create_guid(), parent=parent_node))
-        line_node = graph.add_node(GraphNode(parent_name + "_li", create_guid(), parent=parent_node))
-        points_node = graph.add_node(GraphNode(parent_name + "_po", create_guid(), parent=parent_node))
+        face_node = graph.add_node(
+            GraphNode(parent_name + "_sh", graph.next_node_id(), hash=create_guid(), parent=parent_node)
+        )
+        line_node = None
+        if use_solid_beams is False:
+            line_node = graph.add_node(
+                GraphNode(parent_name + "_li", graph.next_node_id(), hash=create_guid(), parent=parent_node)
+            )
+
+        points_node = graph.add_node(
+            GraphNode(parent_name + "_po", graph.next_node_id(), hash=create_guid(), parent=parent_node)
+        )
 
         nmap = {x: i for i, x in enumerate(self.nodes.identifiers)}
         keys = np.array(list(nmap.keys()))
@@ -144,37 +160,49 @@ class Mesh:
 
             nodes_copy = cell_block.node_refs.copy()
             nodes_copy[np.isin(nodes_copy, keys)] = np.vectorize(nmap.get)(nodes_copy[np.isin(nodes_copy, keys)])
+            if use_solid_beams and isinstance(el_type, (shape_def.LineShapes, shape_def.ConnectorTypes)):
+                continue
 
-            for elem_id, elem in enumerate(nodes_copy, start=1):
+            el_idmap = {i: x for i, x in enumerate(cell_block.identifiers)}
+
+            for elem_ref, elem in enumerate(nodes_copy, start=0):
+                elem_id = el_idmap[elem_ref]
                 elem_shape = ElemShape(el_type, elem)
                 if elem_shape.type in (MassTypes.MASS,):
                     continue
-                try:
-                    li_s = len(edges)
-                    edges += elem_shape.edges
-                    graph.add_node(GraphNode(f"Li{elem_id}", f"li{elem_id}", parent=line_node))
-                    li_groups.append(GroupReference(f"li{elem_id}", li_s, len(faces)))
 
-                except IndexError as e:
-                    logger.error(e)
-                    continue
+                new_edges = elem_shape.edges
+                edges += new_edges
+
+                if line_node is not None:
+                    li_s = len(edges)
+                    node = graph.add_node(
+                        GraphNode(f"Li{elem_id}", graph.next_node_id(), hash=create_guid(), parent=line_node)
+                    )
+                    li_groups.append(GroupReference(node, li_s, len(new_edges)))
+
                 if isinstance(elem_shape.type, (shape_def.LineShapes, shape_def.ConnectorTypes)):
                     continue
 
                 face_s = len(faces)
-                faces += elem_shape.get_faces()
-                graph.add_node(GraphNode(f"EL{elem_id}", f"el{elem_id}", parent=face_node))
-                sh_groups.append(GroupReference(f"el{elem_id}", face_s, len(faces) - face_s))
+                new_faces = elem_shape.get_faces()
+                faces += new_faces
+                node = graph.add_node(
+                    GraphNode(f"EL{elem_id}", graph.next_node_id(), hash=create_guid(), parent=face_node)
+                )
+                sh_groups.append(GroupReference(node, face_s, len(new_faces)))
 
         coords = self.nodes.coords.flatten()
-        for i, n in enumerate(self.nodes.identifiers):
-            graph.add_node(GraphNode(f"P{int(n)}", i, parent=points_node))
-
-        po_groups = [GroupReference(i, i, 1) for i in range(0, len(self.nodes.coords))]
+        po_groups = []
+        for i, n in enumerate(sorted(self.nodes.identifiers)):
+            nid = graph.next_node_id()
+            node = graph.add_node(GraphNode(f"P{int(n)}", nid, parent=points_node))
+            po_groups.append(GroupReference(node, nid, 1))
 
         edges = MergedMesh(np.array(edges), coords, None, line_color, MeshType.LINES, groups=li_groups)
         points = MergedMesh(None, coords, None, points_color, MeshType.POINTS, groups=po_groups)
         face_mesh = MergedMesh(np.array(faces), coords, None, shell_color, MeshType.TRIANGLES, groups=sh_groups)
+
         return points, edges, face_mesh
 
 

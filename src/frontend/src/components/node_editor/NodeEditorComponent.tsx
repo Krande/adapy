@@ -8,6 +8,7 @@ import ProcedureNode from './nodes/procedure_node/ProcedureNode';
 import CustomFileObjectNode from './nodes/file_node/customFileObjectNode';
 import {onDelete} from "../../utils/node_editor/on_delete";
 import {start_new_node_editor} from "../../utils/node_editor/start_new_node_editor";
+import {handleFileUpload} from "../../utils/node_editor/handleFileUpload";
 
 const nodeTypes = {
     procedure: ProcedureNode,
@@ -96,6 +97,9 @@ const NodeEditorComponent: React.FC = () => {
                     >
                         {popout_icon}
                     </button>
+                    {/*<div className={"flex relative bg-blue-700 hover:bg-blue-700/50 text-white p-1 ml-2 rounded"}>*/}
+                    {/*    <input type="file" onChange={handleFileUpload}/>*/}
+                    {/*</div>*/}
                 </div>
             </div>
             {/* Content Area */}

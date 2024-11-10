@@ -13,3 +13,9 @@ def test_create_sesam_xml_from_mixed(mixed_model, tmp_path):
     xml_file = tmp_path / "mixed_xml_model.xml"
 
     mixed_model.to_genie_xml(xml_file)
+
+
+def test_create_sesam_xml_with_plate(tmp_path):
+    pl = ada.Plate("pl", [(0, 0), (10, 0), (10, 10), (0, 10)], 0.1)
+    a = ada.Assembly("a") / pl
+    a.to_genie_xml(tmp_path / "plate.xml", embed_sat=True)

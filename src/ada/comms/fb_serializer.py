@@ -4,6 +4,7 @@ import flatbuffers
 from ada.comms.fb_model_gen import (
     CameraParamsDC,
     ErrorDC,
+    FileArgDC,
     FileObjectDC,
     MeshInfoDC,
     MessageDC,
@@ -20,6 +21,7 @@ from ada.comms.fb_model_gen import (
 from ada.comms.wsock import (
     CameraParams,
     Error,
+    FileArg,
     FileObject,
     MeshInfo,
     Message,
@@ -110,6 +112,9 @@ def serialize_meshinfo(builder: flatbuffers.Builder, obj: Optional[MeshInfoDC]) 
     json_data_str = None
     if obj.json_data is not None:
         json_data_str = builder.CreateString(str(obj.json_data))
+    file_name_str = None
+    if obj.file_name is not None:
+        file_name_str = builder.CreateString(str(obj.file_name))
 
     MeshInfo.Start(builder)
     if object_name_str is not None:
@@ -118,6 +123,8 @@ def serialize_meshinfo(builder: flatbuffers.Builder, obj: Optional[MeshInfoDC]) 
         MeshInfo.AddFaceIndex(builder, obj.face_index)
     if json_data_str is not None:
         MeshInfo.AddJsonData(builder, json_data_str)
+    if file_name_str is not None:
+        MeshInfo.AddFileName(builder, file_name_str)
     return MeshInfo.End(builder)
 
 
@@ -185,6 +192,9 @@ def serialize_server(builder: flatbuffers.Builder, obj: Optional[ServerDC]) -> O
     delete_file_object_obj = None
     if obj.delete_file_object is not None:
         delete_file_object_obj = serialize_fileobject(builder, obj.delete_file_object)
+    start_file_in_local_app_obj = None
+    if obj.start_file_in_local_app is not None:
+        start_file_in_local_app_obj = serialize_fileobject(builder, obj.start_file_in_local_app)
 
     Server.Start(builder)
     if obj.new_file_object is not None:
@@ -197,6 +207,8 @@ def serialize_server(builder: flatbuffers.Builder, obj: Optional[ServerDC]) -> O
         Server.AddGetFileObjectByPath(builder, get_file_object_by_path_str)
     if obj.delete_file_object is not None:
         Server.AddDeleteFileObject(builder, delete_file_object_obj)
+    if obj.start_file_in_local_app is not None:
+        Server.AddStartFileInLocalApp(builder, start_file_in_local_app_obj)
     return Server.End(builder)
 
 
@@ -222,6 +234,21 @@ def serialize_procedurestore(builder: flatbuffers.Builder, obj: Optional[Procedu
     return ProcedureStore.End(builder)
 
 
+def serialize_filearg(builder: flatbuffers.Builder, obj: Optional[FileArgDC]) -> Optional[int]:
+    if obj is None:
+        return None
+    arg_name_str = None
+    if obj.arg_name is not None:
+        arg_name_str = builder.CreateString(str(obj.arg_name))
+
+    FileArg.Start(builder)
+    if arg_name_str is not None:
+        FileArg.AddArgName(builder, arg_name_str)
+    if obj.file_type is not None:
+        FileArg.AddFileType(builder, obj.file_type.value)
+    return FileArg.End(builder)
+
+
 def serialize_procedure(builder: flatbuffers.Builder, obj: Optional[ProcedureDC]) -> Optional[int]:
     if obj is None:
         return None
@@ -241,12 +268,20 @@ def serialize_procedure(builder: flatbuffers.Builder, obj: Optional[ProcedureDC]
         for item in reversed(parameters_list):
             builder.PrependUOffsetTRelative(item)
         parameters_vector = builder.EndVector(len(parameters_list))
-    input_file_var_str = None
-    if obj.input_file_var is not None:
-        input_file_var_str = builder.CreateString(str(obj.input_file_var))
-    export_file_var_str = None
-    if obj.export_file_var is not None:
-        export_file_var_str = builder.CreateString(str(obj.export_file_var))
+    file_inputs_vector = None
+    if obj.file_inputs is not None and len(obj.file_inputs) > 0:
+        file_inputs_list = [serialize_filearg(builder, item) for item in obj.file_inputs]
+        Procedure.StartFileInputsVector(builder, len(file_inputs_list))
+        for item in reversed(file_inputs_list):
+            builder.PrependUOffsetTRelative(item)
+        file_inputs_vector = builder.EndVector(len(file_inputs_list))
+    file_outputs_vector = None
+    if obj.file_outputs is not None and len(obj.file_outputs) > 0:
+        file_outputs_list = [serialize_filearg(builder, item) for item in obj.file_outputs]
+        Procedure.StartFileOutputsVector(builder, len(file_outputs_list))
+        for item in reversed(file_outputs_list):
+            builder.PrependUOffsetTRelative(item)
+        file_outputs_vector = builder.EndVector(len(file_outputs_list))
 
     Procedure.Start(builder)
     if name_str is not None:
@@ -257,14 +292,10 @@ def serialize_procedure(builder: flatbuffers.Builder, obj: Optional[ProcedureDC]
         Procedure.AddScriptFileLocation(builder, script_file_location_str)
     if obj.parameters is not None and len(obj.parameters) > 0:
         Procedure.AddParameters(builder, parameters_vector)
-    if input_file_var_str is not None:
-        Procedure.AddInputFileVar(builder, input_file_var_str)
-    if obj.input_file_type is not None:
-        Procedure.AddInputFileType(builder, obj.input_file_type.value)
-    if obj.export_file_type is not None:
-        Procedure.AddExportFileType(builder, obj.export_file_type.value)
-    if export_file_var_str is not None:
-        Procedure.AddExportFileVar(builder, export_file_var_str)
+    if obj.file_inputs is not None and len(obj.file_inputs) > 0:
+        Procedure.AddFileInputs(builder, file_inputs_vector)
+    if obj.file_outputs is not None and len(obj.file_outputs) > 0:
+        Procedure.AddFileOutputs(builder, file_outputs_vector)
     if obj.state is not None:
         Procedure.AddState(builder, obj.state.value)
     if obj.is_component is not None:
@@ -390,9 +421,13 @@ def serialize_serverreply(builder: flatbuffers.Builder, obj: Optional[ServerRepl
     message_str = None
     if obj.message is not None:
         message_str = builder.CreateString(str(obj.message))
-    file_object_obj = None
-    if obj.file_object is not None:
-        file_object_obj = serialize_fileobject(builder, obj.file_object)
+    file_objects_vector = None
+    if obj.file_objects is not None and len(obj.file_objects) > 0:
+        file_objects_list = [serialize_fileobject(builder, item) for item in obj.file_objects]
+        ServerReply.StartFileObjectsVector(builder, len(file_objects_list))
+        for item in reversed(file_objects_list):
+            builder.PrependUOffsetTRelative(item)
+        file_objects_vector = builder.EndVector(len(file_objects_list))
     error_obj = None
     if obj.error is not None:
         error_obj = serialize_error(builder, obj.error)
@@ -400,8 +435,8 @@ def serialize_serverreply(builder: flatbuffers.Builder, obj: Optional[ServerRepl
     ServerReply.Start(builder)
     if message_str is not None:
         ServerReply.AddMessage(builder, message_str)
-    if obj.file_object is not None:
-        ServerReply.AddFileObject(builder, file_object_obj)
+    if obj.file_objects is not None and len(obj.file_objects) > 0:
+        ServerReply.AddFileObjects(builder, file_objects_vector)
     if obj.reply_to is not None:
         ServerReply.AddReplyTo(builder, obj.reply_to.value)
     if obj.error is not None:

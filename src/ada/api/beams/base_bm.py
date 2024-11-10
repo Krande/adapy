@@ -8,7 +8,7 @@ import numpy as np
 import ada.api.beams.geom_beams as geo_conv
 from ada.api.beams.helpers import BeamConnectionProps
 from ada.api.bounding_box import BoundingBox
-from ada.api.curves import CurveOpen2d, CurveRevolve
+from ada.api.curves import CurveOpen2d, CurveRevolve, LineSegment
 from ada.api.nodes import Node, get_singular_node_by_volume
 from ada.api.transforms import Placement
 from ada.base.physical_objects import BackendGeom
@@ -91,13 +91,39 @@ class Beam(BackendGeom):
 
     @staticmethod
     def array_from_list_of_coords(
-        list_of_coords: list[tuple], sec: Section | str, mat: Material | str = None, name_gen: Iterable = None
+        list_of_coords: list[tuple],
+        sec: Section | str,
+        mat: Material | str = None,
+        name_gen: Iterable = None,
+        make_closed=False,
     ) -> list[Beam]:
         """Create an array of beams from a list of coordinates"""
         beams = []
         ngen = name_gen if name_gen is not None else Counter(prefix="bm")
         for p1, p2 in zip(list_of_coords[:-1], list_of_coords[1:]):
             beams.append(Beam(next(ngen), p1, p2, sec, mat))
+
+        if make_closed and list_of_coords[0] != list_of_coords[-1]:
+            beams.append(Beam(next(ngen), list_of_coords[-1], list_of_coords[0], sec, mat))
+
+        return beams
+
+    @staticmethod
+    def array_from_list_of_segments(
+        segments: list[LineSegment],
+        sec: Section | str,
+        mat: Material | str = None,
+        name_gen: Iterable = None,
+        make_closed=False,
+    ):
+        beams = []
+        ngen = name_gen if name_gen is not None else Counter(prefix="bm")
+        for seg in segments:
+            beams.append(Beam(next(ngen), seg.p1, seg.p2, sec, mat))
+
+        if make_closed and segments[0].p1 != segments[-1].p2:
+            beams.append(Beam(next(ngen), segments[-1].p2, segments[0].p1, sec, mat))
+
         return beams
 
     def _init_orientation(self, angle=None, up=None) -> None:
@@ -311,6 +337,10 @@ class Beam(BackendGeom):
     @property
     def up(self) -> Direction:
         return self._up
+
+    @up.setter
+    def up(self, value: Direction):
+        self._init_orientation(up=value)
 
     @property
     def xvec_e(self) -> Direction:

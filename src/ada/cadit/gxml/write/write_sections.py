@@ -24,6 +24,8 @@ def add_sections(root: ET.Element, part: Part):
             add_i_section(section, sections_elem)
         elif section.type == section.TYPES.IPROFILE and section.w_btn != section.w_top:
             add_unsymm_i_section(section, sections_elem)
+        elif section.type == section.TYPES.TPROFILE and section.w_btn != section.w_top:
+            add_unsymm_i_section(section, sections_elem)
         elif section.type == section.TYPES.BOX:
             add_box_section(section, sections_elem)
         elif section.type == section.TYPES.CHANNEL:

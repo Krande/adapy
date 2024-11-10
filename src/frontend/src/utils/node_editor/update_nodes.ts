@@ -1,6 +1,5 @@
-import {FileType, Message} from '../../flatbuffers/wsock';
+import {FileArgT, FileType, Message} from '../../flatbuffers/wsock';
 import {useNodeEditorStore} from '../../state/useNodeEditorStore'; // Import the node editor Zustand store
-
 
 
 export const update_nodes = (message: Message) => {
@@ -33,6 +32,7 @@ export const update_nodes = (message: Message) => {
                             filepath: fileObject.filepath(),
                             filetype: FileType[fileObject.fileType()].toString(),
                             fileobject: fileObject,
+                            fileobjectT: fileObject.unpack(),
                             glbFile: fileObject.glbFile(),
                             IfcSqliteFile: fileObject.ifcsqliteFile(),
                             isProcedureOutput: fileObject.isProcedureOutput()
@@ -49,6 +49,23 @@ export const update_nodes = (message: Message) => {
         const procedure = procedureStore.procedures(i);
         if (procedure) {
             // Create a new node for each procedure
+            const proct = procedure.unpack();
+            // create a fileInputs map
+            const fileInputs: Record<string, FileArgT> = {};
+            for (let i = 0; i < proct.fileInputs.length; i++) {
+                const fileInput = proct.fileInputs[i];
+                if (!fileInput) continue;
+                if (!fileInput.argName) continue;
+                fileInputs[fileInput.argName.toString()] = fileInput;
+            }
+            // create a fileOutputs map
+            const fileOutputs: Record<string, FileArgT> = {};
+            for (let i = 0; i < proct.fileOutputs.length; i++) {
+                const fileOutput = proct.fileOutputs[i];
+                if (!fileOutput) continue;
+                if (!fileOutput.argName) continue;
+                fileOutputs[fileOutput.argName.toString()] = fileOutput;
+            }
             const node = {
                 id: `procedure-${i}`, // Unique node ID
                 type: 'procedure',
@@ -57,10 +74,9 @@ export const update_nodes = (message: Message) => {
                     label: procedure.name(),
                     description: procedure.description(),
                     scriptFileLocation: procedure.scriptFileLocation(),
-                    inputFileVar: procedure.inputFileVar(),
-                    inputFileType: procedure.inputFileType(),
-                    exportFileType: procedure.exportFileType(),
-                    procedure: procedure
+                    procedure: proct,
+                    fileInputsMap: fileInputs,
+                    fileOutputsMap: fileOutputs,
                 },
             };
             newNodes.push(node);

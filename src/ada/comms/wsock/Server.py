@@ -91,9 +91,21 @@ class Server(object):
             return obj
         return None
 
+    # Server
+    def StartFileInLocalApp(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(14))
+        if o != 0:
+            x = self._tab.Indirect(o + self._tab.Pos)
+            from ada.comms.wsock.FileObject import FileObject
+
+            obj = FileObject()
+            obj.Init(self._tab.Bytes, x)
+            return obj
+        return None
+
 
 def ServerStart(builder):
-    builder.StartObject(5)
+    builder.StartObject(6)
 
 
 def Start(builder):
@@ -146,6 +158,14 @@ def ServerAddDeleteFileObject(builder, deleteFileObject):
 
 def AddDeleteFileObject(builder, deleteFileObject):
     ServerAddDeleteFileObject(builder, deleteFileObject)
+
+
+def ServerAddStartFileInLocalApp(builder, startFileInLocalApp):
+    builder.PrependUOffsetTRelativeSlot(5, flatbuffers.number_types.UOffsetTFlags.py_type(startFileInLocalApp), 0)
+
+
+def AddStartFileInLocalApp(builder, startFileInLocalApp):
+    ServerAddStartFileInLocalApp(builder, startFileInLocalApp)
 
 
 def ServerEnd(builder):

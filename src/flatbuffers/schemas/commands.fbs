@@ -16,6 +16,7 @@ enum CommandType : byte {
   VIEW_FILE_OBJECT = 12,
   DELETE_FILE_OBJECT = 13,
   START_NEW_NODE_EDITOR = 14,
+  START_FILE_IN_LOCAL_APP = 15,
 }
 
 enum TargetType : byte {
@@ -40,6 +41,7 @@ enum FileType : byte {
     IFC = 0,
     GLB = 1,
     SQLITE = 2,
+    XLSX = 3,
 }
 
 table WebClient {
@@ -66,6 +68,7 @@ table MeshInfo {
   object_name: string;      // Mesh object name
   face_index: int;          // Mesh face index
   json_data: string;        // JSON data
+  file_name: string;        // Scene source file object name
 }
 
 table CameraParams {
@@ -90,6 +93,7 @@ table Server {
     get_file_object_by_name: string;
     get_file_object_by_path: string;
     delete_file_object: FileObject;
+    start_file_in_local_app: FileObject;
 }
 
 // Procedures are picked up by the server and executed
@@ -107,15 +111,18 @@ enum ProcedureState : byte {
     ERROR = 3,
 }
 
+table FileArg {
+    arg_name: string;
+    file_type: FileType;
+}
+
 table Procedure {
     name: string;
     description: string;
     script_file_location: string;
     parameters: [Parameter];
-    input_file_var: string;
-    input_file_type: FileType;
-    export_file_type: FileType;
-    export_file_var: string;
+    file_inputs: [FileArg];
+    file_outputs: [FileArg];
     state: ProcedureState;      // State of the procedure
     is_component: bool;         // Boolean to indicate if the procedure is a component
 }
@@ -171,7 +178,7 @@ table Error {
 
 table ServerReply {
   message: string;
-  file_object: FileObject;
+  file_objects: [FileObject];
   reply_to: CommandType;
   error: Error;
 }
