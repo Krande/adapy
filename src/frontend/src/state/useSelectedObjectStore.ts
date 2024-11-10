@@ -6,6 +6,7 @@ type SelectedObjectState = {
     addSelectedObject: (mesh: CustomBatchedMesh, drawRangeId: string) => void;
     removeSelectedObject: (mesh: CustomBatchedMesh, drawRangeId: string) => void;
     clearSelectedObjects: () => void;
+    addBatchofMeshes: (batch: [CustomBatchedMesh, string][]) => void;
 };
 
 export const useSelectedObjectStore = create<SelectedObjectState>(
@@ -51,6 +52,29 @@ export const useSelectedObjectStore = create<SelectedObjectState>(
                 state.selectedObjects.forEach((_, mesh) => {
                     mesh.deselect();
                 });
-                return { selectedObjects: new Map() };
+                return {selectedObjects: new Map()};
+            }),
+        addBatchofMeshes: (batch) =>
+            set((state) => {
+                const newMap = new Map(state.selectedObjects);
+
+                // Group drawRangeIds by mesh
+                const drawRangeGroups = new Map<CustomBatchedMesh, Set<string>>();
+                batch.forEach(([mesh, drawRangeId]) => {
+                    if (!drawRangeGroups.has(mesh)) {
+                        drawRangeGroups.set(mesh, new Set());
+                    }
+                    drawRangeGroups.get(mesh)!.add(drawRangeId);
+                });
+
+                // Update selectedObjects map and highlight ranges in batches
+                drawRangeGroups.forEach((drawRanges, mesh) => {
+                    const existingSet = new Set(newMap.get(mesh) || []);
+                    drawRanges.forEach((id) => existingSet.add(id));
+                    newMap.set(mesh, existingSet);
+                    mesh.highlightDrawRanges(Array.from(existingSet));
+                });
+
+                return {selectedObjects: newMap};
             }),
     }));
