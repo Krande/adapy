@@ -1,23 +1,24 @@
 // OptionsComponent.tsx
-import React, { useEffect, useState } from 'react';
-import { Rnd } from 'react-rnd';
-import { useAnimationStore } from "../state/animationStore";
-import { useOptionsStore } from "../state/optionsStore";
-import { useColorStore } from "../state/colorLegendStore";
+import React, {useEffect, useState} from 'react';
+import {Rnd} from 'react-rnd';
+import {useAnimationStore} from "../state/animationStore";
+import {useOptionsStore} from "../state/optionsStore";
+import {useColorStore} from "../state/colorLegendStore";
 
 function OptionsComponent() {
-    const { showPerf, setShowPerf, showEdges, setShowEdges } = useOptionsStore();
-    const { showLegend, setShowLegend } = useColorStore();
+    const {showPerf, setShowPerf, showEdges, setShowEdges} = useOptionsStore();
+    const {showLegend, setShowLegend} = useColorStore();
 
-    const [size, setSize] = useState({ width: 300, height: 400 });
-    const [position, setPosition] = useState({ x: 0, y: 0 });
+    const [size, setSize] = useState({width: 300, height: 400});
+    const [position, setPosition] = useState({x: 0, y: 0});
     const [isPositionCalculated, setIsPositionCalculated] = useState(false);
+    const [isModalOpen, setIsModalOpen] = useState(false);
 
     // Set the component to be centered on mount and set the visibility flag
     useEffect(() => {
         const centerX = (window.innerWidth - size.width) / 2;
         const centerY = (window.innerHeight - size.height) / 2;
-        setPosition({ x: centerX, y: centerY });
+        setPosition({x: centerX, y: centerY});
 
         // Once position is calculated, set the component to be visible
         setIsPositionCalculated(true);
@@ -32,7 +33,7 @@ function OptionsComponent() {
         <Rnd
             size={size}
             position={position}
-            onDragStop={(e, d) => setPosition({ x: d.x, y: d.y })}
+            onDragStop={(e, d) => setPosition({x: d.x, y: d.y})}
             onResize={(e, direction, ref, delta, position) => {
                 setSize({
                     width: ref.offsetWidth,
@@ -69,6 +70,25 @@ function OptionsComponent() {
                 >
                     Geometry Edges On/Off
                 </button>
+                <div className={"flex flex-col w-full"}>
+                    <button
+                        className={"bg-blue-700 hover:bg-blue-700/50 text-white w-full font-bold py-2 rounded"}
+                        onClick={() => setIsModalOpen(!isModalOpen)}
+                    >
+                        Shortcut Keys
+                    </button>
+                    {isModalOpen && (
+                        <div className="items-center justify-center">
+                            <div className="bg-gray-800 text-white p-4 rounded shadow-lg">
+                                <p>shift+h: Hide</p>
+                                <p>shift+u: Unhide all</p>
+                                <p>shift+f: Center view on selection</p>
+                                <p>shift+a: Zoom to all</p>
+                            </div>
+                        </div>
+                    )}
+                </div>
+
             </div>
         </Rnd>
     );
