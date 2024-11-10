@@ -1,5 +1,6 @@
 // CameraControls.tsx
 import React, { useEffect } from 'react';
+import * as THREE from 'three';
 import { useThree } from '@react-three/fiber';
 import { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
 import { useSelectedObjectStore } from '../../state/useSelectedObjectStore';
@@ -12,6 +13,23 @@ type CameraControlsProps = {
 
 const CameraControls: React.FC<CameraControlsProps> = ({ orbitControlsRef }) => {
     const { camera, scene } = useThree();
+
+    const zoomToAll = () => {
+        // Compute the bounding box of the entire scene
+        const box = new THREE.Box3().setFromObject(scene);
+        const size = box.getSize(new THREE.Vector3()).length();
+        const center = box.getCenter(new THREE.Vector3());
+
+        // Adjust camera position and look direction
+        const scale = 0.5;
+        camera.position.set(center.x+ size * scale, center.y+ size * scale, center.z + size * scale);
+        camera.lookAt(center);
+
+        if (orbitControlsRef.current) {
+            orbitControlsRef.current.target.copy(center); // Update the controls' target
+            orbitControlsRef.current.update();
+        }
+    };
 
     useEffect(() => {
         const handleKeyDown = (event: KeyboardEvent) => {
@@ -35,6 +53,10 @@ const CameraControls: React.FC<CameraControlsProps> = ({ orbitControlsRef }) => 
             } else if (event.shiftKey && event.key.toLowerCase() === 'f') {
                 // SHIFT+F pressed - Center view on selection
                 centerViewOnSelection(orbitControlsRef, camera);
+            }
+            else if (event.shiftKey && event.key.toLowerCase() === 'a') {
+                // SHIFT+a pressed - Zoom to all
+                zoomToAll();
             }
         };
 

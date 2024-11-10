@@ -31,10 +31,7 @@ export const centerViewOnSelection = (
                 return;
             }
 
-            const positionArray = positionAttr.array;
             const indexArray = indexAttr.array as Uint16Array | Uint32Array;
-            const itemSize = positionAttr.itemSize;
-
             drawRangeIds.forEach((drawRangeId) => {
                 const drawRange = mesh.drawRanges.get(drawRangeId);
                 if (drawRange) {
