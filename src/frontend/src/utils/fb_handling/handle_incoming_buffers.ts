@@ -5,6 +5,7 @@ import {update_scene_from_message} from "../scene/comms/update_scene_from_messag
 import {receive_mesh_info_reply} from "../mesh_select/comms/receive_mesh_info_reply";
 import {update_nodes} from "../node_editor/update_nodes";
 import {handle_finished_procedure} from "../node_editor/handle_finished_procedure";
+import {receive_list_of_files_from_server} from "../server_info/comms/receive_list_of_files_from_server";
 
 export const handleFlatbufferMessage = (buffer: ArrayBuffer) => {
     // Wrap ArrayBuffer into FlatBuffer ByteBuffer
@@ -30,6 +31,8 @@ export const handleFlatbufferMessage = (buffer: ArrayBuffer) => {
         } else if (message.serverReply()?.replyTo() === CommandType.RUN_PROCEDURE) {
             console.log('LIST_MESHES Server Reply message received');
             handle_finished_procedure(message);
+        } else if (message.serverReply()?.replyTo() === CommandType.LIST_FILE_OBJECTS) {
+            receive_list_of_files_from_server(message);
         } else {
             console.error('Unknown Server Reply message type received: ', message.serverReply()?.replyTo());
         }

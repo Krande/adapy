@@ -1,41 +1,9 @@
+import flatbuffers
 from typing import Optional
 
-import flatbuffers
-from ada.comms.fb_model_gen import (
-    CameraParamsDC,
-    ErrorDC,
-    FileArgDC,
-    FileObjectDC,
-    MeshInfoDC,
-    MessageDC,
-    ParameterDC,
-    ProcedureDC,
-    ProcedureStartDC,
-    ProcedureStoreDC,
-    SceneDC,
-    ServerDC,
-    ServerReplyDC,
-    ValueDC,
-    WebClientDC,
-)
-from ada.comms.wsock import (
-    CameraParams,
-    Error,
-    FileArg,
-    FileObject,
-    MeshInfo,
-    Message,
-    Parameter,
-    Procedure,
-    ProcedureStart,
-    ProcedureStore,
-    Scene,
-    Server,
-    ServerReply,
-    Value,
-    WebClient,
-)
+from ada.comms.wsock import WebClient, FileObject, FileObjectRef, MeshInfo, CameraParams, Scene, Server, ProcedureStore, FileArg, Procedure, Value, Parameter, ProcedureStart, Error, ServerReply, Message
 
+from ada.comms.fb_model_gen import WebClientDC, FileObjectDC, FileObjectRefDC, MeshInfoDC, CameraParamsDC, SceneDC, ServerDC, ProcedureStoreDC, FileArgDC, ProcedureDC, ValueDC, ParameterDC, ProcedureStartDC, ErrorDC, ServerReplyDC, MessageDC
 
 def serialize_webclient(builder: flatbuffers.Builder, obj: Optional[WebClientDC]) -> Optional[int]:
     if obj is None:
@@ -101,6 +69,45 @@ def serialize_fileobject(builder: flatbuffers.Builder, obj: Optional[FileObjectD
     if obj.procedure_parent is not None:
         FileObject.AddProcedureParent(builder, procedure_parent_obj)
     return FileObject.End(builder)
+
+
+def serialize_fileobjectref(builder: flatbuffers.Builder, obj: Optional[FileObjectRefDC]) -> Optional[int]:
+    if obj is None:
+        return None
+    name_str = None
+    if obj.name is not None:
+        name_str = builder.CreateString(str(obj.name))
+    filepath_str = None
+    if obj.filepath is not None:
+        filepath_str = builder.CreateString(str(obj.filepath))
+    glb_file_obj = None
+    if obj.glb_file is not None:
+        glb_file_obj = serialize_fileobjectref(builder, obj.glb_file)
+    ifcsqlite_file_obj = None
+    if obj.ifcsqlite_file is not None:
+        ifcsqlite_file_obj = serialize_fileobjectref(builder, obj.ifcsqlite_file)
+    procedure_parent_obj = None
+    if obj.procedure_parent is not None:
+        procedure_parent_obj = serialize_procedurestart(builder, obj.procedure_parent)
+
+    FileObjectRef.Start(builder)
+    if name_str is not None:
+        FileObjectRef.AddName(builder, name_str)
+    if obj.file_type is not None:
+        FileObjectRef.AddFileType(builder, obj.file_type.value)
+    if obj.purpose is not None:
+        FileObjectRef.AddPurpose(builder, obj.purpose.value)
+    if filepath_str is not None:
+        FileObjectRef.AddFilepath(builder, filepath_str)
+    if obj.glb_file is not None:
+        FileObjectRef.AddGlbFile(builder, glb_file_obj)
+    if obj.ifcsqlite_file is not None:
+        FileObjectRef.AddIfcsqliteFile(builder, ifcsqlite_file_obj)
+    if obj.is_procedure_output is not None:
+        FileObjectRef.AddIsProcedureOutput(builder, obj.is_procedure_output)
+    if obj.procedure_parent is not None:
+        FileObjectRef.AddProcedureParent(builder, procedure_parent_obj)
+    return FileObjectRef.End(builder)
 
 
 def serialize_meshinfo(builder: flatbuffers.Builder, obj: Optional[MeshInfoDC]) -> Optional[int]:
@@ -444,7 +451,7 @@ def serialize_serverreply(builder: flatbuffers.Builder, obj: Optional[ServerRepl
     return ServerReply.End(builder)
 
 
-def serialize_message(message: MessageDC, builder: flatbuffers.Builder = None) -> bytes:
+def serialize_message(message: MessageDC, builder: flatbuffers.Builder=None) -> bytes:
     if builder is None:
         builder = flatbuffers.Builder(1024)
     scene_obj = None
