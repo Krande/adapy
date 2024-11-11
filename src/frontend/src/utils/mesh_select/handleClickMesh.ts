@@ -53,7 +53,7 @@ export function handleClickMesh(event: ThreeEvent<PointerEvent>) {
     const treeViewStore = useTreeViewStore.getState();
     // Update tree view selection
 
-    if (treeViewStore.treeData && treeViewStore.tree) {
+    if (treeViewStore.treeData && treeViewStore.tree && !treeViewStore.isCollapsed) {
         // @ts-ignore
         treeViewStore.tree.isProgrammaticChange = true;  // Set flag
         const node_ids: string[] = [];
