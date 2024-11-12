@@ -19,7 +19,7 @@ def import_ifc_shape(product: ifcopenshell.entity_instance, name, ifc_store: Ifc
     logger.info(f'importing Shape "{name}"')
     color, opacity = get_colour(product, ifc_store.assembly)
     if Config().ifc_import_shape_geom:
-        geometries = list(get_product_definitions(product))
+        geometries = get_product_definitions(product)
         if len(geometries) > 1:
             logger.warning(
                 f"Multiple geometries associated to product {product}. Choosing arbitrarily geometry @ index=0"

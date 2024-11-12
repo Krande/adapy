@@ -72,7 +72,7 @@ def get_beam_geom(ifc_elem, ifc_settings):
 
 
 def import_straight_beam(ifc_elem, axis, name, sec, mat, ifc_store: IfcStore) -> Beam:
-    bodies = list(get_product_definitions(ifc_elem))
+    bodies = get_product_definitions(ifc_elem)
     if len(bodies) != 1:
         raise ValueError("Number of body objects attached to element is not 1")
     body = bodies[0]
