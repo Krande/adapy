@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Callable
 
+import ada
 import ifcopenshell
 import ifcopenshell.api.material
 import ifcopenshell.geom
@@ -44,11 +45,14 @@ def is_modified(x):
 def is_deleted(x):
     return x.change_type == ChangeAction.DELETED
 
+def _default_color_name_gen():
+    return ada.Counter(prefix='Color', start=1)
 
 @dataclass
 class IfcWriter:
     ifc_store: IfcStore
     callback: Callable[[int, int], None] = None
+    color_name_gen: ada.Counter = field(default_factory=_default_color_name_gen)
 
     def sync_spatial_hierarchy(self, include_fem=False) -> int:
         if len(list(self.ifc_store.f.by_type("IfcSite"))) == 0:
@@ -382,7 +386,7 @@ class IfcWriter:
         elif isinstance(obj, Pipe):
             return write_ifc_pipe(obj)
         elif issubclass(type(obj), Shape):
-            return write_ifc_shape(obj)
+            return write_ifc_shape(self.ifc_store, obj)
         elif isinstance(obj, Wall):
             return write_ifc_wall(obj)
         else:

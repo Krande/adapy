@@ -3,7 +3,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import numpy as np
-
 from ada import Beam, Placement
 from ada.api.beams import BeamRevolve
 from ada.api.curves import CurveRevolve
@@ -54,21 +53,7 @@ def import_ifc_beam(ifc_elem, name, ifc_store: IfcStore) -> Beam:
         return import_straight_beam(ifc_elem, axis, name, sec, mat, ifc_store)
 
 
-def get_beam_geom(ifc_elem, ifc_settings):
-    # from .read_shapes import get_ifc_geometry
-    # pdct_shape, colour, alpha = get_ifc_geometry(ifc_elem, ifc_settings)
 
-    bodies = [rep for rep in ifc_elem.Representation.Representations if rep.RepresentationIdentifier == "Body"]
-    if len(bodies) != 1:
-        raise ValueError("Number of body objects attached to element is not 1")
-    if len(bodies[0].Items) != 1:
-        raise ValueError("Number of items objects attached to body is not 1")
-
-    body = bodies[0].Items[0]
-    if len(body.StyledByItem) > 0:
-        style = body.StyledByItem[0].Styles[0].Styles[0].Styles[0]
-        colour = (int(style.SurfaceColour.Red), int(style.SurfaceColour.Green), int(style.SurfaceColour.Blue))
-        print(colour)
 
 
 def import_straight_beam(ifc_elem, axis, name, sec, mat, ifc_store: IfcStore) -> Beam:

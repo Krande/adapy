@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import ada.geom.surfaces as geo_su
 from ada import (
     Boolean,
@@ -35,8 +37,10 @@ from ..write.geom.surfaces import (
     curve_bounded_plane,
 )
 
+if TYPE_CHECKING:
+    from ada.cadit.ifc.store import IfcStore
 
-def write_ifc_shape(shape: Shape):
+def write_ifc_shape(ifc_store: IfcStore, shape: Shape):
     if shape.parent is None:
         raise ValueError("Parent cannot be None for IFC export")
 
@@ -58,7 +62,8 @@ def write_ifc_shape(shape: Shape):
 
     # Add colour
     if shape.color is not None:
-        add_colour(f, ifc_shape.Representations[0].Items[0], str(shape.color), shape.color)
+        color_name = next(ifc_store.writer.color_name_gen)
+        add_colour(f, ifc_shape.Representations[0].Items[0], color_name, shape.color)
 
     from ada.base.ifc_types import ShapeTypes
 
