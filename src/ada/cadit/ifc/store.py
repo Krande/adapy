@@ -133,6 +133,7 @@ class IfcStore:
 
         num_mod = self.writer.sync_modified_physical_objects()
 
+        self.writer.sync_groups()
         self.writer.sync_presentation_layers()
 
         num_del = self.writer.sync_deleted_physical_objects()

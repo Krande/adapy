@@ -112,7 +112,7 @@ class SimpleStru(Part):
                 bm.e1 = bm.e2 = ecc
             points = [c1(elev), c2(elev), c3(elev), c4(elev)]
             p = self.add_part(ReinforcedFloor(next(floor_name), points, pl_thick))
-            self.add_set("floors", [p])
+            self.add_group("floors", [p])
 
         # Columns
         z0 -= 0.5
@@ -120,7 +120,7 @@ class SimpleStru(Part):
         columns = [(c1(z0), c1(h)), (c2(z0), c2(h)), (c3(z0), c3(h)), (c4(z0), c4(h))]
         for p1, p2 in columns:
             bm = self.add_beam(Beam(next(bm_name), n1=p1, n2=p2, sec=csec))
-            self.add_set("columns", [bm])
+            self.add_group("columns", [bm])
 
     def c1(self, z) -> tuple:
         return 0, 0, z
@@ -250,9 +250,9 @@ class EquipmentTent(Part):
             eq_braces.append(bm)
             self.add_beam(bm)
 
-        self.add_set("vertical_members", vertical_legs)
-        self.add_set("horizontal_members", horizontal_members)
-        self.add_set("braces", eq_braces)
+        self.add_group("vertical_members", vertical_legs)
+        self.add_group("horizontal_members", horizontal_members)
+        self.add_group("braces", eq_braces)
 
         self.add_shape(PrimSphere(f"{name}_cog", cog, radius=(width + length) / 6, mass=mass))
         self._centre_of_gravity = cog

@@ -23,6 +23,7 @@ class SpatialTypes(Enum):
     # Spatial SubElements
     IfcBuilding = "IfcBuilding"
     IfcSpatialZone = "IfcSpatialZone"
+    IfcSpace = "IfcSpace"
     IfcBuildingStorey = "IfcBuildingStorey"
     IfcElementAssembly = "IfcElementAssembly"
     IfcGrid = "IfcGrid"

@@ -324,14 +324,18 @@ class Part(BackendGeom):
             self._instances[element] = Instance(element)
         self._instances[element].placements.append(placement)
 
-    def add_set(self, name, set_members: list[Part | Beam | Plate | Wall | Pipe | Shape]) -> Group:
-        if name not in self.groups.keys():
-            self.groups[name] = Group(name, set_members, parent=self)
+    def add_group(self, name, set_members: list[Part | Beam | Plate | Wall | Pipe | Shape]) -> Group:
+        exist_group = self.groups.get(name)
+        if exist_group is None:
+            self.groups[name] = Group(name, set_members, parent=self, change_type=ChangeAction.ADDED)
         else:
             logger.info(f'Appending set "{name}"')
             for mem in set_members:
-                if mem not in self.groups[name].members:
-                    self.groups[name].members.append(mem)
+                if mem not in exist_group.members:
+                    exist_group.members.append(mem)
+
+            if exist_group.change_type != ChangeAction.ADDED:
+                exist_group.change_type = ChangeAction.MODIFIED
 
         return self.groups[name]
 

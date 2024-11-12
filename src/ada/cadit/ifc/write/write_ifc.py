@@ -151,8 +151,41 @@ class IfcWriter:
             num_mod += 1
         return num_mod
 
+    def sync_groups(self):
+        f = self.ifc_store.f
+        for p in self.ifc_store.assembly.get_all_parts_in_assembly(include_self=True):
+            for group in p.groups.values():
+                if group.change_type == ChangeAction.ADDED:
+                    ifc_group = f.create_entity(
+                        "IfcGroup",
+                        GlobalId=group.guid,
+                        OwnerHistory=self.ifc_store.owner_history,
+                        Name=group.name,
+                        Description=group.description,
+                    )
+                    f.create_entity(
+                        "IfcRelAssignsToGroup",
+                        GlobalId=create_guid(),
+                        OwnerHistory=self.ifc_store.owner_history,
+                        Name=None,
+                        Description=None,
+                        RelatingGroup=ifc_group,
+                        RelatedObjects=[f.by_guid(x.guid) for x in group.members],
+                    )
+                elif group.change_type == ChangeAction.MODIFIED:
+                    ifc_group = f.by_guid(group.guid)
+                    ifc_group.Name = group.name
+                    ifc_group.Description = group.description
+                    ifc_group.RelatedObjects = [f.by_guid(x.guid) for x in group.members]
+                elif group.change_type == ChangeAction.NOCHANGE:
+                    pass
+                else:
+                    raise NotImplementedError(f"Group change type {group.change_type} is not supported")
+
+                group.change_type = ChangeAction.NOCHANGE
+
     def sync_presentation_layers(self) -> int:
-        from ada import Part, Pipe
+        from ada import Part, Pipe, Boolean
 
         num_added = 0
         f = self.ifc_store.f

@@ -4,6 +4,7 @@ import xml.etree.ElementTree as ET
 from typing import TYPE_CHECKING, Dict
 
 from ada import Group, Part
+from ada.base.changes import ChangeAction
 from ada.config import logger
 
 if TYPE_CHECKING:
@@ -15,7 +16,7 @@ def get_sets(xml_root: ET.Element, parent: Part) -> Dict[str, Group]:
     for el_set in xml_root.findall(".//set"):
         name = el_set.attrib["name"]
         members = list(filter(lambda x: x is not None, [get_concept(m, parent) for m in el_set.findall(".//concept")]))
-        el_sets[name] = Group(name, members, parent=parent)
+        el_sets[name] = Group(name, members, parent=parent, change_type=ChangeAction.ADDED)
 
     return el_sets
 
