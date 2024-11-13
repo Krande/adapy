@@ -56,5 +56,16 @@ export const buildTreeFromUserData = (scene: THREE.Scene): TreeNode | null => {
         }
     }
 
+    // Step 3: Sort children by name using natural sorting
+    const sortChildren = (node: TreeNode) => {
+        node.children.sort((a, b) => {
+            return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
+        });
+        node.children.forEach(sortChildren); // Recursively sort all children
+    };
+
+    // Start sorting from the root
+    if (root) sortChildren(root);
+
     return root;
 }
