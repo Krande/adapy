@@ -447,7 +447,9 @@ def add_colour(
             "IfcSurfaceStyleShading", SurfaceColour=ifc_color, Transparency=color.transparency
         )
 
-    surface_style = f.create_entity("IfcSurfaceStyle", Name=ifc_color.Name, Side="BOTH", Styles=(surface_style_shading,))
+    surface_style = f.create_entity(
+        "IfcSurfaceStyle", Name=ifc_color.Name, Side="BOTH", Styles=(surface_style_shading,)
+    )
     if type(ifc_body) in [list, tuple]:
         for ifc_b in ifc_body:
             f.create_entity("IfcStyledItem", ifc_b, (surface_style,), ifc_color.Name)

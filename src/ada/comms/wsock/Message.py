@@ -4,10 +4,12 @@
 
 import flatbuffers
 from flatbuffers.compat import import_numpy
+
 np = import_numpy()
 
+
 class Message(object):
-    __slots__ = ['_tab']
+    __slots__ = ["_tab"]
 
     @classmethod
     def GetRootAs(cls, buf, offset=0):
@@ -20,6 +22,7 @@ class Message(object):
     def GetRootAsMessage(cls, buf, offset=0):
         """This method is deprecated. Please switch to GetRootAs."""
         return cls.GetRootAs(buf, offset)
+
     # Message
     def Init(self, buf, pos):
         self._tab = flatbuffers.table.Table(buf, pos)
@@ -44,6 +47,7 @@ class Message(object):
         if o != 0:
             x = self._tab.Indirect(o + self._tab.Pos)
             from ada.comms.wsock.Scene import Scene
+
             obj = Scene()
             obj.Init(self._tab.Bytes, x)
             return obj
@@ -55,6 +59,7 @@ class Message(object):
         if o != 0:
             x = self._tab.Indirect(o + self._tab.Pos)
             from ada.comms.wsock.Server import Server
+
             obj = Server()
             obj.Init(self._tab.Bytes, x)
             return obj
@@ -66,6 +71,7 @@ class Message(object):
         if o != 0:
             x = self._tab.Indirect(o + self._tab.Pos)
             from ada.comms.wsock.MeshInfo import MeshInfo
+
             obj = MeshInfo()
             obj.Init(self._tab.Bytes, x)
             return obj
@@ -100,6 +106,7 @@ class Message(object):
             x += flatbuffers.number_types.UOffsetTFlags.py_type(j) * 4
             x = self._tab.Indirect(x)
             from ada.comms.wsock.WebClient import WebClient
+
             obj = WebClient()
             obj.Init(self._tab.Bytes, x)
             return obj
@@ -123,6 +130,7 @@ class Message(object):
         if o != 0:
             x = self._tab.Indirect(o + self._tab.Pos)
             from ada.comms.wsock.ProcedureStore import ProcedureStore
+
             obj = ProcedureStore()
             obj.Init(self._tab.Bytes, x)
             return obj
@@ -134,91 +142,120 @@ class Message(object):
         if o != 0:
             x = self._tab.Indirect(o + self._tab.Pos)
             from ada.comms.wsock.ServerReply import ServerReply
+
             obj = ServerReply()
             obj.Init(self._tab.Bytes, x)
             return obj
         return None
 
+
 def MessageStart(builder):
     builder.StartObject(11)
+
 
 def Start(builder):
     MessageStart(builder)
 
+
 def MessageAddInstanceId(builder, instanceId):
     builder.PrependInt32Slot(0, instanceId, 0)
+
 
 def AddInstanceId(builder, instanceId):
     MessageAddInstanceId(builder, instanceId)
 
+
 def MessageAddCommandType(builder, commandType):
     builder.PrependInt8Slot(1, commandType, 0)
+
 
 def AddCommandType(builder, commandType):
     MessageAddCommandType(builder, commandType)
 
+
 def MessageAddScene(builder, scene):
     builder.PrependUOffsetTRelativeSlot(2, flatbuffers.number_types.UOffsetTFlags.py_type(scene), 0)
+
 
 def AddScene(builder, scene):
     MessageAddScene(builder, scene)
 
+
 def MessageAddServer(builder, server):
     builder.PrependUOffsetTRelativeSlot(3, flatbuffers.number_types.UOffsetTFlags.py_type(server), 0)
+
 
 def AddServer(builder, server):
     MessageAddServer(builder, server)
 
+
 def MessageAddMeshInfo(builder, meshInfo):
     builder.PrependUOffsetTRelativeSlot(4, flatbuffers.number_types.UOffsetTFlags.py_type(meshInfo), 0)
+
 
 def AddMeshInfo(builder, meshInfo):
     MessageAddMeshInfo(builder, meshInfo)
 
+
 def MessageAddTargetGroup(builder, targetGroup):
     builder.PrependInt8Slot(5, targetGroup, 0)
+
 
 def AddTargetGroup(builder, targetGroup):
     MessageAddTargetGroup(builder, targetGroup)
 
+
 def MessageAddClientType(builder, clientType):
     builder.PrependInt8Slot(6, clientType, 0)
+
 
 def AddClientType(builder, clientType):
     MessageAddClientType(builder, clientType)
 
+
 def MessageAddTargetId(builder, targetId):
     builder.PrependInt32Slot(7, targetId, 0)
+
 
 def AddTargetId(builder, targetId):
     MessageAddTargetId(builder, targetId)
 
+
 def MessageAddWebClients(builder, webClients):
     builder.PrependUOffsetTRelativeSlot(8, flatbuffers.number_types.UOffsetTFlags.py_type(webClients), 0)
+
 
 def AddWebClients(builder, webClients):
     MessageAddWebClients(builder, webClients)
 
+
 def MessageStartWebClientsVector(builder, numElems):
     return builder.StartVector(4, numElems, 4)
+
 
 def StartWebClientsVector(builder, numElems):
     return MessageStartWebClientsVector(builder, numElems)
 
+
 def MessageAddProcedureStore(builder, procedureStore):
     builder.PrependUOffsetTRelativeSlot(9, flatbuffers.number_types.UOffsetTFlags.py_type(procedureStore), 0)
+
 
 def AddProcedureStore(builder, procedureStore):
     MessageAddProcedureStore(builder, procedureStore)
 
+
 def MessageAddServerReply(builder, serverReply):
     builder.PrependUOffsetTRelativeSlot(10, flatbuffers.number_types.UOffsetTFlags.py_type(serverReply), 0)
+
 
 def AddServerReply(builder, serverReply):
     MessageAddServerReply(builder, serverReply)
 
+
 def MessageEnd(builder):
     return builder.EndObject()
+
 
 def End(builder):
     return MessageEnd(builder)

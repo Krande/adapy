@@ -9,6 +9,7 @@ from OCC.Core.BRepMesh import BRepMesh_IncrementalMesh
 from OCC.Core.Tesselator import ShapeTesselator
 from OCC.Core.TopoDS import TopoDS_Edge, TopoDS_Shape
 from OCC.Extend.TopologyUtils import discretize_edge
+
 from ada.base.physical_objects import BackendGeom
 from ada.base.types import GeomRepr
 from ada.config import logger
@@ -272,7 +273,7 @@ class BatchTessellator:
         _data = {value: key for key, value in self.material_store.items()}
         return _data.get(mat_id)
 
-    def _extract_ifc_product_color(self,ifc_store: IfcStore, ifc_product) -> int:
+    def _extract_ifc_product_color(self, ifc_store: IfcStore, ifc_product) -> int:
         from ada.cadit.ifc.read.read_color import get_product_color
 
         color = get_product_color(ifc_product, ifc_store.f)

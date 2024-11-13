@@ -40,6 +40,7 @@ from ..write.geom.surfaces import (
 if TYPE_CHECKING:
     from ada.cadit.ifc.store import IfcStore
 
+
 def write_ifc_shape(ifc_store: IfcStore, shape: Shape):
     if shape.parent is None:
         raise ValueError("Parent cannot be None for IFC export")

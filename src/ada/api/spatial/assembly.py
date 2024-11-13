@@ -4,7 +4,6 @@ import os
 import pathlib
 from typing import TYPE_CHECKING, Callable, Union
 
-
 from ada.api.spatial.part import Part
 from ada.api.user import User
 from ada.base.ifc_types import SpatialTypes
@@ -69,7 +68,6 @@ class Assembly(Part):
         self._ifc_sections = None
         self._ifc_materials = None
         self._source_ifc_files = dict()
-
 
         self._cache_store = None
         if enable_cache:

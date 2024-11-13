@@ -14,20 +14,20 @@ def build_and_show():
         boxes.append(box)
 
     p = ada.Part("MySpaces", ifc_class=SpatialTypes.IfcSpace) / boxes
-    p.add_group('MyBoxes', boxes)
+    p.add_group("MyBoxes", boxes)
 
     boxes = []
     offset = ada.Point(0, 0, 3)
     dp = ada.Point(0.5, 0.5, 0.5)
     for i, box_c in enumerate(coords, start=1):
         p1 = offset + ada.Point(box_c) - dp
-        p2 = offset +ada.Point(box_c) + dp
-        box = ada.PrimBox(f"StoreyBox{i}", p1, p2, color='red', opacity=0.5)
+        p2 = offset + ada.Point(box_c) + dp
+        box = ada.PrimBox(f"StoreyBox{i}", p1, p2, color="red", opacity=0.5)
         boxes.append(box)
     p2 = ada.Part("MyStorey") / boxes
 
     a = ada.Assembly("MySite") / (p, p2)
-    layer = a.presentation_layers.add_layer('Hidden', 'Hidden Layer')
+    layer = a.presentation_layers.add_layer("Hidden", "Hidden Layer")
     layer.members.extend(boxes)
 
     a.show(

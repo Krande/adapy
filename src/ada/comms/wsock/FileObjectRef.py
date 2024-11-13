@@ -4,10 +4,12 @@
 
 import flatbuffers
 from flatbuffers.compat import import_numpy
+
 np = import_numpy()
 
+
 class FileObjectRef(object):
-    __slots__ = ['_tab']
+    __slots__ = ["_tab"]
 
     @classmethod
     def GetRootAs(cls, buf, offset=0):
@@ -20,6 +22,7 @@ class FileObjectRef(object):
     def GetRootAsFileObjectRef(cls, buf, offset=0):
         """This method is deprecated. Please switch to GetRootAs."""
         return cls.GetRootAs(buf, offset)
+
     # FileObjectRef
     def Init(self, buf, pos):
         self._tab = flatbuffers.table.Table(buf, pos)
@@ -58,6 +61,7 @@ class FileObjectRef(object):
         if o != 0:
             x = self._tab.Indirect(o + self._tab.Pos)
             from ada.comms.wsock.FileObjectRef import FileObjectRef
+
             obj = FileObjectRef()
             obj.Init(self._tab.Bytes, x)
             return obj
@@ -69,6 +73,7 @@ class FileObjectRef(object):
         if o != 0:
             x = self._tab.Indirect(o + self._tab.Pos)
             from ada.comms.wsock.FileObjectRef import FileObjectRef
+
             obj = FileObjectRef()
             obj.Init(self._tab.Bytes, x)
             return obj
@@ -87,67 +92,88 @@ class FileObjectRef(object):
         if o != 0:
             x = self._tab.Indirect(o + self._tab.Pos)
             from ada.comms.wsock.ProcedureStart import ProcedureStart
+
             obj = ProcedureStart()
             obj.Init(self._tab.Bytes, x)
             return obj
         return None
 
+
 def FileObjectRefStart(builder):
     builder.StartObject(8)
+
 
 def Start(builder):
     FileObjectRefStart(builder)
 
+
 def FileObjectRefAddName(builder, name):
     builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(name), 0)
+
 
 def AddName(builder, name):
     FileObjectRefAddName(builder, name)
 
+
 def FileObjectRefAddFileType(builder, fileType):
     builder.PrependInt8Slot(1, fileType, 0)
+
 
 def AddFileType(builder, fileType):
     FileObjectRefAddFileType(builder, fileType)
 
+
 def FileObjectRefAddPurpose(builder, purpose):
     builder.PrependInt8Slot(2, purpose, 0)
+
 
 def AddPurpose(builder, purpose):
     FileObjectRefAddPurpose(builder, purpose)
 
+
 def FileObjectRefAddFilepath(builder, filepath):
     builder.PrependUOffsetTRelativeSlot(3, flatbuffers.number_types.UOffsetTFlags.py_type(filepath), 0)
+
 
 def AddFilepath(builder, filepath):
     FileObjectRefAddFilepath(builder, filepath)
 
+
 def FileObjectRefAddGlbFile(builder, glbFile):
     builder.PrependUOffsetTRelativeSlot(4, flatbuffers.number_types.UOffsetTFlags.py_type(glbFile), 0)
+
 
 def AddGlbFile(builder, glbFile):
     FileObjectRefAddGlbFile(builder, glbFile)
 
+
 def FileObjectRefAddIfcsqliteFile(builder, ifcsqliteFile):
     builder.PrependUOffsetTRelativeSlot(5, flatbuffers.number_types.UOffsetTFlags.py_type(ifcsqliteFile), 0)
+
 
 def AddIfcsqliteFile(builder, ifcsqliteFile):
     FileObjectRefAddIfcsqliteFile(builder, ifcsqliteFile)
 
+
 def FileObjectRefAddIsProcedureOutput(builder, isProcedureOutput):
     builder.PrependBoolSlot(6, isProcedureOutput, 0)
+
 
 def AddIsProcedureOutput(builder, isProcedureOutput):
     FileObjectRefAddIsProcedureOutput(builder, isProcedureOutput)
 
+
 def FileObjectRefAddProcedureParent(builder, procedureParent):
     builder.PrependUOffsetTRelativeSlot(7, flatbuffers.number_types.UOffsetTFlags.py_type(procedureParent), 0)
+
 
 def AddProcedureParent(builder, procedureParent):
     FileObjectRefAddProcedureParent(builder, procedureParent)
 
+
 def FileObjectRefEnd(builder):
     return builder.EndObject()
+
 
 def End(builder):
     return FileObjectRefEnd(builder)

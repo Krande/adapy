@@ -4,11 +4,11 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Callable
 
-import ada
 import ifcopenshell
 import ifcopenshell.api.material
 import ifcopenshell.geom
 
+import ada
 from ada.base.changes import ChangeAction
 from ada.cadit.ifc.read.reader_utils import get_ifc_body
 from ada.cadit.ifc.utils import add_negative_extrusion, write_elem_property_sets
@@ -30,7 +30,7 @@ from ada.config import logger
 from ada.core.guid import create_guid
 
 if TYPE_CHECKING:
-    from ada import Beam, Boolean, Material, Part, Pipe, Plate, Section, Shape, Wall
+    from ada import Beam, Material, Part, Pipe, Plate, Section, Shape, Wall
     from ada.cadit.ifc.store import IfcStore
 
 
@@ -45,8 +45,10 @@ def is_modified(x):
 def is_deleted(x):
     return x.change_type == ChangeAction.DELETED
 
+
 def _default_color_name_gen():
-    return ada.Counter(prefix='Color', start=1)
+    return ada.Counter(prefix="Color", start=1)
+
 
 @dataclass
 class IfcWriter:
@@ -189,7 +191,7 @@ class IfcWriter:
                 group.change_type = ChangeAction.NOCHANGE
 
     def sync_presentation_layers(self) -> int:
-        from ada import Part, Pipe, Boolean
+        from ada import Boolean, Part, Pipe
 
         num_added = 0
         f = self.ifc_store.f

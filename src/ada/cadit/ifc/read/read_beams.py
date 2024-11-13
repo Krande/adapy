@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import numpy as np
+
 from ada import Beam, Placement
 from ada.api.beams import BeamRevolve
 from ada.api.curves import CurveRevolve
@@ -51,9 +52,6 @@ def import_ifc_beam(ifc_elem, name, ifc_store: IfcStore) -> Beam:
         return import_revolved_beam(ifc_elem, axis, name, sec, mat, ifc_store)
     else:
         return import_straight_beam(ifc_elem, axis, name, sec, mat, ifc_store)
-
-
-
 
 
 def import_straight_beam(ifc_elem, axis, name, sec, mat, ifc_store: IfcStore) -> Beam:

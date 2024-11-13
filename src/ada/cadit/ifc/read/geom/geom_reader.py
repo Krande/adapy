@@ -1,4 +1,4 @@
-from typing import Iterable, Union
+from typing import Union
 
 import ifcopenshell
 
@@ -20,6 +20,7 @@ def get_product_definitions(prod_def: ifcopenshell.entity_instance) -> list[GEOM
         for item in representation.Items:
             geometries.append(import_geometry_from_ifc_geom(item))
     return geometries
+
 
 def import_geometry_from_ifc_geom(geom_repr: ifcopenshell.entity_instance) -> GEOM:
     if geom_repr.is_a("IfcExtrudedAreaSolid"):
