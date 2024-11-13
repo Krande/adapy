@@ -12,6 +12,7 @@ from ada.api.connections import JointBase
 from ada.api.containers import Beams, Connections, Materials, Nodes, Plates, Sections
 from ada.api.groups import Group
 from ada.api.plates import PlateCurved
+from ada.api.presentation_layers import PresentationLayers
 from ada.base.changes import ChangeAction
 from ada.base.ifc_types import SpatialTypes
 from ada.base.physical_objects import BackendGeom
@@ -48,17 +49,17 @@ class Part(BackendGeom):
     IFC_CLASSES = SpatialTypes
 
     def __init__(
-        self,
-        name,
-        color=None,
-        placement=None,
-        fem: FEM = None,
-        metadata=None,
-        parent=None,
-        units: Units = Units.M,
-        guid=None,
-        ifc_store: IfcStore = None,
-        ifc_class: SpatialTypes = SpatialTypes.IfcBuildingStorey,
+            self,
+            name,
+            color=None,
+            placement=None,
+            fem: FEM = None,
+            metadata=None,
+            parent=None,
+            units: Units = Units.M,
+            guid=None,
+            ifc_store: IfcStore = None,
+            ifc_class: SpatialTypes = SpatialTypes.IfcBuildingStorey,
     ):
         from ada import FEM
 
@@ -85,6 +86,7 @@ class Part(BackendGeom):
         if fem is not None:
             fem.parent = self
 
+        self._presentation_layers = PresentationLayers()
         self.fem = FEM(name + "-1", parent=self) if fem is None else fem
 
     def add_beam(self, beam: Beam, add_to_layer: str = None) -> Beam:
@@ -285,10 +287,10 @@ class Part(BackendGeom):
             raise NotImplementedError(f'"{type(obj)}" is not yet supported for smart append')
 
     def add_boolean(
-        self,
-        boolean: Boolean | PrimExtrude | PrimRevolve | PrimCyl | PrimBox,
-        add_pen_to_subparts=True,
-        add_to_layer: str = None,
+            self,
+            boolean: Boolean | PrimExtrude | PrimRevolve | PrimCyl | PrimBox,
+            add_pen_to_subparts=True,
+            add_to_layer: str = None,
     ) -> Boolean:
         def create_pen(pen_):
             if isinstance(pen_, (PrimExtrude, PrimRevolve, PrimCyl, PrimBox)):
@@ -369,16 +371,16 @@ class Part(BackendGeom):
                 raise ValueError(f"Unrecognized {type(obj)=}")
 
     def read_step_file(
-        self,
-        step_path,
-        name=None,
-        scale=None,
-        transform=None,
-        rotate=None,
-        colour=None,
-        opacity=1.0,
-        source_units=Units.M,
-        include_shells=False,
+            self,
+            step_path,
+            name=None,
+            scale=None,
+            transform=None,
+            rotate=None,
+            colour=None,
+            opacity=1.0,
+            source_units=Units.M,
+            include_shells=False,
     ):
         """
 
@@ -616,7 +618,7 @@ class Part(BackendGeom):
         return list_of_parts
 
     def get_all_physical_objects(
-        self, sub_elements_only=False, by_type=None, filter_by_guids: list[str] = None, pipe_to_segments=False
+            self, sub_elements_only=False, by_type=None, filter_by_guids: list[str] = None, pipe_to_segments=False
     ) -> Iterable[Beam | Plate | Wall | Pipe | Shape]:
         physical_objects = []
         if sub_elements_only:
@@ -710,21 +712,21 @@ class Part(BackendGeom):
         raise NotImplementedError()
 
     def to_fem_obj(
-        self,
-        mesh_size: float,
-        bm_repr: GeomRepr = GeomRepr.LINE,
-        pl_repr: GeomRepr = GeomRepr.SHELL,
-        shp_repr: GeomRepr = GeomRepr.SOLID,
-        options: GmshOptions = None,
-        silent=True,
-        interactive=False,
-        use_quads=False,
-        use_hex=False,
-        experimental_bm_splitting=True,
-        experimental_pl_splitting=True,
-        name=None,
-        debug_mode=False,
-        merge_coincident_nodes=True,
+            self,
+            mesh_size: float,
+            bm_repr: GeomRepr = GeomRepr.LINE,
+            pl_repr: GeomRepr = GeomRepr.SHELL,
+            shp_repr: GeomRepr = GeomRepr.SOLID,
+            options: GmshOptions = None,
+            silent=True,
+            interactive=False,
+            use_quads=False,
+            use_hex=False,
+            experimental_bm_splitting=True,
+            experimental_pl_splitting=True,
+            name=None,
+            debug_mode=False,
+            merge_coincident_nodes=True,
     ) -> FEM:
         from ada import Beam, Plate, Shape
         from ada.fem.elements import Mass
@@ -795,12 +797,12 @@ class Part(BackendGeom):
         self.to_trimesh_scene(**kwargs).export(gltf_file, buffer_postprocessor=post_pro)
 
     def to_trimesh_scene(
-        self,
-        render_override: dict[str, GeomRepr | str] = None,
-        filter_by_guids=None,
-        merge_meshes=True,
-        stream_from_ifc=False,
-        params: RenderParams = None,
+            self,
+            render_override: dict[str, GeomRepr | str] = None,
+            filter_by_guids=None,
+            merge_meshes=True,
+            stream_from_ifc=False,
+            params: RenderParams = None,
     ) -> trimesh.Scene:
         from ada import Assembly
         from ada.occ.tessellating import BatchTessellator
@@ -814,14 +816,14 @@ class Part(BackendGeom):
         )
 
     def to_stp(
-        self,
-        destination_file,
-        geom_repr: GeomRepr = GeomRepr.SOLID,
-        progress_callback: Callable[
-            [int, int],
-            None,
-        ] = None,
-        geom_repr_override: dict[str, GeomRepr] = None,
+            self,
+            destination_file,
+            geom_repr: GeomRepr = GeomRepr.SOLID,
+            progress_callback: Callable[
+                [int, int],
+                None,
+            ] = None,
+            geom_repr_override: dict[str, GeomRepr] = None,
     ):
         from ada.occ.store import OCCStore
 
@@ -920,6 +922,14 @@ class Part(BackendGeom):
         for sec in value.sections.sections:
             sec.material = self.add_material(sec.material)
         self._fem = value
+
+    @property
+    def presentation_layers(self) -> PresentationLayers:
+        return self._presentation_layers
+
+    @presentation_layers.setter
+    def presentation_layers(self, value):
+        self._presentation_layers = value
 
     @property
     def connections(self) -> Connections:
