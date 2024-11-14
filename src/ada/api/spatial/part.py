@@ -458,9 +458,17 @@ class Part(BackendGeom):
             convert_part_objects(self, skip_plates, skip_beams)
         logger.info("Conversion complete")
 
-    def get_part(self, name: str) -> Part:
+    def get_part(self, name: str, search_all_parts_in_assembly=False) -> Part | None:
+        """Get part by name."""
+        if search_all_parts_in_assembly:
+            all_parts = self.get_all_parts_in_assembly(include_self=True)
+            for part in all_parts:
+                if part.name == name:
+                    return part
+            return None
+
         key_map = {key.lower(): key for key in self.parts.keys()}
-        return self.parts[key_map[name.lower()]]
+        return self.parts.get(key_map[name.lower()])
 
     def _get_by_prop(self, value: str, prop: str) -> Part | Plate | Beam | Shape | Material | Pipe | None:
         pmap = {getattr(p, prop): p for p in self.get_all_subparts() + [self]}

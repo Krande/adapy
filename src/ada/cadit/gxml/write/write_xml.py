@@ -7,6 +7,7 @@ import zipfile
 from io import BytesIO
 from typing import TYPE_CHECKING, Callable
 
+from .write_sets import add_sets
 from ...sat.write.writer import part_to_sat_writer
 from .write_bcs import add_boundary_conditions
 from .write_beams import add_beams
@@ -56,6 +57,8 @@ def write_xml(part: Part, xml_file, embed_sat=False, writer_postprocessor: Calla
         add_plates(structure_domain, part, sw)
     add_boundary_conditions(structures_elem, part)
     add_masses(structures_elem, part)
+
+    add_sets(structure_domain, part)
 
     if writer_postprocessor:
         writer_postprocessor(root, part)
