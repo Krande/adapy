@@ -7,6 +7,8 @@ from typing import Callable, Optional, Set
 from urllib.parse import parse_qs, urlparse
 
 import websockets
+import websockets.protocol
+from websockets.asyncio.server import ServerConnection
 
 from ada.comms.fb_model_gen import CommandTypeDC, MessageDC, TargetTypeDC
 from ada.comms.msg_handling.default_on_message import default_on_message
@@ -19,7 +21,7 @@ from ada.procedural_modelling.procedure_store import ProcedureStore
 
 @dataclass
 class ConnectedClient:
-    websocket: websockets.WebSocketServerProtocol = field(repr=False)
+    websocket: ServerConnection = field(repr=False)
     group_type: TargetTypeDC | None = None
     instance_id: int | None = None
     port: int = field(init=False, default=None, repr=False)
@@ -28,9 +30,10 @@ class ConnectedClient:
         return hash(self.websocket)
 
 
-async def process_client(websocket, path) -> ConnectedClient:
-    group_type = websocket.request_headers.get("Client-Type")
-    instance_id = websocket.request_headers.get("instance-id")
+async def process_client(websocket: ServerConnection) -> ConnectedClient:
+    path = websocket.request.path
+    group_type = websocket.request.headers.get("Client-Type")
+    instance_id = websocket.request.headers.get("instance-id")
     if instance_id is not None:
         instance_id = int(instance_id)
     if group_type is not None:
@@ -100,8 +103,8 @@ class WebSocketAsyncServer:
                 return client
         return None
 
-    async def handle_client(self, websocket: websockets.WebSocketServerProtocol, path: str):
-        client = await process_client(websocket, path)
+    async def handle_client(self, websocket: ServerConnection):
+        client = await process_client(websocket)
 
         self.connected_clients.add(client)
         logger.debug(f"Client connected: {client} [{len(self.connected_clients)} clients connected]")
@@ -126,7 +129,7 @@ class WebSocketAsyncServer:
         return f"Web clients: {len(web_clients)}, Local clients: {len(local_clients)}"
 
     async def handle_message(
-        self, message: bytes, client: ConnectedClient, websocket: websockets.WebSocketServerProtocol
+        self, message: bytes, client: ConnectedClient, websocket: ServerConnection
     ):
         msg = await handle_partial_message(message)
         logger.debug(f"Received message: {msg}")
@@ -161,7 +164,7 @@ class WebSocketAsyncServer:
             if client == sender:
                 continue
             # check if client is still connected
-            if client.websocket.closed:
+            if client.websocket.state != websockets.protocol.State.OPEN:
                 logger.debug(f"Client disconnected: {client}")
                 self.connected_clients.remove(client)
                 continue

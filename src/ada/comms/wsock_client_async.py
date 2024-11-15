@@ -33,7 +33,7 @@ class WebSocketClientAsync(WebSocketClientBase):
 
     async def connect(self):
         url = f"ws://{self.host}:{self.port}" if self.url_override is None else self.url_override
-        conn = websockets.connect(url, extra_headers=self._extra_headers())
+        conn = websockets.connect(url, additional_headers=self._extra_headers())
         self.websocket = await conn.__aenter__()
         logger.info(f"Connected to server: ws://{self.host}:{self.port}")
 
