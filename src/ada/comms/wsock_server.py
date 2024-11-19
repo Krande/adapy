@@ -128,9 +128,7 @@ class WebSocketAsyncServer:
         local_clients = [cl for cl in self.connected_clients if cl.group_type == TargetTypeDC.LOCAL]
         return f"Web clients: {len(web_clients)}, Local clients: {len(local_clients)}"
 
-    async def handle_message(
-        self, message: bytes, client: ConnectedClient, websocket: ServerConnection
-    ):
+    async def handle_message(self, message: bytes, client: ConnectedClient, websocket: ServerConnection):
         msg = await handle_partial_message(message)
         logger.debug(f"Received message: {msg}")
 

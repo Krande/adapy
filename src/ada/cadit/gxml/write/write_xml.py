@@ -7,7 +7,6 @@ import zipfile
 from io import BytesIO
 from typing import TYPE_CHECKING, Callable
 
-from .write_sets import add_sets
 from ...sat.write.writer import part_to_sat_writer
 from .write_bcs import add_boundary_conditions
 from .write_beams import add_beams
@@ -16,6 +15,7 @@ from .write_materials import add_materials
 from .write_plates import add_plates
 from .write_sat_embedded import embed_sat_geometry
 from .write_sections import add_sections
+from .write_sets import add_sets
 
 if TYPE_CHECKING:
     from ada import Part
