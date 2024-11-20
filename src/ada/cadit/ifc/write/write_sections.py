@@ -142,9 +142,15 @@ class AngularProfile(ProfileBase):
         section = self.section
         if Config().general_force_param_profiles is True:
             logger.debug(f'Export of "{section.type}" profile to parametric IFC profile is not yet added')
+
         section_profile = section.get_section_profile(True)
-        points = [f.createIfcCartesianPoint(to_real(p)) for p in section_profile.outer_curve.points2d]
-        ifc_polyline = f.createIfcPolyLine(points)
+        points2d = section_profile.outer_curve.points2d
+        if not points2d[0].is_equal(points2d[-1]):
+            points2d.append(points2d[0])
+
+        points = [f.create_entity("IfcCartesianPoint", Coordinates=to_real(p)) for p in points2d]
+        ifc_polyline = f.create_entity("IfcPolyLine", Points=points)
+
         return dict(OuterCurve=ifc_polyline)
 
 
