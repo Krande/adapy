@@ -40,8 +40,8 @@ jobs:
         run: echo "DATE=$(echo $(date +'%y%m%d'))" >> $GITHUB_ENV
 
       - uses: mamba-org/setup-micromamba@v2 # https://github.com/mamba-org/setup-micromamba
-        environment-name: fem-env
         with:
+          environment-name: fem-env
           condarc: |
             channels:
               - conda-forge
