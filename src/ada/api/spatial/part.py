@@ -292,6 +292,8 @@ class Part(BackendGeom):
         add_pen_to_subparts=True,
         add_to_layer: str = None,
     ) -> Boolean:
+        from ada import Boolean
+
         def create_pen(pen_):
             if isinstance(pen_, (PrimExtrude, PrimRevolve, PrimCyl, PrimBox)):
                 return Boolean(pen_, parent=self)
