@@ -76,6 +76,7 @@ frontend = { features = ["web"], no-default-feature = true}
 
 [tool.pixi.feature.py312.dependencies]
 python="3.12"
+bcf-client="*"
 kaleido-core = "0.1.0"
 numpy = "*"
 hdf5 = "*"
@@ -88,7 +89,7 @@ trimesh = "*"
 occt =">=7.7.2"
 send2trash = "*"
 meshio = "*"
-websockets = "*"
+websockets = ">=14"
 plotly = "*"
 python-kaleido = "*"
 calculix = "*"

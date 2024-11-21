@@ -94,6 +94,18 @@ class FileObjectDC:
 
 
 @dataclass
+class FileObjectRefDC:
+    name: str = ""
+    file_type: Optional[FileTypeDC] = None
+    purpose: Optional[FilePurposeDC] = None
+    filepath: pathlib.Path | str = ""
+    glb_file: Optional[FileObjectRefDC] = None
+    ifcsqlite_file: Optional[FileObjectRefDC] = None
+    is_procedure_output: bool = None
+    procedure_parent: Optional[ProcedureStartDC] = None
+
+
+@dataclass
 class MeshInfoDC:
     object_name: str = ""
     face_index: int = None

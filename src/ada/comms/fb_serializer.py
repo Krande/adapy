@@ -6,6 +6,7 @@ from ada.comms.fb_model_gen import (
     ErrorDC,
     FileArgDC,
     FileObjectDC,
+    FileObjectRefDC,
     MeshInfoDC,
     MessageDC,
     ParameterDC,
@@ -23,6 +24,7 @@ from ada.comms.wsock import (
     Error,
     FileArg,
     FileObject,
+    FileObjectRef,
     MeshInfo,
     Message,
     Parameter,
@@ -101,6 +103,45 @@ def serialize_fileobject(builder: flatbuffers.Builder, obj: Optional[FileObjectD
     if obj.procedure_parent is not None:
         FileObject.AddProcedureParent(builder, procedure_parent_obj)
     return FileObject.End(builder)
+
+
+def serialize_fileobjectref(builder: flatbuffers.Builder, obj: Optional[FileObjectRefDC]) -> Optional[int]:
+    if obj is None:
+        return None
+    name_str = None
+    if obj.name is not None:
+        name_str = builder.CreateString(str(obj.name))
+    filepath_str = None
+    if obj.filepath is not None:
+        filepath_str = builder.CreateString(str(obj.filepath))
+    glb_file_obj = None
+    if obj.glb_file is not None:
+        glb_file_obj = serialize_fileobjectref(builder, obj.glb_file)
+    ifcsqlite_file_obj = None
+    if obj.ifcsqlite_file is not None:
+        ifcsqlite_file_obj = serialize_fileobjectref(builder, obj.ifcsqlite_file)
+    procedure_parent_obj = None
+    if obj.procedure_parent is not None:
+        procedure_parent_obj = serialize_procedurestart(builder, obj.procedure_parent)
+
+    FileObjectRef.Start(builder)
+    if name_str is not None:
+        FileObjectRef.AddName(builder, name_str)
+    if obj.file_type is not None:
+        FileObjectRef.AddFileType(builder, obj.file_type.value)
+    if obj.purpose is not None:
+        FileObjectRef.AddPurpose(builder, obj.purpose.value)
+    if filepath_str is not None:
+        FileObjectRef.AddFilepath(builder, filepath_str)
+    if obj.glb_file is not None:
+        FileObjectRef.AddGlbFile(builder, glb_file_obj)
+    if obj.ifcsqlite_file is not None:
+        FileObjectRef.AddIfcsqliteFile(builder, ifcsqlite_file_obj)
+    if obj.is_procedure_output is not None:
+        FileObjectRef.AddIsProcedureOutput(builder, obj.is_procedure_output)
+    if obj.procedure_parent is not None:
+        FileObjectRef.AddProcedureParent(builder, procedure_parent_obj)
+    return FileObjectRef.End(builder)
 
 
 def serialize_meshinfo(builder: flatbuffers.Builder, obj: Optional[MeshInfoDC]) -> Optional[int]:

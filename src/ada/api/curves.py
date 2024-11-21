@@ -220,7 +220,7 @@ class CurveOpen2d:
         return self.orientation.origin
 
     @property
-    def normal(self):
+    def normal(self) -> Direction:
         return self.orientation.zdir
 
     @property

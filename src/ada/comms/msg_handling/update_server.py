@@ -25,18 +25,19 @@ def update_server(server: WebSocketAsyncServer, client: ConnectedClient, add_fil
 
         if add_file.glb_file is None:
             tmp_glb_fp = tmp_ifc_fp.with_suffix(".glb")
+            if not tmp_glb_fp.exists():
+                ifc_convert_exe = None
 
-            ifc_convert_exe = None
-            if Config().procedures_use_ifc_convert:
-                ifc_convert_exe = shutil.which("ifcconvert")
-                if platform.platform().startswith("Windows"):
-                    ifc_convert_exe = shutil.which("ifcconvert.exe")
+                if Config().procedures_use_ifc_convert:
+                    ifc_convert_exe = shutil.which("ifcconvert")
+                    if platform.platform().startswith("Windows"):
+                        ifc_convert_exe = shutil.which("ifcconvert.exe")
 
-            if ifc_convert_exe:
-                subprocess.run([ifc_convert_exe, tmp_ifc_fp.as_posix(), tmp_glb_fp.as_posix()])
-            else:
-                a = ada.from_ifc(add_file.filepath)
-                a.to_gltf(tmp_glb_fp)
+                if ifc_convert_exe:
+                    subprocess.run([ifc_convert_exe, tmp_ifc_fp.as_posix(), tmp_glb_fp.as_posix()])
+                else:
+                    a = ada.from_ifc(add_file.filepath)
+                    a.to_gltf(tmp_glb_fp)
 
             add_file.glb_file = FileObjectDC(
                 name=add_file.name, filepath=tmp_glb_fp, file_type=FileTypeDC.GLB, purpose=add_file.purpose

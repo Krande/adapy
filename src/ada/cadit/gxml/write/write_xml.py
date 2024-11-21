@@ -15,6 +15,7 @@ from .write_materials import add_materials
 from .write_plates import add_plates
 from .write_sat_embedded import embed_sat_geometry
 from .write_sections import add_sections
+from .write_sets import add_sets
 
 if TYPE_CHECKING:
     from ada import Part
@@ -56,6 +57,8 @@ def write_xml(part: Part, xml_file, embed_sat=False, writer_postprocessor: Calla
         add_plates(structure_domain, part, sw)
     add_boundary_conditions(structures_elem, part)
     add_masses(structures_elem, part)
+
+    add_sets(structure_domain, part)
 
     if writer_postprocessor:
         writer_postprocessor(root, part)

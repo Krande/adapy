@@ -1,4 +1,4 @@
-from typing import Iterable, Union
+from typing import Union
 
 import ifcopenshell
 
@@ -12,12 +12,14 @@ from .surfaces import advanced_face, triangulated_face_set
 GEOM = Union[geo_so.SOLID_GEOM_TYPES | geo_cu.CURVE_GEOM_TYPES | geo_su.SURFACE_GEOM_TYPES]
 
 
-def get_product_definitions(prod_def: ifcopenshell.entity_instance) -> Iterable[GEOM]:
+def get_product_definitions(prod_def: ifcopenshell.entity_instance) -> list[GEOM]:
+    geometries = []
     for representation in prod_def.Representation.Representations:
         if representation.RepresentationIdentifier != "Body":
             continue
         for item in representation.Items:
-            yield import_geometry_from_ifc_geom(item)
+            geometries.append(import_geometry_from_ifc_geom(item))
+    return geometries
 
 
 def import_geometry_from_ifc_geom(geom_repr: ifcopenshell.entity_instance) -> GEOM:

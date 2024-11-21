@@ -5,6 +5,7 @@ from ada.comms.fb_model_gen import (
     ErrorDC,
     FileArgDC,
     FileObjectDC,
+    FileObjectRefDC,
     FilePurposeDC,
     FileTypeDC,
     MeshInfoDC,
@@ -50,6 +51,22 @@ def deserialize_fileobject(fb_obj) -> FileObjectDC | None:
         filedata=bytes(fb_obj.FiledataAsNumpy()) if fb_obj.FiledataLength() > 0 else None,
         glb_file=deserialize_fileobject(fb_obj.GlbFile()),
         ifcsqlite_file=deserialize_fileobject(fb_obj.IfcsqliteFile()),
+        is_procedure_output=fb_obj.IsProcedureOutput(),
+        procedure_parent=deserialize_procedurestart(fb_obj.ProcedureParent()),
+    )
+
+
+def deserialize_fileobjectref(fb_obj) -> FileObjectRefDC | None:
+    if fb_obj is None:
+        return None
+
+    return FileObjectRefDC(
+        name=fb_obj.Name().decode("utf-8") if fb_obj.Name() is not None else None,
+        file_type=FileTypeDC(fb_obj.FileType()),
+        purpose=FilePurposeDC(fb_obj.Purpose()),
+        filepath=fb_obj.Filepath().decode("utf-8") if fb_obj.Filepath() is not None else None,
+        glb_file=deserialize_fileobjectref(fb_obj.GlbFile()),
+        ifcsqlite_file=deserialize_fileobjectref(fb_obj.IfcsqliteFile()),
         is_procedure_output=fb_obj.IsProcedureOutput(),
         procedure_parent=deserialize_procedurestart(fb_obj.ProcedureParent()),
     )

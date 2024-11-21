@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Callable
 
 import ifcopenshell
 import ifcopenshell.api.material
 import ifcopenshell.geom
 
+import ada
 from ada.base.changes import ChangeAction
 from ada.cadit.ifc.read.reader_utils import get_ifc_body
 from ada.cadit.ifc.utils import add_negative_extrusion, write_elem_property_sets
@@ -29,7 +30,7 @@ from ada.config import logger
 from ada.core.guid import create_guid
 
 if TYPE_CHECKING:
-    from ada import Beam, Boolean, Material, Part, Pipe, Plate, Section, Shape, Wall
+    from ada import Beam, Material, Part, Pipe, Plate, Section, Shape, Wall
     from ada.cadit.ifc.store import IfcStore
 
 
@@ -45,10 +46,15 @@ def is_deleted(x):
     return x.change_type == ChangeAction.DELETED
 
 
+def _default_color_name_gen():
+    return ada.Counter(prefix="Color", start=1)
+
+
 @dataclass
 class IfcWriter:
     ifc_store: IfcStore
     callback: Callable[[int, int], None] = None
+    color_name_gen: ada.Counter = field(default_factory=_default_color_name_gen)
 
     def sync_spatial_hierarchy(self, include_fem=False) -> int:
         if len(list(self.ifc_store.f.by_type("IfcSite"))) == 0:
@@ -151,8 +157,41 @@ class IfcWriter:
             num_mod += 1
         return num_mod
 
+    def sync_groups(self):
+        f = self.ifc_store.f
+        for p in self.ifc_store.assembly.get_all_parts_in_assembly(include_self=True):
+            for group in p.groups.values():
+                if group.change_type == ChangeAction.ADDED:
+                    ifc_group = f.create_entity(
+                        "IfcGroup",
+                        GlobalId=group.guid,
+                        OwnerHistory=self.ifc_store.owner_history,
+                        Name=group.name,
+                        Description=group.description,
+                    )
+                    f.create_entity(
+                        "IfcRelAssignsToGroup",
+                        GlobalId=create_guid(),
+                        OwnerHistory=self.ifc_store.owner_history,
+                        Name=None,
+                        Description=None,
+                        RelatingGroup=ifc_group,
+                        RelatedObjects=[f.by_guid(x.guid) for x in group.members],
+                    )
+                elif group.change_type == ChangeAction.MODIFIED:
+                    ifc_group = f.by_guid(group.guid)
+                    ifc_group.Name = group.name
+                    ifc_group.Description = group.description
+                    ifc_group.RelatedObjects = [f.by_guid(x.guid) for x in group.members]
+                elif group.change_type == ChangeAction.NOCHANGE:
+                    pass
+                else:
+                    raise NotImplementedError(f"Group change type {group.change_type} is not supported")
+
+                group.change_type = ChangeAction.NOCHANGE
+
     def sync_presentation_layers(self) -> int:
-        from ada import Part, Pipe
+        from ada import Boolean, Part, Pipe
 
         num_added = 0
         f = self.ifc_store.f
@@ -349,7 +388,7 @@ class IfcWriter:
         elif isinstance(obj, Pipe):
             return write_ifc_pipe(obj)
         elif issubclass(type(obj), Shape):
-            return write_ifc_shape(obj)
+            return write_ifc_shape(self.ifc_store, obj)
         elif isinstance(obj, Wall):
             return write_ifc_wall(obj)
         else:

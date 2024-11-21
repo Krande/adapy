@@ -4,7 +4,6 @@ import os
 import pathlib
 from typing import TYPE_CHECKING, Callable, Union
 
-from ada.api.presentation_layers import PresentationLayers
 from ada.api.spatial.part import Part
 from ada.api.user import User
 from ada.base.ifc_types import SpatialTypes
@@ -69,7 +68,6 @@ class Assembly(Part):
         self._ifc_sections = None
         self._ifc_materials = None
         self._source_ifc_files = dict()
-        self._presentation_layers = PresentationLayers()
 
         self._cache_store = None
         if enable_cache:
@@ -290,14 +288,6 @@ class Assembly(Part):
     @ifc_store.setter
     def ifc_store(self, value):
         self._ifc_store = value
-
-    @property
-    def presentation_layers(self) -> PresentationLayers:
-        return self._presentation_layers
-
-    @presentation_layers.setter
-    def presentation_layers(self, value):
-        self._presentation_layers = value
 
     @property
     def user(self) -> User:

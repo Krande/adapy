@@ -430,20 +430,31 @@ def add_colour(
     """Add IFcSurfaceStyle using either IfcSurfaceStyleRendering or IfcSurfaceStyleShading"""
     if color is None:
         return None
-    ifc_color = f.createIfcColourRgb(name, color.red, color.green, color.blue)
+    # check if color is already defined
+    existing_ifc_colors = f.by_type("IfcColourRgb")
+    # make a map of existing colors
+    existing_colors = {(c.Red, c.Green, c.Blue): c for c in existing_ifc_colors}
+    new_rgb = (color.red, color.green, color.blue)
+    if new_rgb in existing_colors.keys():
+        ifc_color = existing_colors[new_rgb]
+    else:
+        ifc_color = f.create_entity("IfcColourRgb", name, color.red, color.green, color.blue)
 
     if use_surface_style_rendering:
-        surfaceStyleShading = f.createIFCSURFACESTYLERENDERING(ifc_color, color.transparency)
+        surface_style_shading = f.create_entity("IFCSURFACESTYLERENDERING", ifc_color, color.transparency)
     else:
-        surfaceStyleShading = f.createIfcSurfaceStyleShading()
-        surfaceStyleShading.SurfaceColour = ifc_color
+        surface_style_shading = f.create_entity(
+            "IfcSurfaceStyleShading", SurfaceColour=ifc_color, Transparency=color.transparency
+        )
 
-    surfaceStyle = f.createIfcSurfaceStyle(ifc_color.Name, "BOTH", (surfaceStyleShading,))
+    surface_style = f.create_entity(
+        "IfcSurfaceStyle", Name=ifc_color.Name, Side="BOTH", Styles=(surface_style_shading,)
+    )
     if type(ifc_body) in [list, tuple]:
         for ifc_b in ifc_body:
-            f.createIfcStyledItem(ifc_b, (surfaceStyle,), ifc_color.Name)
+            f.create_entity("IfcStyledItem", ifc_b, (surface_style,), ifc_color.Name)
     else:
-        f.createIfcStyledItem(ifc_body, (surfaceStyle,), ifc_color.Name)
+        f.createIfcStyledItem(ifc_body, (surface_style,), ifc_color.Name)
 
 
 def calculate_unit_scale(file):

@@ -12,6 +12,7 @@ from ada.api.connections import JointBase
 from ada.api.containers import Beams, Connections, Materials, Nodes, Plates, Sections
 from ada.api.groups import Group
 from ada.api.plates import PlateCurved
+from ada.api.presentation_layers import PresentationLayers
 from ada.base.changes import ChangeAction
 from ada.base.ifc_types import SpatialTypes
 from ada.base.physical_objects import BackendGeom
@@ -85,6 +86,7 @@ class Part(BackendGeom):
         if fem is not None:
             fem.parent = self
 
+        self._presentation_layers = PresentationLayers()
         self.fem = FEM(name + "-1", parent=self) if fem is None else fem
 
     def add_beam(self, beam: Beam, add_to_layer: str = None) -> Beam:
@@ -324,14 +326,18 @@ class Part(BackendGeom):
             self._instances[element] = Instance(element)
         self._instances[element].placements.append(placement)
 
-    def add_set(self, name, set_members: list[Part | Beam | Plate | Wall | Pipe | Shape]) -> Group:
-        if name not in self.groups.keys():
-            self.groups[name] = Group(name, set_members, parent=self)
+    def add_group(self, name, set_members: list[Part | Beam | Plate | Wall | Pipe | Shape]) -> Group:
+        exist_group = self.groups.get(name)
+        if exist_group is None:
+            self.groups[name] = Group(name, set_members, parent=self, change_type=ChangeAction.ADDED)
         else:
             logger.info(f'Appending set "{name}"')
             for mem in set_members:
-                if mem not in self.groups[name].members:
-                    self.groups[name].members.append(mem)
+                if mem not in exist_group.members:
+                    exist_group.members.append(mem)
+
+            if exist_group.change_type != ChangeAction.ADDED:
+                exist_group.change_type = ChangeAction.MODIFIED
 
         return self.groups[name]
 
@@ -452,9 +458,17 @@ class Part(BackendGeom):
             convert_part_objects(self, skip_plates, skip_beams)
         logger.info("Conversion complete")
 
-    def get_part(self, name: str) -> Part:
+    def get_part(self, name: str, search_all_parts_in_assembly=False) -> Part | None:
+        """Get part by name."""
+        if search_all_parts_in_assembly:
+            all_parts = self.get_all_parts_in_assembly(include_self=True)
+            for part in all_parts:
+                if part.name == name:
+                    return part
+            return None
+
         key_map = {key.lower(): key for key in self.parts.keys()}
-        return self.parts[key_map[name.lower()]]
+        return self.parts.get(key_map[name.lower()])
 
     def _get_by_prop(self, value: str, prop: str) -> Part | Plate | Beam | Shape | Material | Pipe | None:
         pmap = {getattr(p, prop): p for p in self.get_all_subparts() + [self]}
@@ -612,7 +626,12 @@ class Part(BackendGeom):
         return list_of_parts
 
     def get_all_physical_objects(
-        self, sub_elements_only=False, by_type=None, filter_by_guids: list[str] = None, pipe_to_segments=False
+        self,
+        sub_elements_only=False,
+        by_type=None,
+        filter_by_guids: list[str] = None,
+        pipe_to_segments=False,
+        by_metadata: dict = None,
     ) -> Iterable[Beam | Plate | Wall | Pipe | Shape]:
         physical_objects = []
         if sub_elements_only:
@@ -630,6 +649,11 @@ class Part(BackendGeom):
 
         if by_type is not None:
             res = filter(lambda x: type(x) is by_type, chain.from_iterable(physical_objects))
+        elif by_metadata is not None:
+            res = filter(
+                lambda x: all(x.metadata.get(key) == value for key, value in by_metadata.items()),
+                chain.from_iterable(physical_objects),
+            )
         else:
             res = chain.from_iterable(physical_objects)
 
@@ -916,6 +940,14 @@ class Part(BackendGeom):
         for sec in value.sections.sections:
             sec.material = self.add_material(sec.material)
         self._fem = value
+
+    @property
+    def presentation_layers(self) -> PresentationLayers:
+        return self._presentation_layers
+
+    @presentation_layers.setter
+    def presentation_layers(self, value):
+        self._presentation_layers = value
 
     @property
     def connections(self) -> Connections:

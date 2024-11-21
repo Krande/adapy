@@ -203,7 +203,7 @@ def merged_mesh_to_trimesh_scene(
             if pbr_mat.hex == "#000000":
                 pbr_mat = Color(*color_dict["light-gray"])
             pbr_mat = trimesh.visual.material.PBRMaterial(
-                f"mat{buffer_id}", baseColorFactor=pbr_mat.rgb255, doubleSided=True
+                f"mat{buffer_id}", baseColorFactor=(*pbr_mat.rgb255, pbr_mat.opacity), doubleSided=True
             )
         mesh.visual = trimesh.visual.TextureVisuals(material=pbr_mat)
         mesh.visual.uv = np.zeros((len(mesh.vertices), 2))

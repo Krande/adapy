@@ -5,8 +5,9 @@ from typing import TYPE_CHECKING
 import ifcopenshell.geom
 from OCC.Core.TopoDS import TopoDS_Compound, TopoDS_Shape
 
-from ada import Assembly, Shape
+from ada import Shape
 from ada.cadit.ifc.read.geom.geom_reader import get_product_definitions
+from ada.cadit.ifc.read.read_color import get_product_color
 from ada.config import Config, logger
 from ada.geom import Geometry
 from ada.visit.colors import Color
@@ -17,9 +18,11 @@ if TYPE_CHECKING:
 
 def import_ifc_shape(product: ifcopenshell.entity_instance, name, ifc_store: IfcStore):
     logger.info(f'importing Shape "{name}"')
-    color, opacity = get_colour(product, ifc_store.assembly)
+
+    color = get_product_color(product, ifc_store.f)
+
     if Config().ifc_import_shape_geom:
-        geometries = list(get_product_definitions(product))
+        geometries = get_product_definitions(product)
         if len(geometries) > 1:
             logger.warning(
                 f"Multiple geometries associated to product {product}. Choosing arbitrarily geometry @ index=0"
@@ -27,7 +30,7 @@ def import_ifc_shape(product: ifcopenshell.entity_instance, name, ifc_store: Ifc
         elif len(geometries) == 0:
             logger.warning(f"No geometry associated to product {product}")
             geometries = None
-        geo_color = Color(*color) if color is not None else None
+        geo_color = color if color is not None else None
         geometries = Geometry(product.GlobalId, geometries[0], geo_color)
     else:
         geometries = None
@@ -39,7 +42,7 @@ def import_ifc_shape(product: ifcopenshell.entity_instance, name, ifc_store: Ifc
         ifc_store=ifc_store,
         units=ifc_store.assembly.units,
         color=color,
-        opacity=opacity,
+        opacity=color.opacity if color is not None else 1.0,
     )
 
 
@@ -56,38 +59,6 @@ def get_ifc_geometry(ifc_elem, settings) -> tuple[TopoDS_Shape | TopoDS_Compound
     colour = None if (r, g, b) == (-1, -1, -1) else (r, g, b)
 
     return occ_geom, Color(*colour)
-
-
-def get_colour(product: ifcopenshell.entity_instance, assembly: Assembly) -> None | tuple:
-    styles = []
-    f = assembly.ifc_store.f
-    for geo in f.traverse(product):
-        if hasattr(geo, "StyledByItem") is False:
-            continue
-        if len(geo.StyledByItem) != 0:
-            cstyle = geo.StyledByItem[0].Styles[0]
-            if cstyle not in styles:
-                styles.append(cstyle)
-
-    if len(styles) == 0:
-        logger.info(f'No style associated with IFC element "{product}"')
-        return None, 1.0
-
-    if len(styles) > 1:
-        logger.warning(f"Multiple styles associated to element {product}. Choosing arbitrarily style @ index=0")
-
-    style = styles[0]
-    colour_rgb = list(filter(lambda x: x.is_a("IfcColourRgb"), f.traverse(style)))
-    transparency = list(filter(lambda x: x.is_a("IfcSurfaceStyleRendering"), f.traverse(style)))
-
-    if len(colour_rgb) == 0:
-        logger.warning(f'ColourRGB not found for IFC product "{product}"')
-        return None, 1.0
-
-    opacity = 1.0 if len(transparency) == 0 else transparency[0].Transparency
-    rgb = colour_rgb[0].Red, colour_rgb[0].Green, colour_rgb[0].Blue
-
-    return rgb, opacity
 
 
 def get_geom(ifc_elem, settings):

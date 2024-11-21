@@ -8,6 +8,7 @@ export { CommandType } from './wsock/command-type.js';
 export { Error, ErrorT } from './wsock/error.js';
 export { FileArg, FileArgT } from './wsock/file-arg.js';
 export { FileObject, FileObjectT } from './wsock/file-object.js';
+export { FileObjectRef, FileObjectRefT } from './wsock/file-object-ref.js';
 export { FilePurpose } from './wsock/file-purpose.js';
 export { FileType } from './wsock/file-type.js';
 export { MeshInfo, MeshInfoT } from './wsock/mesh-info.js';

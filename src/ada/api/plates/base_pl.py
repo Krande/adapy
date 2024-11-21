@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Iterable, Union
 
-import numpy as np
-
 from ada.api.bounding_box import BoundingBox
 from ada.api.curves import CurvePoly2d
 from ada.api.nodes import Node
@@ -80,7 +78,7 @@ class Plate(BackendGeom):
         self._bbox = None
 
     @staticmethod
-    def from_3d_points(name, points, t, mat="S420", xdir=None, color=None, metadata=None, **kwargs):
+    def from_3d_points(name, points, t, mat="S420", xdir=None, color=None, metadata=None, **kwargs) -> Plate:
         poly = CurvePoly2d.from_3d_points(points, xdir=xdir, **kwargs)
         return Plate(name, poly, t, mat=mat, color=color, metadata=metadata, **kwargs)
 
@@ -156,7 +154,7 @@ class Plate(BackendGeom):
         self._material = value
 
     @property
-    def n(self) -> np.ndarray:
+    def n(self) -> Direction:
         """Normal vector"""
         return self.poly.normal
 

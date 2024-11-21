@@ -64,6 +64,17 @@ table FileObject {
   procedure_parent: ProcedureStart; // Name of the procedure that generated the file object
 }
 
+table FileObjectRef {
+    name: string ;
+    file_type: FileType;
+    purpose: FilePurpose;
+    filepath: string;
+    glb_file: FileObjectRef;
+    ifcsqlite_file: FileObjectRef;
+    is_procedure_output: bool;
+    procedure_parent: ProcedureStart;
+}
+
 table MeshInfo {
   object_name: string;      // Mesh object name
   face_index: int;          // Mesh face index

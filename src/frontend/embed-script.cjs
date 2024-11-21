@@ -19,6 +19,13 @@ function findCSSFile() {
     return files.find(file => file.startsWith('index-') && file.endsWith('.css'));
 }
 
+// Function to replace the placeholder with a unique timestamp
+function replacePlaceholderWithTimestamp(content) {
+    const timestamp = Date.now();
+    const placeholderRegex = /<!--UNIQUE_VERSION_PLACEHOLDER-->/g;
+    return content.replace(placeholderRegex, `<script>window.UNIQUE_VERSION_ID = ${timestamp};</script>`);
+}
+
 const jsFileName = findJavaScriptFile();
 const cssFileName = findCSSFile();
 
@@ -34,6 +41,9 @@ if (jsFileName && cssFileName) {
 
     // Read the HTML file content
     let htmlContent = fs.readFileSync(htmlFilePath, 'utf8');
+
+    // Replace placeholder in the JavaScript content
+    htmlContent = replacePlaceholderWithTimestamp(htmlContent);
 
     // Replace the link tag with a style tag containing the CSS content
     const linkTagRegex = /<link rel="stylesheet" crossorigin href=".\/assets\/index-.*?\.css">/;

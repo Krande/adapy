@@ -64,7 +64,7 @@ class JointBase(BackendGeom, ABC):
             m._ifc_elem = None
 
         if parent is not None:
-            parent.parent.add_set(f"{name}_joint", members)
+            parent.parent.add_group(f"{name}_joint", members)
 
     def _init_check(self, members):
         if self.__class__.__name__ == "JointBase":

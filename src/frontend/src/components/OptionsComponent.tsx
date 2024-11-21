@@ -13,12 +13,14 @@ function OptionsComponent() {
     const [position, setPosition] = useState({x: 0, y: 0});
     const [isPositionCalculated, setIsPositionCalculated] = useState(false);
     const [isModalOpen, setIsModalOpen] = useState(false);
+    const unique_version_id = (window as any).UNIQUE_VERSION_ID || 0;
 
     // Set the component to be centered on mount and set the visibility flag
     useEffect(() => {
         const centerX = (window.innerWidth - size.width) / 2;
         const centerY = (window.innerHeight - size.height) / 2;
         setPosition({x: centerX, y: centerY});
+
 
         // Once position is calculated, set the component to be visible
         setIsPositionCalculated(true);
@@ -46,6 +48,9 @@ function OptionsComponent() {
             bounds="parent"
         >
             <div className="flex flex-col space-y-4 p-2 bg-gray-800 rounded shadow-lg h-full">
+                <div className="text-white font-bold py-2 px-4">
+                    Version: {unique_version_id}
+                </div>
                 <button
                     className={"bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 rounded"}
                     onClick={() => console.log(useAnimationStore.getState())}

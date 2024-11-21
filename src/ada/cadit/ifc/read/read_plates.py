@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 
 def import_ifc_plate(ifc_elem: ifcopenshell.entity_instance, name, ifc_store: IfcStore) -> Plate:
     logger.info(f"importing {name}")
-    geometries = list(get_product_definitions(ifc_elem))
+    geometries = get_product_definitions(ifc_elem)
     if len(geometries) != 1:
         raise NotImplementedError("Plate geometry with multiple bodies is not currently supported")
     if not isinstance(geometries[0].swept_area, geo_su.ArbitraryProfileDef):
