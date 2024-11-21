@@ -2,6 +2,13 @@
 
 
 
+## v0.3.4 (2024-11-21)
+
+### Fix
+
+* fix: Minor bugfixes and refactoring (#119) ([`ad22775`](https://github.com/Krande/adapy/commit/ad22775c1842522e0569065abdf6332c4f1cb4c7))
+
+
 ## v0.3.3 (2024-11-10)
 
 ### Chore
