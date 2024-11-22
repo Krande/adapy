@@ -290,7 +290,7 @@ class BatchTessellator:
         settings = ifcopenshell.geom.settings()
         settings.set(settings.USE_PYTHON_OPENCASCADE, False)
 
-        cpus = 2
+        cpus = 1
         iterator = ifcopenshell.geom.iterator(settings, ifc_store.f, cpus)
 
         iterator.initialize()
@@ -298,6 +298,9 @@ class BatchTessellator:
             shape = iterator.get()
             if shape:
                 if hasattr(shape, "geometry"):
+                    product = ifc_store.f.by_id(shape.id)
+                    if product.is_a("IfcOpeningElement"):
+                        continue
                     geom = shape.geometry
                     mat_id = self._extract_ifc_product_color(ifc_store, ifc_store.f.by_id(shape.id))
                     yield MeshStore(

@@ -10,18 +10,19 @@ from ada.config import Config
 from ada.core.curve_utils import (
     build_polycurve,
     calc_2darc_start_end_from_lines_radius,
+    calc_arc_radius_center_from_3points,
     segments3d_from_points3d,
     segments_to_indexed_lists,
     transform_2d_arc_segment_to_3d,
 )
-from ada.core.vector_transforms import local_2_global_points
+from ada.core.vector_transforms import local_2_global_points, global_2_local_nodes
 from ada.core.vector_utils import is_clockwise
 from ada.geom.placement import Direction
 from ada.geom.points import Point
 from ada.geom.surfaces import ArbitraryProfileDef, ProfileType
 
 if TYPE_CHECKING:
-    from OCC.Core.TopoDS import TopoDS_Edge
+    from OCC.Core.TopoDS import TopoDS_Edge, TopoDS_Wire
 
     from ada import Beam
     from ada.geom.curves import ArcLine, Edge, IndexedPolyCurve
@@ -44,11 +45,7 @@ class CurveRevolve:
 
         if self._point_on is not None:
             from ada.core.constants import O, X, Y, Z
-            from ada.core.curve_utils import calc_arc_radius_center_from_3points
-            from ada.core.vector_utils import (
-                global_2_local_nodes,
-                local_2_global_points,
-            )
+
 
             p1, p2 = self.p1, self.p2
 
@@ -224,14 +221,14 @@ class CurveOpen2d:
         return self.orientation.zdir
 
     @property
-    def xdir(self):
+    def xdir(self) -> Direction:
         return self.orientation.xdir
 
     @property
-    def ydir(self):
+    def ydir(self) -> Direction:
         return self.orientation.ydir
 
-    def edges(self):
+    def occ_edges(self) -> list[TopoDS_Edge]:
         from ada.occ.utils import segments_to_edges
 
         return segments_to_edges(self.segments3d)
@@ -257,10 +254,10 @@ class CurveOpen2d:
 
         return IndexedPolyCurve(segments)
 
-    def wire(self):
+    def occ_wire(self) -> TopoDS_Wire:
         from ada.occ.utils import make_wire
 
-        return make_wire(self.edges())
+        return make_wire(self.occ_edges())
 
     @property
     def seg_index(self):
