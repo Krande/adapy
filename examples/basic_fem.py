@@ -1,13 +1,8 @@
-import pathlib
-
 import ada
 from ada.fem.meshing import GmshOptions
 from ada.materials.metals import CarbonSteel
 
-SCRATCH = pathlib.Path("temp")
-
-
-def make_bm_fem(geom_repr) -> ada.Assembly:
+def make_fem(geom_repr) -> ada.Assembly:
     bm = ada.Beam("MyBeam", (0, 0.5, 0.5), (5, 0.5, 0.5), "IPE400", ada.Material("S420", CarbonSteel("S420")))
     assembly = ada.Assembly("MyAssembly") / [ada.Part("MyPart") / bm]
     part = bm.parent
@@ -19,22 +14,15 @@ def make_bm_fem(geom_repr) -> ada.Assembly:
 
 
 def run_ccx():
-    a = make_bm_fem("shell")
+    a = make_fem("shell")
     res = a.to_fem("Cantilever_CCX_EIG_sh", "calculix", overwrite=True, execute=True)
-    res.to_trimesh(1, "DISP")
-    for x in res.iter_results_by_field_value():
-        print(x)
+    res.show()
 
+def run_ca():
+    a = make_fem("shell")
+    res = a.to_fem("Cantilever_CA_EIG_sh", "code_aster", overwrite=True, execute=True)
+    res.show()
 
-def run_code_aster():
-    geo_repr = "solid"
-    a = make_bm_fem(geo_repr)
-    res = a.to_fem(f"Cantilever_CA_EIG_{geo_repr}", "abaqus", scratch_dir=SCRATCH, overwrite=True, execute=True)
-    res.to_vtu("temp/eigen.vtu")
-    for x in res.iter_results_by_field_value():
-        print(x)
-
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     # run_ccx()
-    run_code_aster()
+    run_ca()

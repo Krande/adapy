@@ -15,7 +15,7 @@ from ada.core.curve_utils import (
     segments_to_indexed_lists,
     transform_2d_arc_segment_to_3d,
 )
-from ada.core.vector_transforms import local_2_global_points, global_2_local_nodes
+from ada.core.vector_transforms import global_2_local_nodes, local_2_global_points
 from ada.core.vector_utils import is_clockwise
 from ada.geom.placement import Direction
 from ada.geom.points import Point
@@ -45,7 +45,6 @@ class CurveRevolve:
 
         if self._point_on is not None:
             from ada.core.constants import O, X, Y, Z
-
 
             p1, p2 = self.p1, self.p2
 

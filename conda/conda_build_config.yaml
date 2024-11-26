@@ -1,6 +1,0 @@
-variant:
-  - core
-  - full
-
-numpy:
-  - 1.25

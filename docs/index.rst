@@ -38,16 +38,6 @@ Or try the latest `"unstable"` development version here
     :caption: FEA
 
     documents/fea/fea_software
-    documents/fea/fea_data_structure
-
-
-.. toctree::
-    :hidden:
-    :maxdepth: 2
-    :glob:
-    :caption: Tips & Tricks
-
-    documents/config
 
 
 .. toctree::

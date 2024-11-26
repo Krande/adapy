@@ -71,6 +71,8 @@ def str_to_filetype(filetype: str) -> FileTypeDC:
         return FileTypeDC.GLB
     elif filetype == "XLSX":
         return FileTypeDC.XLSX
+    elif filetype == "CSV":
+        return FileTypeDC.CSV
     else:
         raise NotImplementedError(f"Filetype {filetype} not implemented")
 

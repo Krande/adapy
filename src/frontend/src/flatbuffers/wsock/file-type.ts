@@ -6,5 +6,6 @@ export enum FileType {
   IFC = 0,
   GLB = 1,
   SQLITE = 2,
-  XLSX = 3
+  XLSX = 3,
+  CSV = 4
 }

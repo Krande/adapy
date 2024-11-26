@@ -6,7 +6,7 @@ project = "ada"
 html_title = "ADA - Assembly for Design & Analysis"
 author = "Kristoffer H. Andersen"
 copyright = f"{datetime.datetime.now().year}, {author}"
-release = "0.1.0"
+release = "0.3.5"
 
 
 # -- General configuration ---------------------------------------------------
@@ -15,6 +15,7 @@ release = "0.1.0"
 # extensions coming with Sphinx (named 'sphinx.ext.*') or your custom
 # ones.
 extensions = ["sphinx.ext.autodoc", "myst_parser"]
+myst_enable_extensions = ["colon_fence"]
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ["_templates"]

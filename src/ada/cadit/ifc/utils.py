@@ -150,51 +150,6 @@ def assembly_to_ifc_file(a: "Assembly"):
     return f
 
 
-def generate_tpl_ifc_file(file_name, project, schema, units, user):
-    """
-
-    :param file_name:
-    :param project:
-    :param schema:
-    :param units:
-    :param user:
-    :type user: ada.config.User
-    :return:
-    """
-    import time
-
-    from ada.base.units import Units
-
-    from .ifc_template import tpl_create
-
-    timestamp = time.time()
-    timestring = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(timestamp))
-    application, application_version = "IfcOpenShell", "0.6"
-    project_globalid = create_guid()
-    if units == Units.M:
-        units_str = "$,.METRE."
-    elif units == Units.MM:
-        units_str = ".MILLI.,.METRE."
-    else:
-        raise ValueError(f'Unrecognized unit prefix "{units}"')
-    ifc_file = tpl_create(
-        file_name + ".ifc",
-        timestring,
-        user.org_name,
-        user.user_id,
-        schema,
-        application_version,
-        int(timestamp),
-        application,
-        project_globalid,
-        project,
-        units_str,
-        user.org_name,
-    )
-
-    return ifc_file
-
-
 def create_ifcpolyline(ifcfile, point_list):
     """
     Creates an IfcPolyLine from a list of points, specified as Python tuples
@@ -421,11 +376,11 @@ def add_negative_extrusion(f, origin, loc_z, loc_x, depth, points, parent):
 
 
 def add_colour(
-    f,
-    ifc_body: Union[List[ifcopenshell.entity_instance], ifcopenshell.entity_instance],
-    name,
-    color: Color,
-    use_surface_style_rendering=False,
+        f,
+        ifc_body: Union[List[ifcopenshell.entity_instance], ifcopenshell.entity_instance],
+        name,
+        color: Color,
+        use_surface_style_rendering=False,
 ) -> None:
     """Add IFcSurfaceStyle using either IfcSurfaceStyleRendering or IfcSurfaceStyleShading"""
     if color is None:
@@ -527,18 +482,18 @@ def scale_ifc_file_object(ifc_file, scale_factor):
                         return obj_
                     elif obj_.is_a("IfcPressureMeasure") or obj_.is_a("IfcModulusOfElasticityMeasure"):
                         # sf is a length unit.
-                        conv_unit = 1 / sf**2
+                        conv_unit = 1 / sf ** 2
                         obj_.wrappedValue = obj_.wrappedValue * conv_unit
                         return obj_
                     elif obj_.is_a("IfcMassDensityMeasure"):
-                        conv_unit = 1 / sf**3
+                        conv_unit = 1 / sf ** 3
                         obj_.wrappedValue = obj_.wrappedValue * conv_unit
                         return obj_
                     # Unit-less
                     elif obj_.is_a("IfcText") is True or obj_.is_a("IfcPositiveRatioMeasure") is True:
                         return obj_
                     elif obj_.is_a("IfcThermalExpansionCoefficientMeasure") or obj_.is_a(
-                        "IfcSpecificHeatCapacityMeasure"
+                            "IfcSpecificHeatCapacityMeasure"
                     ):
                         return obj_
                     elif obj_.is_a("IfcLogical") is True:
