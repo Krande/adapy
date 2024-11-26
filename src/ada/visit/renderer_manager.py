@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING, Callable, Literal, Optional, OrderedDict
 import numpy as np
 import trimesh
 
-import ada
 from ada.comms.fb_model_gen import (
     FileObjectDC,
     FilePurposeDC,
@@ -83,7 +82,9 @@ def scene_from_fem_results(fea_res: FEAResult, params: RenderParams):
 
     scene = trimesh.Scene()
     face_node = scene.add_geometry(faces_mesh, node_name=fea_res.name, geom_name="faces")
-    _ = scene.add_geometry(edge_mesh, node_name=f"{fea_res.name}_edges", geom_name="edges", parent_node_name=fea_res.name)
+    _ = scene.add_geometry(
+        edge_mesh, node_name=f"{fea_res.name}_edges", geom_name="edges", parent_node_name=fea_res.name
+    )
 
     face_node_idx = [i for i, n in enumerate(scene.graph.nodes) if n == face_node][0]
     # edge_node_idx = [i for i, n in enumerate(scene.graph.nodes) if n == edge_node][0]
@@ -208,7 +209,9 @@ def scene_from_object(physical_object: BackendGeom, params: RenderParams) -> tri
 
     root = GraphNode("world", 0, hash=create_guid())
     graph_store = GraphStore(top_level=root, nodes={0: root})
-    graph_store.add_node(GraphNode(physical_object.name, graph_store.next_node_id(), hash=physical_object.guid, parent=root))
+    graph_store.add_node(
+        GraphNode(physical_object.name, graph_store.next_node_id(), hash=physical_object.guid, parent=root)
+    )
 
     mesh_stores = list(bt.batch_tessellate([physical_object]))
     scene = trimesh.Scene()

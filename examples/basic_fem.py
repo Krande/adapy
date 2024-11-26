@@ -2,6 +2,7 @@ import ada
 from ada.fem.meshing import GmshOptions
 from ada.materials.metals import CarbonSteel
 
+
 def make_fem(geom_repr) -> ada.Assembly:
     bm = ada.Beam("MyBeam", (0, 0.5, 0.5), (5, 0.5, 0.5), "IPE400", ada.Material("S420", CarbonSteel("S420")))
     assembly = ada.Assembly("MyAssembly") / [ada.Part("MyPart") / bm]
@@ -18,11 +19,13 @@ def run_ccx():
     res = a.to_fem("Cantilever_CCX_EIG_sh", "calculix", overwrite=True, execute=True)
     res.show()
 
+
 def run_ca():
     a = make_fem("shell")
     res = a.to_fem("Cantilever_CA_EIG_sh", "code_aster", overwrite=True, execute=True)
     res.show()
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     # run_ccx()
     run_ca()
