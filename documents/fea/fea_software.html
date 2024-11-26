@@ -3,7 +3,7 @@
   <head><meta charset="utf-8"/>
     <meta name="viewport" content="width=device-width,initial-scale=1"/>
     <meta name="color-scheme" content="light dark"><meta name="viewport" content="width=device-width, initial-scale=1" />
-<link rel="index" title="Index" href="../../genindex.html" /><link rel="search" title="Search" href="../../search.html" /><link rel="next" title="FEA Data Structure" href="fea_data_structure.html" /><link rel="prev" title="Build mesh recipes, not meshes" href="../meshing.html" />
+<link rel="index" title="Index" href="../../genindex.html" /><link rel="search" title="Search" href="../../search.html" /><link rel="next" title="IFC Database" href="../ifc_database.html" /><link rel="prev" title="Build mesh recipes, not meshes" href="../meshing.html" />
 
     <!-- Generated with Sphinx 8.1.3 and Furo 2024.08.06 -->
         <title>FEA Software - ADA - Assembly for Design &amp; Analysis</title>
@@ -208,11 +208,6 @@
 <p class="caption" role="heading"><span class="caption-text">FEA</span></p>
 <ul class="current">
 <li class="toctree-l1 current current-page"><a class="current reference internal" href="#">FEA Software</a></li>
-<li class="toctree-l1"><a class="reference internal" href="fea_data_structure.html">FEA Data Structure</a></li>
-</ul>
-<p class="caption" role="heading"><span class="caption-text">Tips &amp; Tricks</span></p>
-<ul>
-<li class="toctree-l1"><a class="reference internal" href="../config.html">Configuring adapy</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Ongoing Work</span></p>
 <ul>
@@ -264,22 +259,39 @@
           <section id="fea-software">
 <h1>FEA Software<a class="headerlink" href="#fea-software" title="Link to this heading">¶</a></h1>
 <p>Here is a collection of useful links and information regarding the currently supported FEA solvers</p>
-<section id="calculix">
-<h2>Calculix<a class="headerlink" href="#calculix" title="Link to this heading">¶</a></h2>
+<section id="code-aster">
+<h2>Code Aster<a class="headerlink" href="#code-aster" title="Link to this heading">¶</a></h2>
+<p>Code Aster is distributed as a conda-forge package and can be used together with <code class="docutils literal notranslate"><span class="pre">adapy</span></code>.
+However, it is currently only distributed for Linux on conda-forge.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>As of today (26.11.2024), you can do <code class="docutils literal notranslate"><span class="pre">mamba</span> <span class="pre">install</span> <span class="pre">code-aster</span> <span class="pre">-c</span> <span class="pre">https://repo.prefix.dev/code-aster</span> <span class="pre">-c</span> <span class="pre">conda-forge</span></code> to install
+Code Aster for conda on Windows.</p>
+<div class="admonition important">
+<p class="admonition-title">Important</p>
+<p>However, note that the prefix.dev repository for Code Aster is only temporary until
+the necessary changes are merged into the conda-forge dependencies feedstock.</p>
+</div>
+</div>
+<div class="docutils">
+<p>Work is ongoing to add native support for Windows on conda-forge.
+See <a class="reference external" href="https://github.com/conda-forge/code-aster-feedstock/issues/65">https://github.com/conda-forge/code-aster-feedstock/issues/65</a> for more information.</p>
+<p>More information about Code Aster can be found on</p>
+<ul class="simple">
+<li><p>The Code Aster homepage -&gt; <a class="reference external" href="https://www.code-aster.org/spip.php?rubrique2">https://www.code-aster.org</a></p></li>
+<li><p>The Code Aster source code -&gt; <a class="reference external" href="https://gitlab.com/codeaster/src">Code Aster Original Source Code</a></p></li>
+<li><p>Unofficial MSVC Windows support branch -&gt; <a class="reference external" href="https://gitlab.com/krande/src/-/tree/win-support?ref_type=heads">Windows support branch in krande gitlab fork</a></p></li>
+<li><p>Conda-forge feedstock -&gt; <a class="reference external" href="https://github.com/conda-forge/code-aster-feedstock">https://github.com/conda-forge/code-aster-feedstock</a></p></li>
+</ul>
+<p class="rubric" id="calculix">Calculix</p>
 <p>Calculix is distributed on conda-forge package and is now a dependency of <code class="docutils literal notranslate"><span class="pre">adapy</span></code>.
 It is supported on all platforms.</p>
 <p>More information <a class="reference external" href="http://www.dhondt.de/">http://www.dhondt.de/</a></p>
-<p><a class="reference external" href="http://www.dhondt.de/calculix_2.20_4win.zip">Download latest executable for Windows (v2.20)</a></p>
-<p><a class="reference external" href="https://github.com/Dhondtguido/CalculiXSource">Source Code</a></p>
-</section>
-<section id="code-aster">
-<h2>Code Aster<a class="headerlink" href="#code-aster" title="Link to this heading">¶</a></h2>
-<p>Code Aster is distributed as a conda-forge package and is now a dependency of <code class="docutils literal notranslate"><span class="pre">adapy</span></code>.
-It is currently only supported on Linux.</p>
-<p>Work is ongoing to support Windows. See https://github.com/conda-forge/code-aster-feedstock/issues/65 for more information.</p>
-<p>More information <a class="reference external" href="https://www.code-aster.org/spip.php?rubrique2">https://www.code-aster.org</a></p>
-<p><a class="reference external" href="https://gitlab.com/codeaster/src">Source Code</a></p>
-<p><a class="reference external" href="https://gitlab.com/codeaster-opensource-documentation/opensource-installation-development">Installation information</a></p>
+<ul class="simple">
+<li><p><a class="reference external" href="https://github.com/Dhondtguido/CalculiXSource">Source Code</a></p></li>
+<li><p><a class="reference external" href="https://github.com/conda-forge/calculix-feedstock">Calculix feedstock</a></p></li>
+</ul>
+</div>
 </section>
 </section>
 
@@ -288,12 +300,12 @@ It is currently only supported on Linux.</p>
       <footer>
         
         <div class="related-pages">
-          <a class="next-page" href="fea_data_structure.html">
+          <a class="next-page" href="../ifc_database.html">
               <div class="page-info">
                 <div class="context">
                   <span>Next</span>
                 </div>
-                <div class="title">FEA Data Structure</div>
+                <div class="title">IFC Database</div>
               </div>
               <svg class="furo-related-icon"><use href="#svg-arrow-right"></use></svg>
             </a>
@@ -339,7 +351,6 @@ It is currently only supported on Linux.</p>
           <div class="toc-tree">
             <ul>
 <li><a class="reference internal" href="#">FEA Software</a><ul>
-<li><a class="reference internal" href="#calculix">Calculix</a></li>
 <li><a class="reference internal" href="#code-aster">Code Aster</a></li>
 </ul>
 </li>
@@ -352,7 +363,7 @@ It is currently only supported on Linux.</p>
       
     </aside>
   </div>
-</div><script src="../../_static/documentation_options.js?v=01f34227"></script>
+</div><script src="../../_static/documentation_options.js?v=ba50482b"></script>
     <script src="../../_static/doctools.js?v=9bcbadda"></script>
     <script src="../../_static/sphinx_highlight.js?v=dc90522c"></script>
     <script src="../../_static/scripts/furo.js?v=5fa4622c"></script>
