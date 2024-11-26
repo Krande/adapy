@@ -290,28 +290,28 @@ class BatchTessellator:
         settings = ifcopenshell.geom.settings()
         settings.set(settings.USE_PYTHON_OPENCASCADE, False)
 
-        cpus = 2
+        cpus = 1
         iterator = ifcopenshell.geom.iterator(settings, ifc_store.f, cpus)
 
         iterator.initialize()
         while True:
             shape = iterator.get()
-            if shape:
-                if hasattr(shape, "geometry"):
-                    geom = shape.geometry
-                    mat_id = self._extract_ifc_product_color(ifc_store, ifc_store.f.by_id(shape.id))
-                    yield MeshStore(
-                        shape.guid,
-                        matrix=shape.transformation.matrix,
-                        position=np.frombuffer(geom.verts_buffer, "d"),
-                        indices=np.frombuffer(geom.faces_buffer, dtype=np.uint32),
-                        normal=None,
-                        material=mat_id,
-                        type=MeshType.TRIANGLES,
-                        node_ref=shape.guid,
-                    )
-                else:
-                    logger.warning(f"Shape {shape} is not a TopoDS_Shape")
+            product = ifc_store.f.by_id(shape.id)
+            if shape and hasattr(shape, "geometry") and not product.is_a("IfcOpeningElement"):
+                geom = shape.geometry
+                mat_id = self._extract_ifc_product_color(ifc_store, ifc_store.f.by_id(shape.id))
+                yield MeshStore(
+                    shape.guid,
+                    matrix=shape.transformation.matrix,
+                    position=np.frombuffer(geom.verts_buffer, "d"),
+                    indices=np.frombuffer(geom.faces_buffer, dtype=np.uint32),
+                    normal=None,
+                    material=mat_id,
+                    type=MeshType.TRIANGLES,
+                    node_ref=shape.guid,
+                )
+            else:
+                logger.warning(f"{product=} will not be processed")
 
             if not iterator.next():
                 break

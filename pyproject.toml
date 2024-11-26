@@ -70,8 +70,9 @@ platforms = ["win-64", "linux-64"]
 [tool.pixi.environments]
 prod = { features = ["py312"], solve-group = "prod"}
 lint = { features = ["lint"], no-default-feature = true}
-docs = { features = ["py312", "docs"], solve-group = "prod"}
+
 tests = { features = ["py312", "tests"], solve-group = "prod"}
+docs = { features = ["py312", "docs", "tests"], solve-group = "prod"}
 frontend = { features = ["web"], no-default-feature = true}
 
 [tool.pixi.feature.py312.dependencies]
@@ -142,6 +143,7 @@ docs = "cd docs && make html"
 
 [tool.pixi.feature.tests.tasks]
 test = "pytest tests --ignore=tests/profiling --ignore=tests/fem --durations=0"
+test-core = "pytest tests --ignore=tests/profiling --ignore=tests/fem --ignore=tests/full --durations=0"
 test-all = "pytest tests --durations=0"
 test-fem = "pytest tests --ignore=tests/profiling --ignore=tests/core --ignore=tests/full --durations=0"
 fem-doc = { cmd="python build_verification_report.py true true --export-format=docx", cwd="./tests/fem" }

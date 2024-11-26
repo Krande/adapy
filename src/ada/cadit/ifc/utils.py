@@ -150,51 +150,6 @@ def assembly_to_ifc_file(a: "Assembly"):
     return f
 
 
-def generate_tpl_ifc_file(file_name, project, schema, units, user):
-    """
-
-    :param file_name:
-    :param project:
-    :param schema:
-    :param units:
-    :param user:
-    :type user: ada.config.User
-    :return:
-    """
-    import time
-
-    from ada.base.units import Units
-
-    from .ifc_template import tpl_create
-
-    timestamp = time.time()
-    timestring = time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(timestamp))
-    application, application_version = "IfcOpenShell", "0.6"
-    project_globalid = create_guid()
-    if units == Units.M:
-        units_str = "$,.METRE."
-    elif units == Units.MM:
-        units_str = ".MILLI.,.METRE."
-    else:
-        raise ValueError(f'Unrecognized unit prefix "{units}"')
-    ifc_file = tpl_create(
-        file_name + ".ifc",
-        timestring,
-        user.org_name,
-        user.user_id,
-        schema,
-        application_version,
-        int(timestamp),
-        application,
-        project_globalid,
-        project,
-        units_str,
-        user.org_name,
-    )
-
-    return ifc_file
-
-
 def create_ifcpolyline(ifcfile, point_list):
     """
     Creates an IfcPolyLine from a list of points, specified as Python tuples

@@ -53,6 +53,7 @@ configure_logger()
 
 
 def from_ifc(ifc_file: os.PathLike | ifcopenshell.file, units=Units.M, name="Ada") -> Assembly:
+    """Create an Assembly object from an IFC file."""
     if isinstance(ifc_file, (os.PathLike, str)):
         ifc_file = pathlib.Path(ifc_file).resolve().absolute()
         print(f'Reading "{ifc_file.name}"')
@@ -65,6 +66,7 @@ def from_ifc(ifc_file: os.PathLike | ifcopenshell.file, units=Units.M, name="Ada
 
 
 def from_step(step_file: str | pathlib.Path, source_units=Units.M, **kwargs) -> Assembly:
+    """Create an Assembly object from a STEP file."""
     a = Assembly()
     a.read_step_file(step_file, source_units=source_units, **kwargs)
     return a
@@ -78,6 +80,7 @@ def from_fem(
     source_units=Units.M,
     fem_converter="default",
 ) -> Assembly:
+    """Create an Assembly object from a FEM file."""
     a = Assembly(enable_cache=enable_cache, units=source_units)
     if isinstance(fem_file, str) or issubclass(type(fem_file), pathlib.Path):
         a.read_fem(fem_file, fem_format, name, fem_converter=fem_converter)
@@ -105,6 +108,7 @@ def from_sesam_cc(fem_file: str | pathlib.Path) -> dict[str, CCData]:
 
 
 def from_genie_xml(xml_path, **kwargs) -> Assembly:
+    """Create an Assembly object from a Genie XML file."""
     from ada.cadit.gxml.store import GxmlStore
 
     gxml = GxmlStore(xml_path)
@@ -118,6 +122,9 @@ __all__ = [
     "FEM",
     "from_ifc",
     "from_fem",
+    "from_step",
+    "from_genie_xml",
+    "from_fem_res",
     "Beam",
     "BeamTapered",
     "BeamSweep",

@@ -1,12 +1,9 @@
 name: adadocs
 channels:
   - conda-forge
-  - krande
 dependencies:
   - ada-py
   - sphinx
   - scipy
-  - pip
-  - pip:
-      - furo
-      - myst_parser
+  - myst-parser
+  - furo

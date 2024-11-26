@@ -48,6 +48,7 @@ class FileTypeDC(Enum):
     GLB = 1
     SQLITE = 2
     XLSX = 3
+    CSV = 4
 
 
 class ProcedureStateDC(Enum):

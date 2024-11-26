@@ -1,9 +1,0 @@
-channels:
-# These dependencies are appended to the core environment
-dependencies:
-  - jupyterlab
-  - ipywidgets
-  - pyparsing
-  - pyglfw
-  - pygfx
-

@@ -104,6 +104,8 @@ class SceneBackend:
                     # Ignore temp files
                     continue
                 self._load_xlsx(fp)
+            elif fp.suffix == ".csv":
+                self._load_csv(fp)
 
     def update_local_file_object(self):
         server_temp_dir = Config().websockets_server_temp_dir
@@ -132,3 +134,12 @@ class SceneBackend:
             return Config().websockets_server_temp_dir
 
         return pathlib.Path("temp")
+
+    def _load_csv(self, fp):
+        file_object = FileObjectDC(
+            name=fp.stem,
+            filepath=fp,
+            file_type=FileTypeDC.CSV,
+            purpose=FilePurposeDC.DESIGN,
+        )
+        self.add_file_object(file_object)

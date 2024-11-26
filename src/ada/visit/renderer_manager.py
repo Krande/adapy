@@ -63,7 +63,7 @@ class RenderParams:
             self.scene = SceneDC(operation=SceneOperationsDC.REPLACE)
 
 
-def scene_from_fem_results(self: FEAResult, params: RenderParams):
+def scene_from_fem_results(fea_res: FEAResult, params: RenderParams):
     from trimesh.path.entities import Line
 
     from ada.api.animations import Animation, AnimationStore
@@ -72,8 +72,8 @@ def scene_from_fem_results(self: FEAResult, params: RenderParams):
     warp_scale = params.fea_params.warp_scale
 
     # initial mesh
-    vertices = self.mesh.nodes.coords
-    edges, faces = self.mesh.get_edges_and_faces_from_mesh()
+    vertices = fea_res.mesh.nodes.coords
+    edges, faces = fea_res.mesh.get_edges_and_faces_from_mesh()
 
     faces_mesh = trimesh.Trimesh(vertices=vertices, faces=faces)
 
@@ -81,8 +81,10 @@ def scene_from_fem_results(self: FEAResult, params: RenderParams):
     edge_mesh = trimesh.path.Path3D(entities=entities, vertices=vertices)
 
     scene = trimesh.Scene()
-    face_node = scene.add_geometry(faces_mesh, node_name=self.name, geom_name="faces")
-    _ = scene.add_geometry(edge_mesh, node_name=f"{self.name}_edges", geom_name="edges", parent_node_name=self.name)
+    face_node = scene.add_geometry(faces_mesh, node_name=fea_res.name, geom_name="faces")
+    _ = scene.add_geometry(
+        edge_mesh, node_name=f"{fea_res.name}_edges", geom_name="edges", parent_node_name=fea_res.name
+    )
 
     face_node_idx = [i for i, n in enumerate(scene.graph.nodes) if n == face_node][0]
     # edge_node_idx = [i for i, n in enumerate(scene.graph.nodes) if n == edge_node][0]
@@ -91,10 +93,10 @@ def scene_from_fem_results(self: FEAResult, params: RenderParams):
     animation_store = AnimationStore()
 
     # Loop over the results and create an animation from it
-    vertices = self.mesh.nodes.coords
+    vertices = fea_res.mesh.nodes.coords
     added_results = []
-    for i, result in enumerate(self.results):
-        warped_vertices = self._warp_data(vertices, result.name, result.step, warp_scale)
+    for i, result in enumerate(fea_res.results):
+        warped_vertices = fea_res._warp_data(vertices, result.name, result.step, warp_scale)
         delta_vertices = warped_vertices - vertices
         result_name = f"{result.name}_{result.step}"
         if result_name in added_results:
@@ -117,7 +119,10 @@ def scene_from_fem_results(self: FEAResult, params: RenderParams):
 
     params.gltf_buffer_postprocessor = animation_store
     params.gltf_tree_postprocessor = AnimationStore.tree_postprocessor
-
+    parent_node = GraphNode("world", 0, hash=create_guid())
+    graph = GraphStore(top_level=parent_node, nodes={0: parent_node})
+    graph.add_node(GraphNode(fea_res.name, graph.next_node_id(), hash=create_guid(), parent=parent_node))
+    scene.metadata.update(graph.create_meta())
     return scene
 
 
@@ -140,7 +145,7 @@ def scene_from_fem(
             graph = fem.parent.get_graph_store()
             parent_node = graph.hash_map.get(fem.parent.guid)
         else:
-            parent_node = GraphNode("root", 0, hash=create_guid())
+            parent_node = GraphNode("world", 0, hash=create_guid())
             graph = GraphStore(top_level=parent_node, nodes={0: parent_node})
     else:
         parent_node = graph.top_level
@@ -193,7 +198,7 @@ def scene_from_fem(
     return scene
 
 
-def scene_from_object(physical_object: BackendGeom) -> trimesh.Scene:
+def scene_from_object(physical_object: BackendGeom, params: RenderParams) -> trimesh.Scene:
     from itertools import groupby
 
     from ada.occ.tessellating import BatchTessellator
@@ -201,18 +206,25 @@ def scene_from_object(physical_object: BackendGeom) -> trimesh.Scene:
     from ada.visit.gltf.store import merged_mesh_to_trimesh_scene
 
     bt = BatchTessellator()
+
+    root = GraphNode("world", 0, hash=create_guid())
+    graph_store = GraphStore(top_level=root, nodes={0: root})
+    graph_store.add_node(
+        GraphNode(physical_object.name, graph_store.next_node_id(), hash=physical_object.guid, parent=root)
+    )
+
     mesh_stores = list(bt.batch_tessellate([physical_object]))
     scene = trimesh.Scene()
     mesh_map = []
-
     for mat_id, meshes in groupby(mesh_stores, lambda x: x.material):
         meshes = list(meshes)
 
         merged_store = concatenate_stores(meshes)
         mesh_map.append((mat_id, meshes, merged_store))
 
-        merged_mesh_to_trimesh_scene(scene, merged_store, bt.get_mat_by_id(mat_id), mat_id, None)
+        merged_mesh_to_trimesh_scene(scene, merged_store, bt.get_mat_by_id(mat_id), mat_id, graph_store)
 
+    scene.metadata.update(graph_store.create_meta())
     return scene
 
 
@@ -318,7 +330,7 @@ class RendererManager:
             if type(obj) is Part or type(obj) is Assembly:
                 scene = scene_from_part_or_assembly(obj, params)
             elif isinstance(obj, BackendGeom):
-                scene = scene_from_object(obj)
+                scene = scene_from_object(obj, params)
             elif isinstance(obj, FEM):
                 scene = scene_from_fem(obj, params)
             elif isinstance(obj, FEAResult):

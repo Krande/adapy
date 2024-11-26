@@ -93,7 +93,7 @@ class Plate(BackendGeom):
         return self._bbox
 
     def line_occ(self):
-        return self._poly.wire()
+        return self._poly.occ_wire()
 
     def shell_occ(self):
         from ada.occ.geom import geom_to_occ_geom
