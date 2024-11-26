@@ -2,6 +2,13 @@
 
 
 
+## v0.3.5 (2024-11-26)
+
+### Fix
+
+* fix: bug in ifc rendering with openings and cleanup (#120) ([`1cd0250`](https://github.com/Krande/adapy/commit/1cd025024063dd1245ed1b1db3e5cb803802c8e5))
+
+
 ## v0.3.4 (2024-11-21)
 
 ### Fix
