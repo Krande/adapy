@@ -9,17 +9,6 @@ IFC and various Finite Element formats.
     This library is still undergoing significant development so expect there to be bugs and breaking changes.
 
 
-Try the latest `"stable"` release online here
-
-.. image:: https://mybinder.org/badge_logo.svg
- :target: https://mybinder.org/v2/gh/Krande/adapy/main
-
-Or try the latest `"unstable"` development version here
-
-.. image:: https://mybinder.org/badge_logo.svg
- :target: https://mybinder.org/v2/gh/Krande/adapy/dev
-
-
 .. toctree::
     :hidden:
     :maxdepth: 2
