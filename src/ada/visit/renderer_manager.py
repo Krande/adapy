@@ -165,8 +165,9 @@ def scene_from_fem(
 
     base_frame = graph.top_level.name if graph is not None else "root"
     scene = trimesh.Scene(base_frame=base_frame) if scene is None else scene
+    line_elems = list(fem.elements.lines)
 
-    if use_solid_beams:
+    if use_solid_beams and len(line_elems) > 0:
         from ada.fem.formats.utils import line_elem_to_beam
         from ada.occ.tessellating import BatchTessellator
         from ada.visit.gltf.optimize import concatenate_stores
