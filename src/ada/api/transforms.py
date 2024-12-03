@@ -75,9 +75,9 @@ class Placement:
                 "Please supply at least two vectors to define a placement."
             )
 
-        self.xdir = Point(*self.xdir)
-        self.ydir = Point(*self.ydir)
-        self.zdir = Point(*self.zdir)
+        self.xdir = Direction(*self.xdir)
+        self.ydir = Direction(*self.ydir)
+        self.zdir = Direction(*self.zdir)
         if self.origin is None:
             self.origin = Point(0, 0, 0)
 
