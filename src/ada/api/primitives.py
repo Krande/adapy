@@ -22,6 +22,8 @@ from .transforms import Placement
 
 if TYPE_CHECKING:
     from OCC.Core.TopoDS import TopoDS_Shape
+    from ada.geom.solids import Box, ExtrudedAreaSolid
+    from ada.geom.surfaces import RectangleProfileDef
 
     from ada.cadit.ifc.store import IfcStore
 
@@ -219,6 +221,24 @@ class PrimBox(Shape):
     def from_p_and_dims(name, p, length, width, height, **kwargs):
         p1 = p
         p2 = [p[0] + length, p[1] + width, p[2] + height]
+        return PrimBox(name, p1, p2, **kwargs)
+
+    @staticmethod
+    def from_box_geom(name, box_geom: Box, **kwargs):
+        p1 = box_geom.position.location
+        p2 = p1 + Direction(box_geom.x_length, box_geom.y_length, box_geom.z_length)
+        return PrimBox(name, p1, p2, **kwargs)
+
+    @staticmethod
+    def from_extruded_rect_profile(name,  extrusion: ExtrudedAreaSolid, **kwargs):
+        from ada.geom.surfaces import RectangleProfileDef
+
+        if not isinstance(extrusion.swept_area, RectangleProfileDef):
+            raise ValueError(f"Only RectangleProfileDef is supported for extrusion, got {extrusion.swept_area}")
+
+        rect_profile = extrusion.swept_area
+        p1 = extrusion.position.location
+        p2 = [rect_profile.p2[0], rect_profile.p2[1], rect_profile.p2[2] + extrusion.depth]
         return PrimBox(name, p1, p2, **kwargs)
 
     @property
