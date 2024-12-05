@@ -9,6 +9,7 @@ dependencies:
   - hdf5=1.14.4.3
   - paradoc
   - code-aster
+  - websockets>=14*
   - occt=*=*novtk*
   - trimesh >=4.1.0
   - python-dotenv

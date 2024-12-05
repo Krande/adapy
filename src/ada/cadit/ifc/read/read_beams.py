@@ -67,9 +67,6 @@ def import_straight_beam(ifc_elem, axis, name, sec, mat, ifc_store: IfcStore) ->
     p1 = body.position.location
     local_y = calc_yvec(ref_dir, extrude_dir)
     p2 = p1 + extrude_dir * body.depth
-    if not rel_place.is_identity():
-        p1 += rel_place.origin
-        p2 += rel_place.origin
 
     return Beam(
         name,
