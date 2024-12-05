@@ -125,6 +125,15 @@ class Placement:
     def from_axis3d(axis: Axis2Placement3D) -> Placement:
         return Placement(origin=axis.location, xdir=axis.ref_direction, zdir=axis.axis)
 
+    @staticmethod
+    def from_4x4_matrix(matrix: np.ndarray) -> Placement:
+        return Placement(
+            origin=matrix[:3, 3],
+            xdir=matrix[:3, 0],
+            ydir=matrix[:3, 1],
+            zdir=matrix[:3, 2],
+        )
+
     def get_absolute_placement(self, include_rotations=False) -> Placement:
         if self.parent is None:
             return self

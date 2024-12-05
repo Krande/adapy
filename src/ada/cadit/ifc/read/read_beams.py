@@ -9,6 +9,7 @@ from ada.api.beams import BeamRevolve
 from ada.api.curves import CurveRevolve
 from ada.config import logger
 from ada.core.vector_utils import calc_yvec, unit_vector
+from ifcopenshell.util.placement import get_local_placement
 
 from .geom.geom_reader import get_product_definitions
 from .geom.placement import axis3d
@@ -68,6 +69,13 @@ def import_straight_beam(ifc_elem, axis, name, sec, mat, ifc_store: IfcStore) ->
     local_y = calc_yvec(ref_dir, extrude_dir)
     p2 = p1 + extrude_dir * body.depth
 
+    extra_opts = {}
+    obj_placement = ifc_elem.ObjectPlacement
+    if obj_placement.PlacementRelTo:
+        local_placement = get_local_placement(obj_placement)
+        place = Placement.from_4x4_matrix(local_placement)
+        extra_opts["placement"] = place
+
     return Beam(
         name,
         p1,
@@ -78,6 +86,7 @@ def import_straight_beam(ifc_elem, axis, name, sec, mat, ifc_store: IfcStore) ->
         guid=ifc_elem.GlobalId,
         ifc_store=ifc_store,
         units=ifc_store.assembly.units,
+        **extra_opts,
     )
 
 

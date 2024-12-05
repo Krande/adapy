@@ -6,11 +6,13 @@ import ifcopenshell.geom
 from OCC.Core.TopoDS import TopoDS_Compound, TopoDS_Shape
 
 from ada import Shape
+from ada.api.transforms import Placement
 from ada.cadit.ifc.read.geom.geom_reader import get_product_definitions
 from ada.cadit.ifc.read.read_color import get_product_color
 from ada.config import Config, logger
 from ada.geom import Geometry
 from ada.visit.colors import Color
+from ifcopenshell.util.placement import get_local_placement
 
 if TYPE_CHECKING:
     from ada.cadit.ifc.store import IfcStore
@@ -35,6 +37,13 @@ def import_ifc_shape(product: ifcopenshell.entity_instance, name, ifc_store: Ifc
     else:
         geometries = None
 
+    extra_opts = {}
+    obj_placement = product.ObjectPlacement
+    if obj_placement.PlacementRelTo:
+        local_placement = get_local_placement(obj_placement)
+        place = Placement.from_4x4_matrix(local_placement)
+        extra_opts["placement"] = place
+
     return Shape(
         name,
         geom=geometries,
@@ -43,6 +52,7 @@ def import_ifc_shape(product: ifcopenshell.entity_instance, name, ifc_store: Ifc
         units=ifc_store.assembly.units,
         color=color,
         opacity=color.opacity if color is not None else 1.0,
+        **extra_opts
     )
 
 

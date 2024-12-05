@@ -210,10 +210,9 @@ class PrimBox(Shape):
         return geom_to_occ_geom(self.solid_geom())
 
     def solid_geom(self) -> Geometry:
-        from ada.geom.points import Point
         from ada.geom.solids import Box
 
-        box = Box.from_2points(Point(*self.p1), Point(*self.p2))
+        box = Box.from_2points(self.p1, self.p2)
         booleans = [BooleanOperation(x.primitive.solid_geom(), x.bool_op) for x in self.booleans]
         return Geometry(self.guid, box, self.color, bool_operations=booleans)
 
