@@ -113,8 +113,12 @@ class Edge(SATEntity):
 
     start_pt: ada.Point
     end_pt: ada.Point
+    attrib_name: StringAttribName = None
 
     def to_string(self) -> str:
+        attrib_ref = "-1"
+        if self.attrib_name:
+            attrib_ref = self.attrib_name.id
         start_str = " ".join([str(x) for x in make_ints_if_possible(self.start_pt)])
         end_str = " ".join([str(x) for x in make_ints_if_possible(self.end_pt)])
         # pos_str = f"{self.start_pt[0]} {self.start_pt[1]} {self.start_pt[2]} {self.end_pt[0]} {self.end_pt[1]} {self.end_pt[2]}"
@@ -122,7 +126,7 @@ class Edge(SATEntity):
         length = vec.get_length()
         s1 = 0
         s2 = make_ints_if_possible([length])[0]
-        return f"-{self.id} edge $-1 -1 -1 $-1 ${self.vertex_start.id} {s1} ${self.vertex_end.id} {s2} ${self.coedge.id} ${self.straight_curve.id} forward @7 unknown T {start_str} {end_str} #"
+        return f"-{self.id} edge ${attrib_ref} -1 -1 $-1 ${self.vertex_start.id} {s1} ${self.vertex_end.id} {s2} ${self.coedge.id} ${self.straight_curve.id} forward @7 unknown T {start_str} {end_str} #"
 
 
 @dataclass
@@ -153,7 +157,7 @@ class PlaneSurface(SATEntity):
 class StringAttribName(SATEntity):
     name: str
     entity: SATEntity
-    attrib_ref: CachedPlaneAttribute | FusedFaceAttribute = None
+    attrib_ref: CachedPlaneAttribute | FusedFaceAttribute | FusedEdgeAttribute = None
 
     def to_string(self) -> str:
         cache_attrib = -1 if self.attrib_ref is None else self.attrib_ref.id
@@ -210,6 +214,11 @@ class FusedFaceAttribute(SATEntity):
 class FusedEdgeAttribute(SATEntity):
     name: StringAttribName
     entity: SATEntity
+    edge_idx: int
+    edge_seq: tuple[int, int]
+    edge_length: int | float
 
     def to_string(self) -> str:
-        return f"-{self.id} FusedEdgeAttribute-DNV-attrib $-1 -1 $-1 ${self.name.id} ${self.entity.id} 1 1 1 1 1 1 1 1 1 1 1 1 0 1 0 1 1 1 #"
+        length = make_ints_if_possible([self.edge_length])[0]
+        edge_spec = f"{self.edge_seq[0]} {self.edge_seq[1]} 0 {length}"
+        return f"-{self.id} FusedEdgeAttribute-DNV-attrib $-1 -1 $-1 ${self.name.id} ${self.entity.id} 1 1 1 1 1 1 1 1 1 1 1 1 0 1 0 1 1 1 1 {edge_spec} #"

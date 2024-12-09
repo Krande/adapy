@@ -89,7 +89,7 @@ def plate_to_sat_entities(pl: ada.Plate, face_name: str, geo_repr: GeomRepr, sw:
     points = list(point_map.values())
     vertex_map = {p.id: se.Vertex(id_gen.next_id(), None, p) for p in points}
     vertices = list(vertex_map.values())
-
+    edge_seq = [(1,2), (2,3), (3,4), (4,1)]
     for i, edge in enumerate(seg3d):
         coedge_id = coedge_ids[i]
         if i == 0:
@@ -120,12 +120,15 @@ def plate_to_sat_entities(pl: ada.Plate, face_name: str, geo_repr: GeomRepr, sw:
             v2,
             coedge_id,
             straight_curve,
-            p1.point,
-            p2.point,
+            start_pt=p1.point,
+            end_pt=p2.point,
         )
         edge_n = f"EDGE{sw.edge_name_id:08d}"
-        edge_string_att = se.StringAttribName(id_gen.next_id(), edge_n, edge)
-        fusedge = se.FusedEdgeAttribute(id_gen.next_id(), edge_string_att, edge)
+        edge_str_id = id_gen.next_id()
+        length = ada.Direction(p1.point - p2.point).get_length()
+        fusedge = se.FusedEdgeAttribute(id_gen.next_id(), edge_str_id, edge, i+1, edge_seq[i], length)
+        edge_string_att = se.StringAttribName(edge_str_id, edge_n, edge, attrib_ref=fusedge)
+        edge.attrib_name = edge_string_att
         sat_entities.append(edge_string_att)
         sat_entities.append(fusedge)
         sw.edge_name_id += 1
