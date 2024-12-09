@@ -72,6 +72,8 @@ class SatWriter:
     id_generator: IDGenerator = field(default_factory=IDGenerator)
     face_map: dict[str, str] = field(default_factory=dict)  # face_name -> plate guid
 
+    edge_name_id: int = 0
+
     def __post_init__(self):
         bboxes = []
         for part in self.part.get_all_parts_in_assembly(include_self=True):

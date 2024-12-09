@@ -123,6 +123,12 @@ def plate_to_sat_entities(pl: ada.Plate, face_name: str, geo_repr: GeomRepr, sw:
             p1.point,
             p2.point,
         )
+        edge_n = f"EDGE{sw.edge_name_id:08d}"
+        edge_string_att = se.StringAttribName(id_gen.next_id(), edge_n, edge)
+        fusedge = se.FusedEdgeAttribute(id_gen.next_id(), edge_string_att, edge)
+        sat_entities.append(edge_string_att)
+        sat_entities.append(fusedge)
+        sw.edge_name_id += 1
 
         coedge = se.CoEdge(coedge_id, next_coedge_id, prev_coedge_id, edge, loop, "forward")
         coedges.append(coedge)

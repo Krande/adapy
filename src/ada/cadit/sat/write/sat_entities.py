@@ -209,7 +209,7 @@ class FusedFaceAttribute(SATEntity):
 @dataclass
 class FusedEdgeAttribute(SATEntity):
     name: StringAttribName
-    stringattrib: StringAttribName
+    entity: SATEntity
 
     def to_string(self) -> str:
         return f"-{self.id} FusedEdgeAttribute-DNV-attrib $-1 -1 $-1 ${self.name.id} ${self.entity.id} 1 1 1 1 1 1 1 1 1 1 1 1 0 1 0 1 1 1 #"
