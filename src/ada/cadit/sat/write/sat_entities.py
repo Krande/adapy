@@ -63,10 +63,15 @@ class Face(SATEntity):
 class Loop(SATEntity):
     coedge: CoEdge
     bbox: list[float]
+    periphery_plane: PlaneSurface = None
 
     def to_string(self) -> str:
         bbox_str = " ".join(str(coord) for coord in self.bbox)
-        return f"-{self.id} loop $-1 -1 -1 $-1 $-1 ${self.coedge.id} $3 T {bbox_str} unknown #"
+        periphery = "unknown"
+        if self.periphery_plane is not None:
+            periphery = f"periphery ${self.periphery_plane.id} F"
+
+        return f"-{self.id} loop $-1 -1 -1 $-1 $-1 ${self.coedge.id} $3 T {bbox_str} {periphery} #"
 
 
 @dataclass
@@ -148,10 +153,10 @@ class PlaneSurface(SATEntity):
 class StringAttribName(SATEntity):
     name: str
     entity: SATEntity
-    cache_attrib: CachedPlaneAttribute = None
+    attrib_ref: CachedPlaneAttribute | FusedFaceAttribute = None
 
     def to_string(self) -> str:
-        cache_attrib = -1 if self.cache_attrib is None else self.cache_attrib.id
+        cache_attrib = -1 if self.attrib_ref is None else self.attrib_ref.id
         return f"-{self.id} string_attrib-name_attrib-gen-attrib $-1 -1 ${cache_attrib} $-1 ${self.entity.id} 2 1 1 1 1 1 1 1 1 1 1 1 1 1 0 1 1 1 @6 dnvscp @12 {self.name} #"
 
 
@@ -165,26 +170,41 @@ class CachedPlaneAttribute(SATEntity):
     def to_string(self) -> str:
         centroid_str = " ".join([str(x) for x in make_ints_if_possible(self.centroid)])
         normal_str = " ".join([str(x) for x in make_ints_if_possible(self.normal)])
-        return f"-{self.id} CachedPlaneAttribute-DNV-attrib $-1 -1 $-1 ${self.name.id} ${self.entity.id} 1 1 1 1 1 1 1 1 1 1 1 1 0 1 0 1 1 1 {centroid_str} {normal_str} 1 #"
+        if isinstance(self.entity, int):
+            entity = self.entity
+        else:
+            entity = self.entity.id
+        return f"-{self.id} CachedPlaneAttribute-DNV-attrib $-1 -1 $-1 ${self.name.id} ${entity} 1 1 1 1 1 1 1 1 1 1 1 1 0 1 0 1 1 1 {centroid_str} {normal_str} 1 #"
+
+
+
 
 
 @dataclass
 class PositionAttribName(SATEntity):
-    fused_face_attrib: FusedFaceAttribute
     position_attrib: PositionAttribName
+    fused_face_attrib: FusedFaceAttribute
     face: Face
+    face_bbox: list[float]
+    box_attrib: Literal["ExactBoxLow", "ExactBoxHigh"]
+
 
     def to_string(self) -> str:
-        return f"-{self.id} position_attrib-name_attrib-gen-attrib $-1 -1 $-1 $-1 ${self.position_attrib.id} ${self.face.id} 1 1 1 1 1 1 1 1 1 1 1 1 0 1 0 1 1 1 #"
+        if self.box_attrib == "ExactBoxLow":
+            box_attrib = "@11 ExactBoxLow "+' '.join([str(x) for x in self.face_bbox[:3]])
+        else:
+            box_attrib = "@12 ExactBoxHigh "+ ' '.join([str(x) for x in self.face_bbox[3:]])
+
+        return f"-{self.id} position_attrib-name_attrib-gen-attrib $-1 -1 ${self.position_attrib.id} ${self.fused_face_attrib.id} ${self.face.id} 2 0 0 0 1 1 1 1 1 1 1 1 1 1 0 1 1 1 {box_attrib} #"
 
 @dataclass
 class FusedFaceAttribute(SATEntity):
     name: StringAttribName
     posattrib: PositionAttribName
-    stringattrib: StringAttribName
+    face: Face
 
     def to_string(self) -> str:
-        return f"-{self.id} FusedFaceAttribute-DNV-attrib $-1 -1 $-1 ${self.name.id} ${self.entity.id} 1 1 1 1 1 1 1 1 1 1 1 1 0 1 0 1 1 1 #"
+        return f"-{self.id} FusedFaceAttribute-DNV-attrib $-1 -1 ${self.posattrib.id} ${self.name.id} ${self.face.id} 1 1 1 1 1 1 1 1 1 1 1 1 0 1 0 1 1 1 F 1 0 0 #"
 
 @dataclass
 class FusedEdgeAttribute(SATEntity):

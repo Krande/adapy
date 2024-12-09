@@ -49,13 +49,21 @@ def plate_to_sat_entities(pl: ada.Plate, face_name: str, geo_repr: GeomRepr, sw:
     loop_id = id_gen.next_id()
 
     surface = se.PlaneSurface(id_gen.next_id(), pl.poly.get_centroid(), pl.poly.normal, pl.poly.xdir)
+    fused_face_id = id_gen.next_id()
 
-    cached_plane_attrib = se.CachedPlaneAttribute(
-        id_gen.next_id(), face_id, name_id, pl.poly.get_centroid(), pl.poly.normal
-    )
-    string_attrib_name = se.StringAttribName(name_id, face_name, face_id, cached_plane_attrib)
+
+    posattr2_id = id_gen.next_id()
+    posattr1 = se.PositionAttribName(id_gen.next_id(),  posattr2_id, fused_face_id, face_id, bbox, "ExactBoxHigh")
+    posattr2 = se.PositionAttribName(posattr2_id, posattr1, fused_face_id, face_id, bbox, "ExactBoxLow")
+    cached_plane_attrib = se.CachedPlaneAttribute(id_gen.next_id(), posattr2.id, name_id, pl.poly.get_centroid(),
+                                                  pl.poly.normal)
+
+    fused_face_att = se.FusedFaceAttribute(fused_face_id, name_id, posattr1, face_id)
+    string_attrib_name = se.StringAttribName(name_id, face_name, face_id, fused_face_att)
+
+
     face = se.Face(face_id, loop_id, shell, string_attrib_name, surface)
-    loop = se.Loop(loop_id, id_gen.next_id(), bbox)
+    loop = se.Loop(loop_id, id_gen.next_id(), bbox, surface)
 
     edges = []
     coedges = []
@@ -129,6 +137,9 @@ def plate_to_sat_entities(pl: ada.Plate, face_name: str, geo_repr: GeomRepr, sw:
             string_attrib_name,
             cached_plane_attrib,
             surface,
+            fused_face_att,
+            posattr1,
+            posattr2,
         ]
         + coedges
         + edges
