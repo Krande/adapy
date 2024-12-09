@@ -216,6 +216,15 @@ class PrimBox(Shape):
         booleans = [BooleanOperation(x.primitive.solid_geom(), x.bool_op) for x in self.booleans]
         return Geometry(self.guid, box, self.color, bool_operations=booleans)
 
+    def get_bottom_points(self):
+        p11 = self.p1 + self.placement.origin
+        p2 = self.p2 + self.placement.origin
+        # get bottom 4 points
+        p12 = Point(p2.x, p11.y, p11.z)
+        p21 = Point(p11.x, p2.y, p11.z)
+        p22 = Point(p2.x, p2.y, p11.z)
+        return [p11, p12, p21, p22]
+
     @staticmethod
     def from_p_and_dims(name, p, length, width, height, **kwargs):
         p1 = p
@@ -226,6 +235,7 @@ class PrimBox(Shape):
     def from_box_geom(name, box_geom: Box, **kwargs):
         p1 = box_geom.position.location
         p2 = p1 + Direction(box_geom.x_length, box_geom.y_length, box_geom.z_length)
+
         return PrimBox(name, p1, p2, **kwargs)
 
     @staticmethod
