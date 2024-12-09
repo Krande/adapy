@@ -249,6 +249,7 @@ class Assembly(Part):
         from ada.cadit.gxml.write.write_xml import write_xml
 
         write_xml(self, destination_xml, writer_postprocessor=writer_postprocessor, embed_sat=embed_sat)
+        print(f'Genie XML file "{destination_xml}" created')
 
     def push(self, comment, bimserver_url, username, password, project, merge=False, sync=False):
         """Push current assembly to BimServer with a comment tag that defines the revision name"""
