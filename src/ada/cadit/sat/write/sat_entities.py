@@ -166,3 +166,30 @@ class CachedPlaneAttribute(SATEntity):
         centroid_str = " ".join([str(x) for x in make_ints_if_possible(self.centroid)])
         normal_str = " ".join([str(x) for x in make_ints_if_possible(self.normal)])
         return f"-{self.id} CachedPlaneAttribute-DNV-attrib $-1 -1 $-1 ${self.name.id} ${self.entity.id} 1 1 1 1 1 1 1 1 1 1 1 1 0 1 0 1 1 1 {centroid_str} {normal_str} 1 #"
+
+
+@dataclass
+class PositionAttribName(SATEntity):
+    fused_face_attrib: FusedFaceAttribute
+    position_attrib: PositionAttribName
+    face: Face
+
+    def to_string(self) -> str:
+        return f"-{self.id} position_attrib-name_attrib-gen-attrib $-1 -1 $-1 $-1 ${self.position_attrib.id} ${self.face.id} 1 1 1 1 1 1 1 1 1 1 1 1 0 1 0 1 1 1 #"
+
+@dataclass
+class FusedFaceAttribute(SATEntity):
+    name: StringAttribName
+    posattrib: PositionAttribName
+    stringattrib: StringAttribName
+
+    def to_string(self) -> str:
+        return f"-{self.id} FusedFaceAttribute-DNV-attrib $-1 -1 $-1 ${self.name.id} ${self.entity.id} 1 1 1 1 1 1 1 1 1 1 1 1 0 1 0 1 1 1 #"
+
+@dataclass
+class FusedEdgeAttribute(SATEntity):
+    name: StringAttribName
+    stringattrib: StringAttribName
+
+    def to_string(self) -> str:
+        return f"-{self.id} FusedEdgeAttribute-DNV-attrib $-1 -1 $-1 ${self.name.id} ${self.entity.id} 1 1 1 1 1 1 1 1 1 1 1 1 0 1 0 1 1 1 #"
