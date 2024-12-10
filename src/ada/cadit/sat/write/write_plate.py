@@ -38,6 +38,19 @@ def plate_to_sat_entities(pl: ada.Plate, face_name: str, geo_repr: GeomRepr, sw:
     else:
         body = bodies[0]
         lump_id = id_gen.next_id()
+    # update body bbox
+    updated_body_bbox = [x for x in body.bbox]
+    for i, x in enumerate(bbox):
+        body_value = body.bbox[i]
+        local_value = bbox[i]
+        if i > 2:
+            if local_value > body_value:
+                updated_body_bbox[i] = local_value
+        else:
+            if local_value < body_value:
+                updated_body_bbox[i] = local_value
+
+    body.bbox = updated_body_bbox
 
     shell_id = id_gen.next_id()
     face_id = id_gen.next_id()
