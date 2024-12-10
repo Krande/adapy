@@ -13,7 +13,7 @@ if TYPE_CHECKING:
     from ada.cadit.sat.write.writer import SatWriter
 
 
-def plate_to_sat_entities(pl: ada.Plate, face_name: str, geo_repr: GeomRepr, sw: SatWriter) -> list[se.SATEntity]:
+def plate_to_sat_entities(pl: ada.Plate, face_name: str, geo_repr: GeomRepr, sw: SatWriter, use_dual_assembly=False) -> list[se.SATEntity]:
     """Convert a Plate object to a SAT entities."""
 
     if geo_repr != GeomRepr.SHELL:
@@ -49,19 +49,25 @@ def plate_to_sat_entities(pl: ada.Plate, face_name: str, geo_repr: GeomRepr, sw:
     loop_id = id_gen.next_id()
 
     surface = se.PlaneSurface(id_gen.next_id(), pl.poly.get_centroid(), pl.poly.normal, pl.poly.xdir)
-    fused_face_id = id_gen.next_id()
-
-    posattr2_id = id_gen.next_id()
-    posattr1 = se.PositionAttribName(id_gen.next_id(), posattr2_id, fused_face_id, face_id, bbox, "ExactBoxHigh")
     cache_plane_id = id_gen.next_id()
-    posattr2 = se.PositionAttribName(posattr2_id, cache_plane_id, posattr1, face_id, bbox, "ExactBoxLow")
+    if use_dual_assembly:
+        fused_face_id = id_gen.next_id()
 
-    cached_plane_attrib = se.CachedPlaneAttribute(
-        cache_plane_id, face_id, posattr2.id, pl.poly.get_centroid(), pl.poly.normal
-    )
+        posattr2_id = id_gen.next_id()
+        posattr1 = se.PositionAttribName(id_gen.next_id(), posattr2_id, fused_face_id, face_id, bbox, "ExactBoxHigh")
 
-    fused_face_att = se.FusedFaceAttribute(fused_face_id, name_id, posattr1, face_id)
-    string_attrib_name = se.StringAttribName(name_id, face_name, face_id, fused_face_att)
+        posattr2 = se.PositionAttribName(posattr2_id, cache_plane_id, posattr1, face_id, bbox, "ExactBoxLow")
+        cached_plane_attrib = se.CachedPlaneAttribute(
+            cache_plane_id, face_id, posattr2.id, pl.poly.get_centroid(), pl.poly.normal
+        )
+        fused_face_att = se.FusedFaceAttribute(fused_face_id, name_id, posattr1, face_id)
+        string_attrib_name = se.StringAttribName(name_id, face_name, face_id, fused_face_att)
+        sat_entities += [posattr1, posattr2, fused_face_att]
+    else:
+        cached_plane_attrib = se.CachedPlaneAttribute(
+            id_gen.next_id(), face_id, name_id, pl.poly.get_centroid(), pl.poly.normal
+        )
+        string_attrib_name = se.StringAttribName(name_id, face_name, face_id, cached_plane_attrib)
 
     face = se.Face(face_id, loop_id, shell, string_attrib_name, surface)
     loop = se.Loop(loop_id, id_gen.next_id(), bbox, surface)
@@ -133,17 +139,18 @@ def plate_to_sat_entities(pl: ada.Plate, face_name: str, geo_repr: GeomRepr, sw:
             start_pt=p1.point,
             end_pt=p2.point,
         )
-        edge_n = f"EDGE{sw.edge_name_id:08d}"
-        edge_str_id = id_gen.next_id()
-        length = ada.Direction(p1.point - p2.point).get_length()
-        fusedge = se.FusedEdgeAttribute(
-            id_gen.next_id(), name=edge_str_id, entity=edge, edge_idx=i + 1, edge_seq=edge_seq[i], edge_length=length
-        )
-        edge_string_att = se.StringAttribName(edge_str_id, edge_n, edge, attrib_ref=fusedge)
-        edge.attrib_name = edge_string_att
-        sat_entities.append(edge_string_att)
-        sat_entities.append(fusedge)
-        sw.edge_name_id += 1
+        if use_dual_assembly:
+            edge_n = f"EDGE{sw.edge_name_id:08d}"
+            edge_str_id = id_gen.next_id()
+            length = ada.Direction(p1.point - p2.point).get_length()
+            fusedge = se.FusedEdgeAttribute(
+                id_gen.next_id(), name=edge_str_id, entity=edge, edge_idx=i + 1, edge_seq=edge_seq[i], edge_length=length
+            )
+            edge_string_att = se.StringAttribName(edge_str_id, edge_n, edge, attrib_ref=fusedge)
+            edge.attrib_name = edge_string_att
+            sat_entities.append(edge_string_att)
+            sat_entities.append(fusedge)
+            sw.edge_name_id += 1
 
         coedge = se.CoEdge(coedge_id, next_coedge_id, prev_coedge_id, edge, loop, "forward")
         coedges.append(coedge)
@@ -158,9 +165,7 @@ def plate_to_sat_entities(pl: ada.Plate, face_name: str, geo_repr: GeomRepr, sw:
             string_attrib_name,
             cached_plane_attrib,
             surface,
-            fused_face_att,
-            posattr1,
-            posattr2,
+
         ]
         + coedges
         + edges
