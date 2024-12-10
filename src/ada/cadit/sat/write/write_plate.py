@@ -51,9 +51,8 @@ def plate_to_sat_entities(pl: ada.Plate, face_name: str, geo_repr: GeomRepr, sw:
     surface = se.PlaneSurface(id_gen.next_id(), pl.poly.get_centroid(), pl.poly.normal, pl.poly.xdir)
     fused_face_id = id_gen.next_id()
 
-
     posattr2_id = id_gen.next_id()
-    posattr1 = se.PositionAttribName(id_gen.next_id(),  posattr2_id, fused_face_id, face_id, bbox, "ExactBoxHigh")
+    posattr1 = se.PositionAttribName(id_gen.next_id(), posattr2_id, fused_face_id, face_id, bbox, "ExactBoxHigh")
     cache_plane_id = id_gen.next_id()
     posattr2 = se.PositionAttribName(posattr2_id, cache_plane_id, posattr1, face_id, bbox, "ExactBoxLow")
 
@@ -64,7 +63,6 @@ def plate_to_sat_entities(pl: ada.Plate, face_name: str, geo_repr: GeomRepr, sw:
     fused_face_att = se.FusedFaceAttribute(fused_face_id, name_id, posattr1, face_id)
     string_attrib_name = se.StringAttribName(name_id, face_name, face_id, fused_face_att)
 
-
     face = se.Face(face_id, loop_id, shell, string_attrib_name, surface)
     loop = se.Loop(loop_id, id_gen.next_id(), bbox, surface)
 
@@ -73,6 +71,14 @@ def plate_to_sat_entities(pl: ada.Plate, face_name: str, geo_repr: GeomRepr, sw:
     straight_curves = []
 
     seg3d = pl.poly.segments3d
+    # By making seg3d counter clockwise area of the face will be positive (in genie checks)
+    seg3d_ccw = []
+    for i, edge in enumerate(seg3d):
+        new_edge = ada.LineSegment(edge.p2, edge.p1)
+        seg3d_ccw.append(new_edge)
+    seg3d_ccw.reverse()
+    seg3d = seg3d_ccw
+
     coedge_ids = []
     for i, edge in enumerate(seg3d):
         if i == 0:
@@ -92,7 +98,7 @@ def plate_to_sat_entities(pl: ada.Plate, face_name: str, geo_repr: GeomRepr, sw:
     points = list(point_map.values())
     vertex_map = {p.id: se.Vertex(id_gen.next_id(), None, p) for p in points}
     vertices = list(vertex_map.values())
-    edge_seq = [(1,2), (2,3), (3,4), (4,1)]
+    edge_seq = [(1, 2), (2, 3), (3, 4), (4, 1)]
     for i, edge in enumerate(seg3d):
         coedge_id = coedge_ids[i]
         if i == 0:
@@ -104,6 +110,7 @@ def plate_to_sat_entities(pl: ada.Plate, face_name: str, geo_repr: GeomRepr, sw:
         else:
             next_coedge_id = coedge_ids[(i + 1)]
             prev_coedge_id = coedge_ids[(i - 1)]
+
         # start
         edge_id = id_gen.next_id()
         p1 = point_map.get(tuple(edge.p1))
@@ -129,7 +136,9 @@ def plate_to_sat_entities(pl: ada.Plate, face_name: str, geo_repr: GeomRepr, sw:
         edge_n = f"EDGE{sw.edge_name_id:08d}"
         edge_str_id = id_gen.next_id()
         length = ada.Direction(p1.point - p2.point).get_length()
-        fusedge = se.FusedEdgeAttribute(id_gen.next_id(), edge_str_id, edge, i+1, edge_seq[i], length)
+        fusedge = se.FusedEdgeAttribute(
+            id_gen.next_id(), name=edge_str_id, entity=edge, edge_idx=i + 1, edge_seq=edge_seq[i], edge_length=length
+        )
         edge_string_att = se.StringAttribName(edge_str_id, edge_n, edge, attrib_ref=fusedge)
         edge.attrib_name = edge_string_att
         sat_entities.append(edge_string_att)
@@ -163,7 +172,7 @@ def plate_to_sat_entities(pl: ada.Plate, face_name: str, geo_repr: GeomRepr, sw:
     sat_entity_map = {entity.id: entity for entity in sat_entities}
     for entity in sat_entities:
         for key, value in entity.__dict__.items():
-            if key == "id":
+            if key == "id" or "_idx" in key:
                 continue
             if isinstance(value, int) and value in sat_entity_map.keys():
                 setattr(entity, key, sat_entity_map.get(value))

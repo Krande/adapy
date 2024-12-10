@@ -220,5 +220,5 @@ class FusedEdgeAttribute(SATEntity):
 
     def to_string(self) -> str:
         length = make_ints_if_possible([self.edge_length])[0]
-        edge_spec = f"{self.edge_seq[0]} {self.edge_seq[1]} 0 {length}"
+        edge_spec = f"{self.edge_seq[0]} {self.edge_seq[1]} {self.edge_idx} 0 {length}"
         return f"-{self.id} FusedEdgeAttribute-DNV-attrib $-1 -1 $-1 ${self.name.id} ${self.entity.id} 1 1 1 1 1 1 1 1 1 1 1 1 0 1 0 1 1 1 1 {edge_spec} #"
