@@ -56,7 +56,7 @@ def plate_to_sat_entities(pl: ada.Plate, face_name: str, geo_repr: GeomRepr, sw:
     face_id = id_gen.next_id()
     lump = se.Lump(lump_id, shell_id, body, bbox)
     sat_entities.append(lump)
-    shell = se.Shell(shell_id, face_id, bbox)
+    shell = se.Shell(shell_id, face_id, lump, bbox)
 
     name_id = id_gen.next_id()
     loop_id = id_gen.next_id()

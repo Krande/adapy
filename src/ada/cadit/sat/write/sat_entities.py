@@ -41,11 +41,12 @@ class Lump(SATEntity):
 @dataclass
 class Shell(SATEntity):
     face: Face
+    lump: Lump
     bbox: list[float]
 
     def to_string(self) -> str:
         bbox_str = " ".join(str(coord) for coord in self.bbox)
-        return f"-{self.id} shell $-1 -1 -1 $-1 $-1 $-1 ${self.face.id} $-1 $1 T {bbox_str} #"
+        return f"-{self.id} shell $-1 -1 -1 $-1 $-1 $-1 ${self.face.id} $-1 ${self.lump.id} T {bbox_str} #"
 
 
 @dataclass
