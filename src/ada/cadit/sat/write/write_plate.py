@@ -83,7 +83,10 @@ def plate_to_sat_entities(pl: ada.Plate, face_name: str, geo_repr: GeomRepr, sw:
         string_attrib_name = se.StringAttribName(name_id, face_name, face_id, cached_plane_attrib)
 
     face = se.Face(face_id, loop_id, shell, string_attrib_name, surface)
-    loop = se.Loop(loop_id, id_gen.next_id(), bbox, surface)
+    if use_dual_assembly:
+        loop = se.Loop(loop_id, id_gen.next_id(), bbox, surface)
+    else:
+        loop = se.Loop(loop_id, id_gen.next_id(), bbox)
 
     edges = []
     coedges = []
