@@ -1,6 +1,7 @@
 from typing import Union
 
 import ifcopenshell
+
 from ada.geom import curves as geo_cu
 from ada.geom import solids as geo_so
 from ada.geom import surfaces as geo_su

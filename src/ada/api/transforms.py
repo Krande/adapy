@@ -101,7 +101,7 @@ class Placement:
         return Placement(origin=origin, xdir=m[0, :3], ydir=m[1, :3], zdir=m[2, :3])
 
     @staticmethod
-    def from_co_linear_points(points: list[Point] | np.ndarray, xdir=None) -> Placement:
+    def from_co_linear_points(points: list[Point] | np.ndarray, xdir=None, flip_n=False) -> Placement:
         """Create a placement from a list of points that are co-linear."""
         if not isinstance(points, np.ndarray):
             points = np.asarray(points)
@@ -111,6 +111,8 @@ class Placement:
 
         origin = points[0]
         n = normal_to_points_in_plane(points)
+        if flip_n:
+            n = -n
         if xdir is None:
             xdir = Direction(points[1] - points[0]).get_normalized()
         else:
@@ -118,8 +120,6 @@ class Placement:
 
         ydir = calc_yvec(xdir, n)
         return Placement(origin=origin, xdir=xdir, ydir=ydir, zdir=n)
-        # q1 = pq.Quaternion(matrix=np.asarray([xdir, ydir, n])).inverse
-        # return Placement.from_quaternion(q1, origin)
 
     @staticmethod
     def from_axis3d(axis: Axis2Placement3D) -> Placement:

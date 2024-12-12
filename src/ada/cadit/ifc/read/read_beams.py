@@ -3,13 +3,13 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import numpy as np
+from ifcopenshell.util.placement import get_local_placement
 
 from ada import Beam, Placement
 from ada.api.beams import BeamRevolve
 from ada.api.curves import CurveRevolve
 from ada.config import logger
 from ada.core.vector_utils import calc_yvec, unit_vector
-from ifcopenshell.util.placement import get_local_placement
 
 from .geom.geom_reader import get_product_definitions
 from .geom.placement import axis3d

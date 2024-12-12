@@ -22,10 +22,9 @@ from .transforms import Placement
 
 if TYPE_CHECKING:
     from OCC.Core.TopoDS import TopoDS_Shape
-    from ada.geom.solids import Box, ExtrudedAreaSolid
-    from ada.geom.surfaces import RectangleProfileDef
 
     from ada.cadit.ifc.store import IfcStore
+    from ada.geom.solids import Box, ExtrudedAreaSolid
 
 
 class Shape(BackendGeom):
@@ -239,7 +238,7 @@ class PrimBox(Shape):
         return PrimBox(name, p1, p2, **kwargs)
 
     @staticmethod
-    def from_extruded_rect_profile(name,  extrusion: ExtrudedAreaSolid, **kwargs):
+    def from_extruded_rect_profile(name, extrusion: ExtrudedAreaSolid, **kwargs):
         from ada.geom.surfaces import RectangleProfileDef
 
         if not isinstance(extrusion.swept_area, RectangleProfileDef):

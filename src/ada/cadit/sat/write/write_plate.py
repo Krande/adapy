@@ -13,7 +13,9 @@ if TYPE_CHECKING:
     from ada.cadit.sat.write.writer import SatWriter
 
 
-def plate_to_sat_entities(pl: ada.Plate, face_name: str, geo_repr: GeomRepr, sw: SatWriter, use_dual_assembly=False) -> list[se.SATEntity]:
+def plate_to_sat_entities(
+    pl: ada.Plate, face_name: str, geo_repr: GeomRepr, sw: SatWriter, use_dual_assembly=False
+) -> list[se.SATEntity]:
     """Convert a Plate object to a SAT entities."""
 
     if geo_repr != GeomRepr.SHELL:
@@ -160,7 +162,12 @@ def plate_to_sat_entities(pl: ada.Plate, face_name: str, geo_repr: GeomRepr, sw:
             edge_str_id = id_gen.next_id()
             length = ada.Direction(p1.point - p2.point).get_length()
             fusedge = se.FusedEdgeAttribute(
-                id_gen.next_id(), name=edge_str_id, entity=edge, edge_idx=i + 1, edge_seq=edge_seq[i], edge_length=length
+                id_gen.next_id(),
+                name=edge_str_id,
+                entity=edge,
+                edge_idx=i + 1,
+                edge_seq=edge_seq[i],
+                edge_length=length,
             )
             edge_string_att = se.StringAttribName(edge_str_id, edge_n, edge, attrib_ref=fusedge)
             edge.attrib_name = edge_string_att
@@ -181,7 +188,6 @@ def plate_to_sat_entities(pl: ada.Plate, face_name: str, geo_repr: GeomRepr, sw:
             string_attrib_name,
             cached_plane_attrib,
             surface,
-
         ]
         + coedges
         + edges
