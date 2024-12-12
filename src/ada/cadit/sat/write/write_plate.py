@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 import ada
+from ada import LineSegment
 from ada.base.types import GeomRepr
 from ada.cadit.sat.utils import make_ints_if_possible
 from ada.cadit.sat.write import sat_entities as se
@@ -97,11 +98,19 @@ def plate_to_sat_entities(
     seg3d = pl.poly.segments3d
     # By making seg3d counter clockwise area of the face will be positive (in genie checks)
     seg3d_ccw = []
-    for i, edge in enumerate(seg3d):
-        new_edge = ada.LineSegment(edge.p2, edge.p1)
-        seg3d_ccw.append(new_edge)
-    seg3d_ccw.reverse()
-    seg3d = seg3d_ccw
+    # z = seg3d[0].p1.z
+    # new_seg3d = [
+    #     LineSegment((10,0,z), (10,10,z)),
+    #     LineSegment((0,0,z), (10,0,z)),
+    #     LineSegment((0,0,z), (0,10,z)),
+    #     LineSegment((0,10,z), (10,10,z)),
+    # ]
+    # seg3d = new_seg3d
+    # for i, edge in enumerate(seg3d):
+    #     new_edge = ada.LineSegment(edge.p2, edge.p1)
+    #     seg3d_ccw.append(new_edge)
+    # seg3d_ccw.reverse()
+    # seg3d = seg3d_ccw
 
     coedge_ids = []
     for i, edge in enumerate(seg3d):
@@ -112,17 +121,18 @@ def plate_to_sat_entities(
         coedge_ids.append(coedge_id)
 
     point_map = {}
-    segments = pl.poly.segments3d
-    for p in segments:
-        if tuple(p.p1) not in point_map.keys():
-            point_map[tuple(p.p1)] = se.SatPoint(id_gen.next_id(), p.p1)
-        if tuple(p.p2) not in point_map.keys():
-            point_map[tuple(p.p2)] = se.SatPoint(id_gen.next_id(), p.p2)
+
+    for segment in seg3d:
+        if tuple(segment.p1) not in point_map.keys():
+            point_map[tuple(segment.p1)] = se.SatPoint(id_gen.next_id(), segment.p1)
+        if tuple(segment.p2) not in point_map.keys():
+            point_map[tuple(segment.p2)] = se.SatPoint(id_gen.next_id(), segment.p2)
 
     points = list(point_map.values())
     vertex_map = {p.id: se.Vertex(id_gen.next_id(), None, p) for p in points}
     vertices = list(vertex_map.values())
     edge_seq = [(1, 2), (2, 3), (3, 4), (4, 1)]
+
     for i, edge in enumerate(seg3d):
         coedge_id = coedge_ids[i]
         if i == 0:
@@ -175,7 +185,7 @@ def plate_to_sat_entities(
             sat_entities.append(fusedge)
             sw.edge_name_id += 1
 
-        coedge = se.CoEdge(coedge_id, next_coedge_id, prev_coedge_id, edge, loop, "forward")
+        coedge = se.CoEdge(coedge_id,  prev_coedge_id, next_coedge_id, edge, loop, "forward")
         coedges.append(coedge)
         edges.append(edge)
         straight_curves.append(straight_curve)
