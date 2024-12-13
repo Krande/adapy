@@ -115,14 +115,15 @@ class Beam(BackendGeom):
         mat: Material | str = None,
         name_gen: Iterable = None,
         make_closed=False,
+        up=None
     ):
         beams = []
         ngen = name_gen if name_gen is not None else Counter(prefix="bm")
         for seg in segments:
-            beams.append(Beam(next(ngen), seg.p1, seg.p2, sec, mat))
+            beams.append(Beam(next(ngen), seg.p1, seg.p2, sec, mat, up=up))
 
         if make_closed and segments[0].p1 != segments[-1].p2:
-            beams.append(Beam(next(ngen), segments[-1].p2, segments[0].p1, sec, mat))
+            beams.append(Beam(next(ngen), segments[-1].p2, segments[0].p1, sec, mat, up=up))
 
         return beams
 
