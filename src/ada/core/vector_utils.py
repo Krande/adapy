@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Iterable
+from typing import TYPE_CHECKING, Iterable
 
 import numpy as np
 
@@ -8,6 +8,9 @@ from ada.config import Config
 from ada.geom.placement import Direction
 
 from .exceptions import VectorNormalizeError
+
+if TYPE_CHECKING:
+    from ada import Point
 
 
 def angle_between(v1, v2):
@@ -361,11 +364,15 @@ def calc_zvec(x_vec, y_vec=None) -> np.ndarray:
         return np.cross(x_vec, y_vec)
 
 
-def get_centroid(points):
+def get_centroid(points) -> Point:
+    from ada import Point
+
     x, y, z = 0, 0, 0
     for p in points:
         x += p[0]
         y += p[1]
         z += p[2]
+
     n = len(points)
-    return x / n, y / n, z / n
+
+    return Point(x / n, y / n, z / n)

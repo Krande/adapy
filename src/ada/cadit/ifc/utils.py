@@ -272,6 +272,8 @@ def ifc_value_map(f, value):
     value_map = {str: "IfcText", float: "IfcReal", int: "IfcInteger", bool: "IfcBoolean"}
     if type(value) in (np.float64,):
         value = float(value)
+    if type(value) in (np.int64,):
+        value = int(value)
     ifc_type = value_map.get(type(value), None)
     if ifc_type is None:
         logger.warning(f'Unable to find suitable IFC type for "{type(value)}". Will convert it to string')

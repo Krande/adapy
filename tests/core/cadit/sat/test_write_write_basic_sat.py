@@ -16,6 +16,8 @@ def test_write_basic_plate_sat(example_files, tmp_path):
 
     # Make sure the top-level lines are the same
     for line_a, line_b in zip(sat_str.splitlines(), reference_file.read_text().splitlines()):
+        if "gmGeometry" in line_a:
+            continue
         if "coedge" in line_a or "edge" in line_a or "vertex" in line_a or "point" in line_a:
             break
         assert line_a == line_b

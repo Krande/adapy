@@ -41,11 +41,12 @@ class Lump(SATEntity):
 @dataclass
 class Shell(SATEntity):
     face: Face
+    lump: Lump
     bbox: list[float]
 
     def to_string(self) -> str:
         bbox_str = " ".join(str(coord) for coord in self.bbox)
-        return f"-{self.id} shell $-1 -1 -1 $-1 $-1 $-1 ${self.face.id} $-1 $1 T {bbox_str} #"
+        return f"-{self.id} shell $-1 -1 -1 $-1 $-1 $-1 ${self.face.id} $-1 ${self.lump.id} T {bbox_str} #"
 
 
 @dataclass
@@ -63,10 +64,15 @@ class Face(SATEntity):
 class Loop(SATEntity):
     coedge: CoEdge
     bbox: list[float]
+    periphery_plane: PlaneSurface = None
 
     def to_string(self) -> str:
         bbox_str = " ".join(str(coord) for coord in self.bbox)
-        return f"-{self.id} loop $-1 -1 -1 $-1 $-1 ${self.coedge.id} $3 T {bbox_str} unknown #"
+        periphery = "unknown"
+        if self.periphery_plane is not None:
+            periphery = f"periphery ${self.periphery_plane.id} F"
+
+        return f"-{self.id} loop $-1 -1 -1 $-1 $-1 ${self.coedge.id} $3 T {bbox_str} {periphery} #"
 
 
 @dataclass
@@ -108,8 +114,12 @@ class Edge(SATEntity):
 
     start_pt: ada.Point
     end_pt: ada.Point
+    attrib_name: StringAttribName = None
 
     def to_string(self) -> str:
+        attrib_ref = "-1"
+        if self.attrib_name:
+            attrib_ref = self.attrib_name.id
         start_str = " ".join([str(x) for x in make_ints_if_possible(self.start_pt)])
         end_str = " ".join([str(x) for x in make_ints_if_possible(self.end_pt)])
         # pos_str = f"{self.start_pt[0]} {self.start_pt[1]} {self.start_pt[2]} {self.end_pt[0]} {self.end_pt[1]} {self.end_pt[2]}"
@@ -117,7 +127,7 @@ class Edge(SATEntity):
         length = vec.get_length()
         s1 = 0
         s2 = make_ints_if_possible([length])[0]
-        return f"-{self.id} edge $-1 -1 -1 $-1 ${self.vertex_start.id} {s1} ${self.vertex_end.id} {s2} ${self.coedge.id} ${self.straight_curve.id} forward @7 unknown T {start_str} {end_str} #"
+        return f"-{self.id} edge ${attrib_ref} -1 -1 $-1 ${self.vertex_start.id} {s1} ${self.vertex_end.id} {s2} ${self.coedge.id} ${self.straight_curve.id} forward @7 unknown T {start_str} {end_str} #"
 
 
 @dataclass
@@ -148,10 +158,10 @@ class PlaneSurface(SATEntity):
 class StringAttribName(SATEntity):
     name: str
     entity: SATEntity
-    cache_attrib: CachedPlaneAttribute = None
+    attrib_ref: CachedPlaneAttribute | FusedFaceAttribute | FusedEdgeAttribute = None
 
     def to_string(self) -> str:
-        cache_attrib = -1 if self.cache_attrib is None else self.cache_attrib.id
+        cache_attrib = -1 if self.attrib_ref is None else self.attrib_ref.id
         return f"-{self.id} string_attrib-name_attrib-gen-attrib $-1 -1 ${cache_attrib} $-1 ${self.entity.id} 2 1 1 1 1 1 1 1 1 1 1 1 1 1 0 1 1 1 @6 dnvscp @12 {self.name} #"
 
 
@@ -165,4 +175,49 @@ class CachedPlaneAttribute(SATEntity):
     def to_string(self) -> str:
         centroid_str = " ".join([str(x) for x in make_ints_if_possible(self.centroid)])
         normal_str = " ".join([str(x) for x in make_ints_if_possible(self.normal)])
-        return f"-{self.id} CachedPlaneAttribute-DNV-attrib $-1 -1 $-1 ${self.name.id} ${self.entity.id} 1 1 1 1 1 1 1 1 1 1 1 1 0 1 0 1 1 1 {centroid_str} {normal_str} 1 #"
+        if isinstance(self.entity, int):
+            entity = self.entity
+        else:
+            entity = self.entity.id
+        return f"-{self.id} CachedPlaneAttribute-DNV-attrib $-1 -1 $-1 ${self.name.id} ${entity} 1 1 1 1 1 1 1 1 1 1 1 1 0 1 0 1 1 1 {centroid_str} {normal_str} 1 #"
+
+
+@dataclass
+class PositionAttribName(SATEntity):
+    position_attrib: PositionAttribName
+    fused_face_attrib: FusedFaceAttribute
+    face: Face
+    face_bbox: list[float]
+    box_attrib: Literal["ExactBoxLow", "ExactBoxHigh"]
+
+    def to_string(self) -> str:
+        if self.box_attrib == "ExactBoxLow":
+            box_attrib = "@11 ExactBoxLow " + " ".join([str(x) for x in self.face_bbox[:3]])
+        else:
+            box_attrib = "@12 ExactBoxHigh " + " ".join([str(x) for x in self.face_bbox[3:]])
+
+        return f"-{self.id} position_attrib-name_attrib-gen-attrib $-1 -1 ${self.position_attrib.id} ${self.fused_face_attrib.id} ${self.face.id} 2 0 0 0 1 1 1 1 1 1 1 1 1 1 0 1 1 1 {box_attrib} #"
+
+
+@dataclass
+class FusedFaceAttribute(SATEntity):
+    name: StringAttribName
+    posattrib: PositionAttribName
+    face: Face
+
+    def to_string(self) -> str:
+        return f"-{self.id} FusedFaceAttribute-DNV-attrib $-1 -1 ${self.posattrib.id} ${self.name.id} ${self.face.id} 1 1 1 1 1 1 1 1 1 1 1 1 0 1 0 1 1 1 F 1 0 0 #"
+
+
+@dataclass
+class FusedEdgeAttribute(SATEntity):
+    name: StringAttribName
+    entity: SATEntity
+    edge_idx: int
+    edge_seq: tuple[int, int]
+    edge_length: int | float
+
+    def to_string(self) -> str:
+        length = make_ints_if_possible([self.edge_length])[0]
+        edge_spec = f"{self.edge_seq[0]} {self.edge_seq[1]} {self.edge_idx} 0 {length}"
+        return f"-{self.id} FusedEdgeAttribute-DNV-attrib $-1 -1 $-1 ${self.name.id} ${self.entity.id} 1 1 1 1 1 1 1 1 1 1 1 1 0 1 0 1 1 1 1 {edge_spec} #"

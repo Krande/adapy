@@ -75,9 +75,9 @@ class Placement:
                 "Please supply at least two vectors to define a placement."
             )
 
-        self.xdir = Point(*self.xdir)
-        self.ydir = Point(*self.ydir)
-        self.zdir = Point(*self.zdir)
+        self.xdir = Direction(*self.xdir)
+        self.ydir = Direction(*self.ydir)
+        self.zdir = Direction(*self.zdir)
         if self.origin is None:
             self.origin = Point(0, 0, 0)
 
@@ -101,7 +101,7 @@ class Placement:
         return Placement(origin=origin, xdir=m[0, :3], ydir=m[1, :3], zdir=m[2, :3])
 
     @staticmethod
-    def from_co_linear_points(points: list[Point] | np.ndarray, xdir=None) -> Placement:
+    def from_co_linear_points(points: list[Point] | np.ndarray, xdir=None, flip_n=False) -> Placement:
         """Create a placement from a list of points that are co-linear."""
         if not isinstance(points, np.ndarray):
             points = np.asarray(points)
@@ -111,6 +111,8 @@ class Placement:
 
         origin = points[0]
         n = normal_to_points_in_plane(points)
+        if flip_n:
+            n = -n
         if xdir is None:
             xdir = Direction(points[1] - points[0]).get_normalized()
         else:
@@ -118,12 +120,19 @@ class Placement:
 
         ydir = calc_yvec(xdir, n)
         return Placement(origin=origin, xdir=xdir, ydir=ydir, zdir=n)
-        # q1 = pq.Quaternion(matrix=np.asarray([xdir, ydir, n])).inverse
-        # return Placement.from_quaternion(q1, origin)
 
     @staticmethod
     def from_axis3d(axis: Axis2Placement3D) -> Placement:
         return Placement(origin=axis.location, xdir=axis.ref_direction, zdir=axis.axis)
+
+    @staticmethod
+    def from_4x4_matrix(matrix: np.ndarray) -> Placement:
+        return Placement(
+            origin=matrix[:3, 3],
+            xdir=matrix[:3, 0],
+            ydir=matrix[:3, 1],
+            zdir=matrix[:3, 2],
+        )
 
     def get_absolute_placement(self, include_rotations=False) -> Placement:
         if self.parent is None:

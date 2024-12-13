@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from ada import Assembly, Part
 
 HEADER_STR = """2000 0 1 0
-18 SESAM - gmGeometry 14 ACIS 30.0.1 NT 24 Tue Jan 17 20:39:08 2023
+18 SESAM - gmGeometry 14 ACIS 33.0.1 NT 24 Tue Jan 17 20:39:08 2023
 1000 9.9999999999999995e-07 1e-10
 """
 
@@ -71,6 +71,8 @@ class SatWriter:
     bbox: list[float] = field(default_factory=list)
     id_generator: IDGenerator = field(default_factory=IDGenerator)
     face_map: dict[str, str] = field(default_factory=dict)  # face_name -> plate guid
+
+    edge_name_id: int = 1
 
     def __post_init__(self):
         bboxes = []

@@ -19,6 +19,7 @@ def get_product_definitions(prod_def: ifcopenshell.entity_instance) -> list[GEOM
             continue
         for item in representation.Items:
             geometries.append(import_geometry_from_ifc_geom(item))
+
     return geometries
 
 

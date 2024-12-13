@@ -132,9 +132,9 @@ class CurveOpen2d:
         return points
 
     @classmethod
-    def from_3d_points(cls, points, tol=1e-3, xdir=None, parent=None):
+    def from_3d_points(cls, points, tol=1e-3, xdir=None, parent=None, flip_n=False):
         points3d = np.array([p[:3] for p in points])
-        place = Placement.from_co_linear_points(points3d, xdir=xdir)
+        place = Placement.from_co_linear_points(points3d, xdir=xdir, flip_n=flip_n)
         points2d = place.transform_global_points_to_local(points3d)
         radiis = {i: x for i, x in enumerate(points) if len(x) > 3}
         input_points = []

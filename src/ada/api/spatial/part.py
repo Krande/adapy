@@ -650,7 +650,9 @@ class Part(BackendGeom):
             physical_objects.append(all_as_iterable)
 
         if by_type is not None:
-            res = filter(lambda x: type(x) is by_type, chain.from_iterable(physical_objects))
+            if not isinstance(by_type, (list, tuple)):
+                by_type = (by_type,)
+            res = filter(lambda x: type(x) in by_type, chain.from_iterable(physical_objects))
         elif by_metadata is not None:
             res = filter(
                 lambda x: all(x.metadata.get(key) == value for key, value in by_metadata.items()),

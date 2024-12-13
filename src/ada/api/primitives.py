@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     from OCC.Core.TopoDS import TopoDS_Shape
 
     from ada.cadit.ifc.store import IfcStore
+    from ada.geom.solids import Box, ExtrudedAreaSolid
 
 
 class Shape(BackendGeom):
@@ -208,17 +209,44 @@ class PrimBox(Shape):
         return geom_to_occ_geom(self.solid_geom())
 
     def solid_geom(self) -> Geometry:
-        from ada.geom.points import Point
         from ada.geom.solids import Box
 
-        box = Box.from_2points(Point(*self.p1), Point(*self.p2))
+        box = Box.from_2points(self.p1, self.p2)
         booleans = [BooleanOperation(x.primitive.solid_geom(), x.bool_op) for x in self.booleans]
         return Geometry(self.guid, box, self.color, bool_operations=booleans)
+
+    def get_bottom_points(self):
+        p11 = self.p1 + self.placement.origin
+        p2 = self.p2 + self.placement.origin
+        # get bottom 4 points
+        p12 = Point(p2.x, p11.y, p11.z)
+        p21 = Point(p11.x, p2.y, p11.z)
+        p22 = Point(p2.x, p2.y, p11.z)
+        return [p11, p12, p21, p22]
 
     @staticmethod
     def from_p_and_dims(name, p, length, width, height, **kwargs):
         p1 = p
         p2 = [p[0] + length, p[1] + width, p[2] + height]
+        return PrimBox(name, p1, p2, **kwargs)
+
+    @staticmethod
+    def from_box_geom(name, box_geom: Box, **kwargs):
+        p1 = box_geom.position.location
+        p2 = p1 + Direction(box_geom.x_length, box_geom.y_length, box_geom.z_length)
+
+        return PrimBox(name, p1, p2, **kwargs)
+
+    @staticmethod
+    def from_extruded_rect_profile(name, extrusion: ExtrudedAreaSolid, **kwargs):
+        from ada.geom.surfaces import RectangleProfileDef
+
+        if not isinstance(extrusion.swept_area, RectangleProfileDef):
+            raise ValueError(f"Only RectangleProfileDef is supported for extrusion, got {extrusion.swept_area}")
+
+        rect_profile = extrusion.swept_area
+        p1 = extrusion.position.location
+        p2 = [rect_profile.p2[0], rect_profile.p2[1], rect_profile.p2[2] + extrusion.depth]
         return PrimBox(name, p1, p2, **kwargs)
 
     @property

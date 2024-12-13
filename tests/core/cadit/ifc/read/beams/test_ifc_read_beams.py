@@ -16,12 +16,14 @@ def test_read_standard_case_beams(example_files, tmp_path):
     assert tuple(bm_a1.n2.p) == (1.945, 0.11, 0.0)
 
     bm_a2: ada.Beam = p.get_by_name("A-2")
-    assert tuple(bm_a2.n1.p) == (0.0, 1.61, 0.0)
-    assert tuple(bm_a2.n2.p) == (2.0, 1.61, 0.0)
+    o = bm_a2.placement
+    assert tuple(o.origin + bm_a2.n1.p) == (0.0, 1.61, 0.0)
+    assert tuple(o.origin + bm_a2.n2.p) == (2.0, 1.61, 0.0)
 
     bm_b1: ada.Beam = p.get_by_name("B-1")
-    assert tuple(bm_b1.n1.p) == (-0.075, 0.075, 1.5)
-    assert tuple(bm_b1.n2.p) == pytest.approx((2.865, 0.318, 2.046), abs=1e-3)
+    o = bm_b1.placement
+    assert tuple(o.origin + bm_b1.n1.p) == (-0.075, 0.075, 1.5)
+    assert tuple(o.origin + bm_b1.n2.p) == pytest.approx((2.865, 0.318, 2.046), abs=1e-3)
 
 
 def test_read_extruded_solid_beams(example_files):
