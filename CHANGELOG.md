@@ -2,6 +2,13 @@
 
 
 
+## v0.3.6 (2024-12-13)
+
+### Fix
+
+* fix: render fem lines and various bugfixes (#121) ([`e18db73`](https://github.com/Krande/adapy/commit/e18db73d78bb70094678d15043a8cf452d3f9b6e))
+
+
 ## v0.3.5 (2024-11-26)
 
 ### Fix
