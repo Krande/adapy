@@ -833,6 +833,30 @@ Emits a warning when the function or class is used, including the module path.</
 </dl>
 </dd></dl>
 
+<dl class="py function">
+<dt class="sig sig-object py" id="ada.from_fem">
+<span class="sig-prename descclassname"><span class="pre">ada.</span></span><span class="sig-name descname"><span class="pre">from_fem</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">fem_file</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">list</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">Path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fem_format</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">list</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">list</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">enable_cache</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">source_units</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">Units.M</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">fem_converter</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'default'</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="#ada.Assembly" title="ada.api.spatial.assembly.Assembly"><span class="pre">Assembly</span></a></span></span><a class="headerlink" href="#ada.from_fem" title="Link to this definition">¶</a></dt>
+<dd><p>Create an Assembly object from a FEM file.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="ada.from_genie_xml">
+<span class="sig-prename descclassname"><span class="pre">ada.</span></span><span class="sig-name descname"><span class="pre">from_genie_xml</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">xml_path</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="#ada.Assembly" title="ada.api.spatial.assembly.Assembly"><span class="pre">Assembly</span></a></span></span><a class="headerlink" href="#ada.from_genie_xml" title="Link to this definition">¶</a></dt>
+<dd><p>Create an Assembly object from a Genie XML file.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="ada.from_ifc">
+<span class="sig-prename descclassname"><span class="pre">ada.</span></span><span class="sig-name descname"><span class="pre">from_ifc</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">ifc_file</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">os.PathLike</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">ifcopenshell.file</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">units</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">Units.M</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'Ada'</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="#ada.Assembly" title="ada.Assembly"><span class="pre">Assembly</span></a></span></span><a class="headerlink" href="#ada.from_ifc" title="Link to this definition">¶</a></dt>
+<dd><p>Create an Assembly object from an IFC file.</p>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="ada.from_step">
+<span class="sig-prename descclassname"><span class="pre">ada.</span></span><span class="sig-name descname"><span class="pre">from_step</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">step_file</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">Path</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">source_units</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">Units.M</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="#ada.Assembly" title="ada.api.spatial.assembly.Assembly"><span class="pre">Assembly</span></a></span></span><a class="headerlink" href="#ada.from_step" title="Link to this definition">¶</a></dt>
+<dd><p>Create an Assembly object from a STEP file.</p>
+</dd></dl>
+
 </section>
 </section>
 
@@ -985,6 +1009,10 @@ Emits a warning when the function or class is used, including the module path.</
 </li>
 <li><a class="reference internal" href="#ada.Weld"><code class="docutils literal notranslate"><span class="pre">Weld</span></code></a></li>
 <li><a class="reference internal" href="#ada.deprecated"><code class="docutils literal notranslate"><span class="pre">deprecated()</span></code></a></li>
+<li><a class="reference internal" href="#ada.from_fem"><code class="docutils literal notranslate"><span class="pre">from_fem()</span></code></a></li>
+<li><a class="reference internal" href="#ada.from_genie_xml"><code class="docutils literal notranslate"><span class="pre">from_genie_xml()</span></code></a></li>
+<li><a class="reference internal" href="#ada.from_ifc"><code class="docutils literal notranslate"><span class="pre">from_ifc()</span></code></a></li>
+<li><a class="reference internal" href="#ada.from_step"><code class="docutils literal notranslate"><span class="pre">from_step()</span></code></a></li>
 </ul>
 </li>
 </ul>
