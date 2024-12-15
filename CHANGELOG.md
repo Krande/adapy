@@ -2,6 +2,13 @@
 
 
 
+## v0.3.7 (2024-12-15)
+
+### Fix
+
+* fix: np complexwarning and string_ (#122) ([`66d5e67`](https://github.com/Krande/adapy/commit/66d5e67eeae7a87d1689e8cc32fe56eac592145a))
+
+
 ## v0.3.6 (2024-12-13)
 
 ### Fix
