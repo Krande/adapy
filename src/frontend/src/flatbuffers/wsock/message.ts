@@ -8,6 +8,7 @@ import { CommandType } from './command-type';
 import { MeshInfo, MeshInfoT } from '../wsock/mesh-info.js';
 import { ProcedureStore, ProcedureStoreT } from '../wsock/procedure-store.js';
 import { Scene, SceneT } from '../wsock/scene.js';
+import { Screenshot, ScreenshotT } from '../wsock/screenshot.js';
 import { Server, ServerT } from '../wsock/server.js';
 import { ServerReply, ServerReplyT } from '../wsock/server-reply.js';
 import { TargetType } from './target-type';
@@ -92,8 +93,13 @@ serverReply(obj?:ServerReply):ServerReply|null {
   return offset ? (obj || new ServerReply()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
 }
 
+screenshot(obj?:Screenshot):Screenshot|null {
+  const offset = this.bb!.__offset(this.bb_pos, 26);
+  return offset ? (obj || new Screenshot()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
+}
+
 static startMessage(builder:flatbuffers.Builder) {
-  builder.startObject(11);
+  builder.startObject(12);
 }
 
 static addInstanceId(builder:flatbuffers.Builder, instanceId:number) {
@@ -152,6 +158,10 @@ static addServerReply(builder:flatbuffers.Builder, serverReplyOffset:flatbuffers
   builder.addFieldOffset(10, serverReplyOffset, 0);
 }
 
+static addScreenshot(builder:flatbuffers.Builder, screenshotOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(11, screenshotOffset, 0);
+}
+
 static endMessage(builder:flatbuffers.Builder):flatbuffers.Offset {
   const offset = builder.endObject();
   return offset;
@@ -178,7 +188,8 @@ unpack(): MessageT {
     this.targetId(),
     this.bb!.createObjList<WebClient, WebClientT>(this.webClients.bind(this), this.webClientsLength()),
     (this.procedureStore() !== null ? this.procedureStore()!.unpack() : null),
-    (this.serverReply() !== null ? this.serverReply()!.unpack() : null)
+    (this.serverReply() !== null ? this.serverReply()!.unpack() : null),
+    (this.screenshot() !== null ? this.screenshot()!.unpack() : null)
   );
 }
 
@@ -195,6 +206,7 @@ unpackTo(_o: MessageT): void {
   _o.webClients = this.bb!.createObjList<WebClient, WebClientT>(this.webClients.bind(this), this.webClientsLength());
   _o.procedureStore = (this.procedureStore() !== null ? this.procedureStore()!.unpack() : null);
   _o.serverReply = (this.serverReply() !== null ? this.serverReply()!.unpack() : null);
+  _o.screenshot = (this.screenshot() !== null ? this.screenshot()!.unpack() : null);
 }
 }
 
@@ -210,7 +222,8 @@ constructor(
   public targetId: number = 0,
   public webClients: (WebClientT)[] = [],
   public procedureStore: ProcedureStoreT|null = null,
-  public serverReply: ServerReplyT|null = null
+  public serverReply: ServerReplyT|null = null,
+  public screenshot: ScreenshotT|null = null
 ){}
 
 
@@ -221,6 +234,7 @@ pack(builder:flatbuffers.Builder): flatbuffers.Offset {
   const webClients = Message.createWebClientsVector(builder, builder.createObjectOffsetList(this.webClients));
   const procedureStore = (this.procedureStore !== null ? this.procedureStore!.pack(builder) : 0);
   const serverReply = (this.serverReply !== null ? this.serverReply!.pack(builder) : 0);
+  const screenshot = (this.screenshot !== null ? this.screenshot!.pack(builder) : 0);
 
   Message.startMessage(builder);
   Message.addInstanceId(builder, this.instanceId);
@@ -234,6 +248,7 @@ pack(builder:flatbuffers.Builder): flatbuffers.Offset {
   Message.addWebClients(builder, webClients);
   Message.addProcedureStore(builder, procedureStore);
   Message.addServerReply(builder, serverReply);
+  Message.addScreenshot(builder, screenshot);
 
   return Message.endMessage(builder);
 }

@@ -2034,8 +2034,8 @@ packages:
   timestamp: 1650670423406
 - pypi: .
   name: ada-py
-  version: 0.3.6
-  sha256: ad49bb0a4d04264245f752c211d1eb036035b88beeb95c507a2558ce043f993b
+  version: 0.3.7
+  sha256: 43d00970919618158da22c551573824471416415380cff048735066db21eb7c7
   requires_python: '>=3.10'
   editable: true
 - conda: https://conda.anaconda.org/conda-forge/noarch/alabaster-1.0.0-pyhd8ed1ab_0.conda

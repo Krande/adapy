@@ -4,6 +4,7 @@ import {Rnd} from 'react-rnd';
 import {useAnimationStore} from "../state/animationStore";
 import {useOptionsStore} from "../state/optionsStore";
 import {useColorStore} from "../state/colorLegendStore";
+import {takeScreenshot} from "../utils/takeScreenshot";
 
 function OptionsComponent() {
     const {showPerf, setShowPerf, showEdges, setShowEdges, lockTranslation, setLockTranslation} = useOptionsStore();
@@ -56,6 +57,18 @@ function OptionsComponent() {
                     onClick={() => console.log(useAnimationStore.getState())}
                 >
                     Print State
+                </button>
+                <button
+                    className={"bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 rounded"}
+                    onClick={async () => {
+                        try {
+                            await takeScreenshot();
+                        } catch (error) {
+                            console.error("Error taking screenshot:", error);
+                        }
+                    }}
+                >
+                    Screenshot
                 </button>
                 <button
                     className={"bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 rounded"}

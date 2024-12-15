@@ -18,6 +18,7 @@ from ada.comms.fb_model_gen import (
     ProcedureStoreDC,
     SceneDC,
     SceneOperationsDC,
+    ScreenshotDC,
     ServerDC,
     ServerReplyDC,
     TargetTypeDC,
@@ -266,6 +267,15 @@ def deserialize_serverreply(fb_obj) -> ServerReplyDC | None:
     )
 
 
+def deserialize_screenshot(fb_obj) -> ScreenshotDC | None:
+    if fb_obj is None:
+        return None
+
+    return ScreenshotDC(
+        png_file_path=fb_obj.PngFilePath().decode("utf-8") if fb_obj.PngFilePath() is not None else None
+    )
+
+
 def deserialize_message(fb_obj) -> MessageDC | None:
     if fb_obj is None:
         return None
@@ -286,6 +296,7 @@ def deserialize_message(fb_obj) -> MessageDC | None:
         ),
         procedure_store=deserialize_procedurestore(fb_obj.ProcedureStore()),
         server_reply=deserialize_serverreply(fb_obj.ServerReply()),
+        screenshot=deserialize_screenshot(fb_obj.Screenshot()),
     )
 
 
