@@ -3,6 +3,7 @@ channels:
   - conda-forge
 dependencies:
   - ada-py
+  - python=3.12
   - sphinx
   - scipy
   - myst-parser

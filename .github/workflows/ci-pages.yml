@@ -19,8 +19,6 @@ jobs:
 
       - uses: mamba-org/setup-micromamba@v2 # https://github.com/mamba-org/setup-micromamba
         with:
-          activate-environment: adadocs
-          python-version: "3.11"
           environment-file: docs/environment.docs.yml
 
       - name: Build and Commit
