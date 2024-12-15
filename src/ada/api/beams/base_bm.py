@@ -115,7 +115,7 @@ class Beam(BackendGeom):
         mat: Material | str = None,
         name_gen: Iterable = None,
         make_closed=False,
-        up=None
+        up=None,
     ):
         beams = []
         ngen = name_gen if name_gen is not None else Counter(prefix="bm")
