@@ -73,9 +73,6 @@ class Counter:
 
 def roundoff(x: float, precision=Config().general_precision) -> float:
     """Round using a specific number precision using the Decimal package"""
-    import warnings
-
-    warnings.filterwarnings(action="error", category=np.ComplexWarning)
     xout = float(Decimal(float(x)).quantize(Decimal("." + precision * "0" + "1"), rounding=ROUND_HALF_EVEN))
     return xout if abs(xout) != 0.0 else 0.0
 

@@ -47,6 +47,10 @@ jobs:
             pytest-codspeed
             python-flatbuffers
 
+      - name: Install codspeed
+        run: |
+          pip install pytest-codspeed
+
       - name: Install latest version
         run: |
           pip install -e .

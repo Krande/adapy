@@ -155,7 +155,7 @@ def write_to_med(name, part: Part, filename):
 
 
 def _write_mesh_presets(f, mesh_name):
-    numpy_void_str = np.string_("")
+    numpy_void_str = np.bytes_("")
     dim = 3
 
     # Meshes
@@ -171,8 +171,8 @@ def _write_mesh_presets(f, mesh_name):
 
     # component names:
     names = ["X", "Y", "Z"][:dim]
-    med_mesh.attrs.create("NOM", np.string_("".join(f"{name:<16}" for name in names)))
-    med_mesh.attrs.create("DES", np.string_("Mesh created with adapy"))
+    med_mesh.attrs.create("NOM", np.bytes_("".join(f"{name:<16}" for name in names)))
+    med_mesh.attrs.create("DES", np.bytes_("Mesh created with adapy"))
     med_mesh.attrs.create("TYP", 0)  # mesh type (MED_NON_STRUCTURE)
 
     # Time-step

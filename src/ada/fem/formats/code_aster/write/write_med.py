@@ -42,7 +42,7 @@ def med_elements(part: Part, time_step: h5py.Group, profile: str, families: h5py
         med_cells = elements_group.create_group(med_type)
         med_cells.attrs.create("CGT", 1)
         med_cells.attrs.create("CGS", 1)
-        med_cells.attrs.create("PFL", np.string_(profile))
+        med_cells.attrs.create("PFL", np.bytes_(profile))
 
         nod = med_cells.create_dataset("NOD", data=cells.flatten(order="F"))
         nod.attrs.create("CGT", 1)
@@ -81,7 +81,7 @@ def med_nodes(part: "Part", time_step, profile, families):
     nodes_group.attrs.create("CGT", 1)
     nodes_group.attrs.create("CGS", 1)
 
-    nodes_group.attrs.create("PFL", np.string_(profile))
+    nodes_group.attrs.create("PFL", np.bytes_(profile))
     coo = nodes_group.create_dataset("COO", data=points.flatten(order="F"))
     coo.attrs.create("CGT", 1)
     coo.attrs.create("NBR", len(points))
