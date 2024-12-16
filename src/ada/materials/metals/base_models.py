@@ -244,7 +244,7 @@ class CarbonSteel(Metal):
         E=2.1e11,
         rho=7850,
         v=0.3,
-        zeta=1.15,
+        zeta=0.03,
         alpha=1.2e-5,
         sig_y=None,
         sig_u=None,
