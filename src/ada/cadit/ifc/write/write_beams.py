@@ -15,10 +15,9 @@ from ada.cadit.ifc.utils import (
     ifc_dir,
 )
 from ada.cadit.ifc.write.geom.points import cpt
-from ada.cadit.ifc.write.geom.solids import extruded_area_solid
+from ada.cadit.ifc.write.geom.solids import extruded_area_solid, extruded_area_solid_tapered
 from ada.cadit.ifc.write.write_curves import write_curve_poly
 from ada.config import Config
-from ada.core.constants import O
 from ada.core.guid import create_guid
 from ada.core.utils import to_real
 
@@ -121,7 +120,6 @@ class IfcBeamWriter:
 
 def extrude_straight_tapered_beam(beam: BeamTapered, f: ifile, profile):
     """Extrude a straight beam with a tapered profile"""
-    extrude_dir = ifc_dir(f, (0.0, 0.0, 1.0))
     parent = f.by_guid(beam.parent.guid)
     a = beam.parent.get_assembly()
 
@@ -135,8 +133,6 @@ def extrude_straight_tapered_beam(beam: BeamTapered, f: ifile, profile):
         e1 = beam.e1
         vec = beam.xvec_e
 
-    profile2 = a.ifc_store.get_profile_def(beam.taper)
-
     # Transform coordinates to local coords
     p1 = tuple([float(x) + float(e1[i]) for i, x in enumerate(beam.n1.p.copy())])
     p2 = p1 + np.array([0, 0, 1]) * beam.length
@@ -146,22 +142,17 @@ def extrude_straight_tapered_beam(beam: BeamTapered, f: ifile, profile):
 
     ifc_polyline = f.create_entity("IfcPolyLine", [p1_ifc, p2_ifc])
 
-    global_origin = f.createIfcCartesianPoint(O)
-    ifc_axis2plac3d = f.create_entity("IfcAxis2Placement3D", global_origin, None, None)
-
-    extrude_area_solid = f.create_entity(
-        "IfcExtrudedAreaSolidTapered", profile, ifc_axis2plac3d, extrude_dir, beam.length, profile2
-    )
+    solid = extruded_area_solid_tapered(beam.solid_geom().geometry, f)
 
     # Add colour
     if beam.color is not None:
-        add_colour(f, extrude_area_solid, str(beam.color), beam.color)
+        add_colour(f, solid, str(beam.color), beam.color)
 
     body_context = a.ifc_store.get_context("Body")
     axis_context = a.ifc_store.get_context("Axis")
     ax23d = f.create_entity("IfcAxis2Placement3D", p1_ifc, ifc_dir(f, vec), ifc_dir(f, yvec))
     loc_plac = f.create_entity("IfcLocalPlacement", global_placement, ax23d)
-    body = f.create_entity("IfcShapeRepresentation", body_context, "Body", "SweptSolid", [extrude_area_solid])
+    body = f.create_entity("IfcShapeRepresentation", body_context, "Body", "SweptSolid", [solid])
     axis = f.create_entity("IfcShapeRepresentation", axis_context, "Axis", "Curve3D", [ifc_polyline])
 
     return body, axis, loc_plac

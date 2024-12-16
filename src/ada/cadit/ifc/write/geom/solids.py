@@ -24,3 +24,23 @@ def extruded_area_solid(
 
     extrude_direction = direction(eas.extruded_direction, f)
     return f.create_entity("IfcExtrudedAreaSolid", profile, axis3d, extrude_direction, eas.depth)
+
+
+def extruded_area_solid_tapered(
+    eas: geo_so.ExtrudedAreaSolidTapered, f: ifcopenshell.file
+) -> ifcopenshell.entity_instance:
+    """Converts an ExtrudedAreaSolidTapered to an IFC representation"""
+
+    axis3d = ifc_placement_from_axis3d(eas.position, f)
+    profile = arbitrary_profile_def(eas.swept_area, f)
+    end_profile = arbitrary_profile_def(eas.end_swept_area, f)
+    extrude_direction = direction(eas.extruded_direction, f)
+
+    return f.create_entity(
+        "IfcExtrudedAreaSolidTapered",
+        SweptArea=profile,
+        Position=axis3d,
+        ExtrudedDirection=extrude_direction,
+        Depth=eas.depth,
+        EndSweptArea=end_profile,
+    )
