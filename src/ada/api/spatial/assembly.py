@@ -281,7 +281,9 @@ class Assembly(Part):
             from ada.cadit.ifc.store import IfcStore
             from ada.cadit.ifc.utils import assembly_to_ifc_file
 
-            self._ifc_file = assembly_to_ifc_file(self)
+            f = assembly_to_ifc_file(self)
+
+            self._ifc_file = f
             self._ifc_store = IfcStore(assembly=self)
 
         return self._ifc_store

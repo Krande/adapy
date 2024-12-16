@@ -142,12 +142,6 @@ class IfcStore:
         mod_str = f"Modified {num_mod} objects"
         del_str = f"Deleted {num_del} objects"
 
-        unit_type = get_unit_type(self.f)
-
-        if unit_type != self.assembly.units:
-            # todo: fix unit conversion
-            self.f = convert_file_length_units(self.f, self.assembly.units)
-
         print(f"Sync Complete. {add_str}. {mod_str}. {del_str}")
         self.callback = None
 
