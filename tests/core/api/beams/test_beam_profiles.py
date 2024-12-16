@@ -87,6 +87,6 @@ def test_cone_beam(tmp_path):
     poly_e_i = CurvePoly2d(e_i, (0, 0, 0), (0, 0, 1), (1, 0, 0))
     section_e = Section("MyEndCrossSection", "poly", outer_poly=poly_e_o, inner_poly=poly_e_i, units="mm")
 
-    bm = BeamTapered("MyCone", (2, 2, 2), (4, 4, 4), sec=section_s, tap=section_e)
+    bm = BeamTapered("MyCone", (2, 2, 2), (4, 4, 4), sec=section_s, tap=section_e, units="mm")
     a = Assembly("Level1", project="Project0", units="mm") / (Part("Level2") / bm)
-    _ = a.to_ifc(tmp_path / "cone_ex.ifc", file_obj_only=True)
+    _ = a.to_ifc(tmp_path / "cone_ex.ifc", file_obj_only=False)
