@@ -15,7 +15,10 @@ from ada.cadit.ifc.utils import (
     ifc_dir,
 )
 from ada.cadit.ifc.write.geom.points import cpt
-from ada.cadit.ifc.write.geom.solids import extruded_area_solid, extruded_area_solid_tapered
+from ada.cadit.ifc.write.geom.solids import (
+    extruded_area_solid,
+    extruded_area_solid_tapered,
+)
 from ada.cadit.ifc.write.write_curves import write_curve_poly
 from ada.config import Config
 from ada.core.guid import create_guid

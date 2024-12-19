@@ -1,8 +1,10 @@
-import ada
-import pygfx as gfx
 import numpy as np
-from wgpu.gui.offscreen import WgpuCanvas
+import pygfx as gfx
 from PIL import Image
+from wgpu.gui.offscreen import WgpuCanvas
+
+import ada
+
 
 def screenshot(part: ada.Part, filename: str):
     tri_scene = part.to_trimesh_scene()
@@ -14,10 +16,12 @@ def screenshot(part: ada.Part, filename: str):
     geom = scene.add(gfx.Group())
     meshes = []
     for mesh in tri_scene.geometry.values():
-        meshes.append(gfx.Mesh(
-            gfx.geometry_from_trimesh(mesh),
-            gfx.MeshPhongMaterial(),
-        ))
+        meshes.append(
+            gfx.Mesh(
+                gfx.geometry_from_trimesh(mesh),
+                gfx.MeshPhongMaterial(),
+            )
+        )
     geom.add(*meshes)
     dir_light = gfx.DirectionalLight()
     scene.add(gfx.AmbientLight(intensity=0.5))

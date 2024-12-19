@@ -634,7 +634,7 @@ class Part(BackendGeom):
         filter_by_guids: list[str] = None,
         pipe_to_segments=False,
         by_metadata: dict = None,
-    ) -> Iterable[Beam | Plate | Wall | Pipe | Shape]:
+    ) -> Iterable[Beam | BeamTapered | Plate | Wall | Pipe | Shape]:
         physical_objects = []
         if sub_elements_only:
             iter_parts = iter([self])

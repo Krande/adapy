@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import itertools
 import xml.etree.ElementTree as ET
 from typing import TYPE_CHECKING
 
@@ -11,9 +12,12 @@ if TYPE_CHECKING:
 
 
 def add_beams(root: ET.Element, part: Part, sw: SatWriter = None):
-    from ada import Beam
+    from ada import Beam, BeamTapered
 
-    for beam in part.get_all_physical_objects(by_type=Beam):
+    iter_beams = part.get_all_physical_objects(by_type=Beam)
+    iter_taper = part.get_all_physical_objects(by_type=BeamTapered)
+
+    for beam in itertools.chain(iter_beams, iter_taper):
         add_straight_beam(beam, root)
 
 
@@ -37,8 +41,13 @@ def add_curve_orientation(beam: Beam, straight_beam: ET.Element):
 
 
 def add_segments(beam: Beam):
+    from ada import BeamTapered
+
     segments = ET.Element("segments")
     props = dict(index="1", section_ref=beam.section.name, material_ref=beam.material.name)
+    if isinstance(beam, BeamTapered):
+        props.update(dict(section_ref=f"{beam.section.name}_{beam.taper.name}"))
+
     straight_segment = ET.SubElement(segments, "straight_segment", props)
 
     d = ["x", "y", "z"]

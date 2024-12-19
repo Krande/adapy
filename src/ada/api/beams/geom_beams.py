@@ -143,6 +143,7 @@ def ibeam_taper_to_geom(beam: BeamTapered) -> Geometry:
     geom = geo_so.ExtrudedAreaSolidTapered(profile1, place, beam.length, Direction(0, 0, 1), profile2)
     return Geometry(beam.guid, geom, beam.color)
 
+
 def tbeam_taper_to_geom(beam: BeamTapered) -> Geometry:
     profile1 = section_to_arbitrary_profile_def_with_voids(beam.section)
     profile2 = section_to_arbitrary_profile_def_with_voids(beam.taper)
@@ -150,6 +151,7 @@ def tbeam_taper_to_geom(beam: BeamTapered) -> Geometry:
     place = Axis2Placement3D(location=beam.n1.p, axis=beam.xvec, ref_direction=beam.yvec)
     geom = geo_so.ExtrudedAreaSolidTapered(profile1, place, beam.length, Direction(0, 0, 1), profile2)
     return Geometry(beam.guid, geom, beam.color)
+
 
 def ibeam_taper_to_face_geom(beam: BeamTapered) -> Geometry:
     profile1 = section_to_arbitrary_profile_def_with_voids(beam.section, solid=False)

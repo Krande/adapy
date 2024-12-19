@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Iterable, Union
 
 import numpy as np
 
+import ada
 import ada.api.beams.geom_beams as geo_conv
 from ada.api.beams.helpers import BeamConnectionProps
 from ada.api.bounding_box import BoundingBox
@@ -24,7 +25,9 @@ from ada.core.vector_utils import (
     vector_length,
 )
 from ada.geom import Geometry
+from ada.geom.curves import IndexedPolyCurve
 from ada.geom.placement import Direction
+from ada.geom.surfaces import ArbitraryProfileDef
 from ada.materials import Material
 from ada.materials.utils import get_material
 from ada.sections import Section
@@ -497,7 +500,35 @@ class BeamTapered(Beam):
         self._taper_type = value
 
     def solid_geom(self) -> Geometry:
-        return geo_conv.straight_tapered_beam_to_geom(self)
+        geo = geo_conv.straight_tapered_beam_to_geom(self)
+        if self.taper_type == TaperTypes.CENTERED:
+            return geo
+        if self.taper_type == TaperTypes.FLUSH_TOP:
+            offset_dir_1 = ada.Direction(0, -self.section.h / 2)
+            offset_dir_2 = ada.Direction(0, -self.taper.h / 2)
+        elif self.taper_type == TaperTypes.FLUSH_BOTTOM:
+            offset_dir_1 = ada.Direction(0, self.section.h / 2)
+            offset_dir_2 = ada.Direction(0, self.taper.h / 2)
+        else:
+            raise ValueError(f"Unknown taper type {self.taper_type}")
+
+        profile_1 = geo.geometry.swept_area
+
+        if isinstance(profile_1, ArbitraryProfileDef):
+            if isinstance(profile_1.outer_curve, IndexedPolyCurve):
+                for curve in profile_1.outer_curve.segments:
+                    curve.start = ada.Point(curve.start + offset_dir_1)
+                    curve.end = ada.Point(curve.end + offset_dir_1)
+
+        profile_2 = geo.geometry.end_swept_area
+
+        if isinstance(profile_2, ArbitraryProfileDef):
+            if isinstance(profile_2.outer_curve, IndexedPolyCurve):
+                for curve in profile_2.outer_curve.segments:
+                    curve.start = ada.Point(curve.start + offset_dir_2)
+                    curve.end = ada.Point(curve.end + offset_dir_2)
+
+        return geo
 
     def shell_geom(self) -> Geometry:
         geom = geo_conv.straight_tapered_beam_to_geom(self, is_solid=False)
