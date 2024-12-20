@@ -199,18 +199,42 @@ def test_circular():
 
     eval_assertions(sec, assertions)
 
+
 def test_tapered_section():
     sec, tap = ada.Section.from_str("TG600/300x300x10x20")
+
     p = ada.Part("MyBeams")
+
     for i in range(0, 5):
         bm = p.add_beam(ada.BeamTapered(f"bm{i}", (0, 0, i), (10, 0, i), sec, tap))
         assert isinstance(bm, ada.BeamTapered)
-        assert bm.section == sec
-        assert bm.taper == tap
+        assert bm.section.equal_props(sec)
+        assert bm.taper.equal_props(tap)
+
+    sec1, tap1 = ada.Section.from_str("TG600/300x300x10x20")
+    for i in range(6, 10):
+        bm = p.add_beam(ada.BeamTapered(f"bm{i}", (0, 0, i), (10, 0, i), sec1, tap1))
+        assert isinstance(bm, ada.BeamTapered)
+        assert bm.section.equal_props(sec1)
+        assert bm.taper.equal_props(tap1)
 
     beams = list(p.get_all_physical_objects(by_type=ada.BeamTapered))
-    assert len(beams) == 5
+    assert len(beams) == 9
 
-    beam0 = beams[0]
-    assert beam0.section == sec
-    assert beam0.taper == tap
+    for beam0 in beams:
+        assert beam0.section.equal_props(sec)
+        assert beam0.taper.equal_props(tap)
+
+    p2 = ada.Part("MyBeams2")
+    for i in range(11, 17):
+        bm = p2.add_beam(ada.BeamTapered(f"bm{i}", (0, 0, i), (10, 0, i), sec1, tap1))
+        assert isinstance(bm, ada.BeamTapered)
+        assert bm.section.equal_props(sec1)
+        assert bm.taper.equal_props(tap1)
+
+    a = ada.Assembly() / [p, p2]
+    a.consolidate_sections()
+
+    for beam in a.get_all_physical_objects(by_type=ada.BeamTapered):
+        assert beam.section.equal_props(sec1)
+        assert beam.taper.equal_props(tap1)

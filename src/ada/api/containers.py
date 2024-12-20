@@ -737,14 +737,19 @@ class Sections(NumericMapped):
 
         if section.name in self._name_map.keys():
             logger.info(f'Section with same name "{section.name}" already exists. Will use that section instead')
-            existing_section = self._name_map[section.name]
+            existing_section: Section = self._name_map[section.name]
             for elem in section.refs:
-                if section == elem.section:
-                    elem.section = existing_section
+                if isinstance(elem, BeamTapered):
+                    if existing_section.equal_props(elem.section):
+                        elem.section = existing_section
+                    elif existing_section.equal_props(elem.taper):
+                        elem.taper = existing_section
                 else:
-                    elem.taper = existing_section
+                    if existing_section.equal_props(elem.section):
+                        elem.section = existing_section
                 if elem not in existing_section.refs:
                     existing_section.refs.append(elem)
+
             return existing_section
 
         if section.id is None:

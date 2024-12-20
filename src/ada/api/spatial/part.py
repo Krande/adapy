@@ -545,9 +545,14 @@ class Part(BackendGeom):
                 if elem not in res.refs:
                     res.refs.append(elem)
                 if isinstance(elem, (Beam, FemSection)):
-                    if isinstance(elem, BeamTapered) and sec.guid == elem.taper.guid:
+                    if isinstance(elem, BeamTapered) and res.guid == elem.taper.guid:
+                        if not res.equal_props(elem.taper):
+                            raise ValueError(f"Section {res} and {elem.taper} have different properties")
                         elem.taper = res
-                    elem.section = res
+                    else:
+                        if not res.equal_props(elem.section):
+                            raise ValueError(f"Section {res} and {elem.section} have different properties")
+                        elem.section = res
                 else:
                     raise NotImplementedError(f"Not yet support section {type(elem)=}")
 
