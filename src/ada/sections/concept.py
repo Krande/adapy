@@ -9,7 +9,7 @@ from ada.config import Config, get_logger
 from ada.sections.categories import BaseTypes, SectionCat
 
 if TYPE_CHECKING:
-    from ada import Beam, CurvePoly2d, Pipe, PipeSegElbow, PipeSegStraight
+    from ada import Beam, BeamTapered, CurvePoly2d, Pipe, PipeSegElbow, PipeSegStraight
     from ada.fem import FemSection
     from ada.sections.profiles import SectionProfile
 
@@ -270,7 +270,7 @@ class Section(Root):
         JUPYTER_SECTION_RENDERER(self)
 
     @property
-    def refs(self) -> list[Beam | FemSection | Pipe | PipeSegStraight | PipeSegElbow]:
+    def refs(self) -> list[Beam | BeamTapered | FemSection | Pipe | PipeSegStraight | PipeSegElbow]:
         return self._refs
 
     def __hash__(self):

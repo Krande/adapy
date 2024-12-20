@@ -89,7 +89,7 @@ class Part(BackendGeom):
         self._presentation_layers = PresentationLayers()
         self.fem = FEM(name + "-1", parent=self) if fem is None else fem
 
-    def add_beam(self, beam: Beam, add_to_layer: str = None) -> Beam:
+    def add_beam(self, beam: Beam, add_to_layer: str = None) -> Beam | BeamTapered:
         if beam.units != self.units:
             beam.units = self.units
         beam.parent = self
@@ -545,9 +545,14 @@ class Part(BackendGeom):
                 if elem not in res.refs:
                     res.refs.append(elem)
                 if isinstance(elem, (Beam, FemSection)):
-                    if isinstance(elem, BeamTapered) and sec.guid == elem.taper.guid:
+                    if isinstance(elem, BeamTapered) and res.guid == elem.taper.guid:
+                        if not res.equal_props(elem.taper):
+                            raise ValueError(f"Section {res} and {elem.taper} have different properties")
                         elem.taper = res
-                    elem.section = res
+                    else:
+                        if not res.equal_props(elem.section):
+                            raise ValueError(f"Section {res} and {elem.section} have different properties")
+                        elem.section = res
                 else:
                     raise NotImplementedError(f"Not yet support section {type(elem)=}")
 
@@ -634,7 +639,7 @@ class Part(BackendGeom):
         filter_by_guids: list[str] = None,
         pipe_to_segments=False,
         by_metadata: dict = None,
-    ) -> Iterable[Beam | Plate | Wall | Pipe | Shape]:
+    ) -> Iterable[Beam | BeamTapered | Plate | Wall | Pipe | Shape]:
         physical_objects = []
         if sub_elements_only:
             iter_parts = iter([self])

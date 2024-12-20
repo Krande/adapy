@@ -17,6 +17,7 @@ enum CommandType : byte {
   DELETE_FILE_OBJECT = 13,
   START_NEW_NODE_EDITOR = 14,
   START_FILE_IN_LOCAL_APP = 15,
+  SCREENSHOT = 16,
 }
 
 enum TargetType : byte {
@@ -195,6 +196,11 @@ table ServerReply {
   error: Error;
 }
 
+
+table Screenshot {
+    png_file_path: string;
+}
+
 table Message {
   instance_id: int;
   command_type: CommandType;
@@ -207,6 +213,7 @@ table Message {
   web_clients: [WebClient];
   procedure_store: ProcedureStore;
   server_reply: ServerReply;
+  screenshot: Screenshot; // Add Screenshot table here
 }
 
 root_type Message;

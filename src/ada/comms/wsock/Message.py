@@ -148,9 +148,21 @@ class Message(object):
             return obj
         return None
 
+    # Message
+    def Screenshot(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(26))
+        if o != 0:
+            x = self._tab.Indirect(o + self._tab.Pos)
+            from ada.comms.wsock.Screenshot import Screenshot
+
+            obj = Screenshot()
+            obj.Init(self._tab.Bytes, x)
+            return obj
+        return None
+
 
 def MessageStart(builder):
-    builder.StartObject(11)
+    builder.StartObject(12)
 
 
 def Start(builder):
@@ -251,6 +263,14 @@ def MessageAddServerReply(builder, serverReply):
 
 def AddServerReply(builder, serverReply):
     MessageAddServerReply(builder, serverReply)
+
+
+def MessageAddScreenshot(builder, screenshot):
+    builder.PrependUOffsetTRelativeSlot(11, flatbuffers.number_types.UOffsetTFlags.py_type(screenshot), 0)
+
+
+def AddScreenshot(builder, screenshot):
+    MessageAddScreenshot(builder, screenshot)
 
 
 def MessageEnd(builder):

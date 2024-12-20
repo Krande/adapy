@@ -52,7 +52,9 @@ def is_attr_type(
 def iter_element_and_attributes_per_type(
     ifc_file: ifcopenshell.file, attr_type_name: str
 ) -> Iterable[tuple[ifcopenshell.entity_instance, ifcopenshell.ifcopenshell_wrapper.attribute, Any, str]]:
-    schema = ifcopenshell.ifcopenshell_wrapper.schema_by_name(ifc_file.schema)
+    schema_map = {"IFC4X3": "IFC4X3_ADD2"}
+    schema_name = schema_map.get(ifc_file.schema, ifc_file.schema)
+    schema = ifcopenshell.ifcopenshell_wrapper.schema_by_name(schema_name)
 
     for element in ifc_file:
         entity = schema.declaration_by_name(element.is_a())

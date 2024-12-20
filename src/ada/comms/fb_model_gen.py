@@ -23,6 +23,7 @@ class CommandTypeDC(Enum):
     DELETE_FILE_OBJECT = 13
     START_NEW_NODE_EDITOR = 14
     START_FILE_IN_LOCAL_APP = 15
+    SCREENSHOT = 16
 
 
 class TargetTypeDC(Enum):
@@ -210,6 +211,11 @@ class ServerReplyDC:
 
 
 @dataclass
+class ScreenshotDC:
+    png_file_path: pathlib.Path | str = ""
+
+
+@dataclass
 class MessageDC:
     instance_id: int = None
     command_type: Optional[CommandTypeDC] = None
@@ -222,3 +228,4 @@ class MessageDC:
     web_clients: Optional[List[WebClientDC]] = None
     procedure_store: Optional[ProcedureStoreDC] = None
     server_reply: Optional[ServerReplyDC] = None
+    screenshot: Optional[ScreenshotDC] = None

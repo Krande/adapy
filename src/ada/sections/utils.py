@@ -292,18 +292,18 @@ def tg_section(in_str: str, s: float, units: Units):
         if res is None:
             continue
         h = [_rdoff(float(x) * s) for x in res.group(2).split("/")]
-        wt = [_rdoff(float(x) * s) for x in res.group(3).split("/")]
-        tw = [_rdoff(float(x) * s) for x in res.group(4).split("/")]
-        tf = [_rdoff(float(x) * s) for x in res.group(5).split("/")]
+        width = [_rdoff(float(x) * s) for x in res.group(3).split("/")]
+        thick_web = [_rdoff(float(x) * s) for x in res.group(4).split("/")]
+        thick_flange = [_rdoff(float(x) * s) for x in res.group(5).split("/")]
         sec = Section(
             in_str,
             h=h[0],
             sec_type=SectionCat.BASETYPES.TPROFILE,
-            w_btn=tw[0],
-            w_top=wt[0],
-            t_fbtn=tf[0],
-            t_ftop=tf[0],
-            t_w=tw[0],
+            w_btn=thick_web[0],
+            w_top=width[0],
+            t_fbtn=thick_flange[0],
+            t_ftop=thick_flange[0],
+            t_w=thick_web[0],
             metadata=dict(cad_str=in_str),
             units=units,
         )
@@ -311,11 +311,11 @@ def tg_section(in_str: str, s: float, units: Units):
             in_str + "_e",
             h=h[-1],
             sec_type=SectionCat.BASETYPES.TPROFILE,
-            w_btn=wt[-1],
-            w_top=tw[-1],
-            t_fbtn=tf[-1],
-            t_ftop=tf[-1],
-            t_w=tw[-1],
+            w_btn=thick_web[-1],
+            w_top=width[-1],
+            t_fbtn=thick_flange[-1],
+            t_ftop=thick_flange[-1],
+            t_w=thick_web[-1],
             metadata=dict(cad_str=in_str),
             units=units,
         )

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import itertools
 import xml.etree.ElementTree as ET
 from typing import TYPE_CHECKING
 
@@ -11,16 +12,18 @@ if TYPE_CHECKING:
 
 
 def add_beams(root: ET.Element, part: Part, sw: SatWriter = None):
-    from ada import Beam
+    from ada import Beam, BeamTapered
 
-    for beam in part.get_all_physical_objects(by_type=Beam):
+    iter_beams = part.get_all_physical_objects(by_type=Beam)
+    iter_taper = part.get_all_physical_objects(by_type=BeamTapered)
+
+    for beam in itertools.chain(iter_beams, iter_taper):
         add_straight_beam(beam, root)
 
 
 def add_straight_beam(beam: Beam, xml_root: ET.Element):
     structure_elem = ET.SubElement(xml_root, "structure")
     straight_beam = ET.SubElement(structure_elem, "straight_beam", {"name": beam.name})
-    # add_curve_orientation(beam, straight_beam)
     straight_beam.append(add_local_system(beam.xvec, beam.yvec, beam.up))
     straight_beam.append(add_segments(beam))
     curve_offset = ET.SubElement(straight_beam, "curve_offset")
@@ -38,8 +41,13 @@ def add_curve_orientation(beam: Beam, straight_beam: ET.Element):
 
 
 def add_segments(beam: Beam):
+    from ada import BeamTapered
+
     segments = ET.Element("segments")
     props = dict(index="1", section_ref=beam.section.name, material_ref=beam.material.name)
+    if isinstance(beam, BeamTapered):
+        props.update(dict(section_ref=f"{beam.section.name}_{beam.taper.name}"))
+
     straight_segment = ET.SubElement(segments, "straight_segment", props)
 
     d = ["x", "y", "z"]

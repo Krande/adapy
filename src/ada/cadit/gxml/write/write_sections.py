@@ -9,36 +9,69 @@ if TYPE_CHECKING:
     from ada import Part, Section
 
 
+def get_section_props(section: Section) -> ET.Element | None:
+    if section.type == section.TYPES.ANGULAR:
+        return to_gxml_angular_section(section)
+    elif section.type == section.TYPES.TUBULAR:
+        return to_gxml_pipe_section(section)
+    elif section.type == section.TYPES.IPROFILE and section.w_btn == section.w_top:
+        return to_gxml_i_section(section)
+    elif section.type == section.TYPES.IPROFILE and section.w_btn != section.w_top:
+        return to_gxml_unsymm_i_section(section)
+    elif section.type == section.TYPES.TPROFILE and section.w_btn != section.w_top:
+        return to_gxml_unsymm_i_section(section)
+    elif section.type == section.TYPES.BOX:
+        return to_gxml_box_section(section)
+    elif section.type == section.TYPES.CHANNEL:
+        return to_gxml_channel_section(section)
+    elif section.type == section.TYPES.FLATBAR:
+        return to_gxml_bar_section(section)
+    else:
+        logger.error(f"The profile type {section.type} is not yet supported for Genie XML export")
+        return None
+
+
 def add_sections(root: ET.Element, part: Part):
+    from ada import BeamTapered
+
     sections_elem = ET.Element("sections")
 
     # Add the new element underneath <properties>
     root.append(sections_elem)
 
     for section in part.sections:
-        if section.type == section.TYPES.ANGULAR:
-            add_angular_section(section, sections_elem)
-        elif section.type == section.TYPES.TUBULAR:
-            add_pipe_section(section, sections_elem)
-        elif section.type == section.TYPES.IPROFILE and section.w_btn == section.w_top:
-            add_i_section(section, sections_elem)
-        elif section.type == section.TYPES.IPROFILE and section.w_btn != section.w_top:
-            add_unsymm_i_section(section, sections_elem)
-        elif section.type == section.TYPES.TPROFILE and section.w_btn != section.w_top:
-            add_unsymm_i_section(section, sections_elem)
-        elif section.type == section.TYPES.BOX:
-            add_box_section(section, sections_elem)
-        elif section.type == section.TYPES.CHANNEL:
-            add_channel_section(section, sections_elem)
-        elif section.type == section.TYPES.FLATBAR:
-            add_bar_section(section, sections_elem)
-        else:
-            logger.error(f"The profile type {section.type} is not yet supported for Genie XML export")
+        section_elem = ET.SubElement(sections_elem, "section", {"name": section.name, "description": ""})
+        section_props = get_section_props(section)
+        section_elem.append(section_props)
+
+    tapered_sections: list[tuple[Section, Section]] = []
+    for bm in part.get_all_physical_objects(by_type=BeamTapered):
+        profile1 = bm.section
+        profile2 = bm.taper
+        profile_tup = (profile1, profile2)
+        if profile_tup not in tapered_sections:
+            tapered_sections.append(profile_tup)
+
+    for profile1, profile2 in tapered_sections:
+        section_elem = ET.SubElement(
+            sections_elem, "section", {"name": f"{profile1.name}_{profile2.name}", "description": ""}
+        )
+        tapered_section = ET.SubElement(
+            section_elem,
+            "tapered_section",
+            dict(fabrication="unknown", sfy="1", sfz="1", general_properties_method="computed"),
+        )
+        sec1_props = get_section_props(profile1)
+        section1 = ET.SubElement(tapered_section, "section1")
+        section1.append(sec1_props)
+        sec2_props = get_section_props(profile2)
+        section2 = ET.SubElement(tapered_section, "section2")
+        section2.append(sec2_props)
 
 
-def add_angular_section(section: Section, xml_root: ET.Element):
-    section_elem = ET.Element("section", {"name": section.name, "description": ""})
-    section_props = ET.Element(
+def to_gxml_angular_section(section: Section):
+
+    return ET.Element(
         "l_section",
         dict(
             h=str(section.h),
@@ -52,14 +85,9 @@ def add_angular_section(section: Section, xml_root: ET.Element):
         ),
     )
 
-    section_elem.append(section_props)
-    xml_root.append(section_elem)
 
-
-def add_pipe_section(section: Section, xml_root: ET.Element):
-    section_elem = ET.Element("section", {"name": section.name, "description": ""})
-
-    section_props = ET.Element(
+def to_gxml_pipe_section(section: Section):
+    return ET.Element(
         "pipe_section",
         dict(
             od=str(section.r * 2),
@@ -71,13 +99,9 @@ def add_pipe_section(section: Section, xml_root: ET.Element):
         ),
     )
 
-    section_elem.append(section_props)
-    xml_root.append(section_elem)
 
-
-def add_i_section(section: Section, xml_root: ET.Element):
-    section_elem = ET.Element("section", {"name": section.name, "description": ""})
-    section_props = ET.Element(
+def to_gxml_i_section(section: Section):
+    return ET.Element(
         "i_section",
         dict(
             h=str(section.h),
@@ -92,14 +116,9 @@ def add_i_section(section: Section, xml_root: ET.Element):
         ),
     )
 
-    section_elem.append(section_props)
-    xml_root.append(section_elem)
 
-
-def add_box_section(section: Section, xml_root: ET.Element):
-    # Create the <section> element
-    xml_section = ET.Element("section", {"name": section.name})
-    box_section = ET.Element(
+def to_gxml_box_section(section: Section):
+    return ET.Element(
         "box_section",
         dict(
             h=str(section.h),
@@ -114,15 +133,9 @@ def add_box_section(section: Section, xml_root: ET.Element):
         ),
     )
 
-    # Append the <box_section> element to the <section> element
-    xml_section.append(box_section)
-    xml_root.append(xml_section)
-    # You can now append the <section> element to your xml tree
 
-
-def add_unsymm_i_section(section: Section, xml_root: ET.Element):
-    section_elem = ET.Element("section", {"name": section.name})
-    section_props = ET.Element(
+def to_gxml_unsymm_i_section(section: Section):
+    return ET.Element(
         "unsymmetrical_i_section",
         dict(
             h=str(section.h),
@@ -140,13 +153,9 @@ def add_unsymm_i_section(section: Section, xml_root: ET.Element):
         ),
     )
 
-    section_elem.append(section_props)
-    xml_root.append(section_elem)
 
-
-def add_channel_section(section: Section, xml_root: ET.Element):
-    section_elem = ET.Element("section", {"name": section.name})
-    section_props = ET.Element(
+def to_gxml_channel_section(section: Section) -> ET.Element:
+    return ET.Element(
         "channel_section",
         dict(
             h=str(section.h),
@@ -160,14 +169,9 @@ def add_channel_section(section: Section, xml_root: ET.Element):
         ),
     )
 
-    section_elem.append(section_props)
-    xml_root.append(section_elem)
 
-
-def add_bar_section(section: Section, xml_root: ET.Element):
-    # Create the <section> element
-    xml_section = ET.Element("section", {"name": section.name})
-    bar_section = ET.Element(
+def to_gxml_bar_section(section: Section) -> ET.Element:
+    return ET.Element(
         "bar_section",
         dict(
             h=str(section.h),
@@ -178,8 +182,3 @@ def add_bar_section(section: Section, xml_root: ET.Element):
             general_properties_method="computed",
         ),
     )
-
-    # Append the <bar_section> element to the <section> element
-    xml_section.append(bar_section)
-    xml_root.append(xml_section)
-    # You can now append the <section> element to your xml tree

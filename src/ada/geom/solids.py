@@ -171,4 +171,5 @@ SOLID_GEOM_TYPES = Union[
     Sphere,
     FixedReferenceSweptAreaSolid,
     AdvancedBrep,
+    ExtrudedAreaSolidTapered,
 ]

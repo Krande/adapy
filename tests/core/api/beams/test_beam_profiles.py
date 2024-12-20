@@ -69,8 +69,6 @@ def test_tapered_profile():
     tap = bm.taper
     assert sec.r == 0.3
     assert tap.r == 0.2
-    # a = Assembly() / (Part("Test") / bm)
-    # a.to_ifc(test_dir / "tapered.ifc")
 
 
 def test_cone_beam(tmp_path):
@@ -88,5 +86,6 @@ def test_cone_beam(tmp_path):
     section_e = Section("MyEndCrossSection", "poly", outer_poly=poly_e_o, inner_poly=poly_e_i, units="mm")
 
     bm = BeamTapered("MyCone", (2, 2, 2), (4, 4, 4), sec=section_s, tap=section_e)
-    a = Assembly("Level1", project="Project0", units="mm") / (Part("Level2") / bm)
-    _ = a.to_ifc(tmp_path / "cone_ex.ifc", file_obj_only=True)
+    a = Assembly("Level1", project="Project0") / (Part("Level2") / bm)
+
+    _ = a.to_ifc(tmp_path / "cone_ex.ifc", file_obj_only=False)

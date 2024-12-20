@@ -135,10 +135,10 @@ def create_local_placement(f: ifcopenshell.file, origin=ifco.O, loc_z=ifco.Z, lo
 
 def assembly_to_ifc_file(a: "Assembly"):
     schema = a.metadata["schema"]
-    # f = ifcopenshell.file(a.name + ".ifc", schema_version=)
     f = ifcopenshell.api.run("project.create_file", version=schema)
     project = ifcopenshell.api.run("root.create_entity", f, ifc_class="IfcProject", name=a.metadata["project"])
     f.add(project)
+
     ifcopenshell.api.run("unit.assign_unit", f, **{"length": {"is_metric": True, "raw": "METERS"}})
     # Let's create a modeling geometry context, so we can store 3D geometry (note: IFC supports 2D too!)
     # context = ifcopenshell.api.run("context.add_context", f, context_type="Model")

@@ -14,6 +14,7 @@ from ada.comms.fb_model_gen import (
     ProcedureStartDC,
     ProcedureStoreDC,
     SceneDC,
+    ScreenshotDC,
     ServerDC,
     ServerReplyDC,
     ValueDC,
@@ -32,6 +33,7 @@ from ada.comms.wsock import (
     ProcedureStart,
     ProcedureStore,
     Scene,
+    Screenshot,
     Server,
     ServerReply,
     Value,
@@ -485,6 +487,19 @@ def serialize_serverreply(builder: flatbuffers.Builder, obj: Optional[ServerRepl
     return ServerReply.End(builder)
 
 
+def serialize_screenshot(builder: flatbuffers.Builder, obj: Optional[ScreenshotDC]) -> Optional[int]:
+    if obj is None:
+        return None
+    png_file_path_str = None
+    if obj.png_file_path is not None:
+        png_file_path_str = builder.CreateString(str(obj.png_file_path))
+
+    Screenshot.Start(builder)
+    if png_file_path_str is not None:
+        Screenshot.AddPngFilePath(builder, png_file_path_str)
+    return Screenshot.End(builder)
+
+
 def serialize_message(message: MessageDC, builder: flatbuffers.Builder = None) -> bytes:
     if builder is None:
         builder = flatbuffers.Builder(1024)
@@ -503,6 +518,9 @@ def serialize_message(message: MessageDC, builder: flatbuffers.Builder = None) -
     server_reply_obj = None
     if message.server_reply is not None:
         server_reply_obj = serialize_serverreply(builder, message.server_reply)
+    screenshot_obj = None
+    if message.screenshot is not None:
+        screenshot_obj = serialize_screenshot(builder, message.screenshot)
 
     Message.Start(builder)
     if message.instance_id is not None:
@@ -528,6 +546,8 @@ def serialize_message(message: MessageDC, builder: flatbuffers.Builder = None) -
         Message.AddProcedureStore(builder, procedure_store_obj)
     if message.server_reply is not None:
         Message.AddServerReply(builder, server_reply_obj)
+    if message.screenshot is not None:
+        Message.AddScreenshot(builder, screenshot_obj)
 
     message_flatbuffer = Message.End(builder)
     builder.Finish(message_flatbuffer)
