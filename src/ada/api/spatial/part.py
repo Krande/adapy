@@ -89,7 +89,7 @@ class Part(BackendGeom):
         self._presentation_layers = PresentationLayers()
         self.fem = FEM(name + "-1", parent=self) if fem is None else fem
 
-    def add_beam(self, beam: Beam, add_to_layer: str = None) -> Beam:
+    def add_beam(self, beam: Beam, add_to_layer: str = None) -> Beam | BeamTapered:
         if beam.units != self.units:
             beam.units = self.units
         beam.parent = self

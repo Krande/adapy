@@ -503,12 +503,21 @@ class BeamTapered(Beam):
         geo = geo_conv.straight_tapered_beam_to_geom(self)
         if self.taper_type == TaperTypes.CENTERED:
             return geo
+
+        if self.up.is_equal(ada.Direction(0, 0, 1)):
+            off_dir = -1
+        elif self.up.is_equal(ada.Direction(0, 0, -1)):
+            off_dir = 1
+        else:
+            logger.warning("Tapered beam is not aligned with global z-axis")
+            off_dir = 0
+
         if self.taper_type == TaperTypes.FLUSH_TOP:
-            offset_dir_1 = ada.Direction(0, -self.section.h / 2)
-            offset_dir_2 = ada.Direction(0, -self.taper.h / 2)
+            offset_dir_1 = ada.Direction(0, off_dir*self.section.h / 2)
+            offset_dir_2 = ada.Direction(0, off_dir*self.taper.h / 2)
         elif self.taper_type == TaperTypes.FLUSH_BOTTOM:
-            offset_dir_1 = ada.Direction(0, self.section.h / 2)
-            offset_dir_2 = ada.Direction(0, self.taper.h / 2)
+            offset_dir_1 = ada.Direction(0, -off_dir*self.section.h / 2)
+            offset_dir_2 = ada.Direction(0, -off_dir*self.taper.h / 2)
         else:
             raise ValueError(f"Unknown taper type {self.taper_type}")
 

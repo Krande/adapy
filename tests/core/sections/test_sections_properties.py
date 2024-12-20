@@ -1,3 +1,4 @@
+import ada
 from ada import Section
 from ada.core.utils import roundoff
 
@@ -197,3 +198,19 @@ def test_circular():
     ]
 
     eval_assertions(sec, assertions)
+
+def test_tapered_section():
+    sec, tap = ada.Section.from_str("TG600/300x300x10x20")
+    p = ada.Part("MyBeams")
+    for i in range(0, 5):
+        bm = p.add_beam(ada.BeamTapered(f"bm{i}", (0, 0, i), (10, 0, i), sec, tap))
+        assert isinstance(bm, ada.BeamTapered)
+        assert bm.section == sec
+        assert bm.taper == tap
+
+    beams = list(p.get_all_physical_objects(by_type=ada.BeamTapered))
+    assert len(beams) == 5
+
+    beam0 = beams[0]
+    assert beam0.section == sec
+    assert beam0.taper == tap

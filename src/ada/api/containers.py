@@ -711,6 +711,8 @@ class Sections(NumericMapped):
         return self._name_map
 
     def add(self, section: Section) -> Section:
+        from ada import BeamTapered
+
         if section.name is None:
             raise Exception("Name is not allowed to be None.")
 
@@ -722,7 +724,13 @@ class Sections(NumericMapped):
             index = self._sections.index(section)
             existing_section = self._sections[index]
             for elem in section.refs:
-                elem.section = existing_section
+                if isinstance(elem, BeamTapered):
+                    if existing_section == elem.section:
+                        elem.section = existing_section
+                    else:
+                        elem.taper = existing_section
+                else:
+                    elem.section = existing_section
                 if elem not in existing_section.refs:
                     existing_section.refs.append(elem)
             return existing_section
