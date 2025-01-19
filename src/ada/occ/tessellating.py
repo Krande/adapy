@@ -14,7 +14,7 @@ from ada.base.physical_objects import BackendGeom
 from ada.base.types import GeomRepr
 from ada.config import logger
 from ada.geom import Geometry
-from ada.occ.exceptions import UnableToCreateTesselationFromSolidOCCGeom
+from ada.occ.exceptions import UnableToCreateTesselationFromSolidOCCGeom, UnableToCreateCurveOCCGeom
 from ada.occ.geom import geom_to_occ_geom
 from ada.visit.colors import Color
 from ada.visit.gltf.graph import GraphNode, GraphStore
@@ -201,6 +201,9 @@ class BatchTessellator:
             try:
                 yield self.tessellate_geom(geom, ada_obj, graph_store=graph_store)
             except UnableToCreateTesselationFromSolidOCCGeom as e:
+                logger.error(e)
+                continue
+            except UnableToCreateCurveOCCGeom as e:
                 logger.error(e)
                 continue
 
