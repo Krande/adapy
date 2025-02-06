@@ -311,7 +311,7 @@ class RendererManager:
 
         return renderer
 
-    def render(self, obj: BackendGeom | Part | Assembly | FEAResult | FEM, params: RenderParams) -> HTML | None:
+    def render(self, obj: BackendGeom | Part | Assembly | FEAResult | FEM | trimesh.Scene, params: RenderParams) -> HTML | None:
         from ada import FEM, Assembly, Part
         from ada.base.physical_objects import BackendGeom
         from ada.comms.wsock_client_sync import WebSocketClientSync
@@ -336,6 +336,8 @@ class RendererManager:
                 scene = scene_from_fem(obj, params)
             elif isinstance(obj, FEAResult):
                 scene = scene_from_fem_results(obj, params)
+            elif isinstance(obj, trimesh.Scene):
+                scene = obj
             else:
                 raise ValueError(f"Unsupported object type: {type(obj)}")
 
@@ -344,7 +346,7 @@ class RendererManager:
 
             # Send the scene to the WebSocket client
             wc.update_scene(
-                obj.name,
+                obj.name if hasattr(obj, "name") else "Scene",
                 scene,
                 purpose=params.purpose,
                 scene_op=params.scene.operation,
