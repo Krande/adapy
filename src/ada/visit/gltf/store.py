@@ -193,6 +193,7 @@ def merged_mesh_to_trimesh_scene(
     pbr_mat: dict | Color,
     buffer_id: int,
     graph_store: GraphStore = None,
+    apply_transform: bool = True,
 ):
     vertices = merged_mesh.position.reshape(int(len(merged_mesh.position) / 3), 3)
     if merged_mesh.type == MeshType.TRIANGLES:
@@ -224,7 +225,8 @@ def merged_mesh_to_trimesh_scene(
         raise NotImplementedError(f"Mesh type {merged_mesh.type} is not supported")
 
     # Rotate the mesh to set Z up
-    mesh.apply_transform(m4x4_z_up_rot)
+    if apply_transform:
+        mesh.apply_transform(m4x4_z_up_rot)
 
     if isinstance(merged_mesh, MergedMesh):
         node_name = f"node{buffer_id}"

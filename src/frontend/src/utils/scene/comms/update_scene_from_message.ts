@@ -1,13 +1,17 @@
 import {Message} from "../../../flatbuffers/wsock/message";
 import {useModelStore} from "../../../state/modelStore";
+import {SceneOperations} from "../../../flatbuffers/wsock/scene-operations";
 
 export const update_scene_from_message = (message: Message) => {
     console.log('Received scene update message from server');
     let scene = message.scene();
+
     if (!scene) {
         console.error("No scene object found in the message");
         return;
     }
+
+
     let fileObject = scene.currentFile();
     if (!fileObject) {
         console.error("No file object found in the message");
@@ -23,6 +27,11 @@ export const update_scene_from_message = (message: Message) => {
 
     const blob = new Blob([data], {type: 'model/gltf-binary'});
     const url = URL.createObjectURL(blob);
-
-    useModelStore.getState().setModelUrl(url, scene.operation(), ""); // Set the URL for the model
+    let operation = scene.operation();
+    if (operation == SceneOperations.ADD) {
+        // append gltf model
+        console.log('Adding model to existing scene');
+    } else {
+        useModelStore.getState().setModelUrl(url, scene.operation(), ""); // Set the URL for the model
+    }
 }

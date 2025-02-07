@@ -208,7 +208,7 @@ class BatchTessellator:
                 continue
 
     def meshes_to_trimesh(
-        self, shapes_tess_iter: Iterable[MeshStore], graph=None, merge_meshes: bool = True
+        self, shapes_tess_iter: Iterable[MeshStore], graph=None, merge_meshes: bool = True, apply_transform=True
     ) -> trimesh.Scene:
         import trimesh
 
@@ -221,7 +221,7 @@ class BatchTessellator:
         for mat_id, meshes in groupby(all_shapes, lambda x: x.material):
             if merge_meshes:
                 merged_store = concatenate_stores(meshes)
-                merged_mesh_to_trimesh_scene(scene, merged_store, self.get_mat_by_id(mat_id), mat_id, graph)
+                merged_mesh_to_trimesh_scene(scene, merged_store, self.get_mat_by_id(mat_id), mat_id, graph, apply_transform=apply_transform)
             else:
                 for mesh_store in meshes:
                     merged_mesh_to_trimesh_scene(scene, mesh_store, self.get_mat_by_id(mat_id), mat_id, graph)
@@ -254,7 +254,7 @@ class BatchTessellator:
                 merged_mesh_to_trimesh_scene(scene, points_store, points_color, points_color_id, graph)
 
     def tessellate_part(
-        self, part: Part, filter_by_guids=None, render_override=None, merge_meshes=True, params: RenderParams = None
+        self, part: Part, filter_by_guids=None, render_override=None, merge_meshes=True, params: RenderParams = None, apply_transform=True
     ) -> trimesh.Scene:
 
         graph = part.get_graph_store()
@@ -265,7 +265,7 @@ class BatchTessellator:
             graph_store=graph,
         )
 
-        scene = self.meshes_to_trimesh(shapes_tess_iter, graph, merge_meshes=merge_meshes)
+        scene = self.meshes_to_trimesh(shapes_tess_iter, graph, merge_meshes=merge_meshes, apply_transform=apply_transform)
 
         self.append_fem_to_trimesh(scene, part, graph)
 

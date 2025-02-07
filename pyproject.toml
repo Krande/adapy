@@ -76,9 +76,9 @@ docs = { features = ["py312", "docs", "tests"], solve-group = "prod"}
 frontend = { features = ["web"], no-default-feature = true}
 
 [tool.pixi.feature.py312.dependencies]
-python="3.12"
+python="3.12.*"
 bcf-client="*"
-kaleido-core = "0.1.0"
+kaleido-core = "==0.1.0"
 numpy = "*"
 hdf5 = "*"
 h5py = "*"
@@ -118,9 +118,9 @@ ada-py = { path = ".", editable = true }
 pytest-playwright = "*"
 
 [tool.pixi.feature.lint.dependencies]
-black = "24.4.2"
-isort = "5.13.2"
-ruff = "0.4.10"
+black = "==24.4.2"
+isort = "==5.13.2"
+ruff = "==0.4.10"
 flatbuffers = "*"
 python-flatbuffers = "*"
 
