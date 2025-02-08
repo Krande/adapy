@@ -2035,7 +2035,7 @@ packages:
 - pypi: .
   name: ada-py
   version: 0.3.7
-  sha256: 43d00970919618158da22c551573824471416415380cff048735066db21eb7c7
+  sha256: 693343c1b05442fe645504ae41af1243ab0e0bcda509bb5601e29980a28fa94a
   requires_python: '>=3.10'
   editable: true
 - conda: https://conda.anaconda.org/conda-forge/noarch/alabaster-1.0.0-pyhd8ed1ab_0.conda

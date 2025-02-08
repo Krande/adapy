@@ -1,6 +1,6 @@
 {
   "name": "ada-py-viewer",
-  "version": "0.3.7",
+  "version": "0.3.8",
   "type": "module",
   "scripts": {
     "prebuild": "node clean.cjs",

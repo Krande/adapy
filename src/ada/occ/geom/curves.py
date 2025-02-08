@@ -81,8 +81,10 @@ def make_wire_from_curve(outer_curve: geo_cu.CURVE_GEOM_TYPES):
         return make_wire_from_indexed_poly_curve_geom(outer_curve)
     elif isinstance(outer_curve, geo_cu.Circle):
         return make_wire_from_circle(outer_curve)
+    elif isinstance(outer_curve, geo_cu.Edge):
+        return segments_to_wire([outer_curve])
     else:
-        raise NotImplementedError("Only IndexedPolyCurve is implemented")
+        raise NotImplementedError(f"Unsupported curve type {type(outer_curve)}")
 
 
 def make_wire_from_face_bound(face_bound: geo_su.FaceBound) -> TopoDS_Wire:

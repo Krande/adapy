@@ -2,6 +2,17 @@
 
 
 
+## v0.3.8 (2024-12-20)
+
+### Chore
+
+* chore: update docs ci ([`293f7c9`](https://github.com/Krande/adapy/commit/293f7c9cadb2ebbd5f526fc918d7bbe7dc9951e3))
+
+### Fix
+
+* fix: bug in tapered beam section handling (#123) ([`dd095f7`](https://github.com/Krande/adapy/commit/dd095f70ee9da0adfd52505fbff573bdbfee9ab0))
+
+
 ## v0.3.7 (2024-12-15)
 
 ### Fix

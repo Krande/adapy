@@ -549,7 +549,7 @@ class PrimSweep(Shape):
     def profile_curve_outer(self) -> CurvePoly2d:
         return self._profile_curve_outer
 
-    def solid_geom(self) -> Geometry:
+    def solid_geom(self) -> Geometry[FixedReferenceSweptAreaSolid]:
         from ada.geom.solids import FixedReferenceSweptAreaSolid
         from ada.geom.surfaces import ArbitraryProfileDef, ProfileType
 

@@ -3,6 +3,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import ada.geom.surfaces as geo_su
+import ada.geom.curves as geo_cu
+import ada.geom.solids as geo_so
 from ada import (
     Boolean,
     PrimBox,
@@ -205,7 +207,10 @@ def generate_ifc_prim_sweep_geom(shape: PrimSweep, f):
     geom = shape.solid_geom()
 
     profile = arbitrary_profile_def(geom.geometry.swept_area, f)
-    sweep_curve = indexed_poly_curve(geom.geometry.directrix, f)
+    if isinstance(geom.geometry, geo_so.FixedReferenceSweptAreaSolid):
+        sweep_curve = indexed_poly_curve(geom.geometry.directrix, f)
+    else:
+        raise NotImplementedError(f"Unsupported curve type {type(geom.geometry.sweep_curve)}")
 
     fixed_ref = f.create_entity("IfcDirection", to_real(shape.sweep_curve.start_vector.tolist()))
     axis3d = create_ifc_placement(f)
