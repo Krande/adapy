@@ -30,7 +30,7 @@ CURVE_GEOM_TYPES = Union[
 @dataclass
 class Line:
     """
-    IFC4x3 https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcLine.htm
+    IFC4x3 https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcLine.htm
     STEP AP242 https://www.steptools.com/stds/stp_aim/html/t_line.html
     """
 
@@ -47,7 +47,7 @@ class Line:
 @dataclass
 class ArcLine:
     """
-    IFC4x3 https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcArcIndex.htm
+    IFC4x3 https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcArcIndex.htm
 
     """
 
@@ -83,14 +83,14 @@ class PolyLine:
 @dataclass
 class IndexedPolyCurve:
     """
-    IFC4x3 (https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcIndexedPolyCurve.htm)
+    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcIndexedPolyCurve.htm)
     STEP (not found direct equivalent, but can be represented by using 'B_SPLINE_CURVE' and 'POLYLINE' entities)
     """
 
     segments: list[Edge | ArcLine]
     self_intersect: bool = False
 
-    def get_points_and_segment_indices(self) -> tuple[np.ndarray, list[list[int]]]:
+    def get_points2d_and_segment_indices(self) -> tuple[np.ndarray, list[list[int]]]:
         points = list(chain.from_iterable([list(segment) for segment in self.segments]))
         points_tuple = [tuple(x) for x in chain.from_iterable([list(segment) for segment in self.segments])]
         unique_pts, pts_index = np.unique(points, axis=0, return_index=False, return_inverse=True)
@@ -148,7 +148,7 @@ class GeometricCurveSet:
 @dataclass
 class Circle:
     """
-    IFC4x3 https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcCircle.htm
+    IFC4x3 https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcCircle.htm
     STEP AP242 https://www.steptools.com/stds/stp_aim/html/t_circle.html
     """
 
@@ -159,7 +159,7 @@ class Circle:
 @dataclass
 class Ellipse:
     """
-    IFC4x3 https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcEllipse.htm
+    IFC4x3 https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcEllipse.htm
     STEP AP242 https://www.steptools.com/stds/stp_aim/html/t_ellipse.html
     """
 
@@ -170,7 +170,7 @@ class Ellipse:
 
 class BSplineCurveFormEnum(Enum):
     """
-    IFC4x3 (https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcBSplineCurveForm.htm)
+    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcBSplineCurveForm.htm)
     STEP (https://www.steptools.com/stds/stp_aim/html/t_b_spline_curve_form.html)
     """
 
@@ -184,7 +184,7 @@ class BSplineCurveFormEnum(Enum):
 
 class KnotType(Enum):
     """
-    IFC4x3 (https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcKnotType.htm)
+    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcKnotType.htm)
     STEP (https://www.steptools.com/stds/stp_aim/html/t_knot_type.html)
     """
 
@@ -201,7 +201,7 @@ class KnotType(Enum):
 @dataclass
 class BSplineCurveWithKnots:
     """
-    IFC4x3 (https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcBSplineCurveWithKnots.htm)
+    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcBSplineCurveWithKnots.htm)
     STEP (https://www.steptools.com/stds/stp_aim/html/t_b_spline_curve_with_knots.html)
     """
 
@@ -218,7 +218,7 @@ class BSplineCurveWithKnots:
 @dataclass
 class PCurve:
     """
-    IFC4x3 (https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcPcurve.htm)
+    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcPcurve.htm)
     """
 
     basis_surface: SURFACE_GEOM_TYPES
@@ -228,7 +228,7 @@ class PCurve:
 @dataclass
 class RationalBSplineCurveWithKnots(BSplineCurveWithKnots):
     """
-    IFC4x3 (https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcRationalBSplineCurveWithKnots.htm)
+    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcRationalBSplineCurveWithKnots.htm)
     """
 
     weights_data: list[float]
@@ -271,7 +271,7 @@ class Edge:
 @dataclass
 class OrientedEdge(Edge):
     """
-    IFC4x3 (https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcOrientedEdge.htm)
+    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcOrientedEdge.htm)
     STEP (https://www.steptools.com/stds/stp_aim/html/t_oriented_edge.html)
     """
 
@@ -282,7 +282,7 @@ class OrientedEdge(Edge):
 @dataclass
 class EdgeCurve(Edge):
     """
-    IFC4x3 (https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcEdgeCurve.htm)
+    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcEdgeCurve.htm)
     STEP (https://www.steptools.com/stds/stp_aim/html/t_edge_curve.html)
     """
 
@@ -293,7 +293,7 @@ class EdgeCurve(Edge):
 @dataclass
 class PolyLoop:
     """
-    IFC4x3 (https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcPolyLoop.htm)
+    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcPolyLoop.htm)
     """
 
     polygon: list[Point]
@@ -302,7 +302,7 @@ class PolyLoop:
 @dataclass
 class EdgeLoop:
     """
-    IFC4x3 (https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcEdgeLoop.htm)
+    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcEdgeLoop.htm)
     """
 
     edge_list: list[OrientedEdge]

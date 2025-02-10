@@ -25,7 +25,7 @@ def indexed_poly_curve_from_points_and_segments(points: list[list[float]], segme
 
 def indexed_poly_curve(ipc: geo_cu.IndexedPolyCurve, f: ifcopenshell.file) -> ifcopenshell.entity_instance:
     """Converts an IndexedPolyCurve to an IFC representation"""
-    unique_pts, segment_indices = ipc.get_points_and_segment_indices()
+    unique_pts, segment_indices = ipc.get_points2d_and_segment_indices()
 
     points = unique_pts.tolist()
     return indexed_poly_curve_from_points_and_segments(points, segment_indices, f)

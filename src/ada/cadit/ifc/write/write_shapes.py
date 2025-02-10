@@ -113,6 +113,7 @@ def generate_parametric_solid(shape: Shape | PrimSphere, f):
         raise NotImplementedError(f'Shape type "{type(shape)}" is not yet supported for export to IFC')
 
     solid_geom = ifc_geom_converter(param_geo, f)
+
     repr_type_map = {
         PrimSphere: "SweptSolid",
         PrimBox: "SweptSolid",
@@ -120,7 +121,7 @@ def generate_parametric_solid(shape: Shape | PrimSphere, f):
         PrimCone: "SweptSolid",
         PrimExtrude: "SweptSolid",
         PrimRevolve: "SweptSolid",
-        PrimSweep: "SweptSolid",
+        PrimSweep: "AdvancedSweptSolid",
         geo_su.AdvancedFace: "AdvancedSurface",
         geo_su.CurveBoundedPlane: "AdvancedSurface",
         geo_su.ClosedShell: "AdvancedSurface",
@@ -205,8 +206,11 @@ def generate_ifc_prim_revolve_geom(shape: PrimRevolve, f):
 
 def generate_ifc_prim_sweep_geom(shape: PrimSweep, f):
     geom = shape.solid_geom()
+    if isinstance(geom.geometry.swept_area, geo_su.ArbitraryProfileDef):
+        profile = arbitrary_profile_def(geom.geometry.swept_area, f)
+    else:
+        raise NotImplementedError(f"Not implemented {type(geom.geometry.swept_area).__name__}")
 
-    profile = arbitrary_profile_def(geom.geometry.swept_area, f)
     if isinstance(geom.geometry, geo_so.FixedReferenceSweptAreaSolid):
         if isinstance(geom.geometry.directrix, geo_cu.IndexedPolyCurve):
             sweep_curve = write_cu.indexed_poly_curve(geom.geometry.directrix, f)
@@ -218,12 +222,18 @@ def generate_ifc_prim_sweep_geom(shape: PrimSweep, f):
     else:
         raise NotImplementedError(f"Unsupported curve type {type(geom.geometry.sweep_curve)}")
 
-    fixed_ref = f.create_entity("IfcDirection", to_real(shape.sweep_curve.start_vector.tolist()))
-    axis3d = create_ifc_placement(f)
+    fixed_ref = f.create_entity("IfcDirection", to_real(shape.fixed_ref.tolist()))
+    ifc_axis3d = ifc_placement_from_axis3d(geom.geometry.position, f)
+
+    if shape.derived_reference:
+        sweep_type = "IfcDirectrixDerivedReferenceSweptAreaSolid"
+    else:
+        sweep_type = "IfcFixedReferenceSweptAreaSolid"
+
     return f.create_entity(
-        "IfcFixedReferenceSweptAreaSolid",
+        sweep_type,
         SweptArea=profile,
-        Position=axis3d,
+        Position=ifc_axis3d,
         Directrix=sweep_curve,
         FixedReference=fixed_ref,
     )

@@ -38,7 +38,7 @@ class ProfileDef:
 @dataclass
 class ArbitraryProfileDef(ProfileDef):
     """
-    IFC4x3 https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcArbitraryProfileDefWithVoids.htm
+    IFC4x3 https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcArbitraryProfileDefWithVoids.htm
     """
 
     outer_curve: geo_cu.CURVE_GEOM_TYPES
@@ -56,7 +56,7 @@ class ArbitraryProfileDef(ProfileDef):
 @dataclass
 class FaceBound:
     """
-    IFC4x3 (https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcFaceBound.htm)
+    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcFaceBound.htm)
     """
 
     bound: Union[PolyLoop, EdgeLoop]
@@ -66,7 +66,7 @@ class FaceBound:
 @dataclass
 class Face:
     """
-    IFC4x3 (https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcFace.htm)
+    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcFace.htm)
     """
 
     bounds: list[FaceBound]
@@ -75,7 +75,7 @@ class Face:
 @dataclass
 class FaceSurface(Face):
     """
-    IFC4x3 (https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcFaceSurface.htm)
+    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcFaceSurface.htm)
     """
 
     face_surface: Union[Plane]
@@ -85,7 +85,7 @@ class FaceSurface(Face):
 @dataclass
 class ConnectedFaceSet:
     """
-    IFC4x3 (https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcConnectedFaceSet.htm)
+    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcConnectedFaceSet.htm)
     """
 
     cfs_faces: list[FaceBound]
@@ -94,7 +94,7 @@ class ConnectedFaceSet:
 @dataclass
 class FaceBasedSurfaceModel:
     """
-    IFC4x3 (https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcFaceBasedSurfaceModel.htm)
+    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcFaceBasedSurfaceModel.htm)
     """
 
     fbsm_faces: list[ConnectedFaceSet]
@@ -103,7 +103,7 @@ class FaceBasedSurfaceModel:
 @dataclass
 class CurveBoundedPlane:
     """
-    IFC4x3 (https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcCurveBoundedPlane.htm)
+    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcCurveBoundedPlane.htm)
     """
 
     basis_surface: Plane
@@ -114,7 +114,7 @@ class CurveBoundedPlane:
 @dataclass
 class SurfaceOfLinearExtrusion:
     """
-    IFC4x3 (https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcSurfaceOfLinearExtrusion.htm)
+    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcSurfaceOfLinearExtrusion.htm)
     """
 
     swept_curve: geo_cu.CURVE_GEOM_TYPES
@@ -126,7 +126,7 @@ class SurfaceOfLinearExtrusion:
 @dataclass
 class IShapeProfileDef(ProfileDef):
     """
-    IFC4x3 (https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcIShapeProfileDef.htm)
+    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcIShapeProfileDef.htm)
     """
 
     overall_width: float
@@ -141,7 +141,7 @@ class IShapeProfileDef(ProfileDef):
 @dataclass
 class TShapeProfileDef(ProfileDef):
     """
-    IFC4x3 (https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcTShapeProfileDef.htm)
+    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcTShapeProfileDef.htm)
     """
 
     depth: float
@@ -158,7 +158,7 @@ class TShapeProfileDef(ProfileDef):
 @dataclass
 class CircleProfileDef(ProfileDef):
     """
-    IFC4x3 (https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcCircleProfileDef.htm)
+    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcCircleProfileDef.htm)
     """
 
     radius: float
@@ -167,7 +167,7 @@ class CircleProfileDef(ProfileDef):
 @dataclass
 class TriangulatedFaceSet:
     """
-    IFC4x3 (https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcTriangulatedFaceSet.htm)
+    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcTriangulatedFaceSet.htm)
     """
 
     coordinates: list[Point]
@@ -178,7 +178,7 @@ class TriangulatedFaceSet:
 @dataclass
 class RectangleProfileDef(ProfileDef):
     """
-    IFC4x3 (https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcRectangleProfileDef.htm)
+    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcRectangleProfileDef.htm)
     """
 
     x_dim: float
@@ -206,7 +206,7 @@ class BSplineSurfaceForm(Enum):
 @dataclass
 class BSplineSurface:
     """
-    IFC4x3 (https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcBSplineSurface.htm)
+    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcBSplineSurface.htm)
     """
 
     u_degree: int
@@ -221,7 +221,7 @@ class BSplineSurface:
 @dataclass
 class BSplineSurfaceWithKnots(BSplineSurface):
     """
-    IFC4x3 (https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcBSplineSurfaceWithKnots.htm)
+    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcBSplineSurfaceWithKnots.htm)
     """
 
     u_multiplicities: list[int]
@@ -256,7 +256,7 @@ class BSplineSurfaceWithKnots(BSplineSurface):
 @dataclass
 class RationalBSplineSurfaceWithKnots(BSplineSurfaceWithKnots):
     """
-    IFC4x3 (https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcRationalBSplineSurfaceWithKnots.htm)
+    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcRationalBSplineSurfaceWithKnots.htm)
     """
 
     weights_data: list[list[float]]
@@ -265,7 +265,7 @@ class RationalBSplineSurfaceWithKnots(BSplineSurfaceWithKnots):
 @dataclass
 class ClosedShell:
     """
-    IFC4x3 (https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcClosedShell.htm)
+    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcClosedShell.htm)
     """
 
     cfs_faces: list[Face | FaceSurface | Plane]
@@ -274,7 +274,7 @@ class ClosedShell:
 @dataclass
 class AdvancedFace:
     """
-    IFC4x3 (https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcAdvancedFace.htm)
+    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcAdvancedFace.htm)
     """
 
     bounds: list[FaceBound]

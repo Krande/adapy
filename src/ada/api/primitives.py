@@ -24,28 +24,28 @@ if TYPE_CHECKING:
     from OCC.Core.TopoDS import TopoDS_Shape
 
     from ada.cadit.ifc.store import IfcStore
-    from ada.geom.solids import Box, ExtrudedAreaSolid
+    from ada.geom.solids import Box, ExtrudedAreaSolid, FixedReferenceSweptAreaSolid
 
 
 class Shape(BackendGeom):
     IFC_CLASSES = ShapeTypes
 
     def __init__(
-        self,
-        name,
-        geom: Geometry | list[Geometry] | None = None,
-        color=None,
-        opacity=1.0,
-        mass: float = None,
-        cog: Iterable = None,
-        material: Material | str = None,
-        units=Units.M,
-        metadata=None,
-        guid=None,
-        placement=Placement(),
-        ifc_store: IfcStore = None,
-        ifc_class: ShapeTypes = ShapeTypes.IfcBuildingElementProxy,
-        parent=None,
+            self,
+            name,
+            geom: Geometry | list[Geometry] | None = None,
+            color=None,
+            opacity=1.0,
+            mass: float = None,
+            cog: Iterable = None,
+            material: Material | str = None,
+            units=Units.M,
+            metadata=None,
+            guid=None,
+            placement=Placement(),
+            ifc_store: IfcStore = None,
+            ifc_class: ShapeTypes = ShapeTypes.IfcBuildingElementProxy,
+            parent=None,
     ):
         super().__init__(
             name,
@@ -502,22 +502,26 @@ class PrimRevolve(Shape):
 
 class PrimSweep(Shape):
     def __init__(
-        self,
-        name,
-        sweep_curve,
-        profile_curve_outer,
-        profile_zdir=None,
-        profile_xdir=None,
-        origin=None,
-        tol=1e-3,
-        **kwargs,
+            self,
+            name,
+            sweep_curve: Iterable[Iterable[float]] | CurveOpen3d,
+            profile_curve_outer: Iterable[Iterable[float]] | CurvePoly2d,
+            profile_zdir=None,
+            profile_xdir=None,
+            origin=None,
+            derived_reference=False,
+            fixed_ref=None,
+            tol=1e-3,
+            **kwargs,
     ):
-        sweep_curve = CurveOpen3d(sweep_curve, tol=tol)
+        if not isinstance(sweep_curve, CurveOpen3d):
+            sweep_curve = CurveOpen3d(sweep_curve, tol=tol)
 
         if not isinstance(profile_curve_outer, CurvePoly2d):
             origin = sweep_curve.orientation.origin if origin is None else origin
             svec = sweep_curve.start_vector if profile_zdir is None else profile_zdir
             xdir = sweep_curve.orientation.xdir if profile_xdir is None else profile_xdir
+            svec = svec.get_normalized()
             profile_curve_outer = CurvePoly2d(profile_curve_outer, origin=origin, normal=svec, xdir=xdir, tol=tol)
         else:
             profile_curve_outer = profile_curve_outer
@@ -527,6 +531,11 @@ class PrimSweep(Shape):
 
         self._sweep_curve = sweep_curve
         self._profile_curve_outer = profile_curve_outer
+        self.derived_reference = derived_reference
+
+        # todo: add code to ensure fixed_ref is always pointing in positive Z.
+        #  Should make an automatic placement transform each time to ensure this, without having to do the transforms first.
+        self.fixed_ref = sweep_curve.start_vector if fixed_ref is None else fixed_ref
 
         super(PrimSweep, self).__init__(name, **kwargs)
 
@@ -557,7 +566,7 @@ class PrimSweep(Shape):
 
         profile = ArbitraryProfileDef(ProfileType.AREA, outer_curve, [])
 
-        place = Axis2Placement3D()
+        place = self.placement.to_axis2placement3d()
 
         booleans = [BooleanOperation(x.primitive.solid_geom(), x.bool_op) for x in self.booleans]
 

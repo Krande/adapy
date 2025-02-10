@@ -78,18 +78,17 @@ def easy_plotly(
         plot_data += traces
 
     autorange = "reversed" if autoreverse is True else None
+    axis_font = dict(family="Arial, monospace", size=18, color="#7f7f7f")
     layout = go.Layout(
         title=title,
         xaxis=dict(
-            title=xlbl,
-            titlefont=dict(family="Arial, monospace", size=18, color="#7f7f7f"),
+            title=dict(text=xlbl, font=axis_font),
             autorange=autorange,
             range=xrange,
             exponentformat=xaxformat,
         ),
         yaxis=dict(
-            title=ylbl,
-            titlefont=dict(family="Arial, monospace", size=18, color="#7f7f7f"),
+            title=dict(text=ylbl, font=axis_font),
             range=yrange,
             exponentformat=yaxformat,
         ),

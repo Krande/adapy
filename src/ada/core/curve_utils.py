@@ -930,7 +930,7 @@ def segments3d_from_points3d(
     if len(prelim_segments) == 1:
         return prelim_segments
 
-    if len(radius_dict) == 0 and radius is None:
+    if radius_dict is not None and len(radius_dict) == 0 and radius is None:
         return prelim_segments
 
     prelim_segments_zip = list(zip(prelim_segments[:-1], prelim_segments[1:]))

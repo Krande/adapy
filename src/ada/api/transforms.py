@@ -211,7 +211,7 @@ class Placement:
 
         return points2d[:, :2]
 
-    def to_axis2placement3d(self, use_absolute_placement=True):
+    def to_axis2placement3d(self, use_absolute_placement=True) -> Axis2Placement3D:
         if use_absolute_placement:
             abs_place = self.get_absolute_placement()
             return Axis2Placement3D(location=abs_place.origin, axis=abs_place.zdir, ref_direction=abs_place.xdir)
