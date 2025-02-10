@@ -31,7 +31,7 @@ from ada.core.constants import O, X, Z
 from ada.core.utils import to_real
 from ada.geom.solids import Box, Cone, Cylinder
 
-from ..write.geom.curves import indexed_poly_curve
+import ada.cadit.ifc.write.geom.curves as write_cu
 from ..write.geom.surfaces import (
     advanced_face,
     arbitrary_profile_def,
@@ -208,7 +208,13 @@ def generate_ifc_prim_sweep_geom(shape: PrimSweep, f):
 
     profile = arbitrary_profile_def(geom.geometry.swept_area, f)
     if isinstance(geom.geometry, geo_so.FixedReferenceSweptAreaSolid):
-        sweep_curve = indexed_poly_curve(geom.geometry.directrix, f)
+        if isinstance(geom.geometry.directrix, geo_cu.IndexedPolyCurve):
+            sweep_curve = write_cu.indexed_poly_curve(geom.geometry.directrix, f)
+        elif isinstance(geom.geometry.directrix, geo_cu.Edge):
+            line = geom.geometry.directrix.to_line()
+            sweep_curve = write_cu.create_line(line, f)
+        else:
+            raise NotImplementedError(f"Unsupported curve type {type(geom.geometry.directrix)}")
     else:
         raise NotImplementedError(f"Unsupported curve type {type(geom.geometry.sweep_curve)}")
 

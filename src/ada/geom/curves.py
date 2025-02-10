@@ -237,7 +237,7 @@ class RationalBSplineCurveWithKnots(BSplineCurveWithKnots):
 @dataclass
 class Edge:
     """
-    IFC4x3 (https://ifc43-docs.standards.buildingsmart.org/IFC/RELEASE/IFC4x3/HTML/lexical/IfcEdge.htm)
+    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcEdge.htm)
     STEP (https://www.steptools.com/stds/stp_aim/html/t_edge.html)
     """
 
@@ -260,6 +260,9 @@ class Edge:
     @property
     def dim(self):
         return self.start.dim
+
+    def to_line(self) -> Line:
+        return Line(self.start, Direction(self.end - self.start))
 
     def __iter__(self):
         return iter((self.start, self.end))
