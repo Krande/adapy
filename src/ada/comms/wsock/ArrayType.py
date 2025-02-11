@@ -2,7 +2,6 @@
 
 # namespace: wsock
 
-
 class ArrayType(object):
     TUPLE = 0
     LIST = 1

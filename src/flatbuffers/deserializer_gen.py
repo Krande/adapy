@@ -24,8 +24,10 @@ def generate_deserialize_function(schema: FlatBufferSchema, table: TableDefiniti
                 deserialize_code += f"        {field.name}=[fb_obj.{make_camel_case(field.name)}(i) for i in range(fb_obj.{make_camel_case(field.name)}Length())] if fb_obj.{make_camel_case(field.name)}Length() > 0 else None,\n"
             elif field_type_value in table_names:
                 deserialize_code += f"        {field.name}=[deserialize_{field_type_value.lower()}(fb_obj.{make_camel_case(field.name)}(i)) for i in range(fb_obj.{make_camel_case(field.name)}Length())] if fb_obj.{make_camel_case(field.name)}Length() > 0 else None,\n"
+            elif field_type_value == "uint32":
+                raise NotImplementedError("not yet implemented uint32 deserialization")
             else:
-                raise NotImplementedError()
+                raise NotImplementedError(f"Unsupported field type: {field.field_type}")
         else:
             # Handle nested tables or enums
             if field.field_type in [en.name for en in schema.enums]:

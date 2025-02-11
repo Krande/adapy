@@ -1,5 +1,6 @@
 import pathlib
 
+from ada.config import logger
 from fbs_serializer import FlatBufferSchema, TableDefinition, parse_fbs_file
 from utils import make_camel_case
 
@@ -38,12 +39,18 @@ def generate_serialize_function(table: TableDefinition) -> str:
                 serialize_code += f"        for item in reversed({field.name}_list):\n"
                 serialize_code += "            builder.PrependUOffsetTRelative(item)\n"
                 serialize_code += f"        {field.name}_vector = builder.EndVector(len({field.name}_list))\n"
+            elif field_type_value == "uint32":
+                raise NotImplementedError("not yet implemented uint32 serialization")
+            else:
+                raise NotImplementedError(f"Unknown field type: {field.field_type}")
         elif field.field_type in table_names:
             serialize_code += f"    {field.name}_obj = None\n"
             serialize_code += f"    if obj.{field.name} is not None:\n"
             serialize_code += (
                 f"        {field.name}_obj = serialize_{field.field_type.lower()}(builder, obj.{field.name})\n"
             )
+        else:
+            logger.info(f"Unknown field type: {field.field_type}")
 
     serialize_code += f"\n    {table.name}.Start(builder)\n"
 
@@ -67,8 +74,11 @@ def generate_serialize_function(table: TableDefinition) -> str:
                 serialize_code += (
                     f"        {table.name}.Add{make_camel_case(field.name)}(builder, {field.name}_vector)\n"
                 )
+            elif field_type_value == "uint32":
+                serialize_code += f"    if obj.{field.name} is not None:\n"
+                serialize_code += f"        {table.name}.Add{make_camel_case(field.name)}(builder, builder.CreateByteVector(obj.{field.name}))\n"
             else:
-                raise NotImplementedError()
+                raise NotImplementedError(f"Unknown field type: {field.field_type}")
 
         elif field.field_type in ["byte", "ubyte", "int", "bool", "float"]:
             serialize_code += f"    if obj.{field.name} is not None:\n"

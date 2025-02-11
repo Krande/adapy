@@ -4,12 +4,10 @@
 
 import flatbuffers
 from flatbuffers.compat import import_numpy
-
 np = import_numpy()
 
-
 class FileArg(object):
-    __slots__ = ["_tab"]
+    __slots__ = ['_tab']
 
     @classmethod
     def GetRootAs(cls, buf, offset=0):
@@ -22,7 +20,6 @@ class FileArg(object):
     def GetRootAsFileArg(cls, buf, offset=0):
         """This method is deprecated. Please switch to GetRootAs."""
         return cls.GetRootAs(buf, offset)
-
     # FileArg
     def Init(self, buf, pos):
         self._tab = flatbuffers.table.Table(buf, pos)
@@ -41,34 +38,26 @@ class FileArg(object):
             return self._tab.Get(flatbuffers.number_types.Int8Flags, o + self._tab.Pos)
         return 0
 
-
 def FileArgStart(builder):
     builder.StartObject(2)
-
 
 def Start(builder):
     FileArgStart(builder)
 
-
 def FileArgAddArgName(builder, argName):
     builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(argName), 0)
-
 
 def AddArgName(builder, argName):
     FileArgAddArgName(builder, argName)
 
-
 def FileArgAddFileType(builder, fileType):
     builder.PrependInt8Slot(1, fileType, 0)
-
 
 def AddFileType(builder, fileType):
     FileArgAddFileType(builder, fileType)
 
-
 def FileArgEnd(builder):
     return builder.EndObject()
-
 
 def End(builder):
     return FileArgEnd(builder)

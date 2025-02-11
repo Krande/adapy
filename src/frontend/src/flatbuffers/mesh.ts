@@ -2,5 +2,4 @@
 
 /* eslint-disable @typescript-eslint/no-unused-vars, @typescript-eslint/no-explicit-any, @typescript-eslint/no-non-null-assertion */
 
-export { AppendMesh, AppendMeshT } from './wsock/append-mesh.js';
-export { Mesh, MeshT } from './wsock/mesh.js';
+export * as wsock from './wsock.js';

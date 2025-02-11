@@ -1,10 +1,12 @@
 from ada.comms.fb_deserializer import deserialize_root_message
 from ada.comms.fb_model_gen import (
+    AppendMeshDC,
     CommandTypeDC,
     FileArgDC,
     FileObjectDC,
     FilePurposeDC,
     FileTypeDC,
+    MeshDC,
     MeshInfoDC,
     MessageDC,
     ParameterDC,
@@ -116,3 +118,10 @@ def test_procedure_store():
     deserialized_message = deserialize_root_message(flatbuffer_data)
     print(deserialized_message)
     assert deserialized_message == message
+
+def test_append_mesh():
+    message = MessageDC(
+        package=AppendMeshDC(mesh=MeshDC(vertices=[1.0, 2.0, 3.0], indices=[1, 2, 3]))
+    )
+    # Serialize the dataclass message into a FlatBuffer
+    flatbuffer_data = serialize_message(message)

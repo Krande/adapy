@@ -1,0 +1,10 @@
+namespace wsock;
+
+table Mesh {
+    indices: [uint32];
+    vertices: [float];
+}
+
+table AppendMesh {
+    mesh: Mesh;
+}

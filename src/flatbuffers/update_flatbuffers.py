@@ -20,32 +20,33 @@ def main():
     # Clean wsock directory and generated directory
     shutil.rmtree(_WSOCK_DIR, ignore_errors=True)
     shutil.rmtree(_GEN_DIR, ignore_errors=True)
-    # Generate FlatBuffers code
-    args = [
-        "flatc",
-        "--python",
-        "-o",
-        _COMMS_DIR.as_posix(),
-        CMD_FILE.as_posix(),
-        "&&",
-        "flatc",
-        "--ts",
-        "--gen-object-api",
-        "-o",
-        _GEN_DIR.as_posix(),
-        CMD_FILE.as_posix(),
-        "&&",
-        "git",
-        "add",
-        _WSOCK_DIR.as_posix(),
-        _GEN_DIR.as_posix(),
-    ]
+    for cmd_file in _SCHEMA_DIR.glob("*.fbs"):
+        # Generate FlatBuffers code
+        args = [
+            "flatc",
+            "--python",
+            "-o",
+            _COMMS_DIR.as_posix(),
+            cmd_file.as_posix(),
+            "&&",
+            "flatc",
+            "--ts",
+            "--gen-object-api",
+            "-o",
+            _GEN_DIR.as_posix(),
+            cmd_file.as_posix(),
+            "&&",
+            "git",
+            "add",
+            _WSOCK_DIR.as_posix(),
+            _GEN_DIR.as_posix(),
+        ]
 
-    result = subprocess.run(" ".join(args), shell=True, check=True, cwd=ROOT_DIR)
-    if result.returncode == 0:
-        print("FlatBuffers generated successfully!")
-    else:
-        raise Exception("Error generating FlatBuffers!")
+        result = subprocess.run(" ".join(args), shell=True, check=True, cwd=ROOT_DIR)
+        if result.returncode == 0:
+            print("FlatBuffers generated successfully!")
+        else:
+            raise Exception("Error generating FlatBuffers!")
 
     # Update imports in the generated code
     update_py_imports(_WSOCK_DIR)

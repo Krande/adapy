@@ -1,3 +1,4 @@
+import pathlib
 import re
 from dataclasses import dataclass
 from typing import List, Optional
@@ -47,8 +48,22 @@ class FlatBufferSchema:
 
 # Function to parse enums and tables from the .fbs file and represent them as dataclasses
 def parse_fbs_file(fbs_file: str) -> FlatBufferSchema:
+    if isinstance(fbs_file, str):
+        fbs_file = pathlib.Path(fbs_file)
+
     with open(fbs_file, "r") as file:
         fbs_content = file.read()
+
+    parsed_enums = []
+    parsed_tables = []
+
+    # loop over include files
+    include_pattern = r'include "(.*?)"'
+    include_files = re.findall(include_pattern, fbs_content)
+    for include_file in include_files:
+        fbs_schema = parse_fbs_file(fbs_file.parent / include_file)
+        parsed_enums.extend(fbs_schema.enums)
+        parsed_tables.extend(fbs_schema.tables)
 
     # Remove comments
     fbs_content = re.sub(r"//.*", "", fbs_content)
@@ -68,7 +83,6 @@ def parse_fbs_file(fbs_file: str) -> FlatBufferSchema:
     root_type = root_match.group(1) if root_match else None
 
     # Process enums
-    parsed_enums = []
     for enum_name, enum_values in enums:
         enum_fields = []
         for enum_value in enum_values.split(","):
@@ -87,7 +101,6 @@ def parse_fbs_file(fbs_file: str) -> FlatBufferSchema:
         parsed_enums.append(EnumDefinition(name=enum_name, values=enum_fields))
 
     # Process tables
-    parsed_tables = []
     for table_name, table_fields in tables:
         fields = []
         for field in table_fields.split(";"):

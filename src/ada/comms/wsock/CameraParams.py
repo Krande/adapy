@@ -4,12 +4,10 @@
 
 import flatbuffers
 from flatbuffers.compat import import_numpy
-
 np = import_numpy()
 
-
 class CameraParams(object):
-    __slots__ = ["_tab"]
+    __slots__ = ['_tab']
 
     @classmethod
     def GetRootAs(cls, buf, offset=0):
@@ -22,7 +20,6 @@ class CameraParams(object):
     def GetRootAsCameraParams(cls, buf, offset=0):
         """This method is deprecated. Please switch to GetRootAs."""
         return cls.GetRootAs(buf, offset)
-
     # CameraParams
     def Init(self, buf, pos):
         self._tab = flatbuffers.table.Table(buf, pos)
@@ -32,9 +29,7 @@ class CameraParams(object):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
         if o != 0:
             a = self._tab.Vector(o)
-            return self._tab.Get(
-                flatbuffers.number_types.Float32Flags, a + flatbuffers.number_types.UOffsetTFlags.py_type(j * 4)
-            )
+            return self._tab.Get(flatbuffers.number_types.Float32Flags, a + flatbuffers.number_types.UOffsetTFlags.py_type(j * 4))
         return 0
 
     # CameraParams
@@ -61,9 +56,7 @@ class CameraParams(object):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
         if o != 0:
             a = self._tab.Vector(o)
-            return self._tab.Get(
-                flatbuffers.number_types.Float32Flags, a + flatbuffers.number_types.UOffsetTFlags.py_type(j * 4)
-            )
+            return self._tab.Get(flatbuffers.number_types.Float32Flags, a + flatbuffers.number_types.UOffsetTFlags.py_type(j * 4))
         return 0
 
     # CameraParams
@@ -90,9 +83,7 @@ class CameraParams(object):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(8))
         if o != 0:
             a = self._tab.Vector(o)
-            return self._tab.Get(
-                flatbuffers.number_types.Float32Flags, a + flatbuffers.number_types.UOffsetTFlags.py_type(j * 4)
-            )
+            return self._tab.Get(flatbuffers.number_types.Float32Flags, a + flatbuffers.number_types.UOffsetTFlags.py_type(j * 4))
         return 0
 
     # CameraParams
@@ -142,98 +133,74 @@ class CameraParams(object):
             return bool(self._tab.Get(flatbuffers.number_types.BoolFlags, o + self._tab.Pos))
         return False
 
-
 def CameraParamsStart(builder):
     builder.StartObject(7)
-
 
 def Start(builder):
     CameraParamsStart(builder)
 
-
 def CameraParamsAddPosition(builder, position):
     builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(position), 0)
-
 
 def AddPosition(builder, position):
     CameraParamsAddPosition(builder, position)
 
-
 def CameraParamsStartPositionVector(builder, numElems):
     return builder.StartVector(4, numElems, 4)
-
 
 def StartPositionVector(builder, numElems):
     return CameraParamsStartPositionVector(builder, numElems)
 
-
 def CameraParamsAddLookAt(builder, lookAt):
     builder.PrependUOffsetTRelativeSlot(1, flatbuffers.number_types.UOffsetTFlags.py_type(lookAt), 0)
-
 
 def AddLookAt(builder, lookAt):
     CameraParamsAddLookAt(builder, lookAt)
 
-
 def CameraParamsStartLookAtVector(builder, numElems):
     return builder.StartVector(4, numElems, 4)
-
 
 def StartLookAtVector(builder, numElems):
     return CameraParamsStartLookAtVector(builder, numElems)
 
-
 def CameraParamsAddUp(builder, up):
     builder.PrependUOffsetTRelativeSlot(2, flatbuffers.number_types.UOffsetTFlags.py_type(up), 0)
-
 
 def AddUp(builder, up):
     CameraParamsAddUp(builder, up)
 
-
 def CameraParamsStartUpVector(builder, numElems):
     return builder.StartVector(4, numElems, 4)
-
 
 def StartUpVector(builder, numElems):
     return CameraParamsStartUpVector(builder, numElems)
 
-
 def CameraParamsAddFov(builder, fov):
     builder.PrependFloat32Slot(3, fov, 60.0)
-
 
 def AddFov(builder, fov):
     CameraParamsAddFov(builder, fov)
 
-
 def CameraParamsAddNear(builder, near):
     builder.PrependFloat32Slot(4, near, 0.1)
-
 
 def AddNear(builder, near):
     CameraParamsAddNear(builder, near)
 
-
 def CameraParamsAddFar(builder, far):
     builder.PrependFloat32Slot(5, far, 1000.0)
-
 
 def AddFar(builder, far):
     CameraParamsAddFar(builder, far)
 
-
 def CameraParamsAddForceCamera(builder, forceCamera):
     builder.PrependBoolSlot(6, forceCamera, 0)
-
 
 def AddForceCamera(builder, forceCamera):
     CameraParamsAddForceCamera(builder, forceCamera)
 
-
 def CameraParamsEnd(builder):
     return builder.EndObject()
-
 
 def End(builder):
     return CameraParamsEnd(builder)

@@ -1,44 +1,36 @@
+import flatbuffers
 from typing import Optional
 
-import flatbuffers
-from ada.comms.fb_model_gen import (
-    CameraParamsDC,
-    ErrorDC,
-    FileArgDC,
-    FileObjectDC,
-    FileObjectRefDC,
-    MeshInfoDC,
-    MessageDC,
-    ParameterDC,
-    ProcedureDC,
-    ProcedureStartDC,
-    ProcedureStoreDC,
-    SceneDC,
-    ScreenshotDC,
-    ServerDC,
-    ServerReplyDC,
-    ValueDC,
-    WebClientDC,
-)
-from ada.comms.wsock import (
-    CameraParams,
-    Error,
-    FileArg,
-    FileObject,
-    FileObjectRef,
-    MeshInfo,
-    Message,
-    Parameter,
-    Procedure,
-    ProcedureStart,
-    ProcedureStore,
-    Scene,
-    Screenshot,
-    Server,
-    ServerReply,
-    Value,
-    WebClient,
-)
+from ada.comms.wsock import Mesh, AppendMesh, WebClient, FileObject, FileObjectRef, MeshInfo, CameraParams, Scene, Server, ProcedureStore, FileArg, Procedure, Value, Parameter, ProcedureStart, Error, ServerReply, Screenshot, Message
+
+from ada.comms.fb_model_gen import MeshDC, AppendMeshDC, WebClientDC, FileObjectDC, FileObjectRefDC, MeshInfoDC, CameraParamsDC, SceneDC, ServerDC, ProcedureStoreDC, FileArgDC, ProcedureDC, ValueDC, ParameterDC, ProcedureStartDC, ErrorDC, ServerReplyDC, ScreenshotDC, MessageDC
+
+def serialize_mesh(builder: flatbuffers.Builder, obj: Optional[MeshDC]) -> Optional[int]:
+    if obj is None:
+        return None
+   indices_vector = None
+    if obj.indices is not None:
+        indices_vector = builder.CreateByteVector(obj.indices)
+
+    Mesh.Start(builder)
+    if obj.indices is not None:
+        Mesh.AddIndices(builder, builder.CreateByteVector(obj.indices))
+    if obj.vertices is not None:
+        Mesh.AddVertices(builder, builder.CreateFloatVector(obj.vertices))
+    return Mesh.End(builder)
+
+
+def serialize_appendmesh(builder: flatbuffers.Builder, obj: Optional[AppendMeshDC]) -> Optional[int]:
+    if obj is None:
+        return None
+    mesh_obj = None
+    if obj.mesh is not None:
+        mesh_obj = serialize_mesh(builder, obj.mesh)
+
+    AppendMesh.Start(builder)
+    if obj.mesh is not None:
+        AppendMesh.AddMesh(builder, mesh_obj)
+    return AppendMesh.End(builder)
 
 
 def serialize_webclient(builder: flatbuffers.Builder, obj: Optional[WebClientDC]) -> Optional[int]:
@@ -500,7 +492,7 @@ def serialize_screenshot(builder: flatbuffers.Builder, obj: Optional[ScreenshotD
     return Screenshot.End(builder)
 
 
-def serialize_message(message: MessageDC, builder: flatbuffers.Builder = None) -> bytes:
+def serialize_message(message: MessageDC, builder: flatbuffers.Builder=None) -> bytes:
     if builder is None:
         builder = flatbuffers.Builder(1024)
     scene_obj = None
@@ -521,6 +513,9 @@ def serialize_message(message: MessageDC, builder: flatbuffers.Builder = None) -
     screenshot_obj = None
     if message.screenshot is not None:
         screenshot_obj = serialize_screenshot(builder, message.screenshot)
+    package_obj = None
+    if message.package is not None:
+        package_obj = serialize_appendmesh(builder, message.package)
 
     Message.Start(builder)
     if message.instance_id is not None:
@@ -548,6 +543,8 @@ def serialize_message(message: MessageDC, builder: flatbuffers.Builder = None) -
         Message.AddServerReply(builder, server_reply_obj)
     if message.screenshot is not None:
         Message.AddScreenshot(builder, screenshot_obj)
+    if message.package is not None:
+        Message.AddPackage(builder, package_obj)
 
     message_flatbuffer = Message.End(builder)
     builder.Finish(message_flatbuffer)

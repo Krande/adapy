@@ -1,4 +1,7 @@
+include "mesh.fbs";
+
 namespace wsock;
+
 
 enum CommandType : byte {
   PING = 0,
@@ -214,6 +217,7 @@ table Message {
   procedure_store: ProcedureStore;
   server_reply: ServerReply;
   screenshot: Screenshot; // Add Screenshot table here
+  package: AppendMesh;
 }
 
 root_type Message;

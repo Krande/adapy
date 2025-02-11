@@ -69,10 +69,8 @@ platforms = ["win-64", "linux-64"]
 
 [tool.pixi.environments]
 prod = { features = ["py312"], solve-group = "prod", no-default-feature = true}
-beta = { features = ["beta"], no-default-feature = true}
 lint = { features = ["lint"], no-default-feature = true}
 tests = { features = ["py312", "tests"], solve-group = "prod", no-default-feature = true}
-tests-beta = { features = ["py312", "beta"], no-default-feature = true}
 docs = { features = ["py312", "docs", "tests"], solve-group = "prod", no-default-feature = true}
 frontend = { features = ["web"], no-default-feature = true}
 
