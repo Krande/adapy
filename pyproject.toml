@@ -98,6 +98,7 @@ jupyterlab = "*"
 pyparsing = "*"
 pyglfw = "*"
 pygfx = "*"
+flatbuffers = "*"
 python-flatbuffers = "*"
 lark = "*"
 

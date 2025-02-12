@@ -1,11 +1,32 @@
 import pathlib
 
-from ada.config import logger
 from fbs_serializer import FlatBufferSchema, TableDefinition, parse_fbs_file
+from config import logger
 from utils import make_camel_case
+
+
 
 # Function to strip comments from the FlatBuffers schema
 
+def uint32_serialize_code(field_name: str, builder_name: str, head_spacing: int) -> str:
+    space = " " * head_spacing
+    s = ""
+    s += f"{space}{builder_name}.Start{make_camel_case(field_name)}Vector(builder, len(obj.{field_name}))"
+    s += f"\n{space}for item in reversed(obj.{field_name}):"
+    s += f"\n{space}    builder.PrependUint32(item)"
+    s += f"\n{space}{field_name}_vector = builder.EndVector(len(obj.{field_name}))\n"
+
+    return s
+
+def float32_serialize_code(field_name: str, builder_name: str, head_spacing: int) -> str:
+    space = " " * head_spacing
+    s = ""
+    s += f"{space}{builder_name}.Start{make_camel_case(field_name)}Vector(builder, len(obj.{field_name}))"
+    s += f"\n{space}for item in reversed(obj.{field_name}):"
+    s += f"\n{space}    builder.PrependFloat32(item)"
+    s += f"\n{space}{field_name}_vector = builder.EndVector(len(obj.{field_name}))\n"
+
+    return s
 
 def generate_serialize_function(table: TableDefinition) -> str:
     table_names = [tbl.name for tbl in table.schema.tables]
@@ -23,9 +44,8 @@ def generate_serialize_function(table: TableDefinition) -> str:
         elif field.field_type.startswith("["):
             field_type_value = field.field_type[1:-1]
             if field_type_value == "float":
-                # list of floats can be serialized using CreateFloatVector directly
-                continue
-            if field_type_value == "ubyte":
+                serialize_code += float32_serialize_code(field.name, table.name, 4)
+            elif field_type_value == "ubyte":
                 serialize_code += f"    {field.name}_vector = None\n"
                 serialize_code += f"    if obj.{field.name} is not None:\n"
                 serialize_code += f"        {field.name}_vector = builder.CreateByteVector(obj.{field.name})\n"
@@ -40,7 +60,7 @@ def generate_serialize_function(table: TableDefinition) -> str:
                 serialize_code += "            builder.PrependUOffsetTRelative(item)\n"
                 serialize_code += f"        {field.name}_vector = builder.EndVector(len({field.name}_list))\n"
             elif field_type_value == "uint32":
-                raise NotImplementedError("not yet implemented uint32 serialization")
+                serialize_code += uint32_serialize_code(field.name, table.name, 4)
             else:
                 raise NotImplementedError(f"Unknown field type: {field.field_type}")
         elif field.field_type in table_names:
@@ -68,15 +88,15 @@ def generate_serialize_function(table: TableDefinition) -> str:
                 )
             elif field_type_value == "float":
                 serialize_code += f"    if obj.{field.name} is not None:\n"
-                serialize_code += f"        {table.name}.Add{make_camel_case(field.name)}(builder, builder.CreateFloatVector(obj.{field.name}))\n"
+                serialize_code += f"        {table.name}.Add{make_camel_case(field.name)}(builder, {field.name}_vector)\n"
             elif field_type_value in table_names:
                 serialize_code += f"    if obj.{field.name} is not None and len(obj.{field.name}) > 0:\n"
                 serialize_code += (
                     f"        {table.name}.Add{make_camel_case(field.name)}(builder, {field.name}_vector)\n"
                 )
             elif field_type_value == "uint32":
-                serialize_code += f"    if obj.{field.name} is not None:\n"
-                serialize_code += f"        {table.name}.Add{make_camel_case(field.name)}(builder, builder.CreateByteVector(obj.{field.name}))\n"
+                serialize_code += f"    if {field.name}_vector is not None:\n"
+                serialize_code += f"        {table.name}.Add{make_camel_case(field.name)}(builder, {field.name}_vector)\n"
             else:
                 raise NotImplementedError(f"Unknown field type: {field.field_type}")
 
@@ -101,9 +121,10 @@ def generate_serialize_function(table: TableDefinition) -> str:
 
 
 # Function to generate the serialize function for the root type (previously "Message")
-def generate_serialize_root_function(schema: FlatBufferSchema) -> str:
+def generate_serialize_root_function(schema: FlatBufferSchema, fbs_file) -> str:
     if schema.root_type is None:
-        raise ValueError("No root_type declared in the .fbs schema")
+        logger.info(f"No root_type declared in the .fbs schema file {fbs_file}")
+        return ""
 
     table_names = [tbl.name for tbl in schema.tables]
     enum_names = [enum.name for enum in schema.enums]
@@ -183,7 +204,9 @@ def generate_serialization_code(fbs_file: str, output_file: str | pathlib.Path, 
             out_file.write("\n\n")
 
         # Write the serialize function for the root_type
-        out_file.write(generate_serialize_root_function(schema))
+        serialize_str = generate_serialize_root_function(schema, fbs_file)
+        if serialize_str is not None:
+            out_file.write(serialize_str)
 
     print(f"Serialization code generated and saved to {output_file}")
 

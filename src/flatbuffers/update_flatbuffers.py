@@ -1,6 +1,7 @@
 import pathlib
 import shutil
 import subprocess
+import sys
 
 from dataclass_gen import generate_dataclasses_from_schema, parse_fbs_file
 from deserializer_gen import generate_deserialization_code
@@ -20,16 +21,27 @@ def main():
     # Clean wsock directory and generated directory
     shutil.rmtree(_WSOCK_DIR, ignore_errors=True)
     shutil.rmtree(_GEN_DIR, ignore_errors=True)
+    flatc_exe = shutil.which("flatc.exe")
+    if flatc_exe is None: #
+        flatc_exe = pathlib.Path(sys.prefix) / "Library/bin/flatc.exe"
+        flatc_exe = shutil.which(flatc_exe)
+
+    if flatc_exe is None:
+        raise Exception("FlatBuffers compiler not found in PATH!")
+
+    if isinstance(flatc_exe, str):
+        flatc_exe = pathlib.Path(flatc_exe)
+    main_cmd_file = _SCHEMA_DIR / "commands.fbs"
     for cmd_file in _SCHEMA_DIR.glob("*.fbs"):
         # Generate FlatBuffers code
         args = [
-            "flatc",
+            flatc_exe.as_posix(),
             "--python",
             "-o",
             _COMMS_DIR.as_posix(),
             cmd_file.as_posix(),
             "&&",
-            "flatc",
+            flatc_exe.as_posix(),
             "--ts",
             "--gen-object-api",
             "-o",
@@ -53,14 +65,14 @@ def main():
     update_ts_imports(_GEN_DIR)
 
     # Update datclasses and enums
-    generate_dataclasses_from_schema(parse_fbs_file(CMD_FILE.as_posix()), _COMMS_DIR / "fb_model_gen.py")
+    generate_dataclasses_from_schema(parse_fbs_file(main_cmd_file.as_posix()), _COMMS_DIR / "fb_model_gen.py")
 
     # Update serializer and deserializer
     generate_serialization_code(
-        CMD_FILE.as_posix(), _COMMS_DIR / "fb_serializer.py", "ada.comms.wsock", "ada.comms.fb_model_gen"
+        main_cmd_file.as_posix(), _COMMS_DIR / "fb_serializer.py", "ada.comms.wsock", "ada.comms.fb_model_gen"
     )
     generate_deserialization_code(
-        CMD_FILE.as_posix(), _COMMS_DIR / "fb_deserializer.py", "ada.comms.wsock", "ada.comms.fb_model_gen"
+        main_cmd_file.as_posix(), _COMMS_DIR / "fb_deserializer.py", "ada.comms.wsock", "ada.comms.fb_model_gen"
     )
 
 

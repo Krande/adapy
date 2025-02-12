@@ -8,15 +8,20 @@ from ada.comms.fb_model_gen import MeshDC, AppendMeshDC, WebClientDC, FileObject
 def serialize_mesh(builder: flatbuffers.Builder, obj: Optional[MeshDC]) -> Optional[int]:
     if obj is None:
         return None
-   indices_vector = None
-    if obj.indices is not None:
-        indices_vector = builder.CreateByteVector(obj.indices)
+    Mesh.StartIndicesVector(builder, len(obj.indices))
+    for item in reversed(obj.indices):
+        builder.PrependUint32(item)
+    indices_vector = builder.EndVector(len(obj.indices))
+    Mesh.StartVerticesVector(builder, len(obj.vertices))
+    for item in reversed(obj.vertices):
+        builder.PrependFloat32(item)
+    vertices_vector = builder.EndVector(len(obj.vertices))
 
     Mesh.Start(builder)
-    if obj.indices is not None:
-        Mesh.AddIndices(builder, builder.CreateByteVector(obj.indices))
+    if indices_vector is not None:
+        Mesh.AddIndices(builder, indices_vector)
     if obj.vertices is not None:
-        Mesh.AddVertices(builder, builder.CreateFloatVector(obj.vertices))
+        Mesh.AddVertices(builder, vertices_vector)
     return Mesh.End(builder)
 
 
@@ -166,14 +171,26 @@ def serialize_meshinfo(builder: flatbuffers.Builder, obj: Optional[MeshInfoDC]) 
 def serialize_cameraparams(builder: flatbuffers.Builder, obj: Optional[CameraParamsDC]) -> Optional[int]:
     if obj is None:
         return None
+    CameraParams.StartPositionVector(builder, len(obj.position))
+    for item in reversed(obj.position):
+        builder.PrependFloat32(item)
+    position_vector = builder.EndVector(len(obj.position))
+    CameraParams.StartLookAtVector(builder, len(obj.look_at))
+    for item in reversed(obj.look_at):
+        builder.PrependFloat32(item)
+    look_at_vector = builder.EndVector(len(obj.look_at))
+    CameraParams.StartUpVector(builder, len(obj.up))
+    for item in reversed(obj.up):
+        builder.PrependFloat32(item)
+    up_vector = builder.EndVector(len(obj.up))
 
     CameraParams.Start(builder)
     if obj.position is not None:
-        CameraParams.AddPosition(builder, builder.CreateFloatVector(obj.position))
+        CameraParams.AddPosition(builder, position_vector)
     if obj.look_at is not None:
-        CameraParams.AddLookAt(builder, builder.CreateFloatVector(obj.look_at))
+        CameraParams.AddLookAt(builder, look_at_vector)
     if obj.up is not None:
-        CameraParams.AddUp(builder, builder.CreateFloatVector(obj.up))
+        CameraParams.AddUp(builder, up_vector)
     if obj.fov is not None:
         CameraParams.AddFov(builder, obj.fov)
     if obj.near is not None:

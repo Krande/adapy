@@ -120,8 +120,15 @@ def test_procedure_store():
     assert deserialized_message == message
 
 def test_append_mesh():
+
     message = MessageDC(
         package=AppendMeshDC(mesh=MeshDC(vertices=[1.0, 2.0, 3.0], indices=[1, 2, 3]))
     )
     # Serialize the dataclass message into a FlatBuffer
     flatbuffer_data = serialize_message(message)
+
+    # Deserialize the FlatBuffer back into a dataclass message
+    deserialized_message = deserialize_root_message(flatbuffer_data)
+    package = deserialized_message.package
+
+    assert package == message.package

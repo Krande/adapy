@@ -2,6 +2,7 @@ import pathlib
 
 from fbs_serializer import FlatBufferSchema, TableDefinition, parse_fbs_file
 from utils import make_camel_case
+from config import logger
 
 
 def generate_deserialize_function(schema: FlatBufferSchema, table: TableDefinition) -> str:
@@ -25,7 +26,7 @@ def generate_deserialize_function(schema: FlatBufferSchema, table: TableDefiniti
             elif field_type_value in table_names:
                 deserialize_code += f"        {field.name}=[deserialize_{field_type_value.lower()}(fb_obj.{make_camel_case(field.name)}(i)) for i in range(fb_obj.{make_camel_case(field.name)}Length())] if fb_obj.{make_camel_case(field.name)}Length() > 0 else None,\n"
             elif field_type_value == "uint32":
-                raise NotImplementedError("not yet implemented uint32 deserialization")
+                deserialize_code += f"        {field.name}=[fb_obj.{make_camel_case(field.name)}(i) for i in range(fb_obj.{make_camel_case(field.name)}Length())] if fb_obj.{make_camel_case(field.name)}Length() > 0 else None,\n"
             else:
                 raise NotImplementedError(f"Unsupported field type: {field.field_type}")
         else:
@@ -43,9 +44,10 @@ def generate_deserialize_function(schema: FlatBufferSchema, table: TableDefiniti
     return deserialize_code
 
 
-def generate_deserialize_root_function(schema: FlatBufferSchema) -> str:
+def generate_deserialize_root_function(schema: FlatBufferSchema, fbs_file: str) -> str:
     if schema.root_type is None:
-        raise ValueError("No root_type declared in the .fbs schema")
+        logger.info(f"No root_type declared in the .fbs schema file {fbs_file}")
+        return ""
 
     # Find the root table
     root_table = next(table for table in schema.tables if table.name == schema.root_type)
@@ -82,7 +84,7 @@ def generate_deserialization_code(fbs_file: str, output_file: str | pathlib.Path
             out_file.write("\n\n")
 
         # Write the deserialize function for the root_type
-        out_file.write(generate_deserialize_root_function(schema))
+        out_file.write(generate_deserialize_root_function(schema, fbs_file))
 
     print(f"Deserialization code generated and saved to {output_file}")
 
