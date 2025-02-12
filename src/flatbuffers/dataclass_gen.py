@@ -1,4 +1,5 @@
 import pathlib
+from collections import defaultdict
 
 from fbs_serializer import FlatBufferSchema, parse_fbs_file
 
@@ -7,15 +8,26 @@ from enum import Enum
 from dataclasses import dataclass
 from typing import Optional, List
 import pathlib
-
-
 """
 
 
 # Function to generate Python dataclasses and enums from the FlatBufferSchema object
-def generate_dataclasses_from_schema(schema: FlatBufferSchema, output_file: str | pathlib.Path = None) -> str:
+def generate_dataclasses_from_schema(schema: FlatBufferSchema, output_file: str | pathlib.Path = None,
+                                     import_root: str = None) -> str:
     result = [import_str]
 
+    # add imports from other namespaces
+    import_map = defaultdict(list)
+    for tbl in schema.tables:
+        for field in tbl.fields:
+            if field.namespace is not None and field.namespace != schema.namespace:
+                import_map[field.namespace].append(f"{field.field_type}DC")
+
+    for namespace, values in import_map.items():
+        imports = ', '.join(values)
+        result.append(f"from {import_root}.fb_{namespace}_gen import {imports}")
+
+    result.append("\n\n")
     # Process Enums
     for enum_def in schema.enums:
         result.append(f"class {enum_def.name}DC(Enum):")

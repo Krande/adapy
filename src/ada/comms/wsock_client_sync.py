@@ -10,7 +10,7 @@ from ada.comms.fb_model_gen import (
     ProcedureDC,
     ProcedureStartDC,
     SceneOperationsDC,
-    TargetTypeDC,
+    TargetTypeDC, MeshDC,
 )
 from ada.comms.wsock_client_base import WebSocketClientBase
 from ada.config import logger
@@ -71,6 +71,10 @@ class WebSocketClientSync(WebSocketClientBase):
         buffer = self._scene_update_prep(
             name, scene, purpose, scene_op, gltf_buffer_postprocessor, gltf_tree_postprocessor, target_id=target_id
         )
+        self.websocket.send(buffer)
+
+    def append_scene(self, mesh: MeshDC, target_id=None):
+        buffer = self._scene_append_prep(mesh, target_id=target_id)
         self.websocket.send(buffer)
 
     def update_file_server(self, file_object: FileObjectDC):

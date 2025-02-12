@@ -44,9 +44,9 @@ def generate_deserialize_function(schema: FlatBufferSchema, table: TableDefiniti
     return deserialize_code
 
 
-def generate_deserialize_root_function(schema: FlatBufferSchema, fbs_file: str) -> str:
+def generate_deserialize_root_function(schema: FlatBufferSchema) -> str:
     if schema.root_type is None:
-        logger.info(f"No root_type declared in the .fbs schema file {fbs_file}")
+        logger.info(f"No root_type declared in the .fbs schema file {schema.file_path}")
         return ""
 
     # Find the root table
@@ -61,30 +61,32 @@ def generate_deserialize_root_function(schema: FlatBufferSchema, fbs_file: str) 
 def add_imports(schema: FlatBufferSchema, wsock_model_root, dc_model_root) -> str:
     imports = f"from {wsock_model_root} import "
     imports += ", ".join([f"{table.name}" for table in schema.tables if table.name == schema.root_type])
-    # imports += "," + ", ".join([f"{en.name}" for en in schema.enums])
     imports += "\n\n"
     imports += f"from {dc_model_root} import "
     imports += ", ".join([f"{table.name}DC" for table in schema.tables])
-    imports += "," + ", ".join([f"{en.name}DC" for en in schema.enums])
+    if len(schema.enums) > 0:
+        imports += "," + ", ".join([f"{en.name}DC" for en in schema.enums])
     imports += "\n\n"
     return imports
 
 
-def generate_deserialization_code(fbs_file: str, output_file: str | pathlib.Path, wsock_model_root, dc_model_root):
-    schema = parse_fbs_file(fbs_file)
-    imports_str = add_imports(schema, wsock_model_root, dc_model_root)
+def generate_deserialization_code(fbs_schema: str | FlatBufferSchema, output_file: str | pathlib.Path, wsock_model_root, dc_model_root):
+    if isinstance(fbs_schema, str | pathlib.Path):
+        fbs_schema = parse_fbs_file(fbs_schema)
+
+    imports_str = add_imports(fbs_schema, wsock_model_root, dc_model_root)
 
     with open(output_file, "w") as out_file:
         # out_file.write("import flatbuffers\nfrom typing import List\n\n")
         out_file.write(imports_str)
 
         # Write deserialization functions for each table
-        for table in schema.tables:
-            out_file.write(generate_deserialize_function(schema, table))
+        for table in fbs_schema.tables:
+            out_file.write(generate_deserialize_function(fbs_schema, table))
             out_file.write("\n\n")
 
         # Write the deserialize function for the root_type
-        out_file.write(generate_deserialize_root_function(schema, fbs_file))
+        out_file.write(generate_deserialize_root_function(fbs_schema))
 
     print(f"Deserialization code generated and saved to {output_file}")
 

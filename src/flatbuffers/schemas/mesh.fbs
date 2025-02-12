@@ -1,4 +1,4 @@
-namespace wsock;
+namespace meshes;
 
 table Mesh {
     indices: [uint32];
@@ -8,3 +8,6 @@ table Mesh {
 table AppendMesh {
     mesh: Mesh;
 }
+
+
+root_type AppendMesh;

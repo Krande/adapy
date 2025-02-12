@@ -4,7 +4,7 @@
 
 import * as flatbuffers from 'flatbuffers';
 
-import { Mesh, MeshT } from '../wsock/mesh.js';
+import { Mesh, MeshT } from '../meshes/mesh.js';
 
 
 export class AppendMesh implements flatbuffers.IUnpackableObject<AppendMeshT> {
@@ -41,6 +41,14 @@ static addMesh(builder:flatbuffers.Builder, meshOffset:flatbuffers.Offset) {
 static endAppendMesh(builder:flatbuffers.Builder):flatbuffers.Offset {
   const offset = builder.endObject();
   return offset;
+}
+
+static finishAppendMeshBuffer(builder:flatbuffers.Builder, offset:flatbuffers.Offset) {
+  builder.finish(offset);
+}
+
+static finishSizePrefixedAppendMeshBuffer(builder:flatbuffers.Builder, offset:flatbuffers.Offset) {
+  builder.finish(offset, undefined, true);
 }
 
 static createAppendMesh(builder:flatbuffers.Builder, meshOffset:flatbuffers.Offset):flatbuffers.Offset {

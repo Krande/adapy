@@ -5,7 +5,6 @@ from config import logger
 from utils import make_camel_case
 
 
-
 # Function to strip comments from the FlatBuffers schema
 
 def uint32_serialize_code(field_name: str, builder_name: str, head_spacing: int) -> str:
@@ -18,6 +17,7 @@ def uint32_serialize_code(field_name: str, builder_name: str, head_spacing: int)
 
     return s
 
+
 def float32_serialize_code(field_name: str, builder_name: str, head_spacing: int) -> str:
     space = " " * head_spacing
     s = ""
@@ -27,6 +27,7 @@ def float32_serialize_code(field_name: str, builder_name: str, head_spacing: int
     s += f"\n{space}{field_name}_vector = builder.EndVector(len(obj.{field_name}))\n"
 
     return s
+
 
 def generate_serialize_function(table: TableDefinition) -> str:
     table_names = [tbl.name for tbl in table.schema.tables]
@@ -121,13 +122,15 @@ def generate_serialize_function(table: TableDefinition) -> str:
 
 
 # Function to generate the serialize function for the root type (previously "Message")
-def generate_serialize_root_function(schema: FlatBufferSchema, fbs_file) -> str:
+def generate_serialize_root_function(schema: FlatBufferSchema) -> str:
     if schema.root_type is None:
-        logger.info(f"No root_type declared in the .fbs schema file {fbs_file}")
+        logger.info(f"No root_type declared in the .fbs schema file {schema.file_path}")
         return ""
 
     table_names = [tbl.name for tbl in schema.tables]
     enum_names = [enum.name for enum in schema.enums]
+    included_table_names = [tbl.name for incl in schema.includes for tbl in incl.tables]
+    included_enum_names = [enum.name for incl in schema.includes for enum in incl.enums]
 
     # Find the root table
     root_table = next(table for table in schema.tables if table.name == schema.root_type)
@@ -169,6 +172,13 @@ def generate_serialize_root_function(schema: FlatBufferSchema, fbs_file) -> str:
             field_type_value = field.field_type[1:-1].lower()
             serialize_code += f"        {field_type_value}_list = [serialize_{field_type_value}(builder, item) for item in message.{field.name}]\n"
             serialize_code += f"        {root_table.name}.Add{make_camel_case(field.name)}(builder, builder.CreateByteVector({field_type_value}_list))\n"
+        elif field.namespace is not None:
+            if field.field_type in included_table_names:
+                serialize_code += f"        {root_table.name}.Add{make_camel_case(field.name)}(builder, {field.name}_obj)\n"
+            elif field.field_type in included_enum_names:
+                serialize_code += (
+                    f"        {root_table.name}.Add{make_camel_case(field.name)}(builder, message.{field.name}.value)\n"
+                )
         else:
             raise ValueError(f"Unknown field type: {field.field_type}")
 
@@ -186,25 +196,28 @@ def add_imports(schema: FlatBufferSchema, wsock_model_root, dc_model_root) -> st
     imports += f"from {dc_model_root} import "
     imports += ", ".join([f"{table.name}DC" for table in schema.tables])
     imports += "\n\n"
+
     return imports
 
 
-def generate_serialization_code(fbs_file: str, output_file: str | pathlib.Path, wsock_model_root, dc_model_root):
-    schema = parse_fbs_file(fbs_file)
-    imports_str = add_imports(schema, wsock_model_root, dc_model_root)
+def generate_serialization_code(fbs_schema: str | FlatBufferSchema, output_file: str | pathlib.Path, import_root, dc_model_root):
+    if isinstance(fbs_schema, str | pathlib.Path):
+        fbs_schema = parse_fbs_file(fbs_schema)
+
+    imports_str = add_imports(fbs_schema, import_root, dc_model_root)
 
     with open(output_file, "w") as out_file:
         out_file.write("import flatbuffers\nfrom typing import Optional\n\n")
         out_file.write(imports_str)
         # Write serialization functions for each table
-        for table in schema.tables:
+        for table in fbs_schema.tables:
             if table.name == "Message":
                 continue
             out_file.write(generate_serialize_function(table))
             out_file.write("\n\n")
 
         # Write the serialize function for the root_type
-        serialize_str = generate_serialize_root_function(schema, fbs_file)
+        serialize_str = generate_serialize_root_function(fbs_schema)
         if serialize_str is not None:
             out_file.write(serialize_str)
 

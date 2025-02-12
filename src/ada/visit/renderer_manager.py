@@ -12,7 +12,7 @@ from ada.comms.fb_model_gen import (
     FilePurposeDC,
     FileTypeDC,
     SceneDC,
-    SceneOperationsDC,
+    SceneOperationsDC, MeshDC,
 )
 from ada.config import Config
 from ada.core.guid import create_guid
@@ -311,7 +311,7 @@ class RendererManager:
 
         return renderer
 
-    def render(self, obj: BackendGeom | Part | Assembly | FEAResult | FEM | trimesh.Scene, params: RenderParams) -> HTML | None:
+    def render(self, obj: BackendGeom | Part | Assembly | FEAResult | FEM | trimesh.Scene | MeshDC, params: RenderParams) -> HTML | None:
         from ada import FEM, Assembly, Part
         from ada.base.physical_objects import BackendGeom
         from ada.comms.wsock_client_sync import WebSocketClientSync
@@ -338,6 +338,9 @@ class RendererManager:
                 scene = scene_from_fem_results(obj, params)
             elif isinstance(obj, trimesh.Scene):
                 scene = obj
+            elif isinstance(obj, MeshDC):
+                wc.append_scene(obj)
+                return renderer_instance
             else:
                 raise ValueError(f"Unsupported object type: {type(obj)}")
 

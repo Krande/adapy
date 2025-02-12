@@ -155,7 +155,7 @@ class Message(object):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(28))
         if o != 0:
             x = self._tab.Indirect(o + self._tab.Pos)
-            from ada.comms.wsock.AppendMesh import AppendMesh
+            from meshes.AppendMesh import AppendMesh
             obj = AppendMesh()
             obj.Init(self._tab.Bytes, x)
             return obj

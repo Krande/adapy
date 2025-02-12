@@ -18,7 +18,7 @@ from ada.comms.fb_model_gen import (
     SceneDC,
     SceneOperationsDC,
     ServerDC,
-    TargetTypeDC,
+    TargetTypeDC, MeshDC, AppendMeshDC,
 )
 from ada.comms.fb_serializer import serialize_message
 from ada.comms.wsockets_utils import client_as_str
@@ -81,6 +81,16 @@ class WebSocketClientBase(ABC):
                 scene=SceneDC(operation=scene_op, current_file=file_object),
             )
             return serialize_message(message)
+
+    def _scene_append_prep(self, mesh: MeshDC, target_id) -> bytes:
+        message = MessageDC(
+            instance_id=self.instance_id,
+            command_type=CommandTypeDC.UPDATE_SCENE,
+            target_group=TargetTypeDC.WEB,
+            target_id=target_id,
+            package=AppendMeshDC(mesh),
+        )
+        return serialize_message(message)
 
     def _update_file_server_prep(self, file_object: FileObjectDC) -> bytes:
         message = MessageDC(

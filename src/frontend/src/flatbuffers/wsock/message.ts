@@ -4,7 +4,7 @@
 
 import * as flatbuffers from 'flatbuffers';
 
-import { AppendMesh, AppendMeshT } from '../wsock/append-mesh.js';
+import { AppendMesh, AppendMeshT } from '../meshes/append-mesh.js';
 import { CommandType } from './command-type';
 import { MeshInfo, MeshInfoT } from '../wsock/mesh-info.js';
 import { ProcedureStore, ProcedureStoreT } from '../wsock/procedure-store.js';
