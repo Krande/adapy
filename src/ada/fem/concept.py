@@ -6,7 +6,7 @@ from itertools import chain
 from typing import TYPE_CHECKING, Dict, Iterable, List, Literal, Union
 
 from ada.api.containers import Nodes
-from ada.comms.fb_model_gen import FilePurposeDC
+from ada.comms.fb_wrap_model_gen import FilePurposeDC
 from ada.config import logger
 from ada.visit.renderer_manager import FEARenderParams, RendererManager, RenderParams
 

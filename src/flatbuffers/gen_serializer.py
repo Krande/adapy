@@ -1,6 +1,7 @@
 import pathlib
+from collections import defaultdict
 
-from fbs_serializer import FlatBufferSchema, TableDefinition, parse_fbs_file
+from fbs_serializer import FlatBufferSchema, TableDefinition, load_fbs_file
 from config import logger
 from utils import make_camel_case
 
@@ -70,6 +71,10 @@ def generate_serialize_function(table: TableDefinition) -> str:
             serialize_code += (
                 f"        {field.name}_obj = serialize_{field.field_type.lower()}(builder, obj.{field.name})\n"
             )
+        elif field.field_type in enum_names:
+            pass
+        elif field.field_type in ["byte", "ubyte", "int", "bool", "float"]:
+            pass
         else:
             logger.info(f"Unknown field type: {field.field_type}")
 
@@ -114,8 +119,11 @@ def generate_serialize_function(table: TableDefinition) -> str:
             serialize_code += (
                 f"        {table.name}.Add{make_camel_case(field.name)}(builder, obj.{field.name}.value)\n"
             )
+        elif field.namespace is not None:
+            # the serialized object is from another namespace and therefore the serialization function is imported
+            pass
         else:
-            raise NotImplementedError(f"Unknown field type: {field.field_type}")
+            logger.warning(f"Unknown field type: {field.field_type}")
 
     serialize_code += f"    return {table.name}.End(builder)\n"
     return serialize_code
@@ -135,7 +143,7 @@ def generate_serialize_root_function(schema: FlatBufferSchema) -> str:
     # Find the root table
     root_table = next(table for table in schema.tables if table.name == schema.root_type)
 
-    serialize_code = f"def serialize_{root_table.name.lower()}(message: {root_table.name}DC, builder: flatbuffers.Builder=None) -> bytes:\n"
+    serialize_code = f"def serialize_root_{root_table.name.lower()}(message: {root_table.name}DC, builder: flatbuffers.Builder=None) -> bytes:\n"
     serialize_code += "    if builder is None:\n        builder = flatbuffers.Builder(1024)\n"
 
     for field in root_table.fields:
@@ -149,7 +157,21 @@ def generate_serialize_root_function(schema: FlatBufferSchema) -> str:
             serialize_code += (
                 f"        {field.name}_obj = serialize_{field.field_type.lower()}(builder, message.{field.name})\n"
             )
-
+        elif field.field_type in enum_names:
+            pass
+        elif field.field_type in ["int", "byte", "ubyte"]:
+            pass
+        elif field.namespace is not None:
+            if field.field_type in included_table_names:
+                serialize_code += f"    {field.name}_obj = None\n"
+                serialize_code += f"    if message.{field.name} is not None:\n"
+                serialize_code += (
+                    f"        {field.name}_obj = serialize_{field.field_type.lower()}(builder, message.{field.name})\n"
+                )
+            elif field.field_type in included_enum_names:
+                pass
+        else:
+            logger.info(f"Unknown field type: {field.field_type}")
     # Handle string serialization first
     serialize_code += f"\n    {root_table.name}.Start(builder)\n"
 
@@ -197,12 +219,26 @@ def add_imports(schema: FlatBufferSchema, wsock_model_root, dc_model_root) -> st
     imports += ", ".join([f"{table.name}DC" for table in schema.tables])
     imports += "\n\n"
 
+    # add serialization function from other namespaces
+    import_map = defaultdict(list)
+    for tbl in schema.tables:
+        for field in tbl.fields:
+            if field.namespace is not None and field.namespace != schema.namespace:
+                import_map[field.namespace].append(field)
+
+    for namespace, values in import_map.items():
+        imports += f"from {schema.py_root}.fb_{namespace}_serializer import "
+        imports += ", ".join([f"serialize_{field.field_type.lower()}" for field in values])
+        imports += "\n"
+
+    imports += "\n"
+
     return imports
 
 
 def generate_serialization_code(fbs_schema: str | FlatBufferSchema, output_file: str | pathlib.Path, import_root, dc_model_root):
     if isinstance(fbs_schema, str | pathlib.Path):
-        fbs_schema = parse_fbs_file(fbs_schema)
+        fbs_schema = load_fbs_file(fbs_schema)
 
     imports_str = add_imports(fbs_schema, import_root, dc_model_root)
 
@@ -211,8 +247,8 @@ def generate_serialization_code(fbs_schema: str | FlatBufferSchema, output_file:
         out_file.write(imports_str)
         # Write serialization functions for each table
         for table in fbs_schema.tables:
-            if table.name == "Message":
-                continue
+            # if table.name == fbs_schema.root_type:
+            #     continue
             out_file.write(generate_serialize_function(table))
             out_file.write("\n\n")
 

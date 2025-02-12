@@ -17,7 +17,7 @@ from ada.visit.gltf.graph import GraphNode, GraphStore
 from ada.visit.gltf.meshes import GroupReference, MergedMesh, MeshType
 from ada.visit.renderer_manager import RenderParams
 
-from ...comms.fb_model_gen import FilePurposeDC
+from ...comms.fb_wrap_model_gen import FilePurposeDC
 from .field_data import ElementFieldData, NodalFieldData, NodalFieldType
 
 if TYPE_CHECKING:

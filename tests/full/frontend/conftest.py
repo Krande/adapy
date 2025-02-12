@@ -7,8 +7,8 @@ from dataclasses import dataclass
 import pytest
 import pytest_asyncio
 
-from ada.comms.fb_model_gen import CommandTypeDC, MessageDC, TargetTypeDC
-from ada.comms.fb_serializer import serialize_message
+from ada.comms.fb_wrap_model_gen import CommandTypeDC, MessageDC, TargetTypeDC
+from ada.comms.fb_wrap_serializer import serialize_root_message
 from ada.comms.web_ui import start_serving
 from ada.comms.wsock_client_async import WebSocketClientAsync
 from ada.comms.wsock_server import WebSocketAsyncServer, handle_partial_message
@@ -134,7 +134,7 @@ async def reply_ping(msg: MessageDC, ws_client: WebSocketClientAsync):
     )
 
     # Serialize the dataclass message into a FlatBuffer
-    flatbuffer_data = serialize_message(message)
+    flatbuffer_data = serialize_root_message(message)
     await ws_client.websocket.send(flatbuffer_data)
 
 

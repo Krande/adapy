@@ -3,7 +3,7 @@ import shutil
 import subprocess
 import sys
 
-from dataclass_gen import generate_dataclasses_from_schema, parse_fbs_file
+from gen_dataclasses import generate_dataclasses_from_schema, load_fbs_file
 from gen_deserializer import generate_deserialization_code
 from gen_serializer import generate_serialization_code
 from update_imports import update_py_imports, update_ts_imports
@@ -58,8 +58,6 @@ def main():
     else:
         raise Exception("Error generating FlatBuffers!")
 
-
-
     finalize_args = [
         "git",
         "add",
@@ -73,21 +71,24 @@ def main():
         raise Exception("Error generating FlatBuffers!")
 
     # Update imports in the generated code
-    update_py_imports(_WSOCK_DIR)
+
     update_ts_imports(_GEN_DIR)
 
     # Update datclasses and enums
-    fbs_schema = parse_fbs_file(main_cmd_file.as_posix())
+    fbs_schema = load_fbs_file(main_cmd_file.as_posix(), py_root="ada.comms")
     sequence = fbs_schema.includes + [fbs_schema]
-
+    namespaces = [fbs.namespace for fbs in sequence]
     for included_fbs in sequence:
         namespace = included_fbs.namespace
+        for ns in namespaces:
+            update_py_imports(ns, _COMMS_DIR / namespace)
+
         prefix = f"fb_{namespace}"
 
-        fb_gen_import_root = f"ada.comms.{namespace}"
-        dc_imports = f"ada.comms.{prefix}_gen"
+        fb_gen_import_root = f"{included_fbs.py_root}.{namespace}"
+        dc_imports = f"{included_fbs.py_root}.{prefix}_gen"
 
-        generate_dataclasses_from_schema(included_fbs, _COMMS_DIR / f"{prefix}_gen.py", "ada.comms")
+        generate_dataclasses_from_schema(included_fbs, _COMMS_DIR / f"{prefix}_gen.py")
 
         # Update serializer and deserializer
         generate_serialization_code(

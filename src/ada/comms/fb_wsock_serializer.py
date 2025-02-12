@@ -5,6 +5,8 @@ from ada.comms.wsock import WebClient, FileObject, FileObjectRef, MeshInfo, Came
 
 from ada.comms.fb_wsock_gen import WebClientDC, FileObjectDC, FileObjectRefDC, MeshInfoDC, CameraParamsDC, SceneDC, ServerDC, ProcedureStoreDC, FileArgDC, ProcedureDC, ValueDC, ParameterDC, ProcedureStartDC, ErrorDC, ServerReplyDC, ScreenshotDC, MessageDC
 
+from ada.comms.fb_meshes_serializer import serialize_appendmesh
+
 def serialize_webclient(builder: flatbuffers.Builder, obj: Optional[WebClientDC]) -> Optional[int]:
     if obj is None:
         return None
@@ -476,7 +478,64 @@ def serialize_screenshot(builder: flatbuffers.Builder, obj: Optional[ScreenshotD
     return Screenshot.End(builder)
 
 
-def serialize_message(message: MessageDC, builder: flatbuffers.Builder=None) -> bytes:
+def serialize_message(builder: flatbuffers.Builder, obj: Optional[MessageDC]) -> Optional[int]:
+    if obj is None:
+        return None
+    scene_obj = None
+    if obj.scene is not None:
+        scene_obj = serialize_scene(builder, obj.scene)
+    server_obj = None
+    if obj.server is not None:
+        server_obj = serialize_server(builder, obj.server)
+    mesh_info_obj = None
+    if obj.mesh_info is not None:
+        mesh_info_obj = serialize_meshinfo(builder, obj.mesh_info)
+    web_clients_vector = None
+    if obj.web_clients is not None and len(obj.web_clients) > 0:
+        web_clients_list = [serialize_webclient(builder, item) for item in obj.web_clients]
+        Message.StartWebClientsVector(builder, len(web_clients_list))
+        for item in reversed(web_clients_list):
+            builder.PrependUOffsetTRelative(item)
+        web_clients_vector = builder.EndVector(len(web_clients_list))
+    procedure_store_obj = None
+    if obj.procedure_store is not None:
+        procedure_store_obj = serialize_procedurestore(builder, obj.procedure_store)
+    server_reply_obj = None
+    if obj.server_reply is not None:
+        server_reply_obj = serialize_serverreply(builder, obj.server_reply)
+    screenshot_obj = None
+    if obj.screenshot is not None:
+        screenshot_obj = serialize_screenshot(builder, obj.screenshot)
+
+    Message.Start(builder)
+    if obj.instance_id is not None:
+        Message.AddInstanceId(builder, obj.instance_id)
+    if obj.command_type is not None:
+        Message.AddCommandType(builder, obj.command_type.value)
+    if obj.scene is not None:
+        Message.AddScene(builder, scene_obj)
+    if obj.server is not None:
+        Message.AddServer(builder, server_obj)
+    if obj.mesh_info is not None:
+        Message.AddMeshInfo(builder, mesh_info_obj)
+    if obj.target_group is not None:
+        Message.AddTargetGroup(builder, obj.target_group.value)
+    if obj.client_type is not None:
+        Message.AddClientType(builder, obj.client_type.value)
+    if obj.target_id is not None:
+        Message.AddTargetId(builder, obj.target_id)
+    if obj.web_clients is not None and len(obj.web_clients) > 0:
+        Message.AddWebClients(builder, web_clients_vector)
+    if obj.procedure_store is not None:
+        Message.AddProcedureStore(builder, procedure_store_obj)
+    if obj.server_reply is not None:
+        Message.AddServerReply(builder, server_reply_obj)
+    if obj.screenshot is not None:
+        Message.AddScreenshot(builder, screenshot_obj)
+    return Message.End(builder)
+
+
+def serialize_root_message(message: MessageDC, builder: flatbuffers.Builder=None) -> bytes:
     if builder is None:
         builder = flatbuffers.Builder(1024)
     scene_obj = None
@@ -497,6 +556,9 @@ def serialize_message(message: MessageDC, builder: flatbuffers.Builder=None) -> 
     screenshot_obj = None
     if message.screenshot is not None:
         screenshot_obj = serialize_screenshot(builder, message.screenshot)
+    package_obj = None
+    if message.package is not None:
+        package_obj = serialize_appendmesh(builder, message.package)
 
     Message.Start(builder)
     if message.instance_id is not None:

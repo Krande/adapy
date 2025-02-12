@@ -1,5 +1,3 @@
-from ada.comms.meshes import AppendMesh
-
 from ada.comms.fb_meshes_gen import MeshDC, AppendMeshDC
 
 def deserialize_mesh(fb_obj) -> MeshDC | None:
@@ -21,6 +19,3 @@ def deserialize_appendmesh(fb_obj) -> AppendMeshDC | None:
     )
 
 
-def deserialize_root_appendmesh(bytes_obj: bytes) -> AppendMeshDC:
-    fb_obj = AppendMesh.AppendMesh.GetRootAsAppendMesh(bytes_obj, 0)
-    return deserialize_appendmesh(fb_obj)

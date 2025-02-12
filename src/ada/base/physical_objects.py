@@ -7,7 +7,7 @@ from ada.api.transforms import Placement
 from ada.base.root import Root
 from ada.base.types import GeomRepr
 from ada.base.units import Units
-from ada.comms.fb_model_gen import FilePurposeDC
+from ada.comms.fb_wrap_model_gen import FilePurposeDC
 from ada.geom import Geometry
 from ada.geom.booleans import BoolOpEnum
 from ada.visit.colors import Color, color_dict

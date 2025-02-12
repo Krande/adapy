@@ -8,6 +8,3 @@ table Mesh {
 table AppendMesh {
     mesh: Mesh;
 }
-
-
-root_type AppendMesh;

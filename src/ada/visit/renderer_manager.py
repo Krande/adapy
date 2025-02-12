@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Callable, Literal, Optional, OrderedDict
 import numpy as np
 import trimesh
 
-from ada.comms.fb_model_gen import (
+from ada.comms.fb_wrap_model_gen import (
     FileObjectDC,
     FilePurposeDC,
     FileTypeDC,

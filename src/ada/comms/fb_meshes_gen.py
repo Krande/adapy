@@ -1,15 +1,13 @@
 from __future__ import annotations
-from enum import Enum
-from dataclasses import dataclass
 from typing import Optional, List
-import pathlib
+from dataclasses import dataclass
 
 
 
 
 @dataclass
 class MeshDC:
-    indices: Optional[List[uint32DC]] = None
+    indices: List[int]
     vertices: List[float] = None
 
 @dataclass

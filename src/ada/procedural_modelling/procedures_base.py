@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-from ada.comms.fb_model_gen import FileTypeDC
+from ada.comms.fb_wrap_model_gen import FileTypeDC
 
 from .cli_utils import app
 

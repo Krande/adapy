@@ -8,7 +8,7 @@ import time
 
 import websockets
 
-from ada.comms.fb_model_gen import TargetTypeDC
+from ada.comms.fb_wrap_model_gen import TargetTypeDC
 from ada.config import logger
 from ada.visit.deprecated.websocket_server import start_external_ws_server
 

@@ -1,8 +1,8 @@
 import trimesh
 from websockets.sync.client import connect
 
-from ada.comms.fb_deserializer import deserialize_root_message
-from ada.comms.fb_model_gen import (
+from ada.comms.fb_wrap_deserializer import deserialize_root_message
+from ada.comms.fb_wrap_model_gen import (
     CommandTypeDC,
     FileObjectDC,
     FilePurposeDC,

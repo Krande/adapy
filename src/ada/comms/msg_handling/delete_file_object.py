@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from ada.comms.fb_model_gen import MessageDC
+from ada.comms.fb_wrap_model_gen import MessageDC
 
 if TYPE_CHECKING:
     from ada.comms.wsock_server import ConnectedClient, WebSocketAsyncServer

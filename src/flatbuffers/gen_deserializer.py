@@ -1,6 +1,7 @@
 import pathlib
+from collections import defaultdict
 
-from fbs_serializer import FlatBufferSchema, TableDefinition, parse_fbs_file
+from fbs_serializer import FlatBufferSchema, TableDefinition, load_fbs_file
 from utils import make_camel_case
 from config import logger
 
@@ -59,20 +60,36 @@ def generate_deserialize_root_function(schema: FlatBufferSchema) -> str:
 
 
 def add_imports(schema: FlatBufferSchema, wsock_model_root, dc_model_root) -> str:
-    imports = f"from {wsock_model_root} import "
-    imports += ", ".join([f"{table.name}" for table in schema.tables if table.name == schema.root_type])
-    imports += "\n\n"
-    imports += f"from {dc_model_root} import "
-    imports += ", ".join([f"{table.name}DC" for table in schema.tables])
+    imports = ""
+    root_schemas = [f"{table.name}" for table in schema.tables if table.name == schema.root_type]
+    if len(root_schemas) > 0:
+        imports = f"from {wsock_model_root} import "
+        imports += ", ".join(root_schemas)
+        imports += "\n\n"
+    if len(schema.tables) > 0:
+        imports += f"from {dc_model_root} import "
+        imports += ", ".join([f"{table.name}DC" for table in schema.tables])
     if len(schema.enums) > 0:
         imports += "," + ", ".join([f"{en.name}DC" for en in schema.enums])
+
+    namespace_map = defaultdict(list)
+    for tbl in schema.tables:
+        for field in tbl.fields:
+            if field.namespace is not None:
+                namespace_map[field.namespace].append(field.field_type)
+
+    for namespace, values in namespace_map.items():
+        import_func_str = ', '.join([f'deserialize_{field_type.lower()}' for field_type in values])
+        if len(values) > 0:
+            imports += f"\nfrom {schema.py_root}.fb_{namespace}_deserializer import {import_func_str}\n"
+
     imports += "\n\n"
     return imports
 
 
 def generate_deserialization_code(fbs_schema: str | FlatBufferSchema, output_file: str | pathlib.Path, wsock_model_root, dc_model_root):
     if isinstance(fbs_schema, str | pathlib.Path):
-        fbs_schema = parse_fbs_file(fbs_schema)
+        fbs_schema = load_fbs_file(fbs_schema)
 
     imports_str = add_imports(fbs_schema, wsock_model_root, dc_model_root)
 

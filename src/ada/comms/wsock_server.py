@@ -10,7 +10,7 @@ import websockets
 import websockets.protocol
 from websockets.asyncio.server import ServerConnection
 
-from ada.comms.fb_model_gen import CommandTypeDC, MessageDC, TargetTypeDC
+from ada.comms.fb_wrap_model_gen import CommandTypeDC, MessageDC, TargetTypeDC
 from ada.comms.msg_handling.default_on_message import default_on_message
 from ada.comms.scene_model import SceneBackend
 from ada.comms.wsock import Message

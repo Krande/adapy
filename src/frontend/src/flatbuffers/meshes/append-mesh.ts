@@ -43,14 +43,6 @@ static endAppendMesh(builder:flatbuffers.Builder):flatbuffers.Offset {
   return offset;
 }
 
-static finishAppendMeshBuffer(builder:flatbuffers.Builder, offset:flatbuffers.Offset) {
-  builder.finish(offset);
-}
-
-static finishSizePrefixedAppendMeshBuffer(builder:flatbuffers.Builder, offset:flatbuffers.Offset) {
-  builder.finish(offset, undefined, true);
-}
-
 static createAppendMesh(builder:flatbuffers.Builder, meshOffset:flatbuffers.Offset):flatbuffers.Offset {
   AppendMesh.startAppendMesh(builder);
   AppendMesh.addMesh(builder, meshOffset);

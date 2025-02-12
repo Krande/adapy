@@ -5,6 +5,7 @@ from ada.comms.meshes import Mesh, AppendMesh
 
 from ada.comms.fb_meshes_gen import MeshDC, AppendMeshDC
 
+
 def serialize_mesh(builder: flatbuffers.Builder, obj: Optional[MeshDC]) -> Optional[int]:
     if obj is None:
         return None
@@ -38,17 +39,3 @@ def serialize_appendmesh(builder: flatbuffers.Builder, obj: Optional[AppendMeshD
     return AppendMesh.End(builder)
 
 
-def serialize_appendmesh(message: AppendMeshDC, builder: flatbuffers.Builder=None) -> bytes:
-    if builder is None:
-        builder = flatbuffers.Builder(1024)
-    mesh_obj = None
-    if message.mesh is not None:
-        mesh_obj = serialize_mesh(builder, message.mesh)
-
-    AppendMesh.Start(builder)
-    if message.mesh is not None:
-        AppendMesh.AddMesh(builder, mesh_obj)
-
-    appendmesh_flatbuffer = AppendMesh.End(builder)
-    builder.Finish(appendmesh_flatbuffer)
-    return bytes(builder.Output())

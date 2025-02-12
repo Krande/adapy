@@ -4,7 +4,7 @@ import pathlib
 from dataclasses import dataclass, field
 
 from ada.cadit.ifc.sql_model import IfcSqlModel
-from ada.comms.fb_model_gen import FileObjectDC, FilePurposeDC, FileTypeDC
+from ada.comms.fb_wrap_model_gen import FileObjectDC, FilePurposeDC, FileTypeDC
 from ada.config import Config, logger
 
 

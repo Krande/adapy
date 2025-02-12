@@ -1,7 +1,7 @@
 import pathlib
 
 import ada
-from ada.comms.fb_model_gen import FileTypeDC
+from ada.comms.fb_wrap_model_gen import FileTypeDC
 from ada.procedural_modelling.procedures_base import ComponentDecorator, app
 
 

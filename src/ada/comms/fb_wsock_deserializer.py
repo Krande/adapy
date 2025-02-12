@@ -1,6 +1,8 @@
 from ada.comms.wsock import Message
 
 from ada.comms.fb_wsock_gen import WebClientDC, FileObjectDC, FileObjectRefDC, MeshInfoDC, CameraParamsDC, SceneDC, ServerDC, ProcedureStoreDC, FileArgDC, ProcedureDC, ValueDC, ParameterDC, ProcedureStartDC, ErrorDC, ServerReplyDC, ScreenshotDC, MessageDC,CommandTypeDC, TargetTypeDC, SceneOperationsDC, FilePurposeDC, FileTypeDC, ProcedureStateDC, ParameterTypeDC, ArrayTypeDC
+from ada.comms.fb_meshes_deserializer import deserialize_appendmesh
+
 
 def deserialize_webclient(fb_obj) -> WebClientDC | None:
     if fb_obj is None:

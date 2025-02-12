@@ -3,8 +3,8 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING
 
-from ada.comms.fb_model_gen import CommandTypeDC, MessageDC, ServerDC, ServerReplyDC
-from ada.comms.fb_serializer import serialize_message
+from ada.comms.fb_wrap_model_gen import CommandTypeDC, MessageDC, ServerDC, ServerReplyDC
+from ada.comms.fb_wrap_serializer import serialize_root_message
 from ada.config import logger
 
 if TYPE_CHECKING:
@@ -25,7 +25,7 @@ def list_file_objects(server: WebSocketAsyncServer, client: ConnectedClient, mes
         target_group=client.group_type,
         server_reply=ServerReplyDC(reply_to=message.command_type),
     )
-    fb_message = serialize_message(reply_message)
+    fb_message = serialize_root_message(reply_message)
 
     # run the client.websocket in an event loop
     asyncio.run(client.websocket.send(fb_message))

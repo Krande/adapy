@@ -18,7 +18,7 @@ from ada.base.ifc_types import SpatialTypes
 from ada.base.physical_objects import BackendGeom
 from ada.base.types import GeomRepr
 from ada.base.units import Units
-from ada.comms.fb_model_gen import FileObjectDC, FilePurposeDC, FileTypeDC
+from ada.comms.fb_wrap_model_gen import FileObjectDC, FilePurposeDC, FileTypeDC
 from ada.config import logger
 from ada.visit.gltf.graph import GraphNode, GraphStore
 from ada.visit.renderer_manager import RenderParams

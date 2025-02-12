@@ -6,7 +6,7 @@ import pathlib
 import tokenize
 from typing import Callable
 
-from ada.comms.fb_model_gen import (
+from ada.comms.fb_wrap_model_gen import (
     ArrayTypeDC,
     FileArgDC,
     FileTypeDC,

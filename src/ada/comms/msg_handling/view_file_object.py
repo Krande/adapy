@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 import trimesh
 
 from ada.comms.exceptions import ServerError
-from ada.comms.fb_model_gen import (
+from ada.comms.fb_wrap_model_gen import (
     CommandTypeDC,
     FileObjectDC,
     FileTypeDC,
@@ -15,7 +15,7 @@ from ada.comms.fb_model_gen import (
     SceneDC,
     ServerReplyDC,
 )
-from ada.comms.fb_serializer import serialize_message
+from ada.comms.fb_wrap_serializer import serialize_root_message
 from ada.config import logger
 
 if TYPE_CHECKING:
@@ -52,7 +52,7 @@ def view_file_object(server: WebSocketAsyncServer, client: ConnectedClient, file
             target_group=client.group_type,
         )
 
-        fb_message = serialize_message(msg)
+        fb_message = serialize_root_message(msg)
         asyncio.run(client.websocket.send(fb_message))
 
     server.scene.mesh_meta = scene.metadata

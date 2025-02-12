@@ -38,7 +38,8 @@ class TableDefinition:
 @dataclass
 class FlatBufferSchema:
     file_path: pathlib.Path
-    namespace: str
+    namespace: str | None
+    py_root: str
     enums: List[EnumDefinition]
     tables: List[TableDefinition]
     root_type: Optional[str]  # The root table type<
@@ -56,8 +57,9 @@ class FlatBufferSchema:
             if incl.namespace == namespace:
                 return incl
 
+
 # Function to parse enums and tables from the .fbs file and represent them as dataclasses
-def parse_fbs_file(fbs_file: str) -> FlatBufferSchema:
+def load_fbs_file(fbs_file: str, py_root: str = "ada.comms") -> FlatBufferSchema:
     if isinstance(fbs_file, str):
         fbs_file = pathlib.Path(fbs_file)
 
@@ -69,7 +71,7 @@ def parse_fbs_file(fbs_file: str) -> FlatBufferSchema:
     includes = []
 
     # get namespace
-    namespace_pattern = r'namespace\s+(\w+)'
+    namespace_pattern = r"namespace\s+(\w+)"
     namespace_result = re.search(namespace_pattern, fbs_content)
     namespace = None
     if namespace_result:
@@ -81,7 +83,7 @@ def parse_fbs_file(fbs_file: str) -> FlatBufferSchema:
     include_files = re.findall(include_pattern, fbs_content)
 
     for include_file in include_files:
-        fbs_schema = parse_fbs_file(fbs_file.parent / include_file)
+        fbs_schema = load_fbs_file(fbs_file.parent / include_file, py_root=py_root)
         includes.append(fbs_schema)
 
     # Remove comments
@@ -136,7 +138,7 @@ def parse_fbs_file(fbs_file: str) -> FlatBufferSchema:
                 has_default = True
 
             field_namespace = None
-            if '.' in field_type:
+            if "." in field_type:
                 field_namespace, field_type = field_type.split(".")
                 field_namespace = field_namespace.strip()
 
@@ -146,9 +148,17 @@ def parse_fbs_file(fbs_file: str) -> FlatBufferSchema:
                     field_type=field_type.strip(),
                     default_value=default_value,
                     has_default=has_default,
-                    namespace=field_namespace
+                    namespace=field_namespace,
                 )
             )
         parsed_tables.append(TableDefinition(name=table_name, fields=fields))
 
-    return FlatBufferSchema(fbs_file, namespace, enums=parsed_enums, tables=parsed_tables, root_type=root_type, includes=includes)
+    return FlatBufferSchema(
+        fbs_file,
+        namespace,
+        py_root,
+        enums=parsed_enums,
+        tables=parsed_tables,
+        root_type=root_type,
+        includes=includes,
+    )

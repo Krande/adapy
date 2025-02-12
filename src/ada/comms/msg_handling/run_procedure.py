@@ -5,7 +5,7 @@ import pathlib
 import random
 from typing import TYPE_CHECKING
 
-from ada.comms.fb_model_gen import (
+from ada.comms.fb_wrap_model_gen import (
     CommandTypeDC,
     FileObjectDC,
     FilePurposeDC,
@@ -17,7 +17,7 @@ from ada.comms.fb_model_gen import (
     ServerReplyDC,
     ValueDC,
 )
-from ada.comms.fb_serializer import serialize_message
+from ada.comms.fb_wrap_serializer import serialize_root_message
 from ada.comms.msg_handling.update_server import update_server
 from ada.comms.msg_handling.view_file_object import view_file_object
 from ada.config import logger
@@ -131,7 +131,7 @@ def update_server_on_successful_procedure_run(
         server_reply=ServerReplyDC(file_objects=new_file_objects, reply_to=message.command_type),
     )
 
-    fb_message = serialize_message(reply_message)
+    fb_message = serialize_root_message(reply_message)
 
     asyncio.run(client.websocket.send(fb_message))
 

@@ -4,8 +4,8 @@ import asyncio
 import json
 from typing import TYPE_CHECKING
 
-from ada.comms.fb_model_gen import CommandTypeDC, MeshInfoDC, MessageDC, TargetTypeDC
-from ada.comms.fb_serializer import serialize_message
+from ada.comms.fb_wrap_model_gen import CommandTypeDC, MeshInfoDC, MessageDC, TargetTypeDC
+from ada.comms.fb_wrap_serializer import serialize_root_message
 from ada.config import logger
 
 if TYPE_CHECKING:
@@ -43,6 +43,6 @@ def mesh_info_callback(server: WebSocketAsyncServer, client: ConnectedClient, me
         target_id=client.instance_id,
         target_group=TargetTypeDC.WEB,
     )
-    fb_message = serialize_message(reply_message)
+    fb_message = serialize_root_message(reply_message)
     # run the client.websocket in an event loop
     asyncio.run(client.websocket.send(fb_message))
