@@ -11,8 +11,9 @@ from ada.comms.fb_wrap_model_gen import (
     FileObjectDC,
     FilePurposeDC,
     FileTypeDC,
+    MeshDC,
     SceneDC,
-    SceneOperationsDC, MeshDC,
+    SceneOperationsDC,
 )
 from ada.config import Config
 from ada.core.guid import create_guid
@@ -311,7 +312,9 @@ class RendererManager:
 
         return renderer
 
-    def render(self, obj: BackendGeom | Part | Assembly | FEAResult | FEM | trimesh.Scene | MeshDC, params: RenderParams) -> HTML | None:
+    def render(
+        self, obj: BackendGeom | Part | Assembly | FEAResult | FEM | trimesh.Scene | MeshDC, params: RenderParams
+    ) -> HTML | None:
         from ada import FEM, Assembly, Part
         from ada.base.physical_objects import BackendGeom
         from ada.comms.wsock_client_sync import WebSocketClientSync

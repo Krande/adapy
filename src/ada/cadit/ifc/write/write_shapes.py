@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-import ada.geom.surfaces as geo_su
+import ada.cadit.ifc.write.geom.curves as write_cu
 import ada.geom.curves as geo_cu
 import ada.geom.solids as geo_so
+import ada.geom.surfaces as geo_su
 from ada import (
     Boolean,
     PrimBox,
@@ -31,7 +32,6 @@ from ada.core.constants import O, X, Z
 from ada.core.utils import to_real
 from ada.geom.solids import Box, Cone, Cylinder
 
-import ada.cadit.ifc.write.geom.curves as write_cu
 from ..write.geom.surfaces import (
     advanced_face,
     arbitrary_profile_def,

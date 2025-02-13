@@ -6,11 +6,12 @@ from ada.comms.fb_wrap_model_gen import (
     CommandTypeDC,
     FileObjectDC,
     FilePurposeDC,
+    MeshDC,
     MessageDC,
     ProcedureDC,
     ProcedureStartDC,
     SceneOperationsDC,
-    TargetTypeDC, MeshDC,
+    TargetTypeDC,
 )
 from ada.comms.wsock_client_base import WebSocketClientBase
 from ada.config import logger

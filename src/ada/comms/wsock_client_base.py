@@ -7,10 +7,12 @@ from abc import ABC, abstractmethod
 import trimesh
 
 from ada.comms.fb_wrap_model_gen import (
+    AppendMeshDC,
     CommandTypeDC,
     FileObjectDC,
     FilePurposeDC,
     FileTypeDC,
+    MeshDC,
     MessageDC,
     ProcedureDC,
     ProcedureStartDC,
@@ -19,8 +21,6 @@ from ada.comms.fb_wrap_model_gen import (
     SceneOperationsDC,
     ServerDC,
     TargetTypeDC,
-    MeshDC,
-    AppendMeshDC,
 )
 from ada.comms.fb_wrap_serializer import serialize_root_message
 from ada.comms.wsockets_utils import client_as_str

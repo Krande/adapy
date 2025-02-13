@@ -4,10 +4,12 @@
 
 import flatbuffers
 from flatbuffers.compat import import_numpy
+
 np = import_numpy()
 
+
 class Mesh(object):
-    __slots__ = ['_tab']
+    __slots__ = ["_tab"]
 
     @classmethod
     def GetRootAs(cls, buf, offset=0):
@@ -20,6 +22,7 @@ class Mesh(object):
     def GetRootAsMesh(cls, buf, offset=0):
         """This method is deprecated. Please switch to GetRootAs."""
         return cls.GetRootAs(buf, offset)
+
     # Mesh
     def Init(self, buf, pos):
         self._tab = flatbuffers.table.Table(buf, pos)
@@ -29,7 +32,9 @@ class Mesh(object):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
         if o != 0:
             a = self._tab.Vector(o)
-            return self._tab.Get(flatbuffers.number_types.Uint32Flags, a + flatbuffers.number_types.UOffsetTFlags.py_type(j * 4))
+            return self._tab.Get(
+                flatbuffers.number_types.Uint32Flags, a + flatbuffers.number_types.UOffsetTFlags.py_type(j * 4)
+            )
         return 0
 
     # Mesh
@@ -56,7 +61,9 @@ class Mesh(object):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
         if o != 0:
             a = self._tab.Vector(o)
-            return self._tab.Get(flatbuffers.number_types.Float32Flags, a + flatbuffers.number_types.UOffsetTFlags.py_type(j * 4))
+            return self._tab.Get(
+                flatbuffers.number_types.Float32Flags, a + flatbuffers.number_types.UOffsetTFlags.py_type(j * 4)
+            )
         return 0
 
     # Mesh
@@ -78,38 +85,50 @@ class Mesh(object):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(6))
         return o == 0
 
+
 def MeshStart(builder):
     builder.StartObject(2)
+
 
 def Start(builder):
     MeshStart(builder)
 
+
 def MeshAddIndices(builder, indices):
     builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(indices), 0)
+
 
 def AddIndices(builder, indices):
     MeshAddIndices(builder, indices)
 
+
 def MeshStartIndicesVector(builder, numElems):
     return builder.StartVector(4, numElems, 4)
+
 
 def StartIndicesVector(builder, numElems):
     return MeshStartIndicesVector(builder, numElems)
 
+
 def MeshAddVertices(builder, vertices):
     builder.PrependUOffsetTRelativeSlot(1, flatbuffers.number_types.UOffsetTFlags.py_type(vertices), 0)
+
 
 def AddVertices(builder, vertices):
     MeshAddVertices(builder, vertices)
 
+
 def MeshStartVerticesVector(builder, numElems):
     return builder.StartVector(4, numElems, 4)
+
 
 def StartVerticesVector(builder, numElems):
     return MeshStartVerticesVector(builder, numElems)
 
+
 def MeshEnd(builder):
     return builder.EndObject()
+
 
 def End(builder):
     return MeshEnd(builder)

@@ -3,7 +3,12 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING
 
-from ada.comms.fb_wrap_model_gen import CommandTypeDC, MessageDC, ServerDC, ServerReplyDC
+from ada.comms.fb_wrap_model_gen import (
+    CommandTypeDC,
+    MessageDC,
+    ServerDC,
+    ServerReplyDC,
+)
 from ada.comms.fb_wrap_serializer import serialize_root_message
 from ada.config import logger
 

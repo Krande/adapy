@@ -1,9 +1,9 @@
 import pathlib
 from collections import defaultdict
 
+from config import logger
 from fbs_serializer import FlatBufferSchema, TableDefinition, load_fbs_file
 from utils import make_camel_case
-from config import logger
 
 
 def generate_deserialize_function(schema: FlatBufferSchema, table: TableDefinition) -> str:
@@ -79,7 +79,7 @@ def add_imports(schema: FlatBufferSchema, wsock_model_root, dc_model_root) -> st
                 namespace_map[field.namespace].append(field.field_type)
 
     for namespace, values in namespace_map.items():
-        import_func_str = ', '.join([f'deserialize_{field_type.lower()}' for field_type in values])
+        import_func_str = ", ".join([f"deserialize_{field_type.lower()}" for field_type in values])
         if len(values) > 0:
             imports += f"\nfrom {schema.py_root}.fb_{namespace}_deserializer import {import_func_str}\n"
 
@@ -87,7 +87,9 @@ def add_imports(schema: FlatBufferSchema, wsock_model_root, dc_model_root) -> st
     return imports
 
 
-def generate_deserialization_code(fbs_schema: str | FlatBufferSchema, output_file: str | pathlib.Path, wsock_model_root, dc_model_root):
+def generate_deserialization_code(
+    fbs_schema: str | FlatBufferSchema, output_file: str | pathlib.Path, wsock_model_root, dc_model_root
+):
     if isinstance(fbs_schema, str | pathlib.Path):
         fbs_schema = load_fbs_file(fbs_schema)
 

@@ -22,6 +22,7 @@ def create_top_level_import_string(schema: FlatBufferSchema) -> str:
         import_str += "import pathlib\n"
     return import_str
 
+
 # Function to generate Python dataclasses and enums from the FlatBufferSchema object
 def generate_dataclasses_from_schema(schema: FlatBufferSchema, output_file: str | pathlib.Path = None) -> str:
     import_str = create_top_level_import_string(schema)
@@ -35,11 +36,10 @@ def generate_dataclasses_from_schema(schema: FlatBufferSchema, output_file: str 
                 import_map[field.namespace].append(f"{field.field_type}DC")
 
     for namespace, values in import_map.items():
-        imports = ', '.join(values)
+        imports = ", ".join(values)
         result.append(f"from {schema.py_root}.fb_{namespace}_gen import {imports}")
 
     result.append("\n\n")
-
 
     # Process Enums
     for enum_def in schema.enums:

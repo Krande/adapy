@@ -3,7 +3,7 @@ import re
 
 
 def sub_wrong_py_imports(namespace: str, py_txt: str) -> str:
-    return re.sub(f"from {namespace}", fr"from ada.comms.{namespace}", py_txt)
+    return re.sub(f"from {namespace}", rf"from ada.comms.{namespace}", py_txt)
 
 
 def update_py_imports(namespace: str, file_dir: pathlib.Path):

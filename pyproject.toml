@@ -140,7 +140,7 @@ nodejs = "*"
 flatbuffers = "*"
 
 [tool.pixi.feature.lint.tasks]
-lint = "isort . && black . --config pyproject.toml && ruff check ."
+lint = "isort . && black . --config pyproject.toml && ruff check . --fix"
 flat = { cmd="python src/flatbuffers/update_flatbuffers.py", cwd="./" }
 
 [tool.pixi.feature.docs.tasks]

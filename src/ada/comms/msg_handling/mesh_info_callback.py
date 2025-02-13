@@ -4,7 +4,12 @@ import asyncio
 import json
 from typing import TYPE_CHECKING
 
-from ada.comms.fb_wrap_model_gen import CommandTypeDC, MeshInfoDC, MessageDC, TargetTypeDC
+from ada.comms.fb_wrap_model_gen import (
+    CommandTypeDC,
+    MeshInfoDC,
+    MessageDC,
+    TargetTypeDC,
+)
 from ada.comms.fb_wrap_serializer import serialize_root_message
 from ada.config import logger
 

@@ -14,7 +14,7 @@ from ada.materials.utils import get_material
 
 from ..config import Config
 from ..geom import Geometry
-from ..geom.placement import Axis2Placement3D, Direction
+from ..geom.placement import Direction
 from ..geom.points import Point
 from .bounding_box import BoundingBox
 from .curves import CurveOpen3d, CurvePoly2d
@@ -31,21 +31,21 @@ class Shape(BackendGeom):
     IFC_CLASSES = ShapeTypes
 
     def __init__(
-            self,
-            name,
-            geom: Geometry | list[Geometry] | None = None,
-            color=None,
-            opacity=1.0,
-            mass: float = None,
-            cog: Iterable = None,
-            material: Material | str = None,
-            units=Units.M,
-            metadata=None,
-            guid=None,
-            placement=Placement(),
-            ifc_store: IfcStore = None,
-            ifc_class: ShapeTypes = ShapeTypes.IfcBuildingElementProxy,
-            parent=None,
+        self,
+        name,
+        geom: Geometry | list[Geometry] | None = None,
+        color=None,
+        opacity=1.0,
+        mass: float = None,
+        cog: Iterable = None,
+        material: Material | str = None,
+        units=Units.M,
+        metadata=None,
+        guid=None,
+        placement=Placement(),
+        ifc_store: IfcStore = None,
+        ifc_class: ShapeTypes = ShapeTypes.IfcBuildingElementProxy,
+        parent=None,
     ):
         super().__init__(
             name,
@@ -502,17 +502,17 @@ class PrimRevolve(Shape):
 
 class PrimSweep(Shape):
     def __init__(
-            self,
-            name,
-            sweep_curve: Iterable[Iterable[float]] | CurveOpen3d,
-            profile_curve_outer: Iterable[Iterable[float]] | CurvePoly2d,
-            profile_zdir=None,
-            profile_xdir=None,
-            origin=None,
-            derived_reference=False,
-            fixed_ref=None,
-            tol=1e-3,
-            **kwargs,
+        self,
+        name,
+        sweep_curve: Iterable[Iterable[float]] | CurveOpen3d,
+        profile_curve_outer: Iterable[Iterable[float]] | CurvePoly2d,
+        profile_zdir=None,
+        profile_xdir=None,
+        origin=None,
+        derived_reference=False,
+        fixed_ref=None,
+        tol=1e-3,
+        **kwargs,
     ):
         if not isinstance(sweep_curve, CurveOpen3d):
             sweep_curve = CurveOpen3d(sweep_curve, tol=tol)

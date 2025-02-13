@@ -926,7 +926,6 @@ def segments3d_from_points3d(
 
     prelim_segments = line_segments3d_from_points3d(points)
 
-
     if len(prelim_segments) == 1:
         return prelim_segments
 

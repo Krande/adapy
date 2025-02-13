@@ -7,8 +7,9 @@ from ada.cadit.ifc.write.geom.points import cpt, vrtx
 from ada.geom import curves as geo_cu
 
 
-def indexed_poly_curve_from_points_and_segments(points: list[list[float]], segment_indices: list[list[int]],
-                                                f: ifcopenshell.file) -> ifcopenshell.entity_instance:
+def indexed_poly_curve_from_points_and_segments(
+    points: list[list[float]], segment_indices: list[list[int]], f: ifcopenshell.file
+) -> ifcopenshell.entity_instance:
     if len(points[0]) == 2:
         list_type = "IfcCartesianPointList2D"
     else:
@@ -43,7 +44,7 @@ def create_edge(e: geo_cu.Edge, f: ifcopenshell.file) -> ifcopenshell.entity_ins
 
 
 def rational_b_spline_curve_with_knots(
-        rbs: geo_cu.RationalBSplineCurveWithKnots, f: ifcopenshell.file
+    rbs: geo_cu.RationalBSplineCurveWithKnots, f: ifcopenshell.file
 ) -> ifcopenshell.entity_instance:
     """Converts a RationalBSplineCurveWithKnots to an IFC representation"""
     control_points = [cpt(f, x) for x in rbs.control_points_list]

@@ -22,7 +22,7 @@ def main():
     shutil.rmtree(_WSOCK_DIR, ignore_errors=True)
     shutil.rmtree(_GEN_DIR, ignore_errors=True)
     flatc_exe = shutil.which("flatc.exe")
-    if flatc_exe is None: #
+    if flatc_exe is None:  #
         flatc_exe = pathlib.Path(sys.prefix) / "Library/bin/flatc.exe"
         flatc_exe = shutil.which(flatc_exe)
 

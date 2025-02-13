@@ -4,7 +4,6 @@ from typing import TYPE_CHECKING
 
 import ifcopenshell.geom
 from ifcopenshell.util.placement import get_local_placement
-from OCC.Core.TopoDS import TopoDS_Compound, TopoDS_Shape
 
 from ada import Shape
 from ada.api.transforms import Placement

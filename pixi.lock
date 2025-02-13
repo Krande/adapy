@@ -2035,7 +2035,7 @@ packages:
 - pypi: .
   name: ada-py
   version: 0.3.8
-  sha256: 626191f370be788e563cd97d72c2ead260e3278f3f5bd4e829db39a449ddd7d5
+  sha256: c0c5434fd87924cda8b32cd0f1495aba70775ff167dd6e0269453e01003add1f
   requires_python: '>=3.10'
   editable: true
 - conda: https://conda.anaconda.org/conda-forge/noarch/alabaster-1.0.0-pyhd8ed1ab_0.conda
@@ -2909,8 +2909,6 @@ packages:
   - __glibc >=2.17,<3.0.a0
   - libgcc >=13
   - libstdcxx >=13
-  arch: x86_64
-  platform: linux
   license: Apache-2.0
   license_family: APACHE
   purls: []
@@ -2934,8 +2932,6 @@ packages:
   - ucrt >=10.0.20348.0
   - vc >=14.2,<15
   - vc14_runtime >=14.29.30139
-  arch: x86_64
-  platform: win
   license: Apache-2.0
   license_family: APACHE
   purls: []

@@ -1,12 +1,12 @@
 import pathlib
 from collections import defaultdict
 
-from fbs_serializer import FlatBufferSchema, TableDefinition, load_fbs_file
 from config import logger
+from fbs_serializer import FlatBufferSchema, TableDefinition, load_fbs_file
 from utils import make_camel_case
 
-
 # Function to strip comments from the FlatBuffers schema
+
 
 def uint32_serialize_code(field_name: str, builder_name: str, head_spacing: int) -> str:
     space = " " * head_spacing
@@ -94,7 +94,9 @@ def generate_serialize_function(table: TableDefinition) -> str:
                 )
             elif field_type_value == "float":
                 serialize_code += f"    if obj.{field.name} is not None:\n"
-                serialize_code += f"        {table.name}.Add{make_camel_case(field.name)}(builder, {field.name}_vector)\n"
+                serialize_code += (
+                    f"        {table.name}.Add{make_camel_case(field.name)}(builder, {field.name}_vector)\n"
+                )
             elif field_type_value in table_names:
                 serialize_code += f"    if obj.{field.name} is not None and len(obj.{field.name}) > 0:\n"
                 serialize_code += (
@@ -102,7 +104,9 @@ def generate_serialize_function(table: TableDefinition) -> str:
                 )
             elif field_type_value == "uint32":
                 serialize_code += f"    if {field.name}_vector is not None:\n"
-                serialize_code += f"        {table.name}.Add{make_camel_case(field.name)}(builder, {field.name}_vector)\n"
+                serialize_code += (
+                    f"        {table.name}.Add{make_camel_case(field.name)}(builder, {field.name}_vector)\n"
+                )
             else:
                 raise NotImplementedError(f"Unknown field type: {field.field_type}")
 
@@ -196,7 +200,9 @@ def generate_serialize_root_function(schema: FlatBufferSchema) -> str:
             serialize_code += f"        {root_table.name}.Add{make_camel_case(field.name)}(builder, builder.CreateByteVector({field_type_value}_list))\n"
         elif field.namespace is not None:
             if field.field_type in included_table_names:
-                serialize_code += f"        {root_table.name}.Add{make_camel_case(field.name)}(builder, {field.name}_obj)\n"
+                serialize_code += (
+                    f"        {root_table.name}.Add{make_camel_case(field.name)}(builder, {field.name}_obj)\n"
+                )
             elif field.field_type in included_enum_names:
                 serialize_code += (
                     f"        {root_table.name}.Add{make_camel_case(field.name)}(builder, message.{field.name}.value)\n"
@@ -236,7 +242,9 @@ def add_imports(schema: FlatBufferSchema, wsock_model_root, dc_model_root) -> st
     return imports
 
 
-def generate_serialization_code(fbs_schema: str | FlatBufferSchema, output_file: str | pathlib.Path, import_root, dc_model_root):
+def generate_serialization_code(
+    fbs_schema: str | FlatBufferSchema, output_file: str | pathlib.Path, import_root, dc_model_root
+):
     if isinstance(fbs_schema, str | pathlib.Path):
         fbs_schema = load_fbs_file(fbs_schema)
 
