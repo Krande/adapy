@@ -1,7 +1,18 @@
 import pytest
+import subprocess
 from playwright.async_api import async_playwright
 
 from ada.comms.wsock_client_async import WebSocketClientAsync
+
+
+@pytest.fixture(scope="session", autouse=True)
+def ensure_playwright_installed():
+    try:
+        subprocess.run(["playwright", "install", "--check"], check=True, capture_output=True)
+    except subprocess.CalledProcessError:
+        print("Playwright browsers are missing. Installing them now...")
+        subprocess.run(["playwright", "install"], check=True)
+
 
 
 @pytest.mark.asyncio
