@@ -24,42 +24,60 @@ static getSizePrefixedRootAsMesh(bb:flatbuffers.ByteBuffer, obj?:Mesh):Mesh {
   return (obj || new Mesh()).__init(bb.readInt32(bb.position()) + bb.position(), bb);
 }
 
-indices(index: number):number|null {
+name():string|null
+name(optionalEncoding:flatbuffers.Encoding):string|Uint8Array|null
+name(optionalEncoding?:any):string|Uint8Array|null {
   const offset = this.bb!.__offset(this.bb_pos, 4);
+  return offset ? this.bb!.__string(this.bb_pos + offset, optionalEncoding) : null;
+}
+
+indices(index: number):number|null {
+  const offset = this.bb!.__offset(this.bb_pos, 6);
   return offset ? this.bb!.readUint32(this.bb!.__vector(this.bb_pos + offset) + index * 4) : 0;
 }
 
 indicesLength():number {
-  const offset = this.bb!.__offset(this.bb_pos, 4);
+  const offset = this.bb!.__offset(this.bb_pos, 6);
   return offset ? this.bb!.__vector_len(this.bb_pos + offset) : 0;
 }
 
 indicesArray():Uint32Array|null {
-  const offset = this.bb!.__offset(this.bb_pos, 4);
+  const offset = this.bb!.__offset(this.bb_pos, 6);
   return offset ? new Uint32Array(this.bb!.bytes().buffer, this.bb!.bytes().byteOffset + this.bb!.__vector(this.bb_pos + offset), this.bb!.__vector_len(this.bb_pos + offset)) : null;
 }
 
 vertices(index: number):number|null {
-  const offset = this.bb!.__offset(this.bb_pos, 6);
+  const offset = this.bb!.__offset(this.bb_pos, 8);
   return offset ? this.bb!.readFloat32(this.bb!.__vector(this.bb_pos + offset) + index * 4) : 0;
 }
 
 verticesLength():number {
-  const offset = this.bb!.__offset(this.bb_pos, 6);
+  const offset = this.bb!.__offset(this.bb_pos, 8);
   return offset ? this.bb!.__vector_len(this.bb_pos + offset) : 0;
 }
 
 verticesArray():Float32Array|null {
-  const offset = this.bb!.__offset(this.bb_pos, 6);
+  const offset = this.bb!.__offset(this.bb_pos, 8);
   return offset ? new Float32Array(this.bb!.bytes().buffer, this.bb!.bytes().byteOffset + this.bb!.__vector(this.bb_pos + offset), this.bb!.__vector_len(this.bb_pos + offset)) : null;
 }
 
+parentName():string|null
+parentName(optionalEncoding:flatbuffers.Encoding):string|Uint8Array|null
+parentName(optionalEncoding?:any):string|Uint8Array|null {
+  const offset = this.bb!.__offset(this.bb_pos, 10);
+  return offset ? this.bb!.__string(this.bb_pos + offset, optionalEncoding) : null;
+}
+
 static startMesh(builder:flatbuffers.Builder) {
-  builder.startObject(2);
+  builder.startObject(4);
+}
+
+static addName(builder:flatbuffers.Builder, nameOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(0, nameOffset, 0);
 }
 
 static addIndices(builder:flatbuffers.Builder, indicesOffset:flatbuffers.Offset) {
-  builder.addFieldOffset(0, indicesOffset, 0);
+  builder.addFieldOffset(1, indicesOffset, 0);
 }
 
 static createIndicesVector(builder:flatbuffers.Builder, data:number[]|Uint32Array):flatbuffers.Offset;
@@ -80,7 +98,7 @@ static startIndicesVector(builder:flatbuffers.Builder, numElems:number) {
 }
 
 static addVertices(builder:flatbuffers.Builder, verticesOffset:flatbuffers.Offset) {
-  builder.addFieldOffset(1, verticesOffset, 0);
+  builder.addFieldOffset(2, verticesOffset, 0);
 }
 
 static createVerticesVector(builder:flatbuffers.Builder, data:number[]|Float32Array):flatbuffers.Offset;
@@ -100,46 +118,62 @@ static startVerticesVector(builder:flatbuffers.Builder, numElems:number) {
   builder.startVector(4, numElems, 4);
 }
 
+static addParentName(builder:flatbuffers.Builder, parentNameOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(3, parentNameOffset, 0);
+}
+
 static endMesh(builder:flatbuffers.Builder):flatbuffers.Offset {
   const offset = builder.endObject();
   return offset;
 }
 
-static createMesh(builder:flatbuffers.Builder, indicesOffset:flatbuffers.Offset, verticesOffset:flatbuffers.Offset):flatbuffers.Offset {
+static createMesh(builder:flatbuffers.Builder, nameOffset:flatbuffers.Offset, indicesOffset:flatbuffers.Offset, verticesOffset:flatbuffers.Offset, parentNameOffset:flatbuffers.Offset):flatbuffers.Offset {
   Mesh.startMesh(builder);
+  Mesh.addName(builder, nameOffset);
   Mesh.addIndices(builder, indicesOffset);
   Mesh.addVertices(builder, verticesOffset);
+  Mesh.addParentName(builder, parentNameOffset);
   return Mesh.endMesh(builder);
 }
 
 unpack(): MeshT {
   return new MeshT(
+    this.name(),
     this.bb!.createScalarList<number>(this.indices.bind(this), this.indicesLength()),
-    this.bb!.createScalarList<number>(this.vertices.bind(this), this.verticesLength())
+    this.bb!.createScalarList<number>(this.vertices.bind(this), this.verticesLength()),
+    this.parentName()
   );
 }
 
 
 unpackTo(_o: MeshT): void {
+  _o.name = this.name();
   _o.indices = this.bb!.createScalarList<number>(this.indices.bind(this), this.indicesLength());
   _o.vertices = this.bb!.createScalarList<number>(this.vertices.bind(this), this.verticesLength());
+  _o.parentName = this.parentName();
 }
 }
 
 export class MeshT implements flatbuffers.IGeneratedObject {
 constructor(
+  public name: string|Uint8Array|null = null,
   public indices: (number)[] = [],
-  public vertices: (number)[] = []
+  public vertices: (number)[] = [],
+  public parentName: string|Uint8Array|null = null
 ){}
 
 
 pack(builder:flatbuffers.Builder): flatbuffers.Offset {
+  const name = (this.name !== null ? builder.createString(this.name!) : 0);
   const indices = Mesh.createIndicesVector(builder, this.indices);
   const vertices = Mesh.createVerticesVector(builder, this.vertices);
+  const parentName = (this.parentName !== null ? builder.createString(this.parentName!) : 0);
 
   return Mesh.createMesh(builder,
+    name,
     indices,
-    vertices
+    vertices,
+    parentName
   );
 }
 }

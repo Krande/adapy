@@ -12,7 +12,7 @@ import {useTreeViewStore} from '../../state/treeViewStore';
 import {useOptionsStore} from "../../state/optionsStore";
 import {buildTreeFromUserData} from '../../utils/tree_view/generateTree';
 import {handleClickMesh} from "../../utils/mesh_select/handleClickMesh";
-import {CustomBatchedMesh} from '../../utils/mesh_select/CustomBatchedMesh';
+import {convert_to_custom_batch_mesh} from "../../utils/scene/convert_to_custom_batch_mesh";
 
 const ThreeModel: React.FC<ModelProps> = ({url}) => {
     const {raycaster, camera} = useThree();
@@ -65,59 +65,10 @@ const ThreeModel: React.FC<ModelProps> = ({url}) => {
                 }
             }
 
-            const customMesh = new CustomBatchedMesh(
-                original.geometry,
-                original.material,
-                drawRanges
-            );
-
-            // Copy over properties from original mesh to customMesh
-            customMesh.position.copy(original.position);
-            customMesh.rotation.copy(original.rotation);
-            customMesh.scale.copy(original.scale);
-            customMesh.name = original.name;
-            customMesh.userData = original.userData;
-            customMesh.castShadow = original.castShadow;
-            customMesh.receiveShadow = original.receiveShadow;
-            customMesh.visible = original.visible;
-            customMesh.frustumCulled = original.frustumCulled;
-            customMesh.renderOrder = original.renderOrder;
-            customMesh.layers.mask = original.layers.mask;
-
-            // Set materials to double-sided and enable flat shading
-            if (Array.isArray(customMesh.material)) {
-                customMesh.material.forEach((mat) => {
-                    if (mat instanceof THREE.MeshStandardMaterial) {
-                        mat.side = THREE.DoubleSide;
-                        mat.flatShading = true;
-                        mat.needsUpdate = true;
-                    } else {
-                        console.warn('Material is not an instance of MeshStandardMaterial');
-                    }
-                });
-            } else {
-                if (customMesh.material instanceof THREE.MeshStandardMaterial) {
-                    customMesh.material.side = THREE.DoubleSide;
-                    customMesh.material.flatShading = true;
-                    customMesh.material.needsUpdate = true;
-                } else {
-                    console.warn('Material is not an instance of MeshStandardMaterial');
-                }
-            }
+            const customMesh = convert_to_custom_batch_mesh(original, drawRanges);
 
             if (showEdges) {
-                // Create edges geometry and add it as a line segment
-                const edges = new THREE.EdgesGeometry(customMesh.geometry);
-                const lineMaterial = new THREE.LineBasicMaterial({color: 0x000000});
-                const edgeLine = new THREE.LineSegments(edges, lineMaterial);
-
-                // Ensure the edge line inherits transformations
-                edgeLine.position.copy(customMesh.position);
-                edgeLine.rotation.copy(customMesh.rotation);
-                edgeLine.scale.copy(customMesh.scale);
-                edgeLine.layers.set(1);
-
-                // Add edge lines to the scene
+                let edgeLine = customMesh.get_edge_lines();
                 scene.add(edgeLine);
             }
 

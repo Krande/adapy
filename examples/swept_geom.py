@@ -1,5 +1,4 @@
 import ada
-from ada import CurvePoly2d
 
 profile2d = [(0, 0), (1e-2, 0), (0.5e-2, 1e-2)]
 
@@ -15,7 +14,6 @@ def straight_sweep_x():
 def straight_sweep_y():
     sweep_curve = [(0, 0.1, 0.2), (0, 0.1, 1.0)]
     profile = profile2d
-    # profile = CurvePoly2d(points2d=profile2d, origin=(0,0,0), normal=(0,1,0), xdir=(1,0,0))
     sweep = ada.PrimSweep("sweep_y", sweep_curve, profile, placement=ada.Placement(zdir=(0, 1, 0), xdir=(1, 0, 0)))
     sweep.show(stream_from_ifc_store=True)
     (ada.Assembly() / sweep).to_ifc("temp/sweep_y.ifc", validate=True)

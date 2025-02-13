@@ -4,12 +4,10 @@
 
 import flatbuffers
 from flatbuffers.compat import import_numpy
-
 np = import_numpy()
 
-
 class Screenshot(object):
-    __slots__ = ["_tab"]
+    __slots__ = ['_tab']
 
     @classmethod
     def GetRootAs(cls, buf, offset=0):
@@ -22,7 +20,6 @@ class Screenshot(object):
     def GetRootAsScreenshot(cls, buf, offset=0):
         """This method is deprecated. Please switch to GetRootAs."""
         return cls.GetRootAs(buf, offset)
-
     # Screenshot
     def Init(self, buf, pos):
         self._tab = flatbuffers.table.Table(buf, pos)
@@ -34,26 +31,20 @@ class Screenshot(object):
             return self._tab.String(o + self._tab.Pos)
         return None
 
-
 def ScreenshotStart(builder):
     builder.StartObject(1)
-
 
 def Start(builder):
     ScreenshotStart(builder)
 
-
 def ScreenshotAddPngFilePath(builder, pngFilePath):
     builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(pngFilePath), 0)
-
 
 def AddPngFilePath(builder, pngFilePath):
     ScreenshotAddPngFilePath(builder, pngFilePath)
 
-
 def ScreenshotEnd(builder):
     return builder.EndObject()
-
 
 def End(builder):
     return ScreenshotEnd(builder)

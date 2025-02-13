@@ -347,6 +347,17 @@ class RendererManager:
             else:
                 raise ValueError(f"Unsupported object type: {type(obj)}")
 
+            if params.scene.operation == SceneOperationsDC.ADD:
+                mesh: trimesh.Trimesh = scene.to_mesh()
+                verts = mesh.vertices.flatten().tolist()
+                faces = mesh.faces.flatten().tolist()
+                parent_name = None
+                if obj.parent is not None:
+                    parent_name = obj.parent.name
+                mesh_dc = MeshDC(obj.name, faces, verts, parent_name)
+                wc.append_scene(mesh_dc)
+                return renderer_instance
+
             if params.scene_post_processor is not None:
                 scene = params.scene_post_processor(scene)
 

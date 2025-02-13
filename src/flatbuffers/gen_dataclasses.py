@@ -77,6 +77,8 @@ def generate_dataclasses_from_schema(schema: FlatBufferSchema, output_file: str 
                 default_value = " = None"
             elif python_type == "List[float]":
                 default_value = " = None"
+            elif python_type == "List[int]":
+                default_value = " = None"
             elif python_type == "List[uint32]":
                 default_value = " = None"
 

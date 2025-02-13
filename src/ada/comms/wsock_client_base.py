@@ -90,6 +90,7 @@ class WebSocketClientBase(ABC):
             command_type=CommandTypeDC.UPDATE_SCENE,
             target_group=TargetTypeDC.WEB,
             target_id=target_id,
+            scene=SceneDC(operation=SceneOperationsDC.ADD),
             package=AppendMeshDC(mesh),
         )
         return serialize_root_message(message)

@@ -1,6 +1,8 @@
 import {Message} from "../../../flatbuffers/wsock/message";
 import {useModelStore} from "../../../state/modelStore";
 import {SceneOperations} from "../../../flatbuffers/wsock/scene-operations";
+import {append_to_scene_from_message} from "./append_to_scene_from_message";
+
 
 export const update_scene_from_message = (message: Message) => {
     console.log('Received scene update message from server');
@@ -10,7 +12,11 @@ export const update_scene_from_message = (message: Message) => {
         console.error("No scene object found in the message");
         return;
     }
-
+    let operation = scene.operation();
+    if (operation == SceneOperations.ADD) {
+        append_to_scene_from_message(message);
+        return;
+    }
 
     let fileObject = scene.currentFile();
     if (!fileObject) {
@@ -27,11 +33,10 @@ export const update_scene_from_message = (message: Message) => {
 
     const blob = new Blob([data], {type: 'model/gltf-binary'});
     const url = URL.createObjectURL(blob);
-    let operation = scene.operation();
-    if (operation == SceneOperations.ADD) {
-        // append gltf model
-        console.log('Adding model to existing scene');
-    } else {
+
+    if (operation == SceneOperations.REPLACE) {
         useModelStore.getState().setModelUrl(url, scene.operation(), ""); // Set the URL for the model
+    } else if (operation == SceneOperations.REMOVE) {
+        console.warn("Currently unsupported operation");
     }
 }

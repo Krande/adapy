@@ -177,6 +177,7 @@ class BackendGeom(Root):
         add_ifc_backend=False,
         auto_sync_ifc_store=True,
         params_override: RenderParams = None,
+        liveness_timeout: int = 1,
     ):
         # Use RendererManager to handle renderer setup and WebSocket connection
         from ada.visit.renderer_manager import RendererManager, RenderParams
@@ -188,6 +189,7 @@ class BackendGeom(Root):
             server_exe=server_exe,
             server_args=server_args,
             run_ws_in_thread=run_ws_in_thread,
+            ping_timeout=liveness_timeout
         )
 
         if params_override is None:
