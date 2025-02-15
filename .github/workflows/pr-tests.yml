@@ -19,9 +19,9 @@ jobs:
             with:
               ref: ${{ github.event.pull_request.head.sha || github.ref }}
 
-          - uses: prefix-dev/setup-pixi@v0.8.1  # https://github.com/prefix-dev/setup-pixi
+          - uses: prefix-dev/setup-pixi@v0.8.2  # https://github.com/prefix-dev/setup-pixi
             with:
-              pixi-version: v0.39.2
+              pixi-version: v0.41.3
               cache: true
               environments: lint
 
@@ -40,20 +40,12 @@ jobs:
           with:
             ref: ${{ github.event.pull_request.head.sha || github.ref }}
 
-        - uses: mamba-org/setup-micromamba@v2  # https://github.com/mamba-org/setup-micromamba
-          with:
-            cache-environment: false
-            condarc: |
-              channels:
-                - conda-forge
-            environment-file: conda/environment.core.yml
-            create-args: >-
-                python=3.12
-                pytest
 
-        - name: Install latest adapy
-          run: |
-            pip install -e .
+        - uses: prefix-dev/setup-pixi@v0.8.2
+          with:
+            pixi-version: v0.41.3
+            environments: tests
+            cache: true
 
         - name: Runs Tests
-          run: pytest ./tests --ignore=./tests/fem/ --ignore=./tests/full/ --ignore=./tests/profiling/ --durations=0
+          run: pixi run test

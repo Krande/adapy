@@ -156,7 +156,6 @@ test-fem = { cmd="pytest tests --ignore=tests/profiling --ignore=tests/core --ig
 fem-doc = { cmd="python build_verification_report.py true true --export-format=docx", cwd="./tests/fem" }
 fem-doc-dev = { cmd="python doc_live_html.py", cwd="./tests/fem" }
 
-
 [tool.pixi.feature.web.tasks]
 npm = { cmd="npm", cwd="./src/frontend" }
 wdev = { cmd="npm run dev", cwd="./src/frontend" }
