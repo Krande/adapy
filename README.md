@@ -127,13 +127,15 @@ setx ADA_code_aster_exe <absolute path to as_run.bat>
 Note! It is very important that any paths containing whitespaces be converted to "shortened paths". To shorten a path
 on windows you can use the utility [pathcopycopy](https://pathcopycopy.github.io/).
 
-For installation files of open source FEM software such as Calculix and Code Aster, here are some links:
+For manual installation files of open source FEA software such as Calculix and Code Aster, 
+here are some relevant links:
 
-* https://github.com/calculix/cae/releases (calculix CAE for windows/linux)
-* https://code-aster-windows.com/download/ (Code Aster for Windows Salome Meca v9.3.0)
+* https://github.com/calculix/cae/releases (Calculix CAE for Windows/linux)
+* https://code-aster-windows.com/download/ (Code Aster and/or Salome Meca for Windows)
 * https://www.code-aster.org/spip.php?rubrique21 (Code Aster for Linux)
-* https://salome-platform.org/downloads/current-version (Salome v9.6.0 for windows/linux)
+* https://www.salome-platform.org/?page_id=2430 (Latest Salome for windows/linux)
 * https://prepomax.fs.um.si/downloads/ (PreProMax -> Calculix preprocessor)
+* https://www.paraview.org/download/ (Paraview for post-processing)
 
 
 ## Acknowledgements
