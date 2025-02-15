@@ -5,6 +5,7 @@
   "scripts": {
     "prebuild": "node clean.cjs",
     "build": "vite build && node embed-script.cjs",
+    "build-jupyter": "cross-env JUPYTER_BUILD=true vite build && node build-jupyter.mjs",
     "dev": "vite --force"
   },
   "devDependencies": {
@@ -17,6 +18,7 @@
     "@vitejs/plugin-react": "4.3.3",
     "archiver": "6.0.2",
     "autoprefixer": "10.4.20",
+    "cross-env": "^7.0.3",
     "depcheck": "^1.4.7",
     "esbuild-helpers": "2.0.1",
     "postcss": "8.4.47",
@@ -28,14 +30,20 @@
     "three": "0.169.0",
     "typescript": "5.6.3",
     "vite": "5.4.8",
-    "zustand": "4.5.5"
+    "zustand": "4.5.5",
+    "@jupyterlab/builder": "4.3.5"
   },
   "dependencies": {
+    "@jupyter-widgets/base": "^6.0.10",
     "@xyflow/react": "12.3.2",
     "flatbuffers": "24.3.25",
     "html2canvas": "^1.4.1",
     "react-arborist": "3.4.0",
     "react-json-view-lite": "2.0.1",
     "react-rnd": "10.4.13"
+  },
+  "jupyterlab": {
+    "extension": true,
+    "outputDir": "adapy_viewer_widget/labextension"
   }
 }

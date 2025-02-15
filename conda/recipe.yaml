@@ -1,0 +1,47 @@
+schema_version: 1
+
+context:
+  name: ada-py-viewer-widget
+  version: 0.3.8
+  python_min: 3.10
+
+package:
+  name: ${{ name }}
+  version: ${{ version }}
+
+source:
+  path: ..
+
+build:
+  number: 0
+  noarch: python
+
+requirements:
+  host:
+    - python
+    - hatchling
+    - hatch-nodejs-version  # Add this
+    - hatch-jupyter-builder  # Add this
+    - nodejs
+    - jupyterlab
+    - pip
+  run:
+    - python
+    - ipywidgets
+    - notebook  # Needed for Jupyter Notebook compatibility
+    - jupyterlab  # If you want JupyterLab support
+
+tests:
+  - script:
+      - jupyter labextension list
+
+about:
+  license: GPL-3.0-or-later
+  license_file: LICENSE
+  summary: A python library for structural analysis and design
+  homepage: https://github.com/krande/adapy
+  documentation: https://krande.github.io/adapy/
+
+extra:
+  recipe-maintainers:
+    - Krande

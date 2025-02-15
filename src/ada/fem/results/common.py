@@ -453,7 +453,7 @@ class FEAResult:
         renderer_manager = RendererManager(
             renderer=renderer,
             host=host,
-            port=port,
+            ws_port=port,
             server_exe=server_exe,
             server_args=server_args,
             run_ws_in_thread=run_ws_in_thread,

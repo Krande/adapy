@@ -247,7 +247,7 @@ class RendererManager:
         self,
         renderer: Literal["react", "pygfx"],
         host: str = "localhost",
-        port: int = 8765,
+        ws_port: int = 8765,
         server_exe: pathlib.Path = None,
         server_args: list[str] = None,
         run_ws_in_thread: bool = False,
@@ -255,7 +255,7 @@ class RendererManager:
     ):
         self.renderer = renderer
         self.host = host
-        self.port = port
+        self.ws_port = ws_port
         self.server_exe = server_exe
         self.server_args = server_args
         self.run_ws_in_thread = run_ws_in_thread
@@ -279,7 +279,7 @@ class RendererManager:
             server_exe=self.server_exe,
             server_args=self.server_args,
             host=self.host,
-            port=self.port,
+            port=self.ws_port,
             run_in_thread=self.run_ws_in_thread,
         )
 
@@ -328,7 +328,7 @@ class RendererManager:
         else:
             target_id = None  # Currently does not support unique viewer IDs outside of notebooks
 
-        with WebSocketClientSync(self.host, self.port) as wc:
+        with WebSocketClientSync(self.host, self.ws_port) as wc:
             renderer_instance = self.ensure_liveness(wc, target_id=target_id)
 
             if type(obj) is Part or type(obj) is Assembly:

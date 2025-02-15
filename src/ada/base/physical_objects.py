@@ -167,7 +167,7 @@ class BackendGeom(Root):
         self,
         renderer: Literal["react", "pygfx"] = "react",
         host="localhost",
-        port=8765,
+        ws_port=8765,
         server_exe: pathlib.Path = None,
         server_args: list[str] = None,
         run_ws_in_thread=False,
@@ -185,7 +185,7 @@ class BackendGeom(Root):
         renderer_manager = RendererManager(
             renderer=renderer,
             host=host,
-            port=port,
+            ws_port=ws_port,
             server_exe=server_exe,
             server_args=server_args,
             run_ws_in_thread=run_ws_in_thread,

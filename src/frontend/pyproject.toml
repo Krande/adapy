@@ -1,0 +1,64 @@
+[build-system]
+requires = ["hatchling>=1.5.0", "jupyterlab>=4.0.0,<5", "hatch-nodejs-version>=0.3.2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "adapy-viewer-widget"
+version = "0.1.0"
+classifiers = [
+    "Framework :: Jupyter",
+    "Framework :: Jupyter :: JupyterLab",
+    "Framework :: Jupyter :: JupyterLab :: 4",
+    "Framework :: Jupyter :: JupyterLab :: Extensions",
+    "Framework :: Jupyter :: JupyterLab :: Extensions :: Prebuilt",
+]
+
+[tool.hatch.version]
+source = "nodejs"
+
+[tool.hatch.metadata.hooks.nodejs]
+fields = ["description", "authors", "urls"]
+
+[tool.hatch.build.targets.sdist]
+artifacts = ["adapy_viewer_widget/labextension"]
+exclude = [".github", "binder"]
+
+[tool.hatch.build.targets.wheel.shared-data]
+"adapy_viewer_widget/labextension" = "share/jupyter/labextensions/@adapy/adapy-viewer-widget"
+"install.json" = "share/jupyter/labextensions/@adapy/adapy-viewer-widget/install.json"
+
+[tool.hatch.build.hooks.version]
+path = "adapy_viewer_widget/_version.py"
+
+[tool.hatch.build.hooks.jupyter-builder]
+dependencies = ["hatch-jupyter-builder>=0.5"]
+build-function = "hatch_jupyter_builder.npm_builder"
+ensured-targets = [
+    #"adapy_viewer_widget/labextension/static/style.js",
+    #"adapy_viewer_widget/labextension/package.json",
+]
+#skip-if-exists = ["adapy_viewer_widget/labextension/static/style.js"]
+
+[tool.hatch.build.hooks.jupyter-builder.build-kwargs]
+build_cmd = "build-jupyter"
+npm = ["npm"]
+
+[tool.hatch.build.hooks.jupyter-builder.editable-build-kwargs]
+build_cmd = "install-jupyter"
+npm = ["npm"]
+source_dir = "src"
+build_dir = "adapy_viewer_widget/labextension"
+
+[tool.jupyter-releaser.options]
+version_cmd = "hatch version"
+
+[tool.jupyter-releaser.hooks]
+before-build-npm = [
+    "python -m pip install 'jupyterlab>=4.0.0,<5'",
+    "npm",
+    "npm build-jupyter"
+]
+before-build-python = ["npm clean:all"]
+
+[tool.check-wheel-contents]
+ignore = ["W002"]
