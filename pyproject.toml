@@ -73,7 +73,7 @@ platforms = ["win-64", "linux-64"]
 prod = { features = ["prod"], solve-group = "prod", no-default-feature = true }
 lint = { features = ["lint"], no-default-feature = true }
 tests = { features = ["tests", "prod"], solve-group = "prod", no-default-feature = true }
-profile = { features = ["profile", "prod", "tests"], solve-group = "prod", no-default-feature = true }
+profile = { features = ["profile", "prod"], solve-group = "prod", no-default-feature = true }
 docs = { features = ["docs", "prod"], solve-group = "prod", no-default-feature = true }
 frontend = { features = ["web"], no-default-feature = true }
 
@@ -121,6 +121,9 @@ python-dotenv = "*"
 watchdog = "*"
 
 [tool.pixi.feature.profile.dependencies]
+pytest = "*"
+pytest-benchmark = "*"
+pytest-asyncio = "*"
 scalene = "*"
 
 # Editable installs
