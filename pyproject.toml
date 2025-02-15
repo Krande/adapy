@@ -58,7 +58,7 @@ ignore = ["E741"]
 [tool.isort]
 profile = "black"
 skip = [".pixi", "node_modules", "temp"]
-skip_glob=["**/node_modules/**", "**/temp/**"]
+skip_glob = ["**/node_modules/**", "**/temp/**"]
 
 [tool.pytest.ini_options]
 asyncio_default_fixture_loop_scope = "session"
@@ -70,15 +70,16 @@ channels = ["https://repo.prefix.dev/code-aster", "conda-forge"]
 platforms = ["win-64", "linux-64"]
 
 [tool.pixi.environments]
-prod = { features = ["prod"], solve-group = "prod", no-default-feature = true}
-lint = { features = ["lint"], no-default-feature = true}
-tests = { features = ["tests", "prod"], solve-group = "prod", no-default-feature = true}
-docs = { features = ["docs"], solve-group = "prod", no-default-feature = true}
-frontend = { features = ["web"], no-default-feature = true}
+prod = { features = ["prod"], solve-group = "prod", no-default-feature = true }
+lint = { features = ["lint"], no-default-feature = true }
+tests = { features = ["tests", "prod"], solve-group = "prod", no-default-feature = true }
+profile = { features = ["profile", "prod", "tests"], solve-group = "prod", no-default-feature = true }
+docs = { features = ["docs", "prod"], solve-group = "prod", no-default-feature = true }
+frontend = { features = ["web"], no-default-feature = true }
 
 [tool.pixi.feature.prod.dependencies]
-python="3.12.*"
-bcf-client="*"
+python = "3.12.*"
+bcf-client = "*"
 kaleido-core = "==0.1.0"
 numpy = "*"
 hdf5 = "*"
@@ -88,7 +89,7 @@ pythonocc-core = "*"
 python-gmsh = "*"
 pyquaternion = "*"
 trimesh = "*"
-occt =">=7.7.2"
+occt = "==7.8.1"
 send2trash = "*"
 meshio = "*"
 websockets = ">=14"
@@ -109,7 +110,7 @@ lark = "*"
 code-aster = "*"
 
 [tool.pixi.feature.prod.target.win-64.dependencies]
-code-aster = { version="*", channel="https://repo.prefix.dev/code-aster" }
+code-aster = { version = "*", channel = "https://repo.prefix.dev/code-aster" }
 
 [tool.pixi.feature.tests.dependencies]
 pytest = "*"
@@ -118,6 +119,9 @@ pytest-asyncio = "*"
 paradoc = "*"
 python-dotenv = "*"
 watchdog = "*"
+
+[tool.pixi.feature.profile.dependencies]
+scalene = "*"
 
 # Editable installs
 [tool.pixi.feature.tests.pypi-dependencies]
@@ -142,25 +146,31 @@ flatbuffers = "*"
 
 [tool.pixi.feature.lint.tasks]
 lint = "isort . && black . --config pyproject.toml && ruff check . --fix"
-flat = { cmd="python src/flatbuffers/update_flatbuffers.py", cwd="./" }
+flat = { cmd = "python src/flatbuffers/update_flatbuffers.py", cwd = "./" }
 
 [tool.pixi.feature.docs.tasks]
-docs = "cd docs && make html"
+docs = { cmd = "cd docs && make html", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 
 [tool.pixi.feature.tests.tasks]
 test = "pytest tests --ignore=tests/profiling --ignore=tests/fem --durations=0"
 test-core = "pytest tests --ignore=tests/profiling --ignore=tests/fem --ignore=tests/full --durations=0"
 test-all = "pytest tests --durations=0"
-test-fem = { cmd="pytest tests --ignore=tests/profiling --ignore=tests/core --ignore=tests/full --durations=0" }
+test-fem = { cmd = "pytest tests --ignore=tests/profiling --ignore=tests/core --ignore=tests/full --durations=0" }
 
-fem-doc = { cmd="python build_verification_report.py true true --export-format=docx", cwd="./tests/fem" }
-fem-doc-dev = { cmd="python doc_live_html.py", cwd="./tests/fem" }
+fem-doc = { cmd = "python build_verification_report.py true true --export-format=docx", cwd = "./tests/fem", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+fem-doc-dev = { cmd = "python doc_live_html.py", cwd = "./tests/fem" }
 
 [tool.pixi.feature.web.tasks]
-npm = { cmd="npm", cwd="./src/frontend" }
-wdev = { cmd="npm run dev", cwd="./src/frontend" }
-wbuild = { cmd="npm run build", cwd="./src/frontend" }
-fdepcheck = { cmd="depcheck", cwd="./src/frontend" }
+npm = { cmd = "npm", cwd = "./src/frontend" }
+wdev = { cmd = "npm run dev", cwd = "./src/frontend" }
+wbuild = { cmd = "npm run build", cwd = "./src/frontend" }
+fdepcheck = { cmd = "depcheck", cwd = "./src/frontend" }
+
+[tool.pixi.feature.profile.tasks]
+scalene = { cmd = "scalene --json -m pytest ./tests/profiling --outfile=profile.json", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+cprofile = { cmd = "python -m cProfile -o profile.prof -m pytest ./tests/profiling", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 
 [tool.pixi.dependencies]
 pixi-pycharm = ">=0.0.7,<0.0.8"
+
+
