@@ -13,8 +13,9 @@ def ensure_playwright_installed():
     with sync_playwright() as playwright:
         try:
             # Try getting the executable path of Chromium
-            _ = playwright.chromium.executable_path
-        except RuntimeError as e:
+            exe = playwright.chromium.executable_path
+            print(f"Playwright browsers are installed at [{exe}]")
+        except Exception as e:
             print(f"Playwright browsers are missing [{e}]. Installing them now...")
             subprocess.run(["playwright", "install"], check=True)
 
