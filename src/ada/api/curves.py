@@ -328,8 +328,9 @@ class CurveOpen3d:
         tol=1e-3,
         parent=None,
         orientation: Placement = None,
+        radiis:dict[int, float]=None,
     ):
-        self._radiis = {i: x[-1] for i, x in enumerate(points3d) if len(x) == 4}
+        self._radiis = {i: x[-1] for i, x in enumerate(points3d) if len(x) == 4} if radiis is None else radiis
         self._points3d = [Point(p[:3]) for p in points3d]
 
         self._segments = segments3d_from_points3d(self._points3d, radius_dict=self._radiis)

@@ -506,23 +506,39 @@ class PrimSweep(Shape):
         name,
         sweep_curve: Iterable[Iterable[float]] | CurveOpen3d,
         profile_curve_outer: Iterable[Iterable[float]] | CurvePoly2d,
-        profile_zdir=None,
         profile_xdir=None,
         origin=None,
         derived_reference=False,
-        fixed_ref=None,
         tol=1e-3,
         **kwargs,
     ):
         if not isinstance(sweep_curve, CurveOpen3d):
             sweep_curve = CurveOpen3d(sweep_curve, tol=tol)
 
+        # In the IFC schema the start vector of the sweep curve is always the z-axis.
+        # So we apply the necessary transform to the placement object
+        target_zdir = Direction(0, 0, 1)
+        base_xdir = Direction(1, 0, 0)
+        origin = sweep_curve.points3d[0] if origin is None else origin
+
+        start_norm = sweep_curve.start_vector.get_normalized()
+        if np.allclose(base_xdir, start_norm):
+            base_xdir = Direction(0.7, -1, 0)
+
+        orth_vec = Direction(np.cross(start_norm, np.cross(start_norm, base_xdir))).get_normalized()
+        place = Placement(origin=origin, zdir=start_norm, xdir=orth_vec)
+
+        if not start_norm.is_equal(target_zdir):
+            new_place = Placement(origin=origin)
+            radiis = sweep_curve.radiis
+            raw_points = [x.tolist() for x in sweep_curve.points3d]
+            raw_points_np = np.asarray(raw_points)
+            sweep_curve_new = place.transform_array_from_other_place(raw_points_np, new_place)
+            sweep_curve = CurveOpen3d(sweep_curve_new, radiis=radiis, tol=tol)
+
         if not isinstance(profile_curve_outer, CurvePoly2d):
-            origin = sweep_curve.orientation.origin if origin is None else origin
-            svec = sweep_curve.start_vector if profile_zdir is None else profile_zdir
-            xdir = sweep_curve.orientation.xdir if profile_xdir is None else profile_xdir
-            svec = svec.get_normalized()
-            profile_curve_outer = CurvePoly2d(profile_curve_outer, origin=origin, normal=svec, xdir=xdir, tol=tol)
+            profile_xdir = Direction(*profile_xdir) if profile_xdir is not None else Direction(1,0,0)
+            profile_curve_outer = CurvePoly2d(profile_curve_outer, origin=origin, normal=target_zdir, xdir=profile_xdir, tol=tol)
         else:
             profile_curve_outer = profile_curve_outer
 
@@ -533,11 +549,18 @@ class PrimSweep(Shape):
         self._profile_curve_outer = profile_curve_outer
         self.derived_reference = derived_reference
 
-        # todo: add code to ensure fixed_ref is always pointing in positive Z.
-        #  Should make an automatic placement transform each time to ensure this, without having to do the transforms first.
-        self.fixed_ref = sweep_curve.start_vector if fixed_ref is None else fixed_ref
+        super(PrimSweep, self).__init__(name, placement=place, **kwargs)
 
-        super(PrimSweep, self).__init__(name, **kwargs)
+    def _realign_sweep_curve(self):
+        start_norm = self.sweep_curve.start_vector.get_normalized()
+        if not start_norm.is_equal(Direction(0, 0, 1)):
+            new_place = self.placement.with_zdir(Direction(0, 0, 1))
+            raw_points = [x.tolist() for x in self.sweep_curve.points3d]
+            raw_points_np = np.asarray(raw_points)
+            sweep_curve_new = new_place.transform_array_from_other_place(raw_points_np, self.placement)
+
+            self._sweep_curve = CurveOpen3d(sweep_curve_new, tol=1e-3)
+            self.placement = new_place
 
     @property
     def units(self):

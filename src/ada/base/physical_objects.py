@@ -173,7 +173,7 @@ class BackendGeom(Root):
         run_ws_in_thread=False,
         unique_viewer_id=None,
         stream_from_ifc_store=True,
-        purpose: FilePurposeDC = FilePurposeDC.DESIGN,
+        append_to_scene=False,
         add_ifc_backend=False,
         auto_sync_ifc_store=True,
         params_override: RenderParams = None,
@@ -181,6 +181,7 @@ class BackendGeom(Root):
     ):
         # Use RendererManager to handle renderer setup and WebSocket connection
         from ada.visit.renderer_manager import RendererManager, RenderParams
+        from ada.comms.fb_wrap_model_gen import SceneDC, SceneOperationsDC
 
         renderer_manager = RendererManager(
             renderer=renderer,
@@ -198,6 +199,7 @@ class BackendGeom(Root):
                 auto_sync_ifc_store=auto_sync_ifc_store,
                 stream_from_ifc_store=stream_from_ifc_store,
                 add_ifc_backend=add_ifc_backend,
+                scene=SceneDC(operation=SceneOperationsDC.REPLACE if not append_to_scene else SceneOperationsDC.ADD),
             )
 
         # Set up the renderer and WebSocket server

@@ -177,6 +177,15 @@ class Placement:
         vec3d = transform_3x3(self.rot_matrix, np.array([vec]), inverse=inverse)
         return vec3d[0]
 
+    def transform_array_from_other_place(self, arr: np.ndarray, other_place: Placement) -> np.ndarray:
+        """Transform an array of vectors from the coordinate system of this placement to another coordinate system."""
+        # Rotation matrix from old placement to new placement
+        rotation_mat = self.rot_matrix @ np.linalg.inv(other_place.rot_matrix)
+
+        # Transform the vector
+        transformed_vec = (arr - other_place.origin) @ rotation_mat.T + self.origin
+        return transformed_vec
+
     def transform_local_points_to_global(
         self, points2d: Iterable[Iterable[float | int, float | int]], inverse=False
     ) -> np.ndarray:
@@ -228,6 +237,32 @@ class Placement:
         else:
             place = self
         return place == Placement(O(), XV(), YV(), ZV())
+
+    def with_zdir(self, new_zdir: Direction | Iterable[float]) -> Placement:
+        """Returns a new Placement with the zdir transformed to match new_zdir."""
+        if not isinstance(new_zdir, Direction):
+            new_zdir = Direction(new_zdir)
+        new_zdir = new_zdir.get_normalized()  # Ensure it's a unit vector
+        current_zdir = self.zdir
+
+        # If already aligned, return the same placement
+        if np.allclose(current_zdir, new_zdir):
+            return self
+
+        # Compute rotation quaternion from current zdir to new zdir
+        axis = np.cross(current_zdir, new_zdir)
+        angle = np.arccos(np.clip(np.dot(current_zdir, new_zdir), -1.0, 1.0))
+
+        if np.allclose(axis, 0):  # If vectors are opposite, choose an arbitrary perpendicular axis
+            axis = np.array([1, 0, 0]) if abs(current_zdir[0]) < 0.9 else np.array([0, 1, 0])
+
+        rotation_quat = pq.Quaternion(axis=axis, radians=angle)
+
+        # Apply rotation to the coordinate system vectors
+        new_xdir = rotation_quat.rotate(self.xdir)
+        new_ydir = rotation_quat.rotate(self.ydir)
+
+        return Placement(origin=self.origin, xdir=new_xdir, ydir=new_ydir, zdir=new_zdir)
 
     def __eq__(self, other: Placement):
         from ada.core.vector_utils import vector_length

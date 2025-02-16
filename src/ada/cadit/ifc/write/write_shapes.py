@@ -215,14 +215,16 @@ def generate_ifc_prim_sweep_geom(shape: PrimSweep, f):
         if isinstance(geom.geometry.directrix, geo_cu.IndexedPolyCurve):
             sweep_curve = write_cu.indexed_poly_curve(geom.geometry.directrix, f)
         elif isinstance(geom.geometry.directrix, geo_cu.Edge):
-            line = geom.geometry.directrix.to_line()
-            sweep_curve = write_cu.create_line(line, f)
+            # line = geom.geometry.directrix.to_line()
+            # sweep_curve = write_cu.create_line(line, f)
+            curve = geo_cu.IndexedPolyCurve(segments=[geom.geometry.directrix])
+            sweep_curve = write_cu.indexed_poly_curve(curve, f)
         else:
             raise NotImplementedError(f"Unsupported curve type {type(geom.geometry.directrix)}")
     else:
         raise NotImplementedError(f"Unsupported curve type {type(geom.geometry.sweep_curve)}")
 
-    fixed_ref = f.create_entity("IfcDirection", to_real(shape.fixed_ref.tolist()))
+    fixed_ref = f.create_entity("IfcDirection", to_real(shape.sweep_curve.start_vector.tolist()))
     ifc_axis3d = ifc_placement_from_axis3d(geom.geometry.position, f)
 
     if shape.derived_reference:
@@ -230,10 +232,12 @@ def generate_ifc_prim_sweep_geom(shape: PrimSweep, f):
     else:
         sweep_type = "IfcFixedReferenceSweptAreaSolid"
 
-    return f.create_entity(
+    solid = f.create_entity(
         sweep_type,
         SweptArea=profile,
         Position=ifc_axis3d,
         Directrix=sweep_curve,
         FixedReference=fixed_ref,
     )
+
+    return solid
