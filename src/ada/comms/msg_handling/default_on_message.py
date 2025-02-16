@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 def default_on_message(server: WebSocketAsyncServer, client: ConnectedClient, message_data: bytes) -> None:
     try:
         message = deserialize_root_message(message_data)
-        if message.command_type == CommandTypeDC.UPDATE_SCENE:
+        if message.command_type == CommandTypeDC.UPDATE_SCENE and message.scene.current_file is not None:
             update_scene(server, client, message.scene.current_file)
         elif message.command_type == CommandTypeDC.UPDATE_SERVER:
             update_server(server, client, message.server.new_file_object)

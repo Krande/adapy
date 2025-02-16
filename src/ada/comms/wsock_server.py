@@ -158,13 +158,14 @@ class WebSocketAsyncServer:
         if is_forwarded_message:
             logger.debug(f"Forwarding message to {sender}")
         message_sent = False
+        clients_to_remove = []
         for client in self.connected_clients:
             if client == sender:
                 continue
             # check if client is still connected
             if client.websocket.state != websockets.protocol.State.OPEN:
                 logger.debug(f"Client disconnected: {client}")
-                self.connected_clients.remove(client)
+                clients_to_remove.append(client)
                 continue
 
             # Filtering based on target_id and target_group
@@ -177,6 +178,9 @@ class WebSocketAsyncServer:
 
             await client.websocket.send(message)
             message_sent = True
+
+        for client in clients_to_remove:
+            self.connected_clients.remove(client)
 
         if not message_sent and msg.command_type == CommandTypeDC.UPDATE_SCENE:
             logger.debug(f"No clients to forward message {msg} to. Starting retry mechanism.")

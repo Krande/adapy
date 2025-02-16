@@ -177,6 +177,7 @@ class BackendGeom(Root):
         add_ifc_backend=False,
         auto_sync_ifc_store=True,
         params_override: RenderParams = None,
+        apply_transform=True,
         liveness_timeout: int = 1,
     ):
         # Use RendererManager to handle renderer setup and WebSocket connection
@@ -203,7 +204,7 @@ class BackendGeom(Root):
             )
 
         # Set up the renderer and WebSocket server
-        renderer_instance = renderer_manager.render(self, params_override)
+        renderer_instance = renderer_manager.render(self, params_override, apply_transform=apply_transform)
         return renderer_instance
 
     @property

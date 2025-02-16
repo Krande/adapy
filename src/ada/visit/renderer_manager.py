@@ -230,14 +230,14 @@ def scene_from_object(physical_object: BackendGeom, params: RenderParams) -> tri
     return scene
 
 
-def scene_from_part_or_assembly(part_or_assembly: Part | Assembly, params: RenderParams) -> trimesh.Scene:
+def scene_from_part_or_assembly(part_or_assembly: Part | Assembly, apply_transform, params: RenderParams) -> trimesh.Scene:
     from ada import Assembly
 
     if params.auto_sync_ifc_store and isinstance(part_or_assembly, Assembly):
         part_or_assembly.ifc_store.sync()
 
     scene = part_or_assembly.to_trimesh_scene(
-        stream_from_ifc=params.stream_from_ifc_store, merge_meshes=params.merge_meshes, params=params
+        stream_from_ifc=params.stream_from_ifc_store, merge_meshes=params.merge_meshes, params=params, apply_transform=apply_transform
     )
     return scene
 
@@ -313,7 +313,7 @@ class RendererManager:
         return renderer
 
     def render(
-        self, obj: BackendGeom | Part | Assembly | FEAResult | FEM | trimesh.Scene | MeshDC, params: RenderParams
+        self, obj: BackendGeom | Part | Assembly | FEAResult | FEM | trimesh.Scene | MeshDC, params: RenderParams, apply_transform=True
     ) -> HTML | None:
         from ada import FEM, Assembly, Part
         from ada.base.physical_objects import BackendGeom
@@ -332,7 +332,7 @@ class RendererManager:
             renderer_instance = self.ensure_liveness(wc, target_id=target_id)
 
             if type(obj) is Part or type(obj) is Assembly:
-                scene = scene_from_part_or_assembly(obj, params)
+                scene = scene_from_part_or_assembly(obj, apply_transform, params)
             elif isinstance(obj, BackendGeom):
                 scene = scene_from_object(obj, params)
             elif isinstance(obj, FEM):
@@ -352,9 +352,10 @@ class RendererManager:
                 verts = mesh.vertices.flatten().tolist()
                 faces = mesh.faces.flatten().tolist()
                 parent_name = None
-                if obj.parent is not None:
+                if hasattr(obj, "parent") and obj.parent is not None:
                     parent_name = obj.parent.name
-                mesh_dc = MeshDC(obj.name, faces, verts, parent_name)
+                name = obj.name if hasattr(obj, "name") else "Scene"
+                mesh_dc = MeshDC(name, faces, verts, parent_name)
                 wc.append_scene(mesh_dc)
                 return renderer_instance
 
