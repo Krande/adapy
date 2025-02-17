@@ -160,9 +160,21 @@ class Message(object):
             return obj
         return None
 
+    # Message
+    def Package(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(28))
+        if o != 0:
+            x = self._tab.Indirect(o + self._tab.Pos)
+            from ada.comms.meshes.AppendMesh import AppendMesh
+
+            obj = AppendMesh()
+            obj.Init(self._tab.Bytes, x)
+            return obj
+        return None
+
 
 def MessageStart(builder):
-    builder.StartObject(12)
+    builder.StartObject(13)
 
 
 def Start(builder):
@@ -271,6 +283,14 @@ def MessageAddScreenshot(builder, screenshot):
 
 def AddScreenshot(builder, screenshot):
     MessageAddScreenshot(builder, screenshot)
+
+
+def MessageAddPackage(builder, package):
+    builder.PrependUOffsetTRelativeSlot(12, flatbuffers.number_types.UOffsetTFlags.py_type(package), 0)
+
+
+def AddPackage(builder, package):
+    MessageAddPackage(builder, package)
 
 
 def MessageEnd(builder):

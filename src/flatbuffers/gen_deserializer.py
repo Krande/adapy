@@ -1,6 +1,8 @@
 import pathlib
+from collections import defaultdict
 
-from fbs_serializer import FlatBufferSchema, TableDefinition, parse_fbs_file
+from config import logger
+from fbs_serializer import FlatBufferSchema, TableDefinition, load_fbs_file
 from utils import make_camel_case
 
 
@@ -24,8 +26,10 @@ def generate_deserialize_function(schema: FlatBufferSchema, table: TableDefiniti
                 deserialize_code += f"        {field.name}=[fb_obj.{make_camel_case(field.name)}(i) for i in range(fb_obj.{make_camel_case(field.name)}Length())] if fb_obj.{make_camel_case(field.name)}Length() > 0 else None,\n"
             elif field_type_value in table_names:
                 deserialize_code += f"        {field.name}=[deserialize_{field_type_value.lower()}(fb_obj.{make_camel_case(field.name)}(i)) for i in range(fb_obj.{make_camel_case(field.name)}Length())] if fb_obj.{make_camel_case(field.name)}Length() > 0 else None,\n"
+            elif field_type_value == "uint32":
+                deserialize_code += f"        {field.name}=[fb_obj.{make_camel_case(field.name)}(i) for i in range(fb_obj.{make_camel_case(field.name)}Length())] if fb_obj.{make_camel_case(field.name)}Length() > 0 else None,\n"
             else:
-                raise NotImplementedError()
+                raise NotImplementedError(f"Unsupported field type: {field.field_type}")
         else:
             # Handle nested tables or enums
             if field.field_type in [en.name for en in schema.enums]:
@@ -43,7 +47,8 @@ def generate_deserialize_function(schema: FlatBufferSchema, table: TableDefiniti
 
 def generate_deserialize_root_function(schema: FlatBufferSchema) -> str:
     if schema.root_type is None:
-        raise ValueError("No root_type declared in the .fbs schema")
+        logger.info(f"No root_type declared in the .fbs schema file {schema.file_path}")
+        return ""
 
     # Find the root table
     root_table = next(table for table in schema.tables if table.name == schema.root_type)
@@ -55,32 +60,52 @@ def generate_deserialize_root_function(schema: FlatBufferSchema) -> str:
 
 
 def add_imports(schema: FlatBufferSchema, wsock_model_root, dc_model_root) -> str:
-    imports = f"from {wsock_model_root} import "
-    imports += ", ".join([f"{table.name}" for table in schema.tables if table.name == schema.root_type])
-    # imports += "," + ", ".join([f"{en.name}" for en in schema.enums])
-    imports += "\n\n"
-    imports += f"from {dc_model_root} import "
-    imports += ", ".join([f"{table.name}DC" for table in schema.tables])
-    imports += "," + ", ".join([f"{en.name}DC" for en in schema.enums])
+    imports = ""
+    root_schemas = [f"{table.name}" for table in schema.tables if table.name == schema.root_type]
+    if len(root_schemas) > 0:
+        imports = f"from {wsock_model_root} import "
+        imports += ", ".join(root_schemas)
+        imports += "\n\n"
+    if len(schema.tables) > 0:
+        imports += f"from {dc_model_root} import "
+        imports += ", ".join([f"{table.name}DC" for table in schema.tables])
+    if len(schema.enums) > 0:
+        imports += "," + ", ".join([f"{en.name}DC" for en in schema.enums])
+
+    namespace_map = defaultdict(list)
+    for tbl in schema.tables:
+        for field in tbl.fields:
+            if field.namespace is not None:
+                namespace_map[field.namespace].append(field.field_type)
+
+    for namespace, values in namespace_map.items():
+        import_func_str = ", ".join([f"deserialize_{field_type.lower()}" for field_type in values])
+        if len(values) > 0:
+            imports += f"\nfrom {schema.py_root}.fb_{namespace}_deserializer import {import_func_str}\n"
+
     imports += "\n\n"
     return imports
 
 
-def generate_deserialization_code(fbs_file: str, output_file: str | pathlib.Path, wsock_model_root, dc_model_root):
-    schema = parse_fbs_file(fbs_file)
-    imports_str = add_imports(schema, wsock_model_root, dc_model_root)
+def generate_deserialization_code(
+    fbs_schema: str | FlatBufferSchema, output_file: str | pathlib.Path, wsock_model_root, dc_model_root
+):
+    if isinstance(fbs_schema, str | pathlib.Path):
+        fbs_schema = load_fbs_file(fbs_schema)
+
+    imports_str = add_imports(fbs_schema, wsock_model_root, dc_model_root)
 
     with open(output_file, "w") as out_file:
         # out_file.write("import flatbuffers\nfrom typing import List\n\n")
         out_file.write(imports_str)
 
         # Write deserialization functions for each table
-        for table in schema.tables:
-            out_file.write(generate_deserialize_function(schema, table))
+        for table in fbs_schema.tables:
+            out_file.write(generate_deserialize_function(fbs_schema, table))
             out_file.write("\n\n")
 
         # Write the deserialize function for the root_type
-        out_file.write(generate_deserialize_root_function(schema))
+        out_file.write(generate_deserialize_root_function(fbs_schema))
 
     print(f"Deserialization code generated and saved to {output_file}")
 

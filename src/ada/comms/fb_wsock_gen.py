@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import List, Optional
 
+from ada.comms.fb_meshes_gen import AppendMeshDC
+
 
 class CommandTypeDC(Enum):
     PING = 0
@@ -229,3 +231,4 @@ class MessageDC:
     procedure_store: Optional[ProcedureStoreDC] = None
     server_reply: Optional[ServerReplyDC] = None
     screenshot: Optional[ScreenshotDC] = None
+    package: Optional[AppendMeshDC] = None

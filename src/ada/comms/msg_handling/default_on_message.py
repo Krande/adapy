@@ -3,8 +3,8 @@ from __future__ import annotations
 import traceback
 from typing import TYPE_CHECKING
 
-from ada.comms.fb_deserializer import deserialize_root_message
-from ada.comms.fb_model_gen import CommandTypeDC
+from ada.comms.fb_wrap_deserializer import deserialize_root_message
+from ada.comms.fb_wrap_model_gen import CommandTypeDC
 from ada.comms.msg_handling.delete_file_object import delete_file_object
 from ada.comms.msg_handling.list_file_objects import list_file_objects
 from ada.comms.msg_handling.list_procedures import list_procedures
@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 def default_on_message(server: WebSocketAsyncServer, client: ConnectedClient, message_data: bytes) -> None:
     try:
         message = deserialize_root_message(message_data)
-        if message.command_type == CommandTypeDC.UPDATE_SCENE:
+        if message.command_type == CommandTypeDC.UPDATE_SCENE and message.scene.current_file is not None:
             update_scene(server, client, message.scene.current_file)
         elif message.command_type == CommandTypeDC.UPDATE_SERVER:
             update_server(server, client, message.server.new_file_object)

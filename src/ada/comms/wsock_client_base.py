@@ -6,11 +6,13 @@ from abc import ABC, abstractmethod
 
 import trimesh
 
-from ada.comms.fb_model_gen import (
+from ada.comms.fb_wrap_model_gen import (
+    AppendMeshDC,
     CommandTypeDC,
     FileObjectDC,
     FilePurposeDC,
     FileTypeDC,
+    MeshDC,
     MessageDC,
     ProcedureDC,
     ProcedureStartDC,
@@ -20,7 +22,7 @@ from ada.comms.fb_model_gen import (
     ServerDC,
     TargetTypeDC,
 )
-from ada.comms.fb_serializer import serialize_message
+from ada.comms.fb_wrap_serializer import serialize_root_message
 from ada.comms.wsockets_utils import client_as_str
 
 
@@ -53,7 +55,7 @@ class WebSocketClientBase(ABC):
         )
 
         # Serialize the dataclass message into a FlatBuffer
-        return serialize_message(message)
+        return serialize_root_message(message)
 
     def _scene_update_prep(
         self,
@@ -80,7 +82,18 @@ class WebSocketClientBase(ABC):
                 target_id=target_id,
                 scene=SceneDC(operation=scene_op, current_file=file_object),
             )
-            return serialize_message(message)
+            return serialize_root_message(message)
+
+    def _scene_append_prep(self, mesh: MeshDC, target_id) -> bytes:
+        message = MessageDC(
+            instance_id=self.instance_id,
+            command_type=CommandTypeDC.UPDATE_SCENE,
+            target_group=TargetTypeDC.WEB,
+            target_id=target_id,
+            scene=SceneDC(operation=SceneOperationsDC.ADD),
+            package=AppendMeshDC(mesh),
+        )
+        return serialize_root_message(message)
 
     def _update_file_server_prep(self, file_object: FileObjectDC) -> bytes:
         message = MessageDC(
@@ -89,7 +102,7 @@ class WebSocketClientBase(ABC):
             server=ServerDC(new_file_object=file_object),
             target_group=TargetTypeDC.SERVER,
         )
-        return serialize_message(message)
+        return serialize_root_message(message)
 
     def _list_procedures_prep(self) -> bytes:
         message = MessageDC(
@@ -97,7 +110,7 @@ class WebSocketClientBase(ABC):
             command_type=CommandTypeDC.LIST_PROCEDURES,
             target_group=TargetTypeDC.SERVER,
         )
-        return serialize_message(message)
+        return serialize_root_message(message)
 
     def _run_procedure_prep(self, procedure: ProcedureStartDC) -> bytes:
         message = MessageDC(
@@ -106,7 +119,7 @@ class WebSocketClientBase(ABC):
             procedure_store=ProcedureStoreDC(start_procedure=procedure),
             target_group=TargetTypeDC.SERVER,
         )
-        return serialize_message(message)
+        return serialize_root_message(message)
 
     def _view_file_object_prep(self, file_name: str) -> bytes:
         message = MessageDC(
@@ -116,7 +129,7 @@ class WebSocketClientBase(ABC):
             client_type=TargetTypeDC.WEB,
             server=ServerDC(get_file_object_by_name=file_name),
         )
-        return serialize_message(message)
+        return serialize_root_message(message)
 
     def _list_server_file_objects_prep(self) -> bytes:
         message = MessageDC(
@@ -124,7 +137,7 @@ class WebSocketClientBase(ABC):
             command_type=CommandTypeDC.LIST_FILE_OBJECTS,
             target_group=TargetTypeDC.SERVER,
         )
-        return serialize_message(message)
+        return serialize_root_message(message)
 
     def _get_file_object_prep(self, file_name):
         message = MessageDC(
@@ -133,7 +146,7 @@ class WebSocketClientBase(ABC):
             target_group=TargetTypeDC.SERVER,
             server=ServerDC(get_file_object_by_name=file_name),
         )
-        return serialize_message(message)
+        return serialize_root_message(message)
 
     @abstractmethod
     def connect(self):

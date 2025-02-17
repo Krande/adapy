@@ -2,3 +2,4 @@
 .cache/
 node_modules/
 stats.html
+jupyter-dist/

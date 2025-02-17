@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Callable
 
-from ada.comms.fb_model_gen import ProcedureStoreDC
+from ada.comms.fb_wrap_model_gen import ProcedureStoreDC
 from ada.config import Config
 from ada.procedural_modelling.load_procedures import (
     get_procedure_from_function,

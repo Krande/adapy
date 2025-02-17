@@ -2,14 +2,14 @@ import pathlib
 import re
 
 
-def sub_wrong_py_imports(py_txt: str) -> str:
-    return re.sub("from wsock", r"from ada.comms.wsock", py_txt)
+def sub_wrong_py_imports(namespace: str, py_txt: str) -> str:
+    return re.sub(f"from {namespace}", rf"from ada.comms.{namespace}", py_txt)
 
 
-def update_py_imports(file_dir: pathlib.Path):
+def update_py_imports(namespace: str, file_dir: pathlib.Path):
     for py_file in file_dir.rglob("*.py"):
         txt = py_file.read_text()
-        new_txt = sub_wrong_py_imports(txt)
+        new_txt = sub_wrong_py_imports(namespace, txt)
         if txt != new_txt:
             py_file.write_text(new_txt)
 

@@ -42,6 +42,7 @@ class Section(Root):
         units=Units.M,
         guid=None,
         refs=None,
+        auto_display_in_html=True,
     ):
         super(Section, self).__init__(name=name, guid=guid, metadata=metadata, units=units, parent=parent)
         if isinstance(sec_type, str):
@@ -85,6 +86,8 @@ class Section(Root):
         if genprops is not None:
             genprops.parent = self
             self._genprops = genprops
+
+        self.auto_display_in_html = auto_display_in_html
 
     def equal_props(self, other: Section):
         for propa, propb in zip(self.unique_props(), other.unique_props()):
@@ -261,13 +264,19 @@ class Section(Root):
 
         return build_section_profile(self, is_solid)
 
+    def show(self, return_as_html_str=False):
+        from IPython.display import HTML, display
+
+        from ada.visit.plots import section_overview_to_html_str
+
+        if return_as_html_str:
+            return section_overview_to_html_str(self)
+
+        display(HTML(section_overview_to_html_str(self)))
+
     def _repr_html_(self):
-        from ada.visit.config import JUPYTER_SECTION_RENDERER
-
-        if JUPYTER_SECTION_RENDERER is None:
-            return "Jupyter display not available."
-
-        JUPYTER_SECTION_RENDERER(self)
+        if self.auto_display_in_html:
+            self.show()
 
     @property
     def refs(self) -> list[Beam | BeamTapered | FemSection | Pipe | PipeSegStraight | PipeSegElbow]:

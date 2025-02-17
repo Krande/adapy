@@ -5,7 +5,7 @@ import subprocess
 from dataclasses import dataclass, field
 from typing import Callable, Optional
 
-from ada.comms.fb_model_gen import (
+from ada.comms.fb_wrap_model_gen import (
     FileArgDC,
     FileTypeDC,
     ParameterDC,

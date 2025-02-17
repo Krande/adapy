@@ -18,7 +18,7 @@ from ada.base.ifc_types import SpatialTypes
 from ada.base.physical_objects import BackendGeom
 from ada.base.types import GeomRepr
 from ada.base.units import Units
-from ada.comms.fb_model_gen import FileObjectDC, FilePurposeDC, FileTypeDC
+from ada.comms.fb_wrap_model_gen import FileObjectDC, FilePurposeDC, FileTypeDC
 from ada.config import logger
 from ada.visit.gltf.graph import GraphNode, GraphStore
 from ada.visit.renderer_manager import RenderParams
@@ -830,6 +830,7 @@ class Part(BackendGeom):
         merge_meshes=True,
         stream_from_ifc=False,
         params: RenderParams = None,
+        apply_transform: bool = True,
     ) -> trimesh.Scene:
         from ada import Assembly
         from ada.occ.tessellating import BatchTessellator
@@ -839,7 +840,11 @@ class Part(BackendGeom):
             return bt.ifc_to_trimesh_scene(self.get_assembly().ifc_store, merge_meshes=merge_meshes)
 
         return bt.tessellate_part(
-            self, merge_meshes=merge_meshes, render_override=render_override, filter_by_guids=filter_by_guids
+            self,
+            merge_meshes=merge_meshes,
+            render_override=render_override,
+            filter_by_guids=filter_by_guids,
+            apply_transform=apply_transform,
         )
 
     def to_stp(

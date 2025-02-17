@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import os
 import pathlib
-from typing import Dict, List, Tuple, Union
+from typing import TYPE_CHECKING, Dict, List, Tuple, Union
 
 from ada.config import get_logger
+
+if TYPE_CHECKING:
+    from ada.sections import Section
 
 logger = get_logger()
 
@@ -78,18 +81,17 @@ def easy_plotly(
         plot_data += traces
 
     autorange = "reversed" if autoreverse is True else None
+    axis_font = dict(family="Arial, monospace", size=18, color="#7f7f7f")
     layout = go.Layout(
         title=title,
         xaxis=dict(
-            title=xlbl,
-            titlefont=dict(family="Arial, monospace", size=18, color="#7f7f7f"),
+            title=dict(text=xlbl, font=axis_font),
             autorange=autorange,
             range=xrange,
             exponentformat=xaxformat,
         ),
         yaxis=dict(
-            title=ylbl,
-            titlefont=dict(family="Arial, monospace", size=18, color="#7f7f7f"),
+            title=dict(text=ylbl, font=axis_font),
             range=yrange,
             exponentformat=yaxformat,
         ),
@@ -100,14 +102,7 @@ def easy_plotly(
     if annotations is not None:
         layout["annotations"] = annotations
 
-    try:
-        if save_filename is not None:
-            fig = go.Figure(data=plot_data, layout=layout)
-        else:
-            fig = go.FigureWidget(data=plot_data, layout=layout)
-    except ImportError as e:
-        fig = go.Figure(data=plot_data, layout=layout)
-        logger.warning(f"Could not import go.FigureWidget due to ({e}).\nUsing go.Figure instead")
+    fig = go.Figure(data=plot_data, layout=layout)
 
     if log_y is True:
         fig.update_yaxes(type="log", range=yrange, overwrite=True)  # log range: 10^0=1, 10^5=100000
@@ -181,16 +176,12 @@ def extract_plot_data(in_data, mode, marker):
     return plot_data
 
 
-def build_display(sec):
-    """Builds a display for the section properties using plotly and ipywidgets"""
-
-    from IPython.display import display
-    from ipywidgets import HTML, HBox
+def section_profile_only_to_html_str(sec: Section) -> str:
+    import plotly.io as pio
 
     from ada.api.curves import CurvePoly2d
     from ada.sections import SectionCat
 
-    html = HTML("<b>Section Properties</b></br></br>")
     section_profile = sec.get_section_profile(True)
 
     def get_data(curve: CurvePoly2d):
@@ -214,29 +205,6 @@ def build_display(sec):
     if section_profile.inner_curve is not None:
         inner = get_data(section_profile.inner_curve)
         plot_data["inner"] = inner
-
-    sp = sec.properties
-    for sec_prop in [
-        ("Ax", sp.Ax),
-        ("Ix", sp.Ix),
-        ("Iy", sp.Iy),
-        ("Iz", sp.Iz),
-        ("Iyz", sp.Iyz),
-        ("Wxmin", sp.Wxmin),
-        ("Wymin", sp.Wymin),
-        ("Wzmin", sp.Wzmin),
-        ("Sy", sp.Sy),
-        ("Sz", sp.Sz),
-        ("Shary", sp.Shary),
-        ("Sharz", sp.Sharz),
-        ("Shceny", sp.Shceny),
-        ("Shcenz", sp.Shcenz),
-    ]:
-        res = sec_prop[1]
-        if res is not None:
-            html.value += f"<b>{sec_prop[0]}:</b> {sec_prop[1]:.4E}<br>"
-        else:
-            html.value += f"<b>{sec_prop[0]}:</b> Prop calc not defined yet<br>"
 
     # controls = []
     shapes = None
@@ -291,4 +259,48 @@ def build_display(sec):
         return_widget=True,
     )
     fig["layout"]["yaxis"]["scaleanchor"] = "x"
-    display(HBox([fig, html]))
+
+    plot_html = pio.to_html(fig, full_html=False, include_plotlyjs="cdn")
+
+    return plot_html
+
+
+def section_overview_to_html_str(sec: Section) -> str:
+    """Builds a display for the section properties using Plotly and HTML (side-by-side layout)."""
+
+    plot_html = section_profile_only_to_html_str(sec)
+
+    html_content = "<b>Section Properties</b></br></br>"
+
+    sp = sec.properties
+    for sec_prop in [
+        ("Ax", sp.Ax),
+        ("Ix", sp.Ix),
+        ("Iy", sp.Iy),
+        ("Iz", sp.Iz),
+        ("Iyz", sp.Iyz),
+        ("Wxmin", sp.Wxmin),
+        ("Wymin", sp.Wymin),
+        ("Wzmin", sp.Wzmin),
+        ("Sy", sp.Sy),
+        ("Sz", sp.Sz),
+        ("Shary", sp.Shary),
+        ("Sharz", sp.Sharz),
+        ("Shceny", sp.Shceny),
+        ("Shcenz", sp.Shcenz),
+    ]:
+        res = sec_prop[1]
+        if res is not None:
+            html_content += f"<b>{sec_prop[0]}:</b> {sec_prop[1]:.4E}<br>"
+        else:
+            html_content += f"<b>{sec_prop[0]}:</b> Prop calc not defined yet<br>"
+
+    # Wrap both elements inside a flexbox container
+    final_html = f"""
+<div style="display: flex; flex-direction: row; justify-content: space-between; align-items: flex-start;">
+    <div style="flex: 1; padding-right: 20px;">{plot_html}</div>
+    <div style="flex: 1; max-width: 400px;">{html_content}</div>
+</div>
+    """
+
+    return final_html

@@ -7,7 +7,6 @@ from ada.api.transforms import Placement
 from ada.base.root import Root
 from ada.base.types import GeomRepr
 from ada.base.units import Units
-from ada.comms.fb_model_gen import FilePurposeDC
 from ada.geom import Geometry
 from ada.geom.booleans import BoolOpEnum
 from ada.visit.colors import Color, color_dict
@@ -167,27 +166,31 @@ class BackendGeom(Root):
         self,
         renderer: Literal["react", "pygfx"] = "react",
         host="localhost",
-        port=8765,
+        ws_port=8765,
         server_exe: pathlib.Path = None,
         server_args: list[str] = None,
         run_ws_in_thread=False,
         unique_viewer_id=None,
         stream_from_ifc_store=True,
-        purpose: FilePurposeDC = FilePurposeDC.DESIGN,
+        append_to_scene=False,
         add_ifc_backend=False,
         auto_sync_ifc_store=True,
         params_override: RenderParams = None,
+        apply_transform=True,
+        liveness_timeout: int = 1,
     ):
         # Use RendererManager to handle renderer setup and WebSocket connection
+        from ada.comms.fb_wrap_model_gen import SceneDC, SceneOperationsDC
         from ada.visit.renderer_manager import RendererManager, RenderParams
 
         renderer_manager = RendererManager(
             renderer=renderer,
             host=host,
-            port=port,
+            ws_port=ws_port,
             server_exe=server_exe,
             server_args=server_args,
             run_ws_in_thread=run_ws_in_thread,
+            ping_timeout=liveness_timeout,
         )
 
         if params_override is None:
@@ -196,10 +199,11 @@ class BackendGeom(Root):
                 auto_sync_ifc_store=auto_sync_ifc_store,
                 stream_from_ifc_store=stream_from_ifc_store,
                 add_ifc_backend=add_ifc_backend,
+                scene=SceneDC(operation=SceneOperationsDC.REPLACE if not append_to_scene else SceneOperationsDC.ADD),
             )
 
         # Set up the renderer and WebSocket server
-        renderer_instance = renderer_manager.render(self, params_override)
+        renderer_instance = renderer_manager.render(self, params_override, apply_transform=apply_transform)
         return renderer_instance
 
     @property

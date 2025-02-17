@@ -1,11 +1,12 @@
 import trimesh
 from websockets.sync.client import connect
 
-from ada.comms.fb_deserializer import deserialize_root_message
-from ada.comms.fb_model_gen import (
+from ada.comms.fb_wrap_deserializer import deserialize_root_message
+from ada.comms.fb_wrap_model_gen import (
     CommandTypeDC,
     FileObjectDC,
     FilePurposeDC,
+    MeshDC,
     MessageDC,
     ProcedureDC,
     ProcedureStartDC,
@@ -71,6 +72,10 @@ class WebSocketClientSync(WebSocketClientBase):
         buffer = self._scene_update_prep(
             name, scene, purpose, scene_op, gltf_buffer_postprocessor, gltf_tree_postprocessor, target_id=target_id
         )
+        self.websocket.send(buffer)
+
+    def append_scene(self, mesh: MeshDC, target_id=None):
+        buffer = self._scene_append_prep(mesh, target_id=target_id)
         self.websocket.send(buffer)
 
     def update_file_server(self, file_object: FileObjectDC):

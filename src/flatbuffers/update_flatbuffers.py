@@ -1,10 +1,11 @@
 import pathlib
 import shutil
 import subprocess
+import sys
 
-from dataclass_gen import generate_dataclasses_from_schema, parse_fbs_file
-from deserializer_gen import generate_deserialization_code
-from serializer_gen import generate_serialization_code
+from gen_dataclasses import generate_dataclasses_from_schema, load_fbs_file
+from gen_deserializer import generate_deserialization_code
+from gen_serializer import generate_serialization_code
 from update_imports import update_py_imports, update_ts_imports
 
 ROOT_DIR = pathlib.Path(__file__).parent.parent.parent
@@ -20,25 +21,35 @@ def main():
     # Clean wsock directory and generated directory
     shutil.rmtree(_WSOCK_DIR, ignore_errors=True)
     shutil.rmtree(_GEN_DIR, ignore_errors=True)
+    flatc_exe = shutil.which("flatc.exe")
+    if flatc_exe is None:  #
+        flatc_exe = pathlib.Path(sys.prefix) / "Library/bin/flatc.exe"
+        flatc_exe = shutil.which(flatc_exe)
+
+    if flatc_exe is None:
+        raise Exception("FlatBuffers compiler not found in PATH!")
+
+    if isinstance(flatc_exe, str):
+        flatc_exe = pathlib.Path(flatc_exe)
+
+    main_cmd_file = _SCHEMA_DIR / "commands.fbs"
+    schema_files = [fbs.as_posix() for fbs in _SCHEMA_DIR.rglob("*.fbs")]
+
+    _SCHEMA_DIR.mkdir(parents=True, exist_ok=True)
     # Generate FlatBuffers code
     args = [
-        "flatc",
+        flatc_exe.as_posix(),
         "--python",
         "-o",
         _COMMS_DIR.as_posix(),
-        CMD_FILE.as_posix(),
+        *schema_files,
         "&&",
-        "flatc",
+        flatc_exe.as_posix(),
         "--ts",
         "--gen-object-api",
         "-o",
         _GEN_DIR.as_posix(),
-        CMD_FILE.as_posix(),
-        "&&",
-        "git",
-        "add",
-        _WSOCK_DIR.as_posix(),
-        _GEN_DIR.as_posix(),
+        *schema_files,
     ]
 
     result = subprocess.run(" ".join(args), shell=True, check=True, cwd=ROOT_DIR)
@@ -47,20 +58,45 @@ def main():
     else:
         raise Exception("Error generating FlatBuffers!")
 
+    finalize_args = [
+        "git",
+        "add",
+        _COMMS_DIR.as_posix(),
+        _GEN_DIR.as_posix(),
+    ]
+
+    result = subprocess.run(finalize_args, shell=True, check=True)
+
+    if result.returncode != 0:
+        raise Exception("Error generating FlatBuffers!")
+
     # Update imports in the generated code
-    update_py_imports(_WSOCK_DIR)
+
     update_ts_imports(_GEN_DIR)
 
     # Update datclasses and enums
-    generate_dataclasses_from_schema(parse_fbs_file(CMD_FILE.as_posix()), _COMMS_DIR / "fb_model_gen.py")
+    fbs_schema = load_fbs_file(main_cmd_file.as_posix(), py_root="ada.comms")
+    sequence = fbs_schema.includes + [fbs_schema]
+    namespaces = [fbs.namespace for fbs in sequence]
+    for included_fbs in sequence:
+        namespace = included_fbs.namespace
+        for ns in namespaces:
+            update_py_imports(ns, _COMMS_DIR / namespace)
 
-    # Update serializer and deserializer
-    generate_serialization_code(
-        CMD_FILE.as_posix(), _COMMS_DIR / "fb_serializer.py", "ada.comms.wsock", "ada.comms.fb_model_gen"
-    )
-    generate_deserialization_code(
-        CMD_FILE.as_posix(), _COMMS_DIR / "fb_deserializer.py", "ada.comms.wsock", "ada.comms.fb_model_gen"
-    )
+        prefix = f"fb_{namespace}"
+
+        fb_gen_import_root = f"{included_fbs.py_root}.{namespace}"
+        dc_imports = f"{included_fbs.py_root}.{prefix}_gen"
+
+        generate_dataclasses_from_schema(included_fbs, _COMMS_DIR / f"{prefix}_gen.py")
+
+        # Update serializer and deserializer
+        generate_serialization_code(
+            included_fbs, _COMMS_DIR / f"{prefix}_serializer.py", fb_gen_import_root, dc_imports
+        )
+        generate_deserialization_code(
+            included_fbs.file_path.as_posix(), _COMMS_DIR / f"{prefix}_deserializer.py", fb_gen_import_root, dc_imports
+        )
 
 
 if __name__ == "__main__":

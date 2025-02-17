@@ -37,6 +37,7 @@ export function handleClickMesh(event: ThreeEvent<PointerEvent>) {
     const drawRange = getSelectedMeshDrawRange(mesh, faceIndex);
 
     if (!drawRange) {
+        console.warn("selected mesh has no draw range");
         return;
     }
 

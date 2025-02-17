@@ -1,20 +1,45 @@
 import pathlib
+from collections import defaultdict
 
-from fbs_serializer import FlatBufferSchema, parse_fbs_file
-
-import_str = """from __future__ import annotations
-from enum import Enum
-from dataclasses import dataclass
-from typing import Optional, List
-import pathlib
+from fbs_serializer import FlatBufferSchema, load_fbs_file
 
 
-"""
+def create_top_level_import_string(schema: FlatBufferSchema) -> str:
+    import_str = "from __future__ import annotations\nfrom typing import Optional, List\n"
+    if len(schema.enums) > 0:
+        import_str += "from enum import Enum\n"
+    if len(schema.tables) > 0:
+        import_str += "from dataclasses import dataclass\n"
+
+    has_paths = False
+    for tbl in schema.tables:
+        for field in tbl.fields:
+            python_type, is_optional = convert_flatbuffer_type_to_python(field.field_type)
+            if python_type == "str" and "path" in field.name:
+                has_paths = True
+                break
+    if has_paths:
+        import_str += "import pathlib\n"
+    return import_str
 
 
 # Function to generate Python dataclasses and enums from the FlatBufferSchema object
 def generate_dataclasses_from_schema(schema: FlatBufferSchema, output_file: str | pathlib.Path = None) -> str:
+    import_str = create_top_level_import_string(schema)
     result = [import_str]
+
+    # add imports from other namespaces
+    import_map = defaultdict(list)
+    for tbl in schema.tables:
+        for field in tbl.fields:
+            if field.namespace is not None and field.namespace != schema.namespace:
+                import_map[field.namespace].append(f"{field.field_type}DC")
+
+    for namespace, values in import_map.items():
+        imports = ", ".join(values)
+        result.append(f"from {schema.py_root}.fb_{namespace}_gen import {imports}")
+
+    result.append("\n\n")
 
     # Process Enums
     for enum_def in schema.enums:
@@ -52,6 +77,10 @@ def generate_dataclasses_from_schema(schema: FlatBufferSchema, output_file: str 
                 default_value = " = None"
             elif python_type == "List[float]":
                 default_value = " = None"
+            elif python_type == "List[int]":
+                default_value = " = None"
+            elif python_type == "List[uint32]":
+                default_value = " = None"
 
             result.append(f"    {field.name}: {python_type}{default_value}")
         result.append("")
@@ -70,6 +99,7 @@ def convert_flatbuffer_type_to_python(flat_type: str) -> tuple[str, bool]:
         "byte": "int",
         "[ubyte]": "bytes",
         "int": "int",
+        "[uint32]": "List[int]",
         "string": "str",
         "bool": "bool",
         "float": "float",
@@ -90,7 +120,7 @@ def convert_flatbuffer_type_to_python(flat_type: str) -> tuple[str, bool]:
 if __name__ == "__main__":
     # Assuming the schema is already parsed into FlatBufferSchema object
     fbs_file = "schemas/commands.fbs"  # Replace with your .fbs file path
-    fbs_schema = parse_fbs_file(fbs_file)
+    fbs_schema = load_fbs_file(fbs_file)
 
     # Write the generated code to a Python file
     tmp_dir = pathlib.Path("temp")

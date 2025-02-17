@@ -1,7 +1,6 @@
 name: ada-full
 channels:
   - conda-forge
-  - krande
 dependencies:
   - python=3.11
   - ada-py

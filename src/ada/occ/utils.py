@@ -468,6 +468,9 @@ def make_ori_vector(
     ylen = np.array(csys[1]) * cyl_l_y
     zlen = np.array(csys[2]) * cyl_l_z
 
+    if any(vector_length(x) == 0 for x in [xlen, ylen, zlen]):
+        raise ValueError(f"Check your csys input. One of your directional vectors is a zero-vector {csys}")
+
     x_vec_shape = PrimCyl(
         name + "_X",
         origin,

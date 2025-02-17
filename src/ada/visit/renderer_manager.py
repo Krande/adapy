@@ -7,10 +7,11 @@ from typing import TYPE_CHECKING, Callable, Literal, Optional, OrderedDict
 import numpy as np
 import trimesh
 
-from ada.comms.fb_model_gen import (
+from ada.comms.fb_wrap_model_gen import (
     FileObjectDC,
     FilePurposeDC,
     FileTypeDC,
+    MeshDC,
     SceneDC,
     SceneOperationsDC,
 )
@@ -229,14 +230,19 @@ def scene_from_object(physical_object: BackendGeom, params: RenderParams) -> tri
     return scene
 
 
-def scene_from_part_or_assembly(part_or_assembly: Part | Assembly, params: RenderParams) -> trimesh.Scene:
+def scene_from_part_or_assembly(
+    part_or_assembly: Part | Assembly, apply_transform, params: RenderParams
+) -> trimesh.Scene:
     from ada import Assembly
 
     if params.auto_sync_ifc_store and isinstance(part_or_assembly, Assembly):
         part_or_assembly.ifc_store.sync()
 
     scene = part_or_assembly.to_trimesh_scene(
-        stream_from_ifc=params.stream_from_ifc_store, merge_meshes=params.merge_meshes, params=params
+        stream_from_ifc=params.stream_from_ifc_store,
+        merge_meshes=params.merge_meshes,
+        params=params,
+        apply_transform=apply_transform,
     )
     return scene
 
@@ -246,7 +252,7 @@ class RendererManager:
         self,
         renderer: Literal["react", "pygfx"],
         host: str = "localhost",
-        port: int = 8765,
+        ws_port: int = 8765,
         server_exe: pathlib.Path = None,
         server_args: list[str] = None,
         run_ws_in_thread: bool = False,
@@ -254,7 +260,7 @@ class RendererManager:
     ):
         self.renderer = renderer
         self.host = host
-        self.port = port
+        self.ws_port = ws_port
         self.server_exe = server_exe
         self.server_args = server_args
         self.run_ws_in_thread = run_ws_in_thread
@@ -278,7 +284,7 @@ class RendererManager:
             server_exe=self.server_exe,
             server_args=self.server_args,
             host=self.host,
-            port=self.port,
+            port=self.ws_port,
             run_in_thread=self.run_ws_in_thread,
         )
 
@@ -311,7 +317,12 @@ class RendererManager:
 
         return renderer
 
-    def render(self, obj: BackendGeom | Part | Assembly | FEAResult | FEM, params: RenderParams) -> HTML | None:
+    def render(
+        self,
+        obj: BackendGeom | Part | Assembly | FEAResult | FEM | trimesh.Scene | MeshDC,
+        params: RenderParams,
+        apply_transform=True,
+    ) -> HTML | None:
         from ada import FEM, Assembly, Part
         from ada.base.physical_objects import BackendGeom
         from ada.comms.wsock_client_sync import WebSocketClientSync
@@ -325,26 +336,43 @@ class RendererManager:
         else:
             target_id = None  # Currently does not support unique viewer IDs outside of notebooks
 
-        with WebSocketClientSync(self.host, self.port) as wc:
+        with WebSocketClientSync(self.host, self.ws_port) as wc:
             renderer_instance = self.ensure_liveness(wc, target_id=target_id)
 
             if type(obj) is Part or type(obj) is Assembly:
-                scene = scene_from_part_or_assembly(obj, params)
+                scene = scene_from_part_or_assembly(obj, apply_transform, params)
             elif isinstance(obj, BackendGeom):
                 scene = scene_from_object(obj, params)
             elif isinstance(obj, FEM):
                 scene = scene_from_fem(obj, params)
             elif isinstance(obj, FEAResult):
                 scene = scene_from_fem_results(obj, params)
+            elif isinstance(obj, trimesh.Scene):
+                scene = obj
+            elif isinstance(obj, MeshDC):
+                wc.append_scene(obj)
+                return renderer_instance
             else:
                 raise ValueError(f"Unsupported object type: {type(obj)}")
+
+            if params.scene.operation == SceneOperationsDC.ADD:
+                mesh: trimesh.Trimesh = scene.to_mesh()
+                verts = mesh.vertices.flatten().tolist()
+                faces = mesh.faces.flatten().tolist()
+                parent_name = None
+                if hasattr(obj, "parent") and obj.parent is not None:
+                    parent_name = obj.parent.name
+                name = obj.name if hasattr(obj, "name") else "Scene"
+                mesh_dc = MeshDC(name, faces, verts, parent_name)
+                wc.append_scene(mesh_dc)
+                return renderer_instance
 
             if params.scene_post_processor is not None:
                 scene = params.scene_post_processor(scene)
 
             # Send the scene to the WebSocket client
             wc.update_scene(
-                obj.name,
+                obj.name if hasattr(obj, "name") else "Scene",
                 scene,
                 purpose=params.purpose,
                 scene_op=params.scene.operation,

@@ -7,11 +7,9 @@ from ada.cadit.ifc.write.geom.points import cpt, vrtx
 from ada.geom import curves as geo_cu
 
 
-def indexed_poly_curve(ipc: geo_cu.IndexedPolyCurve, f: ifcopenshell.file) -> ifcopenshell.entity_instance:
-    """Converts an IndexedPolyCurve to an IFC representation"""
-    unique_pts, segment_indices = ipc.get_points_and_segment_indices()
-
-    points = unique_pts.tolist()
+def indexed_poly_curve_from_points_and_segments(
+    points: list[list[float]], segment_indices: list[list[int]], f: ifcopenshell.file
+) -> ifcopenshell.entity_instance:
     if len(points[0]) == 2:
         list_type = "IfcCartesianPointList2D"
     else:
@@ -24,6 +22,14 @@ def indexed_poly_curve(ipc: geo_cu.IndexedPolyCurve, f: ifcopenshell.file) -> if
     ]
 
     return f.create_entity("IfcIndexedPolyCurve", ifc_point_list, s, False)
+
+
+def indexed_poly_curve(ipc: geo_cu.IndexedPolyCurve, f: ifcopenshell.file) -> ifcopenshell.entity_instance:
+    """Converts an IndexedPolyCurve to an IFC representation"""
+    unique_pts, segment_indices = ipc.get_points2d_and_segment_indices()
+
+    points = unique_pts.tolist()
+    return indexed_poly_curve_from_points_and_segments(points, segment_indices, f)
 
 
 def circle_curve(circle: geo_cu.Circle, f: ifcopenshell.file) -> ifcopenshell.entity_instance:

@@ -1,10 +1,12 @@
-from ada.comms.fb_deserializer import deserialize_root_message
-from ada.comms.fb_model_gen import (
+from ada.comms.fb_wrap_deserializer import deserialize_root_message
+from ada.comms.fb_wrap_model_gen import (
+    AppendMeshDC,
     CommandTypeDC,
     FileArgDC,
     FileObjectDC,
     FilePurposeDC,
     FileTypeDC,
+    MeshDC,
     MeshInfoDC,
     MessageDC,
     ParameterDC,
@@ -16,7 +18,7 @@ from ada.comms.fb_model_gen import (
     SceneOperationsDC,
     TargetTypeDC,
 )
-from ada.comms.fb_serializer import serialize_message
+from ada.comms.fb_wsock_serializer import serialize_root_message
 
 
 def test_basic_flat_buffers():
@@ -40,7 +42,7 @@ def test_basic_flat_buffers():
     )
 
     # Serialize the dataclass message into a FlatBuffer
-    flatbuffer_data = serialize_message(message)
+    flatbuffer_data = serialize_root_message(message)
 
     # You can now send `flatbuffer_data` over a network, save it to a file, etc.
     print(flatbuffer_data)
@@ -72,7 +74,7 @@ def test_basic_flat_buffers_2():
     )
 
     # Serialize the dataclass message into a FlatBuffer
-    flatbuffer_data = serialize_message(message)
+    flatbuffer_data = serialize_root_message(message)
 
     # You can now send `flatbuffer_data` over a network, save it to a file, etc.
     print(flatbuffer_data)
@@ -107,7 +109,7 @@ def test_procedure_store():
     )
 
     # Serialize the dataclass message into a FlatBuffer
-    flatbuffer_data = serialize_message(message)
+    flatbuffer_data = serialize_root_message(message)
 
     # You can now send `flatbuffer_data` over a network, save it to a file, etc.
     print(flatbuffer_data)
@@ -116,3 +118,16 @@ def test_procedure_store():
     deserialized_message = deserialize_root_message(flatbuffer_data)
     print(deserialized_message)
     assert deserialized_message == message
+
+
+def test_append_mesh():
+
+    message = MessageDC(package=AppendMeshDC(mesh=MeshDC(vertices=[1.0, 2.0, 3.0], indices=[1, 2, 3])))
+    # Serialize the dataclass message into a FlatBuffer
+    flatbuffer_data = serialize_root_message(message)
+
+    # Deserialize the FlatBuffer back into a dataclass message
+    deserialized_message = deserialize_root_message(flatbuffer_data)
+    package = deserialized_message.package
+
+    assert package == message.package

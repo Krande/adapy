@@ -1,4 +1,5 @@
-from ada.comms.fb_model_gen import (
+from ada.comms.fb_meshes_deserializer import deserialize_appendmesh
+from ada.comms.fb_wsock_gen import (
     ArrayTypeDC,
     CameraParamsDC,
     CommandTypeDC,
@@ -297,6 +298,7 @@ def deserialize_message(fb_obj) -> MessageDC | None:
         procedure_store=deserialize_procedurestore(fb_obj.ProcedureStore()),
         server_reply=deserialize_serverreply(fb_obj.ServerReply()),
         screenshot=deserialize_screenshot(fb_obj.Screenshot()),
+        package=deserialize_appendmesh(fb_obj.Package()),
     )
 
 

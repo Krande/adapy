@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 
 import trimesh
 
-from ada.comms.fb_model_gen import FileObjectDC
+from ada.comms.fb_wrap_model_gen import FileObjectDC
 from ada.config import Config, logger
 
 if TYPE_CHECKING:

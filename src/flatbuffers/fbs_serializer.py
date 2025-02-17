@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+import pathlib
 import re
 from dataclasses import dataclass
 from typing import List, Optional
@@ -15,6 +18,7 @@ class TableField:
     field_type: str  # Can be a primitive type, a complex type (another table), or an enum
     default_value: str | None = None
     has_default: bool = False
+    namespace: str | None = None
 
 
 @dataclass
@@ -33,9 +37,13 @@ class TableDefinition:
 
 @dataclass
 class FlatBufferSchema:
+    file_path: pathlib.Path
+    namespace: str | None
+    py_root: str
     enums: List[EnumDefinition]
     tables: List[TableDefinition]
     root_type: Optional[str]  # The root table type<
+    includes: List[FlatBufferSchema]
 
     def __post_init__(self):
         for tbl in self.tables:
@@ -44,11 +52,39 @@ class FlatBufferSchema:
         for enum in self.enums:
             enum.schema = self
 
+    def get_include_from_namespace(self, namespace: str) -> Optional[FlatBufferSchema]:
+        for incl in self.includes:
+            if incl.namespace == namespace:
+                return incl
+
 
 # Function to parse enums and tables from the .fbs file and represent them as dataclasses
-def parse_fbs_file(fbs_file: str) -> FlatBufferSchema:
+def load_fbs_file(fbs_file: str, py_root: str = "ada.comms") -> FlatBufferSchema:
+    if isinstance(fbs_file, str):
+        fbs_file = pathlib.Path(fbs_file)
+
     with open(fbs_file, "r") as file:
         fbs_content = file.read()
+
+    parsed_enums = []
+    parsed_tables = []
+    includes = []
+
+    # get namespace
+    namespace_pattern = r"namespace\s+(\w+)"
+    namespace_result = re.search(namespace_pattern, fbs_content)
+    namespace = None
+    if namespace_result:
+        namespace = namespace_result.group(1)
+        namespace = namespace.strip()
+
+    # loop over include files
+    include_pattern = r'include "(.*?)"'
+    include_files = re.findall(include_pattern, fbs_content)
+
+    for include_file in include_files:
+        fbs_schema = load_fbs_file(fbs_file.parent / include_file, py_root=py_root)
+        includes.append(fbs_schema)
 
     # Remove comments
     fbs_content = re.sub(r"//.*", "", fbs_content)
@@ -68,7 +104,6 @@ def parse_fbs_file(fbs_file: str) -> FlatBufferSchema:
     root_type = root_match.group(1) if root_match else None
 
     # Process enums
-    parsed_enums = []
     for enum_name, enum_values in enums:
         enum_fields = []
         for enum_value in enum_values.split(","):
@@ -87,7 +122,6 @@ def parse_fbs_file(fbs_file: str) -> FlatBufferSchema:
         parsed_enums.append(EnumDefinition(name=enum_name, values=enum_fields))
 
     # Process tables
-    parsed_tables = []
     for table_name, table_fields in tables:
         fields = []
         for field in table_fields.split(";"):
@@ -102,14 +136,29 @@ def parse_fbs_file(fbs_file: str) -> FlatBufferSchema:
                 field_type = field_type.strip()
                 default_value = default_value.strip()
                 has_default = True
+
+            field_namespace = None
+            if "." in field_type:
+                field_namespace, field_type = field_type.split(".")
+                field_namespace = field_namespace.strip()
+
             fields.append(
                 TableField(
                     name=field_name.strip(),
                     field_type=field_type.strip(),
                     default_value=default_value,
                     has_default=has_default,
+                    namespace=field_namespace,
                 )
             )
         parsed_tables.append(TableDefinition(name=table_name, fields=fields))
 
-    return FlatBufferSchema(enums=parsed_enums, tables=parsed_tables, root_type=root_type)
+    return FlatBufferSchema(
+        fbs_file,
+        namespace,
+        py_root,
+        enums=parsed_enums,
+        tables=parsed_tables,
+        root_type=root_type,
+        includes=includes,
+    )

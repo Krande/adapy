@@ -13,29 +13,18 @@ jobs:
         shell: bash -l {0}
     steps:
       - uses: actions/checkout@v4
-      - uses: mamba-org/setup-micromamba@v2 # https://github.com/mamba-org/setup-micromamba
+
+      - uses: prefix-dev/setup-pixi@v0.8.2
         with:
-          cache-env: true
-          environment-name: ada
-          channels: conda-forge
-          channel-priority: strict
-          environment-file: conda/environment.core.yml
-          create-args: >-
-            python=3.11
-            jupyterlab
-            pyparsing
-            pytest
-            scalene
+          pixi-version: v0.41.3
+          environments: profile
+          cache: true
 
-      - name: pip install
-        run: |
-          pip install -e .
+      - name: Run Scalene Profiling
+        run: pixi run scalene
 
-      - name: Profile using scalene
-        run: scalene --json -m pytest ./tests --ignore=./tests/docker/ --outfile=profile.json
-
-      - name: Profile using cProfile
-        run: python -m cProfile -o profile -m pytest tests --ignore=./tests/docker
+      - name: Run cprofilev Profiling
+        run: pixi run cprofile
 
       - name: Create Release Package
         uses: softprops/action-gh-release@v2

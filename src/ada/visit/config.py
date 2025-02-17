@@ -6,7 +6,7 @@ from typing import Callable, List, Union
 import numpy as np
 
 import ada.base.physical_objects
-from ada.visit.plots import build_display
+from ada.visit.plots import section_overview_to_html_str
 
 
 @dataclass
@@ -40,7 +40,7 @@ class ExportConfig:
 
 
 JUPYTER_GEOM_RENDERER: Callable[[ada.base.physical_objects.BackendGeom], None] | None = None
-JUPYTER_SECTION_RENDERER: Callable[[ada.sections.Section], None] | None = build_display
+JUPYTER_SECTION_RENDERER: Callable[[ada.sections.Section], None] | None = section_overview_to_html_str
 
 
 def set_jupyter_part_renderer(renderer: Callable[[ada.base.physical_objects.BackendGeom], None]) -> None:

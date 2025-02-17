@@ -3,8 +3,8 @@ import react from '@vitejs/plugin-react';
 
 // @ts-ignore
 import path from 'path';
-//import * as visualizer from 'rollup-plugin-visualizer';
 
+// Detect Jupyter-specific build
 export default defineConfig({
     root: path.resolve(__dirname, 'src'), // Set the root directory to 'src'
     base: './',
@@ -13,7 +13,7 @@ export default defineConfig({
         outDir: path.resolve(__dirname, 'dist'), // Output directory outside of 'src'
         sourcemap: false,
         rollupOptions: {
-            input: './src/index.html', // Adjusted the path since 'root' is already 'src'
+            input: path.resolve(__dirname, 'src/index.html'), // Normal Frontend Entry
             output: {
                 manualChunks: undefined
             }

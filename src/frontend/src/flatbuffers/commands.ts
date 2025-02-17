@@ -2,4 +2,5 @@
 
 /* eslint-disable @typescript-eslint/no-unused-vars, @typescript-eslint/no-explicit-any, @typescript-eslint/no-non-null-assertion */
 
+export * as meshes from './meshes.js';
 export * as wsock from './wsock.js';
