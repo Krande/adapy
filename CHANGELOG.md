@@ -2,6 +2,13 @@
 
 
 
+## v0.4.0 (2025-02-17)
+
+### Feature
+
+* feat: partial viewer updates and many small fixes and improvements (#127) ([`bb80914`](https://github.com/Krande/adapy/commit/bb809142957172a9ed992c8489f1fbdb9101c0da))
+
+
 ## v0.3.8 (2024-12-20)
 
 ### Chore
