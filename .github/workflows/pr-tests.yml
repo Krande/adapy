@@ -19,7 +19,7 @@ jobs:
             with:
               ref: ${{ github.event.pull_request.head.sha || github.ref }}
 
-          - uses: prefix-dev/setup-pixi@v0.8.1  # https://github.com/prefix-dev/setup-pixi
+          - uses: prefix-dev/setup-pixi@v0.8.2  # https://github.com/prefix-dev/setup-pixi
             with:
               pixi-version: v0.39.2
               cache: true
