@@ -10,7 +10,9 @@ def straight_sweep_x(append=False):
     profile = profile2d
     sweep = ada.PrimSweep("sweep_x", sweep_curve, profile)
     sweep.show(stream_from_ifc_store=True, append_to_scene=append)
-    (ada.Assembly() / (ada.Part('MySweep', ifc_class=SpatialTypes.IfcBuilding) / sweep)).to_ifc("temp/sweep_x.ifc", validate=True)
+    (ada.Assembly() / (ada.Part("MySweep", ifc_class=SpatialTypes.IfcBuilding) / sweep)).to_ifc(
+        "temp/sweep_x.ifc", validate=True
+    )
 
 
 def straight_sweep_y(append=False):
@@ -18,7 +20,7 @@ def straight_sweep_y(append=False):
     profile = profile2d
     sweep = ada.PrimSweep("sweep_y", sweep_curve, profile)
     sweep.show(stream_from_ifc_store=True, append_to_scene=append)
-    (ada.Assembly() / (ada.Part('MySweep') / sweep)).to_ifc("temp/sweep_y.ifc", validate=True)
+    (ada.Assembly() / (ada.Part("MySweep") / sweep)).to_ifc("temp/sweep_y.ifc", validate=True)
 
 
 def straight_sweep_z(append=False):

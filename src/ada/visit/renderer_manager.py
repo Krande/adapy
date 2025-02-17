@@ -230,14 +230,19 @@ def scene_from_object(physical_object: BackendGeom, params: RenderParams) -> tri
     return scene
 
 
-def scene_from_part_or_assembly(part_or_assembly: Part | Assembly, apply_transform, params: RenderParams) -> trimesh.Scene:
+def scene_from_part_or_assembly(
+    part_or_assembly: Part | Assembly, apply_transform, params: RenderParams
+) -> trimesh.Scene:
     from ada import Assembly
 
     if params.auto_sync_ifc_store and isinstance(part_or_assembly, Assembly):
         part_or_assembly.ifc_store.sync()
 
     scene = part_or_assembly.to_trimesh_scene(
-        stream_from_ifc=params.stream_from_ifc_store, merge_meshes=params.merge_meshes, params=params, apply_transform=apply_transform
+        stream_from_ifc=params.stream_from_ifc_store,
+        merge_meshes=params.merge_meshes,
+        params=params,
+        apply_transform=apply_transform,
     )
     return scene
 
@@ -313,7 +318,10 @@ class RendererManager:
         return renderer
 
     def render(
-        self, obj: BackendGeom | Part | Assembly | FEAResult | FEM | trimesh.Scene | MeshDC, params: RenderParams, apply_transform=True
+        self,
+        obj: BackendGeom | Part | Assembly | FEAResult | FEM | trimesh.Scene | MeshDC,
+        params: RenderParams,
+        apply_transform=True,
     ) -> HTML | None:
         from ada import FEM, Assembly, Part
         from ada.base.physical_objects import BackendGeom

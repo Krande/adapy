@@ -537,8 +537,10 @@ class PrimSweep(Shape):
             sweep_curve = CurveOpen3d(sweep_curve_new, radiis=radiis, tol=tol)
 
         if not isinstance(profile_curve_outer, CurvePoly2d):
-            profile_xdir = Direction(*profile_xdir) if profile_xdir is not None else Direction(1,0,0)
-            profile_curve_outer = CurvePoly2d(profile_curve_outer, origin=origin, normal=target_zdir, xdir=profile_xdir, tol=tol)
+            profile_xdir = Direction(*profile_xdir) if profile_xdir is not None else Direction(1, 0, 0)
+            profile_curve_outer = CurvePoly2d(
+                profile_curve_outer, origin=origin, normal=target_zdir, xdir=profile_xdir, tol=tol
+            )
         else:
             profile_curve_outer = profile_curve_outer
 

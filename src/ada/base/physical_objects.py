@@ -7,7 +7,6 @@ from ada.api.transforms import Placement
 from ada.base.root import Root
 from ada.base.types import GeomRepr
 from ada.base.units import Units
-from ada.comms.fb_wrap_model_gen import FilePurposeDC
 from ada.geom import Geometry
 from ada.geom.booleans import BoolOpEnum
 from ada.visit.colors import Color, color_dict
@@ -181,8 +180,8 @@ class BackendGeom(Root):
         liveness_timeout: int = 1,
     ):
         # Use RendererManager to handle renderer setup and WebSocket connection
-        from ada.visit.renderer_manager import RendererManager, RenderParams
         from ada.comms.fb_wrap_model_gen import SceneDC, SceneOperationsDC
+        from ada.visit.renderer_manager import RendererManager, RenderParams
 
         renderer_manager = RendererManager(
             renderer=renderer,
@@ -191,7 +190,7 @@ class BackendGeom(Root):
             server_exe=server_exe,
             server_args=server_args,
             run_ws_in_thread=run_ws_in_thread,
-            ping_timeout=liveness_timeout
+            ping_timeout=liveness_timeout,
         )
 
         if params_override is None:

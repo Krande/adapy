@@ -1,9 +1,11 @@
 import os
+
 from ipywidgets import DOMWidget
 from traitlets import Unicode
 
 # Get the path to the `jupyter-dist/` directory
 MODULE_DIR = os.path.dirname(__file__)
+
 
 class AdapyViewerWidget(DOMWidget):
     _view_name = Unicode("AdapyViewerWidgetView").tag(sync=True)

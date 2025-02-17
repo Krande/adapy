@@ -1,11 +1,46 @@
-import flatbuffers
 from typing import Optional
 
-from ada.comms.wsock import WebClient, FileObject, FileObjectRef, MeshInfo, CameraParams, Scene, Server, ProcedureStore, FileArg, Procedure, Value, Parameter, ProcedureStart, Error, ServerReply, Screenshot, Message
-
-from ada.comms.fb_wsock_gen import WebClientDC, FileObjectDC, FileObjectRefDC, MeshInfoDC, CameraParamsDC, SceneDC, ServerDC, ProcedureStoreDC, FileArgDC, ProcedureDC, ValueDC, ParameterDC, ProcedureStartDC, ErrorDC, ServerReplyDC, ScreenshotDC, MessageDC
-
+import flatbuffers
 from ada.comms.fb_meshes_serializer import serialize_appendmesh
+from ada.comms.fb_wsock_gen import (
+    CameraParamsDC,
+    ErrorDC,
+    FileArgDC,
+    FileObjectDC,
+    FileObjectRefDC,
+    MeshInfoDC,
+    MessageDC,
+    ParameterDC,
+    ProcedureDC,
+    ProcedureStartDC,
+    ProcedureStoreDC,
+    SceneDC,
+    ScreenshotDC,
+    ServerDC,
+    ServerReplyDC,
+    ValueDC,
+    WebClientDC,
+)
+from ada.comms.wsock import (
+    CameraParams,
+    Error,
+    FileArg,
+    FileObject,
+    FileObjectRef,
+    MeshInfo,
+    Message,
+    Parameter,
+    Procedure,
+    ProcedureStart,
+    ProcedureStore,
+    Scene,
+    Screenshot,
+    Server,
+    ServerReply,
+    Value,
+    WebClient,
+)
+
 
 def serialize_webclient(builder: flatbuffers.Builder, obj: Optional[WebClientDC]) -> Optional[int]:
     if obj is None:
@@ -535,7 +570,7 @@ def serialize_message(builder: flatbuffers.Builder, obj: Optional[MessageDC]) ->
     return Message.End(builder)
 
 
-def serialize_root_message(message: MessageDC, builder: flatbuffers.Builder=None) -> bytes:
+def serialize_root_message(message: MessageDC, builder: flatbuffers.Builder = None) -> bytes:
     if builder is None:
         builder = flatbuffers.Builder(1024)
     scene_obj = None
