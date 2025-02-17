@@ -67,7 +67,7 @@ pythonpath = ["src"]
 
 [tool.pixi.project]
 channels = ["https://repo.prefix.dev/code-aster", "conda-forge"]
-platforms = ["win-64", "linux-64"]
+platforms = ["win-64", "linux-64", "osx-64"]
 
 [tool.pixi.environments]
 prod = { features = ["prod"], solve-group = "prod", no-default-feature = true }
