@@ -164,7 +164,7 @@ class BackendGeom(Root):
 
     def show(
         self,
-        renderer: Literal["react", "pygfx"] = "react",
+        renderer: Literal["react", "pygfx", "trimesh"] = "react",
         host="localhost",
         ws_port=8765,
         server_exe: pathlib.Path = None,

@@ -1,7 +1,7 @@
 import html
 
 import ipywidgets as widgets
-
+from IPython import display
 
 class WebSocketRenderer(widgets.DOMWidget):
     def __init__(self, html_content: str, height: int = 500, unique_id: int = None, ws_port=None):
@@ -21,7 +21,7 @@ class WebSocketRenderer(widgets.DOMWidget):
         srcdoc = html.escape(self.html_content)
 
         # Create an IFrame widget wrapped in an HTML widget
-        self.html_widget = widgets.HTML(
+        self.html_widget = display.HTML(
             f'<div><iframe srcdoc="{srcdoc}" width="100%" height="{height}px" style="border:none;"></iframe></div>'
         )
 
