@@ -19,6 +19,7 @@
     "autoprefixer": "10.4.20",
     "cross-env": "^7.0.3",
     "depcheck": "^1.4.7",
+    "esbuild": ">=0.25.0",
     "esbuild-helpers": "2.0.1",
     "postcss": "8.4.47",
     "prettier": "3.3.3",

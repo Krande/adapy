@@ -3,6 +3,7 @@ import html
 import ipywidgets as widgets
 from IPython import display
 
+
 class WebSocketRenderer(widgets.DOMWidget):
     def __init__(self, html_content: str, height: int = 500, unique_id: int = None, ws_port=None):
         super().__init__()
