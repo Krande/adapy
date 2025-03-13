@@ -144,7 +144,7 @@ flatbuffers = "*"
 
 # DEVELOP environment that includes Code Aster
 [tool.pixi.feature.dev]
-channels = ["https://repo.prefix.dev/code-aster", { channel="conda-forge", priority=-1 }]
+channels = ["https://repo.prefix.dev/code-aster", "conda-forge"]
 
 [tool.pixi.feature.dev.dependencies]
 ifcopenshell = { version="*" }
