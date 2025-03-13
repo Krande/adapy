@@ -66,11 +66,12 @@ testpaths = ["tests"]
 pythonpath = ["src"]
 
 [tool.pixi.project]
-channels = ["https://repo.prefix.dev/code-aster", "conda-forge"]
+channels = ["conda-forge"]
 platforms = ["win-64", "linux-64", "osx-64"]
 
 [tool.pixi.environments]
 prod = { features = ["prod"], solve-group = "prod", no-default-feature = true }
+dev = { features = ["dev", "prod"], solve-group = "dev", no-default-feature = true }
 lint = { features = ["lint"], no-default-feature = true }
 tests = { features = ["tests", "prod"], solve-group = "prod", no-default-feature = true }
 profile = { features = ["profile", "prod"], solve-group = "prod", no-default-feature = true }
@@ -105,12 +106,6 @@ flatbuffers = "*"
 python-flatbuffers = "*"
 lark = "*"
 
-[tool.pixi.feature.prod.target.linux-64.dependencies]
-# These are not available on conda-forge
-code-aster = "*"
-
-[tool.pixi.feature.prod.target.win-64.dependencies]
-code-aster = { version = "*", channel = "https://repo.prefix.dev/code-aster" }
 
 [tool.pixi.feature.tests.dependencies]
 pytest = "*"
@@ -147,6 +142,30 @@ scipy = "*"
 nodejs = "*"
 flatbuffers = "*"
 
+# DEVELOP environment that includes Code Aster
+[tool.pixi.feature.dev]
+channels = ["https://repo.prefix.dev/code-aster", "conda-forge"]
+
+[tool.pixi.feature.dev.dependencies]
+ifcopenshell = { version="*" }
+pytest = "*"
+pytest-benchmark = "*"
+pytest-asyncio = "*"
+paradoc = "*"
+python-dotenv = "*"
+watchdog = "*"
+
+[tool.pixi.feature.dev.pypi-dependencies]
+pytest-playwright = "*"
+
+[tool.pixi.feature.dev.target.linux-64.dependencies]
+code-aster = "*"
+
+# Code Aster is not yet available on conda-forge for windows
+[tool.pixi.feature.dev.target.win-64.dependencies]
+code-aster = { version = "17.2.*", channel = "https://repo.prefix.dev/code-aster" }
+
+# TASKS
 [tool.pixi.feature.lint.tasks]
 lint = "isort . && black . --config pyproject.toml && ruff check . --fix"
 flat = { cmd = "python src/flatbuffers/update_flatbuffers.py", cwd = "./" }
@@ -162,6 +181,12 @@ test-fem = { cmd = "pytest tests --ignore=tests/profiling --ignore=tests/core --
 
 fem-doc = { cmd = "python build_verification_report.py true true --export-format=docx", cwd = "./tests/fem", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 fem-doc-dev = { cmd = "python doc_live_html.py", cwd = "./tests/fem" }
+
+[tool.pixi.feature.dev.tasks]
+devtest = "pytest tests --ignore=tests/profiling --ignore=tests/fem --durations=0"
+devtest-core = "pytest tests --ignore=tests/profiling --ignore=tests/fem --ignore=tests/full --durations=0"
+devtest-all = "pytest tests --durations=0"
+devtest-fem = { cmd = "pytest tests --ignore=tests/profiling --ignore=tests/core --ignore=tests/full --durations=0" }
 
 [tool.pixi.feature.web.tasks]
 npm = { cmd = "npm", cwd = "./src/frontend" }
