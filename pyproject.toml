@@ -141,6 +141,7 @@ python-flatbuffers = "*"
 sphinx = "*"
 furo = "*"
 myst-parser = "*"
+nbsphinx = "*"
 scipy = "*"
 
 [tool.pixi.feature.web.dependencies]
