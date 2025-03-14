@@ -14,7 +14,7 @@ def uint32_serialize_code(field_name: str, builder_name: str, head_spacing: int)
     s += f"{space}{builder_name}.Start{make_camel_case(field_name)}Vector(builder, len(obj.{field_name}))"
     s += f"\n{space}for item in reversed(obj.{field_name}):"
     s += f"\n{space}    builder.PrependUint32(item)"
-    s += f"\n{space}{field_name}_vector = builder.EndVector(len(obj.{field_name}))\n"
+    s += f"\n{space}{field_name}_vector = builder.EndVector()\n"
 
     return s
 
@@ -25,7 +25,7 @@ def float32_serialize_code(field_name: str, builder_name: str, head_spacing: int
     s += f"{space}{builder_name}.Start{make_camel_case(field_name)}Vector(builder, len(obj.{field_name}))"
     s += f"\n{space}for item in reversed(obj.{field_name}):"
     s += f"\n{space}    builder.PrependFloat32(item)"
-    s += f"\n{space}{field_name}_vector = builder.EndVector(len(obj.{field_name}))\n"
+    s += f"\n{space}{field_name}_vector = builder.EndVector()\n"
 
     return s
 
@@ -60,7 +60,7 @@ def generate_serialize_function(table: TableDefinition) -> str:
                 )
                 serialize_code += f"        for item in reversed({field.name}_list):\n"
                 serialize_code += "            builder.PrependUOffsetTRelative(item)\n"
-                serialize_code += f"        {field.name}_vector = builder.EndVector(len({field.name}_list))\n"
+                serialize_code += f"        {field.name}_vector = builder.EndVector()\n"
             elif field_type_value == "uint32":
                 serialize_code += uint32_serialize_code(field.name, table.name, 4)
             else:

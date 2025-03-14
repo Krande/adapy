@@ -30,7 +30,6 @@ def add_masses(root: ET.Element, part: Part):
     else:
         for p in part.get_all_subparts(True):
             for mass in p.masses:
-                print(mass)
                 bc_stru = ET.SubElement(root, "structure")
                 sup_point = ET.SubElement(bc_stru, "point_mass", {"name": mass.name})
                 sup_point.append(add_local_system(X, Y, Z))

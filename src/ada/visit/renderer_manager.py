@@ -250,13 +250,14 @@ def scene_from_part_or_assembly(
 class RendererManager:
     def __init__(
         self,
-        renderer: Literal["react", "pygfx"],
+        renderer: Literal["react", "pygfx", "trimesh"],
         host: str = "localhost",
         ws_port: int = 8765,
         server_exe: pathlib.Path = None,
         server_args: list[str] = None,
         run_ws_in_thread: bool = False,
         ping_timeout=1,
+        embed_glb: bool = False,
     ):
         self.renderer = renderer
         self.host = host
@@ -266,6 +267,7 @@ class RendererManager:
         self.run_ws_in_thread = run_ws_in_thread
         self._is_in_notebook = None
         self.ping_timeout = ping_timeout
+        self.embed_glb = embed_glb
 
     def start_server(self):
         """Set up the WebSocket server and renderer."""
@@ -317,16 +319,54 @@ class RendererManager:
 
         return renderer
 
+    @staticmethod
+    def obj_to_trimesh(
+        obj: BackendGeom | Part | Assembly | FEAResult | FEM | trimesh.Scene | MeshDC,
+        params: RenderParams,
+        apply_transform=True,
+    ) -> trimesh.Scene:
+        from ada import FEM, Assembly, Part
+        from ada.base.physical_objects import BackendGeom
+        from ada.fem.results.common import FEAResult
+
+        if type(obj) is Part or type(obj) is Assembly:
+            scene = scene_from_part_or_assembly(obj, apply_transform, params)
+        elif isinstance(obj, BackendGeom):
+            scene = scene_from_object(obj, params)
+        elif isinstance(obj, FEM):
+            scene = scene_from_fem(obj, params)
+        elif isinstance(obj, FEAResult):
+            scene = scene_from_fem_results(obj, params)
+        elif isinstance(obj, trimesh.Scene):
+            scene = obj
+        else:
+            raise ValueError(f"Unsupported object type: {type(obj)}")
+
+        return scene
+
     def render(
         self,
         obj: BackendGeom | Part | Assembly | FEAResult | FEM | trimesh.Scene | MeshDC,
         params: RenderParams,
         apply_transform=True,
     ) -> HTML | None:
-        from ada import FEM, Assembly, Part
-        from ada.base.physical_objects import BackendGeom
+        from ada import Assembly
         from ada.comms.wsock_client_sync import WebSocketClientSync
-        from ada.fem.results.common import FEAResult
+
+        if self.renderer == "trimesh":
+            scene = RendererManager.obj_to_trimesh(obj, params, apply_transform)
+            return scene.show()
+
+        if self.embed_glb:
+            from ada.visit.rendering.renderer_react import RendererReact
+
+            renderer_obj = RendererReact()
+            scene = RendererManager.obj_to_trimesh(obj, params, apply_transform)
+            if self.is_in_notebook():
+                renderer = renderer_obj.get_notebook_renderer_widget(target_id=None, embed_trimesh_scene=scene)
+                return renderer
+            else:
+                return renderer_obj.serve_html(embed_trimesh_scene=scene)
 
         # Set up the renderer and WebSocket server
         self.start_server()
@@ -339,21 +379,11 @@ class RendererManager:
         with WebSocketClientSync(self.host, self.ws_port) as wc:
             renderer_instance = self.ensure_liveness(wc, target_id=target_id)
 
-            if type(obj) is Part or type(obj) is Assembly:
-                scene = scene_from_part_or_assembly(obj, apply_transform, params)
-            elif isinstance(obj, BackendGeom):
-                scene = scene_from_object(obj, params)
-            elif isinstance(obj, FEM):
-                scene = scene_from_fem(obj, params)
-            elif isinstance(obj, FEAResult):
-                scene = scene_from_fem_results(obj, params)
-            elif isinstance(obj, trimesh.Scene):
-                scene = obj
-            elif isinstance(obj, MeshDC):
+            if isinstance(obj, MeshDC):
                 wc.append_scene(obj)
                 return renderer_instance
             else:
-                raise ValueError(f"Unsupported object type: {type(obj)}")
+                scene = RendererManager.obj_to_trimesh(obj, params, apply_transform)
 
             if params.scene.operation == SceneOperationsDC.ADD:
                 mesh: trimesh.Trimesh = scene.to_mesh()

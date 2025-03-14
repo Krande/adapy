@@ -1,3 +1,4 @@
+import base64
 import functools
 import http.server
 import os
@@ -11,12 +12,21 @@ from ada.visit.rendering.renderer_react import RendererReact
 # Define the custom request handler
 class CustomHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
     def __init__(
-        self, *args, unique_id, ws_port, node_editor_only=False, target_instance=None, directory=None, **kwargs
+        self,
+        *args,
+        unique_id,
+        ws_port,
+        node_editor_only=False,
+        target_instance=None,
+        directory=None,
+        embed_trimesh_scene=None,
+        **kwargs,
     ):
         self.unique_id = unique_id
         self.ws_port = ws_port  # Use the actual WebSocket port
         self.node_editor_only = node_editor_only
         self.target_instance = target_instance
+        self.embed_trimesh_scene = embed_trimesh_scene
         super().__init__(*args, directory=directory, **kwargs)
 
     def do_GET(self):
@@ -36,6 +46,12 @@ class CustomHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
                     replacement_str += "\n<script>window.NODE_EDITOR_ONLY = true;</script>"
                 if self.target_instance is not None:
                     replacement_str += f'\n<script>window.TARGET_INSTANCE_ID = "{self.target_instance}";</script>'
+                if self.embed_trimesh_scene is not None:
+                    data = self.embed_trimesh_scene.export(file_type="glb")
+                    # encode as base64 string
+                    encoded = base64.b64encode(data).decode("utf-8")
+                    # replace keyword with our scene data
+                    replacement_str += f'\n<script>window.B64GLTF = "{encoded}";</script>'
 
                 # Perform the replacements
                 modified_html_content = html_content.replace("<!--STARTUP_CONFIG_PLACEHOLDER-->", replacement_str)
@@ -60,6 +76,7 @@ def start_serving(
     node_editor_only=False,
     non_blocking=False,
     auto_open=False,
+    embed_trimesh_scene=None,
 ) -> tuple[socketserver.ThreadingTCPServer, threading.Thread] | None:
     rr = RendererReact()
     web_dir = rr.local_html_path.parent
@@ -71,6 +88,7 @@ def start_serving(
         node_editor_only=node_editor_only,
         target_instance=target_instance,
         directory=str(web_dir),
+        embed_trimesh_scene=embed_trimesh_scene,
     )
 
     class ThreadingTCPServer(socketserver.ThreadingTCPServer):

@@ -19,6 +19,13 @@ IFC and various Finite Element formats.
     documents/path_to_software_agnosticism
     documents/meshing
 
+.. toctree::
+    :hidden:
+    :maxdepth: 2
+    :glob:
+    :caption: Examples
+
+    documents/notebooks/modelling
 
 .. toctree::
     :hidden:
