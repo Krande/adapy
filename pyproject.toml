@@ -141,7 +141,9 @@ python-flatbuffers = "*"
 sphinx = "*"
 furo = "*"
 myst-parser = "*"
+nbsphinx = "*"
 scipy = "*"
+fastapi = "*"  # For the API docs
 
 [tool.pixi.feature.web.dependencies]
 nodejs = "*"
@@ -153,6 +155,7 @@ flat = { cmd = "python src/flatbuffers/update_flatbuffers.py", cwd = "./" }
 
 [tool.pixi.feature.docs.tasks]
 docs = { cmd = "cd docs && make html", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+serve = { cmd = "python docs/main.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" }, depends-on = ["docs"] }
 
 [tool.pixi.feature.tests.tasks]
 test = "pytest tests --ignore=tests/profiling --ignore=tests/fem --durations=0"

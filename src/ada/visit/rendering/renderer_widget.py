@@ -14,7 +14,6 @@ class WebSocketRenderer(widgets.DOMWidget):
         if ws_port is not None:
             self.ws_port = ws_port
             html_inject_str += f"<script>window.WEBSOCKET_PORT = {self.ws_port};</script>"
-
         # Inject the unique ID into the HTML content
         self.html_content = html_content.replace("<!--STARTUP_CONFIG_PLACEHOLDER-->", html_inject_str)
 

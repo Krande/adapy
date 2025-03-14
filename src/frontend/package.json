@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "prebuild": "node clean.cjs",
-    "build": "vite build && node embed-script.cjs",
+    "build": "vite build --emptyOutDir && node embed-script.cjs",
     "dev": "vite --force"
   },
   "devDependencies": {

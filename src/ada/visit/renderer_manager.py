@@ -257,6 +257,7 @@ class RendererManager:
         server_args: list[str] = None,
         run_ws_in_thread: bool = False,
         ping_timeout=1,
+        embed_glb: bool = False,
     ):
         self.renderer = renderer
         self.host = host
@@ -266,6 +267,7 @@ class RendererManager:
         self.run_ws_in_thread = run_ws_in_thread
         self._is_in_notebook = None
         self.ping_timeout = ping_timeout
+        self.embed_glb = embed_glb
 
     def start_server(self):
         """Set up the WebSocket server and renderer."""
@@ -354,6 +356,17 @@ class RendererManager:
         if self.renderer == "trimesh":
             scene = RendererManager.obj_to_trimesh(obj, params, apply_transform)
             return scene.show()
+
+        if self.embed_glb:
+            from ada.visit.rendering.renderer_react import RendererReact
+
+            renderer_obj = RendererReact()
+            scene = RendererManager.obj_to_trimesh(obj, params, apply_transform)
+            if self.is_in_notebook():
+                renderer = renderer_obj.get_notebook_renderer_widget(target_id=None, embed_trimesh_scene=scene)
+                return renderer
+            else:
+                return renderer_obj.serve_html(embed_trimesh_scene=scene)
 
         # Set up the renderer and WebSocket server
         self.start_server()

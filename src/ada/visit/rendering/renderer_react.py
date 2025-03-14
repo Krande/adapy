@@ -5,6 +5,8 @@ import pathlib
 import zipfile
 from typing import TYPE_CHECKING
 
+import trimesh
+
 from ada.config import logger
 from ada.visit.colors import Color
 from ada.visit.rendering.render_backend import SqLiteBackend
@@ -52,37 +54,62 @@ class RendererReact:
             # open html file in browser
             os.startfile(self.local_html_path)
 
-    def get_notebook_renderer(self, height=500) -> HTML:
+    def get_html_with_injected_data(
+        self, target_id: int | None = None, ws_port: int | None = None, embed_trimesh_scene: trimesh.Scene | None = None
+    ) -> str:
+        import base64
+
+        html_content = self.local_html_path.read_text(encoding="utf-8")
+
+        html_inject_str = ""
+        if target_id is not None:
+            html_inject_str += f'<script>window.WEBSOCKET_ID = "{target_id}";</script>\n'
+        if ws_port is not None:
+            html_inject_str += f"<script>window.WEBSOCKET_PORT = {ws_port};</script>"
+
+        if embed_trimesh_scene is not None:
+            data = embed_trimesh_scene.export(file_type="glb")
+            # encode as base64 string
+            encoded = base64.b64encode(data).decode("utf-8")
+            # replace keyword with our scene data
+            html_inject_str += f'<script>window.B64GLTF = "{encoded}";</script>'
+
+        # Inject the unique ID into the HTML content
+        html_content = html_content.replace("<!--STARTUP_CONFIG_PLACEHOLDER-->", html_inject_str)
+
+        return html_content
+
+    @staticmethod
+    def serve_html(
+        web_port=5173, ws_port=8765, target_id: int | None = None, embed_trimesh_scene: trimesh.Scene | None = None
+    ):
+        from ada.comms.web_ui import start_serving
+
+        return start_serving(
+            web_port=web_port, ws_port=ws_port, unique_id=target_id, embed_trimesh_scene=embed_trimesh_scene
+        )
+
+    def get_notebook_renderer_widget(
+        self,
+        height: int = 500,
+        target_id: int | None = None,
+        ws_port: int | None = None,
+        embed_trimesh_scene: trimesh.Scene | None = None,
+    ) -> HTML:
         import html
 
-        from IPython.display import HTML
+        from IPython import display
 
-        # Copied from https://github.com/mikedh/trimesh/blob/main/trimesh/viewer/notebook.py#L51-L88
-        as_html = self.local_html_path.read_text(encoding="utf-8")
-        # escape the quotes in the HTML
-        srcdoc = html.escape(as_html)
-        # srcdoc = as_html.replace('"', "&quot;")
-        # embed this puppy as the srcdoc attr of an IFframe
-        # I tried this a dozen ways and this is the only one that works
-        # display.IFrame/display.Javascript really, really don't work
-        # div is to avoid IPython's pointless hardcoded warning
-        embedded = HTML(
-            " ".join(
-                [
-                    '<div><iframe srcdoc="{srcdoc}"',
-                    'width="100%" height="{height}px"',
-                    'style="border:none;"></iframe></div>',
-                ]
-            ).format(srcdoc=srcdoc, height=height)
+        html_content = self.get_html_with_injected_data(target_id, ws_port, embed_trimesh_scene)
+
+        # Escape and embed the HTML in the srcdoc of the iframe
+        srcdoc = html.escape(html_content)
+        # Create an IFrame widget wrapped in an HTML widget
+        html_widget = display.HTML(
+            f'<div><iframe srcdoc="{srcdoc}" width="100%" height="{height}px" style="border:none;"></iframe></div>'
         )
-        return embedded
 
-    def get_notebook_renderer_widget(self, height=500, target_id=None):
-        from ada.visit.rendering.renderer_widget import WebSocketRenderer
-
-        as_html = self.local_html_path.read_text(encoding="utf-8")
-        renderer = WebSocketRenderer(as_html, height=height, unique_id=target_id)
-        return renderer.display()
+        return html_widget
 
 
 def main():

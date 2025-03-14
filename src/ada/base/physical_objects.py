@@ -178,8 +178,9 @@ class BackendGeom(Root):
         params_override: RenderParams = None,
         apply_transform=True,
         liveness_timeout: int = 1,
+        embed_glb: bool = False,
     ):
-        # Use RendererManager to handle renderer setup and WebSocket connection
+        """Show model using either react, pygfx or trimesh renderer and set up WebSocket connection"""
         from ada.comms.fb_wrap_model_gen import SceneDC, SceneOperationsDC
         from ada.visit.renderer_manager import RendererManager, RenderParams
 
@@ -191,6 +192,7 @@ class BackendGeom(Root):
             server_args=server_args,
             run_ws_in_thread=run_ws_in_thread,
             ping_timeout=liveness_timeout,
+            embed_glb=embed_glb,
         )
 
         if params_override is None:
