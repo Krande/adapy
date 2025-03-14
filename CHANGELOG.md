@@ -2,6 +2,20 @@
 
 
 
+## v0.4.1 (2025-03-14)
+
+### Chore
+
+* chore: bump prefix-dev/setup-pixi from 0.8.2 to 0.8.3 in the dependencies group (#128)
+
+Signed-off-by: dependabot[bot] &lt;support@github.com&gt;
+Co-authored-by: dependabot[bot] &lt;49699333+dependabot[bot]@users.noreply.github.com&gt; ([`21f96c1`](https://github.com/Krande/adapy/commit/21f96c1fc3dfcc4fbaa72972414e354cb0c6dfd7))
+
+### Fix
+
+* fix: add renderer option &#34;trimesh&#34; and embed_glb (#129) ([`4eb6dd8`](https://github.com/Krande/adapy/commit/4eb6dd812952c0c97428fddf6ff4c23d05010dfe))
+
+
 ## v0.4.0 (2025-02-17)
 
 ### Feature
