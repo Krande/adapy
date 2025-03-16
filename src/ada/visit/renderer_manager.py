@@ -202,6 +202,7 @@ def scene_from_fem(
 
 def scene_from_object(physical_object: BackendGeom, params: RenderParams) -> trimesh.Scene:
     from itertools import groupby
+    from ada import Pipe
 
     from ada.occ.tessellating import BatchTessellator
     from ada.visit.gltf.optimize import concatenate_stores
@@ -211,11 +212,20 @@ def scene_from_object(physical_object: BackendGeom, params: RenderParams) -> tri
 
     root = GraphNode("world", 0, hash=create_guid())
     graph_store = GraphStore(top_level=root, nodes={0: root})
-    graph_store.add_node(
+    node = graph_store.add_node(
         GraphNode(physical_object.name, graph_store.next_node_id(), hash=physical_object.guid, parent=root)
     )
 
-    mesh_stores = list(bt.batch_tessellate([physical_object]))
+    if isinstance(physical_object, Pipe):
+        physical_objects = physical_object.segments
+        for seg in physical_objects:
+            graph_store.add_node(
+                GraphNode(seg.name, graph_store.next_node_id(), hash=seg.guid, parent=node)
+            )
+    else:
+        physical_objects = [physical_object]
+
+    mesh_stores = list(bt.batch_tessellate(physical_objects))
     scene = trimesh.Scene()
     mesh_map = []
     for mat_id, meshes in groupby(mesh_stores, lambda x: x.material):

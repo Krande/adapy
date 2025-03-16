@@ -79,6 +79,7 @@ frontend = { features = ["web"], no-default-feature = true }
 
 [tool.pixi.feature.prod.dependencies]
 python = "3.12.*"
+notebook = "*"  # For the notebook
 bcf-client = "*"
 kaleido-core = "==0.1.0"
 numpy = "*"

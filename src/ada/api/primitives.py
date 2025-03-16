@@ -354,11 +354,11 @@ class PrimCyl(Shape):
 
 
 class PrimExtrude(Shape):
-    def __init__(self, name, curve: list[tuple], h, normal=None, origin=None, xdir=None, tol=1e-3, **kwargs):
+    def __init__(self, name, curve2d: list[tuple], h, normal=None, origin=None, xdir=None, tol=1e-3, **kwargs):
         self._name = name
 
         poly = CurvePoly2d(
-            points2d=curve,
+            points2d=curve2d,
             normal=normal,
             origin=origin,
             xdir=xdir,
@@ -376,7 +376,7 @@ class PrimExtrude(Shape):
         p2 = np.array(p2)
         normal = unit_vector(p2 - p1)
         length = vector_length(p2 - p1)
-        return PrimExtrude(name=name, curve=profile, h=length, normal=normal, origin=p1, xdir=xdir)
+        return PrimExtrude(name=name, curve2d=profile, h=length, normal=normal, origin=p1, xdir=xdir)
 
     @property
     def units(self):
