@@ -202,8 +202,8 @@ def scene_from_fem(
 
 def scene_from_object(physical_object: BackendGeom, params: RenderParams) -> trimesh.Scene:
     from itertools import groupby
-    from ada import Pipe
 
+    from ada import Pipe
     from ada.occ.tessellating import BatchTessellator
     from ada.visit.gltf.optimize import concatenate_stores
     from ada.visit.gltf.store import merged_mesh_to_trimesh_scene
@@ -219,9 +219,7 @@ def scene_from_object(physical_object: BackendGeom, params: RenderParams) -> tri
     if isinstance(physical_object, Pipe):
         physical_objects = physical_object.segments
         for seg in physical_objects:
-            graph_store.add_node(
-                GraphNode(seg.name, graph_store.next_node_id(), hash=seg.guid, parent=node)
-            )
+            graph_store.add_node(GraphNode(seg.name, graph_store.next_node_id(), hash=seg.guid, parent=node))
     else:
         physical_objects = [physical_object]
 
