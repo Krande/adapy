@@ -213,7 +213,16 @@ class Beam(BackendGeom):
 
         return nodes_p1, nodes_p2
 
-    def copy_to(self, name: str, p1, p2) -> Beam:
+    def copy_to(self, name: str, p1=None, p2=None) -> Beam:
+        """Copy beam to new position"""
+        if p1 is None and p2 is None:
+            p1 = self.n1.p
+            p2 = self.n2.p
+        elif p2 is None and p1 is not None:
+            p2 = p1 + self.length * self.xvec
+        elif p1 is None and p2 is not None:
+            p1 = p2 - self.length * self.xvec
+
         return Beam(name, p1, p2, sec=self.section, mat=self.material)
 
     def bbox(self) -> BoundingBox:

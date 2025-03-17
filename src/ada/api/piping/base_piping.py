@@ -20,14 +20,24 @@ from ada.materials.utils import get_material
 from ada.sections.utils import get_section
 
 if TYPE_CHECKING:
-    from ada import Material, Section
+    from ada import Material, Placement, Section
 
 
 class Pipe(BackendGeom):
     def __init__(
-        self, name, points, sec, mat="S355", content=None, metadata=None, color=None, units: Units = Units.M, guid=None
+        self,
+        name,
+        points,
+        sec,
+        mat="S355",
+        content=None,
+        metadata=None,
+        color=None,
+        units: Units = Units.M,
+        guid=None,
+        place: Placement = None,
     ):
-        super().__init__(name, color=color, guid=guid, metadata=metadata, units=units)
+        super().__init__(name, color=color, guid=guid, metadata=metadata, units=units, placement=place)
 
         self._section, _ = get_section(sec)
         self._section.parent = self

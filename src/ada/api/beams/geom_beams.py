@@ -30,12 +30,22 @@ def straight_beam_to_geom(beam: Beam | PipeSegStraight, is_solid=True) -> Geomet
         xvec = beam.xvec_e
         p1 = tuple([float(x) + float(e1[i]) for i, x in enumerate(beam.n1.p.copy())])
 
-    place_abs = beam.placement.get_absolute_placement(include_rotations=True)
-    if not place_abs.is_identity():
-        new_vectors = ada.Placement().transform_array_from_other_place(np.asarray([xvec, yvec, p1]), place_abs)
-        xvec = new_vectors[0]
-        yvec = new_vectors[1]
-        p1 = new_vectors[2]
+    if beam.placement.is_identity() is False:
+        ident_place = ada.Placement()
+        place_abs = beam.placement.get_absolute_placement(include_rotations=True)
+        place_abs_rot_mat = place_abs.rot_matrix
+        ident_rot_mat = ident_place.rot_matrix
+        # check if the 3x3 rotational np arrays are identical
+        if not np.allclose(place_abs_rot_mat, ident_rot_mat):
+            ori_vectors = place_abs.transform_array_from_other_place(
+                np.asarray([xvec, yvec]), ident_place, ignore_translation=True
+            )
+            xvec = ori_vectors[0]
+            yvec = ori_vectors[1]
+            tra_vectors = place_abs.transform_array_from_other_place(np.asarray([p1]), ident_place)
+            p1 = tra_vectors[0]
+        else:
+            p1 = place_abs.origin + p1
 
     if is_solid:
         profile = section_to_arbitrary_profile_def_with_voids(beam.section)

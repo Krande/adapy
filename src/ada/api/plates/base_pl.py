@@ -120,10 +120,11 @@ class Plate(BackendGeom):
         return Geometry(self.guid, face, self.color, bool_operations=booleans)
 
     def solid_geom(self) -> Geometry:
-        from ada import Placement
-        import ada.geom.solids as geo_so
         import numpy as np
+
+        import ada.geom.solids as geo_so
         import ada.geom.surfaces as geo_su
+        from ada import Placement
         from ada.geom.booleans import BooleanOperation
         from ada.geom.placement import Axis2Placement3D
 
@@ -133,17 +134,35 @@ class Plate(BackendGeom):
         normal = self.poly.normal
         xdir = self.poly.xdir
 
-        place_abs = self.placement.get_absolute_placement(include_rotations=True)
-        if not place_abs.is_identity():
-            new_vectors = Placement().transform_array_from_other_place(np.asarray([normal, xdir]), place_abs)
-            normal = new_vectors[0]
-            xdir = new_vectors[1]
+        if self.placement.is_identity() is False:
+            ident_place = Placement()
+            place_abs = self.placement.get_absolute_placement(include_rotations=True)
+            place_abs_rot_mat = place_abs.rot_matrix
+            ident_rot_mat = ident_place.rot_matrix
+            if not np.allclose(place_abs_rot_mat, ident_rot_mat):
+                new_vectors = place_abs.transform_array_from_other_place(
+                    np.asarray([normal, xdir]), ident_place, ignore_translation=True
+                )
+                new_normal = new_vectors[0]
+                if Direction(new_normal).get_length() != 0.0:
+                    normal = new_normal
+                xdir = new_vectors[1]
+
+            origin = place_abs.origin + origin
 
         # Origin location is already included in the outer_curve definition
         place = Axis2Placement3D(location=origin, axis=normal, ref_direction=xdir)
         solid = geo_so.ExtrudedAreaSolid(profile, place, self.t, Direction(0, 0, 1))
         booleans = [BooleanOperation(x.primitive.solid_geom(), x.bool_op) for x in self.booleans]
         return Geometry(self.guid, solid, self.color, bool_operations=booleans)
+
+    def copy_to(self, name, origin=None, xdir=None, n=None):
+        import copy
+
+        if origin is None:
+            origin = self.placement.origin
+
+        return Plate(name, self.poly.copy_to(origin, xdir, n), copy.copy(self.t), self.material)
 
     @property
     def id(self):

@@ -152,8 +152,8 @@ class Placement:
 
         return Placement(origin=current_location, xdir=self.xdir, ydir=self.ydir, zdir=self.zdir)
 
-    def rotate(self, axis: list[float], angle: float) -> Placement:
-        """Rotate the placement around an axis. Returns a new placement."""
+    def rotate(self, axis: Iterable[float], angle: float) -> Placement:
+        """Rotate the placement around an axis. Returns a new placement unless in_place is True."""
         q0 = pq.Quaternion(matrix=self.rot_matrix)
         q = q0 * pq.Quaternion(axis=axis, angle=np.radians(angle))
         m = q.transformation_matrix
@@ -163,7 +163,7 @@ class Placement:
     def rot_matrix(self):
         return np.array([self.xdir, self.ydir, self.zdir])
 
-    def calc_matrix4x4(self):
+    def get_matrix4x4(self):
         # Based on the quaternion transformation matrix calculation
         t = np.array([[self.origin[0]], [self.origin[1]], [self.origin[2]]])
         Rt = np.hstack([self.rot_matrix, t])
@@ -177,13 +177,18 @@ class Placement:
         vec3d = transform_3x3(self.rot_matrix, np.array([vec]), inverse=inverse)
         return vec3d[0]
 
-    def transform_array_from_other_place(self, arr: np.ndarray, other_place: Placement) -> np.ndarray:
+    def transform_array_from_other_place(
+        self, arr: np.ndarray, other_place: Placement, ignore_translation=False
+    ) -> np.ndarray:
         """Transform an array of vectors from the coordinate system of this placement to another coordinate system."""
         # Rotation matrix from old placement to new placement
         rotation_mat = self.rot_matrix @ np.linalg.inv(other_place.rot_matrix)
 
         # Transform the vector
-        transformed_vec = (arr - other_place.origin) @ rotation_mat.T + self.origin
+        if ignore_translation:
+            transformed_vec = arr @ rotation_mat.T
+        else:
+            transformed_vec = (arr - other_place.origin) @ rotation_mat.T + self.origin
         return transformed_vec
 
     def transform_local_points_to_global(
@@ -231,11 +236,12 @@ class Placement:
             ref_direction=Direction(self.xdir).get_normalized(),
         )
 
-    def is_identity(self, use_absolute_placement=True):
+    def is_identity(self, use_absolute_placement=True) -> bool:
         if use_absolute_placement:
             place = self.get_absolute_placement()
         else:
             place = self
+
         return place == Placement(O(), XV(), YV(), ZV())
 
     def with_zdir(self, new_zdir: Direction | Iterable[float]) -> Placement:

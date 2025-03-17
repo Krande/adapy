@@ -33,6 +33,7 @@ if TYPE_CHECKING:
         Material,
         Placement,
         Plate,
+        Point,
         Section,
         Wall,
         Weld,
@@ -737,6 +738,24 @@ class Part(BackendGeom):
     def _on_import(self):
         """A method call that will be triggered when a Part is imported into an existing Assembly/Part"""
         raise NotImplementedError()
+
+    def copy_to(self, name: str, origin: list[float] | Point = None) -> Part:
+        """Copy the part and all its sub_parts to a new part"""
+        from ada import Placement
+
+        if origin is None:
+            origin = self.placement.origin
+
+        new_part = Part(name, placement=Placement(origin=origin))
+
+        for obj in self.get_all_physical_objects():
+            copy_obj = obj.copy_to(f"{obj.name}_copy")
+            new_part.add_object(copy_obj)
+
+        for sub_part in self.parts.values():
+            new_part.add_part(sub_part.copy_to(f"{sub_part.name}_copy"))
+
+        return new_part
 
     def to_fem_obj(
         self,

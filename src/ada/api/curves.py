@@ -315,6 +315,11 @@ class CurvePoly2d(CurveOpen2d):
         centroid = Point(np.sum(xyz_points, axis=0) / len(xyz_points))
         return centroid
 
+    def copy_to(self, origin, xdir=None, n=None):
+        return CurvePoly2d(
+            [x for x in self.points2d], origin=origin, xdir=xdir, normal=n, tol=self._tol, parent=self._parent
+        )
+
 
 class CurveOpen3d:
     """A 3 dimensional open poly curve defined by a list of 3d points represented by line and arc segments."""
