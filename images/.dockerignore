@@ -1,9 +1,0 @@
-.github/
-.ruff_cache/
-*/temp*
-*Dockerfile
-*.pyc
-*/__pycache__/*
-*/.pytest_cache/*
-*/.idea/*
-*/node_modules/*
