@@ -28,6 +28,7 @@ IFC and various Finite Element formats.
     documents/notebooks/solid_primitives
     documents/notebooks/parts_and_assemblies
     documents/notebooks/boolean_operations
+    documents/notebooks/placement
 
 .. toctree::
     :hidden:
