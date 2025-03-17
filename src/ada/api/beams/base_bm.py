@@ -206,7 +206,7 @@ class Beam(BackendGeom):
 
         return nodes_p1, nodes_p2
 
-    def copy_to(self, p1, p2, name: str) -> Beam:
+    def copy_to(self, name: str, p1, p2) -> Beam:
         return Beam(name, p1, p2, sec=self.section, mat=self.material)
 
     def bbox(self) -> BoundingBox:
