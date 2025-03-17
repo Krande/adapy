@@ -243,12 +243,16 @@
         </a>
         <div class="content-icon-container">
           <div class="view-this-page">
-  <a class="muted-link" href="../_sources/documents/code.rst.txt" title="View this page">
+  <a class="muted-link" href="https://github.com/Krande/adapy/blob/main/docs/documents/code.rst?plain=true" title="View this page">
     <svg><use href="#svg-eye"></use></svg>
     <span class="visually-hidden">View this page</span>
   </a>
-</div>
-<div class="theme-toggle-container theme-toggle-content">
+</div><div class="edit-this-page">
+  <a class="muted-link" href="https://github.com/Krande/adapy/edit/main/docs/documents/code.rst" title="Edit this page">
+    <svg><use href="#svg-pencil"></use></svg>
+    <span class="visually-hidden">Edit this page</span>
+  </a>
+</div><div class="theme-toggle-container theme-toggle-content">
             <button class="theme-toggle">
               <div class="visually-hidden">Toggle Light / Dark / Auto color theme</div>
               <svg class="theme-icon-when-auto-light"><use href="#svg-sun-with-moon"></use></svg>
@@ -371,6 +375,12 @@ If this proves to create issues regarding performance this should be evaluated f
 <dt class="sig sig-object py" id="ada.Beam.bbox">
 <span class="sig-name descname"><span class="pre">bbox</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">BoundingBox</span></span></span><a class="headerlink" href="#ada.Beam.bbox" title="Link to this definition">¶</a></dt>
 <dd><p>Bounding Box of beam</p>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="ada.Beam.copy_to">
+<span class="sig-name descname"><span class="pre">copy_to</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">p1</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">p2</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="#ada.Beam" title="ada.api.beams.base_bm.Beam"><span class="pre">Beam</span></a></span></span><a class="headerlink" href="#ada.Beam.copy_to" title="Link to this definition">¶</a></dt>
+<dd><p>Copy beam to new position</p>
 </dd></dl>
 
 <dl class="py method">
@@ -594,6 +604,12 @@ and it returns a dictionary of all beam ids and the touching beams. A margin to 
 </dd></dl>
 
 <dl class="py method">
+<dt class="sig sig-object py" id="ada.Part.copy_to">
+<span class="sig-name descname"><span class="pre">copy_to</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">origin</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">float</span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference internal" href="#ada.Point" title="ada.Point"><span class="pre">Point</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="#ada.Part" title="ada.Part"><span class="pre">Part</span></a></span></span><a class="headerlink" href="#ada.Part.copy_to" title="Link to this definition">¶</a></dt>
+<dd><p>Copy the part and all its sub_parts to a new part</p>
+</dd></dl>
+
+<dl class="py method">
 <dt class="sig sig-object py" id="ada.Part.create_objects_from_fem">
 <span class="sig-name descname"><span class="pre">create_objects_from_fem</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">skip_plates</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">skip_beams</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">None</span></span></span><a class="headerlink" href="#ada.Part.create_objects_from_fem" title="Link to this definition">¶</a></dt>
 <dd><p>Build Beams and Plates from the contents of the local FEM object</p>
@@ -634,7 +650,7 @@ and it returns a dictionary of all beam ids and the touching beams. A margin to 
 
 <dl class="py class">
 <dt class="sig sig-object py" id="ada.Pipe">
-<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">ada.</span></span><span class="sig-name descname"><span class="pre">Pipe</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">points</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">sec</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">mat</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'S355'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">content</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">metadata</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">color</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">units</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#ada.Units" title="ada.base.units.Units"><span class="pre">Units</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">Units.M</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">guid</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#ada.Pipe" title="Link to this definition">¶</a></dt>
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">ada.</span></span><span class="sig-name descname"><span class="pre">Pipe</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">points</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">sec</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">mat</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'S355'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">content</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">metadata</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">color</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">units</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#ada.Units" title="ada.Units"><span class="pre">Units</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">Units.M</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">guid</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">place</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#ada.Placement" title="ada.Placement"><span class="pre">Placement</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#ada.Pipe" title="Link to this definition">¶</a></dt>
 <dd></dd></dl>
 
 <dl class="py class">
@@ -664,13 +680,13 @@ and it returns a dictionary of all beam ids and the touching beams. A margin to 
 
 <dl class="py method">
 <dt class="sig sig-object py" id="ada.Placement.rotate">
-<span class="sig-name descname"><span class="pre">rotate</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">axis</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">float</span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">angle</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="#ada.Placement" title="ada.api.transforms.Placement"><span class="pre">Placement</span></a></span></span><a class="headerlink" href="#ada.Placement.rotate" title="Link to this definition">¶</a></dt>
-<dd><p>Rotate the placement around an axis. Returns a new placement.</p>
+<span class="sig-name descname"><span class="pre">rotate</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">axis</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Iterable</span><span class="p"><span class="pre">[</span></span><span class="pre">float</span><span class="p"><span class="pre">]</span></span></span></em>, <em class="sig-param"><span class="n"><span class="pre">angle</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="#ada.Placement" title="ada.api.transforms.Placement"><span class="pre">Placement</span></a></span></span><a class="headerlink" href="#ada.Placement.rotate" title="Link to this definition">¶</a></dt>
+<dd><p>Rotate the placement around an axis. Returns a new placement unless in_place is True.</p>
 </dd></dl>
 
 <dl class="py method">
 <dt class="sig sig-object py" id="ada.Placement.transform_array_from_other_place">
-<span class="sig-name descname"><span class="pre">transform_array_from_other_place</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">arr</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">ndarray</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">other_place</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#ada.Placement" title="ada.api.transforms.Placement"><span class="pre">Placement</span></a></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">ndarray</span></span></span><a class="headerlink" href="#ada.Placement.transform_array_from_other_place" title="Link to this definition">¶</a></dt>
+<span class="sig-name descname"><span class="pre">transform_array_from_other_place</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">arr</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">ndarray</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">other_place</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#ada.Placement" title="ada.api.transforms.Placement"><span class="pre">Placement</span></a></span></em>, <em class="sig-param"><span class="n"><span class="pre">ignore_translation</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><span class="pre">ndarray</span></span></span><a class="headerlink" href="#ada.Placement.transform_array_from_other_place" title="Link to this definition">¶</a></dt>
 <dd><p>Transform an array of vectors from the coordinate system of this placement to another coordinate system.</p>
 </dd></dl>
 
@@ -939,6 +955,7 @@ Emits a warning when the function or class is used, including the module path.</
 <li><a class="reference internal" href="#ada.Beam.add_beam_to_node_refs"><code class="docutils literal notranslate"><span class="pre">Beam.add_beam_to_node_refs()</span></code></a></li>
 <li><a class="reference internal" href="#ada.Beam.array_from_list_of_coords"><code class="docutils literal notranslate"><span class="pre">Beam.array_from_list_of_coords()</span></code></a></li>
 <li><a class="reference internal" href="#ada.Beam.bbox"><code class="docutils literal notranslate"><span class="pre">Beam.bbox()</span></code></a></li>
+<li><a class="reference internal" href="#ada.Beam.copy_to"><code class="docutils literal notranslate"><span class="pre">Beam.copy_to()</span></code></a></li>
 <li><a class="reference internal" href="#ada.Beam.get_node_on_beam_by_fraction"><code class="docutils literal notranslate"><span class="pre">Beam.get_node_on_beam_by_fraction()</span></code></a></li>
 <li><a class="reference internal" href="#ada.Beam.get_node_on_beam_by_point"><code class="docutils literal notranslate"><span class="pre">Beam.get_node_on_beam_by_point()</span></code></a></li>
 <li><a class="reference internal" href="#ada.Beam.length"><code class="docutils literal notranslate"><span class="pre">Beam.length</span></code></a></li>
@@ -978,6 +995,7 @@ Emits a warning when the function or class is used, including the module path.</
 <li><a class="reference internal" href="#ada.Part.add_joint"><code class="docutils literal notranslate"><span class="pre">Part.add_joint()</span></code></a></li>
 <li><a class="reference internal" href="#ada.Part.beam_clash_check"><code class="docutils literal notranslate"><span class="pre">Part.beam_clash_check()</span></code></a></li>
 <li><a class="reference internal" href="#ada.Part.consolidate_sections"><code class="docutils literal notranslate"><span class="pre">Part.consolidate_sections()</span></code></a></li>
+<li><a class="reference internal" href="#ada.Part.copy_to"><code class="docutils literal notranslate"><span class="pre">Part.copy_to()</span></code></a></li>
 <li><a class="reference internal" href="#ada.Part.create_objects_from_fem"><code class="docutils literal notranslate"><span class="pre">Part.create_objects_from_fem()</span></code></a></li>
 <li><a class="reference internal" href="#ada.Part.get_by_name"><code class="docutils literal notranslate"><span class="pre">Part.get_by_name()</span></code></a></li>
 <li><a class="reference internal" href="#ada.Part.get_part"><code class="docutils literal notranslate"><span class="pre">Part.get_part()</span></code></a></li>
@@ -1047,7 +1065,7 @@ Emits a warning when the function or class is used, including the module path.</
       
     </aside>
   </div>
-</div><script src="../_static/documentation_options.js?v=ba50482b"></script>
+</div><script src="../_static/documentation_options.js?v=e3fae48d"></script>
     <script src="../_static/doctools.js?v=9bcbadda"></script>
     <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
     <script src="../_static/scripts/furo.js?v=5fa4622c"></script>
