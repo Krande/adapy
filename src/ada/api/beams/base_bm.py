@@ -106,8 +106,15 @@ class Beam(BackendGeom):
         for p1, p2 in zip(list_of_coords[:-1], list_of_coords[1:]):
             beams.append(Beam(next(ngen), p1, p2, sec, mat))
 
-        if make_closed and list_of_coords[0] != list_of_coords[-1]:
-            beams.append(Beam(next(ngen), list_of_coords[-1], list_of_coords[0], sec, mat))
+        p_start = list_of_coords[0]
+        p_end = list_of_coords[-1]
+        if isinstance(p_start, ada.Point) and isinstance(p_end, ada.Point):
+            equal_end_start_point = p_start.is_equal(p_end)
+        else:
+            equal_end_start_point = list_of_coords[0] == list_of_coords[-1]
+
+        if make_closed and not equal_end_start_point:
+            beams.append(Beam(next(ngen), p_end, p_start, sec, mat))
 
         return beams
 
