@@ -94,7 +94,7 @@ class Beam(BackendGeom):
 
     @staticmethod
     def array_from_list_of_coords(
-        list_of_coords: list[tuple],
+        list_of_coords: list[tuple | ada.Point],
         sec: Section | str,
         mat: Material | str = None,
         name_gen: Iterable = None,

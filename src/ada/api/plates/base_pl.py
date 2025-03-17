@@ -120,16 +120,27 @@ class Plate(BackendGeom):
         return Geometry(self.guid, face, self.color, bool_operations=booleans)
 
     def solid_geom(self) -> Geometry:
+        from ada import Placement
         import ada.geom.solids as geo_so
+        import numpy as np
         import ada.geom.surfaces as geo_su
         from ada.geom.booleans import BooleanOperation
         from ada.geom.placement import Axis2Placement3D
 
         outer_curve = self.poly.curve_geom(use_3d_segments=False)
         profile = geo_su.ArbitraryProfileDef(geo_su.ProfileType.AREA, outer_curve, [])
+        origin = self.poly.origin
+        normal = self.poly.normal
+        xdir = self.poly.xdir
+
+        place_abs = self.placement.get_absolute_placement(include_rotations=True)
+        if not place_abs.is_identity():
+            new_vectors = Placement().transform_array_from_other_place(np.asarray([normal, xdir]), place_abs)
+            normal = new_vectors[0]
+            xdir = new_vectors[1]
 
         # Origin location is already included in the outer_curve definition
-        place = Axis2Placement3D(location=self.poly.origin, axis=self.poly.normal, ref_direction=self.poly.xdir)
+        place = Axis2Placement3D(location=origin, axis=normal, ref_direction=xdir)
         solid = geo_so.ExtrudedAreaSolid(profile, place, self.t, Direction(0, 0, 1))
         booleans = [BooleanOperation(x.primitive.solid_geom(), x.bool_op) for x in self.booleans]
         return Geometry(self.guid, solid, self.color, bool_operations=booleans)
