@@ -213,7 +213,9 @@ class Beam(BackendGeom):
 
         return nodes_p1, nodes_p2
 
-    def copy_to(self, name: str, p1=None, p2=None) -> Beam:
+    def copy_to(
+        self, name: str, p1=None, p2=None, rotation_axis: Iterable[float] = None, rotation_angle: float = None
+    ) -> Beam:
         """Copy beam to new position"""
         if p1 is None and p2 is None:
             p1 = self.n1.p
@@ -223,7 +225,18 @@ class Beam(BackendGeom):
         elif p1 is None and p2 is not None:
             p1 = p2 - self.length * self.xvec
 
-        return Beam(name, p1, p2, sec=self.section, mat=self.material)
+        bm = Beam(name, p1, p2, sec=self.section, mat=self.material)
+
+        if rotation_axis is not None:
+            if rotation_angle is None:
+                raise ValueError("To apply rotation you also need to specify a rotation angle")
+
+            bm.placement = bm.placement.rotate(rotation_axis, rotation_angle)
+        else:
+            if rotation_angle is not None:
+                raise ValueError("To apply rotation you also need to specify a rotation axis")
+
+        return bm
 
     def bbox(self) -> BoundingBox:
         """Bounding Box of beam"""
