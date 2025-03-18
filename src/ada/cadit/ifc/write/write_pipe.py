@@ -24,7 +24,8 @@ from ada.core.vector_utils import (
     unit_vector,
     vector_length,
 )
-
+import ada.cadit.ifc.write.geom.solids as geo_so
+import ada.cadit.ifc.write.geom.surfaces as geo_su
 if TYPE_CHECKING:
     from ada import Pipe, PipeSegElbow, PipeSegStraight
 
@@ -212,52 +213,17 @@ def write_pipe_elbow_seg(pipe_elbow: PipeSegElbow):
 
 
 def elbow_revolved_solid(elbow: PipeSegElbow, f, tol=1e-1):
-    arc = elbow.arc_seg
+    solid = elbow.solid_geom()
 
-    xvec1 = unit_vector(arc.s_normal)
-    xvec2 = unit_vector(arc.e_normal)
-    normal = unit_vector(calc_zvec(xvec2, xvec1))
+    rev_area_solid = geo_so.revolved_area_solid(solid.geometry, f)
 
     p1, p2, p3 = elbow.p1.p, elbow.p2.p, elbow.p3.p
 
     a = elbow.get_assembly()
     ifc_store = a.ifc_store
 
-    # Profile
-    profile = ifc_store.get_profile_def(elbow.section)
-
-    # Revolve Angle
-    revolve_angle = 180 - np.rad2deg(angle_between(xvec1, xvec2))
-
-    # Revolve Point
-    diff = arc.center - arc.p1
-
-    # Transform Axis normal and position to the local coordinate system
-    yvec = calc_yvec(normal, xvec1)
-    new_csys = (normal, yvec, xvec1)
-
-    diff_tra = global_2_local_nodes(new_csys, O, [diff])[0]
-    n_tra = global_2_local_nodes(new_csys, O, [normal])[0]
-
-    n_tra_norm = to_real(unit_vector(n_tra))
-    diff_tra_norm = to_real(diff_tra)
-
-    # Revolve Axis
-    rev_axis_dir = f.create_entity("IfcDirection", n_tra_norm)
-    revolve_point = f.create_entity("IfcCartesianPoint", diff_tra_norm)
-    revolve_axis1 = f.create_entity("IfcAxis1Placement", revolve_point, rev_axis_dir)
-
-    position = create_ifc_placement(f, elbow.arc_seg.p1, xvec1, normal)
-
-    # Alternative position calc
-    # start_normal = elbow.arc_seg.s_normal
-    # perp_normal = np.cross(start_normal, elbow.xvec2)
-    # position = create_ifc_placement(f, elbow.arc_seg.p1, start_normal, perp_normal)
-
-    # Body representation
-
-    ifc_shape = f.create_entity("IfcRevolvedAreaSolid", profile, position, revolve_axis1, revolve_angle)
-    body = f.create_entity("IfcShapeRepresentation", ifc_store.get_context("Body"), "Body", "SweptSolid", [ifc_shape])
+    # ifc_shape = f.create_entity("IfcRevolvedAreaSolid", profile, position, revolve_axis1, revolve_angle)
+    body = f.create_entity("IfcShapeRepresentation", ifc_store.get_context("Body"), "Body", "SweptSolid", [rev_area_solid])
 
     # Axis representation
     polyline = create_ifcpolyline(f, [p1, p2, p3])
