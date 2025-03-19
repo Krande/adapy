@@ -55,7 +55,6 @@ class Pipe(BackendGeom):
     @property
     def segments(self) -> list[PipeSegStraight | PipeSegElbow]:
         if self._segments is None:
-            # self._segments = build_pipe_segments(self)
             self._segments = build_pipe_segments_alt(self)
         return self._segments
 
@@ -70,14 +69,6 @@ class Pipe(BackendGeom):
     @property
     def points(self):
         return self._points
-
-    @property
-    def start(self):
-        return self.points[0]
-
-    @property
-    def end(self):
-        return self.points[-1]
 
     @property
     def metadata(self):
