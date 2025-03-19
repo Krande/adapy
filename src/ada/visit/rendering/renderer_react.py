@@ -99,6 +99,7 @@ class RendererReact:
         embed_trimesh_scene: trimesh.Scene | None = None,
         force_ws=False,
     ):
+        """This starts a web server to serve the HTML viewer"""
         from ada.comms.web_ui import start_serving
 
         return start_serving(

@@ -475,6 +475,7 @@ class PrimRevolve(Shape):
 
     @property
     def revolve_angle(self) -> float:
+        """Revolve angle in degrees"""
         return self._revolve_angle
 
     def solid_occ(self) -> TopoDS_Shape:
@@ -493,6 +494,7 @@ class PrimRevolve(Shape):
         place = Axis2Placement3D(self.poly.origin, axis=self.poly.normal, ref_direction=self.poly.xdir)
         rev_axis = Axis1Placement(self.revolve_origin, self.revolve_axis)
         solid = RevolvedAreaSolid(profile, place, rev_axis, self.revolve_angle)
+
         booleans = [BooleanOperation(x.primitive.solid_geom(), x.bool_op) for x in self.booleans]
         return Geometry(self.guid, solid, self.color, bool_operations=booleans)
 

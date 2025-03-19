@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Iterable, Optional
 
 import numpy as np
 
+import ada
 from ada.api.nodes import Node
 from ada.api.transforms import Placement
 from ada.config import Config
@@ -14,6 +15,7 @@ from ada.core.curve_utils import (
     segments3d_from_points3d,
     segments_to_indexed_lists,
     transform_2d_arc_segment_to_3d,
+    create_arc_segment,
 )
 from ada.core.vector_transforms import global_2_local_nodes, local_2_global_points
 from ada.core.vector_utils import is_clockwise
@@ -475,8 +477,8 @@ class ArcSegment(LineSegment):
         self._e_normal = e_normal
 
     @staticmethod
-    def from_start_center_end_radius(start, center, end, radius, tol=1e-3) -> ArcSegment:
-        points = np.array([start, center, end])
+    def from_start_center_end_radius(start, intersection_point, end, radius, tol=1e-3) -> ArcSegment:
+        points = np.array([start, intersection_point, end])
         dim = points.shape[1]
         place = None
         if dim == 3:

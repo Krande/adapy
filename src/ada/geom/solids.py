@@ -7,7 +7,7 @@ from ada.core.vector_utils import create_right_hand_vectors_xv_yv_from_zv
 from ada.geom.curves import CURVE_GEOM_TYPES
 from ada.geom.placement import Axis1Placement, Axis2Placement3D, Direction
 from ada.geom.points import Point
-from ada.geom.surfaces import ArbitraryProfileDef, ConnectedFaceSet, ProfileDef
+from ada.geom.surfaces import ArbitraryProfileDef, ConnectedFaceSet, ProfileDef, SURFACE_GEOM_TYPES
 
 
 @dataclass
@@ -39,7 +39,7 @@ class RevolvedAreaSolid:
     STEP AP242 (https://www.steptools.com/stds/stp_aim/html/t_revolved_area_solid.html)
     """
 
-    swept_area: ProfileDef
+    swept_area: ProfileDef | SURFACE_GEOM_TYPES
     position: Axis2Placement3D
     axis: Axis1Placement
     angle: float

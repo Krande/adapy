@@ -17,10 +17,11 @@ from ada.config import logger
 from ada.core.constants import O, X, Z
 from ada.core.guid import create_guid
 from ada.core.utils import to_real
+from ada.core.vector_transforms import global_2_local_nodes
 from ada.core.vector_utils import (
     angle_between,
     unit_vector,
-    vector_length,
+    vector_length, calc_zvec, calc_yvec,
 )
 
 if TYPE_CHECKING:
@@ -119,24 +120,19 @@ def write_pipe_straight_seg(pipe_seg: PipeSegStraight):
     p1 = pipe_seg.p1
     p2 = pipe_seg.p2
 
-    ifcdir = f.createIfcDirection((0.0, 0.0, 1.0))
-
     rp1 = to_real(p1.p)
     rp2 = to_real(p2.p)
     xvec = unit_vector(p2.p - p1.p)
     a = angle_between(xvec, np.array([0, 0, 1]))
     zvec = np.array([0, 0, 1]) if a != np.pi and a != 0 else np.array([1, 0, 0])
     yvec = unit_vector(np.cross(zvec, xvec))
-    seg_l = vector_length(p2.p - p1.p)
-
-    extrusion_placement = create_ifc_placement(f, (0.0, 0.0, 0.0), (0.0, 0.0, 1.0), (1.0, 0.0, 0.0))
 
     section_profile = ifc_store.get_profile_def(pipe_seg.section)
     if section_profile is None:
         raise ValueError("Section profile not found")
 
-    solid = f.createIfcExtrudedAreaSolid(section_profile, extrusion_placement, ifcdir, seg_l)
-
+    solid_geo = pipe_seg.solid_geom()
+    solid = geo_so.extruded_area_solid(solid_geo.geometry, f)
     polyline = create_ifcpolyline(f, [rp1, rp2])
 
     axis_representation = f.createIfcShapeRepresentation(ifc_store.get_context("Axis"), "Axis", "Curve3D", [polyline])
@@ -155,15 +151,15 @@ def write_pipe_straight_seg(pipe_seg: PipeSegStraight):
     d236 = f.createIfcAxis2Placement3D(d256, d257, d258)
     local_placement = f.createIfcLocalPlacement(d237, d236)
 
-    pipe_segment = f.createIfcPipeSegment(
-        pipe_seg.guid,
-        owner_history,
-        pipe_seg.name,
-        "An awesome pipe",
-        None,
-        local_placement,
-        product_shape,
-        None,
+    pipe_segment = f.create_entity("IfcPipeSegment",
+        GlobalId=pipe_seg.guid,
+        OwnerHistory=owner_history,
+        Name=pipe_seg.name,
+        Description="An awesome pipe",
+        ObjectType=None,
+        ObjectPlacement=local_placement,
+        Representation=product_shape,
+        Tag=None,
     )
 
     return pipe_segment
@@ -186,15 +182,15 @@ def write_pipe_elbow_seg(pipe_elbow: PipeSegElbow):
 
     pfitting = f.create_entity(
         "IfcPipeFitting",
-        pipe_elbow.guid,
-        owner_history,
-        pipe_elbow.name,
-        "An curved pipe segment",
-        None,
-        pfitting_placement,
-        ifc_elbow,
-        None,
-        None,
+        GlobalId=pipe_elbow.guid,
+        OwnerHistory=owner_history,
+        Name=pipe_elbow.name,
+        Description="An curved pipe segment",
+        ObjectType=None,
+        ObjectPlacement=pfitting_placement,
+        Representation=ifc_elbow,
+        Tag=None,
+        PredefinedType=None,
     )
 
     props = dict(
@@ -208,11 +204,60 @@ def write_pipe_elbow_seg(pipe_elbow: PipeSegElbow):
 
     return pfitting
 
+def alt_elbow_revolved_solid(elbow: PipeSegElbow, f, tol=1e-1):
+    arc = elbow.arc_seg
+
+    xvec1 = unit_vector(arc.s_normal)
+    xvec2 = unit_vector(arc.e_normal)
+    normal = unit_vector(calc_zvec(xvec2, xvec1))
+
+    a = elbow.get_assembly()
+    ifc_store = a.ifc_store
+
+    # Profile
+    profile = ifc_store.get_profile_def(elbow.section)
+
+    # Revolve Angle
+    revolve_angle = 180 - np.rad2deg(angle_between(xvec1, xvec2))
+
+    # Revolve Point
+    diff = arc.center - arc.p1
+
+    # Transform Axis normal and position to the local coordinate system
+    yvec = calc_yvec(normal, xvec1)
+    new_csys = (normal, yvec, xvec1)
+
+    diff_tra = global_2_local_nodes(new_csys, O, [diff])[0]
+    n_tra = global_2_local_nodes(new_csys, O, [normal])[0]
+
+    n_tra_norm = to_real(unit_vector(n_tra))
+    diff_tra_norm = to_real(diff_tra)
+
+    # Revolve Axis
+    rev_axis_dir = f.create_entity("IfcDirection", n_tra_norm)
+    revolve_point = f.create_entity("IfcCartesianPoint", diff_tra_norm)
+    revolve_axis1 = f.create_entity("IfcAxis1Placement", revolve_point, rev_axis_dir)
+
+    position = create_ifc_placement(f, elbow.arc_seg.p1, xvec1, normal)
+    ifc_shape = f.create_entity("IfcRevolvedAreaSolid", profile, position, revolve_axis1, revolve_angle)
+    return ifc_shape
 
 def elbow_revolved_solid(elbow: PipeSegElbow, f, tol=1e-1):
-    solid = elbow.solid_geom()
+    from ada.geom.placement import Axis2Placement3D
+    import ada.geom.surfaces as geo_su
 
-    rev_area_solid = geo_so.revolved_area_solid(solid.geometry, f)
+    xvec1 = unit_vector(elbow.arc_seg.s_normal)
+    xvec2 = unit_vector(elbow.arc_seg.e_normal)
+    normal = unit_vector(calc_zvec(xvec2, xvec1))
+
+    geom = elbow.solid_geom().geometry
+
+    # todo: there is likely a solution by moving the profile to the correct position and also
+    #  likely compensate with the component position
+    swept_area: geo_su.ArbitraryProfileDef = geom.swept_area
+    swept_area.outer_curve.position = Axis2Placement3D(location=(0,0,0), axis=xvec1, ref_direction=normal)
+
+    rev_area_solid = geo_so.revolved_area_solid(geom, f)
 
     p1, p2, p3 = elbow.p1.p, elbow.p2.p, elbow.p3.p
 

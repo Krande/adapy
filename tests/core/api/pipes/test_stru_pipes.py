@@ -1,7 +1,11 @@
+import math
+
 import pytest
 
+import ada
 from ada import Assembly, Part, Pipe, PipeSegElbow, Section
 from ada.cadit.ifc.write.write_pipe import elbow_revolved_solid
+from ada.geom import solids as geo_so
 
 
 def test_pipe_straight(tmp_path):
@@ -47,7 +51,7 @@ def test_write_elbow_revolved_solid_ifc_gen(pipe_w_multiple_bends):
     shape1 = elbow_revolved_solid(elbow1, f)
     ifc_revolved_solid1 = shape1.Representations[0].Items[0]
 
-    assert ifc_revolved_solid1.Angle == 90.0
+    assert ifc_revolved_solid1.Angle == math.radians(90.0)
 
     axis1 = ifc_revolved_solid1.Axis
     assert axis1.Axis.DirectionRatios == pytest.approx((1.0, 0.0, 0.0))
@@ -76,3 +80,18 @@ def test_write_elbow_revolved_solid_ifc_gen(pipe_w_multiple_bends):
     ifc_revolved_solid3 = shape3.Representations[0].Items[0]
 
     assert ifc_revolved_solid3.Angle == pytest.approx(67.380135)
+
+
+def test_pipe1():
+    po = [ada.Point(1, 1, 3) + x for x in [(0, 0.5, 0), (1, 0.5, 0), (1.2, 0.7, 0.2), (1.5, 0.7, 0.2)]]
+    pipe1 = ada.Pipe("pipe1", po, "PIPE200x5", color="green")
+
+    straight1 = pipe1.segments[0]
+    assert isinstance(straight1, ada.PipeSegStraight)
+    straight1_geo = straight1.solid_geom()
+    assert isinstance(straight1_geo.geometry, geo_so.ExtrudedAreaSolid)
+
+    elbow2 = pipe1.segments[1]
+    assert isinstance(elbow2, ada.PipeSegElbow)
+    elbow2_geo = elbow2.solid_geom()
+    assert isinstance(elbow2_geo.geometry, geo_so.RevolvedAreaSolid)

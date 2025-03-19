@@ -15,7 +15,7 @@ from ada.core.exceptions import VectorNormalizeError
 from ada.core.utils import Counter, roundoff
 from ada.core.vector_utils import angle_between, calc_zvec, unit_vector, vector_length
 from ada.geom import Geometry
-from ada.geom.placement import Axis1Placement, Axis2Placement3D, Direction
+from ada.geom.placement import Axis1Placement, Axis2Placement3D, Direction, Point
 from ada.materials.utils import get_material
 from ada.sections.utils import get_section
 
@@ -191,6 +191,7 @@ class PipeSegStraight(BackendGeom):
         from ada.geom.booleans import BooleanOperation
 
         profile = section_to_arbitrary_profile_def_with_voids(self.section)
+
         place = Axis2Placement3D(location=self.p1.p, axis=self.xvec1, ref_direction=self.zvec1)
         solid = geo_so.ExtrudedAreaSolid(profile, place, self.length, Direction(0, 0, 1))
 
@@ -234,22 +235,22 @@ class PipeSegElbow(BackendGeom):
             midpoint = Node(midpoint, units=units)
         if not isinstance(end, Node):
             end = Node(end, units=units)
-
+        self.section, _ = get_section(section)
+        self.section.parent = self
+        self.material = get_material(material)
         self.p1 = start
         self.p2 = midpoint
         self.p3 = end
         self.bend_radius = bend_radius
-        self.section = section
-        self.material = material
         self._arc_seg = arc_seg
         self._xvec1 = Direction(*(self.p2.p - self.p1.p))
         self._xvec2 = Direction(*(self.p3.p - self.p2.p))
         self._zvec1 = Direction(*calc_zvec(self._xvec1))
-        section.refs.append(self)
-        material.refs.append(self)
+        self.section.refs.append(self)
+        self.material.refs.append(self)
 
     @staticmethod
-    def from_arc_segment(name, arc: ArcSegment, section: Section, material: Material, **kwargs) -> PipeSegElbow:
+    def from_arc_segment(name, arc: ArcSegment, section: Section | str, material: Material | str = None, **kwargs) -> PipeSegElbow:
         return PipeSegElbow(
             name=name,
             start=arc.p1,
@@ -261,6 +262,7 @@ class PipeSegElbow(BackendGeom):
             arc_seg=arc,
             **kwargs,
         )
+
 
     @property
     def parent(self) -> Pipe:
@@ -317,6 +319,8 @@ class PipeSegElbow(BackendGeom):
         axis = Axis1Placement(location=self.arc_seg.center, axis=normal)
 
         revolve_angle = 180 - np.rad2deg(angle_between(xvec1, xvec2))
+
+        # profile.outer_curve.position = Axis2Placement3D(location=self.p1, axis=xvec1, ref_direction=normal)
         solid = RevolvedAreaSolid(profile, position, axis, revolve_angle)
 
         booleans = [BooleanOperation(x.primitive.solid_geom(), x.bool_op) for x in self.booleans]
