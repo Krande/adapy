@@ -179,6 +179,8 @@ class BackendGeom(Root):
         apply_transform=True,
         liveness_timeout: int = 1,
         embed_glb: bool = False,
+        auto_embed_glb_in_notebook=True,
+        force_ws=False,
     ):
         """Show model using either react, pygfx or trimesh renderer and set up WebSocket connection"""
         from ada.comms.fb_wrap_model_gen import SceneDC, SceneOperationsDC
@@ -205,7 +207,13 @@ class BackendGeom(Root):
             )
 
         # Set up the renderer and WebSocket server
-        renderer_instance = renderer_manager.render(self, params_override, apply_transform=apply_transform)
+        renderer_instance = renderer_manager.render(
+            self,
+            params_override,
+            apply_transform=apply_transform,
+            force_ws=force_ws,
+            auto_embed_glb_in_notebook=auto_embed_glb_in_notebook,
+        )
         return renderer_instance
 
     @property

@@ -357,6 +357,8 @@ class RendererManager:
         obj: BackendGeom | Part | Assembly | FEAResult | FEM | trimesh.Scene | MeshDC,
         params: RenderParams,
         apply_transform=True,
+        force_ws=False,
+        auto_embed_glb_in_notebook=True,
     ) -> HTML | None:
         from ada import Assembly
         from ada.comms.wsock_client_sync import WebSocketClientSync
@@ -365,16 +367,21 @@ class RendererManager:
             scene = RendererManager.obj_to_trimesh(obj, params, apply_transform)
             return scene.show()
 
+        if self.is_in_notebook() and auto_embed_glb_in_notebook:
+            self.embed_glb = True
+
         if self.embed_glb:
             from ada.visit.rendering.renderer_react import RendererReact
 
             renderer_obj = RendererReact()
             scene = RendererManager.obj_to_trimesh(obj, params, apply_transform)
             if self.is_in_notebook():
-                renderer = renderer_obj.get_notebook_renderer_widget(target_id=None, embed_trimesh_scene=scene)
+                renderer = renderer_obj.get_notebook_renderer_widget(
+                    target_id=None, embed_trimesh_scene=scene, force_ws=force_ws
+                )
                 return renderer
             else:
-                return renderer_obj.serve_html(embed_trimesh_scene=scene)
+                return renderer_obj.serve_html(embed_trimesh_scene=scene, force_ws=force_ws)
 
         # Set up the renderer and WebSocket server
         self.start_server()

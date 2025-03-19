@@ -55,7 +55,13 @@ class RendererReact:
             os.startfile(self.local_html_path)
 
     def get_html_with_injected_data(
-        self, target_id: int | None = None, ws_port: int | None = None, embed_trimesh_scene: trimesh.Scene | None = None
+        self,
+        target_id: int | None = None,
+        ws_port: int | None = None,
+        embed_trimesh_scene: trimesh.Scene | None = None,
+        force_ws: bool = False,
+        node_editor_only=False,
+        target_instance=None,
     ) -> str:
         import base64
 
@@ -66,6 +72,10 @@ class RendererReact:
             html_inject_str += f'<script>window.WEBSOCKET_ID = "{target_id}";</script>\n'
         if ws_port is not None:
             html_inject_str += f"<script>window.WEBSOCKET_PORT = {ws_port};</script>"
+        if node_editor_only:
+            html_inject_str += "\n<script>window.NODE_EDITOR_ONLY = true;</script>"
+        if target_instance is not None:
+            html_inject_str += f'\n<script>window.TARGET_INSTANCE_ID = "{target_instance}";</script>'
 
         if embed_trimesh_scene is not None:
             data = embed_trimesh_scene.export(file_type="glb")
@@ -73,20 +83,31 @@ class RendererReact:
             encoded = base64.b64encode(data).decode("utf-8")
             # replace keyword with our scene data
             html_inject_str += f'<script>window.B64GLTF = "{encoded}";</script>'
+            if force_ws is False:
+                html_inject_str += "<script>window.DEACTIVATE_WS = true;</script>"
 
         # Inject the unique ID into the HTML content
         html_content = html_content.replace("<!--STARTUP_CONFIG_PLACEHOLDER-->", html_inject_str)
 
         return html_content
 
-    @staticmethod
     def serve_html(
-        web_port=5173, ws_port=8765, target_id: int | None = None, embed_trimesh_scene: trimesh.Scene | None = None
+        self,
+        web_port=5174,
+        ws_port=8765,
+        target_id: int | None = None,
+        embed_trimesh_scene: trimesh.Scene | None = None,
+        force_ws=False,
     ):
         from ada.comms.web_ui import start_serving
 
         return start_serving(
-            web_port=web_port, ws_port=ws_port, unique_id=target_id, embed_trimesh_scene=embed_trimesh_scene
+            web_port=web_port,
+            ws_port=ws_port,
+            unique_id=target_id,
+            embed_trimesh_scene=embed_trimesh_scene,
+            renderer_obj=self,
+            force_ws=force_ws,
         )
 
     def get_notebook_renderer_widget(
@@ -95,12 +116,13 @@ class RendererReact:
         target_id: int | None = None,
         ws_port: int | None = None,
         embed_trimesh_scene: trimesh.Scene | None = None,
+        force_ws=False,
     ) -> HTML:
         import html
 
         from IPython import display
 
-        html_content = self.get_html_with_injected_data(target_id, ws_port, embed_trimesh_scene)
+        html_content = self.get_html_with_injected_data(target_id, ws_port, embed_trimesh_scene, force_ws=force_ws)
 
         # Escape and embed the HTML in the srcdoc of the iframe
         srcdoc = html.escape(html_content)

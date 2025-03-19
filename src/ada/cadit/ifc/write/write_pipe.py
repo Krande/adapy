@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 import ifcopenshell
 import numpy as np
 
+import ada.cadit.ifc.write.geom.solids as geo_so
 from ada.base.units import Units
 from ada.cadit.ifc.utils import (
     create_ifc_placement,
@@ -16,16 +17,12 @@ from ada.config import logger
 from ada.core.constants import O, X, Z
 from ada.core.guid import create_guid
 from ada.core.utils import to_real
-from ada.core.vector_transforms import global_2_local_nodes
 from ada.core.vector_utils import (
     angle_between,
-    calc_yvec,
-    calc_zvec,
     unit_vector,
     vector_length,
 )
-import ada.cadit.ifc.write.geom.solids as geo_so
-import ada.cadit.ifc.write.geom.surfaces as geo_su
+
 if TYPE_CHECKING:
     from ada import Pipe, PipeSegElbow, PipeSegStraight
 
@@ -223,7 +220,9 @@ def elbow_revolved_solid(elbow: PipeSegElbow, f, tol=1e-1):
     ifc_store = a.ifc_store
 
     # ifc_shape = f.create_entity("IfcRevolvedAreaSolid", profile, position, revolve_axis1, revolve_angle)
-    body = f.create_entity("IfcShapeRepresentation", ifc_store.get_context("Body"), "Body", "SweptSolid", [rev_area_solid])
+    body = f.create_entity(
+        "IfcShapeRepresentation", ifc_store.get_context("Body"), "Body", "SweptSolid", [rev_area_solid]
+    )
 
     # Axis representation
     polyline = create_ifcpolyline(f, [p1, p2, p3])
