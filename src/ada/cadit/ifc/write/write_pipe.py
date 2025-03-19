@@ -5,13 +5,14 @@ from typing import TYPE_CHECKING
 import ifcopenshell
 import numpy as np
 
-import ada.cadit.ifc.write.geom.solids as geo_so
+import ada.cadit.ifc.write.geom.solids as igeo_so
+import ada.geom.solids as geo_so
 from ada.base.units import Units
 from ada.cadit.ifc.utils import (
     create_ifc_placement,
     create_ifcpolyline,
     create_local_placement,
-    write_elem_property_sets,
+    write_elem_property_sets, add_colour,
 )
 from ada.config import logger
 from ada.core.constants import O, X, Z
@@ -132,7 +133,11 @@ def write_pipe_straight_seg(pipe_seg: PipeSegStraight):
         raise ValueError("Section profile not found")
 
     solid_geo = pipe_seg.solid_geom()
-    solid = geo_so.extruded_area_solid(solid_geo.geometry, f)
+    solid = igeo_so.extruded_area_solid(solid_geo.geometry, f)
+
+    if solid_geo.color is not None:
+        add_colour(f, solid, str(solid_geo.color), solid_geo.color)
+
     polyline = create_ifcpolyline(f, [rp1, rp2])
 
     axis_representation = f.createIfcShapeRepresentation(ifc_store.get_context("Axis"), "Axis", "Curve3D", [polyline])
@@ -243,28 +248,26 @@ def alt_elbow_revolved_solid(elbow: PipeSegElbow, f, tol=1e-1):
     return ifc_shape
 
 def elbow_revolved_solid(elbow: PipeSegElbow, f, tol=1e-1):
-    from ada.geom.placement import Axis2Placement3D
-    import ada.geom.surfaces as geo_su
-
     xvec1 = unit_vector(elbow.arc_seg.s_normal)
     xvec2 = unit_vector(elbow.arc_seg.e_normal)
-    normal = unit_vector(calc_zvec(xvec2, xvec1))
 
-    geom = elbow.solid_geom().geometry
+    core_geom = elbow.solid_geom()
+    geom: geo_so.RevolvedAreaSolid = core_geom.geometry
 
     # todo: there is likely a solution by moving the profile to the correct position and also
     #  likely compensate with the component position
-    swept_area: geo_su.ArbitraryProfileDef = geom.swept_area
-    swept_area.outer_curve.position = Axis2Placement3D(location=(0,0,0), axis=xvec1, ref_direction=normal)
+    geom.axis.location = elbow.arc_seg.p1 - elbow.arc_seg.center
+    geom.axis.axis = xvec1
 
-    rev_area_solid = geo_so.revolved_area_solid(geom, f)
+    rev_area_solid = igeo_so.revolved_area_solid(geom, f)
+    if core_geom.color is not None:
+        add_colour(f, rev_area_solid, str(core_geom.color), core_geom.color)
 
     p1, p2, p3 = elbow.p1.p, elbow.p2.p, elbow.p3.p
 
     a = elbow.get_assembly()
     ifc_store = a.ifc_store
 
-    # ifc_shape = f.create_entity("IfcRevolvedAreaSolid", profile, position, revolve_axis1, revolve_angle)
     body = f.create_entity(
         "IfcShapeRepresentation", ifc_store.get_context("Body"), "Body", "SweptSolid", [rev_area_solid]
     )

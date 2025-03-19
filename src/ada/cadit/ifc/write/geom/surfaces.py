@@ -23,6 +23,10 @@ def arbitrary_profile_def(apd: geo_su.ArbitraryProfileDef, f: ifcopenshell.file)
     for ic in apd.inner_curves:
         if isinstance(ic, geo_cu.IndexedPolyCurve):
             inner_curves.append(indexed_poly_curve(ic, f))
+        elif isinstance(ic, geo_cu.Circle):
+            inner_curves.append(circle_curve(ic, f))
+        else:
+            raise NotImplementedError(f"Unsupported inner curve type: {type(ic)}")
 
     if len(inner_curves) == 0:
         return f.create_entity(

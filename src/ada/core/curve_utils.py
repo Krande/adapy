@@ -77,12 +77,12 @@ def create_arc_segment(v1, v2, radius):
 
 
 def make_arc_segment_with_tolerance(
-    start: Iterable | Point,
-    center: Iterable | Point,
-    end: Iterable | Point,
-    radius: float,
-    min_radius_abs: float = None,
-    min_radius_rel: float = 0.3,
+        start: Iterable | Point,
+        center: Iterable | Point,
+        end: Iterable | Point,
+        radius: float,
+        min_radius_abs: float = None,
+        min_radius_rel: float = 0.3,
 ) -> list[LineSegment | ArcSegment]:
     original_radius = radius
     while True:
@@ -101,9 +101,9 @@ def make_arc_segment_with_tolerance(
 
 
 def make_arc_segment(
-    start: Iterable | Point, intersect_p: Iterable | Point, end: Iterable | Point, radius: float
+        start: Iterable | Point, intersect_p: Iterable | Point, end: Iterable | Point, radius: float
 ) -> list[LineSegment | ArcSegment]:
-    from ada import ArcSegment, Placement
+    from ada import ArcSegment, Placement, LineSegment
 
     if not isinstance(start, Point):
         start = Point(*start)
@@ -128,9 +128,7 @@ def make_arc_segment(
             else:
                 points = np.array([seg.p1, seg.p2])
                 s, e = place.transform_local_points_back_to_global(points)
-                seg.p1 = s
-                seg.p2 = e
-                segments3d.append(seg)
+                segments3d.append(LineSegment(s, e))
         segments = segments3d
     else:
         points = [start, [*intersect_p, radius], end]
@@ -145,14 +143,14 @@ def make_arc_segment(
 
 class SegCreator:
     def __init__(
-        self,
-        local_points,
-        tol=1e-3,
-        debug=False,
-        debug_name="ilog",
-        parent=None,
-        is_closed=True,
-        fig=None,
+            self,
+            local_points,
+            tol=1e-3,
+            debug=False,
+            debug_name="ilog",
+            parent=None,
+            is_closed=True,
+            fig=None,
     ):
         self._parent = parent
         self._seg_list = []
@@ -751,7 +749,7 @@ def intersect_line_circle(line, center, radius, tol=1e-1):
 
     a = (x2 - x1) ** 2 + (y2 - y1) ** 2 + (z2 - z1) ** 2
     b = 2 * ((x2 - x1) * (x1 - x3) + (y2 - y1) * (y1 - y3) + (z2 - z1) * (z1 - z3))
-    c = x3**2 + y3**2 + z3**2 + x1**2 + y1**2 + z1**2 - 2 * (x3 * x1 + y3 * y1 + z3 * z1) - radius**2
+    c = x3 ** 2 + y3 ** 2 + z3 ** 2 + x1 ** 2 + y1 ** 2 + z1 ** 2 - 2 * (x3 * x1 + y3 * y1 + z3 * z1) - radius ** 2
 
     ev = b * b - 4 * a * c
 
@@ -846,7 +844,7 @@ def calc_2darc_start_end_from_lines_radius(p1, p2, p3, radius, tol=1e-1) -> ArcS
 
 
 def build_polycurve(
-    local_points2d: list[tuple], tol=1e-3, debug=False, debug_name=None, is_closed=True
+        local_points2d: list[tuple], tol=1e-3, debug=False, debug_name=None, is_closed=True
 ) -> list[LineSegment | ArcSegment]:
     if len(local_points2d) == 2:
         from ada.api.curves import LineSegment
@@ -920,9 +918,10 @@ def line_segments3d_from_points3d(points: list[Point | Iterable]) -> list[LineSe
 
 
 def segments3d_from_points3d(
-    points: list[Point | Iterable], radius=None, radius_dict=None, angle_tol=1e-1, len_tol=1e-3
+        points: list[Point | Iterable], radius=None, radius_dict=None, angle_tol=1e-1, len_tol=1e-3
 ) -> list[LineSegment | ArcSegment]:
     from ada.api.curves import ArcSegment, LineSegment
+    from ada import Direction
 
     prelim_segments = line_segments3d_from_points3d(points)
 
@@ -937,13 +936,23 @@ def segments3d_from_points3d(
     for i, (seg1, seg2) in enumerate(prelim_segments_zip):
         seg1: LineSegment
         seg2: LineSegment
+        prev_seg = segments[-1] if len(segments) > 0 else None
 
         if seg1.length < len_tol or seg2.length == len_tol:
             logger.error(f'Segment Length is below point tolerance "{len_tol}". Skipping')
             continue
 
+        if prev_seg is not None and isinstance(prev_seg, LineSegment):
+            if seg1.direction.is_parallel(prev_seg.direction) and seg1.p2.is_equal(prev_seg.p2):
+                new_dir = Direction(seg1.p2 - prev_seg.p1)
+                if new_dir.is_parallel(prev_seg.direction):
+                    seg1.p1 = prev_seg.p1.copy()
+
         if seg1.direction.is_parallel(seg2.direction, angle_tol):
-            segments.append(LineSegment(seg1.p1.copy(), seg1.p2.copy()))
+            if seg1.p1.is_equal(prev_seg.p1) and seg1.p2.is_equal(prev_seg.p2):
+                continue
+            else:
+                segments.append(LineSegment(seg1.p1.copy(), seg1.p2.copy()))
             continue
 
         if not seg1.p2.is_equal(seg2.p1):
@@ -951,8 +960,8 @@ def segments3d_from_points3d(
 
         arc_end = seg2.p2
         if i != 0 and len(segments) > 0:
-            arc_start = segments[-1].p1
-            arc_intersection = segments[-1].p2
+            arc_start = prev_seg.p1
+            arc_intersection = prev_seg.p2
         else:
             arc_start = seg1.p1
             arc_intersection = seg1.p2
@@ -976,13 +985,12 @@ def segments3d_from_points3d(
         else:
             if len(segments) == 0:
                 continue
-            pseg = segments[-1]
-            nlen = vector_length(new_seg1.p2 - pseg.p1)
+            nlen = vector_length(new_seg1.p2 - prev_seg.p1)
             if nlen < len_tol:
                 # The new arc starts at the same point as the previous segment. Remove the previous segment
                 segments.pop(-1)
             else:
-                pseg.p2 = new_seg1.p2
+                prev_seg.p2 = new_seg1.p2
 
         segments.append(
             ArcSegment(
@@ -996,6 +1004,7 @@ def segments3d_from_points3d(
                 e_normal=arc.e_normal.copy(),
             )
         )
+
         segments.append(LineSegment(new_seg2.p1.copy(), new_seg2.p2.copy()))
 
     return segments

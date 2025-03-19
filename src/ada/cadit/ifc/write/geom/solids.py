@@ -65,7 +65,8 @@ def revolved_area_solid(ras: geo_so.RevolvedAreaSolid, f: ifcopenshell.file) -> 
     rev_axis_dir = direction(ras.axis.axis, f)
     revolve_point = point(ras.axis.location, f)
     revolve_axis1 = f.create_entity("IfcAxis1Placement", revolve_point, rev_axis_dir)
+    angle = math.radians(ras.angle)
 
     return f.create_entity(
-        "IfcRevolvedAreaSolid", SweptArea=profile, Position=axis3d, Axis=revolve_axis1, Angle=math.radians(ras.angle)
+        "IfcRevolvedAreaSolid", SweptArea=profile, Position=axis3d, Axis=revolve_axis1, Angle=angle
     )

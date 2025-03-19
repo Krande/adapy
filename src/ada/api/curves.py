@@ -397,16 +397,18 @@ class LineSegment:
         self._p2 = p2 if isinstance(p2, Point) else Point(*p2)
         self._edge_geom = edge_geom
         self._placement = placement
-        self._direction = Direction(self.p2 - self.p1)
-        self._length = self.direction.get_length()
+        self._direction = None
 
     @property
     def direction(self) -> Direction:
+        if self._direction is None:
+            self._direction = self.calc_direction()
+
         return self._direction
 
     @property
     def length(self) -> float:
-        return self._length
+        return self.direction.get_length()
 
     @property
     def p1(self) -> Point:
@@ -417,6 +419,7 @@ class LineSegment:
         if not isinstance(value, Point):
             value = Point(*value)
         self._p1 = value
+        self._direction = self.calc_direction()
 
     @property
     def p2(self) -> Point:
@@ -427,6 +430,7 @@ class LineSegment:
         if not isinstance(value, Point):
             value = Point(*value)
         self._p2 = value
+        self._direction = self.calc_direction()
 
     @property
     def edge_geom(self) -> TopoDS_Edge:
@@ -439,6 +443,9 @@ class LineSegment:
     @placement.setter
     def placement(self, value: Placement):
         self._placement = value
+
+    def calc_direction(self):
+        return Direction(self.p2 - self.p1)
 
     def curve_geom(self) -> Edge:
         from ada.geom.curves import Edge
