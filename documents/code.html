@@ -802,6 +802,12 @@ described by an id (index) and a Node object.</p>
 <dt class="sig sig-object py" id="ada.PrimRevolve">
 <em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">ada.</span></span><span class="sig-name descname"><span class="pre">PrimRevolve</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">points</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rev_angle</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">origin</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">xdir</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">normal</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">tol</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.001</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#ada.PrimRevolve" title="Link to this definition">¶</a></dt>
 <dd><p>Revolved Primitive</p>
+<dl class="py property">
+<dt class="sig sig-object py" id="ada.PrimRevolve.revolve_angle">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">revolve_angle</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="pre">float</span></em><a class="headerlink" href="#ada.PrimRevolve.revolve_angle" title="Link to this definition">¶</a></dt>
+<dd><p>Revolve angle in degrees</p>
+</dd></dl>
+
 </dd></dl>
 
 <dl class="py class">
@@ -1032,7 +1038,10 @@ Emits a warning when the function or class is used, including the module path.</
 <li><a class="reference internal" href="#ada.PrimCone"><code class="docutils literal notranslate"><span class="pre">PrimCone</span></code></a></li>
 <li><a class="reference internal" href="#ada.PrimCyl"><code class="docutils literal notranslate"><span class="pre">PrimCyl</span></code></a></li>
 <li><a class="reference internal" href="#ada.PrimExtrude"><code class="docutils literal notranslate"><span class="pre">PrimExtrude</span></code></a></li>
-<li><a class="reference internal" href="#ada.PrimRevolve"><code class="docutils literal notranslate"><span class="pre">PrimRevolve</span></code></a></li>
+<li><a class="reference internal" href="#ada.PrimRevolve"><code class="docutils literal notranslate"><span class="pre">PrimRevolve</span></code></a><ul>
+<li><a class="reference internal" href="#ada.PrimRevolve.revolve_angle"><code class="docutils literal notranslate"><span class="pre">PrimRevolve.revolve_angle</span></code></a></li>
+</ul>
+</li>
 <li><a class="reference internal" href="#ada.PrimSphere"><code class="docutils literal notranslate"><span class="pre">PrimSphere</span></code></a></li>
 <li><a class="reference internal" href="#ada.PrimSweep"><code class="docutils literal notranslate"><span class="pre">PrimSweep</span></code></a></li>
 <li><a class="reference internal" href="#ada.Shape"><code class="docutils literal notranslate"><span class="pre">Shape</span></code></a><ul>
@@ -1065,7 +1074,7 @@ Emits a warning when the function or class is used, including the module path.</
       
     </aside>
   </div>
-</div><script src="../_static/documentation_options.js?v=e4fe8417"></script>
+</div><script src="../_static/documentation_options.js?v=5761d549"></script>
     <script src="../_static/doctools.js?v=9bcbadda"></script>
     <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
     <script src="../_static/scripts/furo.js?v=5fa4622c"></script>
