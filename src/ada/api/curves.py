@@ -4,7 +4,6 @@ from typing import TYPE_CHECKING, Iterable, Optional
 
 import numpy as np
 
-import ada
 from ada.api.nodes import Node
 from ada.api.transforms import Placement
 from ada.config import Config
@@ -14,8 +13,7 @@ from ada.core.curve_utils import (
     calc_arc_radius_center_from_3points,
     segments3d_from_points3d,
     segments_to_indexed_lists,
-    transform_2d_arc_segment_to_3d,
-    create_arc_segment,
+    transform_2d_arc_segment_to_3d, calc_center_from_start_end_radius,
 )
 from ada.core.vector_transforms import global_2_local_nodes, local_2_global_points
 from ada.core.vector_utils import is_clockwise
@@ -60,6 +58,10 @@ class CurveRevolve:
 
             self._radius = radius
             self._rot_origin = center
+        else:
+            if self._radius is not None and self._rot_origin is None:
+                center1, center2 = calc_center_from_start_end_radius(p1, p2, self._radius)
+                self._rot_origin = center1
 
     @property
     def p1(self):
@@ -82,12 +84,12 @@ class CurveRevolve:
         return self._point_on
 
     @property
-    def rot_axis(self):
+    def rot_axis(self) -> Direction:
         return self._rot_axis
 
     @property
-    def rot_origin(self):
-        return np.array(self._rot_origin)
+    def rot_origin(self) -> Point:
+        return self._rot_origin
 
     @property
     def parent(self) -> "Beam":

@@ -1,10 +1,11 @@
-from OCC.Core.TopoDS import TopoDS_Solid, TopoDS_Face
+from OCC.Core.TopoDS import TopoDS_Face, TopoDS_Solid
 
 import ada
 from ada.core.utils import set_list_first_position_elem
-from ada.geom import solids as geo_so, surfaces as geo_su
+from ada.geom import solids as geo_so
+from ada.geom import surfaces as geo_su
 from ada.occ.geom import geom_to_occ_geom
-from ada.occ.utils import iter_faces_with_normal, get_points_from_occ_shape
+from ada.occ.utils import get_points_from_occ_shape, iter_faces_with_normal
 
 
 def test_ipe_beam():

@@ -54,7 +54,6 @@ def revolved_area_solid(ras: geo_so.RevolvedAreaSolid, f: ifcopenshell.file) -> 
     """Converts a RevolvedAreaSolid to an IFC representation"""
     import math
 
-
     axis3d = ifc_placement_from_axis3d(ras.position, f)
 
     if isinstance(ras.swept_area, geo_su.ArbitraryProfileDef):
@@ -67,6 +66,4 @@ def revolved_area_solid(ras: geo_so.RevolvedAreaSolid, f: ifcopenshell.file) -> 
     revolve_axis1 = f.create_entity("IfcAxis1Placement", revolve_point, rev_axis_dir)
     angle = math.radians(ras.angle)
 
-    return f.create_entity(
-        "IfcRevolvedAreaSolid", SweptArea=profile, Position=axis3d, Axis=revolve_axis1, Angle=angle
-    )
+    return f.create_entity("IfcRevolvedAreaSolid", SweptArea=profile, Position=axis3d, Axis=revolve_axis1, Angle=angle)

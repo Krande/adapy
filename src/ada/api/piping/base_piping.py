@@ -15,7 +15,7 @@ from ada.core.exceptions import VectorNormalizeError
 from ada.core.utils import Counter, roundoff
 from ada.core.vector_utils import angle_between, calc_zvec, unit_vector, vector_length
 from ada.geom import Geometry
-from ada.geom.placement import Axis1Placement, Axis2Placement3D, Direction, Point
+from ada.geom.placement import Axis1Placement, Axis2Placement3D, Direction
 from ada.materials.utils import get_material
 from ada.sections.utils import get_section
 
@@ -250,7 +250,9 @@ class PipeSegElbow(BackendGeom):
         self.material.refs.append(self)
 
     @staticmethod
-    def from_arc_segment(name, arc: ArcSegment, section: Section | str, material: Material | str = None, **kwargs) -> PipeSegElbow:
+    def from_arc_segment(
+        name, arc: ArcSegment, section: Section | str, material: Material | str = None, **kwargs
+    ) -> PipeSegElbow:
         return PipeSegElbow(
             name=name,
             start=arc.p1,
@@ -262,7 +264,6 @@ class PipeSegElbow(BackendGeom):
             arc_seg=arc,
             **kwargs,
         )
-
 
     @property
     def parent(self) -> Pipe:

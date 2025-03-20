@@ -15,6 +15,7 @@ def plate_shell_fem_model():
 def sesam_fem_plate_shell_file(plate_shell_fem_model, tmp_path):
     sesam_fem_dir = tmp_path / "my_fem"
     fem_file = sesam_fem_dir / "my_femT1.FEM"
+
     plate_shell_fem_model.to_fem("my_fem", fem_format="sesam", scratch_dir=tmp_path)
 
     yield fem_file
@@ -24,6 +25,7 @@ def sesam_fem_plate_shell_file(plate_shell_fem_model, tmp_path):
 def abaqus_fem_plate_shell_file(plate_shell_fem_model, tmp_path):
     sesam_fem_dir = tmp_path / "my_fem"
     fem_file = sesam_fem_dir / "my_fem.inp"
+
     plate_shell_fem_model.to_fem("my_fem", fem_format="abaqus", scratch_dir=tmp_path)
 
     yield fem_file

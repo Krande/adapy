@@ -9,10 +9,11 @@ import ada.cadit.ifc.write.geom.solids as igeo_so
 import ada.geom.solids as geo_so
 from ada.base.units import Units
 from ada.cadit.ifc.utils import (
+    add_colour,
     create_ifc_placement,
     create_ifcpolyline,
     create_local_placement,
-    write_elem_property_sets, add_colour,
+    write_elem_property_sets,
 )
 from ada.config import logger
 from ada.core.constants import O, X, Z
@@ -21,8 +22,9 @@ from ada.core.utils import to_real
 from ada.core.vector_transforms import global_2_local_nodes
 from ada.core.vector_utils import (
     angle_between,
+    calc_yvec,
+    calc_zvec,
     unit_vector,
-    vector_length, calc_zvec, calc_yvec,
 )
 
 if TYPE_CHECKING:
@@ -156,7 +158,8 @@ def write_pipe_straight_seg(pipe_seg: PipeSegStraight):
     d236 = f.createIfcAxis2Placement3D(d256, d257, d258)
     local_placement = f.createIfcLocalPlacement(d237, d236)
 
-    pipe_segment = f.create_entity("IfcPipeSegment",
+    pipe_segment = f.create_entity(
+        "IfcPipeSegment",
         GlobalId=pipe_seg.guid,
         OwnerHistory=owner_history,
         Name=pipe_seg.name,
@@ -209,6 +212,7 @@ def write_pipe_elbow_seg(pipe_elbow: PipeSegElbow):
 
     return pfitting
 
+
 def alt_elbow_revolved_solid(elbow: PipeSegElbow, f, tol=1e-1):
     arc = elbow.arc_seg
 
@@ -246,6 +250,7 @@ def alt_elbow_revolved_solid(elbow: PipeSegElbow, f, tol=1e-1):
     position = create_ifc_placement(f, elbow.arc_seg.p1, xvec1, normal)
     ifc_shape = f.create_entity("IfcRevolvedAreaSolid", profile, position, revolve_axis1, revolve_angle)
     return ifc_shape
+
 
 def elbow_revolved_solid(elbow: PipeSegElbow, f, tol=1e-1):
     xvec1 = unit_vector(elbow.arc_seg.s_normal)

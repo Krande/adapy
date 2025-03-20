@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Iterable
 
 import numpy as np
 
+import ada
 from ada.config import Config, logger
 
 from ..geom.points import Point
@@ -77,12 +78,12 @@ def create_arc_segment(v1, v2, radius):
 
 
 def make_arc_segment_with_tolerance(
-        start: Iterable | Point,
-        center: Iterable | Point,
-        end: Iterable | Point,
-        radius: float,
-        min_radius_abs: float = None,
-        min_radius_rel: float = 0.3,
+    start: Iterable | Point,
+    center: Iterable | Point,
+    end: Iterable | Point,
+    radius: float,
+    min_radius_abs: float = None,
+    min_radius_rel: float = 0.3,
 ) -> list[LineSegment | ArcSegment]:
     original_radius = radius
     while True:
@@ -101,9 +102,9 @@ def make_arc_segment_with_tolerance(
 
 
 def make_arc_segment(
-        start: Iterable | Point, intersect_p: Iterable | Point, end: Iterable | Point, radius: float
+    start: Iterable | Point, intersect_p: Iterable | Point, end: Iterable | Point, radius: float
 ) -> list[LineSegment | ArcSegment]:
-    from ada import ArcSegment, Placement, LineSegment
+    from ada import ArcSegment, LineSegment, Placement
 
     if not isinstance(start, Point):
         start = Point(*start)
@@ -143,14 +144,14 @@ def make_arc_segment(
 
 class SegCreator:
     def __init__(
-            self,
-            local_points,
-            tol=1e-3,
-            debug=False,
-            debug_name="ilog",
-            parent=None,
-            is_closed=True,
-            fig=None,
+        self,
+        local_points,
+        tol=1e-3,
+        debug=False,
+        debug_name="ilog",
+        parent=None,
+        is_closed=True,
+        fig=None,
     ):
         self._parent = parent
         self._seg_list = []
@@ -749,7 +750,7 @@ def intersect_line_circle(line, center, radius, tol=1e-1):
 
     a = (x2 - x1) ** 2 + (y2 - y1) ** 2 + (z2 - z1) ** 2
     b = 2 * ((x2 - x1) * (x1 - x3) + (y2 - y1) * (y1 - y3) + (z2 - z1) * (z1 - z3))
-    c = x3 ** 2 + y3 ** 2 + z3 ** 2 + x1 ** 2 + y1 ** 2 + z1 ** 2 - 2 * (x3 * x1 + y3 * y1 + z3 * z1) - radius ** 2
+    c = x3**2 + y3**2 + z3**2 + x1**2 + y1**2 + z1**2 - 2 * (x3 * x1 + y3 * y1 + z3 * z1) - radius**2
 
     ev = b * b - 4 * a * c
 
@@ -844,7 +845,7 @@ def calc_2darc_start_end_from_lines_radius(p1, p2, p3, radius, tol=1e-1) -> ArcS
 
 
 def build_polycurve(
-        local_points2d: list[tuple], tol=1e-3, debug=False, debug_name=None, is_closed=True
+    local_points2d: list[tuple], tol=1e-3, debug=False, debug_name=None, is_closed=True
 ) -> list[LineSegment | ArcSegment]:
     if len(local_points2d) == 2:
         from ada.api.curves import LineSegment
@@ -918,10 +919,10 @@ def line_segments3d_from_points3d(points: list[Point | Iterable]) -> list[LineSe
 
 
 def segments3d_from_points3d(
-        points: list[Point | Iterable], radius=None, radius_dict=None, angle_tol=1e-1, len_tol=1e-3
+    points: list[Point | Iterable], radius=None, radius_dict=None, angle_tol=1e-1, len_tol=1e-3
 ) -> list[LineSegment | ArcSegment]:
-    from ada.api.curves import ArcSegment, LineSegment
     from ada import Direction
+    from ada.api.curves import ArcSegment, LineSegment
 
     prelim_segments = line_segments3d_from_points3d(points)
 
@@ -1008,3 +1009,30 @@ def segments3d_from_points3d(
         segments.append(LineSegment(new_seg2.p1.copy(), new_seg2.p2.copy()))
 
     return segments
+
+def calc_center_from_start_end_radius(p1, p2, radius) -> tuple[Point, Point]:
+    if not isinstance(p1, Point):
+        p1 = Point(p1)
+    if not isinstance(p2, Point):
+        p2 = Point(p2)
+    # Calculate the distance between p1 and p2
+    d = np.linalg.norm(p2 - p1)
+
+    if d >= 2 * radius:
+        raise ValueError("The distance between the points is too large to fit a circle of the given radius.")
+
+    # Midpoint of p1 and p2
+    midpoint = (p1 + p2) / 2
+
+    # Perpendicular direction (since p1 and p2 lie on the y-axis, the perpendicular is along the x-axis)
+    direction = ada.Direction([1, 0, 0]) if p1[1] == p2[1] else ada.Direction([0, 1, 0])
+
+    # Calculate the distance from the midpoint to the center of the circle using Pythagorean theorem
+    half_distance = d / 2
+    center_distance = np.sqrt(radius ** 2 - half_distance ** 2)
+
+    # The center could be in two possible directions (on the perpendicular bisector)
+    center1 = midpoint + direction * center_distance
+    center2 = midpoint - direction * center_distance
+
+    return center1, center2
