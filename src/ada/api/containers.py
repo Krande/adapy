@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Dict, Iterable, List, Union
 
 import numpy as np
 
-from ada.api.beams import Beam
+from ada.api.beams import Beam, BeamTapered
 from ada.api.beams.helpers import get_beam_extensions
 from ada.api.exceptions import DuplicateNodes
 from ada.api.nodes import Node, replace_node
@@ -711,7 +711,6 @@ class Sections(NumericMapped):
         return self._name_map
 
     def add(self, section: Section) -> Section:
-        from ada import BeamTapered
 
         if section.name is None:
             raise Exception("Name is not allowed to be None.")

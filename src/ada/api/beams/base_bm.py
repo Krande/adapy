@@ -1,15 +1,13 @@
 from __future__ import annotations
 
-from enum import Enum
 from typing import TYPE_CHECKING, Iterable, Union
 
 import numpy as np
 
-import ada
 import ada.api.beams.geom_beams as geo_conv
-from ada.api.beams.helpers import BeamConnectionProps
+
 from ada.api.bounding_box import BoundingBox
-from ada.api.curves import CurveOpen2d, CurveRevolve, LineSegment
+from ada.api.curves import LineSegment
 from ada.api.nodes import Node, get_singular_node_by_volume
 from ada.api.transforms import Placement
 from ada.base.physical_objects import BackendGeom
@@ -25,9 +23,8 @@ from ada.core.vector_utils import (
     vector_length,
 )
 from ada.geom import Geometry
-from ada.geom.curves import IndexedPolyCurve
 from ada.geom.placement import Direction
-from ada.geom.surfaces import ArbitraryProfileDef
+from ada.geom.points import Point
 from ada.materials import Material
 from ada.materials.utils import get_material
 from ada.sections import Section
@@ -35,6 +32,7 @@ from ada.sections.utils import interpret_section_str
 
 if TYPE_CHECKING:
     from OCC.Core.TopoDS import TopoDS_Shape
+    from ada.api.beams.helpers import BeamConnectionProps
 
 
 section_counter = Counter(1)
@@ -66,6 +64,8 @@ class Beam(BackendGeom):
         units=Units.M,
         **kwargs,
     ):
+        from ada.api.beams.helpers import BeamConnectionProps
+
         super().__init__(name, units=units, **kwargs)
         self._n1 = n1 if type(n1) is Node else Node(n1[:3], units=units)
         self._n2 = n2 if type(n2) is Node else Node(n2[:3], units=units)
@@ -94,7 +94,7 @@ class Beam(BackendGeom):
 
     @staticmethod
     def array_from_list_of_coords(
-        list_of_coords: list[tuple | ada.Point],
+        list_of_coords: list[tuple | Point],
         sec: Section | str,
         mat: Material | str = None,
         name_gen: Iterable = None,
@@ -108,7 +108,7 @@ class Beam(BackendGeom):
 
         p_start = list_of_coords[0]
         p_end = list_of_coords[-1]
-        if isinstance(p_start, ada.Point) and isinstance(p_end, ada.Point):
+        if isinstance(p_start, Point) and isinstance(p_end, Point):
             equal_end_start_point = p_start.is_equal(p_end)
         else:
             equal_end_start_point = list_of_coords[0] == list_of_coords[-1]
@@ -473,141 +473,3 @@ class Beam(BackendGeom):
         return f'{self.__class__.__name__}("{self.name}", {p1s}, {p2s}, "{secn}", "{matn}")'
 
 
-class TaperTypes(Enum):
-    FLUSH_TOP = "flush"
-    CENTERED = "centered"
-    FLUSH_BOTTOM = "flush_bottom"
-
-    @classmethod
-    def from_str(cls, value: str):
-        for item in cls:
-            if item.value.lower() == value.lower():
-                return item
-        raise ValueError(f"{value} is not a valid taper type")
-
-
-class BeamTapered(Beam):
-    def __init__(
-        self,
-        name,
-        n1: Iterable,
-        n2: Iterable,
-        sec: str | Section,
-        tap: str | Section = None,
-        taper_type: TaperTypes | str = TaperTypes.CENTERED,
-        **kwargs,
-    ):
-        super().__init__(name=name, n1=n1, n2=n2, sec=sec, **kwargs)
-
-        if isinstance(sec, str) and tap is None:
-            _, tap = interpret_section_str(sec)
-
-        if isinstance(tap, str):
-            _, tap = interpret_section_str(tap)
-
-        self._taper = tap
-        self._taper.refs.append(self)
-        self._taper.parent = self
-        if isinstance(taper_type, str):
-            taper_type = TaperTypes.from_str(taper_type)
-        self._taper_type = taper_type
-
-    @property
-    def taper(self) -> Section:
-        return self._taper
-
-    @taper.setter
-    def taper(self, value: Section):
-        self._taper = value
-
-    @property
-    def taper_type(self) -> TaperTypes:
-        return self._taper_type
-
-    @taper_type.setter
-    def taper_type(self, value: TaperTypes):
-        self._taper_type = value
-
-    def solid_geom(self) -> Geometry:
-        geo = geo_conv.straight_tapered_beam_to_geom(self)
-        if self.taper_type == TaperTypes.CENTERED:
-            return geo
-
-        if self.up.is_equal(ada.Direction(0, 0, 1)):
-            off_dir = -1
-        elif self.up.is_equal(ada.Direction(0, 0, -1)):
-            off_dir = 1
-        else:
-            logger.warning("Tapered beam is not aligned with global z-axis")
-            off_dir = 0
-
-        if self.taper_type == TaperTypes.FLUSH_TOP:
-            offset_dir_1 = ada.Direction(0, off_dir * self.section.h / 2)
-            offset_dir_2 = ada.Direction(0, off_dir * self.taper.h / 2)
-        elif self.taper_type == TaperTypes.FLUSH_BOTTOM:
-            offset_dir_1 = ada.Direction(0, -off_dir * self.section.h / 2)
-            offset_dir_2 = ada.Direction(0, -off_dir * self.taper.h / 2)
-        else:
-            raise ValueError(f"Unknown taper type {self.taper_type}")
-
-        profile_1 = geo.geometry.swept_area
-
-        if isinstance(profile_1, ArbitraryProfileDef):
-            if isinstance(profile_1.outer_curve, IndexedPolyCurve):
-                for curve in profile_1.outer_curve.segments:
-                    curve.start = ada.Point(curve.start + offset_dir_1)
-                    curve.end = ada.Point(curve.end + offset_dir_1)
-
-        profile_2 = geo.geometry.end_swept_area
-
-        if isinstance(profile_2, ArbitraryProfileDef):
-            if isinstance(profile_2.outer_curve, IndexedPolyCurve):
-                for curve in profile_2.outer_curve.segments:
-                    curve.start = ada.Point(curve.start + offset_dir_2)
-                    curve.end = ada.Point(curve.end + offset_dir_2)
-
-        return geo
-
-    def shell_geom(self) -> Geometry:
-        geom = geo_conv.straight_tapered_beam_to_geom(self, is_solid=False)
-        return geom
-
-    def __repr__(self):
-        p1s = self.n1.p.tolist()
-        p2s = self.n2.p.tolist()
-        secn = self.section.sec_str
-        tapn = self.taper.sec_str
-        matn = self.material.name
-        return f'{self.__class__.__name__}("{self.name}", {p1s}, {p2s}, "{secn}","{tapn}", "{matn}")'
-
-
-class BeamSweep(Beam):
-    def __init__(self, name: str, curve: CurveOpen2d, sec: str | Section, **kwargs):
-        n1 = curve.points3d[0]
-        n2 = curve.points3d[-1]
-        super().__init__(name=name, n1=n1, n2=n2, sec=sec, **kwargs)
-        self._curve = curve
-        curve.parent = self
-
-    @property
-    def curve(self) -> CurveOpen2d:
-        return self._curve
-
-    def solid_geom(self) -> Geometry:
-        return geo_conv.swept_beam_to_geom(self)
-
-
-class BeamRevolve(Beam):
-    def __init__(self, name: str, curve: CurveRevolve, sec: str | Section, **kwargs):
-        n1 = curve.p1
-        n2 = curve.p2
-        super().__init__(name=name, n1=n1, n2=n2, sec=sec, **kwargs)
-        self._curve = curve
-        curve.parent = self
-
-    @property
-    def curve(self) -> CurveRevolve:
-        return self._curve
-
-    def solid_geom(self) -> Geometry:
-        return geo_conv.revolved_beam_to_geom(self)

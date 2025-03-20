@@ -12,12 +12,12 @@ from ada.core.vector_transforms import transform_csys_to_csys
 from ada.geom import Geometry
 from ada.geom.booleans import BooleanOperation
 from ada.geom.curves import Circle, Edge
-from ada.geom.placement import Axis2Placement3D, Direction, Axis1Placement
+from ada.geom.placement import Axis2Placement3D, Direction
 from ada.geom.points import Point
 
 if TYPE_CHECKING:
     from ada import PipeSegStraight, Section
-    from ada.api.beams import Beam, BeamRevolve, BeamSweep, BeamTapered
+    from ada.api.beams import Beam, BeamSweep, BeamTapered
 
 
 def straight_beam_to_geom(beam: Beam | PipeSegStraight, is_solid=True) -> Geometry:
@@ -104,27 +104,11 @@ def swept_beam_to_geom(beam: BeamSweep, is_solid=True) -> Geometry:
         return swept_beam_to_face_geom(beam)
 
 
-def revolved_beam_to_face_geom(beam):
-    pass
 
-
-def revolved_beam_to_geom(beam: BeamRevolve, is_solid=True) -> Geometry:
-    if is_solid:
-        return revolved_beam_to_solid_geom(beam)
-    else:
-        return revolved_beam_to_face_geom(beam)
 
 
 def swept_beam_to_solid_geom(beam: BeamSweep) -> Geometry:
     return Geometry()
-
-
-def revolved_beam_to_solid_geom(beam: BeamRevolve) -> Geometry:
-    profile = beam.section.get_section_profile(is_solid=True)
-
-    axis = Axis1Placement(beam.curve.rot_origin, beam.curve.rot_axis)
-    solid = geo_so.RevolvedAreaSolid(profile, beam.placement.to_axis2placement3d(), axis)
-    return Geometry(beam.guid, solid, beam.color)
 
 
 def section_to_arbitrary_profile_def_with_voids(section: Section, solid=True) -> geo_su.ArbitraryProfileDef:

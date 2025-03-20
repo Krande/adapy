@@ -7,7 +7,8 @@ from typing import TYPE_CHECKING, Any, Callable, Iterable
 
 from ada import Node, Pipe, PrimBox, PrimCyl, PrimExtrude, PrimRevolve, Shape
 from ada.api.animations import AnimationStore
-from ada.api.beams.base_bm import Beam, BeamTapered
+from ada.api.beams.base_bm import Beam
+from ada.api.beams.beam_tapered import BeamTapered
 from ada.api.connections import JointBase
 from ada.api.containers import Beams, Connections, Materials, Nodes, Plates, Sections
 from ada.api.groups import Group
