@@ -1,7 +1,12 @@
 from __future__ import annotations
 
 from ada.api.beams import BeamSweep
-from ada.cadit.ifc.utils import ifc_dir, create_local_placement, create_ifc_placement
+from ada.cadit.ifc.utils import (
+    add_colour,
+    create_ifc_placement,
+    create_local_placement,
+    ifc_dir,
+)
 from ada.cadit.ifc.write.write_curves import write_curve_poly
 
 
@@ -22,6 +27,10 @@ def create_swept_beam(beam: BeamSweep, f, profile):
 
     axis = f.create_entity("IfcShapeRepresentation", axis_context, "Axis", "Curve3D", [ifc_polyline])
     body = f.create_entity("IfcShapeRepresentation", body_context, "Body", "SweptSolid", [extrude_area_solid])
+
+    # Add colour
+    if beam.color is not None:
+        add_colour(f, extrude_area_solid, str(beam.color), beam.color)
 
     return axis, body, placement
 

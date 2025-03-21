@@ -11,9 +11,11 @@ from ada.core.curve_utils import (
     build_polycurve,
     calc_2darc_start_end_from_lines_radius,
     calc_arc_radius_center_from_3points,
+    calc_center_from_start_end_radius,
+    calculate_angle,
     segments3d_from_points3d,
     segments_to_indexed_lists,
-    transform_2d_arc_segment_to_3d, calc_center_from_start_end_radius,
+    transform_2d_arc_segment_to_3d,
 )
 from ada.core.vector_transforms import global_2_local_nodes, local_2_global_points
 from ada.core.vector_utils import is_clockwise
@@ -30,7 +32,7 @@ if TYPE_CHECKING:
 
 class CurveRevolve:
     def __init__(
-        self, p1, p2, radius=None, rot_axis=None, point_on=None, rot_origin=None, angle=180, parent=None, metadata=None
+        self, p1, p2, radius=None, rot_axis=None, point_on=None, rot_origin=None, angle=None, parent=None, metadata=None
     ):
         self._p1 = p1
         self._p2 = p2
@@ -61,6 +63,10 @@ class CurveRevolve:
         else:
             if self._radius is not None and self._rot_origin is None:
                 center1, center2 = calc_center_from_start_end_radius(p1, p2, self._radius)
+                angle = calculate_angle(p1, p2, self._radius)
+                # get normal direction of the section profile plane at the start and end points
+                rot_axis = Direction(p1 - center1)
+                self._angle = np.rad2deg(angle)
                 self._rot_origin = center1
 
     @property

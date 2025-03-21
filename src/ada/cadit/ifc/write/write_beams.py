@@ -5,12 +5,12 @@ from typing import TYPE_CHECKING
 
 from ada import Beam
 from ada.api.beams import BeamRevolve, BeamSweep, BeamTapered
-from ada.cadit.ifc.utils import (
-    convert_bm_jusl_to_ifc,
-)
+from ada.cadit.ifc.utils import convert_bm_jusl_to_ifc
 from ada.cadit.ifc.write.beams.revolved_beam import create_revolved_beam
 from ada.cadit.ifc.write.beams.straight_beam import extrude_straight_beam
-from ada.cadit.ifc.write.beams.straight_beam_tapered import extrude_straight_tapered_beam
+from ada.cadit.ifc.write.beams.straight_beam_tapered import (
+    extrude_straight_tapered_beam,
+)
 from ada.cadit.ifc.write.beams.swept_beam import create_swept_beam
 from ada.config import logger
 from ada.core.guid import create_guid

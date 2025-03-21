@@ -4,9 +4,9 @@ import numpy as np
 from ifcopenshell import file as ifile
 
 import ada.cadit.ifc.write.geom.solids as igeo_so
-from ada import CurveRevolve
+from ada import CurveRevolve, Placement
 from ada.api.beams import BeamRevolve
-from ada.cadit.ifc.utils import create_local_placement, create_ifc_placement
+from ada.cadit.ifc.utils import add_colour, create_ifc_placement, create_local_placement
 from ada.cadit.ifc.write.geom.points import cpt
 
 
@@ -18,14 +18,40 @@ def create_revolved_beam(beam: BeamRevolve, f: "ifile", profile):
 
     curve: CurveRevolve = beam.curve
 
+    xvec = None
+    yvec = None
+    p1 = beam.curve.p1
+
+    if beam.placement.is_identity() is False:
+        ident_place = Placement()
+        place_abs = beam.placement.get_absolute_placement(include_rotations=True)
+        place_abs_rot_mat = place_abs.rot_matrix
+        ident_rot_mat = ident_place.rot_matrix
+        # check if the 3x3 rotational np arrays are identical
+        if not np.allclose(place_abs_rot_mat, ident_rot_mat):
+            ori_vectors = place_abs.transform_array_from_other_place(
+                np.asarray([xvec, yvec]), ident_place, ignore_translation=True
+            )
+            xvec = ori_vectors[0]
+            yvec = ori_vectors[1]
+            tra_vectors = place_abs.transform_array_from_other_place(np.asarray([p1]), ident_place)
+            p1 = tra_vectors[0]
+        else:
+            p1 = place_abs.origin + p1
+
     ifc_trim_curve = create_ifc_trimmed_curve(curve, f)
-    placement = create_local_placement(f, curve.p1, (0, 0, 1))
+    # placement = create_local_placement(f, curve.p1, (0, 0, 1))
+    placement = create_local_placement(f, p1, (-0.38461538, 0.92307692, 0.0), (-0.92307692, -0.38461538, 0.0))
     solid_geom = beam.solid_geom()
 
     rev_area_solid = igeo_so.revolved_area_solid(solid_geom.geometry, f)
 
     axis = f.create_entity("IfcShapeRepresentation", axis_context, "Axis", "Curve3D", [ifc_trim_curve])
     body = f.create_entity("IfcShapeRepresentation", body_context, "Body", "SweptSolid", [rev_area_solid])
+
+    # Add colour
+    if beam.color is not None:
+        add_colour(f, rev_area_solid, str(beam.color), beam.color)
 
     return body, axis, placement
 
@@ -44,5 +70,3 @@ def create_ifc_trimmed_curve(curve: CurveRevolve, f: "ifile"):
         MasterRepresentation="PARAMETER",
     )
     return trim_curve
-
-

@@ -308,13 +308,12 @@ class PipeSegElbow(BackendGeom):
     def solid_geom(self) -> Geometry:
         from ada.geom.booleans import BooleanOperation
         from ada.geom.solids import RevolvedAreaSolid
-        from ada import Point
 
         profile = section_to_arbitrary_profile_def_with_voids(self.section)
 
         xvec1 = Direction(self.arc_seg.s_normal).get_normalized()
         xvec2 = Direction(self.arc_seg.e_normal).get_normalized()
-        normal = Direction([x if abs(x) != 0. else 0. for x in calc_zvec(xvec2, xvec1)]).get_normalized()
+        normal = Direction([x if abs(x) != 0.0 else 0.0 for x in calc_zvec(xvec2, xvec1)]).get_normalized()
 
         position = Axis2Placement3D(self.p1, xvec1, normal)
         axis = Axis1Placement(location=self.arc_seg.center, axis=normal)

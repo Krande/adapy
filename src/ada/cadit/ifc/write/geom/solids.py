@@ -61,8 +61,8 @@ def revolved_area_solid(ras: geo_so.RevolvedAreaSolid, f: ifcopenshell.file) -> 
     else:
         raise NotImplementedError(f"Unsupported swept area type: {type(ras.swept_area)}")
 
-    rev_axis_dir = direction(ras.axis.axis, f)
     revolve_point = point(ras.axis.location, f)
+    rev_axis_dir = direction(ras.axis.axis, f)
     revolve_axis1 = f.create_entity("IfcAxis1Placement", revolve_point, rev_axis_dir)
     angle = math.radians(ras.angle)
 

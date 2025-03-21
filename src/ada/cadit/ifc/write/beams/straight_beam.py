@@ -3,7 +3,7 @@ from __future__ import annotations
 from ifcopenshell import file as ifile
 
 from ada import Beam
-from ada.cadit.ifc.utils import create_local_placement, add_colour
+from ada.cadit.ifc.utils import add_colour, create_local_placement
 from ada.cadit.ifc.write.geom.points import cpt
 from ada.cadit.ifc.write.geom.solids import extruded_area_solid
 

@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Iterable, TYPE_CHECKING
+from typing import TYPE_CHECKING, Iterable
 
 from ada.api.beams import geom_beams as geo_conv
+from ada.geom.points import Point
+from ada.geom.placement import Direction
 from ada.config import logger
 from ada.geom import Geometry
 from ada.geom.curves import IndexedPolyCurve
 from ada.geom.surfaces import ArbitraryProfileDef
 from ada.sections.utils import interpret_section_str
+
 from .base_bm import Beam
 
 if TYPE_CHECKING:
@@ -75,20 +78,20 @@ class BeamTapered(Beam):
         if self.taper_type == TaperTypes.CENTERED:
             return geo
 
-        if self.up.is_equal(ada.Direction(0, 0, 1)):
+        if self.up.is_equal(Direction(0, 0, 1)):
             off_dir = -1
-        elif self.up.is_equal(ada.Direction(0, 0, -1)):
+        elif self.up.is_equal(Direction(0, 0, -1)):
             off_dir = 1
         else:
             logger.warning("Tapered beam is not aligned with global z-axis")
             off_dir = 0
 
         if self.taper_type == TaperTypes.FLUSH_TOP:
-            offset_dir_1 = ada.Direction(0, off_dir * self.section.h / 2)
-            offset_dir_2 = ada.Direction(0, off_dir * self.taper.h / 2)
+            offset_dir_1 = Direction(0, off_dir * self.section.h / 2)
+            offset_dir_2 = Direction(0, off_dir * self.taper.h / 2)
         elif self.taper_type == TaperTypes.FLUSH_BOTTOM:
-            offset_dir_1 = ada.Direction(0, -off_dir * self.section.h / 2)
-            offset_dir_2 = ada.Direction(0, -off_dir * self.taper.h / 2)
+            offset_dir_1 = Direction(0, -off_dir * self.section.h / 2)
+            offset_dir_2 = Direction(0, -off_dir * self.taper.h / 2)
         else:
             raise ValueError(f"Unknown taper type {self.taper_type}")
 
@@ -97,16 +100,16 @@ class BeamTapered(Beam):
         if isinstance(profile_1, ArbitraryProfileDef):
             if isinstance(profile_1.outer_curve, IndexedPolyCurve):
                 for curve in profile_1.outer_curve.segments:
-                    curve.start = ada.Point(curve.start + offset_dir_1)
-                    curve.end = ada.Point(curve.end + offset_dir_1)
+                    curve.start = Point(curve.start + offset_dir_1)
+                    curve.end = Point(curve.end + offset_dir_1)
 
         profile_2 = geo.geometry.end_swept_area
 
         if isinstance(profile_2, ArbitraryProfileDef):
             if isinstance(profile_2.outer_curve, IndexedPolyCurve):
                 for curve in profile_2.outer_curve.segments:
-                    curve.start = ada.Point(curve.start + offset_dir_2)
-                    curve.end = ada.Point(curve.end + offset_dir_2)
+                    curve.start = Point(curve.start + offset_dir_2)
+                    curve.end = Point(curve.end + offset_dir_2)
 
         return geo
 

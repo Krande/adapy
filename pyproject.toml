@@ -105,6 +105,7 @@ pygfx = "*"
 flatbuffers = "*"
 python-flatbuffers = "*"
 lark = "*"
+pillow = "*"
 
 [tool.pixi.feature.prod.target.linux-64.dependencies]
 # These are not available on conda-forge

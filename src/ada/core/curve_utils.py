@@ -1010,6 +1010,7 @@ def segments3d_from_points3d(
 
     return segments
 
+
 def calc_center_from_start_end_radius(p1, p2, radius) -> tuple[Point, Point]:
     if not isinstance(p1, Point):
         p1 = Point(p1)
@@ -1029,10 +1030,22 @@ def calc_center_from_start_end_radius(p1, p2, radius) -> tuple[Point, Point]:
 
     # Calculate the distance from the midpoint to the center of the circle using Pythagorean theorem
     half_distance = d / 2
-    center_distance = np.sqrt(radius ** 2 - half_distance ** 2)
+    center_distance = np.sqrt(radius**2 - half_distance**2)
 
     # The center could be in two possible directions (on the perpendicular bisector)
     center1 = midpoint + direction * center_distance
     center2 = midpoint - direction * center_distance
 
     return center1, center2
+
+
+def calculate_angle(p1, p2, radius) -> float:
+    # Calculate the distance between p1 and p2
+    d = np.linalg.norm(np.array(p2) - np.array(p1))
+
+    if d >= 2 * radius:
+        raise ValueError("The distance between the points is too large to fit a circle of the given radius.")
+
+    # Using the law of cosines to calculate the angle
+    cos_theta = (2 * radius**2 - d**2) / (2 * radius**2)
+    return np.arccos(cos_theta)  # Resulting angle in radians

@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 from ada.api.beams import geom_beams as geo_conv
 from ada.api.curves import CurveOpen2d
 from ada.geom import Geometry
+
 from .base_bm import Beam
 
 if TYPE_CHECKING:

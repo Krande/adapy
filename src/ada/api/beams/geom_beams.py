@@ -104,9 +104,6 @@ def swept_beam_to_geom(beam: BeamSweep, is_solid=True) -> Geometry:
         return swept_beam_to_face_geom(beam)
 
 
-
-
-
 def swept_beam_to_solid_geom(beam: BeamSweep) -> Geometry:
     return Geometry()
 

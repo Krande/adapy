@@ -4,7 +4,7 @@ import numpy as np
 from ifcopenshell import file as ifile
 
 from ada.api.beams import BeamTapered
-from ada.cadit.ifc.utils import create_local_placement, add_colour, ifc_dir
+from ada.cadit.ifc.utils import add_colour, create_local_placement, ifc_dir
 from ada.cadit.ifc.write.geom.solids import extruded_area_solid_tapered
 from ada.config import Config
 from ada.core.utils import to_real

@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING, Iterable, Union
 import numpy as np
 
 import ada.api.beams.geom_beams as geo_conv
-
 from ada.api.bounding_box import BoundingBox
 from ada.api.curves import LineSegment
 from ada.api.nodes import Node, get_singular_node_by_volume
@@ -32,6 +31,7 @@ from ada.sections.utils import interpret_section_str
 
 if TYPE_CHECKING:
     from OCC.Core.TopoDS import TopoDS_Shape
+
     from ada.api.beams.helpers import BeamConnectionProps
 
 
@@ -471,5 +471,3 @@ class Beam(BackendGeom):
         secn = self.section.sec_str
         matn = self.material.name
         return f'{self.__class__.__name__}("{self.name}", {p1s}, {p2s}, "{secn}", "{matn}")'
-
-

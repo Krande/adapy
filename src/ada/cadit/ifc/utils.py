@@ -150,7 +150,8 @@ def assembly_to_ifc_file(a: "Assembly"):
     length_unit = ifcopenshell.api.run("unit.add_si_unit", f, unit_type="LENGTHUNIT", **prefix)
     area_unit = ifcopenshell.api.run("unit.add_si_unit", f, unit_type="AREAUNIT", **prefix)
     volume_unit = ifcopenshell.api.run("unit.add_si_unit", f, unit_type="VOLUMEUNIT", **prefix)
-    planeangle_unit = ifcopenshell.api.run("unit.add_conversion_based_unit", f, name="degree")
+    planeangle_unit = ifcopenshell.api.run("unit.add_si_unit", f, unit_type="PLANEANGLEUNIT")
+    # planeangle_unit = ifcopenshell.api.run("unit.add_conversion_based_unit", f, name="degree")
 
     ifcopenshell.api.run("unit.assign_unit", f, units=[length_unit, area_unit, volume_unit, planeangle_unit])
     # In particular, in this example we want to store the 3D "body" geometry of objects, i.e. the body shape

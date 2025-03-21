@@ -20,12 +20,7 @@ from ada.core.constants import O, X, Z
 from ada.core.guid import create_guid
 from ada.core.utils import to_real
 from ada.core.vector_transforms import global_2_local_nodes
-from ada.core.vector_utils import (
-    angle_between,
-    calc_yvec,
-    calc_zvec,
-    unit_vector,
-)
+from ada.core.vector_utils import angle_between, calc_yvec, calc_zvec, unit_vector
 
 if TYPE_CHECKING:
     from ada import Pipe, PipeSegElbow, PipeSegStraight
