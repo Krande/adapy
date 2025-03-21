@@ -1012,10 +1012,10 @@ def segments3d_from_points3d(
 
 
 def calc_center_from_start_end_radius(p1, p2, radius) -> tuple[Point, Point]:
-    if not isinstance(p1, Point):
-        p1 = Point(p1)
-    if not isinstance(p2, Point):
-        p2 = Point(p2)
+    # Convert points to numpy arrays for easier computation
+    p1 = Point(p1)
+    p2 = Point(p2)
+
     # Calculate the distance between p1 and p2
     d = np.linalg.norm(p2 - p1)
 
@@ -1025,18 +1025,25 @@ def calc_center_from_start_end_radius(p1, p2, radius) -> tuple[Point, Point]:
     # Midpoint of p1 and p2
     midpoint = (p1 + p2) / 2
 
-    # Perpendicular direction (since p1 and p2 lie on the y-axis, the perpendicular is along the x-axis)
-    direction = ada.Direction([1, 0, 0]) if p1[1] == p2[1] else ada.Direction([0, 1, 0])
+    # Direction of the line segment between the two points
+    direction = p2 - p1
 
-    # Calculate the distance from the midpoint to the center of the circle using Pythagorean theorem
+    # The perpendicular direction is a vector that is orthogonal to the direction
+    # Since the points lie on the Y-axis, the perpendicular is along the X-axis
+    perp_direction = np.array([-direction[1], direction[0], 0.])
+
+    # Normalize the perpendicular direction
+    perp_direction /= np.linalg.norm(perp_direction)
+
+    # Distance from midpoint to the circle center
     half_distance = d / 2
-    center_distance = np.sqrt(radius**2 - half_distance**2)
+    center_distance = np.sqrt(radius ** 2 - half_distance ** 2)
 
     # The center could be in two possible directions (on the perpendicular bisector)
-    center1 = midpoint + direction * center_distance
-    center2 = midpoint - direction * center_distance
+    center1 = midpoint + perp_direction * center_distance
+    center2 = midpoint - perp_direction * center_distance
 
-    return center1, center2
+    return Point(center1), Point(center2)
 
 
 def calculate_angle(p1, p2, radius) -> float:

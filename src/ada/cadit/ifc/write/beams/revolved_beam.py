@@ -41,7 +41,9 @@ def create_revolved_beam(beam: BeamRevolve, f: "ifile", profile):
 
     ifc_trim_curve = create_ifc_trimmed_curve(curve, f)
     # placement = create_local_placement(f, curve.p1, (0, 0, 1))
-    placement = create_local_placement(f, p1, (-0.38461538, 0.92307692, 0.0), (-0.92307692, -0.38461538, 0.0))
+    loc_z = curve.profile_normal
+    loc_x = curve.profile_perpendicular
+    placement = create_local_placement(f, p1, loc_x, loc_z)
     solid_geom = beam.solid_geom()
 
     rev_area_solid = igeo_so.revolved_area_solid(solid_geom.geometry, f)

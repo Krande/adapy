@@ -153,10 +153,12 @@ class Placement:
         return Placement(origin=current_location, xdir=self.xdir, ydir=self.ydir, zdir=self.zdir)
 
     def rotate(self, axis: Iterable[float], angle: float) -> Placement:
-        """Rotate the placement around an axis. Returns a new placement unless in_place is True."""
+        """Rotate the placement around an axis. Returns a new placement."""
+
         q0 = pq.Quaternion(matrix=self.rot_matrix)
         q = q0 * pq.Quaternion(axis=axis, angle=np.radians(angle))
         m = q.transformation_matrix
+
         return Placement(origin=self.origin, xdir=m[0, :3], ydir=m[1, :3], zdir=m[2, :3])
 
     @property
