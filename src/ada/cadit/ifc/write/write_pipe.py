@@ -23,7 +23,7 @@ from ada.core.vector_transforms import global_2_local_nodes
 from ada.core.vector_utils import angle_between, calc_yvec, calc_zvec, unit_vector
 
 if TYPE_CHECKING:
-    from ada import Pipe, PipeSegElbow, PipeSegStraight
+    from ada import Pipe, PipeSegElbow, PipeSegStraight, Placement
 
 
 def write_ifc_pipe(pipe: Pipe):
@@ -58,6 +58,30 @@ def write_pipe_segment(segment: PipeSegElbow | PipeSegStraight) -> ifcopenshell.
 
     assembly = segment.get_assembly()
     ifc_store = assembly.ifc_store
+
+    found_existing_relationship = False
+
+    beam_type = ifc_store.get_beam_type(segment.section)
+    if beam_type is None:
+        raise ValueError()
+
+    for ifcrel in ifc_store.f.by_type("IfcRelDefinesByType"):
+        if ifcrel.RelatingType == beam_type:
+            ifcrel.RelatedObjects = tuple([*ifcrel.RelatedObjects, pipe_seg])
+            found_existing_relationship = True
+            break
+
+    if found_existing_relationship is False:
+        ifc_store.f.create_entity(
+            "IfcRelDefinesByType",
+            GlobalId=create_guid(),
+            OwnerHistory=ifc_store.owner_history,
+            Name=segment.section.type.value,
+            Description=None,
+            RelatedObjects=[pipe_seg],
+            RelatingType=beam_type,
+        )
+
     ifc_store.writer.associate_elem_with_material(segment.material, pipe_seg)
 
     return pipe_seg
@@ -125,10 +149,6 @@ def write_pipe_straight_seg(pipe_seg: PipeSegStraight):
     zvec = np.array([0, 0, 1]) if a != np.pi and a != 0 else np.array([1, 0, 0])
     yvec = unit_vector(np.cross(zvec, xvec))
 
-    section_profile = ifc_store.get_profile_def(pipe_seg.section)
-    if section_profile is None:
-        raise ValueError("Section profile not found")
-
     solid_geo = pipe_seg.solid_geom()
     solid = igeo_so.extruded_area_solid(solid_geo.geometry, f)
 
@@ -193,7 +213,7 @@ def write_pipe_elbow_seg(pipe_elbow: PipeSegElbow):
         ObjectPlacement=pfitting_placement,
         Representation=ifc_elbow,
         Tag=None,
-        PredefinedType=None,
+        PredefinedType="BEND",
     )
 
     props = dict(
@@ -248,16 +268,19 @@ def alt_elbow_revolved_solid(elbow: PipeSegElbow, f, tol=1e-1):
 
 
 def elbow_revolved_solid(elbow: PipeSegElbow, f, tol=1e-1):
+    from ada import Point, Direction, Placement
+
     xvec1 = unit_vector(elbow.arc_seg.s_normal)
     xvec2 = unit_vector(elbow.arc_seg.e_normal)
+    normal = unit_vector(calc_zvec(xvec2, xvec1))
 
-    core_geom = elbow.solid_geom()
+    core_geom = elbow.solid_geom(ifc_impl=True)
     geom: geo_so.RevolvedAreaSolid = core_geom.geometry
 
     # todo: there is likely a solution by moving the profile to the correct position and also
     #  likely compensate with the component position
-    geom.axis.location = elbow.arc_seg.p1 - elbow.arc_seg.center
-    geom.axis.axis = xvec1
+    profile_place = Placement(elbow.arc_seg.p1, xdir=xvec1, zdir=normal)
+    glob_place = Placement()
 
     rev_area_solid = igeo_so.revolved_area_solid(geom, f)
     if core_geom.color is not None:

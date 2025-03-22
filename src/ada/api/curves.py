@@ -72,8 +72,8 @@ class CurveRevolve:
                 angle = calculate_angle(p1, p2, self._radius)
 
                 # get normal direction of the section profile plane at the start and end points
-                xvec1 = Direction(center1 - p1).get_normalized()
-                place = Placement(p1, xdir=xvec1, zdir=rot_axis)
+                xvec1 = Direction(p1-center2).get_normalized()
+                place = Placement(p1, xdir=xvec1, zdir=-rot_axis)
                 self._profile_normal = place.xdir
                 self._profile_perpendicular = place.ydir
 

@@ -305,7 +305,8 @@ class PipeSegElbow(BackendGeom):
 
         return geom_to_occ_geom(self.solid_geom())
 
-    def solid_geom(self) -> Geometry:
+    def solid_geom(self, ifc_impl=False) -> Geometry:
+        from ada import Point, Direction, Placement
         from ada.geom.booleans import BooleanOperation
         from ada.geom.solids import RevolvedAreaSolid
 
@@ -314,9 +315,23 @@ class PipeSegElbow(BackendGeom):
         xvec1 = Direction(self.arc_seg.s_normal).get_normalized()
         xvec2 = Direction(self.arc_seg.e_normal).get_normalized()
         normal = Direction([x if abs(x) != 0.0 else 0.0 for x in calc_zvec(xvec2, xvec1)]).get_normalized()
+        if ifc_impl:
+            ref_dir = np.cross(xvec1, normal)
 
-        position = Axis2Placement3D(self.p1, xvec1, normal)
-        axis = Axis1Placement(location=self.arc_seg.center, axis=normal)
+            profile_place = Placement(self.arc_seg.p1, xdir=xvec1, zdir=ref_dir)
+            glob_place = Placement()
+
+            tra_pos = glob_place.transform_array_from_other_place(np.asarray([self.arc_seg.p1]), profile_place)[0]
+            rot_vecs = glob_place.transform_array_from_other_place(np.asarray([xvec1, ref_dir, normal]), profile_place, ignore_translation=True)
+            loc_xvec = rot_vecs[0]
+            loc_ref_dir = rot_vecs[1]
+            loc_normal = rot_vecs[2]
+
+            position = Axis2Placement3D(self.arc_seg.p1, xvec1, ref_dir)
+            axis = Axis1Placement(location=Point(tra_pos), axis=Direction(loc_normal))
+        else:
+            position = Axis2Placement3D(self.p1, xvec1, normal)
+            axis = Axis1Placement(location=self.arc_seg.center, axis=normal)
 
         revolve_angle = 180 - np.rad2deg(angle_between(xvec1, xvec2))
 

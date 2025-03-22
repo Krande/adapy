@@ -32,8 +32,6 @@ def create_revolved_beam(beam: BeamRevolve, f: "ifile", profile):
             ori_vectors = place_abs.transform_array_from_other_place(
                 np.asarray([xvec, yvec]), ident_place, ignore_translation=True
             )
-            xvec = ori_vectors[0]
-            yvec = ori_vectors[1]
             tra_vectors = place_abs.transform_array_from_other_place(np.asarray([p1]), ident_place)
             p1 = tra_vectors[0]
         else:

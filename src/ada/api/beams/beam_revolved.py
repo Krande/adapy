@@ -21,6 +21,12 @@ class BeamRevolve(Beam):
         self._curve = curve
         curve.parent = self
 
+    @staticmethod
+    def from_points_and_radius(name: str, p1, p2, radius, rot_axis, sec: str | Section, up=None, **kwargs):
+        from ada import CurveRevolve
+        curve = CurveRevolve(p1, p2, radius, rot_axis)
+        return BeamRevolve(name, curve, sec, up, **kwargs)
+
     @property
     def curve(self) -> CurveRevolve:
         return self._curve
