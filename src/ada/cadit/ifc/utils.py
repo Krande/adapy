@@ -280,6 +280,9 @@ def create_ifcrightcylinder(ifc_file, ifcaxis2placement, height, radius):
 
 
 def ifc_value_map(f, value):
+    if value is None:
+        return f.create_entity("IfcText", "")
+
     value_map = {str: "IfcText", float: "IfcReal", int: "IfcInteger", bool: "IfcBoolean"}
     if type(value) in (np.float64,):
         value = float(value)
