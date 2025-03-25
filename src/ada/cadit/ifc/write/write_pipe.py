@@ -3,27 +3,18 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import ifcopenshell
-import numpy as np
 
-import ada.cadit.ifc.write.geom.solids as igeo_so
-import ada.geom.solids as geo_so
-from ada.base.units import Units
 from ada.cadit.ifc.utils import (
-    add_colour,
-    create_ifc_placement,
-    create_ifcpolyline,
     create_local_placement,
-    write_elem_property_sets,
 )
+from ada.cadit.ifc.write.pipes.elbow_segment import write_pipe_elbow_seg
+from ada.cadit.ifc.write.pipes.straight_segment import write_pipe_straight_seg
 from ada.config import logger
-from ada.core.constants import O, X, Z
+from ada.core.constants import X, Z
 from ada.core.guid import create_guid
-from ada.core.utils import to_real
-from ada.core.vector_transforms import global_2_local_nodes
-from ada.core.vector_utils import angle_between, calc_yvec, calc_zvec, unit_vector
 
 if TYPE_CHECKING:
-    from ada import Pipe, PipeSegElbow, PipeSegStraight, Placement
+    from ada import Pipe, PipeSegElbow, PipeSegStraight
 
 
 def write_ifc_pipe(pipe: Pipe):
@@ -130,176 +121,3 @@ def write_pipe_ifc_elem(pipe: Pipe):
     return ifc_elem
 
 
-def write_pipe_straight_seg(pipe_seg: PipeSegStraight):
-    if pipe_seg.parent is None:
-        raise ValueError("Parent cannot be None for IFC export")
-
-    assembly = pipe_seg.parent.get_assembly()
-    ifc_store = assembly.ifc_store
-    f = ifc_store.f
-    owner_history = ifc_store.owner_history
-
-    p1 = pipe_seg.p1
-    p2 = pipe_seg.p2
-
-    rp1 = to_real(p1.p)
-    rp2 = to_real(p2.p)
-    xvec = unit_vector(p2.p - p1.p)
-    a = angle_between(xvec, np.array([0, 0, 1]))
-    zvec = np.array([0, 0, 1]) if a != np.pi and a != 0 else np.array([1, 0, 0])
-    yvec = unit_vector(np.cross(zvec, xvec))
-
-    solid_geo = pipe_seg.solid_geom()
-    solid = igeo_so.extruded_area_solid(solid_geo.geometry, f)
-
-    if solid_geo.color is not None:
-        add_colour(f, solid, str(solid_geo.color), solid_geo.color)
-
-    polyline = create_ifcpolyline(f, [rp1, rp2])
-
-    axis_representation = f.createIfcShapeRepresentation(ifc_store.get_context("Axis"), "Axis", "Curve3D", [polyline])
-    body_representation = f.createIfcShapeRepresentation(ifc_store.get_context("Body"), "Body", "SweptSolid", [solid])
-
-    product_shape = f.createIfcProductDefinitionShape(None, None, [axis_representation, body_representation])
-
-    origin = f.createIfcCartesianPoint(O)
-    local_z = f.createIfcDirection(Z)
-    local_x = f.createIfcDirection(X)
-    d237 = f.createIfcLocalPlacement(None, f.createIfcAxis2Placement3D(origin, local_z, local_x))
-
-    d256 = f.createIfcCartesianPoint(rp1)
-    d257 = f.createIfcDirection(to_real(xvec))
-    d258 = f.createIfcDirection(to_real(yvec))
-    d236 = f.createIfcAxis2Placement3D(d256, d257, d258)
-    local_placement = f.createIfcLocalPlacement(d237, d236)
-
-    pipe_segment = f.create_entity(
-        "IfcPipeSegment",
-        GlobalId=pipe_seg.guid,
-        OwnerHistory=owner_history,
-        Name=pipe_seg.name,
-        Description="An awesome pipe",
-        ObjectType=None,
-        ObjectPlacement=local_placement,
-        Representation=product_shape,
-        Tag=None,
-    )
-
-    return pipe_segment
-
-
-def write_pipe_elbow_seg(pipe_elbow: PipeSegElbow):
-    if pipe_elbow.parent is None:
-        raise ValueError("Parent cannot be None for IFC export")
-
-    a = pipe_elbow.parent.get_assembly()
-    f = a.ifc_store.f
-
-    owner_history = a.ifc_store.owner_history
-
-    tol = Units.get_general_point_tol(a.units)
-
-    ifc_elbow = elbow_revolved_solid(pipe_elbow, f, tol)
-
-    pfitting_placement = create_local_placement(f)
-
-    pfitting = f.create_entity(
-        "IfcPipeFitting",
-        GlobalId=pipe_elbow.guid,
-        OwnerHistory=owner_history,
-        Name=pipe_elbow.name,
-        Description="An curved pipe segment",
-        ObjectType=None,
-        ObjectPlacement=pfitting_placement,
-        Representation=ifc_elbow,
-        Tag=None,
-        PredefinedType="BEND",
-    )
-
-    props = dict(
-        bend_radius=pipe_elbow.bend_radius,
-        p1=pipe_elbow.arc_seg.p1,
-        p2=pipe_elbow.arc_seg.p2,
-        midpoint=pipe_elbow.arc_seg.midpoint,
-    )
-
-    write_elem_property_sets(props, pfitting, f, owner_history)
-
-    return pfitting
-
-
-def alt_elbow_revolved_solid(elbow: PipeSegElbow, f, tol=1e-1):
-    arc = elbow.arc_seg
-
-    xvec1 = unit_vector(arc.s_normal)
-    xvec2 = unit_vector(arc.e_normal)
-    normal = unit_vector(calc_zvec(xvec2, xvec1))
-
-    a = elbow.get_assembly()
-    ifc_store = a.ifc_store
-
-    # Profile
-    profile = ifc_store.get_profile_def(elbow.section)
-
-    # Revolve Angle
-    revolve_angle = 180 - np.rad2deg(angle_between(xvec1, xvec2))
-
-    # Revolve Point
-    diff = arc.center - arc.p1
-
-    # Transform Axis normal and position to the local coordinate system
-    yvec = calc_yvec(normal, xvec1)
-    new_csys = (normal, yvec, xvec1)
-
-    diff_tra = global_2_local_nodes(new_csys, O, [diff])[0]
-    n_tra = global_2_local_nodes(new_csys, O, [normal])[0]
-
-    n_tra_norm = to_real(unit_vector(n_tra))
-    diff_tra_norm = to_real(diff_tra)
-
-    # Revolve Axis
-    rev_axis_dir = f.create_entity("IfcDirection", n_tra_norm)
-    revolve_point = f.create_entity("IfcCartesianPoint", diff_tra_norm)
-    revolve_axis1 = f.create_entity("IfcAxis1Placement", revolve_point, rev_axis_dir)
-
-    position = create_ifc_placement(f, elbow.arc_seg.p1, xvec1, normal)
-    ifc_shape = f.create_entity("IfcRevolvedAreaSolid", profile, position, revolve_axis1, revolve_angle)
-    return ifc_shape
-
-
-def elbow_revolved_solid(elbow: PipeSegElbow, f, tol=1e-1):
-    from ada import Point, Direction, Placement
-
-    xvec1 = unit_vector(elbow.arc_seg.s_normal)
-    xvec2 = unit_vector(elbow.arc_seg.e_normal)
-    normal = unit_vector(calc_zvec(xvec2, xvec1))
-
-    core_geom = elbow.solid_geom(ifc_impl=True)
-    geom: geo_so.RevolvedAreaSolid = core_geom.geometry
-
-    # todo: there is likely a solution by moving the profile to the correct position and also
-    #  likely compensate with the component position
-    profile_place = Placement(elbow.arc_seg.p1, xdir=xvec1, zdir=normal)
-    glob_place = Placement()
-
-    rev_area_solid = igeo_so.revolved_area_solid(geom, f)
-    if core_geom.color is not None:
-        add_colour(f, rev_area_solid, str(core_geom.color), core_geom.color)
-
-    p1, p2, p3 = elbow.p1.p, elbow.p2.p, elbow.p3.p
-
-    a = elbow.get_assembly()
-    ifc_store = a.ifc_store
-
-    body = f.create_entity(
-        "IfcShapeRepresentation", ifc_store.get_context("Body"), "Body", "SweptSolid", [rev_area_solid]
-    )
-
-    # Axis representation
-    polyline = create_ifcpolyline(f, [p1, p2, p3])
-    axis = f.create_entity("IfcShapeRepresentation", ifc_store.get_context("Axis"), "Axis", "Curve3D", [polyline])
-
-    # Final Product Shape
-    prod_def_shp = f.create_entity("IfcProductDefinitionShape", None, None, (body, axis))
-
-    return prod_def_shp

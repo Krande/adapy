@@ -4,7 +4,7 @@ import pytest
 
 import ada
 from ada import Assembly, Part, Pipe, PipeSegElbow, Section
-from ada.cadit.ifc.write.write_pipe import elbow_revolved_solid
+from ada.cadit.ifc.write.pipes.elbow_segment import elbow_revolved_solid
 from ada.geom import solids as geo_so
 
 

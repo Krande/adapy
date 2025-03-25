@@ -13,7 +13,8 @@ from ada.base.units import Units
 from ada.config import Config, logger
 from ada.core.exceptions import VectorNormalizeError
 from ada.core.utils import Counter, roundoff
-from ada.core.vector_utils import angle_between, calc_zvec, unit_vector, vector_length
+from ada.core.vector_transforms import global_2_local_nodes
+from ada.core.vector_utils import angle_between, calc_zvec, unit_vector, vector_length, calc_yvec
 from ada.geom import Geometry
 from ada.geom.placement import Axis1Placement, Axis2Placement3D, Direction
 from ada.materials.utils import get_material
@@ -309,26 +310,26 @@ class PipeSegElbow(BackendGeom):
         from ada import Point, Direction, Placement
         from ada.geom.booleans import BooleanOperation
         from ada.geom.solids import RevolvedAreaSolid
+        from ada.core.constants import O
 
         profile = section_to_arbitrary_profile_def_with_voids(self.section)
 
         xvec1 = Direction(self.arc_seg.s_normal).get_normalized()
         xvec2 = Direction(self.arc_seg.e_normal).get_normalized()
         normal = Direction([x if abs(x) != 0.0 else 0.0 for x in calc_zvec(xvec2, xvec1)]).get_normalized()
+
+        # todo: update OCC handling so that this conditional no longer is needed, and always ifc_impl=True
         if ifc_impl:
-            ref_dir = np.cross(xvec1, normal)
+            # Revolve Point
+            diff = self.arc_seg.center - self.arc_seg.p1
+            yvec = calc_yvec(normal, xvec1)
+            new_csys = (normal, yvec, xvec1)
 
-            profile_place = Placement(self.arc_seg.p1, xdir=xvec1, zdir=ref_dir)
-            glob_place = Placement()
+            diff_tra = global_2_local_nodes(new_csys, O, [diff])[0]
+            n_tra = global_2_local_nodes(new_csys, O, [normal])[0]
 
-            tra_pos = glob_place.transform_array_from_other_place(np.asarray([self.arc_seg.p1]), profile_place)[0]
-            rot_vecs = glob_place.transform_array_from_other_place(np.asarray([xvec1, ref_dir, normal]), profile_place, ignore_translation=True)
-            loc_xvec = rot_vecs[0]
-            loc_ref_dir = rot_vecs[1]
-            loc_normal = rot_vecs[2]
-
-            position = Axis2Placement3D(self.arc_seg.p1, xvec1, ref_dir)
-            axis = Axis1Placement(location=Point(tra_pos), axis=Direction(loc_normal))
+            position = Axis2Placement3D(self.arc_seg.p1, xvec1, normal)
+            axis = Axis1Placement(location=Point(diff_tra), axis=Direction(n_tra).get_normalized())
         else:
             position = Axis2Placement3D(self.p1, xvec1, normal)
             axis = Axis1Placement(location=self.arc_seg.center, axis=normal)
