@@ -4,11 +4,11 @@ from enum import Enum
 from typing import TYPE_CHECKING, Iterable
 
 from ada.api.beams import geom_beams as geo_conv
-from ada.geom.points import Point
-from ada.geom.placement import Direction
 from ada.config import logger
 from ada.geom import Geometry
 from ada.geom.curves import IndexedPolyCurve
+from ada.geom.placement import Direction
+from ada.geom.points import Point
 from ada.geom.surfaces import ArbitraryProfileDef
 from ada.sections.utils import interpret_section_str
 

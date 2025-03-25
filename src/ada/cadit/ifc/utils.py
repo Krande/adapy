@@ -662,17 +662,18 @@ def tesselate_shape(shape, schema, tol):
 
 
 def default_settings():
-    ifc_settings = ifcopenshell.geom.settings()
-    ifc_settings.set(ifc_settings.USE_PYTHON_OPENCASCADE, True)
-    ifc_ver = tuple([int(x) for x in ifcopenshell.version.split(".")])
-    if ifc_ver < (0, 7, 9) and ifc_ver != (0, 0, 0):
-        ifc_settings.set(ifc_settings.SEW_SHELLS, True)
-        ifc_settings.set(ifc_settings.INCLUDE_CURVES, True)
-        ifc_settings.set(ifc_settings.VALIDATE_QUANTITIES, True)
-    ifc_settings.set(ifc_settings.WELD_VERTICES, True)
-    ifc_settings.set(ifc_settings.USE_WORLD_COORDS, True)
+    settings = ifcopenshell.geom.settings()
+    settings.set("mesher-linear-deflection", 0.001)
+    settings.set("mesher-angular-deflection", 0.5)
+    settings.set("apply-default-materials", False)
+    settings.set("keep-bounding-boxes", True)
+    settings.set("layerset-first", True)
+    settings.set("use-world-coords", True)
+    # Wire intersection checks is prohibitively slow on advanced breps. See bug #5999.
+    settings.set("no-wire-intersection-check", True)
+    # settings.set("triangulation-type", ifcopenshell.ifcopenshell_wrapper.POLYHEDRON_WITHOUT_HOLES)
 
-    return ifc_settings
+    return settings
 
 
 def export_transform(f: ifcopenshell.file, transform: Transform):

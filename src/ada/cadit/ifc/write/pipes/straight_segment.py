@@ -1,13 +1,10 @@
 from __future__ import annotations
 
-import numpy as np
 
 from ada import PipeSegStraight
 from ada.cadit.ifc.utils import add_colour, create_ifcpolyline, create_local_placement
 from ada.cadit.ifc.write.geom import solids as igeo_so
-from ada.core.constants import O, Z, X
 from ada.core.utils import to_real
-from ada.core.vector_utils import unit_vector, angle_between
 
 
 def write_pipe_straight_seg(pipe_seg: PipeSegStraight):

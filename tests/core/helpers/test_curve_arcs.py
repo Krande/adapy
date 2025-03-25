@@ -2,7 +2,10 @@ import numpy as np
 import pytest
 
 from ada import ArcSegment, Placement
-from ada.core.curve_utils import intersect_line_circle, make_arc_segment, calc_center_from_start_end_radius
+from ada.core.curve_utils import (
+    intersect_line_circle,
+    make_arc_segment,
+)
 from ada.core.utils import roundoff
 from ada.core.vector_transforms import linear_2dtransform_rotate, local_2_global_points
 from ada.core.vector_utils import angle_between, intersection_point, unit_vector
@@ -229,4 +232,3 @@ def test_center_of_arc_3_points_out_of_plane_2():
     r = 0.19595812499999998
     arc = ArcSegment.from_start_center_end_radius((5.38088, 4.8, 3.27537), (10.0, 4.8, 5.2), (10.0, 4.8, 13.2), r)
     assert sum(arc.center - np.array([9.804042, 4.8, 5.330639])) == pytest.approx(0.0, abs=1e-6)
-

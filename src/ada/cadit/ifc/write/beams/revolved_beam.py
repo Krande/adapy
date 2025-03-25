@@ -4,7 +4,7 @@ import numpy as np
 from ifcopenshell import file as ifile
 
 import ada.cadit.ifc.write.geom.solids as igeo_so
-from ada import CurveRevolve, Placement
+from ada import CurveRevolve, Placement, Point
 from ada.api.beams import BeamRevolve
 from ada.cadit.ifc.utils import add_colour, create_ifc_placement, create_local_placement
 from ada.cadit.ifc.write.geom.points import cpt
@@ -20,7 +20,8 @@ def create_revolved_beam(beam: BeamRevolve, f: "ifile", profile):
 
     xvec = None
     yvec = None
-    p1 = beam.curve.p1
+
+    p1 = Point(0, 0, 0)
 
     if beam.placement.is_identity() is False:
         ident_place = Placement()
@@ -29,9 +30,6 @@ def create_revolved_beam(beam: BeamRevolve, f: "ifile", profile):
         ident_rot_mat = ident_place.rot_matrix
         # check if the 3x3 rotational np arrays are identical
         if not np.allclose(place_abs_rot_mat, ident_rot_mat):
-            ori_vectors = place_abs.transform_array_from_other_place(
-                np.asarray([xvec, yvec]), ident_place, ignore_translation=True
-            )
             tra_vectors = place_abs.transform_array_from_other_place(np.asarray([p1]), ident_place)
             p1 = tra_vectors[0]
         else:
@@ -39,9 +37,9 @@ def create_revolved_beam(beam: BeamRevolve, f: "ifile", profile):
 
     ifc_trim_curve = create_ifc_trimmed_curve(curve, f)
     # placement = create_local_placement(f, curve.p1, (0, 0, 1))
-    loc_z = curve.profile_normal
-    loc_x = curve.profile_perpendicular
-    placement = create_local_placement(f, p1, loc_x, loc_z)
+    # loc_z = curve.profile_normal
+    # loc_x = curve.profile_perpendicular
+    placement = create_local_placement(f, p1)  # , loc_x, loc_z)
     solid_geom = beam.solid_geom()
 
     rev_area_solid = igeo_so.revolved_area_solid(solid_geom.geometry, f)

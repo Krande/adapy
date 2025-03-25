@@ -12,6 +12,7 @@ from OCC.Extend.TopologyUtils import discretize_edge
 
 from ada.base.physical_objects import BackendGeom
 from ada.base.types import GeomRepr
+from ada.cadit.ifc.utils import default_settings
 from ada.config import logger
 from ada.geom import Geometry
 from ada.occ.exceptions import (
@@ -297,7 +298,7 @@ class BatchTessellator:
         mat_id = self.add_color(color)
         return mat_id
 
-    def iter_ifc_store(self, ifc_store: IfcStore) -> Iterable[MeshStore]:
+    def iter_ifc_store(self, ifc_store: IfcStore, cpus=1, settings=default_settings()) -> Iterable[MeshStore]:
         import ifcopenshell.geom
         import ifcopenshell.util.representation
 
@@ -306,18 +307,6 @@ class BatchTessellator:
         # see Ifcopenshell src/ifcgeom/ConversionSettings.h for the various parameters
         # https://github.com/IfcOpenShell/IfcOpenShell/blob/v0.8.0/src/ifcgeom/ConversionSettings.h#L102
 
-        settings = ifcopenshell.geom.settings()
-        settings.set("mesher-linear-deflection", 0.001)
-        settings.set("mesher-angular-deflection", 0.5)
-        settings.set("apply-default-materials", False)
-        settings.set("keep-bounding-boxes", True)
-        settings.set("layerset-first", True)
-        settings.set("use-world-coords", True)
-        # Wire intersection checks is prohibitively slow on advanced breps. See bug #5999.
-        settings.set("no-wire-intersection-check", True)
-        # settings.set("triangulation-type", ifcopenshell.ifcopenshell_wrapper.POLYHEDRON_WITHOUT_HOLES)
-
-        cpus = 1
         iterator = ifcopenshell.geom.iterator(settings, ifc_store.f, cpus)
 
         iterator.initialize()

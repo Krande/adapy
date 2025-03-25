@@ -14,7 +14,13 @@ from ada.config import Config, logger
 from ada.core.exceptions import VectorNormalizeError
 from ada.core.utils import Counter, roundoff
 from ada.core.vector_transforms import global_2_local_nodes
-from ada.core.vector_utils import angle_between, calc_zvec, unit_vector, vector_length, calc_yvec
+from ada.core.vector_utils import (
+    angle_between,
+    calc_yvec,
+    calc_zvec,
+    unit_vector,
+    vector_length,
+)
 from ada.geom import Geometry
 from ada.geom.placement import Axis1Placement, Axis2Placement3D, Direction
 from ada.materials.utils import get_material
@@ -307,10 +313,10 @@ class PipeSegElbow(BackendGeom):
         return geom_to_occ_geom(self.solid_geom())
 
     def solid_geom(self, ifc_impl=False) -> Geometry:
-        from ada import Point, Direction, Placement
+        from ada import Direction, Point
+        from ada.core.constants import O
         from ada.geom.booleans import BooleanOperation
         from ada.geom.solids import RevolvedAreaSolid
-        from ada.core.constants import O
 
         profile = section_to_arbitrary_profile_def_with_voids(self.section)
 

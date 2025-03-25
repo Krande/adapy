@@ -4,9 +4,7 @@ from typing import TYPE_CHECKING
 
 import ifcopenshell
 
-from ada.cadit.ifc.utils import (
-    create_local_placement,
-)
+from ada.cadit.ifc.utils import create_local_placement
 from ada.cadit.ifc.write.pipes.elbow_segment import write_pipe_elbow_seg
 from ada.cadit.ifc.write.pipes.straight_segment import write_pipe_straight_seg
 from ada.config import logger
@@ -119,5 +117,3 @@ def write_pipe_ifc_elem(pipe: Pipe):
     )
 
     return ifc_elem
-
-

@@ -3,13 +3,18 @@ from __future__ import annotations
 import numpy as np
 
 from ada import PipeSegElbow, Units
-from ada.cadit.ifc.utils import create_local_placement, write_elem_property_sets, create_ifc_placement, add_colour, \
-    create_ifcpolyline
+from ada.cadit.ifc.utils import (
+    add_colour,
+    create_ifc_placement,
+    create_ifcpolyline,
+    create_local_placement,
+    write_elem_property_sets,
+)
 from ada.cadit.ifc.write.geom import solids as igeo_so
 from ada.core.constants import O
 from ada.core.utils import to_real
 from ada.core.vector_transforms import global_2_local_nodes
-from ada.core.vector_utils import unit_vector, calc_zvec, angle_between, calc_yvec
+from ada.core.vector_utils import angle_between, calc_yvec, calc_zvec, unit_vector
 from ada.geom import solids as geo_so
 
 

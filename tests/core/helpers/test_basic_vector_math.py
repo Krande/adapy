@@ -25,8 +25,8 @@ def test_transforms_rotations():
 
 
 def test_basic_curve_center_from_points_and_radius():
-    p1 = (0,0,0)
-    p2 = (0,1,0)
+    p1 = (0, 0, 0)
+    p2 = (0, 1, 0)
     radius = 1.3
 
     center1, center2 = calc_center_from_start_end_radius(p1, p2, radius)

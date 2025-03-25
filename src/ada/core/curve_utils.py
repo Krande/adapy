@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING, Iterable
 
 import numpy as np
 
-import ada
 from ada.config import Config, logger
 
 from ..geom.points import Point
@@ -1030,14 +1029,14 @@ def calc_center_from_start_end_radius(p1, p2, radius) -> tuple[Point, Point]:
 
     # The perpendicular direction is a vector that is orthogonal to the direction
     # Since the points lie on the Y-axis, the perpendicular is along the X-axis
-    perp_direction = np.array([-direction[1], direction[0], 0.])
+    perp_direction = np.array([-direction[1], direction[0], 0.0])
 
     # Normalize the perpendicular direction
     perp_direction /= np.linalg.norm(perp_direction)
 
     # Distance from midpoint to the circle center
     half_distance = d / 2
-    center_distance = np.sqrt(radius ** 2 - half_distance ** 2)
+    center_distance = np.sqrt(radius**2 - half_distance**2)
 
     # The center could be in two possible directions (on the perpendicular bisector)
     center1 = midpoint + perp_direction * center_distance
