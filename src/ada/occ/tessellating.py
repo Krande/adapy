@@ -302,12 +302,17 @@ class BatchTessellator:
         import ifcopenshell.util.representation
 
         from ada.visit.gltf.meshes import MeshStore, MeshType
+
+        # see Ifcopenshell src/ifcgeom/ConversionSettings.h for the various parameters
+        # https://github.com/IfcOpenShell/IfcOpenShell/blob/v0.8.0/src/ifcgeom/ConversionSettings.h#L102
+
         settings = ifcopenshell.geom.settings()
         settings.set("mesher-linear-deflection", 0.001)
         settings.set("mesher-angular-deflection", 0.5)
         settings.set("apply-default-materials", False)
         settings.set("keep-bounding-boxes", True)
         settings.set("layerset-first", True)
+        settings.set("use-world-coords", True)
         # Wire intersection checks is prohibitively slow on advanced breps. See bug #5999.
         settings.set("no-wire-intersection-check", True)
         # settings.set("triangulation-type", ifcopenshell.ifcopenshell_wrapper.POLYHEDRON_WITHOUT_HOLES)
