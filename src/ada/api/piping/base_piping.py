@@ -225,7 +225,7 @@ class PipeSegElbow(BackendGeom):
         end,
         bend_radius,
         section,
-        material,
+        material=None,
         parent=None,
         guid=None,
         metadata=None,
@@ -242,6 +242,7 @@ class PipeSegElbow(BackendGeom):
             midpoint = Node(midpoint, units=units)
         if not isinstance(end, Node):
             end = Node(end, units=units)
+
         self.section, _ = get_section(section)
         self.section.parent = self
         self.material = get_material(material)
@@ -249,6 +250,8 @@ class PipeSegElbow(BackendGeom):
         self.p2 = midpoint
         self.p3 = end
         self.bend_radius = bend_radius
+        if arc_seg is None:
+            arc_seg = ArcSegment.from_start_center_end_radius(start.p, midpoint.p, end.p, self.bend_radius)
         self._arc_seg = arc_seg
         self._xvec1 = Direction(*(self.p2.p - self.p1.p))
         self._xvec2 = Direction(*(self.p3.p - self.p2.p))

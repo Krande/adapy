@@ -18,9 +18,6 @@ def create_revolved_beam(beam: BeamRevolve, f: "ifile", profile):
 
     curve: CurveRevolve = beam.curve
 
-    xvec = None
-    yvec = None
-
     p1 = Point(0, 0, 0)
 
     if beam.placement.is_identity() is False:

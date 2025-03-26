@@ -2,10 +2,7 @@ import numpy as np
 import pytest
 
 from ada import ArcSegment, Placement
-from ada.core.curve_utils import (
-    intersect_line_circle,
-    make_arc_segment,
-)
+from ada.core.curve_utils import intersect_line_circle, make_arc_segment
 from ada.core.utils import roundoff
 from ada.core.vector_transforms import linear_2dtransform_rotate, local_2_global_points
 from ada.core.vector_utils import angle_between, intersection_point, unit_vector

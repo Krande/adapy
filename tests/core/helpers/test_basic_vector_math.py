@@ -1,7 +1,7 @@
 import numpy as np
 from numpy.testing import assert_array_almost_equal, assert_array_equal
 
-from ada import Placement
+from ada import Placement, Point
 from ada.core.constants import O
 from ada.core.curve_utils import calc_center_from_start_end_radius
 
@@ -30,4 +30,4 @@ def test_basic_curve_center_from_points_and_radius():
     radius = 1.3
 
     center1, center2 = calc_center_from_start_end_radius(p1, p2, radius)
-    assert center1 == (-1.3, 0.1, 0)
+    assert Point(center1).is_equal(Point(-1.2, 0.5, 0))

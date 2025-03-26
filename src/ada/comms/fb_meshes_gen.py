@@ -1,7 +1,8 @@
 from __future__ import annotations
-
+from typing import Optional, List
 from dataclasses import dataclass
-from typing import List, Optional
+
+
 
 
 @dataclass
@@ -10,7 +11,6 @@ class MeshDC:
     indices: List[int] = None
     vertices: List[float] = None
     parent_name: str = ""
-
 
 @dataclass
 class AppendMeshDC:

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-
 from ada import PipeSegStraight
 from ada.cadit.ifc.utils import add_colour, create_ifcpolyline, create_local_placement
 from ada.cadit.ifc.write.geom import solids as igeo_so

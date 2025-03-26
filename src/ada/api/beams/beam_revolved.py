@@ -36,7 +36,7 @@ class BeamRevolve(Beam):
     def solid_geom(self) -> Geometry[RevolvedAreaSolid]:
         # todo: This currently does not work as intended
         logger.warning("BeamRevolve.solid_geom() is not yet implemented correctly")
-        from ada import Direction, Placement, Point
+        from ada import Direction, Point
         from ada.core.constants import O
         from ada.core.vector_transforms import global_2_local_nodes
         from ada.geom.solids import RevolvedAreaSolid

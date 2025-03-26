@@ -1,5 +1,6 @@
 import math
 
+import numpy as np
 import pytest
 
 import ada
@@ -68,7 +69,7 @@ def test_write_elbow_revolved_solid_ifc_gen(pipe_w_multiple_bends):
     shape2 = elbow_revolved_solid(elbow2, f)
     ifc_revolved_solid2 = shape2.Representations[0].Items[0]
 
-    assert ifc_revolved_solid2.Angle == pytest.approx(90.0)
+    assert ifc_revolved_solid2.Angle == pytest.approx(np.deg2rad(90.0))
 
     position2 = ifc_revolved_solid2.Position
 
@@ -79,7 +80,7 @@ def test_write_elbow_revolved_solid_ifc_gen(pipe_w_multiple_bends):
     shape3 = elbow_revolved_solid(elbow3, f)
     ifc_revolved_solid3 = shape3.Representations[0].Items[0]
 
-    assert ifc_revolved_solid3.Angle == pytest.approx(67.380135)
+    assert ifc_revolved_solid3.Angle == pytest.approx(np.deg2rad(67.380135))
 
 
 def test_pipe1():

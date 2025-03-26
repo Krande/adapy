@@ -69,6 +69,8 @@ def start_serving(
 ) -> tuple[socketserver.ThreadingTCPServer, threading.Thread] | None:
     rr = RendererReact()
     web_dir = rr.local_html_path.parent
+    if renderer_obj is None:
+        renderer_obj = rr
     # Create a partial function to pass the directory to the handler
     handler = functools.partial(
         CustomHTTPRequestHandler,
