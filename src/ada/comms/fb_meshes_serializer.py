@@ -1,9 +1,8 @@
-import flatbuffers
 from typing import Optional
 
-from ada.comms.meshes import Mesh, AppendMesh
-
-from ada.comms.fb_meshes_gen import MeshDC, AppendMeshDC
+import flatbuffers
+from ada.comms.fb_meshes_gen import AppendMeshDC, MeshDC
+from ada.comms.meshes import AppendMesh, Mesh
 
 
 def serialize_mesh(builder: flatbuffers.Builder, obj: Optional[MeshDC]) -> Optional[int]:
@@ -47,5 +46,3 @@ def serialize_appendmesh(builder: flatbuffers.Builder, obj: Optional[AppendMeshD
     if obj.mesh is not None:
         AppendMesh.AddMesh(builder, mesh_obj)
     return AppendMesh.End(builder)
-
-

@@ -2,6 +2,7 @@
 
 # namespace: wsock
 
+
 class TargetType(object):
     WEB = 0
     LOCAL = 1

@@ -4,10 +4,12 @@
 
 import flatbuffers
 from flatbuffers.compat import import_numpy
+
 np = import_numpy()
 
+
 class Value(object):
-    __slots__ = ['_tab']
+    __slots__ = ["_tab"]
 
     @classmethod
     def GetRootAs(cls, buf, offset=0):
@@ -20,6 +22,7 @@ class Value(object):
     def GetRootAsValue(cls, buf, offset=0):
         """This method is deprecated. Please switch to GetRootAs."""
         return cls.GetRootAs(buf, offset)
+
     # Value
     def Init(self, buf, pos):
         self._tab = flatbuffers.table.Table(buf, pos)
@@ -60,6 +63,7 @@ class Value(object):
             x += flatbuffers.number_types.UOffsetTFlags.py_type(j) * 4
             x = self._tab.Indirect(x)
             from ada.comms.wsock.Value import Value
+
             obj = Value()
             obj.Init(self._tab.Bytes, x)
             return obj
@@ -105,74 +109,98 @@ class Value(object):
             return bool(self._tab.Get(flatbuffers.number_types.BoolFlags, o + self._tab.Pos))
         return False
 
+
 def ValueStart(builder):
     builder.StartObject(9)
+
 
 def Start(builder):
     ValueStart(builder)
 
+
 def ValueAddStringValue(builder, stringValue):
     builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(stringValue), 0)
+
 
 def AddStringValue(builder, stringValue):
     ValueAddStringValue(builder, stringValue)
 
+
 def ValueAddFloatValue(builder, floatValue):
     builder.PrependFloat32Slot(1, floatValue, 0.0)
+
 
 def AddFloatValue(builder, floatValue):
     ValueAddFloatValue(builder, floatValue)
 
+
 def ValueAddIntegerValue(builder, integerValue):
     builder.PrependInt32Slot(2, integerValue, 0)
+
 
 def AddIntegerValue(builder, integerValue):
     ValueAddIntegerValue(builder, integerValue)
 
+
 def ValueAddBooleanValue(builder, booleanValue):
     builder.PrependBoolSlot(3, booleanValue, 0)
+
 
 def AddBooleanValue(builder, booleanValue):
     ValueAddBooleanValue(builder, booleanValue)
 
+
 def ValueAddArrayValue(builder, arrayValue):
     builder.PrependUOffsetTRelativeSlot(4, flatbuffers.number_types.UOffsetTFlags.py_type(arrayValue), 0)
+
 
 def AddArrayValue(builder, arrayValue):
     ValueAddArrayValue(builder, arrayValue)
 
+
 def ValueStartArrayValueVector(builder, numElems):
     return builder.StartVector(4, numElems, 4)
+
 
 def StartArrayValueVector(builder, numElems):
     return ValueStartArrayValueVector(builder, numElems)
 
+
 def ValueAddArrayValueType(builder, arrayValueType):
     builder.PrependInt8Slot(5, arrayValueType, 0)
+
 
 def AddArrayValueType(builder, arrayValueType):
     ValueAddArrayValueType(builder, arrayValueType)
 
+
 def ValueAddArrayLength(builder, arrayLength):
     builder.PrependInt32Slot(6, arrayLength, 0)
+
 
 def AddArrayLength(builder, arrayLength):
     ValueAddArrayLength(builder, arrayLength)
 
+
 def ValueAddArrayType(builder, arrayType):
     builder.PrependInt8Slot(7, arrayType, 0)
+
 
 def AddArrayType(builder, arrayType):
     ValueAddArrayType(builder, arrayType)
 
+
 def ValueAddArrayAnyLength(builder, arrayAnyLength):
     builder.PrependBoolSlot(8, arrayAnyLength, 0)
+
 
 def AddArrayAnyLength(builder, arrayAnyLength):
     ValueAddArrayAnyLength(builder, arrayAnyLength)
 
+
 def ValueEnd(builder):
     return builder.EndObject()
+
 
 def End(builder):
     return ValueEnd(builder)
