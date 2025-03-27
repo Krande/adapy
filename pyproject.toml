@@ -79,6 +79,7 @@ frontend = { features = ["web"], no-default-feature = true }
 
 [tool.pixi.feature.prod.dependencies]
 python = "3.12.*"
+notebook = "*"  # For the notebook
 bcf-client = "*"
 kaleido-core = "==0.1.0"
 numpy = "*"
@@ -104,13 +105,27 @@ pygfx = "*"
 flatbuffers = "*"
 python-flatbuffers = "*"
 lark = "*"
+pillow = "*"
 
 [tool.pixi.feature.prod.target.linux-64.dependencies]
 # These are not available on conda-forge
 code-aster = "*"
 
 [tool.pixi.feature.prod.target.win-64.dependencies]
+
 code-aster = { version = "*", channel = "https://repo.prefix.dev/code-aster" }
+# Attempt to update to the latest version of the dependencies
+#code-aster = { version = "==17.2.8.1", channel = "https://repo.prefix.dev/code-aster" }
+#ifcopenshell = { version = "==0.8.1.250324", channel = "https://repo.prefix.dev/code-aster" }
+#hdf5 = { version = "==1.14.6", channel = "https://repo.prefix.dev/code-aster" }
+#gmsh = { version = "==4.13.1" , build="nompi_release_he31cdec_300", channel = "https://repo.prefix.dev/code-aster" }
+#python-gmsh = { version = "==4.13.1" , channel = "https://repo.prefix.dev/code-aster" }
+#scotch = { version = "*" , channel = "https://repo.prefix.dev/code-aster" }
+#libscotch = { version = "*" , channel = "https://repo.prefix.dev/code-aster" }
+#mumps = { version = "*" , channel = "https://repo.prefix.dev/code-aster" }
+#metis = { version = "*" , channel = "https://repo.prefix.dev/code-aster" }
+#fltk = { version = "*" , channel = "C:/AibelProgs/code/condapackaging/output" }
+#calculix = { version = "==2.22", build="*_1", channel = "conda-forge" }
 
 [tool.pixi.feature.tests.dependencies]
 pytest = "*"

@@ -14,11 +14,11 @@ def serialize_mesh(builder: flatbuffers.Builder, obj: Optional[MeshDC]) -> Optio
     Mesh.StartIndicesVector(builder, len(obj.indices))
     for item in reversed(obj.indices):
         builder.PrependUint32(item)
-    indices_vector = builder.EndVector(len(obj.indices))
+    indices_vector = builder.EndVector()
     Mesh.StartVerticesVector(builder, len(obj.vertices))
     for item in reversed(obj.vertices):
         builder.PrependFloat32(item)
-    vertices_vector = builder.EndVector(len(obj.vertices))
+    vertices_vector = builder.EndVector()
     parent_name_str = None
     if obj.parent_name is not None:
         parent_name_str = builder.CreateString(str(obj.parent_name))

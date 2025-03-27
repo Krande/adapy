@@ -7,7 +7,8 @@ from typing import TYPE_CHECKING, Any, Callable, Iterable
 
 from ada import Node, Pipe, PrimBox, PrimCyl, PrimExtrude, PrimRevolve, Shape
 from ada.api.animations import AnimationStore
-from ada.api.beams.base_bm import Beam, BeamTapered
+from ada.api.beams.base_bm import Beam
+from ada.api.beams.beam_tapered import BeamTapered
 from ada.api.connections import JointBase
 from ada.api.containers import Beams, Connections, Materials, Nodes, Plates, Sections
 from ada.api.groups import Group
@@ -33,6 +34,7 @@ if TYPE_CHECKING:
         Material,
         Placement,
         Plate,
+        Point,
         Section,
         Wall,
         Weld,
@@ -737,6 +739,39 @@ class Part(BackendGeom):
     def _on_import(self):
         """A method call that will be triggered when a Part is imported into an existing Assembly/Part"""
         raise NotImplementedError()
+
+    def copy_to(
+        self,
+        name: str,
+        position: list[float] | Point = None,
+        rotation_axis: Iterable[float] = None,
+        rotation_angle: float = None,
+    ) -> Part:
+        """Copy the part and all its sub_parts to a new part. Optionally add translation and/or rotation to the new part"""
+        from ada import Placement
+
+        if position is None:
+            position = self.placement.origin
+
+        new_part = Part(name, placement=Placement(origin=position))
+
+        for obj in self.get_all_physical_objects():
+            copy_obj = obj.copy_to(f"{obj.name}_copy")
+            new_part.add_object(copy_obj)
+
+        for sub_part in self.parts.values():
+            new_part.add_part(sub_part.copy_to(f"{sub_part.name}_copy"))
+
+        if rotation_axis is not None:
+            if rotation_angle is None:
+                raise ValueError("To apply rotation you also need to specify a rotation angle")
+
+            new_part.placement = new_part.placement.rotate(rotation_axis, rotation_angle)
+        else:
+            if rotation_angle is not None:
+                raise ValueError("To apply rotation you also need to specify a rotation axis")
+
+        return new_part
 
     def to_fem_obj(
         self,

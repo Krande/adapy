@@ -139,10 +139,21 @@ def assembly_to_ifc_file(a: "Assembly"):
     project = ifcopenshell.api.run("root.create_entity", f, ifc_class="IfcProject", name=a.metadata["project"])
     f.add(project)
 
-    ifcopenshell.api.run("unit.assign_unit", f, **{"length": {"is_metric": True, "raw": "METERS"}})
+    if a.units == "mm":
+        prefix = dict(prefix="MILLI")
+    else:
+        prefix = dict()
+
+    # ifcopenshell.api.run("unit.assign_unit", f, **{"length": {"is_metric": True, "raw": "METERS"}})
     # Let's create a modeling geometry context, so we can store 3D geometry (note: IFC supports 2D too!)
     # context = ifcopenshell.api.run("context.add_context", f, context_type="Model")
+    length_unit = ifcopenshell.api.run("unit.add_si_unit", f, unit_type="LENGTHUNIT", **prefix)
+    area_unit = ifcopenshell.api.run("unit.add_si_unit", f, unit_type="AREAUNIT", **prefix)
+    volume_unit = ifcopenshell.api.run("unit.add_si_unit", f, unit_type="VOLUMEUNIT", **prefix)
+    planeangle_unit = ifcopenshell.api.run("unit.add_si_unit", f, unit_type="PLANEANGLEUNIT")
+    # planeangle_unit = ifcopenshell.api.run("unit.add_conversion_based_unit", f, name="degree")
 
+    ifcopenshell.api.run("unit.assign_unit", f, units=[length_unit, area_unit, volume_unit, planeangle_unit])
     # In particular, in this example we want to store the 3D "body" geometry of objects, i.e. the body shape
     ifcopenshell.api.run(
         "context.add_context", f, context_type="Model", context_identifier="Body", target_view="MODEL_VIEW"
@@ -269,6 +280,9 @@ def create_ifcrightcylinder(ifc_file, ifcaxis2placement, height, radius):
 
 
 def ifc_value_map(f, value):
+    if value is None:
+        return f.create_entity("IfcText", "")
+
     value_map = {str: "IfcText", float: "IfcReal", int: "IfcInteger", bool: "IfcBoolean"}
     if type(value) in (np.float64,):
         value = float(value)
@@ -648,17 +662,18 @@ def tesselate_shape(shape, schema, tol):
 
 
 def default_settings():
-    ifc_settings = ifcopenshell.geom.settings()
-    ifc_settings.set(ifc_settings.USE_PYTHON_OPENCASCADE, True)
-    ifc_ver = tuple([int(x) for x in ifcopenshell.version.split(".")])
-    if ifc_ver < (0, 7, 9) and ifc_ver != (0, 0, 0):
-        ifc_settings.set(ifc_settings.SEW_SHELLS, True)
-        ifc_settings.set(ifc_settings.INCLUDE_CURVES, True)
-        ifc_settings.set(ifc_settings.VALIDATE_QUANTITIES, True)
-    ifc_settings.set(ifc_settings.WELD_VERTICES, True)
-    ifc_settings.set(ifc_settings.USE_WORLD_COORDS, True)
+    settings = ifcopenshell.geom.settings()
+    settings.set("mesher-linear-deflection", 0.001)
+    settings.set("mesher-angular-deflection", 0.5)
+    settings.set("apply-default-materials", False)
+    settings.set("keep-bounding-boxes", True)
+    settings.set("layerset-first", True)
+    settings.set("use-world-coords", True)
+    # Wire intersection checks is prohibitively slow on advanced breps. See bug #5999.
+    settings.set("no-wire-intersection-check", True)
+    # settings.set("triangulation-type", ifcopenshell.ifcopenshell_wrapper.POLYHEDRON_WITHOUT_HOLES)
 
-    return ifc_settings
+    return settings
 
 
 def export_transform(f: ifcopenshell.file, transform: Transform):
@@ -698,58 +713,3 @@ def get_representation_items(f: ifcopenshell.file, ifc_elem: ifcopenshell.entity
             f.traverse(ifc_elem),
         )
     )
-
-
-def ifc_file_to_stp(ifc_file, stp_file, step_schema="AP242", step_assembly_mode=1):
-    """Convert an IFC file to STEP file"""
-
-    import os
-    import pathlib
-
-    from OCC.Core.IFSelect import IFSelect_RetError
-    from OCC.Core.Interface import Interface_Static_SetCVal
-    from OCC.Core.STEPConstruct import stepconstruct_FindEntity
-    from OCC.Core.STEPControl import STEPControl_AsIs, STEPControl_Writer
-    from OCC.Core.TCollection import TCollection_HAsciiString
-
-    settings = ifcopenshell.geom.settings()
-    settings.set(settings.USE_PYTHON_OPENCASCADE, True)
-    # settings.set(settings.SEW_SHELLS, False)
-    # settings.set(settings.WELD_VERTICES, True)
-    # settings.set(settings.INCLUDE_CURVES, False)
-    settings.set(settings.USE_WORLD_COORDS, True)
-    # settings.set(settings.VALIDATE_QUANTITIES, False)
-
-    f = ifcopenshell.open(ifc_file)
-    writer = STEPControl_Writer()
-    fp = writer.WS().TransferWriter().FinderProcess()
-
-    Interface_Static_SetCVal("write.step.schema", step_schema)
-    Interface_Static_SetCVal("write.precision.mode", "1")
-    Interface_Static_SetCVal("write.step.assembly", str(step_assembly_mode))
-    iterator = ifcopenshell.geom.iterator(settings, f)
-    iterator.initialize()
-
-    while True:
-        shape = iterator.get()
-        if shape:
-            geom = shape.geometry
-            name = f.by_id(shape[0].id).Name
-            Interface_Static_SetCVal("write.step.product.name", name)
-            writer.Transfer(geom, STEPControl_AsIs)
-            item = stepconstruct_FindEntity(fp, geom)
-            if not item:
-                logger.debug("STEP item not found for FindEntity")
-            else:
-                item.SetName(TCollection_HAsciiString(name))
-        if not iterator.next():
-            break
-
-    destination_file = pathlib.Path(stp_file).with_suffix(".stp")
-    os.makedirs(destination_file.parent, exist_ok=True)
-
-    status = writer.Write(str(destination_file))
-    if int(status) > int(IFSelect_RetError):
-        raise Exception("Error during write operation")
-
-    print(f'step file created at "{destination_file}"')

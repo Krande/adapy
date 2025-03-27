@@ -203,6 +203,7 @@ def scene_from_fem(
 def scene_from_object(physical_object: BackendGeom, params: RenderParams) -> trimesh.Scene:
     from itertools import groupby
 
+    from ada import Pipe
     from ada.occ.tessellating import BatchTessellator
     from ada.visit.gltf.optimize import concatenate_stores
     from ada.visit.gltf.store import merged_mesh_to_trimesh_scene
@@ -211,11 +212,18 @@ def scene_from_object(physical_object: BackendGeom, params: RenderParams) -> tri
 
     root = GraphNode("world", 0, hash=create_guid())
     graph_store = GraphStore(top_level=root, nodes={0: root})
-    graph_store.add_node(
+    node = graph_store.add_node(
         GraphNode(physical_object.name, graph_store.next_node_id(), hash=physical_object.guid, parent=root)
     )
 
-    mesh_stores = list(bt.batch_tessellate([physical_object]))
+    if isinstance(physical_object, Pipe):
+        physical_objects = physical_object.segments
+        for seg in physical_objects:
+            graph_store.add_node(GraphNode(seg.name, graph_store.next_node_id(), hash=seg.guid, parent=node))
+    else:
+        physical_objects = [physical_object]
+
+    mesh_stores = list(bt.batch_tessellate(physical_objects))
     scene = trimesh.Scene()
     mesh_map = []
     for mat_id, meshes in groupby(mesh_stores, lambda x: x.material):
@@ -349,6 +357,8 @@ class RendererManager:
         obj: BackendGeom | Part | Assembly | FEAResult | FEM | trimesh.Scene | MeshDC,
         params: RenderParams,
         apply_transform=True,
+        force_ws=False,
+        auto_embed_glb_in_notebook=True,
     ) -> HTML | None:
         from ada import Assembly
         from ada.comms.wsock_client_sync import WebSocketClientSync
@@ -357,16 +367,21 @@ class RendererManager:
             scene = RendererManager.obj_to_trimesh(obj, params, apply_transform)
             return scene.show()
 
+        if self.is_in_notebook() and auto_embed_glb_in_notebook:
+            self.embed_glb = True
+
         if self.embed_glb:
             from ada.visit.rendering.renderer_react import RendererReact
 
             renderer_obj = RendererReact()
             scene = RendererManager.obj_to_trimesh(obj, params, apply_transform)
             if self.is_in_notebook():
-                renderer = renderer_obj.get_notebook_renderer_widget(target_id=None, embed_trimesh_scene=scene)
+                renderer = renderer_obj.get_notebook_renderer_widget(
+                    target_id=None, embed_trimesh_scene=scene, force_ws=force_ws
+                )
                 return renderer
             else:
-                return renderer_obj.serve_html(embed_trimesh_scene=scene)
+                return renderer_obj.serve_html(embed_trimesh_scene=scene, force_ws=force_ws)
 
         # Set up the renderer and WebSocket server
         self.start_server()

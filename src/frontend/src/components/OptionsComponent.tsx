@@ -10,7 +10,7 @@ function OptionsComponent() {
     const {showPerf, setShowPerf, showEdges, setShowEdges, lockTranslation, setLockTranslation} = useOptionsStore();
     const {showLegend, setShowLegend} = useColorStore();
 
-    const [size, setSize] = useState({width: 300, height: 400});
+    const [size, setSize] = useState({width: 300, height: 460});
     const [position, setPosition] = useState({x: 0, y: 0});
     const [isPositionCalculated, setIsPositionCalculated] = useState(false);
     const [isModalOpen, setIsModalOpen] = useState(false);

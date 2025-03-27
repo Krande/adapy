@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import pathlib
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Callable, Iterable
+from typing import TYPE_CHECKING, Callable
 
 import ifcopenshell
 import ifcopenshell.geom
@@ -14,10 +14,8 @@ from ada.cadit.ifc.units_conversion import convert_file_length_units
 from ada.cadit.ifc.utils import assembly_to_ifc_file, default_settings, get_unit_type
 from ada.cadit.ifc.write.write_sections import get_profile_class
 from ada.cadit.ifc.write.write_user import create_owner_history_from_user
-from ada.config import logger
 
 if TYPE_CHECKING:
-    from OCC.Core.TopoDS import TopoDS_Compound, TopoDS_Shape
 
     from ada import Assembly, Section, User
     from ada.cadit.ifc.read.read_ifc import IfcReader
@@ -203,27 +201,6 @@ class IfcStore:
     def get_ifc_geom(self, ifc_elem, settings: ifcopenshell.geom.settings):
         return ifcopenshell.geom.create_shape(settings, inst=ifc_elem)
 
-    def batch_occ_shapes_from_ifc(self, products: list[str], settings: ifcopenshell.geom.settings = None, cpus=None):
-        import multiprocessing
-
-        cpus = multiprocessing.cpu_count() if cpus is None else cpus
-        ifcopenshell.geom.iterator(settings, self.f, cpus, include=products)
-        if settings is None:
-            settings = ifcopenshell.geom.settings()
-            settings.set(settings.USE_PYTHON_OPENCASCADE, True)
-        iterator = self.get_ifc_geom_iterator(settings)
-        iterator.initialize()
-        while True:
-            shape = iterator.get()
-            if shape:
-                if hasattr(shape, "geometry"):
-                    yield shape.geometry
-                else:
-                    logger.warning(f"Shape {shape} is not a TopoDS_Shape")
-
-            if not iterator.next():
-                break
-
     def get_ifc_geom_iterator(self, settings: ifcopenshell.geom.settings, cpus: int = None):
         import multiprocessing
 
@@ -238,26 +215,6 @@ class IfcStore:
                 products.append(product)
         cpus = multiprocessing.cpu_count() if cpus is None else cpus
         return ifcopenshell.geom.iterator(settings, self.f, cpus, include=products)
-
-    def iter_occ_shapes_from_ifc(
-        self, settings: ifcopenshell.geom.settings = None
-    ) -> Iterable[tuple[str, TopoDS_Shape | TopoDS_Compound]]:
-        if settings is None:
-            settings = ifcopenshell.geom.settings()
-            settings.set(settings.USE_PYTHON_OPENCASCADE, True)
-        iterator = self.get_ifc_geom_iterator(settings)
-        iterator.initialize()
-        while True:
-            shape = iterator.get()
-            if shape:
-                if hasattr(shape, "geometry"):
-                    name = shape[0].name
-                    yield name, shape.geometry
-                else:
-                    logger.warning(f"Shape {shape} is not a TopoDS_Shape")
-
-            if not iterator.next():
-                break
 
     def get_by_guid(self, guid: str) -> ifcopenshell.entity_instance:
         return self.f.by_guid(guid)

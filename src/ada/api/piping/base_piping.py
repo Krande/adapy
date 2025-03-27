@@ -13,21 +13,38 @@ from ada.base.units import Units
 from ada.config import Config, logger
 from ada.core.exceptions import VectorNormalizeError
 from ada.core.utils import Counter, roundoff
-from ada.core.vector_utils import angle_between, calc_zvec, unit_vector, vector_length
+from ada.core.vector_transforms import global_2_local_nodes
+from ada.core.vector_utils import (
+    angle_between,
+    calc_yvec,
+    calc_zvec,
+    unit_vector,
+    vector_length,
+)
 from ada.geom import Geometry
 from ada.geom.placement import Axis1Placement, Axis2Placement3D, Direction
 from ada.materials.utils import get_material
 from ada.sections.utils import get_section
 
 if TYPE_CHECKING:
-    from ada import Material, Section
+    from ada import Material, Placement, Section
 
 
 class Pipe(BackendGeom):
     def __init__(
-        self, name, points, sec, mat="S355", content=None, metadata=None, color=None, units: Units = Units.M, guid=None
+        self,
+        name,
+        points,
+        sec,
+        mat="S355",
+        content=None,
+        metadata=None,
+        color=None,
+        units: Units = Units.M,
+        guid=None,
+        place: Placement = None,
     ):
-        super().__init__(name, color=color, guid=guid, metadata=metadata, units=units)
+        super().__init__(name, color=color, guid=guid, metadata=metadata, units=units, placement=place)
 
         self._section, _ = get_section(sec)
         self._section.parent = self
@@ -40,11 +57,12 @@ class Pipe(BackendGeom):
         self._n1 = points[0] if type(points[0]) is Node else Node(points[0], units=units)
         self._n2 = points[-1] if type(points[-1]) is Node else Node(points[-1], units=units)
         self._points = [Node(n, units=units) if type(n) is not Node else n for n in points]
-        # self._segments = build_pipe_segments(self)
-        self._segments = build_pipe_segments_alt(self)
+        self._segments = None
 
     @property
     def segments(self) -> list[PipeSegStraight | PipeSegElbow]:
+        if self._segments is None:
+            self._segments = build_pipe_segments_alt(self)
         return self._segments
 
     @property
@@ -58,14 +76,6 @@ class Pipe(BackendGeom):
     @property
     def points(self):
         return self._points
-
-    @property
-    def start(self):
-        return self.points[0]
-
-    @property
-    def end(self):
-        return self.points[-1]
 
     @property
     def metadata(self):
@@ -188,6 +198,7 @@ class PipeSegStraight(BackendGeom):
         from ada.geom.booleans import BooleanOperation
 
         profile = section_to_arbitrary_profile_def_with_voids(self.section)
+
         place = Axis2Placement3D(location=self.p1.p, axis=self.xvec1, ref_direction=self.zvec1)
         solid = geo_so.ExtrudedAreaSolid(profile, place, self.length, Direction(0, 0, 1))
 
@@ -214,7 +225,7 @@ class PipeSegElbow(BackendGeom):
         end,
         bend_radius,
         section,
-        material,
+        material=None,
         parent=None,
         guid=None,
         metadata=None,
@@ -232,23 +243,36 @@ class PipeSegElbow(BackendGeom):
         if not isinstance(end, Node):
             end = Node(end, units=units)
 
+        self.section, _ = get_section(section)
+        self.section.parent = self
+        self.material = get_material(material)
         self.p1 = start
         self.p2 = midpoint
         self.p3 = end
         self.bend_radius = bend_radius
-        self.section = section
-        self.material = material
+        if arc_seg is None:
+            arc_seg = ArcSegment.from_start_center_end_radius(start.p, midpoint.p, end.p, self.bend_radius)
         self._arc_seg = arc_seg
         self._xvec1 = Direction(*(self.p2.p - self.p1.p))
         self._xvec2 = Direction(*(self.p3.p - self.p2.p))
         self._zvec1 = Direction(*calc_zvec(self._xvec1))
-        section.refs.append(self)
-        material.refs.append(self)
+        self.section.refs.append(self)
+        self.material.refs.append(self)
 
     @staticmethod
-    def from_arc_segment(name, arc: ArcSegment, section: Section, material: Material, **kwargs) -> PipeSegElbow:
+    def from_arc_segment(
+        name, arc: ArcSegment, section: Section | str, material: Material | str = None, **kwargs
+    ) -> PipeSegElbow:
         return PipeSegElbow(
-            name, arc.p1, arc.midpoint, arc.p2, arc.radius, section=section, material=material, arc_seg=arc, **kwargs
+            name=name,
+            start=arc.p1,
+            midpoint=arc.midpoint,
+            end=arc.p2,
+            bend_radius=arc.radius,
+            section=section,
+            material=material,
+            arc_seg=arc,
+            **kwargs,
         )
 
     @property
@@ -291,24 +315,40 @@ class PipeSegElbow(BackendGeom):
 
         return geom_to_occ_geom(self.solid_geom())
 
-    def solid_geom(self) -> Geometry:
+    def solid_geom(self, ifc_impl=False) -> Geometry:
+        from ada import Direction, Point
+        from ada.core.constants import O
         from ada.geom.booleans import BooleanOperation
         from ada.geom.solids import RevolvedAreaSolid
 
         profile = section_to_arbitrary_profile_def_with_voids(self.section)
 
-        xvec1 = unit_vector(self.arc_seg.s_normal)
-        xvec2 = unit_vector(self.arc_seg.e_normal)
-        normal = unit_vector(calc_zvec(xvec2, xvec1))
+        xvec1 = Direction(self.arc_seg.s_normal).get_normalized()
+        xvec2 = Direction(self.arc_seg.e_normal).get_normalized()
+        normal = Direction([x if abs(x) != 0.0 else 0.0 for x in calc_zvec(xvec2, xvec1)]).get_normalized()
 
-        position = Axis2Placement3D(self.p1, xvec1, normal)
+        # todo: update OCC handling so that this conditional no longer is needed, and always ifc_impl=True
+        if ifc_impl:
+            # Revolve Point
+            diff = self.arc_seg.center - self.arc_seg.p1
+            yvec = calc_yvec(normal, xvec1)
+            new_csys = (normal, yvec, xvec1)
 
-        axis = Axis1Placement(location=self.arc_seg.center, axis=normal)
+            diff_tra = global_2_local_nodes(new_csys, O, [diff])[0]
+            n_tra = global_2_local_nodes(new_csys, O, [normal])[0]
+
+            position = Axis2Placement3D(self.arc_seg.p1, xvec1, normal)
+            axis = Axis1Placement(location=Point(diff_tra), axis=Direction(n_tra).get_normalized())
+        else:
+            position = Axis2Placement3D(self.p1, xvec1, normal)
+            axis = Axis1Placement(location=self.arc_seg.center, axis=normal)
 
         revolve_angle = 180 - np.rad2deg(angle_between(xvec1, xvec2))
+
         solid = RevolvedAreaSolid(profile, position, axis, revolve_angle)
 
         booleans = [BooleanOperation(x.primitive.solid_geom(), x.bool_op) for x in self.booleans]
+
         return Geometry(self.guid, solid, self.color, bool_operations=booleans)
 
     def shell_geom(self) -> Geometry:

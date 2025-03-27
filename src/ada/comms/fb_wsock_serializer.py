@@ -178,15 +178,15 @@ def serialize_cameraparams(builder: flatbuffers.Builder, obj: Optional[CameraPar
     CameraParams.StartPositionVector(builder, len(obj.position))
     for item in reversed(obj.position):
         builder.PrependFloat32(item)
-    position_vector = builder.EndVector(len(obj.position))
+    position_vector = builder.EndVector()
     CameraParams.StartLookAtVector(builder, len(obj.look_at))
     for item in reversed(obj.look_at):
         builder.PrependFloat32(item)
-    look_at_vector = builder.EndVector(len(obj.look_at))
+    look_at_vector = builder.EndVector()
     CameraParams.StartUpVector(builder, len(obj.up))
     for item in reversed(obj.up):
         builder.PrependFloat32(item)
-    up_vector = builder.EndVector(len(obj.up))
+    up_vector = builder.EndVector()
 
     CameraParams.Start(builder)
     if obj.position is not None:
@@ -238,7 +238,7 @@ def serialize_server(builder: flatbuffers.Builder, obj: Optional[ServerDC]) -> O
         Server.StartAllFileObjectsVector(builder, len(all_file_objects_list))
         for item in reversed(all_file_objects_list):
             builder.PrependUOffsetTRelative(item)
-        all_file_objects_vector = builder.EndVector(len(all_file_objects_list))
+        all_file_objects_vector = builder.EndVector()
     get_file_object_by_name_str = None
     if obj.get_file_object_by_name is not None:
         get_file_object_by_name_str = builder.CreateString(str(obj.get_file_object_by_name))
@@ -277,7 +277,7 @@ def serialize_procedurestore(builder: flatbuffers.Builder, obj: Optional[Procedu
         ProcedureStore.StartProceduresVector(builder, len(procedures_list))
         for item in reversed(procedures_list):
             builder.PrependUOffsetTRelative(item)
-        procedures_vector = builder.EndVector(len(procedures_list))
+        procedures_vector = builder.EndVector()
     start_procedure_obj = None
     if obj.start_procedure is not None:
         start_procedure_obj = serialize_procedurestart(builder, obj.start_procedure)
@@ -323,21 +323,21 @@ def serialize_procedure(builder: flatbuffers.Builder, obj: Optional[ProcedureDC]
         Procedure.StartParametersVector(builder, len(parameters_list))
         for item in reversed(parameters_list):
             builder.PrependUOffsetTRelative(item)
-        parameters_vector = builder.EndVector(len(parameters_list))
+        parameters_vector = builder.EndVector()
     file_inputs_vector = None
     if obj.file_inputs is not None and len(obj.file_inputs) > 0:
         file_inputs_list = [serialize_filearg(builder, item) for item in obj.file_inputs]
         Procedure.StartFileInputsVector(builder, len(file_inputs_list))
         for item in reversed(file_inputs_list):
             builder.PrependUOffsetTRelative(item)
-        file_inputs_vector = builder.EndVector(len(file_inputs_list))
+        file_inputs_vector = builder.EndVector()
     file_outputs_vector = None
     if obj.file_outputs is not None and len(obj.file_outputs) > 0:
         file_outputs_list = [serialize_filearg(builder, item) for item in obj.file_outputs]
         Procedure.StartFileOutputsVector(builder, len(file_outputs_list))
         for item in reversed(file_outputs_list):
             builder.PrependUOffsetTRelative(item)
-        file_outputs_vector = builder.EndVector(len(file_outputs_list))
+        file_outputs_vector = builder.EndVector()
 
     Procedure.Start(builder)
     if name_str is not None:
@@ -371,7 +371,7 @@ def serialize_value(builder: flatbuffers.Builder, obj: Optional[ValueDC]) -> Opt
         Value.StartArrayValueVector(builder, len(array_value_list))
         for item in reversed(array_value_list):
             builder.PrependUOffsetTRelative(item)
-        array_value_vector = builder.EndVector(len(array_value_list))
+        array_value_vector = builder.EndVector()
 
     Value.Start(builder)
     if string_value_str is not None:
@@ -413,7 +413,7 @@ def serialize_parameter(builder: flatbuffers.Builder, obj: Optional[ParameterDC]
         Parameter.StartOptionsVector(builder, len(options_list))
         for item in reversed(options_list):
             builder.PrependUOffsetTRelative(item)
-        options_vector = builder.EndVector(len(options_list))
+        options_vector = builder.EndVector()
 
     Parameter.Start(builder)
     if name_str is not None:
@@ -444,7 +444,7 @@ def serialize_procedurestart(builder: flatbuffers.Builder, obj: Optional[Procedu
         ProcedureStart.StartParametersVector(builder, len(parameters_list))
         for item in reversed(parameters_list):
             builder.PrependUOffsetTRelative(item)
-        parameters_vector = builder.EndVector(len(parameters_list))
+        parameters_vector = builder.EndVector()
 
     ProcedureStart.Start(builder)
     if procedure_name_str is not None:
@@ -483,7 +483,7 @@ def serialize_serverreply(builder: flatbuffers.Builder, obj: Optional[ServerRepl
         ServerReply.StartFileObjectsVector(builder, len(file_objects_list))
         for item in reversed(file_objects_list):
             builder.PrependUOffsetTRelative(item)
-        file_objects_vector = builder.EndVector(len(file_objects_list))
+        file_objects_vector = builder.EndVector()
     error_obj = None
     if obj.error is not None:
         error_obj = serialize_error(builder, obj.error)
@@ -531,7 +531,7 @@ def serialize_message(builder: flatbuffers.Builder, obj: Optional[MessageDC]) ->
         Message.StartWebClientsVector(builder, len(web_clients_list))
         for item in reversed(web_clients_list):
             builder.PrependUOffsetTRelative(item)
-        web_clients_vector = builder.EndVector(len(web_clients_list))
+        web_clients_vector = builder.EndVector()
     procedure_store_obj = None
     if obj.procedure_store is not None:
         procedure_store_obj = serialize_procedurestore(builder, obj.procedure_store)

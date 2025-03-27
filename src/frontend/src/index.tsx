@@ -10,12 +10,19 @@ import {SceneOperations} from "./flatbuffers/wsock/scene-operations";
 
 // start websocket here
 const url = useWebSocketStore.getState().webSocketAddress;
-webSocketHandler.connect(url, handleWebSocketMessage());
+if ((window as any).DEACTIVATE_WS===true) {
+    console.log("DEACTIVATE_WS is set to true, not connecting to websocket");
+}else {
+    webSocketHandler.connect(url, handleWebSocketMessage());
+}
+
 console.log("Checking if B64GLTF exists");
 if ((window as any).B64GLTF) {
     console.log("B64GLTF exists, loading model");
     let blob_uri = loadGLTFfrombase64((window as any).B64GLTF);
     useModelStore.getState().setModelUrl(blob_uri, SceneOperations.REPLACE, null);
+    // delete the B64GLTF from the window object
+    delete (window as any).B64GLTF;
 }
 const container = document.getElementById('root');
 // @ts-ignore

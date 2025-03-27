@@ -121,9 +121,6 @@ def global_2_local_nodes(csys, origin, nodes):
     if type(nodes[0]) is Node:
         nodes = [no.p for no in nodes]
 
-    # nodes_alt = np.asarray(nodes) - origin
-    # points2d_alt = np.dot(rot_mat, nodes_alt.T).T
-
     points2d = [np.dot(rot_mat, p - origin) for p in nodes]
     return points2d
 

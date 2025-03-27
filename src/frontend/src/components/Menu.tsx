@@ -60,7 +60,8 @@ const Menu = () => {
                     </button>
                     <button
                         className={"bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 ml-2 rounded"}
-                        hidden={use_node_editor_only}
+                        // hidden={use_node_editor_only}
+                        hidden={true}
                         onClick={() => setShowServerInfoBox(!showServerInfoBox)}
                     >
                         <ServerIcon/>

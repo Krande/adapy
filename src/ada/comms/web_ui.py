@@ -1,7 +1,5 @@
-import base64
 import functools
 import http.server
-import os
 import socketserver
 import threading
 import webbrowser
@@ -20,6 +18,8 @@ class CustomHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
         target_instance=None,
         directory=None,
         embed_trimesh_scene=None,
+        renderer_obj: RendererReact = None,
+        force_ws=False,
         **kwargs,
     ):
         self.unique_id = unique_id
@@ -27,35 +27,22 @@ class CustomHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
         self.node_editor_only = node_editor_only
         self.target_instance = target_instance
         self.embed_trimesh_scene = embed_trimesh_scene
+        self.renderer_obj = renderer_obj
+        self.force_ws = force_ws
         super().__init__(*args, directory=directory, **kwargs)
 
     def do_GET(self):
         if self.path == "/" or self.path == "/index.html":
             # Serve the index.html file with replacements
-            index_file_path = os.path.join(self.directory, "index.html")
             try:
-                with open(index_file_path, "r", encoding="utf-8") as f:
-                    html_content = f.read()
-
-                replacement_str = ""
-                if self.unique_id is not None:
-                    replacement_str += f'<script>window.WEBSOCKET_ID = "{self.unique_id}";</script>'
-                if self.ws_port is not None:
-                    replacement_str += f"\n<script>window.WEBSOCKET_PORT = {self.ws_port};</script>"
-                if self.node_editor_only:
-                    replacement_str += "\n<script>window.NODE_EDITOR_ONLY = true;</script>"
-                if self.target_instance is not None:
-                    replacement_str += f'\n<script>window.TARGET_INSTANCE_ID = "{self.target_instance}";</script>'
-                if self.embed_trimesh_scene is not None:
-                    data = self.embed_trimesh_scene.export(file_type="glb")
-                    # encode as base64 string
-                    encoded = base64.b64encode(data).decode("utf-8")
-                    # replace keyword with our scene data
-                    replacement_str += f'\n<script>window.B64GLTF = "{encoded}";</script>'
-
-                # Perform the replacements
-                modified_html_content = html_content.replace("<!--STARTUP_CONFIG_PLACEHOLDER-->", replacement_str)
-
+                modified_html_content = self.renderer_obj.get_html_with_injected_data(
+                    self.unique_id,
+                    self.ws_port,
+                    self.embed_trimesh_scene,
+                    force_ws=self.force_ws,
+                    node_editor_only=self.node_editor_only,
+                    target_instance=self.target_instance,
+                )
                 # Send response
                 self.send_response(200)
                 self.send_header("Content-type", "text/html")
@@ -69,7 +56,7 @@ class CustomHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
 
 
 def start_serving(
-    web_port=5173,
+    web_port=5174,
     ws_port=8765,
     unique_id=None,
     target_instance=None,
@@ -77,9 +64,13 @@ def start_serving(
     non_blocking=False,
     auto_open=False,
     embed_trimesh_scene=None,
+    renderer_obj: RendererReact = None,
+    force_ws=False,
 ) -> tuple[socketserver.ThreadingTCPServer, threading.Thread] | None:
     rr = RendererReact()
     web_dir = rr.local_html_path.parent
+    if renderer_obj is None:
+        renderer_obj = rr
     # Create a partial function to pass the directory to the handler
     handler = functools.partial(
         CustomHTTPRequestHandler,
@@ -89,6 +80,8 @@ def start_serving(
         target_instance=target_instance,
         directory=str(web_dir),
         embed_trimesh_scene=embed_trimesh_scene,
+        renderer_obj=renderer_obj,
+        force_ws=force_ws,
     )
 
     class ThreadingTCPServer(socketserver.ThreadingTCPServer):

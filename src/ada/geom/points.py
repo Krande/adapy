@@ -56,7 +56,7 @@ class Point(np.ndarray):
     def z(self):
         return self[2]
 
-    def is_equal(self, other, atol=1e-8):
+    def is_equal(self, other: Point, atol=1e-8):
         return np.allclose(self, other, atol=atol)
 
     def translate(self, dx, dy, dz):

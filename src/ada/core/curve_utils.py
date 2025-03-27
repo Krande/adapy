@@ -103,7 +103,7 @@ def make_arc_segment_with_tolerance(
 def make_arc_segment(
     start: Iterable | Point, intersect_p: Iterable | Point, end: Iterable | Point, radius: float
 ) -> list[LineSegment | ArcSegment]:
-    from ada import ArcSegment, Placement
+    from ada import ArcSegment, LineSegment, Placement
 
     if not isinstance(start, Point):
         start = Point(*start)
@@ -128,9 +128,7 @@ def make_arc_segment(
             else:
                 points = np.array([seg.p1, seg.p2])
                 s, e = place.transform_local_points_back_to_global(points)
-                seg.p1 = s
-                seg.p2 = e
-                segments3d.append(seg)
+                segments3d.append(LineSegment(s, e))
         segments = segments3d
     else:
         points = [start, [*intersect_p, radius], end]
@@ -922,6 +920,7 @@ def line_segments3d_from_points3d(points: list[Point | Iterable]) -> list[LineSe
 def segments3d_from_points3d(
     points: list[Point | Iterable], radius=None, radius_dict=None, angle_tol=1e-1, len_tol=1e-3
 ) -> list[LineSegment | ArcSegment]:
+    from ada import Direction
     from ada.api.curves import ArcSegment, LineSegment
 
     prelim_segments = line_segments3d_from_points3d(points)
@@ -937,13 +936,23 @@ def segments3d_from_points3d(
     for i, (seg1, seg2) in enumerate(prelim_segments_zip):
         seg1: LineSegment
         seg2: LineSegment
+        prev_seg = segments[-1] if len(segments) > 0 else None
 
         if seg1.length < len_tol or seg2.length == len_tol:
             logger.error(f'Segment Length is below point tolerance "{len_tol}". Skipping')
             continue
 
+        if prev_seg is not None and isinstance(prev_seg, LineSegment):
+            if seg1.direction.is_parallel(prev_seg.direction) and seg1.p2.is_equal(prev_seg.p2):
+                new_dir = Direction(seg1.p2 - prev_seg.p1)
+                if new_dir.is_parallel(prev_seg.direction):
+                    seg1.p1 = prev_seg.p1.copy()
+
         if seg1.direction.is_parallel(seg2.direction, angle_tol):
-            segments.append(LineSegment(seg1.p1.copy(), seg1.p2.copy()))
+            if seg1.p1.is_equal(prev_seg.p1) and seg1.p2.is_equal(prev_seg.p2):
+                continue
+            else:
+                segments.append(LineSegment(seg1.p1.copy(), seg1.p2.copy()))
             continue
 
         if not seg1.p2.is_equal(seg2.p1):
@@ -951,8 +960,8 @@ def segments3d_from_points3d(
 
         arc_end = seg2.p2
         if i != 0 and len(segments) > 0:
-            arc_start = segments[-1].p1
-            arc_intersection = segments[-1].p2
+            arc_start = prev_seg.p1
+            arc_intersection = prev_seg.p2
         else:
             arc_start = seg1.p1
             arc_intersection = seg1.p2
@@ -976,13 +985,12 @@ def segments3d_from_points3d(
         else:
             if len(segments) == 0:
                 continue
-            pseg = segments[-1]
-            nlen = vector_length(new_seg1.p2 - pseg.p1)
+            nlen = vector_length(new_seg1.p2 - prev_seg.p1)
             if nlen < len_tol:
                 # The new arc starts at the same point as the previous segment. Remove the previous segment
                 segments.pop(-1)
             else:
-                pseg.p2 = new_seg1.p2
+                prev_seg.p2 = new_seg1.p2
 
         segments.append(
             ArcSegment(
@@ -996,6 +1004,54 @@ def segments3d_from_points3d(
                 e_normal=arc.e_normal.copy(),
             )
         )
+
         segments.append(LineSegment(new_seg2.p1.copy(), new_seg2.p2.copy()))
 
     return segments
+
+
+def calc_center_from_start_end_radius(p1, p2, radius) -> tuple[Point, Point]:
+    # Convert points to numpy arrays for easier computation
+    p1 = Point(p1)
+    p2 = Point(p2)
+
+    # Calculate the distance between p1 and p2
+    d = np.linalg.norm(p2 - p1)
+
+    if d >= 2 * radius:
+        raise ValueError("The distance between the points is too large to fit a circle of the given radius.")
+
+    # Midpoint of p1 and p2
+    midpoint = (p1 + p2) / 2
+
+    # Direction of the line segment between the two points
+    direction = p2 - p1
+
+    # The perpendicular direction is a vector that is orthogonal to the direction
+    # Since the points lie on the Y-axis, the perpendicular is along the X-axis
+    perp_direction = np.array([-direction[1], direction[0], 0.0])
+
+    # Normalize the perpendicular direction
+    perp_direction /= np.linalg.norm(perp_direction)
+
+    # Distance from midpoint to the circle center
+    half_distance = d / 2
+    center_distance = np.sqrt(radius**2 - half_distance**2)
+
+    # The center could be in two possible directions (on the perpendicular bisector)
+    center1 = midpoint + perp_direction * center_distance
+    center2 = midpoint - perp_direction * center_distance
+
+    return Point(center1), Point(center2)
+
+
+def calculate_angle(p1, p2, radius) -> float:
+    # Calculate the distance between p1 and p2
+    d = np.linalg.norm(np.array(p2) - np.array(p1))
+
+    if d >= 2 * radius:
+        raise ValueError("The distance between the points is too large to fit a circle of the given radius.")
+
+    # Using the law of cosines to calculate the angle
+    cos_theta = (2 * radius**2 - d**2) / (2 * radius**2)
+    return np.arccos(cos_theta)  # Resulting angle in radians

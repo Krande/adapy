@@ -11,6 +11,8 @@ from ada.core.curve_utils import (
     build_polycurve,
     calc_2darc_start_end_from_lines_radius,
     calc_arc_radius_center_from_3points,
+    calc_center_from_start_end_radius,
+    calculate_angle,
     segments3d_from_points3d,
     segments_to_indexed_lists,
     transform_2d_arc_segment_to_3d,
@@ -30,8 +32,11 @@ if TYPE_CHECKING:
 
 class CurveRevolve:
     def __init__(
-        self, p1, p2, radius=None, rot_axis=None, point_on=None, rot_origin=None, angle=180, parent=None, metadata=None
+        self, p1, p2, radius=None, rot_axis=None, point_on=None, rot_origin=None, angle=None, parent=None, metadata=None
     ):
+        if rot_axis is not None and not isinstance(rot_axis, Direction):
+            rot_axis = Direction(rot_axis)
+
         self._p1 = p1
         self._p2 = p2
         self._angle = angle
@@ -41,6 +46,8 @@ class CurveRevolve:
         self._point_on = point_on
         self._rot_origin = rot_origin
         self._ifc_elem = None
+        self._profile_normal = None
+        self._profile_perpendicular = None
         self.metadata = metadata if metadata is not None else dict()
 
         if self._point_on is not None:
@@ -58,6 +65,20 @@ class CurveRevolve:
 
             self._radius = radius
             self._rot_origin = center
+        else:
+            if self._radius is not None and self._rot_origin is None:
+                center1, center2 = calc_center_from_start_end_radius(p1, p2, self._radius)
+                angle = calculate_angle(p1, p2, self._radius)
+
+                center = center2
+                # get normal direction of the section profile plane at the start and end points
+                xvec1 = Direction(center - p1).get_normalized()
+                place = Placement(p1, xdir=xvec1, zdir=rot_axis)
+                self._profile_normal = place.xdir
+                self._profile_perpendicular = place.ydir
+
+                self._angle = np.rad2deg(angle)
+                self._rot_origin = center
 
     @property
     def p1(self):
@@ -66,6 +87,14 @@ class CurveRevolve:
     @property
     def p2(self):
         return self._p2
+
+    @property
+    def profile_normal(self):
+        return self._profile_normal
+
+    @property
+    def profile_perpendicular(self):
+        return self._profile_perpendicular
 
     @property
     def angle(self):
@@ -80,12 +109,12 @@ class CurveRevolve:
         return self._point_on
 
     @property
-    def rot_axis(self):
+    def rot_axis(self) -> Direction:
         return self._rot_axis
 
     @property
-    def rot_origin(self):
-        return np.array(self._rot_origin)
+    def rot_origin(self) -> Point:
+        return self._rot_origin
 
     @property
     def parent(self) -> "Beam":
@@ -315,6 +344,11 @@ class CurvePoly2d(CurveOpen2d):
         centroid = Point(np.sum(xyz_points, axis=0) / len(xyz_points))
         return centroid
 
+    def copy_to(self, origin, xdir=None, n=None):
+        return CurvePoly2d(
+            [x for x in self.points2d], origin=origin, xdir=xdir, normal=n, tol=self._tol, parent=self._parent
+        )
+
 
 class CurveOpen3d:
     """A 3 dimensional open poly curve defined by a list of 3d points represented by line and arc segments."""
@@ -390,16 +424,18 @@ class LineSegment:
         self._p2 = p2 if isinstance(p2, Point) else Point(*p2)
         self._edge_geom = edge_geom
         self._placement = placement
-        self._direction = Direction(self.p2 - self.p1)
-        self._length = self.direction.get_length()
+        self._direction = None
 
     @property
     def direction(self) -> Direction:
+        if self._direction is None:
+            self._direction = self.calc_direction()
+
         return self._direction
 
     @property
     def length(self) -> float:
-        return self._length
+        return self.direction.get_length()
 
     @property
     def p1(self) -> Point:
@@ -410,6 +446,7 @@ class LineSegment:
         if not isinstance(value, Point):
             value = Point(*value)
         self._p1 = value
+        self._direction = self.calc_direction()
 
     @property
     def p2(self) -> Point:
@@ -420,6 +457,7 @@ class LineSegment:
         if not isinstance(value, Point):
             value = Point(*value)
         self._p2 = value
+        self._direction = self.calc_direction()
 
     @property
     def edge_geom(self) -> TopoDS_Edge:
@@ -432,6 +470,9 @@ class LineSegment:
     @placement.setter
     def placement(self, value: Placement):
         self._placement = value
+
+    def calc_direction(self):
+        return Direction(self.p2 - self.p1)
 
     def curve_geom(self) -> Edge:
         from ada.geom.curves import Edge
@@ -470,8 +511,8 @@ class ArcSegment(LineSegment):
         self._e_normal = e_normal
 
     @staticmethod
-    def from_start_center_end_radius(start, center, end, radius, tol=1e-3) -> ArcSegment:
-        points = np.array([start, center, end])
+    def from_start_center_end_radius(start, intersection_point, end, radius, tol=1e-3) -> ArcSegment:
+        points = np.array([start, intersection_point, end])
         dim = points.shape[1]
         place = None
         if dim == 3:

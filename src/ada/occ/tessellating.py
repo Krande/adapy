@@ -12,6 +12,7 @@ from OCC.Extend.TopologyUtils import discretize_edge
 
 from ada.base.physical_objects import BackendGeom
 from ada.base.types import GeomRepr
+from ada.cadit.ifc.utils import default_settings
 from ada.config import logger
 from ada.geom import Geometry
 from ada.occ.exceptions import (
@@ -297,16 +298,15 @@ class BatchTessellator:
         mat_id = self.add_color(color)
         return mat_id
 
-    def iter_ifc_store(self, ifc_store: IfcStore) -> Iterable[MeshStore]:
+    def iter_ifc_store(self, ifc_store: IfcStore, cpus=1, settings=default_settings()) -> Iterable[MeshStore]:
         import ifcopenshell.geom
         import ifcopenshell.util.representation
 
         from ada.visit.gltf.meshes import MeshStore, MeshType
 
-        settings = ifcopenshell.geom.settings()
-        settings.set(settings.USE_PYTHON_OPENCASCADE, False)
+        # see Ifcopenshell src/ifcgeom/ConversionSettings.h for the various parameters
+        # https://github.com/IfcOpenShell/IfcOpenShell/blob/v0.8.0/src/ifcgeom/ConversionSettings.h#L102
 
-        cpus = 1
         iterator = ifcopenshell.geom.iterator(settings, ifc_store.f, cpus)
 
         iterator.initialize()

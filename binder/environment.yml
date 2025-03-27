@@ -2,7 +2,7 @@ name: ada-full
 channels:
   - conda-forge
 dependencies:
-  - python=3.11
+  - python=3.12
   - ada-py
   - ada-cpp
   - occt=*=*novtk*
