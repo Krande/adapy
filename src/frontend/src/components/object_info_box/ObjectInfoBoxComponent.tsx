@@ -15,7 +15,7 @@ const ObjectInfoBox = () => {
     const toggleJsonView = () => {
         setIsJsonViewVisible(!isJsonViewVisible);
     };
-    const prec = 2;
+    const prec = 3;
     return (
         <div className="bg-gray-400 bg-opacity-50 rounded p-2 mt-2 ml-2 mr-2 min-w-80">
             <h2 className="font-bold">Selected Object Info</h2>
