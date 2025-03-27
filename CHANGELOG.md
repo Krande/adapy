@@ -2,6 +2,13 @@
 
 
 
+## v0.4.2 (2025-03-27)
+
+### Fix
+
+* fix: update docs and make minor fixes to pipe modelling visualization. (#130) ([`5b3c102`](https://github.com/Krande/adapy/commit/5b3c102da40779c86f998dddc900d46ff016f275))
+
+
 ## v0.4.1 (2025-03-14)
 
 ### Chore
