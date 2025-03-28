@@ -69,7 +69,7 @@ source_suffix = {
 nbsphinx_execute = "auto"
 # This is processed by Jinja2 and inserted before each notebook
 nbsphinx_prolog = r"""
-{% set docname = 'doc/' + env.doc2path(env.docname, base=None)|string %}
+{% set docname = 'docs/' + env.doc2path(env.docname, base=None)|string %}
 
 .. raw:: html
 
