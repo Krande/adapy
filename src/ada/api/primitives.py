@@ -263,6 +263,37 @@ class PrimBox(Shape):
             self.p2 = Point(*[x * scale_factor for x in self.p2])
             self._units = value
 
+    def copy_to(
+        self,
+        name: str,
+        position: list[float] | Point = None,
+        rotation_axis: Iterable[float] = None,
+        rotation_angle: float = None,
+    ) -> PrimBox:
+        """Copy the box to a new position and/or rotation."""
+
+        copy_box = PrimBox(
+            name=name,
+            p1=self.p1,
+            p2=self.p2,
+            color=self.color,
+            mass=self.mass,
+            cog=self.cog,
+            material=self.material,
+            units=self.units,
+            metadata=self.metadata,
+        )
+        if position is not None:
+            if not isinstance(position, Point):
+                Point(*position)
+
+            copy_box.placement.origin = position
+
+        if rotation_axis is not None and rotation_angle is not None:
+            copy_box.placement.rotate(rotation_axis, rotation_angle)
+
+        return copy_box
+
     def __repr__(self):
         p1s = self.p1.tolist()
         p2s = self.p2.tolist()

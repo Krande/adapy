@@ -21,7 +21,7 @@ if TYPE_CHECKING:
         TopoDS_Wire,
     )
 
-    from ada import FEM, Boolean
+    from ada import FEM, Boolean, Point
     from ada.cadit.ifc.store import IfcStore
     from ada.fem import Elem
     from ada.fem.meshing import GmshOptions
@@ -261,3 +261,12 @@ class BackendGeom(Root):
 
     def line_geom(self) -> Geometry:
         raise NotImplementedError(f"line_geom not implemented for {self.__class__.__name__}")
+
+    def copy_to(
+        self,
+        name: str,
+        position: list[float] | Point = None,
+        rotation_axis: Iterable[float] = None,
+        rotation_angle: float = None,
+    ) -> BackendGeom:
+        raise NotImplementedError(f"copy_to not implemented for {self.__class__.__name__}")
