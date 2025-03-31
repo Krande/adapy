@@ -7,7 +7,7 @@ from ada.core.constants import O, X, Z
 from ada.core.guid import create_guid
 from ada.core.utils import Counter
 
-from .write_shapes import generate_parametric_solid
+from ada.cadit.ifc.write.write_shapes import generate_parametric_solid
 
 if TYPE_CHECKING:
     from ada import Boolean, Shape

@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Iterable
 
 import numpy as np
 
+import ada
 from ada.base.ifc_types import ShapeTypes
 from ada.base.physical_objects import BackendGeom
 from ada.base.units import Units
@@ -197,10 +198,15 @@ class PrimSphere(Shape):
 class PrimBox(Shape):
     """Primitive Box. Length, width & height are local x, y and z respectively"""
 
-    def __init__(self, name, p1, p2, **kwargs):
+    def __init__(self, name, p1, p2, origin=None, placement=None, **kwargs):
         self.p1 = p1 if isinstance(p1, Point) else Point(*p1)
         self.p2 = p2 if isinstance(p2, Point) else Point(*p2)
-        super(PrimBox, self).__init__(name=name, **kwargs)
+        if origin is not None:
+            if placement is None:
+                placement = ada.Placement(origin=origin)
+            else:
+                placement.origin = origin
+        super(PrimBox, self).__init__(name=name, placement=placement, **kwargs)
         self._bbox = BoundingBox(self)
 
     def solid_occ(self):
@@ -210,8 +216,13 @@ class PrimBox(Shape):
 
     def solid_geom(self) -> Geometry:
         from ada.geom.solids import Box
-
-        box = Box.from_2points(self.p1, self.p2)
+        p1, p2 = self.p1, self.p2
+        if not self.placement.is_identity():
+            abs_place = self.placement.get_absolute_placement()
+            if abs_place.origin is not None:
+                p1 += abs_place.origin
+                p2 += abs_place.origin
+        box = Box.from_2points(p1, p2)
         booleans = [BooleanOperation(x.primitive.solid_geom(), x.bool_op) for x in self.booleans]
         return Geometry(self.guid, box, self.color, bool_operations=booleans)
 
@@ -282,6 +293,7 @@ class PrimBox(Shape):
             material=self.material,
             units=self.units,
             metadata=self.metadata,
+            placement=self.placement
         )
         if position is not None:
             if not isinstance(position, Point):
