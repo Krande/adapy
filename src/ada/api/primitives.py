@@ -216,7 +216,7 @@ class PrimBox(Shape):
 
     def solid_geom(self) -> Geometry:
         from ada.geom.solids import Box
-        p1, p2 = self.p1, self.p2
+        p1, p2 = self.p1.copy(), self.p2.copy()
         if not self.placement.is_identity():
             abs_place = self.placement.get_absolute_placement()
             if abs_place.origin is not None:
