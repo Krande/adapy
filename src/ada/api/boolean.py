@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from ada.api.primitives import Shape
 from ada.base.physical_objects import BackendGeom
 from ada.base.units import Units
 from ada.core.utils import Counter
@@ -22,6 +21,8 @@ class Boolean(BackendGeom):
         units=Units.M,
         guid=None,
     ):
+        from ada.api.primitives.base import Shape
+
         if issubclass(type(primitive), Shape) is False:
             raise ValueError(f'Unsupported primitive type "{type(primitive)}"')
 

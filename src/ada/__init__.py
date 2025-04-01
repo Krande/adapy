@@ -12,7 +12,7 @@ from ada.api.groups import Group
 from ada.api.nodes import Node
 from ada.api.piping import Pipe, PipeSegElbow, PipeSegStraight
 from ada.api.plates import Plate, PlateCurved
-from ada.api.primitive_boolean import Boolean
+from ada.api.boolean import Boolean
 from ada.api.primitives import (
     PrimBox,
     PrimCone,
