@@ -3,8 +3,8 @@ from __future__ import annotations
 import numpy as np
 from OCC.Core.TopoDS import TopoDS_Shape
 
-from ada.base.units import Units
 from ada.api.primitives.base import Shape
+from ada.base.units import Units
 from ada.geom import Geometry
 from ada.geom.booleans import BooleanOperation
 

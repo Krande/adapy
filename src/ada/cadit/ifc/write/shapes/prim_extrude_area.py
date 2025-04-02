@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 from ada import PrimExtrude
-from ada.cadit.ifc.utils import create_ifcindexpolyline, create_ifc_placement, create_ifcextrudedareasolid
-from ada.core.constants import O, Z, X
+from ada.cadit.ifc.utils import (
+    create_ifc_placement,
+    create_ifcextrudedareasolid,
+    create_ifcindexpolyline,
+)
+from ada.core.constants import O, X, Z
 
 
 def generate_ifc_prim_extrude_geom(shape: PrimExtrude, f):

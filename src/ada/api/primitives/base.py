@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Iterable, TYPE_CHECKING
+from typing import TYPE_CHECKING, Iterable
 
 from ada.api.bounding_box import BoundingBox
 from ada.api.transforms import Placement
@@ -8,13 +8,14 @@ from ada.base.ifc_types import ShapeTypes
 from ada.base.physical_objects import BackendGeom
 from ada.base.units import Units
 from ada.geom import Geometry
-from ada.materials.concept import Material
 from ada.geom.booleans import BooleanOperation
 from ada.geom.points import Point
+from ada.materials.concept import Material
 from ada.materials.utils import get_material
 
 if TYPE_CHECKING:
     from OCC.Core.TopoDS import TopoDS_Shape
+
     from ada.cadit.ifc.store import IfcStore
 
 

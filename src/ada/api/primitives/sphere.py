@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from ada.base.units import Units
 from ada.api.primitives.base import Shape
+from ada.base.units import Units
 from ada.geom import Geometry
 from ada.geom.booleans import BooleanOperation
 

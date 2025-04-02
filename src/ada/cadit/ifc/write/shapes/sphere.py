@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from ada import PrimSphere
 from ada.cadit.ifc.utils import create_ifc_placement
-from ada.core.constants import Z, X
+from ada.core.constants import X, Z
 from ada.core.utils import to_real
 
 

@@ -6,8 +6,8 @@ import numpy as np
 from OCC.Core.TopoDS import TopoDS_Shape
 
 from ada.api.curves import CurvePoly2d
-from ada.base.units import Units
 from ada.api.primitives.base import Shape
+from ada.base.units import Units
 from ada.config import Config
 from ada.core.vector_utils import unit_vector, vector_length
 from ada.geom import Geometry

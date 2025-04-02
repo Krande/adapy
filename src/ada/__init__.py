@@ -6,13 +6,13 @@ from typing import TYPE_CHECKING
 
 from ada import fem
 from ada.api.beams import Beam, BeamRevolve, BeamSweep, BeamTapered
+from ada.api.boolean import Boolean
 from ada.api.curves import ArcSegment, CurvePoly2d, CurveRevolve, LineSegment
 from ada.api.fasteners import Bolts, Weld
 from ada.api.groups import Group
 from ada.api.nodes import Node
 from ada.api.piping import Pipe, PipeSegElbow, PipeSegStraight
 from ada.api.plates import Plate, PlateCurved
-from ada.api.boolean import Boolean
 from ada.api.primitives import (
     PrimBox,
     PrimCone,

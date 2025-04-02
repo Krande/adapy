@@ -5,7 +5,9 @@ from ada.cadit.ifc.write.geom import curves as write_cu
 from ada.cadit.ifc.write.geom.placement import ifc_placement_from_axis3d
 from ada.cadit.ifc.write.geom.surfaces import arbitrary_profile_def
 from ada.core.utils import to_real
-from ada.geom import surfaces as geo_su, solids as geo_so, curves as geo_cu
+from ada.geom import curves as geo_cu
+from ada.geom import solids as geo_so
+from ada.geom import surfaces as geo_su
 
 
 def generate_ifc_prim_sweep_geom(shape: PrimSweep, f):

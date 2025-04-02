@@ -15,24 +15,21 @@ from ada import (
     Shape,
 )
 from ada.base.units import Units
-from ada.cadit.ifc.utils import (
-    add_colour,
-    create_local_placement,
-    tesselate_shape,
-)
-from ada.cadit.ifc.write.shapes.box import generate_ifc_box_geom
-from ada.cadit.ifc.write.shapes.cone import generate_ifc_cone_geom
-from ada.cadit.ifc.write.shapes.cylinder import generate_ifc_cylinder_geom
-from ada.cadit.ifc.write.shapes.prim_extrude_area import generate_ifc_prim_extrude_geom
-from ada.cadit.ifc.write.shapes.prim_revolve_area_solid import generate_ifc_prim_revolve_geom
-from ada.cadit.ifc.write.shapes.prim_sweep_area import generate_ifc_prim_sweep_geom
-from ada.cadit.ifc.write.shapes.sphere import generate_ifc_prim_sphere_geom
-
+from ada.cadit.ifc.utils import add_colour, create_local_placement, tesselate_shape
 from ada.cadit.ifc.write.geom.surfaces import (
     advanced_face,
     create_closed_shell,
     curve_bounded_plane,
 )
+from ada.cadit.ifc.write.shapes.box import generate_ifc_box_geom
+from ada.cadit.ifc.write.shapes.cone import generate_ifc_cone_geom
+from ada.cadit.ifc.write.shapes.cylinder import generate_ifc_cylinder_geom
+from ada.cadit.ifc.write.shapes.prim_extrude_area import generate_ifc_prim_extrude_geom
+from ada.cadit.ifc.write.shapes.prim_revolve_area_solid import (
+    generate_ifc_prim_revolve_geom,
+)
+from ada.cadit.ifc.write.shapes.prim_sweep_area import generate_ifc_prim_sweep_geom
+from ada.cadit.ifc.write.shapes.sphere import generate_ifc_prim_sphere_geom
 
 if TYPE_CHECKING:
     from ada.cadit.ifc.store import IfcStore

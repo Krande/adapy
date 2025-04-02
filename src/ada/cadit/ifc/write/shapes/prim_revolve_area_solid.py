@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 from ada import PrimRevolve
-from ada.cadit.ifc.utils import create_ifcindexpolyline, create_ifc_placement, create_ifcrevolveareasolid
-from ada.core.constants import O, Z, X
+from ada.cadit.ifc.utils import (
+    create_ifc_placement,
+    create_ifcindexpolyline,
+    create_ifcrevolveareasolid,
+)
+from ada.core.constants import O, X, Z
 
 
 def generate_ifc_prim_revolve_geom(shape: PrimRevolve, f):

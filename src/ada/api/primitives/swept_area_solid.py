@@ -1,18 +1,19 @@
 from __future__ import annotations
 
-from typing import Iterable, TYPE_CHECKING
+from typing import TYPE_CHECKING, Iterable
 
 import numpy as np
 
-from ada.api.transforms import Direction, Placement
-from ada.api.curves import CurveOpen3d,CurvePoly2d
-from ada.base.units import Units
+from ada.api.curves import CurveOpen3d, CurvePoly2d
 from ada.api.primitives.base import Shape
+from ada.api.transforms import Direction, Placement
+from ada.base.units import Units
 from ada.geom import Geometry
 from ada.geom.booleans import BooleanOperation
 
 if TYPE_CHECKING:
     from ada.geom.solids import FixedReferenceSweptAreaSolid
+
 
 class PrimSweep(Shape):
     def __init__(

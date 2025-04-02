@@ -1,17 +1,18 @@
 from __future__ import annotations
 
-from typing import Iterable, TYPE_CHECKING
+from typing import TYPE_CHECKING, Iterable
 
-from ada.base.units import Units
-from ada.geom.points import Point
-from ada.api.transforms import Direction, Placement
 from ada.api.bounding_box import BoundingBox
 from ada.api.primitives.base import Shape
+from ada.api.transforms import Direction, Placement
+from ada.base.units import Units
 from ada.geom import Geometry
 from ada.geom.booleans import BooleanOperation
+from ada.geom.points import Point
 
 if TYPE_CHECKING:
     from ada.geom.solids import Box, ExtrudedAreaSolid
+
 
 class PrimBox(Shape):
     """Primitive Box. Length, width & height are local x, y and z respectively"""
@@ -34,6 +35,7 @@ class PrimBox(Shape):
 
     def solid_geom(self) -> Geometry:
         from ada.geom.solids import Box
+
         p1, p2 = self.p1.copy(), self.p2.copy()
         if not self.placement.is_identity():
             abs_place = self.placement.get_absolute_placement()
@@ -111,7 +113,7 @@ class PrimBox(Shape):
             material=self.material,
             units=self.units,
             metadata=self.metadata,
-            placement=self.placement
+            placement=self.placement,
         )
         if position is not None:
             if not isinstance(position, Point):

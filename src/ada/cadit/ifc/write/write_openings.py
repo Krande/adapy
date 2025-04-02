@@ -3,11 +3,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ada.cadit.ifc.utils import create_local_placement, write_elem_property_sets
+from ada.cadit.ifc.write.write_shapes import generate_parametric_solid
 from ada.core.constants import O, X, Z
 from ada.core.guid import create_guid
 from ada.core.utils import Counter
-
-from ada.cadit.ifc.write.write_shapes import generate_parametric_solid
 
 if TYPE_CHECKING:
     from ada import Boolean, Shape
