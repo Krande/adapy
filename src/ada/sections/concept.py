@@ -300,7 +300,8 @@ class Section(Root):
 
 class SectionI(Section):
     def __init__(self, name: str, h, w_top, t_w, t_ftop, w_btn=None, t_fbtn=None, **kwargs):
-        super().__init__(name=name, **kwargs)
+
+        super().__init__(name=name, sec_type=BaseTypes.IPROFILE)
         self._h = h
         self._w_top = w_top
         self._w_btn = w_btn
@@ -309,6 +310,40 @@ class SectionI(Section):
         self._t_fbtn = t_fbtn
         self._sec_str = None
 
+class SectionBox(Section):
+    def __init__(self, name: str, h, w_top, t_w, t_ftop, w_btn=None, t_fbtn=None, **kwargs):
+        super().__init__(name=name, sec_type=BaseTypes.BOX)
+        self._h = h
+        self._w_top = w_top
+        self._w_btn = w_btn
+        self._t_w = t_w
+        self._t_ftop = t_ftop
+        self._t_fbtn = t_fbtn
+        self._sec_str = None
+
+class SectionTubular(Section):
+    ...
+
+class SectionCircular(Section):
+    ...
+
+class SectionT(Section):
+    ...
+
+class SectionChannel(Section):
+    ...
+
+class SectionAngle(Section):
+    ...
+
+class SectionFlatBar(Section):
+    ...
+
+class SectionPoly(Section):
+    ...
+
+class SectionGeneral(Section):
+    ...
 
 class SectionParts:
     WEB = "web"
