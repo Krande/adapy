@@ -1,3 +1,4 @@
+import asyncio
 import subprocess
 
 import pytest
@@ -20,12 +21,14 @@ def ensure_playwright_installed():
             subprocess.run(["playwright", "install"], check=True)
 
 
+@pytest.mark.timeout(10)  # seconds
 @pytest.mark.asyncio
 async def test_ws_server_no_client(ws_server):
     async with WebSocketClientAsync(ws_server.host, ws_server.port, "local") as ws_client:
         assert await ws_client.check_target_liveness() is False
 
 
+@pytest.mark.timeout(10)  # seconds
 @pytest.mark.asyncio
 async def test_basic_frontend(http_server):
     async with async_playwright() as playwright:
@@ -40,6 +43,7 @@ async def test_basic_frontend(http_server):
         await browser.close()
 
 
+@pytest.mark.timeout(10)  # seconds
 @pytest.mark.asyncio
 async def test_frontend_ws_client_connection(http_server, ws_server):
     async with async_playwright() as playwright:
@@ -55,6 +59,7 @@ async def test_frontend_ws_client_connection(http_server, ws_server):
         await browser.close()
 
 
+@pytest.mark.timeout(10)  # seconds
 @pytest.mark.asyncio
 async def test_front_multiple_connections(ws_server):
     bm = ada.Beam("bm1", (0, 0, 0), (1, 0, 0), "IPE300")
@@ -74,7 +79,15 @@ async def test_front_multiple_connections(ws_server):
         assert response.status == 200
 
         async with WebSocketClientAsync(ws_server.host, ws_server.port, "local") as ws_client:
-            assert await ws_client.check_target_liveness(target_id=unique_id) is True
+            # Wait until the viewer has actually connected
+            for _ in range(30):  # wait up to 3s
+                if await ws_client.check_target_liveness(target_id=unique_id):
+                    break
+                await asyncio.sleep(0.1)
+            else:
+                assert False, f"Viewer with ID {unique_id} failed to become live in time"
+            # assert await ws_client.check_target_liveness(target_id=unique_id) is True
+
         bm.show(ws_port=ws_server.port, unique_viewer_id=unique_id, liveness_timeout=3)
 
         # Viewer 2

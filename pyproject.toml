@@ -64,6 +64,9 @@ skip_glob = ["**/node_modules/**", "**/temp/**"]
 asyncio_default_fixture_loop_scope = "session"
 testpaths = ["tests"]
 pythonpath = ["src"]
+timeout = 10
+timeout_method = "thread"
+
 
 [tool.pixi.project]
 channels = ["https://repo.prefix.dev/code-aster", "conda-forge"]
@@ -131,6 +134,7 @@ code-aster = { version = "*", channel = "https://repo.prefix.dev/code-aster" }
 pytest = "*"
 pytest-benchmark = "*"
 pytest-asyncio = "*"
+pytest-timeout = "*"
 paradoc = "*"
 python-dotenv = "*"
 watchdog = "*"
