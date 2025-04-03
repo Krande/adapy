@@ -46,6 +46,7 @@ const CanvasComponent: React.FC = () => {
 
                     {modelUrl && (
                         <ThreeModel
+                            key={modelUrl}
                             url={modelUrl}
                             scene_action={scene_action}
                             scene_action_arg={scene_action_arg}

@@ -37,6 +37,8 @@ export const update_scene_from_message = (message: Message) => {
     if (operation == SceneOperations.REPLACE) {
         useModelStore.getState().setModelUrl(url, scene.operation(), ""); // Set the URL for the model
     } else if (operation == SceneOperations.REMOVE) {
-        console.warn("Currently unsupported operation");
+        console.error("Currently unsupported operation", operation);
+    } else {
+        console.error("Unknown operation type: ", operation);
     }
 }
