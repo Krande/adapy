@@ -25,10 +25,12 @@ IFC and various Finite Element formats.
     :glob:
     :caption: Examples
 
-    documents/notebooks/solid_primitives
-    documents/notebooks/parts_and_assemblies
-    documents/notebooks/boolean_operations
-    documents/notebooks/placement
+    documents/notebooks/design/solid_primitives
+    documents/notebooks/design/parts_and_assemblies
+    documents/notebooks/design/boolean_operations
+    documents/notebooks/design/placement
+
+    documents/notebooks/analysis/simply_supported_beam
 
 .. toctree::
     :hidden:
