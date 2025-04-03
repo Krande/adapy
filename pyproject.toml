@@ -78,9 +78,9 @@ prod = { features = ["prod"], solve-group = "prod", no-default-feature = true }
 lint = { features = ["lint"], no-default-feature = true }
 tests-core = { features = ["tests-core"], no-default-feature = true }
 tests = { features = ["tests", "tests-core", "prod"], solve-group = "prod", no-default-feature = true }
-tests-fem = { features = ["tests-fem", "prod", "tests-core"], no-default-feature = true }
+fem = { features = ["fem", "prod", "tests-core"], no-default-feature = true }
 profile = { features = ["profile", "prod"], solve-group = "prod", no-default-feature = true }
-docs = { features = ["docs", "prod"], solve-group = "prod", no-default-feature = true }
+docs = { features = ["docs", "prod", "fem"], no-default-feature = true }
 frontend = { features = ["web"], no-default-feature = true }
 
 [tool.pixi.feature.prod.dependencies]
@@ -112,17 +112,20 @@ python-flatbuffers = "*"
 lark = "*"
 pillow = "*"
 
-[tool.pixi.feature.tests-fem]
+[tool.pixi.feature.fem]
+channels = ["https://repo.prefix.dev/code-aster", "conda-forge"]
+[tool.pixi.feature.docs]
 channels = ["https://repo.prefix.dev/code-aster", "conda-forge"]
 
-[tool.pixi.feature.tests-fem.dependencies]
+
+[tool.pixi.feature.fem.dependencies]
 calculix = "*"
 
-[tool.pixi.feature.tests-fem.target.linux-64.dependencies]
+[tool.pixi.feature.fem.target.linux-64.dependencies]
 # These are not available on conda-forge
 code-aster = "*"
 
-[tool.pixi.feature.tests-fem.target.win-64.dependencies]
+[tool.pixi.feature.fem.target.win-64.dependencies]
 
 code-aster = { version = "*", channel = "https://repo.prefix.dev/code-aster" }
 # Attempt to update to the latest version of the dependencies
@@ -189,7 +192,8 @@ pre-install = { cmd = ["playwright", "install"], outputs = ["$PIXI_HOME/envs/tes
 
 test = { cmd = "pytest tests --ignore=tests/profiling --ignore=tests/fem --durations=0", depends-on = ["pre-install"] }
 test-core = "pytest tests --ignore=tests/profiling --ignore=tests/fem --ignore=tests/full --durations=0"
-[tool.pixi.feature.tests-fem.tasks]
+
+[tool.pixi.feature.fem.tasks]
 test-all = { cmd = "pytest tests --durations=0", depends-on = ["pre-install"] }
 test-fem = { cmd = "pytest tests --ignore=tests/profiling --ignore=tests/core --ignore=tests/full --durations=0" }
 
