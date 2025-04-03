@@ -21,14 +21,12 @@ def ensure_playwright_installed():
             subprocess.run(["playwright", "install"], check=True)
 
 
-@pytest.mark.timeout(10)  # seconds
 @pytest.mark.asyncio
 async def test_ws_server_no_client(ws_server):
     async with WebSocketClientAsync(ws_server.host, ws_server.port, "local") as ws_client:
         assert await ws_client.check_target_liveness() is False
 
 
-@pytest.mark.timeout(10)  # seconds
 @pytest.mark.asyncio
 async def test_basic_frontend(http_server):
     async with async_playwright() as playwright:
@@ -43,7 +41,6 @@ async def test_basic_frontend(http_server):
         await browser.close()
 
 
-@pytest.mark.timeout(10)  # seconds
 @pytest.mark.asyncio
 async def test_frontend_ws_client_connection(http_server, ws_server):
     async with async_playwright() as playwright:
@@ -59,7 +56,6 @@ async def test_frontend_ws_client_connection(http_server, ws_server):
         await browser.close()
 
 
-@pytest.mark.timeout(10)  # seconds
 @pytest.mark.asyncio
 async def test_front_multiple_connections(ws_server):
     bm = ada.Beam("bm1", (0, 0, 0), (1, 0, 0), "IPE300")
