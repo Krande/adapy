@@ -1,0 +1,163 @@
+{
+ "cells": [
+  {
+   "cell_type": "markdown",
+   "id": "3dacd84e4e8e39b9",
+   "metadata": {},
+   "source": [
+    "# Modelling with adapy"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "id": "initial_id",
+   "metadata": {},
+   "source": [
+    "import ada"
+   ],
+   "outputs": [],
+   "execution_count": null
+  },
+  {
+   "cell_type": "markdown",
+   "id": "5a3bfdef-8d31-46e9-8c21-ac431a38f23a",
+   "metadata": {},
+   "source": [
+    "## Solid Primitives\n",
+    "First lets look at the different solid primitives supported by adapy"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "id": "8caeb99f00c2b95a",
+   "metadata": {},
+   "source": [
+    "bm = ada.Beam('bm1', (0,0,0), (1,0,0), 'IPE300')\n",
+    "bm.show()"
+   ],
+   "outputs": [],
+   "execution_count": null
+  },
+  {
+   "cell_type": "code",
+   "id": "f37a9af66ff0a156",
+   "metadata": {},
+   "source": [
+    "pl = ada.Plate('pl1', [(0,0), (1,0), (1,1), (0,1)], 0.01)\n",
+    "pl_rounded = ada.Plate('pl1_rounded', [(0,0,0.2), (1,0,0.2), (1,1,0.2), (0,1,0.2)], 0.01, origin=(0,0,0.5))\n",
+    "(ada.Part('MyPart') / (pl, pl_rounded)).show()"
+   ],
+   "outputs": [],
+   "execution_count": null
+  },
+  {
+   "cell_type": "code",
+   "id": "830fd437-f098-4c0a-aa4d-bfaeff497441",
+   "metadata": {},
+   "source": [
+    "box = ada.PrimBox(\"box1\", (0,0,0), (1,1,1))\n",
+    "box.show()"
+   ],
+   "outputs": [],
+   "execution_count": null
+  },
+  {
+   "cell_type": "code",
+   "id": "fa65c8b1-a388-4e45-93ce-e13c6fedf01f",
+   "metadata": {},
+   "source": [
+    "cyl = ada.PrimCyl(\"cyl1\", (0,0,0), (0,0,1), 0.1)\n",
+    "cyl.show()"
+   ],
+   "outputs": [],
+   "execution_count": null
+  },
+  {
+   "cell_type": "code",
+   "id": "be6f0f3186c68db5",
+   "metadata": {},
+   "source": [
+    "extr = ada.PrimExtrude('extr1', [(0,0), (0.1,0), (0.05, 0.05)], 1, (0,0,1), (0,0,0), (1,0,0))\n",
+    "extr.show()"
+   ],
+   "outputs": [],
+   "execution_count": null
+  },
+  {
+   "cell_type": "code",
+   "id": "91fc1edc-5fe5-470f-b0cf-0f02ae147c2f",
+   "metadata": {},
+   "source": [
+    "cone = ada.PrimCone('cone1', (0,0,0), (1,0,0), 0.3)\n",
+    "cone.show()"
+   ],
+   "outputs": [],
+   "execution_count": null
+  },
+  {
+   "cell_type": "code",
+   "id": "08b25dca-694a-4b67-8ecc-d73bb628d5e7",
+   "metadata": {},
+   "source": [
+    "rev = ada.PrimRevolve('rev1', [(0,0), (0.1,0), (0.1,0.1), (0,0.1)], 90, (0,0,0),(1,0,0),(0,1,0))\n",
+    "rev.show()"
+   ],
+   "outputs": [],
+   "execution_count": null
+  },
+  {
+   "cell_type": "code",
+   "id": "ba1a9e14-08f8-4740-995e-369c369c14f1",
+   "metadata": {},
+   "source": [
+    "sphere  = ada.PrimSphere('sphere1', (0,0,0), 0.3)\n",
+    "sphere.show()"
+   ],
+   "outputs": [],
+   "execution_count": null
+  },
+  {
+   "cell_type": "code",
+   "id": "c70fe6e1-219f-4db2-bd3e-f21ce73f79bc",
+   "metadata": {},
+   "source": [
+    "sweep = ada.PrimSweep('sweep1', [(0,0,0), (0.5,0,0,0.2), (0.8, 0.8, 1),(0.8, 0.8, 2)],[(0,0), (0.1,0),(0.1,0.1),(0,0.1)], (1,0,0), (0,0,0),(0,0,1))\n",
+    "sweep.show()"
+   ],
+   "outputs": [],
+   "execution_count": null
+  },
+  {
+   "cell_type": "code",
+   "id": "9d3d0cc7-f8c9-4eb8-9cd6-1498961e4ba9",
+   "metadata": {},
+   "source": [
+    "pipe = ada.Pipe('pipe1', [(0,0,0), (1,0,0), (1,1,0), (1,1.5,0), (3,1.5,0), (4,1.5,1), (4.5,2,1.5)], \"OD200x5\")\n",
+    "pipe.show()"
+   ],
+   "outputs": [],
+   "execution_count": null
+  }
+ ],
+ "metadata": {
+  "kernelspec": {
+   "display_name": "Python 3 (ipykernel)",
+   "language": "python",
+   "name": "python3"
+  },
+  "language_info": {
+   "codemirror_mode": {
+    "name": "ipython",
+    "version": 3
+   },
+   "file_extension": ".py",
+   "mimetype": "text/x-python",
+   "name": "python",
+   "nbconvert_exporter": "python",
+   "pygments_lexer": "ipython3",
+   "version": "3.12.9"
+  }
+ },
+ "nbformat": 4,
+ "nbformat_minor": 5
+}

@@ -1,0 +1,100 @@
+{
+ "cells": [
+  {
+   "cell_type": "markdown",
+   "id": "a0f193450eed0115",
+   "metadata": {},
+   "source": [
+    "# Boolean Operations\n",
+    "\n",
+    "Boolean operations in ada-py can be applied to any physical object or to any part in the assembly (including the top-level Assembly object). Any boolean applied to a part will automatically be applied to its children. Any primitive can be used as a boolean."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "id": "7ba1fffdb1e4aa5a",
+   "metadata": {},
+   "source": [
+    "import ada"
+   ],
+   "outputs": [],
+   "execution_count": null
+  },
+  {
+   "cell_type": "markdown",
+   "id": "c2508e69-7964-4a0f-8c25-8a379451146a",
+   "metadata": {},
+   "source": [
+    "Use the `add_boolean` method (which is available on all physical objects and `Part` objects) to add any primitive as a boolean."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "id": "c9bc66364502ae52",
+   "metadata": {},
+   "source": [
+    "cyl = ada.PrimCyl('cyl', (0,0,0), (0,0,1), 0.2)\n",
+    "pl = ada.Plate('pl', [(0,0), (1,0), (1,1), (0,1)], 0.01, origin=(-0.5,-0.5,0), n=(0,0,1), xdir=(1,0,0))\n",
+    "pl.add_boolean(cyl)\n",
+    "pl.show()"
+   ],
+   "outputs": [],
+   "execution_count": null
+  },
+  {
+   "cell_type": "code",
+   "id": "9f2a65ce-38d4-4d84-884a-c922995849f5",
+   "metadata": {},
+   "source": [
+    "pl_and_cyl_p = ada.Part('myPart') / (pl, cyl)\n",
+    "pl_and_cyl_p.show()"
+   ],
+   "outputs": [],
+   "execution_count": null
+  },
+  {
+   "cell_type": "markdown",
+   "id": "e5b535a9-05c0-4684-86b0-983280194b87",
+   "metadata": {},
+   "source": [
+    "When applying a boolean to a Part, it will automatically apply it to all objects recursively underneath the given Part level."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "id": "e47b6e00-e6f7-4726-ae2b-b114b3a20829",
+   "metadata": {},
+   "source": [
+    "cyl = ada.PrimCyl('cyl', (0,0,0), (0,0,1), 0.2)\n",
+    "pl = ada.Plate('pl', [(0,0), (1,0), (1,1), (0,1)], 0.01, origin=(-0.5,-0.5,0), n=(0,0,1), xdir=(1,0,0))\n",
+    "pl_copy = pl.copy_to('pl2', (-0.5,-0.5, 0.7))\n",
+    "p = ada.Part('myPart') / (pl, pl_copy)\n",
+    "p.add_boolean(cyl)\n",
+    "p.show()"
+   ],
+   "outputs": [],
+   "execution_count": null
+  }
+ ],
+ "metadata": {
+  "kernelspec": {
+   "display_name": "Python 3 (ipykernel)",
+   "language": "python",
+   "name": "python3"
+  },
+  "language_info": {
+   "codemirror_mode": {
+    "name": "ipython",
+    "version": 3
+   },
+   "file_extension": ".py",
+   "mimetype": "text/x-python",
+   "name": "python",
+   "nbconvert_exporter": "python",
+   "pygments_lexer": "ipython3",
+   "version": "3.12.9"
+  }
+ },
+ "nbformat": 4,
+ "nbformat_minor": 5
+}

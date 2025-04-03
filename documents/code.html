@@ -207,10 +207,11 @@
 </ul>
 <p class="caption" role="heading"><span class="caption-text">Examples</span></p>
 <ul>
-<li class="toctree-l1"><a class="reference internal" href="notebooks/solid_primitives.html">Modelling with adapy</a></li>
-<li class="toctree-l1"><a class="reference internal" href="notebooks/parts_and_assemblies.html">Parts and Assemblies</a></li>
-<li class="toctree-l1"><a class="reference internal" href="notebooks/boolean_operations.html">Boolean Operations</a></li>
-<li class="toctree-l1"><a class="reference internal" href="notebooks/placement.html">Placement of parts and objects</a></li>
+<li class="toctree-l1"><a class="reference internal" href="notebooks/design/solid_primitives.html">Modelling with adapy</a></li>
+<li class="toctree-l1"><a class="reference internal" href="notebooks/design/parts_and_assemblies.html">Parts and Assemblies</a></li>
+<li class="toctree-l1"><a class="reference internal" href="notebooks/design/boolean_operations.html">Boolean Operations</a></li>
+<li class="toctree-l1"><a class="reference internal" href="notebooks/design/placement.html">Placement of parts and objects</a></li>
+<li class="toctree-l1"><a class="reference internal" href="notebooks/analysis/simply_supported_beam.html">Analysis Simply Supported Beam</a></li>
 </ul>
 <p class="caption" role="heading"><span class="caption-text">FEA</span></p>
 <ul>
@@ -779,8 +780,14 @@ described by an id (index) and a Node object.</p>
 
 <dl class="py class">
 <dt class="sig sig-object py" id="ada.PrimBox">
-<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">ada.</span></span><span class="sig-name descname"><span class="pre">PrimBox</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">p1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">p2</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#ada.PrimBox" title="Link to this definition">¶</a></dt>
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">ada.</span></span><span class="sig-name descname"><span class="pre">PrimBox</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">p1</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">p2</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">origin</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">placement</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#ada.PrimBox" title="Link to this definition">¶</a></dt>
 <dd><p>Primitive Box. Length, width &amp; height are local x, y and z respectively</p>
+<dl class="py method">
+<dt class="sig sig-object py" id="ada.PrimBox.copy_to">
+<span class="sig-name descname"><span class="pre">copy_to</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">position</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">list</span><span class="p"><span class="pre">[</span></span><span class="pre">float</span><span class="p"><span class="pre">]</span></span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference internal" href="#ada.Point" title="ada.geom.points.Point"><span class="pre">Point</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rotation_axis</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Iterable</span><span class="p"><span class="pre">[</span></span><span class="pre">float</span><span class="p"><span class="pre">]</span></span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">rotation_angle</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">float</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="#ada.PrimBox" title="ada.api.primitives.box.PrimBox"><span class="pre">PrimBox</span></a></span></span><a class="headerlink" href="#ada.PrimBox.copy_to" title="Link to this definition">¶</a></dt>
+<dd><p>Copy the box to a new position and/or rotation.</p>
+</dd></dl>
+
 </dd></dl>
 
 <dl class="py class">
@@ -1034,7 +1041,10 @@ Emits a warning when the function or class is used, including the module path.</
 <li><a class="reference internal" href="#ada.Point.get_3d"><code class="docutils literal notranslate"><span class="pre">Point.get_3d()</span></code></a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#ada.PrimBox"><code class="docutils literal notranslate"><span class="pre">PrimBox</span></code></a></li>
+<li><a class="reference internal" href="#ada.PrimBox"><code class="docutils literal notranslate"><span class="pre">PrimBox</span></code></a><ul>
+<li><a class="reference internal" href="#ada.PrimBox.copy_to"><code class="docutils literal notranslate"><span class="pre">PrimBox.copy_to()</span></code></a></li>
+</ul>
+</li>
 <li><a class="reference internal" href="#ada.PrimCone"><code class="docutils literal notranslate"><span class="pre">PrimCone</span></code></a></li>
 <li><a class="reference internal" href="#ada.PrimCyl"><code class="docutils literal notranslate"><span class="pre">PrimCyl</span></code></a></li>
 <li><a class="reference internal" href="#ada.PrimExtrude"><code class="docutils literal notranslate"><span class="pre">PrimExtrude</span></code></a></li>
@@ -1074,7 +1084,7 @@ Emits a warning when the function or class is used, including the module path.</
       
     </aside>
   </div>
-</div><script src="../_static/documentation_options.js?v=e4532c59"></script>
+</div><script src="../_static/documentation_options.js?v=2720f3cc"></script>
     <script src="../_static/doctools.js?v=9bcbadda"></script>
     <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
     <script src="../_static/scripts/furo.js?v=5fa4622c"></script>
