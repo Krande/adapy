@@ -30,7 +30,8 @@ IFC and various Finite Element formats.
     documents/notebooks/design/boolean_operations
     documents/notebooks/design/placement
 
-    documents/notebooks/analysis/simply_supported_beam
+    documents/notebooks/analysis/simply_supported_beam_eigenvalue
+    documents/notebooks/analysis/simply_supported_beam_static_gravity
 
 .. toctree::
     :hidden:
