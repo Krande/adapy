@@ -437,7 +437,7 @@ class FEAResult:
         purpose: FilePurposeDC = FilePurposeDC.ANALYSIS,
         params_override: RenderParams = None,
         ping_timeout=1,
-        force_embed_glb=False
+        force_embed_glb=False,
     ):
         from ada.visit.renderer_manager import (
             FEARenderParams,

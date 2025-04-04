@@ -144,7 +144,9 @@ class RendererReact:
 
         from IPython import display
 
-        html_content = self.get_html_with_injected_data(target_id, ws_port, embed_trimesh_scene, embed_base64_glb=embed_base64_glb, force_ws=force_ws)
+        html_content = self.get_html_with_injected_data(
+            target_id, ws_port, embed_trimesh_scene, embed_base64_glb=embed_base64_glb, force_ws=force_ws
+        )
 
         # Escape and embed the HTML in the srcdoc of the iframe
         srcdoc = html.escape(html_content)

@@ -400,7 +400,6 @@ class RendererManager:
                 return renderer
             else:
 
-
                 return renderer_obj.serve_html(
                     web_port=params.serve_web_port,
                     embed_base64_glb=encoded,

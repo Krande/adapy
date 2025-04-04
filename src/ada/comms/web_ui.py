@@ -71,7 +71,7 @@ def start_serving(
     non_blocking=False,
     auto_open=False,
     embed_trimesh_scene=None,
-    embed_base64_glb:str=None,
+    embed_base64_glb: str = None,
     renderer_obj: RendererReact = None,
     force_ws=False,
     gltf_buffer_postprocessor=None,
