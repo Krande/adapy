@@ -18,8 +18,11 @@ class CustomHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
         target_instance=None,
         directory=None,
         embed_trimesh_scene=None,
+        embed_base64_glb: bytes = None,
         renderer_obj: RendererReact = None,
         force_ws=False,
+        gltf_buffer_postprocessor=None,
+        gltf_tree_postprocessor=None,
         **kwargs,
     ):
         self.unique_id = unique_id
@@ -27,8 +30,11 @@ class CustomHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
         self.node_editor_only = node_editor_only
         self.target_instance = target_instance
         self.embed_trimesh_scene = embed_trimesh_scene
+        self.embed_base64_glb = embed_base64_glb
         self.renderer_obj = renderer_obj
         self.force_ws = force_ws
+        self.gltf_buffer_postprocessor = gltf_buffer_postprocessor
+        self.gltf_tree_postprocessor = gltf_tree_postprocessor
         super().__init__(*args, directory=directory, **kwargs)
 
     def do_GET(self):
@@ -38,7 +44,8 @@ class CustomHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
                 modified_html_content = self.renderer_obj.get_html_with_injected_data(
                     self.unique_id,
                     self.ws_port,
-                    self.embed_trimesh_scene,
+                    embed_trimesh_scene=self.embed_trimesh_scene,
+                    embed_base64_glb=self.embed_base64_glb,
                     force_ws=self.force_ws,
                     node_editor_only=self.node_editor_only,
                     target_instance=self.target_instance,
@@ -64,8 +71,11 @@ def start_serving(
     non_blocking=False,
     auto_open=False,
     embed_trimesh_scene=None,
+    embed_base64_glb:str=None,
     renderer_obj: RendererReact = None,
     force_ws=False,
+    gltf_buffer_postprocessor=None,
+    gltf_tree_postprocessor=None,
 ) -> tuple[socketserver.ThreadingTCPServer, threading.Thread] | None:
     rr = RendererReact()
     web_dir = rr.local_html_path.parent
@@ -80,8 +90,11 @@ def start_serving(
         target_instance=target_instance,
         directory=str(web_dir),
         embed_trimesh_scene=embed_trimesh_scene,
+        embed_base64_glb=embed_base64_glb,
         renderer_obj=renderer_obj,
         force_ws=force_ws,
+        gltf_buffer_postprocessor=gltf_buffer_postprocessor,
+        gltf_tree_postprocessor=gltf_tree_postprocessor,
     )
 
     class ThreadingTCPServer(socketserver.ThreadingTCPServer):

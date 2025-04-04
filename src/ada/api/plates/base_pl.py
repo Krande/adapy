@@ -177,6 +177,10 @@ class Plate(BackendGeom):
         """Plate thickness"""
         return self._t
 
+    @t.setter
+    def t(self, value: float):
+        self._t = value
+
     @property
     def material(self) -> Material:
         return self._material
