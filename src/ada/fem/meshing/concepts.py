@@ -8,7 +8,6 @@ from typing import List, Union
 import gmsh
 import numpy as np
 
-import ada
 from ada import FEM, Beam, Pipe, Plate, Shape
 from ada.api.containers import Nodes
 from ada.base.physical_objects import BackendGeom
@@ -91,15 +90,15 @@ class GmshSession:
         self.model_map: dict[Union[Shape, Beam, Plate, Pipe], GmshData] = dict()
 
     def add_obj(
-        self,
-        obj: BackendGeom | Shape | Beam | Plate | Pipe,
-        geom_repr: GeomRepr | str = ElemType.SOLID,
-        el_order=1,
-        silent=True,
-        mesh_size=None,
-        build_native_lines=False,
-        point_tol=Config().general_point_tol,
-        use_native_pointer=True,
+            self,
+            obj: BackendGeom | Shape | Beam | Plate | Pipe,
+            geom_repr: GeomRepr | str = ElemType.SOLID,
+            el_order=1,
+            silent=True,
+            mesh_size=None,
+            build_native_lines=False,
+            point_tol=Config().general_point_tol,
+            use_native_pointer=True,
     ):
         from ada.core.utils import Counter
 
@@ -390,7 +389,7 @@ class GmshSession:
 
 
 def import_into_gmsh_using_step(
-    obj, geom_repr: GeomRepr, model: gmsh.model, temp_dir: pathlib.Path, silent: bool
+        obj, geom_repr: GeomRepr, model: gmsh.model, temp_dir: pathlib.Path, silent: bool
 ) -> List[tuple]:
     name = f"{obj.name}_{create_guid()}"
     obj.to_stp(temp_dir / name, geom_repr=geom_repr, silent=silent, fuse_piping=True)
@@ -400,14 +399,14 @@ def import_into_gmsh_using_step(
 
 def import_into_gmsh_use_nativepointer(obj: BackendGeom | Shape, geom_repr: GeomRepr, model: gmsh.model) -> List[tuple]:
     from OCC.Extend.TopologyUtils import TopologyExplorer
-
-    from ada import PrimBox
+    from ada import PrimBox, Placement
     from ada.occ.utils import transform_shape
 
     abs_place = obj.placement.get_absolute_placement()
 
     def transform_occ(geo):
-        if ada.Placement() != abs_place:
+
+        if Placement() != abs_place:
             geo = transform_shape(geo, transform=abs_place)
         return geo
 

@@ -76,13 +76,15 @@ platforms = ["win-64", "linux-64", "osx-64"]
 [tool.pixi.environments]
 prod = { features = ["prod"], solve-group = "prod", no-default-feature = true }
 lint = { features = ["lint"], no-default-feature = true }
+profile = { features = ["profile", "prod"], solve-group = "prod", no-default-feature = true }
+frontend = { features = ["web"], no-default-feature = true }
+
 tests-core = { features = ["tests-core"], no-default-feature = true }
 tests = { features = ["tests", "tests-core", "prod"], solve-group = "prod", no-default-feature = true }
 fem-deps = { features = ["fem-deps", "prod", "tests-core"], no-default-feature = true }
 fem = { features = ["fem", "prod", "tests-core", "fem-deps"], no-default-feature = true }
 docs = { features = ["docs", "prod", "fem-deps", "tests-core"], no-default-feature = true }
-profile = { features = ["profile", "prod"], solve-group = "prod", no-default-feature = true }
-frontend = { features = ["web"], no-default-feature = true }
+
 
 [tool.pixi.feature.prod.dependencies]
 python = "3.12.*"
@@ -112,6 +114,9 @@ flatbuffers = "*"
 python-flatbuffers = "*"
 lark = "*"
 pillow = "*"
+
+[tool.pixi.feature.prod.pypi-dependencies]
+ada-py = { path = ".", editable=true }
 
 [tool.pixi.feature.fem-deps]
 channels = ["https://repo.prefix.dev/code-aster", "conda-forge"]
