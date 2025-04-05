@@ -381,9 +381,6 @@ class RendererManager:
             if params.scene_post_processor is not None:
                 scene = params.scene_post_processor(scene)
 
-            print(f"{params.gltf_buffer_postprocessor=}")
-            print(f"{params.gltf_tree_postprocessor=}")
-
             data = scene.export(
                 file_type="glb",
                 buffer_postprocessor=params.gltf_buffer_postprocessor,

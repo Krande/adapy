@@ -28,7 +28,7 @@ from ada.api.transforms import Instance, Placement, Transform
 from ada.api.user import User
 from ada.api.walls import Wall
 from ada.base.units import Units
-from ada.config import configure_logger
+from ada.config import configure_logger, logger
 from ada.core.utils import Counter
 from ada.fem import FEM
 from ada.geom.placement import Direction
@@ -56,9 +56,9 @@ def from_ifc(ifc_file: os.PathLike | ifcopenshell.file, units=Units.M, name="Ada
     """Create an Assembly object from an IFC file."""
     if isinstance(ifc_file, (os.PathLike, str)):
         ifc_file = pathlib.Path(ifc_file).resolve().absolute()
-        print(f'Reading "{ifc_file.name}"')
+        logger.info(f'Reading "{ifc_file.name}"')
     else:
-        print("Reading IFC file object")
+        logger.info("Reading IFC file object")
 
     a = Assembly(units=units, name=name)
     a.read_ifc(ifc_file)

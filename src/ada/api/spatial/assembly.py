@@ -227,7 +227,7 @@ class Assembly(Part):
         else:
             destination = pathlib.Path(destination).resolve().absolute()
 
-        print(f'Beginning writing to IFC file "{destination}" using IfcOpenShell')
+        logger.info(f'Beginning writing to IFC file "{destination}" using IfcOpenShell')
 
         self.ifc_store.sync(
             include_fem=include_fem, progress_callback=progress_callback, geom_repr_override=geom_repr_override
@@ -240,7 +240,7 @@ class Assembly(Part):
         if validate:
             ifcopenshell.validate.validate(self.ifc_store.f if file_obj_only else destination, logger)
 
-        print("IFC file creation complete")
+        logger.info("IFC file creation complete")
         return self.ifc_store.f
 
     def to_genie_xml(
@@ -249,7 +249,7 @@ class Assembly(Part):
         from ada.cadit.gxml.write.write_xml import write_xml
 
         write_xml(self, destination_xml, writer_postprocessor=writer_postprocessor, embed_sat=embed_sat)
-        print(f'Genie XML file "{destination_xml}" created')
+        logger.info(f'Genie XML file "{destination_xml}" created')
 
     def push(self, comment, bimserver_url, username, password, project, merge=False, sync=False):
         """Push current assembly to BimServer with a comment tag that defines the revision name"""

@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 
 from ada.api.spatial import Assembly, Part
+from ada.config import logger
 
 from .read_constraints import get_bcs, get_constraints
 from .read_elements import get_elements, get_mass, get_springs
@@ -15,7 +16,7 @@ from .read_sets import get_sets
 def read_fem(fem_file: os.PathLike, fem_name: str = None):
     """Import contents from a Sesam fem file into an assembly object"""
 
-    print("Starting import of Sesam input file")
+    logger.info("Starting import of Sesam input file")
     part_name = "T1" if fem_name is None else fem_name
     with open(fem_file, "r") as d:
         part = read_sesam_fem(d.read(), part_name)
