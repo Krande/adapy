@@ -3,8 +3,11 @@ name: ci-docs
 on:
   workflow_dispatch:
   push:
-    paths:
-      - "docs/**"
+    tags:
+      - 'v*.*.*'
+  pull_request:
+    branches:
+      - main
 
 jobs:
   build:
@@ -27,6 +30,7 @@ jobs:
         run: pixi run docs
 
       - name: Upload to GitHub Pages
+        if: github.event_name != 'pull_request'
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}

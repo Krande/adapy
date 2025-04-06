@@ -23,7 +23,7 @@ def run_ccx():
 
 def run_ca():
     a = make_fem("shell")
-    res = a.to_fem("Cantilever_CA_EIG_sh", "code_aster", overwrite=True, execute=True)
+    res = a.to_fem("Cantilever_CA_EIG_sh", "code_aster", overwrite=False, execute=False)
     res.show(force_embed_glb=True, params_override=RenderParams(gltf_export_to_file="temp/cantilever.glb"))
 
 
