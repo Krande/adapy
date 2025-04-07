@@ -115,9 +115,6 @@ python-flatbuffers = "*"
 lark = "*"
 pillow = "*"
 
-[tool.pixi.feature.prod.pypi-dependencies]
-ada-py = { path = ".", editable=true }
-
 [tool.pixi.feature.fem-deps]
 channels = ["https://repo.prefix.dev/code-aster", "conda-forge"]
 [tool.pixi.feature.fem]
@@ -196,17 +193,17 @@ flat = { cmd = "python src/flatbuffers/update_flatbuffers.py", cwd = "./" }
 docs = { cmd = "cd docs && sphinx-build -b html -v . _build/html", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 serve = { cmd = "python docs/main.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" }, depends-on = ["docs"] }
 fem-doc = { cmd = "python build_verification_report.py true true --export-format=docx", cwd = "./tests/fem", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
-serve-fem = { cmd = "python doc_live_html.py", cwd = "./tests/fem" }
+serve-fem = { cmd = "python doc_live_html.py", cwd = "./tests/fem", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 
 [tool.pixi.feature.tests.tasks]
 pre-install = { cmd = ["playwright", "install"], outputs = ["$PIXI_HOME/envs/tests/Scripts/playwright.exe"] }
 
-test = { cmd = "pytest tests --ignore=tests/profiling --ignore=tests/fem --durations=0", depends-on = ["pre-install"] }
-test-core = "pytest tests --ignore=tests/profiling --ignore=tests/fem --ignore=tests/full --durations=0"
+test = { cmd = "pytest tests --ignore=tests/profiling --ignore=tests/fem --durations=0", depends-on = ["pre-install"], env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+test-core = { cmd="pytest tests --ignore=tests/profiling --ignore=tests/fem --ignore=tests/full --durations=0", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 
 [tool.pixi.feature.fem.tasks]
-test-all = { cmd = "pytest tests --durations=0", depends-on = ["pre-install"] }
-test-fem = { cmd = "pytest tests --ignore=tests/profiling --ignore=tests/core --ignore=tests/full --durations=0" }
+test-all = { cmd = "pytest tests --durations=0", depends-on = ["pre-install"], env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+test-fem = { cmd = "pytest tests --ignore=tests/profiling --ignore=tests/core --ignore=tests/full --durations=0", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 
 [tool.pixi.feature.web.tasks]
 npm = { cmd = "npm", cwd = "./src/frontend" }
