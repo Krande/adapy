@@ -2,6 +2,17 @@
 
 
 
+## v0.4.3 (2025-04-07)
+
+### Chore
+
+* chore: fix nb path in docs link (#132) ([`8d85b59`](https://github.com/Krande/adapy/commit/8d85b5972e4e864d37bab7871b6a4c5f605bcc72))
+
+### Fix
+
+* fix: logging should only affect ada-py namespace (#133) ([`d719a72`](https://github.com/Krande/adapy/commit/d719a72052734656afbc7770354ec1fe2353e521))
+
+
 ## v0.4.2 (2025-03-27)
 
 ### Fix
