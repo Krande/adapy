@@ -184,16 +184,16 @@ class BoxSides:
         return l, w, h, p1, p2
 
     def _side(
-            self,
-            axis: np.ndarray,
-            length: float,
-            positive: bool,
-            tol: float,
-            return_fem_nodes: bool,
-            fem,
-            return_surface: bool,
-            surface_name: str | None,
-            surf_positive: bool,
+        self,
+        axis: np.ndarray,
+        length: float,
+        positive: bool,
+        tol: float,
+        return_fem_nodes: bool,
+        fem,
+        return_surface: bool,
+        surface_name: str | None,
+        surf_positive: bool,
     ):
         l, w, h, p1, p2 = self._get_dim()
         direction = axis * length
@@ -205,14 +205,15 @@ class BoxSides:
             pmax = p2 - direction + tol
 
         return self._return_data(pmin, pmax, fem, return_fem_nodes, return_surface, surface_name, surf_positive)
+
     def top(
-            self,
-            tol: float = 1e-3,
-            return_fem_nodes: bool = False,
-            fem=None,
-            return_surface: bool = False,
-            surface_name: str | None = None,
-            surf_positive: bool = False,
+        self,
+        tol: float = 1e-3,
+        return_fem_nodes: bool = False,
+        fem=None,
+        return_surface: bool = False,
+        surface_name: str | None = None,
+        surf_positive: bool = False,
     ):
         return self._side(
             axis=self.parent.placement.zdir,
@@ -225,12 +226,17 @@ class BoxSides:
             surface_name=surface_name,
             surf_positive=surf_positive,
         )
-    def get(self, sides: list[Literal["front", "back", "top", "bottom"]], tol: float = 1e-3,
-            return_fem_nodes: bool = False,
-            fem=None,
-            return_surface: bool = False,
-            surface_name: str | None = None,
-            surf_positive: bool = False):
+
+    def get(
+        self,
+        sides: list[Literal["front", "back", "top", "bottom"]],
+        tol: float = 1e-3,
+        return_fem_nodes: bool = False,
+        fem=None,
+        return_surface: bool = False,
+        surface_name: str | None = None,
+        surf_positive: bool = False,
+    ):
         """Get the side of the bounding box"""
 
         sides_dict = {
@@ -243,21 +249,22 @@ class BoxSides:
         results = []
         for side in sides:
             if side in sides_dict:
-                results.extend(sides_dict[side](tol, return_fem_nodes, fem, return_surface, surface_name, surf_positive))
+                results.extend(
+                    sides_dict[side](tol, return_fem_nodes, fem, return_surface, surface_name, surf_positive)
+                )
             else:
                 raise ValueError(f"Invalid side: {side}. Valid sides are: {list(sides_dict.keys())}")
 
         return results
 
-
     def bottom(
-            self,
-            tol: float = 1e-3,
-            return_fem_nodes: bool = False,
-            fem=None,
-            return_surface: bool = False,
-            surface_name: str | None = None,
-            surf_positive: bool = False,
+        self,
+        tol: float = 1e-3,
+        return_fem_nodes: bool = False,
+        fem=None,
+        return_surface: bool = False,
+        surface_name: str | None = None,
+        surf_positive: bool = False,
     ):
         return self._side(
             axis=self.parent.placement.zdir,
@@ -272,13 +279,13 @@ class BoxSides:
         )
 
     def front(
-            self,
-            tol: float = 1e-3,
-            return_fem_nodes: bool = False,
-            fem=None,
-            return_surface: bool = False,
-            surface_name: str | None = None,
-            surf_positive: bool = False,
+        self,
+        tol: float = 1e-3,
+        return_fem_nodes: bool = False,
+        fem=None,
+        return_surface: bool = False,
+        surface_name: str | None = None,
+        surf_positive: bool = False,
     ):
         return self._side(
             axis=self.parent.placement.ydir,
@@ -293,13 +300,13 @@ class BoxSides:
         )
 
     def back(
-            self,
-            tol: float = 1e-3,
-            return_fem_nodes: bool = False,
-            fem=None,
-            return_surface: bool = False,
-            surface_name: str | None = None,
-            surf_positive: bool = False,
+        self,
+        tol: float = 1e-3,
+        return_fem_nodes: bool = False,
+        fem=None,
+        return_surface: bool = False,
+        surface_name: str | None = None,
+        surf_positive: bool = False,
     ):
         return self._side(
             axis=self.parent.placement.ydir,
@@ -314,13 +321,13 @@ class BoxSides:
         )
 
     def all_sides(
-            self,
-            tol: float = 1e-3,
-            return_fem_nodes: bool = False,
-            fem=None,
-            return_surface: bool = False,
-            surface_name: str | None = None,
-            surf_positive: bool = False,
+        self,
+        tol: float = 1e-3,
+        return_fem_nodes: bool = False,
+        fem=None,
+        return_surface: bool = False,
+        surface_name: str | None = None,
+        surf_positive: bool = False,
     ):
         return (
             self.top(tol, return_fem_nodes, fem, return_surface, surface_name, surf_positive),
