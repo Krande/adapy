@@ -45,10 +45,6 @@ jobs:
           environments: docs
           cache: true
 
-      - name: Install dependencies
-        run: |
-          pixi update ada-py
-
       - name: Create Verification Report
         run: |
           pixi run fem-doc
