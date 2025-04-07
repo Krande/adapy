@@ -43,7 +43,6 @@ class MockWSClient:
 
 @pytest.fixture(scope="session")
 def ws_server() -> MockWSClient:
-    # Function to run the WebSocket server in a separate thread
     def start_ws_server(loop):
         asyncio.set_event_loop(loop)
         ws_server_instance = WebSocketAsyncServer(WS_HOST, WS_PORT)
@@ -54,7 +53,6 @@ def ws_server() -> MockWSClient:
         finally:
             print("WebSocket server stopped")
 
-    # Create a new event loop for the WebSocket server
     ws_loop = asyncio.new_event_loop()
     ws_thread = threading.Thread(target=start_ws_server, args=(ws_loop,), daemon=True)
     ws_thread.start()
@@ -62,15 +60,30 @@ def ws_server() -> MockWSClient:
     try:
         yield MockWSClient(WS_HOST, WS_PORT)
     finally:
-        # Cancel any pending tasks
-        pending_tasks = asyncio.all_tasks(loop=ws_loop)
-        for task in pending_tasks:
-            task.cancel()
+        # Safely attempt to stop the loop
+        def teardown():
+            try:
+                pending_tasks = asyncio.all_tasks(loop=ws_loop)
+                for task in pending_tasks:
+                    task.cancel()
+                ws_loop.call_soon_threadsafe(ws_loop.stop)
+            except Exception as e:
+                print(f"Error during ws_server teardown: {e}")
 
-        # Stop the WebSocket server and ensure all tasks are completed
-        ws_loop.call_soon_threadsafe(ws_loop.stop)
-        ws_thread.join()
-        print("WebSocket server fully stopped")
+        # Wrap teardown in a timeout
+        done_event = threading.Event()
+
+        def teardown_wrapper():
+            teardown()
+            ws_thread.join(timeout=5)
+            done_event.set()
+
+        watchdog = threading.Thread(target=teardown_wrapper)
+        watchdog.start()
+        watchdog.join(timeout=6)
+
+        if not done_event.is_set():
+            print("⚠️ Timeout in ws_server fixture teardown. WebSocket server thread didn't shut down in time.")
 
 
 # Define the custom request handler

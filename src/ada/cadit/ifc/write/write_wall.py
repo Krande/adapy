@@ -10,7 +10,7 @@ from ada.cadit.ifc.utils import (
 from ada.core.constants import O, X, Z
 from ada.core.guid import create_guid
 
-from .write_stru_components import write_door, write_window
+from .write_building_components import write_door, write_window
 
 
 def write_ifc_wall(wall: Wall):

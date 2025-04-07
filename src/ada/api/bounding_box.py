@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 
@@ -183,57 +183,155 @@ class BoxSides:
 
         return l, w, h, p1, p2
 
-    def top(
-        self, tol=1e-3, return_fem_nodes=False, fem=None, return_surface=False, surf_name=None, surf_positive=False
+    def _side(
+        self,
+        axis: np.ndarray,
+        length: float,
+        positive: bool,
+        tol: float,
+        return_fem_nodes: bool,
+        fem,
+        return_surface: bool,
+        surface_name: str | None,
+        surf_positive: bool,
     ):
-        """Top is at positive local Z"""
         l, w, h, p1, p2 = self._get_dim()
+        direction = axis * length
+        if positive:
+            pmin = p1 + direction - tol
+            pmax = p2 + tol
+        else:
+            pmin = p1 - tol
+            pmax = p2 - direction + tol
 
-        z = self.parent.placement.zdir
+        return self._return_data(pmin, pmax, fem, return_fem_nodes, return_surface, surface_name, surf_positive)
 
-        pmin = p1 + h * z - tol
-        pmax = p2 + tol
+    def top(
+        self,
+        tol: float = 1e-3,
+        return_fem_nodes: bool = False,
+        fem=None,
+        return_surface: bool = False,
+        surface_name: str | None = None,
+        surf_positive: bool = False,
+    ):
+        return self._side(
+            axis=self.parent.placement.zdir,
+            length=self._get_dim()[2],
+            positive=True,
+            tol=tol,
+            return_fem_nodes=return_fem_nodes,
+            fem=fem,
+            return_surface=return_surface,
+            surface_name=surface_name,
+            surf_positive=surf_positive,
+        )
 
-        return self._return_data(pmin, pmax, fem, return_fem_nodes, return_surface, surf_name, surf_positive)
+    def get(
+        self,
+        sides: list[Literal["front", "back", "top", "bottom"]],
+        tol: float = 1e-3,
+        return_fem_nodes: bool = False,
+        fem=None,
+        return_surface: bool = False,
+        surface_name: str | None = None,
+        surf_positive: bool = False,
+    ):
+        """Get the side of the bounding box"""
+
+        sides_dict = {
+            "top": self.top,
+            "bottom": self.bottom,
+            "front": self.front,
+            "back": self.back,
+        }
+
+        results = []
+        for side in sides:
+            if side in sides_dict:
+                results.extend(
+                    sides_dict[side](tol, return_fem_nodes, fem, return_surface, surface_name, surf_positive)
+                )
+            else:
+                raise ValueError(f"Invalid side: {side}. Valid sides are: {list(sides_dict.keys())}")
+
+        return results
 
     def bottom(
-        self, tol=1e-3, return_fem_nodes=False, fem=None, return_surface=False, surface_name=None, surf_positive=False
+        self,
+        tol: float = 1e-3,
+        return_fem_nodes: bool = False,
+        fem=None,
+        return_surface: bool = False,
+        surface_name: str | None = None,
+        surf_positive: bool = False,
     ):
-        """Bottom is at negative local z"""
-        l, w, h, p1, p2 = self._get_dim()
-
-        z = self.parent.placement.zdir
-
-        pmin = p1 - tol
-        pmax = p2 - l * z + tol
-
-        return self._return_data(pmin, pmax, fem, return_fem_nodes, return_surface, surface_name, surf_positive)
+        return self._side(
+            axis=self.parent.placement.zdir,
+            length=self._get_dim()[2],
+            positive=False,
+            tol=tol,
+            return_fem_nodes=return_fem_nodes,
+            fem=fem,
+            return_surface=return_surface,
+            surface_name=surface_name,
+            surf_positive=surf_positive,
+        )
 
     def front(
-        self, tol=1e-3, return_fem_nodes=False, fem=None, return_surface=False, surface_name=None, surf_positive=False
+        self,
+        tol: float = 1e-3,
+        return_fem_nodes: bool = False,
+        fem=None,
+        return_surface: bool = False,
+        surface_name: str | None = None,
+        surf_positive: bool = False,
     ):
-        """Front is at positive local y"""
-        l, w, h, p1, p2 = self._get_dim()
-
-        y = self.parent.placement.ydir
-
-        pmin = p1 + l * y - tol
-        pmax = p2 + tol
-
-        return self._return_data(pmin, pmax, fem, return_fem_nodes, return_surface, surface_name, surf_positive)
+        return self._side(
+            axis=self.parent.placement.ydir,
+            length=self._get_dim()[0],
+            positive=True,
+            tol=tol,
+            return_fem_nodes=return_fem_nodes,
+            fem=fem,
+            return_surface=return_surface,
+            surface_name=surface_name,
+            surf_positive=surf_positive,
+        )
 
     def back(
-        self, tol=1e-3, return_fem_nodes=False, fem=None, return_surface=False, surface_name=None, surf_positive=False
+        self,
+        tol: float = 1e-3,
+        return_fem_nodes: bool = False,
+        fem=None,
+        return_surface: bool = False,
+        surface_name: str | None = None,
+        surf_positive: bool = False,
     ):
-        """Back is at negative local y"""
-        l, w, h, p1, p2 = self._get_dim()
+        return self._side(
+            axis=self.parent.placement.ydir,
+            length=self._get_dim()[0],
+            positive=False,
+            tol=tol,
+            return_fem_nodes=return_fem_nodes,
+            fem=fem,
+            return_surface=return_surface,
+            surface_name=surface_name,
+            surf_positive=surf_positive,
+        )
 
-        y = self.parent.placement.ydir
-
-        pmin = p1 - tol
-        pmax = p2 - l * y + tol
-
-        return self._return_data(pmin, pmax, fem, return_fem_nodes, return_surface, surface_name, surf_positive)
-
-    def all_sides(self, **kwargs):
-        return self.top(**kwargs), self.bottom(**kwargs), self.front(**kwargs), self.back(**kwargs)
+    def all_sides(
+        self,
+        tol: float = 1e-3,
+        return_fem_nodes: bool = False,
+        fem=None,
+        return_surface: bool = False,
+        surface_name: str | None = None,
+        surf_positive: bool = False,
+    ):
+        return (
+            self.top(tol, return_fem_nodes, fem, return_surface, surface_name, surf_positive),
+            self.bottom(tol, return_fem_nodes, fem, return_surface, surface_name, surf_positive),
+            self.front(tol, return_fem_nodes, fem, return_surface, surface_name, surf_positive),
+            self.back(tol, return_fem_nodes, fem, return_surface, surface_name, surf_positive),
+        )

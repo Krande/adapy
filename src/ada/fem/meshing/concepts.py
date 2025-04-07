@@ -8,7 +8,6 @@ from typing import List, Union
 import gmsh
 import numpy as np
 
-import ada
 from ada import FEM, Beam, Pipe, Plate, Shape
 from ada.api.containers import Nodes
 from ada.base.physical_objects import BackendGeom
@@ -401,13 +400,14 @@ def import_into_gmsh_using_step(
 def import_into_gmsh_use_nativepointer(obj: BackendGeom | Shape, geom_repr: GeomRepr, model: gmsh.model) -> List[tuple]:
     from OCC.Extend.TopologyUtils import TopologyExplorer
 
-    from ada import PrimBox
+    from ada import Placement, PrimBox
     from ada.occ.utils import transform_shape
 
     abs_place = obj.placement.get_absolute_placement()
 
     def transform_occ(geo):
-        if ada.Placement() != abs_place:
+
+        if Placement() != abs_place:
             geo = transform_shape(geo, transform=abs_place)
         return geo
 

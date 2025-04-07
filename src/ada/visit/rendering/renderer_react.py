@@ -59,9 +59,12 @@ class RendererReact:
         target_id: int | None = None,
         ws_port: int | None = None,
         embed_trimesh_scene: trimesh.Scene | None = None,
+        embed_base64_glb: str = None,
         force_ws: bool = False,
         node_editor_only=False,
         target_instance=None,
+        gltf_buffer_postprocessor=None,
+        gltf_tree_postprocessor=None,
     ) -> str:
         import base64
 
@@ -77,10 +80,21 @@ class RendererReact:
         if target_instance is not None:
             html_inject_str += f'\n<script>window.TARGET_INSTANCE_ID = "{target_instance}";</script>'
 
-        if embed_trimesh_scene is not None:
-            data = embed_trimesh_scene.export(file_type="glb")
-            # encode as base64 string
-            encoded = base64.b64encode(data).decode("utf-8")
+        if embed_trimesh_scene is not None or embed_base64_glb is not None:
+            if gltf_tree_postprocessor is not None:
+                print("gltf_tree_postprocessor")
+            if gltf_buffer_postprocessor is not None:
+                print("gltf_buffer_postprocessor")
+            if embed_trimesh_scene:
+                data = embed_trimesh_scene.export(
+                    file_type="glb",
+                    buffer_postprocessor=gltf_buffer_postprocessor,
+                    tree_postprocessor=gltf_tree_postprocessor,
+                )
+                # encode as base64 string
+                encoded = base64.b64encode(data).decode("utf-8")
+            else:
+                encoded = embed_base64_glb
             # replace keyword with our scene data
             html_inject_str += f'<script>window.B64GLTF = "{encoded}";</script>'
             if force_ws is False:
@@ -97,7 +111,10 @@ class RendererReact:
         ws_port=8765,
         target_id: int | None = None,
         embed_trimesh_scene: trimesh.Scene | None = None,
+        embed_base64_glb: str = None,
         force_ws=False,
+        gltf_buffer_postprocessor=None,
+        gltf_tree_postprocessor=None,
     ):
         """This starts a web server to serve the HTML viewer"""
         from ada.comms.web_ui import start_serving
@@ -107,8 +124,11 @@ class RendererReact:
             ws_port=ws_port,
             unique_id=target_id,
             embed_trimesh_scene=embed_trimesh_scene,
+            embed_base64_glb=embed_base64_glb,
             renderer_obj=self,
             force_ws=force_ws,
+            gltf_buffer_postprocessor=gltf_buffer_postprocessor,
+            gltf_tree_postprocessor=gltf_tree_postprocessor,
         )
 
     def get_notebook_renderer_widget(
@@ -117,13 +137,16 @@ class RendererReact:
         target_id: int | None = None,
         ws_port: int | None = None,
         embed_trimesh_scene: trimesh.Scene | None = None,
+        embed_base64_glb: str = None,
         force_ws=False,
     ) -> HTML:
         import html
 
         from IPython import display
 
-        html_content = self.get_html_with_injected_data(target_id, ws_port, embed_trimesh_scene, force_ws=force_ws)
+        html_content = self.get_html_with_injected_data(
+            target_id, ws_port, embed_trimesh_scene, embed_base64_glb=embed_base64_glb, force_ws=force_ws
+        )
 
         # Escape and embed the HTML in the srcdoc of the iframe
         srcdoc = html.escape(html_content)

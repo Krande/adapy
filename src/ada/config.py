@@ -437,13 +437,15 @@ class DuplicateFilter(logging.Filter):
 
 
 def configure_logger():
-    # Note to self! Without declaring basicConfig, the logger will not respond to any change in the logging level
-    logging.basicConfig(format="[%(asctime)s: %(levelname)s/%(name)s] | %(message)s")
     _logger = logging.getLogger("ada")
 
-    # config = Config()
-    # if config.general_use_duplicate_log_filter:
-    #     _logger.addFilter(DuplicateFilter(logger=_logger))
+    if not _logger.handlers:
+        handler = logging.StreamHandler()
+        handler.setFormatter(logging.Formatter("[%(asctime)s: %(levelname)s/%(name)s] | %(message)s"))
+        _logger.addHandler(handler)
+
+    # Optional: Avoid double-logging if root also logs
+    # _logger.propagate = False
 
 
 def get_logger():

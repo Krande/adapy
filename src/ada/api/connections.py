@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any, List
 
 from ada.api.containers import Beams, Connections
 from ada.base.physical_objects import BackendGeom
+from ada.config import logger
 
 if TYPE_CHECKING:
     from ada import Beam, Node
@@ -43,7 +44,7 @@ class JointReqChecker:
         res = all([is_equal_num, correct_mem_types])
         if res is True and silent is False and self.joint.__class__.__name__ != "ABCMeta":
             mtyp = self.joint.mem_types
-            print(f'Joint match for "{self.joint.__class__.__name__}", Req: types, "{mtyp}"')
+            logger.info(f'Joint match for "{self.joint.__class__.__name__}", Req: types, "{mtyp}"')
         return res
 
 

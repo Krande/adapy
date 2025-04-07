@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ada.cadit.ifc.utils import create_axis, create_property_set
-from ada.cadit.ifc.write.write_shapes import generate_ifc_prim_extrude_geom
+from ada.cadit.ifc.write.shapes.prim_extrude_area import generate_ifc_prim_extrude_geom
 
 if TYPE_CHECKING:
     import ifcopenshell

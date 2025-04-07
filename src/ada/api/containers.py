@@ -459,7 +459,7 @@ class Connections(BaseCollections):
 
             self.add(joint, point_tol=point_tol)
 
-        print(f"Connection search finished. Found a total of {len(self._connections)} connections")
+        logger.info(f"Connection search finished. Found a total of {len(self._connections)} connections")
 
 
 class NumericMapped(BaseCollections):

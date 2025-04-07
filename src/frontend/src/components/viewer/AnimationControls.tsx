@@ -62,7 +62,6 @@ const AnimationControls = () => {
                 <div className={"px-2 w-12 text-center"}>{roundedCurrentKey}</div>
             </div>
 
-
         </div>
     );
 };

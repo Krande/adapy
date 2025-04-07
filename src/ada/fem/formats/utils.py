@@ -292,14 +292,14 @@ def get_ff_regex(flag, *args):
 
 
 def _overwrite_dir(analysis_dir):
-    print("Removing old files before copying new")
+    logger.info("Removing old files before copying new")
     try:
         if Config().general_safe_deletion is True:
             send2trash(analysis_dir)
         else:
             shutil.rmtree(analysis_dir)
     except BaseException as e:
-        print(f"Failed to delete due to '{e}'")
+        logger.warning(f"Failed to delete due to '{e}'")
 
     os.makedirs(analysis_dir, exist_ok=True)
 

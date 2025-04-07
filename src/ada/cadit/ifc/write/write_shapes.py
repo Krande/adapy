@@ -2,9 +2,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-import ada.cadit.ifc.write.geom.curves as write_cu
-import ada.geom.curves as geo_cu
-import ada.geom.solids as geo_so
 import ada.geom.surfaces as geo_su
 from ada import (
     Boolean,
@@ -18,26 +15,21 @@ from ada import (
     Shape,
 )
 from ada.base.units import Units
-from ada.cadit.ifc.utils import (
-    add_colour,
-    create_ifc_placement,
-    create_ifcextrudedareasolid,
-    create_ifcindexpolyline,
-    create_ifcrevolveareasolid,
-    create_local_placement,
-    tesselate_shape,
-)
-from ada.cadit.ifc.write.geom.placement import ifc_placement_from_axis3d
-from ada.core.constants import O, X, Z
-from ada.core.utils import to_real
-from ada.geom.solids import Box, Cone, Cylinder
-
-from ..write.geom.surfaces import (
+from ada.cadit.ifc.utils import add_colour, create_local_placement, tesselate_shape
+from ada.cadit.ifc.write.geom.surfaces import (
     advanced_face,
-    arbitrary_profile_def,
     create_closed_shell,
     curve_bounded_plane,
 )
+from ada.cadit.ifc.write.shapes.box import generate_ifc_box_geom
+from ada.cadit.ifc.write.shapes.cone import generate_ifc_cone_geom
+from ada.cadit.ifc.write.shapes.cylinder import generate_ifc_cylinder_geom
+from ada.cadit.ifc.write.shapes.prim_extrude_area import generate_ifc_prim_extrude_geom
+from ada.cadit.ifc.write.shapes.prim_revolve_area_solid import (
+    generate_ifc_prim_revolve_geom,
+)
+from ada.cadit.ifc.write.shapes.prim_sweep_area import generate_ifc_prim_sweep_geom
+from ada.cadit.ifc.write.shapes.sphere import generate_ifc_prim_sphere_geom
 
 if TYPE_CHECKING:
     from ada.cadit.ifc.store import IfcStore
@@ -139,105 +131,3 @@ def generate_parametric_solid(shape: Shape | PrimSphere, f):
     )
 
     return ifc_shape
-
-
-def generate_ifc_cone_geom(shape: PrimCone, f):
-    c_geom: Cone = shape.solid_geom().geometry
-    axis3d = ifc_placement_from_axis3d(c_geom.position, f)
-    return f.createIfcRightCircularCone(Position=axis3d, Height=c_geom.height, BottomRadius=c_geom.bottom_radius)
-
-
-def generate_ifc_prim_sphere_geom(shape: PrimSphere, f):
-    """Create IfcSphere from primitive PrimSphere"""
-    opening_axis_placement = create_ifc_placement(f, to_real(shape.cog), Z, X)
-    return f.createIfcSphere(opening_axis_placement, float(shape.radius))
-
-
-def generate_ifc_box_geom(shape: PrimBox, f):
-    """Create IfcBlock from primitive PrimBox"""
-    geom: Box = shape.solid_geom().geometry
-    axis3d = ifc_placement_from_axis3d(geom.position, f)
-    return f.createIfcBlock(Position=axis3d, XLength=geom.x_length, YLength=geom.y_length, ZLength=geom.z_length)
-
-
-def generate_ifc_cylinder_geom(shape: PrimCyl, f):
-    """Create IfcExtrudedAreaSolid from primitive PrimCyl"""
-    cyl_geom: Cylinder = shape.solid_geom().geometry
-    axis3d = ifc_placement_from_axis3d(cyl_geom.position, f)
-    return f.createIfcRightCircularCylinder(Position=axis3d, Height=cyl_geom.height, Radius=cyl_geom.radius)
-
-
-def generate_ifc_prim_extrude_geom(shape: PrimExtrude, f):
-    """Create IfcExtrudedAreaSolid from primitive PrimExtrude"""
-    # https://standards.buildingsmart.org/IFC/RELEASE/IFC4_1/FINAL/HTML/link/annex-e.htm
-    # polyline = self.create_ifcpolyline(self.file, [p[:3] for p in points])
-    normal = shape.poly.normal
-    h = shape.extrude_depth
-    points = [tuple(x.astype(float).tolist()) for x in shape.poly.seg_global_points]
-    seg_index = shape.poly.seg_index
-    polyline = create_ifcindexpolyline(f, points, seg_index)
-    profile = f.createIfcArbitraryClosedProfileDef("AREA", None, polyline)
-    opening_axis_placement = create_ifc_placement(f, O, Z, X)
-    return create_ifcextrudedareasolid(f, profile, opening_axis_placement, [float(n) for n in normal], h)
-
-
-def generate_ifc_prim_revolve_geom(shape: PrimRevolve, f):
-    """Create IfcRevolveAreaSolid from primitive PrimRevolve"""
-    # https://standards.buildingsmart.org/IFC/RELEASE/IFC4_1/FINAL/HTML/link/annex-e.htm
-    # 8.8.3.28 IfcRevolvedAreaSolid
-
-    revolve_axis = [float(n) for n in shape.revolve_axis]
-    revolve_origin = [float(x) for x in shape.revolve_origin]
-    revolve_angle = shape.revolve_angle
-    points = [tuple(x.astype(float).tolist()) for x in shape.poly.seg_global_points]
-    seg_index = shape.poly.seg_index
-    polyline = create_ifcindexpolyline(f, points, seg_index)
-    profile = f.createIfcArbitraryClosedProfileDef("AREA", None, polyline)
-    opening_axis_placement = create_ifc_placement(f, O, Z, X)
-    return create_ifcrevolveareasolid(
-        f,
-        profile,
-        opening_axis_placement,
-        revolve_origin,
-        revolve_axis,
-        revolve_angle,
-    )
-
-
-def generate_ifc_prim_sweep_geom(shape: PrimSweep, f):
-    geom = shape.solid_geom()
-    if isinstance(geom.geometry.swept_area, geo_su.ArbitraryProfileDef):
-        profile = arbitrary_profile_def(geom.geometry.swept_area, f)
-    else:
-        raise NotImplementedError(f"Not implemented {type(geom.geometry.swept_area).__name__}")
-
-    if isinstance(geom.geometry, geo_so.FixedReferenceSweptAreaSolid):
-        if isinstance(geom.geometry.directrix, geo_cu.IndexedPolyCurve):
-            sweep_curve = write_cu.indexed_poly_curve(geom.geometry.directrix, f)
-        elif isinstance(geom.geometry.directrix, geo_cu.Edge):
-            # line = geom.geometry.directrix.to_line()
-            # sweep_curve = write_cu.create_line(line, f)
-            curve = geo_cu.IndexedPolyCurve(segments=[geom.geometry.directrix])
-            sweep_curve = write_cu.indexed_poly_curve(curve, f)
-        else:
-            raise NotImplementedError(f"Unsupported curve type {type(geom.geometry.directrix)}")
-    else:
-        raise NotImplementedError(f"Unsupported curve type {type(geom.geometry.sweep_curve)}")
-
-    fixed_ref = f.create_entity("IfcDirection", to_real(shape.sweep_curve.start_vector.tolist()))
-    ifc_axis3d = ifc_placement_from_axis3d(geom.geometry.position, f)
-
-    if shape.derived_reference:
-        sweep_type = "IfcDirectrixDerivedReferenceSweptAreaSolid"
-    else:
-        sweep_type = "IfcFixedReferenceSweptAreaSolid"
-
-    solid = f.create_entity(
-        sweep_type,
-        SweptArea=profile,
-        Position=ifc_axis3d,
-        Directrix=sweep_curve,
-        FixedReference=fixed_ref,
-    )
-
-    return solid

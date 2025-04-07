@@ -55,6 +55,8 @@ class RenderParams:
     backend_file_dir: Optional[str] = None
     unique_id: int = None
     fea_params: Optional[FEARenderParams] = field(default_factory=FEARenderParams)
+    serve_web_port: int = 5174
+    serve_ws_port: int = 8765
 
     def __post_init__(self):
         # ensure that if unique_id is set, it is a 32-bit integer
@@ -359,6 +361,7 @@ class RendererManager:
         apply_transform=True,
         force_ws=False,
         auto_embed_glb_in_notebook=True,
+        force_embed_glb=False,
     ) -> HTML | None:
         from ada import Assembly
         from ada.comms.wsock_client_sync import WebSocketClientSync
@@ -367,7 +370,7 @@ class RendererManager:
             scene = RendererManager.obj_to_trimesh(obj, params, apply_transform)
             return scene.show()
 
-        if self.is_in_notebook() and auto_embed_glb_in_notebook:
+        if (self.is_in_notebook() and auto_embed_glb_in_notebook) or force_embed_glb:
             self.embed_glb = True
 
         if self.embed_glb:
@@ -375,17 +378,36 @@ class RendererManager:
 
             renderer_obj = RendererReact()
             scene = RendererManager.obj_to_trimesh(obj, params, apply_transform)
+            if params.scene_post_processor is not None:
+                scene = params.scene_post_processor(scene)
+
+            data = scene.export(
+                file_type="glb",
+                buffer_postprocessor=params.gltf_buffer_postprocessor,
+                tree_postprocessor=params.gltf_tree_postprocessor,
+            )
+            # encode as base64 string
+            import base64
+
+            encoded = base64.b64encode(data).decode("utf-8")
             if self.is_in_notebook():
                 renderer = renderer_obj.get_notebook_renderer_widget(
-                    target_id=None, embed_trimesh_scene=scene, force_ws=force_ws
+                    target_id=None, embed_base64_glb=encoded, force_ws=force_ws
                 )
                 return renderer
             else:
-                return renderer_obj.serve_html(embed_trimesh_scene=scene, force_ws=force_ws)
+
+                return renderer_obj.serve_html(
+                    web_port=params.serve_web_port,
+                    embed_base64_glb=encoded,
+                    force_ws=force_ws,
+                    gltf_buffer_postprocessor=params.gltf_buffer_postprocessor,
+                    gltf_tree_postprocessor=params.gltf_tree_postprocessor,
+                )
 
         # Set up the renderer and WebSocket server
         self.start_server()
-        # target_id = params.unique_id
+
         if self.is_in_notebook():
             target_id = params.unique_id
         else:

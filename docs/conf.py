@@ -66,7 +66,7 @@ source_suffix = {
     ".txt": "restructuredtext",
     ".md": "markdown",
 }
-nbsphinx_execute = "auto"
+nbsphinx_execute = "always"
 # This is processed by Jinja2 and inserted before each notebook
 nbsphinx_prolog = r"""
 {% set docname = 'docs/' + env.doc2path(env.docname, base=None)|string %}

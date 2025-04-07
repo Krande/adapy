@@ -64,18 +64,27 @@ skip_glob = ["**/node_modules/**", "**/temp/**"]
 asyncio_default_fixture_loop_scope = "session"
 testpaths = ["tests"]
 pythonpath = ["src"]
+# This is meant to stop and catch any unintended hangs
+timeout = 120
+timeout_method = "thread"
+
 
 [tool.pixi.project]
-channels = ["https://repo.prefix.dev/code-aster", "conda-forge"]
+channels = ["conda-forge"]
 platforms = ["win-64", "linux-64", "osx-64"]
 
 [tool.pixi.environments]
 prod = { features = ["prod"], solve-group = "prod", no-default-feature = true }
 lint = { features = ["lint"], no-default-feature = true }
-tests = { features = ["tests", "prod"], solve-group = "prod", no-default-feature = true }
 profile = { features = ["profile", "prod"], solve-group = "prod", no-default-feature = true }
-docs = { features = ["docs", "prod"], solve-group = "prod", no-default-feature = true }
 frontend = { features = ["web"], no-default-feature = true }
+
+tests-core = { features = ["tests-core"], no-default-feature = true }
+tests = { features = ["tests", "tests-core", "prod"], solve-group = "prod", no-default-feature = true }
+fem-deps = { features = ["fem-deps", "prod", "tests-core"], no-default-feature = true }
+fem = { features = ["fem", "prod", "tests-core", "fem-deps"], no-default-feature = true }
+docs = { features = ["docs", "prod", "fem-deps", "tests-core"], no-default-feature = true }
+
 
 [tool.pixi.feature.prod.dependencies]
 python = "3.12.*"
@@ -96,7 +105,6 @@ meshio = "*"
 websockets = ">=14"
 plotly = "*"
 python-kaleido = "*"
-calculix = "*"
 ipywidgets = "*"
 jupyterlab = "*"
 pyparsing = "*"
@@ -107,11 +115,25 @@ python-flatbuffers = "*"
 lark = "*"
 pillow = "*"
 
-[tool.pixi.feature.prod.target.linux-64.dependencies]
+[tool.pixi.feature.prod.pypi-dependencies]
+ada-py = { path = ".", editable=true }
+
+[tool.pixi.feature.fem-deps]
+channels = ["https://repo.prefix.dev/code-aster", "conda-forge"]
+[tool.pixi.feature.fem]
+channels = ["https://repo.prefix.dev/code-aster", "conda-forge"]
+[tool.pixi.feature.docs]
+channels = ["https://repo.prefix.dev/code-aster", "conda-forge"]
+
+
+[tool.pixi.feature.fem-deps.dependencies]
+calculix = "*"
+
+[tool.pixi.feature.fem-deps.target.linux-64.dependencies]
 # These are not available on conda-forge
 code-aster = "*"
 
-[tool.pixi.feature.prod.target.win-64.dependencies]
+[tool.pixi.feature.fem-deps.target.win-64.dependencies]
 
 code-aster = { version = "*", channel = "https://repo.prefix.dev/code-aster" }
 # Attempt to update to the latest version of the dependencies
@@ -127,10 +149,11 @@ code-aster = { version = "*", channel = "https://repo.prefix.dev/code-aster" }
 #fltk = { version = "*" , channel = "C:/AibelProgs/code/condapackaging/output" }
 #calculix = { version = "==2.22", build="*_1", channel = "conda-forge" }
 
-[tool.pixi.feature.tests.dependencies]
+[tool.pixi.feature.tests-core.dependencies]
 pytest = "*"
 pytest-benchmark = "*"
 pytest-asyncio = "*"
+pytest-timeout = "*"
 paradoc = "*"
 python-dotenv = "*"
 watchdog = "*"
@@ -159,6 +182,7 @@ myst-parser = "*"
 nbsphinx = "*"
 scipy = "*"
 fastapi = "*"  # For the API docs
+pandas = "*"
 
 [tool.pixi.feature.web.dependencies]
 nodejs = "*"
@@ -169,17 +193,20 @@ lint = "isort . && black . --config pyproject.toml && ruff check . --fix"
 flat = { cmd = "python src/flatbuffers/update_flatbuffers.py", cwd = "./" }
 
 [tool.pixi.feature.docs.tasks]
-docs = { cmd = "cd docs && make html", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+docs = { cmd = "cd docs && sphinx-build -b html -v . _build/html", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 serve = { cmd = "python docs/main.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" }, depends-on = ["docs"] }
+fem-doc = { cmd = "python build_verification_report.py true true --export-format=docx", cwd = "./tests/fem", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+serve-fem = { cmd = "python doc_live_html.py", cwd = "./tests/fem" }
 
 [tool.pixi.feature.tests.tasks]
-test = "pytest tests --ignore=tests/profiling --ignore=tests/fem --durations=0"
-test-core = "pytest tests --ignore=tests/profiling --ignore=tests/fem --ignore=tests/full --durations=0"
-test-all = "pytest tests --durations=0"
-test-fem = { cmd = "pytest tests --ignore=tests/profiling --ignore=tests/core --ignore=tests/full --durations=0" }
+pre-install = { cmd = ["playwright", "install"], outputs = ["$PIXI_HOME/envs/tests/Scripts/playwright.exe"] }
 
-fem-doc = { cmd = "python build_verification_report.py true true --export-format=docx", cwd = "./tests/fem", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
-fem-doc-dev = { cmd = "python doc_live_html.py", cwd = "./tests/fem" }
+test = { cmd = "pytest tests --ignore=tests/profiling --ignore=tests/fem --durations=0", depends-on = ["pre-install"] }
+test-core = "pytest tests --ignore=tests/profiling --ignore=tests/fem --ignore=tests/full --durations=0"
+
+[tool.pixi.feature.fem.tasks]
+test-all = { cmd = "pytest tests --durations=0", depends-on = ["pre-install"] }
+test-fem = { cmd = "pytest tests --ignore=tests/profiling --ignore=tests/core --ignore=tests/full --durations=0" }
 
 [tool.pixi.feature.web.tasks]
 npm = { cmd = "npm", cwd = "./src/frontend" }
@@ -192,6 +219,6 @@ scalene = { cmd = "scalene --json -m pytest ./tests/profiling --outfile=profile.
 cprofile = { cmd = "python -m cProfile -o profile.prof -m pytest ./tests/profiling", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 
 [tool.pixi.dependencies]
-pixi-pycharm = ">=0.0.7,<0.0.8"
+pixi-pycharm = ">=0.0.8,<0.0.9"
 
 

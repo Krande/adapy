@@ -437,6 +437,7 @@ class FEAResult:
         purpose: FilePurposeDC = FilePurposeDC.ANALYSIS,
         params_override: RenderParams = None,
         ping_timeout=1,
+        force_embed_glb=False,
     ):
         from ada.visit.renderer_manager import (
             FEARenderParams,
@@ -478,7 +479,7 @@ class FEAResult:
             )
 
         # Set up the renderer and WebSocket server
-        renderer_instance = renderer_manager.render(self, params_override)
+        renderer_instance = renderer_manager.render(self, params_override, force_embed_glb=force_embed_glb)
         return renderer_instance
 
     def get_eig_summary(self) -> EigenDataSummary:

@@ -1,6 +1,7 @@
 import ada
 from ada.fem.meshing import GmshOptions
 from ada.materials.metals import CarbonSteel
+from ada.visit.renderer_manager import RenderParams
 
 
 def make_fem(geom_repr) -> ada.Assembly:
@@ -23,7 +24,7 @@ def run_ccx():
 def run_ca():
     a = make_fem("shell")
     res = a.to_fem("Cantilever_CA_EIG_sh", "code_aster", overwrite=True, execute=True)
-    res.show()
+    res.show(force_embed_glb=False, params_override=RenderParams(gltf_export_to_file="temp/cantilever.glb"))
 
 
 if __name__ == "__main__":
