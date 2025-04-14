@@ -176,7 +176,7 @@ class IfcWriter:
                         Name=None,
                         Description=None,
                         RelatingGroup=ifc_group,
-                        RelatedObjects=[f.by_guid(x.guid) for x in group.members],
+                        RelatedObjects=[f.by_guid(x.guid) for x in group.members if hasattr(x, "guid")],
                     )
                 elif group.change_type == ChangeAction.MODIFIED:
                     ifc_group = f.by_guid(group.guid)
