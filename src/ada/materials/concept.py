@@ -61,9 +61,13 @@ class Material(Root):
     def __hash__(self):
         return hash(self.guid)
 
-    def copy_to(self, new_name: str, parent=None) -> Material:
+    def copy_to(self, new_name: str = None, parent=None) -> Material:
+        """Make a copy of the material with a new name and parent"""
+        if new_name is None:
+            new_name = self.name
+
         og_parent = self.model.parent
-        self.model.parent = None
+        self.model.parent = None  # We temporarily remove the parent to avoid circular references in the deepcopy
         new_mat = Material(new_name, mat_model=copy.deepcopy(self.model), parent=parent)
         self.model.parent = og_parent
         return new_mat

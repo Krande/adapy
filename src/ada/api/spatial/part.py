@@ -742,10 +742,11 @@ class Part(BackendGeom):
 
     def copy_to(
         self,
-        name: str,
+        name: str = None,
         position: list[float] | Point = None,
         rotation_axis: Iterable[float] = None,
         rotation_angle: float = None,
+        add_object_copy_suffix: bool = True,
     ) -> Part:
         """Copy the part and all its sub_parts to a new part. Optionally add translation and/or rotation to the new part"""
         from ada import Placement
@@ -753,14 +754,24 @@ class Part(BackendGeom):
         if position is None:
             position = self.placement.origin
 
+        if name is None:
+            name = self.name
+
         new_part = Part(name, placement=Placement(origin=position))
 
         for obj in self.get_all_physical_objects():
-            copy_obj = obj.copy_to(f"{obj.name}_copy")
+            if add_object_copy_suffix:
+                copy_obj = obj.copy_to(name=f"{obj.name}_copy")
+            else:
+                copy_obj = obj.copy_to()
+
             new_part.add_object(copy_obj)
 
         for sub_part in self.parts.values():
-            new_part.add_part(sub_part.copy_to(f"{sub_part.name}_copy"))
+            if add_object_copy_suffix:
+                new_part.add_part(sub_part.copy_to(f"{sub_part.name}_copy"))
+            else:
+                new_part.add_part(sub_part.copy_to())
 
         if rotation_axis is not None:
             if rotation_angle is None:

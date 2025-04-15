@@ -16,7 +16,7 @@ from ada.materials import Material
 from ada.materials.metals import CarbonSteel
 
 if TYPE_CHECKING:
-    from OCC.Core.TopoDS import TopoDS_Compound, TopoDS_Shape
+    from OCC.Core.TopoDS import TopoDS_Compound, TopoDS_Shape, TopoDS_Solid
 
     from ada import Placement
 
@@ -102,7 +102,7 @@ class Plate(BackendGeom):
 
         return geom_to_occ_geom(self.shell_geom())
 
-    def solid_occ(self):
+    def solid_occ(self) -> TopoDS_Solid:
         from ada.occ.geom import geom_to_occ_geom
 
         return geom_to_occ_geom(self.solid_geom())
@@ -156,13 +156,16 @@ class Plate(BackendGeom):
         booleans = [BooleanOperation(x.primitive.solid_geom(), x.bool_op) for x in self.booleans]
         return Geometry(self.guid, solid, self.color, bool_operations=booleans)
 
-    def copy_to(self, name, origin=None, xdir=None, n=None):
+    def copy_to(self, name: str = None, origin=None, xdir=None, n=None):
         import copy
+
+        if name is None:
+            name = self.name
 
         if origin is None:
             origin = self.placement.origin
 
-        return Plate(name, self.poly.copy_to(origin, xdir, n), copy.copy(self.t), self.material)
+        return Plate(name, self.poly.copy_to(origin, xdir, n), copy.copy(self.t), self.material.copy_to())
 
     @property
     def id(self):

@@ -290,6 +290,9 @@ def ifc_value_map(f, value):
         value = int(value)
     ifc_type = value_map.get(type(value), None)
     if ifc_type is None:
+        # Check if the value is a class instance
+        if hasattr(value, "__class__") and hasattr(value.__class__, "__name__"):
+            value = "Ifc" + value.__class__.__name__
         logger.warning(f'Unable to find suitable IFC type for "{type(value)}". Will convert it to string')
         return f.create_entity("IfcText", str(value))
 

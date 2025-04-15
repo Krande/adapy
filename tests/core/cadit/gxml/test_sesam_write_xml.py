@@ -1,5 +1,7 @@
-import ada
 import xml.etree.ElementTree as ET
+
+import ada
+
 
 def test_roundtrip_xml(fem_files, tmp_path):
     original_xml_file = fem_files / "sesam/xml_all_basic_props.xml"
@@ -20,13 +22,14 @@ def test_create_sesam_xml_with_plate(tmp_path):
     a = ada.Assembly("a") / pl
     a.to_genie_xml(tmp_path / "plate.xml", embed_sat=True)
 
+
 def test_create_groups_split_across_parts(tmp_path):
-    p1 = ada.Part('P1') / (ada.Beam("bm1", (0,0,0), (1,0,0), 'IPE200'))
-    p2 = ada.Part("P2") / (ada.Beam("bm2", (0,0,1), (1,0,1), 'IPE200'))
+    p1 = ada.Part("P1") / (ada.Beam("bm1", (0, 0, 0), (1, 0, 0), "IPE200"))
+    p2 = ada.Part("P2") / (ada.Beam("bm2", (0, 0, 1), (1, 0, 1), "IPE200"))
     p1.add_group("group1", [p1.beams[0]])
     p2.add_group("group1", [p2.beams[0]])
 
-    a = ada.Assembly("a") / (p1 , p2)
+    a = ada.Assembly("a") / (p1, p2)
 
     dest = tmp_path / "groups_split_across_parts.xml"
 
@@ -43,5 +46,3 @@ def test_create_groups_split_across_parts(tmp_path):
     assert len(sets.findall("./set/concepts/concept")) == 2
     assert sets.find("./set/concepts/concept[@concept_ref='bm1']") is not None
     assert sets.find("./set/concepts/concept[@concept_ref='bm2']") is not None
-
-

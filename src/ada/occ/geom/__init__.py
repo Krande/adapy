@@ -1,4 +1,4 @@
-from OCC.Core.TopoDS import TopoDS_Shape
+from OCC.Core.TopoDS import TopoDS_Shape, TopoDS_Solid
 
 import ada.geom.solids as so
 import ada.geom.surfaces as su
@@ -8,7 +8,7 @@ from ada.geom import Geometry
 from ada.occ.geom.boolean import apply_geom_booleans
 
 
-def geom_to_occ_geom(geom: Geometry) -> TopoDS_Shape:
+def geom_to_occ_geom(geom: Geometry) -> TopoDS_Shape | TopoDS_Solid:
     geometry = geom.geometry
 
     # Solid models
