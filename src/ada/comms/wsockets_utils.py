@@ -3,14 +3,17 @@ from __future__ import annotations
 import asyncio
 import os
 import pathlib
+import platform
 import socket
+import sys
 import time
 
 import websockets
 
+from ada import logger
 from ada.comms.fb_wrap_model_gen import TargetTypeDC
 from ada.config import logger
-from ada.visit.deprecated.websocket_server import start_external_ws_server
+from ada.visit.deprecated.websocket_server import WEBSOCKET_EXE_PY
 
 
 def is_port_open(host: str, port: int) -> bool:
@@ -98,3 +101,56 @@ def client_from_str(client_type: str) -> TargetTypeDC:
         return TargetTypeDC.LOCAL
     elif client_type == "web":
         return TargetTypeDC.WEB
+
+
+def start_external_ws_server(server_exe, server_args):
+    if server_exe is None:
+        server_exe = WEBSOCKET_EXE_PY
+
+    args = [sys.executable, str(server_exe)]
+    if server_args is not None:
+        args.extend(server_args)
+
+    args_str = " ".join(args)
+    logger.info("Starting server in separate process")
+    # Start the server in a separate process that opens a new shell window
+    if platform.system() == "Windows":
+        os.system(f"start cmd.exe /K {args_str}")
+    elif platform.system() == "Linux":
+        launch_terminal_with_command(args_str)
+    elif platform.system() == "Darwin":
+        os.system(f"open -a Terminal.app {args_str}")
+    else:
+        raise NotImplementedError("Unsupported platform: {}".format(platform.system()))
+
+
+def launch_terminal_with_command(command: str):
+    import subprocess
+    import shutil
+
+    system = platform.system()
+
+    if system == "Windows":
+        subprocess.Popen(["cmd.exe", "/K", command])
+
+    elif system == "Linux":
+        # Try common terminal emulators in order of likelihood
+        for term in ["gnome-terminal", "konsole", "xfce4-terminal", "lxterminal", "tilix", "x-terminal-emulator"]:
+            if shutil.which(term):
+                subprocess.Popen([term, "-e", command])
+                break
+        else:
+            raise EnvironmentError("No supported terminal emulator found on Linux.")
+
+    elif system == "Darwin":
+        # This will run the command in a new Terminal tab
+        apple_script = f'''
+        tell application "Terminal"
+            activate
+            do script "{command}"
+        end tell
+        '''
+        subprocess.run(["osascript", "-e", apple_script])
+
+    else:
+        raise NotImplementedError(f"Unsupported platform: {system}")

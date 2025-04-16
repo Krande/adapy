@@ -4,9 +4,7 @@ import io
 import json
 import os
 import pathlib
-import platform
 import re
-import sys
 import threading
 import time
 from collections import defaultdict
@@ -19,6 +17,7 @@ import trimesh
 import websockets
 
 import ada
+from ada.comms.wsockets_utils import start_external_ws_server
 from ada.config import logger
 
 _THIS_DIR = pathlib.Path(__file__).parent
@@ -260,27 +259,6 @@ def start_server_in_thread(host, port, client_origins: list[str], debug_mode):
 
     # Start the thread
     server_thread.start()
-
-
-def start_external_ws_server(server_exe, server_args):
-    if server_exe is None:
-        server_exe = WEBSOCKET_EXE_PY
-
-    args = [sys.executable, str(server_exe)]
-    if server_args is not None:
-        args.extend(server_args)
-
-    args_str = " ".join(args)
-    logger.info("Starting server in separate process")
-    # Start the server in a separate process that opens a new shell window
-    if platform.system() == "Windows":
-        os.system(f"start cmd.exe /K {args_str}")
-    elif platform.system() == "Linux":
-        os.system(f"xterm -e {args_str}")
-    elif platform.system() == "Darwin":
-        os.system(f"open -a Terminal.app {args_str}")
-    else:
-        raise NotImplementedError("Unsupported platform: {}".format(platform.system()))
 
 
 @dataclass

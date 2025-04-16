@@ -48,11 +48,14 @@ class RendererReact:
             f.write(hash_content)
 
     def show(self, target_id=None) -> None | HTML:
+        import webbrowser
+
         if in_notebook():
             return self.get_notebook_renderer_widget(target_id=target_id)
         else:
+            url = self.local_html_path.resolve().as_uri()  # Converts to 'file:///...' format
             # open html file in browser
-            os.startfile(self.local_html_path)
+            webbrowser.open(url)
 
     def get_html_with_injected_data(
         self,
