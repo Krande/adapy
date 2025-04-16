@@ -96,24 +96,26 @@ class PrimBox(Shape):
 
     def copy_to(
         self,
-        name: str,
+        name: str = None,
         position: list[float] | Point = None,
         rotation_axis: Iterable[float] = None,
         rotation_angle: float = None,
     ) -> PrimBox:
         """Copy the box to a new position and/or rotation."""
+        if name is None:
+            name = self.name
 
         copy_box = PrimBox(
             name=name,
-            p1=self.p1,
-            p2=self.p2,
+            p1=self.p1.copy(),
+            p2=self.p2.copy(),
             color=self.color,
             mass=self.mass,
             cog=self.cog,
-            material=self.material,
+            material=self.material.copy_to(),
             units=self.units,
             metadata=self.metadata,
-            placement=self.placement,
+            placement=self.placement.copy_to(),
         )
         if position is not None:
             if not isinstance(position, Point):

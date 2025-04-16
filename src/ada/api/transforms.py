@@ -281,6 +281,17 @@ class Placement:
 
         return True
 
+    def copy_to(self) -> Placement:
+        """Make a copy of this placement"""
+
+        return Placement(
+            origin=self.origin.copy(),
+            xdir=self.xdir.copy(),
+            ydir=self.ydir.copy(),
+            zdir=self.zdir.copy(),
+            scale=self.scale,
+        )
+
 
 @dataclass
 class Instance:

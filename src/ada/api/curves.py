@@ -344,7 +344,10 @@ class CurvePoly2d(CurveOpen2d):
         centroid = Point(np.sum(xyz_points, axis=0) / len(xyz_points))
         return centroid
 
-    def copy_to(self, origin, xdir=None, n=None):
+    def copy_to(self, origin=None, xdir=None, n=None) -> CurvePoly2d:
+        if origin is None:
+            origin = self.origin
+
         return CurvePoly2d(
             [x for x in self.points2d], origin=origin, xdir=xdir, normal=n, tol=self._tol, parent=self._parent
         )

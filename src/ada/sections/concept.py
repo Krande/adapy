@@ -297,6 +297,24 @@ class Section(Root):
                 f"w_top: {self.w_top}, t_fbtn: {self.t_fbtn}, t_ftop: {self.t_ftop}, t_w: {self.t_w})"
             )
 
+    def copy_to(self, name: str = None):
+        """Make a copy of the section"""
+        return self.__class__(
+            name=name if name is not None else self.name,
+            sec_type=self.type,
+            h=self.h,
+            w_top=self.w_top,
+            w_btn=self.w_btn,
+            t_w=self.t_w,
+            t_ftop=self.t_ftop,
+            t_fbtn=self.t_fbtn,
+            r=self.r,
+            wt=self.wt,
+            sec_str=self.sec_str,
+            outer_poly=self.poly_outer.copy_to() if self.poly_outer else None,
+            inner_poly=self.poly_inner.copy_to() if self.poly_inner else None,
+        )
+
 
 class SectionI(Section):
     def __init__(self, name: str, h, w_top, t_w, t_ftop, w_btn=None, t_fbtn=None, **kwargs):

@@ -57,6 +57,7 @@ class RenderParams:
     fea_params: Optional[FEARenderParams] = field(default_factory=FEARenderParams)
     serve_web_port: int = 5174
     serve_ws_port: int = 8765
+    serve_html: bool = False
 
     def __post_init__(self):
         # ensure that if unique_id is set, it is a 32-bit integer
@@ -396,9 +397,9 @@ class RendererManager:
                 )
                 return renderer
             else:
-
                 return renderer_obj.serve_html(
                     web_port=params.serve_web_port,
+                    ws_port=params.serve_ws_port,
                     embed_base64_glb=encoded,
                     force_ws=force_ws,
                     gltf_buffer_postprocessor=params.gltf_buffer_postprocessor,
@@ -407,6 +408,16 @@ class RendererManager:
 
         # Set up the renderer and WebSocket server
         self.start_server()
+
+        if params.serve_html:
+            return renderer_obj.serve_html(
+                web_port=params.serve_web_port,
+                ws_port=params.serve_ws_port,
+                embed_base64_glb=encoded,
+                force_ws=force_ws,
+                gltf_buffer_postprocessor=params.gltf_buffer_postprocessor,
+                gltf_tree_postprocessor=params.gltf_tree_postprocessor,
+            )
 
         if self.is_in_notebook():
             target_id = params.unique_id

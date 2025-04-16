@@ -107,10 +107,10 @@ def generate_parametric_solid(shape: Shape | PrimSphere, f):
     solid_geom = ifc_geom_converter(param_geo, f)
 
     repr_type_map = {
-        PrimSphere: "SweptSolid",
-        PrimBox: "SweptSolid",
-        PrimCyl: "SweptSolid",
-        PrimCone: "SweptSolid",
+        PrimSphere: "CSG",
+        PrimBox: "CSG",
+        PrimCyl: "CSG",
+        PrimCone: "CSG",
         PrimExtrude: "SweptSolid",
         PrimRevolve: "SweptSolid",
         PrimSweep: "AdvancedSweptSolid",
