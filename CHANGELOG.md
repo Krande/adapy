@@ -2,6 +2,19 @@
 
 
 
+## v0.4.4 (2025-04-16)
+
+### Chore
+
+* chore: fix ci-fem ([`a1466a6`](https://github.com/Krande/adapy/commit/a1466a6edeb2d511a51ee4fb42589ba8979eac0a))
+
+* chore: use pythonpath instead of pypi in pixi deps and, bump pixi gh versions and bump frontend vite package ([`425c6ec`](https://github.com/Krande/adapy/commit/425c6ec5a8f5157a02182822d48cf1637b3cf79e))
+
+### Fix
+
+* fix: gxml export many groups (#136) ([`98fb68d`](https://github.com/Krande/adapy/commit/98fb68ded593c9710cac79e380821268042223a5))
+
+
 ## v0.4.3 (2025-04-07)
 
 ### Chore
