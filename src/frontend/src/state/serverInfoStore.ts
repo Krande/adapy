@@ -6,6 +6,8 @@ type ServerInfoState = {
     setShowServerInfoBox: (show_info_box: boolean) => void;
     serverFiles: string[];
     setServerFiles: (serverFiles: string[]) => void;
+    showUrdfLoader: boolean;
+    setShowUrdfLoader: (showUrdfLoader: boolean) => void;
 };
 
 export const useServerInfoStore = create<ServerInfoState>((set) => ({
@@ -13,4 +15,6 @@ export const useServerInfoStore = create<ServerInfoState>((set) => ({
     setServerFiles: (serverFiles) => set({serverFiles: serverFiles}),
     showServerInfoBox: false,
     setShowServerInfoBox: (show_info_box) => set({showServerInfoBox: show_info_box}),
+    showUrdfLoader: false,
+    setShowUrdfLoader: (showUrdfLoader) => set({showUrdfLoader: showUrdfLoader}),
 }));

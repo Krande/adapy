@@ -17,6 +17,7 @@ interface ModelState {
   ) => void;
   setTranslation: (translation: THREE.Vector3) => void;
   setBoundingBox: (boundingBox: THREE.Box3) => void;
+
   setScene: (scene: THREE.Scene) => void;
 }
 

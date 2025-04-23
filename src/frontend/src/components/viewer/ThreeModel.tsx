@@ -15,21 +15,23 @@ import {handleClickMesh} from "../../utils/mesh_select/handleClickMesh";
 import {convert_to_custom_batch_mesh} from "../../utils/scene/convert_to_custom_batch_mesh";
 
 const ThreeModel: React.FC<ModelProps> = ({url}) => {
-    const {raycaster, camera} = useThree();
+    const {raycaster, camera, scene: canvasScene} = useThree();
+    const gltf = useGLTF(url, false) as unknown as GLTFResult;
+    const modelScene = gltf.scene;
     const {scene, animations} = useGLTF(url, false) as unknown as GLTFResult;
     const {action, setCurrentKey, setSelectedAnimation} = useAnimationStore();
-    const {setTranslation, setBoundingBox} = useModelStore();
+    const {setTranslation, setBoundingBox, setScene} = useModelStore();
     const {setTreeData, clearTreeData} = useTreeViewStore();
     const {showEdges, lockTranslation} = useOptionsStore();
+
+    setScene(canvasScene)
 
     useAnimationEffects(animations, scene);
 
     useEffect(() => {
         console.log("updating model");
-
-        if (scene) {
-            useModelStore.getState().setScene(scene);
-        }
+        // Add your glTF model to the canvas scene
+        canvasScene.add(modelScene);
 
         raycaster.params.Line.threshold = 0.01;
         raycaster.params.Points.threshold = 0.01;
@@ -109,9 +111,10 @@ const ThreeModel: React.FC<ModelProps> = ({url}) => {
 
         // Cleanup when the component is unmounted
         return () => {
+            canvasScene.remove(modelScene); // cleanup
             clearTreeData();
         };
-    }, [scene]);
+    }, [canvasScene, modelScene]);
 
     useFrame((_, delta) => {
         if (action) {

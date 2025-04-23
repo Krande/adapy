@@ -17,6 +17,8 @@
     "@types/react-dom": "19.0.4",
     "@types/three": "0.175.0",
     "@vitejs/plugin-react": "4.3.4",
+    "urdf-loader": "0.12.4",
+    "xacro-parser": "0.3.9",
     "archiver": "6.0.2",
     "autoprefixer": "10.4.20",
     "cross-env": "^7.0.3",
