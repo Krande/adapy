@@ -1,5 +1,5 @@
 import ada
-from ada.api.beams.base_bm import TaperTypes
+from ada.api.beams.beam_tapered import TaperTypes
 
 bm = ada.Beam("bm1", (0, 0, 0), (1, 0, 0), "IPE300")
 beams = [bm]

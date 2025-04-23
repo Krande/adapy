@@ -24,12 +24,11 @@ const ThreeModel: React.FC<ModelProps> = ({url}) => {
     const {setTreeData, clearTreeData} = useTreeViewStore();
     const {showEdges, lockTranslation} = useOptionsStore();
 
-    setScene(canvasScene)
-
     useAnimationEffects(animations, scene);
 
     useEffect(() => {
         console.log("updating model");
+        setScene(canvasScene)
         // Add your glTF model to the canvas scene
         canvasScene.add(modelScene);
 
