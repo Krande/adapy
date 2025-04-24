@@ -60,7 +60,7 @@ def write_xml(part: Part, xml_file, embed_sat=False, writer_postprocessor: Calla
     if writer_postprocessor:
         writer_postprocessor(root, part)
 
-    xml_file.parent.mkdir(exist_ok=True)
+    xml_file.parent.mkdir(exist_ok=True, parents=True)
     if embed_sat:
         # Compress the SAT data
         sat_bytes = bytes(sw.to_str(), encoding="utf-8")

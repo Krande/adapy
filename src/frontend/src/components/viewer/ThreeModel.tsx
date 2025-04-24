@@ -28,7 +28,7 @@ const ThreeModel: React.FC<ModelProps> = ({url}) => {
 
     useEffect(() => {
         console.log("updating model");
-        setScene(canvasScene)
+        //setScene(canvasScene)
         // Add your glTF model to the canvas scene
         canvasScene.add(modelScene);
 

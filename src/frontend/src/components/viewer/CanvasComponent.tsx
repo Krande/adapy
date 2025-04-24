@@ -13,6 +13,7 @@ import CameraControls from './CameraControls';
 import CameraLight from "./CameraLights";
 import DynamicGridHelper from './DynamicGridHelper';
 import {handleClickEmptySpace} from "../../utils/mesh_select/handleClickEmptySpace";
+import SceneInitializer from "./SceneInitializer";
 
 const CanvasComponent: React.FC = () => {
     const {modelUrl, scene_action, scene_action_arg} = useModelStore();
@@ -40,6 +41,8 @@ const CanvasComponent: React.FC = () => {
                     onPointerMissed={handleClickEmptySpace}
                     style={{backgroundColor: '#393939'}}
                 >
+                    <SceneInitializer /> {/* 🔑 Always sets the canvas scene on mount */}
+
                     <ambientLight intensity={Math.PI / 2} />
                     {/* Add the CameraLight component */}
                     <CameraLight/>
