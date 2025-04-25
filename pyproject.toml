@@ -207,7 +207,8 @@ test-fem = { cmd = "pytest tests --ignore=tests/profiling --ignore=tests/core --
 
 [tool.pixi.feature.web.tasks]
 npm = { cmd = "npm", cwd = "./src/frontend" }
-wdev = { cmd = "npm run dev", cwd = "./src/frontend" }
+winstall = { cmd = "npm install", cwd = "./src/frontend", outputs = ["$PIXI_PROJECT_ROOT/src/frontend/node_modules"] }
+wdev = { cmd = "npm run dev", cwd = "./src/frontend", depends-on = ["winstall"] }
 wbuild = { cmd = "npm run build", cwd = "./src/frontend" }
 fdepcheck = { cmd = "depcheck", cwd = "./src/frontend" }
 
