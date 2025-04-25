@@ -124,14 +124,6 @@ function OptionsComponent() {
                         />
                         <span>Enable Websocket</span>
                     </label>
-                                    <label className="flex items-center space-x-2">
-                        <input
-                            type="checkbox"
-                            checked={useVanillaThree}
-                            onChange={() => setUseVanillaThree(!useVanillaThree)}
-                        />
-                        <span>Use Vanilla ThreeJS</span>
-                    </label>
                 </div>
 
                 <hr className="border-gray-600"/>

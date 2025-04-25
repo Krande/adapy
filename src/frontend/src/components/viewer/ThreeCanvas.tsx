@@ -1,5 +1,6 @@
 // VanillaCanvas.tsx
 import React, { useEffect, useRef } from "react";
+import Stats from "three/examples/jsm/libs/stats.module";
 import * as THREE from "three";
 import { useModelStore } from "../../state/modelStore";
 import { useOptionsStore } from "../../state/optionsStore";
@@ -91,6 +92,13 @@ const ThreeCanvas: React.FC = () => {
       stats = new Stats();
       stats.showPanel(0); // 0: fps
       containerRef.current.appendChild(stats.dom);
+      Object.assign(stats.dom.style, {
+        position: "absolute",
+        top: "0px",
+        right: "0px",
+        left: "auto", // override default left
+        zIndex: "20",
+      });
     }
 
     // === Load Model ===
