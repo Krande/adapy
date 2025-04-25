@@ -33,13 +33,13 @@ export function loadRobot() {
     const urdfLoader = new URDFLoader();
     urdfLoader.workingPath = "./models/kr4_r600";
     urdfLoader.packages = {
-      "meshes": "/models/kr4_r600/meshes"
+        "meshes": "/models/kr4_r600/meshes"
     };
-    urdfLoader.loadMeshCb = (path, manager, done) => {
+    urdfLoader.loadMeshCb = (path, manager, onComplete) => {
         fetch(path)
             .then((res) => {
                 if (!res.ok) {
-                    throw new Error(`Failed to fetch ${path}: ${res.statusText}`);
+                    throw new Error(`HTTP error ${res.status} for ${path}`);
                 }
                 return res.arrayBuffer();
             })
@@ -50,11 +50,11 @@ export function loadRobot() {
 
                 const geometry = safeLoader.parse(data);
                 const mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({color: 0x999999}));
-                done(mesh);
+                onComplete(mesh);
             })
             .catch((err) => {
                 console.error(`Failed to load STL at ${path}`, err);
-                done(null);
+                onComplete(null, err);
             });
     };
     urdfLoader.load(
@@ -62,6 +62,9 @@ export function loadRobot() {
         (robot) => {
             console.log("Robot loaded:", robot);
             if (scene) {
+                robot.traverse(c => {
+                    c.castShadow = true;
+                });
                 scene.add(robot);
             } else {
                 console.error("Scene still not available at load time");

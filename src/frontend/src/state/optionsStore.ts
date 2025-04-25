@@ -9,13 +9,11 @@ export type OptionsState = {
   showEdges: boolean;
   lockTranslation: boolean;
   enableWebsocket: boolean;
-  useVanillaThree: boolean;
 
   setIsOptionsVisible: (value: boolean) => void;
   setShowPerf: (value: boolean) => void;
   setShowEdges: (value: boolean) => void;
   setLockTranslation: (value: boolean) => void;
-  setUseVanillaThree: (value: boolean) => void;
   setEnableWebsocket: (value: boolean) => void;
 };
 
@@ -25,13 +23,11 @@ export const useOptionsStore = create<OptionsState>((set) => ({
   showEdges: true,
   lockTranslation: false,
   enableWebsocket: true,
-  useVanillaThree: true,
 
   setIsOptionsVisible: (isVisible) => set({ isOptionsVisible: isVisible }),
   setShowPerf: (show) => set({ showPerf: show }),
   setShowEdges: (show) => set({ showEdges: show }),
   setLockTranslation: (lock) => set({ lockTranslation: lock }),
-  setUseVanillaThree: (use) => set({ useVanillaThree: use }),
 
   setEnableWebsocket: (enable) => {
     if (enable) {

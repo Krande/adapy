@@ -1,11 +1,11 @@
-// OptionsComponent.tsx
-import React, {useEffect, useState} from 'react';
-import {Rnd} from 'react-rnd';
-import {useAnimationStore} from "../state/animationStore";
-import {useOptionsStore} from "../state/optionsStore";
-import {useColorStore} from "../state/colorLegendStore";
-import {takeScreenshot} from "../utils/takeScreenshot";
-import {loadRobot} from "../utils/robots";
+import React, { useEffect, useState, useCallback } from 'react';
+import { Rnd } from 'react-rnd';
+import { useAnimationStore } from "../state/animationStore";
+import { useOptionsStore } from "../state/optionsStore";
+import { useColorStore } from "../state/colorLegendStore";
+import { takeScreenshot } from "../utils/takeScreenshot";
+import { loadRobot } from "../utils/robots";
+import {useModelStore} from "../state/modelStore";
 
 function OptionsComponent() {
     const {
@@ -17,38 +17,48 @@ function OptionsComponent() {
         setLockTranslation,
         setEnableWebsocket,
         enableWebsocket,
-      useVanillaThree,
-      setUseVanillaThree
     } = useOptionsStore();
-    const {showLegend, setShowLegend} = useColorStore();
+    const { showLegend, setShowLegend } = useColorStore();
+    const { zIsUp, setZIsUp } = useModelStore();
 
-    const [size, setSize] = useState({width: 300, height: 460});
-    const [position, setPosition] = useState({x: 0, y: 0});
-    const [isPositionCalculated, setIsPositionCalculated] = useState(false);
+    const [size, setSize] = useState({ width: 300, height: 460 });
+    const [position, setPosition] = useState({ x: 0, y: 0 });
     const [isModalOpen, setIsModalOpen] = useState(false);
+
     const unique_version_id = (window as any).UNIQUE_VERSION_ID || 0;
 
-    useEffect(() => {
-        const centerX = (window.innerWidth - size.width) / 2;
-        const centerY = (window.innerHeight - size.height) / 2;
-        setPosition({x: centerX, y: centerY});
-        setIsPositionCalculated(true);
+    const clampPosition = useCallback((pos: { x: number; y: number }) => {
+        const clampedX = Math.min(Math.max(0, pos.x), window.innerWidth - size.width);
+        const clampedY = Math.min(Math.max(0, pos.y), window.innerHeight - size.height);
+        return { x: clampedX, y: clampedY };
     }, [size]);
 
-    if (!isPositionCalculated) return null;
+    const centerWindow = useCallback(() => {
+        const centerX = (window.innerWidth - size.width) / 2;
+        const centerY = (window.innerHeight - size.height) / 2;
+        setPosition(clampPosition({ x: centerX, y: centerY }));
+    }, [size, clampPosition]);
+
+    useEffect(() => {
+        centerWindow();
+        window.addEventListener('resize', centerWindow);
+        return () => {
+            window.removeEventListener('resize', centerWindow);
+        };
+    }, [centerWindow]);
 
     return (
         <Rnd
             size={size}
             position={position}
-            onDragStop={(e, d) => setPosition({x: d.x, y: d.y})}
+            onDragStop={(e, d) => setPosition(clampPosition({ x: d.x, y: d.y }))}
             onResize={(e, direction, ref, delta, pos) => {
-                setSize({width: ref.offsetWidth, height: ref.offsetHeight});
-                setPosition(pos);
+                setSize({ width: ref.offsetWidth, height: ref.offsetHeight });
+                setPosition(clampPosition(pos));
             }}
             minWidth={250}
             minHeight={300}
-            bounds="parent"
+            bounds="window"
         >
             <div className="flex flex-col space-y-4 p-4 bg-gray-800 rounded shadow-lg h-full text-white text-sm">
                 <div className="font-bold text-base">Options Panel</div>
@@ -81,7 +91,7 @@ function OptionsComponent() {
                     </button>
                 </div>
 
-                <hr className="border-gray-600"/>
+                <hr className="border-gray-600" />
 
                 <div className="space-y-2">
                     <label className="flex items-center space-x-2">
@@ -116,7 +126,7 @@ function OptionsComponent() {
                         />
                         <span>Lock Translation</span>
                     </label>
-                  <label className="flex items-center space-x-2">
+                    <label className="flex items-center space-x-2">
                         <input
                             type="checkbox"
                             checked={enableWebsocket}
@@ -124,9 +134,17 @@ function OptionsComponent() {
                         />
                         <span>Enable Websocket</span>
                     </label>
+                    <label className="flex items-center space-x-2">
+                        <input
+                            type="checkbox"
+                            checked={zIsUp}
+                            onChange={() => setZIsUp(!zIsUp)}
+                        />
+                        <span>Z is UP</span>
+                    </label>
                 </div>
 
-                <hr className="border-gray-600"/>
+                <hr className="border-gray-600" />
 
                 <div>
                     <button

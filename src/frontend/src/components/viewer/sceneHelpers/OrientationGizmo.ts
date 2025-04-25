@@ -33,7 +33,7 @@ export class OrientationGizmo extends HTMLElement {
         this.camera = camera;
         this.options = Object.assign(
             {
-                size: 200,
+                size: 150,
                 padding: 8,
                 bubbleSizePrimary: 10,
                 bubbleSizeSeconday: 10,
@@ -72,7 +72,7 @@ export class OrientationGizmo extends HTMLElement {
                 size: this.options.bubbleSizePrimary,
                 color: this.options.colors.y,
                 line: this.options.lineWidth,
-                label: "Z"
+                label: "Y"
             },
             {
                 axis: "z",
@@ -80,7 +80,7 @@ export class OrientationGizmo extends HTMLElement {
                 size: this.options.bubbleSizePrimary,
                 color: this.options.colors.z,
                 line: this.options.lineWidth,
-                label: "Y"
+                label: "Z"
             },
             {
                 axis: "-x",
@@ -94,14 +94,14 @@ export class OrientationGizmo extends HTMLElement {
                 direction: new Vector3(0, -1, 0),
                 size: this.options.bubbleSizeSeconday,
                 color: this.options.colors.y,
-                label: "-Z"
+                label: "-Y"
             },
             {
                 axis: "-z",
                 direction: new Vector3(0, 0, -1),
                 size: this.options.bubbleSizeSeconday,
                 color: this.options.colors.z,
-                label: "-Y"
+                label: "-Z"
             }
         ];
 

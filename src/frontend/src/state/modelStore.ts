@@ -11,6 +11,8 @@ export interface ModelState {
   userdata: any;
   translation: THREE.Vector3 | null;
   boundingBox: THREE.Box3 | null;
+  raycaster: THREE.Raycaster | null;
+  zIsUp: boolean;
   setModelUrl: (
     url: string | null,
     scene_action: SceneOperations | null,
@@ -18,10 +20,10 @@ export interface ModelState {
   ) => void;
   setTranslation: (translation: THREE.Vector3) => void;
   setBoundingBox: (boundingBox: THREE.Box3) => void;
-  setScene: (scene: THREE.Scene |null) => void;
+  setScene: (scene: THREE.Scene | null) => void;
   setUserData: (userdata: any) => void;
-  raycaster: THREE.Raycaster | null;
-  setRaycaster: (raycaster: THREE.Raycaster |null) => void;
+  setRaycaster: (raycaster: THREE.Raycaster | null) => void;
+  setZIsUp: (zIsUp: boolean) => void;
 }
 
 export const useModelStore = create<ModelState>((set) => ({
@@ -33,6 +35,7 @@ export const useModelStore = create<ModelState>((set) => ({
   translation: null,
   boundingBox: null,
   raycaster: null,
+  zIsUp: true, // default to Z being up
   setModelUrl: (url, scene_action, scene_action_arg) =>
     set({
       modelUrl: url,
@@ -44,4 +47,5 @@ export const useModelStore = create<ModelState>((set) => ({
   setScene: (scene: THREE.Scene | null) => set({ scene }),
   setUserData: (userdata) => set({ userdata }),
   setRaycaster: (raycaster: THREE.Raycaster | null) => set({ raycaster }),
+  setZIsUp: (zIsUp) => set({ zIsUp }),
 }));
