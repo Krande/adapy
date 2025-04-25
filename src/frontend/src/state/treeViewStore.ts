@@ -7,7 +7,7 @@ export interface TreeNode {
     children: TreeNode[];
 }
 
-interface TreeViewState {
+export interface TreeViewState {
     treeData: TreeNode | null;
     tree: TreeApi<any> | null;
     setTreeData: (data: TreeNode) => void;

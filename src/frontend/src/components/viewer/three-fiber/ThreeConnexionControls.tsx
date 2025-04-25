@@ -2,7 +2,7 @@
 
 import React, { useEffect } from 'react';
 import { useThree } from '@react-three/fiber';
-import use3DConnexion from '../../hooks/use3DConnexion';
+import use3DConnexion from '../../../hooks/use3DConnexion';
 import { OrbitControls } from 'three-stdlib';
 
 interface ThreeConnexionControlsProps {

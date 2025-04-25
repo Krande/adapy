@@ -3,11 +3,12 @@ import { create } from 'zustand';
 import * as THREE from 'three';
 import {SceneOperations} from "../flatbuffers/wsock/scene-operations";
 
-interface ModelState {
+export interface ModelState {
   modelUrl: string | null;
   scene: THREE.Scene | null;
   scene_action: SceneOperations | null;
   scene_action_arg: string | null;
+  userdata: any;
   translation: THREE.Vector3 | null;
   boundingBox: THREE.Box3 | null;
   setModelUrl: (
@@ -17,8 +18,10 @@ interface ModelState {
   ) => void;
   setTranslation: (translation: THREE.Vector3) => void;
   setBoundingBox: (boundingBox: THREE.Box3) => void;
-
-  setScene: (scene: THREE.Scene) => void;
+  setScene: (scene: THREE.Scene |null) => void;
+  setUserData: (userdata: any) => void;
+  raycaster: THREE.Raycaster | null;
+  setRaycaster: (raycaster: THREE.Raycaster |null) => void;
 }
 
 export const useModelStore = create<ModelState>((set) => ({
@@ -26,8 +29,10 @@ export const useModelStore = create<ModelState>((set) => ({
   scene: null,
   scene_action: null,
   scene_action_arg: null,
+  userdata: null,
   translation: null,
   boundingBox: null,
+  raycaster: null,
   setModelUrl: (url, scene_action, scene_action_arg) =>
     set({
       modelUrl: url,
@@ -36,5 +41,7 @@ export const useModelStore = create<ModelState>((set) => ({
     }),
   setTranslation: (translation) => set({ translation }),
   setBoundingBox: (boundingBox) => set({ boundingBox }),
-  setScene: (scene: THREE.Scene) => set({ scene }),
+  setScene: (scene: THREE.Scene | null) => set({ scene }),
+  setUserData: (userdata) => set({ userdata }),
+  setRaycaster: (raycaster: THREE.Raycaster | null) => set({ raycaster }),
 }));

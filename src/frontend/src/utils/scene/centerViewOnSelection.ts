@@ -1,18 +1,17 @@
 // centerViewOnSelection.ts
 import * as THREE from 'three';
 import {Camera} from 'three';
-import React from 'react';
-import {OrbitControls as OrbitControlsImpl} from 'three-stdlib/controls/OrbitControls';
 import { useSelectedObjectStore } from '../../state/useSelectedObjectStore';
+import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
 
 export const centerViewOnSelection = (
-    orbitControlsRef: React.RefObject<OrbitControlsImpl>,
+    orbitControlsRef: OrbitControls,
     camera: Camera,
     fillFactor: number = 1 // Default to filling the entire view
 ) => {
     const selectedObjects = useSelectedObjectStore.getState().selectedObjects;
 
-    if (orbitControlsRef.current && camera && selectedObjects.size > 0) {
+    if (orbitControlsRef && camera && selectedObjects.size > 0) {
         const boundingBox = new THREE.Box3();
         const vertex = new THREE.Vector3();
 
@@ -125,8 +124,8 @@ export const centerViewOnSelection = (
             camera.updateProjectionMatrix();
 
             // Update the orbit controls
-            orbitControlsRef.current.target.copy(center);
-            orbitControlsRef.current.update();
+            orbitControlsRef.target.copy(center);
+            orbitControlsRef.update();
         } else {
             console.warn(
                 'Bounding box is empty after processing selected vertices. Cannot center view.'

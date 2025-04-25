@@ -5,15 +5,15 @@ export function getSelectedMeshDrawRange(
     mesh: CustomBatchedMesh,
     faceIndex: number
 ): [string, number, number] | null {
-    const scene = useModelStore.getState().scene;
+    const userdata = useModelStore.getState().userdata;
 
-    if (!mesh || !scene?.userData) {
+    if (!mesh || !userdata) {
         return null;
     }
 
     // Extract draw ranges from userData for the given mesh name
     const meshName = mesh.name; // Assuming mesh name follows the pattern "node0", "node1", etc.
-    const drawRanges = scene.userData[`draw_ranges_${meshName}`] as Record<
+    const drawRanges = userdata[`draw_ranges_${meshName}`] as Record<
         string,
         [number, number]
     >;

@@ -27,10 +27,10 @@ const Menu = () => {
     return (
         <div className="relative w-full h-full">
             <div className="absolute left-0 top-0 z-10 py-2 flex flex-col">
-                <div className={"w-full h-full flex flex-row"}>
+                <div className={"flex flex-row items-center gap-2 px-2 max-w-full"}>
                     {use_node_editor_only && (
                         <button
-                            className={"flex relative bg-blue-700 hover:bg-blue-700/50 text-white p-1 ml-2 rounded"}
+                            className={"flex relative bg-blue-700 hover:bg-blue-700/50 text-white p-1 rounded"}
                             onClick={() => request_list_of_nodes()}
                         >
                             <ReloadIcon/>
@@ -38,13 +38,13 @@ const Menu = () => {
                     )}
 
                     <button
-                        className={"bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 ml-2 rounded"}
+                        className={"bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded"}
                         hidden={use_node_editor_only}
                         onClick={() => setIsOptionsVisible(!isOptionsVisible)}
                     >☰
                     </button>
                     <button
-                        className="bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 ml-2 rounded"
+                        className="bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded"
                         hidden={use_node_editor_only}
                         onClick={() => setIsCollapsed(!isCollapsed)}
                     >
@@ -52,14 +52,14 @@ const Menu = () => {
                     </button>
 
                     <button
-                        className={"bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 ml-2 rounded"}
+                        className={"bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded"}
                         hidden={use_node_editor_only}
                         onClick={() => setIsNodeEditorVisible(!isNodeEditorVisible)}
                     >
                         <GraphIcon/>
                     </button>
                     <button
-                        className={"bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 ml-2 rounded"}
+                        className={"bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded"}
                         // hidden={use_node_editor_only}
                         hidden={true}
                         onClick={() => setShowServerInfoBox(!showServerInfoBox)}
@@ -67,7 +67,7 @@ const Menu = () => {
                         <ServerIcon/>
                     </button>
                     <button
-                        className={"bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 ml-2 rounded"}
+                        className={"bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded"}
                         hidden={use_node_editor_only}
                         onClick={useObjectInfoStore.getState().toggle}
                     ><InfoIcon/></button>

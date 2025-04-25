@@ -4,7 +4,7 @@ import {AnimationMixer, AnimationAction, AnimationClip} from 'three';
 import * as THREE from 'three';
 import {colorVerticesBasedOnDeformation} from '../utils/scene/colorize_vector_data';
 
-type State = {
+export type AnimationState = {
     animations: AnimationClip[];
     setAnimations: (animations: AnimationClip[]) => void;
     selectedAnimation: string;
@@ -25,7 +25,7 @@ type State = {
     hasAnimation: boolean;
 };
 
-export const useAnimationStore = create<State>((set) => ({
+export const useAnimationStore = create<AnimationState>((set) => ({
     animations: [],
     selectedAnimation: '',
     animationDuration: 0,
@@ -41,7 +41,6 @@ export const useAnimationStore = create<State>((set) => ({
         set((state) => {
             // Set the animations array
             const newState = {...state, animations, hasAnimation: animations.length > 0};
-
 
             // If there are animations, select the first one
             if (animations.length > 0) {
@@ -89,7 +88,6 @@ export const useAnimationStore = create<State>((set) => ({
                 const selectedClip = state.animations.find(clip => clip.name === animation);
                 const selectedDuration = selectedClip ? selectedClip.duration : 0;
                 const selectedClipIndex = state.animations.findIndex(clip => clip.name === animation);
-
 
                 // find the morphed mesh object related to selectedClip animation
                 if (state.mixer) {

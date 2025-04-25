@@ -2,8 +2,8 @@
 import React, { useMemo } from 'react';
 import { GridHelper as ThreeGridHelper } from 'three';
 import { useThree } from '@react-three/fiber';
-import { useModelStore } from '../../state/modelStore';
-import { calculateGridSize } from '../../utils/scene/calculateGridSize';
+import { useModelStore } from '../../../state/modelStore';
+import { calculateGridSize } from '../../../utils/scene/calculateGridSize';
 
 const DynamicGridHelper: React.FC = () => {
   const { boundingBox } = useModelStore();

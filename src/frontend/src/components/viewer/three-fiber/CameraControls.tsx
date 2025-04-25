@@ -3,9 +3,9 @@ import React, { useEffect } from 'react';
 import * as THREE from 'three';
 import { useThree } from '@react-three/fiber';
 import { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
-import { useSelectedObjectStore } from '../../state/useSelectedObjectStore';
-import { centerViewOnSelection } from '../../utils/scene/centerViewOnSelection';
-import { CustomBatchedMesh } from '../../utils/mesh_select/CustomBatchedMesh';
+import { useSelectedObjectStore } from '../../../state/useSelectedObjectStore';
+import { centerViewOnSelection } from '../../../utils/scene/centerViewOnSelection';
+import { CustomBatchedMesh } from '../../../utils/mesh_select/CustomBatchedMesh';
 
 type CameraControlsProps = {
     orbitControlsRef: React.RefObject<OrbitControlsImpl>;

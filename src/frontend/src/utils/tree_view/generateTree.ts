@@ -25,8 +25,8 @@ export const buildTreeFromScene = (scene: THREE.Scene): TreeNode | null => {
     return generateTree(scene);
 }
 
-export const buildTreeFromUserData = (scene: THREE.Scene): TreeNode | null => {
-    let hierarchy: Record<string, [string, string | number]> = scene.userData["id_hierarchy"];
+export const buildTreeFromUserData = (userdata: any): TreeNode | null => {
+    let hierarchy: Record<string, [string, string | number]> = userdata["id_hierarchy"];
     if (!hierarchy) return null;
 
     // Step 1: Create a map to hold all TreeNodes by id
