@@ -176,7 +176,7 @@ class BackendGeom(Root):
         add_ifc_backend=False,
         auto_sync_ifc_store=True,
         params_override: RenderParams = None,
-        apply_transform=True,
+        apply_transform=False,
         liveness_timeout: int = 1,
         embed_glb: bool = False,
         auto_embed_glb_in_notebook=True,

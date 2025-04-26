@@ -334,7 +334,7 @@ class RendererManager:
     def obj_to_trimesh(
         obj: BackendGeom | Part | Assembly | FEAResult | FEM | trimesh.Scene | MeshDC,
         params: RenderParams,
-        apply_transform=True,
+        apply_transform=False,
     ) -> trimesh.Scene:
         from ada import FEM, Assembly, Part
         from ada.base.physical_objects import BackendGeom
@@ -359,7 +359,7 @@ class RendererManager:
         self,
         obj: BackendGeom | Part | Assembly | FEAResult | FEM | trimesh.Scene | MeshDC,
         params: RenderParams,
-        apply_transform=True,
+        apply_transform=False,
         force_ws=False,
         auto_embed_glb_in_notebook=True,
         force_embed_glb=False,

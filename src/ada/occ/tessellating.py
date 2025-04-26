@@ -212,7 +212,7 @@ class BatchTessellator:
                 continue
 
     def meshes_to_trimesh(
-        self, shapes_tess_iter: Iterable[MeshStore], graph=None, merge_meshes: bool = True, apply_transform=True
+        self, shapes_tess_iter: Iterable[MeshStore], graph=None, merge_meshes: bool = True, apply_transform=False
     ) -> trimesh.Scene:
         import trimesh
 
@@ -266,7 +266,7 @@ class BatchTessellator:
         render_override=None,
         merge_meshes=True,
         params: RenderParams = None,
-        apply_transform=True,
+        apply_transform=False,
     ) -> trimesh.Scene:
 
         graph = part.get_graph_store()

@@ -45,7 +45,7 @@ const ThreeCanvas: React.FC = () => {
             10000,
         );
 
-        camera.position.set(5, 5, 5);
+        camera.position.set(-5, 5, 5);
         // Enable both layers for the camera
         camera.layers.enable(0);
         camera.layers.enable(1);
@@ -60,7 +60,8 @@ const ThreeCanvas: React.FC = () => {
         );
         renderer.shadowMap.enabled = true;
         containerRef.current.appendChild(renderer.domElement);
-
+        const up = zIsUp ? new THREE.Vector3(0, 0, 1) : new THREE.Vector3(0, 1, 0);
+        camera.up.copy(up);
         // === Controls ===
         const controls = new OrbitControls(camera, renderer.domElement);
         controls.enableDamping = false;
@@ -240,12 +241,41 @@ const ThreeCanvas: React.FC = () => {
     // === Coordinate System Switcher ===
     useEffect(() => {
         const scene = useModelStore.getState().scene;
+        const container = containerRef.current;
         const camera = cameraRef.current;
-        const controls = controlsRef.current;
+        const oldControls = controlsRef.current;
 
-        if (camera && controls && scene) {
-            // We can safely call the hook logic imperatively now
-            applyCoordinateSystem(camera, controls, scene, zIsUp);
+        if (!scene || !container || !camera) return;
+
+        // 1. Dispose old controls
+        if (oldControls) {
+            oldControls.dispose();
+        }
+
+        // 2. Set camera.up correctly before creating new controls
+        if (zIsUp) {
+            camera.up.set(0, 0, 1);
+        } else {
+            camera.up.set(0, 1, 0);
+        }
+        camera.updateProjectionMatrix();
+
+        // 3. Create fresh controls
+        const newControls = new OrbitControls(camera, container.querySelector("canvas")!);
+        newControls.enableDamping = false;
+        newControls.screenSpacePanning = !zIsUp;
+        newControls.target.set(0, 0, 0);
+        newControls.update();
+
+        controlsRef.current = newControls;
+
+        // 4. Rotate grid if exists
+        const grid = scene.children.find(
+            (child) => child instanceof THREE.GridHelper
+        ) as THREE.GridHelper | undefined;
+
+        if (grid) {
+            grid.rotation.set(zIsUp ? Math.PI / 2 : 0, 0, 0);
         }
     }, [zIsUp]);
     return <div ref={containerRef} className="w-full h-full relative"/>;
