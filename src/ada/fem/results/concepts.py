@@ -81,6 +81,7 @@ class Results:
 
         if self._import_mesh is False:
             return None
+
         print(f'Importing meshio.Mesh from result file "{file_ref}"')
         self.result_mesh.add_results(mesh)
 
@@ -205,22 +206,6 @@ class Results:
     def user_data(self) -> dict:
         return self._user_data
 
-    def _repr_html_(self):
-        from IPython.display import display
-        from ipywidgets import HBox, VBox
-
-        if self.result_mesh.renderer is None:
-            res = self.result_mesh.build_renderer()
-        else:
-            res = True
-
-        if res is False:
-            print("No ")
-            return
-
-        p3s_renderer = self.result_mesh.renderer
-        display(HBox([VBox([HBox(p3s_renderer.controls), p3s_renderer.renderer]), p3s_renderer.html]))
-
     def __repr__(self):
         return f"Results({self._fem_format}, {self._results_file_path.name})"
 
@@ -303,31 +288,6 @@ class ResultsMesh:
         for n in mesh.cell_data.keys():
             self.cell_data.append(n)
 
-    def build_renderer(self) -> bool:
-        from ipywidgets import Dropdown
-
-        from ada.visit.renderer_pythreejs import MyRenderer
-
-        self.renderer = MyRenderer()
-        if len(self.point_data) == 0:
-            return False
-        if self.fem_format == FEATypes.CODE_ASTER:
-            data = [x for x in self.point_data if "DISP" in x][-1]
-        elif self.fem_format == FEATypes.CALCULIX:
-            data = [x for x in self.point_data if "U" in x][-1]
-        else:
-            raise NotImplementedError(f'Support for analysis_type "{self.fem_format}"')
-
-        self.create_viz_geom(data, displ_data=True, renderer=self.renderer)
-        i = self.point_data.index(data)
-        self.render_sets = Dropdown(
-            options=self.point_data, value=self.point_data[i], tooltip="Select a set", disabled=False
-        )
-        self.render_sets.observe(self.on_changed_point_data_set, "value")
-        self.renderer.controls.pop()
-        self.renderer.controls.append(self.render_sets)
-        return True
-
     def colorize_data(self, data, func=magnitude):
         res = [func(d) for d in data]
         sorte = sorted(res)
@@ -342,78 +302,3 @@ class ResultsMesh:
 
         colors = np.asarray([curr_p(x) for x in res], dtype="float32")
         return colors
-
-    def create_viz_geom(self, data_type, displ_data=False, renderer: object = None) -> None:
-        from ada.visualize.renderer_pythreejs import MyRenderer
-        from ada.visualize.threejs_utils import (
-            edges_to_mesh,
-            faces_to_mesh,
-            vertices_to_mesh,
-        )
-
-        default_vertex_color = (8, 8, 8)
-
-        data = np.asarray(self.mesh.point_data[data_type], dtype="float32")
-        colors = self.colorize_data(data)
-
-        if renderer is None:
-            renderer = MyRenderer()
-            self.renderer = renderer
-
-        # deformations
-        if displ_data is True:
-            vertices = np.asarray([x + u[:3] for x, u in zip(self.vertices, data)], dtype="float32")
-            if self.undeformed_mesh is None:
-                dark_grey = (0.66, 0.66, 0.66)
-                white_color = np.asarray([dark_grey for x in self.vertices], dtype="float32")
-                o_mesh = faces_to_mesh("undeformed", self.vertices, self.faces, white_color, opacity=0.5)
-                self.undeformed_mesh = o_mesh
-                renderer._displayed_non_pickable_objects.add(o_mesh)
-        else:
-            vertices = self.vertices
-            if self.undeformed_mesh is not None:
-                renderer._displayed_non_pickable_objects.remove(self.undeformed_mesh)
-                self.undeformed_mesh = None
-
-        vertices = np.array(vertices, dtype=np.float32)
-
-        # Colours
-        mesh = faces_to_mesh("deformed", vertices, self.faces, colors)
-        points = vertices_to_mesh("deformed_vertices", vertices, default_vertex_color)
-        lines = edges_to_mesh("deformed_lines", vertices, self.edges, default_vertex_color)
-
-        if self.deformed_mesh is None:
-            self.deformed_mesh = (mesh, points, lines)
-            renderer.displayed_pickable_objects.add(mesh)
-            renderer.displayed_pickable_objects.add(points)
-            renderer.displayed_pickable_objects.add(lines)
-            renderer.build_display(camera_type="perspective")
-        else:
-            face_geom = self.deformed_mesh[0].geometry
-            face_geom.attributes["position"].array = vertices
-            face_geom.attributes["index"].array = self.faces
-            face_geom.attributes["color"].array = colors
-
-            point_geom = self.deformed_mesh[1].geometry
-            point_geom.attributes["position"].array = vertices
-
-            edge_geom = self.deformed_mesh[2].geometry
-            edge_geom.attributes["position"].array = vertices
-            edge_geom.attributes["index"].array = self.edges
-
-    def on_changed_point_data_set(self, p):
-        data = p["new"]
-        if self.fem_format == FEATypes.CODE_ASTER:
-            is_displ = True if "DISP" in data else False
-            if "point_tags" in data:
-                print("\r" + "Point Tags are not a valid display value" + 10 * " ", end="")
-                return None
-        elif self.fem_format == FEATypes.CALCULIX:
-            is_displ = True if "U" in data else False
-        else:
-            return None
-
-        if is_displ:
-            self.create_viz_geom(data, displ_data=True, renderer=self.renderer)
-        else:
-            self.create_viz_geom(data, renderer=self.renderer)

@@ -193,7 +193,7 @@ def merged_mesh_to_trimesh_scene(
     pbr_mat: dict | Color,
     buffer_id: int,
     graph_store: GraphStore = None,
-    apply_transform: bool = True,
+    apply_transform: bool = False,
 ):
     vertices = merged_mesh.position.reshape(int(len(merged_mesh.position) / 3), 3)
     if merged_mesh.type == MeshType.TRIANGLES:

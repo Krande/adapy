@@ -402,17 +402,18 @@ class FEAResult:
         scene.add_geometry(edge_mesh, node_name=f"{self.name}_edges", geom_name="edges", parent_node_name=self.name)
         return scene
 
-    def to_gltf(self, dest_file, step: int, field: str, warp_field=None, warp_step=None, warp_scale=None, cfunc=None):
+    def to_gltf(self, dest_file, step: int, field: str, warp_field=None, warp_step=None, warp_scale=None, cfunc=None, apply_transform=False):
         from ...core.vector_transforms import rot_matrix
 
         dest_file = pathlib.Path(dest_file).resolve().absolute()
         scene = self.to_trimesh(step, field, warp_field, warp_step, warp_scale, cfunc)
 
-        # Trimesh automatically transforms by setting up = Y. This will counteract that transform
-        m3x3 = rot_matrix((0, -1, 0))
-        m3x3_with_col = np.append(m3x3, np.array([[0], [0], [0]]), axis=1)
-        m4x4 = np.r_[m3x3_with_col, [np.array([0, 0, 0, 1])]]
-        scene.apply_transform(m4x4)
+        if apply_transform:
+            # If you want Y up. This will counteract that transform
+            m3x3 = rot_matrix((0, -1, 0))
+            m3x3_with_col = np.append(m3x3, np.array([[0], [0], [0]]), axis=1)
+            m4x4 = np.r_[m3x3_with_col, [np.array([0, 0, 0, 1])]]
+            scene.apply_transform(m4x4)
 
         os.makedirs(dest_file.parent, exist_ok=True)
         print(f'Writing Visual Mesh to "{dest_file}"')
@@ -438,6 +439,7 @@ class FEAResult:
         params_override: RenderParams = None,
         ping_timeout=1,
         force_embed_glb=False,
+        apply_transform=False,
     ):
         from ada.visit.renderer_manager import (
             FEARenderParams,
@@ -476,6 +478,7 @@ class FEAResult:
                 add_ifc_backend=False,
                 purpose=purpose,
                 fea_params=fea_params,
+                apply_transform=apply_transform,
             )
 
         # Set up the renderer and WebSocket server

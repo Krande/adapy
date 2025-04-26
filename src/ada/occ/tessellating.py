@@ -266,8 +266,9 @@ class BatchTessellator:
         render_override=None,
         merge_meshes=True,
         params: RenderParams = None,
-        apply_transform=False,
     ) -> trimesh.Scene:
+        if params is None:
+            params = RenderParams()
 
         graph = part.get_graph_store()
 
@@ -278,7 +279,7 @@ class BatchTessellator:
         )
 
         scene = self.meshes_to_trimesh(
-            shapes_tess_iter, graph, merge_meshes=merge_meshes, apply_transform=apply_transform
+            shapes_tess_iter, graph, merge_meshes=merge_meshes, apply_transform=params.apply_transform
         )
 
         self.append_fem_to_trimesh(scene, part, graph)
