@@ -35,7 +35,7 @@ export const useModelStore = create<ModelState>((set) => ({
   translation: null,
   boundingBox: null,
   raycaster: null,
-  zIsUp: true, // default to Z being up
+  zIsUp: false, // default to Z being up
   setModelUrl: (url, scene_action, scene_action_arg) =>
     set({
       modelUrl: url,

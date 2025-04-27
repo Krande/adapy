@@ -4,11 +4,12 @@ import {CustomBatchedMesh} from "../../../utils/mesh_select/CustomBatchedMesh";
 import {centerViewOnSelection} from "../../../utils/scene/centerViewOnSelection";
 import {OrbitControls} from "three/examples/jsm/controls/OrbitControls";
 import {useOptionsStore} from "../../../state/optionsStore";
+import CameraControls from "camera-controls";
 
 export function setupCameraControlsHandlers(
     scene: THREE.Scene,
     camera: THREE.PerspectiveCamera,
-    controls: OrbitControls,
+    controls: CameraControls | OrbitControls,
 ) {
     const zoomToAll = () => {
         const box = new THREE.Box3().setFromObject(scene);
@@ -23,11 +24,14 @@ export function setupCameraControlsHandlers(
 
         camera.position.copy(center.clone().add(direction.clone().multiplyScalar(-distance)));
         camera.lookAt(center);
-
-        controls.target.copy(center);
+        if (controls instanceof OrbitControls) {
+            controls.target.copy(center);
+        }
 
         camera.updateProjectionMatrix();
-        controls.update();
+        if (controls instanceof OrbitControls) {
+            controls.update();
+        }
     };
 
     const handleKeyDown = (event: KeyboardEvent) => {

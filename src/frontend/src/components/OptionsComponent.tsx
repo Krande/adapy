@@ -1,10 +1,9 @@
-import React, { useEffect, useState, useCallback } from 'react';
-import { Rnd } from 'react-rnd';
-import { useAnimationStore } from "../state/animationStore";
-import { useOptionsStore } from "../state/optionsStore";
-import { useColorStore } from "../state/colorLegendStore";
-import { takeScreenshot } from "../utils/takeScreenshot";
-import { loadRobot } from "../utils/robots";
+import React, {useCallback, useEffect, useState} from 'react';
+import {Rnd} from 'react-rnd';
+import {useOptionsStore} from "../state/optionsStore";
+import {useColorStore} from "../state/colorLegendStore";
+import {takeScreenshot} from "../utils/takeScreenshot";
+import {loadRobot} from "../utils/robots";
 import {useModelStore} from "../state/modelStore";
 import {debug_print} from "../utils/debug_print";
 

@@ -17,6 +17,7 @@ import {setupModelLoader} from "./sceneHelpers/setupModelLoader";
 import {setupResizeHandler} from "./sceneHelpers/setupResizeHandler";
 import {setupPointerHandler} from "./sceneHelpers/setupPointerHandler";
 import {cameraRef, controlsRef, rendererRef} from "../../state/refs";
+import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
 
 const ThreeCanvas: React.FC = () => {
     const containerRef = useRef<HTMLDivElement>(null);
@@ -91,7 +92,10 @@ const ThreeCanvas: React.FC = () => {
                 mixer.update(delta);
                 useAnimationStore.getState().setCurrentKey(action.time);
             }
-            controls.update();
+            if (controls instanceof OrbitControls) {
+                controls.update();
+            } else {
+            }
             updateCameraLight?.(); // ← Keep the light tracking the camera
             gizmo?.update(); // <-- keep the gizmo synced with the camera
             renderer.render(scene, camera);
