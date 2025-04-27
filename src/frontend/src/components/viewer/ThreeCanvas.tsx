@@ -109,7 +109,9 @@ const ThreeCanvas: React.FC = () => {
         let stats: Stats | null = null;
         if (showPerf) {
             stats = new Stats();
-            stats.showPanel(0); // 0: fps
+            stats.showPanel(0); // 0: fps, 1: ms, 2: mb, 3+: custom
+            stats.showPanel( 1 );
+            stats.showPanel( 2 );
             containerRef.current.appendChild(stats.dom);
             Object.assign(stats.dom.style, {
                 position: "absolute",
