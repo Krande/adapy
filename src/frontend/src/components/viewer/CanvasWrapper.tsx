@@ -1,5 +1,5 @@
 // CanvasComponent.tsx
-import React, { useRef } from "react";
+import React from "react";
 import ColorLegend from "./ColorLegend";
 import ThreeCanvas from "./ThreeCanvas";
 

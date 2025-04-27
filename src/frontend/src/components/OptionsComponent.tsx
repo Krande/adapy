@@ -6,6 +6,7 @@ import { useColorStore } from "../state/colorLegendStore";
 import { takeScreenshot } from "../utils/takeScreenshot";
 import { loadRobot } from "../utils/robots";
 import {useModelStore} from "../state/modelStore";
+import {debug_print} from "../utils/debug_print";
 
 function OptionsComponent() {
     const {
@@ -67,9 +68,9 @@ function OptionsComponent() {
                 <div className="space-y-2">
                     <button
                         className="bg-blue-700 hover:bg-blue-600 text-white font-semibold py-1 px-2 rounded w-full"
-                        onClick={() => console.log(useAnimationStore.getState())}
+                        onClick={() => debug_print()}
                     >
-                        Print State
+                        Debug print
                     </button>
                     <button
                         className="bg-blue-700 hover:bg-blue-600 text-white font-semibold py-1 px-2 rounded w-full"

@@ -1,59 +1,67 @@
-// sceneHelpers/setupCameraControlsHandlers.ts
 import * as THREE from "three";
-import { useSelectedObjectStore } from "../../../state/useSelectedObjectStore";
-import { CustomBatchedMesh } from "../../../utils/mesh_select/CustomBatchedMesh";
-import { centerViewOnSelection } from "../../../utils/scene/centerViewOnSelection";
-import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
+import {useSelectedObjectStore} from "../../../state/useSelectedObjectStore";
+import {CustomBatchedMesh} from "../../../utils/mesh_select/CustomBatchedMesh";
+import {centerViewOnSelection} from "../../../utils/scene/centerViewOnSelection";
+import {OrbitControls} from "three/examples/jsm/controls/OrbitControls";
+import {useOptionsStore} from "../../../state/optionsStore";
 
 export function setupCameraControlsHandlers(
-  scene: THREE.Scene,
-  camera: THREE.PerspectiveCamera,
-  controls: OrbitControls,
+    scene: THREE.Scene,
+    camera: THREE.PerspectiveCamera,
+    controls: OrbitControls,
 ) {
-  const zoomToAll = () => {
-    const box = new THREE.Box3().setFromObject(scene);
-    const size = box.getSize(new THREE.Vector3()).length();
-    const center = box.getCenter(new THREE.Vector3());
+    const zoomToAll = () => {
+        const box = new THREE.Box3().setFromObject(scene);
+        if (box.isEmpty()) return;
 
-    const scale = 0.5;
-    camera.position.set(
-      center.x + size * scale,
-      center.y + size * scale,
-      center.z + size * scale,
-    );
-    camera.lookAt(center);
-    controls.target.copy(center);
-    controls.update();
-  };
+        const size = box.getSize(new THREE.Vector3()).length();
+        const center = box.getCenter(new THREE.Vector3());
+        const distance = size * 0.5;
 
-  const handleKeyDown = (event: KeyboardEvent) => {
-    const key = event.key.toLowerCase();
-    const selectedObjects = useSelectedObjectStore.getState().selectedObjects;
+        const direction = new THREE.Vector3();
+        camera.getWorldDirection(direction).normalize();
 
-    if (event.shiftKey && key === "h") {
-      selectedObjects.forEach((drawRangeIds, mesh) => {
-        drawRangeIds.forEach((drawRangeId) => {
-          mesh.hideDrawRange(drawRangeId);
-        });
-        mesh.deselect();
-      });
-      useSelectedObjectStore.getState().clearSelectedObjects();
-    } else if (event.shiftKey && key === "u") {
-      scene.traverse((obj) => {
-        if (obj instanceof CustomBatchedMesh) {
-          obj.unhideAllDrawRanges();
+        camera.position.copy(center.clone().add(direction.clone().multiplyScalar(-distance)));
+        camera.lookAt(center);
+
+        controls.target.copy(center);
+
+        camera.updateProjectionMatrix();
+        controls.update();
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+        const key = event.key.toLowerCase();
+        const shift = event.shiftKey;
+        const selectedObjects = useSelectedObjectStore.getState().selectedObjects;
+
+        if (shift && key === "h") {
+            selectedObjects.forEach((drawRangeIds, mesh) => {
+                drawRangeIds.forEach((drawRangeId) => {
+                    mesh.hideDrawRange(drawRangeId);
+                });
+                mesh.deselect();
+            });
+            useSelectedObjectStore.getState().clearSelectedObjects();
+        } else if (shift && key === "u") {
+            scene.traverse((obj) => {
+                if (obj instanceof CustomBatchedMesh) {
+                    obj.unhideAllDrawRanges();
+                }
+            });
+        } else if (shift && key === "f") {
+            centerViewOnSelection(controls, camera);
+        } else if (shift && key === "a") {
+            zoomToAll();
+        } else if (shift && key === "o") {
+            const {isOptionsVisible, setIsOptionsVisible} = useOptionsStore.getState();
+            setIsOptionsVisible(!isOptionsVisible);
         }
-      });
-    } else if (event.shiftKey && key === "f") {
-      centerViewOnSelection(controls, camera);
-    } else if (event.shiftKey && key === "a") {
-      zoomToAll();
-    }
-  };
+    };
 
-  window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("keydown", handleKeyDown);
 
-  return () => {
-    window.removeEventListener("keydown", handleKeyDown);
-  };
+    return () => {
+        window.removeEventListener("keydown", handleKeyDown);
+    };
 }
