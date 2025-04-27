@@ -77,7 +77,7 @@ platforms = ["win-64", "linux-64", "osx-64"]
 prod = { features = ["prod"], solve-group = "prod", no-default-feature = true }
 lint = { features = ["lint"], no-default-feature = true }
 profile = { features = ["profile", "prod"], solve-group = "prod", no-default-feature = true }
-frontend = { features = ["web"], no-default-feature = true }
+frontend = { features = ["frontend"], no-default-feature = true }
 
 tests-core = { features = ["tests-core"], no-default-feature = true }
 tests = { features = ["tests", "tests-core", "prod"], solve-group = "prod", no-default-feature = true }
@@ -181,7 +181,7 @@ scipy = "*"
 fastapi = "*"  # For the API docs
 pandas = "*"
 
-[tool.pixi.feature.web.dependencies]
+[tool.pixi.feature.frontend.dependencies]
 nodejs = "*"
 flatbuffers = "*"
 
@@ -205,7 +205,7 @@ test-core = { cmd="pytest tests --ignore=tests/profiling --ignore=tests/fem --ig
 test-all = { cmd = "pytest tests --durations=0", depends-on = ["pre-install"], env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 test-fem = { cmd = "pytest tests --ignore=tests/profiling --ignore=tests/core --ignore=tests/full --durations=0", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 
-[tool.pixi.feature.web.tasks]
+[tool.pixi.feature.frontend.tasks]
 npm = { cmd = "npm", cwd = "./src/frontend" }
 winstall = { cmd = "npm install", cwd = "./src/frontend", outputs = ["$PIXI_PROJECT_ROOT/src/frontend/node_modules"] }
 wdev = { cmd = "npm run dev", cwd = "./src/frontend", depends-on = ["winstall"] }
