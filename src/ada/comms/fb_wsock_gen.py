@@ -95,6 +95,7 @@ class FileObjectDC:
     ifcsqlite_file: Optional[FileObjectDC] = None
     is_procedure_output: bool = None
     procedure_parent: Optional[ProcedureStartDC] = None
+    compressed: bool = None
 
 
 @dataclass

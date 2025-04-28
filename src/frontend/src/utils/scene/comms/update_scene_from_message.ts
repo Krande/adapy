@@ -1,7 +1,9 @@
-import {Message} from "../../../flatbuffers/wsock/message";
-import {useModelStore} from "../../../state/modelStore";
-import {SceneOperations} from "../../../flatbuffers/wsock/scene-operations";
-import {append_to_scene_from_message} from "./append_to_scene_from_message";
+import { Message } from "../../../flatbuffers/wsock/message";
+import { useModelStore } from "../../../state/modelStore";
+import { SceneOperations } from "../../../flatbuffers/wsock/scene-operations";
+import { append_to_scene_from_message } from "./append_to_scene_from_message";
+
+import { ungzip } from 'pako';
 
 
 export const update_scene_from_message = (message: Message) => {
@@ -23,15 +25,24 @@ export const update_scene_from_message = (message: Message) => {
         console.error("No file object found in the message");
         return;
     }
-    // Get the filedata array (this is typically a Uint8Array)
-    let data = fileObject.filedataArray();
 
+    let data = fileObject.filedataArray();
     if (!data) {
         console.error("No filedata found in the file object");
         return;
     }
 
-    const blob = new Blob([data], {type: 'model/gltf-binary'});
+    let compressed = fileObject.compressed(); // New field you added
+    let finalData: Uint8Array;
+
+    if (compressed) {
+        console.log('Decompressing received GLB data...');
+        finalData = ungzip(data); // using pako.gunzip
+    } else {
+        finalData = data;
+    }
+
+    const blob = new Blob([finalData], { type: 'model/gltf-binary' });
     const url = URL.createObjectURL(blob);
 
     if (operation == SceneOperations.REPLACE) {

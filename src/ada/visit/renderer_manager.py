@@ -262,7 +262,7 @@ def scene_from_part_or_assembly(part_or_assembly: Part | Assembly, params: Rende
 class RendererManager:
     def __init__(
         self,
-        renderer: Literal["react", "pygfx", "trimesh"],
+        renderer: Literal["react", "pygfx", "trimesh"] = "react",
         host: str = "localhost",
         ws_port: int = 8765,
         server_exe: pathlib.Path = None,
@@ -493,6 +493,36 @@ class RendererManager:
                 )
 
         return renderer_instance
+
+    def send_glb_file_to_viewer(self, name, glb_file: str | pathlib.Path, target_id=None, params: RenderParams = None):
+        import gzip
+
+        from ada.comms.wsock_client_sync import WebSocketClientSync
+        from ada.visit.rendering.render_backend import is_gzip_file
+
+        if is_gzip_file(glb_file):
+            with gzip.open(glb_file, "rb") as f:
+                scene = trimesh.load(f, file_type="glb")
+        else:
+            with open(glb_file, "rb") as f:
+                scene = trimesh.load(f, file_type="glb")
+
+        if params is None:
+            params = RenderParams()
+
+        with WebSocketClientSync(self.host, self.ws_port) as wc:
+            self.ensure_liveness(wc, target_id=target_id)
+            # Send the scene to the WebSocket client
+            wc.update_scene(
+                name,
+                scene,
+                purpose=params.purpose,
+                scene_op=params.scene.operation,
+                gltf_buffer_postprocessor=params.gltf_buffer_postprocessor,
+                gltf_tree_postprocessor=params.gltf_tree_postprocessor,
+                target_id=target_id,
+            )
+        return scene
 
 
 class GltfTreePostProcessor:
