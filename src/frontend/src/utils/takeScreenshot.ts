@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import {cameraRef, rendererRef, sceneRef} from "../state/refs";
+import {cameraRef, rendererRef, sceneRef, updatelightRef} from "../state/refs";
 
 export async function takeScreenshot() {
     let renderer = rendererRef.current;
@@ -18,7 +18,7 @@ export async function takeScreenshot() {
         return;
     }
 
-    await takeHighResScreenshot(renderer, scene, camera, true);
+    await takeHighResScreenshot(renderer, scene, camera, false);
 }
 
 
@@ -33,7 +33,7 @@ export async function takeHighResScreenshot(
 
     const renderTarget = new THREE.WebGLRenderTarget(width, height, {
         type: THREE.UnsignedByteType,
-        format: THREE.RGBAFormat,
+        // format: THREE.RGBAFormat,
     });
 
     const originalRenderTarget = renderer.getRenderTarget();
@@ -44,21 +44,10 @@ export async function takeHighResScreenshot(
         camera.aspect = width / height;
         camera.updateProjectionMatrix();
     }
-
+    if (updatelightRef.current)
+        updatelightRef.current()
     renderer.setSize(width, height);
     renderer.setRenderTarget(renderTarget);
-
-    // 🔵 Set clear color depending on mode
-    if (transparentBackground) {
-        renderer.setClearColor(new THREE.Color(0x000000), 0); // black, fully transparent
-    } else {
-        const backgroundColor = (scene.background instanceof THREE.Color)
-            ? scene.background
-            : new THREE.Color(0x000000);
-        renderer.setClearColor(backgroundColor, 1);
-    }
-
-    renderer.clear(true, true, true);
     renderer.render(scene, camera);
 
     const pixelBuffer = new Uint8Array(width * height * 4);
@@ -78,10 +67,22 @@ export async function takeHighResScreenshot(
         for (let x = 0; x < width; x++) {
             const srcIndex = ((height - y - 1) * width + x) * 4;
             const destIndex = (y * width + x) * 4;
-            imageData.data[destIndex] = pixelBuffer[srcIndex];
-            imageData.data[destIndex + 1] = pixelBuffer[srcIndex + 1];
-            imageData.data[destIndex + 2] = pixelBuffer[srcIndex + 2];
-            imageData.data[destIndex + 3] = pixelBuffer[srcIndex + 3];
+            const r = pixelBuffer[srcIndex];
+            const g = pixelBuffer[srcIndex + 1];
+            const b = pixelBuffer[srcIndex + 2];
+            const a = pixelBuffer[srcIndex + 3];
+
+            if (a > 0) {
+                imageData.data[destIndex] = Math.min(255, Math.round(r * 255 / a));
+                imageData.data[destIndex + 1] = Math.min(255, Math.round(g * 255 / a));
+                imageData.data[destIndex + 2] = Math.min(255, Math.round(b * 255 / a));
+            } else {
+                imageData.data[destIndex] = 0;
+                imageData.data[destIndex + 1] = 0;
+                imageData.data[destIndex + 2] = 0;
+            }
+
+            imageData.data[destIndex + 3] = a;
         }
     }
 

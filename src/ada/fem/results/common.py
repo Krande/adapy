@@ -402,7 +402,17 @@ class FEAResult:
         scene.add_geometry(edge_mesh, node_name=f"{self.name}_edges", geom_name="edges", parent_node_name=self.name)
         return scene
 
-    def to_gltf(self, dest_file, step: int, field: str, warp_field=None, warp_step=None, warp_scale=None, cfunc=None, apply_transform=False):
+    def to_gltf(
+        self,
+        dest_file,
+        step: int,
+        field: str,
+        warp_field=None,
+        warp_step=None,
+        warp_scale=None,
+        cfunc=None,
+        apply_transform=False,
+    ):
         from ...core.vector_transforms import rot_matrix
 
         dest_file = pathlib.Path(dest_file).resolve().absolute()

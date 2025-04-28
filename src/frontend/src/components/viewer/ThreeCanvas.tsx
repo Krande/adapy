@@ -15,7 +15,7 @@ import {setupStats} from "./sceneHelpers/setupStats";
 import {setupModelLoader} from "./sceneHelpers/setupModelLoader";
 import {setupResizeHandler} from "./sceneHelpers/setupResizeHandler";
 import {setupPointerHandler} from "./sceneHelpers/setupPointerHandler";
-import {cameraRef, controlsRef, rendererRef, sceneRef} from "../../state/refs";
+import {cameraRef, controlsRef, rendererRef, sceneRef, updatelightRef} from "../../state/refs";
 import {OrbitControls} from "three/examples/jsm/controls/OrbitControls";
 
 const ThreeCanvas: React.FC = () => {
@@ -36,7 +36,6 @@ const ThreeCanvas: React.FC = () => {
         scene.background = new THREE.Color("#393939");
         sceneRef.current = scene;
         setScene(scene);
-
 
         // === Renderer ===
         const renderer = new THREE.WebGLRenderer({antialias: true});
@@ -65,6 +64,7 @@ const ThreeCanvas: React.FC = () => {
 
         // === Lights ===
         const {updateCameraLight} = setupLights(scene, camera);
+        updatelightRef.current = updateCameraLight;
 
         // === Helpers ===
         addDynamicGridHelper(scene);
