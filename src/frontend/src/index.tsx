@@ -16,13 +16,15 @@ if ((window as any).DEACTIVATE_WS===true) {
     webSocketHandler.connect(url, handleWebSocketMessage());
 }
 
-console.log("Checking if B64GLTF exists");
+
 if ((window as any).B64GLTF) {
     console.log("B64GLTF exists, loading model");
     let blob_uri = loadGLTFfrombase64((window as any).B64GLTF);
     useModelStore.getState().setModelUrl(blob_uri, SceneOperations.REPLACE, null);
     // delete the B64GLTF from the window object
     delete (window as any).B64GLTF;
+} else {
+    console.log("B64GLTF not attached.");
 }
 const container = document.getElementById('root');
 // @ts-ignore

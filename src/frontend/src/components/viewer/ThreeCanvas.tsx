@@ -9,30 +9,33 @@ import {setupCameraControlsHandlers} from "./sceneHelpers/setupCameraControlsHan
 import {setupCamera} from "./sceneHelpers/setupCamera";
 import {setupControls} from "./sceneHelpers/setupControls";
 import {setupLights} from "./sceneHelpers/setupLights";
-import {rotateGridHelper} from "./sceneHelpers/rotateGridHelper";
 import {addDynamicGridHelper} from "./sceneHelpers/addDynamicGridHelper";
 import {setupGizmo} from "./sceneHelpers/setupGizmo";
 import {setupStats} from "./sceneHelpers/setupStats";
 import {setupModelLoader} from "./sceneHelpers/setupModelLoader";
 import {setupResizeHandler} from "./sceneHelpers/setupResizeHandler";
 import {setupPointerHandler} from "./sceneHelpers/setupPointerHandler";
-import {cameraRef, controlsRef, rendererRef} from "../../state/refs";
-import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
+import {cameraRef, controlsRef, rendererRef, sceneRef} from "../../state/refs";
+import {OrbitControls} from "three/examples/jsm/controls/OrbitControls";
 
 const ThreeCanvas: React.FC = () => {
     const containerRef = useRef<HTMLDivElement>(null);
-    const {modelUrl, setScene, zIsUp} = useModelStore();
+    const {modelUrl, setScene, zIsUp, defaultOrbitController} = useModelStore();
     const {showPerf} = useOptionsStore();
+    const modelGroupRef = useRef<THREE.Group | null>(null); // <-- store loaded model separately
 
     useEffect(() => {
         if (!containerRef.current) return;
         if (zIsUp) {
-            THREE.Object3D.DEFAULT_UP = new THREE.Vector3(0,0,1)
+            THREE.Object3D.DEFAULT_UP = new THREE.Vector3(0, 0, 1)
         }
+        const clock = new THREE.Clock();
+
         // === Scene ===
         const scene = new THREE.Scene();
-        setScene(scene);
         scene.background = new THREE.Color("#393939");
+        sceneRef.current = scene;
+        setScene(scene);
 
 
         // === Renderer ===
@@ -50,7 +53,7 @@ const ThreeCanvas: React.FC = () => {
         cameraRef.current = camera;
 
         // === Orbit Controls ===
-        const controls = setupControls(camera, containerRef.current, zIsUp);
+        const controls = setupControls(camera, containerRef.current, zIsUp, defaultOrbitController);
         controlsRef.current = controls;
 
         // === Key Handlers ===
@@ -75,19 +78,24 @@ const ThreeCanvas: React.FC = () => {
         const statsArray = containerRef.current ? setupStats(containerRef.current, showPerf) : [];
 
         // === Model Loader ===
-        setupModelLoader(scene, modelUrl);
+        if (modelUrl) {
+            modelGroupRef.current = setupModelLoader(scene, modelUrl);
+        } else if (modelGroupRef.current) {
+            // If a model is already loaded, add it to the scene
+            scene.add(modelGroupRef.current);
+        }
 
         // === Render loop ===
         let previousTime = performance.now();
         const animate = () => {
             requestAnimationFrame(animate);
 
-            const currentTime = performance.now();
-            const delta = (currentTime - previousTime) / 1000;
-            previousTime = currentTime;
-
             const {action} = useAnimationStore.getState();
             if (action) {
+                const currentTime = performance.now();
+                const delta = (currentTime - previousTime) / 1000;
+                previousTime = currentTime;
+
                 const mixer = action.getMixer();
                 mixer.update(delta);
                 useAnimationStore.getState().setCurrentKey(action.time);
@@ -95,6 +103,9 @@ const ThreeCanvas: React.FC = () => {
             if (controls instanceof OrbitControls) {
                 controls.update();
             } else {
+                // snip
+                const frame_delta = clock.getDelta();
+                controls.update(frame_delta);
             }
             updateCameraLight?.(); // ← Keep the light tracking the camera
             gizmo?.update(); // <-- keep the gizmo synced with the camera
@@ -135,33 +146,7 @@ const ThreeCanvas: React.FC = () => {
                 });
             }
         };
-    }, [modelUrl, showPerf]);
-
-    // === Coordinate System Switcher ===
-    useEffect(() => {
-        const scene = useModelStore.getState().scene;
-        const container = containerRef.current;
-        const camera = cameraRef.current;
-        const oldControls = controlsRef.current;
-
-        if (!scene || !container || !camera) return;
-
-        // 1. Dispose old controls
-        if (oldControls) {
-            oldControls.dispose();
-        }
-
-        // 2. Update camera up
-        const up = zIsUp ? new THREE.Vector3(0, 0, 1) : new THREE.Vector3(0, 1, 0);
-        camera.up.copy(up);
-        camera.updateProjectionMatrix();
-
-        // 3. Create fresh controls
-        controlsRef.current = setupControls(camera, container, zIsUp);
-
-        // 4. Rotate grid helper
-        rotateGridHelper(scene, zIsUp);
-    }, [zIsUp]);
+    }, [modelUrl, showPerf, defaultOrbitController, zIsUp]);
 
     return <div ref={containerRef} className="w-full h-full relative"/>;
 };

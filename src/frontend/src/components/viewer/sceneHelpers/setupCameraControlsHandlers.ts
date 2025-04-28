@@ -11,28 +11,7 @@ export function setupCameraControlsHandlers(
     camera: THREE.PerspectiveCamera,
     controls: CameraControls | OrbitControls,
 ) {
-    const zoomToAll = () => {
-        const box = new THREE.Box3().setFromObject(scene);
-        if (box.isEmpty()) return;
 
-        const size = box.getSize(new THREE.Vector3()).length();
-        const center = box.getCenter(new THREE.Vector3());
-        const distance = size * 0.5;
-
-        const direction = new THREE.Vector3();
-        camera.getWorldDirection(direction).normalize();
-
-        camera.position.copy(center.clone().add(direction.clone().multiplyScalar(-distance)));
-        camera.lookAt(center);
-        if (controls instanceof OrbitControls) {
-            controls.target.copy(center);
-        }
-
-        camera.updateProjectionMatrix();
-        if (controls instanceof OrbitControls) {
-            controls.update();
-        }
-    };
 
     const handleKeyDown = (event: KeyboardEvent) => {
         const key = event.key.toLowerCase();
@@ -56,7 +35,7 @@ export function setupCameraControlsHandlers(
         } else if (shift && key === "f") {
             centerViewOnSelection(controls, camera);
         } else if (shift && key === "a") {
-            zoomToAll();
+            zoomToAll(scene, camera, controls);
         } else if (shift && key === "o") {
             const {isOptionsVisible, setIsOptionsVisible} = useOptionsStore.getState();
             setIsOptionsVisible(!isOptionsVisible);
@@ -69,3 +48,32 @@ export function setupCameraControlsHandlers(
         window.removeEventListener("keydown", handleKeyDown);
     };
 }
+
+const zoomToAll = (scene: THREE.Scene, camera: THREE.PerspectiveCamera, controls: OrbitControls | CameraControls) => {
+    const box = new THREE.Box3().setFromObject(scene);
+    if (box.isEmpty()) return;
+
+    const size = box.getSize(new THREE.Vector3()).length();
+    const center = box.getCenter(new THREE.Vector3());
+    const distance = size * 0.5;
+
+    const direction = new THREE.Vector3();
+    camera.getWorldDirection(direction).normalize();
+
+    camera.position.copy(center.clone().add(direction.clone().multiplyScalar(-distance)));
+    camera.lookAt(center);
+    if (controls instanceof OrbitControls) {
+        controls.target.copy(center);
+    } else if (controls instanceof CameraControls) {
+        controls.setLookAt(
+            camera.position.x, camera.position.y, camera.position.z,
+            center.x, center.y, center.z,
+            true // enable smooth transition
+        );
+    }
+
+    camera.updateProjectionMatrix();
+    if (controls instanceof OrbitControls) {
+        controls.update();
+    }
+};

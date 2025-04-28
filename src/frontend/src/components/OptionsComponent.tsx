@@ -18,11 +18,11 @@ function OptionsComponent() {
         setEnableWebsocket,
         enableWebsocket,
     } = useOptionsStore();
-    const { showLegend, setShowLegend } = useColorStore();
-    const { zIsUp, setZIsUp } = useModelStore();
+    const {showLegend, setShowLegend} = useColorStore();
+    const {zIsUp, setZIsUp, defaultOrbitController, setDefaultOrbitController} = useModelStore();
 
-    const [size, setSize] = useState({ width: 300, height: 460 });
-    const [position, setPosition] = useState({ x: 0, y: 0 });
+    const [size, setSize] = useState({width: 300, height: 460});
+    const [position, setPosition] = useState({x: 0, y: 0});
     const [isModalOpen, setIsModalOpen] = useState(false);
 
     const unique_version_id = (window as any).UNIQUE_VERSION_ID || 0;
@@ -30,13 +30,13 @@ function OptionsComponent() {
     const clampPosition = useCallback((pos: { x: number; y: number }) => {
         const clampedX = Math.min(Math.max(0, pos.x), window.innerWidth - size.width);
         const clampedY = Math.min(Math.max(0, pos.y), window.innerHeight - size.height);
-        return { x: clampedX, y: clampedY };
+        return {x: clampedX, y: clampedY};
     }, [size]);
 
     const centerWindow = useCallback(() => {
         const centerX = (window.innerWidth - size.width) / 2;
         const centerY = (window.innerHeight - size.height) / 2;
-        setPosition(clampPosition({ x: centerX, y: centerY }));
+        setPosition(clampPosition({x: centerX, y: centerY}));
     }, [size, clampPosition]);
 
     useEffect(() => {
@@ -51,9 +51,9 @@ function OptionsComponent() {
         <Rnd
             size={size}
             position={position}
-            onDragStop={(e, d) => setPosition(clampPosition({ x: d.x, y: d.y }))}
+            onDragStop={(e, d) => setPosition(clampPosition({x: d.x, y: d.y}))}
             onResize={(e, direction, ref, delta, pos) => {
-                setSize({ width: ref.offsetWidth, height: ref.offsetHeight });
+                setSize({width: ref.offsetWidth, height: ref.offsetHeight});
                 setPosition(clampPosition(pos));
             }}
             minWidth={250}
@@ -91,7 +91,7 @@ function OptionsComponent() {
                     </button>
                 </div>
 
-                <hr className="border-gray-600" />
+                <hr className="border-gray-600"/>
 
                 <div className="space-y-2">
                     <label className="flex items-center space-x-2">
@@ -142,9 +142,17 @@ function OptionsComponent() {
                         />
                         <span>Z is UP</span>
                     </label>
+                    <label className="flex items-center space-x-2">
+                        <input
+                            type="checkbox"
+                            checked={defaultOrbitController}
+                            onChange={() => setDefaultOrbitController(!defaultOrbitController)}
+                        />
+                        <span>Use Default Orbitcontroller</span>
+                    </label>
                 </div>
 
-                <hr className="border-gray-600" />
+                <hr className="border-gray-600"/>
 
                 <div>
                     <button

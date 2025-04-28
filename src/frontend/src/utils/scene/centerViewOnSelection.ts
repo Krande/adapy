@@ -95,12 +95,11 @@ export const centerViewOnSelection = (
                 return;
             }
 
-            // Determine direction based on zIsUp
-            const direction = zIsUp
-                ? new THREE.Vector3(1, 1, 1).normalize()  // Z-up → orbit diagonally above XY
-                : new THREE.Vector3(1, 1, 1).normalize(); // Y-up → same, unless you want special
+            const direction = new THREE.Vector3();
+            camera.getWorldDirection(direction).normalize();
 
-            const newPosition = center.clone().add(direction.multiplyScalar(distance));
+            // Move opposite the view direction by "distance" units
+            const newPosition = center.clone().add(direction.multiplyScalar(-distance));
             camera.position.copy(newPosition);
 
             // Set correct up vector
