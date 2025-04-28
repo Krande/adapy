@@ -6,14 +6,14 @@ import {OrbitControls} from 'three/examples/jsm/controls/OrbitControls';
 import CameraControls from 'camera-controls';
 
 export const centerViewOnSelection = (
-    orbitControlsRef: OrbitControls | CameraControls,
+    controls: OrbitControls | CameraControls,
     camera: Camera,
     fillFactor: number = 1 // Default to filling the entire view
 ) => {
     const selectedObjects = useSelectedObjectStore.getState().selectedObjects;
     const {zIsUp} = useModelStore.getState();
 
-    if (orbitControlsRef && camera && selectedObjects.size > 0) {
+    if (controls && camera && selectedObjects.size > 0) {
         const boundingBox = new THREE.Box3();
         const vertex = new THREE.Vector3();
 
@@ -111,12 +111,17 @@ export const centerViewOnSelection = (
 
             camera.lookAt(center);
             camera.updateProjectionMatrix();
-            if (orbitControlsRef instanceof OrbitControls) {
-                orbitControlsRef.target.copy(center);
-                orbitControlsRef.update();
+            if (controls instanceof OrbitControls) {
+                controls.target.copy(center);
+                controls.update();
+            } else {  // CameraControls
+                const cameraControls = controls as CameraControls;
+                const sphere = new THREE.Sphere(center, radius / fillFactor);
+                void cameraControls.fitToSphere(sphere, true); // true = enable smooth transition
             }
         } else {
             console.warn('Bounding box is empty after processing selected vertices.');
+
         }
     } else {
         console.warn('No selected objects to center view on.');

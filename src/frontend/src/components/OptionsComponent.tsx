@@ -49,18 +49,34 @@ function OptionsComponent() {
 
     return (
         <Rnd
-            size={size}
-            position={position}
-            onDragStop={(e, d) => setPosition(clampPosition({x: d.x, y: d.y}))}
-            onResize={(e, direction, ref, delta, pos) => {
-                setSize({width: ref.offsetWidth, height: ref.offsetHeight});
-                setPosition(clampPosition(pos));
+            default={{
+                width: 300,
+                height: 460,
+                x: (window.innerWidth - 300) / 2,
+                y: (window.innerHeight - 460) / 2,
             }}
             minWidth={250}
-            minHeight={300}
             bounds="window"
+            enableResizing={{
+                right: true,
+                bottomRight: true,
+            }}
+            onDragStop={(e, d) => setPosition({x: d.x, y: d.y})}
+            onResizeStop={(e, direction, ref, delta, position) => {
+                setPosition(position);
+            }}
         >
-            <div className="flex flex-col space-y-4 p-4 bg-gray-800 rounded shadow-lg h-full text-white text-sm">
+            <div
+                className="flex flex-col space-y-4 p-4 bg-gray-800 rounded shadow-lg h-full text-white text-sm"
+                style={{
+                    height: 'auto',
+                    maxHeight: '640px',
+                    overflowY: 'auto',
+                    width: '100%', // take the width set by Rnd
+                    boxSizing: 'border-box',
+                }}
+
+            >
                 <div className="font-bold text-base">Options Panel</div>
                 <div className="text-xs text-gray-400">Version: {unique_version_id}</div>
 
@@ -167,6 +183,7 @@ function OptionsComponent() {
                             <p><kbd>Shift + U</kbd>: Unhide All</p>
                             <p><kbd>Shift + F</kbd>: Center on Selection</p>
                             <p><kbd>Shift + A</kbd>: Zoom to All</p>
+                            <p><kbd>Shift + Q</kbd>: Toggle Options Menu</p>
                         </div>
                     )}
                 </div>

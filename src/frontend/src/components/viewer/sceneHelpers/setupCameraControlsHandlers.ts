@@ -36,7 +36,7 @@ export function setupCameraControlsHandlers(
             centerViewOnSelection(controls, camera);
         } else if (shift && key === "a") {
             zoomToAll(scene, camera, controls);
-        } else if (shift && key === "o") {
+        } else if (shift && key === "q") {
             const {isOptionsVisible, setIsOptionsVisible} = useOptionsStore.getState();
             setIsOptionsVisible(!isOptionsVisible);
         }
