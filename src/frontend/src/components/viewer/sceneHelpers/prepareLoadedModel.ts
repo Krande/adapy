@@ -1,5 +1,6 @@
 // sceneHelpers/prepareLoadedModel.ts
 import * as THREE from "three";
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import {convert_to_custom_batch_mesh} from "../../../utils/scene/convert_to_custom_batch_mesh";
 import {replaceBlackMaterials} from "../../../utils/scene/assignDefaultMaterial";
 import {buildTreeFromUserData} from "../../../utils/tree_view/generateTree";
@@ -24,7 +25,8 @@ export function prepareLoadedModel({
                                        animationStore,
                                    }: PrepareLoadedModelParams): void {
     modelStore.setUserData(scene.userData);
-
+    // we'll collect all edge geometries here
+    const edgeGeoms: THREE.BufferGeometry[] = [];
     const meshesToReplace: { original: THREE.Mesh; parent: THREE.Object3D }[] = [];
 
     scene.traverse((object) => {
@@ -49,8 +51,7 @@ export function prepareLoadedModel({
         const customMesh = convert_to_custom_batch_mesh(original, drawRanges);
 
         if (optionsStore.showEdges) {
-            const edgeLine = customMesh.get_edge_lines();
-            scene.add(edgeLine);
+            edgeGeoms.push(customMesh.get_edge_geometry());
         }
 
         parent.add(customMesh);
@@ -78,7 +79,13 @@ export function prepareLoadedModel({
         scene.position.add(translation);
         modelStore.setTranslation(translation);
     }
-
+    if (optionsStore.showEdges && edgeGeoms.length) {
+        const merged = mergeGeometries(edgeGeoms, false);
+        const mat = new THREE.LineBasicMaterial({color: 0x000000});
+        const allEdges = new THREE.LineSegments(merged, mat);
+        allEdges.layers.set(1);
+        scene.add(allEdges);
+    }
     animationStore.setSelectedAnimation("No Animation");
 
     const treeData = buildTreeFromUserData(scene.userData);

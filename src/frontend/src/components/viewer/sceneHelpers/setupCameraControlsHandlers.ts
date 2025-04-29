@@ -23,9 +23,7 @@ export function setupCameraControlsHandlers(
                 drawRangeIds.forEach((drawRangeId) => {
                     mesh.hideDrawRange(drawRangeId);
                 });
-                mesh.deselect();
             });
-            useSelectedObjectStore.getState().clearSelectedObjects();
         } else if (shift && key === "u") {
             scene.traverse((obj) => {
                 if (obj instanceof CustomBatchedMesh) {

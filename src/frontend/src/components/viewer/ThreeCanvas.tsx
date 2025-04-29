@@ -21,6 +21,7 @@ import {OrbitControls} from "three/examples/jsm/controls/OrbitControls";
 const ThreeCanvas: React.FC = () => {
     const containerRef = useRef<HTMLDivElement>(null);
     const {modelUrl, setScene, zIsUp, defaultOrbitController} = useModelStore();
+    const {action, setCurrentKey} = useAnimationStore();
     const {showPerf} = useOptionsStore();
     const modelGroupRef = useRef<THREE.Group | null>(null); // <-- store loaded model separately
 
@@ -75,7 +76,10 @@ const ThreeCanvas: React.FC = () => {
         }
 
         // === Stats ===
-        const statsArray = containerRef.current ? setupStats(containerRef.current, showPerf) : [];
+        const {statsArray, callsPanel, trisPanel} = setupStats(
+            containerRef.current,
+            showPerf,
+        );
 
         // === Model Loader ===
         if (modelUrl) {
@@ -86,20 +90,21 @@ const ThreeCanvas: React.FC = () => {
         }
 
         // === Render loop ===
-        let previousTime = performance.now();
+        let prevTime = performance.now();
+
         const animate = () => {
             requestAnimationFrame(animate);
+            // 1) start all stats timers
+            statsArray.forEach((s) => s.begin());
 
-            const {action} = useAnimationStore.getState();
             if (action) {
-                const currentTime = performance.now();
-                const delta = (currentTime - previousTime) / 1000;
-                previousTime = currentTime;
-
-                const mixer = action.getMixer();
-                mixer.update(delta);
-                useAnimationStore.getState().setCurrentKey(action.time);
+                const now = performance.now();
+                const dt = (now - prevTime) / 1000;
+                prevTime = now;
+                action.getMixer().update(dt);
+                setCurrentKey(action.time);
             }
+
             if (controls instanceof OrbitControls) {
                 controls.update();
             } else {
@@ -111,11 +116,16 @@ const ThreeCanvas: React.FC = () => {
             gizmo?.update(); // <-- keep the gizmo synced with the camera
             renderer.render(scene, camera);
 
-            // Update each stats panel (FPS, MS, Memory)
-            statsArray.forEach((stats) => {
-                stats.begin();
-                stats.end();
-            });
+            // 4) update custom panels from renderer.info
+            if (callsPanel) {
+                callsPanel.update(renderer.info.render.calls, 200);
+            }
+            if (trisPanel) {
+                trisPanel.update(renderer.info.render.triangles, 500_000);
+            }
+
+            // 5) end all stats timers
+            statsArray.forEach((s) => s.end());
 
         };
         animate();

@@ -6,7 +6,9 @@ export function perform_selection(
   shiftKey: boolean,
   rangeId: string
 ) {
-  const selectedObjects = useSelectedObjectStore.getState().selectedObjects;
+  const selectedObjectStore = useSelectedObjectStore.getState();
+
+  const selectedObjects = selectedObjectStore.selectedObjects;
   const selectedRanges = selectedObjects.get(mesh);
   const isAlreadySelected = selectedRanges
     ? selectedRanges.has(rangeId)
@@ -15,15 +17,16 @@ export function perform_selection(
   if (shiftKey) {
     if (isAlreadySelected) {
       // If Shift is held and the draw range is already selected, deselect it
-      useSelectedObjectStore.getState().removeSelectedObject(mesh, rangeId);
+      selectedObjectStore.removeSelectedObject(mesh, rangeId);
     } else {
       // If Shift is held and the draw range is not selected, add it to selection
-      useSelectedObjectStore.getState().addSelectedObject(mesh, rangeId);
+      selectedObjectStore.addSelectedObject(mesh, rangeId);
     }
   } else {
     // Clear the selection if the draw range is already selected
-    useSelectedObjectStore.getState().clearSelectedObjects();
+    selectedObjectStore.clearSelectedObjects();
+
     // Select the new draw range
-    useSelectedObjectStore.getState().addSelectedObject(mesh, rangeId);
+    selectedObjectStore.addSelectedObject(mesh, rangeId);
   }
 }
