@@ -12,8 +12,8 @@ export interface TreeViewState {
     tree: TreeApi<any> | null;
     setTreeData: (data: TreeNode) => void;
     clearTreeData: () => void;
-    isCollapsed: boolean;
-    setIsCollapsed: (collapsed: boolean) => void;
+    isTreeCollapsed: boolean;
+    setIsTreeCollapsed: (collapsed: boolean) => void;
     setTree: (tree: TreeApi<any>) => void;
     searchTerm: string;
     setSearchTerm: (searchTerm: string) => void;
@@ -27,6 +27,6 @@ export const useTreeViewStore = create<TreeViewState>((set) => ({
     setTree: (tree) => set({tree: tree}),
     setTreeData: (data) => set({treeData: data}),
     clearTreeData: () => set({treeData: null}),
-    isCollapsed: true,
-    setIsCollapsed: (collapsed) => set({isCollapsed: collapsed}),
+    isTreeCollapsed: true,
+    setIsTreeCollapsed: (collapsed) => set({isTreeCollapsed: collapsed}),
 }));

@@ -19,7 +19,7 @@ function OptionsComponent() {
         enableWebsocket,
     } = useOptionsStore();
     const {showLegend, setShowLegend} = useColorStore();
-    const {zIsUp, setZIsUp, defaultOrbitController, setDefaultOrbitController} = useModelStore();
+    const {zIsUp, setZIsUp, defaultOrbitController, setDefaultOrbitController, should_hide_edges, setShouldHideEdges} = useModelStore();
 
     const [size, setSize] = useState({width: 300, height: 460});
     const [position, setPosition] = useState({x: 0, y: 0});
@@ -165,6 +165,14 @@ function OptionsComponent() {
                             onChange={() => setDefaultOrbitController(!defaultOrbitController)}
                         />
                         <span>Use Default Orbitcontroller</span>
+                    </label>
+                    <label className="flex items-center space-x-2">
+                        <input
+                            type="checkbox"
+                            checked={should_hide_edges}
+                            onChange={() => setShouldHideEdges(!should_hide_edges)}
+                        />
+                        <span>Hide includes edges geometry (slower)</span>
                     </label>
                 </div>
 

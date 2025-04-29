@@ -44,7 +44,7 @@ export function handleMeshSelectionCore(params: {
   useObjectInfoStore.getState().setName(last_selected);
 
   const treeViewStore = useTreeViewStore.getState();
-  if (treeViewStore.treeData && treeViewStore.tree && !treeViewStore.isCollapsed) {
+  if (treeViewStore.treeData && treeViewStore.tree && !treeViewStore.isTreeCollapsed) {
     // @ts-ignore
     treeViewStore.tree.isProgrammaticChange = true;
 

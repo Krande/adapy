@@ -1,7 +1,8 @@
 // CustomBatchedMesh.ts
 import * as THREE from 'three';
 import {selectedMaterial} from '../default_materials';
-import {mergeGeometries} from "three/examples/jsm/utils/BufferGeometryUtils.js"; // Adjust the import path as needed
+import {mergeGeometries} from "three/examples/jsm/utils/BufferGeometryUtils.js";
+import {useModelStore} from "../../state/modelStore"; // Adjust the import path as needed
 
 export class CustomBatchedMesh extends THREE.Mesh {
     // Original geometry and material
@@ -131,7 +132,10 @@ export class CustomBatchedMesh extends THREE.Mesh {
     public hideDrawRange(rangeId: string): void {
         this.hiddenRanges.add(rangeId);
         this.updateGroups();
-        this.updateVisibleEdges(); // new
+
+        if (useModelStore.getState().should_hide_edges){
+            this.updateVisibleEdges(); // new
+        }
     }
 
     /**
@@ -140,7 +144,9 @@ export class CustomBatchedMesh extends THREE.Mesh {
     public unhideAllDrawRanges(): void {
         this.hiddenRanges.clear();
         this.updateGroups();
-        this.updateVisibleEdges();
+        if (useModelStore.getState().should_hide_edges){
+            this.updateVisibleEdges(); // new
+        }
     }
 
     /**

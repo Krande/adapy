@@ -14,6 +14,9 @@ export interface ModelState {
     raycaster: THREE.Raycaster | null;
     zIsUp: boolean;
     defaultOrbitController: boolean;
+    should_hide_edges: boolean;
+
+    // Functions to set the state
     setModelUrl: (
         url: string | null,
         scene_action: SceneOperations | null,
@@ -26,6 +29,7 @@ export interface ModelState {
     setRaycaster: (raycaster: THREE.Raycaster | null) => void;
     setZIsUp: (zIsUp: boolean) => void;
     setDefaultOrbitController: (OrbitController: boolean) => void;
+    setShouldHideEdges: (should_hide_edges: boolean) => void;
 }
 
 export const useModelStore = create<ModelState>((set) => ({
@@ -39,6 +43,9 @@ export const useModelStore = create<ModelState>((set) => ({
     raycaster: null,
     zIsUp: true, // default to Z being up
     defaultOrbitController: true,
+    should_hide_edges: false,
+
+    setShouldHideEdges: (should_hide_edges) => set({should_hide_edges}),
     setModelUrl: (url, scene_action, scene_action_arg) =>
         set({
             modelUrl: url,

@@ -17,13 +17,35 @@ import {setupResizeHandler} from "./sceneHelpers/setupResizeHandler";
 import {setupPointerHandler} from "./sceneHelpers/setupPointerHandler";
 import {cameraRef, controlsRef, rendererRef, sceneRef, updatelightRef} from "../../state/refs";
 import {OrbitControls} from "three/examples/jsm/controls/OrbitControls";
+import {useTreeViewStore} from "../../state/treeViewStore";
 
 const ThreeCanvas: React.FC = () => {
     const containerRef = useRef<HTMLDivElement>(null);
     const {modelUrl, setScene, zIsUp, defaultOrbitController} = useModelStore();
+    const {isTreeCollapsed} = useTreeViewStore();
     const {action, setCurrentKey} = useAnimationStore();
     const {showPerf} = useOptionsStore();
     const modelGroupRef = useRef<THREE.Group | null>(null); // <-- store loaded model separately
+    useEffect(() => {
+        const container = containerRef.current;
+        if (!container) return;
+
+        const ro = new ResizeObserver(entries => {
+            for (const entry of entries) {
+                const {width, height} = entry.contentRect;
+                rendererRef.current?.setSize(width, height);
+                if (cameraRef.current) {
+                    cameraRef.current.aspect = width / height;
+                    cameraRef.current.updateProjectionMatrix();
+                }
+            }
+        });
+
+        ro.observe(container);
+        return () => {
+            ro.disconnect();
+        };
+    }, []);
 
     useEffect(() => {
         if (!containerRef.current) return;

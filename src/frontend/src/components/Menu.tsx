@@ -21,7 +21,7 @@ const Menu = () => {
     const {isNodeEditorVisible, setIsNodeEditorVisible, use_node_editor_only} = useNodeEditorStore();
     const {hasAnimation} = useAnimationStore();
     const {isOptionsVisible, setIsOptionsVisible} = useOptionsStore(); // use the useNavBarStore function
-    const {isCollapsed, setIsCollapsed} = useTreeViewStore();
+    const {isTreeCollapsed, setIsTreeCollapsed} = useTreeViewStore();
     const {showServerInfoBox, setShowServerInfoBox} = useServerInfoStore();
 
     return (
@@ -46,7 +46,7 @@ const Menu = () => {
                     <button
                         className="bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded"
                         hidden={use_node_editor_only}
-                        onClick={() => setIsCollapsed(!isCollapsed)}
+                        onClick={() => setIsTreeCollapsed(!isTreeCollapsed)}
                     >
                         <TreeViewIcon/>
                     </button>
