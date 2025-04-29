@@ -78,6 +78,7 @@ prod = { features = ["prod"], solve-group = "prod", no-default-feature = true }
 lint = { features = ["lint"], no-default-feature = true }
 profile = { features = ["profile", "prod"], solve-group = "prod", no-default-feature = true }
 frontend = { features = ["frontend"], no-default-feature = true }
+jupyterlite = { features = ["jupyterlite"], no-default-feature = true }
 
 tests-core = { features = ["tests-core"], no-default-feature = true }
 tests = { features = ["tests", "tests-core", "prod"], solve-group = "prod", no-default-feature = true }
@@ -85,6 +86,8 @@ fem-deps = { features = ["fem-deps", "prod", "tests-core"], no-default-feature =
 fem = { features = ["fem", "prod", "tests-core", "fem-deps"], no-default-feature = true }
 docs = { features = ["docs", "prod", "fem-deps", "tests-core"], no-default-feature = true }
 
+[tool.pixi.feature.jupyterlite.dependencies]
+jupyterlite-core = "*"
 
 [tool.pixi.feature.prod.dependencies]
 python = "3.12.*"
@@ -219,4 +222,7 @@ cprofile = { cmd = "python -m cProfile -o profile.prof -m pytest ./tests/profili
 [tool.pixi.dependencies]
 pixi-pycharm = ">=0.0.8,<0.0.9"
 
-
+[tool.pixi.feature.jupyterlite.tasks]
+jl-init = { cmd = "jupyter lite init", cwd = "./src/jupyterlite" }
+jl-build = { cmd = "jupyter lite build --output-dir=dist", cwd = "./src/jupyterlite" }
+jl-serve = { cmd = "jupyter lite serve --output-dir=dist --port=8899", cwd = "./src/jupyterlite" }
