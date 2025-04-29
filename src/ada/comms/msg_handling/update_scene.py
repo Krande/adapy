@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 
 def setup_backend_scene(glb_file_data: FileObjectDC, server: WebSocketAsyncServer) -> pathlib.Path:
     import gzip
+
     from ada.visit.rendering.render_backend import is_gzip_file
 
     tmp_dir = (

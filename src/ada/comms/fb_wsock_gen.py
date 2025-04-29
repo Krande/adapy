@@ -95,7 +95,7 @@ class FileObjectDC:
     ifcsqlite_file: Optional[FileObjectDC] = None
     is_procedure_output: bool = None
     procedure_parent: Optional[ProcedureStartDC] = None
-    compressed: bool = None
+    compressed: bool = False
 
 
 @dataclass
@@ -126,7 +126,7 @@ class CameraParamsDC:
     fov: float = None
     near: float = None
     far: float = None
-    force_camera: bool = None
+    force_camera: bool = False
 
 
 @dataclass

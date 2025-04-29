@@ -33,7 +33,7 @@ def test_basic_flat_buffers():
                 purpose=FilePurposeDC.DESIGN,
                 filepath="/path/to/file.glb",
                 is_procedure_output=False,
-                compressed=False
+                compressed=False,
             ),
         ),
         mesh_info=MeshInfoDC(object_name="MyMeshObject", face_index=10),

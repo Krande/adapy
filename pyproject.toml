@@ -190,7 +190,7 @@ flatbuffers = "*"
 
 [tool.pixi.feature.lint.tasks]
 lint = "isort . && black . --config pyproject.toml && ruff check . --fix"
-flat = { cmd = "python src/flatbuffers/update_flatbuffers.py", cwd = "./" }
+flat = { cmd = "python src/flatbuffers/update_flatbuffers.py && pixi run lint", cwd = "./" }
 
 [tool.pixi.feature.docs.tasks]
 docs = { cmd = "cd docs && sphinx-build -b html -v . _build/html", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
