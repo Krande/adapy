@@ -22,7 +22,6 @@ import {useTreeViewStore} from "../../state/treeViewStore";
 const ThreeCanvas: React.FC = () => {
     const containerRef = useRef<HTMLDivElement>(null);
     const {modelUrl, setScene, zIsUp, defaultOrbitController} = useModelStore();
-    const {isTreeCollapsed} = useTreeViewStore();
     const {action, setCurrentKey} = useAnimationStore();
     const {showPerf} = useOptionsStore();
     const modelGroupRef = useRef<THREE.Group | null>(null); // <-- store loaded model separately
