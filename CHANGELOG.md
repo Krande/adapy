@@ -2,6 +2,20 @@
 
 
 
+## v0.5.0 (2025-04-30)
+
+### Chore
+
+* chore: bump prefix-dev/setup-pixi from 0.8.3 to 0.8.5 in the dependencies group (#135)
+
+Signed-off-by: dependabot[bot] &lt;support@github.com&gt;
+Co-authored-by: dependabot[bot] &lt;49699333+dependabot[bot]@users.noreply.github.com&gt; ([`3d3d835`](https://github.com/Krande/adapy/commit/3d3d835cbf0bd205a9428bb12954798e999bd147))
+
+### Feature
+
+* feat: Add start for urdf loader and drop three-fiber (use threejs directly instead) (#137) ([`a9bc5dd`](https://github.com/Krande/adapy/commit/a9bc5dde3539fc909f05aa3b6d79133f45811f33))
+
+
 ## v0.4.4 (2025-04-16)
 
 ### Chore

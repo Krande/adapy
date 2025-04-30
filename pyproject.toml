@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ada-py"
-version = "0.4.4"
+version = "0.5.0"
 authors = [
     { name = "Kristoffer H. Andersen", email = "kristoffer_andersen@outlook.com" },
 ]
