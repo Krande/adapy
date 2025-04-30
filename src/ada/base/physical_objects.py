@@ -176,7 +176,7 @@ class BackendGeom(Root):
         add_ifc_backend=False,
         auto_sync_ifc_store=True,
         params_override: RenderParams = None,
-        apply_transform=True,
+        apply_transform=False,
         liveness_timeout: int = 1,
         embed_glb: bool = False,
         auto_embed_glb_in_notebook=True,
@@ -204,13 +204,12 @@ class BackendGeom(Root):
                 stream_from_ifc_store=stream_from_ifc_store,
                 add_ifc_backend=add_ifc_backend,
                 scene=SceneDC(operation=SceneOperationsDC.REPLACE if not append_to_scene else SceneOperationsDC.ADD),
+                apply_transform=apply_transform,
             )
-
         # Set up the renderer and WebSocket server
         renderer_instance = renderer_manager.render(
             self,
             params_override,
-            apply_transform=apply_transform,
             force_ws=force_ws,
             auto_embed_glb_in_notebook=auto_embed_glb_in_notebook,
         )

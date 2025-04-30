@@ -58,6 +58,7 @@ class RenderParams:
     serve_web_port: int = 5174
     serve_ws_port: int = 8765
     serve_html: bool = False
+    apply_transform: bool = False
 
     def __post_init__(self):
         # ensure that if unique_id is set, it is a 32-bit integer
@@ -115,11 +116,12 @@ def scene_from_fem_results(fea_res: FEAResult, params: RenderParams):
         )
         animation_store.add(animation)
 
-    # Trimesh automatically transforms by setting up = Y. This will counteract that transform
-    m3x3 = rot_matrix((0, -1, 0))
-    m3x3_with_col = np.append(m3x3, np.array([[0], [0], [0]]), axis=1)
-    m4x4 = np.r_[m3x3_with_col, [np.array([0, 0, 0, 1])]]
-    scene.apply_transform(m4x4)
+    if params.apply_transform:
+        # if you want Y is up
+        m3x3 = rot_matrix((0, -1, 0))
+        m3x3_with_col = np.append(m3x3, np.array([[0], [0], [0]]), axis=1)
+        m4x4 = np.r_[m3x3_with_col, [np.array([0, 0, 0, 1])]]
+        scene.apply_transform(m4x4)
 
     params.gltf_buffer_postprocessor = animation_store
     params.gltf_tree_postprocessor = AnimationStore.tree_postprocessor
@@ -203,7 +205,7 @@ def scene_from_fem(
     return scene
 
 
-def scene_from_object(physical_object: BackendGeom, params: RenderParams) -> trimesh.Scene:
+def scene_from_object(physical_object: BackendGeom, params: RenderParams, apply_transform=False) -> trimesh.Scene:
     from itertools import groupby
 
     from ada import Pipe
@@ -235,15 +237,15 @@ def scene_from_object(physical_object: BackendGeom, params: RenderParams) -> tri
         merged_store = concatenate_stores(meshes)
         mesh_map.append((mat_id, meshes, merged_store))
 
-        merged_mesh_to_trimesh_scene(scene, merged_store, bt.get_mat_by_id(mat_id), mat_id, graph_store)
+        merged_mesh_to_trimesh_scene(
+            scene, merged_store, bt.get_mat_by_id(mat_id), mat_id, graph_store, apply_transform=apply_transform
+        )
 
     scene.metadata.update(graph_store.create_meta())
     return scene
 
 
-def scene_from_part_or_assembly(
-    part_or_assembly: Part | Assembly, apply_transform, params: RenderParams
-) -> trimesh.Scene:
+def scene_from_part_or_assembly(part_or_assembly: Part | Assembly, params: RenderParams) -> trimesh.Scene:
     from ada import Assembly
 
     if params.auto_sync_ifc_store and isinstance(part_or_assembly, Assembly):
@@ -253,7 +255,6 @@ def scene_from_part_or_assembly(
         stream_from_ifc=params.stream_from_ifc_store,
         merge_meshes=params.merge_meshes,
         params=params,
-        apply_transform=apply_transform,
     )
     return scene
 
@@ -261,7 +262,7 @@ def scene_from_part_or_assembly(
 class RendererManager:
     def __init__(
         self,
-        renderer: Literal["react", "pygfx", "trimesh"],
+        renderer: Literal["react", "pygfx", "trimesh"] = "react",
         host: str = "localhost",
         ws_port: int = 8765,
         server_exe: pathlib.Path = None,
@@ -332,16 +333,14 @@ class RendererManager:
 
     @staticmethod
     def obj_to_trimesh(
-        obj: BackendGeom | Part | Assembly | FEAResult | FEM | trimesh.Scene | MeshDC,
-        params: RenderParams,
-        apply_transform=True,
+        obj: BackendGeom | Part | Assembly | FEAResult | FEM | trimesh.Scene | MeshDC, params: RenderParams
     ) -> trimesh.Scene:
         from ada import FEM, Assembly, Part
         from ada.base.physical_objects import BackendGeom
         from ada.fem.results.common import FEAResult
 
         if type(obj) is Part or type(obj) is Assembly:
-            scene = scene_from_part_or_assembly(obj, apply_transform, params)
+            scene = scene_from_part_or_assembly(obj, params)
         elif isinstance(obj, BackendGeom):
             scene = scene_from_object(obj, params)
         elif isinstance(obj, FEM):
@@ -355,42 +354,47 @@ class RendererManager:
 
         return scene
 
+    @staticmethod
+    def obj_to_encoded_glb(
+        obj: BackendGeom | Part | Assembly | FEAResult | FEM | trimesh.Scene | MeshDC, params: RenderParams
+    ) -> str:
+        scene = RendererManager.obj_to_trimesh(obj, params)
+        if params.scene_post_processor is not None:
+            scene = params.scene_post_processor(scene)
+
+        data = scene.export(
+            file_type="glb",
+            buffer_postprocessor=params.gltf_buffer_postprocessor,
+            tree_postprocessor=params.gltf_tree_postprocessor,
+        )
+        # encode as base64 string
+        import base64
+
+        encoded = base64.b64encode(data).decode("utf-8")
+        return encoded
+
     def render(
         self,
         obj: BackendGeom | Part | Assembly | FEAResult | FEM | trimesh.Scene | MeshDC,
         params: RenderParams,
-        apply_transform=True,
         force_ws=False,
         auto_embed_glb_in_notebook=True,
         force_embed_glb=False,
     ) -> HTML | None:
         from ada import Assembly
         from ada.comms.wsock_client_sync import WebSocketClientSync
+        from ada.visit.rendering.renderer_react import RendererReact
 
         if self.renderer == "trimesh":
-            scene = RendererManager.obj_to_trimesh(obj, params, apply_transform)
+            scene = RendererManager.obj_to_trimesh(obj, params)
             return scene.show()
 
         if (self.is_in_notebook() and auto_embed_glb_in_notebook) or force_embed_glb:
             self.embed_glb = True
 
+        renderer_obj = RendererReact()
         if self.embed_glb:
-            from ada.visit.rendering.renderer_react import RendererReact
-
-            renderer_obj = RendererReact()
-            scene = RendererManager.obj_to_trimesh(obj, params, apply_transform)
-            if params.scene_post_processor is not None:
-                scene = params.scene_post_processor(scene)
-
-            data = scene.export(
-                file_type="glb",
-                buffer_postprocessor=params.gltf_buffer_postprocessor,
-                tree_postprocessor=params.gltf_tree_postprocessor,
-            )
-            # encode as base64 string
-            import base64
-
-            encoded = base64.b64encode(data).decode("utf-8")
+            encoded = RendererManager.obj_to_encoded_glb(obj, params)
             if self.is_in_notebook():
                 renderer = renderer_obj.get_notebook_renderer_widget(
                     target_id=None, embed_base64_glb=encoded, force_ws=force_ws
@@ -408,8 +412,8 @@ class RendererManager:
 
         # Set up the renderer and WebSocket server
         self.start_server()
-
         if params.serve_html:
+            encoded = RendererManager.obj_to_encoded_glb(obj, params)
             return renderer_obj.serve_html(
                 web_port=params.serve_web_port,
                 ws_port=params.serve_ws_port,
@@ -431,7 +435,7 @@ class RendererManager:
                 wc.append_scene(obj)
                 return renderer_instance
             else:
-                scene = RendererManager.obj_to_trimesh(obj, params, apply_transform)
+                scene = RendererManager.obj_to_trimesh(obj, params)
 
             if params.scene.operation == SceneOperationsDC.ADD:
                 mesh: trimesh.Trimesh = scene.to_mesh()
@@ -489,6 +493,35 @@ class RendererManager:
                 )
 
         return renderer_instance
+
+    def send_glb_file_to_viewer(self, name, glb_file: str | pathlib.Path, target_id=None, params: RenderParams = None):
+        import gzip
+
+        from ada.comms.wsock_client_sync import WebSocketClientSync
+        from ada.visit.rendering.render_backend import is_gzip_file
+
+        if is_gzip_file(glb_file):
+            with gzip.open(glb_file, "rb") as f:
+                scene = trimesh.load(f, file_type="glb")
+        else:
+            with open(glb_file, "rb") as f:
+                scene = trimesh.load(f, file_type="glb")
+
+        if params is None:
+            params = RenderParams()
+
+        with WebSocketClientSync(self.host, self.ws_port) as wc:
+            # Send the scene to the WebSocket client
+            wc.update_scene(
+                name,
+                scene,
+                purpose=params.purpose,
+                scene_op=params.scene.operation,
+                gltf_buffer_postprocessor=params.gltf_buffer_postprocessor,
+                gltf_tree_postprocessor=params.gltf_tree_postprocessor,
+                target_id=target_id,
+            )
+        return scene
 
 
 class GltfTreePostProcessor:

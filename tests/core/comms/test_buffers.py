@@ -33,6 +33,7 @@ def test_basic_flat_buffers():
                 purpose=FilePurposeDC.DESIGN,
                 filepath="/path/to/file.glb",
                 is_procedure_output=False,
+                compressed=False,
             ),
         ),
         mesh_info=MeshInfoDC(object_name="MyMeshObject", face_index=10),
@@ -44,12 +45,8 @@ def test_basic_flat_buffers():
     # Serialize the dataclass message into a FlatBuffer
     flatbuffer_data = serialize_root_message(message)
 
-    # You can now send `flatbuffer_data` over a network, save it to a file, etc.
-    print(flatbuffer_data)
-
     # Deserialize the FlatBuffer back into a dataclass message
     deserialized_message = deserialize_root_message(flatbuffer_data)
-    print(deserialized_message)
     assert deserialized_message == message
 
 

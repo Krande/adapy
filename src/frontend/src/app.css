@@ -18,3 +18,22 @@ body {
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
 }
+
+.scrollbar::-webkit-scrollbar {
+    width: 10px;
+}
+
+.scrollbar::-webkit-scrollbar-corner {
+    background-color: rgb(26, 25, 25);
+}
+
+.scrollbar::-webkit-scrollbar-track {
+    background-color: rgba(33, 33, 33, 0.7);
+}
+
+.scrollbar::-webkit-scrollbar-thumb {
+    background-color: rgba(55, 65, 81, 0.9);
+    -webkit-box-shadow: inset 0 0 6px rgba(0, 0, 0, 0.3);
+    box-shadow: inset 0 0 6px rgba(0, 0, 0, 0.3);
+    outline: 1px solid rgb(17, 17, 17);
+}

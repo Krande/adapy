@@ -67,6 +67,7 @@ table FileObject {
   // procedure related configs
   is_procedure_output: bool; // Boolean to indicate if the file object is the output of a procedure
   procedure_parent: ProcedureStart; // Name of the procedure that generated the file object
+  compressed: bool = false; // Boolean to indicate if the file object is compressed
 }
 
 table FileObjectRef {

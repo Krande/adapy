@@ -1,7 +1,7 @@
 // src/App.tsx
 import "./app.css";
 import React, { useEffect } from 'react'
-import CanvasComponent from './components/viewer/CanvasComponent';
+import CanvasWrapper from './components/viewer/CanvasWrapper';
 import Menu from './components/Menu';
 import OptionsComponent from './components/OptionsComponent';
 import {useOptionsStore} from './state/optionsStore';
@@ -43,7 +43,7 @@ function App() {
             </div>
 
             <div className={"w-full h-full"}>
-                {use_node_editor_only ? <NodeEditorComponent/> : <CanvasComponent/>}
+                {use_node_editor_only ? <NodeEditorComponent/> : <CanvasWrapper/>}
             </div>
 
             {/* Only render NodeEditorComponent if it's visible */}

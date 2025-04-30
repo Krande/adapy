@@ -55,6 +55,7 @@ def deserialize_fileobject(fb_obj) -> FileObjectDC | None:
         ifcsqlite_file=deserialize_fileobject(fb_obj.IfcsqliteFile()),
         is_procedure_output=fb_obj.IsProcedureOutput(),
         procedure_parent=deserialize_procedurestart(fb_obj.ProcedureParent()),
+        compressed=fb_obj.Compressed(),
     )
 
 

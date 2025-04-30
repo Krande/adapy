@@ -5,11 +5,11 @@ import { useTreeViewStore } from "../../state/treeViewStore";
 const ResizableTreeView: React.FC = () => {
     const [treeViewWidth, setTreeViewWidth] = useState(256); // Initial width of 256px
     const isResizing = useRef(false);
-    const { isCollapsed } = useTreeViewStore();
+    const { isTreeCollapsed } = useTreeViewStore();
 
     // Handle mouse down event on the resize handle
     const handleMouseDown = (e: React.MouseEvent) => {
-        if (isCollapsed) return; // Prevent resizing if collapsed
+        if (isTreeCollapsed) return; // Prevent resizing if collapsed
         isResizing.current = true;
 
         const startX = e.clientX;
@@ -39,7 +39,7 @@ const ResizableTreeView: React.FC = () => {
     return (
         <div className="relative flex h-full">
             {/* Tree View Section */}
-            {!isCollapsed && (
+            {!isTreeCollapsed && (
                 <div
                     style={{ width: `${treeViewWidth}px` }}
                     className="flex-grow-0 flex-shrink-0 h-full bg-gray-800 overflow-auto relative"

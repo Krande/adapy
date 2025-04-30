@@ -66,7 +66,7 @@ const TreeViewComponent: React.FC = () => {
             </div>
             <div>
                 <Tree
-                    className={"text-white"}
+                    className={"text-white scrollbar"}
                     width={"100%"}
                     height={treeHeight} // Use the dynamic height
                     selectionFollowsFocus={true}

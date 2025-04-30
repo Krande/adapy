@@ -1,6 +1,7 @@
 import React from 'react';
 import {useObjectInfoStore} from '../../state/objectInfoStore';
 import JsonViewerComponent from './JsonViewerComponent';
+import CoordinateDisplay from "./CoordinateDisplay";
 
 const ObjectInfoBox = () => {
     const {
@@ -28,10 +29,8 @@ const ObjectInfoBox = () => {
                 <div className="table-cell w-48">{faceIndex}</div>
             </div>
             <div className="table-row">
-                <div className="table-cell w-24">Clicked @:</div>
-                <div
-                    className="table-cell w-48">{clickCoordinate && `(${clickCoordinate?.x.toFixed(prec)}, ${clickCoordinate?.z.toFixed(prec)}, ${clickCoordinate?.y.toFixed(prec)})`}
-                </div>
+                <div className="table-cell w-24 min-w-24">Clicked @:</div>
+                <CoordinateDisplay clickCoordinate={clickCoordinate} prec={prec} />
             </div>
             {jsonData && (
                 <div className="table-row">

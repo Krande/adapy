@@ -86,8 +86,13 @@ procedureParent(obj?:ProcedureStart):ProcedureStart|null {
   return offset ? (obj || new ProcedureStart()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
 }
 
+compressed():boolean {
+  const offset = this.bb!.__offset(this.bb_pos, 22);
+  return offset ? !!this.bb!.readInt8(this.bb_pos + offset) : false;
+}
+
 static startFileObject(builder:flatbuffers.Builder) {
-  builder.startObject(9);
+  builder.startObject(10);
 }
 
 static addName(builder:flatbuffers.Builder, nameOffset:flatbuffers.Offset) {
@@ -138,6 +143,10 @@ static addProcedureParent(builder:flatbuffers.Builder, procedureParentOffset:fla
   builder.addFieldOffset(8, procedureParentOffset, 0);
 }
 
+static addCompressed(builder:flatbuffers.Builder, compressed:boolean) {
+  builder.addFieldInt8(9, +compressed, +false);
+}
+
 static endFileObject(builder:flatbuffers.Builder):flatbuffers.Offset {
   const offset = builder.endObject();
   return offset;
@@ -154,7 +163,8 @@ unpack(): FileObjectT {
     (this.glbFile() !== null ? this.glbFile()!.unpack() : null),
     (this.ifcsqliteFile() !== null ? this.ifcsqliteFile()!.unpack() : null),
     this.isProcedureOutput(),
-    (this.procedureParent() !== null ? this.procedureParent()!.unpack() : null)
+    (this.procedureParent() !== null ? this.procedureParent()!.unpack() : null),
+    this.compressed()
   );
 }
 
@@ -169,6 +179,7 @@ unpackTo(_o: FileObjectT): void {
   _o.ifcsqliteFile = (this.ifcsqliteFile() !== null ? this.ifcsqliteFile()!.unpack() : null);
   _o.isProcedureOutput = this.isProcedureOutput();
   _o.procedureParent = (this.procedureParent() !== null ? this.procedureParent()!.unpack() : null);
+  _o.compressed = this.compressed();
 }
 }
 
@@ -182,7 +193,8 @@ constructor(
   public glbFile: FileObjectT|null = null,
   public ifcsqliteFile: FileObjectT|null = null,
   public isProcedureOutput: boolean = false,
-  public procedureParent: ProcedureStartT|null = null
+  public procedureParent: ProcedureStartT|null = null,
+  public compressed: boolean = false
 ){}
 
 
@@ -204,6 +216,7 @@ pack(builder:flatbuffers.Builder): flatbuffers.Offset {
   FileObject.addIfcsqliteFile(builder, ifcsqliteFile);
   FileObject.addIsProcedureOutput(builder, this.isProcedureOutput);
   FileObject.addProcedureParent(builder, procedureParent);
+  FileObject.addCompressed(builder, this.compressed);
 
   return FileObject.endFileObject(builder);
 }

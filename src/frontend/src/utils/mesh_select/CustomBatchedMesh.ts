@@ -1,20 +1,22 @@
 // CustomBatchedMesh.ts
 import * as THREE from 'three';
-import {selectedMaterial} from '../default_materials'; // Adjust the import path as needed
+import {selectedMaterial} from '../default_materials';
+import {mergeGeometries} from "three/examples/jsm/utils/BufferGeometryUtils.js";
+import {useModelStore} from "../../state/modelStore"; // Adjust the import path as needed
 
 export class CustomBatchedMesh extends THREE.Mesh {
     // Original geometry and material
     originalGeometry: THREE.BufferGeometry;
-    originalMaterial: THREE.Material | THREE.Material[];
+    originalMaterial: THREE.Material;
 
     // Map of draw range IDs to their [start, count] in the index buffer
     drawRanges: Map<string, [number, number]>;
 
-    // Map of draw range IDs to their corresponding materials
-    materialsMap: Map<string, THREE.Material>;
-
-    // Set of currently highlighted draw range IDs
-    highlightedDrawRanges: Set<string>;
+    // currently selected ranges
+    private selectedRanges = new Set<string>();
+    private hiddenRanges = new Set<string>();
+    private perRangeEdgeGeoms = new Map<string, THREE.BufferGeometry>();
+    private edgeMesh: THREE.LineSegments | null = null;
 
     public get_edge_lines(): THREE.LineSegments {
         // Create edges geometry and add it as a line segment
@@ -44,140 +46,165 @@ export class CustomBatchedMesh extends THREE.Mesh {
     private _raycast_intersectionPoint = new THREE.Vector3();
     private _raycast_barycoord = new THREE.Vector3();
 
+
     constructor(
         geometry: THREE.BufferGeometry,
-        material: THREE.Material | THREE.Material[],
+        material: THREE.Material,
         drawRanges: Map<string, [number, number]>
     ) {
-        // Create a clone of the geometry to avoid modifying the original
-        const clonedGeometry = geometry.clone();
-
-        // Initialize the original geometry and material
-        super(clonedGeometry, material);
+        // clone geometry to avoid mutating the source
+        const geo = geometry.clone();
+        super(geo, material.clone());
 
         this.originalGeometry = geometry;
-        this.originalMaterial = material;
+        this.originalMaterial = material.clone();
         this.drawRanges = drawRanges;
-        this.materialsMap = new Map();
-        this.highlightedDrawRanges = new Set();
 
-        // Clear existing groups in the geometry
+        // initial grouping (no selection, no hidden)
+        this.updateGroups();
+    }
+
+    /**
+     * Rebuild geometry.groups & material array based on selected/hidden sets.
+     * This is the shared workhorse that both hide() and unhide() call.
+     */
+    private updateGroups(): void {
+        const idxAttr = this.geometry.index!;
+        const totalCount = idxAttr.count;
         this.geometry.clearGroups();
 
-        // Initialize materials and geometry groups
-        this.initializeMaterialsAndGroups();
+        // 0: baseMat, 1: highlightMat, 2: hiddenMat
+        const baseMat = this.originalMaterial;
+        const highlightMat = selectedMaterial.clone();
+        const hiddenMat = new THREE.MeshBasicMaterial({visible: false});
+        const mats = [baseMat, highlightMat, hiddenMat] as THREE.Material[];
+
+        // Build segments for *every* range, choosing the right slot:
+        type Seg = { id: string; start: number; count: number };
+        const segs: Seg[] = [];
+        for (const [id, [start, count]] of this.drawRanges) {
+            segs.push({id, start, count});
+        }
+        segs.sort((a, b) => a.start - b.start);
+
+        let cursor = 0;
+        for (const seg of segs) {
+            if (seg.start > cursor) {
+                // any “gap” triangles that aren’t in drawRanges:
+                this.geometry.addGroup(cursor, seg.start - cursor, 0);
+            }
+            let matIndex: 0 | 1 | 2 = 0;
+            if (this.hiddenRanges.has(seg.id)) matIndex = 2;
+            else if (this.selectedRanges.has(seg.id)) matIndex = 1;
+            this.geometry.addGroup(seg.start, seg.count, matIndex);
+            cursor = seg.start + seg.count;
+        }
+        if (cursor < totalCount) {
+            this.geometry.addGroup(cursor, totalCount - cursor, 0);
+        }
+
+        this.material = mats;
+    }
+
+
+    /**
+     * Highlight the given draw ranges (blue) and redraw groups.
+     */
+    public updateSelectionGroups(rangeIds: string[]): void {
+        this.selectedRanges = new Set(rangeIds);
+        this.updateGroups();
     }
 
     /**
-     * Initializes materials and geometry groups for each draw range.
+     * Clear all selection highlighting.
      */
-    private initializeMaterialsAndGroups(): void {
-        let materialIndex = 0;
-        const materialsArray: THREE.Material[] = [];
-
-        // Iterate over the draw ranges and set up materials and groups
-        this.drawRanges.forEach((range, rangeId) => {
-            const [start, count] = range;
-
-            // Add a group for this draw range
-            this.geometry.addGroup(start, count, materialIndex);
-
-            // Clone the original material for this draw range
-            const rangeMaterial = (Array.isArray(this.originalMaterial)
-                    ? this.originalMaterial[0]
-                    : this.originalMaterial
-            ).clone();
-
-            // Optional: Set an identifier for the material (useful for debugging)
-            (rangeMaterial as any).rangeId = rangeId;
-
-            // Add the material to the materials array
-            materialsArray.push(rangeMaterial);
-
-            // Map the range ID to the material
-            this.materialsMap.set(rangeId, rangeMaterial);
-
-            materialIndex++;
-        });
-
-        // Assign the materials array to the mesh
-        this.material = materialsArray;
+    public clearSelectionGroups(): void {
+        this.selectedRanges.clear();
+        this.updateGroups();
     }
 
     /**
-     * Hides the specified draw range by setting its material's visibility to false.
-     * @param drawRangeId The ID of the draw range to hide.
+     * Hide the specified draw range (removes it from rendering).
      */
-    hideDrawRange(drawRangeId: string): void {
-        const material = this.materialsMap.get(drawRangeId);
-        if (material) {
-            material.visible = false;
-        } else {
-            console.warn(`Material for draw range ID ${drawRangeId} not found.`);
+    /**
+     * Hide the specified draw range (removes it from both rendering and click)
+     */
+    public hideDrawRange(rangeId: string): void {
+        this.hiddenRanges.add(rangeId);
+        this.updateGroups();
+
+        if (useModelStore.getState().should_hide_edges){
+            this.updateVisibleEdges(); // new
         }
     }
 
     /**
-     * Unhides all draw ranges by setting all materials' visibility to true.
+     * Unhide all draw ranges (restores full rendering and click)
      */
-    unhideAllDrawRanges(): void {
-        this.materialsMap.forEach((material) => {
-            material.visible = true;
+    public unhideAllDrawRanges(): void {
+        this.hiddenRanges.clear();
+        this.updateGroups();
+        if (useModelStore.getState().should_hide_edges){
+            this.updateVisibleEdges(); // new
+        }
+    }
+
+    /**
+     * Return only the raw edge geometry for merging elsewhere.
+     */
+    public get_edge_geometry(): THREE.BufferGeometry {
+        const edgesGeo = new THREE.EdgesGeometry(this.geometry);
+        this.updateWorldMatrix(true, false);
+        edgesGeo.applyMatrix4(this.matrixWorld);
+        return edgesGeo;
+    }
+
+    /**
+     * Call this once you add the mesh to your scene, so we can build per-range
+     * edge geoms and insert the merged-edge mesh.
+     */
+    public initEdgeOverlay() {
+        // 1) Build per-range edge buffer geometries
+        this.drawRanges.forEach(([start, count], rangeId) => {
+            // slice that drawRange out of the main index
+            const idxArr = (this.geometry.index!.array as Uint16Array | Uint32Array).slice(
+                start, start + count
+            );
+
+            const subGeo = new THREE.BufferGeometry();
+            // reuse the position attribute
+            subGeo.setAttribute('position', this.geometry.attributes.position);
+            subGeo.setIndex(Array.from(idxArr));
+
+            // compute edges just for that piece
+            this.perRangeEdgeGeoms.set(rangeId, new THREE.EdgesGeometry(subGeo));
         });
+
+        // 2) create the merged initial edgeMesh
+        const merged = mergeGeometries(
+            Array.from(this.perRangeEdgeGeoms.values()), false
+        )!;
+        const mat = new THREE.LineBasicMaterial({color: 0x000000});
+        this.edgeMesh = new THREE.LineSegments(merged, mat);
+        this.edgeMesh.layers.set(1);
+
+        return this.edgeMesh
     }
 
     /**
-     * Highlights the specified draw ranges by replacing their materials with the selected material.
-     * @param drawRangeIds An array of draw range IDs to highlight.
+     * Re‐merge only the edges *not* hidden; call on hide/unhide.
      */
-    highlightDrawRanges(drawRangeIds: string[]): void {
-        // Clear previous highlights
-        this.clearHighlights();
+    private updateVisibleEdges() {
+        if (!this.edgeMesh) return;
 
-        // Keep track of highlighted draw ranges
-        this.highlightedDrawRanges = new Set(drawRangeIds);
-
-        drawRangeIds.forEach((rangeId) => {
-            const materialIndex = this.getMaterialIndexByRangeId(rangeId);
-            if (materialIndex !== -1) {
-                // Replace the material with the selected material
-                (this.material as THREE.Material[])[materialIndex] = selectedMaterial;
-            } else {
-                console.warn(`Material index for draw range ID ${rangeId} not found.`);
-            }
+        const toMerge: THREE.BufferGeometry[] = [];
+        this.perRangeEdgeGeoms.forEach((geom, id) => {
+            if (!this.hiddenRanges.has(id)) toMerge.push(geom);
         });
-    }
 
-    /**
-     * Clears all highlights by restoring the original materials.
-     */
-    private clearHighlights(): void {
-        this.highlightedDrawRanges.forEach((rangeId) => {
-            const originalMaterial = this.materialsMap.get(rangeId);
-            const materialIndex = this.getMaterialIndexByRangeId(rangeId);
-            if (originalMaterial && materialIndex !== -1) {
-                // Restore the original material
-                (this.material as THREE.Material[])[materialIndex] = originalMaterial;
-            }
-        });
-        this.highlightedDrawRanges.clear();
-    }
-
-    /**
-     * Deselects all draw ranges by clearing highlights.
-     */
-    deselect(): void {
-        this.clearHighlights();
-    }
-
-    /**
-     * Gets the material index corresponding to the specified draw range ID.
-     * @param rangeId The draw range ID.
-     * @returns The material index or -1 if not found.
-     */
-    private getMaterialIndexByRangeId(rangeId: string): number {
-        const materialKeys = Array.from(this.materialsMap.keys());
-        return materialKeys.indexOf(rangeId);
+        const merged = mergeGeometries(toMerge, false)!;
+        this.edgeMesh.geometry.dispose();
+        this.edgeMesh.geometry = merged;
     }
 
     /**

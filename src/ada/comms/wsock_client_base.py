@@ -6,6 +6,7 @@ from abc import ABC, abstractmethod
 
 import trimesh
 
+from ada import logger
 from ada.comms.fb_wrap_model_gen import (
     AppendMeshDC,
     CommandTypeDC,
@@ -67,6 +68,8 @@ class WebSocketClientBase(ABC):
         gltf_tree_postprocessor=None,
         target_id=None,
     ) -> bytes:
+        import gzip
+
         with io.BytesIO() as data:
             scene.export(
                 file_obj=data,
@@ -74,15 +77,31 @@ class WebSocketClientBase(ABC):
                 buffer_postprocessor=gltf_buffer_postprocessor,
                 tree_postprocessor=gltf_tree_postprocessor,
             )
-            file_object = FileObjectDC(name=name, file_type=FileTypeDC.GLB, purpose=purpose, filedata=data.getvalue())
-            message = MessageDC(
-                instance_id=self.instance_id,
-                command_type=CommandTypeDC.UPDATE_SCENE,
-                target_group=TargetTypeDC.WEB,
-                target_id=target_id,
-                scene=SceneDC(operation=scene_op, current_file=file_object),
-            )
-            return serialize_root_message(message)
+            glb_data = data.getvalue()
+        size_mb = len(glb_data) / 1_000_000
+        compressed = False
+
+        if size_mb > 5:
+            logger.warning(f"Large GLB size ({size_mb:.2f} MB) detected for scene '{name}', compressing...")
+
+            glb_data = gzip.compress(glb_data)
+            compressed = True
+
+        file_object = FileObjectDC(
+            name=name,
+            file_type=FileTypeDC.GLB,
+            purpose=purpose,
+            filedata=glb_data,
+            compressed=compressed,
+        )
+        message = MessageDC(
+            instance_id=self.instance_id,
+            command_type=CommandTypeDC.UPDATE_SCENE,
+            target_group=TargetTypeDC.WEB,
+            target_id=target_id,
+            scene=SceneDC(operation=scene_op, current_file=file_object),
+        )
+        return serialize_root_message(message)
 
     def _scene_append_prep(self, mesh: MeshDC, target_id) -> bytes:
         message = MessageDC(

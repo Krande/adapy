@@ -72,7 +72,11 @@ def generate_dataclasses_from_schema(schema: FlatBufferSchema, output_file: str 
             elif python_type == "float":
                 default_value = " = None"
             elif python_type == "bool":
-                default_value = " = None"
+                default_value = (
+                    " = None"
+                    if field.default_value is None
+                    else f" = {field.default_value.replace('true', 'True').replace('false', 'False')}"
+                )
             elif python_type == "bytes":
                 default_value = " = None"
             elif python_type == "List[float]":

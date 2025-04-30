@@ -7,6 +7,7 @@ import path from 'path';
 // Detect Jupyter-specific build
 export default defineConfig({
     root: path.resolve(__dirname, 'src'), // Set the root directory to 'src'
+    publicDir: path.resolve(__dirname, 'public'), // Set the public directory to 'public'
     base: './',
     plugins: [react() ],// , visualizer({open: true, gzipSize: true, brotliSize: true})],
     build: {

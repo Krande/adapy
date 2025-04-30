@@ -1,23 +1,41 @@
-import {create, StoreApi} from 'zustand';
+import { create } from "zustand";
+import { webSocketHandler } from "../utils/websocket_connector";
+import { useWebSocketStore } from "./webSocketStore";
+import { handleWebSocketMessage } from "../utils/handleWebSocketMessage";
 
-type State = {
-    isOptionsVisible: boolean;
-    setIsOptionsVisible: (value: boolean) => void;
-    showPerf: boolean;
-    setShowPerf: (value: boolean) => void;
-    showEdges: boolean;
-    setShowEdges: (value: boolean) => void;
-    lockTranslation: boolean;
-    setLockTranslation: (value: boolean) => void;
+export type OptionsState = {
+  isOptionsVisible: boolean;
+  showPerf: boolean;
+  showEdges: boolean;
+  lockTranslation: boolean;
+  enableWebsocket: boolean;
+
+  setIsOptionsVisible: (value: boolean) => void;
+  setShowPerf: (value: boolean) => void;
+  setShowEdges: (value: boolean) => void;
+  setLockTranslation: (value: boolean) => void;
+  setEnableWebsocket: (value: boolean) => void;
 };
 
-export const useOptionsStore = create<State>((set: StoreApi<State>['setState']) => ({
-    isOptionsVisible: false,
-    setIsOptionsVisible: (value: boolean) => set(() => ({isOptionsVisible: value})),
-    lockTranslation: false,
-    setLockTranslation: (value: boolean) => set(() => ({lockTranslation: value})),
-    showPerf: false,
-    setShowPerf: (value: boolean) => set(() => ({showPerf: value})),
-    showEdges: true,
-    setShowEdges: (value: boolean) => set(() => ({showEdges: value})),
+export const useOptionsStore = create<OptionsState>((set) => ({
+  isOptionsVisible: false,
+  showPerf: false,
+  showEdges: true,
+  lockTranslation: false,
+  enableWebsocket: true,
+
+  setIsOptionsVisible: (isVisible) => set({ isOptionsVisible: isVisible }),
+  setShowPerf: (show) => set({ showPerf: show }),
+  setShowEdges: (show) => set({ showEdges: show }),
+  setLockTranslation: (lock) => set({ lockTranslation: lock }),
+
+  setEnableWebsocket: (enable) => {
+    if (enable) {
+      const url = useWebSocketStore.getState().webSocketAddress;
+      webSocketHandler.connect(url, handleWebSocketMessage());
+    } else {
+      webSocketHandler.disconnect();
+    }
+    set({ enableWebsocket: enable });
+  },
 }));

@@ -41,7 +41,6 @@ version_toml = ["pyproject.toml:project.version"]
 
 version_variables = [
     './src/frontend/package.json:"version"',
-    './src/frontend/package-lock.json:"version"',
 ]
 
 assets = []

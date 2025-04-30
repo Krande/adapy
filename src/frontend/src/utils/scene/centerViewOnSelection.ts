@@ -1,18 +1,19 @@
-// centerViewOnSelection.ts
 import * as THREE from 'three';
 import {Camera} from 'three';
-import React from 'react';
-import {OrbitControls as OrbitControlsImpl} from 'three-stdlib/controls/OrbitControls';
-import { useSelectedObjectStore } from '../../state/useSelectedObjectStore';
+import {useSelectedObjectStore} from '../../state/useSelectedObjectStore';
+import {useModelStore} from '../../state/modelStore';
+import {OrbitControls} from 'three/examples/jsm/controls/OrbitControls';
+import CameraControls from 'camera-controls';
 
 export const centerViewOnSelection = (
-    orbitControlsRef: React.RefObject<OrbitControlsImpl>,
+    controls: OrbitControls | CameraControls,
     camera: Camera,
     fillFactor: number = 1 // Default to filling the entire view
 ) => {
     const selectedObjects = useSelectedObjectStore.getState().selectedObjects;
+    const {zIsUp} = useModelStore.getState();
 
-    if (orbitControlsRef.current && camera && selectedObjects.size > 0) {
+    if (controls && camera && selectedObjects.size > 0) {
         const boundingBox = new THREE.Box3();
         const vertex = new THREE.Vector3();
 
@@ -37,37 +38,25 @@ export const centerViewOnSelection = (
                 if (drawRange) {
                     const [start, count] = drawRange;
 
-                    // Validate that start and count are within the index array bounds
                     if (start < 0 || start + count > indexArray.length) {
-                        console.warn(
-                            `Draw range (start: ${start}, count: ${count}) is out of bounds of the index array (length: ${indexArray.length}).`
-                        );
+                        console.warn(`Draw range (start: ${start}, count: ${count}) is out of bounds.`);
                         return;
                     }
 
                     for (let i = start; i < start + count; i++) {
                         const index = indexArray[i];
-
-                        // Validate the index
                         if (index < 0 || index >= positionAttr.count) {
-                            console.warn(
-                                `Index ${index} at position ${i} is out of bounds of the position attribute (count: ${positionAttr.count}). Skipping.`
-                            );
+                            console.warn(`Index ${index} at position ${i} is out of bounds.`);
                             continue;
                         }
 
-                        // Extract the vertex position at the specified index
                         vertex.fromBufferAttribute(positionAttr, index);
 
-                        // Check for NaN values in the vertex position
                         if (isNaN(vertex.x) || isNaN(vertex.y) || isNaN(vertex.z)) {
-                            console.warn(
-                                `NaN detected in vertex position at index ${index}. Skipping this vertex.`
-                            );
+                            console.warn(`NaN detected in vertex position at index ${index}. Skipping.`);
                             continue;
                         }
 
-                        // Apply the object's world matrix to get the world position
                         mesh.localToWorld(vertex);
                         boundingBox.expandByPoint(vertex);
                     }
@@ -77,13 +66,10 @@ export const centerViewOnSelection = (
             });
         });
 
-        // Check if the bounding box is valid
         if (!boundingBox.isEmpty()) {
-            // Compute bounding sphere from bounding box
             const boundingSphere = new THREE.Sphere();
             boundingBox.getBoundingSphere(boundingSphere);
 
-            // Get the center of the bounding sphere
             const center = boundingSphere.center;
             const radius = boundingSphere.radius;
 
@@ -94,7 +80,7 @@ export const centerViewOnSelection = (
 
             let distance = 0;
             if (camera instanceof THREE.PerspectiveCamera) {
-                const fov = (camera.fov * Math.PI) / 180; // Convert FOV to radians
+                const fov = (camera.fov * Math.PI) / 180; // Radians
                 distance = (radius / Math.sin(fov / 2)) / fillFactor;
             } else if (camera instanceof THREE.OrthographicCamera) {
                 const aspect = camera.right / camera.top;
@@ -105,32 +91,37 @@ export const centerViewOnSelection = (
                 camera.updateProjectionMatrix();
                 distance = camera.position.distanceTo(center);
             } else {
-                console.warn('Unknown camera type');
+                console.warn('Unknown camera type.');
                 return;
             }
 
-            // Calculate the new camera position
             const direction = new THREE.Vector3();
-            camera.getWorldDirection(direction);
-            const newPosition = center.clone().sub(direction.multiplyScalar(distance));
+            camera.getWorldDirection(direction).normalize();
+
+            // Move opposite the view direction by "distance" units
+            const newPosition = center.clone().add(direction.multiplyScalar(-distance));
             camera.position.copy(newPosition);
 
-            // Ensure the camera's up vector is correct
-            camera.up.set(0, 1, 0); // Assuming Y-up coordinate system
+            // Set correct up vector
+            if (zIsUp) {
+                camera.up.set(0, 0, 1);
+            } else {
+                camera.up.set(0, 1, 0);
+            }
 
-            // Make the camera look at the center
             camera.lookAt(center);
-
-            // Update the camera's projection matrix
             camera.updateProjectionMatrix();
-
-            // Update the orbit controls
-            orbitControlsRef.current.target.copy(center);
-            orbitControlsRef.current.update();
+            if (controls instanceof OrbitControls) {
+                controls.target.copy(center);
+                controls.update();
+            } else {  // CameraControls
+                const cameraControls = controls as CameraControls;
+                const sphere = new THREE.Sphere(center, radius / fillFactor);
+                void cameraControls.fitToSphere(sphere, true); // true = enable smooth transition
+            }
         } else {
-            console.warn(
-                'Bounding box is empty after processing selected vertices. Cannot center view.'
-            );
+            console.warn('Bounding box is empty after processing selected vertices.');
+
         }
     } else {
         console.warn('No selected objects to center view on.');

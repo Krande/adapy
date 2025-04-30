@@ -105,6 +105,8 @@ def serialize_fileobject(builder: flatbuffers.Builder, obj: Optional[FileObjectD
         FileObject.AddIsProcedureOutput(builder, obj.is_procedure_output)
     if obj.procedure_parent is not None:
         FileObject.AddProcedureParent(builder, procedure_parent_obj)
+    if obj.compressed is not None:
+        FileObject.AddCompressed(builder, obj.compressed)
     return FileObject.End(builder)
 
 

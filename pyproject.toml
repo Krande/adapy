@@ -77,7 +77,8 @@ platforms = ["win-64", "linux-64", "osx-64"]
 prod = { features = ["prod"], solve-group = "prod", no-default-feature = true }
 lint = { features = ["lint"], no-default-feature = true }
 profile = { features = ["profile", "prod"], solve-group = "prod", no-default-feature = true }
-frontend = { features = ["web"], no-default-feature = true }
+frontend = { features = ["frontend"], no-default-feature = true }
+jupyterlite = { features = ["jupyterlite"], no-default-feature = true }
 
 tests-core = { features = ["tests-core"], no-default-feature = true }
 tests = { features = ["tests", "tests-core", "prod"], solve-group = "prod", no-default-feature = true }
@@ -85,6 +86,8 @@ fem-deps = { features = ["fem-deps", "prod", "tests-core"], no-default-feature =
 fem = { features = ["fem", "prod", "tests-core", "fem-deps"], no-default-feature = true }
 docs = { features = ["docs", "prod", "fem-deps", "tests-core"], no-default-feature = true }
 
+[tool.pixi.feature.jupyterlite.dependencies]
+jupyterlite-core = "*"
 
 [tool.pixi.feature.prod.dependencies]
 python = "3.12.*"
@@ -181,13 +184,13 @@ scipy = "*"
 fastapi = "*"  # For the API docs
 pandas = "*"
 
-[tool.pixi.feature.web.dependencies]
+[tool.pixi.feature.frontend.dependencies]
 nodejs = "*"
 flatbuffers = "*"
 
 [tool.pixi.feature.lint.tasks]
 lint = "isort . && black . --config pyproject.toml && ruff check . --fix"
-flat = { cmd = "python src/flatbuffers/update_flatbuffers.py", cwd = "./" }
+flat = { cmd = "python src/flatbuffers/update_flatbuffers.py && pixi run lint", cwd = "./" }
 
 [tool.pixi.feature.docs.tasks]
 docs = { cmd = "cd docs && sphinx-build -b html -v . _build/html", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
@@ -205,11 +208,12 @@ test-core = { cmd="pytest tests --ignore=tests/profiling --ignore=tests/fem --ig
 test-all = { cmd = "pytest tests --durations=0", depends-on = ["pre-install"], env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 test-fem = { cmd = "pytest tests --ignore=tests/profiling --ignore=tests/core --ignore=tests/full --durations=0", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 
-[tool.pixi.feature.web.tasks]
+[tool.pixi.feature.frontend.tasks]
 npm = { cmd = "npm", cwd = "./src/frontend" }
-wdev = { cmd = "npm run dev", cwd = "./src/frontend" }
-wbuild = { cmd = "npm run build", cwd = "./src/frontend" }
-fdepcheck = { cmd = "depcheck", cwd = "./src/frontend" }
+winstall = { cmd = "npm install", cwd = "./src/frontend", outputs = ["$PIXI_PROJECT_ROOT/src/frontend/node_modules"] }
+wdev = { cmd = "npm run dev", cwd = "./src/frontend", depends-on = ["winstall"] }
+wbuild = { cmd = "npm run build", cwd = "./src/frontend", depends-on = ["winstall"] }
+fdepcheck = { cmd = "depcheck", cwd = "./src/frontend", depends-on = ["winstall"] }
 
 [tool.pixi.feature.profile.tasks]
 scalene = { cmd = "scalene --json -m pytest ./tests/profiling --outfile=profile.json", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
@@ -218,4 +222,7 @@ cprofile = { cmd = "python -m cProfile -o profile.prof -m pytest ./tests/profili
 [tool.pixi.dependencies]
 pixi-pycharm = ">=0.0.8,<0.0.9"
 
-
+[tool.pixi.feature.jupyterlite.tasks]
+jl-init = { cmd = "jupyter lite init", cwd = "./src/jupyterlite" }
+jl-build = { cmd = "jupyter lite build --output-dir=dist", cwd = "./src/jupyterlite" }
+jl-serve = { cmd = "jupyter lite serve --output-dir=dist --port=8899", cwd = "./src/jupyterlite" }
