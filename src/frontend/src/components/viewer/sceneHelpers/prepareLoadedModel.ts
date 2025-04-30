@@ -8,6 +8,7 @@ import {ModelState} from "../../../state/modelStore";
 import {TreeViewState} from "../../../state/treeViewStore";
 import {OptionsState} from "../../../state/optionsStore";
 import {AnimationState} from "../../../state/animationStore";
+import {rendererRef} from "../../../state/refs";
 
 interface PrepareLoadedModelParams {
     scene: THREE.Object3D;
@@ -51,9 +52,9 @@ export function prepareLoadedModel({
         const customMesh = convert_to_custom_batch_mesh(original, drawRanges);
 
         if (optionsStore.showEdges) {
-            // edgeGeoms.push(customMesh.get_edge_geometry());
             // initialize the edge overlay
-            parent.add(customMesh.initEdgeOverlay());
+            if (rendererRef.current)
+                parent.add(customMesh.getEdgeOverlay(rendererRef.current));
         }
 
         parent.add(customMesh);

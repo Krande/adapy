@@ -5,7 +5,6 @@ import {SceneOperations} from "../flatbuffers/wsock/scene-operations";
 
 export interface ModelState {
     modelUrl: string | null;
-    scene: THREE.Scene | null;
     scene_action: SceneOperations | null;
     scene_action_arg: string | null;
     userdata: any;
@@ -14,7 +13,6 @@ export interface ModelState {
     raycaster: THREE.Raycaster | null;
     zIsUp: boolean;
     defaultOrbitController: boolean;
-    should_hide_edges: boolean;
 
     // Functions to set the state
     setModelUrl: (
@@ -24,17 +22,14 @@ export interface ModelState {
     ) => void;
     setTranslation: (translation: THREE.Vector3) => void;
     setBoundingBox: (boundingBox: THREE.Box3) => void;
-    setScene: (scene: THREE.Scene | null) => void;
     setUserData: (userdata: any) => void;
     setRaycaster: (raycaster: THREE.Raycaster | null) => void;
     setZIsUp: (zIsUp: boolean) => void;
     setDefaultOrbitController: (OrbitController: boolean) => void;
-    setShouldHideEdges: (should_hide_edges: boolean) => void;
 }
 
 export const useModelStore = create<ModelState>((set) => ({
     modelUrl: null,
-    scene: null,
     scene_action: null,
     scene_action_arg: null,
     userdata: null,
@@ -43,9 +38,7 @@ export const useModelStore = create<ModelState>((set) => ({
     raycaster: null,
     zIsUp: true, // default to Z being up
     defaultOrbitController: true,
-    should_hide_edges: false,
 
-    setShouldHideEdges: (should_hide_edges) => set({should_hide_edges}),
     setModelUrl: (url, scene_action, scene_action_arg) =>
         set({
             modelUrl: url,
@@ -54,7 +47,6 @@ export const useModelStore = create<ModelState>((set) => ({
         }),
     setTranslation: (translation) => set({translation}),
     setBoundingBox: (boundingBox) => set({boundingBox}),
-    setScene: (scene: THREE.Scene | null) => set({scene}),
     setUserData: (userdata) => set({userdata}),
     setRaycaster: (raycaster: THREE.Raycaster | null) => set({raycaster}),
     setZIsUp: (zIsUp) => set({zIsUp}),

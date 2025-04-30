@@ -1,8 +1,9 @@
 import {useModelStore} from "../../state/modelStore";
 import {CustomBatchedMesh} from "../mesh_select/CustomBatchedMesh";
+import {sceneRef} from "../../state/refs";
 
 export function getMeshFromName(meshName: string) {
-    const scene = useModelStore.getState().scene;
+    const scene = sceneRef.current;
     if (!scene) {
         console.error("Scene is not set in model store");
         return null;

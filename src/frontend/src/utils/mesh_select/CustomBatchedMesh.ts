@@ -1,37 +1,21 @@
 // CustomBatchedMesh.ts
 import * as THREE from 'three';
 import {selectedMaterial} from '../default_materials';
-import {mergeGeometries} from "three/examples/jsm/utils/BufferGeometryUtils.js";
-import {useModelStore} from "../../state/modelStore"; // Adjust the import path as needed
+// utils/mesh_select/CustomBatchedMesh.ts
+import {buildEdgeGeometryWithRangeIds, makeEdgeShaderMaterial} from './EdgeShaderHelper';
+
 
 export class CustomBatchedMesh extends THREE.Mesh {
-    // Original geometry and material
     originalGeometry: THREE.BufferGeometry;
     originalMaterial: THREE.Material;
-
-    // Map of draw range IDs to their [start, count] in the index buffer
     drawRanges: Map<string, [number, number]>;
 
-    // currently selected ranges
     private selectedRanges = new Set<string>();
     private hiddenRanges = new Set<string>();
-    private perRangeEdgeGeoms = new Map<string, THREE.BufferGeometry>();
-    private edgeMesh: THREE.LineSegments | null = null;
 
-    public get_edge_lines(): THREE.LineSegments {
-        // Create edges geometry and add it as a line segment
-        const edges = new THREE.EdgesGeometry(this.geometry);
-        const lineMaterial = new THREE.LineBasicMaterial({color: 0x000000});
-        const edgeLine = new THREE.LineSegments(edges, lineMaterial);
-
-        // Ensure the edge line inherits transformations
-        edgeLine.position.copy(this.position);
-        edgeLine.rotation.copy(this.rotation);
-        edgeLine.scale.copy(this.scale);
-        edgeLine.layers.set(1);
-
-        return edgeLine
-    }
+    private edgeMesh?: THREE.LineSegments;
+    private rangeIdToIndex?: Map<string, number>;
+    private edgeMaterial?: THREE.ShaderMaterial;
 
     // Class properties for raycasting
     private _raycast_inverseMatrix = new THREE.Matrix4();
@@ -46,155 +30,91 @@ export class CustomBatchedMesh extends THREE.Mesh {
     private _raycast_intersectionPoint = new THREE.Vector3();
     private _raycast_barycoord = new THREE.Vector3();
 
-
     constructor(
         geometry: THREE.BufferGeometry,
         material: THREE.Material,
         drawRanges: Map<string, [number, number]>
     ) {
-        // clone geometry to avoid mutating the source
-        const geo = geometry.clone();
-        super(geo, material.clone());
-
+        super(geometry.clone(), material.clone());
         this.originalGeometry = geometry;
         this.originalMaterial = material.clone();
         this.drawRanges = drawRanges;
-
-        // initial grouping (no selection, no hidden)
         this.updateGroups();
+        // no renderer yet → defer edge setup
     }
 
-    /**
-     * Rebuild geometry.groups & material array based on selected/hidden sets.
-     * This is the shared workhorse that both hide() and unhide() call.
-     */
-    private updateGroups(): void {
-        const idxAttr = this.geometry.index!;
-        const totalCount = idxAttr.count;
+    private updateGroups() {
+        const idxCount = this.geometry.index!.count;
         this.geometry.clearGroups();
+        this.material = [
+            this.originalMaterial,
+            selectedMaterial.clone(),
+            new THREE.MeshBasicMaterial({visible: false})
+        ];
+        const segs = Array.from(this.drawRanges.entries())
+            .map(([id, [s, c]]) => ({id, s, c}))
+            .sort((a, b) => a.s - b.s);
 
-        // 0: baseMat, 1: highlightMat, 2: hiddenMat
-        const baseMat = this.originalMaterial;
-        const highlightMat = selectedMaterial.clone();
-        const hiddenMat = new THREE.MeshBasicMaterial({visible: false});
-        const mats = [baseMat, highlightMat, hiddenMat] as THREE.Material[];
-
-        // Build segments for *every* range, choosing the right slot:
-        type Seg = { id: string; start: number; count: number };
-        const segs: Seg[] = [];
-        for (const [id, [start, count]] of this.drawRanges) {
-            segs.push({id, start, count});
+        let cur = 0;
+        for (const {id, s, c} of segs) {
+            if (s > cur) this.geometry.addGroup(cur, s - cur, 0);
+            let mi: 0 | 1 | 2 = 0;
+            if (this.hiddenRanges.has(id)) mi = 2;
+            else if (this.selectedRanges.has(id)) mi = 1;
+            this.geometry.addGroup(s, c, mi);
+            cur = s + c;
         }
-        segs.sort((a, b) => a.start - b.start);
-
-        let cursor = 0;
-        for (const seg of segs) {
-            if (seg.start > cursor) {
-                // any “gap” triangles that aren’t in drawRanges:
-                this.geometry.addGroup(cursor, seg.start - cursor, 0);
-            }
-            let matIndex: 0 | 1 | 2 = 0;
-            if (this.hiddenRanges.has(seg.id)) matIndex = 2;
-            else if (this.selectedRanges.has(seg.id)) matIndex = 1;
-            this.geometry.addGroup(seg.start, seg.count, matIndex);
-            cursor = seg.start + seg.count;
-        }
-        if (cursor < totalCount) {
-            this.geometry.addGroup(cursor, totalCount - cursor, 0);
-        }
-
-        this.material = mats;
+        if (cur < idxCount) this.geometry.addGroup(cur, idxCount - cur, 0);
     }
 
+    /** call this when you have a renderer and want the overlay in the scene */
+    public getEdgeOverlay(renderer: THREE.WebGLRenderer): THREE.LineSegments {
+        if (!this.edgeMesh) {
+            // first‐time initialization
+            const {geometry, rangeIdToIndex} =
+                buildEdgeGeometryWithRangeIds(this.originalGeometry, this.drawRanges);
+            this.rangeIdToIndex = rangeIdToIndex;
 
-    /**
-     * Highlight the given draw ranges (blue) and redraw groups.
-     */
-    public updateSelectionGroups(rangeIds: string[]): void {
+            this.edgeMaterial = makeEdgeShaderMaterial(renderer, rangeIdToIndex.size);
+            this.edgeMesh = new THREE.LineSegments(geometry, this.edgeMaterial);
+            this.edgeMesh.layers.set(1);
+        }
+        return this.edgeMesh;
+    }
+
+    public updateSelectionGroups(rangeIds: string[]) {
         this.selectedRanges = new Set(rangeIds);
         this.updateGroups();
+        if (this.edgeMaterial && this.rangeIdToIndex) {
+            this.edgeMaterial.uniforms.uHighlighted.value =
+                rangeIds.length ? this.rangeIdToIndex.get(rangeIds[0])! : -1;
+        }
     }
 
-    /**
-     * Clear all selection highlighting.
-     */
-    public clearSelectionGroups(): void {
-        this.selectedRanges.clear();
-        this.updateGroups();
+    public clearSelectionGroups() {
+        this.updateSelectionGroups([]);
     }
 
-    /**
-     * Hide the specified draw range (removes it from rendering).
-     */
-    /**
-     * Hide the specified draw range (removes it from both rendering and click)
-     */
-    public hideDrawRange(rangeId: string): void {
+    public hideDrawRange(rangeId: string) {
         this.hiddenRanges.add(rangeId);
         this.updateGroups();
-
-        if (useModelStore.getState().should_hide_edges){
-            this.updateVisibleEdges(); // new
+        if (this.edgeMaterial && this.rangeIdToIndex) {
+            const i = this.rangeIdToIndex.get(rangeId)!;
+            const tex = this.edgeMaterial.uniforms.uVisibleTex.value as THREE.DataTexture;
+            tex.image.data[i] = 0;
+            tex.needsUpdate = true;
         }
     }
 
-    /**
-     * Unhide all draw ranges (restores full rendering and click)
-     */
-    public unhideAllDrawRanges(): void {
+    public unhideAllDrawRanges() {
         this.hiddenRanges.clear();
         this.updateGroups();
-        if (useModelStore.getState().should_hide_edges){
-            this.updateVisibleEdges(); // new
+        if (this.edgeMaterial) {
+            const tex = this.edgeMaterial.uniforms.uVisibleTex.value as THREE.DataTexture;
+            tex.image.data.fill(255);
+            this.edgeMaterial.uniforms.uHighlighted.value = -1;
+            tex.needsUpdate = true;
         }
-    }
-
-    /**
-     * Call this once you add the mesh to your scene, so we can build per-range
-     * edge geoms and insert the merged-edge mesh.
-     */
-    public initEdgeOverlay() {
-        // 1) Build per-range edge buffer geometries
-        this.drawRanges.forEach(([start, count], rangeId) => {
-            // slice that drawRange out of the main index
-            const idxArr = (this.geometry.index!.array as Uint16Array | Uint32Array).slice(
-                start, start + count
-            );
-
-            const subGeo = new THREE.BufferGeometry();
-            // reuse the position attribute
-            subGeo.setAttribute('position', this.geometry.attributes.position);
-            subGeo.setIndex(Array.from(idxArr));
-
-            // compute edges just for that piece
-            this.perRangeEdgeGeoms.set(rangeId, new THREE.EdgesGeometry(subGeo));
-        });
-
-        // 2) create the merged initial edgeMesh
-        const merged = mergeGeometries(
-            Array.from(this.perRangeEdgeGeoms.values()), false
-        )!;
-        const mat = new THREE.LineBasicMaterial({color: 0x000000});
-        this.edgeMesh = new THREE.LineSegments(merged, mat);
-        this.edgeMesh.layers.set(1);
-
-        return this.edgeMesh
-    }
-
-    /**
-     * Re‐merge only the edges *not* hidden; call on hide/unhide.
-     */
-    private updateVisibleEdges() {
-        if (!this.edgeMesh) return;
-
-        const toMerge: THREE.BufferGeometry[] = [];
-        this.perRangeEdgeGeoms.forEach((geom, id) => {
-            if (!this.hiddenRanges.has(id)) toMerge.push(geom);
-        });
-
-        const merged = mergeGeometries(toMerge, false)!;
-        this.edgeMesh.geometry.dispose();
-        this.edgeMesh.geometry = merged;
     }
 
     /**

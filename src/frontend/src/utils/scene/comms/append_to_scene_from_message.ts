@@ -5,12 +5,13 @@ import { useOptionsStore } from "../../../state/optionsStore";
 import { convert_to_custom_batch_mesh } from "../convert_to_custom_batch_mesh";
 import { useTreeViewStore } from "../../../state/treeViewStore";
 import { buildTreeFromUserData } from "../../tree_view/generateTree";
+import {rendererRef, sceneRef} from "../../../state/refs";
 
 export function append_to_scene_from_message(message: Message) {
   // Append GLTF model
   console.log("Adding model to existing scene");
 
-  let three_scene = useModelStore.getState().scene;
+  let three_scene = sceneRef.current;
 
   let showEdges = useOptionsStore.getState().showEdges;
   const treeViewStore = useTreeViewStore.getState();
@@ -81,8 +82,8 @@ export function append_to_scene_from_message(message: Message) {
   // Add to scene
   three_scene.add(customMesh);
 
-  if (showEdges) {
-    three_scene.add(customMesh.initEdgeOverlay());
+  if (showEdges && rendererRef.current) {
+    three_scene.add(customMesh.getEdgeOverlay(rendererRef.current));
   }
 
   // Generate the tree data and update the store

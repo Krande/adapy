@@ -17,14 +17,20 @@ import {setupResizeHandler} from "./sceneHelpers/setupResizeHandler";
 import {setupPointerHandler} from "./sceneHelpers/setupPointerHandler";
 import {cameraRef, controlsRef, rendererRef, sceneRef, updatelightRef} from "../../state/refs";
 import {OrbitControls} from "three/examples/jsm/controls/OrbitControls";
-import {useTreeViewStore} from "../../state/treeViewStore";
 
 const ThreeCanvas: React.FC = () => {
     const containerRef = useRef<HTMLDivElement>(null);
-    const {modelUrl, setScene, zIsUp, defaultOrbitController} = useModelStore();
+    const {modelUrl, zIsUp, defaultOrbitController} = useModelStore();
     const {action, setCurrentKey} = useAnimationStore();
     const {showPerf} = useOptionsStore();
     const modelGroupRef = useRef<THREE.Group | null>(null); // <-- store loaded model separately
+    const statsRef = useRef<{
+        statsArray: any[];
+        callsPanel: any;
+        trisPanel: any;
+    } | null>(null);
+
+
     useEffect(() => {
         const container = containerRef.current;
         if (!container) return;
@@ -48,6 +54,7 @@ const ThreeCanvas: React.FC = () => {
 
     useEffect(() => {
         if (!containerRef.current) return;
+        // ——— INVALIDATE z-up global only once ———
         if (zIsUp) {
             THREE.Object3D.DEFAULT_UP = new THREE.Vector3(0, 0, 1)
         }
@@ -57,7 +64,6 @@ const ThreeCanvas: React.FC = () => {
         const scene = new THREE.Scene();
         scene.background = new THREE.Color("#393939");
         sceneRef.current = scene;
-        setScene(scene);
 
         // === Renderer ===
         const renderer = new THREE.WebGLRenderer({antialias: true});
@@ -101,6 +107,7 @@ const ThreeCanvas: React.FC = () => {
             containerRef.current,
             showPerf,
         );
+        statsRef.current = {statsArray, callsPanel, trisPanel};
 
         // === Model Loader ===
         if (modelUrl) {
@@ -167,7 +174,7 @@ const ThreeCanvas: React.FC = () => {
             scene.clear();
 
             // Reset global state
-            useModelStore.getState().setScene(null);
+            sceneRef.current = null;
             useModelStore.getState().setRaycaster(null);
 
             // Clean up stats panels
@@ -177,7 +184,16 @@ const ThreeCanvas: React.FC = () => {
                 });
             }
         };
-    }, [modelUrl, showPerf, defaultOrbitController, zIsUp]);
+    }, [modelUrl, defaultOrbitController, zIsUp]);
+
+    // ——— Separate effect for toggling performance panels only ———
+    useEffect(() => {
+        if (!statsRef.current || !containerRef.current) return;
+        const {statsArray} = statsRef.current;
+        statsArray.forEach(stat => {
+            stat.dom.style.display = showPerf ? "block" : "none";
+        });
+    }, [showPerf]);
 
     return <div ref={containerRef} className="w-full h-full relative"/>;
 };
