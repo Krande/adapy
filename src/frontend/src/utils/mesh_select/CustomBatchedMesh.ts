@@ -150,16 +150,6 @@ export class CustomBatchedMesh extends THREE.Mesh {
     }
 
     /**
-     * Return only the raw edge geometry for merging elsewhere.
-     */
-    public get_edge_geometry(): THREE.BufferGeometry {
-        const edgesGeo = new THREE.EdgesGeometry(this.geometry);
-        this.updateWorldMatrix(true, false);
-        edgesGeo.applyMatrix4(this.matrixWorld);
-        return edgesGeo;
-    }
-
-    /**
      * Call this once you add the mesh to your scene, so we can build per-range
      * edge geoms and insert the merged-edge mesh.
      */

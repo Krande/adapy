@@ -511,6 +511,7 @@ class RendererManager:
             params = RenderParams()
 
         with WebSocketClientSync(self.host, self.ws_port) as wc:
+            self.ensure_liveness(wc, target_id=target_id)
             # Send the scene to the WebSocket client
             wc.update_scene(
                 name,

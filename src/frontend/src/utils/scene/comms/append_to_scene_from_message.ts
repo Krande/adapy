@@ -82,8 +82,7 @@ export function append_to_scene_from_message(message: Message) {
   three_scene.add(customMesh);
 
   if (showEdges) {
-    let edgeLine = customMesh.get_edge_lines();
-    three_scene.add(edgeLine);
+    three_scene.add(customMesh.initEdgeOverlay());
   }
 
   // Generate the tree data and update the store
