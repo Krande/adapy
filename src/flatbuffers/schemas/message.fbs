@@ -1,0 +1,26 @@
+include "meshes.fbs";
+include "base.fbs";
+include "scene.fbs";
+include "procedures.fbs";
+include "server.fbs";
+include "commands.fbs";
+
+namespace wsock;
+
+table Message {
+  instance_id: int;
+  command_type: commands.CommandType;
+  scene: scene.Scene;
+  server: server.Server;
+  mesh_info: meshes.MeshInfo;
+  target_group: commands.TargetType;
+  client_type: commands.TargetType;
+  target_id: int;
+  web_clients: [commands.WebClient];
+  procedure_store: procedures.ProcedureStore;
+  server_reply: server.ServerReply;
+  screenshot: scene.Screenshot; // Add Screenshot table here
+  package: meshes.AppendMesh;
+}
+
+root_type Message;

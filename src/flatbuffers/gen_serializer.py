@@ -31,6 +31,7 @@ def float32_serialize_code(field_name: str, builder_name: str, head_spacing: int
 
 
 def generate_serialize_function(table: TableDefinition) -> str:
+    all_table_names = [tbl.name for tbl in table.get_all_tables()]
     table_names = [tbl.name for tbl in table.schema.tables]
     enum_names = [enum.name for enum in table.schema.enums]
 
@@ -51,7 +52,7 @@ def generate_serialize_function(table: TableDefinition) -> str:
                 serialize_code += f"    {field.name}_vector = None\n"
                 serialize_code += f"    if obj.{field.name} is not None:\n"
                 serialize_code += f"        {field.name}_vector = builder.CreateByteVector(obj.{field.name})\n"
-            elif field_type_value in table_names:
+            elif field_type_value in all_table_names:
                 serialize_code += f"    {field.name}_vector = None\n"
                 serialize_code += f"    if obj.{field.name} is not None and len(obj.{field.name}) > 0:\n"
                 serialize_code += f"        {field.name}_list = [serialize_{field_type_value.lower()}(builder, item) for item in obj.{field.name}]\n"
@@ -85,8 +86,8 @@ def generate_serialize_function(table: TableDefinition) -> str:
         if field.field_type == "string":
             serialize_code += f"    if {field.name}_str is not None:\n"
             serialize_code += f"        {table.name}.Add{make_camel_case(field.name)}(builder, {field.name}_str)\n"
-        elif field.field_type.startswith("["):
-            field_type_value = field.field_type[1:-1]
+        elif field.is_array:
+            field_type_value = field.field_type_without_array
             if field_type_value == "ubyte":
                 serialize_code += f"    if {field.name}_vector is not None:\n"
                 serialize_code += (
@@ -97,7 +98,7 @@ def generate_serialize_function(table: TableDefinition) -> str:
                 serialize_code += (
                     f"        {table.name}.Add{make_camel_case(field.name)}(builder, {field.name}_vector)\n"
                 )
-            elif field_type_value in table_names:
+            elif field_type_value in all_table_names:
                 serialize_code += f"    if obj.{field.name} is not None and len(obj.{field.name}) > 0:\n"
                 serialize_code += (
                     f"        {table.name}.Add{make_camel_case(field.name)}(builder, {field.name}_vector)\n"
@@ -226,16 +227,28 @@ def add_imports(schema: FlatBufferSchema, wsock_model_root, dc_model_root) -> st
     imports += "\n\n"
 
     # add serialization function from other namespaces
-    import_map = defaultdict(list)
+    tbl_import_map = defaultdict(list)
+    enum_import_map = defaultdict(list)
+    all_tbl_names = [tbl.name for tbl in schema.get_all_included_tables()]
+    all_enums = [enum.name for enum in schema.get_all_included_enums()]
     for tbl in schema.tables:
         for field in tbl.fields:
             if field.namespace is not None and field.namespace != schema.namespace:
-                import_map[field.namespace].append(field)
+                if field.field_type_without_array in all_tbl_names:
+                    tbl_import_map[field.namespace].append(field)
+                elif field.field_type_without_array in all_enums:
+                    enum_import_map[field.namespace].append(field)
+                else:
+                    logger.warning(f"Unknown field type: {field.field_type}")
 
-    for namespace, values in import_map.items():
+    for namespace, values in tbl_import_map.items():
         imports += f"from {schema.py_root}.fb_{namespace}_serializer import "
-        imports += ", ".join([f"serialize_{field.field_type.lower()}" for field in values])
+        imports += ", ".join([f"serialize_{field.field_type_without_array.lower()}" for field in values])
         imports += "\n"
+
+    # for namespace, values in enum_import_map.items():
+    #    imports += f"from {schema.py_root}.fb_{namespace}_serializer import "
+    #    imports += ", ".join([f"{field.field_type_without_array.lower()}DC" for field in values])
 
     imports += "\n"
 

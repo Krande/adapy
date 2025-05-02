@@ -18,7 +18,7 @@ from ada.comms.fb_wrap_model_gen import (
     SceneOperationsDC,
     TargetTypeDC,
 )
-from ada.comms.fb_wsock_serializer import serialize_root_message
+from ada.comms.fb_wrap_serializer import serialize_root_message
 
 
 def test_basic_flat_buffers():

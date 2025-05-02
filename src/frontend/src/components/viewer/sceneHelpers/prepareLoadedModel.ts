@@ -51,7 +51,7 @@ export function prepareLoadedModel({
 
         const customMesh = convert_to_custom_batch_mesh(original, drawRanges);
 
-        if (optionsStore.showEdges) {
+        if (optionsStore.showEdges && drawRanges.size) {
             // initialize the edge overlay
             if (rendererRef.current)
                 parent.add(customMesh.getEdgeOverlay(rendererRef.current));

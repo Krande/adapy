@@ -1,0 +1,21 @@
+include "base.fbs";
+include "commands.fbs";
+
+namespace server;
+
+
+table ServerReply {
+  message: string;
+  file_objects: [base.FileObject];
+  reply_to: commands.CommandType;
+  error: base.Error;
+}
+
+table Server {
+    new_file_object: base.FileObject;
+    all_file_objects: [base.FileObject];
+    get_file_object_by_name: string;
+    get_file_object_by_path: string;
+    delete_file_object: base.FileObject;
+    start_file_in_local_app: base.FileObject;
+}

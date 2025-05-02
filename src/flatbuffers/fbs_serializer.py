@@ -5,6 +5,8 @@ import re
 from dataclasses import dataclass
 from typing import List, Optional
 
+from config import logger
+
 
 @dataclass
 class EnumField:
@@ -20,6 +22,16 @@ class TableField:
     has_default: bool = False
     namespace: str | None = None
 
+    @property
+    def is_array(self) -> bool:
+        return self.field_type.startswith("[") and self.field_type.endswith("]")
+
+    @property
+    def field_type_without_array(self) -> str:
+        if self.is_array:
+            return self.field_type[1:-1]
+        return self.field_type
+
 
 @dataclass
 class EnumDefinition:
@@ -33,6 +45,15 @@ class TableDefinition:
     name: str
     fields: List[TableField]
     schema: Optional["FlatBufferSchema"] = None
+
+    def get_all_tables(self) -> list[TableDefinition]:
+        if self.schema is None:
+            logger.warning("parent schema is None")
+            return [self]
+        all_included_tables = [tbl for tbl in self.schema.tables]
+        for incl in self.schema.includes:
+            all_included_tables.extend(incl.tables)
+        return all_included_tables
 
 
 @dataclass
@@ -57,9 +78,30 @@ class FlatBufferSchema:
             if incl.namespace == namespace:
                 return incl
 
+    def get_all_namespaces(self) -> list[str]:
+        all_namespaces = [self.namespace] if self.namespace else []
+        for incl in self.includes:
+            if incl.namespace:
+                all_namespaces.append(incl.namespace)
+        return all_namespaces
+
+    def get_all_included_tables(self) -> list[TableDefinition]:
+        all_tables = [tbl for tbl in self.tables]
+        for incl in self.includes:
+            all_tables.extend(incl.tables)
+        return all_tables
+
+    def get_all_included_enums(self) -> list[EnumDefinition]:
+        all_enums = [enum for enum in self.enums]
+        for incl in self.includes:
+            all_enums.extend(incl.enums)
+        return all_enums
+
 
 # Function to parse enums and tables from the .fbs file and represent them as dataclasses
-def load_fbs_file(fbs_file: str, py_root: str = "ada.comms") -> FlatBufferSchema:
+def load_fbs_file(
+    fbs_file: str, py_root: str = "ada.comms", includes: list[FlatBufferSchema] | None = None
+) -> FlatBufferSchema:
     if isinstance(fbs_file, str):
         fbs_file = pathlib.Path(fbs_file)
 
@@ -68,7 +110,7 @@ def load_fbs_file(fbs_file: str, py_root: str = "ada.comms") -> FlatBufferSchema
 
     parsed_enums = []
     parsed_tables = []
-    includes = []
+    includes = [] if includes is None else includes
 
     # get namespace
     namespace_pattern = r"namespace\s+(\w+)"
@@ -81,9 +123,11 @@ def load_fbs_file(fbs_file: str, py_root: str = "ada.comms") -> FlatBufferSchema
     # loop over include files
     include_pattern = r'include "(.*?)"'
     include_files = re.findall(include_pattern, fbs_content)
-
+    included_files = [incf.file_path.name for incf in includes]
     for include_file in include_files:
-        fbs_schema = load_fbs_file(fbs_file.parent / include_file, py_root=py_root)
+        if include_file in included_files:
+            continue
+        fbs_schema = load_fbs_file(fbs_file.parent / include_file, py_root=py_root, includes=includes)
         includes.append(fbs_schema)
 
     # Remove comments
@@ -140,7 +184,9 @@ def load_fbs_file(fbs_file: str, py_root: str = "ada.comms") -> FlatBufferSchema
             field_namespace = None
             if "." in field_type:
                 field_namespace, field_type = field_type.split(".")
-                field_namespace = field_namespace.strip()
+                if "]" in field_type:
+                    field_type = "[" + field_type
+                field_namespace = field_namespace.strip().replace("[", "").replace("]", "")
 
             fields.append(
                 TableField(

@@ -4,16 +4,16 @@
 
 import * as flatbuffers from 'flatbuffers';
 
-import { AppendMesh, AppendMeshT } from '../meshes/append-mesh.js';
 import { CommandType } from './command-type';
-import { MeshInfo, MeshInfoT } from '../wsock/mesh-info.js';
-import { ProcedureStore, ProcedureStoreT } from '../wsock/procedure-store.js';
-import { Scene, SceneT } from '../wsock/scene.js';
-import { Screenshot, ScreenshotT } from '../wsock/screenshot.js';
-import { Server, ServerT } from '../wsock/server.js';
-import { ServerReply, ServerReplyT } from '../wsock/server-reply.js';
 import { TargetType } from './target-type';
-import { WebClient, WebClientT } from '../wsock/web-client.js';
+import { WebClient, WebClientT } from '../commands/web-client.js';
+import { AppendMesh, AppendMeshT } from '../meshes/append-mesh.js';
+import { MeshInfo, MeshInfoT } from '../meshes/mesh-info.js';
+import { ProcedureStore, ProcedureStoreT } from '../procedures/procedure-store.js';
+import { Scene, SceneT } from '../scene/scene.js';
+import { Screenshot, ScreenshotT } from '../scene/screenshot.js';
+import { Server, ServerT } from '../server/server.js';
+import { ServerReply, ServerReplyT } from '../server/server-reply.js';
 
 
 export class Message implements flatbuffers.IUnpackableObject<MessageT> {

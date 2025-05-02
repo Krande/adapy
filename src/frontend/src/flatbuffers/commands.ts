@@ -2,5 +2,6 @@
 
 /* eslint-disable @typescript-eslint/no-unused-vars, @typescript-eslint/no-explicit-any, @typescript-eslint/no-non-null-assertion */
 
-export * as meshes from './meshes.js';
-export * as wsock from './wsock.js';
+export { CommandType } from './commands/command-type.js';
+export { TargetType } from './commands/target-type.js';
+export { WebClient, WebClientT } from './commands/web-client.js';
