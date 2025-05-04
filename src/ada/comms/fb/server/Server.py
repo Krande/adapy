@@ -29,6 +29,7 @@ class Server(object):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
         if o != 0:
             x = self._tab.Indirect(o + self._tab.Pos)
+            from base.FileObject import FileObject
             obj = FileObject()
             obj.Init(self._tab.Bytes, x)
             return obj
@@ -41,6 +42,7 @@ class Server(object):
             x = self._tab.Vector(o)
             x += flatbuffers.number_types.UOffsetTFlags.py_type(j) * 4
             x = self._tab.Indirect(x)
+            from base.FileObject import FileObject
             obj = FileObject()
             obj.Init(self._tab.Bytes, x)
             return obj
@@ -77,6 +79,7 @@ class Server(object):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(12))
         if o != 0:
             x = self._tab.Indirect(o + self._tab.Pos)
+            from base.FileObject import FileObject
             obj = FileObject()
             obj.Init(self._tab.Bytes, x)
             return obj
@@ -87,6 +90,7 @@ class Server(object):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(14))
         if o != 0:
             x = self._tab.Indirect(o + self._tab.Pos)
+            from base.FileObject import FileObject
             obj = FileObject()
             obj.Init(self._tab.Bytes, x)
             return obj

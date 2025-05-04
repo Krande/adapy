@@ -4,8 +4,8 @@
 
 import * as flatbuffers from 'flatbuffers';
 
-import { ArrayType } from './array-type';
-import { ParameterType } from './parameter-type';
+import { ArrayType } from '../base/array-type.js';
+import { ParameterType } from '../base/parameter-type.js';
 
 
 export class Value implements flatbuffers.IUnpackableObject<ValueT> {

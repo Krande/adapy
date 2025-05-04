@@ -14,7 +14,11 @@ from ada.comms.fb.fb_base_gen import (
 )
 from ada.comms.fb.fb_commands_gen import CommandTypeDC, TargetTypeDC, WebClientDC
 from ada.comms.fb.fb_meshes_gen import AppendMeshDC, MeshDC, MeshInfoDC
-from ada.comms.fb.fb_procedures_gen import ProcedureDC, ProcedureStateDC, ProcedureStoreDC
+from ada.comms.fb.fb_procedures_gen import (
+    ProcedureDC,
+    ProcedureStateDC,
+    ProcedureStoreDC,
+)
 from ada.comms.fb.fb_scene_gen import (
     CameraParamsDC,
     SceneDC,

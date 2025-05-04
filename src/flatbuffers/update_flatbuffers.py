@@ -6,7 +6,7 @@ import sys
 from gen_dataclasses import generate_dataclasses_from_schema, load_fbs_file
 from gen_deserializer import generate_deserialization_code
 from gen_serializer import generate_serialization_code
-from update_imports import update_py_imports, update_ts_imports, update_gen_py_imports
+from update_imports import update_gen_py_imports, update_py_imports, update_ts_imports
 
 ROOT_DIR = pathlib.Path(__file__).parent.parent.parent
 
@@ -15,6 +15,27 @@ _SCHEMA_DIR = ROOT_DIR / "src/flatbuffers/schemas/"
 _GEN_DIR = ROOT_DIR / "src/frontend/src/flatbuffers"
 CMD_FILE = _SCHEMA_DIR / "message.fbs"
 
+def call_ts_flatbuffers(flatc_exe: pathlib.Path, schema_files: list[str]):
+    # Generate FlatBuffers code
+    args = [
+        flatc_exe.as_posix(),
+        "--ts",
+        "--gen-object-api",
+        "-o",
+        _GEN_DIR.as_posix(),
+        *schema_files,
+    ]
+
+    print("Running command:", " ".join(args))
+    result = subprocess.run(" ".join(args), shell=True, check=True, cwd=ROOT_DIR)
+    if result.returncode == 0:
+        print("FlatBuffers generated successfully!")
+        if result.stdout:
+            print(result.stdout.decode())
+        if result.stderr:
+            print(result.stderr.decode())
+    else:
+        raise Exception("Error generating FlatBuffers!")
 
 def main():
     # Clean wsock directory and generated directory
@@ -44,13 +65,6 @@ def main():
         _COMMS_DIR.as_posix(),
         main_cmd_file.as_posix(),
         "--gen-all",
-        "&&",
-        flatc_exe.as_posix(),
-        "--ts",
-        "--gen-object-api",
-        "-o",
-        _GEN_DIR.as_posix(),
-        *schema_files,
     ]
 
     print("Running command:", " ".join(args))
@@ -105,6 +119,7 @@ def main():
         )
 
     update_gen_py_imports(_COMMS_DIR, fbs_schema)
+
 
 if __name__ == "__main__":
     main()

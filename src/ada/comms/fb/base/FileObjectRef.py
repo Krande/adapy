@@ -57,6 +57,7 @@ class FileObjectRef(object):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(12))
         if o != 0:
             x = self._tab.Indirect(o + self._tab.Pos)
+            from base.FileObjectRef import FileObjectRef
             obj = FileObjectRef()
             obj.Init(self._tab.Bytes, x)
             return obj
@@ -67,6 +68,7 @@ class FileObjectRef(object):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(14))
         if o != 0:
             x = self._tab.Indirect(o + self._tab.Pos)
+            from base.FileObjectRef import FileObjectRef
             obj = FileObjectRef()
             obj.Init(self._tab.Bytes, x)
             return obj
@@ -84,6 +86,7 @@ class FileObjectRef(object):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(18))
         if o != 0:
             x = self._tab.Indirect(o + self._tab.Pos)
+            from base.ProcedureStart import ProcedureStart
             obj = ProcedureStart()
             obj.Init(self._tab.Bytes, x)
             return obj

@@ -4,7 +4,7 @@
 
 import * as flatbuffers from 'flatbuffers';
 
-import { ParameterType } from './parameter-type';
+import { ParameterType } from '../base/parameter-type.js';
 import { Value, ValueT } from '../base/value.js';
 
 

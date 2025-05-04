@@ -44,12 +44,20 @@ def substitute_class_in_instantiation(input_string, new_class_name):
 
 
 def add_class_import(input_string, new_class_name, module_name):
-    # Regex to find the instantiation of the class (e.g., obj = Scene())
-    pattern = r"(\w+)\s*=\s*(\w+)\(\)"  # Matches 'obj = Scene()' or similar
-    import_statement = f"from {module_name} import {new_class_name}\n"
+    # Regex to match instantiation and capture indentation
+    pattern = rf"^(\s*)(\w+)\s*=\s*({new_class_name})\(\)"  # Capture indentation and object instantiation
 
-    # Add the import statement before the instantiation
-    result = re.sub(pattern, lambda match: import_statement + match.group(0), input_string)
+    import_statement = f"from {module_name}.{new_class_name} import {new_class_name}\n"
+
+    def add_import(match):
+        # Capture the indentation
+        indent = match.group(1)
+        # Insert the import statement before the instantiation
+        return f"{indent}{import_statement}{match.group(0)}"
+
+    # Substitute the matching instantiations with import statements added
+    result = re.sub(pattern, add_import, input_string, flags=re.MULTILINE)
+
     return result
 
 

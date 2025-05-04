@@ -43,6 +43,7 @@ class Parameter(object):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(8))
         if o != 0:
             x = self._tab.Indirect(o + self._tab.Pos)
+            from base.Value import Value
             obj = Value()
             obj.Init(self._tab.Bytes, x)
             return obj
@@ -53,6 +54,7 @@ class Parameter(object):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
         if o != 0:
             x = self._tab.Indirect(o + self._tab.Pos)
+            from base.Value import Value
             obj = Value()
             obj.Init(self._tab.Bytes, x)
             return obj
@@ -65,6 +67,7 @@ class Parameter(object):
             x = self._tab.Vector(o)
             x += flatbuffers.number_types.UOffsetTFlags.py_type(j) * 4
             x = self._tab.Indirect(x)
+            from base.Value import Value
             obj = Value()
             obj.Init(self._tab.Bytes, x)
             return obj

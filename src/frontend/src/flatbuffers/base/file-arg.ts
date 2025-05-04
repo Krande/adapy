@@ -4,7 +4,7 @@
 
 import * as flatbuffers from 'flatbuffers';
 
-import { FileType } from './file-type';
+import { FileType } from '../base/file-type.js';
 
 
 export class FileArg implements flatbuffers.IUnpackableObject<FileArgT> {
