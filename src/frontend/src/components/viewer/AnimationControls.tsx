@@ -18,8 +18,8 @@ const AnimationControls = () => {
 
         // Play the selected animation using the controller
         animationControllerRef.current?.setCurrentAnimation(animationName);
-        animationControllerRef.current?.playAnimation(animationName);
-        setIsPlaying(true);
+        //animationControllerRef.current?.playAnimation(animationName);
+        //setIsPlaying(true);
     };
 
     const togglePlayPause = () => {
@@ -36,7 +36,7 @@ const AnimationControls = () => {
     const stopAnimation = () => {
         if (animationControllerRef.current) {
             animationControllerRef.current.stopAnimation();
-            setIsPlaying(false); // Reset play state after stopping
+            setIsPlaying(false); // Reset play/pause state
         }
     };
 
@@ -60,9 +60,6 @@ const AnimationControls = () => {
                 value={selectedAnimation}
                 onChange={handleAnimationChange}
             >
-                <option title="No Animation" key="No Animation" value="No Animation">
-                    No Animation
-                </option>
                 {animationControllerRef.current?.getAnimationNames().map((name) => (
                     <option key={name} value={name}>
                         {name}
@@ -89,7 +86,7 @@ const AnimationControls = () => {
                     min="0"
                     max={animationControllerRef.current?.getDuration() || 0}
                     value={roundedCurrentKey}
-                    step={animationControllerRef.current?.getDuration() / 100 || 0}
+                    step={animationControllerRef.current?.getStep() || 0}
                     onChange={(e) => {
                         const newTime = parseFloat(e.target.value);
                         setCurrentKey(newTime);

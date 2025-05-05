@@ -73,7 +73,7 @@ export function setupModelLoader(
                 useAnimationStore.getState().setHasAnimation(true);
 
                 // Play the first animation
-                animationControllerRef.current?.playAnimation(gltf.animations[0].name);
+                animationControllerRef.current?.setCurrentAnimation(gltf.animations[0].name);
                 if (useModelStore.getState().model_type == FilePurpose.ANALYSIS) {
 
                 }

@@ -207,6 +207,7 @@ test-core = { cmd="pytest tests --ignore=tests/profiling --ignore=tests/fem --ig
 [tool.pixi.feature.fem.tasks]
 test-all = { cmd = "pytest tests --durations=0", depends-on = ["pre-install"], env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 test-fem = { cmd = "pytest tests --ignore=tests/profiling --ignore=tests/core --ignore=tests/full --durations=0", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+test-basic-fem = { cmd = "python basic_fem.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" }, cwd="examples" }
 
 [tool.pixi.feature.frontend.tasks]
 npm = { cmd = "npm", cwd = "./src/frontend" }

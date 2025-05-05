@@ -2,14 +2,14 @@
 import * as THREE from 'three';
 import {colorVerticesBasedOnDeformation} from "../analysis/colorize_vector_data";
 import {sceneRef} from "../../../state/refs";
-import {useAnimationStore, AnimationState} from "../../../state/animationStore";
+import {AnimationState, useAnimationStore} from "../../../state/animationStore";
 
 export class AnimationController {
     private mixer: THREE.AnimationMixer;
     private actions: Map<string, THREE.AnimationAction> = new Map();
     public currentAction: THREE.AnimationAction | null = null;
     public meshMap: Map<string, string[]> = new Map();
-    private animation_store: AnimationState | null = null;
+    private readonly animation_store: AnimationState | null = null;
 
     constructor(scene: THREE.Scene) {
         this.mixer = new THREE.AnimationMixer(scene);
@@ -30,6 +30,21 @@ export class AnimationController {
         return Array.from(this.actions.keys());
     }
 
+    private _get_mesh_from_action(action: THREE.AnimationAction): THREE.Mesh | null {
+        const clip = action.getClip();
+        const node_names = this.meshMap.get(clip.name);
+        const scene = sceneRef.current;
+        if (node_names && scene) {
+            for (const node_name of node_names) {
+                const mesh = scene.getObjectByName(node_name.replace('.', '')) as THREE.Mesh;
+                if (mesh) {
+                    return mesh;
+                }
+            }
+        }
+        return null;
+    }
+
     public setCurrentAnimation(clipName: string): void {
         const action = this.actions.get(clipName);
         if (action) {
@@ -38,17 +53,10 @@ export class AnimationController {
             }
 
             // get the index of the clip
-            const clip = action.getClip();
-            const node_names = this.meshMap.get(clip.name);
+            const mesh = this._get_mesh_from_action(action);
             const index = 0;
-            const scene = sceneRef.current;
-            if (node_names && scene) {
-                for (const node_name of node_names) {
-                    const mesh = scene.getObjectByName(node_name.replace('.', '')) as THREE.Mesh;
-                    if (mesh) {
-                        colorVerticesBasedOnDeformation(mesh, index);  // Colorize vertices based on deformation
-                    }
-                }
+            if (mesh) {
+                colorVerticesBasedOnDeformation(mesh, index);  // Colorize vertices based on deformation
             }
 
             action.reset().play();
@@ -85,12 +93,33 @@ export class AnimationController {
         }
     }
 
+    /**
+     * Internal: clear all morph target influences for target meshes
+     */
+    private clearMorphInfluences(): void {
+        const scene = sceneRef.current;
+        if (!scene) return;
+        this.meshMap.forEach((nodeNames) => {
+            nodeNames.forEach((nodeName) => {
+                const mesh = scene.getObjectByName(nodeName.replace('.', '')) as THREE.Mesh;
+                if (mesh && mesh.morphTargetInfluences) {
+                    mesh.morphTargetInfluences.fill(0);
+                }
+            });
+        });
+    }
+
     // Stop the current animation (and reset to the beginning)
     public stopAnimation(): void {
         if (this.currentAction) {
-            this.currentAction.stop();
-            this.currentAction = null;
+            this.currentAction.paused = true;
+            this.seek(0);  // Reset to the beginning
+            // Clear morph influences to restore shape
+            if (this.animation_store)
+                this.animation_store.setCurrentKey(this.getCurrentTime());  // Update the current key (time) in the store
         }
+
+
     }
 
     // Seek to a specific time in the current animation
@@ -119,6 +148,13 @@ export class AnimationController {
     public getDuration(): number {
         if (this.currentAction) {
             return this.currentAction.getClip().duration;
+        }
+        return 0;
+    }
+
+    public getStep(): number {
+        if (this.currentAction) {
+            return this.getDuration() / 100;
         }
         return 0;
     }
