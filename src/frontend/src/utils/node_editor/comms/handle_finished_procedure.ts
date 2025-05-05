@@ -1,5 +1,7 @@
-import {FileObject, FileType, Message} from "../../flatbuffers/wsock";
-import {useNodeEditorStore} from "../../state/useNodeEditorStore";
+import {Message} from "../../../flatbuffers/wsock";
+import {FileObject} from "../../../flatbuffers/base";
+import {FileType} from "../../../flatbuffers/base/file-type";
+import {useNodeEditorStore} from "../../../state/useNodeEditorStore";
 
 function add_node(fileObject: FileObject) {
     let node_id = fileObject.procedureParent()?.procedureIdString();

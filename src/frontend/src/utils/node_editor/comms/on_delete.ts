@@ -1,10 +1,10 @@
 import * as flatbuffers from "flatbuffers";
-import {Message} from "../../flatbuffers/wsock/message";
-import {webSocketHandler} from "../websocket_connector";
-import {CommandType} from "../../flatbuffers/wsock/command-type";
-import {TargetType} from "../../flatbuffers/wsock/target-type";
-import {Server} from "../../flatbuffers/wsock/server";
-import {FileObject} from "../../flatbuffers/wsock/file-object";
+import {Message} from "../../../flatbuffers/wsock/message";
+import {webSocketHandler} from "../../websocket_connector";
+import {CommandType} from "../../../flatbuffers/commands/command-type";
+import {TargetType} from "../../../flatbuffers/commands/target-type";
+import {Server} from "../../../flatbuffers/server/server";
+import {FileObject} from "../../../flatbuffers/base";
 
 export function onDelete(elements: { nodes: any[], edges: any[] }) {
     if (elements.nodes.length > 0) {

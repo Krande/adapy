@@ -1,8 +1,7 @@
 import {Message} from "../../../flatbuffers/wsock/message";
 import {webSocketHandler} from "../../websocket_connector";
 import * as flatbuffers from "flatbuffers";
-import {CommandType} from "../../../flatbuffers/wsock/command-type";
-import {TargetType} from "../../../flatbuffers/wsock/target-type";
+import {CommandType, TargetType} from "../../../flatbuffers/commands";
 
 
 export function request_list_of_files_from_server() {

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import {useColorStore} from "../../state/colorLegendStore";
+import {useColorStore} from "../../../state/colorLegendStore";
 
 type Vector = number[];
 type Matrix = Vector[];
@@ -7,10 +7,8 @@ type Matrix = Vector[];
 export function updateMeshMaterial(mesh: THREE.Mesh) {
     // Check if the material supports vertex colors
     // Replace the material with one that supports vertex colors
-    mesh.material = new THREE.MeshBasicMaterial({vertexColors: true});
+    mesh.material = new THREE.MeshBasicMaterial({vertexColors: true, side: THREE.DoubleSide});
     // make sure the material is double sided so that we can see the back side of the mesh
-    mesh.material.side = THREE.DoubleSide;
-    console.log('replaced material')
 }
 
 

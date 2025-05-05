@@ -1,6 +1,6 @@
 import { Message } from "../../../flatbuffers/wsock/message";
 import { useModelStore } from "../../../state/modelStore";
-import { SceneOperations } from "../../../flatbuffers/wsock/scene-operations";
+import { SceneOperations } from "../../../flatbuffers/scene/scene-operations";
 import { append_to_scene_from_message } from "./append_to_scene_from_message";
 
 import { ungzip } from 'pako';
@@ -46,7 +46,7 @@ export const update_scene_from_message = (message: Message) => {
     const url = URL.createObjectURL(blob);
 
     if (operation == SceneOperations.REPLACE) {
-        useModelStore.getState().setModelUrl(url, scene.operation(), ""); // Set the URL for the model
+        useModelStore.getState().setModelUrl(url, scene.operation(), "", fileObject.purpose()); // Set the URL for the model
     } else if (operation == SceneOperations.REMOVE) {
         console.error("Currently unsupported operation", operation);
     } else {

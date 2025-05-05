@@ -6,7 +6,7 @@ import {useNodeEditorStore} from "../state/useNodeEditorStore";
 import {useAnimationStore} from "../state/animationStore";
 import {useOptionsStore} from "../state/optionsStore";
 import {useTreeViewStore} from "../state/treeViewStore";
-import {request_list_of_nodes} from "../utils/node_editor/request_list_of_nodes";
+import {request_list_of_nodes} from "../utils/node_editor/comms/request_list_of_nodes";
 import {useServerInfoStore} from "../state/serverInfoStore";
 import ServerInfoBox from "./server_info/ServerInfoBox";
 import GraphIcon from "./icons/GraphIcon";
@@ -19,10 +19,10 @@ import ServerIcon from "./icons/ServerIcon";
 const Menu = () => {
     const {show_info_box} = useObjectInfoStore();
     const {isNodeEditorVisible, setIsNodeEditorVisible, use_node_editor_only} = useNodeEditorStore();
-    const {hasAnimation} = useAnimationStore();
     const {isOptionsVisible, setIsOptionsVisible} = useOptionsStore(); // use the useNavBarStore function
     const {isTreeCollapsed, setIsTreeCollapsed} = useTreeViewStore();
     const {showServerInfoBox, setShowServerInfoBox} = useServerInfoStore();
+    const {hasAnimation} = useAnimationStore();
 
     return (
         <div className="relative w-full h-full">

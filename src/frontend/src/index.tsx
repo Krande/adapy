@@ -6,7 +6,7 @@ import {useWebSocketStore} from "./state/webSocketStore";
 import {handleWebSocketMessage} from "./utils/handleWebSocketMessage";
 import {loadGLTFfrombase64} from "./utils/scene/loadGLTFfrombase64";
 import {useModelStore} from "./state/modelStore";
-import {SceneOperations} from "./flatbuffers/wsock/scene-operations";
+import {SceneOperations} from "./flatbuffers/scene/scene-operations";
 
 // start websocket here
 const url = useWebSocketStore.getState().webSocketAddress;
@@ -15,7 +15,6 @@ if ((window as any).DEACTIVATE_WS===true) {
 }else {
     webSocketHandler.connect(url, handleWebSocketMessage());
 }
-
 
 if ((window as any).B64GLTF) {
     console.log("B64GLTF exists, loading model");

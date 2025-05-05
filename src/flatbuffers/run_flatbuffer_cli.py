@@ -22,7 +22,10 @@ def call_ts_flatbuffers(flatc_exe: pathlib.Path, schema_files: list[str]):
         "--gen-object-api",
         "-o",
         _GEN_DIR.as_posix(),
+        # CMD_FILE.as_posix(),
+        # "--gen-all",
         *schema_files,
+
     ]
 
     print("Running command:", " ".join(args))
@@ -57,7 +60,7 @@ def call_py_flatbuffers(flatc_exe: pathlib.Path, schema_files: list[str]):
     else:
         raise Exception("Error generating FlatBuffers!")
 
-def main():
+def run_flatc():
     # Clean wsock directory and generated directory
     shutil.rmtree(_GEN_DIR, ignore_errors=True)
     shutil.rmtree(_COMMS_DIR, ignore_errors=True)
@@ -99,4 +102,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    run_flatc()

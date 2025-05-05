@@ -1,12 +1,14 @@
 // modelStore.ts
 import {create} from 'zustand';
 import * as THREE from 'three';
-import {SceneOperations} from "../flatbuffers/wsock/scene-operations";
+import {SceneOperations} from "../flatbuffers/scene/scene-operations";
+import {FilePurpose} from "../flatbuffers/base/file-purpose";
 
 export interface ModelState {
     modelUrl: string | null;
     scene_action: SceneOperations | null;
     scene_action_arg: string | null;
+    model_type: FilePurpose | null;
     userdata: any;
     translation: THREE.Vector3 | null;
     boundingBox: THREE.Box3 | null;
@@ -18,7 +20,8 @@ export interface ModelState {
     setModelUrl: (
         url: string | null,
         scene_action: SceneOperations | null,
-        scene_action_arg: string | null
+        scene_action_arg: string | null,
+        model_type: FilePurpose
     ) => void;
     setTranslation: (translation: THREE.Vector3) => void;
     setBoundingBox: (boundingBox: THREE.Box3) => void;
@@ -38,12 +41,15 @@ export const useModelStore = create<ModelState>((set) => ({
     raycaster: null,
     zIsUp: true, // default to Z being up
     defaultOrbitController: true,
+    model_type: null,
 
-    setModelUrl: (url, scene_action, scene_action_arg) =>
+    setModelUrl: (url, scene_action, scene_action_arg, model_type) =>
         set({
             modelUrl: url,
             scene_action: scene_action,
             scene_action_arg: scene_action_arg,
+            model_type: model_type
+
         }),
     setTranslation: (translation) => set({translation}),
     setBoundingBox: (boundingBox) => set({boundingBox}),

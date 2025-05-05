@@ -1,9 +1,8 @@
-import {Message} from "../../flatbuffers/wsock/message";
-import {webSocketHandler} from "../websocket_connector";
-import {CommandType} from "../../flatbuffers/wsock/command-type";
-import {TargetType} from "../../flatbuffers/wsock/target-type";
+import {Message} from "../../../flatbuffers/wsock/message";
+import {webSocketHandler} from "../../websocket_connector";
+import {CommandType, TargetType} from "../../../flatbuffers/commands";
 import * as flatbuffers from "flatbuffers";
-import {useNodeEditorStore} from "../../state/useNodeEditorStore";
+import {useNodeEditorStore} from "../../../state/useNodeEditorStore";
 
 export function start_new_node_editor(){
 

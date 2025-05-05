@@ -1,12 +1,12 @@
 import pathlib
 import shutil
 import subprocess
-import sys
 
 from gen_dataclasses import generate_dataclasses_from_schema, load_fbs_file
 from gen_deserializer import generate_deserialization_code
 from gen_serializer import generate_serialization_code
-from update_imports import update_gen_py_imports, update_py_imports, update_ts_imports
+from run_flatbuffer_cli import run_flatc
+from update_imports import update_py_imports, update_ts_imports
 
 ROOT_DIR = pathlib.Path(__file__).parent.parent.parent
 
@@ -15,69 +15,7 @@ _SCHEMA_DIR = ROOT_DIR / "src/flatbuffers/schemas/"
 _GEN_DIR = ROOT_DIR / "src/frontend/src/flatbuffers"
 CMD_FILE = _SCHEMA_DIR / "message.fbs"
 
-def call_ts_flatbuffers(flatc_exe: pathlib.Path, schema_files: list[str]):
-    # Generate FlatBuffers code
-    args = [
-        flatc_exe.as_posix(),
-        "--ts",
-        "--gen-object-api",
-        "-o",
-        _GEN_DIR.as_posix(),
-        *schema_files,
-    ]
-
-    print("Running command:", " ".join(args))
-    result = subprocess.run(" ".join(args), shell=True, check=True, cwd=ROOT_DIR)
-    if result.returncode == 0:
-        print("FlatBuffers generated successfully!")
-        if result.stdout:
-            print(result.stdout.decode())
-        if result.stderr:
-            print(result.stderr.decode())
-    else:
-        raise Exception("Error generating FlatBuffers!")
-
-def main():
-    # Clean wsock directory and generated directory
-    shutil.rmtree(_GEN_DIR, ignore_errors=True)
-    shutil.rmtree(_COMMS_DIR, ignore_errors=True)
-    flatc_exe = shutil.which("flatc.exe")
-    if flatc_exe is None:  #
-        flatc_exe = pathlib.Path(sys.prefix) / "Library/bin/flatc.exe"
-        flatc_exe = shutil.which(flatc_exe)
-
-    if flatc_exe is None:
-        raise Exception("FlatBuffers compiler not found in PATH!")
-
-    if isinstance(flatc_exe, str):
-        flatc_exe = pathlib.Path(flatc_exe)
-
-    main_cmd_file = CMD_FILE
-    schema_files = [fbs.as_posix() for fbs in _SCHEMA_DIR.rglob("*.fbs")]
-
-    _SCHEMA_DIR.mkdir(parents=True, exist_ok=True)
-
-    # Generate FlatBuffers code
-    args = [
-        flatc_exe.as_posix(),
-        "--python",
-        "-o",
-        _COMMS_DIR.as_posix(),
-        main_cmd_file.as_posix(),
-        "--gen-all",
-    ]
-
-    print("Running command:", " ".join(args))
-    result = subprocess.run(" ".join(args), shell=True, check=True, cwd=ROOT_DIR)
-    if result.returncode == 0:
-        print("FlatBuffers generated successfully!")
-        if result.stdout:
-            print(result.stdout.decode())
-        if result.stderr:
-            print(result.stderr.decode())
-    else:
-        raise Exception("Error generating FlatBuffers!")
-
+def add_to_git():
     finalize_args = [
         "git",
         "add",
@@ -88,14 +26,27 @@ def main():
     result = subprocess.run(finalize_args, shell=True, check=True)
 
     if result.returncode != 0:
-        raise Exception("Error generating FlatBuffers!")
+        raise Exception("Error adding FlatBuffers files to git!")
+
+
+def main():
+    # Clean wsock directory and generated directory
+    shutil.rmtree(_GEN_DIR, ignore_errors=True)
+    shutil.rmtree(_COMMS_DIR, ignore_errors=True)
+
+    main_cmd_file = CMD_FILE
+
+    _SCHEMA_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Generate FlatBuffers code
+    run_flatc()
 
     # Update imports in the generated code
 
     update_ts_imports(_GEN_DIR)
 
     # Update datclasses and enums
-    fbs_schema = load_fbs_file(main_cmd_file.as_posix(), py_root="ada.comms")
+    fbs_schema = load_fbs_file(main_cmd_file.as_posix(), py_root="ada.comms.fb")
     sequence = fbs_schema.includes + [fbs_schema]
     namespaces = [fbs.namespace for fbs in sequence]
     for included_fbs in sequence:
@@ -112,13 +63,21 @@ def main():
 
         # Update serializer and deserializer
         generate_serialization_code(
-            included_fbs, _COMMS_DIR / f"{prefix}_serializer.py", fb_gen_import_root, dc_imports
+            included_fbs,
+            _COMMS_DIR / f"{prefix}_serializer.py",
+            fb_gen_import_root,
+            dc_imports,
+            py_root=fbs_schema.py_root,
         )
         generate_deserialization_code(
-            included_fbs.file_path.as_posix(), _COMMS_DIR / f"{prefix}_deserializer.py", fb_gen_import_root, dc_imports
+            included_fbs.file_path.as_posix(),
+            _COMMS_DIR / f"{prefix}_deserializer.py",
+            fb_gen_import_root,
+            dc_imports,
+            py_root=fbs_schema.py_root,
         )
 
-    update_gen_py_imports(_COMMS_DIR, fbs_schema)
+    add_to_git()
 
 
 if __name__ == "__main__":

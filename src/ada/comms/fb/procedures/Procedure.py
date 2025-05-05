@@ -52,7 +52,7 @@ class Procedure(object):
             x = self._tab.Vector(o)
             x += flatbuffers.number_types.UOffsetTFlags.py_type(j) * 4
             x = self._tab.Indirect(x)
-            from base.Parameter import Parameter
+            from ada.comms.fb.base.Parameter import Parameter
             obj = Parameter()
             obj.Init(self._tab.Bytes, x)
             return obj
@@ -77,7 +77,7 @@ class Procedure(object):
             x = self._tab.Vector(o)
             x += flatbuffers.number_types.UOffsetTFlags.py_type(j) * 4
             x = self._tab.Indirect(x)
-            from base.FileArg import FileArg
+            from ada.comms.fb.base.FileArg import FileArg
             obj = FileArg()
             obj.Init(self._tab.Bytes, x)
             return obj
@@ -102,7 +102,7 @@ class Procedure(object):
             x = self._tab.Vector(o)
             x += flatbuffers.number_types.UOffsetTFlags.py_type(j) * 4
             x = self._tab.Indirect(x)
-            from base.FileArg import FileArg
+            from ada.comms.fb.base.FileArg import FileArg
             obj = FileArg()
             obj.Init(self._tab.Bytes, x)
             return obj

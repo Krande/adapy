@@ -107,10 +107,10 @@ def add_imports(schema: FlatBufferSchema, wsock_model_root, dc_model_root) -> st
 
 
 def generate_deserialization_code(
-    fbs_schema: str | FlatBufferSchema, output_file: str | pathlib.Path, wsock_model_root, dc_model_root
+    fbs_schema: str | FlatBufferSchema, output_file: str | pathlib.Path, wsock_model_root, dc_model_root, py_root: str
 ):
     if isinstance(fbs_schema, str | pathlib.Path):
-        fbs_schema = load_fbs_file(fbs_schema)
+        fbs_schema = load_fbs_file(fbs_schema, py_root=py_root)
 
     imports_str = add_imports(fbs_schema, wsock_model_root, dc_model_root)
 

@@ -125,6 +125,7 @@ def scene_from_fem_results(fea_res: FEAResult, params: RenderParams):
 
     params.gltf_buffer_postprocessor = animation_store
     params.gltf_tree_postprocessor = AnimationStore.tree_postprocessor
+
     parent_node = GraphNode("world", 0, hash=create_guid())
     graph = GraphStore(top_level=parent_node, nodes={0: parent_node})
     graph.add_node(GraphNode(fea_res.name, graph.next_node_id(), hash=create_guid(), parent=parent_node))
@@ -464,12 +465,15 @@ class RendererManager:
             )
 
             if params.gltf_export_to_file is not None:
-                gltf_tree_postprocess = GltfTreePostProcessor(params.gltf_asset_extras_dict)
+                if params.gltf_tree_postprocessor is None:
+                    gltf_tree_postprocess = GltfTreePostProcessor(params.gltf_asset_extras_dict)
+                else:
+                    gltf_tree_postprocess = params.gltf_tree_postprocessor
                 gltf_export_to_file = params.gltf_export_to_file
                 if isinstance(gltf_export_to_file, str):
                     gltf_export_to_file = pathlib.Path(params.gltf_export_to_file)
                 gltf_export_to_file.parent.mkdir(parents=True, exist_ok=True)
-                scene.export(gltf_export_to_file, tree_postprocessor=gltf_tree_postprocess)
+                scene.export(gltf_export_to_file, tree_postprocessor=gltf_tree_postprocess, buffer_postprocessor=params.gltf_buffer_postprocessor)
 
             if params.add_ifc_backend is True and type(obj) is Assembly:
                 server_temp = Config().websockets_server_temp_dir

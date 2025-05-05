@@ -45,7 +45,7 @@ class ProcedureStart(object):
             x = self._tab.Vector(o)
             x += flatbuffers.number_types.UOffsetTFlags.py_type(j) * 4
             x = self._tab.Indirect(x)
-            from base.Parameter import Parameter
+            from ada.comms.fb.base.Parameter import Parameter
             obj = Parameter()
             obj.Init(self._tab.Bytes, x)
             return obj

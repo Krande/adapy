@@ -1,6 +1,6 @@
 // DynamicHandle.tsx
 import React from 'react';
-import {Connection, Handle, HandleType, Position, useUpdateNodeInternals} from '@xyflow/react';
+import {Connection, Handle, HandleType, Position} from '@xyflow/react';
 
 
 interface DynamicHandleProps {

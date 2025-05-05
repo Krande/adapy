@@ -1,37 +1,33 @@
 // sceneHelpers/prepareLoadedModel.ts
 import * as THREE from "three";
-import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import {convert_to_custom_batch_mesh} from "../../../utils/scene/convert_to_custom_batch_mesh";
 import {replaceBlackMaterials} from "../../../utils/scene/assignDefaultMaterial";
 import {buildTreeFromUserData} from "../../../utils/tree_view/generateTree";
 import {ModelState} from "../../../state/modelStore";
 import {TreeViewState} from "../../../state/treeViewStore";
 import {OptionsState} from "../../../state/optionsStore";
-import {AnimationState} from "../../../state/animationStore";
 import {rendererRef} from "../../../state/refs";
+import {FilePurpose} from "../../../flatbuffers/base";
 
 interface PrepareLoadedModelParams {
-    scene: THREE.Object3D;
+    gltf_scene: THREE.Object3D;
     modelStore: ModelState;
     treeViewStore: TreeViewState;
     optionsStore: OptionsState;
-    animationStore: AnimationState;
 }
 
 export function prepareLoadedModel({
-                                       scene,
+                                       gltf_scene,
                                        modelStore,
                                        treeViewStore,
                                        optionsStore,
-                                       animationStore,
                                    }: PrepareLoadedModelParams): void {
-    modelStore.setUserData(scene.userData);
+    modelStore.setUserData(gltf_scene.userData);
     // we'll collect all edge geometries here
-    const edgeGeoms: THREE.BufferGeometry[] = [];
     const meshesToReplace: { original: THREE.Mesh; parent: THREE.Object3D }[] = [];
 
-    scene.traverse((object) => {
-        if (object instanceof THREE.Mesh) {
+    gltf_scene.traverse((object) => {
+        if (object instanceof THREE.Mesh && modelStore.model_type == FilePurpose.DESIGN) {
             meshesToReplace.push({original: object, parent: object.parent!});
         } else if (object instanceof THREE.LineSegments || object instanceof THREE.Points) {
             object.layers.set(1);
@@ -40,7 +36,7 @@ export function prepareLoadedModel({
 
     for (const {original, parent} of meshesToReplace) {
         const meshName = original.name;
-        const drawRangesData = scene.userData[`draw_ranges_${meshName}`] as Record<string, [number, number]>;
+        const drawRangesData = gltf_scene.userData[`draw_ranges_${meshName}`] as Record<string, [number, number]>;
 
         const drawRanges = new Map<string, [number, number]>();
         if (drawRangesData) {
@@ -52,7 +48,6 @@ export function prepareLoadedModel({
         const customMesh = convert_to_custom_batch_mesh(original, drawRanges);
 
         if (optionsStore.showEdges && drawRanges.size) {
-            // initialize the edge overlay
             if (rendererRef.current)
                 parent.add(customMesh.getEdgeOverlay(rendererRef.current));
         }
@@ -61,12 +56,12 @@ export function prepareLoadedModel({
         parent.remove(original);
     }
 
-    replaceBlackMaterials(scene);
+    replaceBlackMaterials(gltf_scene);
 
-    const boundingBox = new THREE.Box3().setFromObject(scene);
+    const boundingBox = new THREE.Box3().setFromObject(gltf_scene);
     modelStore.setBoundingBox(boundingBox);
 
-    if (!optionsStore.lockTranslation) {
+    if (!optionsStore.lockTranslation && modelStore.model_type == FilePurpose.DESIGN) {
         const center = boundingBox.getCenter(new THREE.Vector3());
         const translation = center.clone().multiplyScalar(-1);
         if (modelStore.zIsUp) {
@@ -79,18 +74,10 @@ export function prepareLoadedModel({
             translation.y = -minY + bheight * 0.05;
         }
 
-        scene.position.add(translation);
+        gltf_scene.position.add(translation);
         modelStore.setTranslation(translation);
     }
-    if (optionsStore.showEdges && edgeGeoms.length) {
-        const merged = mergeGeometries(edgeGeoms, false);
-        const mat = new THREE.LineBasicMaterial({color: 0x000000});
-        const allEdges = new THREE.LineSegments(merged, mat);
-        allEdges.layers.set(1);
-        scene.add(allEdges);
-    }
-    animationStore.setSelectedAnimation("No Animation");
 
-    const treeData = buildTreeFromUserData(scene.userData);
+    const treeData = buildTreeFromUserData(gltf_scene.userData);
     if (treeData) treeViewStore.setTreeData(treeData);
 }

@@ -172,8 +172,8 @@ pytest-playwright = "*"
 black = "==24.4.2"
 isort = "==5.13.2"
 ruff = "==0.4.10"
-flatbuffers = "<23"
-python-flatbuffers = "<23"
+flatbuffers = ">25"
+python-flatbuffers = ">25"
 
 [tool.pixi.feature.docs.dependencies]
 sphinx = "*"

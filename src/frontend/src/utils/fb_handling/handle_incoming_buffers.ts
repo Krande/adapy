@@ -1,10 +1,11 @@
-import {CommandType, Message} from '../../flatbuffers/wsock'
+import {Message} from '../../flatbuffers/wsock'
+import {CommandType} from '../../flatbuffers/commands'
 import * as flatbuffers from "flatbuffers";
 import {reply_ping} from "./reply_ping";
 import {update_scene_from_message} from "../scene/comms/update_scene_from_message";
 import {receive_mesh_info_reply} from "../mesh_select/comms/receive_mesh_info_reply";
-import {update_nodes} from "../node_editor/update_nodes";
-import {handle_finished_procedure} from "../node_editor/handle_finished_procedure";
+import {update_nodes} from "../node_editor/comms/update_nodes";
+import {handle_finished_procedure} from "../node_editor/comms/handle_finished_procedure";
 import {receive_list_of_files_from_server} from "../server_info/comms/receive_list_of_files_from_server";
 
 export const handleFlatbufferMessage = (buffer: ArrayBuffer) => {

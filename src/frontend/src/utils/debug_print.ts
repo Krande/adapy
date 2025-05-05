@@ -1,6 +1,5 @@
 import * as THREE from "three";
 import {useAnimationStore} from "../state/animationStore";
-import {useModelStore} from "../state/modelStore";
 import {cameraRef, controlsRef, sceneRef} from "../state/refs";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
 

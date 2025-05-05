@@ -1,8 +1,8 @@
 import React from 'react';
 import DynamicHandle from "../DynamicHandle";
 import {ParameterItem} from "./ParameterItem";
-import {ParameterT} from "../../../../flatbuffers/wsock/parameter";
-import {ProcedureT} from "../../../../flatbuffers/wsock/procedure";
+import {ParameterT} from "../../../../flatbuffers/base/parameter";
+import {ProcedureT} from "../../../../flatbuffers/procedures/procedure";
 
 export function ParameterList({id, data}: { id: string; data: Record<string, any> }) {
     const procedure: ProcedureT = data.procedure;

@@ -1,5 +1,5 @@
 import React from 'react';
-import {ParameterT, ParameterType, ValueT} from "../../../../flatbuffers/wsock";
+import {ParameterT, ParameterType, ValueT} from "../../../../flatbuffers/base";
 
 
 export function ParameterItem({

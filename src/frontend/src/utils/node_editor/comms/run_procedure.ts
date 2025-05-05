@@ -1,16 +1,11 @@
-import {
-    CommandType, FileArgT,
-    Message,
-    Parameter, ParameterT, ParameterType,
-    Procedure,
-    ProcedureStart,
-    ProcedureStore, ProcedureT,
-    TargetType, Value
-} from '../../flatbuffers/wsock'
-import {useNodeEditorStore} from '../../state/useNodeEditorStore';
+import {Message,} from '../../../flatbuffers/wsock'
+import {CommandType, TargetType} from '../../../flatbuffers/commands';
+import {FileArgT, Parameter, ParameterT, ParameterType, Value, ProcedureStart} from '../../../flatbuffers/base';
+import {Procedure, ProcedureStore, ProcedureT,} from '../../../flatbuffers/procedures';
+import {useNodeEditorStore} from '../../../state/useNodeEditorStore';
 import * as flatbuffers from "flatbuffers"; // Import the node editor Zustand store
-import {webSocketHandler} from "../websocket_connector";
 import {Builder} from "flatbuffers";
+import {webSocketHandler} from "../../websocket_connector";
 
 function extract_input_params(builder: Builder, params: string[], procedureT: ProcedureT) {
     // the param strings are div keys in the form of 'param-<procedure_name>-<index>'
@@ -166,7 +161,7 @@ export function run_procedure(props: { id: string, data: Record<string, string |
         return
     }
 
-    for (let i=0; i< connectedEdges.length; i++) {
+    for (let i = 0; i < connectedEdges.length; i++) {
         const edge = connectedEdges[i];
         const connectedNode = nodes.find(node => node.id === edge.target)
         if (!connectedNode) continue
@@ -175,7 +170,7 @@ export function run_procedure(props: { id: string, data: Record<string, string |
         let fp_str = connectedNode.data.filepath?.toString();
         console.log(connectedNode)
 
-        for (let i =0 ; i < procedure.fileInputs.length; i++) {
+        for (let i = 0; i < procedure.fileInputs.length; i++) {
             const input = procedure.fileInputs[i] as FileArgT
             if (source_handle_name !== input.argName) continue
 

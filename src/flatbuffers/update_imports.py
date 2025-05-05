@@ -5,7 +5,7 @@ from fbs_serializer import FlatBufferSchema
 
 
 def sub_wrong_py_imports(namespace: str, py_txt: str) -> str:
-    return re.sub(f"from {namespace}", rf"from ada.comms.{namespace}", py_txt)
+    return re.sub(f"from {namespace}", rf"from ada.comms.fb.{namespace}", py_txt)
 
 
 def update_py_imports(namespace: str, file_dir: pathlib.Path):
@@ -62,10 +62,10 @@ def add_class_import(input_string, new_class_name, module_name):
 
 
 def update_gen_py_imports(comms_dir: pathlib.Path, fbs_schema: FlatBufferSchema):
-    tables = fbs_schema.get_all_included_tables()
+    namespaces = fbs_schema.get_all_namespaces()
     for fp in comms_dir.rglob("*.py"):
         txt = fp.read_text()
-        for table in tables:
-            new_txt = add_class_import(txt, table.name, f"ada.comms.fb.{table.schema.namespace}")
+        for ns in namespaces:
+            new_txt = re.sub(f"from {ns}\.", f"from ada.comms.fb.{ns}", txt, flags=re.MULTILINE)
             if txt != new_txt:
                 fp.write_text(new_txt)

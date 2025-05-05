@@ -29,7 +29,7 @@ class AppendMesh(object):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(4))
         if o != 0:
             x = self._tab.Indirect(o + self._tab.Pos)
-            from meshes.Mesh import Mesh
+            from ada.comms.fb.meshes.Mesh import Mesh
             obj = Mesh()
             obj.Init(self._tab.Bytes, x)
             return obj

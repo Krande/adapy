@@ -192,6 +192,14 @@ class Assembly(Part):
 
         scratch_dir = Config().fea_scratch_dir if scratch_dir is None else pathlib.Path(scratch_dir)
 
+        # Gather results
+        fem_res_files = default_fem_res_path(name, scratch_dir=scratch_dir)
+        res_path = fem_res_files.get(fem_format, None)
+
+        if res_path.exists() and overwrite is False and return_fea_results is True:
+            logger.info(f"FEM result file already exists: {res_path}")
+            return postprocess(res_path, fem_format=fem_format)
+
         write_to_fem(
             self, name, fem_format, overwrite, fem_converter, scratch_dir, metadata, make_zip_file, model_data_only
         )
@@ -201,10 +209,6 @@ class Assembly(Part):
             execute_fem(
                 name, fem_format, scratch_dir, cpus, gpus, run_ext, metadata, execute, exit_on_complete, run_in_shell
             )
-
-        # Gather results
-        fem_res_files = default_fem_res_path(name, scratch_dir=scratch_dir)
-        res_path = fem_res_files.get(fem_format, None)
 
         if res_path.exists() is False or return_fea_results is False:
             return None

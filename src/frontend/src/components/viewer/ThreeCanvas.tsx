@@ -15,13 +15,13 @@ import {setupStats} from "./sceneHelpers/setupStats";
 import {setupModelLoader} from "./sceneHelpers/setupModelLoader";
 import {setupResizeHandler} from "./sceneHelpers/setupResizeHandler";
 import {setupPointerHandler} from "./sceneHelpers/setupPointerHandler";
-import {cameraRef, controlsRef, rendererRef, sceneRef, updatelightRef} from "../../state/refs";
+import {cameraRef, controlsRef, rendererRef, sceneRef, updatelightRef, animationControllerRef} from "../../state/refs";
 import {OrbitControls} from "three/examples/jsm/controls/OrbitControls";
+import {AnimationController} from "../../utils/scene/animations/AnimationController";
 
 const ThreeCanvas: React.FC = () => {
     const containerRef = useRef<HTMLDivElement>(null);
     const {modelUrl, zIsUp, defaultOrbitController} = useModelStore();
-    const {action, setCurrentKey} = useAnimationStore();
     const {showPerf} = useOptionsStore();
     const modelGroupRef = useRef<THREE.Group | null>(null); // <-- store loaded model separately
     const statsRef = useRef<{
@@ -64,6 +64,10 @@ const ThreeCanvas: React.FC = () => {
         const scene = new THREE.Scene();
         scene.background = new THREE.Color("#393939");
         sceneRef.current = scene;
+
+        // Create the animation controller
+        const animation_controls = new AnimationController(scene)
+        animationControllerRef.current = animation_controls;
 
         // === Renderer ===
         const renderer = new THREE.WebGLRenderer({antialias: true});
@@ -118,19 +122,14 @@ const ThreeCanvas: React.FC = () => {
         }
 
         // === Render loop ===
-        let prevTime = performance.now();
-
         const animate = () => {
             requestAnimationFrame(animate);
             // 1) start all stats timers
             statsArray.forEach((s) => s.begin());
 
-            if (action) {
-                const now = performance.now();
-                const dt = (now - prevTime) / 1000;
-                prevTime = now;
-                action.getMixer().update(dt);
-                setCurrentKey(action.time);
+            if (animation_controls && animation_controls.currentAction) {
+                const deltaTime = clock.getDelta();
+                animation_controls.update(deltaTime);
             }
 
             if (controls instanceof OrbitControls) {

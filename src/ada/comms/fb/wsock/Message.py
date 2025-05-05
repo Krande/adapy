@@ -43,7 +43,7 @@ class Message(object):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(8))
         if o != 0:
             x = self._tab.Indirect(o + self._tab.Pos)
-            from scene.Scene import Scene
+            from ada.comms.fb.scene.Scene import Scene
             obj = Scene()
             obj.Init(self._tab.Bytes, x)
             return obj
@@ -54,7 +54,7 @@ class Message(object):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
         if o != 0:
             x = self._tab.Indirect(o + self._tab.Pos)
-            from server.Server import Server
+            from ada.comms.fb.server.Server import Server
             obj = Server()
             obj.Init(self._tab.Bytes, x)
             return obj
@@ -65,7 +65,7 @@ class Message(object):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(12))
         if o != 0:
             x = self._tab.Indirect(o + self._tab.Pos)
-            from meshes.MeshInfo import MeshInfo
+            from ada.comms.fb.meshes.MeshInfo import MeshInfo
             obj = MeshInfo()
             obj.Init(self._tab.Bytes, x)
             return obj
@@ -99,7 +99,7 @@ class Message(object):
             x = self._tab.Vector(o)
             x += flatbuffers.number_types.UOffsetTFlags.py_type(j) * 4
             x = self._tab.Indirect(x)
-            from commands.WebClient import WebClient
+            from ada.comms.fb.commands.WebClient import WebClient
             obj = WebClient()
             obj.Init(self._tab.Bytes, x)
             return obj
@@ -122,7 +122,7 @@ class Message(object):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(22))
         if o != 0:
             x = self._tab.Indirect(o + self._tab.Pos)
-            from procedures.ProcedureStore import ProcedureStore
+            from ada.comms.fb.procedures.ProcedureStore import ProcedureStore
             obj = ProcedureStore()
             obj.Init(self._tab.Bytes, x)
             return obj
@@ -133,7 +133,7 @@ class Message(object):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(24))
         if o != 0:
             x = self._tab.Indirect(o + self._tab.Pos)
-            from server.ServerReply import ServerReply
+            from ada.comms.fb.server.ServerReply import ServerReply
             obj = ServerReply()
             obj.Init(self._tab.Bytes, x)
             return obj
@@ -144,7 +144,7 @@ class Message(object):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(26))
         if o != 0:
             x = self._tab.Indirect(o + self._tab.Pos)
-            from scene.Screenshot import Screenshot
+            from ada.comms.fb.scene.Screenshot import Screenshot
             obj = Screenshot()
             obj.Init(self._tab.Bytes, x)
             return obj
@@ -155,7 +155,7 @@ class Message(object):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(28))
         if o != 0:
             x = self._tab.Indirect(o + self._tab.Pos)
-            from meshes.AppendMesh import AppendMesh
+            from ada.comms.fb.meshes.AppendMesh import AppendMesh
             obj = AppendMesh()
             obj.Init(self._tab.Bytes, x)
             return obj

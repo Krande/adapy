@@ -1,4 +1,3 @@
-import {useModelStore} from "../../state/modelStore";
 import {CustomBatchedMesh} from "../mesh_select/CustomBatchedMesh";
 import {sceneRef} from "../../state/refs";
 

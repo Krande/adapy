@@ -1,7 +1,11 @@
 import ada
+from ada.comms.fb.fb_base_gen import FilePurposeDC
 from ada.fem.meshing import GmshOptions
 from ada.materials.metals import CarbonSteel
 from ada.visit.renderer_manager import RenderParams
+from ada.config import logger
+
+logger.setLevel("INFO")
 
 
 def make_fem(geom_repr) -> ada.Assembly:
@@ -23,8 +27,14 @@ def run_ccx():
 
 def run_ca():
     a = make_fem("shell")
-    res = a.to_fem("Cantilever_CA_EIG_sh", "code_aster", overwrite=True, execute=True)
-    res.show(force_embed_glb=False, params_override=RenderParams(gltf_export_to_file="temp/cantilever.glb"))
+    res = a.to_fem("Cantilever_CA_EIG_sh", "code_aster", overwrite=False, execute=False)
+    res.show(
+        force_embed_glb=False,
+        params_override=RenderParams(
+            gltf_export_to_file="temp/cantilever.glb",
+            purpose=FilePurposeDC.ANALYSIS,
+        ),
+    )
 
 
 if __name__ == "__main__":

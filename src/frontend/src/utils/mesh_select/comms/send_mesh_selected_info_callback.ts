@@ -1,4 +1,7 @@
-import {CommandType, FileObject, MeshInfo, Message, Scene, TargetType} from '../../../flatbuffers/wsock'
+import {Message} from '../../../flatbuffers/wsock'
+import {CommandType} from '../../../flatbuffers/commands/command-type';
+import {TargetType} from '../../../flatbuffers/commands/target-type';
+import {MeshInfo} from '../../../flatbuffers/meshes';
 import * as flatbuffers from "flatbuffers";
 import {webSocketHandler} from "../../websocket_connector";
 

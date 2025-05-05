@@ -38,7 +38,7 @@ class ServerReply(object):
             x = self._tab.Vector(o)
             x += flatbuffers.number_types.UOffsetTFlags.py_type(j) * 4
             x = self._tab.Indirect(x)
-            from base.FileObject import FileObject
+            from ada.comms.fb.base.FileObject import FileObject
             obj = FileObject()
             obj.Init(self._tab.Bytes, x)
             return obj
@@ -68,7 +68,7 @@ class ServerReply(object):
         o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(10))
         if o != 0:
             x = self._tab.Indirect(o + self._tab.Pos)
-            from base.Error import Error
+            from ada.comms.fb.base.Error import Error
             obj = Error()
             obj.Init(self._tab.Bytes, x)
             return obj
