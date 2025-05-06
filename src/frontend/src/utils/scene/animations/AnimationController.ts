@@ -46,11 +46,30 @@ export class AnimationController {
     }
 
     public setCurrentAnimation(clipName: string): void {
+        if (clipName === "No Animation") {
+            if (this.currentAction) {
+                this.currentAction.stop();
+            }
+            this.animation_store?.setIsPlaying(false);
+            this.animation_store?.setSelectedAnimation(clipName);
+            // use the default material and the first clip action to find the associated mesh
+            const defaultMaterial = new THREE.MeshStandardMaterial({color: 0x808080, side: THREE.DoubleSide});
+            const clip1 = this.actions.values().next().value
+            if (clip1) {
+                const mesh = this._get_mesh_from_action(clip1);
+                if (mesh) {
+                    mesh.material = defaultMaterial;  // Reset to default material
+                    mesh.geometry.attributes.position.needsUpdate = true;  // Update geometry
+                }
+            }
+            return;
+        }
         const action = this.actions.get(clipName);
         if (action) {
             if (this.currentAction) {
                 this.currentAction.stop();
             }
+            useAnimationStore.getState().setSelectedAnimation(clipName);
 
             // get the index of the clip
             const mesh = this._get_mesh_from_action(action);
@@ -64,49 +83,12 @@ export class AnimationController {
         }
     }
 
-    // Play a specific animation by name
-    public playAnimation(clipName: string): void {
-        // Stop the current action if there is one
+    // Play/pause the current animation
+    public togglePlayPause(): void {
         if (this.currentAction) {
-            this.currentAction.stop();
+            this.animation_store?.setIsPlaying(!this.animation_store?.isPlaying);
+            this.currentAction.paused = !this.currentAction.paused;
         }
-
-        const action = this.actions.get(clipName);
-        if (action) {
-
-            action.reset().play();  // Reset the action and play it
-            this.currentAction = action;  // Update the current action
-        }
-    }
-
-    // Pause the currently playing animation
-    public pauseAnimation(): void {
-        if (this.currentAction) {
-            this.currentAction.paused = true;
-        }
-    }
-
-    // Resume the currently paused animation
-    public resumeAnimation(): void {
-        if (this.currentAction) {
-            this.currentAction.paused = false;
-        }
-    }
-
-    /**
-     * Internal: clear all morph target influences for target meshes
-     */
-    private clearMorphInfluences(): void {
-        const scene = sceneRef.current;
-        if (!scene) return;
-        this.meshMap.forEach((nodeNames) => {
-            nodeNames.forEach((nodeName) => {
-                const mesh = scene.getObjectByName(nodeName.replace('.', '')) as THREE.Mesh;
-                if (mesh && mesh.morphTargetInfluences) {
-                    mesh.morphTargetInfluences.fill(0);
-                }
-            });
-        });
     }
 
     // Stop the current animation (and reset to the beginning)
@@ -114,12 +96,11 @@ export class AnimationController {
         if (this.currentAction) {
             this.currentAction.paused = true;
             this.seek(0);  // Reset to the beginning
+
             // Clear morph influences to restore shape
-            if (this.animation_store)
-                this.animation_store.setCurrentKey(this.getCurrentTime());  // Update the current key (time) in the store
+            this.animation_store?.setCurrentKey(this.getCurrentTime());  // Update the current key (time) in the store
+            this.animation_store?.setIsPlaying(false);  // Set isPlaying to false
         }
-
-
     }
 
     // Seek to a specific time in the current animation

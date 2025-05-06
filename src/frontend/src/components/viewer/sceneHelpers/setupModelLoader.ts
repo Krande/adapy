@@ -9,34 +9,34 @@ import {animationControllerRef} from "../../../state/refs";
 import {FilePurpose} from "../../../flatbuffers/base/file-purpose";
 
 export function mapAnimationTargets(gltf: GLTF): Map<string, string[]> {
-  // Access the raw glTF JSON structure
-  const json = (gltf as any).parser?.json;
-  if (!json) {
-    throw new Error('Raw glTF JSON not available on parser.json');
-  }
+    // Access the raw glTF JSON structure
+    const json = (gltf as any).parser?.json;
+    if (!json) {
+        throw new Error('Raw glTF JSON not available on parser.json');
+    }
 
-  const animDefs = json.animations as Array<any>;
-  const nodeDefs = json.nodes as Array<any>;
-  const result = new Map<string, string[]>();
+    const animDefs = json.animations as Array<any>;
+    const nodeDefs = json.nodes as Array<any>;
+    const result = new Map<string, string[]>();
 
-  animDefs.forEach((animDef, idx) => {
-    const animName = animDef.name || `animation_${idx}`;
-    const targetNames: string[] = [];
+    animDefs.forEach((animDef, idx) => {
+        const animName = animDef.name || `animation_${idx}`;
+        const targetNames: string[] = [];
 
-    // Each channel references a node index in its target
-    animDef.channels.forEach((channel: any) => {
-      const nodeIndex = channel.target.node;
-      const nodeDef = nodeDefs[nodeIndex];
-      const nodeName = nodeDef?.name || `node_${nodeIndex}`;
-      if (!targetNames.includes(nodeName)) {
-        targetNames.push(nodeName);
-      }
+        // Each channel references a node index in its target
+        animDef.channels.forEach((channel: any) => {
+            const nodeIndex = channel.target.node;
+            const nodeDef = nodeDefs[nodeIndex];
+            const nodeName = nodeDef?.name || `node_${nodeIndex}`;
+            if (!targetNames.includes(nodeName)) {
+                targetNames.push(nodeName);
+            }
+        });
+
+        result.set(animName, targetNames);
     });
 
-    result.set(animName, targetNames);
-  });
-
-  return result;
+    return result;
 }
 
 
@@ -51,7 +51,11 @@ export function setupModelLoader(
         modelUrl,
         (gltf) => {
             const gltf_scene = gltf.scene;
-
+            const animations = gltf.animations;
+            if (animations.length > 0) {
+                // Set the hasAnimation flag to true in the store
+                useAnimationStore.getState().setHasAnimation(true);
+            }
             prepareLoadedModel({
                 gltf_scene: gltf_scene,
                 modelStore: useModelStore.getState(),
@@ -61,7 +65,6 @@ export function setupModelLoader(
 
             modelGroup.add(gltf_scene);
             scene.add(modelGroup);
-            const animations = gltf.animations;
             if (animations.length > 0) {
                 animationControllerRef.current?.setMeshMap(mapAnimationTargets(gltf));
 
@@ -69,18 +72,14 @@ export function setupModelLoader(
                 animations.forEach((animation) => {
                     animationControllerRef.current?.addAnimation(animation);
                 });
-                // Set the hasAnimation flag to true in the store
-                useAnimationStore.getState().setHasAnimation(true);
 
                 // Play the first animation
-                animationControllerRef.current?.setCurrentAnimation(gltf.animations[0].name);
-                if (useModelStore.getState().model_type == FilePurpose.ANALYSIS) {
-
-                }
+                // animationControllerRef.current?.setCurrentAnimation(gltf.animations[0].name);
             } else {
                 useAnimationStore.getState().setHasAnimation(false); // If no animations, set false
             }
         },
+
         undefined,
         (error) => {
             console.error("Error loading model:", error);

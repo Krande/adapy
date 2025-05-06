@@ -1,5 +1,5 @@
 // AnimationControls.tsx
-import React, {useEffect, useState} from "react";
+import React, {useEffect} from "react";
 import {useAnimationStore} from "../../state/animationStore";
 import {animationControllerRef} from "../../state/refs";
 import PlayPauseIcon from "../icons/PlayPauseIcon";
@@ -7,36 +7,24 @@ import StopIcon from "../icons/StopIcon";
 
 const AnimationControls = () => {
     const {selectedAnimation, currentKey, setCurrentKey} = useAnimationStore();
-    const [isPlaying, setIsPlaying] = useState(false); // Local state for play/pause
-
     const roundedCurrentKey = parseFloat(currentKey.toFixed(2));
 
     // Handle animation change
     const handleAnimationChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
         const animationName = e.target.value;
-        useAnimationStore.getState().setSelectedAnimation(animationName);
-
         // Play the selected animation using the controller
         animationControllerRef.current?.setCurrentAnimation(animationName);
-        //animationControllerRef.current?.playAnimation(animationName);
-        //setIsPlaying(true);
     };
 
     const togglePlayPause = () => {
         if (animationControllerRef.current) {
-            if (isPlaying) {
-                animationControllerRef.current.pauseAnimation();
-            } else {
-                animationControllerRef.current.resumeAnimation();
-            }
-            setIsPlaying(!isPlaying); // Toggle play/pause state
+            animationControllerRef.current.togglePlayPause()
         }
     };
 
     const stopAnimation = () => {
         if (animationControllerRef.current) {
             animationControllerRef.current.stopAnimation();
-            setIsPlaying(false); // Reset play/pause state
         }
     };
 
@@ -60,6 +48,9 @@ const AnimationControls = () => {
                 value={selectedAnimation}
                 onChange={handleAnimationChange}
             >
+                <option title="No Animation" key="No Animation" value="No Animation">
+                    No Animation
+                </option>
                 {animationControllerRef.current?.getAnimationNames().map((name) => (
                     <option key={name} value={name}>
                         {name}
