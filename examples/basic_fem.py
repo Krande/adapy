@@ -50,7 +50,6 @@ def _make_cube_part(geom_repr: GeomRepr, element_order: int, use_quads: bool, us
 
 def make_fem(geom_repr: GeomRepr, element_order: int, use_quads: bool, use_hex: bool, model: Literal["cantilever", "cube"]) -> ada.Assembly:
     if model == "cube":
-
         part = _make_cube_part(geom_repr, element_order, use_quads, use_hex)
     elif model == "cantilever":
         part = _make_cantilever_part(geom_repr, element_order, use_quads, use_hex)
@@ -103,8 +102,8 @@ def main():
     args = parser.parse_args()
 
     geom_repr = GeomRepr.from_str(args.geom)
-    if geom_repr != GeomRepr.SOLID and args.model == "cube":
-        logger.warning("Cube model requires SOLID geometry representation. Using SOLID instead.")
+    if geom_repr == GeomRepr.LINE and args.model == "cube":
+        logger.warning("Cube model cannot use LINE geometry representation. Using SOLID instead.")
         geom_repr = GeomRepr.SOLID
     fem = make_fem(geom_repr, args.order, args.quad, args.hex, args.model)
 

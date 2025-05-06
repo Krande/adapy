@@ -69,17 +69,17 @@ export class AnimationController {
             if (this.currentAction) {
                 this.currentAction.stop();
             }
+            this.currentAction = action;
             useAnimationStore.getState().setSelectedAnimation(clipName);
 
             // get the index of the clip
             const mesh = this._get_mesh_from_action(action);
-            const index = 0;
+            const index = this.getActionIndex()
             if (mesh) {
                 colorVerticesBasedOnDeformation(mesh, index);  // Colorize vertices based on deformation
             }
-
-            action.reset().play();
-            this.currentAction = action;
+            this.animation_store?.setIsPlaying(false);
+            this.currentAction.paused = true;
         }
     }
 
@@ -88,6 +88,9 @@ export class AnimationController {
         if (this.currentAction) {
             this.animation_store?.setIsPlaying(!this.animation_store?.isPlaying);
             this.currentAction.paused = !this.currentAction.paused;
+            if (!this.currentAction.paused) {
+                this.currentAction.play();
+            }
         }
     }
 
@@ -139,5 +142,14 @@ export class AnimationController {
             return this.getDuration() / 100;
         }
         return 0;
+    }
+
+    private getActionIndex(): number {
+        if (this.currentAction) {
+            const clip = this.currentAction.getClip();
+            const index = Array.from(this.actions.keys()).indexOf(clip.name);
+            return index;
+        }
+        return -1;
     }
 }
