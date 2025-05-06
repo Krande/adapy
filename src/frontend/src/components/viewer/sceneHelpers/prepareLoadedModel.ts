@@ -26,6 +26,13 @@ export function prepareLoadedModel({
                                        optionsStore,
                                    }: PrepareLoadedModelParams): void {
     modelStore.setUserData(gltf_scene.userData);
+    // 1) Using `in` + bracket-notation
+    if ('ADA_MODEL_FILE_PURPOSE' in gltf_scene.userData) {
+        modelStore.model_type = gltf_scene.userData['ADA_MODEL_FILE_PURPOSE'];
+        console.log('Purpose:', modelStore.model_type);
+    } else {
+        console.log('No ADA_MODEL_FILE_PURPOSE in userData');
+    }
     // we'll collect all edge geometries here
     const meshesToReplace: { original: THREE.Mesh; parent: THREE.Object3D }[] = [];
 
@@ -56,7 +63,7 @@ export function prepareLoadedModel({
         }
 
         parent.add(customMesh);
-        if (useAnimationStore.getState().hasAnimation && modelStore.model_type == FilePurpose.ANALYSIS){
+        if (useAnimationStore.getState().hasAnimation && modelStore.model_type == FilePurpose.ANALYSIS) {
             const line_geo = original.children[0] as THREE.LineSegments;
             assignMorphToEdgeAlso(customMesh, line_geo);
             parent.add(line_geo)

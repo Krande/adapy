@@ -353,6 +353,7 @@ class RendererManager:
         else:
             raise ValueError(f"Unsupported object type: {type(obj)}")
 
+        scene.metadata["ADA_MODEL_FILE_PURPOSE"] = params.purpose.value
         return scene
 
     @staticmethod
@@ -362,6 +363,7 @@ class RendererManager:
         scene = RendererManager.obj_to_trimesh(obj, params)
         if params.scene_post_processor is not None:
             scene = params.scene_post_processor(scene)
+
 
         data = scene.export(
             file_type="glb",

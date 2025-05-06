@@ -99,6 +99,11 @@ def main():
         default="cantilever",
         help="Model to use: 'cantilever' or 'cube'",
     )
+    parser.add_argument(
+        "--embed-glb",
+        action="store_true",
+        help="Embed GLB file in the output",
+    )
     args = parser.parse_args()
 
     geom_repr = GeomRepr.from_str(args.geom)
@@ -124,7 +129,7 @@ def main():
         execute=True,
     )
     params = RenderParams(purpose=FilePurposeDC.ANALYSIS)
-    res.show(params_override=params)
+    res.show(params_override=params, force_embed_glb=args.embed_glb)
 
 
 if __name__ == "__main__":
