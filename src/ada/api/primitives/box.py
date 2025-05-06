@@ -12,12 +12,13 @@ from ada.geom.points import Point
 
 if TYPE_CHECKING:
     from ada.geom.solids import Box, ExtrudedAreaSolid
+    from ada.materials.concept import Material
 
 
 class PrimBox(Shape):
     """Primitive Box. Length, width & height are local x, y and z respectively"""
 
-    def __init__(self, name, p1, p2, origin=None, placement=None, **kwargs):
+    def __init__(self, name, p1, p2, origin=None, placement=None, material: Material | str = None, **kwargs):
         self.p1 = p1 if isinstance(p1, Point) else Point(*p1)
         self.p2 = p2 if isinstance(p2, Point) else Point(*p2)
         if origin is not None:
@@ -25,7 +26,7 @@ class PrimBox(Shape):
                 placement = Placement(origin=origin)
             else:
                 placement.origin = origin
-        super(PrimBox, self).__init__(name=name, placement=placement, **kwargs)
+        super(PrimBox, self).__init__(name=name, placement=placement, material=material, **kwargs)
         self._bbox = BoundingBox(self)
 
     def solid_occ(self):

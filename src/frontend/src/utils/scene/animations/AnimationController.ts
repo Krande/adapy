@@ -9,7 +9,7 @@ export class AnimationController {
     private actions: Map<string, THREE.AnimationAction> = new Map();
     public currentAction: THREE.AnimationAction | null = null;
     public meshMap: Map<string, string[]> = new Map();
-    private readonly animation_store: AnimationState | null = null;
+    public readonly animation_store: AnimationState | null = null;
 
     constructor(scene: THREE.Scene) {
         this.mixer = new THREE.AnimationMixer(scene);
@@ -113,8 +113,9 @@ export class AnimationController {
     // Update the animation mixer with delta time
     public update(deltaTime: number): void {
         this.mixer.update(deltaTime);
-        if (this.animation_store)
+        if (this.animation_store && this.currentAction?.isRunning()) {
             this.animation_store.setCurrentKey(this.getCurrentTime());  // Update the current key (time) in the store
+        }
     }
 
     // Get the current animation time

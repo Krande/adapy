@@ -1,7 +1,8 @@
 import argparse
-import pathlib
+from typing import Literal
 
 import ada
+from ada.base.types import GeomRepr
 from ada.comms.fb.fb_base_gen import FilePurposeDC
 from ada.config import logger
 from ada.fem.meshing import GmshOptions
@@ -11,12 +12,8 @@ from ada.visit.renderer_manager import RenderParams
 logger.setLevel("INFO")
 
 
-def make_fem(
-    geom_repr: str,
-    element_order: int,
-    use_quads: bool,
-    use_hex: bool
-) -> ada.Assembly:
+def _make_cantilever_part(geom_repr: GeomRepr, element_order: int, use_quads: bool, use_hex: bool) -> ada.Part:
+    options = GmshOptions(Mesh_ElementOrder=element_order)
     bm = ada.Beam(
         "MyBeam",
         (0, 0.5, 0.5),
@@ -24,10 +21,8 @@ def make_fem(
         "IPE400",
         ada.Material("S420", CarbonSteel("S420")),
     )
-    assembly = ada.Assembly("MyAssembly") / [ada.Part("MyPart") / bm]
-    part = bm.parent
-    options = GmshOptions(Mesh_ElementOrder=element_order)
-    part.fem = bm.to_fem_obj(
+    part = ada.Part("MyPart") / bm
+    part.fem = part.to_fem_obj(
         0.1,
         geom_repr,
         options=options,
@@ -35,17 +30,41 @@ def make_fem(
         use_hex=use_hex,
     )
     nodes = bm.bbox().sides.back(return_fem_nodes=True)
-    assembly.fem.add_bc(
-        ada.fem.Bc("Fixed", ada.fem.FemSet("bc_nodes", nodes), [1, 2, 3])
+    part.fem.add_bc(ada.fem.Bc("Fixed", ada.fem.FemSet("bc_nodes", nodes), [1, 2, 3]))
+    return part
+
+def _make_cube_part(geom_repr: GeomRepr, element_order: int, use_quads: bool, use_hex: bool) -> ada.Part:
+    options = GmshOptions(Mesh_ElementOrder=element_order)
+    cube = ada.PrimBox('box', (0,0,0), (1,1,1), material=ada.Material("S420", CarbonSteel("S420")))
+    part = ada.Part("MyPart") / cube
+    part.fem = part.to_fem_obj(
+        1.5,
+        geom_repr,
+        options=options,
+        use_quads=use_quads,
+        use_hex=use_hex,
     )
+    nodes = cube.bbox().sides.back(return_fem_nodes=True)
+    part.fem.add_bc(ada.fem.Bc("Fixed", ada.fem.FemSet("bc_nodes", nodes), [1, 2, 3]))
+    return part
+
+def make_fem(geom_repr: GeomRepr, element_order: int, use_quads: bool, use_hex: bool, model: Literal["cantilever", "cube"]) -> ada.Assembly:
+    if model == "cube":
+
+        part = _make_cube_part(geom_repr, element_order, use_quads, use_hex)
+    elif model == "cantilever":
+        part = _make_cantilever_part(geom_repr, element_order, use_quads, use_hex)
+    else:
+        raise ValueError(f"Unknown model: {model}")
+
+    assembly = ada.Assembly("MyAssembly") / part
+
     assembly.fem.add_step(ada.fem.StepEigen("Eigen", num_eigen_modes=10))
     return assembly
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="Run FEM analysis with Calculix (ccx) or Code Aster (ca)"
-    )
+    parser = argparse.ArgumentParser(description="Run FEM analysis with Calculix (ccx) or Code Aster (ca)")
     parser.add_argument(
         "--solver",
         choices=["ccx", "ca"],
@@ -75,12 +94,28 @@ def main():
         action="store_true",
         help="Use hexahedral (3D) elements",
     )
-
+    parser.add_argument(
+        "--model",
+        choices=["cantilever", "cube"],
+        default="cantilever",
+        help="Model to use: 'cantilever' or 'cube'",
+    )
     args = parser.parse_args()
 
-    fem = make_fem(args.geom, args.order, args.quad, args.hex)
+    geom_repr = GeomRepr.from_str(args.geom)
+    if geom_repr != GeomRepr.SOLID and args.model == "cube":
+        logger.warning("Cube model requires SOLID geometry representation. Using SOLID instead.")
+        geom_repr = GeomRepr.SOLID
+    fem = make_fem(geom_repr, args.order, args.quad, args.hex, args.model)
 
-    case_name = f"Cantilever_{args.solver.upper()}_{args.geom}_o{args.order}"
+    if geom_repr == geom_repr.SHELL:
+        eltypname = "QUAD" if args.quad else "TRI"
+    elif geom_repr == geom_repr.SOLID:
+        eltypname = "HEX" if args.hex else "TETRA"
+    else:
+        eltypname = "LINE"
+
+    case_name = f"{args.model}_{args.solver.upper()}_{geom_repr.value}_{eltypname}_o{args.order}"
     solver_engine = "calculix" if args.solver == "ccx" else "code_aster"
 
     res = fem.to_fem(
@@ -89,11 +124,7 @@ def main():
         overwrite=True,
         execute=True,
     )
-    # ensure temp directory for the glTF export
-    out_dir = pathlib.Path("temp")
-    out_dir.mkdir(parents=True, exist_ok=True)
-    glb_path = out_dir / "cantilever.glb"
-    params = RenderParams(gltf_export_to_file=str(glb_path),purpose=FilePurposeDC.ANALYSIS)
+    params = RenderParams(purpose=FilePurposeDC.ANALYSIS)
     res.show(params_override=params)
 
 
