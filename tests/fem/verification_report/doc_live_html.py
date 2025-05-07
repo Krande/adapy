@@ -152,7 +152,7 @@ if __name__ == "__main__":
     logger.setLevel("INFO")
     event_handler = FileChangeHandler(min_time_between_updates=10, ws_port=8221)
     observer = Observer()
-    observer.schedule(event_handler, path="./report", recursive=True)
+    observer.schedule(event_handler, path="report", recursive=True)
     observer.start()
 
     # Start the WebSocket server in a separate thread

@@ -127,7 +127,6 @@ class Assembly(Part):
         metadata=None,
         execute=False,
         run_ext=False,
-        mesh_only=False,
         cpus=1,
         gpus=None,
         overwrite=False,
@@ -137,6 +136,7 @@ class Assembly(Part):
         make_zip_file=False,
         return_fea_results=True,
         model_data_only=False,
+        write_input_files_only=False,
     ) -> FEAResult | None:
         """
         Create a FEM input file deck for executing fem analysis in a specified FEM format.
@@ -170,6 +170,8 @@ class Assembly(Part):
         :param run_in_shell:
         :param make_zip_file:
         :param return_fea_results: Automatically import the result mesh into
+        :param model_data_only: Only write the model data (nodes, elements, etc.) to the FEM file
+        :param write_input_files_only: Only write the input files, do not execute the analysis
 
             Note! Meshio implementation currently only supports reading & writing elements and nodes.
 
@@ -196,13 +198,16 @@ class Assembly(Part):
         fem_res_files = default_fem_res_path(name, scratch_dir=scratch_dir)
         res_path = fem_res_files.get(fem_format, None)
 
-        if res_path.exists() and overwrite is False and return_fea_results is True:
+        if res_path.exists() and overwrite is False and return_fea_results is True and write_input_files_only is False:
             logger.info(f"FEM result file already exists: {res_path}")
             return postprocess(res_path, fem_format=fem_format)
 
         write_to_fem(
             self, name, fem_format, overwrite, fem_converter, scratch_dir, metadata, make_zip_file, model_data_only
         )
+
+        if write_input_files_only:
+            return None
 
         # Execute
         if execute:
@@ -213,7 +218,10 @@ class Assembly(Part):
         if res_path.exists() is False:
             if return_fea_results is False:
                 return None
-            raise FileNotFoundError(f"FEM result file does not exist: {res_path}")
+            if execute:
+                raise FileNotFoundError(f"FEM result file does not exist: {res_path}")
+            logger.info(f"FEM result file does not exist: {res_path}")
+            return None
 
         return postprocess(res_path, fem_format=fem_format)
 

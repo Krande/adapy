@@ -60,7 +60,7 @@ def test_basic_cube_mesh(cube_solid_static_o1, cube_solid_static_o2):
         mesh_vars = dir(mesh)
         coords = mesh.getCoords()
         coords_vars = dir(coords)
-        coords_np = coords.toNumpyArray()
+        coords_np = coords.toNumPyArray()
         # field_type = field.getTypeOfField()
         print(field_name)
 

@@ -1,7 +1,7 @@
-import build_report_utils as ru
-from build_verification_report import build_fea_report
-from conftest import beam
-from test_fem_eig_cantilever import test_fem_eig
+from fem.verification_report import build_report_utils as ru
+from fem.verification_report.build_verification_report import build_fea_report
+from ..conftest import beam
+from ..test_fem_eig_cantilever import test_fem_eig
 
 import ada
 from ada.config import logger

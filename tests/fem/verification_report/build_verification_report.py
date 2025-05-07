@@ -4,11 +4,23 @@ import os
 import pathlib
 
 import build_report_utils as ru
-from conftest import beam
+import ada
+from ada.fem.cases import eigen_test
+from ada.materials.metals import CarbonSteel, DnvGl16Mat
 from dotenv import load_dotenv
 from paradoc import OneDoc
 from paradoc.common import TableFormat
-from test_fem_eig_cantilever import test_fem_eig
+
+
+def beam():
+    return ada.Beam(
+        "MyBeam",
+        (0, 0.5, 0.5),
+        (3, 0.5, 0.5),
+        "IPE400",
+        ada.Material("S420", CarbonSteel("S420", plasticity_model=DnvGl16Mat(15e-3, "S355"))),
+    )
+
 
 import ada
 from ada.config import logger
@@ -30,7 +42,7 @@ def simulate(
                 for hexquad in use_hex_quad:
                     for uri in use_reduced_int:
                         try:
-                            result = test_fem_eig(
+                            result = eigen_test(
                                 bm,
                                 soft,
                                 geo,
