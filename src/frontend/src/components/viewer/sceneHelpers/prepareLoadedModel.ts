@@ -65,7 +65,12 @@ export function prepareLoadedModel({
         parent.add(customMesh);
         if (useAnimationStore.getState().hasAnimation && modelStore.model_type == FilePurpose.ANALYSIS) {
             const line_geo = original.children[0] as THREE.LineSegments;
-            assignMorphToEdgeAlso(customMesh, line_geo);
+            try {
+                assignMorphToEdgeAlso(customMesh, line_geo);
+            } catch (e) {
+                console.error("Error assigning morph to edge:", e);
+            }
+
             parent.add(line_geo)
         }
         parent.remove(original);

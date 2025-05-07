@@ -1,11 +1,10 @@
 from __future__ import annotations
 
+import numpy as np
 import pathlib
+import trimesh
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Callable, Literal, Optional, OrderedDict
-
-import numpy as np
-import trimesh
 
 from ada.comms.fb_wrap_model_gen import (
     FileObjectDC,
@@ -73,6 +72,7 @@ def scene_from_fem_results(fea_res: FEAResult, params: RenderParams):
 
     from ada.api.animations import Animation, AnimationStore
     from ada.core.vector_transforms import rot_matrix
+    from ada.fem.results.field_data import NodalFieldData
 
     warp_scale = params.fea_params.warp_scale
 
@@ -103,14 +103,23 @@ def scene_from_fem_results(fea_res: FEAResult, params: RenderParams):
     for i, result in enumerate(fea_res.results):
         warped_vertices = fea_res._warp_data(vertices, result.name, result.step, warp_scale)
         delta_vertices = warped_vertices - vertices
+        is_static = False
+        if isinstance(result, NodalFieldData):
+            is_static = False if result.eigen_freq is not None else True
+        if is_static:
+            time_steps = [0, 2]
+            weight_steps = [0, 1]
+        else:
+            time_steps = [0, 2, 4, 6, 8]
+            weight_steps = [0, 1, 0, -1, 0]
         result_name = f"{result.name}_{result.step}"
         if result_name in added_results:
             result_name = f"{result.name}_{result.step}_{i}"
         added_results.append(result_name)
         animation = Animation(
             result_name,
-            [0, 2, 4, 6, 8],
-            deformation_weights_keyframes=[0, 1, 0, -1, 0],
+            time_steps,
+            deformation_weights_keyframes=weight_steps,
             deformation_shape=delta_vertices,
             node_idx=[face_node_idx],
         )

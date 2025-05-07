@@ -14,6 +14,8 @@ import InfoIcon from "./icons/InfoIcon";
 import TreeViewIcon from "./icons/TreeViewIcon";
 import ReloadIcon from "./icons/ReloadIcon";
 import ServerIcon from "./icons/ServerIcon";
+import ViewIcon from "./icons/ViewIcon";
+import ToggleControlsIcon from "./icons/AnimationControlToggle";
 
 
 const Menu = () => {
@@ -22,11 +24,11 @@ const Menu = () => {
     const {isOptionsVisible, setIsOptionsVisible} = useOptionsStore(); // use the useNavBarStore function
     const {isTreeCollapsed, setIsTreeCollapsed} = useTreeViewStore();
     const {showServerInfoBox, setShowServerInfoBox} = useServerInfoStore();
-    const {hasAnimation} = useAnimationStore();
+    const {hasAnimation, isControlsVisible, setIsControlsVisible} = useAnimationStore();
 
     return (
         <div className="relative w-full h-full">
-            <div className="absolute left-0 top-0 z-10 py-2 flex flex-col">
+            <div className="absolute left-0 top-0 z-10 py-2 gap-2 flex flex-col">
                 <div className={"flex flex-row items-center gap-2 px-2 max-w-full"}>
                     {use_node_editor_only && (
                         <button
@@ -71,14 +73,18 @@ const Menu = () => {
                         hidden={use_node_editor_only}
                         onClick={useObjectInfoStore.getState().toggle}
                     ><InfoIcon/></button>
+                    <button
+                        className={"bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded"}
+                        hidden={!hasAnimation}
+                        onClick={() => setIsControlsVisible(!isControlsVisible)}
+                    ><ToggleControlsIcon/></button>
 
-                    <div className="relative">
-                        {hasAnimation && <AnimationControls/>}
-                    </div>
                 </div>
-                {showServerInfoBox && <ServerInfoBox/>}
-                {show_info_box && <ObjectInfoBox/>}
-
+                <div className={"px-2 gap-2 flex flex-col"}>
+                    {isControlsVisible && <AnimationControls/>}
+                    {showServerInfoBox && <ServerInfoBox/>}
+                    {show_info_box && <ObjectInfoBox/>}
+                </div>
             </div>
         </div>
     );

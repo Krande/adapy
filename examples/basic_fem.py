@@ -48,7 +48,7 @@ def _make_cube_part(geom_repr: GeomRepr, element_order: int, use_quads: bool, us
     part.fem.add_bc(ada.fem.Bc("Fixed", ada.fem.FemSet("bc_nodes", nodes), [1, 2, 3]))
     return part
 
-def make_fem(geom_repr: GeomRepr, element_order: int, use_quads: bool, use_hex: bool, model: Literal["cantilever", "cube"]) -> ada.Assembly:
+def make_fem_part(geom_repr: GeomRepr, element_order: int, use_quads: bool, use_hex: bool, model: Literal["cantilever", "cube"]) -> ada.Part:
     if model == "cube":
         part = _make_cube_part(geom_repr, element_order, use_quads, use_hex)
     elif model == "cantilever":
@@ -56,11 +56,18 @@ def make_fem(geom_repr: GeomRepr, element_order: int, use_quads: bool, use_hex: 
     else:
         raise ValueError(f"Unknown model: {model}")
 
+    return part
+
+def make_assembly(part: ada.Part, simulation: Literal["eigen", "static"]) -> ada.Assembly:
     assembly = ada.Assembly("MyAssembly") / part
-
-    assembly.fem.add_step(ada.fem.StepEigen("Eigen", num_eigen_modes=10))
+    if simulation == "static":
+        step = assembly.fem.add_step(ada.fem.StepImplicitStatic("Static", nl_geom=True, init_incr=100.0, total_time=100.0))
+        step.add_load(ada.fem.LoadGravity("Gravity", -9.81*800))
+    elif simulation == "eigen":
+        assembly.fem.add_step(ada.fem.StepEigen("Eigen", num_eigen_modes=10))
+    else:
+        raise ValueError(f"Unknown simulation type: {simulation}")
     return assembly
-
 
 def main():
     parser = argparse.ArgumentParser(description="Run FEM analysis with Calculix (ccx) or Code Aster (ca)")
@@ -104,13 +111,26 @@ def main():
         action="store_true",
         help="Embed GLB file in the output",
     )
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Overwrite existing files",
+    )
+    parser.add_argument(
+        "--simulation",
+        choices=["eigen", "static"],
+        default="eigen",
+        help="Overwrite existing files",
+    )
     args = parser.parse_args()
 
     geom_repr = GeomRepr.from_str(args.geom)
     if geom_repr == GeomRepr.LINE and args.model == "cube":
         logger.warning("Cube model cannot use LINE geometry representation. Using SOLID instead.")
         geom_repr = GeomRepr.SOLID
-    fem = make_fem(geom_repr, args.order, args.quad, args.hex, args.model)
+
+    part = make_fem_part(geom_repr, args.order, args.quad, args.hex, args.model)
+    assembly = make_assembly(part, args.simulation)
 
     if geom_repr == geom_repr.SHELL:
         eltypname = "QUAD" if args.quad else "TRI"
@@ -119,13 +139,12 @@ def main():
     else:
         eltypname = "LINE"
 
-    case_name = f"{args.model}_{args.solver.upper()}_{geom_repr.value}_{eltypname}_o{args.order}"
+    case_name = f"{args.model}_{args.simulation}_{args.solver.upper()}_{geom_repr.value}_{eltypname}_o{args.order}"
     solver_engine = "calculix" if args.solver == "ccx" else "code_aster"
-
-    res = fem.to_fem(
+    res = assembly.to_fem(
         case_name,
         solver_engine,
-        overwrite=True,
+        overwrite=args.overwrite,
         execute=True,
     )
     params = RenderParams(purpose=FilePurposeDC.ANALYSIS)

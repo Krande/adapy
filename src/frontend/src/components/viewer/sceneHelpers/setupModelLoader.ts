@@ -74,7 +74,7 @@ export function setupModelLoader(
                 });
 
                 // Play the first animation
-                // animationControllerRef.current?.setCurrentAnimation(gltf.animations[0].name);
+                animationControllerRef.current?.setCurrentAnimation("No Animation");
             } else {
                 useAnimationStore.getState().setHasAnimation(false); // If no animations, set false
             }

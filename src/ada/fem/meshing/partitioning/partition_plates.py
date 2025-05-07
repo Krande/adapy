@@ -92,7 +92,7 @@ def partition_intersected_plates(plate_con: PlateConnections, gmsh_session: Gmsh
 
 def split_plates_by_beams(gmsh_session: GmshSession):
     """split plates that are intersected by beams"""
-    logger.info("Running 'split_plates_by_beams' partitioning function")
+
     from ada import Beam, Plate
 
     br_names = Config().meshing_open_viewer_breakpoint_names
@@ -102,6 +102,8 @@ def split_plates_by_beams(gmsh_session: GmshSession):
     beams = [obj for obj in gmsh_session.model_map.keys() if type(obj) is Beam]
     if len(beams) == 0:
         return None
+
+    logger.info("Running 'split_plates_by_beams' partitioning function")
 
     plates = [obj for obj in gmsh_session.model_map.keys() if type(obj) is Plate]
     for pl in plates:

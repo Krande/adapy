@@ -47,11 +47,10 @@ export class AnimationController {
 
     public setCurrentAnimation(clipName: string): void {
         if (clipName === "No Animation") {
-            if (this.currentAction) {
-                this.currentAction.stop();
-            }
-            this.animation_store?.setIsPlaying(false);
+            // this.animation_store?.setIsPlaying(false);
             this.animation_store?.setSelectedAnimation(clipName);
+            this.stopAnimation()
+
             // use the default material and the first clip action to find the associated mesh
             const defaultMaterial = new THREE.MeshStandardMaterial({color: 0x808080, side: THREE.DoubleSide});
             const clip1 = this.actions.values().next().value
@@ -109,6 +108,9 @@ export class AnimationController {
     // Seek to a specific time in the current animation
     public seek(time: number): void {
         if (this.currentAction) {
+            if (this.currentAction.paused) {
+                this.currentAction.play();
+            }
             this.currentAction.time = time;
         }
     }
