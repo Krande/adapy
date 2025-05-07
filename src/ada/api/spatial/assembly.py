@@ -210,8 +210,10 @@ class Assembly(Part):
                 name, fem_format, scratch_dir, cpus, gpus, run_ext, metadata, execute, exit_on_complete, run_in_shell
             )
 
-        if res_path.exists() is False or return_fea_results is False:
-            return None
+        if res_path.exists() is False:
+            if return_fea_results is False:
+                return None
+            raise FileNotFoundError(f"FEM result file does not exist: {res_path}")
 
         return postprocess(res_path, fem_format=fem_format)
 
