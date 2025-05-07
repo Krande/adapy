@@ -130,7 +130,7 @@ class Animation:
 class AnimationStore:
     animations: list[Animation] = field(default_factory=list)
 
-    def __call__(self, buffer_items, tree, *args, **kwargs):
+    def buffer_modifier(self, buffer_items, tree, *args, **kwargs):
         for idx, animation in enumerate(self.animations):
             animation(buffer_items, tree, morph_target_index=idx, num_morph_targets=len(self.animations))
 

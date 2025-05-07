@@ -1,11 +1,14 @@
 from __future__ import annotations
 
-import numpy as np
+import datetime
 import pathlib
-import trimesh
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Callable, Literal, Optional, OrderedDict
 
+import numpy as np
+import trimesh
+
+import ada.fem.sim_metadata as sim_meta
 from ada.comms.fb_wrap_model_gen import (
     FileObjectDC,
     FilePurposeDC,
@@ -74,6 +77,7 @@ def scene_from_fem_results(fea_res: FEAResult, params: RenderParams):
     from ada.core.vector_transforms import rot_matrix
     from ada.fem.results.field_data import NodalFieldData
 
+
     warp_scale = params.fea_params.warp_scale
 
     # initial mesh
@@ -132,15 +136,42 @@ def scene_from_fem_results(fea_res: FEAResult, params: RenderParams):
         m4x4 = np.r_[m3x3_with_col, [np.array([0, 0, 0, 1])]]
         scene.apply_transform(m4x4)
 
-    params.gltf_buffer_postprocessor = animation_store
+    params.gltf_buffer_postprocessor = animation_store.buffer_modifier
     params.gltf_tree_postprocessor = AnimationStore.tree_postprocessor
 
     parent_node = GraphNode("world", 0, hash=create_guid())
     graph = GraphStore(top_level=parent_node, nodes={0: parent_node})
     graph.add_node(GraphNode(fea_res.name, graph.next_node_id(), hash=create_guid(), parent=parent_node))
     scene.metadata.update(graph.create_meta())
+    sim_data = export_sim_metadata(fea_res)
+    scene.metadata["gltf_extensions"] = {"ADA_SIM_data": sim_data.model_dump()}
     return scene
 
+def export_sim_metadata(fea_res: FEAResult)-> sim_meta.SimulationDataExtensionMetadata:
+    steps = []
+    for x in fea_res.results:
+        if x.step not in steps:
+            steps.append(x.step)
+
+    step_objects = []
+    fields = []
+    for result in fea_res.results:
+        fields.append(
+            sim_meta.FieldObject(
+                name=result.name,
+                type=result.field_type.value,
+                data=sim_meta.DataReference(bufferView=0, byteOffset=0),
+            )
+        )
+        step_objects.append(sim_meta.StepObject(analysis_type=sim_meta.AnalysisType.eigenvalue, fields=fields))
+
+    return sim_meta.SimulationDataExtensionMetadata(
+        name=fea_res.name,
+        date=datetime.datetime.now(),
+        fea_software=fea_res.software,
+        fea_software_version=fea_res.software,
+        steps=step_objects,
+    )
 
 def scene_from_fem(
     fem: FEM, params: RenderParams, graph: GraphStore = None, scene: trimesh.Scene = None

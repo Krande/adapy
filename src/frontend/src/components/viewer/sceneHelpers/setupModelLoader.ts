@@ -52,6 +52,8 @@ export function setupModelLoader(
         (gltf) => {
             const gltf_scene = gltf.scene;
             const animations = gltf.animations;
+            // access the raw JSON
+            const rawExt = (gltf as any).parser.json.extensions?.ADA_SIM_data;
             if (animations.length > 0) {
                 // Set the hasAnimation flag to true in the store
                 useAnimationStore.getState().setHasAnimation(true);
