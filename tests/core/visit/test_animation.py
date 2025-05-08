@@ -3,7 +3,8 @@ import os
 import numpy as np
 import trimesh
 
-from ada.api.animations import Animation, AnimationStore
+from ada.api.animations import Animation
+from ada.visit.gltf.gltf_postprocessor import GltfPostProcessor
 
 
 def test_polygon_animation_simple(polygon_mesh, tmp_path):
@@ -84,7 +85,7 @@ def test_single_polygon_animate_using_store(polygon_mesh, tmp_path):
     node_name = scene.add_geometry(polygon_mesh, node_name="test", geom_name="test")
     node_idx = [i for i, n in enumerate(scene.graph.nodes) if n == node_name][0]
 
-    animation_store = AnimationStore()
+    animation_store = GltfPostProcessor()
 
     animation = Animation(
         "squirmy_poly_1",
@@ -97,12 +98,12 @@ def test_single_polygon_animate_using_store(polygon_mesh, tmp_path):
         ],
         node_idx=node_idx,
     )
-    animation_store.add(animation)
+    animation_store.add_animation(animation)
 
     scene.export(
         file_obj=tmp_path / "polygon_animation_using_store.glb",
         file_type=".glb",
-        buffer_postprocessor=animation_store,
+        buffer_postprocessor=animation_store.buffer_postprocessor,
         tree_postprocessor=animation_store.tree_postprocessor,
     )
 
@@ -113,7 +114,7 @@ def test_single_polygon_multiple_animations(polygon_mesh, tmp_path):
     node_name = scene.add_geometry(polygon_mesh, node_name="test", geom_name="test")
     node_idx = [i for i, n in enumerate(scene.graph.nodes) if n == node_name][0]
 
-    animation_store = AnimationStore()
+    animation_store = GltfPostProcessor()
 
     time_keys = [0, 2, 4]
     def_weights_keys = [0, 1, 0]
@@ -136,12 +137,12 @@ def test_single_polygon_multiple_animations(polygon_mesh, tmp_path):
             deformation_shape=current_vertices,
             node_idx=node_idx,
         )
-        animation_store.add(animation)
+        animation_store.add_animation(animation)
 
     os.makedirs(tmp_path, exist_ok=True)
     scene.export(
         file_obj=tmp_path / "animated_poly_x2.glb",
         file_type=".glb",
-        buffer_postprocessor=animation_store,
+        buffer_postprocessor=animation_store.buffer_postprocessor,
         tree_postprocessor=animation_store.tree_postprocessor,
     )

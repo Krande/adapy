@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import numpy as np
 from trimesh.exchange.gltf import _data_append
@@ -126,35 +126,3 @@ class Animation:
         )
 
 
-@dataclass
-class AnimationStore:
-    animations: list[Animation] = field(default_factory=list)
-
-    def buffer_modifier(self, buffer_items, tree, *args, **kwargs):
-        for idx, animation in enumerate(self.animations):
-            animation(buffer_items, tree, morph_target_index=idx, num_morph_targets=len(self.animations))
-
-    def add(self, animation: Animation):
-        self.animations.append(animation)
-
-    @staticmethod
-    def update_buffer_view(tree, accessor_idx, target_num):
-        buffer_view_idx = tree["accessors"][accessor_idx]["bufferView"]
-        buffer_view = tree["bufferViews"][buffer_view_idx]
-        if buffer_view.get("target") is None:
-            buffer_view["target"] = target_num
-
-    @staticmethod
-    def tree_postprocessor(tree):
-        for material in tree["materials"]:
-            material["doubleSided"] = True
-
-        for anim in tree["animations"]:
-            node_idx = anim["channels"][0]["target"]["node"]
-            mesh_idx = tree["nodes"][node_idx]["mesh"]
-            mesh = tree["meshes"][mesh_idx]
-            for primitive in mesh["primitives"]:
-                AnimationStore.update_buffer_view(tree, primitive["attributes"]["POSITION"], 34962)
-                AnimationStore.update_buffer_view(tree, primitive["indices"], 34963)
-                for target in primitive["targets"]:
-                    AnimationStore.update_buffer_view(tree, target["POSITION"], 34962)

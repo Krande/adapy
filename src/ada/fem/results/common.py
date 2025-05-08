@@ -15,8 +15,7 @@ from ada.fem.shapes.definitions import LineShapes, MassTypes, ShellShapes, Solid
 from ada.visit.deprecated.websocket_server import send_to_viewer
 from ada.visit.gltf.graph import GraphNode, GraphStore
 from ada.visit.gltf.meshes import GroupReference, MergedMesh, MeshType
-from ada.visit.renderer_manager import RenderParams
-import ada.fem.sim_metadata as sim_meta
+from ada.visit.render_params import RenderParams, FEARenderParams
 from ...comms.fb_wrap_model_gen import FilePurposeDC
 from .field_data import ElementFieldData, NodalFieldData, NodalFieldType
 
@@ -453,11 +452,7 @@ class FEAResult:
         force_embed_glb=False,
         apply_transform=False,
     ):
-        from ada.visit.renderer_manager import (
-            FEARenderParams,
-            RendererManager,
-            RenderParams,
-        )
+        from ada.visit.renderer_manager import RendererManager
 
         if renderer == "pygfx":
             scene = self.to_trimesh(step, field, warp_field, warp_step, warp_scale, cfunc)

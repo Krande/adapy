@@ -25,7 +25,7 @@ from ada.visit.gltf.graph import GraphNode, GraphStore
 from ada.visit.gltf.meshes import MeshStore, MeshType
 from ada.visit.gltf.optimize import concatenate_stores
 from ada.visit.gltf.store import merged_mesh_to_trimesh_scene
-from ada.visit.renderer_manager import RenderParams
+from ada.visit.render_params import RenderParams
 
 if TYPE_CHECKING:
     import trimesh

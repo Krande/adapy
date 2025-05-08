@@ -7,7 +7,7 @@ from ada.comms.fb.fb_base_gen import FilePurposeDC
 from ada.config import logger
 from ada.fem.meshing import GmshOptions
 from ada.materials.metals import CarbonSteel
-from ada.visit.renderer_manager import RenderParams
+from ada.visit.render_params import RenderParams
 
 logger.setLevel("INFO")
 
