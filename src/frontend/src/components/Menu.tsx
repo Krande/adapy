@@ -14,8 +14,8 @@ import InfoIcon from "./icons/InfoIcon";
 import TreeViewIcon from "./icons/TreeViewIcon";
 import ReloadIcon from "./icons/ReloadIcon";
 import ServerIcon from "./icons/ServerIcon";
-import ViewIcon from "./icons/ViewIcon";
 import ToggleControlsIcon from "./icons/AnimationControlToggle";
+import SimulationDataInfoPanel from "./simulation/SimulationDataInfoPanel";
 
 
 const Menu = () => {
@@ -81,9 +81,9 @@ const Menu = () => {
 
                 </div>
                 <div className={"px-2 gap-2 flex flex-col"}>
-                    {isControlsVisible && <AnimationControls/>}
                     {showServerInfoBox && <ServerInfoBox/>}
                     {show_info_box && <ObjectInfoBox/>}
+                    {isControlsVisible && <AnimationControls/>}
                 </div>
             </div>
         </div>

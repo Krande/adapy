@@ -19,7 +19,7 @@ class FieldData:
     eigen_value: float = None
 
 
-class NodalFieldType(Enum):
+class NodalFieldType(str, Enum):
     DISP = "displacement"
     VEL = "velocity"
     FORCE = "force"

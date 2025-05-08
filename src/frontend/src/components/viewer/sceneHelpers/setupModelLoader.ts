@@ -5,7 +5,8 @@ import {useModelStore} from "../../../state/modelStore";
 import {useOptionsStore} from "../../../state/optionsStore";
 import {useTreeViewStore} from "../../../state/treeViewStore";
 import {useAnimationStore} from "../../../state/animationStore";
-import {animationControllerRef} from "../../../state/refs";
+import {animationControllerRef, simuluationDataRef} from "../../../state/refs";
+import {SimulationDataExtensionMetadata} from "../../../extensions/sim_metadata";
 import {FilePurpose} from "../../../flatbuffers/base/file-purpose";
 
 export function mapAnimationTargets(gltf: GLTF): Map<string, string[]> {
@@ -53,7 +54,12 @@ export function setupModelLoader(
             const gltf_scene = gltf.scene;
             const animations = gltf.animations;
             // access the raw JSON
-            const rawExt = (gltf as any).parser.json.extensions?.ADA_SIM_data;
+            const sim_ext_data = (gltf as any).parser.json.extensions?.ADA_SIM_data;
+            if (sim_ext_data){
+                simuluationDataRef.current = sim_ext_data as SimulationDataExtensionMetadata;
+                useModelStore.getState().model_type = FilePurpose.ANALYSIS;
+            }
+
             if (animations.length > 0) {
                 // Set the hasAnimation flag to true in the store
                 useAnimationStore.getState().setHasAnimation(true);

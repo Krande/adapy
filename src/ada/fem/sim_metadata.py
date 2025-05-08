@@ -11,7 +11,7 @@ from typing import List, Optional
 from pydantic import BaseModel, Field, conint
 
 
-class AnalysisType(Enum):
+class AnalysisType(str, Enum):
     eigenvalue = 'eigenvalue'
     implicit_static = 'implicit static'
     implicit_dynamic = 'implicit dynamic'

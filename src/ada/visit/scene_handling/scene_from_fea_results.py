@@ -100,16 +100,24 @@ def export_sim_metadata(fea_res: FEAResult)-> sim_meta.SimulationDataExtensionMe
             steps.append(x.step)
 
     step_objects = []
-    fields = []
-    for result in fea_res.results:
-        fields.append(
-            sim_meta.FieldObject(
-                name=result.name,
-                type=result.field_type.value,
-                data=sim_meta.DataReference(bufferView=0, byteOffset=0),
+    for step in steps:
+        fields = []
+        for result in fea_res.results:
+            if result.step != step:
+                continue
+            fields.append(
+                sim_meta.FieldObject(
+                    name=result.name,
+                    type=result.field_type.value,
+                    data=sim_meta.DataReference(bufferView=0, byteOffset=0),
+                )
             )
-        )
         step_objects.append(sim_meta.StepObject(analysis_type=sim_meta.AnalysisType.eigenvalue.value, fields=fields))
+
+    if fea_res.software == "code_aster":
+        pass
+        # python std library to get the python package version of code_aster
+
 
     return sim_meta.SimulationDataExtensionMetadata(
         name=fea_res.name,
