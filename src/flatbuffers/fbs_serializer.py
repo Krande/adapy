@@ -99,9 +99,7 @@ class FlatBufferSchema:
 
 
 # Function to parse enums and tables from the .fbs file and represent them as dataclasses
-def load_fbs_file(
-    fbs_file: str, py_root: str, includes: list[FlatBufferSchema] | None = None
-) -> FlatBufferSchema:
+def load_fbs_file(fbs_file: str, py_root: str, includes: list[FlatBufferSchema] | None = None) -> FlatBufferSchema:
     if isinstance(fbs_file, str):
         fbs_file = pathlib.Path(fbs_file)
 

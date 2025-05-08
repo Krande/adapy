@@ -4,12 +4,13 @@ import os
 import pathlib
 
 import build_report_utils as ru
-import ada
-from ada.fem.cases import eigen_test
-from ada.materials.metals import CarbonSteel, DnvGl16Mat
 from dotenv import load_dotenv
 from paradoc import OneDoc
 from paradoc.common import TableFormat
+
+import ada
+from ada.fem.cases import eigen_test
+from ada.materials.metals import CarbonSteel, DnvGl16Mat
 
 
 def beam():
@@ -22,7 +23,6 @@ def beam():
     )
 
 
-import ada
 from ada.config import logger
 from ada.fem.formats.abaqus.config import AbaqusSetup
 

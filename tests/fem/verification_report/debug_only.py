@@ -1,12 +1,13 @@
 from fem.verification_report import build_report_utils as ru
 from fem.verification_report.build_verification_report import build_fea_report
-from ..conftest import beam
-from ..test_fem_eig_cantilever import test_fem_eig
 
 import ada
 from ada.config import logger
 from ada.fem.formats.abaqus.config import AbaqusSetup
 from ada.fem.meshing import GmshOptions
+
+from ..conftest import beam
+from ..test_fem_eig_cantilever import test_fem_eig
 
 
 def main(overwrite=True, execute=True, test_gmsh_options=False, build_report=False, show=False):

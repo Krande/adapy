@@ -186,6 +186,7 @@ class GltfMergeStore:
         self.bin_obj.seek(buff.get("byteOffset", 0), 1)
         return np.frombuffer(self.bin_obj.read(buff["byteLength"]), dtype=np.dtype(DTYPES.get(acc["componentType"])))
 
+
 def merged_mesh_to_trimesh_scene(
     scene: trimesh.Scene,
     merged_mesh: MergedMesh | MeshStore,
@@ -244,6 +245,7 @@ def merged_mesh_to_trimesh_scene(
         geom_name=geom_name,
         parent_node_name=parent_node_name,
     )
+
 
 def create_id_sequence(graph_store: GraphStore, merged_mesh: MergedMesh):
     id_sequence = dict()

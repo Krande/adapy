@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 import pathlib
-
-import trimesh
+from dataclasses import dataclass, field
 from typing import Callable, Optional, OrderedDict
 
-from dataclasses import dataclass, field
+import trimesh
 
 from ada.comms.fb.fb_base_gen import FilePurposeDC
 from ada.comms.fb.fb_scene_gen import SceneDC, SceneOperationsDC

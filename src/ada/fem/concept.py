@@ -8,8 +8,8 @@ from typing import TYPE_CHECKING, Dict, Iterable, List, Literal, Union
 from ada.api.containers import Nodes
 from ada.comms.fb_wrap_model_gen import FilePurposeDC
 from ada.config import logger
-from ada.visit.renderer_manager import RendererManager
 from ada.visit.render_params import FEARenderParams, RenderParams
+from ada.visit.renderer_manager import RendererManager
 
 from .containers import FemElements, FemSections, FemSets
 from .sets import FemSet

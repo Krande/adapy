@@ -15,6 +15,7 @@ _SCHEMA_DIR = ROOT_DIR / "src/flatbuffers/schemas/"
 _GEN_DIR = ROOT_DIR / "src/frontend/src/flatbuffers"
 CMD_FILE = _SCHEMA_DIR / "message.fbs"
 
+
 def add_to_git():
     finalize_args = [
         "git",

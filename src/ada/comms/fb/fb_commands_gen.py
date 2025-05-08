@@ -1,9 +1,7 @@
 from __future__ import annotations
-from typing import Optional, List
-from enum import Enum
+
 from dataclasses import dataclass
-
-
+from enum import Enum
 
 
 class CommandTypeDC(Enum):
@@ -25,10 +23,12 @@ class CommandTypeDC(Enum):
     START_FILE_IN_LOCAL_APP = 15
     SCREENSHOT = 16
 
+
 class TargetTypeDC(Enum):
     WEB = 0
     LOCAL = 1
     SERVER = 2
+
 
 @dataclass
 class WebClientDC:

@@ -1,24 +1,16 @@
 from __future__ import annotations
 
-import logging
-import os
 import pathlib
 
 import pytest
 
 import ada
-from ada.base.types import GeomRepr
 from ada.fem.cases import eigen_test
-from ada.fem.exceptions.element_support import IncompatibleElements
-from ada.fem.formats.general import FEATypes as FEA
-from ada.fem.formats.utils import default_fem_res_path
-from ada.fem.meshing.concepts import GmshOptions
 from ada.fem.results.common import FEAResult
 
 SCRATCH_DIR = pathlib.Path(__file__).parent / "temp/eigen"
 
 EL_TYPES = ada.fem.Elem.EL_TYPES
-
 
 
 @pytest.mark.parametrize("use_hex_quad", [True, False])
@@ -42,7 +34,8 @@ def test_fem_eig(
     **kwargs,
 ) -> FEAResult | None:
 
-    return eigen_test(beam_fixture,
+    return eigen_test(
+        beam_fixture,
         fem_format,
         geom_repr,
         elem_order,
@@ -54,5 +47,5 @@ def test_fem_eig(
         eigen_modes=eigen_modes,
         name=name,
         debug=debug,
-        **kwargs
+        **kwargs,
     )

@@ -1,12 +1,14 @@
 from __future__ import annotations
 
-import trimesh
 from typing import TYPE_CHECKING
+
+import trimesh
 
 from ada.visit.render_params import RenderParams
 
 if TYPE_CHECKING:
     from ada import Assembly, Part
+
 
 def scene_from_part_or_assembly(part_or_assembly: Part | Assembly, params: RenderParams) -> trimesh.Scene:
     from ada import Assembly

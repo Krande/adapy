@@ -1,11 +1,12 @@
 from __future__ import annotations
 
-import trimesh
 from typing import TYPE_CHECKING
+
+import trimesh
 
 from ada.core.guid import create_guid
 from ada.visit.colors import Color
-from ada.visit.gltf.graph import GraphStore, GraphNode
+from ada.visit.gltf.graph import GraphNode, GraphStore
 from ada.visit.render_params import RenderParams
 
 if TYPE_CHECKING:

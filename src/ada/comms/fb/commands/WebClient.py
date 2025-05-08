@@ -4,10 +4,12 @@
 
 import flatbuffers
 from flatbuffers.compat import import_numpy
+
 np = import_numpy()
 
+
 class WebClient(object):
-    __slots__ = ['_tab']
+    __slots__ = ["_tab"]
 
     @classmethod
     def GetRootAs(cls, buf, offset=0):
@@ -20,6 +22,7 @@ class WebClient(object):
     def GetRootAsWebClient(cls, buf, offset=0):
         """This method is deprecated. Please switch to GetRootAs."""
         return cls.GetRootAs(buf, offset)
+
     # WebClient
     def Init(self, buf, pos):
         self._tab = flatbuffers.table.Table(buf, pos)
@@ -52,38 +55,50 @@ class WebClient(object):
             return self._tab.Get(flatbuffers.number_types.Int32Flags, o + self._tab.Pos)
         return 0
 
+
 def WebClientStart(builder):
     builder.StartObject(4)
+
 
 def Start(builder):
     WebClientStart(builder)
 
+
 def WebClientAddInstanceId(builder, instanceId):
     builder.PrependInt32Slot(0, instanceId, 0)
+
 
 def AddInstanceId(builder, instanceId):
     WebClientAddInstanceId(builder, instanceId)
 
+
 def WebClientAddName(builder, name):
     builder.PrependUOffsetTRelativeSlot(1, flatbuffers.number_types.UOffsetTFlags.py_type(name), 0)
+
 
 def AddName(builder, name):
     WebClientAddName(builder, name)
 
+
 def WebClientAddAddress(builder, address):
     builder.PrependUOffsetTRelativeSlot(2, flatbuffers.number_types.UOffsetTFlags.py_type(address), 0)
+
 
 def AddAddress(builder, address):
     WebClientAddAddress(builder, address)
 
+
 def WebClientAddPort(builder, port):
     builder.PrependInt32Slot(3, port, 0)
+
 
 def AddPort(builder, port):
     WebClientAddPort(builder, port)
 
+
 def WebClientEnd(builder):
     return builder.EndObject()
+
 
 def End(builder):
     return WebClientEnd(builder)

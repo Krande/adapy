@@ -124,5 +124,3 @@ class Animation:
                 "channels": channels,
             }
         )
-
-

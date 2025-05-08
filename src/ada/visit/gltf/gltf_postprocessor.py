@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from typing import OrderedDict
-
 from dataclasses import dataclass, field
+from typing import OrderedDict
 
 from ada.api.animations import Animation
 

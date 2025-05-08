@@ -1,10 +1,9 @@
 from __future__ import annotations
-from typing import Optional, List
-from enum import Enum
-from dataclasses import dataclass
+
 import pathlib
-
-
+from dataclasses import dataclass
+from enum import Enum
+from typing import List, Optional
 
 
 class ParameterTypeDC(Enum):
@@ -15,15 +14,18 @@ class ParameterTypeDC(Enum):
     BOOLEAN = 4
     ARRAY = 6
 
+
 class ArrayTypeDC(Enum):
     TUPLE = 0
     LIST = 1
     SET = 2
 
+
 class FilePurposeDC(Enum):
     DESIGN = 0
     ANALYSIS = 1
     FABRICATE = 2
+
 
 class FileTypeDC(Enum):
     IFC = 0
@@ -31,6 +33,7 @@ class FileTypeDC(Enum):
     SQLITE = 2
     XLSX = 3
     CSV = 4
+
 
 @dataclass
 class ValueDC:
@@ -44,6 +47,7 @@ class ValueDC:
     array_type: Optional[ArrayTypeDC] = None
     array_any_length: bool = None
 
+
 @dataclass
 class ParameterDC:
     name: str = ""
@@ -52,16 +56,19 @@ class ParameterDC:
     default_value: Optional[ValueDC] = None
     options: Optional[List[ValueDC]] = None
 
+
 @dataclass
 class ErrorDC:
     code: int = None
     message: str = ""
+
 
 @dataclass
 class ProcedureStartDC:
     procedure_name: str = ""
     procedure_id_string: str = ""
     parameters: Optional[List[ParameterDC]] = None
+
 
 @dataclass
 class FileObjectDC:
@@ -76,6 +83,7 @@ class FileObjectDC:
     procedure_parent: Optional[ProcedureStartDC] = None
     compressed: bool = False
 
+
 @dataclass
 class FileObjectRefDC:
     name: str = ""
@@ -86,6 +94,7 @@ class FileObjectRefDC:
     ifcsqlite_file: Optional[FileObjectRefDC] = None
     is_procedure_output: bool = None
     procedure_parent: Optional[ProcedureStartDC] = None
+
 
 @dataclass
 class FileArgDC:

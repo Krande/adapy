@@ -1,5 +1,10 @@
-from ada.comms.fb.fb_scene_gen import CameraParamsDC, ScreenshotDC, SceneDC,SceneOperationsDC
 from ada.comms.fb.fb_base_deserializer import deserialize_fileobject
+from ada.comms.fb.fb_scene_gen import (
+    CameraParamsDC,
+    SceneDC,
+    SceneOperationsDC,
+    ScreenshotDC,
+)
 
 
 def deserialize_cameraparams(fb_obj) -> CameraParamsDC | None:
@@ -13,7 +18,7 @@ def deserialize_cameraparams(fb_obj) -> CameraParamsDC | None:
         fov=fb_obj.Fov(),
         near=fb_obj.Near(),
         far=fb_obj.Far(),
-        force_camera=fb_obj.ForceCamera()
+        force_camera=fb_obj.ForceCamera(),
     )
 
 
@@ -22,7 +27,7 @@ def deserialize_screenshot(fb_obj) -> ScreenshotDC | None:
         return None
 
     return ScreenshotDC(
-        png_file_path=fb_obj.PngFilePath().decode('utf-8') if fb_obj.PngFilePath() is not None else None
+        png_file_path=fb_obj.PngFilePath().decode("utf-8") if fb_obj.PngFilePath() is not None else None
     )
 
 
@@ -33,7 +38,5 @@ def deserialize_scene(fb_obj) -> SceneDC | None:
     return SceneDC(
         operation=SceneOperationsDC(fb_obj.Operation()),
         camera_params=deserialize_cameraparams(fb_obj.CameraParams()),
-        current_file=deserialize_fileobject(fb_obj.CurrentFile())
+        current_file=deserialize_fileobject(fb_obj.CurrentFile()),
     )
-
-

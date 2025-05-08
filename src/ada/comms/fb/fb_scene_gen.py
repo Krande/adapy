@@ -1,17 +1,18 @@
 from __future__ import annotations
-from typing import Optional, List
-from enum import Enum
-from dataclasses import dataclass
+
 import pathlib
+from dataclasses import dataclass
+from enum import Enum
+from typing import List, Optional
 
 from ada.comms.fb.fb_base_gen import FileObjectDC
-
 
 
 class SceneOperationsDC(Enum):
     ADD = 0
     REMOVE = 1
     REPLACE = 2
+
 
 @dataclass
 class CameraParamsDC:
@@ -23,9 +24,11 @@ class CameraParamsDC:
     far: float = None
     force_camera: bool = False
 
+
 @dataclass
 class ScreenshotDC:
     png_file_path: pathlib.Path | str = ""
+
 
 @dataclass
 class SceneDC:

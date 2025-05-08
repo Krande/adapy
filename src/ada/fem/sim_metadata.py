@@ -12,31 +12,31 @@ from pydantic import BaseModel, Field, conint
 
 
 class AnalysisType(str, Enum):
-    eigenvalue = 'eigenvalue'
-    implicit_static = 'implicit static'
-    implicit_dynamic = 'implicit dynamic'
-    explicit = 'explicit'
+    eigenvalue = "eigenvalue"
+    implicit_static = "implicit static"
+    implicit_dynamic = "implicit dynamic"
+    explicit = "explicit"
 
 
 class DataReference(BaseModel):
-    bufferView: conint(ge=0) = Field(..., description='Index of the glTF bufferView containing the binary data.')
-    byteOffset: Optional[conint(ge=0)] = Field(0, description='Offset into the bufferView in bytes.')
+    bufferView: conint(ge=0) = Field(..., description="Index of the glTF bufferView containing the binary data.")
+    byteOffset: Optional[conint(ge=0)] = Field(0, description="Offset into the bufferView in bytes.")
 
 
 class FieldObject(BaseModel):
-    name: str = Field(..., description='Name of the result field, e.g., displacement, stress.')
+    name: str = Field(..., description="Name of the result field, e.g., displacement, stress.")
     type: str = Field(..., description="Type of the field data, e.g., 'vector', 'scalar'.")
     data: DataReference
 
 
 class StepObject(BaseModel):
-    analysis_type: AnalysisType = Field(..., description='Type of analysis for this step.')
-    fields: List[FieldObject] = Field(..., description='List of field data objects for this step.')
+    analysis_type: AnalysisType = Field(..., description="Type of analysis for this step.")
+    fields: List[FieldObject] = Field(..., description="List of field data objects for this step.")
 
 
 class SimulationDataExtensionMetadata(BaseModel):
-    name: str = Field(..., description='Name of the simulation.')
-    date: datetime = Field(..., description='Date and time of the simulation.')
-    fea_software: str = Field(..., description='Name of the FEA software used.')
-    fea_software_version: str = Field(..., description='Version of the FEA software.')
-    steps: List[StepObject] = Field(..., description='List of analysis steps.')
+    name: str = Field(..., description="Name of the simulation.")
+    date: datetime = Field(..., description="Date and time of the simulation.")
+    fea_software: str = Field(..., description="Name of the FEA software used.")
+    fea_software_version: str = Field(..., description="Version of the FEA software.")
+    steps: List[StepObject] = Field(..., description="List of analysis steps.")

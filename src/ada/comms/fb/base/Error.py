@@ -4,10 +4,12 @@
 
 import flatbuffers
 from flatbuffers.compat import import_numpy
+
 np = import_numpy()
 
+
 class Error(object):
-    __slots__ = ['_tab']
+    __slots__ = ["_tab"]
 
     @classmethod
     def GetRootAs(cls, buf, offset=0):
@@ -20,6 +22,7 @@ class Error(object):
     def GetRootAsError(cls, buf, offset=0):
         """This method is deprecated. Please switch to GetRootAs."""
         return cls.GetRootAs(buf, offset)
+
     # Error
     def Init(self, buf, pos):
         self._tab = flatbuffers.table.Table(buf, pos)
@@ -38,26 +41,34 @@ class Error(object):
             return self._tab.String(o + self._tab.Pos)
         return None
 
+
 def ErrorStart(builder):
     builder.StartObject(2)
+
 
 def Start(builder):
     ErrorStart(builder)
 
+
 def ErrorAddCode(builder, code):
     builder.PrependInt32Slot(0, code, 0)
+
 
 def AddCode(builder, code):
     ErrorAddCode(builder, code)
 
+
 def ErrorAddMessage(builder, message):
     builder.PrependUOffsetTRelativeSlot(1, flatbuffers.number_types.UOffsetTFlags.py_type(message), 0)
+
 
 def AddMessage(builder, message):
     ErrorAddMessage(builder, message)
 
+
 def ErrorEnd(builder):
     return builder.EndObject()
+
 
 def End(builder):
     return ErrorEnd(builder)

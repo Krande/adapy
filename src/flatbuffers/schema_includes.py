@@ -38,6 +38,7 @@ def find_schema_inclusions(schema_files: list[pathlib.Path], schema_directory: P
 
     return inclusions
 
+
 def main():
     # Example usage
     schema_directory = Path("schemas")
@@ -47,6 +48,7 @@ def main():
     # Print inclusion relationships
     for schema, included_schemas in inclusions.items():
         print(f"Schema '{schema}' includes the following schemas: {', '.join(included_schemas)}")
+
 
 if __name__ == "__main__":
     main()

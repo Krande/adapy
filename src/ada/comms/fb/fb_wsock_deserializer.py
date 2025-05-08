@@ -1,17 +1,17 @@
-from ada.comms.fb.wsock import Message
-
-from ada.comms.fb.fb_wsock_gen import MessageDC
-from ada.comms.fb.fb_scene_deserializer import deserialize_scene, deserialize_screenshot
-
-from ada.comms.fb.fb_server_deserializer import deserialize_server, deserialize_serverreply
-
-from ada.comms.fb.fb_meshes_deserializer import deserialize_meshinfo, deserialize_appendmesh
-
 from ada.comms.fb.fb_commands_deserializer import deserialize_webclient
-
+from ada.comms.fb.fb_commands_gen import CommandTypeDC, TargetTypeDC
+from ada.comms.fb.fb_meshes_deserializer import (
+    deserialize_appendmesh,
+    deserialize_meshinfo,
+)
 from ada.comms.fb.fb_procedures_deserializer import deserialize_procedurestore
-
-from ada.comms.fb.fb_commands_gen import CommandTypeDC, TargetTypeDC, TargetTypeDC
+from ada.comms.fb.fb_scene_deserializer import deserialize_scene, deserialize_screenshot
+from ada.comms.fb.fb_server_deserializer import (
+    deserialize_server,
+    deserialize_serverreply,
+)
+from ada.comms.fb.fb_wsock_gen import MessageDC
+from ada.comms.fb.wsock import Message
 
 
 def deserialize_message(fb_obj) -> MessageDC | None:
@@ -27,11 +27,15 @@ def deserialize_message(fb_obj) -> MessageDC | None:
         target_group=TargetTypeDC(fb_obj.TargetGroup()),
         client_type=TargetTypeDC(fb_obj.ClientType()),
         target_id=fb_obj.TargetId(),
-        web_clients=[deserialize_webclient(fb_obj.WebClients(i)) for i in range(fb_obj.WebClientsLength())] if fb_obj.WebClientsLength() > 0 else None,
+        web_clients=(
+            [deserialize_webclient(fb_obj.WebClients(i)) for i in range(fb_obj.WebClientsLength())]
+            if fb_obj.WebClientsLength() > 0
+            else None
+        ),
         procedure_store=deserialize_procedurestore(fb_obj.ProcedureStore()),
         server_reply=deserialize_serverreply(fb_obj.ServerReply()),
         screenshot=deserialize_screenshot(fb_obj.Screenshot()),
-        package=deserialize_appendmesh(fb_obj.Package())
+        package=deserialize_appendmesh(fb_obj.Package()),
     )
 
 

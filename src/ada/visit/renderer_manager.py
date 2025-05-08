@@ -131,7 +131,6 @@ class RendererManager:
         if params.scene_post_processor is not None:
             scene = params.scene_post_processor(scene)
 
-
         data = scene.export(
             file_type="glb",
             buffer_postprocessor=params.gltf_buffer_postprocessor,
@@ -242,7 +241,11 @@ class RendererManager:
                 if isinstance(gltf_export_to_file, str):
                     gltf_export_to_file = pathlib.Path(params.gltf_export_to_file)
                 gltf_export_to_file.parent.mkdir(parents=True, exist_ok=True)
-                scene.export(gltf_export_to_file, tree_postprocessor=gltf_tree_postprocess, buffer_postprocessor=params.gltf_buffer_postprocessor)
+                scene.export(
+                    gltf_export_to_file,
+                    tree_postprocessor=gltf_tree_postprocess,
+                    buffer_postprocessor=params.gltf_buffer_postprocessor,
+                )
 
             if params.add_ifc_backend is True and type(obj) is Assembly:
                 server_temp = Config().websockets_server_temp_dir

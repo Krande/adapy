@@ -34,7 +34,9 @@ def is_conditions_unsupported(fem_format, geom_repr, elem_order, reduced_integra
     else:
         return False
 
-def eigen_test(beam_fixture,
+
+def eigen_test(
+    beam_fixture,
     fem_format,
     geom_repr,
     elem_order,

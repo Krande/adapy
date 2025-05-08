@@ -1,9 +1,24 @@
-import flatbuffers
 from typing import Optional
 
-from ada.comms.fb.base import Value, Parameter, Error, ProcedureStart, FileObject, FileObjectRef, FileArg
-
-from ada.comms.fb.fb_base_gen import ValueDC, ParameterDC, ErrorDC, ProcedureStartDC, FileObjectDC, FileObjectRefDC, FileArgDC
+import flatbuffers
+from ada.comms.fb.base import (
+    Error,
+    FileArg,
+    FileObject,
+    FileObjectRef,
+    Parameter,
+    ProcedureStart,
+    Value,
+)
+from ada.comms.fb.fb_base_gen import (
+    ErrorDC,
+    FileArgDC,
+    FileObjectDC,
+    FileObjectRefDC,
+    ParameterDC,
+    ProcedureStartDC,
+    ValueDC,
+)
 
 
 def serialize_value(builder: flatbuffers.Builder, obj: Optional[ValueDC]) -> Optional[int]:
@@ -216,5 +231,3 @@ def serialize_filearg(builder: flatbuffers.Builder, obj: Optional[FileArgDC]) ->
     if obj.file_type is not None:
         FileArg.AddFileType(builder, obj.file_type.value)
     return FileArg.End(builder)
-
-

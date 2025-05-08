@@ -84,7 +84,11 @@ def read_odb_pckle_file(result_file_path: str | pathlib.Path, overwrite=False) -
 
 
 def get_odb_field_data(field_name, field_data, frame_num):
-    from ada.fem.results.field_data import ElementFieldData, NodalFieldData
+    from ada.fem.results.field_data import (
+        ElementFieldData,
+        NodalFieldData,
+        NodalFieldType,
+    )
 
     field_type, components, data = field_data
 
@@ -93,7 +97,16 @@ def get_odb_field_data(field_name, field_data, frame_num):
         return ElementFieldData(field_name, frame_num, components, values=field_values)
     elif field_type == "NODAL":
         field_values = np.array(list(yield_nodal_data(data)))
-        return NodalFieldData(field_name, frame_num, components, field_values)
+        if field_name == "U":
+            field_type_general = NodalFieldType.DISP
+        elif field_name == "V":
+            field_type_general = NodalFieldType.VEL
+        elif field_name == "F":
+            field_type_general = NodalFieldType.FORCE
+        else:
+            field_type_general = NodalFieldType.UNKNOWN
+
+        return NodalFieldData(field_name, frame_num, components, field_values, field_type=field_type_general)
     else:
         raise NotImplementedError()
 

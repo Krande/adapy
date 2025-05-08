@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 import datetime
+from typing import TYPE_CHECKING
 
 import numpy as np
 import trimesh
 
+from ada.config import logger
 from ada.core.guid import create_guid
 from ada.fem import sim_metadata as sim_meta
 from ada.visit.gltf.graph import GraphNode, GraphStore
@@ -15,14 +15,14 @@ from ada.visit.render_params import RenderParams
 if TYPE_CHECKING:
     from ada.fem.results.common import FEAResult
 
+
 def scene_from_fem_results(fea_res: FEAResult, params: RenderParams):
     from trimesh.path.entities import Line
 
     from ada.api.animations import Animation
-    from ada.visit.gltf.gltf_postprocessor import GltfPostProcessor
     from ada.core.vector_transforms import rot_matrix
     from ada.fem.results.field_data import NodalFieldData
-
+    from ada.visit.gltf.gltf_postprocessor import GltfPostProcessor
 
     warp_scale = params.fea_params.warp_scale
 
@@ -46,7 +46,7 @@ def scene_from_fem_results(fea_res: FEAResult, params: RenderParams):
 
     # React renderer supports animations
     sim_data = export_sim_metadata(fea_res)
-    gltf_postprocessor = GltfPostProcessor(extensions={"ADA_SIM_data": sim_data.model_dump()})
+    gltf_postprocessor = GltfPostProcessor(extensions={"ADA_SIM_data": sim_data.model_dump(mode="json")})
 
     # Loop over the results and create an animation from it
     vertices = fea_res.mesh.nodes.coords
@@ -93,7 +93,9 @@ def scene_from_fem_results(fea_res: FEAResult, params: RenderParams):
     return scene
 
 
-def export_sim_metadata(fea_res: FEAResult)-> sim_meta.SimulationDataExtensionMetadata:
+def export_sim_metadata(fea_res: FEAResult) -> sim_meta.SimulationDataExtensionMetadata:
+    from ada.fem.formats.general import FEATypes
+
     steps = []
     for x in fea_res.results:
         if x.step not in steps:
@@ -114,15 +116,35 @@ def export_sim_metadata(fea_res: FEAResult)-> sim_meta.SimulationDataExtensionMe
             )
         step_objects.append(sim_meta.StepObject(analysis_type=sim_meta.AnalysisType.eigenvalue.value, fields=fields))
 
-    if fea_res.software == "code_aster":
-        pass
-        # python std library to get the python package version of code_aster
+    # Get the software version > Move this into the per FEA software fea_res creation
+    if fea_res.software == FEATypes.CODE_ASTER:
+        from ada.fem.formats.code_aster.results.get_version_from_comm import (
+            get_code_aster_version_from_mess,
+        )
 
+        software_version = get_code_aster_version_from_mess(fea_res.results_file_path.with_suffix(".mess"))
+    elif fea_res.software == FEATypes.ABAQUS:
+        from ada.fem.formats.abaqus.results.get_version_from_sta import (
+            extract_abaqus_version,
+        )
 
+        software_version = extract_abaqus_version(fea_res.results_file_path.with_suffix(".sta"))
+    elif fea_res.software == FEATypes.CALCULIX:
+        from ada.fem.formats.calculix.results.get_version_from_frd import (
+            extract_calculix_version,
+        )
+
+        software_version = extract_calculix_version(fea_res.results_file_path.with_suffix(".frd"))
+    else:
+        raise NotImplementedError(f"Software {fea_res.software} not supported for version extraction")
+
+    # Get the last modified date of the result file
+    last_modified = datetime.datetime.fromtimestamp(fea_res.results_file_path.stat().st_mtime)
+    logger.info(f"Last modified date of the result file: {last_modified}")
     return sim_meta.SimulationDataExtensionMetadata(
         name=fea_res.name,
-        date=datetime.datetime.now(),
-        fea_software=fea_res.software,
-        fea_software_version=fea_res.software,
+        date=last_modified,
+        fea_software=str(fea_res.software.value),
+        fea_software_version=software_version,
         steps=step_objects,
     )

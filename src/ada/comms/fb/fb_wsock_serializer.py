@@ -1,15 +1,14 @@
-import flatbuffers
 from typing import Optional
 
-from ada.comms.fb.wsock import Message
-
-from ada.comms.fb.fb_wsock_gen import MessageDC
-
+import flatbuffers
+from ada.comms.fb.fb_commands_serializer import serialize_webclient
+from ada.comms.fb.fb_meshes_serializer import serialize_appendmesh, serialize_meshinfo
+from ada.comms.fb.fb_procedures_serializer import serialize_procedurestore
 from ada.comms.fb.fb_scene_serializer import serialize_scene, serialize_screenshot
 from ada.comms.fb.fb_server_serializer import serialize_server, serialize_serverreply
-from ada.comms.fb.fb_meshes_serializer import serialize_meshinfo, serialize_appendmesh
-from ada.comms.fb.fb_commands_serializer import serialize_webclient
-from ada.comms.fb.fb_procedures_serializer import serialize_procedurestore
+from ada.comms.fb.fb_wsock_gen import MessageDC
+from ada.comms.fb.wsock import Message
+
 
 def serialize_message(builder: flatbuffers.Builder, obj: Optional[MessageDC]) -> Optional[int]:
     if obj is None:
@@ -67,7 +66,7 @@ def serialize_message(builder: flatbuffers.Builder, obj: Optional[MessageDC]) ->
     return Message.End(builder)
 
 
-def serialize_root_message(message: MessageDC, builder: flatbuffers.Builder=None) -> bytes:
+def serialize_root_message(message: MessageDC, builder: flatbuffers.Builder = None) -> bytes:
     if builder is None:
         builder = flatbuffers.Builder(1024)
     scene_obj = None

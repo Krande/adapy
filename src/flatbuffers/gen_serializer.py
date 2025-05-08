@@ -169,9 +169,7 @@ def generate_serialize_root_function(schema: FlatBufferSchema) -> str:
             if field.field_type_without_array in included_table_names:
                 serialize_code += f"    {field.name}_obj = None\n"
                 serialize_code += f"    if message.{field.name} is not None:\n"
-                serialize_code += (
-                    f"        {field.name}_obj = serialize_{field.field_type_without_array.lower()}(builder, message.{field.name})\n"
-                )
+                serialize_code += f"        {field.name}_obj = serialize_{field.field_type_without_array.lower()}(builder, message.{field.name})\n"
             elif field.field_type in included_enum_names:
                 pass
             else:

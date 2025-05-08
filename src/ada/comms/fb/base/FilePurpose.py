@@ -2,6 +2,7 @@
 
 # namespace: base
 
+
 class FilePurpose(object):
     DESIGN = 0
     ANALYSIS = 1

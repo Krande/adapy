@@ -2,6 +2,7 @@
 
 # namespace: base
 
+
 class ArrayType(object):
     TUPLE = 0
     LIST = 1

@@ -4,10 +4,12 @@
 
 import flatbuffers
 from flatbuffers.compat import import_numpy
+
 np = import_numpy()
 
+
 class ServerReply(object):
-    __slots__ = ['_tab']
+    __slots__ = ["_tab"]
 
     @classmethod
     def GetRootAs(cls, buf, offset=0):
@@ -20,6 +22,7 @@ class ServerReply(object):
     def GetRootAsServerReply(cls, buf, offset=0):
         """This method is deprecated. Please switch to GetRootAs."""
         return cls.GetRootAs(buf, offset)
+
     # ServerReply
     def Init(self, buf, pos):
         self._tab = flatbuffers.table.Table(buf, pos)
@@ -39,6 +42,7 @@ class ServerReply(object):
             x += flatbuffers.number_types.UOffsetTFlags.py_type(j) * 4
             x = self._tab.Indirect(x)
             from ada.comms.fb.base.FileObject import FileObject
+
             obj = FileObject()
             obj.Init(self._tab.Bytes, x)
             return obj
@@ -69,49 +73,64 @@ class ServerReply(object):
         if o != 0:
             x = self._tab.Indirect(o + self._tab.Pos)
             from ada.comms.fb.base.Error import Error
+
             obj = Error()
             obj.Init(self._tab.Bytes, x)
             return obj
         return None
 
+
 def ServerReplyStart(builder):
     builder.StartObject(4)
+
 
 def Start(builder):
     ServerReplyStart(builder)
 
+
 def ServerReplyAddMessage(builder, message):
     builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(message), 0)
+
 
 def AddMessage(builder, message):
     ServerReplyAddMessage(builder, message)
 
+
 def ServerReplyAddFileObjects(builder, fileObjects):
     builder.PrependUOffsetTRelativeSlot(1, flatbuffers.number_types.UOffsetTFlags.py_type(fileObjects), 0)
+
 
 def AddFileObjects(builder, fileObjects):
     ServerReplyAddFileObjects(builder, fileObjects)
 
+
 def ServerReplyStartFileObjectsVector(builder, numElems):
     return builder.StartVector(4, numElems, 4)
+
 
 def StartFileObjectsVector(builder, numElems):
     return ServerReplyStartFileObjectsVector(builder, numElems)
 
+
 def ServerReplyAddReplyTo(builder, replyTo):
     builder.PrependInt8Slot(2, replyTo, 0)
+
 
 def AddReplyTo(builder, replyTo):
     ServerReplyAddReplyTo(builder, replyTo)
 
+
 def ServerReplyAddError(builder, error):
     builder.PrependUOffsetTRelativeSlot(3, flatbuffers.number_types.UOffsetTFlags.py_type(error), 0)
+
 
 def AddError(builder, error):
     ServerReplyAddError(builder, error)
 
+
 def ServerReplyEnd(builder):
     return builder.EndObject()
+
 
 def End(builder):
     return ServerReplyEnd(builder)

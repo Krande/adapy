@@ -4,10 +4,12 @@
 
 import flatbuffers
 from flatbuffers.compat import import_numpy
+
 np = import_numpy()
 
+
 class AppendMesh(object):
-    __slots__ = ['_tab']
+    __slots__ = ["_tab"]
 
     @classmethod
     def GetRootAs(cls, buf, offset=0):
@@ -20,6 +22,7 @@ class AppendMesh(object):
     def GetRootAsAppendMesh(cls, buf, offset=0):
         """This method is deprecated. Please switch to GetRootAs."""
         return cls.GetRootAs(buf, offset)
+
     # AppendMesh
     def Init(self, buf, pos):
         self._tab = flatbuffers.table.Table(buf, pos)
@@ -30,25 +33,32 @@ class AppendMesh(object):
         if o != 0:
             x = self._tab.Indirect(o + self._tab.Pos)
             from ada.comms.fb.meshes.Mesh import Mesh
+
             obj = Mesh()
             obj.Init(self._tab.Bytes, x)
             return obj
         return None
 
+
 def AppendMeshStart(builder):
     builder.StartObject(1)
+
 
 def Start(builder):
     AppendMeshStart(builder)
 
+
 def AppendMeshAddMesh(builder, mesh):
     builder.PrependUOffsetTRelativeSlot(0, flatbuffers.number_types.UOffsetTFlags.py_type(mesh), 0)
+
 
 def AddMesh(builder, mesh):
     AppendMeshAddMesh(builder, mesh)
 
+
 def AppendMeshEnd(builder):
     return builder.EndObject()
+
 
 def End(builder):
     return AppendMeshEnd(builder)

@@ -2,6 +2,7 @@
 
 # namespace: commands
 
+
 class CommandType(object):
     PING = 0
     PONG = 1

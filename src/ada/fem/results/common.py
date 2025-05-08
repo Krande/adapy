@@ -15,7 +15,8 @@ from ada.fem.shapes.definitions import LineShapes, MassTypes, ShellShapes, Solid
 from ada.visit.deprecated.websocket_server import send_to_viewer
 from ada.visit.gltf.graph import GraphNode, GraphStore
 from ada.visit.gltf.meshes import GroupReference, MergedMesh, MeshType
-from ada.visit.render_params import RenderParams, FEARenderParams
+from ada.visit.render_params import FEARenderParams, RenderParams
+
 from ...comms.fb_wrap_model_gen import FilePurposeDC
 from .field_data import ElementFieldData, NodalFieldData, NodalFieldType
 
@@ -400,8 +401,6 @@ class FEAResult:
         scene.add_geometry(new_mesh, node_name=self.name, geom_name="faces")
         scene.add_geometry(edge_mesh, node_name=f"{self.name}_edges", geom_name="edges", parent_node_name=self.name)
         return scene
-
-
 
     def to_gltf(
         self,

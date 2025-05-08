@@ -1,11 +1,10 @@
-import flatbuffers
 from typing import Optional
 
-from ada.comms.fb.scene import CameraParams, Screenshot, Scene
-
-from ada.comms.fb.fb_scene_gen import CameraParamsDC, ScreenshotDC, SceneDC
-
+import flatbuffers
 from ada.comms.fb.fb_base_serializer import serialize_fileobject
+from ada.comms.fb.fb_scene_gen import CameraParamsDC, SceneDC, ScreenshotDC
+from ada.comms.fb.scene import CameraParams, Scene, Screenshot
+
 
 def serialize_cameraparams(builder: flatbuffers.Builder, obj: Optional[CameraParamsDC]) -> Optional[int]:
     if obj is None:
@@ -72,5 +71,3 @@ def serialize_scene(builder: flatbuffers.Builder, obj: Optional[SceneDC]) -> Opt
     if obj.current_file is not None:
         Scene.AddCurrentFile(builder, current_file_obj)
     return Scene.End(builder)
-
-

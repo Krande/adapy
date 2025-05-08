@@ -1,11 +1,10 @@
-import flatbuffers
 from typing import Optional
 
-from ada.comms.fb.server import ServerReply, Server
+import flatbuffers
+from ada.comms.fb.fb_base_serializer import serialize_error, serialize_fileobject
+from ada.comms.fb.fb_server_gen import ServerDC, ServerReplyDC
+from ada.comms.fb.server import Server, ServerReply
 
-from ada.comms.fb.fb_server_gen import ServerReplyDC, ServerDC
-
-from ada.comms.fb.fb_base_serializer import serialize_fileobject, serialize_error, serialize_fileobject, serialize_fileobject, serialize_fileobject, serialize_fileobject
 
 def serialize_serverreply(builder: flatbuffers.Builder, obj: Optional[ServerReplyDC]) -> Optional[int]:
     if obj is None:
@@ -74,5 +73,3 @@ def serialize_server(builder: flatbuffers.Builder, obj: Optional[ServerDC]) -> O
     if obj.start_file_in_local_app is not None:
         Server.AddStartFileInLocalApp(builder, start_file_in_local_app_obj)
     return Server.End(builder)
-
-

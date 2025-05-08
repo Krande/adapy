@@ -3,8 +3,8 @@ import shutil
 import subprocess
 import sys
 
-from topological_sorting import topological_sort
 from schema_includes import find_schema_inclusions
+from topological_sorting import topological_sort
 
 ROOT_DIR = pathlib.Path(__file__).parent.parent.parent
 
@@ -25,7 +25,6 @@ def call_ts_flatbuffers(flatc_exe: pathlib.Path, schema_files: list[str]):
         # CMD_FILE.as_posix(),
         # "--gen-all",
         *schema_files,
-
     ]
 
     print("Running command:", " ".join(args))
@@ -38,6 +37,7 @@ def call_ts_flatbuffers(flatc_exe: pathlib.Path, schema_files: list[str]):
             print(result.stderr.decode())
     else:
         raise Exception("Error generating FlatBuffers!")
+
 
 def call_py_flatbuffers(flatc_exe: pathlib.Path, schema_files: list[str]):
     # Generate FlatBuffers code
@@ -59,6 +59,7 @@ def call_py_flatbuffers(flatc_exe: pathlib.Path, schema_files: list[str]):
             print(result.stderr.decode())
     else:
         raise Exception("Error generating FlatBuffers!")
+
 
 def run_flatc():
     # Clean wsock directory and generated directory

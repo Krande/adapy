@@ -6,7 +6,6 @@ from itertools import chain
 from typing import TYPE_CHECKING, Any, Callable, Iterable
 
 from ada import Node, Pipe, PrimBox, PrimCyl, PrimExtrude, PrimRevolve, Shape
-from ada.visit.gltf.gltf_postprocessor import GltfPostProcessor
 from ada.api.beams.base_bm import Beam
 from ada.api.beams.beam_tapered import BeamTapered
 from ada.api.connections import JointBase
@@ -21,6 +20,7 @@ from ada.base.types import GeomRepr
 from ada.base.units import Units
 from ada.comms.fb_wrap_model_gen import FileObjectDC, FilePurposeDC, FileTypeDC
 from ada.config import logger
+from ada.visit.gltf.gltf_postprocessor import GltfPostProcessor
 from ada.visit.gltf.graph import GraphNode, GraphStore
 from ada.visit.render_params import RenderParams
 
