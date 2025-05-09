@@ -14,6 +14,9 @@ class GltfPostProcessor:
     def add_animation(self, animation: Animation):
         self.animations.append(animation)
 
+    def add_extension(self, name: str, extension: dict):
+        self.extensions[name] = extension
+
     def _update_buffer_view(self, tree, accessor_idx, target_num):
         buffer_view_idx = tree["accessors"][accessor_idx]["bufferView"]
         buffer_view = tree["bufferViews"][buffer_view_idx]

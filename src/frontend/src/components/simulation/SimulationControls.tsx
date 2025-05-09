@@ -11,7 +11,7 @@ import FEMDataPanelIcon from "../icons/FEMDataPanelIcon";
 const SimulationControls = () => {
     const {selectedAnimation, currentKey, setCurrentKey} = useAnimationStore();
     const roundedCurrentKey = parseFloat(currentKey.toFixed(2));
-    const [showSimData, setShowSimData] = useState(true);
+    const [showSimData, setShowSimData] = useState(false);
 
     // Handle animation change
     const handleAnimationChange = (e: React.ChangeEvent<HTMLSelectElement>) => {

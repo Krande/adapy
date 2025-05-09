@@ -1,6 +1,6 @@
 // src/App.tsx
 import "./app.css";
-import React, { useEffect } from 'react'
+import React, {useEffect} from 'react'
 import CanvasWrapper from './components/viewer/CanvasWrapper';
 import Menu from './components/Menu';
 import OptionsComponent from './components/OptionsComponent';

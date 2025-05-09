@@ -45,8 +45,9 @@ def scene_from_fem_results(fea_res: FEAResult, params: RenderParams):
     # edge_node_idx = [i for i, n in enumerate(scene.graph.nodes) if n == edge_node][0]
 
     # React renderer supports animations
+    gltf_postprocessor = GltfPostProcessor()
     sim_data = export_sim_metadata(fea_res)
-    gltf_postprocessor = GltfPostProcessor(extensions={"ADA_SIM_data": sim_data.model_dump(mode="json")})
+    gltf_postprocessor.add_extension("ADA_SIM_data", sim_data.model_dump(mode="json"))
 
     # Loop over the results and create an animation from it
     vertices = fea_res.mesh.nodes.coords
@@ -127,6 +128,7 @@ def export_sim_metadata(fea_res: FEAResult) -> sim_meta.SimulationDataExtensionM
     # Get the last modified date of the result file
     last_modified = datetime.datetime.fromtimestamp(fea_res.results_file_path.stat().st_mtime)
     logger.info(f"Last modified date of the result file: {last_modified}")
+
     return sim_meta.SimulationDataExtensionMetadata(
         name=fea_res.name,
         date=last_modified,

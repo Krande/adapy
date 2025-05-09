@@ -53,6 +53,7 @@ export function setupModelLoader(
         (gltf) => {
             const gltf_scene = gltf.scene;
             const animations = gltf.animations;
+
             // access the raw JSON
             const sim_ext_data = (gltf as any).parser.json.extensions?.ADA_SIM_data;
             if (sim_ext_data){
