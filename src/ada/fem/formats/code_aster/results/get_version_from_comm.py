@@ -18,4 +18,4 @@ def get_code_aster_version_from_mess(file_path: str | pathlib.Path) -> str:
             m = version_re.search(line)
             if m:
                 return m.group(1)
-    return None
+    return "N/A"

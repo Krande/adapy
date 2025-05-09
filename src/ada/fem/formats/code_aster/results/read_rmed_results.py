@@ -8,6 +8,9 @@ import h5py
 import numpy as np
 
 from ada.config import logger
+from ada.fem.formats.code_aster.results.get_version_from_comm import (
+    get_code_aster_version_from_mess,
+)
 
 if TYPE_CHECKING:
     from ada.fem.results.common import (
@@ -29,8 +32,18 @@ def read_rmed_file(rmed_file: str | pathlib.Path) -> FEAResult:
     mr = MedReader(rmed_file)
     mr.load()
 
+    mess_file = rmed_file.with_suffix(".mess")
+    software_version = "N/A"
+    if mess_file.exists():
+        software_version = get_code_aster_version_from_mess(rmed_file)
+
     return FEAResult(
-        rmed_file.name, software=FEATypes.CODE_ASTER, results=mr.results, mesh=mr.mesh, results_file_path=rmed_file
+        rmed_file.name,
+        software=FEATypes.CODE_ASTER,
+        results=mr.results,
+        mesh=mr.mesh,
+        results_file_path=rmed_file,
+        software_version=software_version,
     )
 
 
@@ -196,11 +209,18 @@ class MedReader:
             eig_freq = step
             step = i
 
-        field_type = None
+        field_type = NodalFieldType.UNKNOWN
         if "DX" in components:
             field_type = NodalFieldType.DISP
 
-        return NodalFieldData(name, step, components, values, eigen_freq=eig_freq, field_type=field_type)
+        return NodalFieldData(
+            name=name,
+            step=step,
+            components=components,
+            values=values,
+            eigen_freq=eig_freq,
+            field_type=field_type,
+        )
 
     def _load_mesh(self):
         mesh_ensemble = self.f["ENS_MAA"]

@@ -81,9 +81,9 @@ def main():
     parser = argparse.ArgumentParser(description="Run FEM analysis with Calculix (ccx) or Code Aster (ca)")
     parser.add_argument(
         "--solver",
-        choices=["ccx", "ca", "aba"],
+        choices=["ccx", "ca", "aba", "ses"],
         default="ca",
-        help="Solver to use: 'ccx' for Calculix, 'ca' for Code Aster, 'aba' for Abaqus",
+        help="Solver to use: 'ccx' for Calculix, 'ca' for Code Aster, 'aba' for Abaqus, 'ses' for SESAM",
     )
     parser.add_argument(
         "--geom",
@@ -154,6 +154,8 @@ def main():
         solver_engine = "code_aster"
     elif args.solver == "aba":
         solver_engine = "abaqus"
+    elif args.solver == "ses":
+        solver_engine = "sesam"
     else:
         raise ValueError(f"Unknown solver: {args.solver}")
 

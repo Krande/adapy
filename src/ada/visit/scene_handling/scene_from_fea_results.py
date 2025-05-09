@@ -21,7 +21,7 @@ def scene_from_fem_results(fea_res: FEAResult, params: RenderParams):
 
     from ada.api.animations import Animation
     from ada.core.vector_transforms import rot_matrix
-    from ada.fem.results.field_data import NodalFieldData
+    from ada.fem.results.field_data import ElementFieldData, NodalFieldData
     from ada.visit.gltf.gltf_postprocessor import GltfPostProcessor
 
     warp_scale = params.fea_params.warp_scale
@@ -52,6 +52,8 @@ def scene_from_fem_results(fea_res: FEAResult, params: RenderParams):
     vertices = fea_res.mesh.nodes.coords
     added_results = []
     for i, result in enumerate(fea_res.results):
+        if isinstance(result, ElementFieldData):
+            continue
         warped_vertices = fea_res._warp_data(vertices, result.name, result.step, warp_scale)
         delta_vertices = warped_vertices - vertices
         is_static = False
@@ -94,8 +96,6 @@ def scene_from_fem_results(fea_res: FEAResult, params: RenderParams):
 
 
 def export_sim_metadata(fea_res: FEAResult) -> sim_meta.SimulationDataExtensionMetadata:
-    from ada.fem.formats.general import FEATypes
-
     steps = []
     for x in fea_res.results:
         if x.step not in steps:
@@ -104,39 +104,25 @@ def export_sim_metadata(fea_res: FEAResult) -> sim_meta.SimulationDataExtensionM
     step_objects = []
     for step in steps:
         fields = []
+        is_eig = False
         for result in fea_res.results:
             if result.step != step:
                 continue
-            fields.append(
-                sim_meta.FieldObject(
+            if hasattr(result, "eigen_freq") and result.eigen_freq is not None:
+                is_eig = True
+            field = sim_meta.FieldObject(
                     name=result.name,
-                    type=result.field_type.value,
+                    type=result.field_type.value if hasattr(result, "field_type") else "unknown",
                     data=sim_meta.DataReference(bufferView=0, byteOffset=0),
                 )
-            )
-        step_objects.append(sim_meta.StepObject(analysis_type=sim_meta.AnalysisType.eigenvalue.value, fields=fields))
+            fields.append(field)
 
-    # Get the software version > Move this into the per FEA software fea_res creation
-    if fea_res.software == FEATypes.CODE_ASTER:
-        from ada.fem.formats.code_aster.results.get_version_from_comm import (
-            get_code_aster_version_from_mess,
-        )
+        if is_eig:
+            analysis_type = sim_meta.AnalysisType.eigenvalue
+        else:
+            analysis_type = sim_meta.AnalysisType.implicit_static
 
-        software_version = get_code_aster_version_from_mess(fea_res.results_file_path.with_suffix(".mess"))
-    elif fea_res.software == FEATypes.ABAQUS:
-        from ada.fem.formats.abaqus.results.get_version_from_sta import (
-            extract_abaqus_version,
-        )
-
-        software_version = extract_abaqus_version(fea_res.results_file_path.with_suffix(".sta"))
-    elif fea_res.software == FEATypes.CALCULIX:
-        from ada.fem.formats.calculix.results.get_version_from_frd import (
-            extract_calculix_version,
-        )
-
-        software_version = extract_calculix_version(fea_res.results_file_path.with_suffix(".frd"))
-    else:
-        raise NotImplementedError(f"Software {fea_res.software} not supported for version extraction")
+        step_objects.append(sim_meta.StepObject(analysis_type=analysis_type, fields=fields))
 
     # Get the last modified date of the result file
     last_modified = datetime.datetime.fromtimestamp(fea_res.results_file_path.stat().st_mtime)
@@ -145,6 +131,6 @@ def export_sim_metadata(fea_res: FEAResult) -> sim_meta.SimulationDataExtensionM
         name=fea_res.name,
         date=last_modified,
         fea_software=str(fea_res.software.value),
-        fea_software_version=software_version,
+        fea_software_version=fea_res.software_version,
         steps=step_objects,
     )

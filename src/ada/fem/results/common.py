@@ -215,6 +215,7 @@ class FEAResult:
     results_file_path: pathlib.Path = None
     step_name_map: dict[int | float, str] = None
     description: str = None
+    software_version: str = None
 
     def __post_init__(self):
         if self.results is None:

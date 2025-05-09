@@ -1,7 +1,7 @@
 import React from 'react';
 import ObjectInfoBox from "./object_info_box/ObjectInfoBoxComponent";
 import {useObjectInfoStore} from "../state/objectInfoStore";
-import AnimationControls from "./viewer/AnimationControls";
+import SimulationControls from "./simulation/SimulationControls";
 import {useNodeEditorStore} from "../state/useNodeEditorStore";
 import {useAnimationStore} from "../state/animationStore";
 import {useOptionsStore} from "../state/optionsStore";
@@ -15,7 +15,6 @@ import TreeViewIcon from "./icons/TreeViewIcon";
 import ReloadIcon from "./icons/ReloadIcon";
 import ServerIcon from "./icons/ServerIcon";
 import ToggleControlsIcon from "./icons/AnimationControlToggle";
-import SimulationDataInfoPanel from "./simulation/SimulationDataInfoPanel";
 
 
 const Menu = () => {
@@ -28,8 +27,8 @@ const Menu = () => {
 
     return (
         <div className="relative w-full h-full">
-            <div className="absolute left-0 top-0 z-10 py-2 gap-2 flex flex-col">
-                <div className={"flex flex-row items-center gap-2 px-2 max-w-full"}>
+            <div className="absolute left-0 top-0 z-10 py-2 gap-2 flex flex-col pointer-events-none">
+                <div className={"flex flex-row items-center gap-2 px-2 max-w-full pointer-events-auto"}>
                     {use_node_editor_only && (
                         <button
                             className={"flex relative bg-blue-700 hover:bg-blue-700/50 text-white p-1 rounded"}
@@ -83,7 +82,7 @@ const Menu = () => {
                 <div className={"px-2 gap-2 flex flex-col"}>
                     {showServerInfoBox && <ServerInfoBox/>}
                     {show_info_box && <ObjectInfoBox/>}
-                    {isControlsVisible && <AnimationControls/>}
+                    {isControlsVisible && <SimulationControls/>}
                 </div>
             </div>
         </div>

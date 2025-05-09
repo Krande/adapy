@@ -2,7 +2,7 @@ import pathlib
 import re
 
 
-def extract_calculix_version(file_path: pathlib.Path | str) -> str | None:
+def extract_calculix_version(file_path: pathlib.Path | str) -> str:
     """
     Parse the given CalculiX .frd file for the version.
     Looks for a line like:
@@ -19,4 +19,4 @@ def extract_calculix_version(file_path: pathlib.Path | str) -> str | None:
             m = version_re.match(line)
             if m:
                 return m.group(1)
-    return None
+    return "N/A"

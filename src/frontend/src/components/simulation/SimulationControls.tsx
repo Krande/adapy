@@ -4,10 +4,11 @@ import {useAnimationStore} from "../../state/animationStore";
 import {animationControllerRef} from "../../state/refs";
 import PlayPauseIcon from "../icons/PlayPauseIcon";
 import StopIcon from "../icons/StopIcon";
-import SimulationDataInfoPanel from "../simulation/SimulationDataInfoPanel";
+import SimulationDataInfoPanel from "./SimulationDataInfoPanel";
 import InfoIcon from "../icons/InfoIcon";
+import FEMDataPanelIcon from "../icons/FEMDataPanelIcon";
 
-const AnimationControls = () => {
+const SimulationControls = () => {
     const {selectedAnimation, currentKey, setCurrentKey} = useAnimationStore();
     const roundedCurrentKey = parseFloat(currentKey.toFixed(2));
     const [showSimData, setShowSimData] = useState(true);
@@ -46,7 +47,7 @@ const AnimationControls = () => {
 
     return (
         <div className="flex flex-col gap-2">
-            <div className="flex flex-row items-center gap-x-2 min-w-0">
+            <div className="flex flex-row items-center gap-x-2 min-w-0 pointer-events-auto">
                 <select
                     className="text-black font-bold py-2 px-4 rounded w-60"
                     value={selectedAnimation}
@@ -79,9 +80,9 @@ const AnimationControls = () => {
                     className="bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded"
                     onClick={() => setShowSimData((v) => !v)}
                 >
-                    <InfoIcon/>
+                    <FEMDataPanelIcon/>
                 </button>
-                <div className="flex items-center gap-2 min-w-[200px] max-w-sm w-full">
+                <div className="flex items-center gap-2 min-w-[100px] max-w-sm w-full">
                     <input
                         type="range"
                         min="0"
@@ -109,4 +110,4 @@ const AnimationControls = () => {
     );
 };
 
-export default AnimationControls;
+export default SimulationControls;

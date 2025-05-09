@@ -10,9 +10,11 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from ada.config import logger
+from ada.fem.formats.abaqus.results.get_version_from_sta import extract_abaqus_version
 
 if TYPE_CHECKING:
-    from ada.fem.results.common import FEAResult, FieldData, Mesh
+    from ada.fem.results.common import FEAResult, Mesh
+    from ada.fem.results.field_data import FieldData
 
 _script_dir = pathlib.Path(__file__).parent.resolve().absolute()
 
@@ -74,12 +76,18 @@ def read_odb_pckle_file(result_file_path: str | pathlib.Path, overwrite=False) -
     mesh = get_odb_instance_data(data["rootAssembly"]["instances"])
     fields = get_odb_frame_data(data["steps"])
 
+    software_version = "N/A"
+    sta_file = result_file_path.with_suffix(".sta")
+    if sta_file.exists():
+        software_version = extract_abaqus_version(sta_file)
+
     return FEAResult(
         name=result_file_path.stem,
         software=FEATypes.ABAQUS,
         mesh=mesh,
         results=fields,
         results_file_path=result_file_path,
+        software_version=software_version,
     )
 
 
