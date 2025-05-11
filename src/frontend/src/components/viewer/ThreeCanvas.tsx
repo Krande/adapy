@@ -3,7 +3,6 @@ import React, {useEffect, useRef} from "react";
 import * as THREE from "three";
 import {useModelStore} from "../../state/modelStore";
 import {useOptionsStore} from "../../state/optionsStore";
-import {useAnimationStore} from "../../state/animationStore";
 import {OrientationGizmo} from "./sceneHelpers/OrientationGizmo";
 import {setupCameraControlsHandlers} from "./sceneHelpers/setupCameraControlsHandlers";
 import {setupCamera} from "./sceneHelpers/setupCamera";
@@ -15,7 +14,7 @@ import {setupStats} from "./sceneHelpers/setupStats";
 import {setupModelLoader} from "./sceneHelpers/setupModelLoader";
 import {setupResizeHandler} from "./sceneHelpers/setupResizeHandler";
 import {setupPointerHandler} from "./sceneHelpers/setupPointerHandler";
-import {cameraRef, controlsRef, rendererRef, sceneRef, updatelightRef, animationControllerRef} from "../../state/refs";
+import {animationControllerRef, cameraRef, controlsRef, rendererRef, sceneRef, updatelightRef} from "../../state/refs";
 import {OrbitControls} from "three/examples/jsm/controls/OrbitControls";
 import {AnimationController} from "../../utils/scene/animations/AnimationController";
 
@@ -107,10 +106,7 @@ const ThreeCanvas: React.FC = () => {
         }
 
         // === Stats ===
-        const {statsArray, callsPanel, trisPanel} = setupStats(
-            containerRef.current,
-            showPerf,
-        );
+        const {statsArray, callsPanel, trisPanel} = setupStats(containerRef.current);
         statsRef.current = {statsArray, callsPanel, trisPanel};
 
         // === Model Loader ===

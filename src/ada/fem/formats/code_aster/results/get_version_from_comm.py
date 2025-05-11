@@ -12,7 +12,7 @@ def get_code_aster_version_from_mess(file_path: str | pathlib.Path) -> str:
         file_path = pathlib.Path(file_path)
 
     # matches 1 or more digits + dot + digits + dot + digits
-    version_re = re.compile(r"Version\s+(\d+\.\d+\.\d+)")
+    version_re = re.compile(r"\s*Version\s+(\d+\.\d+\.\d+)")
     with file_path.open("r", encoding="utf-8", errors="ignore") as f:
         for line in f:
             m = version_re.search(line)

@@ -21,7 +21,7 @@ function OptionsComponent() {
     const {showLegend, setShowLegend} = useColorStore();
     const {zIsUp, setZIsUp, defaultOrbitController, setDefaultOrbitController} = useModelStore();
 
-    const [size, setSize] = useState({width: 300, height: 460});
+    const [size] = useState({width: 300, height: 460});
     const [position, setPosition] = useState({x: 0, y: 0});
     const [isModalOpen, setIsModalOpen] = useState(false);
 

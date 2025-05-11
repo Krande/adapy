@@ -35,7 +35,7 @@ def read_rmed_file(rmed_file: str | pathlib.Path) -> FEAResult:
     mess_file = rmed_file.with_suffix(".mess")
     software_version = "N/A"
     if mess_file.exists():
-        software_version = get_code_aster_version_from_mess(rmed_file)
+        software_version = get_code_aster_version_from_mess(mess_file)
 
     return FEAResult(
         rmed_file.name,
