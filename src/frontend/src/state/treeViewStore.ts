@@ -1,5 +1,6 @@
 import {create} from 'zustand';
 import {TreeApi} from "react-arborist";
+import {TreeNodeData} from "../components/tree_view/CustomNode";
 
 export interface TreeNode {
     id: string;
@@ -8,9 +9,9 @@ export interface TreeNode {
 }
 
 export interface TreeViewState {
-    treeData: TreeNode | null;
+    treeData: TreeNodeData | null;
     tree: TreeApi<any> | null;
-    setTreeData: (data: TreeNode) => void;
+    setTreeData: (data: TreeNodeData) => void;
     clearTreeData: () => void;
     isTreeCollapsed: boolean;
     setIsTreeCollapsed: (collapsed: boolean) => void;

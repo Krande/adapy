@@ -1,11 +1,16 @@
 import React from 'react';
 import {NodeRendererProps} from 'react-arborist';
+import {CustomBatchedMesh} from "../../utils/mesh_select/CustomBatchedMesh";
 
-interface TreeNodeData {
+export interface TreeNodeData {
     id: string;
     name: string;
-    children?: TreeNodeData[];
+    children: TreeNodeData[];
     // Add other properties if needed
+    // Your custom properties
+    meshRef?: CustomBatchedMesh | null;
+    key?: string | null;
+    rangeId?: number | null;
 }
 
 export const CustomNode: React.FC<NodeRendererProps<TreeNodeData>> = ({style, node, dragHandle}) => {

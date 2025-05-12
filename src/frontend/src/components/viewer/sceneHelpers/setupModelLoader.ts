@@ -8,6 +8,7 @@ import {useAnimationStore} from "../../../state/animationStore";
 import {animationControllerRef, simuluationDataRef} from "../../../state/refs";
 import {SimulationDataExtensionMetadata} from "../../../extensions/sim_metadata";
 import {FilePurpose} from "../../../flatbuffers/base/file-purpose";
+import {buildTreeFromUserData} from "../../../utils/tree_view/generateTree";
 
 export function mapAnimationTargets(gltf: GLTF): Map<string, string[]> {
     // Access the raw glTF JSON structure
@@ -56,7 +57,7 @@ export function setupModelLoader(
 
             // access the raw JSON
             const sim_ext_data = (gltf as any).parser.json.extensions?.ADA_SIM_data;
-            if (sim_ext_data){
+            if (sim_ext_data) {
                 simuluationDataRef.current = sim_ext_data as SimulationDataExtensionMetadata;
                 useModelStore.getState().model_type = FilePurpose.ANALYSIS;
             }
@@ -65,11 +66,11 @@ export function setupModelLoader(
                 // Set the hasAnimation flag to true in the store
                 useAnimationStore.getState().setHasAnimation(true);
             }
+            useModelStore.getState().setUserData(gltf_scene.userData);
             prepareLoadedModel({
                 gltf_scene: gltf_scene,
                 modelStore: useModelStore.getState(),
                 optionsStore: useOptionsStore.getState(),
-                treeViewStore: useTreeViewStore.getState(),
             });
 
             modelGroup.add(gltf_scene);
@@ -87,6 +88,9 @@ export function setupModelLoader(
             } else {
                 useAnimationStore.getState().setHasAnimation(false); // If no animations, set false
             }
+
+            const treeData = buildTreeFromUserData(gltf_scene.userData);
+            if (treeData) useTreeViewStore.getState().setTreeData(treeData);
         },
 
         undefined,

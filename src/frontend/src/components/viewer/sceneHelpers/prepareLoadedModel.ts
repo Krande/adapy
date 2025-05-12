@@ -14,7 +14,6 @@ import {assignMorphToEdgeAlso} from "../../../utils/scene/animations/assignMorph
 interface PrepareLoadedModelParams {
     gltf_scene: THREE.Object3D;
     modelStore: ModelState;
-    treeViewStore: TreeViewState;
     optionsStore: OptionsState;
 }
 
@@ -22,10 +21,9 @@ interface PrepareLoadedModelParams {
 export function prepareLoadedModel({
                                        gltf_scene,
                                        modelStore,
-                                       treeViewStore,
                                        optionsStore,
                                    }: PrepareLoadedModelParams): void {
-    modelStore.setUserData(gltf_scene.userData);
+
     // we'll collect all edge geometries here
     const meshesToReplace: { original: THREE.Mesh; parent: THREE.Object3D }[] = [];
 
@@ -91,6 +89,4 @@ export function prepareLoadedModel({
         modelStore.setTranslation(translation);
     }
 
-    const treeData = buildTreeFromUserData(gltf_scene.userData);
-    if (treeData) treeViewStore.setTreeData(treeData);
 }

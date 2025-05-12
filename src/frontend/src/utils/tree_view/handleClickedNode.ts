@@ -18,14 +18,25 @@ function get_mesh_and_draw_ranges(nodes: NodeApi[]) {
     let meshes_and_ranges: [CustomBatchedMesh, string][] = [];
     for (let node of nodes) {
         let node_name = node.data.name;
-        let draw_range_data = getDrawRangeByName(node_name);
-        if (!draw_range_data) {
-            continue;
+        let key = node.data.key;
+        let rangeId = node.data.rangeId;
+        let mesh = node.data.meshRef;
+        //console.time("getDrawRangeByName");
+        if (!key && !rangeId) {
+            let draw_range_data = getDrawRangeByName(node_name);
+            //console.timeEnd("getDrawRangeByName");
+            if (!draw_range_data) {
+                continue;
+            }
+            const [key, rangeId, start, count] = draw_range_data;
+            let mesh_node_name = key.split("_")[2];
+            //console.time("getMeshFromName");
+            if (!mesh) {
+                let mesh = getMeshFromName(mesh_node_name);
+            }
         }
-        const [key, rangeId, start, count] = draw_range_data;
-        let mesh_node_name = key.split("_")[2];
 
-        let mesh = getMeshFromName(mesh_node_name);
+        //console.timeEnd("getMeshFromName");
         if (!mesh) {
             continue;
         }
@@ -40,9 +51,14 @@ export function handleTreeSelectionChange(ids: NodeApi[]) {
         for (let node of ids) {
             get_nodes_recursive(node, nodes);
         }
+        console.time("get_mesh_and_draw_ranges");
         let const_meshes_and_draw_ranges = get_mesh_and_draw_ranges(nodes);
+        console.timeEnd("get_mesh_and_draw_ranges");
+
+        console.time("addBatchofMeshes");
         useSelectedObjectStore.getState().clearSelectedObjects();
         useSelectedObjectStore.getState().addBatchofMeshes(const_meshes_and_draw_ranges);
+        console.timeEnd("addBatchofMeshes");
     } else {
         useSelectedObjectStore.getState().clearSelectedObjects();
     }
