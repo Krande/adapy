@@ -121,6 +121,11 @@ export class CustomBatchedMesh extends THREE.Mesh {
      * Overrides the raycast method to ignore hidden draw ranges.
      */
     raycast(raycaster: THREE.Raycaster, intersects: THREE.Intersection[]): void {
+        console.time("CustomBatchedMesh raycast");
+
+        // let t1 = performance.now();
+        // console.log(performance.now() - t1);
+
         //console.log('CustomBatchedMesh raycast called');
         const material = this.material;
 
@@ -159,6 +164,7 @@ export class CustomBatchedMesh extends THREE.Mesh {
             // Perform raycasting on this group
             this.raycastGroup(localRay, raycaster, group, groupMaterial, intersects);
         }
+        console.timeEnd("CustomBatchedMesh raycast")
     }
 
     /**
