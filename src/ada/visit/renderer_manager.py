@@ -120,7 +120,6 @@ class RendererManager:
         else:
             raise ValueError(f"Unsupported object type: {type(obj)}")
 
-        scene.metadata["ADA_MODEL_FILE_PURPOSE"] = params.purpose.value
         return scene
 
     @staticmethod
