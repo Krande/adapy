@@ -66,6 +66,11 @@ class Placement:
         if self.zdir is None and all(x is not None for x in [self.xdir, self.ydir]):
             self.zdir = calc_zvec(self.xdir, self.ydir)
 
+        # Check if any nan in the vectors
+        for vec in [self.xdir, self.ydir, self.zdir]:
+            if vec is not None and np.any(np.isnan(vec)):
+                raise ValueError("Placement vector contains NaN values.")
+
         all_dir = [self.xdir, self.ydir, self.zdir]
         all_vec = ["xdir", "ydir", "zdir"]
         vectors = [n for n, x in zip(all_vec, all_dir) if x is not None]

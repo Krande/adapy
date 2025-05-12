@@ -37,7 +37,7 @@ class PrimSweep(Shape):
         origin = sweep_curve.points3d[0] if origin is None else origin
 
         start_norm = sweep_curve.start_vector.get_normalized()
-        if np.allclose(base_xdir, start_norm):
+        if start_norm.is_parallel(base_xdir):
             base_xdir = Direction(0.7, -1, 0)
 
         orth_vec = Direction(np.cross(start_norm, np.cross(start_norm, base_xdir))).get_normalized()
