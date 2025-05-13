@@ -4,7 +4,7 @@ import {useOptionsStore} from "../state/optionsStore";
 import {useColorStore} from "../state/colorLegendStore";
 import {takeScreenshot} from "../utils/takeScreenshot";
 import {loadRobot} from "../utils/robots";
-import {useModelStore} from "../state/modelStore";
+import {useModelState} from "../state/modelState";
 import {debug_print} from "../utils/debug_print";
 
 function OptionsComponent() {
@@ -19,7 +19,7 @@ function OptionsComponent() {
         enableWebsocket,
     } = useOptionsStore();
     const {showLegend, setShowLegend} = useColorStore();
-    const {zIsUp, setZIsUp, defaultOrbitController, setDefaultOrbitController} = useModelStore();
+    const {zIsUp, setZIsUp, defaultOrbitController, setDefaultOrbitController} = useModelState();
 
     const [size] = useState({width: 300, height: 460});
     const [position, setPosition] = useState({x: 0, y: 0});

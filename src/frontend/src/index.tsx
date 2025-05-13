@@ -5,7 +5,7 @@ import {webSocketHandler} from "./utils/websocket_connector";
 import {useWebSocketStore} from "./state/webSocketStore";
 import {handleWebSocketMessage} from "./utils/handleWebSocketMessage";
 import {loadGLTFfrombase64} from "./utils/scene/loadGLTFfrombase64";
-import {useModelStore} from "./state/modelStore";
+import {useModelState} from "./state/modelState";
 import {SceneOperations} from "./flatbuffers/scene/scene-operations";
 import {FilePurpose} from "./flatbuffers/base/file-purpose";
 
@@ -20,7 +20,7 @@ if ((window as any).DEACTIVATE_WS===true) {
 if ((window as any).B64GLTF) {
     console.log("B64GLTF exists, loading model");
     let blob_uri = loadGLTFfrombase64((window as any).B64GLTF);
-    useModelStore.getState().setModelUrl(blob_uri, SceneOperations.REPLACE, null, FilePurpose.DESIGN);
+    useModelState.getState().setModelUrl(blob_uri, SceneOperations.REPLACE, null, FilePurpose.DESIGN);
     // delete the B64GLTF from the window object
     delete (window as any).B64GLTF;
 } else {

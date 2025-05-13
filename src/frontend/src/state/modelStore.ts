@@ -1,60 +1,39 @@
-// modelStore.ts
-import {create} from 'zustand';
-import * as THREE from 'three';
-import {SceneOperations} from "../flatbuffers/scene/scene-operations";
-import {FilePurpose} from "../flatbuffers/base/file-purpose";
+// state/modelStore.ts
+import * as Comlink from "comlink";
+import Worker from "./modelCache.worker.ts?worker";
 
-export interface ModelState {
-    modelUrl: string | null;
-    scene_action: SceneOperations | null;
-    scene_action_arg: string | null;
-    model_type: FilePurpose | null;
-    userdata: any;
-    translation: THREE.Vector3 | null;
-    boundingBox: THREE.Box3 | null;
-    raycaster: THREE.Raycaster | null;
-    zIsUp: boolean;
-    defaultOrbitController: boolean;
-
-    // Functions to set the state
-    setModelUrl: (
-        url: string | null,
-        scene_action: SceneOperations | null,
-        scene_action_arg: string | null,
-        model_type: FilePurpose
-    ) => void;
-    setTranslation: (translation: THREE.Vector3) => void;
-    setBoundingBox: (boundingBox: THREE.Box3) => void;
-    setUserData: (userdata: any) => void;
-    setRaycaster: (raycaster: THREE.Raycaster | null) => void;
-    setZIsUp: (zIsUp: boolean) => void;
-    setDefaultOrbitController: (OrbitController: boolean) => void;
+// This must match what your worker returns via Comlink.expose
+export interface ModelData {
+  key: string;
+  hierarchy: Record<string, [string, string | number]>;
+  drawRanges: Record<string, Record<number, [number, number]>>;
 }
 
-export const useModelStore = create<ModelState>((set) => ({
-    modelUrl: null,
-    scene_action: null,
-    scene_action_arg: null,
-    userdata: null,
-    translation: null,
-    boundingBox: null,
-    raycaster: null,
-    zIsUp: true, // default to Z being up
-    defaultOrbitController: true,
-    model_type: null,
+// A pure-JSON tree you can pass back to your React store
+export interface PureTreeNode {
+  id: string;
+  name: string;
+  children: PureTreeNode[];
+}
 
-    setModelUrl: (url, scene_action, scene_action_arg, model_type) =>
-        set({
-            modelUrl: url,
-            scene_action: scene_action,
-            scene_action_arg: scene_action_arg,
-            model_type: model_type
+export interface ModelStoreAPI {
+  add(
+    key: string,
+    hierarchy: Record<string, [string, string | number]>,
+    drawRanges: Record<string, Record<number, [number, number]>>
+  ): Promise<void>;
 
-        }),
-    setTranslation: (translation) => set({translation}),
-    setBoundingBox: (boundingBox) => set({boundingBox}),
-    setUserData: (userdata) => set({userdata}),
-    setRaycaster: (raycaster: THREE.Raycaster | null) => set({raycaster}),
-    setZIsUp: (zIsUp) => set({zIsUp}),
-    setDefaultOrbitController: (OrbitController) => set({defaultOrbitController: OrbitController}),
-}));
+  get(key: string): Promise<ModelData | undefined>;
+
+  remove(key: string): Promise<void>;
+
+  listKeys(): Promise<string[]>;
+
+  // <— no "?" here! always present
+  buildHierarchy(
+    hierarchy: Record<string, [string, string | number]>
+  ): Promise<PureTreeNode | null>;
+}
+
+const worker = new Worker();
+export const modelStore = Comlink.wrap<ModelStoreAPI>(worker);

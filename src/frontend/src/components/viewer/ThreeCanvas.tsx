@@ -1,7 +1,7 @@
 // ThreeCanvas.tsx
 import React, {useEffect, useRef} from "react";
 import * as THREE from "three";
-import {useModelStore} from "../../state/modelStore";
+import {useModelState} from "../../state/modelState";
 import {useOptionsStore} from "../../state/optionsStore";
 import {OrientationGizmo} from "./sceneHelpers/OrientationGizmo";
 import {setupCameraControlsHandlers} from "./sceneHelpers/setupCameraControlsHandlers";
@@ -20,7 +20,7 @@ import {AnimationController} from "../../utils/scene/animations/AnimationControl
 
 const ThreeCanvas: React.FC = () => {
     const containerRef = useRef<HTMLDivElement>(null);
-    const {modelUrl, zIsUp, defaultOrbitController} = useModelStore();
+    const {modelUrl, zIsUp, defaultOrbitController} = useModelState();
     const {showPerf} = useOptionsStore();
     const modelGroupRef = useRef<THREE.Group | null>(null); // <-- store loaded model separately
     const statsRef = useRef<{
@@ -170,7 +170,6 @@ const ThreeCanvas: React.FC = () => {
 
             // Reset global state
             sceneRef.current = null;
-            useModelStore.getState().setRaycaster(null);
 
             // Clean up stats panels
             if (statsArray && statsArray.length > 0) {

@@ -2,10 +2,8 @@
 import * as THREE from "three";
 import {convert_to_custom_batch_mesh} from "../../../utils/scene/convert_to_custom_batch_mesh";
 import {replaceBlackMaterials} from "../../../utils/scene/assignDefaultMaterial";
-import {buildTreeFromUserData} from "../../../utils/tree_view/generateTree";
-import {ModelState} from "../../../state/modelStore";
-import {TreeViewState} from "../../../state/treeViewStore";
-import {OptionsState} from "../../../state/optionsStore";
+import {useModelState} from "../../../state/modelState";
+import {useOptionsStore} from "../../../state/optionsStore";
 import {rendererRef} from "../../../state/refs";
 import {FilePurpose} from "../../../flatbuffers/base";
 import {useAnimationStore} from "../../../state/animationStore";
@@ -13,16 +11,12 @@ import {assignMorphToEdgeAlso} from "../../../utils/scene/animations/assignMorph
 
 interface PrepareLoadedModelParams {
     gltf_scene: THREE.Object3D;
-    modelStore: ModelState;
-    optionsStore: OptionsState;
 }
 
 
-export function prepareLoadedModel({
-                                       gltf_scene,
-                                       modelStore,
-                                       optionsStore,
-                                   }: PrepareLoadedModelParams): void {
+export function prepareLoadedModel({gltf_scene}: PrepareLoadedModelParams): void {
+    const modelStore = useModelState.getState()
+    const optionsStore = useOptionsStore.getState()
 
     // we'll collect all edge geometries here
     const meshesToReplace: { original: THREE.Mesh; parent: THREE.Object3D }[] = [];
@@ -68,25 +62,4 @@ export function prepareLoadedModel({
     }
 
     replaceBlackMaterials(gltf_scene);
-
-    const boundingBox = new THREE.Box3().setFromObject(gltf_scene);
-    modelStore.setBoundingBox(boundingBox);
-
-    if (!optionsStore.lockTranslation && modelStore.model_type == FilePurpose.DESIGN) {
-        const center = boundingBox.getCenter(new THREE.Vector3());
-        const translation = center.clone().multiplyScalar(-1);
-        if (modelStore.zIsUp) {
-            const minZ = boundingBox.min.z;
-            const bheight = boundingBox.max.z - minZ;
-            translation.z = -minZ + bheight * 0.05;
-        } else {
-            const minY = boundingBox.min.y;
-            const bheight = boundingBox.max.y - minY;
-            translation.y = -minY + bheight * 0.05;
-        }
-
-        gltf_scene.position.add(translation);
-        modelStore.setTranslation(translation);
-    }
-
 }

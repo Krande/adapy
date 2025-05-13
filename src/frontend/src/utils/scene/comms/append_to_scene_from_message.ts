@@ -1,5 +1,5 @@
 import { Message } from "../../../flatbuffers/wsock/message";
-import { useModelStore } from "../../../state/modelStore";
+import { useModelState } from "../../../state/modelState";
 import * as THREE from "three";
 import { useOptionsStore } from "../../../state/optionsStore";
 import { convert_to_custom_batch_mesh } from "../convert_to_custom_batch_mesh";
@@ -60,7 +60,7 @@ export function append_to_scene_from_message(message: Message) {
     console.warn("Unable to find mesh array length");
     return;
   }
-  let userdata = useModelStore.getState().userdata;
+  let userdata = useModelState.getState().userdata;
   if (!userdata) {
     console.warn("No userdata found");
     userdata = {"id_hierarchy": {}};

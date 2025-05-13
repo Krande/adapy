@@ -2,7 +2,7 @@
 import * as THREE from "three";
 import { CustomBatchedMesh } from "./CustomBatchedMesh";
 import { getSelectedMeshDrawRange } from "./getSelectedMeshDrawRange";
-import { useModelStore } from "../../state/modelStore";
+import { useModelState } from "../../state/modelState";
 import { useObjectInfoStore } from "../../state/objectInfoStore";
 import { useSelectedObjectStore } from "../../state/useSelectedObjectStore";
 import { useTreeViewStore } from "../../state/treeViewStore";
@@ -19,7 +19,7 @@ export function handleMeshSelectionCore(params: {
   const faceIndex = params.faceIndex ?? 0;
   const shiftKey = params.shiftKey;
 
-  const translation = useModelStore.getState().translation;
+  const translation = useModelState.getState().translation;
   const clickPosition = params.point.clone();
 
   if (translation) {
@@ -37,7 +37,7 @@ export function handleMeshSelectionCore(params: {
   const [rangeId] = drawRange;
   perform_selection(mesh, shiftKey, rangeId);
 
-  const userdata = useModelStore.getState().userdata;
+  const userdata = useModelState.getState().userdata;
   const hierarchy: Record<string, [string, string | number]> = userdata["id_hierarchy"];
   const [last_selected] = hierarchy[rangeId];
 

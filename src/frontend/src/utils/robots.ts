@@ -1,4 +1,4 @@
-import {useModelStore} from "../state/modelStore";
+import {useModelState} from "../state/modelState";
 import URDFLoader from "urdf-loader";
 import {STLLoader} from "three/examples/jsm/loaders/STLLoader";
 import * as THREE from "three";

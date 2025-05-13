@@ -1,5 +1,5 @@
 import React from "react";
-import {useModelStore} from "../../state/modelStore";
+import {useModelState} from "../../state/modelState";
 
 interface ClickCoordinate {
     x: number;
@@ -13,7 +13,7 @@ interface CoordinateDisplayProps {
 }
 
 const CoordinateDisplay: React.FC<CoordinateDisplayProps> = ({clickCoordinate, prec}) => {
-    const {zIsUp} = useModelStore();
+    const {zIsUp} = useModelState();
 
     if (!clickCoordinate) {
         return <div className="table-cell w-48">&nbsp;</div>;

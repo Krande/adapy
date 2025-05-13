@@ -1,5 +1,3 @@
-import {getMeshFromName} from "../scene/getMeshFromName";
-import {getDrawRangeByName} from "../mesh_select/getDrawRangeByName";
 import {NodeApi} from "react-arborist";
 import {useSelectedObjectStore} from "../../state/useSelectedObjectStore";
 import {CustomBatchedMesh} from "../mesh_select/CustomBatchedMesh";
@@ -17,26 +15,9 @@ function get_nodes_recursive(node: NodeApi, nodes: NodeApi[]) {
 function get_mesh_and_draw_ranges(nodes: NodeApi[]) {
     let meshes_and_ranges: [CustomBatchedMesh, string][] = [];
     for (let node of nodes) {
-        let node_name = node.data.name;
-        let key = node.data.key;
         let rangeId = node.data.rangeId;
         let mesh = node.data.meshRef;
-        //console.time("getDrawRangeByName");
-        if (!key && !rangeId) {
-            let draw_range_data = getDrawRangeByName(node_name);
-            //console.timeEnd("getDrawRangeByName");
-            if (!draw_range_data) {
-                continue;
-            }
-            const [key, rangeId, start, count] = draw_range_data;
-            let mesh_node_name = key.split("_")[2];
-            //console.time("getMeshFromName");
-            if (!mesh) {
-                let mesh = getMeshFromName(mesh_node_name);
-            }
-        }
 
-        //console.timeEnd("getMeshFromName");
         if (!mesh) {
             continue;
         }

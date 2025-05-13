@@ -1,8 +1,8 @@
 import * as THREE from "three";
-import { useModelStore } from "../../../state/modelStore"; // assuming correct path
+import { useModelState } from "../../../state/modelState"; // assuming correct path
 
 export function addDynamicGridHelper(scene: THREE.Scene): void {
-  const { zIsUp } = useModelStore.getState();
+  const { zIsUp } = useModelState.getState();
 
   const grid = new THREE.GridHelper(100, 100, 0x888888, 0x444444);
   (grid.material as THREE.Material).depthWrite = false;

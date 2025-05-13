@@ -1,11 +1,11 @@
 import { CustomBatchedMesh } from "./CustomBatchedMesh"; // Adjust the import path
-import { useModelStore } from "../../state/modelStore";
+import { useModelState } from "../../state/modelState";
 
 export function getSelectedMeshDrawRange(
     mesh: CustomBatchedMesh,
     faceIndex: number
 ): [string, number, number] | null {
-    const userdata = useModelStore.getState().userdata;
+    const userdata = useModelState.getState().userdata;
 
     if (!mesh || !userdata) {
         return null;
