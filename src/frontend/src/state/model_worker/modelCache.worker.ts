@@ -80,7 +80,7 @@ class ModelWorkerAPI {
     async getNameFromRangeId(
         key: string,
         rangeId: string,
-    ) : Promise<string | null> {
+    ): Promise<string | null> {
         const hierarchy = this.memoryCacheHierarchy.get(key)
         if (!hierarchy) {
             console.error("ModelWorkerAPI: No hierarchy found for key:", key);
@@ -89,6 +89,18 @@ class ModelWorkerAPI {
         const node = hierarchy[rangeId];
         if (!node) return null;
         return node[0];
+    }
+
+    /** Helper: build a map of elementId → meshName */
+    private buildElementToMeshMap(key: string): Map<string, string> {
+        const drawRanges = this.memoryCacheDrawRange.get(key) ?? {};
+        const map = new Map<string, string>();
+        for (const [meshName, ranges] of Object.entries(drawRanges)) {
+            for (const elementId of Object.keys(ranges)) {
+                map.set(elementId, meshName);
+            }
+        }
+        return map;
     }
 
     /**
@@ -101,10 +113,10 @@ class ModelWorkerAPI {
     ): TreeNodeData | null {
         // instantiate nodes
         const nodes: Record<string, TreeNodeData> = {};
-        const draw_range = this.memoryCacheDrawRange.get(key);
+        const elementToMesh = this.buildElementToMeshMap(key);
 
         for (const [id, [name]] of Object.entries(hierarchy)) {
-            nodes[id] = {id, name, children: [], };
+            nodes[id] = {id, name, children: [], key: key, node_name: elementToMesh.get(id) ?? null,};
         }
 
         // link parents → children

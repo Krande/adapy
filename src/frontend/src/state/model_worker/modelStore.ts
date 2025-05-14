@@ -2,19 +2,13 @@
 import * as Comlink from "comlink";
 // inline the worker so it’s embedded in the bundle
 import Worker from "./modelCache.worker.ts?worker&inline";
+import {TreeNodeData} from "../../components/tree_view/CustomNode";
 
 // This must match what your worker returns via Comlink.expose
 export interface ModelData {
     key: string;
     hierarchy: Record<string, [string, string | number]>;
     drawRanges: Record<string, Record<number, [number, number]>>;
-}
-
-// A pure-JSON tree you can pass back to your React store
-export interface PureTreeNode {
-    id: string;
-    name: string;
-    children: PureTreeNode[];
 }
 
 export interface ModelStoreAPI {
@@ -34,7 +28,7 @@ export interface ModelStoreAPI {
     buildHierarchy(
         key: string,
         hierarchy: Record<string, [string, string | number]>
-    ): Promise<PureTreeNode | null>;
+    ): Promise<TreeNodeData | null>;
 
     getDrawRange(
         key: string,

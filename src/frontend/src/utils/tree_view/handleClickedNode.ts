@@ -1,6 +1,8 @@
 import {NodeApi} from "react-arborist";
 import {useSelectedObjectStore} from "../../state/useSelectedObjectStore";
 import {CustomBatchedMesh} from "../mesh_select/CustomBatchedMesh";
+import {modelStore} from "../../state/model_worker/modelStore";
+import {modelKeyMapRef} from "../../state/refs";
 
 
 function get_nodes_recursive(node: NodeApi, nodes: NodeApi[]) {
@@ -15,9 +17,14 @@ function get_nodes_recursive(node: NodeApi, nodes: NodeApi[]) {
 async function get_mesh_and_draw_ranges(nodes: NodeApi[]) {
     let meshes_and_ranges: [CustomBatchedMesh, string][] = [];
     for (let node of nodes) {
-        let rangeId = node.data.rangeId;
-        let mesh = node.data.meshRef;
-
+        let rangeId = node.data.id;
+        let node_name = node.data.node_name;
+        let scene = modelKeyMapRef.current?.get(node.data.key)
+        if (!scene) {
+            console.warn("No scene found for node:", node);
+            continue;
+        }
+        let mesh = scene.getObjectByName(node_name) as CustomBatchedMesh;
         if (!mesh) {
             continue;
         }
