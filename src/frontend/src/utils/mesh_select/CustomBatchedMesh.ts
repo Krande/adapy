@@ -79,10 +79,14 @@ export class CustomBatchedMesh extends THREE.Mesh {
             const {geometry, rangeIdToIndex} =
                 buildEdgeGeometryWithRangeIds(this.originalGeometry, this.drawRanges);
             this.rangeIdToIndex = rangeIdToIndex;
+            this.updateWorldMatrix(true, false);
+            const worldMat = this.matrixWorld;
 
             this.edgeMaterial = makeEdgeShaderMaterial(renderer, rangeIdToIndex.size);
             this.edgeMesh = new THREE.LineSegments(geometry, this.edgeMaterial);
             this.edgeMesh.layers.set(1);
+            // now *after* you’ve extracted the lines, bake the transform:
+            this.edgeMesh.applyMatrix4(worldMat);
         }
         return this.edgeMesh;
     }

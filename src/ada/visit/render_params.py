@@ -29,8 +29,8 @@ class RenderParams:
     scene_post_processor: Optional[Callable[[trimesh.Scene], trimesh.Scene]] = None
     purpose: Optional[FilePurposeDC] = FilePurposeDC.DESIGN
     scene: SceneDC = None
-    gltf_buffer_postprocessor: Optional[Callable[[OrderedDict, dict], None]] = None
-    gltf_tree_postprocessor: Optional[Callable[[OrderedDict], None]] = None
+    _gltf_buffer_postprocessor: Optional[Callable[[OrderedDict, dict], None]] = None
+    _gltf_tree_postprocessor: Optional[Callable[[OrderedDict], None]] = None
     gltf_export_to_file: str | pathlib.Path = None
     gltf_asset_extras_dict: dict = None
     add_ifc_backend: bool = False
@@ -48,3 +48,21 @@ class RenderParams:
             self.unique_id = self.unique_id & 0xFFFFFFFF
         if self.scene is None:
             self.scene = SceneDC(operation=SceneOperationsDC.REPLACE)
+
+    def set_gltf_buffer_postprocessor(self, postprocessor: Callable[[OrderedDict, dict], None], overwrite: bool = False):
+        if self._gltf_buffer_postprocessor is not None and overwrite is False:
+            raise ValueError("gltf_buffer_postprocessor is already set.")
+        self._gltf_buffer_postprocessor = postprocessor
+
+    def set_gltf_tree_postprocessor(self, postprocessor: Callable[[OrderedDict], None], overwrite: bool = False):
+        if self._gltf_tree_postprocessor is not None and overwrite is False:
+            raise ValueError("gltf_tree_postprocessor is already set.")
+        self._gltf_tree_postprocessor = postprocessor
+
+    @property
+    def gltf_buffer_postprocessor(self):
+        return self._gltf_buffer_postprocessor
+
+    @property
+    def gltf_tree_postprocessor(self):
+        return self._gltf_tree_postprocessor

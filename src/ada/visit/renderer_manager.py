@@ -232,10 +232,10 @@ class RendererManager:
             )
 
             if params.gltf_export_to_file is not None:
-                if params.gltf_tree_postprocessor is None:
+                if params._gltf_tree_postprocessor is None:
                     gltf_tree_postprocess = GltfTreePostProcessor(params.gltf_asset_extras_dict)
                 else:
-                    gltf_tree_postprocess = params.gltf_tree_postprocessor
+                    gltf_tree_postprocess = params._gltf_tree_postprocessor
                 gltf_export_to_file = params.gltf_export_to_file
                 if isinstance(gltf_export_to_file, str):
                     gltf_export_to_file = pathlib.Path(params.gltf_export_to_file)

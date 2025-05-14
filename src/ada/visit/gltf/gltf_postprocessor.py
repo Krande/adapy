@@ -24,7 +24,8 @@ class GltfPostProcessor:
             buffer_view["target"] = target_num
 
     def _update_animations(self, tree: OrderedDict):
-        for anim in tree["animations"]:
+        animations = tree.get("animations", [])
+        for anim in animations:
             node_idx = anim["channels"][0]["target"]["node"]
             mesh_idx = tree["nodes"][node_idx]["mesh"]
             mesh = tree["meshes"][mesh_idx]

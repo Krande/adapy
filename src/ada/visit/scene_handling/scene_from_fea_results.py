@@ -86,8 +86,8 @@ def scene_from_fem_results(fea_res: FEAResult, params: RenderParams):
         m4x4 = np.r_[m3x3_with_col, [np.array([0, 0, 0, 1])]]
         scene.apply_transform(m4x4)
 
-    params.gltf_buffer_postprocessor = gltf_postprocessor.buffer_postprocessor
-    params.gltf_tree_postprocessor = gltf_postprocessor.tree_postprocessor
+    params.set_gltf_buffer_postprocessor(gltf_postprocessor.buffer_postprocessor)
+    params.set_gltf_tree_postprocessor(gltf_postprocessor.tree_postprocessor)
 
     parent_node = GraphNode("world", 0, hash=create_guid())
     graph = GraphStore(top_level=parent_node, nodes={0: parent_node})
