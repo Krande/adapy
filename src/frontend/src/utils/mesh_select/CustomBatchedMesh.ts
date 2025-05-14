@@ -111,6 +111,33 @@ export class CustomBatchedMesh extends THREE.Mesh {
         }
     }
 
+    /**
+     * Hide a batch of draw-ranges in one go.
+     *
+     * @param rangeIds A set (or other iterable) of draw-range IDs to hide.
+     */
+    public hideBatchDrawRange(rangeIds: Iterable<string>): void {
+        // 1) Mark them hidden
+        for (const id of rangeIds) {
+            this.hiddenRanges.add(id);
+        }
+
+        // 2) Rebuild all groups just once
+        this.updateGroups();
+
+        // 3) Update the edge-overlay texture in one shot
+        if (this.edgeMaterial && this.rangeIdToIndex) {
+            const tex = this.edgeMaterial.uniforms.uVisibleTex.value as THREE.DataTexture;
+            for (const id of rangeIds) {
+                const idx = this.rangeIdToIndex.get(id);
+                if (idx !== undefined) {
+                    tex.image.data[idx] = 0;
+                }
+            }
+            tex.needsUpdate = true;
+        }
+    }
+
     public unhideAllDrawRanges() {
         this.hiddenRanges.clear();
         this.updateGroups();
@@ -126,12 +153,6 @@ export class CustomBatchedMesh extends THREE.Mesh {
      * Overrides the raycast method to ignore hidden draw ranges.
      */
     raycast(raycaster: THREE.Raycaster, intersects: THREE.Intersection[]): void {
-        console.time("CustomBatchedMesh raycast");
-
-        // let t1 = performance.now();
-        // console.log(performance.now() - t1);
-
-        //console.log('CustomBatchedMesh raycast called');
         const material = this.material;
 
         if (material === undefined) return;
@@ -169,7 +190,6 @@ export class CustomBatchedMesh extends THREE.Mesh {
             // Perform raycasting on this group
             this.raycastGroup(localRay, raycaster, group, groupMaterial, intersects);
         }
-        console.timeEnd("CustomBatchedMesh raycast")
     }
 
     /**

@@ -3,6 +3,7 @@ import {useSelectedObjectStore} from "../../state/useSelectedObjectStore";
 import {CustomBatchedMesh} from "../mesh_select/CustomBatchedMesh";
 import {modelStore} from "../../state/model_worker/modelStore";
 import {modelKeyMapRef} from "../../state/refs";
+import {useObjectInfoStore} from "../../state/objectInfoStore";
 
 
 function get_nodes_recursive(node: NodeApi, nodes: NodeApi[]) {
@@ -34,21 +35,22 @@ async function get_mesh_and_draw_ranges(nodes: NodeApi[]) {
 }
 
 export async function handleTreeSelectionChange(ids: NodeApi[]) {
+    const selectedObjectStore = useSelectedObjectStore.getState();
+
     if (ids.length > 0) {
         let nodes: NodeApi[] = [];
         for (let node of ids) {
             get_nodes_recursive(node, nodes);
         }
-        console.time("get_mesh_and_draw_ranges");
         let const_meshes_and_draw_ranges = await get_mesh_and_draw_ranges(nodes);
-        console.timeEnd("get_mesh_and_draw_ranges");
 
-        console.time("addBatchofMeshes");
-        useSelectedObjectStore.getState().clearSelectedObjects();
-        useSelectedObjectStore.getState().addBatchofMeshes(const_meshes_and_draw_ranges);
-        console.timeEnd("addBatchofMeshes");
+        selectedObjectStore.clearSelectedObjects();
+        selectedObjectStore.addBatchofMeshes(const_meshes_and_draw_ranges);
+        const last_node = nodes[nodes.length - 1];
+        const last_selected = last_node.data.name;
+        useObjectInfoStore.getState().setName(last_selected);
     } else {
-        useSelectedObjectStore.getState().clearSelectedObjects();
+        selectedObjectStore.clearSelectedObjects();
     }
 }
 
