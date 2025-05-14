@@ -13,3 +13,4 @@ export const sceneRef = createRef<THREE.Scene | null>();
 export const updatelightRef = createRef<() => void>();
 export const animationControllerRef = createRef<AnimationController | null>();
 export const simulationDataRef = createRef<SimulationDataExtensionMetadata | null>();
+export const modelKeyMapRef = createRef<Map<string, THREE.Object3D | THREE.Group> | null>();

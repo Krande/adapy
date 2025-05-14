@@ -4,7 +4,7 @@ import {prepareLoadedModel} from "./prepareLoadedModel";
 import {useModelState} from "../../../state/modelState";
 import {useOptionsStore} from "../../../state/optionsStore";
 import {useAnimationStore} from "../../../state/animationStore";
-import {animationControllerRef, simulationDataRef} from "../../../state/refs";
+import {animationControllerRef, modelKeyMapRef, simulationDataRef} from "../../../state/refs";
 import {SimulationDataExtensionMetadata} from "../../../extensions/sim_metadata";
 import {FilePurpose} from "../../../flatbuffers/base/file-purpose";
 import {cacheAndBuildTree} from "../../../state/model_worker/cacheModelUtils";
@@ -49,14 +49,16 @@ export async function setupModelLoaderAsync(
         // Set the hasAnimation flag to true in the store
         animationStore.setHasAnimation(true);
     }
-    // modelStore.setUserData(gltf_scene.userData);
-    // const treeData = buildTreeFromUserData(gltf_scene.userData);
-    // if (treeData) useTreeViewStore.getState().setTreeData(treeData);
 
-    const model_hash = prepareLoadedModel({gltf_scene: gltf_scene});
+    const model_hash = await prepareLoadedModel({gltf_scene: gltf_scene});
 
     // delegate all the caching to our helper
-    cacheAndBuildTree(model_hash, rawUD);
+    await cacheAndBuildTree(model_hash, rawUD);
+
+    if (!modelKeyMapRef.current){
+        modelKeyMapRef.current = new Map<string, THREE.Object3D>();
+    }
+    modelKeyMapRef.current.set(model_hash, gltf_scene);
 
     modelGroup.add(gltf_scene);
     scene.add(modelGroup);

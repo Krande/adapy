@@ -14,7 +14,7 @@ interface PrepareLoadedModelParams {
 }
 
 
-export function prepareLoadedModel({gltf_scene}: PrepareLoadedModelParams): string {
+export async function prepareLoadedModel({gltf_scene}: PrepareLoadedModelParams): Promise<string> {
     // create a unique hash string
     const hash = gltf_scene.name + "_" + gltf_scene.uuid;
 
