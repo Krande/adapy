@@ -283,7 +283,7 @@ class RendererManager:
                 scene = trimesh.load(f, file_type="glb")
 
         if params is None:
-            params = RenderParams()
+            params = RenderParams(serve_html=True)
 
         with WebSocketClientSync(self.host, self.ws_port) as wc:
             self.ensure_liveness(wc, target_id=target_id)

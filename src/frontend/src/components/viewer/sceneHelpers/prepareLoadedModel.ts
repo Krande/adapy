@@ -14,7 +14,10 @@ interface PrepareLoadedModelParams {
 }
 
 
-export function prepareLoadedModel({gltf_scene}: PrepareLoadedModelParams): void {
+export function prepareLoadedModel({gltf_scene}: PrepareLoadedModelParams): string {
+    // create a unique hash string
+    const hash = gltf_scene.name + "_" + gltf_scene.uuid;
+
     const modelStore = useModelState.getState()
     const optionsStore = useOptionsStore.getState()
 
@@ -29,6 +32,7 @@ export function prepareLoadedModel({gltf_scene}: PrepareLoadedModelParams): void
         }
     });
 
+
     for (const {original, parent} of meshesToReplace) {
         const meshName = original.name;
         const drawRangesData = gltf_scene.userData[`draw_ranges_${meshName}`] as Record<string, [number, number]>;
@@ -40,7 +44,7 @@ export function prepareLoadedModel({gltf_scene}: PrepareLoadedModelParams): void
             }
         }
 
-        const customMesh = convert_to_custom_batch_mesh(original, drawRanges);
+        const customMesh = convert_to_custom_batch_mesh(original, drawRanges, hash);
 
         if (optionsStore.showEdges && drawRanges.size && modelStore.model_type == FilePurpose.DESIGN) {
             if (rendererRef.current)
@@ -62,4 +66,6 @@ export function prepareLoadedModel({gltf_scene}: PrepareLoadedModelParams): void
     }
 
     replaceBlackMaterials(gltf_scene);
+
+    return hash;
 }

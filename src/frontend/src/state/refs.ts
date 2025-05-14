@@ -12,4 +12,4 @@ export const rendererRef = createRef<THREE.WebGLRenderer | null>();
 export const sceneRef = createRef<THREE.Scene | null>();
 export const updatelightRef = createRef<() => void>();
 export const animationControllerRef = createRef<AnimationController | null>();
-export const simuluationDataRef = createRef<SimulationDataExtensionMetadata | null>();
+export const simulationDataRef = createRef<SimulationDataExtensionMetadata | null>();

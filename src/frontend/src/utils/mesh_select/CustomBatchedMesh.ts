@@ -10,6 +10,8 @@ export class CustomBatchedMesh extends THREE.Mesh {
     originalMaterial: THREE.Material;
     drawRanges: Map<string, [number, number]>;
 
+    public readonly unique_key: string;
+
     private selectedRanges = new Set<string>();
     private hiddenRanges = new Set<string>();
 
@@ -33,13 +35,16 @@ export class CustomBatchedMesh extends THREE.Mesh {
     constructor(
         geometry: THREE.BufferGeometry,
         material: THREE.Material,
-        drawRanges: Map<string, [number, number]>
+        drawRanges: Map<string, [number, number]>,
+        unique_key: string
     ) {
         super(geometry.clone(), material.clone());
         this.originalGeometry = geometry;
         this.originalMaterial = material.clone();
         this.drawRanges = drawRanges;
         this.updateGroups();
+        this.unique_key = unique_key
+
         // no renderer yet → defer edge setup
     }
 

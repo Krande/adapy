@@ -1,16 +1,16 @@
 // state/cacheModelUtils.ts
 import { modelStore, PureTreeNode } from "./modelStore";
-import { useTreeViewStore } from "./treeViewStore";
+import { useTreeViewStore } from "../treeViewStore";
 
 /**
  * 1) caches hierarchy + drawRanges
  * 2) offloads the pure tree build to the worker
  * 3) sets treeData in your Zustand store when ready
  */
-export function cacheAndBuildTree(
+export async function cacheAndBuildTree(
   key: string,
   rawUserData: Record<string, any>
-): void {
+): Promise<void> {
   // Extract the raw JSON pieces
   const hierarchy = (rawUserData["id_hierarchy"] ?? {}) as Record<
     string,

@@ -11,7 +11,7 @@ import {setupLights} from "./sceneHelpers/setupLights";
 import {addDynamicGridHelper} from "./sceneHelpers/addDynamicGridHelper";
 import {setupGizmo} from "./sceneHelpers/setupGizmo";
 import {setupStats} from "./sceneHelpers/setupStats";
-import {setupModelLoader} from "./sceneHelpers/setupModelLoader";
+import {setupModelLoaderAsync} from "./sceneHelpers/setupModelLoader";
 import {setupResizeHandler} from "./sceneHelpers/setupResizeHandler";
 import {setupPointerHandler} from "./sceneHelpers/setupPointerHandler";
 import {animationControllerRef, cameraRef, controlsRef, rendererRef, sceneRef, updatelightRef} from "../../state/refs";
@@ -109,9 +109,17 @@ const ThreeCanvas: React.FC = () => {
         const {statsArray, callsPanel, trisPanel} = setupStats(containerRef.current);
         statsRef.current = {statsArray, callsPanel, trisPanel};
 
+        let cancelled = false;
         // === Model Loader ===
         if (modelUrl) {
-            modelGroupRef.current = setupModelLoader(scene, modelUrl);
+            (async () => {
+                const group = await setupModelLoaderAsync(sceneRef.current!, modelUrl);
+                if (cancelled) {
+                    // if the component unmounted or URL changed mid-load
+                    sceneRef.current?.remove(group);
+                }
+            })();
+
         } else if (modelGroupRef.current) {
             // If a model is already loaded, add it to the scene
             scene.add(modelGroupRef.current);
@@ -157,6 +165,7 @@ const ThreeCanvas: React.FC = () => {
         const cleanupPointerHandler = setupPointerHandler(containerRef.current, camera, scene, renderer);
 
         return () => {
+            cancelled = true;
             cleanupResizeHandler();
             cleanupPointerHandler();
             renderer.dispose();

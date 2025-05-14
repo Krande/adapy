@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { simuluationDataRef } from '../../state/refs';
+import { simulationDataRef } from '../../state/refs';
 import type { SimulationDataExtensionMetadata, FieldObject } from '../../extensions/sim_metadata';
 
 export default function SimulationDataInfoPanel() {
-  const simData = simuluationDataRef.current as SimulationDataExtensionMetadata | null;
+  const simData = simulationDataRef.current as SimulationDataExtensionMetadata | null;
   const [selectedStep, setSelectedStep] = useState(0);
   const [selectedField, setSelectedField] = useState(0);
 

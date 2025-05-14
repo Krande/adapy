@@ -4,103 +4,95 @@ import {prepareLoadedModel} from "./prepareLoadedModel";
 import {useModelState} from "../../../state/modelState";
 import {useOptionsStore} from "../../../state/optionsStore";
 import {useAnimationStore} from "../../../state/animationStore";
-import {animationControllerRef, simuluationDataRef} from "../../../state/refs";
+import {animationControllerRef, simulationDataRef} from "../../../state/refs";
 import {SimulationDataExtensionMetadata} from "../../../extensions/sim_metadata";
 import {FilePurpose} from "../../../flatbuffers/base/file-purpose";
-import {cacheAndBuildTree} from "../../../state/cacheModelUtils";
+import {cacheAndBuildTree} from "../../../state/model_worker/cacheModelUtils";
 import {mapAnimationTargets} from "../../../utils/scene/animations/mapAnimationTargets";
 import {buildTreeFromUserData} from "../../../utils/tree_view/generateTree";
 import {useTreeViewStore} from "../../../state/treeViewStore";
+import {loadGLTF} from "./asyncModelLoader";
 
-export function setupModelLoader(
+export async function setupModelLoaderAsync(
     scene: THREE.Scene,
     modelUrl: string | null,
-): THREE.Group | null {
-
-    if (!modelUrl) return null;
+): Promise<THREE.Group> {
+  // 3) prepare & add the model to the scene
     const modelGroup = new THREE.Group();
-    const loader = new GLTFLoader();
+    if (!modelUrl) return modelGroup;
 
-    loader.load(
-        modelUrl,
-        (gltf) => {
-            const gltf_scene = gltf.scene;
-            const animations = gltf.animations;
-            const modelStore = useModelState.getState()
-            const optionsStore = useOptionsStore.getState()
-            const animationStore = useAnimationStore.getState()
+    // 1) load the GLTF
+    const gltf = await loadGLTF(modelUrl);
 
-            // access the raw JSON
-            const sim_ext_data = (gltf as any).parser.json.extensions?.ADA_SIM_data;
-            if (sim_ext_data) {
-                simuluationDataRef.current = sim_ext_data as SimulationDataExtensionMetadata;
-                modelStore.model_type = FilePurpose.ANALYSIS;
-            } else {
-                modelStore.model_type = FilePurpose.DESIGN;
-            }
+    const gltf_scene = gltf.scene;
+    const animations = gltf.animations;
+    const modelStore = useModelState.getState()
+    const optionsStore = useOptionsStore.getState()
+    const animationStore = useAnimationStore.getState()
 
-            // once userData is on the scene:
-            const rawUD = (gltf_scene.userData ?? {}) as Record<
-                string,
-                any
-            >;
+    // access the raw JSON
+    const sim_ext_data = (gltf as any).parser.json.extensions?.ADA_SIM_data;
+    if (sim_ext_data) {
+        simulationDataRef.current = sim_ext_data as SimulationDataExtensionMetadata;
+        modelStore.model_type = FilePurpose.ANALYSIS;
+    } else {
+        modelStore.model_type = FilePurpose.DESIGN;
+    }
 
-            if (animations.length > 0) {
-                // Set the hasAnimation flag to true in the store
-                animationStore.setHasAnimation(true);
-            }
-            modelStore.setUserData(gltf_scene.userData);
-            const treeData = buildTreeFromUserData(gltf_scene.userData);
-            if (treeData) useTreeViewStore.getState().setTreeData(treeData);
+    // once userData is on the scene:
+    const rawUD = (gltf_scene.userData ?? {}) as Record<
+        string,
+        any
+    >;
 
-            prepareLoadedModel({gltf_scene: gltf_scene});
+    if (animations.length > 0) {
+        // Set the hasAnimation flag to true in the store
+        animationStore.setHasAnimation(true);
+    }
+    // modelStore.setUserData(gltf_scene.userData);
+    // const treeData = buildTreeFromUserData(gltf_scene.userData);
+    // if (treeData) useTreeViewStore.getState().setTreeData(treeData);
 
-            // delegate all the caching to our helper
-            cacheAndBuildTree(modelUrl, rawUD);
+    const model_hash = prepareLoadedModel({gltf_scene: gltf_scene});
 
-            modelGroup.add(gltf_scene);
-            scene.add(modelGroup);
-            if (animations.length > 0) {
-                animationControllerRef.current?.setMeshMap(mapAnimationTargets(gltf));
+    // delegate all the caching to our helper
+    cacheAndBuildTree(model_hash, rawUD);
 
-                // Add animations to the controller
-                animations.forEach((animation) => {
-                    animationControllerRef.current?.addAnimation(animation);
-                });
+    modelGroup.add(gltf_scene);
+    scene.add(modelGroup);
+    if (animations.length > 0) {
+        animationControllerRef.current?.setMeshMap(mapAnimationTargets(gltf));
 
-                // Play the first animation
-                animationControllerRef.current?.setCurrentAnimation("No Animation");
-            } else {
-                animationStore.setHasAnimation(false); // If no animations, set false
-            }
+        // Add animations to the controller
+        animations.forEach((animation) => {
+            animationControllerRef.current?.addAnimation(animation);
+        });
 
-            const boundingBox = new THREE.Box3().setFromObject(gltf_scene);
-            modelStore.setBoundingBox(boundingBox);
+        // Play the first animation
+        animationControllerRef.current?.setCurrentAnimation("No Animation");
+    } else {
+        animationStore.setHasAnimation(false); // If no animations, set false
+    }
 
-            if (!optionsStore.lockTranslation && modelStore.model_type == FilePurpose.DESIGN) {
-                const center = boundingBox.getCenter(new THREE.Vector3());
-                const translation = center.clone().multiplyScalar(-1);
-                if (modelStore.zIsUp) {
-                    const minZ = boundingBox.min.z;
-                    const bheight = boundingBox.max.z - minZ;
-                    translation.z = -minZ + bheight * 0.05;
-                } else {
-                    const minY = boundingBox.min.y;
-                    const bheight = boundingBox.max.y - minY;
-                    translation.y = -minY + bheight * 0.05;
-                }
+    const boundingBox = new THREE.Box3().setFromObject(gltf_scene);
+    modelStore.setBoundingBox(boundingBox);
 
-                gltf_scene.position.add(translation);
-                modelStore.setTranslation(translation);
-            }
+    if (!optionsStore.lockTranslation && modelStore.model_type == FilePurpose.DESIGN) {
+        const center = boundingBox.getCenter(new THREE.Vector3());
+        const translation = center.clone().multiplyScalar(-1);
+        if (modelStore.zIsUp) {
+            const minZ = boundingBox.min.z;
+            const bheight = boundingBox.max.z - minZ;
+            translation.z = -minZ + bheight * 0.05;
+        } else {
+            const minY = boundingBox.min.y;
+            const bheight = boundingBox.max.y - minY;
+            translation.y = -minY + bheight * 0.05;
+        }
 
-        },
-
-        undefined,
-        (error) => {
-            console.error("Error loading model:", error);
-        },
-    );
+        gltf_scene.position.add(translation);
+        modelStore.setTranslation(translation);
+    }
 
     return modelGroup;
 }
