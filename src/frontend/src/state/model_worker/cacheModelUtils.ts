@@ -1,6 +1,7 @@
 // state/cacheModelUtils.ts
 import { modelStore, PureTreeNode } from "./modelStore";
 import { useTreeViewStore } from "../treeViewStore";
+import {TreeNodeData} from "../../components/tree_view/CustomNode";
 
 /**
  * 1) caches hierarchy + drawRanges
@@ -37,8 +38,8 @@ export async function cacheAndBuildTree(
 
   // 2) build the parent/child tree off the main thread
   modelStore
-    .buildHierarchy(hierarchy)
-    .then((pureTree: PureTreeNode | null): void => {
+    .buildHierarchy(key, hierarchy)
+    .then((pureTree: TreeNodeData | null): void => {
       if (pureTree) {
         // 3) update your UI-side store
         useTreeViewStore.getState().setTreeData(pureTree);

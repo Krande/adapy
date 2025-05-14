@@ -32,6 +32,7 @@ export interface ModelStoreAPI {
 
     // <— no "?" here! always present
     buildHierarchy(
+        key: string,
         hierarchy: Record<string, [string, string | number]>
     ): Promise<PureTreeNode | null>;
 

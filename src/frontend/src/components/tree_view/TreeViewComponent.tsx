@@ -51,7 +51,9 @@ const TreeViewComponent: React.FC = () => {
 
     const handleSelect = (ids: NodeApi[]) => {
         if (!treeRef.current?.isProgrammaticChange) {
-            handleTreeSelectionChange(ids);
+            (async () => {
+                await handleTreeSelectionChange(ids);
+            })();
         }
     };
 

@@ -11,13 +11,11 @@ import {assignMorphToEdgeAlso} from "../../../utils/scene/animations/assignMorph
 
 interface PrepareLoadedModelParams {
     gltf_scene: THREE.Object3D;
+    hash: string
 }
 
 
-export async function prepareLoadedModel({gltf_scene}: PrepareLoadedModelParams): Promise<string> {
-    // create a unique hash string
-    const hash = gltf_scene.name + "_" + gltf_scene.uuid;
-
+export async function prepareLoadedModel({gltf_scene, hash}: PrepareLoadedModelParams): Promise<void> {
     const modelStore = useModelState.getState()
     const optionsStore = useOptionsStore.getState()
 
@@ -66,6 +64,4 @@ export async function prepareLoadedModel({gltf_scene}: PrepareLoadedModelParams)
     }
 
     replaceBlackMaterials(gltf_scene);
-
-    return hash;
 }

@@ -12,7 +12,7 @@ function get_nodes_recursive(node: NodeApi, nodes: NodeApi[]) {
     }
 }
 
-function get_mesh_and_draw_ranges(nodes: NodeApi[]) {
+async function get_mesh_and_draw_ranges(nodes: NodeApi[]) {
     let meshes_and_ranges: [CustomBatchedMesh, string][] = [];
     for (let node of nodes) {
         let rangeId = node.data.rangeId;
@@ -26,14 +26,14 @@ function get_mesh_and_draw_ranges(nodes: NodeApi[]) {
     return meshes_and_ranges;
 }
 
-export function handleTreeSelectionChange(ids: NodeApi[]) {
+export async function handleTreeSelectionChange(ids: NodeApi[]) {
     if (ids.length > 0) {
         let nodes: NodeApi[] = [];
         for (let node of ids) {
             get_nodes_recursive(node, nodes);
         }
         console.time("get_mesh_and_draw_ranges");
-        let const_meshes_and_draw_ranges = get_mesh_and_draw_ranges(nodes);
+        let const_meshes_and_draw_ranges = await get_mesh_and_draw_ranges(nodes);
         console.timeEnd("get_mesh_and_draw_ranges");
 
         console.time("addBatchofMeshes");

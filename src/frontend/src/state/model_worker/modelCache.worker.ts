@@ -1,6 +1,7 @@
 // state/modelCache.worker.ts
 import Dexie, {Table} from "dexie";
 import * as Comlink from "comlink";
+import {TreeNodeData} from "../../components/tree_view/CustomNode";
 
 export interface ModelData {
     key: string;
@@ -95,16 +96,19 @@ class ModelWorkerAPI {
      * Does NOT touch any THREE.Object3D or meshRefs.
      */
     buildHierarchy(
+        key: string,
         hierarchy: Record<string, [string, string | number]>
-    ): PureTreeNode | null {
+    ): TreeNodeData | null {
         // instantiate nodes
-        const nodes: Record<string, PureTreeNode> = {};
+        const nodes: Record<string, TreeNodeData> = {};
+        const draw_range = this.memoryCacheDrawRange.get(key);
+
         for (const [id, [name]] of Object.entries(hierarchy)) {
-            nodes[id] = {id, name, children: []};
+            nodes[id] = {id, name, children: [], };
         }
 
         // link parents → children
-        let root: PureTreeNode | null = null;
+        let root: TreeNodeData | null = null;
         for (const [id, [, parent]] of Object.entries(hierarchy)) {
             if (parent === "*" || parent === null) {
                 root = nodes[id];

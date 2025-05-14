@@ -6,9 +6,10 @@ export interface TreeNodeData {
     id: string;
     name: string;
     children: TreeNodeData[];
-    // Add other properties if needed
-    // Your custom properties
-    meshRef?: CustomBatchedMesh | null;
+
+    // Custom properties
+    model_key?: string | null;
+    node_name?: string | null;
     key?: string | null;
     rangeId?: number | null;
 }

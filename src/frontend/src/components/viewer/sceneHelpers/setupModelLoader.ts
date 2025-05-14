@@ -1,5 +1,4 @@
 import * as THREE from "three";
-import {GLTFLoader} from "three/examples/jsm/loaders/GLTFLoader";
 import {prepareLoadedModel} from "./prepareLoadedModel";
 import {useModelState} from "../../../state/modelState";
 import {useOptionsStore} from "../../../state/optionsStore";
@@ -9,8 +8,6 @@ import {SimulationDataExtensionMetadata} from "../../../extensions/sim_metadata"
 import {FilePurpose} from "../../../flatbuffers/base/file-purpose";
 import {cacheAndBuildTree} from "../../../state/model_worker/cacheModelUtils";
 import {mapAnimationTargets} from "../../../utils/scene/animations/mapAnimationTargets";
-import {buildTreeFromUserData} from "../../../utils/tree_view/generateTree";
-import {useTreeViewStore} from "../../../state/treeViewStore";
 import {loadGLTF} from "./asyncModelLoader";
 
 export async function setupModelLoaderAsync(
@@ -49,8 +46,10 @@ export async function setupModelLoaderAsync(
         // Set the hasAnimation flag to true in the store
         animationStore.setHasAnimation(true);
     }
+    // create a unique hash string
+    const model_hash = gltf_scene.name + "_" + gltf_scene.uuid;
 
-    const model_hash = await prepareLoadedModel({gltf_scene: gltf_scene});
+    await prepareLoadedModel({gltf_scene: gltf_scene, hash: model_hash});
 
     // delegate all the caching to our helper
     await cacheAndBuildTree(model_hash, rawUD);
