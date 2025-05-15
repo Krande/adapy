@@ -20,7 +20,7 @@ import ToggleControlsIcon from "./icons/AnimationControlToggle";
 const Menu = () => {
     const {show_info_box} = useObjectInfoStore();
     const {isNodeEditorVisible, setIsNodeEditorVisible, use_node_editor_only} = useNodeEditorStore();
-    const {isOptionsVisible, setIsOptionsVisible} = useOptionsStore(); // use the useNavBarStore function
+    const {isOptionsVisible, setIsOptionsVisible, enableNodeEditor} = useOptionsStore(); // use the useNavBarStore function
     const {isTreeCollapsed, setIsTreeCollapsed} = useTreeViewStore();
     const {showServerInfoBox, setShowServerInfoBox} = useServerInfoStore();
     const {hasAnimation, isControlsVisible, setIsControlsVisible} = useAnimationStore();
@@ -54,7 +54,7 @@ const Menu = () => {
 
                     <button
                         className={"bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded"}
-                        hidden={use_node_editor_only}
+                        hidden={use_node_editor_only || !enableNodeEditor}
                         onClick={() => setIsNodeEditorVisible(!isNodeEditorVisible)}
                     >
                         <GraphIcon/>

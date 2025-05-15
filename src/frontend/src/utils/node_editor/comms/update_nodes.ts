@@ -3,7 +3,7 @@ import {FileArgT, FileType} from '../../../flatbuffers/base';
 import {useNodeEditorStore} from '../../../state/useNodeEditorStore'; // Import the node editor Zustand store
 
 
-export const update_nodes = (message: Message) => {
+export async function update_nodes(message: Message) {
     // Get the ProcedureStore from the received message
     const procedureStore = message.procedureStore();
     if (!procedureStore) return;

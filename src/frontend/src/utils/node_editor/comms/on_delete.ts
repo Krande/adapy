@@ -1,35 +1,35 @@
 import * as flatbuffers from "flatbuffers";
 import {Message} from "../../../flatbuffers/wsock/message";
-import {webSocketHandler} from "../../websocket_connector";
+import {webSocketAsyncHandler} from "../../websocket_connector_async";
 import {CommandType} from "../../../flatbuffers/commands/command-type";
 import {TargetType} from "../../../flatbuffers/commands/target-type";
 import {Server} from "../../../flatbuffers/server/server";
 import {FileObject} from "../../../flatbuffers/base";
 
-export function onDelete(elements: { nodes: any[], edges: any[] }) {
+export async function onDelete(elements: { nodes: any[], edges: any[] }) {
     if (elements.nodes.length > 0) {
-        on_delete_nodes(elements.nodes)
+        await on_delete_nodes(elements.nodes)
     }
     if (elements.edges.length > 0) {
-        on_delete_edges(elements.edges)
+        await on_delete_edges(elements.edges)
     }
 }
 
 
-function on_delete_nodes(elements: any[]) {
+async function on_delete_nodes(elements: any[]) {
     for (const element of elements) {
         if (element.type == "file_object") {
-            delete_file_object(element)
+            await delete_file_object(element)
         }
         console.log("onDelete node", element)
     }
 }
 
-function on_delete_edges(elements: any[]) {
+async function on_delete_edges(elements: any[]) {
     console.log("onDelete edges", elements)
 }
 
-function delete_file_object(file_object: any) {
+async function delete_file_object(file_object: any) {
     console.log("Deleting file object", file_object)
     let builder = new flatbuffers.Builder(1024);
     let file_obj = file_object.data.fileobject;
@@ -51,10 +51,10 @@ function delete_file_object(file_object: any) {
 
     Message.startMessage(builder);
     Message.addServer(builder, server_data);
-    Message.addInstanceId(builder, webSocketHandler.instance_id);
+    Message.addInstanceId(builder, webSocketAsyncHandler.instance_id);
     Message.addCommandType(builder, CommandType.DELETE_FILE_OBJECT);
     Message.addTargetGroup(builder, TargetType.SERVER);
     Message.addClientType(builder, TargetType.WEB);
     builder.finish(Message.endMessage(builder));
-    webSocketHandler.sendMessage(builder.asUint8Array());
+    await webSocketAsyncHandler.sendMessage(builder.asUint8Array());
 }

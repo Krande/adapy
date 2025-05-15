@@ -75,4 +75,4 @@ class WebSocketHandler {
     }
 }
 
-export const webSocketHandler = new WebSocketHandler();
+export const webSocketSyncHandler = new WebSocketHandler();

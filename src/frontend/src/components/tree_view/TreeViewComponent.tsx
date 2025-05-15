@@ -13,7 +13,7 @@ const TreeViewComponent: React.FC = () => {
 
     const treeNodes = treeData ? [{id: 'root', name: 'scene', children: [treeData]}] : [{
         id: 'root',
-        name: 'root',
+        name: 'scene',
         children: []
     }];
 

@@ -48,7 +48,7 @@ function add_node(fileObject: FileObject) {
 }
 
 
-export function handle_finished_procedure(message: Message) {
+export async function handle_finished_procedure(message: Message) {
     console.log('receive_procedure');
     console.log('Instance ID:', message.instanceId());
     let fileObjectsLength = message.serverReply()?.fileObjectsLength();

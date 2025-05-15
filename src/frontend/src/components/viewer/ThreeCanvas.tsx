@@ -11,12 +11,15 @@ import {setupLights} from "./sceneHelpers/setupLights";
 import {addDynamicGridHelper} from "./sceneHelpers/addDynamicGridHelper";
 import {setupGizmo} from "./sceneHelpers/setupGizmo";
 import {setupStats} from "./sceneHelpers/setupStats";
-import {setupModelLoaderAsync} from "./sceneHelpers/setupModelLoader";
 import {setupResizeHandler} from "./sceneHelpers/setupResizeHandler";
 import {setupPointerHandler} from "./sceneHelpers/setupPointerHandler";
 import {animationControllerRef, cameraRef, controlsRef, rendererRef, sceneRef, updatelightRef} from "../../state/refs";
 import {OrbitControls} from "three/examples/jsm/controls/OrbitControls";
 import {AnimationController} from "../../utils/scene/animations/AnimationController";
+
+function build_scene() {
+
+}
 
 const ThreeCanvas: React.FC = () => {
     const containerRef = useRef<HTMLDivElement>(null);
@@ -53,6 +56,7 @@ const ThreeCanvas: React.FC = () => {
 
     useEffect(() => {
         if (!containerRef.current) return;
+
         // ——— INVALIDATE z-up global only once ———
         if (zIsUp) {
             THREE.Object3D.DEFAULT_UP = new THREE.Vector3(0, 0, 1)
@@ -60,23 +64,32 @@ const ThreeCanvas: React.FC = () => {
         const clock = new THREE.Clock();
 
         // === Scene ===
-        const scene = new THREE.Scene();
-        scene.background = new THREE.Color("#393939");
-        sceneRef.current = scene;
+        if (!sceneRef.current) {
+            const scene = new THREE.Scene();
+            scene.background = new THREE.Color("#393939");
+            sceneRef.current = scene;
+        }
+        const scene = sceneRef.current;
 
         // Create the animation controller
-        const animation_controls = new AnimationController(scene)
-        animationControllerRef.current = animation_controls;
+        if (!animationControllerRef.current) {
+            modelGroupRef.current = new THREE.Group();
+            animationControllerRef.current = new AnimationController(scene);
+        }
+        const animation_controls = animationControllerRef.current
 
         // === Renderer ===
-        const renderer = new THREE.WebGLRenderer({antialias: true});
-        renderer.setSize(
-            containerRef.current.clientWidth,
-            containerRef.current.clientHeight,
-        );
-        renderer.shadowMap.enabled = true;
-        containerRef.current.appendChild(renderer.domElement);
-        rendererRef.current = renderer;
+        if (!rendererRef.current) {
+            const renderer = new THREE.WebGLRenderer({antialias: true});
+            renderer.setSize(
+                containerRef.current.clientWidth,
+                containerRef.current.clientHeight,
+            );
+            renderer.shadowMap.enabled = true;
+            containerRef.current.appendChild(renderer.domElement);
+            rendererRef.current = renderer;
+        }
+        const renderer = rendererRef.current;
 
         // === Camera ===
         const camera = setupCamera(containerRef.current, zIsUp);
@@ -98,7 +111,7 @@ const ThreeCanvas: React.FC = () => {
         updatelightRef.current = updateCameraLight;
 
         // === Helpers ===
-        addDynamicGridHelper(scene);
+        const grid_helper = addDynamicGridHelper(scene);
 
         let gizmo: OrientationGizmo | null = null;
         if (containerRef.current && camera && controls) {
@@ -109,18 +122,8 @@ const ThreeCanvas: React.FC = () => {
         const {statsArray, callsPanel, trisPanel} = setupStats(containerRef.current);
         statsRef.current = {statsArray, callsPanel, trisPanel};
 
-        let cancelled = false;
-        // === Model Loader ===
-        if (modelUrl) {
-            (async () => {
-                const group = await setupModelLoaderAsync(sceneRef.current!, modelUrl);
-                if (cancelled) {
-                    // if the component unmounted or URL changed mid-load
-                    sceneRef.current?.remove(group);
-                }
-            })();
-
-        } else if (modelGroupRef.current) {
+        // === Model Cache Loader ===
+        if (modelGroupRef.current) {
             // If a model is already loaded, add it to the scene
             scene.add(modelGroupRef.current);
         }
@@ -165,20 +168,21 @@ const ThreeCanvas: React.FC = () => {
         const cleanupPointerHandler = setupPointerHandler(containerRef.current, camera, scene, renderer);
 
         return () => {
-            cancelled = true;
-            cleanupResizeHandler();
-            cleanupPointerHandler();
-            renderer.dispose();
-            containerRef.current?.removeChild(renderer.domElement);
+            // cleanupResizeHandler();
+            // cleanupPointerHandler();
+            // renderer.dispose();
+            // containerRef.current?.removeChild(renderer.domElement);
             if (gizmo && containerRef.current?.contains(gizmo)) {
                 containerRef.current.removeChild(gizmo);
             }
+            grid_helper.dispose();
+            scene.remove(grid_helper);
             removeKeyHandlers?.(); // cleanup key listeners
             // Clean up model scene from main scene
-            scene.clear();
+            // scene.clear();
 
             // Reset global state
-            sceneRef.current = null;
+            // sceneRef.current = null;
 
             // Clean up stats panels
             if (statsArray && statsArray.length > 0) {
@@ -187,7 +191,7 @@ const ThreeCanvas: React.FC = () => {
                 });
             }
         };
-    }, [modelUrl, defaultOrbitController, zIsUp]);
+    }, [defaultOrbitController, zIsUp]);
 
     // ——— Separate effect for toggling performance panels only ———
     useEffect(() => {

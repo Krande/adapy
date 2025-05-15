@@ -1,12 +1,14 @@
-import { Message } from "../../../flatbuffers/wsock/message";
-import { useModelState } from "../../../state/modelState";
-import { SceneOperations } from "../../../flatbuffers/scene/scene-operations";
-import { append_to_scene_from_message } from "./append_to_scene_from_message";
+import {Message} from "../../../flatbuffers/wsock/message";
+import {useModelState} from "../../../state/modelState";
+import {SceneOperations} from "../../../flatbuffers/scene/scene-operations";
+import {add_mesh_to_scene, append_to_scene_from_message} from "./append_to_scene_from_message";
 
-import { ungzip } from 'pako';
+import {ungzip} from 'pako';
+import {setupModelLoaderAsync} from "../../../components/viewer/sceneHelpers/setupModelLoader";
+import {modelKeyMapRef, sceneRef} from "../../../state/refs";
 
 
-export const update_scene_from_message = (message: Message) => {
+export async function update_scene_from_message(message: Message) {
     console.log('Received scene update message from server');
     let scene = message.scene();
 
@@ -15,10 +17,10 @@ export const update_scene_from_message = (message: Message) => {
         return;
     }
     let operation = scene.operation();
-    if (operation == SceneOperations.ADD) {
-        append_to_scene_from_message(message);
-        return;
-    }
+    // if (operation == SceneOperations.ADD) {
+    //     await append_to_scene_from_message(message);
+    //     return;
+    // }
 
     let fileObject = scene.currentFile();
     if (!fileObject) {
@@ -42,13 +44,37 @@ export const update_scene_from_message = (message: Message) => {
         finalData = data;
     }
 
-    const blob = new Blob([finalData], { type: 'model/gltf-binary' });
+    const blob = new Blob([finalData], {type: 'model/gltf-binary'});
     const url = URL.createObjectURL(blob);
 
     if (operation == SceneOperations.REPLACE) {
         useModelState.getState().setModelUrl(url, operation); // Set the URL for the model
+        const three_scene = sceneRef.current;
+        if (!three_scene) {
+            console.warn("No scene found");
+            return;
+        }
+        // clear the current scene
+        three_scene.removeFromParent();
+        if (modelKeyMapRef.current) {
+            for (let key of modelKeyMapRef.current.keys()) {
+                let existing_group = modelKeyMapRef.current.get(key);
+                if (existing_group) {
+                    existing_group.clear();
+                }
+
+            }
+        }
+        await setupModelLoaderAsync(url);
     } else if (operation == SceneOperations.REMOVE) {
         console.error("Currently unsupported operation", operation);
+    } else if (operation == SceneOperations.ADD) {
+        let mesh = message.package_()?.mesh()?.unpack();
+        if (mesh) {
+            await add_mesh_to_scene(mesh)
+        } else {
+            await setupModelLoaderAsync(url);
+        }
     } else {
         console.error("Unknown operation type: ", operation);
     }

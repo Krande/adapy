@@ -205,18 +205,6 @@ class RendererManager:
             else:
                 scene = RendererManager.obj_to_trimesh(obj, params)
 
-            if params.scene.operation == SceneOperationsDC.ADD:
-                mesh: trimesh.Trimesh = scene.to_mesh()
-                verts = mesh.vertices.flatten().tolist()
-                faces = mesh.faces.flatten().tolist()
-                parent_name = None
-                if hasattr(obj, "parent") and obj.parent is not None:
-                    parent_name = obj.parent.name
-                name = obj.name if hasattr(obj, "name") else "Scene"
-                mesh_dc = MeshDC(name, faces, verts, parent_name)
-                wc.append_scene(mesh_dc)
-                return renderer_instance
-
             if params.scene_post_processor is not None:
                 scene = params.scene_post_processor(scene)
 

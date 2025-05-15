@@ -5,7 +5,7 @@ import {Procedure, ProcedureStore, ProcedureT,} from '../../../flatbuffers/proce
 import {useNodeEditorStore} from '../../../state/useNodeEditorStore';
 import * as flatbuffers from "flatbuffers"; // Import the node editor Zustand store
 import {Builder} from "flatbuffers";
-import {webSocketHandler} from "../../websocket_connector";
+import {webSocketAsyncHandler} from "../../websocket_connector_async";
 
 function extract_input_params(builder: Builder, params: string[], procedureT: ProcedureT) {
     // the param strings are div keys in the form of 'param-<procedure_name>-<index>'
@@ -136,7 +136,7 @@ function extract_input_params(builder: Builder, params: string[], procedureT: Pr
 
 }
 
-export function run_procedure(props: { id: string, data: Record<string, string | Procedure | object> }) {
+export async function run_procedure(props: { id: string, data: Record<string, string | Procedure | object> }) {
     // Find the Start Procedure node and get the connecting nodes
     const nodes = useNodeEditorStore.getState().nodes
     const edges = useNodeEditorStore.getState().edges
@@ -215,7 +215,7 @@ export function run_procedure(props: { id: string, data: Record<string, string |
         console.log('Overriding TARGET_ID:', (window as any).TARGET_INSTANCE_ID)
         Message.addInstanceId(builder, (window as any).TARGET_INSTANCE_ID);
     } else {
-        Message.addInstanceId(builder, webSocketHandler.instance_id);
+        Message.addInstanceId(builder, webSocketAsyncHandler.instance_id);
     }
 
     Message.addCommandType(builder, CommandType.RUN_PROCEDURE);
@@ -224,5 +224,5 @@ export function run_procedure(props: { id: string, data: Record<string, string |
     Message.addProcedureStore(builder, procedureStore);
     builder.finish(Message.endMessage(builder));
 
-    webSocketHandler.sendMessage(builder.asUint8Array());
+    await webSocketAsyncHandler.sendMessage(builder.asUint8Array());
 }

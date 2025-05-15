@@ -1,18 +1,13 @@
 import {Message} from "../../../flatbuffers/wsock/message";
 import {useModelState} from "../../../state/modelState";
 import * as THREE from "three";
-import {useOptionsStore} from "../../../state/optionsStore";
-import {convert_to_custom_batch_mesh} from "../convert_to_custom_batch_mesh";
-import {useTreeViewStore} from "../../../state/treeViewStore";
-import {buildTreeFromUserData} from "../../tree_view/generateTree";
-import {rendererRef, sceneRef} from "../../../state/refs";
+import {sceneRef} from "../../../state/refs";
 import {MeshT} from "../../../flatbuffers/meshes/mesh";
-import {modelStore} from "../../../state/model_worker/modelStore";
+import {prepareLoadedModel} from "../../../components/viewer/sceneHelpers/prepareLoadedModel";
+import {update_scene_from_message} from "./update_scene_from_message";
 
-export function add_mesh_to_scene(mesh: MeshT) {
+export async function add_mesh_to_scene(mesh: MeshT) {
     let three_scene = sceneRef.current;
-
-    let showEdges = useOptionsStore.getState().showEdges;
 
     if (!three_scene) {
         return;
@@ -69,24 +64,26 @@ export function add_mesh_to_scene(mesh: MeshT) {
 
     const drawRanges = new Map<string, [number, number]>();
     drawRanges.set(range_id_str, [0, mesh_array_len]);
-    const hash = mesh.name
-    const customMesh = convert_to_custom_batch_mesh(threeMesh, drawRanges, hash);
-    // Add to scene
-    three_scene.add(customMesh);
+    const new_scene = new THREE.Group();
+    new_scene.name = threeMesh.name;
+    new_scene.add(threeMesh);
+    const model_hash = new_scene.name + "_" + new_scene.uuid;
 
-    if (showEdges && rendererRef.current) {
-        three_scene.add(customMesh.getEdgeOverlay(rendererRef.current));
-    }
+    // Add to scene
+    await prepareLoadedModel({gltf_scene: new_scene, hash: model_hash})
     console.log("Mesh added to scene");
 }
 
-export function append_to_scene_from_message(message: Message) {
+export async function append_to_scene_from_message(message: Message) {
     // Append GLTF model
     console.log("Adding model to existing scene");
 
     let mesh = message.package_()?.mesh()?.unpack();
+    let scene = message.scene()?.unpack();
     if (mesh) {
-        add_mesh_to_scene(mesh)
+        await add_mesh_to_scene(mesh)
+    } else if (scene) {
+        await update_scene_from_message(message);
     }
 
 

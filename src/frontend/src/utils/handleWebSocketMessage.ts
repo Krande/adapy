@@ -1,16 +1,15 @@
 // handleWebSocketMessage.ts
-import {handleFlatbufferMessage} from "./fb_handling/handle_incoming_buffers";
+import { handleFlatbufferMessage } from "./fb_handling/handle_incoming_buffers";
 
-
-export const handleWebSocketMessage = () => (event: MessageEvent) => {
+export async function handleWebSocketMessage(event: MessageEvent): Promise<void> {
+  try {
     if (event.data instanceof Blob) {
-        // Convert Blob to ArrayBuffer and then handle it as FlatBuffer
-        event.data.arrayBuffer().then((buffer) => {
-            handleFlatbufferMessage(buffer);
-        }).catch(err => {
-            console.error('Error handling FlatBuffer message:', err);
-        });
+      const buffer = await event.data.arrayBuffer();
+      await handleFlatbufferMessage(buffer);
     } else {
-        console.log('Message from server ', event.data);
+      console.log("Message from server", event.data);
     }
-};
+  } catch (err) {
+    console.error("Error handling WebSocket message:", err);
+  }
+}

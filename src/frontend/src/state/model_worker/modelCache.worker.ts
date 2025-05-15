@@ -13,13 +13,6 @@ export interface ModelData {
 type DrawRangesMap = Record<string, Record<number, [number, number]>>;
 type HierarchyMap = Record<string, [string, string | number]>;
 
-// the shape of the pure tree we’ll return
-export interface PureTreeNode {
-    id: string;
-    name: string;
-    children: PureTreeNode[];
-}
-
 class ModelWorkerAPI {
     private db: Dexie;
     private models!: Table<ModelData, string>;
@@ -109,35 +102,70 @@ class ModelWorkerAPI {
      */
     buildHierarchy(
         key: string,
-        hierarchy: Record<string, [string, string | number]>
+        hierarchy: Record<string, [string, string]>,
+        start_id: number
     ): TreeNodeData | null {
         // instantiate nodes
         const nodes: Record<string, TreeNodeData> = {};
         const elementToMesh = this.buildElementToMeshMap(key);
-
-        for (const [id, [name]] of Object.entries(hierarchy)) {
-            nodes[id] = {id, name, children: [], key: key, node_name: elementToMesh.get(id) ?? null,};
+        let id = start_id + 1;
+        let id_rangeIdMap = new Map<string, string>();
+        for (const [rangeId, [name]] of Object.entries(hierarchy)) {
+            // convert id to string
+            const string_id = String(id);
+            nodes[string_id] = {
+                id: string_id,
+                name: name,
+                children: [],
+                rangeId: rangeId,
+                model_key: key,
+                node_name: elementToMesh.get(rangeId) ?? null,
+            };
+            id_rangeIdMap.set(rangeId, string_id);
+            id++;
         }
 
         // link parents → children
         let root: TreeNodeData | null = null;
-        for (const [id, [, parent]] of Object.entries(hierarchy)) {
+        for (const [rangeId, [, parent]] of Object.entries(hierarchy)) {
+            // convert id to string
+            const string_id = id_rangeIdMap.get(rangeId);
+            if (!string_id) {
+                console.warn(
+                    `ModelWorkerAPI: No string_id found for ${rangeId} (${parent})`
+                );
+                continue;
+            }
             if (parent === "*" || parent === null) {
-                root = nodes[id];
+                root = nodes[string_id];
             } else {
-                const p = nodes[String(parent)];
-                if (p) p.children.push(nodes[id]);
+                let parent_id = id_rangeIdMap.get(parent);
+                if (!parent_id) {
+                    console.warn(
+                        `ModelWorkerAPI: No parent found for ${string_id} (${parent})`
+                    );
+                    continue;
+                }
+                const p = nodes[parent_id];
+                if (p) p.children.push(nodes[string_id]);
             }
         }
 
         // natural‐sort each children array
-        const sortRec = (n: PureTreeNode) => {
-            n.children.sort((a, b) =>
-                a.name.localeCompare(b.name, undefined, {
-                    numeric: true,
-                    sensitivity: "base",
-                })
-            );
+        const sortRec = (n: TreeNodeData) => {
+            n.children.sort((a, b) => {
+                try {
+                    return a.name.localeCompare(b.name, undefined, {
+                        numeric: true,
+                        sensitivity: "base",
+                    });
+                } catch (e) {
+                    if (e instanceof TypeError) {
+                        return 0;
+                    }
+                    throw e;
+                }
+            });
             n.children.forEach(sortRec);
         };
         if (root) sortRec(root);

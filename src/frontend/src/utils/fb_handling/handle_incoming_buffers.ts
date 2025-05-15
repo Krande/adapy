@@ -1,51 +1,88 @@
-import {Message} from '../../flatbuffers/wsock'
-import {CommandType} from '../../flatbuffers/commands'
-import * as flatbuffers from "flatbuffers";
-import {reply_ping} from "./reply_ping";
-import {update_scene_from_message} from "../scene/comms/update_scene_from_message";
-import {receive_mesh_info_reply} from "../mesh_select/comms/receive_mesh_info_reply";
-import {update_nodes} from "../node_editor/comms/update_nodes";
-import {handle_finished_procedure} from "../node_editor/comms/handle_finished_procedure";
-import {receive_list_of_files_from_server} from "../server_info/comms/receive_list_of_files_from_server";
+// handleFlatbufferMessage.ts
+import { Message } from '../../flatbuffers/wsock';
+import { CommandType } from '../../flatbuffers/commands';
+import * as flatbuffers from 'flatbuffers';
+import { reply_ping } from './reply_ping';
+import { update_scene_from_message } from '../scene/comms/update_scene_from_message';
+import { receive_mesh_info_reply } from '../mesh_select/comms/receive_mesh_info_reply';
+import { update_nodes } from '../node_editor/comms/update_nodes';
+import { handle_finished_procedure } from '../node_editor/comms/handle_finished_procedure';
+import { receive_list_of_files_from_server } from '../server_info/comms/receive_list_of_files_from_server';
 
-export const handleFlatbufferMessage = (buffer: ArrayBuffer) => {
+export async function handleFlatbufferMessage(buffer: ArrayBuffer): Promise<void> {
+  try {
     // Wrap ArrayBuffer into FlatBuffer ByteBuffer
     const byteBuffer = new flatbuffers.ByteBuffer(new Uint8Array(buffer));
-    let message = Message.getRootAsMessage(byteBuffer);
-    let command_type = message.commandType();
+    const message = Message.getRootAsMessage(byteBuffer);
+    const commandType = message.commandType();
 
-    if (command_type === CommandType.PING) {
-        reply_ping(message);
-    } else if (command_type === CommandType.UPDATE_SCENE) {
-        update_scene_from_message(message);
-        update_nodes(message);
-    } else if (command_type === CommandType.MESH_INFO_REPLY) {
-        receive_mesh_info_reply(message);
-    } else if (command_type == CommandType.SERVER_REPLY) {
-        if (message.serverReply()?.replyTo() === CommandType.LIST_PROCEDURES) {
-            update_nodes(message);
-        } else if (message.serverReply()?.replyTo() === CommandType.MESH_INFO_CALLBACK) {
-            receive_mesh_info_reply(message);
-        } else if (message.serverReply()?.replyTo() === CommandType.VIEW_FILE_OBJECT) {
+    switch (commandType) {
+      case CommandType.PING:
+        await reply_ping(message);
+        break;
+
+      case CommandType.UPDATE_SCENE:
+        await update_scene_from_message(message);
+        await update_nodes(message);
+        break;
+
+      case CommandType.MESH_INFO_REPLY:
+        await receive_mesh_info_reply(message);
+        break;
+
+      case CommandType.SERVER_REPLY:
+        const replyTo = message.serverReply()?.replyTo();
+        switch (replyTo) {
+          case CommandType.LIST_PROCEDURES:
+            await update_nodes(message);
+            break;
+          case CommandType.MESH_INFO_CALLBACK:
+            await receive_mesh_info_reply(message);
+            break;
+          case CommandType.VIEW_FILE_OBJECT:
             console.log('VIEW_FILE_OBJECT Server Reply message received');
-            update_scene_from_message(message);
-        } else if (message.serverReply()?.replyTo() === CommandType.RUN_PROCEDURE) {
-            console.log('LIST_MESHES Server Reply message received');
-            handle_finished_procedure(message);
-        } else if (message.serverReply()?.replyTo() === CommandType.LIST_FILE_OBJECTS) {
-            receive_list_of_files_from_server(message);
-        } else {
-            console.error('Unknown Server Reply message type received: ', message.serverReply()?.replyTo());
+            await update_scene_from_message(message);
+            break;
+          case CommandType.RUN_PROCEDURE:
+            console.log('RUN_PROCEDURE Server Reply message received');
+            await handle_finished_procedure(message);
+            break;
+          case CommandType.LIST_FILE_OBJECTS:
+            await receive_list_of_files_from_server(message);
+            break;
+          default:
+            console.error(
+              'Unknown Server Reply type:',
+              replyTo
+            );
         }
-    } else if (command_type == CommandType.ERROR) {
-        console.error('Server Error message received');
-        console.error('Server Error message:', message.serverReply()?.error()?.message());
-    } else  {
-        console.error('Unknown Flatbuffer message type received: ', CommandType[command_type]);
+        break;
+
+      case CommandType.ERROR:
+        console.error('Server Error message received:');
+        console.error(
+          message.serverReply()?.error()?.message()
+        );
+        break;
+
+      default:
+        console.error(
+          'Unknown FlatBuffer message type:',
+          CommandType[commandType]
+        );
     }
+
     console.log('Flatbuffer message received');
     console.log('Instance ID:', message.instanceId());
-    console.log('Command Type:', CommandType[message.commandType()]);
+    console.log(
+      'Command Type:',
+      CommandType[message.commandType()]
+    );
     console.log('Mesh Info:', message.meshInfo());
+  } catch (err) {
+    console.error(
+      'Error handling FlatBuffer message:',
+      err
+    );
+  }
 }
-

@@ -17,6 +17,8 @@ function OptionsComponent() {
         setLockTranslation,
         setEnableWebsocket,
         enableWebsocket,
+        enableNodeEditor,
+        setEnableNodeEditor
     } = useOptionsStore();
     const {showLegend, setShowLegend} = useColorStore();
     const {zIsUp, setZIsUp, defaultOrbitController, setDefaultOrbitController} = useModelState();
@@ -143,6 +145,14 @@ function OptionsComponent() {
                         <span>Lock Translation</span>
                     </label>
                     <label className="flex items-center space-x-2">
+                        <input
+                            type="checkbox"
+                            checked={enableNodeEditor}
+                            onChange={() => setEnableNodeEditor(!enableNodeEditor)}
+                        />
+                        <span>Enable Node Editor</span>
+                    </label>
+                                        <label className="flex items-center space-x-2">
                         <input
                             type="checkbox"
                             checked={enableWebsocket}

@@ -18,16 +18,21 @@ export interface TreeViewState {
     setTree: (tree: TreeApi<any>) => void;
     searchTerm: string;
     setSearchTerm: (searchTerm: string) => void;
+    max_id: number
+
+    setMaxId(max_id: number): void;
 }
 
 export const useTreeViewStore = create<TreeViewState>((set) => ({
     treeData: null,
     tree: null,
     searchTerm: '',
+    max_id: 0,
     setSearchTerm: (searchTerm) => set({searchTerm: searchTerm}),
     setTree: (tree) => set({tree: tree}),
     setTreeData: (data) => set({treeData: data}),
     clearTreeData: () => set({treeData: null}),
     isTreeCollapsed: true,
     setIsTreeCollapsed: (collapsed) => set({isTreeCollapsed: collapsed}),
+    setMaxId: (max_id) => set({max_id: max_id}),
 }));

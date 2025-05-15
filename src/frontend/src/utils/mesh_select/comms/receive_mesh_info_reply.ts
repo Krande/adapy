@@ -1,7 +1,7 @@
 import {Message} from "../../../flatbuffers/wsock/message";
 import {useObjectInfoStore} from "../../../state/objectInfoStore";
 
-export const receive_mesh_info_reply = (message: Message) => {
+export async function receive_mesh_info_reply (message: Message) {
     if (message.meshInfo() && message.meshInfo()?.jsonData()) {
         const json_str = message.meshInfo()?.jsonData();
         if (!json_str) {

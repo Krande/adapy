@@ -27,7 +27,8 @@ export interface ModelStoreAPI {
     // <— no "?" here! always present
     buildHierarchy(
         key: string,
-        hierarchy: Record<string, [string, string | number]>
+        hierarchy: Record<string, [string, string | number]>,
+        start_id: number
     ): Promise<TreeNodeData | null>;
 
     getDrawRange(
