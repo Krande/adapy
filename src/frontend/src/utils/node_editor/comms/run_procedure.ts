@@ -5,7 +5,7 @@ import {Procedure, ProcedureStore, ProcedureT,} from '../../../flatbuffers/proce
 import {useNodeEditorStore} from '../../../state/useNodeEditorStore';
 import * as flatbuffers from "flatbuffers"; // Import the node editor Zustand store
 import {Builder} from "flatbuffers";
-import {webSocketAsyncHandler} from "../../websocket_connector_async";
+import {webSocketAsyncHandler} from "../../websocket/websocket_connector_async";
 
 function extract_input_params(builder: Builder, params: string[], procedureT: ProcedureT) {
     // the param strings are div keys in the form of 'param-<procedure_name>-<index>'

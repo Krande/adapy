@@ -37,7 +37,7 @@ export class AsyncWebSocketHandler {
                 }
             });
             this.socket.addEventListener('error', err => {
-                console.error('WebSocket raw error:', err);
+                // console.error('WebSocket raw error:', err);
                 // let the open()/error promise below handle scheduling
             });
 
@@ -52,7 +52,7 @@ export class AsyncWebSocketHandler {
                 });
             });
         } catch (err) {
-            console.error('WebSocket connection failed:', err);
+            // console.error('WebSocket connection failed:', err);
         }
     }
 

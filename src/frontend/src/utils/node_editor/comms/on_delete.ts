@@ -1,6 +1,6 @@
 import * as flatbuffers from "flatbuffers";
 import {Message} from "../../../flatbuffers/wsock/message";
-import {webSocketAsyncHandler} from "../../websocket_connector_async";
+import {webSocketAsyncHandler} from "../../websocket/websocket_connector_async";
 import {CommandType} from "../../../flatbuffers/commands/command-type";
 import {TargetType} from "../../../flatbuffers/commands/target-type";
 import {Server} from "../../../flatbuffers/server/server";

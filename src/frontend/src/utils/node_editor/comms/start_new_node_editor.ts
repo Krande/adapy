@@ -1,5 +1,5 @@
 import {Message} from "../../../flatbuffers/wsock/message";
-import {webSocketAsyncHandler} from "../../websocket_connector_async";
+import {webSocketAsyncHandler} from "../../websocket/websocket_connector_async";
 import {CommandType, TargetType} from "../../../flatbuffers/commands";
 import * as flatbuffers from "flatbuffers";
 import {useNodeEditorStore} from "../../../state/useNodeEditorStore";

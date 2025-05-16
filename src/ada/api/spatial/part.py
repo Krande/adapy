@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import os
 import pathlib
 from itertools import chain
@@ -917,6 +918,36 @@ class Part(BackendGeom):
                 progress_callback(i, num_shapes)
 
         step_writer.export(destination_file)
+
+    def to_aveva_mac(
+        self,
+        destination_file: str | pathlib.Path | io.TextIOBase,
+        spec_map: dict[str, str],
+        panel_spec_map: dict[str, str],
+        material_map: dict[str, str],
+        panel_material_map: dict[str, str],
+    ):
+        from ada.cadit.e3d.write_mac import E3DWriter
+
+        if isinstance(destination_file, str):
+            destination_file = pathlib.Path(destination_file)
+
+        writer = E3DWriter(
+            spec_map=spec_map,
+            panel_spec_map=panel_spec_map,
+            material_map=material_map,
+            panel_material_map=panel_material_map,
+        )
+        mac_str = writer.write_macro(self)
+        if isinstance(destination_file, pathlib.Path) and not destination_file.parent.exists():
+            destination_file.parent.mkdir(parents=True)
+
+        if hasattr(destination_file, "write"):
+            destination_file.write(mac_str)
+        else:
+            destination_file.write_text(mac_str, encoding="utf-8-sig")
+
+        logger.info(f'AVEVA MAC file "{destination_file}" created')
 
     def _sync_ifc_backend(self, backend_file_dir, wc):
         """Handles syncing the IFC backend if enabled."""

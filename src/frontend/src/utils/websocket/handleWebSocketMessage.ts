@@ -1,5 +1,5 @@
 // handleWebSocketMessage.ts
-import { handleFlatbufferMessage } from "./fb_handling/handle_incoming_buffers";
+import { handleFlatbufferMessage } from "../fb_handling/handle_incoming_buffers";
 
 export async function handleWebSocketMessage(event: MessageEvent): Promise<void> {
   try {

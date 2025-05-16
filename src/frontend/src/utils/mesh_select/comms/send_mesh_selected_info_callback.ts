@@ -3,7 +3,7 @@ import {CommandType} from '../../../flatbuffers/commands/command-type';
 import {TargetType} from '../../../flatbuffers/commands/target-type';
 import {MeshInfo} from '../../../flatbuffers/meshes';
 import * as flatbuffers from "flatbuffers";
-import {webSocketAsyncHandler} from "../../websocket_connector_async";
+import {webSocketAsyncHandler} from "../../websocket/websocket_connector_async";
 
 export async function query_ws_server_mesh_info(mesh_name: string, face_index: number): Promise<void> {
     console.log('Querying server for mesh info');

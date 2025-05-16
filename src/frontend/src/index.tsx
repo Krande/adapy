@@ -1,32 +1,11 @@
 import {createRoot} from 'react-dom/client';
 import App from './app';
 import React from "react";
-import {webSocketAsyncHandler} from "./utils/websocket_connector_async";
-import {useWebSocketStore} from "./state/webSocketStore";
-import {handleWebSocketMessage} from "./utils/handleWebSocketMessage";
 import {loadGLTFfrombase64} from "./utils/scene/loadGLTFfrombase64";
 import {useModelState} from "./state/modelState";
 import {SceneOperations} from "./flatbuffers/scene/scene-operations";
+import {initWebSocket} from "./utils/websocket/initWebSocket";
 
-async function initWebSocket() {
-  const url = useWebSocketStore.getState().webSocketAddress;
-
-  if ((window as any).DEACTIVATE_WS === true) {
-    console.log("DEACTIVATE_WS is set to true, not connecting to websocket");
-    return;
-  }
-
-  try {
-    await webSocketAsyncHandler.connect(url);
-
-    // start listening for incoming messages
-    for await (const event of webSocketAsyncHandler.messages()) {
-      await handleWebSocketMessage(event);
-    }
-  } catch (err) {
-    console.error('WebSocket connection failed:', err);
-  }
-}
 // start websocket here
 initWebSocket()
 

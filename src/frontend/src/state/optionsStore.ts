@@ -1,8 +1,8 @@
 // useOptionsStore.ts
 import {create} from "zustand";
-import {webSocketAsyncHandler} from "../utils/websocket_connector_async";
+import {webSocketAsyncHandler} from "../utils/websocket/websocket_connector_async";
 import {useWebSocketStore} from "./webSocketStore";
-import {handleWebSocketMessage} from "../utils/handleWebSocketMessage";
+import {handleWebSocketMessage} from "../utils/websocket/handleWebSocketMessage";
 
 export type OptionsState = {
     isOptionsVisible: boolean;

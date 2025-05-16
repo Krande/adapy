@@ -206,11 +206,11 @@ class Plate(BackendGeom):
         return self._poly
 
     @property
-    def units(self):
+    def units(self) -> Units:
         return self._units
 
     @units.setter
-    def units(self, value):
+    def units(self, value: Units | str):
         if isinstance(value, str):
             value = Units.from_str(value)
         if self._units != value:

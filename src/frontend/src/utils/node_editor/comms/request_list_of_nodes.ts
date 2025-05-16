@@ -2,7 +2,7 @@ import {Message} from '../../../flatbuffers/wsock'
 import {CommandType} from '../../../flatbuffers/commands/command-type'
 import {TargetType} from '../../../flatbuffers/commands/target-type'
 import * as flatbuffers from "flatbuffers";
-import {webSocketAsyncHandler} from "../../websocket_connector_async";
+import {webSocketAsyncHandler} from "../../websocket/websocket_connector_async";
 
 export async function request_list_of_nodes() {
     console.log('Querying server for mesh info');
