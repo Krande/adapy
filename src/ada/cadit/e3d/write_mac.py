@@ -156,13 +156,53 @@ class E3DWriter:
         if not level_name.startswith("/"):
             level_name = "/" + level_name
 
+        parent_level = None
+        if level != "SITE":
+            parent_level = self.e3d_level_by_depth.get(len(part.get_ancestors()) -1 , "PART")
+        """
+        
+        var !count COLLECT ALL SITE WITH ( NAME EQ '/ADA' )
+
+if (!count.Size() EQ 1) then
+	$P site found
+	!site = !count[1]
+else
+	$P site NOT found
+	!site = |new site /ADA|
+endif
+
+$!site
+
+
+var !count COLLECT ALL ZONE WITH ( NAME EQ '/Zone_A' )
+
+if (!count.Size() EQ 1) then
+	!zone = !count[1]
+	if (!zone.OWNER NEQ !site) then
+		!!Alert.message('A Zone of target name exists under a different site')
+		return
+	endif
+	$P zone found
+	
+else
+	$P zone NOT found
+	!zone = |new zone /Zone_A|
+endif
+
+$!zone
+        """
+        owner_check = f"if (!{level.lower()}.OWNER NEQ !site) then"
         hierarchy_str = (
             f"--* === {level}: {part.name} === *--\n"
-            f"if ({part.name}.exists()) then\n"
-            f"   return\n"
+            f"var !count COLLECT ALL {level.upper()} WITH ( NAME EQ '{level_name}' )\n"
+            "if (!count.Size() EQ 1) then\n"
+            f"	$P {level.lower()} found\n"
+            f"	!{level.lower()} = !count[1]\n"
             f"else\n"
-            f"   new {level} {level_name}\n"
+            f"$P {level.lower()} NOT found\n"
+            f"   !{level.lower()} = |new site {level_name}|\n"
             f"endif\n\n"
+            f"$!{level.lower()}"
         )
         return hierarchy_str
 
