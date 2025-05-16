@@ -48,9 +48,8 @@ def test_aveva_mac_export():
 
     # --- 5  write macro ---------------------------------------------------------
     string_obj = StringIO()
-    dest_file = "temp/test_aveva_mac.mac"
     asm.to_aveva_mac(
-        dest_file,
+        string_obj,
         spec_map={"HEA300": "/TEST_TT-A-SPEC/S355G11HEA300"},
         panel_spec_map={"PL10": "/TEST_TT/VLE99PL010"},
         material_map={"S355": "/S355NH_TTT_tt", "S420": "/S420NH_TTT_tt"},
