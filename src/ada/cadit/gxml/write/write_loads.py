@@ -3,10 +3,16 @@ from __future__ import annotations
 import xml.etree.ElementTree as ET
 
 
-def add_line_load(global_elem: ET.Element, lc_elem: ET.Element, name: str,
-                  start_point: tuple, end_point: tuple,
-                  intensity_start: tuple, intensity_end: tuple,
-                  system: str = "local") -> ET.Element:
+def add_line_load(
+    global_elem: ET.Element,
+    lc_elem: ET.Element,
+    name: str,
+    start_point: tuple,
+    end_point: tuple,
+    intensity_start: tuple,
+    intensity_end: tuple,
+    system: str = "local",
+) -> ET.Element:
     """
     Adds a <line_load> under <global><loads><explicit_loads> for a given load case.
 
@@ -35,37 +41,46 @@ def add_line_load(global_elem: ET.Element, lc_elem: ET.Element, name: str,
         explicit_loads_elem = ET.SubElement(loads_elem, "explicit_loads")
 
     # Create <line_load>
-    line_load = ET.SubElement(explicit_loads_elem, "line_load", {
-        "loadcase_ref": loadcase_ref,
-        "name": name
-    })
+    line_load = ET.SubElement(explicit_loads_elem, "line_load", {"loadcase_ref": loadcase_ref, "name": name})
 
     # Add footprint
     footprint = ET.SubElement(line_load, "footprint")
     footprint_line = ET.SubElement(footprint, "footprint_line")
     line = ET.SubElement(footprint_line, "line")
-    ET.SubElement(line, "position", {"end": "1", "x": str(start_point[0]), "y": str(start_point[1]), "z": str(start_point[2])})
-    ET.SubElement(line, "position", {"end": "2", "x": str(end_point[0]), "y": str(end_point[1]), "z": str(end_point[2])})
+    ET.SubElement(
+        line, "position", {"end": "1", "x": str(start_point[0]), "y": str(start_point[1]), "z": str(start_point[2])}
+    )
+    ET.SubElement(
+        line, "position", {"end": "2", "x": str(end_point[0]), "y": str(end_point[1]), "z": str(end_point[2])}
+    )
 
     # Add intensity
     intensity = ET.SubElement(line_load, "intensity")
-    component = ET.SubElement(intensity, "component1d_linear", {
-        "intensity_system": system,
-        "position_system": system
-    })
+    component = ET.SubElement(intensity, "component1d_linear", {"intensity_system": system, "position_system": system})
 
-    ET.SubElement(component, "intensity", {
-        "end": "1", "fx": str(intensity_start[0]), "fy": str(intensity_start[1]), "fz": str(intensity_start[2])
-    })
-    ET.SubElement(component, "intensity", {
-        "end": "2", "fx": str(intensity_end[0]), "fy": str(intensity_end[1]), "fz": str(intensity_end[2])
-    })
+    ET.SubElement(
+        component,
+        "intensity",
+        {"end": "1", "fx": str(intensity_start[0]), "fy": str(intensity_start[1]), "fz": str(intensity_start[2])},
+    )
+    ET.SubElement(
+        component,
+        "intensity",
+        {"end": "2", "fx": str(intensity_end[0]), "fy": str(intensity_end[1]), "fz": str(intensity_end[2])},
+    )
 
     return line_load
 
-def add_point_load(global_elem: ET.Element, lc_elem: ET.Element, name: str,
-                   position: tuple, force: tuple, moment: tuple = (0, 0, 0),
-                   system: str = "local") -> ET.Element:
+
+def add_point_load(
+    global_elem: ET.Element,
+    lc_elem: ET.Element,
+    name: str,
+    position: tuple,
+    force: tuple,
+    moment: tuple = (0, 0, 0),
+    system: str = "local",
+) -> ET.Element:
     """
     Adds a <point_load> under <global><loads><explicit_loads> for a given load case.
 
@@ -93,44 +108,29 @@ def add_point_load(global_elem: ET.Element, lc_elem: ET.Element, name: str,
         explicit_loads_elem = ET.SubElement(loads_elem, "explicit_loads")
 
     # Create <point_load>
-    point_load = ET.SubElement(explicit_loads_elem, "point_load", {
-        "loadcase_ref": loadcase_ref,
-        "name": name
-    })
+    point_load = ET.SubElement(explicit_loads_elem, "point_load", {"loadcase_ref": loadcase_ref, "name": name})
 
     # Add footprint
     footprint = ET.SubElement(point_load, "footprint")
     footprint_point = ET.SubElement(footprint, "footprint_point")
-    ET.SubElement(footprint_point, "point", {
-        "x": str(position[0]),
-        "y": str(position[1]),
-        "z": str(position[2])
-    })
+    ET.SubElement(footprint_point, "point", {"x": str(position[0]), "y": str(position[1]), "z": str(position[2])})
 
     # Add intensity
     intensity = ET.SubElement(point_load, "intensity")
-    component = ET.SubElement(intensity, "component0d_constant", {
-        "intensity_system": system,
-        "position_system": system
-    })
+    component = ET.SubElement(
+        intensity, "component0d_constant", {"intensity_system": system, "position_system": system}
+    )
     intensity_values = ET.SubElement(component, "intensity")
 
-    ET.SubElement(intensity_values, "force", {
-        "fx": str(force[0]),
-        "fy": str(force[1]),
-        "fz": str(force[2])
-    })
-    ET.SubElement(intensity_values, "moment", {
-        "mx": str(moment[0]),
-        "my": str(moment[1]),
-        "mz": str(moment[2])
-    })
+    ET.SubElement(intensity_values, "force", {"fx": str(force[0]), "fy": str(force[1]), "fz": str(force[2])})
+    ET.SubElement(intensity_values, "moment", {"mx": str(moment[0]), "my": str(moment[1]), "mz": str(moment[2])})
 
     return point_load
 
-def add_surface_load_polygon(global_elem: ET.Element, lc_elem: ET.Element,
-                             name: str, points: list, pressure: float,
-                             system: str = "local") -> ET.Element:
+
+def add_surface_load_polygon(
+    global_elem: ET.Element, lc_elem: ET.Element, name: str, points: list, pressure: float, system: str = "local"
+) -> ET.Element:
     """
     Adds a <surface_load> with a direct polygon footprint.
 
@@ -157,37 +157,34 @@ def add_surface_load_polygon(global_elem: ET.Element, lc_elem: ET.Element,
         explicit_loads_elem = ET.SubElement(loads_elem, "explicit_loads")
 
     # Create <surface_load>
-    surface_load = ET.SubElement(explicit_loads_elem, "surface_load", {
-        "loadcase_ref": loadcase_ref,
-        "name": name
-    })
+    surface_load = ET.SubElement(explicit_loads_elem, "surface_load", {"loadcase_ref": loadcase_ref, "name": name})
 
     # Add polygon footprint
     footprint = ET.SubElement(surface_load, "footprint")
     footprint_poly = ET.SubElement(footprint, "footprint_polygon")
     points_elem = ET.SubElement(footprint_poly, "points")
     for p in points:
-        ET.SubElement(points_elem, "point", {
-            "x": str(p[0]),
-            "y": str(p[1]),
-            "z": str(p[2])
-        })
+        ET.SubElement(points_elem, "point", {"x": str(p[0]), "y": str(p[1]), "z": str(p[2])})
 
     # Add intensity
     intensity = ET.SubElement(surface_load, "intensity")
-    pressure_elem = ET.SubElement(intensity, "pressure2d_constant", {
-        "intensity_system": system,
-        "position_system": system
-    })
-    ET.SubElement(pressure_elem, "intensity", {
-        "pressure": str(pressure)
-    })
+    pressure_elem = ET.SubElement(
+        intensity, "pressure2d_constant", {"intensity_system": system, "position_system": system}
+    )
+    ET.SubElement(pressure_elem, "intensity", {"pressure": str(pressure)})
 
     return surface_load
 
-def add_surface_load_plate(global_elem: ET.Element, lc_elem: ET.Element,
-                           name: str, plate_ref: str, pressure: float,
-                           side: str = "front", system: str = "local") -> ET.Element:
+
+def add_surface_load_plate(
+    global_elem: ET.Element,
+    lc_elem: ET.Element,
+    name: str,
+    plate_ref: str,
+    pressure: float,
+    side: str = "front",
+    system: str = "local",
+) -> ET.Element:
     """
     Adds a <surface_load> that references a plate.
 
@@ -215,33 +212,25 @@ def add_surface_load_plate(global_elem: ET.Element, lc_elem: ET.Element,
         explicit_loads_elem = ET.SubElement(loads_elem, "explicit_loads")
 
     # Create <surface_load>
-    surface_load = ET.SubElement(explicit_loads_elem, "surface_load", {
-        "loadcase_ref": loadcase_ref,
-        "name": name
-    })
+    surface_load = ET.SubElement(explicit_loads_elem, "surface_load", {"loadcase_ref": loadcase_ref, "name": name})
 
     # Add footprint using plate reference
     footprint = ET.SubElement(surface_load, "footprint")
-    ET.SubElement(footprint, "footprint_plate", {
-        "plate_ref": plate_ref,
-        "side": side
-    })
+    ET.SubElement(footprint, "footprint_plate", {"plate_ref": plate_ref, "side": side})
 
     # Add intensity
     intensity = ET.SubElement(surface_load, "intensity")
-    pressure_elem = ET.SubElement(intensity, "pressure2d_constant", {
-        "intensity_system": system,
-        "position_system": system
-    })
-    ET.SubElement(pressure_elem, "intensity", {
-        "pressure": str(pressure)
-    })
+    pressure_elem = ET.SubElement(
+        intensity, "pressure2d_constant", {"intensity_system": system, "position_system": system}
+    )
+    ET.SubElement(pressure_elem, "intensity", {"pressure": str(pressure)})
 
     return surface_load
 
 
-def add_gravity_load(global_elem: ET.Element, lc_elem: ET.Element,
-                     acceleration: tuple[float, float, float] = (0.0, 0.0, -9.80665)) -> ET.Element:
+def add_gravity_load(
+    global_elem: ET.Element, lc_elem: ET.Element, acceleration: tuple[float, float, float] = (0.0, 0.0, -9.80665)
+) -> ET.Element:
     """
     Adds a <gravity_load> element with self-weight to the loadcase in <environmental_loads>.
 
@@ -265,16 +254,12 @@ def add_gravity_load(global_elem: ET.Element, lc_elem: ET.Element,
         env_loads_elem = ET.SubElement(loads_elem, "environmental_loads")
 
     # Add <gravity_load> (always with selfweight)
-    gravity_elem = ET.SubElement(env_loads_elem, "gravity_load", {
-        "loadcase_ref": loadcase_ref,
-        "include_selfweight": "true"
-    })
+    gravity_elem = ET.SubElement(
+        env_loads_elem, "gravity_load", {"loadcase_ref": loadcase_ref, "include_selfweight": "true"}
+    )
 
-    ET.SubElement(gravity_elem, "acceleration", {
-        "x": str(acceleration[0]),
-        "y": str(acceleration[1]),
-        "z": str(acceleration[2])
-    })
+    ET.SubElement(
+        gravity_elem, "acceleration", {"x": str(acceleration[0]), "y": str(acceleration[1]), "z": str(acceleration[2])}
+    )
 
     return gravity_elem
-

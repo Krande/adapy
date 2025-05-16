@@ -6,8 +6,15 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     pass
 
-def add_loadcase(global_elem: ET.Element, name: str, design_condition: str = "operating",
-                 fem_loadcase_number: int = 1, complex_type: str = "static", invalidated: bool = True) -> ET.Element:
+
+def add_loadcase(
+    global_elem: ET.Element,
+    name: str,
+    design_condition: str = "operating",
+    fem_loadcase_number: int = 1,
+    complex_type: str = "static",
+    invalidated: bool = True,
+) -> ET.Element:
     """
     Adds a <loadcase_basic> under <global><loadcases>.
 
@@ -34,22 +41,30 @@ def add_loadcase(global_elem: ET.Element, name: str, design_condition: str = "op
         loadcases_elem = ET.SubElement(global_elem, "loadcases")
 
     # Add <loadcase_basic>
-    loadcase_elem = ET.SubElement(loadcases_elem, "loadcase_basic", {
-        "name": name,
-        "design_condition": design_condition,
-        "fem_loadcase_number": str(fem_loadcase_number),
-        "complex_type": complex_type,
-        "invalidated": str(invalidated).lower()
-    })
+    loadcase_elem = ET.SubElement(
+        loadcases_elem,
+        "loadcase_basic",
+        {
+            "name": name,
+            "design_condition": design_condition,
+            "fem_loadcase_number": str(fem_loadcase_number),
+            "complex_type": complex_type,
+            "invalidated": str(invalidated).lower(),
+        },
+    )
 
     return loadcase_elem
 
-def add_loadcase_combination(global_elem: ET.Element, name: str,
-                              design_condition: str = "operating",
-                              complex_type: str = "static",
-                              convert_load_to_mass: bool = False,
-                              global_scale_factor: float = 1.0,
-                              equipments_type: str = "line_load") -> ET.Element:
+
+def add_loadcase_combination(
+    global_elem: ET.Element,
+    name: str,
+    design_condition: str = "operating",
+    complex_type: str = "static",
+    convert_load_to_mass: bool = False,
+    global_scale_factor: float = 1.0,
+    equipments_type: str = "line_load",
+) -> ET.Element:
     """
     Adds a <loadcase_combination> element to the <loadcases> block under <global>.
 
@@ -74,12 +89,13 @@ def add_loadcase_combination(global_elem: ET.Element, name: str,
         "design_condition": design_condition,
         "complex_type": complex_type,
         "convert_load_to_mass": str(convert_load_to_mass).lower(),
-        "global_scale_factor": str(global_scale_factor)
+        "global_scale_factor": str(global_scale_factor),
     }
 
     lcc_elem = ET.SubElement(loadcases_elem, "loadcase_combination", attribs)
     ET.SubElement(lcc_elem, "equipments", {"representation_type": equipments_type})
     return lcc_elem
+
 
 def add_loadcase_to_combination(global_elem, lcc_elem, lc_elem, factor=1.0, phase=0):
     """
@@ -96,11 +112,7 @@ def add_loadcase_to_combination(global_elem, lcc_elem, lc_elem, factor=1.0, phas
     combination_name = lcc_elem.attrib["name"]
 
     # Add inside <loadcase_combination>
-    ET.SubElement(lcc_elem, "loadcase", {
-        "loadcase_ref": loadcase_ref,
-        "factor": str(factor),
-        "phase": str(phase)
-    })
+    ET.SubElement(lcc_elem, "loadcase", {"loadcase_ref": loadcase_ref, "factor": str(factor), "phase": str(phase)})
 
     # Add to <combinations> block under <global>
     combinations_elem = global_elem.find("combinations")
@@ -115,9 +127,7 @@ def add_loadcase_to_combination(global_elem, lcc_elem, lc_elem, factor=1.0, phas
             break
 
     if combination_elem is None:
-        combination_elem = ET.SubElement(combinations_elem, "combination", {
-            "combination_ref": combination_name
-        })
+        combination_elem = ET.SubElement(combinations_elem, "combination", {"combination_ref": combination_name})
 
     # Ensure <loadcases> child exists
     loadcases_elem = combination_elem.find("loadcases")
@@ -125,8 +135,6 @@ def add_loadcase_to_combination(global_elem, lcc_elem, lc_elem, factor=1.0, phas
         loadcases_elem = ET.SubElement(combination_elem, "loadcases")
 
     # Add the referenced <loadcase>
-    ET.SubElement(loadcases_elem, "loadcase", {
-        "loadcase_ref": loadcase_ref,
-        "factor": str(factor),
-        "phase": str(phase)
-    })
+    ET.SubElement(
+        loadcases_elem, "loadcase", {"loadcase_ref": loadcase_ref, "factor": str(factor), "phase": str(phase)}
+    )

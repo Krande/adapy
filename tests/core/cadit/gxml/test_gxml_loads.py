@@ -5,9 +5,19 @@ from xml.etree import ElementTree as ET
 import ada
 from ada import Beam, Plate
 from ada.cadit.gxml.write.write_bcs import add_support_curve, add_support_point
-from ada.cadit.gxml.write.write_load_case import add_loadcase, add_loadcase_combination, add_loadcase_to_combination
-from ada.cadit.gxml.write.write_loads import add_line_load, add_point_load, add_surface_load_plate, \
-    add_surface_load_polygon, add_gravity_load
+from ada.cadit.gxml.write.write_load_case import (
+    add_loadcase,
+    add_loadcase_combination,
+    add_loadcase_to_combination,
+)
+from ada.cadit.gxml.write.write_loads import (
+    add_gravity_load,
+    add_line_load,
+    add_point_load,
+    add_surface_load_plate,
+    add_surface_load_polygon,
+)
+
 
 def pp_example(root, part):
 
@@ -29,39 +39,29 @@ def pp_example(root, part):
     # todo testing adding line load for all beams
     for bm in part.get_all_physical_objects(by_type=Beam):
 
-
         if create_line_load:
             # Add line load
-            line_load = add_line_load(
-                global_elem, lc_elem, name=f"LLoad_{bm.name}",
+            _ = add_line_load(
+                global_elem,
+                lc_elem,
+                name=f"LLoad_{bm.name}",
                 start_point=bm.n1,
                 end_point=bm.n2,
                 intensity_start=(0, 0, 200),
-                intensity_end=(0, 0, 100)
+                intensity_end=(0, 0, 100),
             )
-
 
         if create_point_load:
             # Add point load
-            point_load = add_point_load(
-                global_elem,
-                lc_elem,
-                name=f"PLoad_{bm.name}",
-                position=bm.n1,
-                force=(300, 0, 0),
-                moment=(0, 0, 0)
+            _ = add_point_load(
+                global_elem, lc_elem, name=f"PLoad_{bm.name}", position=bm.n1, force=(300, 0, 0), moment=(0, 0, 0)
             )
 
     # todo tesing surface loads from plate name
     #  this will not work now since plates are handled in separate js
     if create_surface_load:
-        surface_load = add_surface_load_plate(
-            global_elem,
-            lc_elem,
-            name="SLoad2",
-            plate_ref="mini_fw3_room1_f1_i2_j1",
-            pressure=99,
-            side="front"
+        _ = add_surface_load_plate(
+            global_elem, lc_elem, name="SLoad2", plate_ref="mini_fw3_room1_f1_i2_j1", pressure=99, side="front"
         )
 
     if create_surface_load:
@@ -69,13 +69,7 @@ def pp_example(root, part):
         for pl in part.get_all_physical_objects(by_type=Plate):
             # todo tesing surface loads from coordinates
             points = pl.nodes
-            surface_load = add_surface_load_polygon(
-                global_elem,
-                lc_elem,
-                name=f"SLoad_{pl.name}",
-                points=points,
-                pressure=100000
-            )
+            _ = add_surface_load_polygon(global_elem, lc_elem, name=f"SLoad_{pl.name}", points=points, pressure=100000)
 
     if create_gravity_load:
         # todo testing gravity loads
@@ -90,9 +84,8 @@ def pp_example(root, part):
         complex_type="static",
         convert_load_to_mass=False,
         global_scale_factor=1.5,
-        equipments_type="line_load"
+        equipments_type="line_load",
     )
-
 
     lc_elem2 = add_loadcase(global_elem, "LC2")
     # todo testing add load case to load case combination
@@ -100,8 +93,8 @@ def pp_example(root, part):
     add_loadcase_to_combination(global_elem, lcc_elem, lc_elem, factor=0.7, phase=0)
     add_loadcase_to_combination(global_elem, lcc_elem, lc_elem2, factor=1.3, phase=0)
 
-    #add_analysis(part) #todo equivalent to step in ada.Part / in Genie Analysis Activity
-    '''
+    # add_analysis(part) #todo equivalent to step in ada.Part / in Genie Analysis Activity
+    """
         # js code
         Analysis1 = Analysis(true);
         Analysis1.add(MeshActivity());
@@ -109,10 +102,10 @@ def pp_example(root, part):
         Analysis1.step(2).useSestra10(true);
         Analysis1.add(LoadResultsActivity());
         Analysis1.setActive();
-    '''
+    """
 
     # todo create xml function for analysis activity
-    '''
+    """
         <analysis name="Analysis1" active="true" active_loadcase="LC1">
             <activities>
                 <create_mesh beams_as_members="true" smart_load_combinations="true" write_load_combination_on_first_level_as_bsell="false" write_computed_load_cases_into_combination_bsell="true" pile_boundary_condition="pile_soil_interaction" use_partial_mesher="true" include_loads_on_mesh="false" needs_apply_loads="false" needs_remesh_loads="true" multithreaded_load_applier="true" multithreaded_mesher="false" write_fem_file="false" needs_fem_file_write="false" lock_meshed_concepts_after_partial_meshing="true" regenerate_mesh_option="conditional" exclude_include_subset_option="include" force_reuse_external_node_and_element_numbers="false" node_numbers_from_joint_name="false" element_numbers_from_beam_name="false" length_unit="m" force_unit="N" tempdiff_unit="delC">
@@ -165,16 +158,16 @@ def pp_example(root, part):
             </activity_end_time>
         </analysis>
     </analyses>
-    '''
+    """
 
-    #add_loads(loads, part)
+    # add_loads(loads, part)
 
     # todo add boundary conditions
 
-    #root = ET.Element("model", {"name": "test"})
-    #structure_domain = ET.SubElement(root, "structure_domain")
-    #structures = ET.SubElement(structure_domain, "structures")
-    #structure_elem = ET.SubElement(structures, "structure")
+    # root = ET.Element("model", {"name": "test"})
+    # structure_domain = ET.SubElement(root, "structure_domain")
+    # structures = ET.SubElement(structure_domain, "structures")
+    # structure_elem = ET.SubElement(structures, "structure")
 
     # Support Curve Example
     if create_support_curve:
@@ -189,8 +182,8 @@ def pp_example(root, part):
                 "dz": {"constraint": "prescribed"},
                 "rx": {"constraint": "dependent"},
                 "ry": {"constraint": "super"},
-                "rz": {"constraint": "spring", "stiffness": 421}
-            }
+                "rz": {"constraint": "spring", "stiffness": 421},
+            },
         )
 
     # Support Point Example
@@ -205,8 +198,8 @@ def pp_example(root, part):
                 "dz": {"constraint": "super"},
                 "rx": {"constraint": "spring", "stiffness": 1123},
                 "ry": {"constraint": "dependent"},
-                "rz": {"constraint": "spring", "stiffness": 1232}
-            }
+                "rz": {"constraint": "spring", "stiffness": 1232},
+            },
         )
 
 

@@ -28,6 +28,7 @@ def add_plate_sat(plate: Plate, thck_name: str, structures_elem, sw: SatWriter):
     sat_reference = ET.SubElement(sheet, "sat_reference")
     ET.SubElement(sat_reference, "face", {"face_ref": sw.face_map.get(plate.guid)})
 
+
 def add_plate_polygon(plate: Plate, thck_name: str, structures_elem: ET.Element):
     structure = ET.SubElement(structures_elem, "structure")
     flat_plate = ET.SubElement(
@@ -49,16 +50,12 @@ def add_plate_polygon(plate: Plate, thck_name: str, structures_elem: ET.Element)
     polygons = ET.SubElement(sheet, "polygons")
     polygon = ET.SubElement(polygons, "polygon")
 
-    #plate.poly.points3d
+    # plate.poly.points3d
 
     for pt in plate.poly.points3d:
-        ET.SubElement(polygon, "position", {
-            "x": str(pt[0]),
-            "y": str(pt[1]),
-            "z": str(pt[2])
-        })
+        ET.SubElement(polygon, "position", {"x": str(pt[0]), "y": str(pt[1]), "z": str(pt[2])})
 
-    #ET.SubElement(sat_reference, "face", {"face_ref": sw.face_map.get(plate.guid)})
+    # ET.SubElement(sat_reference, "face", {"face_ref": sw.face_map.get(plate.guid)})
 
 
 def add_plates(structure_domain: ET.Element, part: Part, sw: SatWriter):

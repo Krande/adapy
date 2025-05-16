@@ -23,7 +23,6 @@ if TYPE_CHECKING:
 _XML_TEMPLATE = pathlib.Path(__file__).parent / "resources/xml_blank.xml"
 
 
-
 def write_xml(part: Part, xml_file, embed_sat=False, writer_postprocessor: Callable[[ET.Element, Part], None] = None):
     if not isinstance(xml_file, pathlib.Path):
         xml_file = pathlib.Path(xml_file)
@@ -81,4 +80,3 @@ def write_xml(part: Part, xml_file, embed_sat=False, writer_postprocessor: Calla
     else:
         # Write the modified XML back to the file
         tree.write(str(xml_file), encoding="utf-8")
-
