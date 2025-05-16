@@ -210,6 +210,6 @@ def pp_example(root, part):
         )
 
 
-def test_new_features(root, part):
+def test_new_features():
     a = ada.Assembly()
     a.to_genie_xml("temp/output", writer_postprocessor=pp_example)

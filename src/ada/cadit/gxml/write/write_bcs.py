@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import xml.etree.ElementTree as ET
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Dict, Optional
 
 from ada.core.constants import X, Y, Z
-
 from .write_utils import add_local_system
 
 if TYPE_CHECKING:
@@ -47,17 +46,6 @@ def add_boundary_conditions(root: ET.Element, part: Part):
                 ET.SubElement(bc_con, "boundary_condition", dict(constraint=ftyp, dof=dof_map.get(dof)))
 
 
-import xml.etree.ElementTree as ET
-from typing import Dict, Optional
-
-def add_local_system(parent: ET.Element):
-    """Adds default Cartesian local system vectors to parent."""
-    local_system = ET.SubElement(parent, "local_system")
-    ET.SubElement(local_system, "vector", {"x": "1", "y": "0", "z": "0", "dir": "x"})
-    ET.SubElement(local_system, "vector", {"x": "0", "y": "1", "z": "0", "dir": "y"})
-    ET.SubElement(local_system, "vector", {"x": "0", "y": "0", "z": "1", "dir": "z"})
-
-
 def add_dof_constraints(parent: ET.Element, dof_constraints: Dict[str, Dict[str, Optional[float]]]):
     """
     Adds boundary_condition elements for all 6 DoFs to a support element.
@@ -80,9 +68,13 @@ def add_dof_constraints(parent: ET.Element, dof_constraints: Dict[str, Dict[str,
 
 
 # Note: the syntax is based on exporting a Genie XML with the option "Export model topolpgy separatly for each concept" enabled, this makes use of line definiton instead of sat geometry
-def add_support_curve(structures_elem: ET.Element, name: str,
-                      start_pos: tuple, end_pos: tuple,
-                      dof_constraints: Dict[str, Dict[str, Optional[float]]]):
+def add_support_curve(
+    structures_elem: ET.Element,
+    name: str,
+    start_pos: tuple,
+    end_pos: tuple,
+    dof_constraints: Dict[str, Dict[str, Optional[float]]],
+):
     """
     Adds a <support_curve> element with full boundary conditions using the new <line> syntax.
     """
@@ -96,12 +88,10 @@ def add_support_curve(structures_elem: ET.Element, name: str,
     geom = ET.SubElement(curve_elem, "geometry")
     wire = ET.SubElement(geom, "wire")
     line = ET.SubElement(wire, "line")
-    ET.SubElement(line, "position", {
-        "x": str(start_pos[0]), "y": str(start_pos[1]), "z": str(start_pos[2]), "end": "1"
-    })
-    ET.SubElement(line, "position", {
-        "x": str(end_pos[0]), "y": str(end_pos[1]), "z": str(end_pos[2]), "end": "2"
-    })
+    ET.SubElement(
+        line, "position", {"x": str(start_pos[0]), "y": str(start_pos[1]), "z": str(start_pos[2]), "end": "1"}
+    )
+    ET.SubElement(line, "position", {"x": str(end_pos[0]), "y": str(end_pos[1]), "z": str(end_pos[2]), "end": "2"})
 
     # Line orientation
     ET.SubElement(curve_elem, "line_orientation")
@@ -111,9 +101,9 @@ def add_support_curve(structures_elem: ET.Element, name: str,
     add_dof_constraints(curve_elem, dof_constraints)
 
 
-def add_support_point(structures_elem: ET.Element, name: str,
-                      pos: tuple,
-                      dof_constraints: Dict[str, Dict[str, Optional[float]]]):
+def add_support_point(
+    structures_elem: ET.Element, name: str, pos: tuple, dof_constraints: Dict[str, Dict[str, Optional[float]]]
+):
     """
     Adds a <support_point> element with full boundary conditions.
     """
