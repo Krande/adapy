@@ -922,10 +922,10 @@ class Part(BackendGeom):
     def to_aveva_mac(
         self,
         destination_file: str | pathlib.Path | io.TextIOBase,
-        spec_map: dict[str, str],
-        panel_spec_map: dict[str, str],
-        material_map: dict[str, str],
-        panel_material_map: dict[str, str],
+        beam_spec_map: dict[str, str] | Callable[[Beam], str],
+        panel_spec_map: dict[str, str] | Callable[[Plate], str],
+        beam_material_map: dict[str, str] | Callable[[Beam], str],
+        panel_material_map: dict[str, str] | Callable[[Plate], str],
     ):
         from ada.cadit.e3d.write_mac import E3DWriter
 
@@ -933,9 +933,9 @@ class Part(BackendGeom):
             destination_file = pathlib.Path(destination_file)
 
         writer = E3DWriter(
-            spec_map=spec_map,
+            beam_spec_map=beam_spec_map,
             panel_spec_map=panel_spec_map,
-            material_map=material_map,
+            beam_material_map=beam_material_map,
             panel_material_map=panel_material_map,
         )
         mac_str = writer.write_macro(self)

@@ -50,9 +50,9 @@ def test_aveva_mac_export():
     string_obj = StringIO()
     asm.to_aveva_mac(
         string_obj,
-        spec_map={"HEA300": "/TEST_TT-A-SPEC/S355G11HEA300"},
+        beam_spec_map={"HEA300": "/TEST_TT-A-SPEC/S355G11HEA300"},
         panel_spec_map={"PL10": "/TEST_TT/VLE99PL010"},
-        material_map={"S355": "/S355NH_TTT_tt", "S420": "/S420NH_TTT_tt"},
+        beam_material_map={"S355": "/S355NH_TTT_tt", "S420": "/S420NH_TTT_tt"},
         panel_material_map={"S355": "/VLE99_TTT_tt", "S420": "/VLE99_TTT_tt"},
     )
     string_obj.seek(0)

@@ -133,6 +133,9 @@ class Node:
         else:
             return [self]
 
+    def __len__(self):
+        return len(self.p)
+
     def __getitem__(self, index):
         return self.p[index]
 

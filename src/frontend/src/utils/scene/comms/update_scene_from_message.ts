@@ -6,6 +6,7 @@ import {add_mesh_to_scene, append_to_scene_from_message} from "./append_to_scene
 import {ungzip} from 'pako';
 import {setupModelLoaderAsync} from "../../../components/viewer/sceneHelpers/setupModelLoader";
 import {modelKeyMapRef, sceneRef} from "../../../state/refs";
+import {useTreeViewStore} from "../../../state/treeViewStore";
 
 
 export async function update_scene_from_message(message: Message) {
@@ -17,10 +18,6 @@ export async function update_scene_from_message(message: Message) {
         return;
     }
     let operation = scene.operation();
-    // if (operation == SceneOperations.ADD) {
-    //     await append_to_scene_from_message(message);
-    //     return;
-    // }
 
     let fileObject = scene.currentFile();
     if (!fileObject) {
@@ -49,6 +46,7 @@ export async function update_scene_from_message(message: Message) {
 
     if (operation == SceneOperations.REPLACE) {
         useModelState.getState().setModelUrl(url, operation); // Set the URL for the model
+        useTreeViewStore.getState().clearTreeData(); // Clear the tree view
         const three_scene = sceneRef.current;
         if (!three_scene) {
             console.warn("No scene found");
