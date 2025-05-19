@@ -17,8 +17,6 @@ if TYPE_CHECKING:
 _MM = 1_000.0  # m -> mm
 
 
-
-
 def vector_to_orientation(v: np.ndarray, tol: float = 1e-6) -> str:
     """
     Turn a 3D vector v (in global coords) into an AVEVA E3D orientation string.
@@ -92,7 +90,6 @@ def matrix_to_orientation_str(mat4: np.ndarray) -> str:
     return f"Y is {omap['Y']} and Z is {omap['Z']}"
 
 
-
 def _coord_e_n_u(pt: Node | Point, units: Units=Units.M) -> str:
     """convert coordinate (x,y,z) in [m] -> 'E ...mm N ...mm U ...mm'"""
     if len(pt) == 3:
@@ -113,7 +110,7 @@ def _gtype_from_section(sec_key: str) -> str:
     return re.match(r"[A-Za-z]+", sec_key).group(0).upper()
 
 
-def _plate_vertices(plate: Plate) -> tuple[list[str], float]:
+def _plate_vertices(plate: Plate) -> list[str]:
     """
     Return (list_of_E-N-U_strings, thickness_mm) for the given plate.
     """
@@ -123,12 +120,7 @@ def _plate_vertices(plate: Plate) -> tuple[list[str], float]:
     # enforce CCW order in E-N plane so SJUS UTOP works the same everywhere
     verts_ccw = list(verts) if _area_2d_z(verts) >= 0 else list(reversed(verts))
 
-    enu = [_coord_e_n_u(v, plate.units) for v in verts_ccw]
-
-    # thickness (mm) – pick the first attribute that exists
-    t_mm = plate.t * _MM if plate.units == Units.M else plate.t
-
-    return enu, float(t_mm)
+    return [_coord_e_n_u(v, plate.units) for v in verts_ccw]
 
 
 def _area_2d_z(nodes: list[Node | Point]) -> float:
@@ -247,8 +239,9 @@ class E3DWriter:
         matref = self._get_panel_material(plate)
         spref = self._get_panel_spec(plate)
         pl_ori_str = matrix_to_orientation_str(plate.poly.orientation.get_matrix4x4())
-        verts_enu, panel_thick = _plate_vertices(plate)
+        verts_enu = _plate_vertices(plate)
 
+        panel_thick = plate.t * _MM if plate.units == Units.M else plate.t
         panel_pos = _coord_e_n_u(plate.poly.origin, plate.units)
 
         # PML code to create panel
