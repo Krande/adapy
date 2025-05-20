@@ -203,18 +203,19 @@ class E3DWriter:
 
         matref = self._get_beam_material(beam)
         spref = self._get_beam_spec(beam)
+
         origin = _coord_e_n_u(beam.placement.origin, beam.units)
         start_pos = _coord_e_n_u(beam.n1, beam.n1.units)
         end_pos = _coord_e_n_u(beam.n2, beam.n1.units)
+        angle = degrees(beam.angle) if beam.angle is not None else 0.0
 
-        jus_str = ""
         just = get_justification(beam)
         if just == Justification.TOS:
             jus_str = "CTOP"
         elif just == Justification.NA:
             jus_str = "NA"
         else:
-            logger.warning(f"Unknown Justification: {jus_str}")
+            logger.info(f"Unknown Justification: {just}")
             jus_str = "NA"
 
         # PML code to create beam
@@ -321,7 +322,7 @@ class E3DWriter:
             elif isinstance(obj, Plate):
                 out.append(self.create_plate_pml(obj))
             else:
-                logger.warning("Unsupported object %s", type(obj))
+                logger.warning(f"Unsupported object {type(obj)}")
 
     def write_macro(self, part: Part) -> str:
         """

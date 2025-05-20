@@ -98,14 +98,14 @@ class Plate(BackendGeom):
         return self._poly.occ_wire()
 
     def shell_occ(self):
-        from ada.occ.geom import geom_to_occ_geom
+        from ada.occ.geom.cache import get_shell_occ
 
-        return geom_to_occ_geom(self.shell_geom())
+        return get_shell_occ(self)
 
     def solid_occ(self) -> TopoDS_Solid:
-        from ada.occ.geom import geom_to_occ_geom
+        from ada.occ.geom.cache import get_solid_occ
 
-        return geom_to_occ_geom(self.solid_geom())
+        return get_solid_occ(self)
 
     def shell_geom(self) -> Geometry:
         import ada.geom.surfaces as geo_su

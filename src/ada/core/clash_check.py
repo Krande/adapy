@@ -7,10 +7,10 @@ from typing import TYPE_CHECKING, Iterable, List
 
 import numpy as np
 
-import ada
+from ada.api.transforms import EquationOfPlane
 from ada.config import logger
-
-from ..api.transforms import EquationOfPlane
+from ada.occ.geom.cache import get_solid_occ
+from ada.occ.occ_clash_check import plates_min_distance
 from .utils import Counter
 from .vector_utils import (
     intersect_calc,
@@ -270,59 +270,105 @@ class PipeClash:
 
 @dataclass
 class PlateConnections:
-    mid_span_connected: dict[ada.Plate, list[ada.Plate]]
-    edge_connected: dict[ada.Plate, list[ada.Plate]]
+    mid_span_connected: dict[Plate, list[Plate]]
+    edge_connected: dict[Plate, list[Plate]]
 
 
-def find_edge_connected_perpendicular_plates(plates: list[ada.Plate]) -> PlateConnections:
-    """Find all plates that are connected to a plate edge and are perpendicular to that edge"""
-    plates = list(plates)
-    mid_span_connected = dict()
-    edge_connected = dict()
+def _classify_connection(
+    source: Plate,
+    target: Plate,
+    hits: list[np.ndarray],
+    clears: list[np.ndarray],
+    parallel: bool,
+    edge_conn: dict[Plate, list[Plate]],
+    mid_conn: dict[Plate, list[Plate]],
+) -> None:
+    """
+    Decide whether `target` is an edge‐ or mid‐span connection of `source`,
+    and record it in the appropriate dict.
+    """
+    # edge if they share exactly the two edge‐points (and either parallel,
+    # or their plane intersects exactly on those points)
+    if (parallel and len(clears) == 2) or (len(hits) == 2 and not clears):
+        edge_conn.setdefault(source, []).append(target)
+    # mid‐span if exactly two intersection pts lie strictly inside source
+    elif len(clears) == 2 and not parallel:
+        mid_conn.setdefault(source, []).append(target)
 
-    for pl1 in plates:
-        place1 = pl1.placement.get_absolute_placement()
-        eop = EquationOfPlane(pl1.poly.origin, pl1.poly.normal, pl1.poly.ydir)
-        p13d = place1.origin + pl1.poly.points3d
 
-        n1 = pl1.poly.normal
-        parallel_plates = False
-        for pl2 in plates:
-            if pl1 == pl2:
+def find_edge_connected_perpendicular_plates(plates: list[Plate]) -> PlateConnections:
+    """Find all plates that are connected at an edge and are perpendicular to that edge."""
+    # 1) Precompute every per‐plate bit once
+    pdata: dict[str, dict] = {}
+    for pl in plates:
+        # absolute placement → 3D points
+        place = pl.placement.get_absolute_placement()
+        pts3d = np.asarray(place.origin + pl.poly.points3d, dtype=float)
+
+        # plane equation (unit‐normal) + store
+        n = np.asarray(pl.poly.normal, dtype=float)
+        n_unit = n / np.linalg.norm(n)
+        d = -n_unit.dot(pl.poly.origin)
+        eq = EquationOfPlane(pl.poly.origin, pl.poly.normal, pl.poly.ydir)
+
+        pdata[pl.guid] = {
+            "plate": pl,
+            "normal": pl.poly.normal,
+            "eq": eq,
+            "pts": pts3d,
+        }
+
+        # build & cache its solid once
+        get_solid_occ(pl)
+
+    edge_connected: dict[Plate, list[Plate]] = {}
+    mid_span_connected: dict[Plate, list[Plate]] = {}
+
+    # 2) *Exact* same nested‐loop + classification as your old code
+    for guid1, d1 in pdata.items():
+        pl1 = d1["plate"]
+        eq1 = d1["eq"]
+        n1 = d1["normal"]
+        pts1 = d1["pts"]
+
+        for guid2, d2 in pdata.items():
+            if guid1 == guid2:
                 continue
-            n2 = pl2.poly.normal
-            if n1.is_equal(n2):
-                parallel_plates = True
-            place2 = pl2.placement.get_absolute_placement()
-            p23d = place2.origin + pl2.poly.points3d
-            res = eop.return_points_in_plane(np.asarray(p23d))
-            if len(res) < 1:
+
+            pl2 = d2["plate"]
+            pts2 = d2["pts"]
+            n2 = d2["normal"]
+
+            # a) must be perpendicular
+            parallel = n1.is_equal(n2)
+
+            # b) find intersection‐points of pl2’s corners in pl1’s plane
+            hits = eq1.return_points_in_plane(pts2)
+            if hits.size == 0:
                 continue
 
-            if not are_plates_touching(pl1, pl2):
+            # c) must actually touch
+            if plates_min_distance(pl1, pl2) is None:
                 continue
 
-            # pop out the elements in the numpy array res that are rows in p13d
-            res_clear = [r for r in res if not any(np.all(r == p) for p in p13d)]
-            if parallel_plates and len(res_clear) == 2:
-                if pl1 not in edge_connected:
-                    edge_connected[pl1] = []
-                edge_connected[pl1].append(pl2)
+            # d) of those hits, which lie *strictly inside* pl1?
+            #    (we compare against its corner‐points, with a tiny tol)
+            tol = 1e-6
+            clears = []
+            for pt in hits:
+                if not any(np.allclose(pt, corner, atol=tol) for corner in pts1):
+                    clears.append(pt)
 
-            if len(res) == 2 and len(res_clear) == 0:
-                if pl1 not in edge_connected:
-                    edge_connected[pl1] = []
-                edge_connected[pl1].append(pl2)
-
-            if len(res_clear) == 2 and parallel_plates is False:
-                if pl1 not in mid_span_connected:
-                    mid_span_connected[pl1] = []
-                mid_span_connected[pl1].append(pl2)
+            # — exactly your two tests from the old code —
+            if (parallel and len(clears) == 2) or (len(hits) == 2 and len(clears) == 0):
+                edge_connected.setdefault(pl1, []).append(pl2)
+            elif len(clears) == 2 and not parallel:
+                mid_span_connected.setdefault(pl1, []).append(pl2)
 
     return PlateConnections(mid_span_connected, edge_connected)
 
 
-def find_plates_that_share_only_1_edge(plates) -> dict[ada.Plate, list[ada.Plate]]:
+def find_plates_that_share_only_1_edge(plates) -> dict[Plate, list[Plate]]:
     """Find all plates that are connected to a plate edge and are perpendicular to that edge"""
     plates = list(plates)
     edge_connected = dict()
