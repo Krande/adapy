@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Iterable, Union
+from typing import TYPE_CHECKING, Iterable, Union, Literal
 
 from ada.api.bounding_box import BoundingBox
 from ada.api.curves import CurvePoly2d
@@ -86,6 +86,14 @@ class Plate(BackendGeom):
 
     @staticmethod
     def from_extruded_area_solid(name, solid: ExtrudedAreaSolid): ...
+
+    def __hash__(self):
+        return hash(self.guid)
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, Plate):
+            return NotImplemented
+        return self.guid == other.guid
 
     def bbox(self) -> BoundingBox:
         """Bounding Box of plate"""
@@ -210,7 +218,7 @@ class Plate(BackendGeom):
         return self._units
 
     @units.setter
-    def units(self, value: Units | str):
+    def units(self, value: Units | Literal["mm", "m"]):
         if isinstance(value, str):
             value = Units.from_str(value)
         if self._units != value:
