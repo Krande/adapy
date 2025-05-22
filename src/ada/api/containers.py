@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import reprlib
-from bisect import bisect_left, bisect_right
+from bisect import bisect_left, bisect_right, insort
 from itertools import chain
 from operator import attrgetter
 from typing import TYPE_CHECKING, Dict, Iterable, List, Union
@@ -608,50 +608,48 @@ class Materials(NumericMapped):
 
 class Sections(NumericMapped):
     def __init__(self, sections: Iterable[Section] = None, parent: Part | Assembly = None, units=Units.M):
-        sec_id = Counter(1)
-        super(Sections, self).__init__(parent=parent)
-        sections = [] if sections is None else sections
+        super().__init__(parent=parent)
         self._units = units
-        self._sections = sorted(sections, key=attrgetter("name"))
+        self._sections: list[Section] = sorted(sections or [], key=attrgetter("name"))
+        self._id_map: dict[int, Section] = {}
+        self._name_map: dict[str, Section] = {}
+        # assign IDs and build maps
+        sec_id = Counter(start=1)
+        for sec in self._sections:
+            if sec.id is None:
+                sec.id = next(sec_id)
+            self._id_map[sec.id] = sec
+            self._name_map[sec.name] = sec
 
-        def section_id_maker(section: Section) -> Section:
-            if section.id is None:
-                section.id = next(sec_id)
-            return section
-
-        [section_id_maker(sec) for sec in self._sections]
-
-        self.recreate_name_and_id_maps(self._sections)
-
-        if len(self._name_map.keys()) != len(self._id_map.keys()):
-            import collections
-
+        if len(self._name_map) != len(self._id_map):
             names = [sec.name for sec in self._sections]
-            counts = collections.Counter(names)
-            filtered_elements = {element: count for element, count in counts.items() if count > 1}
-            logger.warning(f"The following sections are non-unique '{filtered_elements}'")
+            duplicates = {n: c for n, c in Counter(names).items() if c > 1}
+            logger.warning(f"The following sections are non-unique: {duplicates!r}")
 
-    def renumber_id(self, start_id=1):
+    @property
+    def max_id(self) -> int:
+        return max(self._id_map.keys(), default=0)
+
+    def renumber_id(self, start_id: int = 1) -> None:
         cnt = Counter(start=start_id)
-        for mat_id in sorted(self.id_map.keys()):
-            mat = self.get_by_id(mat_id)
-            mat.id = next(cnt)
-        self.recreate_name_and_id_maps(self._sections)
+        for old_id in sorted(self._id_map):
+            sec = self._id_map[old_id]
+            sec.id = next(cnt)
+        # rebuild maps
+        self._id_map = {sec.id: sec for sec in self._sections}
+        self._name_map = {sec.name: sec for sec in self._sections}
 
-    def __contains__(self, item):
-        return item.name in self._name_map.keys()
-
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self._sections)
 
-    def __iter__(self) -> Iterable[Section]:
+    def __iter__(self):
         return iter(self._sections)
 
-    def __getitem__(self, index):
-        result = self._sections[index]
-        return Sections(result) if isinstance(index, slice) else result
+    def __getitem__(self, idx):
+        result = self._sections[idx]
+        return Sections(result, parent=self.parent) if isinstance(idx, slice) else result
 
-    def __add__(self, other: Sections):
+    def __add__(self, other: Sections) -> Sections:
         if self.parent is None:
             logger.error(f'Parent is None for Sections container "{self}"')
         for sec in other:
@@ -659,11 +657,11 @@ class Sections(NumericMapped):
         other.renumber_id(self.max_id + 1)
         return Sections(chain(self, other), parent=self.parent)
 
-    def __repr__(self):
-        rpr = reprlib.Repr()
-        rpr.maxlist = 8
-        rpr.maxlevel = 1
-        return f"Sections({rpr.repr(self._sections) if self._sections else ''})"
+    def __repr__(self) -> str:
+        r = reprlib.Repr()
+        r.maxlist = 8
+        r.maxlevel = 1
+        return f"{self.__class__.__name__}({r.repr(self._sections)})"
 
     def merge_sections_by_properties(self):
         models = []
@@ -703,67 +701,6 @@ class Sections(NumericMapped):
         return self._id_map[sec_id]
 
     @property
-    def id_map(self) -> dict[int, Section]:
-        return self._id_map
-
-    @property
-    def name_map(self) -> dict[str, Section]:
-        return self._name_map
-
-    def add(self, section: Section) -> Section:
-
-        if section.name is None:
-            raise Exception("Name is not allowed to be None.")
-
-        # Note: Evaluate if parent should be "Sections" not Part object?
-        if section.parent is None:
-            section.parent = self._parent
-
-        if section in self._sections:
-            index = self._sections.index(section)
-            existing_section = self._sections[index]
-            for elem in section.refs:
-                if isinstance(elem, BeamTapered):
-                    if existing_section == elem.section:
-                        elem.section = existing_section
-                    else:
-                        elem.taper = existing_section
-                else:
-                    elem.section = existing_section
-                if elem not in existing_section.refs:
-                    existing_section.refs.append(elem)
-            return existing_section
-
-        if section.name in self._name_map.keys():
-            logger.info(f'Section with same name "{section.name}" already exists. Will use that section instead')
-            existing_section: Section = self._name_map[section.name]
-            for elem in section.refs:
-                if isinstance(elem, BeamTapered):
-                    if existing_section.equal_props(elem.section):
-                        elem.section = existing_section
-                    elif existing_section.equal_props(elem.taper):
-                        elem.taper = existing_section
-                else:
-                    if existing_section.equal_props(elem.section):
-                        elem.section = existing_section
-                if elem not in existing_section.refs:
-                    existing_section.refs.append(elem)
-
-            return existing_section
-
-        if section.id is None:
-            section.id = self.max_id + 1
-
-        if len(self._sections) > 0 and section.id in self._id_map.keys():
-            section.id = self.max_id + 1
-
-        self._sections.append(section)
-        self._id_map[section.id] = section
-        self._name_map[section.name] = section
-
-        return section
-
-    @property
     def sections(self) -> list[Section]:
         return self._sections
 
@@ -772,13 +709,62 @@ class Sections(NumericMapped):
         return self._units
 
     @units.setter
-    def units(self, value):
-        if isinstance(value, str):
-            value = Units.from_str(value)
-        if value != self._units:
-            for m in self._sections:
-                m.units = value
-            self._units = value
+    def units(self, new_units):
+        if isinstance(new_units, str):
+            new_units = Units.from_str(new_units)
+        if new_units != self._units:
+            for sec in self._sections:
+                sec.units = new_units
+            self._units = new_units
+
+    @property
+    def id_map(self) -> dict[int, Section]:
+        return self._id_map
+
+    @property
+    def name_map(self) -> dict[str, Section]:
+        return self._name_map
+
+    def add(self, section: Section) -> Section:
+        if section.name is None:
+            raise ValueError("Section.name may not be None")
+
+        # ensure correct parent
+        section.parent = section.parent or self.parent
+
+        # quick lookup by name
+        if section.name in self._name_map:
+            existing = self._name_map[section.name]
+            # dedupe refs using a set
+            existing_refs = set(existing.refs)
+            for ref in section.refs:
+                # redirect the ref to the existing section
+                if isinstance(ref, BeamTapered):
+                    if existing.equal_props(ref.section):
+                        ref.section = existing
+                    elif existing.equal_props(ref.taper):
+                        ref.taper = existing
+                else:
+                    if existing.equal_props(ref.section):
+                        ref.section = existing
+                # append only new refs
+                if ref not in existing_refs:
+                    existing.refs.append(ref)
+                    existing_refs.add(ref)
+            return existing
+
+        # assign a fresh unique id
+        if section.id is None or section.id in self._id_map:
+            section.id = self.max_id + 1
+
+        # insert into sorted list by name
+        insort(self._sections, section, key=attrgetter("name"))
+
+        # update maps
+        self._id_map[section.id] = section
+        self._name_map[section.name] = section
+
+        return section
 
 
 class Nodes:
