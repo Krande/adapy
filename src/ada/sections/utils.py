@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import copy
 import json
 import pathlib
 import re
 from collections import OrderedDict
+from functools import lru_cache, wraps
 
 import ada.core.utils
 from ada.base.units import Units
@@ -80,15 +82,7 @@ _re_in = re.IGNORECASE | re.DOTALL
 _rdoff = ada.core.utils.roundoff
 
 
-def interpret_section_str(in_str: str, s=0.001, units=Units.M) -> tuple[Section, Section]:
-    """
-
-    :param in_str:
-    :param s: Scale factor
-    :param units: The desired units after applied scale factor
-    :return: Two section (to account for potential beam tapering)
-    """
-
+def _interpret_raw(in_str: str, s: float, units: Units) -> tuple[Section, Section]:
     for section_eval in [box_section, shs_section, rhs_section, ig_section, tg_section]:
         result = section_eval(in_str, s, units)
         if result is not None:
@@ -105,6 +99,28 @@ def interpret_section_str(in_str: str, s=0.001, units=Units.M) -> tuple[Section,
             return result
 
     raise UnableToConvertSectionError(f'Unable to interpret section str "{in_str}"')
+
+
+@wraps(_interpret_raw)
+@lru_cache(maxsize=None)
+def _interpret_cached(in_str: str, s: float, units: Units) -> tuple[Section, Section]:
+    return _interpret_raw(in_str, s, units)
+
+
+def interpret_section_str(
+    in_str: str,
+    s: float = 0.001,
+    units: Units = Units.M,
+) -> tuple[Section, Section]:
+    """
+
+    :param in_str:
+    :param s: Scale factor
+    :param units: The desired units after applied scale factor
+    :return: Two section (to account for potential beam tapering)
+    """
+    sec1, sec2 = _interpret_cached(in_str, s, units)
+    return copy.deepcopy(sec1), copy.deepcopy(sec2)
 
 
 def get_section(sec: Section | str) -> tuple[Section, Section]:

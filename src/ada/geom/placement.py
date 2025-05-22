@@ -29,6 +29,31 @@ def ZV() -> Direction:  # noqa
     return Direction(0, 0, 1)
 
 
+@lru_cache(maxsize=1024)
+def _length_cached(vec_tup: tuple[float, ...]) -> float:
+    """Return - and cache - the Euclidean norm of a tuple-vector."""
+    return float(np.linalg.norm(vec_tup))
+
+
+@lru_cache(maxsize=1024)
+def _angle_between_tuples(a_tup: tuple[float, ...], b_tup: tuple[float, ...]) -> float:
+    """Compute and cache the angle (radians) between two vectors."""
+    # normalize via the cached length
+    la = _length_cached(a_tup)
+    lb = _length_cached(b_tup)
+    if la == 0.0 or lb == 0.0:
+        raise ValueError("Cannot compute angle with zero‐length vector")
+    dot = np.dot(a_tup, b_tup) / (la * lb)
+    return float(np.arccos(np.clip(dot, -1.0, 1.0)))
+
+
+@lru_cache(maxsize=1024)
+def _is_parallel_tuples(a_tup: tuple[float, ...], b_tup: tuple[float, ...], angle_tol: float) -> bool:
+    """Determine parallelism (within angle_tol) between two vectors."""
+    ang = _angle_between_tuples(a_tup, b_tup)
+    return abs(ang) < angle_tol or abs(abs(ang) - np.pi) < angle_tol
+
+
 class Direction(Point):
     def __new__(cls, *iterable):
         obj = cls.create_ndarray(iterable)
@@ -41,17 +66,43 @@ class Direction(Point):
         self.id = getattr(obj, "id", None)
 
     def get_normalized(self) -> Direction:
-        return self / np.linalg.norm(self)
+        """
+        Return (and cache) a unit‐length Direction.
+        Subsequent calls reuse the cached result.
+        """
+        # check our own __dict__ for a stored value
+        cached = self.__dict__.get("_normalized")
+        if cached is None:
+            length = np.linalg.norm(self)
+            if length == 0.0:
+                raise ValueError("Cannot normalize a zero‐length vector")
+            # compute, cast back to Direction, and cache
+            unit = (self / length).view(Direction)
+            self.__dict__["_normalized"] = unit
+            return unit
+        return cached
 
     def get_length(self) -> float:
-        return np.linalg.norm(self)
+        """Return (and cache) self’s length."""
+        length = self.__dict__.get("_length")
+        if length is None:
+            # call into our tuple‐based cache
+            tup = tuple(self.tolist())
+            length = _length_cached(tup)
+            self.__dict__["_length"] = length
+        return length
 
     def get_angle(self, other: Direction) -> float:
-        return np.arccos(np.clip(np.dot(self.get_normalized(), other.get_normalized()), -1.0, 1.0))
+        """Return the angle (radians) between this and other."""
+        a = tuple(self.tolist())
+        b = tuple(other.tolist())
+        return _angle_between_tuples(a, b)
 
-    def is_parallel(self, other: Direction, angle_tol=1e-1) -> bool:
-        a = self.get_angle(other)
-        return True if abs(abs(a) - abs(np.pi)) < angle_tol or abs(abs(a) - 0.0) < angle_tol else False
+    def is_parallel(self, other: Direction, angle_tol: float = 1e-1) -> bool:
+        """True if vectors are parallel or antiparallel within angle_tol."""
+        a = tuple(self.tolist())
+        b = tuple(other.tolist())
+        return _is_parallel_tuples(a, b, angle_tol)
 
     @staticmethod
     def from_points(p1: Point, p2: Point):

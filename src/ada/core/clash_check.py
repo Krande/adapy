@@ -98,7 +98,7 @@ def are_beams_connected(bm1: Beam, beams: List[Beam], out_of_plane_tol, point_to
 
 def are_plates_touching(pl1: Plate, pl2: Plate, tol=1e-3):
     """Check if two plates are within tolerance of each other"""
-    from ..occ.utils import compute_minimal_distance_between_shapes
+    from ada.occ.utils import compute_minimal_distance_between_shapes
 
     dss = compute_minimal_distance_between_shapes(pl1.solid_occ(), pl2.solid_occ())
     if dss.Value() <= tol:

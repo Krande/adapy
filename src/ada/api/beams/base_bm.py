@@ -11,12 +11,8 @@ from ada.api.nodes import Node, get_singular_node_by_volume
 from ada.api.transforms import Placement
 from ada.base.physical_objects import BackendGeom
 from ada.base.units import Units
-from ada.config import logger
-from ada.core.utils import Counter, roundoff
+from ada.core.utils import Counter
 from ada.core.vector_utils import (
-    angle_between,
-    calc_yvec,
-    calc_zvec,
     is_between_endpoints,
     unit_vector,
     vector_length,
@@ -83,7 +79,8 @@ class Beam(BackendGeom):
 
         self._section = sec
         self._section.refs.append(self)
-        self._section.parent = self
+        if self._section.parent is None:
+            self._section.parent = self
 
         self._material = get_material(mat)
         self._material.refs.append(self)
@@ -137,37 +134,21 @@ class Beam(BackendGeom):
 
         return beams
 
-    def _init_orientation(self, angle=None, up=None) -> None:
+    def _init_orientation(self, angle: float = 0.0, up: Iterable[float] | None = None) -> None:
+        from ada.core.vector_transforms import compute_orientation
+
+        # compute beam axis once
         xvec = unit_vector(self.n2.p - self.n1.p)
-        tol = 1e-3
-        zvec = calc_zvec(xvec)
-        gup = np.array(zvec)
+        key_x = tuple(xvec.tolist())
+        key_up = tuple(up) if up is not None else None
 
-        if up is None:
-            if angle != 0.0 and angle is not None:
-                from pyquaternion import Quaternion
+        up_tup, y_tup, angle = compute_orientation(key_x, angle, key_up)
 
-                my_quaternion = Quaternion(axis=xvec, degrees=angle)
-                rot_mat = my_quaternion.rotation_matrix
-                up = np.array([roundoff(x) if abs(x) != 0.0 else 0.0 for x in np.matmul(gup, np.transpose(rot_mat))])
-            else:
-                up = np.array([roundoff(x) if abs(x) != 0.0 else 0.0 for x in gup])
-            yvec = calc_yvec(xvec, up)
-        else:
-            if (len(up) == 3) is False:
-                raise ValueError("Up vector must be length 3")
-            if vector_length(xvec - up) < tol:
-                raise ValueError("The assigned up vector is too close to your beam direction")
-            yvec = calc_yvec(xvec, up)
-            # TODO: Fix improper calculation of angle (e.g. xvec = [1,0,0] and up = [0,1,0] should be 270?
-            rad = angle_between(up, zvec)
-            angle = np.rad2deg(rad)
-            up = np.array(up)
-
-        # lup = np.cross(xvec, yvec)
+        # store as Directions
         self._xvec = Direction(*xvec)
-        self._yvec = Direction(*[roundoff(x) for x in unit_vector(yvec)])
-        self._up = Direction(*up)
+        self._yvec = Direction(*unit_vector(np.array(y_tup)))
+        self._up = Direction(*up_tup)
+
         self._orientation = Placement(self.n1.p, self.xvec, self.yvec, self.up)
         self._angle = angle
 
@@ -444,24 +425,9 @@ class Beam(BackendGeom):
         return hash(self.guid)
 
     def __eq__(self, other: Beam):
-        for key, val in self.__dict__.items():
-            if "parent" in key or key in ["_ifc_settings", "_ifc_elem"]:
-                continue
-            oval = other.__dict__[key]
-
-            if type(val) in (list, tuple, np.ndarray):
-                if False in [x == y for x, y in zip(oval, val)]:
-                    return False
-            try:
-                res = oval != val
-            except ValueError as e:
-                logger.error(e)
-                return True
-
-            if res is True:
-                return False
-
-        return True
+        if not isinstance(other, Beam):
+            return False
+        return self.guid == other.guid
 
     def __setstate__(self, state):
         self.__dict__ = state

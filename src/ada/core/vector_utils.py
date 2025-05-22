@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from functools import lru_cache
 from typing import TYPE_CHECKING, Iterable
 
 import numpy as np
@@ -267,13 +268,26 @@ def poly2d_center_of_gravity(polygon):
     return np.array([cx, cy])
 
 
-def unit_vector(vector: np.ndarray) -> Direction:
-    """Returns the unit vector of a given vector"""
-    norm = vector / np.linalg.norm(vector)
-    if np.isnan(norm).any():
-        raise VectorNormalizeError(f'Error trying to normalize vector "{vector}"')
+# internal helper that works on a hashable tuple
+@lru_cache(maxsize=1024)
+def _unit_vector_cached(vec_tup: tuple[float, ...]) -> tuple[float, ...]:
+    arr = np.array(vec_tup, dtype=float)
+    norm_arr = arr / np.linalg.norm(arr)
+    if np.isnan(norm_arr).any():
+        raise VectorNormalizeError(f'Error trying to normalize vector "{arr}"')
+    return tuple(norm_arr)
 
-    return Direction(norm)
+
+def unit_vector(vector: np.ndarray | list | tuple) -> Direction:
+    """Returns the unit vector of a given vector, with LRU caching."""
+    # turn the array into a tuple key
+    if isinstance(vector, np.ndarray):
+        vec_tup = tuple(vector.tolist())
+    else:
+        vec_tup = tuple(vector)
+    norm_tup = _unit_vector_cached(vec_tup)
+    # expand back into Direction
+    return Direction(*norm_tup)
 
 
 def is_clockwise(points) -> bool:

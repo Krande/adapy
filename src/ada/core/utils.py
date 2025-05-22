@@ -384,3 +384,10 @@ def to_real(v) -> float | list[float]:
         return v.astype(float).tolist()
     else:
         return v.astype(float).tolist()
+
+def round_array(arr: np.ndarray) -> np.ndarray:
+    # roundoff only on nonzero entries, zeros stay exact
+    mask = arr != 0
+    out = arr.copy()
+    out[mask] = np.vectorize(roundoff)(arr[mask])
+    return out
