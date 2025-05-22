@@ -35,6 +35,7 @@ jobs:
           create-args: >-
             ada-py
             bcf-client
+            pydantic
             numpy<2
             python=3.12
             pytest
