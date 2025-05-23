@@ -6,7 +6,7 @@ import numpy as np
 
 from ada.base.units import Units
 from ada.config import Config, logger
-from ada.core.vector_utils import vector_length
+
 from ada.geom.points import Point
 
 if TYPE_CHECKING:
@@ -181,6 +181,9 @@ def get_singular_node_by_volume(nodes: Nodes, p: np.ndarray, tol=Config().genera
 
 
 def sort_nodes_by_distance(point: Union[Node, np.ndarray], nodes: list[Node]) -> list[Node]:
+    from ada.core.vector_utils import vector_length
+
+
     if isinstance(point, Node):
         point = point.p
     return sorted(nodes, key=lambda x: vector_length(x.p - point))

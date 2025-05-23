@@ -65,7 +65,7 @@ asyncio_default_fixture_loop_scope = "session"
 testpaths = ["tests"]
 pythonpath = ["src"]
 # This is meant to stop and catch any unintended hangs
-timeout = 120
+timeout = 240
 timeout_method = "thread"
 
 

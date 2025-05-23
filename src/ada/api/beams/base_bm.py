@@ -85,7 +85,7 @@ class Beam(BackendGeom):
 
         # Define orientations
         self._init_orientation(angle, up)
-        self.add_beam_to_node_refs()
+        self._add_beam_to_node_refs()
 
     @staticmethod
     def array_from_list_of_coords(
@@ -252,12 +252,12 @@ class Beam(BackendGeom):
         geom = geo_conv.straight_beam_to_geom(self, is_solid=False)
         return geom
 
-    def add_beam_to_node_refs(self) -> None:
+    def _add_beam_to_node_refs(self) -> None:
         """Add beam to refs on nodes"""
         for beam_node in self.nodes:
             beam_node.add_obj_to_refs(self)
 
-    def remove_beam_from_node_refs(self) -> None:
+    def _remove_beam_from_node_refs(self) -> None:
         """Remove beam from refs on nodes"""
         for beam_node in self.nodes:
             beam_node.remove_obj_from_refs(self)
@@ -290,7 +290,10 @@ class Beam(BackendGeom):
 
     @section.setter
     def section(self, value: Section):
+        old = self._section
         self._section = value
+        self._section.refs.append(self)
+        old.refs.remove(self)
 
     @property
     def material(self) -> Material:
@@ -298,7 +301,11 @@ class Beam(BackendGeom):
 
     @material.setter
     def material(self, value: Material):
+        #old = self._material
         self._material = value
+        #self._material.refs.append(self)
+        #if self in old.refs:
+        #    old.refs.remove(self)
 
     @property
     def orientation(self) -> Placement:

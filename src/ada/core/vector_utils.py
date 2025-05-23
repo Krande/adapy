@@ -390,3 +390,39 @@ def get_centroid(points) -> Point:
     n = len(points)
 
     return Point(x / n, y / n, z / n)
+
+
+Point3 = tuple[float, float, float]
+
+
+class FastSegment:
+    __slots__ = ("x0", "y0", "z0", "vx", "vy", "vz", "len2")
+
+    def __init__(self, start: Point3, end: Point3) -> None:
+        self.x0, self.y0, self.z0 = start
+        ex, ey, ez = end
+        self.vx = ex - self.x0
+        self.vy = ey - self.y0
+        self.vz = ez - self.z0
+        self.len2 = self.vx * self.vx + self.vy * self.vy + self.vz * self.vz
+
+    def contains(self, pt: Point3, tol: float = 1e-6, include_ends: bool = True) -> bool:
+        dx = pt[0] - self.x0
+        dy = pt[1] - self.y0
+        dz = pt[2] - self.z0
+
+        # cross product components
+        c1 = dy * self.vz - dz * self.vy
+        c2 = dz * self.vx - dx * self.vz
+        c3 = dx * self.vy - dy * self.vx
+
+        # squared‐norm check
+        if (c1 * c1 + c2 * c2 + c3 * c3) > tol * tol:
+            return False
+
+        # dot‐product
+        dot = dx * self.vx + dy * self.vy + dz * self.vz
+        if include_ends:
+            return -tol <= dot <= self.len2 + tol
+        else:
+            return tol < dot < self.len2 - tol

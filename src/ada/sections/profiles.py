@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from functools import lru_cache
 
 from ada.api.curves import CurveOpen2d, CurvePoly2d
 from ada.config import get_logger
@@ -59,7 +60,7 @@ def build_disconnected(input_curve: list[tuple[tuple, tuple]]) -> list[CurveOpen
 def build_joined(input_curve: list[tuple]) -> CurvePoly2d:
     return CurvePoly2d(input_curve, **build_props)
 
-
+@lru_cache
 def angular(sec: Section, return_solid) -> SectionProfile:
     h = sec.h
     wbtn = sec.w_btn
@@ -93,7 +94,7 @@ def angular(sec: Section, return_solid) -> SectionProfile:
         shell_thickness_map=shell_thick_map,
     )
 
-
+@lru_cache
 def iprofiles(sec: Section, return_solid) -> SectionProfile:
     h = sec.h
     wbtn = sec.w_btn
@@ -146,7 +147,7 @@ def iprofiles(sec: Section, return_solid) -> SectionProfile:
         shell_thickness_map=shell_thick_map,
     )
 
-
+@lru_cache
 def tprofiles(sec: Section, return_solid) -> SectionProfile:
     h = sec.h
     wtop = sec.w_top
@@ -188,7 +189,7 @@ def tprofiles(sec: Section, return_solid) -> SectionProfile:
         shell_thickness_map=shell_thick_map,
     )
 
-
+@lru_cache
 def box(sec: Section, return_solid) -> SectionProfile:
     h = sec.h
     wtop = sec.w_top
@@ -222,7 +223,7 @@ def box(sec: Section, return_solid) -> SectionProfile:
         disconnected=False,
     )
 
-
+@lru_cache
 def flatbar(sec: Section, return_solid=False) -> SectionProfile:
     if return_solid is False:
         outer_curve = build_disconnected([((0, sec.h / 2), (sec.w_top / 2, -sec.h / 2))])
@@ -247,7 +248,7 @@ def flatbar(sec: Section, return_solid=False) -> SectionProfile:
         disconnected=False,
     )
 
-
+@lru_cache
 def channel(sec: Section, return_solid=False) -> SectionProfile:
     # top flange outer
     p1 = (sec.w_top, sec.h / 2)  # right corner

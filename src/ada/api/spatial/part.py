@@ -335,7 +335,6 @@ class Part(BackendGeom):
             if isinstance(o, Beam):
                 all_secs.append(o.section)
                 if isinstance(o, BeamTapered):
-                    all_secs.append(o.section)
                     all_secs.append(o.taper)
 
         sec_map = self.add_sections_in_batch(all_secs)
@@ -367,10 +366,9 @@ class Part(BackendGeom):
                 beam.parent = self
 
                 # rewire section & taper
-                if len(sec_map) > 1: # if sec map has only 1 element then all the sections are equal
-                    beam.section = sec_map[beam.section]
-                    if isinstance(beam, BeamTapered):
-                        beam.taper = sec_map[beam.taper]
+                beam.section = sec_map[beam.section]
+                if isinstance(beam, BeamTapered):
+                    beam.taper = sec_map[beam.taper]
 
                 # rewire material
                 if beam.material:
