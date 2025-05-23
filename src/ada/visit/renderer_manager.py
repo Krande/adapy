@@ -5,13 +5,7 @@ from typing import TYPE_CHECKING, Literal
 
 import trimesh
 
-from ada.comms.fb_wrap_model_gen import (
-    FileObjectDC,
-    FilePurposeDC,
-    FileTypeDC,
-    MeshDC,
-    SceneOperationsDC,
-)
+from ada.comms.fb_wrap_model_gen import FileObjectDC, FilePurposeDC, FileTypeDC, MeshDC
 from ada.config import Config
 from ada.visit.render_params import RenderParams
 from ada.visit.scene_handling.scene_from_fea_results import scene_from_fem_results

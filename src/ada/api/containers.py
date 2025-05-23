@@ -9,7 +9,6 @@ from typing import TYPE_CHECKING, Dict, Iterable, List, Union
 import numpy as np
 
 from ada.api.beams import Beam, BeamTapered
-from ada.api.beams.helpers import get_beam_extensions
 from ada.api.exceptions import DuplicateNodes
 from ada.api.nodes import Node, replace_node
 from ada.api.plates.base_pl import Plate
@@ -17,13 +16,7 @@ from ada.api.transforms import Rotation
 from ada.base.units import Units
 from ada.config import Config, logger
 from ada.core.utils import Counter, roundoff
-from ada.core.vector_utils import (
-    is_null_vector,
-    is_parallel,
-    points_in_cylinder,
-    unit_vector,
-    vector_length,
-)
+from ada.core.vector_utils import points_in_cylinder, vector_length
 from ada.materials import Material
 
 if TYPE_CHECKING:
@@ -40,6 +33,83 @@ __all__ = [
     "Materials",
     "Sections",
 ]
+from collections.abc import MutableSequence
+from typing import Any, Callable, Generic, Optional, TypeVar
+
+T = TypeVar("T")
+K = TypeVar("K")  # for generic ID
+N = TypeVar("N", bound=int)  # numeric ID
+
+
+class IndexedCollection(MutableSequence[T], Generic[T, K, N]):
+    def __init__(
+        self,
+        items: Iterable[T] = (),
+        *,
+        sort_key: Callable[[T], Any],
+        id_key: Callable[[T], K],
+        name_key: Optional[Callable[[T], str]] = None,
+        numeric_id_key: Optional[Callable[[T], N]] = None,
+    ):
+        self._sort_key = sort_key
+        self._id_key = id_key
+        self._name_key = name_key
+        self._numeric_id_key = numeric_id_key
+
+        self._items = sorted(items, key=sort_key)
+        # always build the primary id map
+        self._idmap = {id_key(i): i for i in self._items}
+        # build a name‐map if requested
+        if name_key:
+            self._nmap = {name_key(i): i for i in self._items}
+        # build a numeric‐id map if requested
+        if numeric_id_key:
+            self._num_map = {numeric_id_key(i): i for i in self._items}
+
+    # — all your MutableSequence methods here —
+    # __len__, __getitem__, __delitem__, __setitem__, insert
+    # --- MutableSequence methods ---
+    def __len__(self) -> int:
+        return len(self._items)
+
+    def __getitem__(self, i):
+        return self._items[i]
+
+    def __delitem__(self, i):
+        item = self._items.pop(i)
+        self._idmap.pop(self._id_key(item), None)
+        self._nmap.pop(self._name_key(item), None)
+
+    def __setitem__(self, i, item: T):
+        # replace at index i
+        old = self._items[i]
+        del self[i]
+        self.insert(i, item)
+
+    def insert(self, i: int, item: T) -> None:
+        # enforce uniqueness by name or id if you like
+        _id = self._id_key(item)
+        _name = self._name_key(item)
+        if _id in self._idmap or _name in self._nmap:
+            raise ValueError(f"Duplicate {_name=} or {_id=}")
+        insort(self._items, item, key=self._sort_key)
+        self._idmap[_id] = item
+        self._nmap[_name] = item
+
+    def add(self, item: T) -> None:
+        self.insert(0, item)
+
+    def __contains__(self, item: T) -> bool:
+        return self._id_key(item) in self._idmap
+
+    def from_id(self, val: K) -> Optional[T]:
+        return self._idmap.get(val)
+
+    def from_name(self, name: str) -> Optional[T]:
+        return getattr(self, "_nmap", {}).get(name)
+
+    def from_numeric_id(self, num: int) -> Optional[T]:
+        return getattr(self, "_num_map", {}).get(num)
 
 
 class BaseCollections:
@@ -53,154 +123,15 @@ class BaseCollections:
         return self._parent
 
 
-class Beams(BaseCollections):
-    """A collections of Beam objects"""
-
-    def __init__(self, beams: Iterable[Beam] = None, parent=None):
-        super().__init__(parent)
-        beams = [] if beams is None else beams
-        self._beams = sorted(beams, key=attrgetter("name"))
-        self._nmap = {n.name: n for n in self._beams}
-        self._idmap = {n.guid: n for n in self._beams}
-        self._connected_beams_map = None
-
-    def __contains__(self, item: Beam):
-        return item.guid in self._idmap.keys()
-
-    def __len__(self):
-        return len(self._beams)
-
-    def __iter__(self) -> Iterable[Beam]:
-        return iter(self._beams)
-
-    def __getitem__(self, index):
-        result = self._beams[index]
-        return Beams(result) if isinstance(index, slice) else result
-
-    def __eq__(self, other):
-        if not isinstance(other, Beams):
-            return NotImplemented
-        return self._beams == other._beams
-
-    def __ne__(self, other):
-        if not isinstance(other, Beams):
-            return NotImplemented
-        return self._beams != other._beams
-
-    def __add__(self, other):
-        return Beams(chain(self, other))
-
-    def __repr__(self):
-        rpr = reprlib.Repr()
-        rpr.maxlist = 8
-        rpr.maxlevel = 1
-        return f"Beams({rpr.repr(self._beams) if self._beams else ''})"
-
-    def merge_connected_beams_by_properties(self) -> None:
-        def append_connected_beams(connected_beams: Iterable[Beam]) -> None:
-            for c_beam in connected_beams:
-                if c_beam not in to_be_merged:
-                    to_be_merged.append(c_beam)
-                    append_connected_beams(self.connected_beams_map[c_beam])
-
-        self.set_connected_beams_map()
-        merged_beams: list[Beam] = list()
-
-        for beam in self._beams.copy():
-            if beam not in merged_beams:
-                to_be_merged: list[Beam] = [beam]
-                append_connected_beams(self.connected_beams_map[beam])
-                merged_beams.extend(to_be_merged)
-                self.merge_beams(to_be_merged)
-
-        self.set_connected_beams_map()
-
-    def merge_beams(self, beam_segments: Iterable[Beam]) -> Beam:
-        """Merge all beam segments into the first entry in beam_segments by changing the beam nodes."""
-        precision = Config().general_precision
-
-        def get_end_nodes() -> list[Node]:
-            end_beams = filter(lambda x: len(self.connected_beams_map.get(x, list())) == 1, beam_segments)
-
-            end_nds: list[Node] = list()
-
-            for beam in end_beams:
-                (node_without_connected_beam,) = self.connected_beams_map[beam]
-                end_nds.append(beam.n1 if node_without_connected_beam in beam.n2.refs else beam.n2)
-            return end_nds
-
-        def modify_beam(bm: Beam, new_nodes) -> Beam:
-            n1, n2 = new_nodes
-
-            n1_2_n2_vector = unit_vector(n2.p - n1.p)
-            beam_vector = bm.xvec.round(decimals=precision)
-
-            if is_parallel(n1_2_n2_vector, bm.xvec) and not is_null_vector(n1_2_n2_vector, bm.xvec):
-                n1, n2 = n2, n1
-            elif not is_parallel(n1_2_n2_vector, bm.xvec):
-                raise ValueError(f"Unit vector error. Beam.xvec: {beam_vector}, nodes unit_vec: {-1 * n1_2_n2_vector}")
-
-            bm.n1, bm.n2 = n1, n2
-            return bm
-
-        if len(list(beam_segments)) > 1:
-            end_nodes = get_end_nodes()
-            modified_beam = modify_beam(beam_segments[0], end_nodes)
-
-            for old_beam in beam_segments[1:]:
-                self.remove(old_beam)
-
-            return modified_beam
-
-    def set_connected_beams_map(self) -> None:
-        self._connected_beams_map = {beam: get_beam_extensions(beam) for beam in self._beams}
-
-    @property
-    def connected_beams_map(self) -> dict[Beam, Iterable[Beam]]:
-        return self._connected_beams_map
-
-    def get_beams_at_point(self, point: Union[Node, np.ndarray]) -> list[Beam]:
-        return list(filter(lambda x: x.is_point_on_beam(point), self._beams))
-
-    def index(self, item: Beam) -> int:
-        index = bisect_left(self._beams, item)
-        if (index != len(self._beams)) and (self._beams[index] == item):
-            return index
-        raise ValueError(f"{repr(item)} not found")
-
-    def count(self, item) -> int:
-        return int(item in self)
-
-    def from_name(self, name: str) -> Beam:
-        """Get beam from its name"""
-        return self._nmap.get(name)
-
-    def from_guid(self, guid: str) -> Beam:
-        """Get beam from its guid"""
-        return self._idmap.get(guid)
-
-    def add(self, beam: Beam) -> Beam:
-        from .exceptions import NameIsNoneError
-
-        if beam.name is None:
-            raise NameIsNoneError("Name is not allowed to be None.")
-
-        if beam.name in self._idmap.keys():
-            logger.warning(f'Beam with name "{beam.name}" already exists. Will not add')
-            return self._idmap[beam.name]
-
-        self._idmap[beam.guid] = beam
-        self._nmap[beam.name] = beam
-        self._beams.append(beam)
-        beam.add_beam_to_node_refs()
-        return beam
-
-    def remove(self, beam: Beam) -> None:
-        beam.remove_beam_from_node_refs()
-        i = self._beams.index(beam)
-        self._beams.pop(i)
-        self._idmap = {n.guid: n for n in self._beams}
-        self._nmap = {n.name: n for n in self._beams}
+class Beams(IndexedCollection[Beam, str, int]):
+    def __init__(self, beams: Iterable[Beam] = (), parent=None):
+        super().__init__(
+            items=beams,
+            sort_key=lambda b: b.name,
+            id_key=lambda b: b.guid,
+            name_key=lambda b: b.name,
+        )
+        self._parent = parent
 
     def get_beams_within_volume(self, vol_, margins) -> Iterable[Beam]:
         """
@@ -238,104 +169,45 @@ class Beams(BaseCollections):
             within_vol_list = within_y_list[zmin:zmax]
             return [bm[0] for bm in within_vol_list]
 
-        bm_list1 = [(bm.name, bm.n1.x, bm.n1.y, bm.n1.z) for bm in sorted(self._beams, key=lambda bm: bm.n1.x)]
-        bm_list2 = [(bm.name, bm.n2.x, bm.n2.y, bm.n2.z) for bm in sorted(self._beams, key=lambda bm: bm.n2.x)]
+        bm_list1 = [(bm.name, bm.n1.x, bm.n1.y, bm.n1.z) for bm in sorted(self._items, key=lambda bm: bm.n1.x)]
+        bm_list2 = [(bm.name, bm.n2.x, bm.n2.y, bm.n2.z) for bm in sorted(self._items, key=lambda bm: bm.n2.x)]
 
         return set([self.from_name(bm_id) for bms_ in (bm_list1, bm_list2) for bm_id in sort_beams(bms_)])
 
-    @property
-    def idmap(self) -> dict[str, Beam]:
-        return self._idmap
+    def add(self, beam: Beam) -> Beam:
+        if beam.name is None:
+            raise ValueError("Name may not be None")
+        if beam.name in self._nmap:
+            return self._nmap[beam.name]
 
-    @property
-    def nmap(self) -> dict[str, Beam]:
-        return self._nmap
+        # any Beam-specific wiring…
+        super().add(beam)
+        beam.add_beam_to_node_refs()
+        return beam
 
 
-class Plates(BaseCollections):
-    """Plate object collection"""
-
-    def __init__(self, plates: Iterable[Plate] = None, parent: Part = None):
-        plates = [] if plates is None else plates
-        super().__init__(parent)
-        self._plates = sorted(plates, key=attrgetter("name"))
-        self._idmap = {n.guid: n for n in self._plates}
-        self._nmap = {n.name: n for n in self._plates}
-
-    def __contains__(self, item: Plate):
-        return item.guid in self._idmap.keys()
-
-    def __len__(self):
-        return len(self._plates)
-
-    def __iter__(self) -> Iterable[Plate]:
-        return iter(self._plates)
-
-    def __getitem__(self, index):
-        result = self._plates[index]
-        return Materials(result) if isinstance(index, slice) else result
-
-    def __eq__(self, other):
-        if not isinstance(other, Plates):
-            return NotImplemented
-        return self._plates == other._plates
-
-    def __ne__(self, other):
-        if not isinstance(other, Plates):
-            return NotImplemented
-        return self._plates != other._plates
-
-    def __add__(self, other: Plates) -> Plates:
-        return Plates(chain(self, other))
-
-    def __repr__(self):
-        rpr = reprlib.Repr()
-        rpr.maxlist = 8
-        rpr.maxlevel = 1
-        return f"Plates({rpr.repr(self._plates) if self._plates else ''})"
-
-    def index(self, plate: Plate):
-        index = bisect_left(self._plates, plate)
-        if (index != len(self._plates)) and (self._plates[index] == plate):
-            return index
-        raise ValueError(f"{repr(plate)} not found")
-
-    def count(self, item: Plate):
-        return int(item in self)
-
-    def remove(self, plate: Plate) -> None:
-        i = self._plates.index(plate)
-        self._plates.pop(i)
-        self._idmap = {n.guid: n for n in self._plates}
-        self._nmap = {n.name: n for n in self._plates}
-
-    def from_name(self, name: str) -> Plate:
-        return self._nmap.get(name, None)
-
-    def from_guid(self, guid: str) -> Plate:
-        return self._idmap.get(guid, None)
-
-    @property
-    def idmap(self) -> dict[str, Plate]:
-        return self._idmap
-
-    @property
-    def nmap(self) -> dict[str, Plate]:
-        return self._nmap
+class Plates(IndexedCollection[Plate, str, int]):
+    def __init__(self, plates: Iterable[Plate] = (), parent: Part = None):
+        super().__init__(
+            items=plates,
+            sort_key=lambda p: p.name,
+            id_key=lambda p: p.guid,
+            name_key=lambda p: p.name,
+        )
+        self._parent = parent
 
     def add(self, plate: Plate) -> Plate:
         if plate.name is None:
-            raise Exception("Name is not allowed to be None.")
-
-        if plate.name in self._nmap.keys():
-            return self._nmap[plate.name]
+            raise ValueError("Name may not be None")
+        existing = self._nmap.get(plate.name)
+        if existing:
+            return existing
+        # handle material as before…
         mat = self._parent.materials.add(plate.material)
         if mat is not None:
             plate.material = mat
 
-        self._plates.append(plate)
-        self._nmap[plate.name] = plate
-        self._idmap[plate.guid] = plate
+        super().add(plate)
         return plate
 
 
@@ -588,20 +460,35 @@ class Materials(NumericMapped):
                 m.units = value
             self._units = value
 
-    def add(self, material) -> Material:
-        if material in self:
-            existing_mat = self._name_map[material.name]
-            for elem in material.refs:
-                if elem not in existing_mat.refs:
-                    existing_mat.refs.append(elem)
-            return existing_mat
+    def add(self, material: Material) -> Material:
+        name_map = self._name_map
+        id_map = self._id_map
+        mats = self.materials
 
-        if material.id is None or material.id in self._id_map.keys():
-            material.id = len(self.materials) + 1
+        # 1) Fast-path existing: use dict.get instead of “in self” or keys()
+        existing = name_map.get(material.name)
+        if existing is not None:
+            # merge refs in one pass, avoiding O(n²) list lookups
+            existing_refs = existing.refs
+            # build a set for O(1) membership tests
+            seen = set(existing_refs)
+            # only append the new ones
+            for ref in material.refs:
+                if ref not in seen:
+                    existing_refs.append(ref)
+                    seen.add(ref)
+            return existing
 
-        self._id_map[material.id] = material
-        self._name_map[material.name] = material
-        self.materials.append(material)
+        # 2) Assign a fresh id if needed
+        mat_id = material.id
+        if mat_id is None or mat_id in id_map:
+            mat_id = len(mats) + 1
+            material.id = mat_id
+
+        # 3) Insert in O(1)
+        mats.append(material)
+        id_map[mat_id] = material
+        name_map[material.name] = material
 
         return material
 

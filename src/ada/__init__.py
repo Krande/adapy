@@ -168,16 +168,17 @@ __all__ = [
     "PL_N",
 ]
 
+
 def _jupyter_nbextension_paths():
-    return [{
-        "section": "notebook",
-        "src": "ada/_static",       # relative to this package
-        "dest": "adapy",            # becomes /nbextensions/adapy/
-        "require": "adapy/main"     # if your main bundle is main.js
-    }]
+    return [
+        {
+            "section": "notebook",
+            "src": "ada/_static",  # relative to this package
+            "dest": "adapy",  # becomes /nbextensions/adapy/
+            "require": "adapy/main",  # if your main bundle is main.js
+        }
+    ]
+
 
 def _jupyter_labextension_paths():
-    return [{
-        "src": "ada/_static",       # relative to this package
-        "dest": "adapy"             # labextensions/adapy
-    }]
+    return [{"src": "ada/_static", "dest": "adapy"}]  # relative to this package  # labextensions/adapy

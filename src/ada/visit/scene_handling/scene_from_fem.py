@@ -6,11 +6,11 @@ from typing import TYPE_CHECKING
 import trimesh
 
 from ada.core.guid import create_guid
+from ada.fem import sim_metadata as sim_meta
 from ada.visit.colors import Color
 from ada.visit.gltf.gltf_postprocessor import GltfPostProcessor
 from ada.visit.gltf.graph import GraphNode, GraphStore
 from ada.visit.render_params import RenderParams
-from ada.fem import sim_metadata as sim_meta
 
 if TYPE_CHECKING:
     from ada import FEM
@@ -85,7 +85,9 @@ def scene_from_fem(
         merged_mesh_to_trimesh_scene(scene, points_store, points_color, points_color_id, graph_store=graph)
 
     gltf_postprocessor = GltfPostProcessor()
-    sim_data = sim_meta.SimulationDataExtensionMetadata(name=fem.name, date=datetime.datetime.now(), fea_software="N/A", fea_software_version="N/A", steps=[])
+    sim_data = sim_meta.SimulationDataExtensionMetadata(
+        name=fem.name, date=datetime.datetime.now(), fea_software="N/A", fea_software_version="N/A", steps=[]
+    )
     gltf_postprocessor.add_extension("ADA_SIM_data", sim_data.model_dump(mode="json"))
 
     params.set_gltf_buffer_postprocessor(gltf_postprocessor.buffer_postprocessor)

@@ -7,7 +7,13 @@ import numpy as np
 import pyquaternion as pq
 from pyquaternion import Quaternion
 
-from ada.core.vector_utils import angle_between, calc_yvec, is_parallel, unit_vector, calc_zvec
+from ada.core.vector_utils import (
+    angle_between,
+    calc_yvec,
+    calc_zvec,
+    is_parallel,
+    unit_vector,
+)
 from ada.geom.placement import Direction
 from ada.geom.points import Point
 

@@ -5,8 +5,9 @@ from typing import TYPE_CHECKING
 
 from OCC.Core.BRepExtrema import BRepExtrema_DistShapeShape
 
-from .geom.cache import occ_solid_cache, get_solid_occ
 from ada.occ.utils import compute_minimal_distance_between_shapes
+
+from .geom.cache import get_solid_occ, occ_solid_cache
 
 if TYPE_CHECKING:
     from ada import Plate

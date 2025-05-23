@@ -3,10 +3,11 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Dict
 
 from OCC.Core.TopoDS import TopoDS_Solid
+
 from ada.occ.geom import geom_to_occ_geom
 
 if TYPE_CHECKING:
-    from ada import Plate, Beam, PrimBox
+    from ada import Beam, Plate, PrimBox
 
 # — use normal dicts so objects stay alive —
 occ_solid_cache: Dict[str, TopoDS_Solid] = {}

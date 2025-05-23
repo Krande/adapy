@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Iterable, Union, Literal
+from typing import TYPE_CHECKING, Iterable, Literal, Union
 
 from ada.api.bounding_box import BoundingBox
 from ada.api.curves import CurvePoly2d
@@ -90,10 +90,12 @@ class Plate(BackendGeom):
     def __hash__(self):
         return hash(self.guid)
 
-    def __eq__(self, other: object) -> bool:
+    def __eq__(self, other: Plate) -> bool:
+        if self is other:
+            return True
         if not isinstance(other, Plate):
             return NotImplemented
-        return self.guid == other.guid
+        return self._guid == other._guid
 
     def bbox(self) -> BoundingBox:
         """Bounding Box of plate"""

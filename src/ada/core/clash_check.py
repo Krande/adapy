@@ -11,6 +11,7 @@ from ada.api.transforms import EquationOfPlane
 from ada.config import logger
 from ada.occ.geom.cache import get_solid_occ
 from ada.occ.occ_clash_check import plates_min_distance
+
 from .utils import Counter
 from .vector_utils import (
     intersect_calc,

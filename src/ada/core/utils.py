@@ -385,6 +385,7 @@ def to_real(v) -> float | list[float]:
     else:
         return v.astype(float).tolist()
 
+
 def round_array(arr: np.ndarray) -> np.ndarray:
     # roundoff only on nonzero entries, zeros stay exact
     mask = arr != 0

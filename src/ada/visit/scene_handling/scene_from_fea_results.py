@@ -112,10 +112,10 @@ def export_sim_metadata(fea_res: FEAResult) -> sim_meta.SimulationDataExtensionM
             if hasattr(result, "eigen_freq") and result.eigen_freq is not None:
                 is_eig = True
             field = sim_meta.FieldObject(
-                    name=result.name,
-                    type=result.field_type.value if hasattr(result, "field_type") else "unknown",
-                    data=sim_meta.DataReference(bufferView=0, byteOffset=0),
-                )
+                name=result.name,
+                type=result.field_type.value if hasattr(result, "field_type") else "unknown",
+                data=sim_meta.DataReference(bufferView=0, byteOffset=0),
+            )
             fields.append(field)
 
         if is_eig:

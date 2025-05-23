@@ -2,17 +2,17 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from math import atan2, degrees, sqrt, isclose
-from typing import TYPE_CHECKING, ClassVar, Iterable, Callable
+from math import atan2, degrees, isclose, sqrt
+from typing import TYPE_CHECKING, Callable, ClassVar, Iterable
 
 import numpy as np
 
-from ada.api.beams.helpers import get_justification, Justification
+from ada.api.beams.helpers import Justification, get_justification
 from ada.base.units import Units
 from ada.config import logger
 
 if TYPE_CHECKING:
-    from ada import Part, Beam, Plate, Node, Point
+    from ada import Beam, Node, Part, Plate, Point
 
 _MM = 1_000.0  # m -> mm
 
@@ -24,7 +24,7 @@ def vector_to_orientation(v: np.ndarray, tol: float = 1e-6) -> str:
      - Tilt above/below horizontal → U/D.
     """
     x, y, z = v
-    h = sqrt(x*x + y*y)
+    h = sqrt(x * x + y * y)
 
     # pure vertical
     if h < tol:
@@ -64,6 +64,7 @@ def vector_to_orientation(v: np.ndarray, tol: float = 1e-6) -> str:
     vert = "U" if z > 0 else "D"
     return f"{horiz_str(bearing)}{tilt:.0f}{vert}"
 
+
 def matrix_to_orientation_map(matrix: np.ndarray) -> dict[str, str]:
     """
     Given a 4×4 transform, use its top-left 3×3:
@@ -80,6 +81,7 @@ def matrix_to_orientation_map(matrix: np.ndarray) -> dict[str, str]:
     }
     return {ax: vector_to_orientation(vec) for ax, vec in axes.items()}
 
+
 def matrix_to_orientation_str(mat4: np.ndarray) -> str:
     """
     Returns: "Y is <ori> and Z is <ori>"
@@ -90,7 +92,7 @@ def matrix_to_orientation_str(mat4: np.ndarray) -> str:
     return f"Y is {omap['Y']} and Z is {omap['Z']}"
 
 
-def _coord_e_n_u(pt: Node | Point, units: Units=Units.M) -> str:
+def _coord_e_n_u(pt: Node | Point, units: Units = Units.M) -> str:
     """convert coordinate (x,y,z) in [m] -> 'E ...mm N ...mm U ...mm'"""
     if len(pt) == 3:
         x, y, z = (c * _MM if units == Units.M else c for c in pt)
@@ -169,7 +171,7 @@ class E3DWriter:
     def _get_panel_spec(self, plate: Plate) -> str:
         """Get the panel specification from the map or use the key itself."""
         if isinstance(self.panel_spec_map, dict):
-            pl_thick_mm = int(plate.t*_MM) if plate.units == Units.M else int(plate.t)
+            pl_thick_mm = int(plate.t * _MM) if plate.units == Units.M else int(plate.t)
             sec_key = f"PL{pl_thick_mm:02d}"
             return self.panel_spec_map.get(sec_key, sec_key)
         elif callable(self.panel_spec_map):

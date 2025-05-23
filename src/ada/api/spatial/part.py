@@ -484,7 +484,7 @@ class Part(BackendGeom):
         for p in self.get_all_subparts() + [self]:
             for stru_cont in [p.beams, p.plates]:
                 if prop == "guid":
-                    res = stru_cont.from_guid(value)
+                    res = stru_cont.from_id(value)
                 else:
                     res = stru_cont.from_name(value)
                 if res is not None:

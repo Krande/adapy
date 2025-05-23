@@ -49,7 +49,9 @@ class RenderParams:
         if self.scene is None:
             self.scene = SceneDC(operation=SceneOperationsDC.REPLACE)
 
-    def set_gltf_buffer_postprocessor(self, postprocessor: Callable[[OrderedDict, dict], None], overwrite: bool = False):
+    def set_gltf_buffer_postprocessor(
+        self, postprocessor: Callable[[OrderedDict, dict], None], overwrite: bool = False
+    ):
         if self._gltf_buffer_postprocessor is not None and overwrite is False:
             raise ValueError("gltf_buffer_postprocessor is already set.")
         self._gltf_buffer_postprocessor = postprocessor

@@ -11,8 +11,6 @@ from contextlib import contextmanager
 from itertools import chain
 from typing import TYPE_CHECKING
 
-from send2trash import send2trash
-
 from ada.api.containers import Beams, Plates
 from ada.config import Config, logger
 from ada.fem import Elem
@@ -299,6 +297,8 @@ def get_ff_regex(flag, *args):
 
 
 def _overwrite_dir(analysis_dir):
+    from send2trash import send2trash
+
     logger.info("Removing old files before copying new")
     try:
         if Config().general_safe_deletion is True:
