@@ -1,35 +1,28 @@
 // sceneHelpers/prepareLoadedModel.ts
 import * as THREE from "three";
-import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import {convert_to_custom_batch_mesh} from "../../../utils/scene/convert_to_custom_batch_mesh";
 import {replaceBlackMaterials} from "../../../utils/scene/assignDefaultMaterial";
-import {buildTreeFromUserData} from "../../../utils/tree_view/generateTree";
-import {ModelState} from "../../../state/modelStore";
-import {TreeViewState} from "../../../state/treeViewStore";
-import {OptionsState} from "../../../state/optionsStore";
-import {AnimationState} from "../../../state/animationStore";
+import {useModelState} from "../../../state/modelState";
+import {useOptionsStore} from "../../../state/optionsStore";
+import {rendererRef} from "../../../state/refs";
+import {FilePurpose} from "../../../flatbuffers/base";
+import {useAnimationStore} from "../../../state/animationStore";
+import {assignMorphToEdgeAlso} from "../../../utils/scene/animations/assignMorphToEdgeAlso";
 
 interface PrepareLoadedModelParams {
-    scene: THREE.Object3D;
-    modelStore: ModelState;
-    treeViewStore: TreeViewState;
-    optionsStore: OptionsState;
-    animationStore: AnimationState;
+    gltf_scene: THREE.Object3D;
+    hash: string
 }
 
-export function prepareLoadedModel({
-                                       scene,
-                                       modelStore,
-                                       treeViewStore,
-                                       optionsStore,
-                                       animationStore,
-                                   }: PrepareLoadedModelParams): void {
-    modelStore.setUserData(scene.userData);
+
+export async function prepareLoadedModel({gltf_scene, hash}: PrepareLoadedModelParams): Promise<void> {
+    const modelStore = useModelState.getState()
+    const optionsStore = useOptionsStore.getState()
+
     // we'll collect all edge geometries here
-    const edgeGeoms: THREE.BufferGeometry[] = [];
     const meshesToReplace: { original: THREE.Mesh; parent: THREE.Object3D }[] = [];
 
-    scene.traverse((object) => {
+    gltf_scene.traverse((object) => {
         if (object instanceof THREE.Mesh) {
             meshesToReplace.push({original: object, parent: object.parent!});
         } else if (object instanceof THREE.LineSegments || object instanceof THREE.Points) {
@@ -37,9 +30,10 @@ export function prepareLoadedModel({
         }
     });
 
+
     for (const {original, parent} of meshesToReplace) {
         const meshName = original.name;
-        const drawRangesData = scene.userData[`draw_ranges_${meshName}`] as Record<string, [number, number]>;
+        const drawRangesData = gltf_scene.userData[`draw_ranges_${meshName}`] as Record<string, [number, number]>;
 
         const drawRanges = new Map<string, [number, number]>();
         if (drawRangesData) {
@@ -48,48 +42,26 @@ export function prepareLoadedModel({
             }
         }
 
-        const customMesh = convert_to_custom_batch_mesh(original, drawRanges);
+        const customMesh = convert_to_custom_batch_mesh(original, drawRanges, hash);
 
-        if (optionsStore.showEdges) {
-            // edgeGeoms.push(customMesh.get_edge_geometry());
-            // initialize the edge overlay
-            parent.add(customMesh.initEdgeOverlay());
+        if (optionsStore.showEdges && drawRanges.size && modelStore.model_type == FilePurpose.DESIGN) {
+            if (rendererRef.current)
+                parent.add(customMesh.getEdgeOverlay(rendererRef.current));
         }
 
         parent.add(customMesh);
+        if (useAnimationStore.getState().hasAnimation && modelStore.model_type == FilePurpose.ANALYSIS) {
+            const line_geo = original.children[0] as THREE.LineSegments;
+            try {
+                assignMorphToEdgeAlso(customMesh, line_geo);
+            } catch (e) {
+                console.error("Error assigning morph to edge:", e);
+            }
+
+            parent.add(line_geo)
+        }
         parent.remove(original);
     }
 
-    replaceBlackMaterials(scene);
-
-    const boundingBox = new THREE.Box3().setFromObject(scene);
-    modelStore.setBoundingBox(boundingBox);
-
-    if (!optionsStore.lockTranslation) {
-        const center = boundingBox.getCenter(new THREE.Vector3());
-        const translation = center.clone().multiplyScalar(-1);
-        if (modelStore.zIsUp) {
-            const minZ = boundingBox.min.z;
-            const bheight = boundingBox.max.z - minZ;
-            translation.z = -minZ + bheight * 0.05;
-        } else {
-            const minY = boundingBox.min.y;
-            const bheight = boundingBox.max.y - minY;
-            translation.y = -minY + bheight * 0.05;
-        }
-
-        scene.position.add(translation);
-        modelStore.setTranslation(translation);
-    }
-    if (optionsStore.showEdges && edgeGeoms.length) {
-        const merged = mergeGeometries(edgeGeoms, false);
-        const mat = new THREE.LineBasicMaterial({color: 0x000000});
-        const allEdges = new THREE.LineSegments(merged, mat);
-        allEdges.layers.set(1);
-        scene.add(allEdges);
-    }
-    animationStore.setSelectedAnimation("No Animation");
-
-    const treeData = buildTreeFromUserData(scene.userData);
-    if (treeData) treeViewStore.setTreeData(treeData);
+    replaceBlackMaterials(gltf_scene);
 }

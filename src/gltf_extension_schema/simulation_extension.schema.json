@@ -1,0 +1,106 @@
+{
+  "$schema": "[http://json-schema.org/draft-07/schema#](http://json-schema.org/draft-07/schema#)",
+  "title": "Simulation Data Extension Metadata",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Name of the simulation."
+    },
+    "date": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Date and time of the simulation."
+    },
+    "fea_software": {
+      "type": "string",
+      "description": "Name of the FEA software used."
+    },
+    "fea_software_version": {
+      "type": "string",
+      "description": "Version of the FEA software."
+    },
+    "steps": {
+      "type": "array",
+      "description": "List of analysis steps.",
+      "items": {
+        "$ref": "#/definitions/StepObject"
+      }
+    }
+  },
+  "required": [
+    "name",
+    "date",
+    "fea_software",
+    "fea_software_version",
+    "steps"
+  ],
+  "definitions": {
+    "StepObject": {
+      "type": "object",
+      "properties": {
+        "analysis_type": {
+          "type": "string",
+          "enum": [
+            "eigenvalue",
+            "implicit static",
+            "implicit dynamic",
+            "explicit"
+          ],
+          "description": "Type of analysis for this step."
+        },
+        "fields": {
+          "type": "array",
+          "description": "List of field data objects for this step.",
+          "items": {
+            "$ref": "#/definitions/FieldObject"
+          }
+        }
+      },
+      "required": [
+        "analysis_type",
+        "fields"
+      ]
+    },
+    "FieldObject": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Name of the result field, e.g., displacement, stress."
+        },
+        "type": {
+          "type": "string",
+          "description": "Type of the field data, e.g., 'vector', 'scalar'."
+        },
+        "data": {
+          "$ref": "#/definitions/DataReference"
+        }
+      },
+      "required": [
+        "name",
+        "type",
+        "data"
+      ]
+    },
+    "DataReference": {
+      "type": "object",
+      "properties": {
+        "bufferView": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Index of the glTF bufferView containing the binary data."
+        },
+        "byteOffset": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Offset into the bufferView in bytes.",
+          "default": 0
+        }
+      },
+      "required": [
+        "bufferView"
+      ]
+    }
+  }
+}

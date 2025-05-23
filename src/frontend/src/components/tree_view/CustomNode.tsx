@@ -1,11 +1,15 @@
 import React from 'react';
 import {NodeRendererProps} from 'react-arborist';
 
-interface TreeNodeData {
+export interface TreeNodeData {
     id: string;
     name: string;
-    children?: TreeNodeData[];
-    // Add other properties if needed
+    children: TreeNodeData[];
+
+    // Custom properties
+    model_key?: string | null;
+    node_name?: string | null;
+    rangeId?: string | null;
 }
 
 export const CustomNode: React.FC<NodeRendererProps<TreeNodeData>> = ({style, node, dragHandle}) => {

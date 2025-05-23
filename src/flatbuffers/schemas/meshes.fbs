@@ -1,0 +1,19 @@
+namespace meshes;
+
+table Mesh {
+    name: string;
+    indices: [uint32];
+    vertices: [float];
+    parent_name: string;
+}
+
+table AppendMesh {
+    mesh: Mesh;
+}
+
+table MeshInfo {
+  object_name: string;      // Mesh object name
+  face_index: int;          // Mesh face index
+  json_data: string;        // JSON data
+  file_name: string;        // Scene source file object name
+}

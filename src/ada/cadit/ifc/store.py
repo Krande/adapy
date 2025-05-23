@@ -14,6 +14,7 @@ from ada.cadit.ifc.units_conversion import convert_file_length_units
 from ada.cadit.ifc.utils import assembly_to_ifc_file, default_settings, get_unit_type
 from ada.cadit.ifc.write.write_sections import get_profile_class
 from ada.cadit.ifc.write.write_user import create_owner_history_from_user
+from ada.config import logger
 
 if TYPE_CHECKING:
 
@@ -220,9 +221,13 @@ class IfcStore:
         return self.f.by_guid(guid)
 
     def get_beam_type(self, section: Section, match_description=False) -> ifcopenshell.entity_instance:
+
         for beam_type in self.f.by_type("IfcBeamType"):
             if section.name == beam_type.Name:
                 return beam_type
+
+        logger.warning(f"Unable to find beam type for {section.name=}")
+        return None
 
     def get_profile_def(self, section: Section) -> ifcopenshell.entity_instance:
         profile_class = get_profile_class(section)

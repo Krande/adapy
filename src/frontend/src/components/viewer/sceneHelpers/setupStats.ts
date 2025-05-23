@@ -1,9 +1,7 @@
 import Stats from "three/examples/jsm/libs/stats.module.js";
-import type { WebGLRenderer } from "three";
 
 export function setupStats(
   container: HTMLDivElement,
-  showPerf: boolean,
 ): {
   statsArray: Stats[];
   callsPanel: Stats.Panel | null;
@@ -13,7 +11,6 @@ export function setupStats(
   let callsPanel: Stats.Panel | null = null;
   let trisPanel: Stats.Panel | null = null;
 
-  if (!showPerf) return { statsArray, callsPanel, trisPanel };
 
   // — built-in panels: fps (0), ms (1), mb (2)
   for (let i = 0; i < 3; i++) {

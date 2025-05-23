@@ -51,4 +51,25 @@ jobs:
         run: pixi run wbuild
 
       - name: Run Tests
-        run: pixi run test
+        run: pixi run test-full
+
+  test-fem:
+    name: Test ada-py-fem
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash -l {0}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+
+      - uses: prefix-dev/setup-pixi@v0.8.8
+        with:
+          pixi-version: v0.44.0
+          environments: >-
+            fem
+          cache: true
+
+      - name: Run Tests
+        run: pixi run test-fem

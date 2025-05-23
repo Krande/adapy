@@ -1,57 +1,50 @@
+// state/utils/setupPointerHandler.ts
 import * as THREE from "three";
-import { handleClickEmptySpace } from "../../../utils/mesh_select/handleClickEmptySpace";
-import { handleClickMeshVanilla } from "../../../utils/mesh_select/handleClickMeshVanilla";
+import {handleClickEmptySpace} from "../../../utils/mesh_select/handleClickEmptySpace";
+import {handleClickMesh} from "../../../utils/mesh_select/handleClickMesh";
 
 export function setupPointerHandler(
-  container: HTMLDivElement,
-  camera: THREE.PerspectiveCamera,
-  scene: THREE.Scene,
-  renderer: THREE.WebGLRenderer,
+    container: HTMLDivElement,
+    camera: THREE.PerspectiveCamera,
+    scene: THREE.Scene,
+    renderer: THREE.WebGLRenderer,
 ) {
-  let pointerDownPos: { x: number; y: number } | null = null;
-  const clickThreshold = 5; // pixels
+    let pointerDownPos: { x: number; y: number } | null = null;
+    const clickThreshold = 5;
 
-  const onPointerDown = (event: PointerEvent) => {
-    pointerDownPos = { x: event.clientX, y: event.clientY };
-  };
+    container.addEventListener("pointerdown", (e) => {
+        pointerDownPos = {x: e.clientX, y: e.clientY};
+    });
 
-  const onClick = (event: MouseEvent) => {
-    if (!pointerDownPos) {
-      return;
-    }
-    const dx = event.clientX - pointerDownPos.x;
-    const dy = event.clientY - pointerDownPos.y;
-    const distanceSquared = dx * dx + dy * dy;
+    container.addEventListener("click", async (e: MouseEvent) => {
+        if (!pointerDownPos) return;
+        const dx = e.clientX - pointerDownPos.x;
+        const dy = e.clientY - pointerDownPos.y;
+        if (dx * dx + dy * dy > clickThreshold * clickThreshold) return;
 
-    if (distanceSquared > clickThreshold * clickThreshold) {
-      // Considered a drag, not a click
-      return;
-    }
+        // cast a ray
+        const rect = renderer.domElement.getBoundingClientRect();
+        const x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+        const y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+        const pointer = new THREE.Vector2(x, y);
+        const ray = new THREE.Raycaster();
+        ray.layers.set(0);
+        ray.layers.disable(1);
+        ray.setFromCamera(pointer, camera);
 
-    const rect = renderer.domElement.getBoundingClientRect();
-    const x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-    const y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-    const pointer = new THREE.Vector2(x, y);
+        const hits = ray.intersectObjects(scene.children, true);
+        if (hits.length === 0) {
+            handleClickEmptySpace(e);
+        } else {
+            // await the async handler
+            await handleClickMesh(hits[0], e);
+        }
+    });
 
-    const raycaster = new THREE.Raycaster();
-    raycaster.layers.set(0);
-    raycaster.layers.disable(1);
-    raycaster.setFromCamera(pointer, camera);
-
-    const intersects = raycaster.intersectObjects(scene.children, true);
-
-    if (intersects.length === 0) {
-      handleClickEmptySpace(event);
-    } else {
-      handleClickMeshVanilla(intersects[0], event);
-    }
-  };
-
-  renderer.domElement.addEventListener("pointerdown", onPointerDown);
-  renderer.domElement.addEventListener("click", onClick);
-
-  return () => {
-    renderer.domElement.removeEventListener("pointerdown", onPointerDown);
-    renderer.domElement.removeEventListener("click", onClick);
-  };
+    return () => {
+        container.removeEventListener("pointerdown", () => {
+        });
+        container.removeEventListener("click", () => {
+        });
+    };
 }

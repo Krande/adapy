@@ -14,6 +14,11 @@ def convert_sin_to_sif(sin_file: str | pathlib.Path, use_siu=False) -> None:
 
     prepost_exe = os.environ.get("ADA_prepost_exe", None)
     if prepost_exe is None:
+        from ada.fem.formats.sesam.sesam_exe_locator import get_prepost_default_exe_path
+
+        prepost_exe = get_prepost_default_exe_path()
+
+    if prepost_exe is None:
         raise FileNotFoundError("Prepost executable is not set. Please set it using `ADA_prepost_exe`")
 
     analysis_name = sin_file.stem

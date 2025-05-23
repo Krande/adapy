@@ -1,11 +1,12 @@
 import {CustomBatchedMesh} from "../mesh_select/CustomBatchedMesh";
 import * as THREE from "three";
 
-export function convert_to_custom_batch_mesh(original: THREE.Mesh, drawRanges: Map<string, [number, number]>) {
+export function convert_to_custom_batch_mesh(original: THREE.Mesh, drawRanges: Map<string, [number, number]>, unique_key: string) {
     const customMesh = new CustomBatchedMesh(
         original.geometry,
         original.material,
-        drawRanges
+        drawRanges,
+        unique_key
     );
 
     // Copy over properties from original mesh to customMesh
@@ -29,7 +30,7 @@ export function convert_to_custom_batch_mesh(original: THREE.Mesh, drawRanges: M
                 mat.flatShading = true;
                 mat.needsUpdate = true;
             } else {
-                console.warn('Material is not an instance of MeshStandardMaterial');
+                console.warn(`Material is not an instance of MeshStandardMaterial. Type: ${typeof mat}`);
             }
         });
     } else {
@@ -38,7 +39,7 @@ export function convert_to_custom_batch_mesh(original: THREE.Mesh, drawRanges: M
             customMesh.material.flatShading = true;
             customMesh.material.needsUpdate = true;
         } else {
-            console.warn('Material is not an instance of MeshStandardMaterial');
+            console.warn(`Material is not an instance of MeshStandardMaterial. Type: ${typeof customMesh.material}`);
         }
     }
 

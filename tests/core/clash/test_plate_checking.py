@@ -11,9 +11,10 @@ def test_plate_perpendicular_touching():
     pl4 = ada.Plate("pl4", p1x1, 0.01, orientation=ada.Placement(xdir=(0, 1, 0), zdir=(1, 0, 0)))
 
     p = ada.Part("MyFem") / [pl1, pl1_5, pl2, pl3, pl4]
-    plates = p.get_all_physical_objects(by_type=ada.Plate)
+    plates = list(p.get_all_physical_objects(by_type=ada.Plate))
 
     plate_con = find_edge_connected_perpendicular_plates(plates)
+
     plate_map = plate_con.mid_span_connected
     assert len(plate_map.keys()) == 2 and pl3 in plate_map.keys() and pl4 in plate_map.keys()
 

@@ -10,6 +10,9 @@ import meshio
 import numpy as np
 
 from ada.base.types import BaseEnum
+from ada.fem.formats.calculix.results.get_version_from_frd import (
+    extract_calculix_version,
+)
 from ada.fem.results.common import ElementBlock, ElementInfo, FEAResult, FemNodes, Mesh
 from ada.fem.results.field_data import (
     ElementFieldData,
@@ -281,6 +284,7 @@ def to_fea_result_obj(ccx_results: CcxResultModel, frd_file) -> FEAResult:
     nodes = FemNodes(coords=coords, identifiers=identifiers)
     mesh = Mesh(elements=[elem_block], nodes=nodes)
 
+    software_version = extract_calculix_version(frd_file)
     return FEAResult(
         frd_file.name,
         FEATypes.CALCULIX,
@@ -288,6 +292,7 @@ def to_fea_result_obj(ccx_results: CcxResultModel, frd_file) -> FEAResult:
         mesh=mesh,
         results_file_path=frd_file,
         description=description,
+        software_version=software_version,
     )
 
 

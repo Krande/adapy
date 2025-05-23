@@ -1,7 +1,7 @@
-import {useModelStore} from "../../state/modelStore";
+import {useModelState} from "../../state/modelState";
 
 export function getDrawRangeByName(name: string) {
-    let userdata = useModelStore.getState().userdata
+    let userdata = useModelState.getState().userdata
     if (!userdata) {
         return null;
     }

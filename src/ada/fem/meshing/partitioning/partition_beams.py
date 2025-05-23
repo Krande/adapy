@@ -3,15 +3,15 @@ from ada.fem.meshing import GmshSession
 
 
 def split_crossing_beams(gmsh_session: GmshSession):
-    logger.info("Running 'split_crossing_beams' partitioning function")
-
     from ada import Beam
 
     br_names = Config().meshing_open_viewer_breakpoint_names
 
     beams = [obj for obj in gmsh_session.model_map.keys() if type(obj) is Beam]
-    if len(beams) == 1:
+    if len(beams) <= 1:
         return None
+
+    logger.info("Running 'split_crossing_beams' partitioning function")
 
     if br_names is not None and "partition_isect_bm_pre" in br_names:
         gmsh_session.open_gui()

@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import {useAnimationStore} from "../state/animationStore";
-import {useModelStore} from "../state/modelStore";
-import {cameraRef, controlsRef} from "../state/refs";
+import {cameraRef, controlsRef, sceneRef} from "../state/refs";
+import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
 
 export function debug_print() {
     console.log("Debug print function called");
@@ -13,8 +13,7 @@ export function debug_print() {
         console.log("Animation found");
     }
 
-    let model_store = useModelStore.getState();
-    let scene = model_store.scene;
+    let scene = sceneRef.current;
     // print camera position and target
     if (!scene) {
         console.log("Scene is null");
@@ -44,8 +43,15 @@ export function debug_print() {
         console.log("No controls found in the scene");
     } else {
         let controls = controlsRef.current;
-        console.log("Controls target:", controls.target);
-        console.log("Controls position:", controls.object.position);
+        if (controls instanceof OrbitControls) {
+            console.log("Controls type: OrbitControls");
+            console.log("Controls target:", controls.target);
+            console.log("Controls position:", controls.object.position);
+        } else {
+            console.log("Controls type: CameraControls");
+            console.log("Controls position:", controls.camera.position);
+        }
+
     }
 
 }

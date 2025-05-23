@@ -10,6 +10,7 @@ import numpy as np
 from ada.core.utils import Counter
 from ada.fem.formats.sesam.common import sesam_eltype_2_general
 from ada.fem.formats.sesam.read import cards
+from ada.fem.formats.sesam.results.get_version_from_mlg import extract_sestra_version
 from ada.fem.formats.sesam.results.sin2sif import convert_sin_to_sif
 
 if TYPE_CHECKING:
@@ -418,6 +419,11 @@ class Sif2Mesh:
         self.mesh = self.get_sif_mesh()
         results = self.get_sif_results()
         rnames = self.get_result_name_map()
+        mlg_file = sif_file.parent / "SESTRA.MLG"
+
+        software_version = "N/A"
+        if mlg_file.exists():
+            software_version = extract_sestra_version(mlg_file)
 
         return FEAResult(
             sif_file.stem,
@@ -426,6 +432,7 @@ class Sif2Mesh:
             mesh=self.mesh,
             results_file_path=sif_file,
             step_name_map=rnames,
+            software_version=software_version,
         )
 
     def get_sif_mesh(self) -> Mesh:
@@ -622,6 +629,7 @@ class Sif2Mesh:
 
 def get_nodal_results(res) -> list[NodalFieldData]:
     from ada.fem.results.common import NodalFieldData
+    from ada.fem.results.field_data import NodalFieldType
 
     comps = "U1|", "U2|", "U3|", "U4|", "U5|", "U6|"
     indices = cards.RVNODDIS.get_indices_from_names(["inod", *comps])
@@ -631,7 +639,14 @@ def get_nodal_results(res) -> list[NodalFieldData]:
     results = []
     for ires, data in groupby(res[1:], key=lambda x: x[1]):
         field_data = np.asarray([(x[nid], *x[start:stop]) for x in data], dtype=float)
-        fd = NodalFieldData(cards.RVNODDIS.name, int(ires), [x.replace("|", "") for x in comps], field_data)
+
+        fd = NodalFieldData(
+            name=cards.RVNODDIS.name,
+            step=int(ires),
+            components=[x.replace("|", "") for x in comps],
+            values=field_data,
+            field_type=NodalFieldType.DISP,
+        )
         results.append(fd)
 
     return results

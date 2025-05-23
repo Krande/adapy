@@ -31,4 +31,4 @@ def postprocess(res_path: str | pathlib.Path, fem_format: FEATypes = None) -> FE
     elif fem_format == FEATypes.CODE_ASTER:
         return CodeAsterSetup.default_post_processor(res_path)
     else:
-        raise NotImplementedError()
+        raise NotImplementedError(f"Postprocessing for {fem_format} is not implemented.")

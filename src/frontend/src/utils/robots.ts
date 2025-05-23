@@ -1,7 +1,8 @@
-import {useModelStore} from "../state/modelStore";
+import {useModelState} from "../state/modelState";
 import URDFLoader from "urdf-loader";
 import {STLLoader} from "three/examples/jsm/loaders/STLLoader";
-import * as THREE from "three"; // or your existing import style
+import * as THREE from "three";
+import {sceneRef} from "../state/refs"; // or your existing import style
 
 export function loadRobot() {
     console.log("Loading robot");
@@ -23,7 +24,7 @@ export function loadRobot() {
             }
         }
     };
-    let scene = useModelStore.getState().scene;
+    let scene = sceneRef.current;
 
     if (!scene) {
         // Make sure scene is created here

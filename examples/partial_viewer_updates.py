@@ -1,6 +1,6 @@
 import ada
 from ada.comms.fb_wrap_model_gen import SceneDC, SceneOperationsDC
-from ada.visit.renderer_manager import RenderParams
+from ada.visit.render_params import RenderParams
 
 
 def main():

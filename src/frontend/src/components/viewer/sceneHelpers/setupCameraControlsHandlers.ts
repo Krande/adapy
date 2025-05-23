@@ -20,9 +20,7 @@ export function setupCameraControlsHandlers(
 
         if (shift && key === "h") {
             selectedObjects.forEach((drawRangeIds, mesh) => {
-                drawRangeIds.forEach((drawRangeId) => {
-                    mesh.hideDrawRange(drawRangeId);
-                });
+                mesh.hideBatchDrawRange(drawRangeIds);
             });
         } else if (shift && key === "u") {
             scene.traverse((obj) => {

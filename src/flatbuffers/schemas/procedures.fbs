@@ -1,0 +1,30 @@
+include "base.fbs";
+
+namespace procedures;
+
+// Procedures are picked up by the server and executed
+// The sequence of procedures is defined in the procedure store
+table ProcedureStore {
+    procedures: [Procedure];
+    start_procedure: base.ProcedureStart; // Name of the procedure to start
+
+}
+
+enum ProcedureState : byte {
+    IDLE = 0,
+    RUNNING = 1,
+    FINISHED = 2,
+    ERROR = 3,
+}
+table Procedure {
+    name: string;
+    description: string;
+    script_file_location: string;
+    parameters: [base.Parameter];
+    file_inputs: [base.FileArg];
+    file_outputs: [base.FileArg];
+    state: ProcedureState;      // State of the procedure
+    is_component: bool;         // Boolean to indicate if the procedure is a component
+}
+
+

@@ -236,6 +236,9 @@ def merged_mesh_to_trimesh_scene(
     parent_node_name = graph_store.top_level.name if graph_store else None
     geom_name = f"node{buffer_id}"
 
+    if graph_store:
+        scene.metadata[f"draw_ranges_node{buffer_id}"] = create_id_sequence(graph_store, merged_mesh)
+
     scene.add_geometry(
         mesh,
         node_name=node_name,
@@ -243,8 +246,10 @@ def merged_mesh_to_trimesh_scene(
         parent_node_name=parent_node_name,
     )
 
-    if graph_store and isinstance(merged_mesh, MergedMesh):
-        id_sequence = dict()
+
+def create_id_sequence(graph_store: GraphStore, merged_mesh: MergedMesh):
+    id_sequence = dict()
+    if isinstance(merged_mesh, MergedMesh):
         for group in merged_mesh.groups:
             n = None
             if isinstance(group.node_ref, GraphNode):
@@ -257,5 +262,7 @@ def merged_mesh_to_trimesh_scene(
                 raise ValueError(f"Node {group.node_ref} not found in graph store")
 
             id_sequence[n.node_id] = (group.start, group.length)
+    else:
+        logger.warning(f"{type(merged_mesh)=} is not a MergedMesh")
 
-        scene.metadata[f"draw_ranges_node{buffer_id}"] = id_sequence
+    return id_sequence

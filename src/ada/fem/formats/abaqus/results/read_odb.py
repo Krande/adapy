@@ -10,9 +10,11 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from ada.config import logger
+from ada.fem.formats.abaqus.results.get_version_from_sta import extract_abaqus_version
 
 if TYPE_CHECKING:
-    from ada.fem.results.common import FEAResult, FieldData, Mesh
+    from ada.fem.results.common import FEAResult, Mesh
+    from ada.fem.results.field_data import FieldData
 
 _script_dir = pathlib.Path(__file__).parent.resolve().absolute()
 
@@ -74,17 +76,27 @@ def read_odb_pckle_file(result_file_path: str | pathlib.Path, overwrite=False) -
     mesh = get_odb_instance_data(data["rootAssembly"]["instances"])
     fields = get_odb_frame_data(data["steps"])
 
+    software_version = "N/A"
+    sta_file = result_file_path.with_suffix(".sta")
+    if sta_file.exists():
+        software_version = extract_abaqus_version(sta_file)
+
     return FEAResult(
         name=result_file_path.stem,
         software=FEATypes.ABAQUS,
         mesh=mesh,
         results=fields,
         results_file_path=result_file_path,
+        software_version=software_version,
     )
 
 
 def get_odb_field_data(field_name, field_data, frame_num):
-    from ada.fem.results.field_data import ElementFieldData, NodalFieldData
+    from ada.fem.results.field_data import (
+        ElementFieldData,
+        NodalFieldData,
+        NodalFieldType,
+    )
 
     field_type, components, data = field_data
 
@@ -93,7 +105,16 @@ def get_odb_field_data(field_name, field_data, frame_num):
         return ElementFieldData(field_name, frame_num, components, values=field_values)
     elif field_type == "NODAL":
         field_values = np.array(list(yield_nodal_data(data)))
-        return NodalFieldData(field_name, frame_num, components, field_values)
+        if field_name == "U":
+            field_type_general = NodalFieldType.DISP
+        elif field_name == "V":
+            field_type_general = NodalFieldType.VEL
+        elif field_name == "F":
+            field_type_general = NodalFieldType.FORCE
+        else:
+            field_type_general = NodalFieldType.UNKNOWN
+
+        return NodalFieldData(field_name, frame_num, components, field_values, field_type=field_type_general)
     else:
         raise NotImplementedError()
 

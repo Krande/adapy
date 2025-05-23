@@ -25,7 +25,7 @@ if TYPE_CHECKING:
     from ada.cadit.ifc.store import IfcStore
     from ada.fem import Elem
     from ada.fem.meshing import GmshOptions
-    from ada.visit.renderer_manager import RenderParams
+    from ada.visit.render_params import RenderParams
 
 
 class BackendGeom(Root):
