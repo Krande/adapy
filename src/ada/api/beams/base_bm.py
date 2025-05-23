@@ -80,6 +80,8 @@ class Beam(BackendGeom):
 
         self._material = get_material(mat)
         self._material.refs.append(self)
+        if self._material.parent is None:
+            self._material.parent = self
 
         # Define orientations
         self._init_orientation(angle, up)

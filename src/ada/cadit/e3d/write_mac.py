@@ -200,16 +200,20 @@ class E3DWriter:
             raise ValueError("panel_material_map must be a dict or callable")
 
     def create_beam_pml(self, beam: Beam) -> str:
+        from ada import Point
+
         sec_key = beam.section.name  # "HEA220"
         gtype = _gtype_from_section(sec_key)  # "HEA"
 
         matref = self._get_beam_material(beam)
         spref = self._get_beam_spec(beam)
 
-        origin = _coord_e_n_u(beam.placement.origin, beam.units)
-        start_pos = _coord_e_n_u(beam.n1, beam.n1.units)
-        end_pos = _coord_e_n_u(beam.n2, beam.n1.units)
-        angle = degrees(beam.angle) if beam.angle is not None else 0.0
+        origin = _coord_e_n_u(beam.n1.p, beam.units)
+        p1 = Point(0,0,0)
+        p2 = beam.n2.p - beam.n1.p
+        start_pos = _coord_e_n_u(p1, beam.n1.units)
+        end_pos = _coord_e_n_u(p2, beam.n1.units)
+        ori_str = matrix_to_orientation_str(beam.orientation.get_matrix4x4())
 
         just = get_justification(beam)
         if just == Justification.TOS:
@@ -228,6 +232,7 @@ class E3DWriter:
             f"MATREF {matref}",
             f"SPREF {spref}",
             f"POSITION {origin}",
+            #f"ORI {ori_str} WRT /{beam.name}", # ori is not yet working
             "new SPINE",
             "new POINSP",
             f"  POSITION {start_pos}",
