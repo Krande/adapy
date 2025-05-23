@@ -20,7 +20,7 @@ const ObjectInfoBox = () => {
     return (
         <div className="bg-gray-400 bg-opacity-50 rounded p-2 min-w-80">
             <h2 className="font-bold">Selected Object Info</h2>
-            <div className="table-row">
+            <div className="table-row pointer-events-auto">
                 <div className="table-cell w-24">Name:</div>
                 <div className="table-cell w-48">{name}</div>
             </div>

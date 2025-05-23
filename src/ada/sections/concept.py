@@ -285,6 +285,12 @@ class Section(Root):
     def __hash__(self):
         return hash(self.guid)
 
+    def __eq__(self, other: Section):
+        if not isinstance(other, Section):
+            return False
+        return self._guid == other._guid
+
+
     def __repr__(self):
         if self.type in SectionCat.circular + SectionCat.tubular:
             return f"Section({self.name}, {self.type}, r: {self.r}, wt: {self.wt})"
