@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 def scene_from_part_or_assembly(part_or_assembly: Part | Assembly, params: RenderParams) -> trimesh.Scene:
     from ada import Assembly
 
-    if params.auto_sync_ifc_store and isinstance(part_or_assembly, Assembly):
+    if params.stream_from_ifc_store and params.auto_sync_ifc_store and isinstance(part_or_assembly, Assembly):
         part_or_assembly.ifc_store.sync()
 
     scene = part_or_assembly.to_trimesh_scene(
