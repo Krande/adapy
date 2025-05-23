@@ -165,7 +165,7 @@ class Node:
         return hash((*self.p, self.id))
 
     def __repr__(self):
-        return f"Node([{self.x}, {self.y}, {self.z}], {self.id})"
+        return f"{self.__class__.__name__}([{self.x}, {self.y}, {self.z}], {self.id})"
 
 
 def get_singular_node_by_volume(nodes: Nodes, p: np.ndarray, tol=Config().general_point_tol) -> Node:
