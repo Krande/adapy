@@ -82,7 +82,7 @@ _re_in = re.IGNORECASE | re.DOTALL
 _rdoff = ada.core.utils.roundoff
 
 
-def _interpret_raw(in_str: str, s: float, units: Units) -> tuple[Section, Section]:
+def _interpret_raw(in_str: str, s: float, units: Units) -> tuple[Section, Section | None]:
     for section_eval in [box_section, shs_section, rhs_section, ig_section, tg_section]:
         result = section_eval(in_str, s, units)
         if result is not None:
@@ -171,7 +171,7 @@ def box_section(in_str: str, s: float, units: Units):
                 units=units,
             )
         else:
-            tap = sec
+            tap = None
         return sec, tap
 
 
@@ -214,7 +214,7 @@ def shs_section(in_str: str, s: float, units: Units):
                 units=units,
             )
         else:
-            tap = sec
+            tap = None
         return sec, tap
 
 
@@ -243,18 +243,21 @@ def rhs_section(in_str: str, s: float, units: Units):
             metadata=dict(cad_str=in_str),
             units=units,
         )
-        tap = Section(
-            in_str + "_e",
-            h=h[-1],
-            sec_type=rhs,
-            w_btn=width[-1],
-            w_top=width[-1],
-            t_fbtn=tw[-1],
-            t_ftop=tw[-1],
-            t_w=tw[-1],
-            metadata=dict(cad_str=in_str),
-            units=units,
-        )
+        if "/" in in_str:
+            tap = Section(
+                in_str + "_e",
+                h=h[-1],
+                sec_type=rhs,
+                w_btn=width[-1],
+                w_top=width[-1],
+                t_fbtn=tw[-1],
+                t_ftop=tw[-1],
+                t_w=tw[-1],
+                metadata=dict(cad_str=in_str),
+                units=units,
+            )
+        else:
+            tap = None
         return sec, tap
 
 
@@ -283,18 +286,21 @@ def ig_section(in_str: str, s: float, units: Units):
             metadata=dict(cad_str=in_str),
             units=units,
         )
-        tap = Section(
-            in_str + "_e",
-            h=h[-1],
-            sec_type=ig,
-            w_btn=wt[-1],
-            w_top=wt[-1],
-            t_fbtn=tf[-1],
-            t_ftop=tf[-1],
-            t_w=tw[-1],
-            metadata=dict(cad_str=in_str),
-            units=units,
-        )
+        if "/" in in_str:
+            tap = Section(
+                in_str + "_e",
+                h=h[-1],
+                sec_type=ig,
+                w_btn=wt[-1],
+                w_top=wt[-1],
+                t_fbtn=tf[-1],
+                t_ftop=tf[-1],
+                t_w=tw[-1],
+                metadata=dict(cad_str=in_str),
+                units=units,
+            )
+        else:
+            tap = None
         return sec, tap
 
 
@@ -323,18 +329,21 @@ def tg_section(in_str: str, s: float, units: Units):
             metadata=dict(cad_str=in_str),
             units=units,
         )
-        tap = Section(
-            in_str + "_e",
-            h=h[-1],
-            sec_type=SectionCat.BASETYPES.TPROFILE,
-            w_btn=thick_web[-1],
-            w_top=width[-1],
-            t_fbtn=thick_flange[-1],
-            t_ftop=thick_flange[-1],
-            t_w=thick_web[-1],
-            metadata=dict(cad_str=in_str),
-            units=units,
-        )
+        if "/" in in_str:
+            tap = Section(
+                in_str + "_e",
+                h=h[-1],
+                sec_type=SectionCat.BASETYPES.TPROFILE,
+                w_btn=thick_web[-1],
+                w_top=width[-1],
+                t_fbtn=thick_flange[-1],
+                t_ftop=thick_flange[-1],
+                t_w=thick_web[-1],
+                metadata=dict(cad_str=in_str),
+                units=units,
+            )
+        else:
+            tap = None
         return sec, tap
 
 
@@ -371,7 +380,7 @@ def tub_section(in_str: str, s: float, units: Units):
             units=units,
         )
         if len(r) == 1:
-            return sec, sec
+            return sec, None
 
         tap = Section(
             in_str + "_e",
@@ -390,7 +399,7 @@ def angular_section(in_str: str, s: float, units: Units):
         if res is None:
             continue
         sec = profile_db_collect(ang, "{}x{}".format(res.group(2), res.group(3)), units=units)
-        return sec, sec
+        return sec, None
 
 
 def circ_section(in_str: str, s: float, units: Units):
@@ -405,7 +414,7 @@ def circ_section(in_str: str, s: float, units: Units):
             metadata=dict(cad_str=in_str),
             units=units,
         )
-        return sec, sec
+        return sec, None
 
 
 def channel_section(in_str: str, s: float, units: Units):
@@ -414,7 +423,7 @@ def channel_section(in_str: str, s: float, units: Units):
         if res is None:
             continue
         sec = profile_db_collect(cha, res.group(2), units=units)
-        return sec, sec
+        return sec, None
 
 
 def flat_section(in_str: str, s: float, units: Units):
@@ -445,5 +454,5 @@ def flat_section(in_str: str, s: float, units: Units):
                 units=units,
             )
         else:
-            tap = sec
+            tap = None
         return sec, tap
