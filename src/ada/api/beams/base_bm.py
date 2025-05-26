@@ -301,10 +301,10 @@ class Beam(BackendGeom):
 
     @material.setter
     def material(self, value: Material):
-        #old = self._material
+        # old = self._material
         self._material = value
-        #self._material.refs.append(self)
-        #if self in old.refs:
+        # self._material.refs.append(self)
+        # if self in old.refs:
         #    old.refs.remove(self)
 
     @property

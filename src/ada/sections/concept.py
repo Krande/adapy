@@ -290,7 +290,6 @@ class Section(Root):
             return False
         return self._guid == other._guid
 
-
     def __repr__(self):
         if self.type in SectionCat.circular + SectionCat.tubular:
             return f"Section({self.name}, {self.type}, r: {self.r}, wt: {self.wt})"

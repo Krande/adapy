@@ -307,9 +307,6 @@ def find_edge_connected_perpendicular_plates(plates: list[Plate]) -> PlateConnec
         pts3d = np.asarray(place.origin + pl.poly.points3d, dtype=float)
 
         # plane equation (unit‐normal) + store
-        n = np.asarray(pl.poly.normal, dtype=float)
-        n_unit = n / np.linalg.norm(n)
-        d = -n_unit.dot(pl.poly.origin)
         eq = EquationOfPlane(pl.poly.origin, pl.poly.normal, pl.poly.ydir)
 
         pdata[pl.guid] = {

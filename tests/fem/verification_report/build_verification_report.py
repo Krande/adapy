@@ -9,7 +9,9 @@ from paradoc import OneDoc
 from paradoc.common import TableFormat
 
 import ada
+from ada.config import logger
 from ada.fem.cases import eigen_test
+from ada.fem.formats.abaqus.config import AbaqusSetup
 from ada.materials.metals import CarbonSteel, DnvGl16Mat
 
 
@@ -22,9 +24,6 @@ def beam():
         ada.Material("S420", CarbonSteel("S420", plasticity_model=DnvGl16Mat(15e-3, "S355"))),
     )
 
-
-from ada.config import logger
-from ada.fem.formats.abaqus.config import AbaqusSetup
 
 load_dotenv()
 

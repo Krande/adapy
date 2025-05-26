@@ -4,11 +4,10 @@ import reprlib
 from itertools import chain
 from typing import TYPE_CHECKING, Iterable, List
 
+from ada.api.containers.base import BaseCollections
 from ada.api.nodes import Node
 from ada.config import Config, logger
 from ada.core.utils import Counter
-from ada.api.containers.base import BaseCollections
-
 
 if TYPE_CHECKING:
     from ada.api.connections import JointBase
@@ -115,8 +114,8 @@ class Connections(BaseCollections):
         :param point_tol:
         """
         from ada.api.connections import JointBase
-        from ada.core.clash_check import are_beams_connected
         from ada.api.containers.nodes import Nodes
+        from ada.core.clash_check import are_beams_connected
 
         ass = self._parent.get_assembly()
         bm_res = ass.beam_clash_check()

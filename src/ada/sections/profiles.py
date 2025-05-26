@@ -60,6 +60,7 @@ def build_disconnected(input_curve: list[tuple[tuple, tuple]]) -> list[CurveOpen
 def build_joined(input_curve: list[tuple]) -> CurvePoly2d:
     return CurvePoly2d(input_curve, **build_props)
 
+
 @lru_cache
 def angular(sec: Section, return_solid) -> SectionProfile:
     h = sec.h
@@ -93,6 +94,7 @@ def angular(sec: Section, return_solid) -> SectionProfile:
         disconnected=disconnected,
         shell_thickness_map=shell_thick_map,
     )
+
 
 @lru_cache
 def iprofiles(sec: Section, return_solid) -> SectionProfile:
@@ -147,6 +149,7 @@ def iprofiles(sec: Section, return_solid) -> SectionProfile:
         shell_thickness_map=shell_thick_map,
     )
 
+
 @lru_cache
 def tprofiles(sec: Section, return_solid) -> SectionProfile:
     h = sec.h
@@ -189,6 +192,7 @@ def tprofiles(sec: Section, return_solid) -> SectionProfile:
         shell_thickness_map=shell_thick_map,
     )
 
+
 @lru_cache
 def box(sec: Section, return_solid) -> SectionProfile:
     h = sec.h
@@ -223,6 +227,7 @@ def box(sec: Section, return_solid) -> SectionProfile:
         disconnected=False,
     )
 
+
 @lru_cache
 def flatbar(sec: Section, return_solid=False) -> SectionProfile:
     if return_solid is False:
@@ -247,6 +252,7 @@ def flatbar(sec: Section, return_solid=False) -> SectionProfile:
         outer_curve=outer_curve,
         disconnected=False,
     )
+
 
 @lru_cache
 def channel(sec: Section, return_solid=False) -> SectionProfile:

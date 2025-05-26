@@ -139,7 +139,6 @@ def generate_serialize_root_function(schema: FlatBufferSchema) -> str:
         return ""
 
     table_names = [tbl.name for tbl in schema.tables]
-    all_table_names = [tbl.name for table in schema.tables for tbl in table.get_all_tables()]
     enum_names = [enum.name for enum in schema.enums]
     included_table_names = [tbl.name for incl in schema.includes for tbl in incl.tables]
     included_enum_names = [enum.name for incl in schema.includes for enum in incl.enums]

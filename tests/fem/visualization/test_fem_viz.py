@@ -54,6 +54,7 @@ def test_basic_cube_mesh(cube_solid_static_o1, cube_solid_static_o2):
         mesh_name = mesh.getName()
         print(mesh_name)
         meshes[mesh_name] = mesh
+
     for field in fields_o1:
         field_name = field.getName()
         field_info = field.getInfo()

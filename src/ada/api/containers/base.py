@@ -55,7 +55,6 @@ class IndexedCollection(MutableSequence[T], Generic[T, K, N]):
 
     def __setitem__(self, i, item: T):
         # replace at index i
-        old = self._items[i]
         del self[i]
         self.insert(i, item)
 

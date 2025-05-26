@@ -26,25 +26,52 @@ def test_aveva_mac_export():
     beam = ada.Beam(
         "beam1",
         (79.925, 289.143, 518.352),  # start coords in metres
-        (80.418, 289.143, 518.352),  # end coords in metres
+        (80.925, 289.143, 518.352),  # end coords in metres
         "HEA300",
         "S355",
     )
-
-    plate = ada.Plate.from_3d_points(
-        "P1",
-        points=(  # 4 (or more) corners in metres (E,N,U)
-            (0.005, 0.000, 0.000),
-            (0.005, 0.070, 0.000),
-            (0.058, 0.070, 0.000),
-            (0.058, 0.000, 0.000),
-        ),
+    origin = ada.Point(79.925, 289.143, 518.352)
+    plate = ada.Plate("Pl1", points=((0, 0), (1, 0), (1, 1), (0, 1)), t=0.01, mat="S420", origin=origin)
+    plate2 = ada.Plate(
+        "Pl2",
+        points=((0, 0), (1, 0), (1, 1), (0, 1)),
         t=0.01,
         mat="S420",
+        origin=origin,
+        n=(1, 0, 0),
+        xdir=(0, 1, 0),
     )
+    plate3 = ada.Plate(
+        "Pl3",
+        points=((0, 0), (1, 0), (1, 1), (0, 1)),
+        t=0.01,
+        mat="S420",
+        origin=origin,
+        n=(0.7, 0.7, 0),
+        xdir=(0, 0, 1),
+    )
+    p1 = plate3.poly.points3d[0]
 
-    subframe / beam  # attach AFTER Parts exist
-    subframe / plate
+    p2 = p1 + ada.Direction(1, 0, 0) * plate3.poly.ydir
+    bm2 = ada.Beam(
+        "beam2",
+        plate3.poly.points3d[0],  # start coords in metres
+        p2,  # end coords in metres
+        "HEA300",
+        "S355",
+        up=plate3.poly.normal,
+    )
+    p2 = p1 + ada.Direction(0, 0, 1)
+    bm3 = ada.Beam(
+        "beam3",
+        plate3.poly.points3d[0],  # start coords in metres
+        p2,  # end coords in metres
+        "HEA300",
+        "S355",
+        up=plate3.poly.normal,
+    )
+    subframe / (beam, bm2, bm3)  # attach AFTER Parts exist
+    subframe / (plate, plate2, plate3)  # attach multiple objects at once
 
     # --- 5  write macro ---------------------------------------------------------
     string_obj = StringIO()

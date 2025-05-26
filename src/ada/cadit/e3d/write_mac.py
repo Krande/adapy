@@ -10,6 +10,7 @@ import numpy as np
 from ada.api.beams.helpers import Justification, get_justification
 from ada.base.units import Units
 from ada.config import logger
+from ada.sections.categories import BaseTypes
 
 if TYPE_CHECKING:
     from ada import Beam, Node, Part, Plate, Point
@@ -209,12 +210,13 @@ class E3DWriter:
         spref = self._get_beam_spec(beam)
 
         origin = _coord_e_n_u(beam.n1.p, beam.units)
-        p1 = Point(0,0,0)
+        p1 = Point(0, 0, 0)
         p2 = beam.n2.p - beam.n1.p
         start_pos = _coord_e_n_u(p1, beam.n1.units)
         end_pos = _coord_e_n_u(p2, beam.n1.units)
-        ori_str = matrix_to_orientation_str(beam.orientation.get_matrix4x4())
+        vec_up_str = vector_to_orientation(beam.up)
 
+        bangle_str = ""
         just = get_justification(beam)
         if just == Justification.TOS:
             jus_str = "CTOP"
@@ -224,6 +226,9 @@ class E3DWriter:
             logger.info(f"Unknown Justification: {just}")
             jus_str = "NA"
 
+        if beam.section.type == BaseTypes.ANGULAR:
+            jus_str = "CBOTTOM"  # angular sections are always bottom justified
+            bangle_str = "bangle 180"
         # PML code to create beam
         lines = [
             f"new GENSEC /{beam.name}",
@@ -232,8 +237,9 @@ class E3DWriter:
             f"MATREF {matref}",
             f"SPREF {spref}",
             f"POSITION {origin}",
-            #f"ORI {ori_str} WRT /{beam.name}", # ori is not yet working
+            bangle_str,
             "new SPINE",
+            f"ydir {vec_up_str}",
             "new POINSP",
             f"  POSITION {start_pos}",
             "new POINSP",

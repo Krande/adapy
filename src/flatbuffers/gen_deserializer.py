@@ -65,7 +65,6 @@ def generate_deserialize_root_function(schema: FlatBufferSchema) -> str:
 def add_imports(schema: FlatBufferSchema, wsock_model_root, dc_model_root) -> str:
     imports = ""
     root_schemas = [f"{table.name}" for table in schema.tables if table.name == schema.root_type]
-    all_enums = schema.get_all_included_enums()
     if len(root_schemas) > 0:
         imports = f"from {wsock_model_root} import "
         imports += ", ".join(root_schemas)
