@@ -11,7 +11,7 @@ import {mapAnimationTargets} from "../../../utils/scene/animations/mapAnimationT
 import {loadGLTF} from "./asyncModelLoader";
 
 export async function setupModelLoaderAsync(
-    modelUrl: string | null,
+    modelUrl: string | null, translate: boolean = true
 ): Promise<THREE.Group> {
     if (sceneRef.current == null) {
         console.error("Scene reference is null");
@@ -74,7 +74,7 @@ export async function setupModelLoaderAsync(
         animationStore.setHasAnimation(false); // If no animations, set false
     }
 
-    if (modelStore.translation) {
+    if (modelStore.translation && translate) {
         console.log("Model already translated");
         gltf_scene.position.add(modelStore.translation);
     } else {

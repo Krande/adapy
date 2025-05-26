@@ -1,10 +1,8 @@
-import {Message} from "../../../flatbuffers/wsock/message";
 import {useModelState} from "../../../state/modelState";
 import * as THREE from "three";
 import {sceneRef} from "../../../state/refs";
 import {MeshT} from "../../../flatbuffers/meshes/mesh";
 import {prepareLoadedModel} from "../../../components/viewer/sceneHelpers/prepareLoadedModel";
-import {update_scene_from_message} from "./update_scene_from_message";
 
 export async function add_mesh_to_scene(mesh: MeshT) {
     let three_scene = sceneRef.current;
@@ -74,17 +72,3 @@ export async function add_mesh_to_scene(mesh: MeshT) {
     console.log("Mesh added to scene");
 }
 
-export async function append_to_scene_from_message(message: Message) {
-    // Append GLTF model
-    console.log("Adding model to existing scene");
-
-    let mesh = message.package_()?.mesh()?.unpack();
-    let scene = message.scene()?.unpack();
-    if (mesh) {
-        await add_mesh_to_scene(mesh)
-    } else if (scene) {
-        await update_scene_from_message(message);
-    }
-
-
-}

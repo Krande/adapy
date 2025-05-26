@@ -1,12 +1,13 @@
 import {Message} from "../../../flatbuffers/wsock/message";
 import {useModelState} from "../../../state/modelState";
 import {SceneOperations} from "../../../flatbuffers/scene/scene-operations";
-import {add_mesh_to_scene, append_to_scene_from_message} from "./append_to_scene_from_message";
+import {add_mesh_to_scene} from "./append_to_scene_from_message";
 
 import {ungzip} from 'pako';
 import {setupModelLoaderAsync} from "../../../components/viewer/sceneHelpers/setupModelLoader";
 import {modelKeyMapRef, sceneRef} from "../../../state/refs";
 import {useTreeViewStore} from "../../../state/treeViewStore";
+import {modelStore} from "../../../state/model_worker/modelStore";
 
 
 export async function update_scene_from_message(message: Message) {
@@ -43,10 +44,12 @@ export async function update_scene_from_message(message: Message) {
 
     const blob = new Blob([finalData], {type: 'model/gltf-binary'});
     const url = URL.createObjectURL(blob);
-
+    const model_state = useModelState.getState()
     if (operation == SceneOperations.REPLACE) {
-        useModelState.getState().setModelUrl(url, operation); // Set the URL for the model
+        model_state.setModelUrl(url, operation); // Set the URL for the model
+        model_state.translation = null;
         useTreeViewStore.getState().clearTreeData(); // Clear the tree view
+
         const three_scene = sceneRef.current;
         if (!three_scene) {
             console.warn("No scene found");
@@ -63,7 +66,7 @@ export async function update_scene_from_message(message: Message) {
 
             }
         }
-        await setupModelLoaderAsync(url);
+        await setupModelLoaderAsync(url, false);
     } else if (operation == SceneOperations.REMOVE) {
         console.error("Currently unsupported operation", operation);
     } else if (operation == SceneOperations.ADD) {
@@ -71,7 +74,7 @@ export async function update_scene_from_message(message: Message) {
         if (mesh) {
             await add_mesh_to_scene(mesh)
         } else {
-            await setupModelLoaderAsync(url);
+            await setupModelLoaderAsync(url, true);
         }
     } else {
         console.error("Unknown operation type: ", operation);

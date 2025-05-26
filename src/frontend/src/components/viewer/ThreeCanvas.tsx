@@ -17,13 +17,10 @@ import {animationControllerRef, cameraRef, controlsRef, rendererRef, sceneRef, u
 import {OrbitControls} from "three/examples/jsm/controls/OrbitControls";
 import {AnimationController} from "../../utils/scene/animations/AnimationController";
 
-function build_scene() {
-
-}
 
 const ThreeCanvas: React.FC = () => {
     const containerRef = useRef<HTMLDivElement>(null);
-    const {modelUrl, zIsUp, defaultOrbitController} = useModelState();
+    const {zIsUp, defaultOrbitController} = useModelState();
     const {showPerf} = useOptionsStore();
     const modelGroupRef = useRef<THREE.Group | null>(null); // <-- store loaded model separately
     const statsRef = useRef<{
