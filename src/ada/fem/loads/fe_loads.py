@@ -6,11 +6,11 @@ import numpy as np
 
 from ada.config import logger
 
-from .common import Amplitude, Csys, FemBase
-from .constants import GRAVITY
-from .exceptions.model_definition import UnsupportedLoadType
-from .sets import FemSet
-from .surfaces import Surface
+from ada.fem.common import Amplitude, Csys, FemBase
+from ada.fem.constants import GRAVITY
+from ada.fem.exceptions.model_definition import UnsupportedLoadType
+from ada.fem.sets import FemSet
+from ada.fem.surfaces import Surface
 
 if TYPE_CHECKING:
     from ada.fem.steps import Step
@@ -124,7 +124,7 @@ class Load(FemBase):
                 logger.error("Calculating global forces without COORDS is not yet supported")
                 return None
 
-            from ..core.vector_transforms import rotation_matrix_csys_rotate
+            from ada.core.vector_transforms import rotation_matrix_csys_rotate
 
             destination_csys = [(1, 0, 0), (0, 1, 0)]
             rmat = rotation_matrix_csys_rotate(csys.coords, destination_csys)

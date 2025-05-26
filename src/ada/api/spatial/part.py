@@ -85,12 +85,18 @@ class Part(BackendGeom):
         self._parts = dict()
         self._groups: dict[str, Group] = dict()
         self._ifc_class = ifc_class
-        self._animation_store = GltfPostProcessor()
+        self._gltf_postprocessor = GltfPostProcessor()
         if fem is not None:
             fem.parent = self
 
         self._presentation_layers = PresentationLayers()
+
+        # FEM related properties
+        from ada.fem.loads.concept_loads import LoadCase, LoadCaseCombination
+
         self.fem = FEM(name + "-1", parent=self) if fem is None else fem
+        self._loads: dict[str, LoadCase] = {}
+        self._load_combinations: dict[str, LoadCaseCombination] = {}
 
     def add_beam(self, beam: Beam, add_to_layer: str = None) -> Beam | BeamTapered:
         if beam.units != self.units:
@@ -1100,8 +1106,8 @@ class Part(BackendGeom):
         wc.update_file_server(FileObjectDC(self.name, FileTypeDC.IFC, FilePurposeDC.DESIGN, ifc_file))
 
     @property
-    def animation_store(self) -> GltfPostProcessor:
-        return self._animation_store
+    def gltf_postprocessor(self) -> GltfPostProcessor:
+        return self._gltf_postprocessor
 
     @property
     def parts(self) -> dict[str, Part]:

@@ -20,7 +20,6 @@ from ada.cadit.gxml.write.write_loads import (
 
 
 def pp_example(root, part):
-
     create_point_load = False
     create_line_load = False
     create_surface_load = False
@@ -205,4 +204,4 @@ def pp_example(root, part):
 
 def test_new_features():
     a = ada.Assembly()
-    a.to_genie_xml("temp/output", writer_postprocessor=pp_example)
+    a.to_genie_xml("temp/output.xml", writer_postprocessor=pp_example)
