@@ -46,10 +46,6 @@ def add_straight_beam(beam: Beam, xml_root: ET.Element):
             )
             xvec = ori_vectors[0]
             yvec = ori_vectors[1]
-            tra_vectors = place_abs.transform_array_from_other_place(np.asarray([p1]), ident_place)
-            p1 = tra_vectors[0]
-        else:
-            p1 = place_abs.origin + p1
 
     straight_beam.append(add_local_system(xvec, yvec, up))
     straight_beam.append(add_segments(beam))
