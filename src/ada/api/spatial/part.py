@@ -21,6 +21,7 @@ from ada.base.types import GeomRepr
 from ada.base.units import Units
 from ada.comms.fb_wrap_model_gen import FileObjectDC, FilePurposeDC, FileTypeDC
 from ada.config import logger
+from ada.fem.concept_constraints import ConstraintConcepts
 from ada.fem.loads.concept_loads import LoadConcepts
 from ada.visit.gltf.gltf_postprocessor import GltfPostProcessor
 from ada.visit.gltf.graph import GraphNode, GraphStore
@@ -97,6 +98,7 @@ class Part(BackendGeom):
 
         self.fem = FEM(name + "-1", parent=self) if fem is None else fem
         self._load_concepts = LoadConcepts(parent_part=self)
+        self._constraint_concepts = ConstraintConcepts(parent_part=self)
 
     def add_beam(self, beam: Beam, add_to_layer: str = None) -> Beam | BeamTapered:
         if beam.units != self.units:
@@ -1292,6 +1294,11 @@ class Part(BackendGeom):
     @property
     def load_concepts(self) -> LoadConcepts:
         return self._load_concepts
+
+    @property
+    def constraint_concepts(self) -> ConstraintConcepts:
+        return self._constraint_concepts
+
 
     def __truediv__(self, other_object):
         from ada import Beam, Plate

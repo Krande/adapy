@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import enum
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, Iterable
 
 if TYPE_CHECKING:
-    from ada import Part, Point
+    from ada import Part, Point, Plate
 
 
 class DesignCondition(str, enum.Enum):
@@ -21,16 +21,16 @@ class DesignCondition(str, enum.Enum):
 @dataclass
 class LoadConcepts:
     parent_part: Part
-    load_cases: dict[str, LoadCase] = field(default_factory=dict)
-    load_case_combinations: dict[str, LoadCaseCombination] = field(default_factory=dict)
+    load_cases: dict[str, LoadConceptCase] = field(default_factory=dict)
+    load_case_combinations: dict[str, LoadConceptCaseCombination] = field(default_factory=dict)
 
-    def add_load_case(self, load_case: LoadCase) -> LoadCase:
+    def add_load_case(self, load_case: LoadConceptCase) -> LoadConceptCase:
         if load_case.name in self.load_cases:
             raise ValueError(f"Load case with name {load_case.name} already exists.")
         self.load_cases[load_case.name] = load_case
         return load_case
 
-    def add_load_case_combination(self, load_case_combination: LoadCaseCombination) -> LoadCaseCombination:
+    def add_load_case_combination(self, load_case_combination: LoadConceptCaseCombination) -> LoadConceptCaseCombination:
         if load_case_combination.name in self.load_case_combinations:
             raise ValueError(f"Load case combination with name {load_case_combination.name} already exists.")
         self.load_case_combinations[load_case_combination.name] = load_case_combination
@@ -60,42 +60,84 @@ class LoadConcepts:
 
 
 @dataclass
+class LoadConceptPoint:
+    name: str
+    position: Point | Iterable
+    force: tuple[float, float, float]
+    moment: tuple[float, float, float]
+    system: Literal["local", "global"] = "local"
+
+    def __post_init__(self):
+        from ada import Point
+
+        if isinstance(self.position, Iterable):
+            self.position = Point(*self.position)
+
+        if not isinstance(self.position, Point):
+            raise TypeError("point must be of type Point or convertible to Point.")
+
+@dataclass
 class LoadConceptLine:
     name: str
-    start_point: Point
-    end_point: Point
+    start_point: Point | Iterable
+    end_point: Point | Iterable
     intensity_start: tuple[float, float, float]
     intensity_end: tuple[float, float, float]
     system: Literal["local", "global"] = "local"
 
+    def __post_init__(self):
+        from ada import Point
+
+        if isinstance(self.start_point, Iterable):
+            self.start_point = Point(*self.start_point)
+        if isinstance(self.end_point, Iterable):
+            self.end_point = Point(*self.end_point)
+
+        if not isinstance(self.start_point, Point) or not isinstance(self.end_point, Point):
+            raise TypeError("start_point and end_point must be of type Point or convertible to Point.")
 
 @dataclass
-class LoadConceptPoint:
+class LoadConceptSurface:
     name: str
-    point: Point
+    plate_ref: Plate = None
+    points: list[Iterable] = None
+    pressure: float = None
+    side: Literal["front", "back"] = "front"
+    system: Literal["local", "global"] = "local"
+
+    def __post_init__(self):
+        if self.plate_ref is None and self.points is None:
+            raise ValueError("Either plate_ref or points must be provided for LoadConceptSurface.")
 
 
 @dataclass
-class LoadCase:
+class LoadConceptGravity:
     name: str
-    loads: list[LoadConceptLine]
-    design_condition: DesignCondition
-    fem_loadcase_number: int
-    complex_type: Literal["static"]
+    acceleration: tuple[float, float, float]
+    include_self_weight: bool = True
+
+
+@dataclass
+class LoadConceptCase:
+    name: str
+    loads: list[LoadConceptLine | LoadConceptPoint | LoadConceptSurface | LoadConceptGravity] = field(default_factory=list)
+    design_condition: DesignCondition = DesignCondition.OPERATING
+    fem_loadcase_number: int = 1
+    complex_type: Literal["static"] = "static"
     invalidated: bool = True
 
 
 @dataclass
-class LoadCaseFactored:
-    load_case: LoadCase
+class LoadConceptCaseFactored:
+    load_case: LoadConceptCase
     factor: float
     phase: int = 0
 
 
 @dataclass
-class LoadCaseCombination:
+class LoadConceptCaseCombination:
     name: str
-    load_cases: list[LoadCaseFactored]
+    load_cases: list[LoadConceptCaseFactored]
     design_condition: DesignCondition
     complex_type: Literal["static"]
     invalidated: bool = True

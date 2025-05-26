@@ -3,6 +3,9 @@ from __future__ import annotations
 import xml.etree.ElementTree as ET
 from typing import TYPE_CHECKING
 
+from ada.cadit.gxml.write.write_loads import add_surface_load_plate, add_surface_load_polygon, add_gravity_load
+from ada.fem.loads.concept_loads import LoadConceptSurface, LoadConceptGravity
+
 if TYPE_CHECKING:
     from ada import Part
 
@@ -171,6 +174,29 @@ def add_loads(root: ET.Element, part: Part) -> None:
                 )
             elif isinstance(load, LoadConceptPoint):
                 # Handle point loads
-                add_point_load(global_elem, lc_elem, load.name, load.point_ref, load.intensity, load.system)
+                add_point_load(global_elem, lc_elem, load.name, load.position, load.force, load.moment, load.system)
+            elif isinstance(load, LoadConceptSurface):
+                if load.plate_ref:
+                    add_surface_load_plate(
+                        global_elem,
+                        lc_elem,
+                        name=load.name,
+                        plate_ref=load.plate_ref.name,
+                        pressure=load.pressure,
+                        side=load.side,
+                        system=load.system,
+                    )
+                else:
+                    add_surface_load_polygon(
+                        global_elem,
+                        lc_elem,
+                        name=load.name,
+                        points=load.points,
+                        pressure=load.pressure,
+                        system=load.system,
+                    )
+            elif isinstance(load, LoadConceptGravity):
+                # Handle gravity loads
+                add_gravity_load(global_elem, lc_elem, load.acceleration, load.include_self_weight)
             else:
                 raise ValueError(f"Unsupported load type: {type(load)}")
