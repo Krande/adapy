@@ -4,7 +4,7 @@ import xml.etree.ElementTree as ET
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    pass
+    from ada import Part
 
 
 def add_loadcase(
@@ -138,3 +138,39 @@ def add_loadcase_to_combination(global_elem, lcc_elem, lc_elem, factor=1.0, phas
     ET.SubElement(
         loadcases_elem, "loadcase", {"loadcase_ref": loadcase_ref, "factor": str(factor), "phase": str(phase)}
     )
+
+
+def add_loads(root: ET.Element, part: Part) -> None:
+    from ada.cadit.gxml.write.write_loads import add_line_load, add_point_load
+    from ada.fem.loads.concept_loads import LoadConceptLine, LoadConceptPoint
+
+    global_elem = root.find("./model/analysis_domain/analyses/global")
+
+    loads_concepts = part.load_concepts.get_global_load_concepts()
+
+    for lc_name, lc in loads_concepts.load_cases.items():
+        lc_elem = add_loadcase(
+            global_elem,
+            name=lc_name,
+            design_condition=lc.design_condition,
+            complex_type=lc.complex_type,
+            invalidated=lc.invalidated,
+        )
+        for load in lc.loads:
+            if isinstance(load, LoadConceptLine):
+                # Handle line loads
+                add_line_load(
+                    global_elem,
+                    lc_elem,
+                    load.name,
+                    load.start_point,
+                    load.end_point,
+                    load.intensity_start,
+                    load.intensity_end,
+                    load.system,
+                )
+            elif isinstance(load, LoadConceptPoint):
+                # Handle point loads
+                add_point_load(global_elem, lc_elem, load.name, load.point_ref, load.intensity, load.system)
+            else:
+                raise ValueError(f"Unsupported load type: {type(load)}")

@@ -6,7 +6,7 @@ import * as flatbuffers from 'flatbuffers';
 
 import { FileObject, FileObjectT } from '../base/file-object.js';
 import { CameraParams, CameraParamsT } from '../scene/camera-params.js';
-import { SceneOperations } from '../scene/scene-operations.js';
+import { SceneOperations } from './scene-operations';
 
 
 export class Scene implements flatbuffers.IUnpackableObject<SceneT> {

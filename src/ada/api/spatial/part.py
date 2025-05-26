@@ -21,6 +21,7 @@ from ada.base.types import GeomRepr
 from ada.base.units import Units
 from ada.comms.fb_wrap_model_gen import FileObjectDC, FilePurposeDC, FileTypeDC
 from ada.config import logger
+from ada.fem.loads.concept_loads import LoadConcepts
 from ada.visit.gltf.gltf_postprocessor import GltfPostProcessor
 from ada.visit.gltf.graph import GraphNode, GraphStore
 from ada.visit.render_params import RenderParams
@@ -92,11 +93,10 @@ class Part(BackendGeom):
         self._presentation_layers = PresentationLayers()
 
         # FEM related properties
-        from ada.fem.loads.concept_loads import LoadCase, LoadCaseCombination
+        from ada.fem.loads.concept_loads import LoadConcepts
 
         self.fem = FEM(name + "-1", parent=self) if fem is None else fem
-        self._loads: dict[str, LoadCase] = {}
-        self._load_combinations: dict[str, LoadCaseCombination] = {}
+        self._load_concepts = LoadConcepts(parent_part=self)
 
     def add_beam(self, beam: Beam, add_to_layer: str = None) -> Beam | BeamTapered:
         if beam.units != self.units:
@@ -1288,6 +1288,10 @@ class Part(BackendGeom):
     @property
     def ifc_class(self) -> SpatialTypes:
         return self._ifc_class
+
+    @property
+    def load_concepts(self) -> LoadConcepts:
+        return self._load_concepts
 
     def __truediv__(self, other_object):
         from ada import Beam, Plate

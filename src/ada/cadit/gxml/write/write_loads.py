@@ -1,14 +1,18 @@
 from __future__ import annotations
 
 import xml.etree.ElementTree as ET
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ada import Point
 
 
 def add_line_load(
     global_elem: ET.Element,
     lc_elem: ET.Element,
     name: str,
-    start_point: tuple,
-    end_point: tuple,
+    start_point: Point,
+    end_point: Point,
     intensity_start: tuple,
     intensity_end: tuple,
     system: str = "local",

@@ -78,9 +78,6 @@ def serialize_root_message(message: MessageDC, builder: flatbuffers.Builder = No
     mesh_info_obj = None
     if message.mesh_info is not None:
         mesh_info_obj = serialize_meshinfo(builder, message.mesh_info)
-    web_clients_obj = None
-    if message.web_clients is not None:
-        web_clients_obj = serialize_webclient(builder, message.web_clients)
     procedure_store_obj = None
     if message.procedure_store is not None:
         procedure_store_obj = serialize_procedurestore(builder, message.procedure_store)

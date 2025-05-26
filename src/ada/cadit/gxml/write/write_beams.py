@@ -4,7 +4,8 @@ import itertools
 import xml.etree.ElementTree as ET
 from typing import TYPE_CHECKING
 
-from ...sat.write.writer import SatWriter
+from ada.cadit.sat.write.writer import SatWriter
+
 from .write_utils import add_local_system
 
 if TYPE_CHECKING:
@@ -29,7 +30,6 @@ def add_straight_beam(beam: Beam, xml_root: ET.Element):
     structure_elem = ET.SubElement(xml_root, "structure")
     straight_beam = ET.SubElement(structure_elem, "straight_beam", {"name": beam.name})
 
-    p1 = beam.n1.p
     xvec = beam.xvec
     yvec = beam.yvec
     up = beam.up

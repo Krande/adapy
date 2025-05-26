@@ -6,7 +6,7 @@ import * as flatbuffers from 'flatbuffers';
 
 import { FileArg, FileArgT } from '../base/file-arg.js';
 import { Parameter, ParameterT } from '../base/parameter.js';
-import { ProcedureState } from '../procedures/procedure-state.js';
+import { ProcedureState } from './procedure-state';
 
 
 export class Procedure implements flatbuffers.IUnpackableObject<ProcedureT> {

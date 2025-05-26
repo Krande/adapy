@@ -6,7 +6,7 @@ import * as flatbuffers from 'flatbuffers';
 
 import { Error, ErrorT } from '../base/error.js';
 import { FileObject, FileObjectT } from '../base/file-object.js';
-import { CommandType } from '../commands/command-type.js';
+import { CommandType } from './command-type';
 
 
 export class ServerReply implements flatbuffers.IUnpackableObject<ServerReplyT> {

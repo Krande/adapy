@@ -55,6 +55,7 @@ def add_plate_polygon(plate: Plate, thck_name: str, structures_elem: ET.Element)
         p_tra = origin + pt.copy()
         ET.SubElement(polygon, "position", {"x": str(p_tra[0]), "y": str(p_tra[1]), "z": str(p_tra[2])})
 
+
 def add_plates(structure_domain: ET.Element, part: Part, sw: SatWriter):
     from ada import Plate
 

@@ -4,8 +4,8 @@
 
 import * as flatbuffers from 'flatbuffers';
 
-import { CommandType } from '../commands/command-type.js';
-import { TargetType } from '../commands/target-type.js';
+import { CommandType } from './command-type';
+import { TargetType } from './target-type';
 import { WebClient, WebClientT } from '../commands/web-client.js';
 import { AppendMesh, AppendMeshT } from '../meshes/append-mesh.js';
 import { MeshInfo, MeshInfoT } from '../meshes/mesh-info.js';

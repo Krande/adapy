@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING, List, Union
 import numpy as np
 
 from ada.config import logger
-
 from ada.fem.common import Amplitude, Csys, FemBase
 from ada.fem.constants import GRAVITY
 from ada.fem.exceptions.model_definition import UnsupportedLoadType
