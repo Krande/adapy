@@ -2,6 +2,19 @@
 
 
 
+## v0.6.0 (2025-05-27)
+
+### Chore
+
+* chore: gxml write features for loads, bc, fix for plates by polygon def  (#139)
+
+Co-authored-by: krande &lt;kristoffer_andersen@outlook.com&gt; ([`ad60cc3`](https://github.com/Krande/adapy/commit/ad60cc3a6b0827fd25ae6a22b7399c4e8b24a976))
+
+### Feature
+
+* feat: optimize viewer selection (#140) ([`2a93166`](https://github.com/Krande/adapy/commit/2a93166681d7c27ef5c14e2aa859ad52d0f2b9f5))
+
+
 ## v0.5.0 (2025-04-30)
 
 ### Chore
