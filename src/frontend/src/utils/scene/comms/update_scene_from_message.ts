@@ -8,7 +8,38 @@ import {setupModelLoaderAsync} from "../../../components/viewer/sceneHelpers/set
 import {modelKeyMapRef, sceneRef} from "../../../state/refs";
 import {useTreeViewStore} from "../../../state/treeViewStore";
 import {modelStore} from "../../../state/model_worker/modelStore";
+import {loadGLTFfrombase64} from "../loadGLTFfrombase64";
 
+
+export function load_base64_model(){
+    console.log("B64GLTF exists, loading model");
+    let blob_uri = loadGLTFfrombase64((window as any).B64GLTF);
+    useModelState.getState().setModelUrl(blob_uri, SceneOperations.REPLACE);
+
+}
+
+export async function replace_model(url: string) {
+    useModelState.getState().translation = null;
+    useTreeViewStore.getState().clearTreeData(); // Clear the tree view
+
+    const three_scene = sceneRef.current;
+    if (!three_scene) {
+        console.warn("No scene found");
+        return;
+    }
+    // clear the current scene
+    three_scene.removeFromParent();
+    if (modelKeyMapRef.current) {
+        for (let key of modelKeyMapRef.current.keys()) {
+            let existing_group = modelKeyMapRef.current.get(key);
+            if (existing_group) {
+                existing_group.clear();
+            }
+
+        }
+    }
+    await setupModelLoaderAsync(url, false);
+}
 
 export async function update_scene_from_message(message: Message) {
     console.log('Received scene update message from server');
@@ -44,29 +75,8 @@ export async function update_scene_from_message(message: Message) {
 
     const blob = new Blob([finalData], {type: 'model/gltf-binary'});
     const url = URL.createObjectURL(blob);
-    const model_state = useModelState.getState()
     if (operation == SceneOperations.REPLACE) {
-        model_state.setModelUrl(url, operation); // Set the URL for the model
-        model_state.translation = null;
-        useTreeViewStore.getState().clearTreeData(); // Clear the tree view
-
-        const three_scene = sceneRef.current;
-        if (!three_scene) {
-            console.warn("No scene found");
-            return;
-        }
-        // clear the current scene
-        three_scene.removeFromParent();
-        if (modelKeyMapRef.current) {
-            for (let key of modelKeyMapRef.current.keys()) {
-                let existing_group = modelKeyMapRef.current.get(key);
-                if (existing_group) {
-                    existing_group.clear();
-                }
-
-            }
-        }
-        await setupModelLoaderAsync(url, false);
+        await replace_model(url);
     } else if (operation == SceneOperations.REMOVE) {
         console.error("Currently unsupported operation", operation);
     } else if (operation == SceneOperations.ADD) {

@@ -108,7 +108,7 @@ class Section(Root):
         from ada.sections.utils import interpret_section_str
 
         sec, tap = interpret_section_str(section_str)
-        if sec != tap:
+        if sec != tap and tap is not None:
             return [sec, tap]
 
         return sec

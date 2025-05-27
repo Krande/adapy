@@ -16,11 +16,12 @@ import {setupPointerHandler} from "./sceneHelpers/setupPointerHandler";
 import {animationControllerRef, cameraRef, controlsRef, rendererRef, sceneRef, updatelightRef} from "../../state/refs";
 import {OrbitControls} from "three/examples/jsm/controls/OrbitControls";
 import {AnimationController} from "../../utils/scene/animations/AnimationController";
+import {replace_model} from "../../utils/scene/comms/update_scene_from_message";
 
 
 const ThreeCanvas: React.FC = () => {
     const containerRef = useRef<HTMLDivElement>(null);
-    const {zIsUp, defaultOrbitController} = useModelState();
+    const {modelUrl, zIsUp, defaultOrbitController} = useModelState();
     const {showPerf} = useOptionsStore();
     const modelGroupRef = useRef<THREE.Group | null>(null); // <-- store loaded model separately
     const statsRef = useRef<{
@@ -120,6 +121,13 @@ const ThreeCanvas: React.FC = () => {
         statsRef.current = {statsArray, callsPanel, trisPanel};
 
         // === Model Cache Loader ===
+        if (modelUrl) {
+            replace_model(modelUrl)
+            // delete the B64GLTF from the window object (if it exists)
+            if ((window as any).B64GLTF) {
+                delete (window as any).B64GLTF;
+            }
+        }
         if (modelGroupRef.current) {
             // If a model is already loaded, add it to the scene
             scene.add(modelGroupRef.current);

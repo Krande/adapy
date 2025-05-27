@@ -30,13 +30,6 @@ def update_ts_imports(file_dir: pathlib.Path):
             ts_file.write_text(new_txt)
 
 
-if __name__ == "__main__":
-    from update_flatbuffers import _GEN_DIR
-
-    # update_py_imports(_WSOCK_DIR)
-    update_ts_imports(_GEN_DIR)
-
-
 def substitute_class_in_instantiation(input_string, new_class_name):
     # Use regex to match the pattern 'obj = Scene()' and substitute only the class name
     pattern = r"(\w+)\s*=\s*(\w+)\(\)"  # Matches 'obj = Scene()' or similar
@@ -69,3 +62,10 @@ def update_gen_py_imports(comms_dir: pathlib.Path, fbs_schema: FlatBufferSchema)
             new_txt = re.sub(f"from {ns}\.", f"from ada.comms.fb.{ns}", txt, flags=re.MULTILINE)
             if txt != new_txt:
                 fp.write_text(new_txt)
+
+
+if __name__ == "__main__":
+    from update_flatbuffers import _GEN_DIR
+
+    # update_py_imports(_WSOCK_DIR)
+    update_ts_imports(_GEN_DIR)

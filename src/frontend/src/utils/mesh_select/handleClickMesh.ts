@@ -18,8 +18,6 @@ export async function handleClickMesh(
   const mesh = intersect.object as CustomBatchedMesh;
   const faceIndex = intersect.faceIndex ?? 0;
   const shiftKey = event.shiftKey;
-  const modelUrl = useModelState.getState().modelUrl;
-  if (!modelUrl) return;
 
   // adjust for any translation
   const translation = useModelState.getState().translation;

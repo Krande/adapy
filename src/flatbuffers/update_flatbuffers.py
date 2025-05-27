@@ -6,7 +6,7 @@ from gen_dataclasses import generate_dataclasses_from_schema, load_fbs_file
 from gen_deserializer import generate_deserialization_code
 from gen_serializer import generate_serialization_code
 from run_flatbuffer_cli import run_flatc
-from update_imports import update_py_imports, update_ts_imports
+from update_imports import update_py_imports
 
 ROOT_DIR = pathlib.Path(__file__).parent.parent.parent
 
@@ -44,7 +44,7 @@ def main():
 
     # Update imports in the generated code
 
-    update_ts_imports(_GEN_DIR)
+    # update_ts_imports(_GEN_DIR)
 
     # Update datclasses and enums
     fbs_schema = load_fbs_file(main_cmd_file.as_posix(), py_root="ada.comms.fb")

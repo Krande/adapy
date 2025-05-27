@@ -4,8 +4,8 @@
 
 import * as flatbuffers from 'flatbuffers';
 
-import { FilePurpose } from './file-purpose';
-import { FileType } from './file-type';
+import { FilePurpose } from '../base/file-purpose.js';
+import { FileType } from '../base/file-type.js';
 import { ProcedureStart, ProcedureStartT } from '../base/procedure-start.js';
 
 
