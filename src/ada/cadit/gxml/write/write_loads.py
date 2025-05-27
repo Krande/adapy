@@ -1,14 +1,18 @@
 from __future__ import annotations
 
 import xml.etree.ElementTree as ET
+from typing import TYPE_CHECKING, Literal
+
+if TYPE_CHECKING:
+    from ada import Point
 
 
 def add_line_load(
     global_elem: ET.Element,
     lc_elem: ET.Element,
     name: str,
-    start_point: tuple,
-    end_point: tuple,
+    start_point: Point,
+    end_point: Point,
     intensity_start: tuple,
     intensity_end: tuple,
     system: str = "local",
@@ -129,7 +133,12 @@ def add_point_load(
 
 
 def add_surface_load_polygon(
-    global_elem: ET.Element, lc_elem: ET.Element, name: str, points: list, pressure: float, system: str = "local"
+    global_elem: ET.Element,
+    lc_elem: ET.Element,
+    name: str,
+    points: list,
+    pressure: float,
+    system: Literal["local", "global"] = "local",
 ) -> ET.Element:
     """
     Adds a <surface_load> with a direct polygon footprint.
@@ -182,8 +191,8 @@ def add_surface_load_plate(
     name: str,
     plate_ref: str,
     pressure: float,
-    side: str = "front",
-    system: str = "local",
+    side: Literal["front", "back"] = "front",
+    system: Literal["local", "global"] = "local",
 ) -> ET.Element:
     """
     Adds a <surface_load> that references a plate.
@@ -229,7 +238,10 @@ def add_surface_load_plate(
 
 
 def add_gravity_load(
-    global_elem: ET.Element, lc_elem: ET.Element, acceleration: tuple[float, float, float] = (0.0, 0.0, -9.80665)
+    global_elem: ET.Element,
+    lc_elem: ET.Element,
+    acceleration: tuple[float, float, float] = (0.0, 0.0, -9.80665),
+    include_selfweight: bool = True,
 ) -> ET.Element:
     """
     Adds a <gravity_load> element with self-weight to the loadcase in <environmental_loads>.
@@ -255,7 +267,7 @@ def add_gravity_load(
 
     # Add <gravity_load> (always with selfweight)
     gravity_elem = ET.SubElement(
-        env_loads_elem, "gravity_load", {"loadcase_ref": loadcase_ref, "include_selfweight": "true"}
+        env_loads_elem, "gravity_load", {"loadcase_ref": loadcase_ref, "include_selfweight": str(include_selfweight)}
     )
 
     ET.SubElement(

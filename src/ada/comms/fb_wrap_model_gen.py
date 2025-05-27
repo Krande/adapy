@@ -1,32 +1,32 @@
 # This wraps the auto-generated FlatBuffers code so that I don't have to update changes to the FlatBuffer namespaces across the entire ada-py source code.
-from ada.comms.fb_meshes_gen import AppendMeshDC, MeshDC
-from ada.comms.fb_wsock_gen import (
+from ada.comms.fb.fb_base_gen import (
     ArrayTypeDC,
-    CameraParamsDC,
-    CommandTypeDC,
     ErrorDC,
     FileArgDC,
     FileObjectDC,
     FileObjectRefDC,
     FilePurposeDC,
     FileTypeDC,
-    MeshInfoDC,
-    MessageDC,
     ParameterDC,
     ParameterTypeDC,
-    ProcedureDC,
     ProcedureStartDC,
+    ValueDC,
+)
+from ada.comms.fb.fb_commands_gen import CommandTypeDC, TargetTypeDC, WebClientDC
+from ada.comms.fb.fb_meshes_gen import AppendMeshDC, MeshDC, MeshInfoDC
+from ada.comms.fb.fb_procedures_gen import (
+    ProcedureDC,
     ProcedureStateDC,
     ProcedureStoreDC,
+)
+from ada.comms.fb.fb_scene_gen import (
+    CameraParamsDC,
     SceneDC,
     SceneOperationsDC,
     ScreenshotDC,
-    ServerDC,
-    ServerReplyDC,
-    TargetTypeDC,
-    ValueDC,
-    WebClientDC,
 )
+from ada.comms.fb.fb_server_gen import ServerDC, ServerReplyDC
+from ada.comms.fb.fb_wsock_gen import MessageDC
 
 __all__ = [
     "WebClientDC",

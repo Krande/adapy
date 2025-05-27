@@ -1,9 +1,8 @@
 // ThreeCanvas.tsx
 import React, {useEffect, useRef} from "react";
 import * as THREE from "three";
-import {useModelStore} from "../../state/modelStore";
+import {useModelState} from "../../state/modelState";
 import {useOptionsStore} from "../../state/optionsStore";
-import {useAnimationStore} from "../../state/animationStore";
 import {OrientationGizmo} from "./sceneHelpers/OrientationGizmo";
 import {setupCameraControlsHandlers} from "./sceneHelpers/setupCameraControlsHandlers";
 import {setupCamera} from "./sceneHelpers/setupCamera";
@@ -12,19 +11,26 @@ import {setupLights} from "./sceneHelpers/setupLights";
 import {addDynamicGridHelper} from "./sceneHelpers/addDynamicGridHelper";
 import {setupGizmo} from "./sceneHelpers/setupGizmo";
 import {setupStats} from "./sceneHelpers/setupStats";
-import {setupModelLoader} from "./sceneHelpers/setupModelLoader";
 import {setupResizeHandler} from "./sceneHelpers/setupResizeHandler";
 import {setupPointerHandler} from "./sceneHelpers/setupPointerHandler";
-import {cameraRef, controlsRef, rendererRef, sceneRef, updatelightRef} from "../../state/refs";
+import {animationControllerRef, cameraRef, controlsRef, rendererRef, sceneRef, updatelightRef} from "../../state/refs";
 import {OrbitControls} from "three/examples/jsm/controls/OrbitControls";
-import {useTreeViewStore} from "../../state/treeViewStore";
+import {AnimationController} from "../../utils/scene/animations/AnimationController";
+import {replace_model} from "../../utils/scene/comms/update_scene_from_message";
+
 
 const ThreeCanvas: React.FC = () => {
     const containerRef = useRef<HTMLDivElement>(null);
-    const {modelUrl, setScene, zIsUp, defaultOrbitController} = useModelStore();
-    const {action, setCurrentKey} = useAnimationStore();
+    const {modelUrl, zIsUp, defaultOrbitController} = useModelState();
     const {showPerf} = useOptionsStore();
     const modelGroupRef = useRef<THREE.Group | null>(null); // <-- store loaded model separately
+    const statsRef = useRef<{
+        statsArray: any[];
+        callsPanel: any;
+        trisPanel: any;
+    } | null>(null);
+
+
     useEffect(() => {
         const container = containerRef.current;
         if (!container) return;
@@ -48,26 +54,40 @@ const ThreeCanvas: React.FC = () => {
 
     useEffect(() => {
         if (!containerRef.current) return;
+
+        // ——— INVALIDATE z-up global only once ———
         if (zIsUp) {
             THREE.Object3D.DEFAULT_UP = new THREE.Vector3(0, 0, 1)
         }
         const clock = new THREE.Clock();
 
         // === Scene ===
-        const scene = new THREE.Scene();
-        scene.background = new THREE.Color("#393939");
-        sceneRef.current = scene;
-        setScene(scene);
+        if (!sceneRef.current) {
+            const scene = new THREE.Scene();
+            scene.background = new THREE.Color("#393939");
+            sceneRef.current = scene;
+        }
+        const scene = sceneRef.current;
+
+        // Create the animation controller
+        if (!animationControllerRef.current) {
+            modelGroupRef.current = new THREE.Group();
+            animationControllerRef.current = new AnimationController(scene);
+        }
+        const animation_controls = animationControllerRef.current
 
         // === Renderer ===
-        const renderer = new THREE.WebGLRenderer({antialias: true});
-        renderer.setSize(
-            containerRef.current.clientWidth,
-            containerRef.current.clientHeight,
-        );
-        renderer.shadowMap.enabled = true;
-        containerRef.current.appendChild(renderer.domElement);
-        rendererRef.current = renderer;
+        if (!rendererRef.current) {
+            const renderer = new THREE.WebGLRenderer({antialias: true});
+            renderer.setSize(
+                containerRef.current.clientWidth,
+                containerRef.current.clientHeight,
+            );
+            renderer.shadowMap.enabled = true;
+            containerRef.current.appendChild(renderer.domElement);
+            rendererRef.current = renderer;
+        }
+        const renderer = rendererRef.current;
 
         // === Camera ===
         const camera = setupCamera(containerRef.current, zIsUp);
@@ -89,7 +109,7 @@ const ThreeCanvas: React.FC = () => {
         updatelightRef.current = updateCameraLight;
 
         // === Helpers ===
-        addDynamicGridHelper(scene);
+        const grid_helper = addDynamicGridHelper(scene);
 
         let gizmo: OrientationGizmo | null = null;
         if (containerRef.current && camera && controls) {
@@ -97,33 +117,31 @@ const ThreeCanvas: React.FC = () => {
         }
 
         // === Stats ===
-        const {statsArray, callsPanel, trisPanel} = setupStats(
-            containerRef.current,
-            showPerf,
-        );
+        const {statsArray, callsPanel, trisPanel} = setupStats(containerRef.current);
+        statsRef.current = {statsArray, callsPanel, trisPanel};
 
-        // === Model Loader ===
+        // === Model Cache Loader ===
         if (modelUrl) {
-            modelGroupRef.current = setupModelLoader(scene, modelUrl);
-        } else if (modelGroupRef.current) {
+            replace_model(modelUrl)
+            // delete the B64GLTF from the window object (if it exists)
+            if ((window as any).B64GLTF) {
+                delete (window as any).B64GLTF;
+            }
+        }
+        if (modelGroupRef.current) {
             // If a model is already loaded, add it to the scene
             scene.add(modelGroupRef.current);
         }
 
         // === Render loop ===
-        let prevTime = performance.now();
-
         const animate = () => {
             requestAnimationFrame(animate);
             // 1) start all stats timers
             statsArray.forEach((s) => s.begin());
 
-            if (action) {
-                const now = performance.now();
-                const dt = (now - prevTime) / 1000;
-                prevTime = now;
-                action.getMixer().update(dt);
-                setCurrentKey(action.time);
+            if (animation_controls && animation_controls.currentAction) {
+                const deltaTime = clock.getDelta();
+                animation_controls.update(deltaTime);
             }
 
             if (controls instanceof OrbitControls) {
@@ -155,20 +173,21 @@ const ThreeCanvas: React.FC = () => {
         const cleanupPointerHandler = setupPointerHandler(containerRef.current, camera, scene, renderer);
 
         return () => {
-            cleanupResizeHandler();
-            cleanupPointerHandler();
-            renderer.dispose();
-            containerRef.current?.removeChild(renderer.domElement);
+            // cleanupResizeHandler();
+            // cleanupPointerHandler();
+            // renderer.dispose();
+            // containerRef.current?.removeChild(renderer.domElement);
             if (gizmo && containerRef.current?.contains(gizmo)) {
                 containerRef.current.removeChild(gizmo);
             }
+            grid_helper.dispose();
+            scene.remove(grid_helper);
             removeKeyHandlers?.(); // cleanup key listeners
             // Clean up model scene from main scene
-            scene.clear();
+            // scene.clear();
 
             // Reset global state
-            useModelStore.getState().setScene(null);
-            useModelStore.getState().setRaycaster(null);
+            // sceneRef.current = null;
 
             // Clean up stats panels
             if (statsArray && statsArray.length > 0) {
@@ -177,7 +196,16 @@ const ThreeCanvas: React.FC = () => {
                 });
             }
         };
-    }, [modelUrl, showPerf, defaultOrbitController, zIsUp]);
+    }, [defaultOrbitController, zIsUp]);
+
+    // ——— Separate effect for toggling performance panels only ———
+    useEffect(() => {
+        if (!statsRef.current || !containerRef.current) return;
+        const {statsArray} = statsRef.current;
+        statsArray.forEach(stat => {
+            stat.dom.style.display = showPerf ? "block" : "none";
+        });
+    }, [showPerf]);
 
     return <div ref={containerRef} className="w-full h-full relative"/>;
 };

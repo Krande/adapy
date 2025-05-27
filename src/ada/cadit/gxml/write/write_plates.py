@@ -49,13 +49,11 @@ def add_plate_polygon(plate: Plate, thck_name: str, structures_elem: ET.Element)
     sheet = ET.SubElement(geometry, "sheet")
     polygons = ET.SubElement(sheet, "polygons")
     polygon = ET.SubElement(polygons, "polygon")
-
-    # plate.poly.points3d
-
+    abs_place = plate.placement.get_absolute_placement()
+    origin = abs_place.origin
     for pt in plate.poly.points3d:
-        ET.SubElement(polygon, "position", {"x": str(pt[0]), "y": str(pt[1]), "z": str(pt[2])})
-
-    # ET.SubElement(sat_reference, "face", {"face_ref": sw.face_map.get(plate.guid)})
+        p_tra = origin + pt.copy()
+        ET.SubElement(polygon, "position", {"x": str(p_tra[0]), "y": str(p_tra[1]), "z": str(p_tra[2])})
 
 
 def add_plates(structure_domain: ET.Element, part: Part, sw: SatWriter):

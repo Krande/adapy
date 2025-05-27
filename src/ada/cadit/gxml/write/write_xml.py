@@ -8,8 +8,9 @@ from io import BytesIO
 from typing import TYPE_CHECKING, Callable
 
 from ...sat.write.writer import part_to_sat_writer
-from .write_bcs import add_boundary_conditions
+from .write_bcs import add_boundary_conditions, add_concept_constraints
 from .write_beams import add_beams
+from .write_load_case import add_loads
 from .write_masses import add_masses
 from .write_materials import add_materials
 from .write_plates import add_plates
@@ -55,6 +56,10 @@ def write_xml(part: Part, xml_file, embed_sat=False, writer_postprocessor: Calla
     add_masses(structures_elem, part)
 
     add_sets(structure_domain, part)
+
+    # add loads
+    add_loads(root, part)
+    add_concept_constraints(structures_elem, part)
 
     if writer_postprocessor:
         writer_postprocessor(root, part)

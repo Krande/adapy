@@ -108,7 +108,7 @@ class Section(Root):
         from ada.sections.utils import interpret_section_str
 
         sec, tap = interpret_section_str(section_str)
-        if sec != tap:
+        if sec != tap and tap is not None:
             return [sec, tap]
 
         return sec
@@ -284,6 +284,11 @@ class Section(Root):
 
     def __hash__(self):
         return hash(self.guid)
+
+    def __eq__(self, other: Section):
+        if not isinstance(other, Section):
+            return False
+        return self._guid == other._guid
 
     def __repr__(self):
         if self.type in SectionCat.circular + SectionCat.tubular:

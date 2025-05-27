@@ -1,12 +1,12 @@
 from __future__ import annotations
 
+import io
 import os
 import pathlib
 from itertools import chain
 from typing import TYPE_CHECKING, Any, Callable, Iterable
 
 from ada import Node, Pipe, PrimBox, PrimCyl, PrimExtrude, PrimRevolve, Shape
-from ada.api.animations import AnimationStore
 from ada.api.beams.base_bm import Beam
 from ada.api.beams.beam_tapered import BeamTapered
 from ada.api.connections import JointBase
@@ -21,8 +21,10 @@ from ada.base.types import GeomRepr
 from ada.base.units import Units
 from ada.comms.fb_wrap_model_gen import FileObjectDC, FilePurposeDC, FileTypeDC
 from ada.config import logger
+from ada.fem.concept.base import ConceptFEM
+from ada.visit.gltf.gltf_postprocessor import GltfPostProcessor
 from ada.visit.gltf.graph import GraphNode, GraphStore
-from ada.visit.renderer_manager import RenderParams
+from ada.visit.render_params import RenderParams
 
 if TYPE_CHECKING:
     import trimesh
@@ -84,12 +86,17 @@ class Part(BackendGeom):
         self._parts = dict()
         self._groups: dict[str, Group] = dict()
         self._ifc_class = ifc_class
-        self._animation_store = AnimationStore()
+        self._gltf_postprocessor = GltfPostProcessor()
         if fem is not None:
             fem.parent = self
 
         self._presentation_layers = PresentationLayers()
+
+        # FEM related properties
+        from ada.fem.concept.base import ConceptFEM
+
         self.fem = FEM(name + "-1", parent=self) if fem is None else fem
+        self._concept_fem = ConceptFEM(parent_part=self)
 
     def add_beam(self, beam: Beam, add_to_layer: str = None) -> Beam | BeamTapered:
         if beam.units != self.units:
@@ -288,6 +295,138 @@ class Part(BackendGeom):
         else:
             raise NotImplementedError(f'"{type(obj)}" is not yet supported for smart append')
 
+    def add_sections_in_batch(self, secs: Iterable[Section]) -> dict[Section, Section]:
+        """
+        Add each unique section exactly once.  Returns a map
+        original_section -> container_section.
+        """
+        unique_secs: dict[str, Section] = {}
+        for sec in secs:
+            unique_secs.setdefault(sec.guid, sec)
+
+        mapping: dict[Section, Section] = {}
+        for orig in unique_secs.values():
+            new = self.sections.add(orig)
+            mapping[orig] = new
+        return mapping
+
+    def add_materials_in_batch(self, mats: Iterable[Material]) -> dict[Material, Material]:
+        """
+        Add each unique material exactly once.  Returns a map
+        original_material -> container_material.
+        """
+        unique_mats: dict[str, Material] = {}
+        for m in mats:
+            unique_mats.setdefault(m.guid, m)
+
+        mapping: dict[Material, Material] = {}
+        for orig in unique_mats.values():
+            new = self.materials.add(orig)
+            mapping[orig] = new
+        return mapping
+
+    def add_objects_in_batch(self, objects: Iterable[Beam | Plate], add_to_layer: str = None) -> list[Beam | Plate]:
+        """
+        Batch-add beams and plates. Returns the list of added (or existing) objects.
+        Only supports Beam/BeamTapered and Plate for now.
+        """
+        from ada.api.beams import Beam, BeamTapered
+        from ada.api.plates.base_pl import Plate
+
+        objs = list(objects)
+
+        # 1) Gather all sections & tapers
+        all_secs = []
+        for o in objs:
+            if isinstance(o, Beam):
+                all_secs.append(o.section)
+                if isinstance(o, BeamTapered):
+                    all_secs.append(o.taper)
+
+        sec_map = self.add_sections_in_batch(all_secs)
+
+        # 2) Gather all materials
+        all_mats = []
+        for o in objs:
+            mat = o.material
+            if mat is not None:
+                all_mats.append(mat)
+        mat_map = self.add_materials_in_batch(all_mats)
+
+        # 3) Now one pass to attach & insert
+        results = []
+        units = self.units
+        nodes = self.nodes
+        beams_col = self.beams
+        plates_col = self._plates
+        get_asm = self.get_assembly
+        to_layer_beams = []
+        to_layer_plates = []
+
+        for o in objs:
+            if isinstance(o, Beam):
+                beam = o
+                # units & parent
+                if beam.units != units:
+                    beam.units = units
+                beam.parent = self
+
+                # rewire section & taper
+                beam.section = sec_map[beam.section]
+                if isinstance(beam, BeamTapered):
+                    beam.taper = sec_map[beam.taper]
+
+                # rewire material
+                if beam.material:
+                    beam.material = mat_map[beam.material]
+
+                # merge nodes
+                old = nodes.add(beam.n1)
+                if old is not beam.n1:
+                    beam.n1 = old
+                old = nodes.add(beam.n2)
+                if old is not beam.n2:
+                    beam.n2 = old
+
+                beam.change_type = beam.change_type.ADDED
+                beams_col.add(beam)
+                if add_to_layer:
+                    to_layer_beams.append(beam)
+                results.append(beam)
+
+            elif isinstance(o, Plate):
+                plate = o
+                if plate.units != units:
+                    plate.units = units
+                plate.parent = self
+
+                # rewire material
+                if plate.material:
+                    plate.material = mat_map[plate.material]
+
+                # merge nodes
+                for n in plate.nodes:
+                    nodes.add(n)
+
+                plate.change_type = plate.change_type.ADDED
+                plates_col.add(plate)
+                if add_to_layer:
+                    to_layer_plates.append(plate)
+                results.append(plate)
+
+            else:
+                raise NotImplementedError(f"Cannot batch-add {type(o)}")
+
+        # 4) single get_assembly + layer adds
+        if add_to_layer:
+            asm = get_asm()
+            for b in to_layer_beams:
+                asm.presentation_layers.add_object(b, add_to_layer)
+            for p in to_layer_plates:
+                asm.presentation_layers.add_object(p, add_to_layer)
+
+        return results
+
     def add_boolean(
         self,
         boolean: Boolean | PrimExtrude | PrimRevolve | PrimCyl | PrimBox,
@@ -483,7 +622,7 @@ class Part(BackendGeom):
         for p in self.get_all_subparts() + [self]:
             for stru_cont in [p.beams, p.plates]:
                 if prop == "guid":
-                    res = stru_cont.from_guid(value)
+                    res = stru_cont.from_id(value)
                 else:
                     res = stru_cont.from_name(value)
                 if res is not None:
@@ -918,6 +1057,36 @@ class Part(BackendGeom):
 
         step_writer.export(destination_file)
 
+    def to_aveva_mac(
+        self,
+        destination_file: str | pathlib.Path | io.TextIOBase,
+        beam_spec_map: dict[str, str] | Callable[[Beam], str],
+        panel_spec_map: dict[str, str] | Callable[[Plate], str],
+        beam_material_map: dict[str, str] | Callable[[Beam], str],
+        panel_material_map: dict[str, str] | Callable[[Plate], str],
+    ):
+        from ada.cadit.e3d.write_mac import E3DWriter
+
+        if isinstance(destination_file, str):
+            destination_file = pathlib.Path(destination_file)
+
+        writer = E3DWriter(
+            beam_spec_map=beam_spec_map,
+            panel_spec_map=panel_spec_map,
+            beam_material_map=beam_material_map,
+            panel_material_map=panel_material_map,
+        )
+        mac_str = writer.write_macro(self)
+        if isinstance(destination_file, pathlib.Path) and not destination_file.parent.exists():
+            destination_file.parent.mkdir(parents=True)
+
+        if hasattr(destination_file, "write"):
+            destination_file.write(mac_str)
+        else:
+            destination_file.write_text(mac_str, encoding="utf-8-sig")
+
+        logger.info(f'AVEVA MAC file "{destination_file}" created')
+
     def _sync_ifc_backend(self, backend_file_dir, wc):
         """Handles syncing the IFC backend if enabled."""
         from ada import Assembly
@@ -937,8 +1106,8 @@ class Part(BackendGeom):
         wc.update_file_server(FileObjectDC(self.name, FileTypeDC.IFC, FilePurposeDC.DESIGN, ifc_file))
 
     @property
-    def animation_store(self) -> AnimationStore:
-        return self._animation_store
+    def gltf_postprocessor(self) -> GltfPostProcessor:
+        return self._gltf_postprocessor
 
     @property
     def parts(self) -> dict[str, Part]:
@@ -1120,9 +1289,19 @@ class Part(BackendGeom):
     def ifc_class(self) -> SpatialTypes:
         return self._ifc_class
 
+    @property
+    def concept_fem(self) -> ConceptFEM:
+        """Returns the ConceptFEM object associated with this Part."""
+        return self._concept_fem
+
     def __truediv__(self, other_object):
+        from ada import Beam, Plate
+
         if type(other_object) in [list, tuple]:
-            for obj in other_object:
+            beams_and_plates = list(filter(lambda x: isinstance(x, (Beam, Plate)), other_object))
+            self.add_objects_in_batch(beams_and_plates)
+            not_bm_or_plates = list(filter(lambda x: not isinstance(x, (Beam, Plate)), other_object))
+            for obj in not_bm_or_plates:
                 self.add_object(obj)
         else:
             self.add_object(other_object)

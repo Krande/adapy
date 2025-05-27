@@ -1,13 +1,12 @@
-import {FileObject} from "../../../flatbuffers/wsock/file-object";
+import {FileObject, FileType} from "../../../flatbuffers/base";
 import * as flatbuffers from "flatbuffers";
 import {Message} from "../../../flatbuffers/wsock/message";
-import {webSocketHandler} from "../../websocket_connector";
-import {CommandType} from "../../../flatbuffers/wsock/command-type";
-import {TargetType} from "../../../flatbuffers/wsock/target-type";
-import {Server} from "../../../flatbuffers/wsock/server";
-import {FileType} from "../../../flatbuffers/wsock/file-type";
+import {webSocketAsyncHandler} from "../../websocket/websocket_connector_async";
+import {CommandType} from "../../../flatbuffers/commands";
+import {TargetType} from "../../../flatbuffers/commands/target-type";
+import {Server} from "../../../flatbuffers/server/server";
 
-function start_file_in_local_app(fileobject: FileObject) {
+async function start_file_in_local_app(fileobject: FileObject) {
     console.log("start_file_in_local_app" + fileobject.name());
     let builder = new flatbuffers.Builder(1024);
 
@@ -24,21 +23,21 @@ function start_file_in_local_app(fileobject: FileObject) {
     let serverStore = Server.endServer(builder);
 
     Message.startMessage(builder);
-    Message.addInstanceId(builder, webSocketHandler.instance_id);
+    Message.addInstanceId(builder, webSocketAsyncHandler.instance_id);
     Message.addCommandType(builder, CommandType.START_FILE_IN_LOCAL_APP);
     Message.addTargetGroup(builder, TargetType.SERVER);
     Message.addClientType(builder, TargetType.WEB);
     Message.addServer(builder, serverStore);
     builder.finish(Message.endMessage(builder));
 
-    webSocketHandler.sendMessage(builder.asUint8Array());
+    await webSocketAsyncHandler.sendMessage(builder.asUint8Array());
 }
 
-export function view_file_object_from_server(fileobject: FileObject) {
+export async function view_file_object_from_server(fileobject: FileObject) {
     console.log("get_file_object_from_server" + fileobject.name());
     let builder = new flatbuffers.Builder(1024);
     if (fileobject.fileType() !== FileType.IFC) {
-        start_file_in_local_app(fileobject);
+        await start_file_in_local_app(fileobject);
         return
     }
 
@@ -55,12 +54,12 @@ export function view_file_object_from_server(fileobject: FileObject) {
     let serverStore = Server.endServer(builder);
 
     Message.startMessage(builder);
-    Message.addInstanceId(builder, webSocketHandler.instance_id);
+    Message.addInstanceId(builder, webSocketAsyncHandler.instance_id);
     Message.addCommandType(builder, CommandType.VIEW_FILE_OBJECT);
     Message.addTargetGroup(builder, TargetType.SERVER);
     Message.addClientType(builder, TargetType.WEB);
     Message.addServer(builder, serverStore);
     builder.finish(Message.endMessage(builder));
 
-    webSocketHandler.sendMessage(builder.asUint8Array());
+    await webSocketAsyncHandler.sendMessage(builder.asUint8Array());
 }

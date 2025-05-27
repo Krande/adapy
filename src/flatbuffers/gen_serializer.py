@@ -30,8 +30,8 @@ def float32_serialize_code(field_name: str, builder_name: str, head_spacing: int
     return s
 
 
-def generate_serialize_function(table: TableDefinition) -> str:
-    table_names = [tbl.name for tbl in table.schema.tables]
+def generate_table_serialize_function(table: TableDefinition) -> str:
+    included_table_names = [table.name for incl in table.schema.includes for table in incl.tables]
     enum_names = [enum.name for enum in table.schema.enums]
 
     serialize_code = f"def serialize_{table.name.lower()}(builder: flatbuffers.Builder, obj: Optional[{table.name}DC]) -> Optional[int]:\n"
@@ -43,29 +43,28 @@ def generate_serialize_function(table: TableDefinition) -> str:
             serialize_code += f"    {field.name}_str = None\n"
             serialize_code += f"    if obj.{field.name} is not None:\n"
             serialize_code += f"        {field.name}_str = builder.CreateString(str(obj.{field.name}))\n"
-        elif field.field_type.startswith("["):
-            field_type_value = field.field_type[1:-1]
-            if field_type_value == "float":
+        elif field.is_array:
+            if field.field_type_without_array == "float":
                 serialize_code += float32_serialize_code(field.name, table.name, 4)
-            elif field_type_value == "ubyte":
+            elif field.field_type_without_array == "ubyte":
                 serialize_code += f"    {field.name}_vector = None\n"
                 serialize_code += f"    if obj.{field.name} is not None:\n"
                 serialize_code += f"        {field.name}_vector = builder.CreateByteVector(obj.{field.name})\n"
-            elif field_type_value in table_names:
+            elif field.field_type_without_array in included_table_names:
                 serialize_code += f"    {field.name}_vector = None\n"
                 serialize_code += f"    if obj.{field.name} is not None and len(obj.{field.name}) > 0:\n"
-                serialize_code += f"        {field.name}_list = [serialize_{field_type_value.lower()}(builder, item) for item in obj.{field.name}]\n"
+                serialize_code += f"        {field.name}_list = [serialize_{field.field_type_without_array.lower()}(builder, item) for item in obj.{field.name}]\n"
                 serialize_code += (
                     f"        {table.name}.Start{make_camel_case(field.name)}Vector(builder, len({field.name}_list))\n"
                 )
                 serialize_code += f"        for item in reversed({field.name}_list):\n"
                 serialize_code += "            builder.PrependUOffsetTRelative(item)\n"
                 serialize_code += f"        {field.name}_vector = builder.EndVector()\n"
-            elif field_type_value == "uint32":
+            elif field.field_type_without_array == "uint32":
                 serialize_code += uint32_serialize_code(field.name, table.name, 4)
             else:
                 raise NotImplementedError(f"Unknown field type: {field.field_type}")
-        elif field.field_type in table_names:
+        elif field.field_type in included_table_names:
             serialize_code += f"    {field.name}_obj = None\n"
             serialize_code += f"    if obj.{field.name} is not None:\n"
             serialize_code += (
@@ -85,8 +84,8 @@ def generate_serialize_function(table: TableDefinition) -> str:
         if field.field_type == "string":
             serialize_code += f"    if {field.name}_str is not None:\n"
             serialize_code += f"        {table.name}.Add{make_camel_case(field.name)}(builder, {field.name}_str)\n"
-        elif field.field_type.startswith("["):
-            field_type_value = field.field_type[1:-1]
+        elif field.is_array:
+            field_type_value = field.field_type_without_array
             if field_type_value == "ubyte":
                 serialize_code += f"    if {field.name}_vector is not None:\n"
                 serialize_code += (
@@ -97,7 +96,7 @@ def generate_serialize_function(table: TableDefinition) -> str:
                 serialize_code += (
                     f"        {table.name}.Add{make_camel_case(field.name)}(builder, {field.name}_vector)\n"
                 )
-            elif field_type_value in table_names:
+            elif field_type_value in included_table_names:
                 serialize_code += f"    if obj.{field.name} is not None and len(obj.{field.name}) > 0:\n"
                 serialize_code += (
                     f"        {table.name}.Add{make_camel_case(field.name)}(builder, {field.name}_vector)\n"
@@ -113,7 +112,7 @@ def generate_serialize_function(table: TableDefinition) -> str:
         elif field.field_type in ["byte", "ubyte", "int", "bool", "float"]:
             serialize_code += f"    if obj.{field.name} is not None:\n"
             serialize_code += f"        {table.name}.Add{make_camel_case(field.name)}(builder, obj.{field.name})\n"
-        elif field.field_type in table_names:
+        elif field.field_type in included_table_names:
             # Handle enum or nested table
             serialize_code += f"    if obj.{field.name} is not None:\n"
             serialize_code += f"        {table.name}.Add{make_camel_case(field.name)}(builder, {field.name}_obj)\n"
@@ -166,14 +165,17 @@ def generate_serialize_root_function(schema: FlatBufferSchema) -> str:
         elif field.field_type in ["int", "byte", "ubyte"]:
             pass
         elif field.namespace is not None:
-            if field.field_type in included_table_names:
-                serialize_code += f"    {field.name}_obj = None\n"
-                serialize_code += f"    if message.{field.name} is not None:\n"
-                serialize_code += (
-                    f"        {field.name}_obj = serialize_{field.field_type.lower()}(builder, message.{field.name})\n"
-                )
+            if field.field_type_without_array in included_table_names:
+                if field.is_array:
+                    pass  # This is handled in the array serialization section
+                else:
+                    serialize_code += f"    {field.name}_obj = None\n"
+                    serialize_code += f"    if message.{field.name} is not None:\n"
+                    serialize_code += f"        {field.name}_obj = serialize_{field.field_type_without_array.lower()}(builder, message.{field.name})\n"
             elif field.field_type in included_enum_names:
                 pass
+            else:
+                raise NotImplementedError(f"Unknown field type: {field.field_type}")
         else:
             logger.info(f"Unknown field type: {field.field_type}")
     # Handle string serialization first
@@ -194,12 +196,12 @@ def generate_serialize_root_function(schema: FlatBufferSchema) -> str:
             serialize_code += (
                 f"        {root_table.name}.Add{make_camel_case(field.name)}(builder, message.{field.name}.value)\n"
             )
-        elif field.field_type.startswith("["):
+        elif field.is_array:
             field_type_value = field.field_type[1:-1].lower()
             serialize_code += f"        {field_type_value}_list = [serialize_{field_type_value}(builder, item) for item in message.{field.name}]\n"
             serialize_code += f"        {root_table.name}.Add{make_camel_case(field.name)}(builder, builder.CreateByteVector({field_type_value}_list))\n"
         elif field.namespace is not None:
-            if field.field_type in included_table_names:
+            if field.field_type_without_array in included_table_names:
                 serialize_code += (
                     f"        {root_table.name}.Add{make_camel_case(field.name)}(builder, {field.name}_obj)\n"
                 )
@@ -207,6 +209,8 @@ def generate_serialize_root_function(schema: FlatBufferSchema) -> str:
                 serialize_code += (
                     f"        {root_table.name}.Add{make_camel_case(field.name)}(builder, message.{field.name}.value)\n"
                 )
+            else:
+                raise NotImplementedError(f"Unknown field type: {field.field_type}")
         else:
             raise ValueError(f"Unknown field type: {field.field_type}")
 
@@ -226,16 +230,28 @@ def add_imports(schema: FlatBufferSchema, wsock_model_root, dc_model_root) -> st
     imports += "\n\n"
 
     # add serialization function from other namespaces
-    import_map = defaultdict(list)
+    tbl_import_map = defaultdict(list)
+    enum_import_map = defaultdict(list)
+    all_tbl_names = [tbl.name for tbl in schema.get_all_included_tables()]
+    all_enums = [enum.name for enum in schema.get_all_included_enums()]
     for tbl in schema.tables:
         for field in tbl.fields:
             if field.namespace is not None and field.namespace != schema.namespace:
-                import_map[field.namespace].append(field)
+                if field.field_type_without_array in all_tbl_names:
+                    tbl_import_map[field.namespace].append(field)
+                elif field.field_type_without_array in all_enums:
+                    enum_import_map[field.namespace].append(field)
+                else:
+                    logger.warning(f"Unknown field type: {field.field_type}")
 
-    for namespace, values in import_map.items():
+    for namespace, values in tbl_import_map.items():
         imports += f"from {schema.py_root}.fb_{namespace}_serializer import "
-        imports += ", ".join([f"serialize_{field.field_type.lower()}" for field in values])
+        imports += ", ".join([f"serialize_{field.field_type_without_array.lower()}" for field in values])
         imports += "\n"
+
+    # for namespace, values in enum_import_map.items():
+    #    imports += f"from {schema.py_root}.fb_{namespace}_serializer import "
+    #    imports += ", ".join([f"{field.field_type_without_array.lower()}DC" for field in values])
 
     imports += "\n"
 
@@ -243,10 +259,10 @@ def add_imports(schema: FlatBufferSchema, wsock_model_root, dc_model_root) -> st
 
 
 def generate_serialization_code(
-    fbs_schema: str | FlatBufferSchema, output_file: str | pathlib.Path, import_root, dc_model_root
+    fbs_schema: str | FlatBufferSchema, output_file: str | pathlib.Path, import_root, dc_model_root, py_root: str
 ):
     if isinstance(fbs_schema, str | pathlib.Path):
-        fbs_schema = load_fbs_file(fbs_schema)
+        fbs_schema = load_fbs_file(fbs_schema, py_root=py_root)
 
     imports_str = add_imports(fbs_schema, import_root, dc_model_root)
 
@@ -257,7 +273,7 @@ def generate_serialization_code(
         for table in fbs_schema.tables:
             # if table.name == fbs_schema.root_type:
             #     continue
-            out_file.write(generate_serialize_function(table))
+            out_file.write(generate_table_serialize_function(table))
             out_file.write("\n\n")
 
         # Write the serialize function for the root_type

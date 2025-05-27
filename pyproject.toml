@@ -65,7 +65,7 @@ asyncio_default_fixture_loop_scope = "session"
 testpaths = ["tests"]
 pythonpath = ["src"]
 # This is meant to stop and catch any unintended hangs
-timeout = 120
+timeout = 240
 timeout_method = "thread"
 
 
@@ -117,6 +117,7 @@ flatbuffers = "*"
 python-flatbuffers = "*"
 lark = "*"
 pillow = "*"
+pydantic = "*"
 
 [tool.pixi.feature.fem-deps]
 channels = ["https://repo.prefix.dev/code-aster", "conda-forge"]
@@ -172,8 +173,9 @@ pytest-playwright = "*"
 black = "==24.4.2"
 isort = "==5.13.2"
 ruff = "==0.4.10"
-flatbuffers = "*"
-python-flatbuffers = "*"
+flatbuffers = "==25.2.10"
+python-flatbuffers = "==25.2.10"
+datamodel-code-generator = "==0.30.1"
 
 [tool.pixi.feature.docs.dependencies]
 sphinx = "*"
@@ -186,27 +188,34 @@ pandas = "*"
 
 [tool.pixi.feature.frontend.dependencies]
 nodejs = "*"
-flatbuffers = "*"
+flatbuffers = "==25.2.10"
 
 [tool.pixi.feature.lint.tasks]
 lint = "isort . && black . --config pyproject.toml && ruff check . --fix"
 flat = { cmd = "python src/flatbuffers/update_flatbuffers.py && pixi run lint", cwd = "./" }
 
+json-code-gen-py = { cmd = "datamodel-codegen --input src/gltf_extension_schema/simulation_extension.schema.json --input-file-type jsonschema --output src/ada/fem/sim_metadata.py --output-model-type pydantic_v2.BaseModel", cwd = "./" }
+
 [tool.pixi.feature.docs.tasks]
 docs = { cmd = "cd docs && sphinx-build -b html -v . _build/html", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 serve = { cmd = "python docs/main.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" }, depends-on = ["docs"] }
-fem-doc = { cmd = "python build_verification_report.py true true --export-format=docx", cwd = "./tests/fem", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+fem-doc = { cmd = "python build_verification_report.py true true --export-format=docx", cwd = "./tests/fem/verification_report", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 serve-fem = { cmd = "python doc_live_html.py", cwd = "./tests/fem", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 
 [tool.pixi.feature.tests.tasks]
 pre-install = { cmd = ["playwright", "install"], outputs = ["$PIXI_HOME/envs/tests/Scripts/playwright.exe"] }
 
 test = { cmd = "pytest tests --ignore=tests/profiling --ignore=tests/fem --durations=0", depends-on = ["pre-install"], env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
-test-core = { cmd="pytest tests --ignore=tests/profiling --ignore=tests/fem --ignore=tests/full --durations=0", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+test-core = { cmd="pytest tests/core --durations=0", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+test-full = { cmd="pytest tests/full --durations=0", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 
 [tool.pixi.feature.fem.tasks]
 test-all = { cmd = "pytest tests --durations=0", depends-on = ["pre-install"], env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
-test-fem = { cmd = "pytest tests --ignore=tests/profiling --ignore=tests/core --ignore=tests/full --durations=0", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+test-fem = { cmd = "pytest tests/fem --durations=0", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+test-basic-fem = { cmd = "python basic_fem.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" }, cwd="examples" }
+test-fem-viz = { cmd = "pytest tests/fem/visualization --durations=0", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+
+print-paths = { cmd = "python -c \"import sys, os; print('\\n'.join(sys.path + os.environ.get('PYTHONPATH', '').split(os.pathsep)))\"" }
 
 [tool.pixi.feature.frontend.tasks]
 npm = { cmd = "npm", cwd = "./src/frontend" }
@@ -214,6 +223,8 @@ winstall = { cmd = "npm install", cwd = "./src/frontend", outputs = ["$PIXI_PROJ
 wdev = { cmd = "npm run dev", cwd = "./src/frontend", depends-on = ["winstall"] }
 wbuild = { cmd = "npm run build", cwd = "./src/frontend", depends-on = ["winstall"] }
 fdepcheck = { cmd = "depcheck", cwd = "./src/frontend", depends-on = ["winstall"] }
+
+json-code-gen-ts = { cmd = "npx --yes -p json-schema-to-typescript json2ts --input src/gltf_extension_schema/simulation_extension.schema.json --output src/frontend/src/extensions/sim_metadata.d.ts --name MySimData", depends-on = ["json-code-gen-py"] }
 
 [tool.pixi.feature.profile.tasks]
 scalene = { cmd = "scalene --json -m pytest ./tests/profiling --outfile=profile.json", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }

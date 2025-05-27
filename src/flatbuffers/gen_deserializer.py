@@ -7,7 +7,10 @@ from utils import make_camel_case
 
 
 def generate_deserialize_function(schema: FlatBufferSchema, table: TableDefinition) -> str:
-    table_names = [tbl.name for tbl in schema.tables]
+    table_names = [tbl.name for tbl in schema.get_all_included_tables()]
+    all_enums = [en.name for en in schema.get_all_included_enums()]
+
+    # Generate the function signature
     deserialize_code = f"def deserialize_{table.name.lower()}(fb_obj) -> {table.name}DC | None:\n"
     deserialize_code += "    if fb_obj is None:\n        return None\n\n"
     deserialize_code += f"    return {table.name}DC(\n"
@@ -32,7 +35,7 @@ def generate_deserialize_function(schema: FlatBufferSchema, table: TableDefiniti
                 raise NotImplementedError(f"Unsupported field type: {field.field_type}")
         else:
             # Handle nested tables or enums
-            if field.field_type in [en.name for en in schema.enums]:
+            if field.field_type in all_enums:
                 deserialize_code += (
                     f"        {field.name}={field.field_type}DC(fb_obj.{make_camel_case(field.name)}()),\n"
                 )
@@ -72,26 +75,41 @@ def add_imports(schema: FlatBufferSchema, wsock_model_root, dc_model_root) -> st
     if len(schema.enums) > 0:
         imports += "," + ", ".join([f"{en.name}DC" for en in schema.enums])
 
-    namespace_map = defaultdict(list)
+    tbl_namespace_map = defaultdict(list)
+    enum_namespace_map = defaultdict(list)
+    table_names = [table.name for table in schema.get_all_included_tables()]
+    enum_names = [enum.name for enum in schema.get_all_included_enums()]
     for tbl in schema.tables:
         for field in tbl.fields:
             if field.namespace is not None:
-                namespace_map[field.namespace].append(field.field_type)
+                if field.field_type_without_array in table_names:
+                    tbl_namespace_map[field.namespace].append(field.field_type_without_array)
+                elif field.field_type_without_array in enum_names:
+                    enum_namespace_map[field.namespace].append(field.field_type_without_array)
+                else:
+                    raise NotImplementedError(
+                        f"Unsupported field type: {field.field_type} in namespace: {field.namespace}"
+                    )
 
-    for namespace, values in namespace_map.items():
+    for namespace, values in tbl_namespace_map.items():
         import_func_str = ", ".join([f"deserialize_{field_type.lower()}" for field_type in values])
         if len(values) > 0:
             imports += f"\nfrom {schema.py_root}.fb_{namespace}_deserializer import {import_func_str}\n"
+
+    for namespace, values in enum_namespace_map.items():
+        import_func_str = ", ".join([f"{field_type}DC" for field_type in values])
+        if len(values) > 0:
+            imports += f"\nfrom {schema.py_root}.fb_{namespace}_gen import {import_func_str}\n"
 
     imports += "\n\n"
     return imports
 
 
 def generate_deserialization_code(
-    fbs_schema: str | FlatBufferSchema, output_file: str | pathlib.Path, wsock_model_root, dc_model_root
+    fbs_schema: str | FlatBufferSchema, output_file: str | pathlib.Path, wsock_model_root, dc_model_root, py_root: str
 ):
     if isinstance(fbs_schema, str | pathlib.Path):
-        fbs_schema = load_fbs_file(fbs_schema)
+        fbs_schema = load_fbs_file(fbs_schema, py_root=py_root)
 
     imports_str = add_imports(fbs_schema, wsock_model_root, dc_model_root)
 

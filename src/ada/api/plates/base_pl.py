@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Iterable, Union
+from typing import TYPE_CHECKING, Iterable, Literal, Union
 
 from ada.api.bounding_box import BoundingBox
 from ada.api.curves import CurvePoly2d
@@ -87,6 +87,16 @@ class Plate(BackendGeom):
     @staticmethod
     def from_extruded_area_solid(name, solid: ExtrudedAreaSolid): ...
 
+    def __hash__(self):
+        return hash(self.guid)
+
+    def __eq__(self, other: Plate) -> bool:
+        if self is other:
+            return True
+        if not isinstance(other, Plate):
+            return NotImplemented
+        return self._guid == other._guid
+
     def bbox(self) -> BoundingBox:
         """Bounding Box of plate"""
         if self._bbox is None:
@@ -98,14 +108,14 @@ class Plate(BackendGeom):
         return self._poly.occ_wire()
 
     def shell_occ(self):
-        from ada.occ.geom import geom_to_occ_geom
+        from ada.occ.geom.cache import get_shell_occ
 
-        return geom_to_occ_geom(self.shell_geom())
+        return get_shell_occ(self)
 
     def solid_occ(self) -> TopoDS_Solid:
-        from ada.occ.geom import geom_to_occ_geom
+        from ada.occ.geom.cache import get_solid_occ
 
-        return geom_to_occ_geom(self.solid_geom())
+        return get_solid_occ(self)
 
     def shell_geom(self) -> Geometry:
         import ada.geom.surfaces as geo_su
@@ -206,11 +216,11 @@ class Plate(BackendGeom):
         return self._poly
 
     @property
-    def units(self):
+    def units(self) -> Units:
         return self._units
 
     @units.setter
-    def units(self, value):
+    def units(self, value: Units | Literal["mm", "m"]):
         if isinstance(value, str):
             value = Units.from_str(value)
         if self._units != value:

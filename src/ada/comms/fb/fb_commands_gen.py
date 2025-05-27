@@ -1,0 +1,38 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from enum import Enum
+
+
+class CommandTypeDC(Enum):
+    PING = 0
+    PONG = 1
+    UPDATE_SCENE = 2
+    UPDATE_SERVER = 3
+    MESH_INFO_CALLBACK = 4
+    MESH_INFO_REPLY = 5
+    LIST_WEB_CLIENTS = 6
+    LIST_FILE_OBJECTS = 7
+    LIST_PROCEDURES = 8
+    RUN_PROCEDURE = 9
+    ERROR = 10
+    SERVER_REPLY = 11
+    VIEW_FILE_OBJECT = 12
+    DELETE_FILE_OBJECT = 13
+    START_NEW_NODE_EDITOR = 14
+    START_FILE_IN_LOCAL_APP = 15
+    SCREENSHOT = 16
+
+
+class TargetTypeDC(Enum):
+    WEB = 0
+    LOCAL = 1
+    SERVER = 2
+
+
+@dataclass
+class WebClientDC:
+    instance_id: int = None
+    name: str = ""
+    address: str = ""
+    port: int = None

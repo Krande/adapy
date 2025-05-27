@@ -33,7 +33,7 @@ def generate_dataclasses_from_schema(schema: FlatBufferSchema, output_file: str 
     for tbl in schema.tables:
         for field in tbl.fields:
             if field.namespace is not None and field.namespace != schema.namespace:
-                import_map[field.namespace].append(f"{field.field_type}DC")
+                import_map[field.namespace].append(f"{field.field_type_without_array}DC")
 
     for namespace, values in import_map.items():
         imports = ", ".join(values)

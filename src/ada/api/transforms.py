@@ -50,6 +50,8 @@ class Placement:
     scale: float = 1.0
     parent = None
 
+    _is_identity: bool = field(default=None, init=False)
+
     def __post_init__(self):
         all_dir = [self.xdir, self.ydir, self.zdir]
         if all(x is None for x in all_dir):
@@ -65,6 +67,11 @@ class Placement:
 
         if self.zdir is None and all(x is not None for x in [self.xdir, self.ydir]):
             self.zdir = calc_zvec(self.xdir, self.ydir)
+
+        # Check if any nan in the vectors
+        for vec in [self.xdir, self.ydir, self.zdir]:
+            if vec is not None and np.any(np.isnan(vec)):
+                raise ValueError("Placement vector contains NaN values.")
 
         all_dir = [self.xdir, self.ydir, self.zdir]
         all_vec = ["xdir", "ydir", "zdir"]
@@ -239,12 +246,15 @@ class Placement:
         )
 
     def is_identity(self, use_absolute_placement=True) -> bool:
-        if use_absolute_placement:
-            place = self.get_absolute_placement()
-        else:
-            place = self
+        if self._is_identity is None:
+            if use_absolute_placement:
+                place = self.get_absolute_placement()
+            else:
+                place = self
 
-        return place == Placement(O(), XV(), YV(), ZV())
+            self._is_identity = place == Placement(O(), XV(), YV(), ZV())
+
+        return self._is_identity
 
     def with_zdir(self, new_zdir: Direction | Iterable[float]) -> Placement:
         """Returns a new Placement with the zdir transformed to match new_zdir."""

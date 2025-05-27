@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import xml.etree.ElementTree as ET
-from typing import TYPE_CHECKING, Dict, Optional
+from typing import TYPE_CHECKING
 
 from ada.core.constants import X, Y, Z
+from ada.fem.concept.constraints import ConstraintConceptDofType
 
 from .write_utils import add_local_system
 
@@ -47,7 +48,7 @@ def add_boundary_conditions(root: ET.Element, part: Part):
                 ET.SubElement(bc_con, "boundary_condition", dict(constraint=ftyp, dof=dof_map.get(dof)))
 
 
-def add_dof_constraints(parent: ET.Element, dof_constraints: Dict[str, Dict[str, Optional[float]]]):
+def add_dof_constraints(parent: ET.Element, dof_constraints: list[ConstraintConceptDofType]):
     """
     Adds boundary_condition elements for all 6 DoFs to a support element.
 
@@ -61,10 +62,10 @@ def add_dof_constraints(parent: ET.Element, dof_constraints: Dict[str, Dict[str,
         }
     """
     bc_elem = ET.SubElement(parent, "boundary_conditions")
-    for dof, props in dof_constraints.items():
-        attribs = {"dof": dof, "constraint": props["constraint"]}
-        if "stiffness" in props:
-            attribs["stiffness"] = str(props["stiffness"])
+    for dof in dof_constraints:
+        attribs = {"constraint": dof.constraint_type, "dof": dof.dof}
+        if dof.constraint_type == "spring":
+            attribs["stiffness"] = str(dof.spring_stiffness)
         ET.SubElement(bc_elem, "boundary_condition", attribs)
 
 
@@ -74,7 +75,7 @@ def add_support_curve(
     name: str,
     start_pos: tuple,
     end_pos: tuple,
-    dof_constraints: Dict[str, Dict[str, Optional[float]]],
+    dof_constraints: list[ConstraintConceptDofType],
 ):
     """
     Adds a <support_curve> element with full boundary conditions using the new <line> syntax.
@@ -83,7 +84,7 @@ def add_support_curve(
     curve_elem = ET.SubElement(structure_elem, "support_curve", {"name": name})
 
     # Add local coordinate system
-    add_local_system(curve_elem)
+    curve_elem.append(add_local_system(X, Y, Z))
 
     # Geometry with <line> inside <wire>
     geom = ET.SubElement(curve_elem, "geometry")
@@ -103,16 +104,41 @@ def add_support_curve(
 
 
 def add_support_point(
-    structures_elem: ET.Element, name: str, pos: tuple, dof_constraints: Dict[str, Dict[str, Optional[float]]]
+    structures_elem: ET.Element, name: str, pos: tuple, dof_constraints: list[ConstraintConceptDofType]
 ):
     """
     Adds a <support_point> element with full boundary conditions.
     """
     structure_elem = ET.SubElement(structures_elem, "structure")
     point_elem = ET.SubElement(structure_elem, "support_point", {"name": name})
-    add_local_system(point_elem)
+
+    # Add local coordinate system
+    point_elem.append(add_local_system(X, Y, Z))
 
     geom = ET.SubElement(point_elem, "geometry")
     ET.SubElement(geom, "position", {"x": str(pos[0]), "y": str(pos[1]), "z": str(pos[2])})
 
     add_dof_constraints(point_elem, dof_constraints)
+
+
+def add_concept_constraints(root: ET.Element, part: Part) -> None:
+    """
+    Adds concept constraints to the GXML root element.
+    This function is a placeholder for future implementation.
+    """
+    constraint_concepts = part.concept_fem.constraints.get_global_constraint_concepts()
+    for pname, point in constraint_concepts.point_constraints.items():
+        add_support_point(
+            root,
+            name=point.name,
+            pos=(point.position.x, point.position.y, point.position.z),
+            dof_constraints=point.dof_constraints,
+        )
+    for cname, curve in constraint_concepts.curve_constraints.items():
+        add_support_curve(
+            root,
+            name=curve.name,
+            start_pos=(curve.start_pos.x, curve.start_pos.y, curve.start_pos.z),
+            end_pos=(curve.end_pos.x, curve.end_pos.y, curve.end_pos.z),
+            dof_constraints=curve.dof_constraints,
+        )

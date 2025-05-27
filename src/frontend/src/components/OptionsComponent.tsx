@@ -4,7 +4,7 @@ import {useOptionsStore} from "../state/optionsStore";
 import {useColorStore} from "../state/colorLegendStore";
 import {takeScreenshot} from "../utils/takeScreenshot";
 import {loadRobot} from "../utils/robots";
-import {useModelStore} from "../state/modelStore";
+import {useModelState} from "../state/modelState";
 import {debug_print} from "../utils/debug_print";
 
 function OptionsComponent() {
@@ -17,11 +17,13 @@ function OptionsComponent() {
         setLockTranslation,
         setEnableWebsocket,
         enableWebsocket,
+        enableNodeEditor,
+        setEnableNodeEditor
     } = useOptionsStore();
     const {showLegend, setShowLegend} = useColorStore();
-    const {zIsUp, setZIsUp, defaultOrbitController, setDefaultOrbitController, should_hide_edges, setShouldHideEdges} = useModelStore();
+    const {zIsUp, setZIsUp, defaultOrbitController, setDefaultOrbitController} = useModelState();
 
-    const [size, setSize] = useState({width: 300, height: 460});
+    const [size] = useState({width: 300, height: 460});
     const [position, setPosition] = useState({x: 0, y: 0});
     const [isModalOpen, setIsModalOpen] = useState(false);
 
@@ -145,6 +147,14 @@ function OptionsComponent() {
                     <label className="flex items-center space-x-2">
                         <input
                             type="checkbox"
+                            checked={enableNodeEditor}
+                            onChange={() => setEnableNodeEditor(!enableNodeEditor)}
+                        />
+                        <span>Enable Node Editor</span>
+                    </label>
+                                        <label className="flex items-center space-x-2">
+                        <input
+                            type="checkbox"
                             checked={enableWebsocket}
                             onChange={() => setEnableWebsocket(!enableWebsocket)}
                         />
@@ -165,14 +175,6 @@ function OptionsComponent() {
                             onChange={() => setDefaultOrbitController(!defaultOrbitController)}
                         />
                         <span>Use Default Orbitcontroller</span>
-                    </label>
-                    <label className="flex items-center space-x-2">
-                        <input
-                            type="checkbox"
-                            checked={should_hide_edges}
-                            onChange={() => setShouldHideEdges(!should_hide_edges)}
-                        />
-                        <span>Hide includes edges geometry (slower)</span>
                     </label>
                 </div>
 

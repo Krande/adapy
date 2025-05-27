@@ -1,7 +1,7 @@
 import { CustomBatchedMesh } from "./CustomBatchedMesh";
 import { useSelectedObjectStore } from "../../state/useSelectedObjectStore";
 
-export function perform_selection(
+export async function perform_selection(
   mesh: CustomBatchedMesh,
   shiftKey: boolean,
   rangeId: string

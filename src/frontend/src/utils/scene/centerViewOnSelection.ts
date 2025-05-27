@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import {Camera} from 'three';
 import {useSelectedObjectStore} from '../../state/useSelectedObjectStore';
-import {useModelStore} from '../../state/modelStore';
+import {useModelState} from '../../state/modelState';
 import {OrbitControls} from 'three/examples/jsm/controls/OrbitControls';
 import CameraControls from 'camera-controls';
 
@@ -11,7 +11,7 @@ export const centerViewOnSelection = (
     fillFactor: number = 1 // Default to filling the entire view
 ) => {
     const selectedObjects = useSelectedObjectStore.getState().selectedObjects;
-    const {zIsUp} = useModelStore.getState();
+    const {zIsUp} = useModelState.getState();
 
     if (controls && camera && selectedObjects.size > 0) {
         const boundingBox = new THREE.Box3();

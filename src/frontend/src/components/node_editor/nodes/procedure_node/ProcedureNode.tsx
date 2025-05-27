@@ -2,8 +2,8 @@ import React, {memo} from 'react';
 import {ProcedureHeader} from "./ProcedureHeader";
 import {ParameterList} from "./Parameterlist";
 import DynamicHandle from "../DynamicHandle";
-import {run_procedure} from "../../../../utils/node_editor/run_procedure";
-import {ProcedureT} from "../../../../flatbuffers/wsock/procedure";
+import {run_procedure} from "../../../../utils/node_editor/comms/run_procedure";
+import {ProcedureT} from "../../../../flatbuffers/procedures/procedure";
 
 export function ProcedureNode({id, data}: { id: string; data: Record<string, any | ProcedureT> }) {
     return (

@@ -45,10 +45,10 @@ class BeamTapered(Beam):
         super().__init__(name=name, n1=n1, n2=n2, sec=sec, **kwargs)
 
         if isinstance(sec, str) and tap is None:
-            _, tap = interpret_section_str(sec)
+            sec, tap = interpret_section_str(sec)
 
         if isinstance(tap, str):
-            _, tap = interpret_section_str(tap)
+            tap, _ = interpret_section_str(tap)
 
         self._taper = tap
         self._taper.refs.append(self)

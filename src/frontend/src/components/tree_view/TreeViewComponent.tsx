@@ -13,7 +13,7 @@ const TreeViewComponent: React.FC = () => {
 
     const treeNodes = treeData ? [{id: 'root', name: 'scene', children: [treeData]}] : [{
         id: 'root',
-        name: 'root',
+        name: 'scene',
         children: []
     }];
 
@@ -51,7 +51,9 @@ const TreeViewComponent: React.FC = () => {
 
     const handleSelect = (ids: NodeApi[]) => {
         if (!treeRef.current?.isProgrammaticChange) {
-            handleTreeSelectionChange(ids);
+            (async () => {
+                await handleTreeSelectionChange(ids);
+            })();
         }
     };
 

@@ -1,0 +1,30 @@
+include "base.fbs";
+
+namespace scene;
+
+table CameraParams {
+    position: [float];  // List of floats for position
+    look_at: [float];   // List of floats for look_at
+    up: [float];        // List of floats for up
+    fov: float = 60.0;  // Field of view with a default value
+    near: float = 0.1;  // Near clipping plane with a default value
+    far: float = 1000.0; // Far clipping plane with a default value
+    force_camera: bool = false; // Boolean to force camera with a default value
+}
+
+enum SceneOperations : byte {
+  ADD = 0,
+  REMOVE = 1,
+  REPLACE = 2
+}
+
+table Screenshot {
+    png_file_path: string;
+}
+
+table Scene {
+  operation: SceneOperations;
+  camera_params: CameraParams;
+  current_file: base.FileObject;
+}
+

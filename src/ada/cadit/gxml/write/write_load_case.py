@@ -3,8 +3,15 @@ from __future__ import annotations
 import xml.etree.ElementTree as ET
 from typing import TYPE_CHECKING
 
+from ada.cadit.gxml.write.write_loads import (
+    add_gravity_load,
+    add_surface_load_plate,
+    add_surface_load_polygon,
+)
+from ada.fem.concept.loads import LoadConceptGravity, LoadConceptSurface
+
 if TYPE_CHECKING:
-    pass
+    from ada import Part
 
 
 def add_loadcase(
@@ -138,3 +145,80 @@ def add_loadcase_to_combination(global_elem, lcc_elem, lc_elem, factor=1.0, phas
     ET.SubElement(
         loadcases_elem, "loadcase", {"loadcase_ref": loadcase_ref, "factor": str(factor), "phase": str(phase)}
     )
+
+
+def add_loads(root: ET.Element, part: Part) -> None:
+    from ada.cadit.gxml.write.write_loads import add_line_load, add_point_load
+    from ada.fem.concept.loads import LoadConceptLine, LoadConceptPoint
+
+    global_elem = root.find("./model/analysis_domain/analyses/global")
+
+    loads_concepts = part.concept_fem.loads.get_global_load_concepts()
+
+    for lc_name, lc in loads_concepts.load_cases.items():
+        lc_elem = add_loadcase(
+            global_elem,
+            name=lc_name,
+            design_condition=lc.design_condition,
+            complex_type=lc.complex_type,
+            invalidated=lc.invalidated,
+        )
+        for load in lc.loads:
+            if isinstance(load, LoadConceptLine):
+                # Handle line loads
+                add_line_load(
+                    global_elem,
+                    lc_elem,
+                    load.name,
+                    load.start_point,
+                    load.end_point,
+                    load.intensity_start,
+                    load.intensity_end,
+                    load.system,
+                )
+            elif isinstance(load, LoadConceptPoint):
+                # Handle point loads
+                add_point_load(global_elem, lc_elem, load.name, load.position, load.force, load.moment, load.system)
+            elif isinstance(load, LoadConceptSurface):
+                if load.plate_ref:
+                    add_surface_load_plate(
+                        global_elem,
+                        lc_elem,
+                        name=load.name,
+                        plate_ref=load.plate_ref.name,
+                        pressure=load.pressure,
+                        side=load.side,
+                        system=load.system,
+                    )
+                else:
+                    add_surface_load_polygon(
+                        global_elem,
+                        lc_elem,
+                        name=load.name,
+                        points=load.points,
+                        pressure=load.pressure,
+                        system=load.system,
+                    )
+            elif isinstance(load, LoadConceptGravity):
+                # Handle gravity loads
+                add_gravity_load(global_elem, lc_elem, load.acceleration, load.include_self_weight)
+            else:
+                raise ValueError(f"Unsupported load type: {type(load)}")
+
+    # Add load case to combination if applicable
+    for lcc_name, lcc in loads_concepts.load_case_combinations.items():
+        lcc_elem = add_loadcase_combination(
+            global_elem,
+            name=lcc_name,
+            design_condition=lcc.design_condition,
+            complex_type=lcc.complex_type,
+            convert_load_to_mass=lcc.convert_load_to_mass,
+            global_scale_factor=lcc.global_scale_factor,
+            equipments_type=lcc.equipments_type,
+        )
+        for lc_factored in lcc.load_cases:
+            lc_elem = global_elem.find(f"./loadcases/loadcase_basic[@name='{lc_factored.load_case.name}']")
+            if lc_elem is not None:
+                add_loadcase_to_combination(
+                    global_elem, lcc_elem, lc_elem, factor=lc_factored.factor, phase=lc_factored.phase
+                )

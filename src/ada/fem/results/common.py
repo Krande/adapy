@@ -15,7 +15,7 @@ from ada.fem.shapes.definitions import LineShapes, MassTypes, ShellShapes, Solid
 from ada.visit.deprecated.websocket_server import send_to_viewer
 from ada.visit.gltf.graph import GraphNode, GraphStore
 from ada.visit.gltf.meshes import GroupReference, MergedMesh, MeshType
-from ada.visit.renderer_manager import RenderParams
+from ada.visit.render_params import FEARenderParams, RenderParams
 
 from ...comms.fb_wrap_model_gen import FilePurposeDC
 from .field_data import ElementFieldData, NodalFieldData, NodalFieldType
@@ -215,6 +215,7 @@ class FEAResult:
     results_file_path: pathlib.Path = None
     step_name_map: dict[int | float, str] = None
     description: str = None
+    software_version: str = None
 
     def __post_init__(self):
         if self.results is None:
@@ -451,11 +452,7 @@ class FEAResult:
         force_embed_glb=False,
         apply_transform=False,
     ):
-        from ada.visit.renderer_manager import (
-            FEARenderParams,
-            RendererManager,
-            RenderParams,
-        )
+        from ada.visit.renderer_manager import RendererManager
 
         if renderer == "pygfx":
             scene = self.to_trimesh(step, field, warp_field, warp_step, warp_scale, cfunc)

@@ -4,3 +4,4 @@
 
 export { AppendMesh, AppendMeshT } from './meshes/append-mesh.js';
 export { Mesh, MeshT } from './meshes/mesh.js';
+export { MeshInfo, MeshInfoT } from './meshes/mesh-info.js';

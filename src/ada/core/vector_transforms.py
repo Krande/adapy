@@ -1,11 +1,19 @@
 from __future__ import annotations
 
+from functools import lru_cache
 from typing import TYPE_CHECKING
 
 import numpy as np
 import pyquaternion as pq
+from pyquaternion import Quaternion
 
-from ada.core.vector_utils import angle_between, calc_yvec, is_parallel, unit_vector
+from ada.core.vector_utils import (
+    angle_between,
+    calc_yvec,
+    calc_zvec,
+    is_parallel,
+    unit_vector,
+)
 from ada.geom.placement import Direction
 from ada.geom.points import Point
 
@@ -342,3 +350,32 @@ def projection_onto_line(point: np.ndarray, start: np.ndarray, end: np.ndarray) 
     t0 = np.linalg.norm(p) * np.cos(angle) * unit_vector(v)
     q = t0 - p
     return point + q
+
+
+# cache on (xvec, angle, up) → (up, yvec, angle)
+@lru_cache(maxsize=128)
+def compute_orientation(
+    xvec_tup: tuple[float, float, float], angle: float, up_tup: tuple[float, float, float] | None
+) -> tuple[tuple[float, float, float], tuple[float, float, float], float]:
+    from ada.core.utils import round_array
+
+    xvec = np.array(xvec_tup)
+    zvec = calc_zvec(xvec)
+    if up_tup is None:
+        # default up is z-vec rotated by angle (or just zvec if angle==0)
+        if angle:
+            rot = Quaternion(axis=xvec, degrees=angle).rotation_matrix
+            up_arr = zvec @ rot.T
+        else:
+            up_arr = zvec
+    else:
+        up_arr = np.array(up_tup)
+        # recalc angle if custom up
+        rad = angle_between(up_arr, zvec)
+        angle = float(np.rad2deg(rad))
+    # round & zero small bits
+
+    up_arr = round_array(up_arr)
+    # y is always based on final up
+    y_arr = calc_yvec(xvec, up_arr)
+    return tuple(up_arr), tuple(y_arr), angle
