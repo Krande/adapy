@@ -208,6 +208,7 @@
 <li class="toctree-l1"><a class="reference internal" href="documents/notebooks/design/parts_and_assemblies.html">Parts and Assemblies</a></li>
 <li class="toctree-l1"><a class="reference internal" href="documents/notebooks/design/boolean_operations.html">Boolean Operations</a></li>
 <li class="toctree-l1"><a class="reference internal" href="documents/notebooks/design/placement.html">Placement of parts and objects</a></li>
+<li class="toctree-l1"><a class="reference internal" href="documents/notebooks/design/sections.html">Sections in ADA</a></li>
 <li class="toctree-l1"><a class="reference internal" href="documents/notebooks/analysis/simply_supported_beam_eigenvalue.html">Eigenvalue Analysis of Simply Supported Beam</a></li>
 <li class="toctree-l1"><a class="reference internal" href="documents/notebooks/analysis/simply_supported_beam_static_gravity.html">Static Analysis of Simply Supported Beam</a></li>
 </ul>
@@ -272,15 +273,19 @@
           <li><a href="documents/code.html#module-ada">module</a>
 </li>
         </ul></li>
-        <li><a href="documents/code.html#ada.Beam.add_beam_to_node_refs">add_beam_to_node_refs() (ada.Beam method)</a>
-</li>
         <li><a href="documents/code.html#ada.FEM.add_interface_nodes">add_interface_nodes() (ada.FEM method)</a>
 </li>
         <li><a href="documents/code.html#ada.Part.add_joint">add_joint() (ada.Part method)</a>
 </li>
+        <li><a href="documents/code.html#ada.Part.add_materials_in_batch">add_materials_in_batch() (ada.Part method)</a>
+</li>
+        <li><a href="documents/code.html#ada.Part.add_objects_in_batch">add_objects_in_batch() (ada.Part method)</a>
+</li>
     </ul></td>
     <td style="width: 33%; vertical-align: top;"><ul>
         <li><a href="documents/code.html#ada.FEM.add_rp">add_rp() (ada.FEM method)</a>
+</li>
+        <li><a href="documents/code.html#ada.Part.add_sections_in_batch">add_sections_in_batch() (ada.Part method)</a>
 </li>
         <li><a href="documents/code.html#ada.FEM.add_set">add_set() (ada.FEM method)</a>
 </li>
@@ -328,6 +333,8 @@
   <h2>C</h2>
   <table style="width: 100%" class="indextable genindextable"><tr>
     <td style="width: 33%; vertical-align: top;"><ul>
+        <li><a href="documents/code.html#ada.Part.concept_fem">concept_fem (ada.Part property)</a>
+</li>
         <li><a href="documents/code.html#ada.Part.consolidate_sections">consolidate_sections() (ada.Part method)</a>
 </li>
         <li><a href="documents/code.html#ada.Beam.copy_to">copy_to() (ada.Beam method)</a>
@@ -402,13 +409,19 @@
 </li>
         <li><a href="documents/code.html#ada.FEM.get_all_masses">get_all_masses() (ada.FEM method)</a>
 </li>
+        <li><a href="documents/code.html#ada.Direction.get_angle">get_angle() (ada.Direction method)</a>
+</li>
         <li><a href="documents/code.html#ada.Part.get_by_name">get_by_name() (ada.Part method)</a>
 </li>
     </ul></td>
     <td style="width: 33%; vertical-align: top;"><ul>
+        <li><a href="documents/code.html#ada.Direction.get_length">get_length() (ada.Direction method)</a>
+</li>
         <li><a href="documents/code.html#ada.Beam.get_node_on_beam_by_fraction">get_node_on_beam_by_fraction() (ada.Beam method)</a>
 </li>
         <li><a href="documents/code.html#ada.Beam.get_node_on_beam_by_point">get_node_on_beam_by_point() (ada.Beam method)</a>
+</li>
+        <li><a href="documents/code.html#ada.Direction.get_normalized">get_normalized() (ada.Direction method)</a>
 </li>
         <li><a href="documents/code.html#ada.Part.get_part">get_part() (ada.Part method)</a>
 </li>
@@ -441,6 +454,8 @@
     </ul></td>
     <td style="width: 33%; vertical-align: top;"><ul>
         <li><a href="documents/code.html#ada.Instance">Instance (class in ada)</a>
+</li>
+        <li><a href="documents/code.html#ada.Direction.is_parallel">is_parallel() (ada.Direction method)</a>
 </li>
     </ul></td>
   </tr></table>
@@ -549,11 +564,9 @@
 </li>
         <li><a href="documents/code.html#ada.Assembly.read_ifc">read_ifc() (ada.Assembly method)</a>
 </li>
-        <li><a href="documents/code.html#ada.Part.read_step_file">read_step_file() (ada.Part method)</a>
-</li>
     </ul></td>
     <td style="width: 33%; vertical-align: top;"><ul>
-        <li><a href="documents/code.html#ada.Beam.remove_beam_from_node_refs">remove_beam_from_node_refs() (ada.Beam method)</a>
+        <li><a href="documents/code.html#ada.Part.read_step_file">read_step_file() (ada.Part method)</a>
 </li>
         <li><a href="documents/code.html#ada.PrimRevolve.revolve_angle">revolve_angle (ada.PrimRevolve property)</a>
 </li>
@@ -687,7 +700,7 @@
       
     </aside>
   </div>
-</div><script src="_static/documentation_options.js?v=e663822d"></script>
+</div><script src="_static/documentation_options.js?v=741c5cc6"></script>
     <script src="_static/doctools.js?v=9bcbadda"></script>
     <script src="_static/sphinx_highlight.js?v=dc90522c"></script>
     <script src="_static/scripts/furo.js?v=5fa4622c"></script>

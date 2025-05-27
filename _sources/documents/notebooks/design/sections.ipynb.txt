@@ -1,0 +1,118 @@
+{
+ "cells": [
+  {
+   "metadata": {},
+   "cell_type": "markdown",
+   "source": [
+    "# Sections in ADA\n",
+    "Below are just some of the sections available in ADA.\n",
+    "It is also possible to create custom sections using the `ada.Section` class directly."
+   ],
+   "id": "7018919f5cb888bf"
+  },
+  {
+   "cell_type": "code",
+   "id": "initial_id",
+   "metadata": {},
+   "source": [
+    "import ada"
+   ],
+   "outputs": [],
+   "execution_count": null
+  },
+  {
+   "metadata": {},
+   "cell_type": "code",
+   "source": "sections = []",
+   "id": "589b26cfe6c8a37f",
+   "outputs": [],
+   "execution_count": null
+  },
+  {
+   "cell_type": "code",
+   "id": "c7f1cb6493e448d",
+   "metadata": {},
+   "source": [
+    "section = ada.Section.from_str(\"IPE300\")\n",
+    "sections.append(section)\n",
+    "section"
+   ],
+   "outputs": [],
+   "execution_count": null
+  },
+  {
+   "cell_type": "code",
+   "id": "5e75e5b634d4907c",
+   "metadata": {},
+   "source": [
+    "section = ada.Section.from_str(\"BG3000x1200x20x30\")\n",
+    "sections.append(section)\n",
+    "section"
+   ],
+   "outputs": [],
+   "execution_count": null
+  },
+  {
+   "cell_type": "code",
+   "id": "0531773b-26dd-42c5-8fb4-cf81a4667888",
+   "metadata": {},
+   "source": [
+    "section = ada.Section.from_str(\"IG3000x1200x20x30\")\n",
+    "sections.append(section)\n",
+    "section"
+   ],
+   "outputs": [],
+   "execution_count": null
+  },
+  {
+   "cell_type": "code",
+   "id": "48d73f25-da46-4783-9056-91ded0938949",
+   "metadata": {},
+   "source": [
+    "section = ada.Section.from_str(\"TG3000x1200x20x30\")\n",
+    "sections.append(section)\n",
+    "section"
+   ],
+   "outputs": [],
+   "execution_count": null
+  },
+  {
+   "metadata": {},
+   "cell_type": "code",
+   "source": [
+    "beams = []\n",
+    "for i, sec in enumerate(sections):\n",
+    "    ypos = i * 3\n",
+    "    bm = ada.Beam(f\"bm_{sec.name}\", (0, ypos, 0), (5, ypos, 0), sec=sec)\n",
+    "    beams.append(bm)\n",
+    "\n",
+    "a = ada.Assembly() / beams\n",
+    "a.show()"
+   ],
+   "id": "c6b924090066f480",
+   "outputs": [],
+   "execution_count": null
+  }
+ ],
+ "metadata": {
+  "kernelspec": {
+   "display_name": "Python 3 (ipykernel)",
+   "language": "python",
+   "name": "python3"
+  },
+  "language_info": {
+   "codemirror_mode": {
+    "name": "ipython",
+    "version": 3
+   },
+   "file_extension": ".py",
+   "mimetype": "text/x-python",
+   "name": "python",
+   "nbconvert_exporter": "python",
+   "pygments_lexer": "ipython3",
+   "version": "3.12.8"
+  }
+ },
+ "nbformat": 4,
+ "nbformat_minor": 5
+}
