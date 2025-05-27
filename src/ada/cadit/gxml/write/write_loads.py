@@ -133,7 +133,12 @@ def add_point_load(
 
 
 def add_surface_load_polygon(
-    global_elem: ET.Element, lc_elem: ET.Element, name: str, points: list, pressure: float, system: Literal["local", "global"] = "local"
+    global_elem: ET.Element,
+    lc_elem: ET.Element,
+    name: str,
+    points: list,
+    pressure: float,
+    system: Literal["local", "global"] = "local",
 ) -> ET.Element:
     """
     Adds a <surface_load> with a direct polygon footprint.
@@ -233,7 +238,10 @@ def add_surface_load_plate(
 
 
 def add_gravity_load(
-    global_elem: ET.Element, lc_elem: ET.Element, acceleration: tuple[float, float, float] = (0.0, 0.0, -9.80665), include_selfweight: bool = True
+    global_elem: ET.Element,
+    lc_elem: ET.Element,
+    acceleration: tuple[float, float, float] = (0.0, 0.0, -9.80665),
+    include_selfweight: bool = True,
 ) -> ET.Element:
     """
     Adds a <gravity_load> element with self-weight to the loadcase in <environmental_loads>.

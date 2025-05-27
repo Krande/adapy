@@ -11,8 +11,8 @@ from .surfaces import Surface
 if TYPE_CHECKING:
     from ada import Part
 
+    from .base import FEM
     from .common import Amplitude
-    from .concept import FEM
 
 
 class BcTypes:

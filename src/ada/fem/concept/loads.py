@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import enum
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Literal, Iterable
+from typing import TYPE_CHECKING, Iterable, Literal
 
 if TYPE_CHECKING:
-    from ada import Part, Point, Plate
+    from ada import Plate, Point
+    from ada.fem.concept.base import ConceptFEM
 
 
 class DesignCondition(str, enum.Enum):
@@ -20,7 +21,7 @@ class DesignCondition(str, enum.Enum):
 
 @dataclass
 class LoadConcepts:
-    parent_part: Part
+    parent_fem: ConceptFEM = None
     load_cases: dict[str, LoadConceptCase] = field(default_factory=dict)
     load_case_combinations: dict[str, LoadConceptCaseCombination] = field(default_factory=dict)
 
@@ -30,7 +31,9 @@ class LoadConcepts:
         self.load_cases[load_case.name] = load_case
         return load_case
 
-    def add_load_case_combination(self, load_case_combination: LoadConceptCaseCombination) -> LoadConceptCaseCombination:
+    def add_load_case_combination(
+        self, load_case_combination: LoadConceptCaseCombination
+    ) -> LoadConceptCaseCombination:
         if load_case_combination.name in self.load_case_combinations:
             raise ValueError(f"Load case combination with name {load_case_combination.name} already exists.")
         self.load_case_combinations[load_case_combination.name] = load_case_combination
@@ -40,15 +43,15 @@ class LoadConcepts:
         """Consolidate all load cases and load combinations from all parts into a new LoadConcepts object."""
         load_cases = {}
         load_combinations = {}
-        all_parts = self.parent_part.get_all_parts_in_assembly(include_self=True)
+        all_parts = self.parent_fem.parent_part.get_all_parts_in_assembly(include_self=True)
         for p in all_parts:
-            for lc_name, lc in p.load_concepts.load_cases.items():
+            for lc_name, lc in p.concept_fem.loads.load_cases.items():
                 if lc_name not in load_cases:
                     load_cases[lc_name] = lc
                 else:
                     # Merge loads if they have the same name
                     load_cases[lc_name].loads.extend(lc.loads)
-            for lcc_name, lcc in p.load_concepts.load_case_combinations.items():
+            for lcc_name, lcc in p.concept_fem.loads.load_case_combinations.items():
                 if lcc_name not in load_combinations:
                     load_combinations[lcc_name] = lcc
                 else:
@@ -56,7 +59,7 @@ class LoadConcepts:
                     existing_lcc = load_combinations[lcc_name]
                     existing_lcc.load_cases.extend(lcc.load_cases)
 
-        return LoadConcepts(self.parent_part, load_cases, load_combinations)
+        return LoadConcepts(self.parent_fem, load_cases, load_combinations)
 
 
 @dataclass
@@ -75,6 +78,7 @@ class LoadConceptPoint:
 
         if not isinstance(self.position, Point):
             raise TypeError("point must be of type Point or convertible to Point.")
+
 
 @dataclass
 class LoadConceptLine:
@@ -95,6 +99,7 @@ class LoadConceptLine:
 
         if not isinstance(self.start_point, Point) or not isinstance(self.end_point, Point):
             raise TypeError("start_point and end_point must be of type Point or convertible to Point.")
+
 
 @dataclass
 class LoadConceptSurface:
@@ -120,7 +125,9 @@ class LoadConceptGravity:
 @dataclass
 class LoadConceptCase:
     name: str
-    loads: list[LoadConceptLine | LoadConceptPoint | LoadConceptSurface | LoadConceptGravity] = field(default_factory=list)
+    loads: list[LoadConceptLine | LoadConceptPoint | LoadConceptSurface | LoadConceptGravity] = field(
+        default_factory=list
+    )
     design_condition: DesignCondition = DesignCondition.OPERATING
     fem_loadcase_number: int = 1
     complex_type: Literal["static"] = "static"
@@ -138,8 +145,8 @@ class LoadConceptCaseFactored:
 class LoadConceptCaseCombination:
     name: str
     load_cases: list[LoadConceptCaseFactored]
-    design_condition: DesignCondition
-    complex_type: Literal["static"]
+    design_condition: DesignCondition | Literal["operating"] = DesignCondition.OPERATING
+    complex_type: Literal["static"] = "static"
     invalidated: bool = True
     convert_load_to_mass: bool = False
     global_scale_factor: float = 1.0
