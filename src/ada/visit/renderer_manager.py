@@ -202,9 +202,14 @@ class RendererManager:
             if params.scene_post_processor is not None:
                 scene = params.scene_post_processor(scene)
 
+            if isinstance(obj, trimesh.Scene):
+                scene_name = obj.source.file_name.split(".")[0] if obj.source.file_name is not None else "Scene"
+            else:
+                scene_name = obj.name if hasattr(obj, "name") else "Scene"
+
             # Send the scene to the WebSocket client
             wc.update_scene(
-                obj.name if hasattr(obj, "name") else "Scene",
+                scene_name,
                 scene,
                 purpose=params.purpose,
                 scene_op=params.scene.operation,
