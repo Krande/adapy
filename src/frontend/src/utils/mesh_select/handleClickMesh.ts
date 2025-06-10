@@ -31,9 +31,6 @@ export async function handleClickMesh(
   if (!drawRange) {
     if (mesh.userData?.node_id) {
       drawRange = await queryMeshDrawRange(mesh.unique_key, `node${mesh.userData?.node_id}`, faceIndex);
-      if (drawRange) {
-        console.warn(`using node_id ${mesh.userData?.node_id} for draw range lookup`);
-      }
     }
     if (!drawRange) {
       console.warn("selected mesh has no draw range");

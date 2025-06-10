@@ -42,7 +42,7 @@ export const CustomNode: React.FC<NodeRendererProps<TreeNodeData>> = ({style, no
                     {isOpen ? '▼' : '▶'}
                 </div>
             )}
-            <div>{data.name}</div>
+            <div className="whitespace-nowrap">{data.name}</div>
         </div>
     );
 };
