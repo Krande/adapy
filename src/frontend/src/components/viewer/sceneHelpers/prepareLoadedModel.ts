@@ -33,8 +33,15 @@ export async function prepareLoadedModel({gltf_scene, hash}: PrepareLoadedModelP
 
     for (const {original, parent} of meshesToReplace) {
         const meshName = original.name;
-        const drawRangesData = gltf_scene.userData[`draw_ranges_${meshName}`] as Record<string, [number, number]>;
-
+        let drawRangesData = gltf_scene.userData[`draw_ranges_${meshName}`] as Record<string, [number, number]>;
+        const node_id = original.userData?.node_id
+        // if length is 0, we don't need to convert
+        if (!drawRangesData && node_id){
+            drawRangesData = gltf_scene.userData[`draw_ranges_node${node_id}`] as Record<string, [number, number]>;
+        }
+        if (!drawRangesData) {
+            console.warn(`No draw ranges found for mesh: ${meshName}`);
+        }
         const drawRanges = new Map<string, [number, number]>();
         if (drawRangesData) {
             for (const [rangeId, [start, count]] of Object.entries(drawRangesData)) {
