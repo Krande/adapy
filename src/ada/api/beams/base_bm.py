@@ -171,7 +171,7 @@ class Beam(BackendGeom):
 
         return get_singular_node_by_volume(self.parent.fem.nodes, self.n1.p + fraction * self.length * self.xvec)
 
-    def get_outer_points(self):
+    def get_outer_points(self) -> tuple[list[Point], list[Point]]:
         from itertools import chain
 
         from ada.core.vector_transforms import local_2_global_points

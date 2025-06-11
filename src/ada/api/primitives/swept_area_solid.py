@@ -25,10 +25,11 @@ class PrimSweep(Shape):
         origin=None,
         derived_reference=False,
         tol=1e-3,
+        radiis: dict[int, float]=None,
         **kwargs,
     ):
         if not isinstance(sweep_curve, CurveOpen3d):
-            sweep_curve = CurveOpen3d(sweep_curve, tol=tol)
+            sweep_curve = CurveOpen3d(sweep_curve, radiis=radiis, tol=tol)
 
         # In the IFC schema the start vector of the sweep curve is always the z-axis.
         # So we apply the necessary transform to the placement object
