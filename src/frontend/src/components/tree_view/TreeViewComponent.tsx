@@ -1,13 +1,13 @@
 import React, {useEffect, useRef, useState} from 'react';
 import {useTreeViewStore} from '../../state/treeViewStore';
-import {NodeApi, Tree, TreeApi} from "react-arborist";
+import {NodeApi, Tree} from "react-arborist";
 import {CustomNode} from './CustomNode';
 import {handleTreeSelectionChange} from "../../utils/tree_view/handleClickedNode";
 
 const TreeViewComponent: React.FC = () => {
     const {treeData, setTree, searchTerm} = useTreeViewStore();
     const [treeHeight, setTreeHeight] = useState<number>(800); // Default height
-    const treeRef = useRef<any>();  // Use 'any' to allow custom properties
+    const treeRef = useRef<any>(null);  // Use 'any' to allow custom properties
     const containerRef = useRef<HTMLDivElement | null>(null);
     const headerRef = useRef<HTMLDivElement | null>(null);
 

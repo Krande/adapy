@@ -1297,7 +1297,7 @@ class Part(BackendGeom):
     def __truediv__(self, other_object):
         from ada import Beam, Plate
 
-        if type(other_object) in [list, tuple]:
+        if type(other_object) in [list, tuple, set]:
             beams_and_plates = list(filter(lambda x: isinstance(x, (Beam, Plate)), other_object))
             self.add_objects_in_batch(beams_and_plates)
             not_bm_or_plates = list(filter(lambda x: not isinstance(x, (Beam, Plate)), other_object))

@@ -142,7 +142,20 @@ class RendererManager:
         force_ws=False,
         auto_embed_glb_in_notebook=True,
         force_embed_glb=False,
+        always_use_external_viewer=False,
     ) -> HTML | None:
+        """
+        Render the given object using the specified renderer.
+
+
+        Parameters:
+        - obj: The object to render, can be a BackendGeom, Part, Assembly, FEAResult, FEM, trimesh.Scene, or MeshDC.
+        - params: RenderParams object containing rendering parameters.
+        - force_ws: If True, forces the use of WebSocket for rendering.
+        - auto_embed_glb_in_notebook: If True, automatically embeds GLB in Jupyter Notebook.
+        - force_embed_glb: If True, forces embedding of GLB in the viewer.
+        - always_use_external_viewer: If True, always uses an external viewer even if in a notebook.
+        """
         from ada import Assembly
         from ada.comms.wsock_client_sync import WebSocketClientSync
         from ada.visit.rendering.renderer_react import RendererReact
@@ -151,13 +164,13 @@ class RendererManager:
             scene = RendererManager.obj_to_trimesh(obj, params)
             return scene.show()
 
-        if (self.is_in_notebook() and auto_embed_glb_in_notebook) or force_embed_glb:
+        if (self.is_in_notebook() and auto_embed_glb_in_notebook and always_use_external_viewer is False) or force_embed_glb:
             self.embed_glb = True
 
         renderer_obj = RendererReact()
         if self.embed_glb:
             encoded = RendererManager.obj_to_encoded_glb(obj, params)
-            if self.is_in_notebook():
+            if self.is_in_notebook() and always_use_external_viewer is False:
                 renderer = renderer_obj.get_notebook_renderer_widget(
                     target_id=None, embed_base64_glb=encoded, force_ws=force_ws
                 )
@@ -185,7 +198,7 @@ class RendererManager:
                 gltf_tree_postprocessor=params.gltf_tree_postprocessor,
             )
 
-        if self.is_in_notebook():
+        if self.is_in_notebook() and always_use_external_viewer is False:
             target_id = params.unique_id
         else:
             target_id = None  # Currently does not support unique viewer IDs outside of notebooks
