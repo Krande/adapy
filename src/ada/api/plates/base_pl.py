@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Iterable, Literal, Union
+from typing import TYPE_CHECKING, Iterable, Literal, Union, TypeAlias
 
 from ada.api.bounding_box import BoundingBox
 from ada.api.curves import CurvePoly2d
@@ -20,7 +20,16 @@ if TYPE_CHECKING:
 
     from ada import Placement
 
-_NTYPE = Union[int, float]
+_NTYPE: TypeAlias = Union[int, float]
+# Define coordinate types
+Coordinate: TypeAlias = tuple[_NTYPE, _NTYPE]
+CoordinateSequence: TypeAlias = (
+    list[Coordinate] |
+    list[list[Coordinate]] |
+    list[tuple[Coordinate, ...]] |
+    tuple[Coordinate, ...] |
+    tuple[list[Coordinate], ...]
+)
 
 
 class Plate(BackendGeom):
@@ -42,7 +51,7 @@ class Plate(BackendGeom):
     def __init__(
         self,
         name: str,
-        points: CurvePoly2d | list[tuple[_NTYPE, _NTYPE]],
+        points: CurvePoly2d | CoordinateSequence,
         t: float,
         mat: str | Material = "S420",
         origin: Iterable | Point = None,
