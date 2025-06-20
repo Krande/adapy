@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, ClassVar, Iterable, List, Union
 import numpy as np
 import pyquaternion as pq
 
-from ada.core.vector_transforms import normal_to_points_in_plane, transform_3x3
+from ada.core.vector_transforms import normal_to_points_in_plane, transform_3x3, compute_orientation_vec
 from ada.core.vector_utils import calc_xvec, calc_yvec, calc_zvec, unit_vector
 from ada.geom.placement import XV, YV, ZV, Axis2Placement3D, Direction, O
 from ada.geom.points import Point
@@ -53,20 +53,19 @@ class Placement:
     _is_identity: bool = field(default=None, init=False)
 
     def __post_init__(self):
-        all_dir = [self.xdir, self.ydir, self.zdir]
-        if all(x is None for x in all_dir):
-            self.xdir = Direction(1, 0, 0)
-            self.ydir = Direction(0, 1, 0)
-            self.zdir = Direction(0, 0, 1)
+        from ada.geom.placement import O
 
-        if self.ydir is None and all(x is not None for x in [self.xdir, self.zdir]):
-            self.ydir = calc_yvec(self.xdir, self.zdir)
+        # Convert input directions to tuples for caching
+        xdir = tuple(self.xdir) if self.xdir is not None else None
+        ydir = tuple(self.ydir) if self.ydir is not None else None
+        zdir = tuple(self.zdir) if self.zdir is not None else None
 
-        if self.xdir is None and all(x is not None for x in [self.ydir, self.zdir]):
-            self.xdir = calc_xvec(self.ydir, self.zdir)
+        # Use cached compute_orientation_vec function
+        xv, yv, zv = compute_orientation_vec(xdir, ydir, zdir)
 
-        if self.zdir is None and all(x is not None for x in [self.xdir, self.ydir]):
-            self.zdir = calc_zvec(self.xdir, self.ydir)
+        self.xdir = Direction(xv)
+        self.ydir = Direction(yv)
+        self.zdir = Direction(zv)
 
         # Check if any nan in the vectors
         for vec in [self.xdir, self.ydir, self.zdir]:
@@ -82,14 +81,18 @@ class Placement:
                 "Please supply at least two vectors to define a placement."
             )
 
-        self.xdir = Direction(*self.xdir)
-        self.ydir = Direction(*self.ydir)
-        self.zdir = Direction(*self.zdir)
+        # Set origin
         if self.origin is None:
-            self.origin = Point(0, 0, 0)
-
-        if not isinstance(self.origin, Point):
-            self.origin = Point(*self.origin)
+            self.origin = O()
+        elif not isinstance(self.origin, Point):
+            # Check if origin is a common point
+            if hasattr(self.origin, "__iter__") and len(self.origin) == 3:
+                if tuple(self.origin) == (0.0, 0.0, 0.0):
+                    self.origin = O()
+                else:
+                    self.origin = Point(*self.origin)
+            else:
+                self.origin = Point(*self.origin)
 
     def __getitem__(self, key):
         return [self.xdir, self.ydir, self.zdir][key]

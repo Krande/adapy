@@ -34,11 +34,13 @@ class Shape(BackendGeom):
         units=Units.M,
         metadata=None,
         guid=None,
-        placement=Placement(),
+        placement=None,
         ifc_store: IfcStore = None,
         ifc_class: ShapeTypes = ShapeTypes.IfcBuildingElementProxy,
         parent=None,
     ):
+        if placement is None:
+            placement = Placement()
         super().__init__(
             name,
             guid=guid,
