@@ -45,7 +45,7 @@ class Plate(BackendGeom):
     :param mat: Material. Can be either Material object or built-in materials ('S420' or 'S355')
     :param origin: Explicitly define origin of plate. If not set
     :param xdir: Explicitly define x direction of plate. If not set
-    :param n: Explicitly define normal direction of plate. If not set
+    :param normal: Explicitly define normal direction of plate. If not set
     """
 
     def __init__(
@@ -56,7 +56,7 @@ class Plate(BackendGeom):
         mat: str | Material = "S420",
         origin: Iterable | Point = None,
         xdir: Iterable | Direction = None,
-        n: Iterable | Direction = None,
+        normal: Iterable | Direction = None,
         orientation: Placement = None,
         pl_id=None,
         tol=None,
@@ -76,7 +76,7 @@ class Plate(BackendGeom):
         else:
             self._poly = CurvePoly2d(
                 points2d=points,
-                normal=n,
+                normal=normal,
                 origin=origin,
                 xdir=xdir,
                 tol=tol,
@@ -212,7 +212,7 @@ class Plate(BackendGeom):
         self._material = value
 
     @property
-    def n(self) -> Direction:
+    def normal(self) -> Direction:
         """Normal vector"""
         return self.poly.normal
 
@@ -252,7 +252,7 @@ class Plate(BackendGeom):
         origin = f"origin={self.placement.origin.tolist()}"
         xdir = f"xdir={self.poly.xdir.tolist()}"
         normal = f"normal={self.poly.normal.tolist()}"
-        return f'Plate("{self.name}", {pts}, t={self.t}, "{self.material.name}", {origin}, {xdir}, {normal})'
+        return f'{self.__class__.__name__}("{self.name}", {pts}, t={self.t}, mat="{self.material.name}", {origin}, {xdir}, {normal})'
 
 
 class PlateCurved(BackendGeom):
