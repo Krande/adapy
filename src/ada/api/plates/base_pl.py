@@ -249,7 +249,7 @@ class Plate(BackendGeom):
             list(x) + [self.poly.radiis.get(i)] if i in self.poly.radiis.keys() else list(x)
             for i, x in enumerate(self.poly.points2d)
         ]
-        origin = f"origin={self.placement.origin.tolist()}"
+        origin = f"origin={self.poly.origin.tolist()}"
         xdir = f"xdir={self.poly.xdir.tolist()}"
         normal = f"normal={self.poly.normal.tolist()}"
         return f'{self.__class__.__name__}("{self.name}", {pts}, t={self.t}, mat="{self.material.name}", {origin}, {xdir}, {normal})'
