@@ -15,7 +15,6 @@ color_dict = {
     "yellow": (255, 255, 0),
     "cyan": (0, 255, 255),
     "magenta": (255, 0, 255),
-    
     # Gray variations
     "gray": (128, 128, 128),
     "grey": (128, 128, 128),  # Alternative spelling
@@ -26,7 +25,6 @@ color_dict = {
     "silver": (192, 192, 192),
     "dimgray": (105, 105, 105),
     "gainsboro": (220, 220, 220),
-    
     # Red variations
     "darkred": (139, 0, 0),
     "crimson": (220, 20, 60),
@@ -43,7 +41,6 @@ color_dict = {
     "deeppink": (255, 20, 147),
     "palevioletred": (219, 112, 147),
     "mediumvioletred": (199, 21, 133),
-    
     # Orange variations
     "orange": (255, 165, 0),
     "darkorange": (255, 140, 0),
@@ -58,7 +55,6 @@ color_dict = {
     "sandybrown": (244, 164, 96),
     "tan": (210, 180, 140),
     "burlywood": (222, 184, 135),
-    
     # Yellow variations
     "gold": (255, 215, 0),
     "khaki": (240, 230, 140),
@@ -72,7 +68,6 @@ color_dict = {
     "cornsilk": (255, 248, 220),
     "ivory": (255, 255, 240),
     "beige": (245, 245, 220),
-    
     # Green variations
     "darkgreen": (0, 100, 0),
     "forestgreen": (34, 139, 34),
@@ -91,7 +86,6 @@ color_dict = {
     "darkolivegreen": (85, 107, 47),
     "olivedrab": (107, 142, 35),
     "olive": (128, 128, 0),
-    
     # Blue variations
     "navy": (0, 0, 128),
     "darkblue": (0, 0, 139),
@@ -114,7 +108,6 @@ color_dict = {
     "cadetblue": (95, 158, 160),
     "darkcyan": (0, 139, 139),
     "teal": (0, 128, 128),
-    
     # Purple variations
     "purple": (128, 0, 128),
     "darkviolet": (148, 0, 211),
@@ -132,16 +125,13 @@ color_dict = {
     "indigo": (75, 0, 130),
     "lavender": (230, 230, 250),
     "lavenderblush": (255, 240, 245),
-    
     # Brown variations
     "brown": (165, 42, 42),
     "maroon": (128, 0, 0),
-    "darkred": (139, 0, 0),
     "saddlebrown": (139, 69, 19),
     "sienna": (160, 82, 45),
     "chocolate": (210, 105, 30),
     "peru": (205, 133, 63),
-    
     # Misc colors
     "mintcream": (245, 255, 250),
     "honeydew": (240, 255, 240),
@@ -154,7 +144,6 @@ color_dict = {
     "floralwhite": (255, 250, 240),
     "antiquewhite": (250, 235, 215),
     "linen": (250, 240, 230),
-    "lavenderblush": (255, 240, 245),
     "mistyrose": (255, 228, 225),
 }
 

@@ -164,7 +164,9 @@ class RendererManager:
             scene = RendererManager.obj_to_trimesh(obj, params)
             return scene.show()
 
-        if (self.is_in_notebook() and auto_embed_glb_in_notebook and always_use_external_viewer is False) or force_embed_glb:
+        if (
+            self.is_in_notebook() and auto_embed_glb_in_notebook and always_use_external_viewer is False
+        ) or force_embed_glb:
             self.embed_glb = True
 
         renderer_obj = RendererReact()

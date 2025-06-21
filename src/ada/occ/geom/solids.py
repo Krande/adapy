@@ -2,8 +2,11 @@ import math
 
 import OCC.Core.BRepPrimAPI as occBrep
 from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_RoundCorner, BRepBuilderAPI_Transform
-from OCC.Core.BRepOffsetAPI import BRepOffsetAPI_MakePipe, BRepOffsetAPI_ThruSections, BRepOffsetAPI_MakePipeShell
-from OCC.Core.gp import gp_Ax1, gp_Ax2, gp_Dir, gp_Pnt, gp_Vec, gp_Trsf, gp_Ax3
+from OCC.Core.BRepOffsetAPI import (
+    BRepOffsetAPI_MakePipeShell,
+    BRepOffsetAPI_ThruSections,
+)
+from OCC.Core.gp import gp_Ax1, gp_Ax2, gp_Ax3, gp_Dir, gp_Pnt, gp_Trsf, gp_Vec
 from OCC.Core.TopoDS import TopoDS_Shape, TopoDS_Solid
 from OCC.Extend.TopologyUtils import TopologyExplorer
 

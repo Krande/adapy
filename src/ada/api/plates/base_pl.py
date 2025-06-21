@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Iterable, Literal, Union, TypeAlias
+from typing import TYPE_CHECKING, Iterable, Literal, TypeAlias, Union
 
 from ada.api.bounding_box import BoundingBox
 from ada.api.curves import CurvePoly2d
@@ -24,11 +24,11 @@ _NTYPE: TypeAlias = Union[int, float]
 # Define coordinate types
 Coordinate: TypeAlias = tuple[_NTYPE, _NTYPE]
 CoordinateSequence: TypeAlias = (
-    list[Coordinate] |
-    list[list[Coordinate]] |
-    list[tuple[Coordinate, ...]] |
-    tuple[Coordinate, ...] |
-    tuple[list[Coordinate], ...]
+    list[Coordinate]
+    | list[list[Coordinate]]
+    | list[tuple[Coordinate, ...]]
+    | tuple[Coordinate, ...]
+    | tuple[list[Coordinate], ...]
 )
 
 

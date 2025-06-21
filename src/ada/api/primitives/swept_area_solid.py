@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Iterable
 
-import numpy as np
-
 from ada.api.curves import CurveOpen3d, CurvePoly2d
 from ada.api.primitives.base import Shape
 from ada.api.transforms import Direction, Placement
@@ -26,7 +24,7 @@ class PrimSweep(Shape):
         origin=None,
         derived_reference=False,
         tol=1e-3,
-        radiis: dict[int, float]=None,
+        radiis: dict[int, float] = None,
         **kwargs,
     ):
         if not isinstance(sweep_curve, CurveOpen3d):

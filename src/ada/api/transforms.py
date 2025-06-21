@@ -7,8 +7,12 @@ from typing import TYPE_CHECKING, ClassVar, Iterable, List, Union
 import numpy as np
 import pyquaternion as pq
 
-from ada.core.vector_transforms import normal_to_points_in_plane, transform_3x3, compute_orientation_vec
-from ada.core.vector_utils import calc_xvec, calc_yvec, calc_zvec, unit_vector
+from ada.core.vector_transforms import (
+    compute_orientation_vec,
+    normal_to_points_in_plane,
+    transform_3x3,
+)
+from ada.core.vector_utils import calc_xvec, calc_yvec, unit_vector
 from ada.geom.placement import XV, YV, ZV, Axis2Placement3D, Direction, O
 from ada.geom.points import Point
 
@@ -407,3 +411,10 @@ class EquationOfPlane:
         p = np.array(point)
         dist = p.dot(self.normal) + self.d
         return p - dist * self.normal
+
+    def get_geom_as_part(self, name: str) -> Part:
+        """Get the plane and origin of the"""
+        from ada import Shape
+
+        Shape()
+        return

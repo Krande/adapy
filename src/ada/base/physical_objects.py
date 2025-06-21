@@ -181,7 +181,7 @@ class BackendGeom(Root):
         embed_glb: bool = False,
         auto_embed_glb_in_notebook=True,
         force_ws=False,
-        always_use_external_viewer=False
+        always_use_external_viewer=False,
     ):
         """
         Show model using either react, pygfx or trimesh renderer and set up WebSocket connection
@@ -234,7 +234,7 @@ class BackendGeom(Root):
             params_override,
             force_ws=force_ws,
             auto_embed_glb_in_notebook=auto_embed_glb_in_notebook,
-            always_use_external_viewer=always_use_external_viewer
+            always_use_external_viewer=always_use_external_viewer,
         )
         return renderer_instance
 

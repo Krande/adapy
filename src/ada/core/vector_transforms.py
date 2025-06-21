@@ -380,10 +380,13 @@ def compute_orientation(
     y_arr = calc_yvec(xvec, up_arr)
     return tuple(up_arr), tuple(y_arr), angle
 
+
 # cache on (xvec, yvec, zvec)
 @lru_cache(maxsize=128)
 def compute_orientation_vec(
-    xvec_tup: tuple[float, float, float] | None, yvec_tup: tuple[float, float, float] | None, up_tup: tuple[float, float, float] | None
+    xvec_tup: tuple[float, float, float] | None,
+    yvec_tup: tuple[float, float, float] | None,
+    up_tup: tuple[float, float, float] | None,
 ) -> tuple[tuple[float, float, float], tuple[float, float, float], tuple[float, float, float]]:
     from ada.core.utils import round_array
     from ada.core.vector_utils import calc_xvec, calc_yvec, calc_zvec, unit_vector
@@ -414,7 +417,11 @@ def compute_orientation_vec(
         xvec = calc_xvec(yvec, zvec)
     elif xvec is None and yvec is None and zvec is not None:
         # If only zvec is provided, use default x-axis and calculate y
-        xvec = np.array([1.0, 0.0, 0.0])
+        # If zvec is (1,0,0) use default xvec to 0,0,1
+        if np.array_equal(zvec, np.array([1.0, 0.0, 0.0])):
+            xvec = np.array([0.0, 0.0, 1.0])
+        else:
+            xvec = np.array([1.0, 0.0, 0.0])
         yvec = calc_yvec(xvec, zvec)
 
     # Normalize vectors
