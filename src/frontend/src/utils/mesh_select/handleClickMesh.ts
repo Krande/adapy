@@ -27,10 +27,15 @@ export async function handleClickMesh(
 
   // ← await the worker lookup
   const meshName = mesh.name; // e.g. "node0"
-  const drawRange = await queryMeshDrawRange(mesh.unique_key, meshName, faceIndex);
+  let drawRange = await queryMeshDrawRange(mesh.unique_key, meshName, faceIndex);
   if (!drawRange) {
-    console.warn("selected mesh has no draw range");
-    return;
+    if (mesh.userData?.node_id) {
+      drawRange = await queryMeshDrawRange(mesh.unique_key, `node${mesh.userData?.node_id}`, faceIndex);
+    }
+    if (!drawRange) {
+      console.warn("selected mesh has no draw range");
+      return;
+    }
   }
   const [rangeId] = drawRange;
 

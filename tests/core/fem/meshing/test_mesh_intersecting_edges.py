@@ -112,7 +112,7 @@ def test_intersect_edge_midpoint():
     for j, midp in enumerate(midpoints_input):
         midpoints = [(midp, 0, 0), (midp, 1, 0)]
         midpoints_y = [(0, midp, 0), (1, midp, 0)]
-        pl_mid = ada.Plate(f"pl_mid{j}", corner_points, 0.01, origin=midpoints[0], n=(-1, 0, 0), xdir=(0, 0, 1))
+        pl_mid = ada.Plate(f"pl_mid{j}", corner_points, 0.01, origin=midpoints[0], normal=(-1, 0, 0), xdir=(0, 0, 1))
         plates.append(pl_mid)
         mid_bm = ada.Beam(f"mid_bm{j}", *midpoints, sec="IPE100")
         beams.append(mid_bm)

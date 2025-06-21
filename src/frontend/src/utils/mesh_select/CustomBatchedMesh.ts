@@ -104,17 +104,6 @@ export class CustomBatchedMesh extends THREE.Mesh {
         this.updateSelectionGroups([]);
     }
 
-    public hideDrawRange(rangeId: string) {
-        this.hiddenRanges.add(rangeId);
-        this.updateGroups();
-        if (this.edgeMaterial && this.rangeIdToIndex) {
-            const i = this.rangeIdToIndex.get(rangeId)!;
-            const tex = this.edgeMaterial.uniforms.uVisibleTex.value as THREE.DataTexture;
-            tex.image.data[i] = 0;
-            tex.needsUpdate = true;
-        }
-    }
-
     /**
      * Hide a batch of draw-ranges in one go.
      *

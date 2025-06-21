@@ -45,7 +45,7 @@ class Wall(BackendGeom):
         points,
         height,
         thickness,
-        placement=Placement(),
+        placement=None,
         offset=TYPES_JUSL.CENTER,
         metadata=None,
         color=None,
@@ -53,6 +53,8 @@ class Wall(BackendGeom):
         guid=None,
         opacity=1.0,
     ):
+        if placement is None:
+            placement = Placement()
         super().__init__(name, guid=guid, metadata=metadata, units=units, color=color, opacity=opacity)
 
         self._name = name

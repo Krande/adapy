@@ -38,7 +38,7 @@ def test_aveva_mac_export():
         t=0.01,
         mat="S420",
         origin=origin,
-        n=(1, 0, 0),
+        normal=(1, 0, 0),
         xdir=(0, 1, 0),
     )
     plate3 = ada.Plate(
@@ -47,7 +47,7 @@ def test_aveva_mac_export():
         t=0.01,
         mat="S420",
         origin=origin,
-        n=(0.7, 0.7, 0),
+        normal=(0.7, 0.7, 0),
         xdir=(0, 0, 1),
     )
     p1 = plate3.poly.points3d[0]

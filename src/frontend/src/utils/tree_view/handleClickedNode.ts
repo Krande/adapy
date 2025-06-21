@@ -26,7 +26,11 @@ async function get_mesh_and_draw_ranges(nodes: NodeApi[]) {
         }
         let mesh = scene.getObjectByName(node_name) as CustomBatchedMesh;
         if (!mesh) {
-            continue;
+            mesh = scene.getObjectByName(node.data.name.replace("/", "")) as CustomBatchedMesh;
+            if (!mesh) {
+                // console.warn("No mesh found for node:", node_name, "in scene:", scene);
+                continue;
+            }
         }
         meshes_and_ranges.push([mesh, rangeId]);
     }

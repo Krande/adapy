@@ -113,7 +113,7 @@ def get_sh_sections_for_plate_obj(model: gmsh.model, model_obj: Plate, gmsh_data
     elements = [fem.elements.from_id(x) for x in chain.from_iterable(tags)]
 
     thickness = model_obj.t
-    normal = model_obj.n
+    normal = model_obj.normal
 
     set_name = make_name_fem_ready(f"el{model_obj.name}_sh")
     fem_sec_name = make_name_fem_ready(f"d{model_obj.name}_sh")

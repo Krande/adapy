@@ -20,7 +20,16 @@ export function setupCameraControlsHandlers(
 
         if (shift && key === "h") {
             selectedObjects.forEach((drawRangeIds, mesh) => {
-                mesh.hideBatchDrawRange(drawRangeIds);
+                if (!(mesh instanceof CustomBatchedMesh)) {
+                    // loop recursively through the children of the mesh
+                    (mesh as THREE.Object3D).traverse((child: THREE.Object3D) => {
+                        if (child instanceof CustomBatchedMesh) {
+                            child.hideBatchDrawRange(drawRangeIds);
+                        }
+                    });
+                } else {
+                    mesh.hideBatchDrawRange(drawRangeIds);
+                }
             });
         } else if (shift && key === "u") {
             scene.traverse((obj) => {

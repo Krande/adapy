@@ -42,7 +42,7 @@ def import_ifc_plate(ifc_elem: ifcopenshell.entity_instance, name, ifc_store: If
         body.depth,
         origin=body.position.location,
         xdir=body.position.ref_direction,
-        n=body.position.axis,
+        normal=body.position.axis,
         mat=mat,
         guid=ifc_elem.GlobalId,
         ifc_store=ifc_store,
