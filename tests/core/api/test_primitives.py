@@ -1,5 +1,6 @@
 import ada
 from ada.api.primitives.primitive_shell import PrimFace
+from ada.geom.surfaces import CurveBoundedPlane
 
 
 def test_export_primitives(tmp_path):
@@ -38,12 +39,10 @@ def test_prim_face():
     ps_z = PrimFace("my_face_z", [(0, 0), (1, 0), (1, 1), (0, 1)], (0, 0, 1), (0, 0, 0))
     ps_y = PrimFace("my_face_y", [(0, 0), (1, 0), (1, 1), (0, 1)], (0, 1, 0), (0, 0, 0))
     ps_x = PrimFace("my_face_x", [(0, 0), (1, 0), (1, 1), (0, 1)], (1, 0, 0), (0, 0, 0), xdir=(0, 0, -1))
-    p = ada.Assembly(
-        "MyAssembly",
-        units="m",
-    ) / (
-        ps_z,
-        ps_y,
-        ps_x,
-    )
-    #p.show(stream_from_ifc_store=False)
+
+    assert isinstance(ps_x.solid_geom().geometry, CurveBoundedPlane)
+    assert isinstance(ps_y.solid_geom().geometry, CurveBoundedPlane)
+    assert isinstance(ps_z.solid_geom().geometry, CurveBoundedPlane)
+
+    # p = ada.Part("MyAssembly") / (ps_z, ps_y, ps_x)
+    # p.show(stream_from_ifc_store=False)
