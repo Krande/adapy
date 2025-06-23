@@ -1,5 +1,5 @@
 import ada
-from ada.api.primitives.primitive_shell import PrimFace
+from ada.api.primitives.primitive_face import PrimFace
 
 
 def test_export_primitives(tmp_path):
@@ -46,4 +46,5 @@ def test_prim_face():
         ps_y,
         ps_x,
     )
-    #p.show(stream_from_ifc_store=False)
+    assert p is not None
+    # p.show(stream_from_ifc_store=False)

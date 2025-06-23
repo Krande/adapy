@@ -1,0 +1,64 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Design Data Extension",
+  "description": "GLTF extension for design object metadata and grouping",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Name of the design object"
+    },
+    "description": {
+      "type": "string",
+      "description": "Optional description of the design object"
+    },
+    "material": {
+      "type": "string",
+      "description": "Material specification for the design object"
+    },
+    "properties": {
+      "type": "object",
+      "description": "Custom properties for the design object",
+      "additionalProperties": true
+    },
+    "groups": {
+      "type": "object",
+      "description": "Named groups and their member objects",
+      "patternProperties": {
+        "^.+$": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string",
+              "description": "Display name of the group"
+            },
+            "members": {
+              "type": "array",
+              "description": "Array of member identifiers (could be node indices, names, or other identifiers)",
+              "items": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "description": "Member name or identifier"
+                  },
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "GLTF node index"
+                  }
+                ]
+              }
+            },
+            "description": {
+              "type": "string",
+              "description": "Optional description of the group"
+            }
+          },
+          "required": ["name", "members"]
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "required": ["name"]
+}

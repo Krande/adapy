@@ -3,8 +3,8 @@ import {prepareLoadedModel} from "./prepareLoadedModel";
 import {useModelState} from "../../../state/modelState";
 import {useOptionsStore} from "../../../state/optionsStore";
 import {useAnimationStore} from "../../../state/animationStore";
-import {animationControllerRef, modelKeyMapRef, sceneRef, simulationDataRef} from "../../../state/refs";
-import {SimulationDataExtensionMetadata} from "../../../extensions/sim_metadata";
+import {animationControllerRef, modelKeyMapRef, sceneRef, simulationDataRef, adaExtensionRef} from "../../../state/refs";
+import {SimulationDataExtensionMetadata} from "../../../extensions/design_and_analysis_extension";
 import {FilePurpose} from "../../../flatbuffers/base/file-purpose";
 import {cacheAndBuildTree} from "../../../state/model_worker/cacheModelUtils";
 import {mapAnimationTargets} from "../../../utils/scene/animations/mapAnimationTargets";
@@ -35,6 +35,10 @@ export async function setupModelLoaderAsync(
 
     // access the raw JSON
     const sim_ext_data = (gltf as any).parser.json.extensions?.ADA_SIM_data;
+    const ada_ext_data = (gltf as any).parser.json.extensions?.ADA_EXT_data;
+    if (ada_ext_data){
+        adaExtensionRef.current = ada_ext_data;
+    }
     if (sim_ext_data) {
         simulationDataRef.current = sim_ext_data as SimulationDataExtensionMetadata;
         modelStore.model_type = FilePurpose.ANALYSIS;

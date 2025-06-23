@@ -1,12 +1,15 @@
 from __future__ import annotations
 
-from OCC.Core.TopoDS import TopoDS_Shape
+from typing import TYPE_CHECKING
 
 from ada.api.curves import CurvePoly2d
 from ada.api.primitives.base import Shape
 from ada.geom import Geometry
 from ada.geom.booleans import BooleanOperation
 from ada.geom.surfaces import CurveBoundedPlane, Plane
+
+if TYPE_CHECKING:
+    from OCC.Core.TopoDS import TopoDS_Shape
 
 
 class PrimFace(Shape):

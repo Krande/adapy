@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { simulationDataRef } from '../../state/refs';
-import type { SimulationDataExtensionMetadata, FieldObject } from '../../extensions/sim_metadata';
+import type { SimulationDataExtensionMetadata, FieldObject } from '../../extensions/design_and_analysis_extension';
 
 export default function SimulationDataInfoPanel() {
   const simData = simulationDataRef.current as SimulationDataExtensionMetadata | null;

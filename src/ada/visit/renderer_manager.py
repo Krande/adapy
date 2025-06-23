@@ -7,11 +7,8 @@ import trimesh
 
 from ada.comms.fb_wrap_model_gen import FileObjectDC, FilePurposeDC, FileTypeDC, MeshDC
 from ada.config import Config
+from ada.visit.gltf.scene_converter import SceneConverter
 from ada.visit.render_params import RenderParams
-from ada.visit.scene_handling.scene_from_fea_results import scene_from_fem_results
-from ada.visit.scene_handling.scene_from_fem import scene_from_fem
-from ada.visit.scene_handling.scene_from_object import scene_from_object
-from ada.visit.scene_handling.scene_from_part import scene_from_part_or_assembly
 
 if TYPE_CHECKING:
     from IPython.display import HTML
@@ -93,48 +90,6 @@ class RendererManager:
 
         return renderer
 
-    @staticmethod
-    def obj_to_trimesh(
-        obj: BackendGeom | Part | Assembly | FEAResult | FEM | trimesh.Scene | MeshDC, params: RenderParams
-    ) -> trimesh.Scene:
-        from ada import FEM, Assembly, Part
-        from ada.base.physical_objects import BackendGeom
-        from ada.fem.results.common import FEAResult
-
-        if type(obj) is Part or type(obj) is Assembly:
-            scene = scene_from_part_or_assembly(obj, params)
-        elif isinstance(obj, BackendGeom):
-            scene = scene_from_object(obj, params)
-        elif isinstance(obj, FEM):
-            scene = scene_from_fem(obj, params)
-        elif isinstance(obj, FEAResult):
-            scene = scene_from_fem_results(obj, params)
-        elif isinstance(obj, trimesh.Scene):
-            scene = obj
-        else:
-            raise ValueError(f"Unsupported object type: {type(obj)}")
-
-        return scene
-
-    @staticmethod
-    def obj_to_encoded_glb(
-        obj: BackendGeom | Part | Assembly | FEAResult | FEM | trimesh.Scene | MeshDC, params: RenderParams
-    ) -> str:
-        scene = RendererManager.obj_to_trimesh(obj, params)
-        if params.scene_post_processor is not None:
-            scene = params.scene_post_processor(scene)
-
-        data = scene.export(
-            file_type="glb",
-            buffer_postprocessor=params.gltf_buffer_postprocessor,
-            tree_postprocessor=params.gltf_tree_postprocessor,
-        )
-        # encode as base64 string
-        import base64
-
-        encoded = base64.b64encode(data).decode("utf-8")
-        return encoded
-
     def render(
         self,
         obj: BackendGeom | Part | Assembly | FEAResult | FEM | trimesh.Scene | MeshDC,
@@ -160,8 +115,10 @@ class RendererManager:
         from ada.comms.wsock_client_sync import WebSocketClientSync
         from ada.visit.rendering.renderer_react import RendererReact
 
+        converter = SceneConverter.from_object(obj, params)
+
         if self.renderer == "trimesh":
-            scene = RendererManager.obj_to_trimesh(obj, params)
+            scene = converter.build_processed_scene()
             return scene.show()
 
         if (
@@ -171,7 +128,7 @@ class RendererManager:
 
         renderer_obj = RendererReact()
         if self.embed_glb:
-            encoded = RendererManager.obj_to_encoded_glb(obj, params)
+            encoded = converter.build_encoded_glb()
             if self.is_in_notebook() and always_use_external_viewer is False:
                 renderer = renderer_obj.get_notebook_renderer_widget(
                     target_id=None, embed_base64_glb=encoded, force_ws=force_ws
@@ -190,7 +147,7 @@ class RendererManager:
         # Set up the renderer and WebSocket server
         self.start_server()
         if params.serve_html:
-            encoded = RendererManager.obj_to_encoded_glb(obj, params)
+            encoded = converter.build_encoded_glb()
             return renderer_obj.serve_html(
                 web_port=params.serve_web_port,
                 ws_port=params.serve_ws_port,
@@ -212,10 +169,7 @@ class RendererManager:
                 wc.append_scene(obj)
                 return renderer_instance
             else:
-                scene = RendererManager.obj_to_trimesh(obj, params)
-
-            if params.scene_post_processor is not None:
-                scene = params.scene_post_processor(scene)
+                scene = converter.build_processed_scene()
 
             if isinstance(obj, trimesh.Scene):
                 scene_name = obj.source.file_name.split(".")[0] if obj.source.file_name is not None else "Scene"

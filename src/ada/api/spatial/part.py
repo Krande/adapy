@@ -22,7 +22,6 @@ from ada.base.units import Units
 from ada.comms.fb_wrap_model_gen import FileObjectDC, FilePurposeDC, FileTypeDC
 from ada.config import logger
 from ada.fem.concept.base import ConceptFEM
-from ada.visit.gltf.gltf_postprocessor import GltfPostProcessor
 from ada.visit.gltf.graph import GraphNode, GraphStore
 from ada.visit.render_params import RenderParams
 
@@ -86,7 +85,7 @@ class Part(BackendGeom):
         self._parts = dict()
         self._groups: dict[str, Group] = dict()
         self._ifc_class = ifc_class
-        self._gltf_postprocessor = GltfPostProcessor()
+
         if fem is not None:
             fem.parent = self
 
@@ -1104,10 +1103,6 @@ class Part(BackendGeom):
         self.to_ifc(ifc_file)
 
         wc.update_file_server(FileObjectDC(self.name, FileTypeDC.IFC, FilePurposeDC.DESIGN, ifc_file))
-
-    @property
-    def gltf_postprocessor(self) -> GltfPostProcessor:
-        return self._gltf_postprocessor
 
     @property
     def parts(self) -> dict[str, Part]:
