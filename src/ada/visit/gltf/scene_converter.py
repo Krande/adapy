@@ -69,7 +69,7 @@ class SceneConverter:
         elif isinstance(self.source, BackendGeom):
             self._scene = scene_from_object(self.source, self.params)
         elif isinstance(self.source, FEM):
-            self._scene = scene_from_fem(self.source, self.params)
+            self._scene = scene_from_fem(self.source, self)
         elif isinstance(self.source, FEAResult):
             self._scene = scene_from_fem_results(self.source, self)
         elif isinstance(self.source, trimesh.Scene):
