@@ -2,6 +2,7 @@ import ada
 from ada.api.primitives.primitive_face import PrimFace
 from ada.geom.surfaces import CurveBoundedPlane
 
+
 def test_export_primitives(tmp_path):
     ifc_file = tmp_path / "world_of_shapes.ifc"
 
