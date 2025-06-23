@@ -86,4 +86,4 @@ class PrimSweep(Shape):
         return Geometry(self.guid, solid, self.color, bool_operations=booleans)
 
     def __repr__(self):
-        return f"PrimSweep({self.name})"
+        return f'{self.__class__.__name__}("{self.name}")'

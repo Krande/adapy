@@ -171,7 +171,7 @@ class BackendGeom(Root):
         server_args: list[str] = None,
         run_ws_in_thread=False,
         unique_viewer_id=None,
-        stream_from_ifc_store=True,
+        stream_from_ifc_store=False,
         append_to_scene=False,
         add_ifc_backend=False,
         auto_sync_ifc_store=True,
