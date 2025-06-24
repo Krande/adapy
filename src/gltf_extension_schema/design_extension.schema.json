@@ -13,47 +13,17 @@
       "description": "Optional description of the design object"
     },
     "groups": {
-      "type": "object",
+      "type": "array",
       "description": "Named groups and their member objects",
-      "patternProperties": {
-        "^.+$": {
-          "type": "object",
-          "properties": {
-            "name": {
-              "type": "string",
-              "description": "Display name of the group"
-            },
-            "members": {
-              "type": "array",
-              "description": "Array of member identifiers (could be node indices, names, or other identifiers)",
-              "items": {
-                "oneOf": [
-                  {
-                    "type": "string",
-                    "description": "Member name or identifier"
-                  },
-                  {
-                    "type": "integer",
-                    "minimum": 0,
-                    "description": "GLTF node index"
-                  }
-                ]
-              }
-            },
-            "description": {
-              "type": "string",
-              "description": "Optional description of the group"
-            }
-          },
-          "required": ["name", "members"]
-        }
+      "items": {
+        "$ref": "#/definitions/Group"
       },
       "additionalProperties": false
     },
     "node_references": {
       "type": "object",
-      "description":"References to GLTF node names",
-      "$ref" : "#/definitions/DesignNodeReference"
+      "description": "References to GLTF node names",
+      "$ref": "#/definitions/DesignNodeReference"
     }
   },
   "definitions": {
@@ -61,11 +31,36 @@
       "type": "object",
       "properties": {
         "faces": {
+          "type": "array",
+          "description": "node reference of Faces mesh",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "Group": {
+      "type": "object",
+      "properties": {
+        "name": {
           "type": "string",
-          "description": "node reference of Faces mesh"
+          "description": "Name of group"
+        },
+        "members": {
+          "type": "array",
+          "description": "Name of group objects",
+          "items": {
+            "type": "string"
+          }
+        },
+        "description": {
+          "type": "string",
+          "description": "Description of Group"
         }
       }
     }
   },
-  "required": ["name"]
+  "required": [
+    "name"
+  ]
 }

@@ -117,28 +117,23 @@ export interface DesignDataExtension {
   /**
    * Named groups and their member objects
    */
-  groups?: {
-    /**
-     * This interface was referenced by `undefined`'s JSON-Schema definition
-     * via the `patternProperty` "^.+$".
-     */
-    [k: string]: {
-      /**
-       * Display name of the group
-       */
-      name: string;
-      /**
-       * Array of member identifiers (could be node indices, names, or other identifiers)
-       */
-      members: (string | number)[];
-      /**
-       * Optional description of the group
-       */
-      description?: string;
-      [k: string]: unknown;
-    };
-  };
+  groups?: Group[];
   node_references?: DesignNodeReference;
+  [k: string]: unknown;
+}
+export interface Group {
+  /**
+   * Name of group
+   */
+  name?: string;
+  /**
+   * Name of group objects
+   */
+  members?: string[];
+  /**
+   * Description of Group
+   */
+  description?: string;
   [k: string]: unknown;
 }
 /**
@@ -148,6 +143,6 @@ export interface DesignNodeReference {
   /**
    * node reference of Faces mesh
    */
-  faces?: string;
+  faces?: string[];
   [k: string]: unknown;
 }

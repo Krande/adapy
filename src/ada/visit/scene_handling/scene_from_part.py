@@ -4,8 +4,7 @@ from typing import TYPE_CHECKING
 
 import trimesh
 
-from ada.visit.render_params import RenderParams
-
+import ada.extension.design_extension_schema as design_ext
 
 if TYPE_CHECKING:
     from ada import Assembly, Part
@@ -23,9 +22,34 @@ def scene_from_part_or_assembly(part_or_assembly: Part | Assembly, converter: Sc
 
     bt = BatchTessellator()
 
+    graph = part_or_assembly.get_graph_store()
+    groups = []
+    for p in part_or_assembly.get_all_subparts(include_self=True):
+        for group in p.groups.values():
+            g = design_ext.Group(
+                name=group.name, members=[m.name for m in group.members], description=group.description
+            )
+            groups.append(g)
+
     if params.stream_from_ifc_store and isinstance(part_or_assembly, Assembly):
-        scene = bt.ifc_to_trimesh_scene(part_or_assembly.get_assembly().ifc_store, merge_meshes=params.merge_meshes)
+        scene = bt.ifc_to_trimesh_scene(
+            part_or_assembly.get_assembly().ifc_store, merge_meshes=params.merge_meshes, graph=graph
+        )
     else:
-        scene = bt.tessellate_part(part_or_assembly, params=params)
+        scene = bt.tessellate_part(part_or_assembly, params=params, graph=graph)
+
+    nodes_geom = set(scene.graph.nodes_geometry)
+    converter.ada_ext.design_objects.append(
+        design_ext.DesignDataExtension(
+            name=part_or_assembly.name,
+            description=type(part_or_assembly).__name__,
+            groups=groups,
+            node_references=design_ext.DesignNodeReference(faces=list(nodes_geom)),
+        )
+    )
+
+    bt.append_fem_to_trimesh(scene, part_or_assembly, graph, converter=converter)
+
+    scene.metadata.update(graph.create_meta())
 
     return scene

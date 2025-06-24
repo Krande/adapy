@@ -96,15 +96,19 @@ class SceneConverter:
         self._processed_scene = scene
         return self._processed_scene
 
-    def build_encoded_glb(self) -> str:
-        """Build and encode scene as base64 GLB"""
+    def build_glb(self) -> bytes:
+        """Build scene as GLB"""
         scene = self.build_processed_scene()
-
         data = scene.export(
             file_type="glb",
             buffer_postprocessor=self.buffer_postprocessor,
             tree_postprocessor=self.tree_postprocessor,
         )
+        return data
+
+    def build_encoded_glb(self) -> str:
+        """Build and encode scene as base64 GLB"""
+        data = self.build_glb()
 
         import base64
 

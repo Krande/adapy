@@ -4,7 +4,7 @@ import io
 import os
 import pathlib
 from itertools import chain
-from typing import TYPE_CHECKING, Any, Callable, Iterable
+from typing import TYPE_CHECKING, Any, BinaryIO, Callable, Iterable
 
 from ada import Node, Pipe, PrimBox, PrimCyl, PrimExtrude, PrimRevolve, Shape
 from ada.api.beams.base_bm import Beam
@@ -822,6 +822,8 @@ class Part(BackendGeom):
         containers = self.get_all_parts_in_assembly()
 
         for p in chain.from_iterable([containers, objects]):
+            if p == self:
+                continue
             if p.guid in hash_map.keys():
                 logger.error(f"Duplicate GUID found for {p}")
                 continue
@@ -998,15 +1000,36 @@ class Part(BackendGeom):
 
         return fem
 
-    def to_gltf(self, gltf_file: str | pathlib.Path, **kwargs):
-        if isinstance(gltf_file, str):
-            gltf_file = pathlib.Path(gltf_file)
-        gltf_file.parent.mkdir(parents=True, exist_ok=True)
+    def to_gltf(
+        self,
+        gltf_file: str | pathlib.Path | BinaryIO,
+        render_override: dict[str, GeomRepr | str] = None,
+        filter_by_guids=None,
+        merge_meshes=True,
+        stream_from_ifc=False,
+        params: RenderParams = None,
+    ):
+        if params is None:
+            params = RenderParams(
+                stream_from_ifc_store=stream_from_ifc,
+                merge_meshes=merge_meshes,
+                render_override=render_override,
+                filter_by_guids=filter_by_guids,
+            )
 
-        def post_pro(buffer_items, tree):
-            pass
+        converter = SceneConverter(self, params)
 
-        self.to_trimesh_scene(**kwargs).export(gltf_file, buffer_postprocessor=post_pro)
+        if isinstance(gltf_file, io.IOBase):
+            # It's a file-like object
+            gltf_file.write(converter.build_glb())
+        else:
+            # It's a path
+            if isinstance(gltf_file, str):
+                gltf_file = pathlib.Path(gltf_file)
+            gltf_file.parent.mkdir(parents=True, exist_ok=True)
+
+            with open(gltf_file, "wb") as f:
+                f.write(converter.build_glb())
 
     def to_trimesh_scene(
         self,

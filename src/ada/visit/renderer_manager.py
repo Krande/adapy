@@ -182,8 +182,8 @@ class RendererManager:
                 scene,
                 purpose=params.purpose,
                 scene_op=params.scene.operation,
-                gltf_buffer_postprocessor=params.gltf_buffer_postprocessor,
-                gltf_tree_postprocessor=params.gltf_tree_postprocessor,
+                gltf_buffer_postprocessor=converter.buffer_postprocessor,
+                gltf_tree_postprocessor=converter.tree_postprocessor,
                 target_id=target_id,
             )
 

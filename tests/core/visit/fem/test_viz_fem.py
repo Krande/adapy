@@ -1,4 +1,11 @@
+import io
+
+import trimesh
+
 import ada
+from ada.extension.design_and_analysis_extension_schema import (
+    AdaDesignAndAnalysisExtension,
+)
 from ada.param_models.utils import beams_along_polyline
 from ada.visit.rendering.render_backend import SqLiteBackend
 from ada.visit.utils import get_edges_from_fem, get_faces_from_fem
@@ -10,8 +17,20 @@ def test_beam_as_edges(bm_line_fem):
 
 
 def test_beam_as_faces(bm_line_fem):
-    scene = bm_line_fem.to_trimesh_scene()
-    assert scene.metadata.get("ADA_EXT_data") is not None
+    # Create a file-like object in memory
+    file_obj = io.BytesIO()
+    bm_line_fem.to_gltf(file_obj)
+
+    # Get the data from the buffer if needed
+    file_obj.seek(0)  # Reset position to beginning
+    output_scene = trimesh.load(file_obj, file_type="glb")
+    ext_meta = output_scene.metadata.get("gltf_extensions", {}).get("ADA_EXT_data")
+    assert ext_meta is not None
+
+    ada_ext = AdaDesignAndAnalysisExtension(**ext_meta)
+
+    assert len(ada_ext.design_objects) == 1
+    assert len(ada_ext.simulation_objects) == 1
     _ = get_faces_from_fem(bm_line_fem.fem)
 
 
