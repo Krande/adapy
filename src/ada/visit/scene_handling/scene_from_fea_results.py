@@ -9,11 +9,12 @@ import trimesh
 from ada.config import logger
 from ada.core.guid import create_guid
 from ada.extension import simulation_extension_schema as sim_meta
+from ada.extension.simulation_extension_schema import SimNodeReference
 from ada.visit.gltf.graph import GraphNode, GraphStore
 
 if TYPE_CHECKING:
     from ada.fem.results.common import FEAResult
-    from ada.visit.gltf.scene_converter import SceneConverter
+    from ada.visit.scene_converter import SceneConverter
 
 
 def scene_from_fem_results(fea_res: FEAResult, converter: SceneConverter):
@@ -38,16 +39,16 @@ def scene_from_fem_results(fea_res: FEAResult, converter: SceneConverter):
 
     scene = trimesh.Scene()
     face_node = scene.add_geometry(faces_mesh, node_name=fea_res.name, geom_name="faces")
-    _ = scene.add_geometry(
+    edge_node = scene.add_geometry(
         edge_mesh, node_name=f"{fea_res.name}_edges", geom_name="edges", parent_node_name=fea_res.name
     )
 
     face_node_idx = [i for i, n in enumerate(scene.graph.nodes) if n == face_node][0]
-    # edge_node_idx = [i for i, n in enumerate(scene.graph.nodes) if n == edge_node][0]
 
     # React renderer supports animations
     sim_data = export_sim_metadata(fea_res)
-    converter.add_extension("ADA_SIM_data", sim_data.model_dump(mode="json"))
+    sim_data.node_references = SimNodeReference(faces=face_node, edges=edge_node)
+    converter.ada_ext.simulation_objects.append(sim_data)
 
     # Loop over the results and create an animation from it
     vertices = fea_res.mesh.nodes.coords

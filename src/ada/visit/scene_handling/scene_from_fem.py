@@ -12,7 +12,7 @@ from ada.visit.gltf.graph import GraphNode, GraphStore
 
 if TYPE_CHECKING:
     from ada import FEM
-    from ada.visit.gltf.scene_converter import SceneConverter
+    from ada.visit.scene_converter import SceneConverter
 
 
 def scene_from_fem(fem: FEM, converter: SceneConverter) -> trimesh.Scene:
@@ -96,11 +96,11 @@ def scene_from_fem(fem: FEM, converter: SceneConverter) -> trimesh.Scene:
         fea_software="N/A",
         fea_software_version="N/A",
         steps=[],
-        node_references=sim_meta.NodeReference(
+        node_references=sim_meta.SimNodeReference(
             points=points_node_name, edges=edges_node_name, faces=faces_node_name, solid_beams=bm_solid_node_name
         ),
     )
-    converter.add_extension("ADA_SIM_data", sim_data.model_dump(mode="json"))
+    converter.ada_ext.simulation_objects.append(sim_data)
 
     params.set_gltf_buffer_postprocessor(converter.buffer_postprocessor)
     params.set_gltf_tree_postprocessor(converter.tree_postprocessor)

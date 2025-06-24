@@ -30,8 +30,7 @@
     "node_references": {
       "type": "object",
       "description":"References to GLTF node names",
-      "$ref" : "#/definitions/NodeReference"
-
+      "$ref" : "#/definitions/SimNodeReference"
     }
   },
   "required": [
@@ -108,7 +107,7 @@
         "bufferView"
       ]
     },
-    "NodeReference": {
+    "SimNodeReference": {
       "type": "object",
       "properties": {
         "points": {

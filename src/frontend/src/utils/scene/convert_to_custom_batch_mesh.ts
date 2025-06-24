@@ -1,12 +1,15 @@
 import {CustomBatchedMesh} from "../mesh_select/CustomBatchedMesh";
 import * as THREE from "three";
+import {DesignDataExtension, SimulationDataExtensionMetadata} from "../../extensions/design_and_analysis_extension";
 
-export function convert_to_custom_batch_mesh(original: THREE.Mesh, drawRanges: Map<string, [number, number]>, unique_key: string) {
+export function convert_to_custom_batch_mesh(original: THREE.Mesh, drawRanges: Map<string, [number, number]>, unique_key: string, is_design: boolean = true, ada_ext_data: SimulationDataExtensionMetadata | DesignDataExtension | null = null) {
     const customMesh = new CustomBatchedMesh(
         original.geometry,
         original.material,
         drawRanges,
-        unique_key
+        unique_key,
+        is_design,
+        ada_ext_data
     );
 
     // Copy over properties from original mesh to customMesh

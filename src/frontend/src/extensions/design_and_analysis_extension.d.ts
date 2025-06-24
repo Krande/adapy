@@ -6,65 +6,21 @@
  */
 
 /**
- * GLTF extension for mapping design and analysis objects with per-object simulation data
+ * GLTF extension for design and analysis objects
  */
 export interface ADADesignAndAnalysisExtension {
   /**
-   * Array containing either Design Data Extension objects or Simulation Data Extension Metadata objects
+   * Array containing Simulation Data objects
    */
-  node_mapping: (DesignDataExtension | SimulationDataExtensionMetadata)[];
+  simulation_objects?: SimulationDataExtensionMetadata[];
   /**
-   * Version of the ADA extension schema
+   * Array containing Design Data objects
+   */
+  design_objects?: DesignDataExtension[];
+  /**
+   * Version of the ADA GLTF extension schema
    */
   version?: string;
-}
-/**
- * GLTF extension for design object metadata and grouping
- */
-export interface DesignDataExtension {
-  /**
-   * Name of the design object
-   */
-  name: string;
-  /**
-   * Optional description of the design object
-   */
-  description?: string;
-  /**
-   * Material specification for the design object
-   */
-  material?: string;
-  /**
-   * Custom properties for the design object
-   */
-  properties?: {
-    [k: string]: unknown;
-  };
-  /**
-   * Named groups and their member objects
-   */
-  groups?: {
-    /**
-     * This interface was referenced by `undefined`'s JSON-Schema definition
-     * via the `patternProperty` "^.+$".
-     */
-    [k: string]: {
-      /**
-       * Display name of the group
-       */
-      name: string;
-      /**
-       * Array of member identifiers (could be node indices, names, or other identifiers)
-       */
-      members: (string | number)[];
-      /**
-       * Optional description of the group
-       */
-      description?: string;
-      [k: string]: unknown;
-    };
-  };
-  [k: string]: unknown;
 }
 export interface SimulationDataExtensionMetadata {
   /**
@@ -87,7 +43,7 @@ export interface SimulationDataExtensionMetadata {
    * List of analysis steps.
    */
   steps: StepObject[];
-  node_references?: NodeReference;
+  node_references?: SimNodeReference;
   [k: string]: unknown;
 }
 export interface StepObject {
@@ -124,7 +80,10 @@ export interface DataReference {
   byteOffset?: number;
   [k: string]: unknown;
 }
-export interface NodeReference {
+/**
+ * References to GLTF node names
+ */
+export interface SimNodeReference {
   /**
    * node reference of Point mesh
    */
@@ -141,5 +100,54 @@ export interface NodeReference {
    * node reference of Solid Beams mesh
    */
   solid_beams?: string;
+  [k: string]: unknown;
+}
+/**
+ * GLTF extension for design object metadata and grouping
+ */
+export interface DesignDataExtension {
+  /**
+   * Name of the design object
+   */
+  name: string;
+  /**
+   * Optional description of the design object
+   */
+  description?: string;
+  /**
+   * Named groups and their member objects
+   */
+  groups?: {
+    /**
+     * This interface was referenced by `undefined`'s JSON-Schema definition
+     * via the `patternProperty` "^.+$".
+     */
+    [k: string]: {
+      /**
+       * Display name of the group
+       */
+      name: string;
+      /**
+       * Array of member identifiers (could be node indices, names, or other identifiers)
+       */
+      members: (string | number)[];
+      /**
+       * Optional description of the group
+       */
+      description?: string;
+      [k: string]: unknown;
+    };
+  };
+  node_references?: DesignNodeReference;
+  [k: string]: unknown;
+}
+/**
+ * References to GLTF node names
+ */
+export interface DesignNodeReference {
+  /**
+   * node reference of Faces mesh
+   */
+  faces?: string;
   [k: string]: unknown;
 }

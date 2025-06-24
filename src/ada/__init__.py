@@ -107,13 +107,14 @@ def from_sesam_cc(fem_file: str | pathlib.Path) -> dict[str, CCData]:
     return read_cc_file(fem_file)
 
 
-def from_genie_xml(xml_path, **kwargs) -> Assembly:
+def from_genie_xml(xml_path, ifc_schema="IFC4", name: str = None, extract_joints=False) -> Assembly:
     """Create an Assembly object from a Genie XML file."""
     from ada.cadit.gxml.store import GxmlStore
 
     gxml = GxmlStore(xml_path)
-    p = gxml.to_part(**kwargs)
-    return Assembly(name=kwargs.get("name", p.name)) / p
+    p = gxml.to_part(extract_joints=extract_joints)
+    name = name if name is not None else p.name
+    return Assembly(name=name, schema=ifc_schema) / p
 
 
 __all__ = [

@@ -7,8 +7,8 @@ import trimesh
 
 from ada.comms.fb_wrap_model_gen import FileObjectDC, FilePurposeDC, FileTypeDC, MeshDC
 from ada.config import Config
-from ada.visit.gltf.scene_converter import SceneConverter
 from ada.visit.render_params import RenderParams
+from ada.visit.scene_converter import SceneConverter
 
 if TYPE_CHECKING:
     from IPython.display import HTML
@@ -115,7 +115,7 @@ class RendererManager:
         from ada.comms.wsock_client_sync import WebSocketClientSync
         from ada.visit.rendering.renderer_react import RendererReact
 
-        converter = SceneConverter.from_object(obj, params)
+        converter = SceneConverter(obj, params)
 
         if self.renderer == "trimesh":
             scene = converter.build_processed_scene()

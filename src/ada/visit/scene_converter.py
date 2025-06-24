@@ -4,7 +4,12 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, OrderedDict
 
 from ada.api.animations import Animation
-from ada.visit.scene_handling.scene_from_fea_results import scene_from_fem_results
+from ada.extension.design_and_analysis_extension_schema import (
+    AdaDesignAndAnalysisExtension,
+)
+from ada.visit.scene_handling.scene_from_fea_results import (
+    scene_from_fem_results,
+)
 from ada.visit.scene_handling.scene_from_fem import scene_from_fem
 from ada.visit.scene_handling.scene_from_object import scene_from_object
 from ada.visit.scene_handling.scene_from_part import scene_from_part_or_assembly
@@ -37,17 +42,16 @@ class SceneConverter:
     _scene: trimesh.Scene | None = field(default=None, init=False)
     _processed_scene: trimesh.Scene | None = field(default=None, init=False)
 
-    @classmethod
-    def from_object(
-        cls, obj: BackendGeom | Part | Assembly | FEAResult | FEM | trimesh.Scene | MeshDC, params: RenderParams = None
-    ) -> "SceneConverter":
-        """Factory method to create converter from source object"""
-        return cls(source=obj, params=params or RenderParams())
+    # Ada extension
+    ada_ext: AdaDesignAndAnalysisExtension = field(init=False)
 
-    def with_params(self, params: RenderParams) -> "SceneConverter":
-        """Fluent API to set parameters"""
-        self.params = params
-        return self
+    def __post_init__(self):
+        if self.params is None:
+            from ada.visit.render_params import RenderParams
+
+            self.params = RenderParams()
+
+        self.ada_ext = AdaDesignAndAnalysisExtension()
 
     def build_scene(self) -> trimesh.Scene:
         """Build the trimesh scene from the source object"""
@@ -63,7 +67,6 @@ class SceneConverter:
         if self.source is None:
             raise ValueError("No source object set")
 
-        # Move the conversion logic here from RendererManager.obj_to_trimesh
         if type(self.source) is Part or type(self.source) is Assembly:
             self._scene = scene_from_part_or_assembly(self.source, self.params)
         elif isinstance(self.source, BackendGeom):
@@ -73,9 +76,11 @@ class SceneConverter:
         elif isinstance(self.source, FEAResult):
             self._scene = scene_from_fem_results(self.source, self)
         elif isinstance(self.source, trimesh.Scene):
-            self._scene = self.source
+            self._scene = self.source.copy()
         else:
             raise ValueError(f"Unsupported object type: {type(self.source)}")
+
+        self.add_extension("ADA_EXT_data", self.ada_ext.model_dump(mode="json"))
 
         return self._scene
 

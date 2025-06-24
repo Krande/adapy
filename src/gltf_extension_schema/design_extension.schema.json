@@ -12,15 +12,6 @@
       "type": "string",
       "description": "Optional description of the design object"
     },
-    "material": {
-      "type": "string",
-      "description": "Material specification for the design object"
-    },
-    "properties": {
-      "type": "object",
-      "description": "Custom properties for the design object",
-      "additionalProperties": true
-    },
     "groups": {
       "type": "object",
       "description": "Named groups and their member objects",
@@ -58,6 +49,22 @@
         }
       },
       "additionalProperties": false
+    },
+    "node_references": {
+      "type": "object",
+      "description":"References to GLTF node names",
+      "$ref" : "#/definitions/DesignNodeReference"
+    }
+  },
+  "definitions": {
+    "DesignNodeReference": {
+      "type": "object",
+      "properties": {
+        "faces": {
+          "type": "string",
+          "description": "node reference of Faces mesh"
+        }
+      }
     }
   },
   "required": ["name"]

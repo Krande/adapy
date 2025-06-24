@@ -5,10 +5,10 @@ import {add_mesh_to_scene} from "./append_to_scene_from_message";
 
 import {ungzip} from 'pako';
 import {setupModelLoaderAsync} from "../../../components/viewer/sceneHelpers/setupModelLoader";
-import {modelKeyMapRef, sceneRef} from "../../../state/refs";
+import {animationControllerRef, modelKeyMapRef, sceneRef} from "../../../state/refs";
 import {useTreeViewStore} from "../../../state/treeViewStore";
-import {modelStore} from "../../../state/model_worker/modelStore";
 import {loadGLTFfrombase64} from "../loadGLTFfrombase64";
+import {useAnimationStore} from "../../../state/animationStore";
 
 
 export function load_base64_model(){
@@ -19,6 +19,15 @@ export function load_base64_model(){
 }
 
 export async function replace_model(url: string) {
+        // Clear animation state first
+    const animationStore = useAnimationStore.getState();
+    animationStore.setHasAnimation(false);
+    animationStore.setIsPlaying(false);
+    animationStore.setSelectedAnimation("No Animation");
+
+    // Clear animation controller
+    animationControllerRef.current?.clear();
+
     useModelState.getState().translation = null;
     useTreeViewStore.getState().clearTreeData(); // Clear the tree view
 

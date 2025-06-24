@@ -169,6 +169,15 @@ class SatReaderFactory:
                 logger.debug(err_msg)
                 if Config().sat_import_raise_exception_on_failed_advanced_face:
                     raise e
+            except BaseException as e:  # Let's catch ALL other exceptions here for now
+                name = face_record.get_name()
+                err_msg = f"Unable to create face record {name}. Fallback to flat Plate due to: {e}"
+                if conf.general_add_trace_to_exception:
+                    trace_msg = traceback.format_exc()
+                    err_msg += f"\n{trace_msg}"
+                logger.debug(err_msg)
+                if Config().sat_import_raise_exception_on_failed_advanced_face:
+                    raise e
 
     def iter_curved_face(self) -> Iterable[tuple[AcisRecord, Geometry]]:
         for i, (record, advanced_face) in enumerate(self.iter_advanced_faces()):

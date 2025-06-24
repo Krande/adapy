@@ -4,7 +4,7 @@ import numpy as np
 import trimesh
 
 from ada.api.animations import Animation
-from ada.visit.gltf.scene_converter import SceneConverter
+from ada.visit.scene_converter import SceneConverter
 
 
 def test_polygon_animation_simple(polygon_mesh, tmp_path):
