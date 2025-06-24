@@ -262,9 +262,6 @@ class BatchTessellator:
     def tessellate_part(
         self,
         part: Part,
-        filter_by_guids=None,
-        render_override=None,
-        merge_meshes=True,
         params: RenderParams = None,
     ) -> trimesh.Scene:
         if params is None:
@@ -273,13 +270,13 @@ class BatchTessellator:
         graph = part.get_graph_store()
 
         shapes_tess_iter = self.batch_tessellate(
-            objects=part.get_all_physical_objects(pipe_to_segments=True, filter_by_guids=filter_by_guids),
-            render_override=render_override,
+            objects=part.get_all_physical_objects(pipe_to_segments=True, filter_by_guids=params.filter_by_guids),
+            render_override=params.render_override,
             graph_store=graph,
         )
 
         scene = self.meshes_to_trimesh(
-            shapes_tess_iter, graph, merge_meshes=merge_meshes, apply_transform=params.apply_transform
+            shapes_tess_iter, graph, merge_meshes=params.merge_meshes, apply_transform=params.apply_transform
         )
 
         self.append_fem_to_trimesh(scene, part, graph)

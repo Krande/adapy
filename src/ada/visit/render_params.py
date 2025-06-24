@@ -6,6 +6,7 @@ from typing import Callable, Optional, OrderedDict
 
 import trimesh
 
+from ada.base.types import GeomRepr
 from ada.comms.fb.fb_base_gen import FilePurposeDC
 from ada.comms.fb.fb_scene_gen import SceneDC, SceneOperationsDC
 
@@ -41,6 +42,8 @@ class RenderParams:
     serve_ws_port: int = 8765
     serve_html: bool = False
     apply_transform: bool = False
+    render_override: dict[str, GeomRepr | str] = None
+    filter_by_guids: list[str] = None
 
     def __post_init__(self):
         # ensure that if unique_id is set, it is a 32-bit integer

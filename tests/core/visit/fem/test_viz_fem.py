@@ -10,6 +10,8 @@ def test_beam_as_edges(bm_line_fem):
 
 
 def test_beam_as_faces(bm_line_fem):
+    scene = bm_line_fem.to_trimesh_scene()
+    assert scene.metadata.get("ADA_EXT_data") is not None
     _ = get_faces_from_fem(bm_line_fem.fem)
 
 

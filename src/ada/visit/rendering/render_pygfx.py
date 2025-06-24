@@ -19,11 +19,13 @@ from ada.core.vector_utils import unit_vector
 from ada.geom import Geometry
 from ada.occ.tessellating import BatchTessellator
 from ada.visit.colors import Color
+from ada.visit.render_params import RenderParams
 from ada.visit.rendering.render_backend import (
     MeshInfo,
     SqLiteBackend,
     create_selected_meshes_from_mesh_info,
 )
+from ada.visit.scene_converter import SceneConverter
 
 PYGFX_RENDERER_EXE_PY = pathlib.Path(__file__)
 
@@ -114,9 +116,13 @@ class RendererPyGFX:
         self._scene_objects.add(mesh)
         self.backend.add_metadata(metadata, tag)
 
-    def add_part(self, part: Part, render_override: dict[str, GeomRepr] = None):
-        bt = BatchTessellator()
-        scene = bt.tessellate_part(part, render_override=render_override)
+    def add_part(self, part: Part, render_override: dict[str, GeomRepr] = None, params: RenderParams = None):
+        if params is None:
+            params = RenderParams(render_override=render_override)
+
+        converter = SceneConverter(part, params)
+        scene = converter.build_processed_scene()
+
         self.add_trimesh_scene(scene, part.name)
 
     def add_trimesh_scene(self, trimesh_scene: trimesh.Scene, tag: str):

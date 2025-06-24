@@ -66,7 +66,7 @@ class SceneConverter:
             raise ValueError("No source object set")
 
         if type(self.source) is Part or type(self.source) is Assembly:
-            self._scene = scene_from_part_or_assembly(self.source, self.params)
+            self._scene = scene_from_part_or_assembly(self.source, self)
         elif isinstance(self.source, BackendGeom):
             self._scene = scene_from_object(self.source, self.params)
         elif isinstance(self.source, FEM):

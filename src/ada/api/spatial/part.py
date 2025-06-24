@@ -24,6 +24,7 @@ from ada.config import logger
 from ada.fem.concept.base import ConceptFEM
 from ada.visit.gltf.graph import GraphNode, GraphStore
 from ada.visit.render_params import RenderParams
+from ada.visit.scene_converter import SceneConverter
 
 if TYPE_CHECKING:
     import trimesh
@@ -1015,23 +1016,16 @@ class Part(BackendGeom):
         stream_from_ifc=False,
         params: RenderParams = None,
     ) -> trimesh.Scene:
-        from ada import Assembly
-        from ada.occ.tessellating import BatchTessellator
-
-        bt = BatchTessellator()
-        if stream_from_ifc and isinstance(self, Assembly):
-            return bt.ifc_to_trimesh_scene(self.get_assembly().ifc_store, merge_meshes=merge_meshes)
-
         if params is None:
-            params = RenderParams()
+            params = RenderParams(
+                stream_from_ifc_store=stream_from_ifc,
+                merge_meshes=merge_meshes,
+                render_override=render_override,
+                filter_by_guids=filter_by_guids,
+            )
 
-        return bt.tessellate_part(
-            self,
-            merge_meshes=merge_meshes,
-            render_override=render_override,
-            filter_by_guids=filter_by_guids,
-            params=params,
-        )
+        converter = SceneConverter(self, params)
+        return converter.build_processed_scene()
 
     def to_stp(
         self,
