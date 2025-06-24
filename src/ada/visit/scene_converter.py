@@ -7,9 +7,7 @@ from ada.api.animations import Animation
 from ada.extension.design_and_analysis_extension_schema import (
     AdaDesignAndAnalysisExtension,
 )
-from ada.visit.scene_handling.scene_from_fea_results import (
-    scene_from_fem_results,
-)
+from ada.visit.scene_handling.scene_from_fea_results import scene_from_fem_results
 from ada.visit.scene_handling.scene_from_fem import scene_from_fem
 from ada.visit.scene_handling.scene_from_object import scene_from_object
 from ada.visit.scene_handling.scene_from_part import scene_from_part_or_assembly

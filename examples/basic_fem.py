@@ -170,5 +170,6 @@ def main():
     res.show(params_override=params, force_embed_glb=args.embed_glb)
     assembly.show(append_to_scene=True)
 
+
 if __name__ == "__main__":
     main()
