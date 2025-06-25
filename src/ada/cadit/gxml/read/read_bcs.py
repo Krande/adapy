@@ -1,12 +1,10 @@
 import xml.etree.ElementTree as ET
 
-from ada import Node, Part
-from ada.fem import Bc, FemSet
+import ada
+from ada import Node, Part, logger
 
 
-def get_boundary_conditions(xml_root: ET.Element, parent: Part) -> list[Bc]:
-    bcs = []
-    dof_map = dict(dx=1, dy=2, dz=3, rx=4, ry=5, rz=6)
+def get_boundary_conditions(xml_root: ET.Element, parent: Part) -> None:
     for sp in xml_root.findall(".//support_point"):
         name = sp.attrib.get("name")
         position = sp.findall(".//position")
@@ -16,16 +14,12 @@ def get_boundary_conditions(xml_root: ET.Element, parent: Part) -> list[Bc]:
         # Get position
         pos = position[0]
         n = Node([float(y) for x, y in pos.items()])
-        parent.fem.nodes.add(n)
 
         # get dofs
-        dofs = []
+        constraints = []
         for dof in sp.findall(".//boundary_condition"):
-            if dof.attrib["constraint"] == "fixed":
-                dofs.append(dof_map.get(dof.attrib["dof"]))
-
-        fs = FemSet(f"{name}_fs", [n])
-        bc = Bc(name, fem_set=fs, dofs=dofs)
-        bcs.append(bc)
-
-    return bcs
+            constraint = ada.ConstraintConceptDofType(dof=dof.attrib["dof"], constraint_type=dof.attrib["constraint"])
+            if constraint.constraint_type == "spring":
+                logger.warning("Spring constraints are not yet supported")
+            constraints.append(constraint)
+        parent.concept_fem.constraints.add_point_constraint(ada.ConstraintConceptPoint(name, n.p, constraints))

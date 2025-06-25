@@ -4,7 +4,7 @@ import xml.etree.ElementTree as ET
 from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
-    from ada import Point
+    from ada import Point, RotationalAccelerationField
 
 
 def add_line_load(
@@ -237,11 +237,12 @@ def add_surface_load_plate(
     return surface_load
 
 
-def add_gravity_load(
+def add_acceleration_field_load(
     global_elem: ET.Element,
     lc_elem: ET.Element,
     acceleration: tuple[float, float, float] = (0.0, 0.0, -9.80665),
     include_selfweight: bool = True,
+    rotational_field: RotationalAccelerationField = None,
 ) -> ET.Element:
     """
     Adds a <gravity_load> element with self-weight to the loadcase in <environmental_loads>.
@@ -250,6 +251,8 @@ def add_gravity_load(
         global_elem (ET.Element): The <global> analysis element.
         lc_elem (ET.Element): The <loadcase_basic> element.
         acceleration (tuple): Acceleration vector (x, y, z).
+        include_selfweight (bool): Whether to include selfweight.
+        rotational_field (RotationalAccelerationField): Whether to include a rotational field.
 
     Returns:
         ET.Element: The created <gravity_load> element.
@@ -266,12 +269,43 @@ def add_gravity_load(
         env_loads_elem = ET.SubElement(loads_elem, "environmental_loads")
 
     # Add <gravity_load> (always with selfweight)
+    self_weight_str = str(include_selfweight).lower()
     gravity_elem = ET.SubElement(
-        env_loads_elem, "gravity_load", {"loadcase_ref": loadcase_ref, "include_selfweight": str(include_selfweight)}
+        env_loads_elem,
+        "gravity_load",
+        {"loadcase_ref": loadcase_ref, "include_selfweight": self_weight_str},
     )
 
     ET.SubElement(
+        env_loads_elem,
+        "dummy_rotation_field",
+        {"loadcase_ref": loadcase_ref, "include_selfweight": self_weight_str},
+    )
+    ET.SubElement(
         gravity_elem, "acceleration", {"x": str(acceleration[0]), "y": str(acceleration[1]), "z": str(acceleration[2])}
     )
+    if rotational_field:
+        rot_elem = ET.SubElement(
+            env_loads_elem,
+            "rotation_field",
+            {
+                "loadcase_ref": loadcase_ref,
+                "include_selfweight": self_weight_str,
+                "angular_velocity": str(rotational_field.angular_velocity),
+                "angular_acceleration": str(rotational_field.angular_acceleration),
+            },
+        )
+        base = rotational_field.rotational_point
+        axis = rotational_field.rotational_axis
+        ET.SubElement(
+            rot_elem,
+            "base",
+            {"x": str(base.x), "y": str(base.y), "z": str(base.z)},
+        )
+        ET.SubElement(
+            rot_elem,
+            "axis",
+            {"x": str(axis.x), "y": str(axis.y), "z": str(axis.z)},
+        )
 
     return gravity_elem

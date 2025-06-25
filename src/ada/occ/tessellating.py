@@ -161,18 +161,7 @@ class BatchTessellator:
         )
 
     def tessellate_geom(self, geom: Geometry, obj: BackendGeom, graph_store: GraphStore = None) -> MeshStore:
-        from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_Transform
-        from OCC.Core.gp import gp_Trsf, gp_Vec
-
         occ_geom = geom_to_occ_geom(geom)
-
-        if obj is not None and obj.parent is not None and obj.parent.placement is not None:
-            if not obj.parent.placement.is_identity(use_absolute_placement=True):
-                position = obj.parent.placement.to_axis2placement3d(use_absolute_placement=True)
-
-                trsf = gp_Trsf()
-                trsf.SetTranslation(gp_Vec(*position.location))
-                occ_geom = BRepBuilderAPI_Transform(occ_geom, trsf, True).Shape()
 
         if graph_store is not None:
             node_ref = graph_store.hash_map.get(obj.guid)

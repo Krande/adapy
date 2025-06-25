@@ -1,13 +1,18 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Iterable
+
 from ada.api.primitives.base import Shape
 from ada.base.units import Units
 from ada.geom import Geometry
 from ada.geom.booleans import BooleanOperation
 
+if TYPE_CHECKING:
+    from ada import Point
+
 
 class PrimSphere(Shape):
-    def __init__(self, name, cog, radius, **kwargs):
+    def __init__(self, name, cog: Iterable[float] | Point, radius, **kwargs):
         self.radius = radius
         super(PrimSphere, self).__init__(name=name, cog=cog, **kwargs)
 
@@ -20,7 +25,12 @@ class PrimSphere(Shape):
         from ada.geom.points import Point
         from ada.geom.solids import Sphere
 
-        sphere = Sphere(Point(*self.cog), self.radius)
+        cog = self.cog.copy()
+        if self.placement.is_identity() is False:
+            place_abs = self.placement.get_absolute_placement(include_rotations=False)
+            cog += place_abs.origin
+
+        sphere = Sphere(Point(*cog), self.radius)
         booleans = [BooleanOperation(x.primitive.solid_geom(), x.bool_op) for x in self.booleans]
         return Geometry(self.guid, sphere, self.color, bool_operations=booleans)
 

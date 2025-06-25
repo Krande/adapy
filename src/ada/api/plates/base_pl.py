@@ -88,9 +88,9 @@ class Plate(BackendGeom):
 
     @staticmethod
     def from_3d_points(
-        name, points, t, mat="S420", xdir=None, color=None, metadata=None, flip_n=False, **kwargs
+        name, points, t, mat="S420", xdir=None, color=None, metadata=None, flip_normal=False, **kwargs
     ) -> Plate:
-        poly = CurvePoly2d.from_3d_points(points, xdir=xdir, flip_n=flip_n, **kwargs)
+        poly = CurvePoly2d.from_3d_points(points, xdir=xdir, flip_n=flip_normal, **kwargs)
         return Plate(name, poly, t, mat=mat, color=color, metadata=metadata, **kwargs)
 
     @staticmethod

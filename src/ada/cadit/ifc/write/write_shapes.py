@@ -12,7 +12,7 @@ from ada import (
     PrimRevolve,
     PrimSphere,
     PrimSweep,
-    Shape,
+    Shape, MassPoint,
 )
 from ada.base.units import Units
 from ada.cadit.ifc.utils import add_colour, create_local_placement, tesselate_shape
@@ -84,6 +84,7 @@ def generate_parametric_solid(shape: Shape | PrimSphere, f):
 
     param_geom_map = {
         PrimSphere: generate_ifc_prim_sphere_geom,
+        MassPoint: generate_ifc_prim_sphere_geom,
         PrimBox: generate_ifc_box_geom,
         PrimCyl: generate_ifc_cylinder_geom,
         PrimCone: generate_ifc_cone_geom,

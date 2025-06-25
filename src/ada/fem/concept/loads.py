@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Iterable, Literal
 
 if TYPE_CHECKING:
-    from ada import Plate, Point
+    from ada import Plate, Point, Direction
     from ada.fem.concept.base import ConceptFEM
 
 
@@ -29,6 +29,7 @@ class LoadConcepts:
         if load_case.name in self.load_cases:
             raise ValueError(f"Load case with name {load_case.name} already exists.")
         self.load_cases[load_case.name] = load_case
+        load_case.parent = self
         return load_case
 
     def add_load_case_combination(
@@ -69,6 +70,7 @@ class LoadConceptPoint:
     force: tuple[float, float, float]
     moment: tuple[float, float, float]
     system: Literal["local", "global"] = "local"
+    parent: LoadConceptCase = field(init=False, repr=False)
 
     def __post_init__(self):
         from ada import Point
@@ -88,6 +90,7 @@ class LoadConceptLine:
     intensity_start: tuple[float, float, float]
     intensity_end: tuple[float, float, float]
     system: Literal["local", "global"] = "local"
+    parent: LoadConceptCase = field(init=False, repr=False)
 
     def __post_init__(self):
         from ada import Point
@@ -109,6 +112,7 @@ class LoadConceptSurface:
     pressure: float = None
     side: Literal["front", "back"] = "front"
     system: Literal["local", "global"] = "local"
+    parent: LoadConceptCase = field(init=False, repr=False)
 
     def __post_init__(self):
         if self.plate_ref is None and self.points is None:
@@ -116,22 +120,52 @@ class LoadConceptSurface:
 
 
 @dataclass
-class LoadConceptGravity:
+class RotationalAccelerationField:
+    rotational_point: tuple[float, float, float] | Point
+    rotational_axis: tuple[float, float, float] | Direction
+    angular_acceleration: float
+    angular_velocity: float
+    parent: LoadConceptAccelerationField = field(init=False, repr=False)
+
+    def __post_init__(self):
+        from ada import Point, Direction
+
+        if not isinstance(self.rotational_point, Point):
+            self.rotational_point = Point(*self.rotational_point)
+        if not isinstance(self.rotational_axis, Direction):
+            self.rotational_axis = Direction(*self.rotational_axis)
+
+@dataclass
+class LoadConceptAccelerationField:
     name: str
     acceleration: tuple[float, float, float]
     include_self_weight: bool = True
+    rotational_field: RotationalAccelerationField = None
+    parent: LoadConceptCase = field(init=False, repr=False)
 
+    def __post_init__(self):
+        if self.rotational_field is not None:
+            self.rotational_field.parent = self
 
 @dataclass
 class LoadConceptCase:
     name: str
-    loads: list[LoadConceptLine | LoadConceptPoint | LoadConceptSurface | LoadConceptGravity] = field(
+    loads: list[LoadConceptLine | LoadConceptPoint | LoadConceptSurface | LoadConceptAccelerationField] = field(
         default_factory=list
     )
     design_condition: DesignCondition = DesignCondition.OPERATING
     fem_loadcase_number: int = 1
     complex_type: Literal["static"] = "static"
     invalidated: bool = True
+    include_self_weight: bool = False
+    parent: LoadConcepts = field(init=False, repr=False)
+
+    def __post_init__(self):
+        for load in self.loads:
+            load.parent = self
+            if isinstance(load, LoadConceptAccelerationField):
+                if load.include_self_weight:
+                    self.include_self_weight = True
 
 
 @dataclass

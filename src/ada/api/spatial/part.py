@@ -41,7 +41,7 @@ if TYPE_CHECKING:
         Wall,
         Weld,
     )
-    from ada.api.nodes import MassPoint
+    from ada.api.mass import MassPoint
     from ada.cadit.ifc.store import IfcStore
     from ada.fem.containers import COG
     from ada.fem.meshing import GmshOptions
@@ -271,6 +271,12 @@ class Part(BackendGeom):
 
     def add_mass(self, mass: MassPoint) -> MassPoint:
         self._masses.append(mass)
+        mass.parent = self
+
+        mat = self.add_material(mass.material)
+        if mat != mass.material:
+            mass.material = mat
+
         return mass
 
     def add_object(self, obj: Part | Beam | Plate | Wall | Pipe | Shape | Weld | Section):
@@ -780,7 +786,7 @@ class Part(BackendGeom):
         filter_by_guids: list[str] = None,
         pipe_to_segments=False,
         by_metadata: dict = None,
-    ) -> Iterable[Beam | BeamTapered | Plate | Wall | Pipe | Shape]:
+    ) -> Iterable[Beam | BeamTapered | Plate | Wall | Pipe | Shape | MassPoint]:
         physical_objects = []
         if sub_elements_only:
             iter_parts = iter([self])
@@ -790,9 +796,9 @@ class Part(BackendGeom):
         for p in iter_parts:
             if pipe_to_segments:
                 segments = chain.from_iterable([pipe.segments for pipe in p.pipes])
-                all_as_iterable = chain(p.plates, p.beams, p.shapes, segments, p.walls)
+                all_as_iterable = chain(p.plates, p.beams, p.shapes, segments, p.walls, p.masses)
             else:
-                all_as_iterable = chain(p.plates, p.beams, p.shapes, p.pipes, p.walls)
+                all_as_iterable = chain(p.plates, p.beams, p.shapes, p.pipes, p.walls, p.masses)
             physical_objects.append(all_as_iterable)
 
         if by_type is not None:
@@ -1305,6 +1311,16 @@ class Part(BackendGeom):
     def concept_fem(self) -> ConceptFEM:
         """Returns the ConceptFEM object associated with this Part."""
         return self._concept_fem
+
+    def get_all_groups_as_merged(self) -> dict[str, list[Group]]:
+        from collections import defaultdict
+
+        merged_sets_by_name = defaultdict(list)
+        for p in self.get_all_parts_in_assembly(include_self=True):
+            for group in p.groups.values():
+                merged_sets_by_name[group.name].append(group)
+
+        return merged_sets_by_name
 
     def __truediv__(self, other_object):
         from ada import Beam, Plate

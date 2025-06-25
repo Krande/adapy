@@ -24,12 +24,13 @@ def scene_from_part_or_assembly(part_or_assembly: Part | Assembly, converter: Sc
 
     graph = part_or_assembly.get_graph_store()
     groups = []
-    for p in part_or_assembly.get_all_subparts(include_self=True):
-        for group in p.groups.values():
-            g = design_ext.Group(
-                name=group.name, members=[m.name for m in group.members], description=group.description
-            )
-            groups.append(g)
+
+    for group_name, groups_ in part_or_assembly.get_all_groups_as_merged().items():
+        group0 = groups_[0]
+        members = [m.name for g in groups_ for m in g.members]
+        g = design_ext.Group(name=group_name, members=members, description=group0.description
+        )
+        groups.append(g)
 
     if params.stream_from_ifc_store and isinstance(part_or_assembly, Assembly):
         scene = bt.ifc_to_trimesh_scene(

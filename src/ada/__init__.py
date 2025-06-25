@@ -10,6 +10,7 @@ from ada.api.boolean import Boolean
 from ada.api.curves import ArcSegment, CurvePoly2d, CurveRevolve, LineSegment
 from ada.api.fasteners import Bolts, Weld
 from ada.api.groups import Group
+from ada.api.mass import MassPoint
 from ada.api.nodes import Node
 from ada.api.piping import Pipe, PipeSegElbow, PipeSegStraight
 from ada.api.plates import Plate, PlateCurved
@@ -31,6 +32,23 @@ from ada.base.units import Units
 from ada.config import configure_logger, logger
 from ada.core.utils import Counter
 from ada.fem import FEM
+from ada.fem.concept.constraints import (
+    ConstraintConceptCurve,
+    ConstraintConceptDofType,
+    ConstraintConceptPoint,
+    ConstraintConceptRigidLink,
+    RigidLinkRegion,
+)
+from ada.fem.concept.loads import (
+    LoadConceptAccelerationField,
+    RotationalAccelerationField,
+    LoadConceptCase,
+    LoadConceptCaseCombination,
+    LoadConceptCaseFactored,
+    LoadConceptLine,
+    LoadConceptPoint,
+    LoadConceptSurface,
+)
 from ada.geom.placement import Direction
 from ada.geom.points import Point
 from ada.materials import Material
@@ -131,8 +149,23 @@ __all__ = [
     "BeamSweep",
     "BeamRevolve",
     "Boolean",
+    "Counter",
     "deprecated",
     "Group",
+    "ConstraintConceptPoint",
+    "ConstraintConceptCurve",
+    "ConstraintConceptRigidLink",
+    "ConstraintConceptDofType",
+    "RigidLinkRegion",
+    "RotationalAccelerationField",
+    "LoadConceptCase",
+    "LoadConceptPoint",
+    "LoadConceptLine",
+    "LoadConceptSurface",
+    "LoadConceptAccelerationField",
+    "LoadConceptCaseCombination",
+    "LoadConceptCaseFactored",
+    "MassPoint",
     "Plate",
     "PlateCurved",
     "Pipe",
