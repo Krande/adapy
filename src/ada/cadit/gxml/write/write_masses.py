@@ -3,6 +3,7 @@ from __future__ import annotations
 import xml.etree.ElementTree as ET
 from typing import TYPE_CHECKING
 
+from ada.api.spatial.equipment import Equipment, EquipRepr
 from ada.core.constants import X, Y, Z
 
 from .write_utils import add_local_system
@@ -31,6 +32,8 @@ def add_masses(root: ET.Element, part: Part):
             ET.SubElement(bc_con, "mass_scalar", dict(mass=str(mass.mass)))
     else:
         for p in part.get_all_subparts(True):
+            if isinstance(p, Equipment) and p.eq_repr != EquipRepr.AS_IS:
+                continue
             for mass in p.masses:
                 abs_place = p.placement.get_absolute_placement()
                 origin = abs_place.origin

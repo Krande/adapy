@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Callable
 from ...sat.write.writer import part_to_sat_writer
 from .write_bcs import add_concept_constraints, add_fem_boundary_conditions
 from .write_beams import add_beams
+from .write_equipments import add_equipments
 from .write_load_case import add_loads
 from .write_masses import add_masses
 from .write_materials import add_materials
@@ -60,6 +61,7 @@ def write_xml(part: Part, xml_file, embed_sat=False, writer_postprocessor: Calla
     # add loads
     add_loads(root, part)
     add_concept_constraints(structures_elem, part)
+    add_equipments(root, part)
 
     if writer_postprocessor:
         writer_postprocessor(root, part)

@@ -207,7 +207,9 @@ def add_loads(root: ET.Element, part: Part) -> None:
                         system=load.system,
                     )
             elif isinstance(load, LoadConceptAccelerationField):
-                add_acceleration_field_load(global_elem, lc_elem, load.acceleration, load.include_self_weight, load.rotational_field)
+                add_acceleration_field_load(
+                    global_elem, lc_elem, load.acceleration, load.include_self_weight, load.rotational_field
+                )
             else:
                 raise ValueError(f"Unsupported load type: {type(load)}")
 

@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Iterable, Literal
 
 if TYPE_CHECKING:
-    from ada import Plate, Point, Direction
+    from ada import Direction, Plate, Point
     from ada.fem.concept.base import ConceptFEM
 
 
@@ -128,12 +128,13 @@ class RotationalAccelerationField:
     parent: LoadConceptAccelerationField = field(init=False, repr=False)
 
     def __post_init__(self):
-        from ada import Point, Direction
+        from ada import Direction, Point
 
         if not isinstance(self.rotational_point, Point):
             self.rotational_point = Point(*self.rotational_point)
         if not isinstance(self.rotational_axis, Direction):
             self.rotational_axis = Direction(*self.rotational_axis)
+
 
 @dataclass
 class LoadConceptAccelerationField:
@@ -146,6 +147,7 @@ class LoadConceptAccelerationField:
     def __post_init__(self):
         if self.rotational_field is not None:
             self.rotational_field.parent = self
+
 
 @dataclass
 class LoadConceptCase:

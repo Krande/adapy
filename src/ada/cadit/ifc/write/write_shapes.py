@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 import ada.geom.surfaces as geo_su
 from ada import (
     Boolean,
+    MassPoint,
     PrimBox,
     PrimCone,
     PrimCyl,
@@ -12,7 +13,7 @@ from ada import (
     PrimRevolve,
     PrimSphere,
     PrimSweep,
-    Shape, MassPoint,
+    Shape,
 )
 from ada.base.units import Units
 from ada.cadit.ifc.utils import add_colour, create_local_placement, tesselate_shape

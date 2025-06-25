@@ -152,7 +152,7 @@ def test_check_placement_of_parts(tmp_path):
                     name="AccelFieldLoad2",
                     acceleration=(0, 0, -9.81),
                     include_self_weight=True,
-                    rotational_field=ada.RotationalAccelerationField(start, bm1.xvec, 0.01, 0.04)
+                    rotational_field=ada.RotationalAccelerationField(start, bm1.xvec, 0.01, 0.04),
                 ),
             ],
         )
@@ -281,11 +281,11 @@ def test_check_placement_of_parts(tmp_path):
 
     # Test 7: Validate load cases exist
     load_cases = xml_root.findall(".//loadcase_basic")
-    assert len(load_cases) >= 2, "Should have at least 2 load cases (LC1 and LC2)"
+    assert len(load_cases) == 2, "Should have at least 2 load cases (LC1 and LC2)"
 
     # Test 8: Validate load case combinations
     load_combinations = xml_root.findall(".//loadcase_combination")
-    assert len(load_combinations) >= 2, "Should have at least 2 load combinations"
+    assert len(load_combinations) == 2, "Should have at least 2 load combinations"
 
     # Test 9: Validate beams exist with correct placement
     beams = xml_root.findall(".//straight_beam")
@@ -313,7 +313,6 @@ def test_check_placement_of_parts(tmp_path):
     assert len(sections) > 0, "Should have sections defined"
 
     # Do not add these in prod
-    a.show()
-    from ada.cadit.gxml.utils import start_genie
-
-    start_genie(dest)
+    # a.show()
+    # from ada.cadit.gxml.utils import start_genie
+    # start_genie(dest)

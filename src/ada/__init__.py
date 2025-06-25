@@ -25,6 +25,7 @@ from ada.api.primitives import (
     Shape,
 )
 from ada.api.spatial import Assembly, Part
+from ada.api.spatial.equipment import Equipment
 from ada.api.transforms import Instance, Placement, Transform
 from ada.api.user import User
 from ada.api.walls import Wall
@@ -41,13 +42,13 @@ from ada.fem.concept.constraints import (
 )
 from ada.fem.concept.loads import (
     LoadConceptAccelerationField,
-    RotationalAccelerationField,
     LoadConceptCase,
     LoadConceptCaseCombination,
     LoadConceptCaseFactored,
     LoadConceptLine,
     LoadConceptPoint,
     LoadConceptSurface,
+    RotationalAccelerationField,
 )
 from ada.geom.placement import Direction
 from ada.geom.points import Point
@@ -151,6 +152,7 @@ __all__ = [
     "Boolean",
     "Counter",
     "deprecated",
+    "Equipment",
     "Group",
     "ConstraintConceptPoint",
     "ConstraintConceptCurve",

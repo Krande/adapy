@@ -4,6 +4,7 @@ import itertools
 import xml.etree.ElementTree as ET
 from typing import TYPE_CHECKING
 
+from ada.api.spatial.equipment import Equipment, EquipRepr
 from ada.cadit.sat.write.writer import SatWriter
 
 from .write_utils import add_local_system
@@ -19,6 +20,9 @@ def add_beams(root: ET.Element, part: Part, sw: SatWriter = None):
     iter_taper = part.get_all_physical_objects(by_type=BeamTapered)
 
     for beam in itertools.chain(iter_beams, iter_taper):
+        parent = beam.parent
+        if isinstance(parent, Equipment) and parent.eq_repr != EquipRepr.AS_IS:
+            continue
         add_straight_beam(beam, root)
 
 
