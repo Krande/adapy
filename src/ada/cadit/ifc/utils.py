@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from enum import Enum
 from typing import TYPE_CHECKING, List, Tuple, Union
 
 import ifcopenshell
@@ -288,6 +289,9 @@ def ifc_value_map(f, value):
         value = float(value)
     if type(value) in (np.int64,):
         value = int(value)
+    if isinstance(value, Enum):
+        value = value.value
+
     ifc_type = value_map.get(type(value), None)
     if ifc_type is None:
         # Check if the value is a class instance
