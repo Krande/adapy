@@ -53,6 +53,11 @@ def add_straight_beam(beam: Beam, xml_root: ET.Element):
 
     straight_beam.append(add_local_system(xvec, yvec, up))
     straight_beam.append(add_segments(beam))
+    if beam.hinge1 is not None:
+        ET.SubElement(straight_beam, "end1", {"hinge_ref": beam.hinge1.name})
+    if beam.hinge2 is not None:
+        ET.SubElement(straight_beam, "end2", {"hinge_ref": beam.hinge2.name})
+
     curve_offset = ET.SubElement(straight_beam, "curve_offset")
     ET.SubElement(curve_offset, "reparameterized_beam_curve_offset")
 

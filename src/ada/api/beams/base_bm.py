@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Iterable, Union
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Iterable, Literal, TypeAlias, Union
 
 import numpy as np
 
@@ -13,6 +14,7 @@ from ada.base.physical_objects import BackendGeom
 from ada.base.units import Units
 from ada.core.utils import Counter
 from ada.core.vector_utils import is_between_endpoints, unit_vector, vector_length
+from ada.fem.concept.constraints import DofType
 from ada.geom import Geometry
 from ada.geom.placement import Direction
 from ada.geom.points import Point
@@ -30,6 +32,56 @@ if TYPE_CHECKING:
 
 section_counter = Counter(1)
 material_counter = Counter(1)
+
+# Define TypeAlias for BeamHinge types
+BeamHingeConstraintType: TypeAlias = Literal["fixed", "free", "spring"]
+_all_dofs = {"dx", "dy", "dz", "rx", "ry", "rz"}
+
+
+@dataclass
+class BeamHingeDofType:
+    dof: DofType
+    constraint_type: BeamHingeConstraintType
+    spring_stiffness: float = 0.0
+
+    def __post_init__(self):
+        if self.dof not in _all_dofs:
+            raise ValueError(
+                f"Invalid dof_type: {self.constraint_type}. Must be one of 'dx', 'dy', 'dz', 'rx', 'ry', 'rz'."
+            )
+
+
+@dataclass
+class BeamHinge:
+    name: str
+    dofs: list[BeamHingeDofType]
+
+    def __hash__(self):
+        return hash(self.name)
+
+    def __eq__(self, other):
+        if not isinstance(other, BeamHinge):
+            return False
+        return self.name == other.name
+
+    @staticmethod
+    def encastre(name: str, dof_type: BeamHingeConstraintType = "fixed") -> BeamHinge:
+        """All 6 dofs are fixed"""
+        dofs = []
+        for dof in _all_dofs:
+            dofs.append(BeamHingeDofType(dof, dof_type))
+        return BeamHinge(name, dofs)
+
+    @staticmethod
+    def pinned(name: str) -> BeamHinge:
+        """All 3 translational dofs are fixed, and all 3 rotational dofs are free."""
+        dofs = []
+        for dof in _all_dofs:
+            if dof == "rx" or dof == "ry" or dof == "rz":
+                dofs.append(BeamHingeDofType(dof, "free"))
+            else:
+                dofs.append(BeamHingeDofType(dof, "fixed"))
+        return BeamHinge(name, dofs)
 
 
 class Beam(BackendGeom):
@@ -55,6 +107,8 @@ class Beam(BackendGeom):
         e1=None,
         e2=None,
         units=Units.M,
+        hi1: BeamHinge = None,
+        hi2: BeamHinge = None,
         **kwargs,
     ):
         from ada.api.beams.helpers import BeamConnectionProps
@@ -87,6 +141,8 @@ class Beam(BackendGeom):
         # Define orientations
         self._init_orientation(angle, up)
         self._add_beam_to_node_refs()
+        self._hi1 = hi1
+        self._hi2 = hi2
 
     @staticmethod
     def array_from_list_of_coords(
@@ -448,6 +504,22 @@ class Beam(BackendGeom):
     @angle.setter
     def angle(self, value: float):
         self._init_orientation(value)
+
+    @property
+    def hinge1(self) -> BeamHinge:
+        return self._hi1
+
+    @hinge1.setter
+    def hinge1(self, value: BeamHinge):
+        self._hi1 = value
+
+    @property
+    def hinge2(self) -> BeamHinge:
+        return self._hi2
+
+    @hinge2.setter
+    def hinge2(self, value: BeamHinge):
+        self._hi2 = value
 
     def __hash__(self):
         return hash(self.guid)

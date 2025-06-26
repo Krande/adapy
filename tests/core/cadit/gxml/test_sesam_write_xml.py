@@ -326,3 +326,27 @@ def test_check_placement_of_parts(tmp_path):
     # from ada.cadit.gxml.utils import start_genie
     #
     # start_genie(dest)
+
+
+def test_basic_hinges(tmp_path):
+    fixed = ada.BeamHinge.encastre("fixed")
+    pinned = ada.BeamHinge.pinned("pinned")
+
+    bm1 = ada.Beam("bm1", (0, 0, 0), (1, 0, 0), "IPE300", hi1=fixed, hi2=pinned)
+    a = ada.Assembly("myassembly") / bm1
+    dest = a.to_genie_xml(tmp_path / "basic_hinges.xml", embed_sat=False)
+
+    with open(dest, "r") as f:
+        xml_str = f.read()
+
+    xml_root = ET.fromstring(xml_str)
+
+    flexible_hinges = xml_root.findall(".//flexible_hinge")
+    assert len(flexible_hinges) == 2, "Should have 2 flexible hinges"
+
+    # Do not add these in prod
+    # os.startfile(dest)
+    # a.show()
+    # from ada.cadit.gxml.utils import start_genie
+    #
+    # start_genie(dest, run_externally=True)

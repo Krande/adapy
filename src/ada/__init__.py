@@ -5,7 +5,14 @@ import pathlib
 from typing import TYPE_CHECKING
 
 from ada import fem
-from ada.api.beams import Beam, BeamRevolve, BeamSweep, BeamTapered
+from ada.api.beams import (
+    Beam,
+    BeamHinge,
+    BeamHingeDofType,
+    BeamRevolve,
+    BeamSweep,
+    BeamTapered,
+)
 from ada.api.boolean import Boolean
 from ada.api.curves import ArcSegment, CurvePoly2d, CurveRevolve, LineSegment
 from ada.api.fasteners import Bolts, Weld
@@ -149,6 +156,8 @@ __all__ = [
     "BeamTapered",
     "BeamSweep",
     "BeamRevolve",
+    "BeamHinge",
+    "BeamHingeDofType",
     "Boolean",
     "Counter",
     "deprecated",

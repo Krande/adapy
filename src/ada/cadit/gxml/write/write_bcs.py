@@ -9,7 +9,7 @@ from ada.fem.concept.constraints import ConstraintConceptDofType
 from .write_utils import add_local_system
 
 if TYPE_CHECKING:
-    from ada import Part
+    from ada import BeamHingeDofType, Part
 
 
 def add_fem_boundary_conditions(root: ET.Element, part: Part):
@@ -36,7 +36,7 @@ def add_fem_boundary_conditions(root: ET.Element, part: Part):
                 ET.SubElement(bc_con, "boundary_condition", dict(constraint=ftyp, dof=dof_map.get(dof)))
 
 
-def add_dof_constraints(parent: ET.Element, dof_constraints: list[ConstraintConceptDofType]):
+def add_dof_constraints(parent: ET.Element, dof_constraints: list[ConstraintConceptDofType | BeamHingeDofType]):
     """
     Adds boundary_condition elements for all 6 DoFs to a support element.
 
