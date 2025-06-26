@@ -2,6 +2,13 @@
 
 
 
+## v0.7.1 (2025-06-26)
+
+### Fix
+
+* fix: ci-FEM path and update enum (#143) ([`f618684`](https://github.com/Krande/adapy/commit/f618684c9a422e7347d5efca67c0f3805f13dd1f))
+
+
 ## v0.7.0 (2025-06-26)
 
 ### Chore
