@@ -4,7 +4,7 @@ import numpy as np
 import trimesh
 
 from ada.api.animations import Animation
-from ada.visit.gltf.gltf_postprocessor import GltfPostProcessor
+from ada.visit.scene_converter import SceneConverter
 
 
 def test_polygon_animation_simple(polygon_mesh, tmp_path):
@@ -85,7 +85,7 @@ def test_single_polygon_animate_using_store(polygon_mesh, tmp_path):
     node_name = scene.add_geometry(polygon_mesh, node_name="test", geom_name="test")
     node_idx = [i for i, n in enumerate(scene.graph.nodes) if n == node_name][0]
 
-    animation_store = GltfPostProcessor()
+    animation_store = SceneConverter(None)
 
     animation = Animation(
         "squirmy_poly_1",
@@ -114,7 +114,7 @@ def test_single_polygon_multiple_animations(polygon_mesh, tmp_path):
     node_name = scene.add_geometry(polygon_mesh, node_name="test", geom_name="test")
     node_idx = [i for i, n in enumerate(scene.graph.nodes) if n == node_name][0]
 
-    animation_store = GltfPostProcessor()
+    animation_store = SceneConverter(None)
 
     time_keys = [0, 2, 4]
     def_weights_keys = [0, 1, 0]

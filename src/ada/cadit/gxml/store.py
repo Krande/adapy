@@ -92,8 +92,8 @@ class GxmlStore:
         if extract_joints is True:
             p._connections = get_joints(self.xml_root, p)
 
-        p.fem.bcs += get_boundary_conditions(self.xml_root, p)
-        p.fem.masses.update(get_masses(self.xml_root, p))
+        get_boundary_conditions(self.xml_root, p)
+        get_masses(self.xml_root, p)
 
         all_plates = len(p.plates)
         all_beams = len(p.beams)

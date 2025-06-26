@@ -171,7 +171,7 @@ class BackendGeom(Root):
         server_args: list[str] = None,
         run_ws_in_thread=False,
         unique_viewer_id=None,
-        stream_from_ifc_store=True,
+        stream_from_ifc_store=False,
         append_to_scene=False,
         add_ifc_backend=False,
         auto_sync_ifc_store=True,
@@ -181,8 +181,30 @@ class BackendGeom(Root):
         embed_glb: bool = False,
         auto_embed_glb_in_notebook=True,
         force_ws=False,
+        always_use_external_viewer=False,
     ):
-        """Show model using either react, pygfx or trimesh renderer and set up WebSocket connection"""
+        """
+        Show model using either react, pygfx or trimesh renderer and set up WebSocket connection
+
+        :param renderer: The renderer to use, can be 'react', 'pygfx' or 'trimesh'.
+        :param host: The host to run the WebSocket server on.
+        :param ws_port: The port for the WebSocket server.
+        :param server_exe: Path to the WebSocket server executable.
+        :param server_args: Additional arguments for the WebSocket server.
+        :param run_ws_in_thread: Whether to run the WebSocket server in a separate thread.
+        :param unique_viewer_id: Unique ID for the viewer, used for synchronization.
+        :param stream_from_ifc_store: Whether to stream the geometry from the IFC store.
+        :param append_to_scene: Whether to append this geometry to the existing scene.
+        :param add_ifc_backend: Whether to add the IFC backend to the scene.
+        :param auto_sync_ifc_store: Whether to automatically synchronize the IFC store.
+        :param params_override: Override parameters for rendering.
+        :param apply_transform: Whether to apply the placement transform to the geometry.
+        :param liveness_timeout: Timeout for checking the WebSocket connection.
+        :param embed_glb: Whether to embed the GLB file in the WebSocket server.
+        :param auto_embed_glb_in_notebook: Whether to automatically embed the GLB in Jupyter Notebook.
+        :param force_ws: Whether to force the use of WebSocket for rendering.
+        :param always_use_external_viewer: Whether to always use an external viewer for rendering.
+        """
         from ada.comms.fb_wrap_model_gen import SceneDC, SceneOperationsDC
         from ada.visit.renderer_manager import RendererManager, RenderParams
 
@@ -212,6 +234,7 @@ class BackendGeom(Root):
             params_override,
             force_ws=force_ws,
             auto_embed_glb_in_notebook=auto_embed_glb_in_notebook,
+            always_use_external_viewer=always_use_external_viewer,
         )
         return renderer_instance
 

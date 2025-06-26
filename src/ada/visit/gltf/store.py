@@ -239,7 +239,7 @@ def merged_mesh_to_trimesh_scene(
     if graph_store:
         scene.metadata[f"draw_ranges_node{buffer_id}"] = create_id_sequence(graph_store, merged_mesh)
 
-    scene.add_geometry(
+    return scene.add_geometry(
         mesh,
         node_name=node_name,
         geom_name=geom_name,

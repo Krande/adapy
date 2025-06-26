@@ -9,10 +9,10 @@ from ada.fem.concept.constraints import ConstraintConceptDofType
 from .write_utils import add_local_system
 
 if TYPE_CHECKING:
-    from ada import Part
+    from ada import BeamHingeDofType, Part
 
 
-def add_boundary_conditions(root: ET.Element, part: Part):
+def add_fem_boundary_conditions(root: ET.Element, part: Part):
     dof_map = {y: x for x, y in dict(dx=1, dy=2, dz=3, rx=4, ry=5, rz=6).items()}
 
     all_bc_on_fem = list(part.fem.get_all_bcs())
@@ -21,34 +21,22 @@ def add_boundary_conditions(root: ET.Element, part: Part):
             if len(bc.fem_set.members) != 1:
                 raise NotImplementedError()
 
-            n = bc.fem_set.members[0]
+            abs_place = bc.parent.parent.placement.get_absolute_placement()
+            origin = abs_place.origin
+            p = origin + bc.fem_set.members[0].p.copy()
 
             bc_stru = ET.SubElement(root, "structure")
             sup_point = ET.SubElement(bc_stru, "support_point", {"name": bc.name})
             sup_point.append(add_local_system(X, Y, Z))
             geom = ET.SubElement(sup_point, "geometry")
-            ET.SubElement(geom, "position", {"x": str(n.x), "y": str(n.y), "z": str(n.z)})
+            ET.SubElement(geom, "position", {"x": str(p.x), "y": str(p.y), "z": str(p.z)})
             bc_con = ET.SubElement(sup_point, "boundary_conditions")
             for dof in range(1, 7):
                 ftyp = "fixed" if dof in bc.dofs else "free"
                 ET.SubElement(bc_con, "boundary_condition", dict(constraint=ftyp, dof=dof_map.get(dof)))
-    else:
-        for n in part.nodes:
-            if not n.bc:
-                continue
-
-            bc_stru = ET.SubElement(root, "structure")
-            sup_point = ET.SubElement(bc_stru, "support_point", {"name": n.bc.name})
-            sup_point.append(add_local_system(X, Y, Z))
-            geom = ET.SubElement(sup_point, "geometry")
-            ET.SubElement(geom, "position", {"x": str(n.x), "y": str(n.y), "z": str(n.z)})
-            bc_con = ET.SubElement(sup_point, "boundary_conditions")
-            for dof in range(1, 7):
-                ftyp = "fixed" if dof in n.bc.dofs else "free"
-                ET.SubElement(bc_con, "boundary_condition", dict(constraint=ftyp, dof=dof_map.get(dof)))
 
 
-def add_dof_constraints(parent: ET.Element, dof_constraints: list[ConstraintConceptDofType]):
+def add_dof_constraints(parent: ET.Element, dof_constraints: list[ConstraintConceptDofType | BeamHingeDofType]):
     """
     Adds boundary_condition elements for all 6 DoFs to a support element.
 
@@ -121,24 +109,110 @@ def add_support_point(
     add_dof_constraints(point_elem, dof_constraints)
 
 
+def add_support_rigid_link(
+    structures_elem: ET.Element,
+    name: str,
+    position: tuple,
+    lower_corner: tuple,
+    upper_corner: tuple,
+    dof_constraints: list[ConstraintConceptDofType],
+    include_all_edges: bool = True,
+    rotation_dependent: bool = True,
+):
+    """
+    Adds a <support_rigid_link> element with boundary conditions and footprint box region.
+    """
+    structure_elem = ET.SubElement(structures_elem, "structure")
+    rigid_link_elem = ET.SubElement(
+        structure_elem,
+        "support_rigid_link",
+        {
+            "name": name,
+            "include_all_edges": str(include_all_edges).lower(),
+            "rotation_dependent": str(rotation_dependent).lower(),
+        },
+    )
+
+    # Add local coordinate system
+    rigid_link_elem.append(add_local_system(X, Y, Z))
+
+    # Add position
+    ET.SubElement(rigid_link_elem, "position", {"x": str(position[0]), "y": str(position[1]), "z": str(position[2])})
+
+    # Add boundary conditions
+    add_dof_constraints(rigid_link_elem, dof_constraints)
+
+    # Add region with footprint_box
+    region_elem = ET.SubElement(rigid_link_elem, "region")
+    footprint_box_elem = ET.SubElement(region_elem, "footprint_box")
+
+    # Add corners
+    ET.SubElement(
+        footprint_box_elem,
+        "lower_corner",
+        {"x": str(lower_corner[0]), "y": str(lower_corner[1]), "z": str(lower_corner[2])},
+    )
+    ET.SubElement(
+        footprint_box_elem,
+        "upper_corner",
+        {"x": str(upper_corner[0]), "y": str(upper_corner[1]), "z": str(upper_corner[2])},
+    )
+
+    # Add local system for footprint_box
+    footprint_box_elem.append(add_local_system(X, Y, Z))
+
+    # Add local system origin
+    ET.SubElement(
+        footprint_box_elem, "local_system_origin", {"x": str(position[0]), "y": str(position[1]), "z": str(position[2])}
+    )
+
+
 def add_concept_constraints(root: ET.Element, part: Part) -> None:
     """
     Adds concept constraints to the GXML root element.
     This function is a placeholder for future implementation.
     """
     constraint_concepts = part.concept_fem.constraints.get_global_constraint_concepts()
+
     for pname, point in constraint_concepts.point_constraints.items():
+        abs_place = point.parent.parent_fem.parent_part.placement.get_absolute_placement()
+        origin = abs_place.origin
+        p = origin + point.position.copy()
         add_support_point(
             root,
             name=point.name,
-            pos=(point.position.x, point.position.y, point.position.z),
+            pos=(p.x, p.y, p.z),
             dof_constraints=point.dof_constraints,
         )
     for cname, curve in constraint_concepts.curve_constraints.items():
+        abs_place = curve.parent.parent_fem.parent_part.placement.get_absolute_placement()
+        origin = abs_place.origin
+        pt1 = origin + curve.start_pos.copy()
+        pt2 = origin + curve.end_pos.copy()
         add_support_curve(
             root,
             name=curve.name,
-            start_pos=(curve.start_pos.x, curve.start_pos.y, curve.start_pos.z),
-            end_pos=(curve.end_pos.x, curve.end_pos.y, curve.end_pos.z),
+            start_pos=tuple(pt1),
+            end_pos=tuple(pt2),
             dof_constraints=curve.dof_constraints,
+        )
+
+    for rigid_name, rigid_link in constraint_concepts.rigid_links.items():
+        abs_place = rigid_link.parent.parent_fem.parent_part.placement.get_absolute_placement()
+        origin = abs_place.origin
+
+        # Get master point position
+        master_pos = origin + rigid_link.master_point.copy()
+
+        # Default bounds - you may need to implement proper bounds extraction
+        lower_corner = origin + rigid_link.influence_region.lower_corner.copy()
+        upper_corner = origin + rigid_link.influence_region.upper_corner.copy()
+
+        add_support_rigid_link(
+            root,
+            name=rigid_link.name,
+            position=tuple(master_pos),
+            lower_corner=tuple(lower_corner),
+            upper_corner=tuple(upper_corner),
+            dof_constraints=rigid_link.dof_constraints,
         )

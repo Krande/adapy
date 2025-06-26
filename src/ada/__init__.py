@@ -5,11 +5,19 @@ import pathlib
 from typing import TYPE_CHECKING
 
 from ada import fem
-from ada.api.beams import Beam, BeamRevolve, BeamSweep, BeamTapered
+from ada.api.beams import (
+    Beam,
+    BeamHinge,
+    BeamHingeDofType,
+    BeamRevolve,
+    BeamSweep,
+    BeamTapered,
+)
 from ada.api.boolean import Boolean
 from ada.api.curves import ArcSegment, CurvePoly2d, CurveRevolve, LineSegment
 from ada.api.fasteners import Bolts, Weld
 from ada.api.groups import Group
+from ada.api.mass import MassPoint
 from ada.api.nodes import Node
 from ada.api.piping import Pipe, PipeSegElbow, PipeSegStraight
 from ada.api.plates import Plate, PlateCurved
@@ -24,6 +32,7 @@ from ada.api.primitives import (
     Shape,
 )
 from ada.api.spatial import Assembly, Part
+from ada.api.spatial.equipment import Equipment
 from ada.api.transforms import Instance, Placement, Transform
 from ada.api.user import User
 from ada.api.walls import Wall
@@ -31,6 +40,23 @@ from ada.base.units import Units
 from ada.config import configure_logger, logger
 from ada.core.utils import Counter
 from ada.fem import FEM
+from ada.fem.concept.constraints import (
+    ConstraintConceptCurve,
+    ConstraintConceptDofType,
+    ConstraintConceptPoint,
+    ConstraintConceptRigidLink,
+    RigidLinkRegion,
+)
+from ada.fem.concept.loads import (
+    LoadConceptAccelerationField,
+    LoadConceptCase,
+    LoadConceptCaseCombination,
+    LoadConceptCaseFactored,
+    LoadConceptLine,
+    LoadConceptPoint,
+    LoadConceptSurface,
+    RotationalAccelerationField,
+)
 from ada.geom.placement import Direction
 from ada.geom.points import Point
 from ada.materials import Material
@@ -107,13 +133,14 @@ def from_sesam_cc(fem_file: str | pathlib.Path) -> dict[str, CCData]:
     return read_cc_file(fem_file)
 
 
-def from_genie_xml(xml_path, **kwargs) -> Assembly:
+def from_genie_xml(xml_path, ifc_schema="IFC4", name: str = None, extract_joints=False) -> Assembly:
     """Create an Assembly object from a Genie XML file."""
     from ada.cadit.gxml.store import GxmlStore
 
     gxml = GxmlStore(xml_path)
-    p = gxml.to_part(**kwargs)
-    return Assembly(name=kwargs.get("name", p.name)) / p
+    p = gxml.to_part(extract_joints=extract_joints)
+    name = name if name is not None else p.name
+    return Assembly(name=name, schema=ifc_schema) / p
 
 
 __all__ = [
@@ -129,9 +156,27 @@ __all__ = [
     "BeamTapered",
     "BeamSweep",
     "BeamRevolve",
+    "BeamHinge",
+    "BeamHingeDofType",
     "Boolean",
+    "Counter",
     "deprecated",
+    "Equipment",
     "Group",
+    "ConstraintConceptPoint",
+    "ConstraintConceptCurve",
+    "ConstraintConceptRigidLink",
+    "ConstraintConceptDofType",
+    "RigidLinkRegion",
+    "RotationalAccelerationField",
+    "LoadConceptCase",
+    "LoadConceptPoint",
+    "LoadConceptLine",
+    "LoadConceptSurface",
+    "LoadConceptAccelerationField",
+    "LoadConceptCaseCombination",
+    "LoadConceptCaseFactored",
+    "MassPoint",
     "Plate",
     "PlateCurved",
     "Pipe",

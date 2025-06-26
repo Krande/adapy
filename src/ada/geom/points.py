@@ -75,3 +75,16 @@ class Point(np.ndarray):
 
     def __repr__(self):
         return f"Point({np.array2string(self, separator=', ')})"
+
+
+def calculate_bounding_box(points: list[Point]):
+    """Calculate the minimum and maximum coordinates for a list of points using numpy operations."""
+    if not points:
+        raise ValueError("Points list cannot be empty")
+
+    # Stack points into a 2D array and use numpy's vectorized min/max operations
+    points_array = np.array(points)
+    min_coords = np.min(points_array, axis=0)
+    max_coords = np.max(points_array, axis=0)
+
+    return Point(min_coords), Point(max_coords)

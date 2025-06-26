@@ -4,7 +4,7 @@ import io
 import os
 import pathlib
 from itertools import chain
-from typing import TYPE_CHECKING, Any, Callable, Iterable
+from typing import TYPE_CHECKING, Any, BinaryIO, Callable, Iterable
 
 from ada import Node, Pipe, PrimBox, PrimCyl, PrimExtrude, PrimRevolve, Shape
 from ada.api.beams.base_bm import Beam
@@ -22,9 +22,9 @@ from ada.base.units import Units
 from ada.comms.fb_wrap_model_gen import FileObjectDC, FilePurposeDC, FileTypeDC
 from ada.config import logger
 from ada.fem.concept.base import ConceptFEM
-from ada.visit.gltf.gltf_postprocessor import GltfPostProcessor
 from ada.visit.gltf.graph import GraphNode, GraphStore
 from ada.visit.render_params import RenderParams
+from ada.visit.scene_converter import SceneConverter
 
 if TYPE_CHECKING:
     import trimesh
@@ -41,7 +41,7 @@ if TYPE_CHECKING:
         Wall,
         Weld,
     )
-    from ada.api.nodes import MassPoint
+    from ada.api.mass import MassPoint
     from ada.cadit.ifc.store import IfcStore
     from ada.fem.containers import COG
     from ada.fem.meshing import GmshOptions
@@ -86,7 +86,7 @@ class Part(BackendGeom):
         self._parts = dict()
         self._groups: dict[str, Group] = dict()
         self._ifc_class = ifc_class
-        self._gltf_postprocessor = GltfPostProcessor()
+
         if fem is not None:
             fem.parent = self
 
@@ -271,6 +271,12 @@ class Part(BackendGeom):
 
     def add_mass(self, mass: MassPoint) -> MassPoint:
         self._masses.append(mass)
+        mass.parent = self
+
+        mat = self.add_material(mass.material)
+        if mat != mass.material:
+            mass.material = mat
+
         return mass
 
     def add_object(self, obj: Part | Beam | Plate | Wall | Pipe | Shape | Weld | Section):
@@ -780,7 +786,7 @@ class Part(BackendGeom):
         filter_by_guids: list[str] = None,
         pipe_to_segments=False,
         by_metadata: dict = None,
-    ) -> Iterable[Beam | BeamTapered | Plate | Wall | Pipe | Shape]:
+    ) -> Iterable[Beam | BeamTapered | Plate | Wall | Pipe | Shape | MassPoint]:
         physical_objects = []
         if sub_elements_only:
             iter_parts = iter([self])
@@ -790,9 +796,9 @@ class Part(BackendGeom):
         for p in iter_parts:
             if pipe_to_segments:
                 segments = chain.from_iterable([pipe.segments for pipe in p.pipes])
-                all_as_iterable = chain(p.plates, p.beams, p.shapes, segments, p.walls)
+                all_as_iterable = chain(p.plates, p.beams, p.shapes, segments, p.walls, p.masses)
             else:
-                all_as_iterable = chain(p.plates, p.beams, p.shapes, p.pipes, p.walls)
+                all_as_iterable = chain(p.plates, p.beams, p.shapes, p.pipes, p.walls, p.masses)
             physical_objects.append(all_as_iterable)
 
         if by_type is not None:
@@ -822,6 +828,8 @@ class Part(BackendGeom):
         containers = self.get_all_parts_in_assembly()
 
         for p in chain.from_iterable([containers, objects]):
+            if p == self:
+                continue
             if p.guid in hash_map.keys():
                 logger.error(f"Duplicate GUID found for {p}")
                 continue
@@ -998,15 +1006,36 @@ class Part(BackendGeom):
 
         return fem
 
-    def to_gltf(self, gltf_file: str | pathlib.Path, **kwargs):
-        if isinstance(gltf_file, str):
-            gltf_file = pathlib.Path(gltf_file)
-        gltf_file.parent.mkdir(parents=True, exist_ok=True)
+    def to_gltf(
+        self,
+        gltf_file: str | pathlib.Path | BinaryIO,
+        render_override: dict[str, GeomRepr | str] = None,
+        filter_by_guids=None,
+        merge_meshes=True,
+        stream_from_ifc=False,
+        params: RenderParams = None,
+    ):
+        if params is None:
+            params = RenderParams(
+                stream_from_ifc_store=stream_from_ifc,
+                merge_meshes=merge_meshes,
+                render_override=render_override,
+                filter_by_guids=filter_by_guids,
+            )
 
-        def post_pro(buffer_items, tree):
-            pass
+        converter = SceneConverter(self, params)
 
-        self.to_trimesh_scene(**kwargs).export(gltf_file, buffer_postprocessor=post_pro)
+        if isinstance(gltf_file, io.IOBase):
+            # It's a file-like object
+            gltf_file.write(converter.build_glb())
+        else:
+            # It's a path
+            if isinstance(gltf_file, str):
+                gltf_file = pathlib.Path(gltf_file)
+            gltf_file.parent.mkdir(parents=True, exist_ok=True)
+
+            with open(gltf_file, "wb") as f:
+                f.write(converter.build_glb())
 
     def to_trimesh_scene(
         self,
@@ -1016,23 +1045,16 @@ class Part(BackendGeom):
         stream_from_ifc=False,
         params: RenderParams = None,
     ) -> trimesh.Scene:
-        from ada import Assembly
-        from ada.occ.tessellating import BatchTessellator
-
-        bt = BatchTessellator()
-        if stream_from_ifc and isinstance(self, Assembly):
-            return bt.ifc_to_trimesh_scene(self.get_assembly().ifc_store, merge_meshes=merge_meshes)
-
         if params is None:
-            params = RenderParams()
+            params = RenderParams(
+                stream_from_ifc_store=stream_from_ifc,
+                merge_meshes=merge_meshes,
+                render_override=render_override,
+                filter_by_guids=filter_by_guids,
+            )
 
-        return bt.tessellate_part(
-            self,
-            merge_meshes=merge_meshes,
-            render_override=render_override,
-            filter_by_guids=filter_by_guids,
-            params=params,
-        )
+        converter = SceneConverter(self, params)
+        return converter.build_processed_scene()
 
     def to_stp(
         self,
@@ -1104,10 +1126,6 @@ class Part(BackendGeom):
         self.to_ifc(ifc_file)
 
         wc.update_file_server(FileObjectDC(self.name, FileTypeDC.IFC, FilePurposeDC.DESIGN, ifc_file))
-
-    @property
-    def gltf_postprocessor(self) -> GltfPostProcessor:
-        return self._gltf_postprocessor
 
     @property
     def parts(self) -> dict[str, Part]:
@@ -1294,10 +1312,20 @@ class Part(BackendGeom):
         """Returns the ConceptFEM object associated with this Part."""
         return self._concept_fem
 
+    def get_all_groups_as_merged(self) -> dict[str, list[Group]]:
+        from collections import defaultdict
+
+        merged_sets_by_name = defaultdict(list)
+        for p in self.get_all_parts_in_assembly(include_self=True):
+            for group in p.groups.values():
+                merged_sets_by_name[group.name].append(group)
+
+        return merged_sets_by_name
+
     def __truediv__(self, other_object):
         from ada import Beam, Plate
 
-        if type(other_object) in [list, tuple]:
+        if type(other_object) in [list, tuple, set]:
             beams_and_plates = list(filter(lambda x: isinstance(x, (Beam, Plate)), other_object))
             self.add_objects_in_batch(beams_and_plates)
             not_bm_or_plates = list(filter(lambda x: not isinstance(x, (Beam, Plate)), other_object))

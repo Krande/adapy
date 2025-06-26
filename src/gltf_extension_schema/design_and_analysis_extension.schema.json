@@ -1,0 +1,31 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ADA Design and Analysis Extension",
+  "description": "GLTF extension for design and analysis objects",
+  "type": "object",
+  "properties": {
+    "simulation_objects": {
+      "type": "array",
+      "description": "Array containing Simulation Data objects",
+      "items": {
+        "$ref": "./simulation_extension.schema.json"
+      },
+      "default": []
+    },
+    "design_objects": {
+      "type": "array",
+      "description": "Array containing Design Data objects",
+      "items": {
+        "$ref": "./design_extension.schema.json"
+      },
+      "default": []
+    },
+    "version": {
+      "type": "string",
+      "description": "Version of the ADA GLTF extension schema",
+      "default": "1.0.0"
+    }
+  },
+  "required": [],
+  "additionalProperties": false
+}

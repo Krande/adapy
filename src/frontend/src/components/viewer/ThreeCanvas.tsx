@@ -70,11 +70,8 @@ const ThreeCanvas: React.FC = () => {
         const scene = sceneRef.current;
 
         // Create the animation controller
-        if (!animationControllerRef.current) {
-            modelGroupRef.current = new THREE.Group();
-            animationControllerRef.current = new AnimationController(scene);
-        }
-        const animation_controls = animationControllerRef.current
+        modelGroupRef.current = new THREE.Group();
+
 
         // === Renderer ===
         if (!rendererRef.current) {
@@ -139,9 +136,10 @@ const ThreeCanvas: React.FC = () => {
             // 1) start all stats timers
             statsArray.forEach((s) => s.begin());
 
-            if (animation_controls && animation_controls.currentAction) {
+            // Fix: Always use the current reference, not the captured one
+            if (animationControllerRef.current && animationControllerRef.current.currentAction) {
                 const deltaTime = clock.getDelta();
-                animation_controls.update(deltaTime);
+                animationControllerRef.current.update(deltaTime);
             }
 
             if (controls instanceof OrbitControls) {

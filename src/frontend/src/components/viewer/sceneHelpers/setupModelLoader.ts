@@ -3,12 +3,13 @@ import {prepareLoadedModel} from "./prepareLoadedModel";
 import {useModelState} from "../../../state/modelState";
 import {useOptionsStore} from "../../../state/optionsStore";
 import {useAnimationStore} from "../../../state/animationStore";
-import {animationControllerRef, modelKeyMapRef, sceneRef, simulationDataRef} from "../../../state/refs";
-import {SimulationDataExtensionMetadata} from "../../../extensions/sim_metadata";
+import {animationControllerRef, modelKeyMapRef, sceneRef, simulationDataRef, adaExtensionRef} from "../../../state/refs";
+import {SimulationDataExtensionMetadata} from "../../../extensions/design_and_analysis_extension";
 import {FilePurpose} from "../../../flatbuffers/base/file-purpose";
 import {cacheAndBuildTree} from "../../../state/model_worker/cacheModelUtils";
 import {mapAnimationTargets} from "../../../utils/scene/animations/mapAnimationTargets";
 import {loadGLTF} from "./asyncModelLoader";
+import {AnimationController} from "../../../utils/scene/animations/AnimationController";
 
 export async function setupModelLoaderAsync(
     modelUrl: string | null, translate: boolean = true
@@ -34,19 +35,38 @@ export async function setupModelLoaderAsync(
     const animationStore = useAnimationStore.getState()
 
     // access the raw JSON
-    const sim_ext_data = (gltf as any).parser.json.extensions?.ADA_SIM_data;
-    if (sim_ext_data) {
-        simulationDataRef.current = sim_ext_data as SimulationDataExtensionMetadata;
-        modelStore.model_type = FilePurpose.ANALYSIS;
-    } else {
-        modelStore.model_type = FilePurpose.DESIGN;
+    const ada_ext_data = (gltf as any).parser.json.extensions?.ADA_EXT_data;
+    if (ada_ext_data){
+        adaExtensionRef.current = ada_ext_data;
+        if (ada_ext_data.simulation_objects.length > 0){
+            simulationDataRef.current = ada_ext_data.simulation_objects[0];
+        }
     }
-
-
+    animationControllerRef.current = new AnimationController(main_scene);
+    // Handle animations - clear previous state first
     if (animations.length > 0) {
         // Set the hasAnimation flag to true in the store
         animationStore.setHasAnimation(true);
+
+        // Clear previous animations completely
+        animationControllerRef.current?.clear();
+
+        // Set the mesh map for the new animations
+        animationControllerRef.current?.setMeshMap(mapAnimationTargets(gltf));
+
+        // Add animations to the controller
+        animations.forEach((animation) => {
+            animationControllerRef.current?.addAnimation(animation);
+        });
+
+        // Reset to no animation state - don't call setCurrentAnimation yet
+        // We'll do this after the model is fully loaded and added to scene
+    } else {
+        animationStore.setHasAnimation(false);
+        // Clear controller even if no animations to ensure clean state
+        animationControllerRef.current?.clear();
     }
+
     // create a unique hash string
     const model_hash = gltf_scene.name + "_" + gltf_scene.uuid;
 
@@ -59,20 +79,6 @@ export async function setupModelLoaderAsync(
 
     // delegate all the caching to our helper
     await cacheAndBuildTree(model_hash, rawUD);
-
-    if (animations.length > 0) {
-        animationControllerRef.current?.setMeshMap(mapAnimationTargets(gltf));
-
-        // Add animations to the controller
-        animations.forEach((animation) => {
-            animationControllerRef.current?.addAnimation(animation);
-        });
-
-        // Play the first animation
-        animationControllerRef.current?.setCurrentAnimation("No Animation");
-    } else {
-        animationStore.setHasAnimation(false); // If no animations, set false
-    }
 
     if (modelStore.translation && translate) {
         console.log("Model already translated");
@@ -109,5 +115,9 @@ export async function setupModelLoaderAsync(
     }
     modelKeyMapRef.current.set(model_hash, modelGroup);
 
+    if (animations.length > 0) {
+        // Set the hasAnimation flag to true in the store
+        animationStore.setHasAnimation(true);
+    }
     return modelGroup;
 }

@@ -7,10 +7,10 @@ from ada.fem.concept.constraints import (
     ConstraintConceptPoint,
 )
 from ada.fem.concept.loads import (
+    LoadConceptAccelerationField,
     LoadConceptCase,
     LoadConceptCaseCombination,
     LoadConceptCaseFactored,
-    LoadConceptGravity,
     LoadConceptLine,
     LoadConceptPoint,
     LoadConceptSurface,
@@ -45,7 +45,7 @@ def test_new_features():
                     pressure=2000,
                     side="front",
                 ),
-                LoadConceptGravity(
+                LoadConceptAccelerationField(
                     name="GravityLoad1",
                     acceleration=(0, 0, -9.81),
                 ),

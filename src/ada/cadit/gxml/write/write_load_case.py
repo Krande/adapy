@@ -4,11 +4,11 @@ import xml.etree.ElementTree as ET
 from typing import TYPE_CHECKING
 
 from ada.cadit.gxml.write.write_loads import (
-    add_gravity_load,
+    add_acceleration_field_load,
     add_surface_load_plate,
     add_surface_load_polygon,
 )
-from ada.fem.concept.loads import LoadConceptGravity, LoadConceptSurface
+from ada.fem.concept.loads import LoadConceptAccelerationField, LoadConceptSurface
 
 if TYPE_CHECKING:
     from ada import Part
@@ -21,6 +21,7 @@ def add_loadcase(
     fem_loadcase_number: int = 1,
     complex_type: str = "static",
     invalidated: bool = True,
+    mesh_loads_as_mass: bool = False,
 ) -> ET.Element:
     """
     Adds a <loadcase_basic> under <global><loadcases>.
@@ -32,6 +33,7 @@ def add_loadcase(
         fem_loadcase_number (int): FEM load case number.
         complex_type (str): Analysis type (e.g., "static").
         invalidated (bool): Whether the load case is marked invalidated.
+        mesh_loads_as_mass (bool): Whether to convert mesh loads to mass.
 
     Returns:
         ET.Element: The created <loadcase_basic> element.
@@ -58,6 +60,18 @@ def add_loadcase(
             "complex_type": complex_type,
             "invalidated": str(invalidated).lower(),
         },
+    )
+    loads = global_elem.find("loads")
+    if loads is None:
+        loads = ET.SubElement(global_elem, "loads")
+    explicit_loads = loads.find("explicit_loads")
+    if explicit_loads is None:
+        explicit_loads = ET.SubElement(loads, "explicit_loads")
+
+    ET.SubElement(
+        explicit_loads,
+        "dummy_mesh_loads_as_mass",
+        {"loadcase_ref": name, "mesh_loads_as_mass": str(mesh_loads_as_mass).lower()},
     )
 
     return loadcase_elem
@@ -148,6 +162,7 @@ def add_loadcase_to_combination(global_elem, lcc_elem, lc_elem, factor=1.0, phas
 
 
 def add_loads(root: ET.Element, part: Part) -> None:
+    from ada import Point
     from ada.cadit.gxml.write.write_loads import add_line_load, add_point_load
     from ada.fem.concept.loads import LoadConceptLine, LoadConceptPoint
 
@@ -162,23 +177,28 @@ def add_loads(root: ET.Element, part: Part) -> None:
             design_condition=lc.design_condition,
             complex_type=lc.complex_type,
             invalidated=lc.invalidated,
+            fem_loadcase_number=lc.fem_loadcase_number,
+            mesh_loads_as_mass=lc.mesh_loads_as_mass,
         )
         for load in lc.loads:
+            abs_place = load.parent.parent.parent_fem.parent_part.placement.get_absolute_placement()
+            origin = abs_place.origin
             if isinstance(load, LoadConceptLine):
-                # Handle line loads
+                start = origin + load.start_point.copy()
+                end = origin + load.end_point.copy()
                 add_line_load(
                     global_elem,
                     lc_elem,
                     load.name,
-                    load.start_point,
-                    load.end_point,
+                    start,
+                    end,
                     load.intensity_start,
                     load.intensity_end,
                     load.system,
                 )
             elif isinstance(load, LoadConceptPoint):
-                # Handle point loads
-                add_point_load(global_elem, lc_elem, load.name, load.position, load.force, load.moment, load.system)
+                position = origin + load.position.copy()
+                add_point_load(global_elem, lc_elem, load.name, position, load.force, load.moment, load.system)
             elif isinstance(load, LoadConceptSurface):
                 if load.plate_ref:
                     add_surface_load_plate(
@@ -191,17 +211,20 @@ def add_loads(root: ET.Element, part: Part) -> None:
                         system=load.system,
                     )
                 else:
+
+                    points = [origin + Point(p) for p in load.points]
                     add_surface_load_polygon(
                         global_elem,
                         lc_elem,
                         name=load.name,
-                        points=load.points,
+                        points=points,
                         pressure=load.pressure,
                         system=load.system,
                     )
-            elif isinstance(load, LoadConceptGravity):
-                # Handle gravity loads
-                add_gravity_load(global_elem, lc_elem, load.acceleration, load.include_self_weight)
+            elif isinstance(load, LoadConceptAccelerationField):
+                add_acceleration_field_load(
+                    global_elem, lc_elem, load.acceleration, load.include_self_weight, load.rotational_field
+                )
             else:
                 raise ValueError(f"Unsupported load type: {type(load)}")
 

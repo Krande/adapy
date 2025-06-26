@@ -138,6 +138,7 @@ def main():
         geom_repr = GeomRepr.SOLID
 
     part = make_fem_part(geom_repr, args.order, args.quad, args.hex, args.model)
+
     assembly = make_assembly(part, args.simulation)
 
     if geom_repr == geom_repr.SHELL:

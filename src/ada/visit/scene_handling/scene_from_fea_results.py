@@ -8,21 +8,23 @@ import trimesh
 
 from ada.config import logger
 from ada.core.guid import create_guid
-from ada.fem import sim_metadata as sim_meta
+from ada.extension import simulation_extension_schema as sim_meta
+from ada.extension.simulation_extension_schema import SimNodeReference
 from ada.visit.gltf.graph import GraphNode, GraphStore
-from ada.visit.render_params import RenderParams
 
 if TYPE_CHECKING:
     from ada.fem.results.common import FEAResult
+    from ada.visit.scene_converter import SceneConverter
 
 
-def scene_from_fem_results(fea_res: FEAResult, params: RenderParams):
+def scene_from_fem_results(fea_res: FEAResult, converter: SceneConverter):
     from trimesh.path.entities import Line
 
     from ada.api.animations import Animation
     from ada.core.vector_transforms import rot_matrix
     from ada.fem.results.field_data import ElementFieldData, NodalFieldData
-    from ada.visit.gltf.gltf_postprocessor import GltfPostProcessor
+
+    params = converter.params
 
     warp_scale = params.fea_params.warp_scale
 
@@ -37,17 +39,16 @@ def scene_from_fem_results(fea_res: FEAResult, params: RenderParams):
 
     scene = trimesh.Scene()
     face_node = scene.add_geometry(faces_mesh, node_name=fea_res.name, geom_name="faces")
-    _ = scene.add_geometry(
+    edge_node = scene.add_geometry(
         edge_mesh, node_name=f"{fea_res.name}_edges", geom_name="edges", parent_node_name=fea_res.name
     )
 
     face_node_idx = [i for i, n in enumerate(scene.graph.nodes) if n == face_node][0]
-    # edge_node_idx = [i for i, n in enumerate(scene.graph.nodes) if n == edge_node][0]
 
     # React renderer supports animations
-    gltf_postprocessor = GltfPostProcessor()
     sim_data = export_sim_metadata(fea_res)
-    gltf_postprocessor.add_extension("ADA_SIM_data", sim_data.model_dump(mode="json"))
+    sim_data.node_references = SimNodeReference(faces=face_node, edges=edge_node)
+    converter.ada_ext.simulation_objects.append(sim_data)
 
     # Loop over the results and create an animation from it
     vertices = fea_res.mesh.nodes.coords
@@ -77,7 +78,7 @@ def scene_from_fem_results(fea_res: FEAResult, params: RenderParams):
             deformation_shape=delta_vertices,
             node_idx=[face_node_idx],
         )
-        gltf_postprocessor.add_animation(animation)
+        converter.add_animation(animation)
 
     if params.apply_transform:
         # if you want Y is up
@@ -86,13 +87,14 @@ def scene_from_fem_results(fea_res: FEAResult, params: RenderParams):
         m4x4 = np.r_[m3x3_with_col, [np.array([0, 0, 0, 1])]]
         scene.apply_transform(m4x4)
 
-    params.set_gltf_buffer_postprocessor(gltf_postprocessor.buffer_postprocessor)
-    params.set_gltf_tree_postprocessor(gltf_postprocessor.tree_postprocessor)
+    params.set_gltf_buffer_postprocessor(converter.buffer_postprocessor)
+    params.set_gltf_tree_postprocessor(converter.tree_postprocessor)
 
     parent_node = GraphNode("world", 0, hash=create_guid())
     graph = GraphStore(top_level=parent_node, nodes={0: parent_node})
     graph.add_node(GraphNode(fea_res.name, graph.next_node_id(), hash=create_guid(), parent=parent_node))
     scene.metadata.update(graph.create_meta())
+
     return scene
 
 

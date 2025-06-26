@@ -67,7 +67,7 @@ def test_plate_xy_offset(tmp_path):
 
 
 def test_plate_xz():
-    pl = ada.Plate("pl1", [(0, 0), (0, 1), (1, 1), (1, 0)], 0.1, origin=(0, 0, 0), n=(0, -1, 0), xdir=(1, 0, 0))
+    pl = ada.Plate("pl1", [(0, 0), (0, 1), (1, 1), (1, 0)], 0.1, origin=(0, 0, 0), normal=(0, -1, 0), xdir=(1, 0, 0))
 
     geo = pl.solid_geom()
     assert isinstance(geo.geometry, geo_so.ExtrudedAreaSolid)

@@ -1,11 +1,10 @@
 import xml.etree.ElementTree as ET
 
+import ada
 from ada import Node, Part
-from ada.fem import FemSet, Mass
 
 
-def get_masses(xml_root: ET.Element, parent: Part) -> dict[str, Mass]:
-    masses = dict()
+def get_masses(xml_root: ET.Element, parent: Part) -> None:
     for sp in xml_root.findall(".//point_mass"):
         name = sp.attrib.get("name")
 
@@ -17,7 +16,4 @@ def get_masses(xml_root: ET.Element, parent: Part) -> dict[str, Mass]:
         # Get mass
         mass_res = sp.findall(".//mass_scalar")[0]
         mass_value = float(mass_res.attrib.get("mass"))
-        fs = FemSet(f"{name}_fs", [n])
-        masses[name] = Mass(name, ref=fs, mass=float(mass_value))
-
-    return masses
+        parent.add_mass(ada.MassPoint(name, n.p, mass=mass_value))

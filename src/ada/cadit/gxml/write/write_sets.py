@@ -1,5 +1,4 @@
 import xml.etree.ElementTree as ET
-from collections import defaultdict
 
 import ada
 
@@ -7,10 +6,7 @@ import ada
 def add_sets(structure_domain, part: ada.Part):
     sets = ET.SubElement(structure_domain, "sets")
 
-    merged_sets_by_name = defaultdict(list)
-    for p in part.get_all_parts_in_assembly(include_self=True):
-        for group in p.groups.values():
-            merged_sets_by_name[group.name].append(group)
+    merged_sets_by_name = part.get_all_groups_as_merged()
 
     for group_name, groups in merged_sets_by_name.items():
         set_elem = ET.SubElement(sets, "set", name=group_name)

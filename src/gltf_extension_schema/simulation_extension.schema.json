@@ -26,6 +26,11 @@
       "items": {
         "$ref": "#/definitions/StepObject"
       }
+    },
+    "node_references": {
+      "type": "object",
+      "description":"References to GLTF node names",
+      "$ref" : "#/definitions/SimNodeReference"
     }
   },
   "required": [
@@ -101,6 +106,27 @@
       "required": [
         "bufferView"
       ]
+    },
+    "SimNodeReference": {
+      "type": "object",
+      "properties": {
+        "points": {
+          "type": "string",
+          "description": "node reference of Point mesh"
+        },
+        "edges": {
+          "type": "string",
+          "description": "node reference of Edges mesh"
+        },
+        "faces": {
+          "type": "string",
+          "description": "node reference of Faces mesh"
+        },
+        "solid_beams": {
+          "type": "string",
+          "description": "node reference of Solid Beams mesh"
+        }
+      }
     }
   }
 }

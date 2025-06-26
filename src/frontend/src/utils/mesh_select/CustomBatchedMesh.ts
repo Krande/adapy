@@ -1,8 +1,8 @@
 // CustomBatchedMesh.ts
 import * as THREE from 'three';
 import {selectedMaterial} from '../default_materials';
-// utils/mesh_select/CustomBatchedMesh.ts
 import {buildEdgeGeometryWithRangeIds, makeEdgeShaderMaterial} from './EdgeShaderHelper';
+import {DesignDataExtension, SimulationDataExtensionMetadata} from "../../extensions/design_and_analysis_extension";
 
 
 export class CustomBatchedMesh extends THREE.Mesh {
@@ -11,6 +11,8 @@ export class CustomBatchedMesh extends THREE.Mesh {
     drawRanges: Map<string, [number, number]>;
 
     public readonly unique_key: string;
+    public readonly is_design: boolean;
+    public readonly ada_ext_data: SimulationDataExtensionMetadata | DesignDataExtension | null;
 
     private selectedRanges = new Set<string>();
     private hiddenRanges = new Set<string>();
@@ -36,16 +38,18 @@ export class CustomBatchedMesh extends THREE.Mesh {
         geometry: THREE.BufferGeometry,
         material: THREE.Material,
         drawRanges: Map<string, [number, number]>,
-        unique_key: string
+        unique_key: string,
+        is_design: boolean,
+        ada_ext_data: SimulationDataExtensionMetadata | DesignDataExtension | null
     ) {
         super(geometry.clone(), material.clone());
         this.originalGeometry = geometry;
         this.originalMaterial = material.clone();
         this.drawRanges = drawRanges;
         this.updateGroups();
-        this.unique_key = unique_key
-
-        // no renderer yet → defer edge setup
+        this.unique_key = unique_key;
+        this.is_design = is_design;
+        this.ada_ext_data = ada_ext_data;
     }
 
     private updateGroups() {
@@ -102,17 +106,6 @@ export class CustomBatchedMesh extends THREE.Mesh {
 
     public clearSelectionGroups() {
         this.updateSelectionGroups([]);
-    }
-
-    public hideDrawRange(rangeId: string) {
-        this.hiddenRanges.add(rangeId);
-        this.updateGroups();
-        if (this.edgeMaterial && this.rangeIdToIndex) {
-            const i = this.rangeIdToIndex.get(rangeId)!;
-            const tex = this.edgeMaterial.uniforms.uVisibleTex.value as THREE.DataTexture;
-            tex.image.data[i] = 0;
-            tex.needsUpdate = true;
-        }
     }
 
     /**

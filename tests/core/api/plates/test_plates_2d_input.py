@@ -183,7 +183,7 @@ def test_flat_xz_offset_plate_shell(place2):
 def test_oriented_plate():
     # pl2 = ada.Plate("MyPl2", [(0, 0), (0, 5), (5, 5), (5, 0)], 20e-3, orientation=place2)
     pl2 = ada.Plate(
-        "pl3", [(0, 0), (0, 1), (1, 1), (1, 0)], 0.01, origin=(4, 0, 4), n=(0, -1, 0), xdir=(1, 0, 0), color="red"
+        "pl3", [(0, 0), (0, 1), (1, 1), (1, 0)], 0.01, origin=(4, 0, 4), normal=(0, -1, 0), xdir=(1, 0, 0), color="red"
     )
     place = pl2.poly.orientation
 
@@ -287,7 +287,7 @@ def test_floaty_input_ex1():
     ]
     thick = 30.0
 
-    pl = ada.Plate("test", local_points2d, thick, origin=origin, n=csys[2], xdir=csys[0], units="mm")
+    pl = ada.Plate("test", local_points2d, thick, origin=origin, normal=csys[2], xdir=csys[0], units="mm")
 
     # a = ada.Assembly(units="mm") / pl
     # a.units = "m"
@@ -318,6 +318,6 @@ def test_ex2():
         [-34.99999999999994, 500.0330344161669, -7.881391015070461e-12],
     ]
     thick = 30
-    pl = ada.Plate("test2", local_points2d, thick, origin=origin, n=csys[2], xdir=csys[0], units="mm")
+    pl = ada.Plate("test2", local_points2d, thick, origin=origin, normal=csys[2], xdir=csys[0], units="mm")
     assert pl.poly.origin == pytest.approx(origin)
     # a = (ada.Assembly(units="mm") / [ada.Part("te", units="mm") / pl]).to_ifc(test_dir / "error_plate2.ifc")

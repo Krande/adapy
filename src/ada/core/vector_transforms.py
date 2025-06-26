@@ -379,3 +379,60 @@ def compute_orientation(
     # y is always based on final up
     y_arr = calc_yvec(xvec, up_arr)
     return tuple(up_arr), tuple(y_arr), angle
+
+
+# cache on (xvec, yvec, zvec)
+@lru_cache(maxsize=128)
+def compute_orientation_vec(
+    xvec_tup: tuple[float, float, float] | None,
+    yvec_tup: tuple[float, float, float] | None,
+    up_tup: tuple[float, float, float] | None,
+) -> tuple[tuple[float, float, float], tuple[float, float, float], tuple[float, float, float]]:
+    from ada.core.utils import round_array
+    from ada.core.vector_utils import calc_xvec, calc_yvec, calc_zvec, unit_vector
+
+    # Default vectors if all are None
+    if xvec_tup is None and yvec_tup is None and up_tup is None:
+        return (1.0, 0.0, 0.0), (0.0, 1.0, 0.0), (0.0, 0.0, 1.0)
+
+    # Convert to numpy arrays for calculations
+    xvec = np.array(xvec_tup) if xvec_tup is not None else None
+    yvec = np.array(yvec_tup) if yvec_tup is not None else None
+    zvec = np.array(up_tup) if up_tup is not None else None
+
+    # Calculate missing vectors
+    if xvec is not None and yvec is not None and zvec is None:
+        zvec = calc_zvec(xvec, yvec)
+    elif xvec is not None and zvec is not None and yvec is None:
+        yvec = calc_yvec(xvec, zvec)
+    elif yvec is not None and zvec is not None and xvec is None:
+        xvec = calc_xvec(yvec, zvec)
+    elif xvec is not None and yvec is None and zvec is None:
+        # If only xvec is provided, use default z-axis and calculate y
+        zvec = np.array([0.0, 0.0, 1.0])
+        yvec = calc_yvec(xvec, zvec)
+    elif xvec is None and yvec is not None and zvec is None:
+        # If only yvec is provided, use default z-axis and calculate x
+        zvec = np.array([0.0, 0.0, 1.0])
+        xvec = calc_xvec(yvec, zvec)
+    elif xvec is None and yvec is None and zvec is not None:
+        # If only zvec is provided, use default x-axis and calculate y
+        # If zvec is (1,0,0) use default xvec to 0,0,1
+        if np.array_equal(zvec, np.array([1.0, 0.0, 0.0])):
+            xvec = np.array([0.0, 0.0, 1.0])
+        else:
+            xvec = np.array([1.0, 0.0, 0.0])
+        yvec = calc_yvec(xvec, zvec)
+
+    # Normalize vectors
+    xvec = unit_vector(xvec)
+    yvec = unit_vector(yvec)
+    zvec = unit_vector(zvec)
+
+    # Round to avoid floating point issues
+    xvec = round_array(xvec)
+    yvec = round_array(yvec)
+    zvec = round_array(zvec)
+
+    # Convert back to tuples for caching
+    return tuple(xvec), tuple(yvec), tuple(zvec)

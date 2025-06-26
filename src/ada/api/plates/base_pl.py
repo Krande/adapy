@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Iterable, Literal, Union
+from typing import TYPE_CHECKING, Iterable, Literal, TypeAlias, Union
 
 from ada.api.bounding_box import BoundingBox
 from ada.api.curves import CurvePoly2d
@@ -20,7 +20,16 @@ if TYPE_CHECKING:
 
     from ada import Placement
 
-_NTYPE = Union[int, float]
+_NTYPE: TypeAlias = Union[int, float]
+# Define coordinate types
+Coordinate: TypeAlias = tuple[_NTYPE, _NTYPE]
+CoordinateSequence: TypeAlias = (
+    list[Coordinate]
+    | list[list[Coordinate]]
+    | list[tuple[Coordinate, ...]]
+    | tuple[Coordinate, ...]
+    | tuple[list[Coordinate], ...]
+)
 
 
 class Plate(BackendGeom):
@@ -36,18 +45,18 @@ class Plate(BackendGeom):
     :param mat: Material. Can be either Material object or built-in materials ('S420' or 'S355')
     :param origin: Explicitly define origin of plate. If not set
     :param xdir: Explicitly define x direction of plate. If not set
-    :param n: Explicitly define normal direction of plate. If not set
+    :param normal: Explicitly define normal direction of plate. If not set
     """
 
     def __init__(
         self,
         name: str,
-        points: CurvePoly2d | list[tuple[_NTYPE, _NTYPE]],
+        points: CurvePoly2d | CoordinateSequence,
         t: float,
         mat: str | Material = "S420",
         origin: Iterable | Point = None,
         xdir: Iterable | Direction = None,
-        n: Iterable | Direction = None,
+        normal: Iterable | Direction = None,
         orientation: Placement = None,
         pl_id=None,
         tol=None,
@@ -67,7 +76,7 @@ class Plate(BackendGeom):
         else:
             self._poly = CurvePoly2d(
                 points2d=points,
-                normal=n,
+                normal=normal,
                 origin=origin,
                 xdir=xdir,
                 tol=tol,
@@ -79,9 +88,9 @@ class Plate(BackendGeom):
 
     @staticmethod
     def from_3d_points(
-        name, points, t, mat="S420", xdir=None, color=None, metadata=None, flip_n=False, **kwargs
+        name, points, t, mat="S420", xdir=None, color=None, metadata=None, flip_normal=False, **kwargs
     ) -> Plate:
-        poly = CurvePoly2d.from_3d_points(points, xdir=xdir, flip_n=flip_n, **kwargs)
+        poly = CurvePoly2d.from_3d_points(points, xdir=xdir, flip_n=flip_normal, **kwargs)
         return Plate(name, poly, t, mat=mat, color=color, metadata=metadata, **kwargs)
 
     @staticmethod
@@ -203,7 +212,7 @@ class Plate(BackendGeom):
         self._material = value
 
     @property
-    def n(self) -> Direction:
+    def normal(self) -> Direction:
         """Normal vector"""
         return self.poly.normal
 
@@ -240,10 +249,10 @@ class Plate(BackendGeom):
             list(x) + [self.poly.radiis.get(i)] if i in self.poly.radiis.keys() else list(x)
             for i, x in enumerate(self.poly.points2d)
         ]
-        origin = f"origin={self.placement.origin.tolist()}"
+        origin = f"origin={self.poly.origin.tolist()}"
         xdir = f"xdir={self.poly.xdir.tolist()}"
         normal = f"normal={self.poly.normal.tolist()}"
-        return f'Plate("{self.name}", {pts}, t={self.t}, "{self.material.name}", {origin}, {xdir}, {normal})'
+        return f'{self.__class__.__name__}("{self.name}", {pts}, t={self.t}, mat="{self.material.name}", {origin}, {xdir}, {normal})'
 
 
 class PlateCurved(BackendGeom):

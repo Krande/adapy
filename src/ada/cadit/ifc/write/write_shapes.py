@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 import ada.geom.surfaces as geo_su
 from ada import (
     Boolean,
+    MassPoint,
     PrimBox,
     PrimCone,
     PrimCyl,
@@ -84,6 +85,7 @@ def generate_parametric_solid(shape: Shape | PrimSphere, f):
 
     param_geom_map = {
         PrimSphere: generate_ifc_prim_sphere_geom,
+        MassPoint: generate_ifc_prim_sphere_geom,
         PrimBox: generate_ifc_box_geom,
         PrimCyl: generate_ifc_cylinder_geom,
         PrimCone: generate_ifc_cone_geom,

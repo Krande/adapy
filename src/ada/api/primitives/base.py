@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Iterable
 
+import trimesh
+
 from ada.api.bounding_box import BoundingBox
 from ada.api.transforms import Placement
 from ada.base.ifc_types import ShapeTypes
@@ -34,11 +36,13 @@ class Shape(BackendGeom):
         units=Units.M,
         metadata=None,
         guid=None,
-        placement=Placement(),
+        placement=None,
         ifc_store: IfcStore = None,
         ifc_class: ShapeTypes = ShapeTypes.IfcBuildingElementProxy,
         parent=None,
     ):
+        if placement is None:
+            placement = Placement()
         super().__init__(
             name,
             guid=guid,
@@ -92,6 +96,11 @@ class Shape(BackendGeom):
             self._bbox = BoundingBox(self)
 
         return self._bbox
+
+    def solid_trimesh(self) -> trimesh.Trimesh:
+        from ada.occ.tessellating import shape_to_tri_mesh
+
+        return shape_to_tri_mesh(self.solid_occ())
 
     def solid_occ(self) -> TopoDS_Shape:
         from ada.occ.geom import geom_to_occ_geom

@@ -68,11 +68,12 @@ class PrimExtrude(Shape):
         return geom_to_occ_geom(self.solid_geom())
 
     def solid_geom(self) -> Geometry:
+        from ada.geom.curves import IndexedPolyCurve
         from ada.geom.placement import Axis2Placement3D, Direction
         from ada.geom.solids import ExtrudedAreaSolid
         from ada.geom.surfaces import ArbitraryProfileDef, ProfileType
 
-        outer_curve = self.poly.curve_geom()
+        outer_curve: IndexedPolyCurve = self.poly.curve_geom()
         profile = ArbitraryProfileDef(ProfileType.AREA, outer_curve, [])
 
         place = Axis2Placement3D(self.poly.origin, axis=self.poly.normal, ref_direction=self.poly.xdir)
@@ -82,4 +83,4 @@ class PrimExtrude(Shape):
         return Geometry(self.guid, solid, self.color, bool_operations=booleans)
 
     def __repr__(self):
-        return f'PrimExtrude("{self.name}")'
+        return f'{self.__class__.__name__}("{self.name}", curve2d={self.poly.points2d}, h={self.extrude_depth})'

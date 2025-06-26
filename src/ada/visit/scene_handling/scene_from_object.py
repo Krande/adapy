@@ -8,7 +8,7 @@ from ada.visit.gltf.graph import GraphNode, GraphStore
 from ada.visit.render_params import RenderParams
 
 
-def scene_from_object(physical_object: BackendGeom, params: RenderParams, apply_transform=False) -> trimesh.Scene:
+def scene_from_object(physical_object: BackendGeom, params: RenderParams) -> trimesh.Scene:
     from itertools import groupby
 
     from ada import Pipe
@@ -41,7 +41,7 @@ def scene_from_object(physical_object: BackendGeom, params: RenderParams, apply_
         mesh_map.append((mat_id, meshes, merged_store))
 
         merged_mesh_to_trimesh_scene(
-            scene, merged_store, bt.get_mat_by_id(mat_id), mat_id, graph_store, apply_transform=apply_transform
+            scene, merged_store, bt.get_mat_by_id(mat_id), mat_id, graph_store, apply_transform=params.apply_transform
         )
 
     scene.metadata.update(graph_store.create_meta())

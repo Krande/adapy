@@ -16,6 +16,13 @@ export class AnimationController {
         this.animation_store = useAnimationStore.getState();
     }
 
+    // clear all animation data
+    public clear(): void {
+        this.mixer.stopAllAction();
+        this.actions.clear();
+        this.currentAction = null;
+    }
+
     // Add an animation clip to the controller
     public addAnimation(clip: THREE.AnimationClip): void {
         const action = this.mixer.clipAction(clip);
@@ -34,9 +41,13 @@ export class AnimationController {
         const clip = action.getClip();
         const node_names = this.meshMap.get(clip.name);
         const scene = sceneRef.current;
+
         if (node_names && scene) {
             for (const node_name of node_names) {
-                const mesh = scene.getObjectByName(node_name.replace('.', '')) as THREE.Mesh;
+                const searchName = node_name.replace('.', '');
+
+                const mesh = scene.getObjectByName(searchName) as THREE.Mesh;
+
                 if (mesh) {
                     return mesh;
                 }
@@ -47,7 +58,6 @@ export class AnimationController {
 
     public setCurrentAnimation(clipName: string): void {
         if (clipName === "No Animation") {
-            // this.animation_store?.setIsPlaying(false);
             this.animation_store?.setSelectedAnimation(clipName);
             this.stopAnimation()
 
