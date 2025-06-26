@@ -53,14 +53,14 @@ jobs:
         if: failure()
         with:
           name: ADA-FEA-res-debug
-          path: tests/fem/temp
+          path: tests/fem/verification_report/temp
 
       - name: Upload Zip file to release
         if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
         uses: svenstaro/upload-release-action@v2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: tests/fem/temp/_dist/ADA-FEA-verification.docx
+          file: tests/fem/verification_report/temp/_dist/ADA-FEA-verification.docx
           asset_name: ADA-FEA-verification-${{ env.DATE }}.docx
           tag: "ADA-FEA-Verification-Report-${{ env.DATE }}"
           overwrite: true
