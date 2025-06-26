@@ -2,6 +2,20 @@
 
 
 
+## v0.7.0 (2025-06-26)
+
+### Chore
+
+* chore: bump prefix-dev/setup-pixi from 0.8.8 to 0.8.10 in the dependencies group (#141)
+
+Signed-off-by: dependabot[bot] &lt;support@github.com&gt;
+Co-authored-by: dependabot[bot] &lt;49699333+dependabot[bot]@users.noreply.github.com&gt; ([`ea07f86`](https://github.com/Krande/adapy/commit/ea07f860f579cbd67afa22680ded5ff8530a71dc))
+
+### Feature
+
+* feat: more primitives, frontend features and more caching (#142) ([`04c3066`](https://github.com/Krande/adapy/commit/04c3066338a98c734ff31f6e4142b0e815103fc8))
+
+
 ## v0.6.0 (2025-05-27)
 
 ### Chore
