@@ -1,6 +1,7 @@
 import xml.etree.ElementTree as ET
 
 import ada
+from ada.api.spatial.equipment import EquipRepr
 
 
 def test_roundtrip_xml(fem_files, tmp_path):
@@ -75,6 +76,7 @@ def test_check_placement_of_parts(tmp_path):
         ada.LoadConceptCase(
             "LC1",
             fem_loadcase_number=32,
+            mesh_loads_as_mass=True,
             loads=[
                 ada.LoadConceptPoint(name="PointLoad1", position=end, force=(0, 0, -50), moment=(0, 0, 0)),
                 ada.LoadConceptLine(
@@ -118,6 +120,7 @@ def test_check_placement_of_parts(tmp_path):
             ada.ConstraintConceptDofType.encastre("dependent"),
         )
     )
+    p1.add_part(ada.Equipment("eq1", 50, (0, 0, 1), end3, 1, 1, 1, EquipRepr.LINE_LOAD, lc1))
 
     # Part 2
     bm3 = ada.Beam("bm3", start, end, "IPE200")
@@ -176,6 +179,7 @@ def test_check_placement_of_parts(tmp_path):
             ada.ConstraintConceptDofType.encastre("dependent"),
         )
     )
+    p2.add_part(ada.Equipment("eq2", 50, (0, 0, 1), end3, 1, 1, 1, EquipRepr.LINE_LOAD, lc2))
 
     a = ada.Assembly("a") / (p1, p2)
     dest = a.to_genie_xml(tmp_path / "offset_parts.xml", embed_sat=False)
@@ -312,7 +316,13 @@ def test_check_placement_of_parts(tmp_path):
     assert len(materials) > 0, "Should have materials defined"
     assert len(sections) > 0, "Should have sections defined"
 
+    dummy_meshes = xml_root.findall(".//dummy_mesh_loads_as_mass")
+    assert len(dummy_meshes) == 2, "Should have 2 dummy mesh"
+
+    assert dummy_meshes[0].get("mesh_loads_as_mass") == "true", "Dummy mesh should be enabled"
+
     # Do not add these in prod
     # a.show()
     # from ada.cadit.gxml.utils import start_genie
+    #
     # start_genie(dest)

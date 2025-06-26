@@ -21,6 +21,7 @@ def add_loadcase(
     fem_loadcase_number: int = 1,
     complex_type: str = "static",
     invalidated: bool = True,
+    mesh_loads_as_mass: bool = False,
 ) -> ET.Element:
     """
     Adds a <loadcase_basic> under <global><loadcases>.
@@ -32,6 +33,7 @@ def add_loadcase(
         fem_loadcase_number (int): FEM load case number.
         complex_type (str): Analysis type (e.g., "static").
         invalidated (bool): Whether the load case is marked invalidated.
+        mesh_loads_as_mass (bool): Whether to convert mesh loads to mass.
 
     Returns:
         ET.Element: The created <loadcase_basic> element.
@@ -58,6 +60,18 @@ def add_loadcase(
             "complex_type": complex_type,
             "invalidated": str(invalidated).lower(),
         },
+    )
+    loads = global_elem.find("loads")
+    if loads is None:
+        loads = ET.SubElement(global_elem, "loads")
+    explicit_loads = loads.find("explicit_loads")
+    if explicit_loads is None:
+        explicit_loads = ET.SubElement(loads, "explicit_loads")
+
+    ET.SubElement(
+        explicit_loads,
+        "dummy_mesh_loads_as_mass",
+        {"loadcase_ref": name, "mesh_loads_as_mass": str(mesh_loads_as_mass).lower()},
     )
 
     return loadcase_elem
@@ -164,6 +178,7 @@ def add_loads(root: ET.Element, part: Part) -> None:
             complex_type=lc.complex_type,
             invalidated=lc.invalidated,
             fem_loadcase_number=lc.fem_loadcase_number,
+            mesh_loads_as_mass=lc.mesh_loads_as_mass,
         )
         for load in lc.loads:
             abs_place = load.parent.parent.parent_fem.parent_part.placement.get_absolute_placement()

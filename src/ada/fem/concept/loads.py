@@ -160,6 +160,7 @@ class LoadConceptCase:
     complex_type: Literal["static"] = "static"
     invalidated: bool = True
     include_self_weight: bool = False
+    mesh_loads_as_mass: bool = False
     parent: LoadConcepts = field(init=False, repr=False)
 
     def __post_init__(self):
