@@ -21,7 +21,7 @@ from ada.geom.points import Point
 from ada.materials import Material
 from ada.materials.utils import get_material
 from ada.sections import Section
-from ada.sections.utils import interpret_section_str
+from ada.sections.string_to_section import interpret_section_str
 
 if TYPE_CHECKING:
     from OCC.Core.TopoDS import TopoDS_Shape
