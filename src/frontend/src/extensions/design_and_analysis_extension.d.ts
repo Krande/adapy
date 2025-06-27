@@ -123,6 +123,10 @@ export interface SimGroup {
    * Name of the parent simulation object
    */
   parent_name?: string;
+  /**
+   * Type of finite element model objects in this group (nodes or elements)
+   */
+  fe_object_type?: "node" | "element";
   [k: string]: unknown;
 }
 /**
