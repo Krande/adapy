@@ -172,6 +172,39 @@ class ModelWorkerAPI {
 
         return root;
     }
+
+    /**
+     * Find all draw ranges for elements that match the given member names
+     * Returns array of [meshName, rangeId] pairs
+     */
+    async getDrawRangesByMemberNames(
+        key: string,
+        memberNames: string[]
+    ): Promise<Array<[string, string]>> {
+        const hierarchy = this.memoryCacheHierarchy.get(key);
+        const drawRanges = this.memoryCacheDrawRange.get(key);
+
+        if (!hierarchy || !drawRanges) {
+            console.error("ModelWorkerAPI: No hierarchy or drawRanges found for key:", key);
+            return [];
+        }
+
+        const results: Array<[string, string]> = [];
+        const elementToMesh = this.buildElementToMeshMap(key);
+
+        // Find all rangeIds that match the member names
+        for (const [rangeId, [name]] of Object.entries(hierarchy)) {
+            if (memberNames.includes(name)) {
+                const meshName = elementToMesh.get(rangeId);
+                if (meshName) {
+                    results.push([meshName, rangeId]);
+                }
+            }
+        }
+
+        return results;
+    }
+
 }
 
 Comlink.expose(new ModelWorkerAPI());

@@ -48,6 +48,16 @@ def scene_from_fem_results(fea_res: FEAResult, converter: SceneConverter):
     # React renderer supports animations
     sim_data = export_sim_metadata(fea_res)
     sim_data.node_references = SimNodeReference(faces=face_node, edges=edge_node)
+
+    groups = []
+    if fea_res.mesh.sets is not None:
+        for fset in fea_res.mesh.sets.values():
+            g = sim_meta.SimGroup(
+                name=fset.name, members=[str(m) for m in fset.members], parent_name=sim_data.name, description=fset.type
+            )
+            groups.append(g)
+        sim_data.groups = groups
+
     converter.ada_ext.simulation_objects.append(sim_data)
 
     # Loop over the results and create an animation from it

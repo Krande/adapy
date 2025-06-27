@@ -90,6 +90,13 @@ def scene_from_fem(fem: FEM, converter: SceneConverter) -> trimesh.Scene:
             scene, points_store, points_color, points_color_id, graph_store=graph
         )
 
+    groups = []
+    for fset in fem.sets.sets:
+        g = sim_meta.SimGroup(
+            name=fset.name, members=[m.name for m in fset.members], parent_name=fem.name, description=fset.type
+        )
+        groups.append(g)
+
     sim_data = sim_meta.SimulationDataExtensionMetadata(
         name=fem.name,
         date=datetime.datetime.now(),
@@ -99,6 +106,7 @@ def scene_from_fem(fem: FEM, converter: SceneConverter) -> trimesh.Scene:
         node_references=sim_meta.SimNodeReference(
             points=points_node_name, edges=edges_node_name, faces=faces_node_name, solid_beams=bm_solid_node_name
         ),
+        groups=groups,
     )
     converter.ada_ext.simulation_objects.append(sim_data)
 
