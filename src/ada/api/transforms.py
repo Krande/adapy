@@ -13,7 +13,8 @@ from ada.core.vector_transforms import (
     transform_3x3,
 )
 from ada.core.vector_utils import calc_xvec, calc_yvec, unit_vector
-from ada.geom.placement import XV, YV, ZV, Axis2Placement3D, Direction, O
+from ada.geom.direction import Direction
+from ada.geom.placement import XV, YV, ZV, Axis2Placement3D, O
 from ada.geom.points import Point
 
 if TYPE_CHECKING:

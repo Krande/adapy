@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 import ada
+import ada.geom.direction
 from ada.base.types import GeomRepr
 from ada.cadit.sat.utils import make_ints_if_possible
 from ada.cadit.sat.write import sat_entities as se
@@ -154,7 +155,7 @@ def plate_to_sat_entities(
         if use_dual_assembly:
             edge_n = f"EDGE{sw.edge_name_id:08d}"
             edge_str_id = id_gen.next_id()
-            length = ada.Direction(p1.point - p2.point).get_length()
+            length = ada.geom.direction.Direction(p1.point - p2.point).get_length()
             fusedge = se.FusedEdgeAttribute(
                 id_gen.next_id(),
                 name=edge_str_id,

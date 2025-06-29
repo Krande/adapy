@@ -6,8 +6,9 @@ from typing import TYPE_CHECKING, Iterable
 import numpy as np
 
 from ada.config import Config, logger
+from ada.geom.direction import Direction
+from ada.geom.points import Point
 
-from ..geom.points import Point
 from .exceptions import VectorNormalizeError
 from .utils import roundoff
 from .vector_transforms import linear_2dtransform_rotate, transform_3x3
@@ -21,9 +22,8 @@ from .vector_utils import (
 )
 
 if TYPE_CHECKING:
+    from ada import Placement
     from ada.api.curves import ArcSegment, LineSegment
-
-    from .. import Placement
 
 
 def calculate_center(v1, v2) -> Point | None:
@@ -920,7 +920,6 @@ def line_segments3d_from_points3d(points: list[Point | Iterable]) -> list[LineSe
 def segments3d_from_points3d(
     points: list[Point | Iterable], radius=None, radius_dict=None, angle_tol=1e-1, len_tol=1e-3
 ) -> list[LineSegment | ArcSegment]:
-    from ada import Direction
     from ada.api.curves import ArcSegment, LineSegment
 
     prelim_segments = line_segments3d_from_points3d(points)

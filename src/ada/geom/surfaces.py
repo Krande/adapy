@@ -6,7 +6,8 @@ from typing import Union
 
 import ada.geom.curves as geo_cu
 from ada.geom.curves import EdgeLoop, PolyLoop
-from ada.geom.placement import Axis2Placement3D, Direction
+from ada.geom.direction import Direction
+from ada.geom.placement import Axis2Placement3D
 from ada.geom.points import Point
 
 

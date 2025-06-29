@@ -7,7 +7,7 @@ from ada.api.beams import geom_beams as geo_conv
 from ada.config import logger
 from ada.geom import Geometry
 from ada.geom.curves import IndexedPolyCurve
-from ada.geom.placement import Direction
+from ada.geom.direction import Direction
 from ada.geom.points import Point
 from ada.geom.surfaces import ArbitraryProfileDef
 from ada.sections.string_to_section import interpret_section_str

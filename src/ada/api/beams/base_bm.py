@@ -16,7 +16,7 @@ from ada.core.utils import Counter
 from ada.core.vector_utils import is_between_endpoints, unit_vector, vector_length
 from ada.fem.concept.constraints import DofType
 from ada.geom import Geometry
-from ada.geom.placement import Direction
+from ada.geom.direction import Direction
 from ada.geom.points import Point
 from ada.materials import Material
 from ada.materials.utils import get_material

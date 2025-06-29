@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 import ada
+import ada.geom.direction
 from ada.cadit.sat.utils import make_ints_if_possible
 
 
@@ -123,7 +124,7 @@ class Edge(SATEntity):
         start_str = " ".join([str(x) for x in make_ints_if_possible(self.start_pt)])
         end_str = " ".join([str(x) for x in make_ints_if_possible(self.end_pt)])
         # pos_str = f"{self.start_pt[0]} {self.start_pt[1]} {self.start_pt[2]} {self.end_pt[0]} {self.end_pt[1]} {self.end_pt[2]}"
-        vec = ada.Direction(self.end_pt - self.start_pt)
+        vec = ada.geom.direction.Direction(self.end_pt - self.start_pt)
         length = vec.get_length()
         s1 = 0
         s2 = make_ints_if_possible([length])[0]
@@ -133,7 +134,7 @@ class Edge(SATEntity):
 @dataclass
 class StraightCurve(SATEntity):
     start_pt: ada.Point
-    direction: ada.Direction
+    direction: ada.geom.direction.Direction
 
     def to_string(self) -> str:
         start_str = " ".join([str(x) for x in make_ints_if_possible(self.start_pt)])
@@ -144,8 +145,8 @@ class StraightCurve(SATEntity):
 @dataclass
 class PlaneSurface(SATEntity):
     centroid: ada.Point
-    normal: ada.Direction
-    xvec: ada.Direction
+    normal: ada.geom.direction.Direction
+    xvec: ada.geom.direction.Direction
 
     def to_string(self) -> str:
         centroid_str = " ".join([str(x) for x in make_ints_if_possible(self.centroid)])
@@ -170,7 +171,7 @@ class CachedPlaneAttribute(SATEntity):
     entity: SATEntity
     name: StringAttribName
     centroid: ada.Point
-    normal: ada.Direction
+    normal: ada.geom.direction.Direction
 
     def to_string(self) -> str:
         centroid_str = " ".join([str(x) for x in make_ints_if_possible(self.centroid)])

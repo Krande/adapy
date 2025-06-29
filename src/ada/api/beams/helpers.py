@@ -8,7 +8,7 @@ import numpy as np
 from ada.config import Config, logger
 from ada.core.vector_utils import is_between_endpoints, is_parallel, vector_length
 from ada.fem.elements import HingeProp
-from ada.geom.placement import Direction
+from ada.geom.direction import Direction
 
 if TYPE_CHECKING:
     from ada import Beam, Node

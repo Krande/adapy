@@ -9,7 +9,7 @@ from ada.base.physical_objects import BackendGeom
 from ada.base.units import Units
 from ada.config import Config
 from ada.geom import Geometry
-from ada.geom.placement import Direction
+from ada.geom.direction import Direction
 from ada.geom.points import Point
 from ada.geom.solids import ExtrudedAreaSolid
 from ada.materials import Material

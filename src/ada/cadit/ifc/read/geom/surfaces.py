@@ -3,7 +3,7 @@ import ifcopenshell
 from ada.core.utils import flatten
 from ada.geom import curves as geo_cu
 from ada.geom import surfaces as geo_su
-from ada.geom.placement import Direction
+from ada.geom.direction import Direction
 from ada.geom.points import Point
 
 from .curves import edge_loop, get_curve

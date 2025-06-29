@@ -22,7 +22,8 @@ from ada.core.vector_utils import (
     vector_length,
 )
 from ada.geom import Geometry
-from ada.geom.placement import Axis1Placement, Axis2Placement3D, Direction
+from ada.geom.direction import Direction
+from ada.geom.placement import Axis1Placement, Axis2Placement3D
 from ada.materials.utils import get_material
 from ada.sections.string_to_section import get_section
 
