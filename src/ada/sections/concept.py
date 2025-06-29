@@ -69,7 +69,7 @@ class Section(Root):
         self._ifc_beam_type = None
 
         if from_str is not None:
-            from ada.sections.utils import interpret_section_str
+            from ada.sections.string_to_section import interpret_section_str
 
             if units == Units.M:
                 scalef = 0.001
@@ -105,7 +105,7 @@ class Section(Root):
     @staticmethod
     def from_str(section_str: str) -> Section | list[Section]:
         """Create a section from a string representation. If tapered, returns a list of two sections"""
-        from ada.sections.utils import interpret_section_str
+        from ada.sections.string_to_section import interpret_section_str
 
         sec, tap = interpret_section_str(section_str)
         if sec != tap and tap is not None:

@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import ifcopenshell
 
-from ada import Point
 from ada.cadit.ifc.write.geom.points import cpt
 from ada.core.utils import to_real
-from ada.geom.placement import Axis2Placement3D, Direction
+from ada.geom.direction import Direction
+from ada.geom.placement import Axis2Placement3D
+from ada.geom.points import Point
 
 
 def ifc_placement_from_axis3d(axis3d: Axis2Placement3D, f: ifcopenshell.file) -> ifcopenshell.entity_instance:

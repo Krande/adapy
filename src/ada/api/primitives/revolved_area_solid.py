@@ -4,11 +4,11 @@ from OCC.Core.TopoDS import TopoDS_Shape
 
 from ada.api.curves import CurvePoly2d
 from ada.api.primitives.base import Shape
-from ada.api.transforms import Direction
 from ada.base.units import Units
 from ada.config import Config
 from ada.geom import Geometry
 from ada.geom.booleans import BooleanOperation
+from ada.geom.direction import Direction
 from ada.geom.points import Point
 
 

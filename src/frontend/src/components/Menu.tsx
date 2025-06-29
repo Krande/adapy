@@ -1,5 +1,5 @@
 import React from 'react';
-import ObjectInfoBox from "./object_info_box/ObjectInfoBoxComponent";
+import ObjectInfoBox from "./info_box_selected_object/ObjectInfoBoxComponent";
 import {useObjectInfoStore} from "../state/objectInfoStore";
 import SimulationControls from "./simulation/SimulationControls";
 import {useNodeEditorStore} from "../state/useNodeEditorStore";
@@ -15,10 +15,14 @@ import TreeViewIcon from "./icons/TreeViewIcon";
 import ReloadIcon from "./icons/ReloadIcon";
 import ServerIcon from "./icons/ServerIcon";
 import ToggleControlsIcon from "./icons/AnimationControlToggle";
+import {useGroupInfoStore} from "../state/groupInfoStore";
+import GroupIcon from "./icons/GroupIcon";
+import GroupInfoBox from "./info_box_groups/GroupInfoBox";
 
 
 const Menu = () => {
     const {show_info_box} = useObjectInfoStore();
+    const {show_group_info_box} = useGroupInfoStore();
     const {isNodeEditorVisible, setIsNodeEditorVisible, use_node_editor_only} = useNodeEditorStore();
     const {isOptionsVisible, setIsOptionsVisible, enableNodeEditor} = useOptionsStore(); // use the useNavBarStore function
     const {isTreeCollapsed, setIsTreeCollapsed} = useTreeViewStore();
@@ -74,6 +78,12 @@ const Menu = () => {
                     ><InfoIcon/></button>
                     <button
                         className={"bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded"}
+                        hidden={use_node_editor_only}
+                        onClick={useGroupInfoStore.getState().toggle}
+                    ><GroupIcon/></button>
+
+                    <button
+                        className={"bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded"}
                         hidden={!hasAnimation}
                         onClick={() => setIsControlsVisible(!isControlsVisible)}
                     ><ToggleControlsIcon/></button>
@@ -82,6 +92,7 @@ const Menu = () => {
                 <div className={"px-2 gap-2 flex flex-col"}>
                     {showServerInfoBox && <ServerInfoBox/>}
                     {show_info_box && <ObjectInfoBox/>}
+                    {show_group_info_box && <GroupInfoBox/>}
                     {isControlsVisible && <SimulationControls/>}
                 </div>
             </div>

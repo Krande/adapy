@@ -4,10 +4,11 @@ from typing import TYPE_CHECKING, Iterable
 
 from ada.api.curves import CurveOpen3d, CurvePoly2d
 from ada.api.primitives.base import Shape
-from ada.api.transforms import Direction, Placement
+from ada.api.transforms import Placement
 from ada.base.units import Units
 from ada.geom import Geometry
 from ada.geom.booleans import BooleanOperation
+from ada.geom.direction import Direction
 
 if TYPE_CHECKING:
     from ada.geom.solids import FixedReferenceSweptAreaSolid

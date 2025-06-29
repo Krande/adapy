@@ -69,7 +69,8 @@ class PrimExtrude(Shape):
 
     def solid_geom(self) -> Geometry:
         from ada.geom.curves import IndexedPolyCurve
-        from ada.geom.placement import Axis2Placement3D, Direction
+        from ada.geom.direction import Direction
+        from ada.geom.placement import Axis2Placement3D
         from ada.geom.solids import ExtrudedAreaSolid
         from ada.geom.surfaces import ArbitraryProfileDef, ProfileType
 

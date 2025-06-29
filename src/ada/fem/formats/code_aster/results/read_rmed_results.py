@@ -18,6 +18,7 @@ if TYPE_CHECKING:
         ElementFieldData,
         FEAResult,
         FemNodes,
+        FemSet,
         Mesh,
         NodalFieldData,
     )
@@ -75,8 +76,9 @@ class MedReader:
 
         nodes = self.get_nodes(mesh)
         elements = self.get_elements(mesh)
+        sets = self.get_sets(nodes, elements)
 
-        return Mesh(elements=elements, nodes=nodes)
+        return Mesh(elements=elements, nodes=nodes, sets=sets)
 
     def get_nodes(self, mesh) -> FemNodes:
         from ada.fem.results.common import FemNodes
@@ -241,3 +243,127 @@ class MedReader:
                 raise ValueError(f"Must only contain exactly 1 time-step, found {len(time_step)}.")
             mesh = mesh[list(time_step)[0]]
         return mesh
+
+    def get_sets(self, nodes: FemNodes, elements: list[ElementBlock]) -> dict[str, FemSet]:
+        """
+        Extract finite element sets (node sets and element sets) from MED file.
+
+        Returns:
+            list[FemSet]: List of FemSet objects containing both node sets and element sets
+        """
+        from ada.fem.sets import FemSet
+
+        fem_sets = dict()
+
+        # Get mesh reference
+        mesh = self._load_mesh()
+        mesh_name = list(self.f["ENS_MAA"].keys())[0]
+
+        # Check if families (FAS) group exists
+        if "FAS" not in self.f:
+            logger.warning("No families (FAS) found in MED file - no sets available")
+            return fem_sets
+
+        families_group = self.f["FAS"]
+        if mesh_name not in families_group:
+            logger.warning(f"No families found for mesh '{mesh_name}'")
+            return fem_sets
+
+        mesh_families = families_group[mesh_name]
+
+        # Extract node sets
+        if "NOEUD" in mesh_families:  # NOEUD = nodes in French
+            node_families = mesh_families["NOEUD"]
+            node_family_map = self._get_node_family_mapping(mesh)
+
+            for family_name in node_families.keys():
+                if family_name == "FAMILLE_ZERO":  # Skip default family
+                    continue
+
+                family_group = node_families[family_name]
+                if "NUM" in family_group.attrs:
+                    family_num = family_group.attrs["NUM"]
+                    # Find nodes belonging to this family
+                    node_ids = self._get_entities_by_family(node_family_map, family_num)
+                    if node_ids:
+                        # Convert node IDs to Node objects (assuming they exist in self.mesh.nodes)
+                        node_members = []
+                        for node_id in node_ids:
+                            # Find the node by ID - you may need to adjust this based on your Node class
+                            node_obj = next((n for n in nodes.identifiers if n == node_id), None)
+                            if node_obj is not None:
+                                node_members.append(node_obj)
+
+                        if node_members:
+                            fem_set = FemSet(name=family_name, members=node_members, set_type="nset")
+                            fem_sets[fem_set.name] = fem_set
+
+        # Extract element sets
+        if "MAILLE" in mesh_families:  # MAILLE = elements/cells in French
+            element_families = mesh_families["MAILLE"]
+            element_family_map = self._get_element_family_mapping(mesh)
+
+            for family_name in element_families.keys():
+                if family_name == "FAMILLE_ZERO":  # Skip default family
+                    continue
+
+                family_group = element_families[family_name]
+                if "NUM" in family_group.attrs:
+                    family_num = family_group.attrs["NUM"]
+                    # Find elements belonging to this family
+                    element_ids = self._get_entities_by_family(element_family_map, family_num)
+                    if element_ids:
+                        # Convert element IDs to Element objects (assuming they exist in self.mesh.elements)
+                        element_members = []
+                        for elem_id in element_ids:
+                            # Find the element by ID - you may need to adjust this based on your Element class
+                            elem_obj = next((e for block in elements for e in block.identifiers if e == elem_id), None)
+                            if elem_obj is not None:
+                                element_members.append(elem_obj)
+
+                        if element_members:
+                            fem_set = FemSet(name=family_name, members=element_members, set_type="elset")
+                            fem_sets[fem_set.name] = fem_set
+
+        return fem_sets
+
+    def _get_node_family_mapping(self, mesh) -> dict:
+        """Get mapping of node indices to family numbers."""
+        family_mapping = {}
+
+        if "NOE" in mesh and "FAM" in mesh["NOE"]:
+            family_data = mesh["NOE"]["FAM"][()]
+            for idx, family_num in enumerate(family_data):
+                if family_num != 0:  # Skip default family
+                    if family_num not in family_mapping:
+                        family_mapping[family_num] = []
+                    family_mapping[family_num].append(idx + 1)  # 1-based indexing
+
+        return family_mapping
+
+    def _get_element_family_mapping(self, mesh) -> dict:
+        """Get mapping of element indices to family numbers."""
+        family_mapping = {}
+
+        if "MAI" in mesh:
+            element_offset = 1  # Start element numbering from 1
+
+            for med_cell_type, med_cell_type_group in mesh["MAI"].items():
+                if "FAM" in med_cell_type_group:
+                    family_data = med_cell_type_group["FAM"][()]
+                    n_elements = med_cell_type_group["NOD"].attrs["NBR"]
+
+                    for local_idx, family_num in enumerate(family_data):
+                        if family_num != 0:  # Skip default family
+                            global_idx = element_offset + local_idx
+                            if family_num not in family_mapping:
+                                family_mapping[family_num] = []
+                            family_mapping[family_num].append(global_idx)
+
+                    element_offset += n_elements
+
+        return family_mapping
+
+    def _get_entities_by_family(self, family_mapping: dict, family_num: int) -> list[int]:
+        """Get list of entity IDs for a given family number."""
+        return family_mapping.get(family_num, [])

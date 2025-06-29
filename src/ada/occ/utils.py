@@ -52,10 +52,9 @@ from ada.core.utils import roundoff
 from ada.core.vector_transforms import normal_to_points_in_plane
 from ada.core.vector_utils import is_parallel, unit_vector, vector_length
 from ada.fem.shapes import ElemType
-
-from ..geom.booleans import BoolOpEnum
-from ..geom.placement import Direction
-from ..geom.points import Point
+from ada.geom.booleans import BoolOpEnum
+from ada.geom.direction import Direction
+from ada.geom.points import Point
 
 if TYPE_CHECKING:
     from ada import ArcSegment, Boolean, LineSegment, Part

@@ -12,7 +12,8 @@ from ada.core.vector_transforms import transform_csys_to_csys
 from ada.geom import Geometry
 from ada.geom.booleans import BooleanOperation
 from ada.geom.curves import Circle, Edge
-from ada.geom.placement import Axis2Placement3D, Direction
+from ada.geom.direction import Direction
+from ada.geom.placement import Axis2Placement3D
 from ada.geom.points import Point
 
 if TYPE_CHECKING:

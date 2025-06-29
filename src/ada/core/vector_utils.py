@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Iterable
 import numpy as np
 
 from ada.config import Config
-from ada.geom.placement import Direction
+from ada.geom.direction import Direction
 
 from .exceptions import VectorNormalizeError
 

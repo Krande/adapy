@@ -5,9 +5,9 @@ from OCC.Core.TopAbs import TopAbs_EDGE, TopAbs_WIRE
 from OCC.Core.TopExp import TopExp_Explorer
 from OCC.Core.TopoDS import TopoDS_Face, TopoDS_Wire
 
+from ada import Direction
 from ada.cadit.step.read.geom.helpers import array1_to_list
 from ada.geom import curves as geo_cu
-from ada.geom.placement import Direction
 from ada.geom.points import Point
 
 

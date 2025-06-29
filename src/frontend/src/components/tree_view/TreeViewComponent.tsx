@@ -59,8 +59,11 @@ const TreeViewComponent: React.FC = () => {
 
     return (
         <div ref={containerRef} className="h-full w-full flex flex-col max-h-screen pl-1 pr-2">
-            <div ref={headerRef} className={"w-full pr-12 pt-1 "}>
-                <input className={"w-full bg-gray-600 text-white rounded pl-1"} onInput={
+            <div ref={headerRef} className={"w-full pr-1 pt-1"}>
+                <input
+                    className={"w-full bg-gray-600 text-white rounded pl-1"}
+                    placeholder={"Search here"}
+                    onInput={
                     (event) => {
                         useTreeViewStore.getState().setSearchTerm((event.target as HTMLInputElement).value);
                     }

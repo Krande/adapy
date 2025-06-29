@@ -11,7 +11,7 @@ from OCC.Core.TopoDS import TopoDS_Shape, TopoDS_Solid
 from OCC.Extend.TopologyUtils import TopologyExplorer
 
 import ada.geom.solids as geo_so
-from ada.geom.placement import Direction
+from ada.geom.direction import Direction
 from ada.geom.points import Point
 from ada.occ.geom.curves import make_wire_from_curve
 from ada.occ.geom.surfaces import make_profile_from_geom

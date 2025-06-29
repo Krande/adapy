@@ -7,15 +7,15 @@ import re
 from collections import OrderedDict
 from functools import lru_cache, wraps
 
-import ada.core.utils
 from ada.base.units import Units
 from ada.core.exceptions import UnsupportedUnits
+from ada.core.utils import roundoff as _rdoff
+from ada.sections.categories import SectionCat
+from ada.sections.concept import Section
 
-from . import Section
-from .categories import SectionCat
-
-digit = r"\d{0,5}\.?\d{0,5}|\d{0,5}|\d{0,5}\/\d{0,5}"
-flex = r"?:\.|[A-Z]|"
+_digit = r"\d{0,5}\.?\d{0,5}|\d{0,5}|\d{0,5}\/\d{0,5}"
+_flex = r"?:\.|[A-Z]|"
+_re_in = re.IGNORECASE | re.DOTALL
 
 
 class UnableToConvertSectionError(Exception):
@@ -78,10 +78,6 @@ def profile_db_collect(sec_type: str, dim: str, units: Units = Units.M):
     )
 
 
-_re_in = re.IGNORECASE | re.DOTALL
-_rdoff = ada.core.utils.roundoff
-
-
 def _interpret_raw(in_str: str, s: float, units: Units) -> tuple[Section, Section | None]:
     for section_eval in [box_section, shs_section, rhs_section, ig_section, tg_section]:
         result = section_eval(in_str, s, units)
@@ -135,7 +131,7 @@ def get_section(sec: Section | str) -> tuple[Section, Section]:
 def box_section(in_str: str, s: float, units: Units):
     for box in SectionCat.box:
         res = re.search(
-            r"({box})({flex})({digit})x({digit})x({digit})x({digit})".format(box=box, flex=flex, digit=digit),
+            r"({box})({flex})({digit})x({digit})x({digit})x({digit})".format(box=box, flex=_flex, digit=_digit),
             in_str,
             _re_in,
         )
@@ -178,7 +174,7 @@ def box_section(in_str: str, s: float, units: Units):
 def shs_section(in_str: str, s: float, units: Units):
     for shs in SectionCat.shs:
         res = re.search(
-            r"({hol})({flex})({digit})x({digit})".format(hol=shs, flex=flex, digit=digit),
+            r"({hol})({flex})({digit})x({digit})".format(hol=shs, flex=_flex, digit=_digit),
             in_str,
             _re_in,
         )
@@ -221,7 +217,7 @@ def shs_section(in_str: str, s: float, units: Units):
 def rhs_section(in_str: str, s: float, units: Units):
     for rhs in SectionCat.rhs:
         res = re.search(
-            r"({rhs})({flex})({digit})x({digit})x({digit})".format(rhs=rhs, flex=flex, digit=digit),
+            r"({rhs})({flex})({digit})x({digit})x({digit})".format(rhs=rhs, flex=_flex, digit=_digit),
             in_str,
             _re_in,
         )
@@ -264,7 +260,7 @@ def rhs_section(in_str: str, s: float, units: Units):
 def ig_section(in_str: str, s: float, units: Units):
     for ig in SectionCat.igirders:
         res = re.search(
-            "({ig})({flex})({digit})x({digit})x({digit})x({digit})".format(ig=ig, flex=flex, digit=digit),
+            "({ig})({flex})({digit})x({digit})x({digit})x({digit})".format(ig=ig, flex=_flex, digit=_digit),
             in_str,
             _re_in,
         )
@@ -307,7 +303,7 @@ def ig_section(in_str: str, s: float, units: Units):
 def tg_section(in_str: str, s: float, units: Units):
     for tg in SectionCat.tprofiles:
         res = re.search(
-            "({ig})({flex})({digit})x({digit})x({digit})x({digit})".format(ig=tg, flex=flex, digit=digit),
+            "({ig})({flex})({digit})x({digit})x({digit})x({digit})".format(ig=tg, flex=_flex, digit=_digit),
             in_str,
             _re_in,
         )
@@ -349,14 +345,14 @@ def tg_section(in_str: str, s: float, units: Units):
 
 def iprofile_section(in_str: str, s: float, units: Units):
     for ipe in SectionCat.iprofiles:
-        res = re.search("({ipe})({digit})".format(ipe=ipe, digit=digit), in_str, _re_in)
+        res = re.search("({ipe})({digit})".format(ipe=ipe, digit=_digit), in_str, _re_in)
         if res is not None:
             sec = profile_db_collect(ipe, res.group(2), units=units)
             return sec, sec
         else:
             if "HE" not in ipe:
                 continue
-            shuffle = "({ipe})({digit}){end}".format(ipe=ipe[:2], digit=digit, end=ipe[2:])
+            shuffle = "({ipe})({digit}){end}".format(ipe=ipe[:2], digit=_digit, end=ipe[2:])
             res = re.search(shuffle, in_str, _re_in)
             if res is not None:
                 sec = profile_db_collect(ipe, res.group(2), units=units)
@@ -365,7 +361,7 @@ def iprofile_section(in_str: str, s: float, units: Units):
 
 def tub_section(in_str: str, s: float, units: Units):
     for tub in SectionCat.tubular:
-        res = re.search("({tub})({digit})x({digit})".format(tub=tub, digit=digit), in_str, _re_in)
+        res = re.search("({tub})({digit})x({digit})".format(tub=tub, digit=_digit), in_str, _re_in)
         if res is None:
             continue
         fac = 0.5 if tub in ["OD", "O"] else 1.0
@@ -395,7 +391,7 @@ def tub_section(in_str: str, s: float, units: Units):
 
 def angular_section(in_str: str, s: float, units: Units):
     for ang in SectionCat.angular:
-        res = re.search("({ang})({digit})x({digit})".format(ang=ang, digit=digit), in_str, _re_in)
+        res = re.search("({ang})({digit})x({digit})".format(ang=ang, digit=_digit), in_str, _re_in)
         if res is None:
             continue
         sec = profile_db_collect(ang, "{}x{}".format(res.group(2), res.group(3)), units=units)
@@ -419,7 +415,7 @@ def circ_section(in_str: str, s: float, units: Units):
 
 def channel_section(in_str: str, s: float, units: Units):
     for cha in SectionCat.channels:
-        res = re.search("({ang})({digit})".format(ang=cha, digit=digit), in_str, _re_in)
+        res = re.search("({ang})({digit})".format(ang=cha, digit=_digit), in_str, _re_in)
         if res is None:
             continue
         sec = profile_db_collect(cha, res.group(2), units=units)
@@ -428,7 +424,7 @@ def channel_section(in_str: str, s: float, units: Units):
 
 def flat_section(in_str: str, s: float, units: Units):
     for flat in SectionCat.flatbar:
-        res = re.search("({flat})({digit})x({digit})".format(flat=flat, digit=digit), in_str, _re_in)
+        res = re.search("({flat})({digit})x({digit})".format(flat=flat, digit=_digit), in_str, _re_in)
         if res is None:
             continue
         h = [_rdoff(float(x) * s) for x in res.group(2).split("/")]

@@ -1,4 +1,4 @@
-from ada.geom.placement import Direction
+from ada.geom.direction import Direction
 from ada.geom.points import Point
 
 

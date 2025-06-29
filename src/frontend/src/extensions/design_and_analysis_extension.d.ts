@@ -44,6 +44,10 @@ export interface SimulationDataExtensionMetadata {
    */
   steps: StepObject[];
   node_references?: SimNodeReference;
+  /**
+   * Named groups and their member objects
+   */
+  groups?: SimGroup[];
   [k: string]: unknown;
 }
 export interface StepObject {
@@ -102,6 +106,29 @@ export interface SimNodeReference {
   solid_beams?: string;
   [k: string]: unknown;
 }
+export interface SimGroup {
+  /**
+   * Name of group
+   */
+  name?: string;
+  /**
+   * Name of group objects
+   */
+  members?: string[];
+  /**
+   * Description of Group
+   */
+  description?: string;
+  /**
+   * Name of the parent simulation object
+   */
+  parent_name?: string;
+  /**
+   * Type of finite element model objects in this group (nodes or elements)
+   */
+  fe_object_type?: "node" | "element";
+  [k: string]: unknown;
+}
 /**
  * GLTF extension for design object metadata and grouping
  */
@@ -134,6 +161,10 @@ export interface Group {
    * Description of Group
    */
   description?: string;
+  /**
+   * Name of the parent design object
+   */
+  parent_name?: string;
   [k: string]: unknown;
 }
 /**

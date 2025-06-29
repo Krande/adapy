@@ -14,7 +14,7 @@ from ada.core.vector_utils import (
     is_parallel,
     unit_vector,
 )
-from ada.geom.placement import Direction
+from ada.geom.direction import Direction
 from ada.geom.points import Point
 
 if TYPE_CHECKING:
