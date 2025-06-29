@@ -97,13 +97,36 @@ class Direction(np.ndarray, ImmutableNDArrayMixin):
         b = (float(other[0]), float(other[1]), float(other[2]))
         return _is_parallel_tuples(a, b, angle_tol)
 
-    def is_equal(self, other: Direction, atol: float = 1e-8) -> bool:
-        return np.allclose(self, other, atol=atol)
+    def is_equal(self, other: Direction, atol: float = 1e-6) -> bool:
+        dx = abs(self[0] - other[0])
+        dy = abs(self[1] - other[1])
+        if dx > atol or dy > atol:
+            return False
+        if self.shape[0] == 3:
+            dz = abs(self[2] - other[2])
+            if dz > atol:
+                return False
+        return True
 
     @staticmethod
     def from_points(p1: Point, p2: Point) -> Direction:
         delta = p2 - p1
         return Direction(delta)
+
+    def __add__(self, other: Direction | np.ndarray) -> Direction | np.ndarray:
+        arr = super().__add__(other)
+        if arr.ndim == 1 and arr.shape[0] == 3:
+            return type(self)(arr)
+        return arr
+
+    def __sub__(self, other: Direction | np.ndarray) -> Direction | np.ndarray:
+        arr = super().__sub__(other)
+        if arr.ndim == 1 and arr.shape[0] == 3:
+            return type(self)(arr)
+        return arr
+
+    __iadd__ = __add__
+    __isub__ = __sub__
 
     def __repr__(self) -> str:
         return f"Direction({np.array2string(self, separator=', ')})"

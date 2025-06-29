@@ -55,12 +55,12 @@ class JointIXZ(JointBase):
             if column.e2 is None:
                 column.e2 = adjust_col_end
             else:
-                column.e2 = column.e2 + adjust_col_end
+                column.e2 += adjust_col_end
         else:
             if column.e1 is None:
                 column.e1 = adjust_col_end
             else:
-                column.e1 = column.e1 + adjust_col_end
+                column.e1 += adjust_col_end
 
 
 class JointB(JointBase):

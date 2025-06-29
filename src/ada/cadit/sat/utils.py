@@ -4,7 +4,6 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import ada
-import ada.geom.direction
 
 if TYPE_CHECKING:
     from ada import Part
@@ -27,5 +26,5 @@ def create_sat_from_beams(part: Part) -> SATRefs:
     return SATRefs(sat_str, sat_map)
 
 
-def make_ints_if_possible(lst: list[float] | ada.Point | ada.geom.direction.Direction) -> list[float | int]:
+def make_ints_if_possible(lst: list[float] | ada.Point | ada.Direction) -> list[float | int]:
     return [int(x) if x.is_integer() else x for x in lst]

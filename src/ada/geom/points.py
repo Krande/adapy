@@ -27,8 +27,7 @@ def _make_key_and_array(
 
 
 class ImmutableNDArrayMixin:
-    """Mixin to block in-place mutation on instances (assumes WRITEABLE=False)."""
-
+    """Block in-place mutation and catch in-place ufuncs to return new instances."""
     def __setitem__(self, idx, val):
         raise TypeError(f"{type(self).__name__} is immutable")
 
@@ -43,6 +42,17 @@ class ImmutableNDArrayMixin:
 
     def itemset(self, *args, **kwargs):
         raise TypeError(f"{type(self).__name__} is immutable")
+
+    def __array_ufunc__(self, ufunc, method, *inputs, **kwargs):
+        # If someone passed out=self (e.g. a /= b), drop it so we don't mutate
+        if 'out' in kwargs:
+            kwargs = {k: v for k, v in kwargs.items() if k != 'out'}
+        # Call NumPy's ufunc machinery
+        result = super().__array_ufunc__(ufunc, method, *inputs, **kwargs)
+        # If the result is a 1D vector of length 2 or 3, wrap it; else return as-is
+        if isinstance(result, np.ndarray) and result.ndim == 1 and result.shape[0] in (2, 3):
+            return type(self)(result)
+        return result
 
 
 class Point(np.ndarray, ImmutableNDArrayMixin):
@@ -84,8 +94,16 @@ class Point(np.ndarray, ImmutableNDArrayMixin):
     def dim(self) -> int:
         return self.shape[0]
 
-    def is_equal(self, other: Point, atol: float = 1e-8) -> bool:
-        return np.allclose(self, other, atol=atol)
+    def is_equal(self, other: Point, atol: float = 1e-6) -> bool:
+        dx = abs(self[0] - other[0])
+        dy = abs(self[1] - other[1])
+        if dx > atol or dy > atol:
+            return False
+        if self.shape[0] == 3:
+            dz = abs(self[2] - other[2])
+            if dz > atol:
+                return False
+        return True
 
     def translate(self, dx: float, dy: float, dz: float = 0.0) -> Point:
         base = (self[0], self[1], self[2] if self.dim == 3 else 0.0)
@@ -95,6 +113,22 @@ class Point(np.ndarray, ImmutableNDArrayMixin):
         if self.dim == 3:
             return self
         return Point(self[0], self[1], 0.0)
+
+    def __add__(self, other: Point | np.ndarray) -> Point | np.ndarray:
+        arr = super().__add__(other)
+        # only wrap back into Point if it’s 1D and length 2 or 3
+        if arr.ndim == 1 and arr.shape[0] in (2, 3):
+            return type(self)(arr)
+        return arr
+
+    def __sub__(self, other: Point | np.ndarray) -> Point | np.ndarray:
+        arr = super().__sub__(other)
+        if arr.ndim == 1 and arr.shape[0] in (2, 3):
+            return type(self)(arr)
+        return arr
+
+    __iadd__ = __add__
+    __isub__ = __sub__
 
     def __repr__(self) -> str:
         return f"Point({np.array2string(self, separator=', ')})"
