@@ -39,7 +39,7 @@ class BackendGeom(Root):
         units=Units.M,
         parent=None,
         color: Color | Iterable[float, float, float] | str | None = None,
-        placement=None,
+        placement: Placement=None,
         ifc_store: IfcStore = None,
         opacity=1.0,
     ):

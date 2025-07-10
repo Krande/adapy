@@ -388,6 +388,7 @@ class Beam(BackendGeom):
 
     @property
     def orientation(self) -> Placement:
+        """This is the local orientation and position of the Beam within the local placement object"""
         return self._orientation
 
     @property

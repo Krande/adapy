@@ -164,6 +164,7 @@ pytest = "*"
 pytest-benchmark = "*"
 pytest-asyncio = "*"
 scalene = "*"
+pyinstrument = "*"
 
 # Editable installs
 [tool.pixi.feature.tests.pypi-dependencies]
@@ -238,6 +239,10 @@ json-code-gen-ts = { cmd = [
 [tool.pixi.feature.profile.tasks]
 scalene = { cmd = "scalene --json -m pytest ./tests/profiling --outfile=profile.json", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 cprofile = { cmd = "python -m cProfile -o profile.prof -m pytest ./tests/profiling", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+pyprofile = { cmd = "pyinstrument -m pytest ./tests/profiling", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+pyprofile-all = { cmd = "pyinstrument -m pytest ./tests", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+pyprofile-html = { cmd = "pyinstrument -r html -o profile_profiling.html -m pytest ./tests/profiling", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+pyprofile-html-all = { cmd = "pyinstrument -r html -o profile_all_tests.html -m pytest ./tests", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 
 [tool.pixi.dependencies]
 pixi-pycharm = ">=0.0.8,<0.0.9"
