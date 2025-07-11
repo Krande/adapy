@@ -114,14 +114,14 @@ class PrimBox(Shape):
             color=self.color,
             mass=self.mass,
             cog=self.cog,
-            material=self.material.copy_to(),
+            material=self.material.copy_to() if hasattr(self.material, 'copy_to') else self.material,
             units=self.units,
             metadata=self.metadata,
             placement=self.placement.copy_to(),
         )
         if position is not None:
             if not isinstance(position, Point):
-                Point(*position)
+                position = Point(*position)
 
             copy_box.placement.origin = position
 

@@ -17,17 +17,21 @@ numeric = Union[int, float, np.number]
 
 
 class Node:
-    """Base node object"""
+    """Base node object
+
+       :param p: 3D coordinates of the node
+       :param nid: node id
+       :param bc: boundary condition of the node
+    """
 
     def __init__(
-        self, p: Iterable[numeric, numeric, numeric], nid=None, bc=None, r=None, parent=None, units=Units.M, refs=None
+        self, p: Iterable[numeric, numeric, numeric], nid=None, r=None, parent=None, units=Units.M, refs=None
     ):
         self._id = nid
         self.p: Point = Point(*p)
         if len(self.p) != 3:
             raise ValueError("Node object must have exactly 3 coordinates (x, y, z).")
 
-        self._bc = bc
         self._r = r
         self._parent = parent
         self._units = units
@@ -53,14 +57,6 @@ class Node:
     @property
     def z(self):
         return self.p[2]
-
-    @property
-    def bc(self) -> Bc:
-        return self._bc
-
-    @bc.setter
-    def bc(self, value: Bc):
-        self._bc = value
 
     @property
     def r(self) -> float:

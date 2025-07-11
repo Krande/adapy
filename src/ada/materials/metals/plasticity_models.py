@@ -16,6 +16,8 @@ class PlasticityModel:
     sig_p: List[float] = field(default=None)
     eps_p: List[float] = field(default=None)
 
+    def is_equal(self, other_model: PlasticityModel):
+        return np.array_equal(self.sig_p, other_model.sig_p) and np.array_equal(self.eps_p, other_model.eps_p)
 
 class DnvGl16Mat(PlasticityModel):
     """

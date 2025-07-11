@@ -342,6 +342,34 @@ class CarbonSteel(Metal):
         phase4 = [650 for x in range(phase4_arr[0].shape[0])]
         return phase1 + phase2 + phase3 + phase4
 
+    def is_equal(self, other_mat: CarbonSteel) -> bool:
+        """
+        Check if two Carbon Steel materials are equal.
+        """
+        if not isinstance(other_mat, CarbonSteel):
+            return False
+        if self.grade != other_mat.grade:
+            return False
+        if self.sig_y != other_mat.sig_y:
+            return False
+        if self.sig_u != other_mat.sig_u:
+            return False
+        if self.E != other_mat.E:
+            return False
+        if self.rho != other_mat.rho:
+            return False
+        if self.v != other_mat.v:
+            return False
+        if self.alpha != other_mat.alpha:
+            return False
+        if self.zeta != other_mat.zeta:
+            return False
+
+        if self.plasticity_model is not None and other_mat.plasticity_model is not None:
+            if self.plasticity_model.is_equal(other_mat.plasticity_model):
+                return False
+
+        return True
 
 class Aluminium(Metal):
     def __init__(self):
