@@ -28,6 +28,7 @@ def _make_key_and_array(
 
 class ImmutableNDArrayMixin:
     """Block in-place mutation and catch in-place ufuncs to return new instances."""
+
     def __setitem__(self, idx, val):
         raise TypeError(f"{type(self).__name__} is immutable")
 
@@ -45,8 +46,8 @@ class ImmutableNDArrayMixin:
 
     def __array_ufunc__(self, ufunc, method, *inputs, **kwargs):
         # If someone passed out=self (e.g. a /= b), drop it so we don't mutate
-        if 'out' in kwargs:
-            kwargs = {k: v for k, v in kwargs.items() if k != 'out'}
+        if "out" in kwargs:
+            kwargs = {k: v for k, v in kwargs.items() if k != "out"}
         # Call NumPy's ufunc machinery
         result = super().__array_ufunc__(ufunc, method, *inputs, **kwargs)
         # If the result is a 1D vector of length 2 or 3, wrap it; else return as-is

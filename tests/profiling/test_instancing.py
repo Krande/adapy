@@ -1,7 +1,9 @@
 import pytest
+
 import ada
 
 N_BM_INST = 10_000
+
 
 @pytest.mark.benchmark
 def test_instance_beams():
