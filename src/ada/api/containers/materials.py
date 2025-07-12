@@ -9,6 +9,7 @@ from ada.api.containers.base import NumericMapped
 from ada.base.units import Units
 from ada.core.utils import Counter
 from ada.materials import Material
+from ada.materials.metals.base_models import MaterialDampingRayleigh
 
 if TYPE_CHECKING:
     from ada import Assembly, Part
@@ -61,21 +62,56 @@ class Materials(NumericMapped):
         return f"Materials({rpr.repr(self.materials) if self.materials else ''})"
 
     def merge_materials_by_properties(self):
-        models = []
-
+        models = {}  # Use dict for O(1) lookup
         final_mats = []
+
         for i, mat in enumerate(self.materials):
-            if mat.model.unique_props() not in models:
-                models.append(mat.model.unique_props())
+            up = tuple(mat.model.unique_props())
+            prop_key = self._make_hashable_key(up)
+
+            if prop_key not in models:
+                models[prop_key] = len(final_mats)  # Store index
                 final_mats.append(mat)
             else:
-                index = models.index(mat.model.unique_props())
+                index = models[prop_key]
                 replacement_mat = final_mats[index]
                 for ref in mat.refs:
                     ref.material = replacement_mat
 
         self.materials = final_mats
         self.recreate_name_and_id_maps(self.materials)
+
+    def _make_hashable_key(self, props_tuple):
+        """Convert properties tuple to a hashable key, handling numpy arrays"""
+        hashable_items = []
+
+        for prop in props_tuple:
+            if prop is None:
+                hashable_items.append(None)
+            elif hasattr(prop, "__len__") and not isinstance(prop, str):
+                # Handle numpy arrays and lists
+                try:
+                    import numpy as np
+
+                    if isinstance(prop, np.ndarray):
+                        # Convert to tuple of values for hashing
+                        hashable_items.append(tuple(prop.flatten()))
+                    elif isinstance(prop, (list, tuple)):
+                        # Convert lists to tuples recursively
+                        hashable_items.append(tuple(prop))
+                    else:
+                        # Fallback for other iterable types
+                        hashable_items.append(tuple(prop))
+                except (TypeError, ValueError):
+                    # If conversion fails, use string representation
+                    hashable_items.append(str(prop))
+            elif isinstance(prop, MaterialDampingRayleigh):
+                hashable_items.append((prop.alpha, prop.beta))
+            else:
+                # Scalar values are already hashable
+                hashable_items.append(prop)
+
+        return tuple(hashable_items)
 
     def index(self, item: Material):
         return self.materials.index(item)

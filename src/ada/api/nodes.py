@@ -11,7 +11,7 @@ from ada.geom.points import Point
 if TYPE_CHECKING:
     from ada import Beam
     from ada.api.containers import Nodes
-    from ada.fem import Bc, Csys, Elem
+    from ada.fem import Csys, Elem
 
 numeric = Union[int, float, np.number]
 
@@ -19,14 +19,12 @@ numeric = Union[int, float, np.number]
 class Node:
     """Base node object
 
-       :param p: 3D coordinates of the node
-       :param nid: node id
-       :param bc: boundary condition of the node
+    :param p: 3D coordinates of the node
+    :param nid: node id
+    :param bc: boundary condition of the node
     """
 
-    def __init__(
-        self, p: Iterable[numeric, numeric, numeric], nid=None, r=None, parent=None, units=Units.M, refs=None
-    ):
+    def __init__(self, p: Iterable[numeric, numeric, numeric], nid=None, r=None, parent=None, units=Units.M, refs=None):
         self._id = nid
         self.p: Point = Point(*p)
         if len(self.p) != 3:

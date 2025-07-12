@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Iterable
+from typing import TYPE_CHECKING, Iterable, Literal
 
 from ada.api.bounding_box import BoundingBox
 from ada.api.primitives.base import Shape
@@ -19,14 +19,18 @@ if TYPE_CHECKING:
 class PrimBox(Shape):
     """Primitive Box. Length, width & height are local x, y and z respectively"""
 
-    def __init__(self, name, p1, p2, origin=None, placement=None, material: Material | str = None, **kwargs):
+    def __init__(
+        self, name, p1, p2, origin=None, placement=None, material: Material | Literal["S355", "S420"] = None, **kwargs
+    ):
         self.p1 = p1 if isinstance(p1, Point) else Point(*p1)
         self.p2 = p2 if isinstance(p2, Point) else Point(*p2)
+
         if origin is not None:
             if placement is None:
                 placement = Placement(origin=origin)
             else:
                 placement.origin = origin
+
         super(PrimBox, self).__init__(name=name, placement=placement, material=material, **kwargs)
         self._bbox = BoundingBox(self)
 
@@ -114,7 +118,7 @@ class PrimBox(Shape):
             color=self.color,
             mass=self.mass,
             cog=self.cog,
-            material=self.material.copy_to() if hasattr(self.material, 'copy_to') else self.material,
+            material=self.material.copy_to() if hasattr(self.material, "copy_to") else self.material,
             units=self.units,
             metadata=self.metadata,
             placement=self.placement.copy_to(),
@@ -126,7 +130,7 @@ class PrimBox(Shape):
             copy_box.placement.origin = position
 
         if rotation_axis is not None and rotation_angle is not None:
-            copy_box.placement.rotate(rotation_axis, rotation_angle)
+            copy_box.placement = copy_box.placement.rotate(rotation_axis, rotation_angle)
 
         return copy_box
 

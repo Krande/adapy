@@ -59,13 +59,30 @@ class Metal:
 
     def equal_props(self, other: Metal):
         for pa, pb in zip(self.unique_props(), other.unique_props()):
-            if pa != pb:
+            if isinstance(pa, CarbonSteel) and isinstance(pb, CarbonSteel):
+                if pa.equal_props(pb):
+                    return False
+                continue
+            if isinstance(pa, list):
+                if len(pa) != len(pb):
+                    return False
+                for a, b in zip(pa, pb):
+                    if a != b:
+                        return False
+            elif isinstance(pa, np.ndarray) and isinstance(pb, np.ndarray):
+                if not np.array_equal(pa, pb):
+                    return False
+            elif isinstance(pa, np.ndarray) or isinstance(pb, np.ndarray):
+                # One is numpy array, the other is not
+                return False
+            elif pa != pb:
                 return False
 
         return True
 
-    def unique_props(self):
-        props = [
+    @classmethod
+    def _unique_props(cls):
+        return [
             "E",
             "sig_y",
             "sig_u",
@@ -80,7 +97,9 @@ class Metal:
             "rayleigh_damping",
             "cp",
         ]
-        return [getattr(self, p) for p in props]
+
+    def unique_props(self):
+        return [getattr(self, p) for p in self._unique_props()]
 
     def __repr__(self):
         return f"Metal(E:{self.E}, rho:{self.rho}, Sigy: {self.sig_y}, Plasticity Model: {self.plasticity_model})"
@@ -268,6 +287,11 @@ class CarbonSteel(Metal):
         self._grade = grade
         sig_y = sig_y if sig_y is not None else CarbonSteel.GRADES[grade]["sigy"]
         sig_u = sig_u if sig_u is not None else CarbonSteel.GRADES[grade]["sigu"]
+
+        self._e_therm = None
+        self._sigy_therm = None
+        self._kappa = None
+        self._cp = None
         super(CarbonSteel, self).__init__(
             E=E,
             rho=rho,
@@ -299,19 +323,36 @@ class CarbonSteel(Metal):
     def temp_range(self):
         return self._temp_range
 
-    @property
-    def E_therm(self):
+    @temp_range.setter
+    def temp_range(self, value):
+        self._temp_range = value
+        # Reset the properties
+        self._e_therm = None
+        self._sigy_therm = None
+        self._kappa = None
+        self._cp = None
+
+    def _calc_e_therm(self) -> list[float] | None:
         E_red_fac = np.interp(self._temp_range, CarbonSteel.EC3_TEMP, CarbonSteel.EC3_E_RED)
         return [self._E * x for x in E_red_fac]
 
     @property
-    def sigy_therm(self):
+    def E_therm(self):
+        if self._e_therm is None:
+            self._e_therm = self._calc_e_therm()
+        return self._e_therm
+
+    def _calc_sigy_therm(self) -> list[float] | None:
         sig_red_fac = np.interp(self._temp_range, CarbonSteel.EC3_TEMP, CarbonSteel.EC3_S_RED)
         return [self._sig_y * x for x in sig_red_fac]
 
     @property
-    def kappa(self):
-        """Thermal conductivity. Watts per meter-kelvin W/(mK)"""
+    def sigy_therm(self):
+        if self._sigy_therm is None:
+            self._sigy_therm = self._calc_sigy_therm()
+        return self._sigy_therm
+
+    def _calc_kappa(self) -> list[float] | None:
         phase1_end = 780
         phase1_arr = [self._temp_range[x] for x in np.where(self._temp_range <= phase1_end)]
         phase2_arr = [self._temp_range[x] for x in np.where(self._temp_range > phase1_end)]
@@ -320,9 +361,14 @@ class CarbonSteel(Metal):
         return phase1 + phase2
 
     @property
-    def cp(self):
-        """Specific Heat. Joule per kelvin and kilogram J/(K kg)"""
+    def kappa(self):
+        """Thermal conductivity. Watts per meter-kelvin W/(mK)"""
+        if self._kappa is None:
+            self._kappa = self._calc_kappa()
 
+        return self._kappa
+
+    def _calc_cp(self) -> list[float] | None:
         phase1_end = 600
         phase2_end = 735
         phase3_end = 900
@@ -342,34 +388,17 @@ class CarbonSteel(Metal):
         phase4 = [650 for x in range(phase4_arr[0].shape[0])]
         return phase1 + phase2 + phase3 + phase4
 
-    def is_equal(self, other_mat: CarbonSteel) -> bool:
-        """
-        Check if two Carbon Steel materials are equal.
-        """
-        if not isinstance(other_mat, CarbonSteel):
-            return False
-        if self.grade != other_mat.grade:
-            return False
-        if self.sig_y != other_mat.sig_y:
-            return False
-        if self.sig_u != other_mat.sig_u:
-            return False
-        if self.E != other_mat.E:
-            return False
-        if self.rho != other_mat.rho:
-            return False
-        if self.v != other_mat.v:
-            return False
-        if self.alpha != other_mat.alpha:
-            return False
-        if self.zeta != other_mat.zeta:
-            return False
+    @property
+    def cp(self):
+        """Specific Heat. Joule per kelvin and kilogram J/(K kg)"""
+        if self._cp is None:
+            self._cp = self._calc_cp()
+        return self._cp
 
-        if self.plasticity_model is not None and other_mat.plasticity_model is not None:
-            if self.plasticity_model.is_equal(other_mat.plasticity_model):
-                return False
+    @classmethod
+    def _unique_props(cls):
+        return super()._unique_props() + ["grade", "temp_range", "E_therm", "sigy_therm", "kappa", "cp"]
 
-        return True
 
 class Aluminium(Metal):
     def __init__(self):

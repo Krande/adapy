@@ -299,6 +299,9 @@ class Placement:
 
         return True
 
+    def __ne__(self, other: Placement):
+        return not self.__eq__(other)
+
     def copy_to(self) -> Placement:
         """Make a copy of this placement"""
 

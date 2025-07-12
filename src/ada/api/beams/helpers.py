@@ -139,7 +139,7 @@ def split_beam(beam: Beam, point: Iterable | Node = None, fraction: float = None
     :param fraction: Fraction of the beam length from Node n1.
     :param length: Length of the beam from Node n1.
     """
-    from ada import Node, Beam
+    from ada import Beam, Node
 
     if isinstance(point, Node):
         point = point.p
@@ -189,7 +189,7 @@ def get_beam_extensions(beam: Beam) -> Iterable[Beam]:
 def have_equivalent_props(beam: Beam, other_beam: Beam) -> bool:
     """Returns equivalent beam-type, meaning beam characteristics are the same but NOT the same beam"""
     sec_props_equal = beam.section.equal_props(other_beam.section)
-    mat_props_equal = beam.material.model.is_equal(other_beam.material.model)
+    mat_props_equal = beam.material.model.equal_props(other_beam.material.model)
     return sec_props_equal and mat_props_equal and beam is not other_beam
 
 

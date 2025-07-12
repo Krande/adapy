@@ -1,12 +1,9 @@
 import pytest
-import numpy as np
 
 from ada.api.primitives.box import PrimBox
 from ada.api.transforms import Placement
 from ada.base.units import Units
-from ada.geom.direction import Direction
 from ada.geom.points import Point
-from ada.materials.concept import Material
 
 
 @pytest.fixture
@@ -18,7 +15,7 @@ def simple_box():
 @pytest.fixture
 def box_with_material():
     """Create a box with material for testing"""
-    return PrimBox("test_box", (0, 0, 0), (1, 1, 1), material="Steel")
+    return PrimBox("test_box", (0, 0, 0), (1, 1, 1), material="S355")
 
 
 def test_primbox_creation_with_tuples():
@@ -38,8 +35,8 @@ def test_primbox_creation_with_points():
     p2 = Point(1, 2, 3)
     box = PrimBox("test_box", p1, p2)
 
-    assert box.p1 == p1
-    assert box.p2 == p2
+    assert box.p1.is_equal(p1)
+    assert box.p2.is_equal(p2)
 
 
 def test_primbox_creation_with_origin():
@@ -47,7 +44,7 @@ def test_primbox_creation_with_origin():
     origin = Point(1, 1, 1)
     box = PrimBox("test_box", (0, 0, 0), (1, 1, 1), origin=origin)
 
-    assert box.placement.origin == origin
+    assert box.placement.origin.is_equal(origin)
 
 
 def test_primbox_creation_with_placement():
@@ -65,12 +62,12 @@ def test_primbox_creation_with_origin_and_placement():
     box = PrimBox("test_box", (0, 0, 0), (1, 1, 1), origin=origin, placement=placement)
 
     # Origin should override placement origin
-    assert box.placement.origin == origin
+    assert box.placement.origin.is_equal(origin)
 
 
 def test_primbox_creation_with_material_string():
     """Test PrimBox creation with material as string"""
-    box = PrimBox("test_box", (0, 0, 0), (1, 1, 1), material="Steel")
+    box = PrimBox("test_box", (0, 0, 0), (1, 1, 1), material="S355")
 
     assert box.material is not None
 
@@ -86,7 +83,7 @@ def test_solid_geom(simple_box):
     geom = simple_box.solid_geom()
 
     assert geom is not None
-    assert geom.guid == simple_box.guid
+    assert geom.id == simple_box.guid
 
 
 def test_get_bottom_points(simple_box):
@@ -182,7 +179,7 @@ def test_copy_to_with_point_position(simple_box):
     new_position = Point(1, 2, 3)
     copied_box = simple_box.copy_to(position=new_position)
 
-    assert copied_box.placement.origin == new_position
+    assert copied_box.placement.origin.is_equal(new_position)
 
 
 def test_copy_to_with_rotation(simple_box):
@@ -198,12 +195,7 @@ def test_copy_to_with_rotation(simple_box):
 
 def test_copy_to_with_all_params(simple_box):
     """Test copy_to method with all parameters"""
-    copied_box = simple_box.copy_to(
-        name="rotated_box",
-        position=[1, 2, 3],
-        rotation_axis=[0, 0, 1],
-        rotation_angle=45
-    )
+    copied_box = simple_box.copy_to(name="rotated_box", position=[1, 2, 3], rotation_axis=[0, 0, 1], rotation_angle=45)
 
     assert copied_box.name == "rotated_box"
     assert copied_box.placement.origin.x == 1
@@ -255,10 +247,5 @@ def test_bbox_creation(simple_box):
 
 def test_solid_occ(simple_box):
     """Test solid_occ method (basic test to ensure it doesn't crash)"""
-    try:
-        solid = simple_box.solid_occ()
-        # Just ensure the method can be called without error
-        # The actual solid creation depends on OCC backend
-    except ImportError:
-        # OCC might not be available in test environment
-        pytest.skip("OCC backend not available")
+    solid = simple_box.solid_occ()
+    assert solid is not None

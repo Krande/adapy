@@ -19,6 +19,7 @@ class PlasticityModel:
     def is_equal(self, other_model: PlasticityModel):
         return np.array_equal(self.sig_p, other_model.sig_p) and np.array_equal(self.eps_p, other_model.eps_p)
 
+
 class DnvGl16Mat(PlasticityModel):
     """
     This function returns a carbon steel Material object based on the formulas in DNVGL RP C208 (september 2016)
