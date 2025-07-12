@@ -64,7 +64,7 @@ def scene_from_fem_results(fea_res: FEAResult, converter: SceneConverter):
             ftype = FeObjectType.node if fset.type == fset.TYPES.NSET else FeObjectType.element
             g = sim_meta.SimGroup(
                 name=fset.name,
-                members=[str(m) for m in fset.members],
+                members=[f"EL{m}" if fset.type == fset.TYPES.ELSET else f"P{m}" for m in fset.members],
                 parent_name=sim_data.name,
                 description=fset.type,
                 fe_object_type=ftype,

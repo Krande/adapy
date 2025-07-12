@@ -132,3 +132,34 @@ def advanced_face(ifc_entity: ifcopenshell.entity_instance) -> geo_su.AdvancedFa
         raise NotImplementedError(f"{ifc_entity} is not yet implemented.")
 
     return geo_su.AdvancedFace(bounds=[face_bound(x) for x in ifc_entity.Bounds], face_surface=face_surface)
+
+
+def closed_shell(ifc_entity: ifcopenshell.entity_instance) -> geo_su.ClosedShell:
+    from ada.cadit.ifc.read.geom.geom_reader import import_geometry_from_ifc_geom
+
+    faces = []
+    for face in ifc_entity.CfsFaces:
+        faces.append(import_geometry_from_ifc_geom(face))
+    return geo_su.ClosedShell(faces)
+
+
+def open_shell(ifc_entity: ifcopenshell.entity_instance) -> geo_su.OpenShell:
+    from ada.cadit.ifc.read.geom.geom_reader import import_geometry_from_ifc_geom
+
+    faces = []
+    for face in ifc_entity.CfsFaces:
+        faces.append(import_geometry_from_ifc_geom(face))
+    return geo_su.OpenShell(faces)
+
+
+def shell_based_surface_model(ifc_entity: ifcopenshell.entity_instance) -> geo_su.ShellBasedSurfaceModel:
+    sbsm_boundary = []
+    for face in ifc_entity.SbsmBoundary:
+        if face.is_a("IfcOpenShell"):
+            sbsm_boundary.append(open_shell(face))
+        elif face.is_a("IfcClosedShell"):
+            sbsm_boundary.append(closed_shell(face))
+        else:
+            raise NotImplementedError(f"{face} is not yet implemented.")
+
+    return geo_su.ShellBasedSurfaceModel(sbsm_boundary=sbsm_boundary)

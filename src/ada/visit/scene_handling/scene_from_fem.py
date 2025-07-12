@@ -96,7 +96,7 @@ def scene_from_fem(fem: FEM, converter: SceneConverter) -> trimesh.Scene:
         ftype = FeObjectType.node if fset.type == fset.TYPES.NSET else FeObjectType.element
         g = sim_meta.SimGroup(
             name=fset.name,
-            members=[m.name for m in fset.members],
+            members=[f"EL{m.name}" if fset.type == fset.TYPES.ELSET else f"P{m.name}" for m in fset.members],
             parent_name=fem.name,
             description=fset.type,
             fe_object_type=ftype,
