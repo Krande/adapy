@@ -23,6 +23,7 @@ class Materials(NumericMapped):
         self.materials = sorted(materials, key=attrgetter("name")) if materials is not None else []
         self.recreate_name_and_id_maps(self.materials)
         self._units = units
+        self._max_id = None  # Cache for max_id to avoid O(n) recalculation
 
     def __contains__(self, item: Material):
         return item.name in self._name_map.keys()
@@ -133,10 +134,16 @@ class Materials(NumericMapped):
 
     def renumber_id(self, start_id=1):
         cnt = Counter(start=start_id)
+        new_max_id = start_id - 1
         for mat_id in sorted(self.id_map.keys()):
             mat = self.get_by_id(mat_id)
-            mat.id = next(cnt)
+            new_id = next(cnt)
+            mat.id = new_id
+            new_max_id = new_id
         self.recreate_name_and_id_maps(self.materials)
+        # Update max_id cache after renumbering
+        if hasattr(self, '_max_id'):
+            self._max_id = new_max_id
 
     @property
     def name_map(self) -> Dict[str, Material]:
@@ -181,12 +188,21 @@ class Materials(NumericMapped):
         # 2) Assign a fresh id if needed
         mat_id = material.id
         if mat_id is None or mat_id in id_map:
-            mat_id = len(mats) + 1
+            # Use cached max_id if available, otherwise calculate efficiently
+            if hasattr(self, '_max_id') and self._max_id is not None:
+                mat_id = self._max_id + 1
+            else:
+                mat_id = max(id_map.keys()) + 1 if id_map else 1
             material.id = mat_id
 
         # 3) Insert in O(1)
         mats.append(material)
         id_map[mat_id] = material
         name_map[material.name] = material
+
+        # 4) Update max_id cache
+        if hasattr(self, '_max_id'):
+            if self._max_id is None or mat_id > self._max_id:
+                self._max_id = mat_id
 
         return material

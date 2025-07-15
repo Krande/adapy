@@ -143,6 +143,7 @@ class Beam(BackendGeom):
         self._add_beam_to_node_refs()
         self._hi1 = hi1
         self._hi2 = hi2
+        self._hash = None
 
     @staticmethod
     def array_from_list_of_coords(
@@ -523,7 +524,9 @@ class Beam(BackendGeom):
         self._hi2 = value
 
     def __hash__(self):
-        return hash(self.guid)
+        if self._hash is None:
+            self._hash = hash(self.guid)
+        return self._hash
 
     def __eq__(self, other: Beam):
         if not isinstance(other, Beam):

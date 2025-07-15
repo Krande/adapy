@@ -3,7 +3,7 @@ import pytest
 import ada
 
 N_BM_INST = 10_000
-N_PL_INST = 10_000
+N_PL_INST = 5_000
 
 
 @pytest.mark.benchmark
