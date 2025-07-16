@@ -72,20 +72,6 @@ class Placement:
         self.ydir = Direction(yv)
         self.zdir = Direction(zv)
 
-        # Check if any nan in the vectors
-        for vec in [self.xdir, self.ydir, self.zdir]:
-            if vec is not None and np.any(np.isnan(vec)):
-                raise ValueError("Placement vector contains NaN values.")
-
-        all_dir = [self.xdir, self.ydir, self.zdir]
-        all_vec = ["xdir", "ydir", "zdir"]
-        vectors = [n for n, x in zip(all_vec, all_dir) if x is not None]
-        if len(vectors) == 1:
-            raise ValueError(
-                f"Placement only given '{vectors[0]}' vector. "
-                "Please supply at least two vectors to define a placement."
-            )
-
         # Set origin
         if self.origin is None:
             self.origin = O()
