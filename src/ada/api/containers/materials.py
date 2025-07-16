@@ -142,7 +142,7 @@ class Materials(NumericMapped):
             new_max_id = new_id
         self.recreate_name_and_id_maps(self.materials)
         # Update max_id cache after renumbering
-        if hasattr(self, '_max_id'):
+        if hasattr(self, "_max_id"):
             self._max_id = new_max_id
 
     @property
@@ -189,7 +189,7 @@ class Materials(NumericMapped):
         mat_id = material.id
         if mat_id is None or mat_id in id_map:
             # Use cached max_id if available, otherwise calculate efficiently
-            if hasattr(self, '_max_id') and self._max_id is not None:
+            if hasattr(self, "_max_id") and self._max_id is not None:
                 mat_id = self._max_id + 1
             else:
                 mat_id = max(id_map.keys()) + 1 if id_map else 1
@@ -201,7 +201,7 @@ class Materials(NumericMapped):
         name_map[material.name] = material
 
         # 4) Update max_id cache
-        if hasattr(self, '_max_id'):
+        if hasattr(self, "_max_id"):
             if self._max_id is None or mat_id > self._max_id:
                 self._max_id = mat_id
 
