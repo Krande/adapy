@@ -6,7 +6,8 @@ from typing import Union
 
 import ada.geom.curves as geo_cu
 from ada.geom.curves import EdgeLoop, PolyLoop
-from ada.geom.placement import Axis2Placement3D, Direction
+from ada.geom.direction import Direction
+from ada.geom.placement import Axis2Placement3D
 from ada.geom.points import Point
 
 
@@ -272,6 +273,15 @@ class ClosedShell:
 
 
 @dataclass
+class OpenShell:
+    """
+    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcClosedShell.htm)
+    """
+
+    cfs_faces: list[Face | FaceSurface | Plane]
+
+
+@dataclass
 class AdvancedFace:
     """
     IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcAdvancedFace.htm)
@@ -287,6 +297,15 @@ class AdvancedFace:
         RationalBSplineSurfaceWithKnots,
     ]
     same_sense: bool = True
+
+
+@dataclass
+class ShellBasedSurfaceModel:
+    """
+    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcShellBasedSurfaceModel.htm)
+    """
+
+    sbsm_boundary: list[ClosedShell | OpenShell]
 
 
 SURFACE_GEOM_TYPES = Union[

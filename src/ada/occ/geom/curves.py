@@ -50,7 +50,6 @@ def make_wire_from_poly_loop(poly_loop: geo_cu.PolyLoop) -> TopoDS_Wire:
     wire = BRepBuilderAPI_MakeWire()
     loop_plus_first = poly_loop.polygon + [poly_loop.polygon[0]]
     for p1, p2 in zip(loop_plus_first[:-1], loop_plus_first[1:]):
-        print(p1, p2)
         wire.Add(BRepBuilderAPI_MakeEdge(gp_Pnt(*p1), gp_Pnt(*p2)).Edge())
     wire.Build()
     return wire.Wire()

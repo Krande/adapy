@@ -7,6 +7,7 @@ import trimesh
 
 from ada.core.guid import create_guid
 from ada.extension import simulation_extension_schema as sim_meta
+from ada.extension.simulation_extension_schema import FeObjectType
 from ada.visit.colors import Color
 from ada.visit.gltf.graph import GraphNode, GraphStore
 
@@ -90,6 +91,18 @@ def scene_from_fem(fem: FEM, converter: SceneConverter) -> trimesh.Scene:
             scene, points_store, points_color, points_color_id, graph_store=graph
         )
 
+    groups = []
+    for fset in fem.sets.sets:
+        ftype = FeObjectType.node if fset.type == fset.TYPES.NSET else FeObjectType.element
+        g = sim_meta.SimGroup(
+            name=fset.name,
+            members=[f"EL{m.name}" if fset.type == fset.TYPES.ELSET else f"P{m.name}" for m in fset.members],
+            parent_name=fem.name,
+            description=fset.type,
+            fe_object_type=ftype,
+        )
+        groups.append(g)
+
     sim_data = sim_meta.SimulationDataExtensionMetadata(
         name=fem.name,
         date=datetime.datetime.now(),
@@ -99,6 +112,7 @@ def scene_from_fem(fem: FEM, converter: SceneConverter) -> trimesh.Scene:
         node_references=sim_meta.SimNodeReference(
             points=points_node_name, edges=edges_node_name, faces=faces_node_name, solid_beams=bm_solid_node_name
         ),
+        groups=groups,
     )
     converter.ada_ext.simulation_objects.append(sim_data)
 

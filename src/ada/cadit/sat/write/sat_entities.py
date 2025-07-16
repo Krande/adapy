@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 import ada
+import ada.geom.direction
 from ada.cadit.sat.utils import make_ints_if_possible
 
 

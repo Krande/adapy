@@ -41,6 +41,12 @@ export interface ModelStoreAPI {
         key: string,
         rangeId: string
     ): Promise<string | null>;
+
+    // New method for group selection
+    getDrawRangesByMemberNames(
+        key: string,
+        memberNames: string[]
+    ): Promise<Array<[string, string]>>; // Returns [meshName, rangeId] pairs
 }
 
 const worker = new Worker();

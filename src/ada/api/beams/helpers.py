@@ -8,7 +8,7 @@ import numpy as np
 from ada.config import Config, logger
 from ada.core.vector_utils import is_between_endpoints, is_parallel, vector_length
 from ada.fem.elements import HingeProp
-from ada.geom.placement import Direction
+from ada.geom.direction import Direction
 
 if TYPE_CHECKING:
     from ada import Beam, Node
@@ -139,6 +139,7 @@ def split_beam(beam: Beam, point: Iterable | Node = None, fraction: float = None
     :param fraction: Fraction of the beam length from Node n1.
     :param length: Length of the beam from Node n1.
     """
+    from ada import Beam, Node
 
     if isinstance(point, Node):
         point = point.p
@@ -177,16 +178,19 @@ def split_beam(beam: Beam, point: Iterable | Node = None, fraction: float = None
 
 def get_beam_extensions(beam: Beam) -> Iterable[Beam]:
     """Returns connected beams with same material and section at beam end-nodes, that are parallel"""
+    from ada import Beam
 
     def is_equal_beamtype(item) -> bool:
-        return isinstance(item, Beam) and is_equivalent(beam, item) and is_parallel(beam.xvec, item.xvec)
+        return isinstance(item, Beam) and have_equivalent_props(beam, item) and is_parallel(beam.xvec, item.xvec)
 
     return list(filter(is_equal_beamtype, beam.n1.refs + beam.n2.refs))
 
 
-def is_equivalent(beam, other_beam: Beam) -> bool:
+def have_equivalent_props(beam: Beam, other_beam: Beam) -> bool:
     """Returns equivalent beam-type, meaning beam characteristics are the same but NOT the same beam"""
-    return (beam.section, beam.material) == (other_beam.section, other_beam.material) and beam != other_beam
+    sec_props_equal = beam.section.equal_props(other_beam.section)
+    mat_props_equal = beam.material.model.equal_props(other_beam.material.model)
+    return sec_props_equal and mat_props_equal and beam is not other_beam
 
 
 def is_weak_axis_stiffened(beam: Beam, other_beam: Beam) -> bool:

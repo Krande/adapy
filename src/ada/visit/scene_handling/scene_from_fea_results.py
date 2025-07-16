@@ -9,7 +9,7 @@ import trimesh
 from ada.config import logger
 from ada.core.guid import create_guid
 from ada.extension import simulation_extension_schema as sim_meta
-from ada.extension.simulation_extension_schema import SimNodeReference
+from ada.extension.simulation_extension_schema import FeObjectType, SimNodeReference
 from ada.visit.gltf.graph import GraphNode, GraphStore
 
 if TYPE_CHECKING:
@@ -30,24 +30,48 @@ def scene_from_fem_results(fea_res: FEAResult, converter: SceneConverter):
 
     # initial mesh
     vertices = fea_res.mesh.nodes.coords
+    # node_ids = fea_res.mesh.nodes.identifiers
+
     edges, faces = fea_res.mesh.get_edges_and_faces_from_mesh()
 
+    # faces
     faces_mesh = trimesh.Trimesh(vertices=vertices, faces=faces)
 
+    # edges
     entities = [Line(x) for x in edges]
     edge_mesh = trimesh.path.Path3D(entities=entities, vertices=vertices)
 
+    # points
+    points_mesh = trimesh.points.PointCloud(vertices=vertices)
+
     scene = trimesh.Scene()
+
     face_node = scene.add_geometry(faces_mesh, node_name=fea_res.name, geom_name="faces")
     edge_node = scene.add_geometry(
         edge_mesh, node_name=f"{fea_res.name}_edges", geom_name="edges", parent_node_name=fea_res.name
     )
+    points_node = scene.add_geometry(points_mesh, node_name=f"{fea_res.name}_points", geom_name="points")
 
     face_node_idx = [i for i, n in enumerate(scene.graph.nodes) if n == face_node][0]
 
     # React renderer supports animations
     sim_data = export_sim_metadata(fea_res)
-    sim_data.node_references = SimNodeReference(faces=face_node, edges=edge_node)
+    sim_data.node_references = SimNodeReference(faces=face_node, edges=edge_node, points=points_node)
+
+    groups = []
+    if fea_res.mesh.sets is not None:
+        for fset in fea_res.mesh.sets.values():
+            ftype = FeObjectType.node if fset.type == fset.TYPES.NSET else FeObjectType.element
+            g = sim_meta.SimGroup(
+                name=fset.name,
+                members=[f"EL{m}" if fset.type == fset.TYPES.ELSET else f"P{m}" for m in fset.members],
+                parent_name=sim_data.name,
+                description=fset.type,
+                fe_object_type=ftype,
+            )
+            groups.append(g)
+        sim_data.groups = groups
+
     converter.ada_ext.simulation_objects.append(sim_data)
 
     # Loop over the results and create an animation from it

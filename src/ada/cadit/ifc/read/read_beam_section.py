@@ -5,7 +5,7 @@ from ada.sections import Section
 
 def import_section_from_ifc(profile_def, units=Units.M) -> Section:
     """Takes any subclass of ProfileDef"""
-    from ada.sections.utils import interpret_section_str
+    from ada.sections.string_to_section import interpret_section_str
 
     if profile_def.is_a("IfcIShapeProfileDef"):
         sec = Section(

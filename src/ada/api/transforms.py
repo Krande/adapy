@@ -13,7 +13,8 @@ from ada.core.vector_transforms import (
     transform_3x3,
 )
 from ada.core.vector_utils import calc_xvec, calc_yvec, unit_vector
-from ada.geom.placement import XV, YV, ZV, Axis2Placement3D, Direction, O
+from ada.geom.direction import Direction
+from ada.geom.placement import XV, YV, ZV, Axis2Placement3D, O
 from ada.geom.points import Point
 
 if TYPE_CHECKING:
@@ -70,20 +71,6 @@ class Placement:
         self.xdir = Direction(xv)
         self.ydir = Direction(yv)
         self.zdir = Direction(zv)
-
-        # Check if any nan in the vectors
-        for vec in [self.xdir, self.ydir, self.zdir]:
-            if vec is not None and np.any(np.isnan(vec)):
-                raise ValueError("Placement vector contains NaN values.")
-
-        all_dir = [self.xdir, self.ydir, self.zdir]
-        all_vec = ["xdir", "ydir", "zdir"]
-        vectors = [n for n, x in zip(all_vec, all_dir) if x is not None]
-        if len(vectors) == 1:
-            raise ValueError(
-                f"Placement only given '{vectors[0]}' vector. "
-                "Please supply at least two vectors to define a placement."
-            )
 
         # Set origin
         if self.origin is None:
@@ -297,6 +284,9 @@ class Placement:
                 return False
 
         return True
+
+    def __ne__(self, other: Placement):
+        return not self.__eq__(other)
 
     def copy_to(self) -> Placement:
         """Make a copy of this placement"""

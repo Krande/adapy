@@ -766,7 +766,7 @@ class FemSets:
         return self._nomap
 
     @property
-    def sets(self):
+    def sets(self) -> list[FemSet]:
         return self._sets
 
     def index(self, item):

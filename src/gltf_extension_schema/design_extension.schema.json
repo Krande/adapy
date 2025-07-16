@@ -56,6 +56,10 @@
         "description": {
           "type": "string",
           "description": "Description of Group"
+        },
+        "parent_name": {
+          "type": "string",
+          "description": "Name of the parent design object"
         }
       }
     }
