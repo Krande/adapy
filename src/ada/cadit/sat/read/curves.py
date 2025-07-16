@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from typing import Iterable
 
-from ada import Point
+from ada import Direction, Point
 from ada.cadit.sat.exceptions import ACISReferenceDataError, ACISUnsupportedCurveType
 from ada.cadit.sat.read.bsplinecurves import create_bspline_curve_from_sat
 from ada.cadit.sat.read.sat_entities import AcisRecord
 from ada.config import Config
 from ada.geom import curves as geo_cu
-from ada.geom.placement import Axis2Placement3D, Direction
+from ada.geom.placement import Axis2Placement3D
 
 
 def get_ellipse_curve(ellipse_record: AcisRecord) -> geo_cu.Ellipse | geo_cu.Circle:

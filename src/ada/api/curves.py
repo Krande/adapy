@@ -19,7 +19,7 @@ from ada.core.curve_utils import (
 )
 from ada.core.vector_transforms import global_2_local_nodes, local_2_global_points
 from ada.core.vector_utils import is_clockwise
-from ada.geom.placement import Direction
+from ada.geom.direction import Direction
 from ada.geom.points import Point
 from ada.geom.surfaces import ArbitraryProfileDef, ProfileType
 

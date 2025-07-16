@@ -16,12 +16,12 @@ from ada.core.utils import Counter
 from ada.core.vector_utils import is_between_endpoints, unit_vector, vector_length
 from ada.fem.concept.constraints import DofType
 from ada.geom import Geometry
-from ada.geom.placement import Direction
+from ada.geom.direction import Direction
 from ada.geom.points import Point
 from ada.materials import Material
 from ada.materials.utils import get_material
 from ada.sections import Section
-from ada.sections.utils import interpret_section_str
+from ada.sections.string_to_section import interpret_section_str
 
 if TYPE_CHECKING:
     from OCC.Core.TopoDS import TopoDS_Shape
@@ -143,6 +143,7 @@ class Beam(BackendGeom):
         self._add_beam_to_node_refs()
         self._hi1 = hi1
         self._hi2 = hi2
+        self._hash = None
 
     @staticmethod
     def array_from_list_of_coords(
@@ -388,6 +389,7 @@ class Beam(BackendGeom):
 
     @property
     def orientation(self) -> Placement:
+        """This is the local orientation and position of the Beam within the local placement object"""
         return self._orientation
 
     @property
@@ -522,7 +524,9 @@ class Beam(BackendGeom):
         self._hi2 = value
 
     def __hash__(self):
-        return hash(self.guid)
+        if self._hash is None:
+            self._hash = hash(self.guid)
+        return self._hash
 
     def __eq__(self, other: Beam):
         if not isinstance(other, Beam):

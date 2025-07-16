@@ -13,7 +13,8 @@ from ada.base.units import Units
 from ada.core.vector_utils import calc_yvec, unit_vector
 from ada.geom import Geometry
 from ada.geom.booleans import BooleanOperation
-from ada.geom.placement import Axis2Placement3D, Direction
+from ada.geom.direction import Direction
+from ada.geom.placement import Axis2Placement3D
 from ada.geom.points import Point
 from ada.geom.solids import ExtrudedAreaSolid
 

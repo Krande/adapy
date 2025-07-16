@@ -9,7 +9,7 @@ from ada.base.physical_objects import BackendGeom
 from ada.base.units import Units
 from ada.config import Config
 from ada.geom import Geometry
-from ada.geom.placement import Direction
+from ada.geom.direction import Direction
 from ada.geom.points import Point
 from ada.geom.solids import ExtrudedAreaSolid
 from ada.materials import Material
@@ -67,6 +67,7 @@ class Plate(BackendGeom):
         self._material = mat if isinstance(mat, Material) else Material(mat, mat_model=CarbonSteel(mat), parent=self)
         self._material.refs.append(self)
         self._t = t
+        self._hash = None
 
         if tol is None:
             tol = Units.get_general_point_tol(self.units)
@@ -97,7 +98,9 @@ class Plate(BackendGeom):
     def from_extruded_area_solid(name, solid: ExtrudedAreaSolid): ...
 
     def __hash__(self):
-        return hash(self.guid)
+        if self._hash is None:
+            self._hash = hash(self.guid)
+        return self._hash
 
     def __eq__(self, other: Plate) -> bool:
         if self is other:

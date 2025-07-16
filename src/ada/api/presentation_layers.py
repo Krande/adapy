@@ -35,10 +35,12 @@ class PresentationLayers:
 
         if isinstance(layer, PresentationLayer):
             new_layer = layer
+            layer_key = layer.name
         else:
             new_layer = PresentationLayer(layer, description=description, change_type=ChangeAction.ADDED)
+            layer_key = layer
 
-        self.layers[layer] = new_layer
+        self.layers[layer_key] = new_layer
 
         return new_layer
 
