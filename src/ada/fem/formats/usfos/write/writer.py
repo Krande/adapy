@@ -139,10 +139,18 @@ def nodal_str(fem: FEM) -> str:
     node_str = "'            Node ID            X              Y              Z    Boundary code\n"
     f = " NODE {nid:>15} {x:>13.3f} {y:>13.3f} {z:>13.3f}{bc}"
 
-    def write_bc(bc: Bc):
+    bc_nmap: dict[int, Bc] = {}
+    for bc in fem.bcs:
+        if bc.fem_set.type != bc.fem_set.TYPES.NSET:
+            continue
+        for m in bc.fem_set.members:
+            m: Node
+            bc_nmap[m.id] = bc
+
+    def write_bc(bc_: Bc):
         bcs_str = ""
         for dof in range(1, 7):
-            if dof in bc.dofs:
+            if dof in bc_.dofs:
                 bcs_str += " 1"
             else:
                 bcs_str += " 0"
@@ -150,7 +158,10 @@ def nodal_str(fem: FEM) -> str:
         return bcs_str
 
     def write_node(no: Node):
-        bc_str = "" if no.bc is None else write_bc(no.bc)
+        bc_obj = bc_nmap.get(no.id, None)
+        bc_str = ""
+        if bc_obj:
+            bc_str = write_bc(bc_obj)
         return f.format(nid=no.id, x=no[0], y=no[1], z=no[2], bc=bc_str)
 
     return (

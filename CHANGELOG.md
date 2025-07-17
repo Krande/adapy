@@ -2,6 +2,13 @@
 
 
 
+## v0.7.2 (2025-07-16)
+
+### Fix
+
+* fix: try to use cache on point and direction (#145) ([`b9110dc`](https://github.com/Krande/adapy/commit/b9110dc0febb5f83a1613bf2efe223769c3dcf9e))
+
+
 ## v0.7.1 (2025-06-26)
 
 ### Fix

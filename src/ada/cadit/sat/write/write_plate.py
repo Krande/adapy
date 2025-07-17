@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 import ada
+import ada.geom.direction
 from ada.base.types import GeomRepr
 from ada.cadit.sat.utils import make_ints_if_possible
 from ada.cadit.sat.write import sat_entities as se

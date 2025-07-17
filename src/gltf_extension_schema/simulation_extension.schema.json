@@ -29,8 +29,16 @@
     },
     "node_references": {
       "type": "object",
-      "description":"References to GLTF node names",
-      "$ref" : "#/definitions/SimNodeReference"
+      "description": "References to GLTF node names",
+      "$ref": "#/definitions/SimNodeReference"
+    },
+    "groups": {
+      "type": "array",
+      "description": "Named groups and their member objects",
+      "items": {
+        "$ref": "#/definitions/SimGroup"
+      },
+      "additionalProperties": false
     }
   },
   "required": [
@@ -126,6 +134,39 @@
           "type": "string",
           "description": "node reference of Solid Beams mesh"
         }
+      }
+    },
+    "SimGroup": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Name of group"
+        },
+        "members": {
+          "type": "array",
+          "description": "Name of group objects",
+          "items": {
+            "type": "string"
+          }
+        },
+        "description": {
+          "type": "string",
+          "description": "Description of Group"
+        },
+        "parent_name": {
+          "type": "string",
+          "description": "Name of the parent simulation object"
+        },
+        "fe_object_type": {
+          "type": "string",
+          "enum": [
+            "node",
+            "element"
+          ],
+          "description": "Type of finite element model objects in this group (nodes or elements)"
+        }
+
       }
     }
   }

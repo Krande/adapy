@@ -57,7 +57,7 @@ from ada.fem.concept.loads import (
     LoadConceptSurface,
     RotationalAccelerationField,
 )
-from ada.geom.placement import Direction
+from ada.geom.direction import Direction
 from ada.geom.points import Point
 from ada.materials import Material
 from ada.sections import Section

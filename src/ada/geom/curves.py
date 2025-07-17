@@ -9,7 +9,8 @@ import numpy as np
 
 from ada.core.curve_utils import calc_arc_radius_center_from_3points
 from ada.core.vector_utils import intersect_calc
-from ada.geom.placement import Axis2Placement3D, Direction
+from ada.geom.direction import Direction
+from ada.geom.placement import Axis2Placement3D
 from ada.geom.points import Point
 
 if TYPE_CHECKING:

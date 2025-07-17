@@ -26,7 +26,7 @@ export const CustomNode: React.FC<NodeRendererProps<TreeNodeData>> = ({style, no
         <div
             style={style}
             ref={dragHandle}
-            className={`flex items-center cursor-pointer ${
+            className={`flex items-center cursor-pointer mr-1 my-1 rounded ${
                 isSelected ? 'bg-blue-700' : ''
             }`}
         >

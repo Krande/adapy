@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Iterable
+from typing import TYPE_CHECKING, Iterable, Literal
 
 import trimesh
 
@@ -32,7 +32,7 @@ class Shape(BackendGeom):
         opacity=1.0,
         mass: float = None,
         cog: Iterable = None,
-        material: Material | str = None,
+        material: Material | Literal["S355", "S420"] = None,
         units=Units.M,
         metadata=None,
         guid=None,

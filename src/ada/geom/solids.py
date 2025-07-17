@@ -5,7 +5,8 @@ from typing import Union
 
 from ada.core.vector_utils import create_right_hand_vectors_xv_yv_from_zv
 from ada.geom.curves import CURVE_GEOM_TYPES
-from ada.geom.placement import Axis1Placement, Axis2Placement3D, Direction
+from ada.geom.direction import Direction
+from ada.geom.placement import Axis1Placement, Axis2Placement3D
 from ada.geom.points import Point
 from ada.geom.surfaces import (
     SURFACE_GEOM_TYPES,
