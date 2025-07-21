@@ -20,7 +20,7 @@ jobs:
         with:
           fetch-depth: 0 # otherwise, you will fail to push refs to dest repo
 
-      - uses: prefix-dev/setup-pixi@v0.8.11
+      - uses: prefix-dev/setup-pixi@v0.8.12
         with:
           pixi-version: v0.45.0
           environments: docs
