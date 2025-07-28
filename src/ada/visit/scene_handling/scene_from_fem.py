@@ -17,7 +17,10 @@ if TYPE_CHECKING:
 
 
 def scene_from_fem(fem: FEM, converter: SceneConverter) -> trimesh.Scene:
+    """Appends a FE mesh to scene or creates a new scene if no scene is provided."""
+
     from ada.visit.gltf.store import merged_mesh_to_trimesh_scene
+    from ada import Node
 
     shell_color = Color.from_str("white")
     shell_color_id = 100000
@@ -94,9 +97,24 @@ def scene_from_fem(fem: FEM, converter: SceneConverter) -> trimesh.Scene:
     groups = []
     for fset in fem.sets.sets:
         ftype = FeObjectType.node if fset.type == fset.TYPES.NSET else FeObjectType.element
+        members = []
+        for m in fset.members:
+            if hasattr(m, "name"):
+                name = m.name
+            else:
+                if isinstance(m, Node):
+                    name = m.id
+                else:
+                    raise ValueError(f"Unsupported type of set member: {type(m)}")
+
+            if fset.type == fset.TYPES.NSET:
+                members.append(f"P{name}")
+            else:
+                members.append(f"EL{name}")
+
         g = sim_meta.SimGroup(
             name=fset.name,
-            members=[f"EL{m.name}" if fset.type == fset.TYPES.ELSET else f"P{m.name}" for m in fset.members],
+            members=members,
             parent_name=fem.name,
             description=fset.type,
             fe_object_type=ftype,

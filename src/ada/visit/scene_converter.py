@@ -67,6 +67,9 @@ class SceneConverter:
 
         if type(self.source) is Part or type(self.source) is Assembly:
             self._scene = scene_from_part_or_assembly(self.source, self)
+            for subp in self.source.get_all_subparts(include_self=True):
+                if not subp.fem.is_empty():
+                    scene_from_fem(subp.fem, self)
         elif isinstance(self.source, BackendGeom):
             self._scene = scene_from_object(self.source, self.params)
         elif isinstance(self.source, FEM):

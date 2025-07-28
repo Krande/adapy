@@ -50,7 +50,7 @@ def scene_from_part_or_assembly(part_or_assembly: Part | Assembly, converter: Sc
         )
     )
 
-    bt.append_fem_to_trimesh(scene, part_or_assembly, graph, converter=converter)
+    #bt.append_fem_to_trimesh(scene, part_or_assembly, graph, converter=converter)
 
     scene.metadata.update(graph.create_meta())
 
