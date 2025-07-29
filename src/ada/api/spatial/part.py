@@ -906,7 +906,7 @@ class Part(BackendGeom):
 
         new_part = Part(name, placement=Placement(origin=position))
 
-        for obj in self.get_all_physical_objects():
+        for obj in self.get_all_physical_objects(sub_elements_only=True):
             if add_object_copy_suffix:
                 copy_obj = obj.copy_to(name=f"{obj.name}_copy")
             else:
