@@ -395,7 +395,7 @@ class FEM:
         solid_beams=True,
         ping_timeout=1,
     ) -> None:
-        from ada.visit.render_params import FEARenderParams
+        from ada.visit.render_params import FEARenderParams, RenderParams
         from ada.visit.renderer_manager import RendererManager
 
         # Use RendererManager to handle renderer setup and WebSocket connection

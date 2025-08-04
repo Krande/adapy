@@ -21,6 +21,7 @@ def scene_from_fem_results(fea_res: FEAResult, converter: SceneConverter):
 
     from ada.api.animations import Animation
     from ada.core.vector_transforms import rot_matrix
+    from ada.extension import simulation_extension_schema as sim_meta
     from ada.extension.simulation_extension_schema import FeObjectType, SimNodeReference
     from ada.fem.results.field_data import ElementFieldData, NodalFieldData
 

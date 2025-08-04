@@ -61,7 +61,6 @@ def new():
 def create_guid(name=None):
     """Creates a guid from a random name or bytes or generates a random guid"""
 
-
     if name is None:
         # Use uuid4() instead of uuid1() for better performance
         # uuid4() is purely random and doesn't require system calls
