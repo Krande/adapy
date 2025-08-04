@@ -2,25 +2,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import TYPE_CHECKING, Iterable, Optional, Tuple
+from typing import TYPE_CHECKING, Iterable, Tuple
 
 if TYPE_CHECKING:
     from ada import Direction
-
-
-# Cache the origin normalization
-@lru_cache(maxsize=5000)
-def normalize_origin_cached(origin_input: Optional[Tuple[float, float, float]]) -> Tuple[float, float, float]:
-    """
-    Cached origin normalization.
-    """
-
-    if origin_input is None:
-        return (0.0, 0.0, 0.0)
-    elif origin_input == (0.0, 0.0, 0.0):
-        return (0.0, 0.0, 0.0)  # Return the common case
-    else:
-        return tuple(float(x) for x in origin_input)
 
 
 @dataclass(frozen=True)
