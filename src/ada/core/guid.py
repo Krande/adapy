@@ -20,6 +20,7 @@
 
 from __future__ import absolute_import, annotations, division, print_function
 
+import hashlib
 import string
 import uuid
 from functools import reduce
@@ -59,11 +60,13 @@ def new():
 
 def create_guid(name=None):
     """Creates a guid from a random name or bytes or generates a random guid"""
-    import hashlib
-    import uuid
+
 
     if name is None:
-        hexdig = uuid.uuid1().hex
+        # Use uuid4() instead of uuid1() for better performance
+        # uuid4() is purely random and doesn't require system calls
+
+        hexdig = uuid.uuid4().hex
     else:
         if not isinstance(name, bytes):
             n = name.encode()
