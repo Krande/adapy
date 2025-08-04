@@ -4,24 +4,24 @@ import datetime
 from typing import TYPE_CHECKING
 
 import numpy as np
-import trimesh
 
 from ada.config import logger
 from ada.core.guid import create_guid
-from ada.extension import simulation_extension_schema as sim_meta
-from ada.extension.simulation_extension_schema import FeObjectType, SimNodeReference
 from ada.visit.gltf.graph import GraphNode, GraphStore
 
 if TYPE_CHECKING:
+    from ada.extension import simulation_extension_schema as sim_meta
     from ada.fem.results.common import FEAResult
     from ada.visit.scene_converter import SceneConverter
 
 
 def scene_from_fem_results(fea_res: FEAResult, converter: SceneConverter):
+    import trimesh
     from trimesh.path.entities import Line
 
     from ada.api.animations import Animation
     from ada.core.vector_transforms import rot_matrix
+    from ada.extension.simulation_extension_schema import FeObjectType, SimNodeReference
     from ada.fem.results.field_data import ElementFieldData, NodalFieldData
 
     params = converter.params
@@ -123,6 +123,8 @@ def scene_from_fem_results(fea_res: FEAResult, converter: SceneConverter):
 
 
 def export_sim_metadata(fea_res: FEAResult) -> sim_meta.SimulationDataExtensionMetadata:
+    from ada.extension import simulation_extension_schema as sim_meta
+
     steps = []
     for x in fea_res.results:
         if x.step not in steps:

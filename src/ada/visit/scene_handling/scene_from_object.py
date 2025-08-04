@@ -1,15 +1,20 @@
 from __future__ import annotations
 
-import trimesh
+from typing import TYPE_CHECKING
 
 from ada.base.physical_objects import BackendGeom
 from ada.core.guid import create_guid
 from ada.visit.gltf.graph import GraphNode, GraphStore
 from ada.visit.render_params import RenderParams
 
+if TYPE_CHECKING:
+    import trimesh
+
 
 def scene_from_object(physical_object: BackendGeom, params: RenderParams) -> trimesh.Scene:
     from itertools import groupby
+
+    import trimesh
 
     from ada import Pipe
     from ada.occ.tessellating import BatchTessellator

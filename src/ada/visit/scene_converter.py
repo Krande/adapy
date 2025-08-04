@@ -3,10 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, OrderedDict
 
-from ada.api.animations import Animation
-from ada.extension.design_and_analysis_extension_schema import (
-    AdaDesignAndAnalysisExtension,
-)
 from ada.visit.scene_handling.scene_from_fea_results import scene_from_fem_results
 from ada.visit.scene_handling.scene_from_fem import scene_from_fem
 from ada.visit.scene_handling.scene_from_object import scene_from_object
@@ -16,8 +12,12 @@ if TYPE_CHECKING:
     import trimesh
 
     from ada import FEM, Assembly, Part
+    from ada.api.animations import Animation
     from ada.base.physical_objects import BackendGeom
     from ada.comms.fb.fb_meshes_gen import MeshDC
+    from ada.extension.design_and_analysis_extension_schema import (
+        AdaDesignAndAnalysisExtension,
+    )
     from ada.fem.results import FEAResult
     from ada.visit.render_params import RenderParams
 
@@ -44,6 +44,10 @@ class SceneConverter:
     ada_ext: AdaDesignAndAnalysisExtension = field(init=False)
 
     def __post_init__(self):
+        from ada.extension.design_and_analysis_extension_schema import (
+            AdaDesignAndAnalysisExtension,
+        )
+
         if self.params is None:
             from ada.visit.render_params import RenderParams
 

@@ -3,15 +3,13 @@ from __future__ import annotations
 import datetime
 from typing import TYPE_CHECKING
 
-import trimesh
-
 from ada.core.guid import create_guid
-from ada.extension import simulation_extension_schema as sim_meta
-from ada.extension.simulation_extension_schema import FeObjectType
 from ada.visit.colors import Color
 from ada.visit.gltf.graph import GraphNode, GraphStore
 
 if TYPE_CHECKING:
+    import trimesh
+
     from ada import FEM
     from ada.visit.scene_converter import SceneConverter
 
@@ -19,8 +17,12 @@ if TYPE_CHECKING:
 def scene_from_fem(fem: FEM, converter: SceneConverter) -> trimesh.Scene:
     """Appends a FE mesh to scene or creates a new scene if no scene is provided."""
 
-    from ada.visit.gltf.store import merged_mesh_to_trimesh_scene
+    import trimesh
+
     from ada import Node
+    from ada.extension import simulation_extension_schema as sim_meta
+    from ada.extension.simulation_extension_schema import FeObjectType
+    from ada.visit.gltf.store import merged_mesh_to_trimesh_scene
 
     shell_color = Color.from_str("white")
     shell_color_id = 100000

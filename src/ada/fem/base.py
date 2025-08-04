@@ -8,8 +8,6 @@ from typing import TYPE_CHECKING, Dict, Iterable, List, Literal, Union
 from ada.api.containers import Nodes
 from ada.comms.fb_wrap_model_gen import FilePurposeDC
 from ada.config import logger
-from ada.visit.render_params import FEARenderParams, RenderParams
-from ada.visit.renderer_manager import RendererManager
 
 from .containers import FemElements, FemSections, FemSets
 from .sets import FemSet
@@ -42,6 +40,7 @@ if TYPE_CHECKING:
     from ada.fem.options import FemOptions
     from ada.fem.results.common import Mesh
     from ada.fem.steps import Step
+    from ada.visit.render_params import RenderParams
 
 _step_types = Union["StepSteadyState", "StepEigen", "StepImplicitStatic", "StepExplicit"]
 
@@ -396,6 +395,8 @@ class FEM:
         solid_beams=True,
         ping_timeout=1,
     ) -> None:
+        from ada.visit.render_params import FEARenderParams
+        from ada.visit.renderer_manager import RendererManager
 
         # Use RendererManager to handle renderer setup and WebSocket connection
         renderer_manager = RendererManager(
