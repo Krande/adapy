@@ -90,6 +90,7 @@ class Config:
                 ConfigEntry("tools_dir", pathlib.Path, _home_dir / "tools"),
                 ConfigEntry("occ_silent_fail", bool, False),
                 ConfigEntry("add_trace_to_exception", bool, False),
+                ConfigEntry("guid_cache_num", int, 50000)
             ],
         ),
         ConfigSection(

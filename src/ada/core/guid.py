@@ -22,22 +22,38 @@ from __future__ import absolute_import, annotations, division, print_function
 
 import hashlib
 import string
+import threading
 import uuid
+from collections import deque
 from functools import reduce
 
-import ada.core
+from ada.config import Config
 
 chars = string.digits + string.ascii_uppercase + string.ascii_lowercase + "_$"
 
 
 def compress(g):
-    bs = [int(g[i : i + 2], 16) for i in range(0, len(g), 2)]
+    """Optimized version of compress function"""
+    bs = [int(g[i:i+2], 16) for i in range(0, len(g), 2)]
 
-    def b64(v, l=4):
-        return "".join([chars[(v // (64**i)) % 64] for i in range(l)][::-1])
+    # Pre-calculate the result size and use a list for string building
+    result = [''] * 22
 
-    return "".join([b64(bs[0], 2)] + [b64((bs[i] << 16) + (bs[i + 1] << 8) + bs[i + 2]) for i in range(1, 16, 3)])
+    # First 2 characters
+    v = bs[0]
+    result[0] = chars[v // 64]
+    result[1] = chars[v % 64]
 
+    # Remaining characters in groups of 4
+    for i in range(1, 16, 3):
+        v = (bs[i] << 16) + (bs[i+1] << 8) + bs[i+2]
+        idx = 2 + (i-1)//3 * 4
+        result[idx] = chars[(v >> 18) & 63]
+        result[idx+1] = chars[(v >> 12) & 63]
+        result[idx+2] = chars[(v >> 6) & 63]
+        result[idx+3] = chars[v & 63]
+
+    return ''.join(result)
 
 def expand(g):
     def b64(v):
@@ -58,19 +74,72 @@ def new():
     return compress(uuid.uuid4().hex)
 
 
-def create_guid(name=None):
-    """Creates a guid from a random name or bytes or generates a random guid"""
 
-    if name is None:
-        # Use uuid4() instead of uuid1() for better performance
-        # uuid4() is purely random and doesn't require system calls
 
-        hexdig = uuid.uuid4().hex
-    else:
+# Add these variables for the cache
+_guid_cache = deque()
+_guid_cache_lock = threading.Lock()
+_cache_size = Config().general_guid_cache_num  # Default cache size
+_cache_refill_threshold = 500  # When to refill the cache
+
+def fill_guid_cache(count=None, name=None):
+    """
+    Fill the GUID cache with a specified number of GUIDs.
+    If count is None, fills to the default cache size.
+    If name is provided, creates GUIDs based on that name with incrementing counters.
+    """
+    count = count or _cache_size
+    with _guid_cache_lock:
+        if name is None:
+            # Generate random GUIDs
+            for _ in range(count):
+                _guid_cache.append(compress(uuid.uuid4().hex))
+        else:
+            # Generate deterministic GUIDs based on name with counter
+            base_name = name.encode() if not isinstance(name, bytes) else name
+            start_idx = len(_guid_cache)
+            for i in range(count):
+                # Append counter to make each GUID unique
+                n = base_name + str(start_idx + i).encode()
+                hexdig = hashlib.md5(n).hexdigest()
+                _guid_cache.append(compress(hexdig))
+
+def get_guid(name=None):
+    """
+    Get a GUID from the cache if available, or generate a new one.
+    If name is provided, generates a deterministic GUID based on the name.
+    """
+    if name is not None:
+        # For named GUIDs, always generate directly (not cached)
         if not isinstance(name, bytes):
             n = name.encode()
         else:
             n = name
         hexdig = hashlib.md5(n).hexdigest()
-    result = ada.core.guid.compress(hexdig)
-    return result
+        return compress(hexdig)
+
+    with _guid_cache_lock:
+        # Check if we need to refill the cache
+        if len(_guid_cache) <= _cache_refill_threshold:
+            # Refill in a separate thread to avoid blocking
+            refill_thread = threading.Thread(
+                target=fill_guid_cache,
+                args=(_cache_size - len(_guid_cache),)
+            )
+            refill_thread.daemon = True
+            refill_thread.start()
+
+        # Return a GUID from the cache if available
+        if _guid_cache:
+            return _guid_cache.popleft()
+
+    # If cache is empty (should be rare), generate one directly
+    return compress(uuid.uuid4().hex)
+
+# Initialize the cache
+fill_guid_cache()
+
+# Modify create_guid to use the cache
+def create_guid(name=None):
+    """Creates a guid from a random name or bytes or generates a random guid"""
+    return get_guid(name)
