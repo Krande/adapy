@@ -79,7 +79,8 @@ def new():
 _guid_cache = deque()
 _guid_cache_lock = threading.Lock()
 _cache_size = Config().general_guid_cache_num  # Default cache size
-_cache_refill_threshold = 500  # When to refill the cache
+_cache_refill_threshold = Config().general_guid_cache_refill_threshold  # When to refill the cache
+_guid_cache_enabled = Config().general_guid_cache_enabled
 
 
 def fill_guid_cache(count=None, name=None):
@@ -119,6 +120,9 @@ def get_guid(name=None):
         hexdig = hashlib.md5(n).hexdigest()
         return compress(hexdig)
 
+    if _guid_cache_enabled is False:
+        return compress(uuid.uuid4().hex)
+
     with _guid_cache_lock:
         # Check if we need to refill the cache
         if len(_guid_cache) <= _cache_refill_threshold:
@@ -136,7 +140,8 @@ def get_guid(name=None):
 
 
 # Initialize the cache
-fill_guid_cache()
+if _guid_cache_enabled:
+    fill_guid_cache()
 
 
 # Modify create_guid to use the cache

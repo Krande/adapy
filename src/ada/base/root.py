@@ -33,6 +33,7 @@ class Root:
 
         if isinstance(units, str):
             units = Units.from_str(units)
+
         self._units = units
         self._metadata = metadata if metadata is not None else dict()
         self._ifc_store = ifc_store

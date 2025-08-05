@@ -6,19 +6,19 @@ from typing import TYPE_CHECKING
 from ada.base.root import Root
 from ada.base.units import Units
 
-from .metals import CarbonSteel
-
 if TYPE_CHECKING:
     from ada.cadit.ifc.store import IfcStore
 
+    from .metals import CarbonSteel
+
 
 class Material(Root):
-    """The base material class. Currently only supports Metals"""
+    """The base material class. Currently only supports Metals. Default material model is S355 carbon steel"""
 
     def __init__(
         self,
         name,
-        mat_model=CarbonSteel("S355"),
+        mat_model: CarbonSteel = None,
         mat_id=None,
         parent=None,
         metadata=None,
@@ -27,6 +27,11 @@ class Material(Root):
         ifc_store: IfcStore = None,
     ):
         super(Material, self).__init__(name, guid, metadata, units, ifc_store=ifc_store)
+        from .metals import CarbonSteel
+
+        if mat_model is None:
+            mat_model = CarbonSteel("S355")
+
         self._mat_model = mat_model
         mat_model.parent = self
         self._mat_id = mat_id
@@ -79,17 +84,6 @@ class Material(Root):
     @id.setter
     def id(self, value):
         self._mat_id = value
-
-    @property
-    def name(self):
-        return self._name
-
-    @name.setter
-    def name(self, value):
-        # if value is None or any(x in value for x in [",", ".", "="]):
-        #     raise ValueError(f"Material name {value} cannot be None or contain special characters")
-
-        self._name = value.strip()
 
     @property
     def model(self) -> CarbonSteel:

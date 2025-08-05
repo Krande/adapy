@@ -132,16 +132,29 @@ class Placement:
             return self
 
         current_location = self.origin.copy()
-        q = pq.Quaternion(matrix=self.rot_matrix)
-        ancestry = self.parent.get_ancestors(include_self=False)
-
-        for ancestor in ancestry:
-            current_location += ancestor.placement.origin
-            q *= pq.Quaternion(matrix=ancestor.placement.rot_matrix)
 
         if include_rotations:
-            m = q.transformation_matrix
-            return Placement(origin=current_location, xdir=m[0, :3], ydir=m[1, :3], zdir=m[2, :3])
+            # Accumulate rotation matrices instead of quaternions
+            accumulated_rot_matrix = self.rot_matrix.copy()
+            ancestry = self.parent.get_ancestors(include_self=False)
+
+            for ancestor in ancestry:
+                current_location += ancestor.placement.origin
+                # Matrix multiplication is faster than quaternion multiplication
+                accumulated_rot_matrix = ancestor.placement.rot_matrix @ accumulated_rot_matrix
+
+            # Extract direction vectors directly from the final rotation matrix
+            return Placement(
+                origin=current_location,
+                xdir=accumulated_rot_matrix[0],
+                ydir=accumulated_rot_matrix[1],
+                zdir=accumulated_rot_matrix[2],
+            )
+
+        # For non-rotation case, just accumulate origins
+        ancestry = self.parent.get_ancestors(include_self=False)
+        for ancestor in ancestry:
+            current_location += ancestor.placement.origin
 
         return Placement(origin=current_location, xdir=self.xdir, ydir=self.ydir, zdir=self.zdir)
 

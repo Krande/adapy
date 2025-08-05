@@ -86,14 +86,13 @@ class FEM:
 
     interface_nodes: List[Union[Node, InterfaceNode]] = field(init=False, default_factory=list)
 
+    _options: FemOptions = field(default=None, init=False)
+
     def __post_init__(self):
         self.nodes.parent = self
         self.elements.parent = self
         self.sets.parent = self
         self.sections.parent = self
-        from ada.fem.options import FemOptions
-
-        self._options = FemOptions()
 
     def add_elem(self, elem: Elem) -> Elem:
         elem.parent = self
@@ -438,6 +437,11 @@ class FEM:
 
     @property
     def options(self) -> FemOptions:
+        if self._options is None:
+            from ada.fem.options import FemOptions
+
+            self._options = FemOptions()
+
         return self._options
 
     def __add__(self, other: FEM):
