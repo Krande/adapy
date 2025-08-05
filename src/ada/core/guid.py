@@ -34,10 +34,10 @@ chars = string.digits + string.ascii_uppercase + string.ascii_lowercase + "_$"
 
 def compress(g):
     """Optimized version of compress function"""
-    bs = [int(g[i:i+2], 16) for i in range(0, len(g), 2)]
+    bs = [int(g[i : i + 2], 16) for i in range(0, len(g), 2)]
 
     # Pre-calculate the result size and use a list for string building
-    result = [''] * 22
+    result = [""] * 22
 
     # First 2 characters
     v = bs[0]
@@ -46,14 +46,15 @@ def compress(g):
 
     # Remaining characters in groups of 4
     for i in range(1, 16, 3):
-        v = (bs[i] << 16) + (bs[i+1] << 8) + bs[i+2]
-        idx = 2 + (i-1)//3 * 4
+        v = (bs[i] << 16) + (bs[i + 1] << 8) + bs[i + 2]
+        idx = 2 + (i - 1) // 3 * 4
         result[idx] = chars[(v >> 18) & 63]
-        result[idx+1] = chars[(v >> 12) & 63]
-        result[idx+2] = chars[(v >> 6) & 63]
-        result[idx+3] = chars[v & 63]
+        result[idx + 1] = chars[(v >> 12) & 63]
+        result[idx + 2] = chars[(v >> 6) & 63]
+        result[idx + 3] = chars[v & 63]
 
-    return ''.join(result)
+    return "".join(result)
+
 
 def expand(g):
     def b64(v):
@@ -74,13 +75,12 @@ def new():
     return compress(uuid.uuid4().hex)
 
 
-
-
 # Add these variables for the cache
 _guid_cache = deque()
 _guid_cache_lock = threading.Lock()
 _cache_size = Config().general_guid_cache_num  # Default cache size
 _cache_refill_threshold = 500  # When to refill the cache
+
 
 def fill_guid_cache(count=None, name=None):
     """
@@ -104,6 +104,7 @@ def fill_guid_cache(count=None, name=None):
                 hexdig = hashlib.md5(n).hexdigest()
                 _guid_cache.append(compress(hexdig))
 
+
 def get_guid(name=None):
     """
     Get a GUID from the cache if available, or generate a new one.
@@ -122,10 +123,7 @@ def get_guid(name=None):
         # Check if we need to refill the cache
         if len(_guid_cache) <= _cache_refill_threshold:
             # Refill in a separate thread to avoid blocking
-            refill_thread = threading.Thread(
-                target=fill_guid_cache,
-                args=(_cache_size - len(_guid_cache),)
-            )
+            refill_thread = threading.Thread(target=fill_guid_cache, args=(_cache_size - len(_guid_cache),))
             refill_thread.daemon = True
             refill_thread.start()
 
@@ -136,8 +134,10 @@ def get_guid(name=None):
     # If cache is empty (should be rare), generate one directly
     return compress(uuid.uuid4().hex)
 
+
 # Initialize the cache
 fill_guid_cache()
+
 
 # Modify create_guid to use the cache
 def create_guid(name=None):
