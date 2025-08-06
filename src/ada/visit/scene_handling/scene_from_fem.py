@@ -24,15 +24,6 @@ def scene_from_fem(fem: FEM, converter: SceneConverter) -> trimesh.Scene:
     from ada.extension.simulation_extension_schema import FeObjectType
     from ada.visit.gltf.store import merged_mesh_to_trimesh_scene
 
-    shell_color = Color.from_str("white")
-    shell_color_id = 100000
-    line_color = Color.from_str("gray")
-    line_color_id = 100001
-    points_color = Color.from_str("black")
-    points_color_id = 100002
-    solid_bm_color = Color.from_str("light-gray")
-    solid_bm_color_id = 100003
-
     params = converter.params
 
     if fem.parent is not None:
@@ -41,6 +32,15 @@ def scene_from_fem(fem: FEM, converter: SceneConverter) -> trimesh.Scene:
     else:
         parent_node = GraphNode("world", 0, hash=create_guid())
         graph = GraphStore(top_level=parent_node, nodes={0: parent_node})
+
+    shell_color = Color.from_str("white")
+    shell_color_id = graph.next_node_id()
+    line_color = Color.from_str("gray")
+    line_color_id = graph.next_node_id()
+    points_color = Color.from_str("black")
+    points_color_id = graph.next_node_id()
+    solid_bm_color = Color.from_str("light-gray")
+    solid_bm_color_id = graph.next_node_id()
 
     use_solid_beams = params.fea_params is not None and params.fea_params.solid_beams is True
 
@@ -138,7 +138,7 @@ def scene_from_fem(fem: FEM, converter: SceneConverter) -> trimesh.Scene:
 
     params.set_gltf_buffer_postprocessor(converter.buffer_postprocessor)
     params.set_gltf_tree_postprocessor(converter.tree_postprocessor)
-
-    scene.metadata.update(graph.create_meta())
+    graph_meta = graph.create_meta()
+    scene.metadata.update(graph_meta)
 
     return scene

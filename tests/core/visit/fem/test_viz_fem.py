@@ -47,7 +47,7 @@ def test_beam_as_faces(bm_line_fem):
 def test_single_ses_elem(fem_files):
     a = ada.from_fem(fem_files / "sesam/1EL_SHELL_R1.SIF")
     # a.to_fem("usfos_fem", 'usfos', scratch_dir='temp')
-    scene = a.to_trimesh_scene()
+    scene = a.to_trimesh_scene(include_ada_ext=True)
 
     # backend = SqLiteBackend('temp/sesam_1el_sh.db')
     backend = SqLiteBackend()

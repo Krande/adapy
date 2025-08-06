@@ -66,8 +66,9 @@ class Root:
         if hasattr(self, "_guid") and self.guid is not None:
             existing_guid = self.guid
             a = self.get_assembly()
-            original_el = a.ifc_store.f.by_guid(existing_guid)
-            original_el.GlobalId = value
+            if a._ifc_store is not None:
+                original_el = a.ifc_store.f.by_guid(existing_guid)
+                original_el.GlobalId = value
         self._guid = value
 
     @property

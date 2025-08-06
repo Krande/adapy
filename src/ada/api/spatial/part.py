@@ -1044,6 +1044,7 @@ class Part(BackendGeom):
         merge_meshes=True,
         stream_from_ifc=False,
         params: RenderParams = None,
+        include_ada_ext: bool = False,
     ) -> trimesh.Scene:
         if params is None:
             params = RenderParams(
@@ -1054,7 +1055,13 @@ class Part(BackendGeom):
             )
 
         converter = SceneConverter(self, params)
-        return converter.build_processed_scene()
+        scene = converter.build_processed_scene()
+        if include_ada_ext:
+            if "gltf_extensions" not in scene.metadata.keys():
+                scene.metadata["gltf_extensions"] = {}
+            scene.metadata["gltf_extensions"]["ADA_EXT_data"] = converter.ada_ext.model_dump(mode="json")
+
+        return scene
 
     def to_stp(
         self,
