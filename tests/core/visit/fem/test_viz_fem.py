@@ -23,16 +23,16 @@ def test_beam_as_faces(bm_shell_fem_part):
     assert len(ada_ext.design_objects) == 1
     assert len(ada_ext.simulation_objects) == 1
 
-    # _ = get_faces_from_fem(bm_shell_fem_part.fem)
-
     sim_obj = ada_ext.simulation_objects[0]
     assert len(sim_obj.groups) == 5
 
     sim_group = sim_obj.groups[0]
+    assert sim_group.name == 'elbm1_e1_btn_fl_sh'
     assert len(sim_group.members) == 80
 
     # Only for testing. Do not add this in production!
-    # bm_shell_fem_part.fem.show()
+    bm_shell_fem_part.show()
+    (ada.Assembly() / bm_shell_fem_part).to_fem('my_fem', 'usfos')
 
 
 def test_single_ses_elem(fem_files):

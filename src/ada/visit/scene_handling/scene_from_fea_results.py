@@ -112,14 +112,8 @@ def scene_from_fem_results(fea_res: FEAResult, converter: SceneConverter):
         m4x4 = np.r_[m3x3_with_col, [np.array([0, 0, 0, 1])]]
         scene.apply_transform(m4x4)
 
-    params.set_gltf_buffer_postprocessor(converter.buffer_postprocessor)
-    params.set_gltf_tree_postprocessor(converter.tree_postprocessor)
-
     graph = converter.graph
-
     graph.add_node(GraphNode(fea_res.name, graph.next_node_id(), hash=create_guid(), parent=graph.top_level))
-
-    # scene.metadata.update(graph.create_meta())
 
     return scene
 

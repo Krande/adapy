@@ -28,9 +28,11 @@ def scene_from_fem(fem: FEM, converter: SceneConverter) -> trimesh.Scene:
     graph = converter.graph
 
     if fem.parent is not None:
-        parent_node = graph.hash_map.get(fem.parent.guid)
+        parent_part_node = graph.hash_map.get(fem.parent.guid)
     else:
-        parent_node = graph.top_level
+        parent_part_node = graph.top_level
+
+    parent_node = graph.add_node(GraphNode(fem.name, graph.next_node_id(), parent=parent_part_node))
 
     shell_color = Color.from_str("white")
     shell_color_id = graph.next_node_id()

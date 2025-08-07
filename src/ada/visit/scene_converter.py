@@ -100,6 +100,7 @@ class SceneConverter:
         self.params.set_gltf_buffer_postprocessor(self.buffer_postprocessor)
         self.params.set_gltf_tree_postprocessor(self.tree_postprocessor)
         self._scene.metadata.update(self.graph.to_json_hierarchy())
+
         self.add_extension("ADA_EXT_data", self.ada_ext.model_dump(mode="json"))
 
         return self._scene
