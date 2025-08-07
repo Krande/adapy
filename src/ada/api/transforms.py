@@ -2,16 +2,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
+from functools import cached_property
 from typing import TYPE_CHECKING, ClassVar, Iterable, List, Union
 
 import numpy as np
 import pyquaternion as pq
 
-from ada.core.vector_transforms import (
-    compute_orientation_vec,
-    normal_to_points_in_plane,
-    transform_3x3,
-)
+from ada.core.vector_transforms import normal_to_points_in_plane, transform_3x3
 from ada.core.vector_utils import calc_xvec, calc_yvec, unit_vector
 from ada.geom.direction import Direction
 from ada.geom.placement import XV, YV, ZV, Axis2Placement3D, O
@@ -46,33 +43,13 @@ class Rotation:
         return res
 
 
-@dataclass
 class Placement:
-    origin: Iterable | Point = field(default_factory=O)
-    xdir: Iterable | Direction = None
-    ydir: Iterable | Direction = None
-    zdir: Iterable | Direction = None
-    scale: float = 1.0
-    parent = None
+    def __init__(self, origin: Iterable | Point = None, xdir=None, ydir=None, zdir=None, scale=1.0, parent=None):
+        from ada.api.computed_placement import ComputedPlacement
 
-    _is_identity: bool = field(default=None, init=False)
+        self._origin: Iterable | Point = origin
 
-    def __post_init__(self):
-        from ada.geom.placement import O
-
-        # Convert input directions to tuples for caching
-        xdir = tuple(self.xdir) if self.xdir is not None else None
-        ydir = tuple(self.ydir) if self.ydir is not None else None
-        zdir = tuple(self.zdir) if self.zdir is not None else None
-
-        # Use cached compute_orientation_vec function
-        xv, yv, zv = compute_orientation_vec(xdir, ydir, zdir)
-
-        self.xdir = Direction(xv)
-        self.ydir = Direction(yv)
-        self.zdir = Direction(zv)
-
-        # Set origin
+        # validate origin
         if self.origin is None:
             self.origin = O()
         elif not isinstance(self.origin, Point):
@@ -84,6 +61,21 @@ class Placement:
                     self.origin = Point(*self.origin)
             else:
                 self.origin = Point(*self.origin)
+
+        self._xdir: Iterable | Direction = xdir
+        self._ydir: Iterable | Direction = ydir
+        self._zdir: Iterable | Direction = zdir
+        self._scale: float = scale
+        self._parent = parent
+
+        self._is_identity: bool = False
+        self._computed_placement: ComputedPlacement = None
+
+    def _init_computed_placement(self):
+        """Lazy initialization of computed placement."""
+        from ada.api.computed_placement import create_computed_placement_from_placement
+
+        self._computed_placement = create_computed_placement_from_placement(self._xdir, self._ydir, self._zdir)
 
     def __getitem__(self, key):
         return [self.xdir, self.ydir, self.zdir][key]
@@ -140,22 +132,34 @@ class Placement:
             return self
 
         current_location = self.origin.copy()
-        q = pq.Quaternion(matrix=self.rot_matrix)
-        ancestry = self.parent.get_ancestors(include_self=False)
-
-        for ancestor in ancestry:
-            current_location += ancestor.placement.origin
-            q *= pq.Quaternion(matrix=ancestor.placement.rot_matrix)
 
         if include_rotations:
-            m = q.transformation_matrix
-            return Placement(origin=current_location, xdir=m[0, :3], ydir=m[1, :3], zdir=m[2, :3])
+            # Accumulate rotation matrices instead of quaternions
+            accumulated_rot_matrix = self.rot_matrix.copy()
+            ancestry = self.parent.get_ancestors(include_self=False)
+
+            for ancestor in ancestry:
+                current_location += ancestor.placement.origin
+                # Matrix multiplication is faster than quaternion multiplication
+                accumulated_rot_matrix = ancestor.placement.rot_matrix @ accumulated_rot_matrix
+
+            # Extract direction vectors directly from the final rotation matrix
+            return Placement(
+                origin=current_location,
+                xdir=accumulated_rot_matrix[0],
+                ydir=accumulated_rot_matrix[1],
+                zdir=accumulated_rot_matrix[2],
+            )
+
+        # For non-rotation case, just accumulate origins
+        ancestry = self.parent.get_ancestors(include_self=False)
+        for ancestor in ancestry:
+            current_location += ancestor.placement.origin
 
         return Placement(origin=current_location, xdir=self.xdir, ydir=self.ydir, zdir=self.zdir)
 
     def rotate(self, axis: Iterable[float], angle: float) -> Placement:
         """Rotate the placement around an axis. Returns a new placement."""
-
         q0 = pq.Quaternion(matrix=self.rot_matrix)
         q = q0 * pq.Quaternion(axis=axis, angle=np.radians(angle))
         m = q.transformation_matrix
@@ -163,17 +167,60 @@ class Placement:
         return Placement(origin=self.origin, xdir=m[0, :3], ydir=m[1, :3], zdir=m[2, :3])
 
     @property
+    def origin(self) -> Point:
+        """Get origin using optimized caching."""
+        return self._origin
+
+    @origin.setter
+    def origin(self, value):
+        self._origin = value
+
+    @property
+    def xdir(self) -> Direction:
+        """Get xdir using optimized caching."""
+        if self._computed_placement is None:
+            self._init_computed_placement()
+        return self._computed_placement.xdir
+
+    @property
+    def ydir(self) -> Direction:
+        """Get ydir using optimized caching."""
+        if self._computed_placement is None:
+            self._init_computed_placement()
+        return self._computed_placement.ydir
+
+    @property
+    def zdir(self) -> Direction:
+        """Get zdir using optimized caching."""
+        if self._computed_placement is None:
+            self._init_computed_placement()
+        return self._computed_placement.zdir
+
+    @property
+    def scale(self):
+        return self._scale
+
+    @property
+    def parent(self):
+        return self._parent
+
+    @parent.setter
+    def parent(self, value):
+        self._parent = value
+
+    @cached_property
     def rot_matrix(self):
+        """Get rotation matrix using optimized caching."""
+        # Fallback to original implementation
         return np.array([self.xdir, self.ydir, self.zdir])
 
     def get_matrix4x4(self):
-        # Based on the quaternion transformation matrix calculation
         t = np.array([[self.origin[0]], [self.origin[1]], [self.origin[2]]])
         Rt = np.hstack([self.rot_matrix, t])
         return np.vstack([Rt, np.array([0.0, 0.0, 0.0, 1.0])])
 
     def transform_vector(self, vec: Iterable[float | int], inverse=False) -> np.ndarray:
-        """Transform a vector from the coordinate system of this placement to the global coordinate system."""
+        """Transform a vector using optimized caching."""
         if not isinstance(vec, np.ndarray):
             vec = np.array(vec)
 
@@ -183,11 +230,8 @@ class Placement:
     def transform_array_from_other_place(
         self, arr: np.ndarray, other_place: Placement, ignore_translation=False
     ) -> np.ndarray:
-        """Transform an array of vectors from the coordinate system of this placement to another coordinate system."""
-        # Rotation matrix from old placement to new placement
         rotation_mat = self.rot_matrix @ np.linalg.inv(other_place.rot_matrix)
 
-        # Transform the vector
         if ignore_translation:
             transformed_vec = arr @ rotation_mat.T
         else:
@@ -197,7 +241,6 @@ class Placement:
     def transform_local_points_to_global(
         self, points2d: Iterable[Iterable[float | int, float | int]], inverse=False
     ) -> np.ndarray:
-        """Transform points from the coordinate system of this placement to the global coordinate system."""
         if not isinstance(points2d, np.ndarray):
             points2d = np.array(points2d)
 
@@ -235,8 +278,8 @@ class Placement:
 
         return Axis2Placement3D(
             location=self.origin,
-            axis=Direction(self.zdir).get_normalized(),
-            ref_direction=Direction(self.xdir).get_normalized(),
+            axis=self.zdir.get_normalized(),
+            ref_direction=self.xdir.get_normalized(),
         )
 
     def is_identity(self, use_absolute_placement=True) -> bool:

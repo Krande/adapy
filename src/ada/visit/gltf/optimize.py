@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import pathlib
 from typing import TYPE_CHECKING, Iterable
 
 import numpy as np
@@ -56,11 +55,3 @@ def concatenate_stores(stores: Iterable[MeshStore], graph_store: GraphStore = No
     indices = np.concatenate(indices_list, dtype=np.uint32)
     normal = np.concatenate(normal_list) if has_normal else None
     return MergedMesh(indices, position, normal, stores[0].material, stores[0].type, groups)
-
-
-def optimize_glb(glb_path: pathlib.Path | str, suffix: str = "_optimized"):
-    """Optimize a glb file by removing duplicate vertices and merges all nodes by color."""
-    from ada.visit.gltf.store import GltfMergeStore
-
-    merge_store = GltfMergeStore(glb_path, rem_duplicate_vertices=True)
-    merge_store.export_merged_meshes_to_glb(glb_path.with_name(glb_path.stem + f"{suffix}.glb"))

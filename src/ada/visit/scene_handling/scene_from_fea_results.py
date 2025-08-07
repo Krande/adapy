@@ -4,24 +4,25 @@ import datetime
 from typing import TYPE_CHECKING
 
 import numpy as np
-import trimesh
 
 from ada.config import logger
 from ada.core.guid import create_guid
-from ada.extension import simulation_extension_schema as sim_meta
-from ada.extension.simulation_extension_schema import FeObjectType, SimNodeReference
-from ada.visit.gltf.graph import GraphNode, GraphStore
+from ada.visit.gltf.graph import GraphNode
 
 if TYPE_CHECKING:
+    from ada.extension import simulation_extension_schema as sim_meta
     from ada.fem.results.common import FEAResult
     from ada.visit.scene_converter import SceneConverter
 
 
 def scene_from_fem_results(fea_res: FEAResult, converter: SceneConverter):
+    import trimesh
     from trimesh.path.entities import Line
 
     from ada.api.animations import Animation
     from ada.core.vector_transforms import rot_matrix
+    from ada.extension import simulation_extension_schema as sim_meta
+    from ada.extension.simulation_extension_schema import FeObjectType, SimNodeReference
     from ada.fem.results.field_data import ElementFieldData, NodalFieldData
 
     params = converter.params
@@ -111,18 +112,15 @@ def scene_from_fem_results(fea_res: FEAResult, converter: SceneConverter):
         m4x4 = np.r_[m3x3_with_col, [np.array([0, 0, 0, 1])]]
         scene.apply_transform(m4x4)
 
-    params.set_gltf_buffer_postprocessor(converter.buffer_postprocessor)
-    params.set_gltf_tree_postprocessor(converter.tree_postprocessor)
-
-    parent_node = GraphNode("world", 0, hash=create_guid())
-    graph = GraphStore(top_level=parent_node, nodes={0: parent_node})
-    graph.add_node(GraphNode(fea_res.name, graph.next_node_id(), hash=create_guid(), parent=parent_node))
-    scene.metadata.update(graph.create_meta())
+    graph = converter.graph
+    graph.add_node(GraphNode(fea_res.name, graph.next_node_id(), hash=create_guid(), parent=graph.top_level))
 
     return scene
 
 
 def export_sim_metadata(fea_res: FEAResult) -> sim_meta.SimulationDataExtensionMetadata:
+    from ada.extension import simulation_extension_schema as sim_meta
+
     steps = []
     for x in fea_res.results:
         if x.step not in steps:

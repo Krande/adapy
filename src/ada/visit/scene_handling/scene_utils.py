@@ -1,7 +1,13 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 import numpy as np
-import trimesh
 
 from ada.core.vector_transforms import rot_matrix
+
+if TYPE_CHECKING:
+    import trimesh
 
 
 def from_y_to_z_is_up(source_scene: trimesh.Scene, transform_all_geom=True) -> None:

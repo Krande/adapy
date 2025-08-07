@@ -3,14 +3,13 @@ from __future__ import annotations
 import pathlib
 from typing import TYPE_CHECKING, Literal
 
-import trimesh
-
 from ada.comms.fb_wrap_model_gen import FileObjectDC, FilePurposeDC, FileTypeDC, MeshDC
 from ada.config import Config
 from ada.visit.render_params import RenderParams
 from ada.visit.scene_converter import SceneConverter
 
 if TYPE_CHECKING:
+    import trimesh
     from IPython.display import HTML
 
     from ada import FEM, Assembly, Part
@@ -111,6 +110,8 @@ class RendererManager:
         - force_embed_glb: If True, forces embedding of GLB in the viewer.
         - always_use_external_viewer: If True, always uses an external viewer even if in a notebook.
         """
+        import trimesh
+
         from ada import Assembly
         from ada.comms.wsock_client_sync import WebSocketClientSync
         from ada.visit.rendering.renderer_react import RendererReact

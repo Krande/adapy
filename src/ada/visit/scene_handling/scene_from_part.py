@@ -2,16 +2,15 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-import trimesh
-
-import ada.extension.design_extension_schema as design_ext
-
 if TYPE_CHECKING:
+    import trimesh
+
     from ada import Assembly, Part
     from ada.visit.scene_converter import SceneConverter
 
 
 def scene_from_part_or_assembly(part_or_assembly: Part | Assembly, converter: SceneConverter) -> trimesh.Scene:
+    import ada.extension.design_extension_schema as design_ext
     from ada import Assembly
     from ada.occ.tessellating import BatchTessellator
 
@@ -22,7 +21,9 @@ def scene_from_part_or_assembly(part_or_assembly: Part | Assembly, converter: Sc
 
     bt = BatchTessellator()
 
-    graph = part_or_assembly.get_graph_store()
+    graph = converter.graph
+    graph.add_nodes_from_part(part_or_assembly)
+
     groups = []
 
     for group_name, groups_ in part_or_assembly.get_all_groups_as_merged().items():
@@ -49,9 +50,5 @@ def scene_from_part_or_assembly(part_or_assembly: Part | Assembly, converter: Sc
             node_references=design_ext.DesignNodeReference(faces=list(nodes_geom)),
         )
     )
-
-    bt.append_fem_to_trimesh(scene, part_or_assembly, graph, converter=converter)
-
-    scene.metadata.update(graph.create_meta())
 
     return scene

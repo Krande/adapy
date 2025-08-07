@@ -200,12 +200,10 @@ class Beam(BackendGeom):
 
         up_tup, y_tup, angle = compute_orientation(key_x, angle, key_up)
 
-        # store as Directions
-        self._xvec = Direction(*xvec)
-        self._yvec = Direction(*unit_vector(np.array(y_tup)))
-        self._up = Direction(*up_tup)
-
-        self._orientation = Placement(self.n1.p, self.xvec, self.yvec, self.up)
+        self._orientation = Placement(self.n1.p, xvec, None, up_tup)
+        self._xvec = self._orientation.xdir
+        self._yvec = self._orientation.ydir
+        self._up = self._orientation.zdir
         self._angle = angle
 
     def is_point_on_beam(self, point: Union[np.ndarray, Node]) -> bool:

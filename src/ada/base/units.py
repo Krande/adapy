@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from enum import Enum
+from functools import lru_cache
 
 from ada.config import Config
 
@@ -18,7 +19,8 @@ class Units(Enum):
         return unit.lower() in list([x.value.lower() for x in Units])
 
     @staticmethod
-    def from_str(unit: str) -> str:
+    @lru_cache(maxsize=40)
+    def from_str(unit: str) -> Units:
         units_map = {x.value.lower(): x for x in Units}
         unit_safe = units_map.get(unit.lower())
         if unit_safe is None:

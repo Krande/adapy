@@ -24,9 +24,11 @@ class Node:
     :param bc: boundary condition of the node
     """
 
-    def __init__(self, p: Iterable[numeric, numeric, numeric], nid=None, r=None, parent=None, units=Units.M, refs=None):
+    def __init__(
+        self, p: Iterable[numeric, numeric, numeric] | Point, nid=None, r=None, parent=None, units=Units.M, refs=None
+    ):
         self._id = nid
-        self.p: Point = Point(*p)
+        self.p: Point = Point(*p) if not isinstance(p, Point) else p
         if len(self.p) != 3:
             raise ValueError("Node object must have exactly 3 coordinates (x, y, z).")
 

@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import pathlib
 from dataclasses import dataclass, field
-from typing import Callable, Optional, OrderedDict
-
-import trimesh
+from typing import TYPE_CHECKING, Callable, Optional, OrderedDict
 
 from ada.base.types import GeomRepr
 from ada.comms.fb.fb_base_gen import FilePurposeDC
 from ada.comms.fb.fb_scene_gen import SceneDC, SceneOperationsDC
+
+if TYPE_CHECKING:
+    import trimesh
 
 
 @dataclass
