@@ -100,6 +100,7 @@ def scene_from_fem(fem: FEM, converter: SceneConverter) -> trimesh.Scene:
     for fset in fem.sets.sets:
         ftype = FeObjectType.node if fset.type == fset.TYPES.NSET else FeObjectType.element
         members = []
+        # Note! The node/elem id are not the right reference iD's, the id needs to refer to the mesh node/elem id.
         for m in fset.members:
             if hasattr(m, "name"):
                 name = m.name
