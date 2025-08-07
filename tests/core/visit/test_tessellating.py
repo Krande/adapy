@@ -17,7 +17,7 @@ def test_shape_grid(tmp_path):
     all_shapes = sorted(bt.batch_tessellate(shape_grid), key=lambda x: x.material)
 
     scene = trimesh.Scene(base_frame=bg.graph.top_level.name)
-    scene.metadata["meta"] = bg.graph.create_meta(suffix="")
+    scene.metadata["meta"] = bg.graph.to_json_hierarchy(suffix="")
     mesh_map = []
     for mat_id, meshes in groupby(all_shapes, lambda x: x.material):
         meshes = list(meshes)

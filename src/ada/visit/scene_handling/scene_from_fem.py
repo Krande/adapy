@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 
 from ada.core.guid import create_guid
 from ada.visit.colors import Color
-from ada.visit.gltf.graph import GraphNode, GraphStore
+from ada.visit.gltf.graph import GraphNode
 
 if TYPE_CHECKING:
     import trimesh
@@ -25,22 +25,21 @@ def scene_from_fem(fem: FEM, converter: SceneConverter) -> trimesh.Scene:
     from ada.visit.gltf.store import merged_mesh_to_trimesh_scene
 
     params = converter.params
+    graph = converter.graph
 
     if fem.parent is not None:
-        graph = fem.parent.get_graph_store()
         parent_node = graph.hash_map.get(fem.parent.guid)
     else:
-        parent_node = GraphNode("world", 0, hash=create_guid())
-        graph = GraphStore(top_level=parent_node, nodes={0: parent_node})
+        parent_node = graph.top_level
 
     shell_color = Color.from_str("white")
     shell_color_id = graph.next_node_id()
     line_color = Color.from_str("gray")
-    line_color_id = graph.next_node_id()
+    line_color_id = graph.next_node_id() + 1
     points_color = Color.from_str("black")
-    points_color_id = graph.next_node_id()
+    points_color_id = graph.next_node_id() + 2
     solid_bm_color = Color.from_str("light-gray")
-    solid_bm_color_id = graph.next_node_id()
+    solid_bm_color_id = graph.next_node_id() + 3
 
     use_solid_beams = params.fea_params is not None and params.fea_params.solid_beams is True
 
@@ -55,8 +54,7 @@ def scene_from_fem(fem: FEM, converter: SceneConverter) -> trimesh.Scene:
         use_solid_beams=use_solid_beams,
     )
 
-    base_frame = graph.top_level.name if graph is not None else "root"
-    scene = trimesh.Scene(base_frame=base_frame) if converter.scene is None else converter.scene
+    scene = trimesh.Scene(base_frame=graph.top_level.name) if converter.scene is None else converter.scene
     line_elems = list(fem.elements.lines)
 
     bm_solid_node_name = None
@@ -135,10 +133,5 @@ def scene_from_fem(fem: FEM, converter: SceneConverter) -> trimesh.Scene:
         groups=groups,
     )
     converter.ada_ext.simulation_objects.append(sim_data)
-
-    params.set_gltf_buffer_postprocessor(converter.buffer_postprocessor)
-    params.set_gltf_tree_postprocessor(converter.tree_postprocessor)
-    graph_meta = graph.create_meta()
-    scene.metadata.update(graph_meta)
 
     return scene

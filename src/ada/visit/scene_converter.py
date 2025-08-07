@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, OrderedDict
 
+from ada.core.guid import create_guid
+from ada.visit.gltf.graph import GraphNode, GraphStore
 from ada.visit.scene_handling.scene_from_fea_results import scene_from_fem_results
 from ada.visit.scene_handling.scene_from_fem import scene_from_fem
 from ada.visit.scene_handling.scene_from_object import scene_from_object
@@ -37,11 +39,13 @@ class SceneConverter:
     extensions: dict = field(default_factory=dict)
 
     # Cached results
+
     _scene: trimesh.Scene | None = field(default=None, init=False)
     _processed_scene: trimesh.Scene | None = field(default=None, init=False)
 
     # Ada extension
     ada_ext: AdaDesignAndAnalysisExtension = field(init=False)
+    graph: GraphStore = field(init=False)
 
     def __post_init__(self):
         from ada.extension.design_and_analysis_extension_schema import (
@@ -69,7 +73,15 @@ class SceneConverter:
         if self.source is None:
             raise ValueError("No source object set")
 
-        if type(self.source) is Part or type(self.source) is Assembly:
+        is_part = type(self.source) is Part or type(self.source) is Assembly
+        if is_part:
+            root = GraphNode(self.source.name, 0, hash=self.source.guid)
+        else:
+            root = GraphNode("root", 0, hash=create_guid())
+
+        self.graph = GraphStore(root, {0: root})
+
+        if is_part:
             self._scene = scene_from_part_or_assembly(self.source, self)
             for subp in self.source.get_all_subparts(include_self=True):
                 if not subp.fem.is_empty():
@@ -85,6 +97,9 @@ class SceneConverter:
         else:
             raise ValueError(f"Unsupported object type: {type(self.source)}")
 
+        self.params.set_gltf_buffer_postprocessor(self.buffer_postprocessor)
+        self.params.set_gltf_tree_postprocessor(self.tree_postprocessor)
+        self._scene.metadata.update(self.graph.to_json_hierarchy())
         self.add_extension("ADA_EXT_data", self.ada_ext.model_dump(mode="json"))
 
         return self._scene

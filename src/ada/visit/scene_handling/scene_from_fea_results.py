@@ -7,7 +7,7 @@ import numpy as np
 
 from ada.config import logger
 from ada.core.guid import create_guid
-from ada.visit.gltf.graph import GraphNode, GraphStore
+from ada.visit.gltf.graph import GraphNode
 
 if TYPE_CHECKING:
     from ada.extension import simulation_extension_schema as sim_meta
@@ -115,10 +115,11 @@ def scene_from_fem_results(fea_res: FEAResult, converter: SceneConverter):
     params.set_gltf_buffer_postprocessor(converter.buffer_postprocessor)
     params.set_gltf_tree_postprocessor(converter.tree_postprocessor)
 
-    parent_node = GraphNode("world", 0, hash=create_guid())
-    graph = GraphStore(top_level=parent_node, nodes={0: parent_node})
-    graph.add_node(GraphNode(fea_res.name, graph.next_node_id(), hash=create_guid(), parent=parent_node))
-    scene.metadata.update(graph.create_meta())
+    graph = converter.graph
+
+    graph.add_node(GraphNode(fea_res.name, graph.next_node_id(), hash=create_guid(), parent=graph.top_level))
+
+    # scene.metadata.update(graph.create_meta())
 
     return scene
 

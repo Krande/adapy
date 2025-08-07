@@ -1046,6 +1046,7 @@ class Part(BackendGeom):
         params: RenderParams = None,
         include_ada_ext: bool = False,
     ) -> trimesh.Scene:
+        """Create a Trimesh.Scene from ada.Part."""
         if params is None:
             params = RenderParams(
                 stream_from_ifc_store=stream_from_ifc,
@@ -1056,6 +1057,9 @@ class Part(BackendGeom):
 
         converter = SceneConverter(self, params)
         scene = converter.build_processed_scene()
+
+        # trimesh does not automatically include gltf_extensions when creating a scene in memory.
+        # You will have to export to GLTF and re-import it
         if include_ada_ext:
             if "gltf_extensions" not in scene.metadata.keys():
                 scene.metadata["gltf_extensions"] = {}

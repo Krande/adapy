@@ -49,5 +49,4 @@ def scene_from_object(physical_object: BackendGeom, params: RenderParams) -> tri
             scene, merged_store, bt.get_mat_by_id(mat_id), mat_id, graph_store, apply_transform=params.apply_transform
         )
 
-    scene.metadata.update(graph_store.create_meta())
     return scene
