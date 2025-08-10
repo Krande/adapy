@@ -27,12 +27,12 @@ def test_beam_as_faces(bm_shell_fem_part):
     assert len(sim_obj.groups) == 5
 
     sim_group = sim_obj.groups[0]
-    assert sim_group.name == 'elbm1_e1_btn_fl_sh'
+    assert sim_group.name == "elbm1_e1_btn_fl_sh"
     assert len(sim_group.members) == 80
 
     # Only for testing. Do not add this in production!
     bm_shell_fem_part.show()
-    (ada.Assembly() / bm_shell_fem_part).to_fem('my_fem', 'usfos')
+    (ada.Assembly() / bm_shell_fem_part).to_fem("my_fem", "usfos", overwrite=True, scratch_dir="temp")
 
 
 def test_single_ses_elem(fem_files):

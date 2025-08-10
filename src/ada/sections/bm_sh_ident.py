@@ -2,7 +2,6 @@ from dataclasses import dataclass
 
 import numpy as np
 
-
 from ada.api.transforms import Placement
 from ada.core.vector_utils import is_parallel
 from ada.sections import SectionCat
@@ -16,7 +15,9 @@ class ShellProfileComp:
     normal: np.ndarray
 
 
-def get_profile_component_from_entity_cog_and_normal(section: Section, entity_cog, normal, placement: Placement) -> ShellProfileComp:
+def get_profile_component_from_entity_cog_and_normal(
+    section: Section, entity_cog, normal, placement: Placement
+) -> ShellProfileComp:
 
     aligned_with_web = is_parallel(normal, placement.xdir)
     if aligned_with_web is True:

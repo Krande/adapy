@@ -3,7 +3,9 @@ from __future__ import annotations
 import datetime
 from typing import TYPE_CHECKING
 
+from ada.base.physical_objects import BackendGeom
 from ada.core.guid import create_guid
+from ada.fem import Elem
 from ada.visit.colors import Color
 from ada.visit.gltf.graph import GraphNode
 
@@ -77,43 +79,46 @@ def scene_from_fem(fem: FEM, converter: SceneConverter) -> trimesh.Scene:
         merged_store = concatenate_stores(meshes)
 
         bm_solid_node_name = merged_mesh_to_trimesh_scene(
-            scene, merged_store, solid_bm_color, solid_bm_color_id, graph_store=graph
+            scene, merged_store, solid_bm_color, buffer_id=solid_bm_color_id, graph_store=graph
         )
 
     edges_node_name = None
     if len(edge_store.indices) > 0:
-        edges_node_name = merged_mesh_to_trimesh_scene(scene, edge_store, line_color, line_color_id, graph_store=graph)
+        edges_node_name = merged_mesh_to_trimesh_scene(
+            scene, edge_store, line_color, buffer_id=line_color_id, graph_store=graph
+        )
 
     faces_node_name = None
     if len(face_store.indices) > 0:
         faces_node_name = merged_mesh_to_trimesh_scene(
-            scene, face_store, shell_color, shell_color_id, graph_store=graph
+            scene, face_store, shell_color, buffer_id=shell_color_id, graph_store=graph
         )
 
     points_node_name = None
     if len(points_store.position) > 0:
         points_node_name = merged_mesh_to_trimesh_scene(
-            scene, points_store, points_color, points_color_id, graph_store=graph
+            scene, points_store, points_color, buffer_id=points_color_id, graph_store=graph
         )
 
     groups = []
     for fset in fem.sets.sets:
         ftype = FeObjectType.node if fset.type == fset.TYPES.NSET else FeObjectType.element
         members = []
+
         # Note! The node/elem id are not the right reference iD's, the id needs to refer to the mesh node/elem id.
         for m in fset.members:
-            if hasattr(m, "name"):
+            if isinstance(m, (Elem, Node)):
+                name = m.id
+            elif isinstance(m, BackendGeom):
                 name = m.name
             else:
-                if isinstance(m, Node):
-                    name = m.id
-                else:
-                    raise ValueError(f"Unsupported type of set member: {type(m)}")
+                raise ValueError(f"Unsupported type of set member: {type(m)}")
 
             if fset.type == fset.TYPES.NSET:
                 members.append(f"P{name}")
             else:
-                members.append(f"EL{name}")
+                elem_ref = f"EL{name}"
+                members.append(elem_ref)
 
         g = sim_meta.SimGroup(
             name=fset.name,
