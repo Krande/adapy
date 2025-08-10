@@ -116,7 +116,13 @@ class SqLiteBackend(RenderBackend):
     def commit(self):
         self.conn.commit()
 
-    def add_meta_from_ada_ext(self, ada_ext: AdaDesignAndAnalysisExtension): ...
+    def add_meta_from_ada_ext(self, tag: str, ada_ext: AdaDesignAndAnalysisExtension) -> str:
+        self.c.execute("""BEGIN TRANSACTION;""")
+        for do in ada_ext.design_objects:
+            do.groups
+
+        self.commit()
+        return tag
 
     def add_metadata(self, metadata: dict, tag: str, buffer_prefix="draw_ranges_node", tree_name="id_hierarchy") -> str:
         """Adds metadata to the database."""

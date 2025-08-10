@@ -64,12 +64,6 @@ class MergedMesh:
     type: MeshType
     groups: list[GroupReference]
 
-    def get_elem_mesh_id_by_ref(self, elem_ref: str) -> int | None:
-        for group in self.groups:
-            if group.node_ref.name == elem_ref:
-                return group.node_ref.node_id
-        return None
-
 
 @dataclass
 class MeshRef:
