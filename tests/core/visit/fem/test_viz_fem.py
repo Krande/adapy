@@ -50,7 +50,7 @@ def test_single_ses_elem(fem_files):
     res = backend.get_mesh_data_from_face_index(2, 3, tag)
     assert res.full_name == "EL1"
     # scene.to_gltf("temp/sesam_1el_sh.glb")
-    a.show()
+    # a.show()
 
 
 def test_double_ses_elem(fem_files):
