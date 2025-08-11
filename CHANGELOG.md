@@ -2,6 +2,31 @@
 
 
 
+## v0.7.3 (2025-08-11)
+
+### Chore
+
+* chore: bump prefix-dev/setup-pixi from 0.8.12 to 0.8.14 in the dependencies group (#149)
+
+Signed-off-by: dependabot[bot] &lt;support@github.com&gt;
+Co-authored-by: dependabot[bot] &lt;49699333+dependabot[bot]@users.noreply.github.com&gt; ([`e827517`](https://github.com/Krande/adapy/commit/e8275179c01b3ae4bb605b3877a3998e0cdde8b4))
+
+* chore: bump prefix-dev/setup-pixi from 0.8.11 to 0.8.12 in the dependencies group (#148)
+
+Signed-off-by: dependabot[bot] &lt;support@github.com&gt;
+Co-authored-by: dependabot[bot] &lt;49699333+dependabot[bot]@users.noreply.github.com&gt; ([`7548db6`](https://github.com/Krande/adapy/commit/7548db65d318b64c1f1e7f0e7f042fc4d03d8b9a))
+
+* chore: bump prefix-dev/setup-pixi from 0.8.10 to 0.8.11 in the dependencies group (#147)
+
+Signed-off-by: dependabot[bot] &lt;support@github.com&gt;
+Co-authored-by: dependabot[bot] &lt;49699333+dependabot[bot]@users.noreply.github.com&gt;
+Co-authored-by: Kristoffer Andersen &lt;kristoffer_andersen@outlook.com&gt; ([`e3fe935`](https://github.com/Krande/adapy/commit/e3fe9357cf99d082e9e68dba75eadbd5038c802c))
+
+### Fix
+
+* fix: fe group mem (#150) ([`da8175c`](https://github.com/Krande/adapy/commit/da8175c5f12b7662b209c5f58d4a7bf548506212))
+
+
 ## v0.7.2 (2025-07-16)
 
 ### Fix
