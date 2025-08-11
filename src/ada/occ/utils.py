@@ -42,7 +42,6 @@ from OCC.Core.TopoDS import (
     TopoDS_Vertex,
     TopoDS_Wire,
 )
-from OCC.Extend.DataExchange import read_step_file
 from OCC.Extend.ShapeFactory import make_extrusion, make_face, make_wire
 from OCC.Extend.TopologyUtils import TopologyExplorer
 
@@ -61,6 +60,8 @@ if TYPE_CHECKING:
 
 
 def extract_shapes(step_path, scale, transform, rotate, include_shells=False):
+    from OCC.Extend.DataExchange import read_step_file
+
     shapes = []
 
     cad_file_path = pathlib.Path(step_path)
@@ -102,7 +103,9 @@ def transform_shape(
 
 
 def walk_shapes(dir_path):
-    from ..core.file_system import get_list_of_files
+    from OCC.Extend.DataExchange import read_step_file
+
+    from ada.core.file_system import get_list_of_files
 
     shps = []
     for stp_file in get_list_of_files(dir_path, ".stp"):

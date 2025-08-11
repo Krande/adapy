@@ -1,29 +1,20 @@
-import io
-
-import trimesh
-
 import ada
 from ada.extension.design_and_analysis_extension_schema import (
     AdaDesignAndAnalysisExtension,
 )
 from ada.param_models.utils import beams_along_polyline
 from ada.visit.rendering.render_backend import SqLiteBackend
-from ada.visit.utils import get_edges_from_fem, get_faces_from_fem
+from ada.visit.utils import get_edges_from_fem
 
 
-def test_beam_as_edges(bm_line_fem):
-    assert len(bm_line_fem.fem.elements) == 20
-    _ = get_edges_from_fem(bm_line_fem.fem)
+def test_beam_as_edges(bm_line_fem_part):
+    assert len(bm_line_fem_part.fem.elements) == 20
+    _ = get_edges_from_fem(bm_line_fem_part.fem)
 
 
-def test_beam_as_faces(bm_line_fem):
-    # Create a file-like object in memory
-    file_obj = io.BytesIO()
-    bm_line_fem.to_gltf(file_obj)
+def test_beam_as_faces(bm_shell_fem_part):
+    output_scene = bm_shell_fem_part.to_trimesh_scene(include_ada_ext=True)
 
-    # Get the data from the buffer if needed
-    file_obj.seek(0)  # Reset position to beginning
-    output_scene = trimesh.load(file_obj, file_type="glb")
     ext_meta = output_scene.metadata.get("gltf_extensions", {}).get("ADA_EXT_data")
     assert ext_meta is not None
 
@@ -31,24 +22,35 @@ def test_beam_as_faces(bm_line_fem):
 
     assert len(ada_ext.design_objects) == 1
     assert len(ada_ext.simulation_objects) == 1
-    _ = get_faces_from_fem(bm_line_fem.fem)
+
+    sim_obj = ada_ext.simulation_objects[0]
+    assert len(sim_obj.groups) == 5
+
+    sim_group = sim_obj.groups[0]
+    assert sim_group.name == "elbm1_e1_btn_fl_sh"
+    assert len(sim_group.members) == 80
+
+    # Only for testing. Do not add this in production!
+    # bm_shell_fem_part.show()
+    # (ada.Assembly() / bm_shell_fem_part).to_fem("my_fem", "usfos", overwrite=True, scratch_dir="temp")
 
 
 def test_single_ses_elem(fem_files):
     a = ada.from_fem(fem_files / "sesam/1EL_SHELL_R1.SIF")
-    # a.to_fem("usfos_fem", 'usfos', scratch_dir='temp')
+
     scene = a.to_trimesh_scene()
 
-    # backend = SqLiteBackend('temp/sesam_1el_sh.db')
     backend = SqLiteBackend()
     tag = backend.add_metadata(scene.metadata, "sesam_1el_sh")
+
     backend.commit()
 
-    res = backend.get_mesh_data_from_face_index(1, 0, tag)
+    res = backend.get_mesh_data_from_face_index(1, 3, tag)
     assert res.full_name == "EL1"
-    res = backend.get_mesh_data_from_face_index(2, 0, tag)
+    res = backend.get_mesh_data_from_face_index(2, 3, tag)
     assert res.full_name == "EL1"
     # scene.to_gltf("temp/sesam_1el_sh.glb")
+    # a.show()
 
 
 def test_double_ses_elem(fem_files):
@@ -60,13 +62,13 @@ def test_double_ses_elem(fem_files):
     tag = backend.add_metadata(scene.metadata, "sesam_2el_sh")
     backend.commit()
 
-    res = backend.get_mesh_data_from_face_index(1, 0, tag)
+    res = backend.get_mesh_data_from_face_index(1, 3, tag)
     assert res.full_name == "EL1"
 
-    res = backend.get_mesh_data_from_face_index(2, 0, tag)
+    res = backend.get_mesh_data_from_face_index(2, 3, tag)
     assert res.full_name == "EL1"
 
-    res = backend.get_mesh_data_from_face_index(10, 0, tag)
+    res = backend.get_mesh_data_from_face_index(10, 3, tag)
     assert res.full_name == "EL2"
 
     # a.to_gltf("temp/sesam_2el_sh.glb")

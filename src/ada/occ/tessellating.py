@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import datetime
 from dataclasses import dataclass, field
 from itertools import groupby
 from typing import TYPE_CHECKING, Iterable
@@ -11,7 +10,6 @@ from OCC.Core.Tesselator import ShapeTesselator
 from OCC.Core.TopoDS import TopoDS_Edge, TopoDS_Shape
 from OCC.Extend.TopologyUtils import discretize_edge
 
-import ada.extension.simulation_extension_schema as sim_meta
 from ada.base.physical_objects import BackendGeom
 from ada.base.types import GeomRepr
 from ada.cadit.ifc.utils import default_settings
@@ -28,7 +26,6 @@ from ada.visit.gltf.meshes import MeshStore, MeshType
 from ada.visit.gltf.optimize import concatenate_stores
 from ada.visit.gltf.store import merged_mesh_to_trimesh_scene
 from ada.visit.render_params import RenderParams
-from ada.visit.scene_converter import SceneConverter
 
 if TYPE_CHECKING:
     import trimesh
@@ -224,46 +221,6 @@ class BatchTessellator:
                 for mesh_store in meshes:
                     merged_mesh_to_trimesh_scene(scene, mesh_store, self.get_mat_by_id(mat_id), mat_id, graph)
         return scene
-
-    def append_fem_to_trimesh(self, scene: trimesh.Scene, part: Part, graph, converter: SceneConverter = None):
-        shell_color = Color.from_str("white")
-        shell_color_id = self.add_color(shell_color)
-        line_color = Color.from_str("gray")
-        line_color_id = self.add_color(line_color)
-        points_color = Color.from_str("black")
-        points_color_id = self.add_color(points_color)
-
-        for p in part.get_all_subparts(include_self=True):
-            if p.fem.is_empty() is True:
-                continue
-
-            mesh = p.fem.to_mesh()
-            parent_node = graph.nodes.get(p.guid)
-
-            points_store, edge_store, face_store = mesh.create_mesh_stores(
-                p.fem.name, shell_color, line_color, points_color, graph, parent_node
-            )
-
-            faces_node = None
-            edges_node = None
-            points_node = None
-            if len(face_store.indices) > 0:
-                faces_node = merged_mesh_to_trimesh_scene(scene, face_store, shell_color, shell_color_id, graph)
-            if len(edge_store.indices) > 0:
-                edges_node = merged_mesh_to_trimesh_scene(scene, edge_store, line_color, line_color_id, graph)
-            if len(points_store.position) > 0:
-                points_node = merged_mesh_to_trimesh_scene(scene, points_store, points_color, points_color_id, graph)
-
-            converter.ada_ext.simulation_objects.append(
-                sim_meta.SimulationDataExtensionMetadata(
-                    name=p.fem.name,
-                    date=datetime.datetime.now().isoformat(),
-                    fea_software="N/A",
-                    fea_software_version="N/A",
-                    steps=[],
-                    node_references=sim_meta.SimNodeReference(points=points_node, edges=edges_node, faces=faces_node),
-                )
-            )
 
     def tessellate_part(
         self,

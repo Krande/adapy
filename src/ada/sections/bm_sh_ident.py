@@ -15,15 +15,20 @@ class ShellProfileComp:
     normal: np.ndarray
 
 
-def get_thick_normal_from_ig_beams(section: Section, cog, normal, placement: Placement) -> ShellProfileComp:
+def get_profile_component_from_entity_cog_and_normal(
+    section: Section, entity_cog, normal, placement: Placement
+) -> ShellProfileComp:
+
     aligned_with_web = is_parallel(normal, placement.xdir)
     if aligned_with_web is True:
         return ShellProfileComp(SectionParts.WEB, section.t_w, normal)
+
     aligned_with_flange = is_parallel(normal, placement.ydir)
     if aligned_with_flange is True:
-        cog_vec = placement.origin - np.array(cog)
-        res = np.dot(placement.zdir, cog_vec)
-        if res < 0:
+        # Project both points onto the Y-direction (local beam Up) and compare
+        entity_z_coord = np.dot(np.array(entity_cog), placement.ydir)
+        origin_z_coord = np.dot(placement.origin, placement.ydir)
+        if entity_z_coord > origin_z_coord:
             return ShellProfileComp(SectionParts.TOP_FLANGE, section.t_ftop, normal)
         else:
             return ShellProfileComp(SectionParts.BTN_FLANGE, section.t_fbtn, normal)
@@ -71,7 +76,7 @@ def eval_thick_normal_from_cog_of_beam_plate(section: Section, cog, normal, plac
     bt = SectionCat.BASETYPES
 
     eval_map = {
-        bt.IPROFILE: get_thick_normal_from_ig_beams,
+        bt.IPROFILE: get_profile_component_from_entity_cog_and_normal,
         bt.ANGULAR: get_thick_normal_from_angular_beams,
         bt.BOX: get_thick_normal_from_box_beams,
         bt.CHANNEL: get_thick_normal_from_channel_beams,

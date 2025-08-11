@@ -3,39 +3,47 @@ from __future__ import annotations
 import datetime
 from typing import TYPE_CHECKING
 
-import trimesh
-
+from ada.base.physical_objects import BackendGeom
 from ada.core.guid import create_guid
-from ada.extension import simulation_extension_schema as sim_meta
-from ada.extension.simulation_extension_schema import FeObjectType
+from ada.fem import Elem
 from ada.visit.colors import Color
-from ada.visit.gltf.graph import GraphNode, GraphStore
+from ada.visit.gltf.graph import GraphNode
 
 if TYPE_CHECKING:
+    import trimesh
+
     from ada import FEM
     from ada.visit.scene_converter import SceneConverter
 
 
 def scene_from_fem(fem: FEM, converter: SceneConverter) -> trimesh.Scene:
+    """Appends a FE mesh to scene or creates a new scene if no scene is provided."""
+
+    import trimesh
+
+    from ada import Node
+    from ada.extension import simulation_extension_schema as sim_meta
+    from ada.extension.simulation_extension_schema import FeObjectType
     from ada.visit.gltf.store import merged_mesh_to_trimesh_scene
 
-    shell_color = Color.from_str("white")
-    shell_color_id = 100000
-    line_color = Color.from_str("gray")
-    line_color_id = 100001
-    points_color = Color.from_str("black")
-    points_color_id = 100002
-    solid_bm_color = Color.from_str("light-gray")
-    solid_bm_color_id = 100003
-
     params = converter.params
+    graph = converter.graph
 
     if fem.parent is not None:
-        graph = fem.parent.get_graph_store()
-        parent_node = graph.hash_map.get(fem.parent.guid)
+        parent_part_node = graph.hash_map.get(fem.parent.guid)
     else:
-        parent_node = GraphNode("world", 0, hash=create_guid())
-        graph = GraphStore(top_level=parent_node, nodes={0: parent_node})
+        parent_part_node = graph.top_level
+
+    parent_node = graph.add_node(GraphNode(fem.name, graph.next_node_id(), parent=parent_part_node))
+
+    shell_color = Color.from_str("white")
+    shell_color_id = graph.next_node_id()
+    line_color = Color.from_str("gray")
+    line_color_id = graph.next_node_id() + 1
+    points_color = Color.from_str("black")
+    points_color_id = graph.next_node_id() + 2
+    solid_bm_color = Color.from_str("light-gray")
+    solid_bm_color_id = graph.next_node_id() + 3
 
     use_solid_beams = params.fea_params is not None and params.fea_params.solid_beams is True
 
@@ -50,8 +58,7 @@ def scene_from_fem(fem: FEM, converter: SceneConverter) -> trimesh.Scene:
         use_solid_beams=use_solid_beams,
     )
 
-    base_frame = graph.top_level.name if graph is not None else "root"
-    scene = trimesh.Scene(base_frame=base_frame) if converter.scene is None else converter.scene
+    scene = trimesh.Scene(base_frame=graph.top_level.name) if converter.scene is None else converter.scene
     line_elems = list(fem.elements.lines)
 
     bm_solid_node_name = None
@@ -72,31 +79,50 @@ def scene_from_fem(fem: FEM, converter: SceneConverter) -> trimesh.Scene:
         merged_store = concatenate_stores(meshes)
 
         bm_solid_node_name = merged_mesh_to_trimesh_scene(
-            scene, merged_store, solid_bm_color, solid_bm_color_id, graph_store=graph
+            scene, merged_store, solid_bm_color, buffer_id=solid_bm_color_id, graph_store=graph
         )
 
     edges_node_name = None
     if len(edge_store.indices) > 0:
-        edges_node_name = merged_mesh_to_trimesh_scene(scene, edge_store, line_color, line_color_id, graph_store=graph)
+        edges_node_name = merged_mesh_to_trimesh_scene(
+            scene, edge_store, line_color, buffer_id=line_color_id, graph_store=graph
+        )
 
     faces_node_name = None
     if len(face_store.indices) > 0:
         faces_node_name = merged_mesh_to_trimesh_scene(
-            scene, face_store, shell_color, shell_color_id, graph_store=graph
+            scene, face_store, shell_color, buffer_id=shell_color_id, graph_store=graph
         )
 
     points_node_name = None
     if len(points_store.position) > 0:
         points_node_name = merged_mesh_to_trimesh_scene(
-            scene, points_store, points_color, points_color_id, graph_store=graph
+            scene, points_store, points_color, buffer_id=points_color_id, graph_store=graph
         )
 
     groups = []
     for fset in fem.sets.sets:
         ftype = FeObjectType.node if fset.type == fset.TYPES.NSET else FeObjectType.element
+        members = []
+
+        # Note! The node/elem id are not the right reference iD's, the id needs to refer to the mesh node/elem id.
+        for m in fset.members:
+            if isinstance(m, (Elem, Node)):
+                name = m.id
+            elif isinstance(m, BackendGeom):
+                name = m.name
+            else:
+                raise ValueError(f"Unsupported type of set member: {type(m)}")
+
+            if fset.type == fset.TYPES.NSET:
+                members.append(f"P{name}")
+            else:
+                elem_ref = f"EL{name}"
+                members.append(elem_ref)
+
         g = sim_meta.SimGroup(
             name=fset.name,
-            members=[f"EL{m.name}" if fset.type == fset.TYPES.ELSET else f"P{m.name}" for m in fset.members],
+            members=members,
             parent_name=fem.name,
             description=fset.type,
             fe_object_type=ftype,
@@ -115,10 +141,5 @@ def scene_from_fem(fem: FEM, converter: SceneConverter) -> trimesh.Scene:
         groups=groups,
     )
     converter.ada_ext.simulation_objects.append(sim_data)
-
-    params.set_gltf_buffer_postprocessor(converter.buffer_postprocessor)
-    params.set_gltf_tree_postprocessor(converter.tree_postprocessor)
-
-    scene.metadata.update(graph.create_meta())
 
     return scene

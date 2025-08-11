@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Iterable, Literal
 
-import trimesh
-
 from ada.api.bounding_box import BoundingBox
 from ada.api.transforms import Placement
 from ada.base.ifc_types import ShapeTypes
@@ -16,6 +14,7 @@ from ada.materials.concept import Material
 from ada.materials.utils import get_material
 
 if TYPE_CHECKING:
+    import trimesh
     from OCC.Core.TopoDS import TopoDS_Shape
 
     from ada.cadit.ifc.store import IfcStore

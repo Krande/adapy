@@ -98,7 +98,13 @@ async def test_front_multiple_connections(ws_server):
         assert response.status == 200
 
         async with WebSocketClientAsync(ws_server.host, ws_server.port, "local") as ws_client:
-            assert await ws_client.check_target_liveness(target_id=unique_id) is True
+            # Wait until the second viewer has actually connected (macOS CI can be slower)
+            for _ in range(30):  # wait up to ~30s (each check can wait up to 1s internally)
+                if await ws_client.check_target_liveness(target_id=unique_id):
+                    break
+                await asyncio.sleep(0.1)
+            else:
+                assert False, f"Viewer with ID {unique_id} failed to become live in time"
         bm.show(ws_port=ws_server.port, unique_viewer_id=unique_id, liveness_timeout=3)
         #
         # # Viewer 3

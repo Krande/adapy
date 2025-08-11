@@ -1,9 +1,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
+from ada.config import logger
 from ada.core.guid import create_guid
-from ada.visit.gltf.meshes import GroupReference, MeshRef
+from ada.visit.gltf.meshes import GroupReference, MergedMesh, MeshRef
+
+if TYPE_CHECKING:
+    from ada import Part
 
 
 @dataclass
@@ -12,13 +17,16 @@ class GraphStore:
     nodes: dict[int | str, GraphNode] = field(repr=False)
     hash_map: dict[str, GraphNode] = field(repr=False, default=None)
     draw_ranges: list[GroupReference] = field(default_factory=list, repr=False)
+    merged_meshes: dict[int, MergedMesh] = field(default_factory=dict, repr=False)
 
     def __post_init__(self):
         self.num_meshes = sum(len(n.mesh_indices) for n in self.nodes.values())
         if self.hash_map is None:
             self.hash_map = {n.hash: n for n in self.nodes.values()}
 
-    def create_meta(self, suffix: str = "") -> dict[str, dict[str, tuple[str, str | int]]]:
+    def to_json_hierarchy(self, suffix: str = "") -> dict[str, dict[str, tuple[str, str | int]]]:
+        from ada.visit.gltf.store import create_id_sequence
+
         meta = dict()
         for n in self.nodes.values().__reversed__():
             if n.parent is not None:
@@ -29,13 +37,40 @@ class GraphStore:
                 n_name = n.name + suffix
             meta[n.node_id] = (n_name, p_id)
 
-        return {"id_hierarchy": meta}
+        data = {"id_hierarchy": meta}
+        for buffer_id, merged_mesh in self.merged_meshes.items():
+            data[f"draw_ranges_node{buffer_id}"] = create_id_sequence(self, merged_mesh)
+
+        return data
 
     def add_node(self, node: GraphNode) -> GraphNode:
         self.nodes[node.node_id] = node
         self.hash_map[node.hash] = node
 
         return node
+
+    def add_merged_mesh(self, buffer_id: int, merged_mesh: MergedMesh):
+        self.merged_meshes[buffer_id] = merged_mesh
+
+    def add_nodes_from_part(self, part: Part) -> None:
+        """Add nodes from Part/Assembly"""
+        from itertools import chain
+
+        objects = part.get_all_physical_objects(pipe_to_segments=True)
+        containers = part.get_all_parts_in_assembly()
+        root_node = self.hash_map.get(part.guid)
+
+        for p in chain.from_iterable([containers, objects]):
+            if p.guid == root_node.hash:
+                continue
+            if p.guid in self.hash_map.keys():
+                logger.error(f"Duplicate GUID found for {p}")
+                continue
+            parent_node = self.hash_map.get(p.parent.guid)
+            n = self.add_node(GraphNode(p.name, self.next_node_id(), hash=p.guid))
+            if parent_node is not None:
+                n.parent = parent_node
+                parent_node.children.append(n)
 
     def next_node_id(self):
         return len(self.nodes.keys())
@@ -104,3 +139,7 @@ class GraphNode:
 
     def get_safe_name(self):
         return self.name.replace("/", "")
+
+    def __repr__(self):
+        parent_node_id = self.parent.node_id if self.parent is not None else None
+        return f"{self.__class__.__name__}(name={self.name}, node_id={self.node_id}, parent_node_id={parent_node_id})"

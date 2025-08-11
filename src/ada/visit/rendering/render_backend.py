@@ -1,10 +1,18 @@
+from __future__ import annotations
+
 import gzip
 import pathlib
 import sqlite3
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 import numpy as np
 import trimesh
+
+if TYPE_CHECKING:
+    from ada.extension.design_and_analysis_extension_schema import (
+        AdaDesignAndAnalysisExtension,
+    )
 
 
 @dataclass
@@ -47,6 +55,9 @@ class RenderBackend:
 
     def add_trimesh_scene(self, scene: trimesh.Scene, tag: str, commit=True) -> trimesh.Scene:
         """Adds a trimesh scene to the backend."""
+        raise NotImplementedError()
+
+    def add_meta_from_ada_ext(self, ada_ext: AdaDesignAndAnalysisExtension):
         raise NotImplementedError()
 
     def add_metadata(self, metadata: dict, tag: str) -> None:
@@ -104,6 +115,14 @@ class SqLiteBackend(RenderBackend):
 
     def commit(self):
         self.conn.commit()
+
+    def add_meta_from_ada_ext(self, tag: str, ada_ext: AdaDesignAndAnalysisExtension) -> str:
+        self.c.execute("""BEGIN TRANSACTION;""")
+        for do in ada_ext.design_objects:
+            do.groups
+
+        self.commit()
+        return tag
 
     def add_metadata(self, metadata: dict, tag: str, buffer_prefix="draw_ranges_node", tree_name="id_hierarchy") -> str:
         """Adds metadata to the database."""

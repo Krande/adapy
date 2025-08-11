@@ -906,7 +906,7 @@ class Part(BackendGeom):
 
         new_part = Part(name, placement=Placement(origin=position))
 
-        for obj in self.get_all_physical_objects():
+        for obj in self.get_all_physical_objects(sub_elements_only=True):
             if add_object_copy_suffix:
                 copy_obj = obj.copy_to(name=f"{obj.name}_copy")
             else:
@@ -1044,7 +1044,9 @@ class Part(BackendGeom):
         merge_meshes=True,
         stream_from_ifc=False,
         params: RenderParams = None,
+        include_ada_ext: bool = False,
     ) -> trimesh.Scene:
+        """Create a Trimesh.Scene from ada.Part."""
         if params is None:
             params = RenderParams(
                 stream_from_ifc_store=stream_from_ifc,
@@ -1054,7 +1056,16 @@ class Part(BackendGeom):
             )
 
         converter = SceneConverter(self, params)
-        return converter.build_processed_scene()
+        scene = converter.build_processed_scene()
+
+        # trimesh does not automatically include gltf_extensions when creating a scene in memory.
+        # You will have to export to GLTF and re-import it
+        if include_ada_ext:
+            if "gltf_extensions" not in scene.metadata.keys():
+                scene.metadata["gltf_extensions"] = {}
+            scene.metadata["gltf_extensions"]["ADA_EXT_data"] = converter.ada_ext.model_dump(mode="json")
+
+        return scene
 
     def to_stp(
         self,
