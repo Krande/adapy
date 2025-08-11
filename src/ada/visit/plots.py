@@ -114,7 +114,14 @@ def easy_plotly(
             save_filename = pathlib.Path(save_filename)
         save_filename.parent.mkdir(parents=True, exist_ok=True)
         # Timeout issues with kaleido on win10 -> https://github.com/plotly/Kaleido/issues/110
-        fig.write_image(save_filename, width=width, height=height)
+        try:
+            fig.write_image(save_filename, width=width, height=height)
+        except RuntimeError:
+            import kaleido
+
+            kaleido.get_chrome_sync()
+        finally:
+            fig.write_image(save_filename, width=width, height=height)
     else:
         if return_widget is True:
             return fig
