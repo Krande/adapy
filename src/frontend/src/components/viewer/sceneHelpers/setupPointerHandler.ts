@@ -2,6 +2,7 @@
 import * as THREE from "three";
 import {handleClickEmptySpace} from "../../../utils/mesh_select/handleClickEmptySpace";
 import {handleClickMesh} from "../../../utils/mesh_select/handleClickMesh";
+import {handleClickPoints} from "../../../utils/mesh_select/handleClickPoints";
 
 export function setupPointerHandler(
     container: HTMLDivElement,
@@ -28,6 +29,8 @@ export function setupPointerHandler(
         const y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
         const pointer = new THREE.Vector2(x, y);
         const ray = new THREE.Raycaster();
+        // Set point picking tolerance to 0.02 (world units) per user preference/point spacing.
+        ray.params.Points = { ...ray.params.Points, threshold: 0.02 };
         ray.layers.set(0);
         ray.layers.disable(1);
         ray.setFromCamera(pointer, camera);
@@ -36,8 +39,13 @@ export function setupPointerHandler(
         if (hits.length === 0) {
             handleClickEmptySpace(e);
         } else {
-            // await the async handler
-            await handleClickMesh(hits[0], e);
+            const first = hits[0];
+            if (first.object instanceof THREE.Points) {
+                await handleClickPoints(first, e);
+            } else {
+                // await the async handler
+                await handleClickMesh(first, e);
+            }
         }
     });
 

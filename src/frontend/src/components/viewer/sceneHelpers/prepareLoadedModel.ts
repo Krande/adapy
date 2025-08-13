@@ -8,6 +8,7 @@ import {adaExtensionRef, rendererRef} from "../../../state/refs";
 import {useAnimationStore} from "../../../state/animationStore";
 import {assignMorphToEdgeAlso} from "../../../utils/scene/animations/assignMorphToEdgeAlso";
 import {DesignDataExtension, SimulationDataExtensionMetadata} from "../../../extensions/design_and_analysis_extension";
+import {applySphericalImpostor} from "../../../utils/scene/pointsImpostor";
 
 interface PrepareLoadedModelParams {
     gltf_scene: THREE.Object3D;
@@ -66,8 +67,33 @@ export async function prepareLoadedModel({gltf_scene, hash}: PrepareLoadedModelP
     gltf_scene.traverse((object) => {
         if (object instanceof THREE.Mesh) {
             meshesToReplace.push({original: object, parent: object.parent!});
-        } else if (object instanceof THREE.LineSegments || object instanceof THREE.Points) {
+        } else if (object instanceof THREE.LineSegments) {
+            // Keep edges in non-pickable layer 1, but allow Points to remain pickable on default layer 0
             object.layers.set(1);
+        } else if (object instanceof THREE.Points) {
+            // Convert to spherical impostor material and initialize size
+            const ps = optionsStore.pointSize ?? 5.0;
+            try {
+                applySphericalImpostor(object, ps);
+            } catch (e) {
+                // Fallback: just apply size to existing material
+                const mat = object.material as THREE.Material | THREE.Material[];
+                const applySize = (m: THREE.Material) => {
+                    if ((m as any).isPointsMaterial) {
+                        const pm = m as THREE.PointsMaterial;
+                        pm.size = ps;
+                        pm.sizeAttenuation = true;
+                        pm.needsUpdate = true;
+                    } else if ((m as any).isShaderMaterial) {
+                        const sm = m as THREE.ShaderMaterial & { uniforms?: any };
+                        if (sm.uniforms && sm.uniforms.pointSize) {
+                            sm.uniforms.pointSize.value = ps;
+                            sm.needsUpdate = true;
+                        }
+                    }
+                };
+                if (Array.isArray(mat)) mat.forEach(applySize); else if (mat) applySize(mat);
+            }
         }
     });
 
@@ -124,6 +150,25 @@ export async function prepareLoadedModel({gltf_scene, hash}: PrepareLoadedModelP
 
             parent.add(line_geo)
         }
+
+        // Preserve any THREE.Points that were children of the original mesh by re-parenting
+        const pointsToReattach: THREE.Points[] = [];
+        original.traverse((o) => {
+            if (o instanceof THREE.Points) {
+                pointsToReattach.push(o);
+            }
+        });
+        // Re-parent while preserving world transform
+        pointsToReattach.forEach((pt) => {
+            try {
+                parent.attach(pt);
+            } catch (e) {
+                // Fallback: add/remove if attach fails
+                pt.updateMatrixWorld(true);
+                parent.add(pt);
+            }
+        });
+
         parent.remove(original);
     }
 

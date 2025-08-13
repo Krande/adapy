@@ -1,6 +1,7 @@
 import {useSelectedObjectStore} from "../../state/useSelectedObjectStore";
 import {CustomBatchedMesh} from "./CustomBatchedMesh";
 import {Object3D} from "three";
+import {clearSelectedPoint} from "../scene/highlightSelectedPoint";
 
 export function handleClickEmptySpace(event: MouseEvent) {
     const selectedObjects = useSelectedObjectStore.getState().selectedObjects;
@@ -17,4 +18,6 @@ export function handleClickEmptySpace(event: MouseEvent) {
         }
     });
 
+    // Also clear any highlighted selected point
+    clearSelectedPoint();
 }

@@ -11,6 +11,7 @@ export type OptionsState = {
     lockTranslation: boolean;
     enableWebsocket: boolean;
     enableNodeEditor: boolean;
+    pointSize: number;
 
     setIsOptionsVisible: (value: boolean) => void;
     setShowPerf: (value: boolean) => void;
@@ -18,6 +19,7 @@ export type OptionsState = {
     setLockTranslation: (value: boolean) => void;
     setEnableWebsocket: (value: boolean) => void; // we’ll make this async internally
     setEnableNodeEditor: (value: boolean) => void;
+    setPointSize: (value: number) => void;
 };
 
 export const useOptionsStore = create<OptionsState>((set) => ({
@@ -27,12 +29,14 @@ export const useOptionsStore = create<OptionsState>((set) => ({
     lockTranslation: false,
     enableWebsocket: true,
     enableNodeEditor: false,
+    pointSize: 5.0,
 
     setIsOptionsVisible: (v) => set({isOptionsVisible: v}),
     setShowPerf: (v) => set({showPerf: v}),
     setShowEdges: (v) => set({showEdges: v}),
     setLockTranslation: (v) => set({lockTranslation: v}),
     setEnableNodeEditor: (v) => set({enableNodeEditor: v}),
+    setPointSize: (v) => set({pointSize: v}),
 
     // toggle WS on/off
     setEnableWebsocket: async (enable: boolean) => {

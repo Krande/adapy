@@ -6,6 +6,7 @@ import {takeScreenshot} from "../utils/takeScreenshot";
 import {loadRobot} from "../utils/robots";
 import {useModelState} from "../state/modelState";
 import {debug_print} from "../utils/debug_print";
+import {updateAllPointsSize} from "../utils/scene/updatePointSizes";
 
 function OptionsComponent() {
     const {
@@ -18,7 +19,9 @@ function OptionsComponent() {
         setEnableWebsocket,
         enableWebsocket,
         enableNodeEditor,
-        setEnableNodeEditor
+        setEnableNodeEditor,
+        pointSize,
+        setPointSize,
     } = useOptionsStore();
     const {showLegend, setShowLegend} = useColorStore();
     const {zIsUp, setZIsUp, defaultOrbitController, setDefaultOrbitController} = useModelState();
@@ -49,6 +52,11 @@ function OptionsComponent() {
         };
     }, [centerWindow]);
 
+    // Update point sizes in the scene whenever the option changes
+    useEffect(() => {
+        updateAllPointsSize(pointSize);
+    }, [pointSize]);
+
     return (
         <Rnd
             default={{
@@ -63,6 +71,8 @@ function OptionsComponent() {
                 right: true,
                 bottomRight: true,
             }}
+            dragHandleClassName="options-drag-handle"
+            cancel="input, button, select, textarea, .no-drag"
             onDragStop={(e, d) => setPosition({x: d.x, y: d.y})}
             onResizeStop={(e, direction, ref, delta, position) => {
                 setPosition(position);
@@ -79,7 +89,7 @@ function OptionsComponent() {
                 }}
 
             >
-                <div className="font-bold text-base">Options Panel</div>
+                <div className="options-drag-handle font-bold text-base cursor-move select-none">Options Panel</div>
                 <div className="text-xs text-gray-400">Version: {unique_version_id}</div>
 
                 <div className="space-y-2">
@@ -107,6 +117,32 @@ function OptionsComponent() {
                     >
                         Take Screenshot
                     </button>
+                </div>
+
+                <hr className="border-gray-600"/>
+
+                <div className="space-y-2">
+                    <label className="flex items-center space-x-2">
+                        <span className="w-32">Point Size</span>
+                        <input
+                            type="range"
+                            min={0.01}
+                            max={0.15}
+                            step={0.01}
+                            value={pointSize}
+                            onChange={(e) => setPointSize(parseFloat(e.target.value))}
+                            className="flex-1 no-drag"
+                        />
+                        <input
+                            type="number"
+                            min={0.1}
+                            max={100}
+                            step={0.1}
+                            value={pointSize}
+                            onChange={(e) => setPointSize(parseFloat(e.target.value) || 0)}
+                            className="w-16 bg-gray-700 text-white p-1 rounded no-drag"
+                        />
+                    </label>
                 </div>
 
                 <hr className="border-gray-600"/>
