@@ -31,7 +31,6 @@ def scene_from_fem_results(fea_res: FEAResult, converter: SceneConverter):
 
     # initial mesh
     vertices = fea_res.mesh.nodes.coords
-    # node_ids = fea_res.mesh.nodes.identifiers
 
     edges, faces = fea_res.mesh.get_edges_and_faces_from_mesh()
 
@@ -45,7 +44,7 @@ def scene_from_fem_results(fea_res: FEAResult, converter: SceneConverter):
     # points
     points_mesh = trimesh.points.PointCloud(vertices=vertices)
 
-    scene = trimesh.Scene()
+    scene = trimesh.Scene(base_frame=converter.graph.top_level.name) if converter.scene is None else converter.scene
 
     face_node = scene.add_geometry(faces_mesh, node_name=fea_res.name, geom_name="faces")
     edge_node = scene.add_geometry(

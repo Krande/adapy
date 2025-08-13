@@ -45,9 +45,10 @@ def test_single_ses_elem(fem_files):
 
     backend.commit()
 
-    res = backend.get_mesh_data_from_face_index(1, 3, tag)
+    res = backend.get_mesh_data_from_face_index(1, 13, tag)
     assert res.full_name == "EL1"
-    res = backend.get_mesh_data_from_face_index(2, 3, tag)
+
+    res = backend.get_mesh_data_from_face_index(2, 13, tag)
     assert res.full_name == "EL1"
     # scene.to_gltf("temp/sesam_1el_sh.glb")
     # a.show()
@@ -62,13 +63,13 @@ def test_double_ses_elem(fem_files):
     tag = backend.add_metadata(scene.metadata, "sesam_2el_sh")
     backend.commit()
 
-    res = backend.get_mesh_data_from_face_index(1, 3, tag)
+    res = backend.get_mesh_data_from_face_index(1, 17, tag)
     assert res.full_name == "EL1"
 
-    res = backend.get_mesh_data_from_face_index(2, 3, tag)
+    res = backend.get_mesh_data_from_face_index(2, 17, tag)
     assert res.full_name == "EL1"
 
-    res = backend.get_mesh_data_from_face_index(10, 3, tag)
+    res = backend.get_mesh_data_from_face_index(10, 17, tag)
     assert res.full_name == "EL2"
 
     # a.to_gltf("temp/sesam_2el_sh.glb")

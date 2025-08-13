@@ -87,7 +87,7 @@ class SceneConverter:
                 if not subp.fem.is_empty():
                     scene_from_fem(subp.fem, self)
         elif isinstance(self.source, BackendGeom):
-            self._scene = scene_from_object(self.source, self.params)
+            self._scene = scene_from_object(self.source, self)
         elif isinstance(self.source, FEM):
             self._scene = scene_from_fem(self.source, self)
         elif isinstance(self.source, FEAResult):
