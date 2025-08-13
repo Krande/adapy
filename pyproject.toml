@@ -55,6 +55,20 @@ exclude = ["examples/", ".pixi/", "temp/"]
 [tool.ruff.lint]
 ignore = ["E741"]
 
+[tool.ruff.format]
+# Ruff's formatter is compatible with Black
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+
+[tool.ruff.lint.isort]
+# Configure import sorting (replaces isort)
+# Remove the 'profile' line - ruff doesn't use profiles
+force-single-line = false
+combine-as-imports = true
+split-on-trailing-comma = true
+
 [tool.isort]
 profile = "black"
 skip = [".pixi", "node_modules", "temp"]
@@ -192,7 +206,7 @@ nodejs = "*"
 flatbuffers = "==25.2.10"
 
 [tool.pixi.feature.lint.tasks]
-lint = "isort . && black . --config pyproject.toml && ruff check . --fix"
+lint = "black . --config pyproject.toml && ruff check . --fix"
 flat = { cmd = "python src/flatbuffers/update_flatbuffers.py && pixi run lint", cwd = "./" }
 
 json-code-gen-py = { cmd = [

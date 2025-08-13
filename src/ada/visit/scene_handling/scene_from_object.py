@@ -3,9 +3,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ada.base.physical_objects import BackendGeom
-from ada.core.guid import create_guid
-from ada.visit.gltf.graph import GraphNode, GraphStore
-from ada.visit.render_params import RenderParams
+from ada.visit.gltf.graph import GraphNode
 
 
 if TYPE_CHECKING:
@@ -30,9 +28,7 @@ def scene_from_object(physical_object: BackendGeom, converter: SceneConverter) -
 
     scene = trimesh.Scene(base_frame=converter.graph.top_level.name) if converter.scene is None else converter.scene
 
-    node = graph.add_node(
-        GraphNode(physical_object.name, graph.next_node_id(), hash=physical_object.guid, parent=root)
-    )
+    node = graph.add_node(GraphNode(physical_object.name, graph.next_node_id(), hash=physical_object.guid, parent=root))
 
     if isinstance(physical_object, Pipe):
         physical_objects = physical_object.segments

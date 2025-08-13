@@ -4,9 +4,7 @@ import datetime
 from typing import TYPE_CHECKING
 
 from ada.base.physical_objects import BackendGeom
-from ada.core.guid import create_guid
 from ada.fem import Elem
-from ada.visit.colors import Color
 from ada.visit.gltf.graph import GraphNode
 
 if TYPE_CHECKING:
@@ -50,24 +48,40 @@ def scene_from_fem(fem: FEM, converter: SceneConverter) -> trimesh.Scene:
     edges_node_name = None
     if len(ms.lines.indices) > 0:
         edges_node_name = merged_mesh_to_trimesh_scene(
-            scene=scene, merged_mesh=ms.lines, pbr_mat=ms.lines.material, buffer_id=graph.next_node_id(), graph_store=graph
+            scene=scene,
+            merged_mesh=ms.lines,
+            pbr_mat=ms.lines.material,
+            buffer_id=graph.next_node_id(),
+            graph_store=graph,
         )
 
     faces_node_name = None
     if len(ms.faces.indices) > 0:
         faces_node_name = merged_mesh_to_trimesh_scene(
-            scene=scene, merged_mesh=ms.faces, pbr_mat=ms.faces.material, buffer_id=graph.next_node_id(), graph_store=graph
+            scene=scene,
+            merged_mesh=ms.faces,
+            pbr_mat=ms.faces.material,
+            buffer_id=graph.next_node_id(),
+            graph_store=graph,
         )
 
     points_node_name = None
     if len(ms.points.position) > 0:
         points_node_name = merged_mesh_to_trimesh_scene(
-            scene=scene, merged_mesh=ms.points, pbr_mat=ms.points.material, buffer_id=graph.next_node_id(), graph_store=graph
+            scene=scene,
+            merged_mesh=ms.points,
+            pbr_mat=ms.points.material,
+            buffer_id=graph.next_node_id(),
+            graph_store=graph,
         )
     bm_solid_node_name = None
     if ms.solid_beams is not None and len(ms.solid_beams.indices) > 0:
         bm_solid_node_name = merged_mesh_to_trimesh_scene(
-            scene=scene, merged_mesh=ms.solid_beams, pbr_mat=ms.solid_beams.material, buffer_id=graph.next_node_id(), graph_store=graph
+            scene=scene,
+            merged_mesh=ms.solid_beams,
+            pbr_mat=ms.solid_beams.material,
+            buffer_id=graph.next_node_id(),
+            graph_store=graph,
         )
 
     groups = []
