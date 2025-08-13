@@ -51,6 +51,8 @@ line-length = 120
 [tool.ruff]
 line-length = 120
 exclude = ["examples/", ".pixi/", "temp/"]
+# Tell Ruff where your source root is so it can classify first-party imports
+src = ["src"]
 
 [tool.ruff.lint]
 ignore = ["E741"]
@@ -71,8 +73,11 @@ split-on-trailing-comma = true
 
 [tool.isort]
 profile = "black"
-skip = [".pixi", "node_modules", "temp"]
+# Keep isort happy during transition; match Ruff’s view of the world
+src_paths = ["src"]
+skip = [".pixi", "node_modules", "temp", "examples"]
 skip_glob = ["**/node_modules/**", "**/temp/**"]
+
 
 [tool.pytest.ini_options]
 asyncio_default_fixture_loop_scope = "session"
@@ -187,7 +192,8 @@ pytest-playwright = "*"
 [tool.pixi.feature.lint.dependencies]
 black = "==24.4.2"
 isort = "==5.13.2"
-ruff = "==0.4.10"
+ruff = "==0.12.8"
+
 flatbuffers = "==25.2.10"
 python-flatbuffers = "==25.2.10"
 datamodel-code-generator = "==0.30.1"

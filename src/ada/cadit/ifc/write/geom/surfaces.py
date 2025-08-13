@@ -49,7 +49,7 @@ def bspline_surface_with_knots(
     bs: geo_su.BSplineSurfaceWithKnots | geo_su.RationalBSplineSurfaceWithKnots, f: ifcopenshell.file
 ) -> ifcopenshell.entity_instance:
     """Converts a BSplineSurfaceWithKnots to an IFC representation"""
-    if type(bs) == geo_su.BSplineSurfaceWithKnots:
+    if type(bs) is geo_su.BSplineSurfaceWithKnots:
         return f.create_entity(
             "IfcBSplineSurfaceWithKnots",
             UDegree=bs.u_degree,
@@ -65,7 +65,7 @@ def bspline_surface_with_knots(
             VKnots=bs.v_knots,
             KnotSpec=bs.knot_spec.value,
         )
-    elif type(bs) == geo_su.RationalBSplineSurfaceWithKnots:
+    elif type(bs) is geo_su.RationalBSplineSurfaceWithKnots:
         return f.create_entity(
             "IfcRationalBSplineSurfaceWithKnots",
             UDegree=bs.u_degree,

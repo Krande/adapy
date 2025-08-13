@@ -70,7 +70,7 @@ def abaqus_step_str(step: _step_types):
 def constraint_control(fem: "FEM"):
     constraint_ctrl_on = True
     for step in fem.steps:
-        if type(step) == StepExplicit:
+        if type(step) is StepExplicit:
             constraint_ctrl_on = False
     return "**" if constraint_ctrl_on is False else "*constraint controls, print=yes"
 

@@ -5,10 +5,9 @@ from typing import TYPE_CHECKING
 from ada.base.physical_objects import BackendGeom
 from ada.visit.gltf.graph import GraphNode
 
-
 if TYPE_CHECKING:
-    import trimesh
     from ada.visit.scene_converter import SceneConverter
+    import trimesh
 
 
 def scene_from_object(physical_object: BackendGeom, converter: SceneConverter) -> trimesh.Scene:
