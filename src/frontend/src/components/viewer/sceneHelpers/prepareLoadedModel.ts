@@ -11,6 +11,7 @@ import {assignMorphToPointsAlso} from "../../../utils/scene/animations/assignMor
 import {DesignDataExtension, SimulationDataExtensionMetadata} from "../../../extensions/design_and_analysis_extension";
 import {applySphericalImpostor} from "../../../utils/scene/pointsImpostor";
 import {updateAllPointsSize} from "../../../utils/scene/updatePointSizes";
+import {gpuPointPicker} from "../../../utils/mesh_select/GpuPointPicker";
 
 interface PrepareLoadedModelParams {
     gltf_scene: THREE.Object3D;
@@ -77,6 +78,7 @@ export async function prepareLoadedModel({gltf_scene, hash}: PrepareLoadedModelP
             const ps = optionsStore.pointSize ?? 5.0;
             try {
                 applySphericalImpostor(object, ps);
+                try { gpuPointPicker.registerPoints(object); } catch (_) {}
             } catch (e) {
                 // Fallback: just apply size to existing material
                 const mat = object.material as THREE.Material | THREE.Material[];
@@ -142,6 +144,21 @@ export async function prepareLoadedModel({gltf_scene, hash}: PrepareLoadedModelP
 
         parent.add(customMesh);
         if (useAnimationStore.getState().hasAnimation && !is_design) {
+            // Ensure custom mesh inherits morph target state for raycasting and rendering
+            const geom = customMesh.geometry as THREE.BufferGeometry;
+            const hasMorphs = !!geom.morphAttributes && Array.isArray(geom.morphAttributes.position) && geom.morphAttributes.position.length > 0;
+            if (hasMorphs) {
+                // Copy morph influences/dictionary from original
+                (customMesh as any).morphTargetInfluences = (original as any).morphTargetInfluences;
+                (customMesh as any).morphTargetDictionary = (original as any).morphTargetDictionary;
+                // Enable morph targets on material(s)
+                if (Array.isArray(customMesh.material)) {
+                    customMesh.material.forEach((m: any) => { if (m && 'morphTargets' in m) { m.morphTargets = true; m.needsUpdate = true; } });
+                } else {
+                    const m: any = customMesh.material as any;
+                    if (m && 'morphTargets' in m) { m.morphTargets = true; m.needsUpdate = true; }
+                }
+            }
             // Handle edge overlay (LineSegments) morph following
             const lineChildren = original.children.filter((c): c is THREE.LineSegments => c instanceof THREE.LineSegments);
             for (const line_geo of lineChildren) {
@@ -163,6 +180,7 @@ export async function prepareLoadedModel({gltf_scene, hash}: PrepareLoadedModelP
                 } catch (e) {
                     // ignore, fallback already applied in initial traverse
                 }
+                try { gpuPointPicker.registerPoints(pts); } catch (_) {}
                 try {
                     assignMorphToPointsAlso(customMesh, pts);
                 } catch (e) {
@@ -181,6 +199,7 @@ export async function prepareLoadedModel({gltf_scene, hash}: PrepareLoadedModelP
                 } catch (e) {
                     // ignore if already set
                 }
+                try { gpuPointPicker.registerPoints(pts); } catch (_) {}
                 parent.add(pts);
             }
         }

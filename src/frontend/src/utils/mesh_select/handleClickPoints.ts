@@ -4,27 +4,40 @@ import {useObjectInfoStore} from "../../state/objectInfoStore";
 import {useOptionsStore} from "../../state/optionsStore";
 import {showSelectedPoint} from "../scene/highlightSelectedPoint";
 
+import {gpuPointPicker} from "./GpuPointPicker";
+
 export async function handleClickPoints(
     intersect: THREE.Intersection,
     event: MouseEvent
 ): Promise<void> {
     if (event.button === 2) return;
 
-    const obj = intersect.object as THREE.Points;
-    const idx = typeof intersect.index === 'number' ? intersect.index : null;
+    const useGpu = useOptionsStore.getState().useGpuPointPicking;
 
-    // Determine the precise world-space position of the clicked vertex
-    let worldPosition = intersect.point.clone(); // fallback
-    if (idx != null && obj.geometry && (obj.geometry as THREE.BufferGeometry).getAttribute) {
-        const geom = obj.geometry as THREE.BufferGeometry;
-        const posAttr = geom.getAttribute('position') as THREE.BufferAttribute | undefined;
-        if (posAttr && idx >= 0 && idx < posAttr.count) {
-            const local = new THREE.Vector3(
-                posAttr.getX(idx),
-                posAttr.getY(idx),
-                posAttr.getZ(idx)
-            );
-            worldPosition = local.applyMatrix4(obj.matrixWorld);
+    let obj = intersect.object as THREE.Points;
+    let idx: number | null = (typeof intersect.index === 'number') ? intersect.index : null;
+    let worldPosition = intersect.point.clone();
+
+    if (useGpu) {
+        const pick = gpuPointPicker.pickAt(event.clientX, event.clientY);
+        if (pick) {
+            obj = pick.object;
+            idx = pick.index;
+            worldPosition = pick.worldPosition.clone();
+        }
+    } else {
+        // CPU fallback using raycaster data
+        if (idx != null && obj.geometry && (obj.geometry as THREE.BufferGeometry).getAttribute) {
+            const geom = obj.geometry as THREE.BufferGeometry;
+            const posAttr = geom.getAttribute('position') as THREE.BufferAttribute | undefined;
+            if (posAttr && idx >= 0 && idx < posAttr.count) {
+                const local = new THREE.Vector3(
+                    posAttr.getX(idx),
+                    posAttr.getY(idx),
+                    posAttr.getZ(idx)
+                );
+                worldPosition = local.applyMatrix4(obj.matrixWorld);
+            }
         }
     }
 

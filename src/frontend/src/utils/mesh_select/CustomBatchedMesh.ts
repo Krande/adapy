@@ -202,6 +202,9 @@ export class CustomBatchedMesh extends THREE.Mesh {
         const geometry = this.geometry as THREE.BufferGeometry;
         const index = geometry.index;
         const position = geometry.attributes.position;
+        const morphPositions = (geometry.morphAttributes && geometry.morphAttributes.position) as THREE.BufferAttribute[] | undefined;
+        const morphTargetsRelative = geometry.morphTargetsRelative === true;
+        const morphInfluences: number[] | undefined = (this as any).morphTargetInfluences;
 
         if (position === undefined) return;
 
@@ -211,6 +214,31 @@ export class CustomBatchedMesh extends THREE.Mesh {
         const vA = this._raycast_vA;
         const vB = this._raycast_vB;
         const vC = this._raycast_vC;
+
+        // helper to apply morph target deformation per vertex index into target vector
+        const applyMorph = (idx: number, target: THREE.Vector3) => {
+            if (!morphPositions || !morphInfluences) return;
+            let sumInfluence = 0;
+            for (let i = 0; i < morphPositions.length; i++) {
+                const inf = morphInfluences[i] || 0;
+                if (inf === 0) continue;
+                sumInfluence += inf;
+                const mp = morphPositions[i];
+                const mx = mp.getX(idx);
+                const my = mp.getY(idx);
+                const mz = mp.getZ(idx);
+                if (morphTargetsRelative) {
+                    target.x += mx * inf;
+                    target.y += my * inf;
+                    target.z += mz * inf;
+                } else {
+                    // absolute morph targets: blend base towards target
+                    target.x = target.x * (1 - sumInfluence) + mx * inf;
+                    target.y = target.y * (1 - sumInfluence) + my * inf;
+                    target.z = target.z * (1 - sumInfluence) + mz * inf;
+                }
+            }
+        };
 
         let intersection;
 
@@ -223,12 +251,23 @@ export class CustomBatchedMesh extends THREE.Mesh {
                 const b = indices[i + 1];
                 const c = indices[i + 2];
 
+                // fetch base positions
+                vA.fromBufferAttribute(position, a);
+                vB.fromBufferAttribute(position, b);
+                vC.fromBufferAttribute(position, c);
+                // apply morph offsets if any
+                applyMorph(a, vA);
+                applyMorph(b, vB);
+                applyMorph(c, vC);
+
                 intersection = this.checkBufferGeometryIntersection(
                     this,
                     material,
                     raycaster,
                     localRay,
-                    position,
+                    vA,
+                    vB,
+                    vC,
                     a,
                     b,
                     c,
@@ -247,12 +286,21 @@ export class CustomBatchedMesh extends THREE.Mesh {
                 const b = i + 1;
                 const c = i + 2;
 
+                vA.fromBufferAttribute(position, a);
+                vB.fromBufferAttribute(position, b);
+                vC.fromBufferAttribute(position, c);
+                applyMorph(a, vA);
+                applyMorph(b, vB);
+                applyMorph(c, vC);
+
                 intersection = this.checkBufferGeometryIntersection(
                     this,
                     material,
                     raycaster,
                     localRay,
-                    position,
+                    vA,
+                    vB,
+                    vC,
                     a,
                     b,
                     c,
@@ -275,20 +323,18 @@ export class CustomBatchedMesh extends THREE.Mesh {
         material: THREE.Material,
         raycaster: THREE.Raycaster,
         ray: THREE.Ray,
-        position: THREE.BufferAttribute,
+        vA: THREE.Vector3,
+        vB: THREE.Vector3,
+        vC: THREE.Vector3,
         a: number,
         b: number,
         c: number,
         materialIndex: number
     ): THREE.Intersection | null {
-        const vA = this._raycast_vA;
-        const vB = this._raycast_vB;
-        const vC = this._raycast_vC;
+        const _vA = vA; // use provided morphed vertices
+        const _vB = vB;
+        const _vC = vC;
         const intersectionPoint = this._raycast_intersectionPoint;
-
-        vA.fromBufferAttribute(position, a);
-        vB.fromBufferAttribute(position, b);
-        vC.fromBufferAttribute(position, c);
 
         let side = material.side;
 
@@ -297,9 +343,9 @@ export class CustomBatchedMesh extends THREE.Mesh {
         const backfaceCulling = side === THREE.FrontSide;
 
         const intersect = ray.intersectTriangle(
-            vC,
-            vB,
-            vA,
+            _vC,
+            _vB,
+            _vA,
             backfaceCulling,
             intersectionPoint
         );
@@ -321,7 +367,7 @@ export class CustomBatchedMesh extends THREE.Mesh {
             const uvC = this._raycast_uvC.fromBufferAttribute(uvAttribute, c);
 
             // Compute the UV coordinates at the intersection point
-            uv = this._uvIntersection(vA, vB, vC, uvA, uvB, uvC, intersectionPoint);
+            uv = this._uvIntersection(_vA, _vB, _vC, uvA, uvB, uvC, intersectionPoint);
         }
 
         return {
