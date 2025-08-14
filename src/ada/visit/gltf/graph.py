@@ -73,7 +73,10 @@ class GraphStore:
                 parent_node.children.append(n)
 
     def next_node_id(self):
-        return len(self.nodes.keys()) + len(self.merged_meshes.keys())
+        return len(self.nodes.keys())
+
+    def next_buffer_id(self):
+        return len(self.merged_meshes.keys())
 
     @staticmethod
     def from_json_data(data, split_level: int = 3):

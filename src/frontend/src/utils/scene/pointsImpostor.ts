@@ -27,8 +27,7 @@ export function createSphericalPointMaterial(params: {
         precision mediump float;
         #include <common>
         #ifdef USE_COLOR
-        attribute vec3 color;
-        varying vec3 vColor;
+        #include <color_pars_vertex>
         #endif
         #include <morphtarget_pars_vertex>
         uniform float pointSize; // screen-space size (pixels)
@@ -51,15 +50,16 @@ export function createSphericalPointMaterial(params: {
             gl_PointSize = pixelSize;
 
             #ifdef USE_COLOR
-            vColor = color;
+            #include <color_vertex>
             #endif
         }
     `;
 
     const fragment = `
         precision mediump float;
+        #include <common>
         #ifdef USE_COLOR
-        varying vec3 vColor;
+        #include <color_pars_fragment>
         #endif
         uniform vec3 uColor;
         uniform float uOpacity;
@@ -88,6 +88,8 @@ export function createSphericalPointMaterial(params: {
 
             vec3 col = base * lighting;
             gl_FragColor = vec4(col, uOpacity);
+            #include <tonemapping_fragment>
+            #include <colorspace_fragment>
         }
     `;
 
@@ -119,8 +121,25 @@ export function createSphericalPointMaterial(params: {
 export function applySphericalImpostor(points: THREE.Points, defaultSize: number) {
     const geom = points.geometry as THREE.BufferGeometry;
 
-    // Decide if vertex colors exist
-    const hasVertexColors = !!geom.getAttribute('color');
+    // Decide if vertex colors exist and are meaningful (non-zero)
+    const colorAttr = geom.getAttribute('color') as THREE.BufferAttribute | undefined;
+    let hasVertexColors = false;
+    if (colorAttr) {
+        const arr = colorAttr.array as ArrayLike<number>;
+        const len = colorAttr.itemSize * colorAttr.count; // usually 3 * N
+        const step = Math.max(1, Math.floor((len / colorAttr.itemSize) / 1000)); // sample up to ~1000 vertices
+        // Scan a subset for any non-zero color component
+        outer: for (let i = 0; i < colorAttr.count; i += step) {
+            const idx = i * colorAttr.itemSize;
+            const r = arr[idx];
+            const g = arr[idx + 1];
+            const b = arr[idx + 2];
+            if ((r ?? 0) > 0 || (g ?? 0) > 0 || (b ?? 0) > 0) {
+                hasVertexColors = true;
+                break outer;
+            }
+        }
+    }
 
     // Extract size and color from existing material if possible
     let size = defaultSize;

@@ -51,7 +51,7 @@ def scene_from_fem(fem: FEM, converter: SceneConverter) -> trimesh.Scene:
             scene=scene,
             merged_mesh=ms.lines,
             pbr_mat=ms.lines.material,
-            buffer_id=graph.next_node_id(),
+            buffer_id=graph.next_buffer_id(),
             graph_store=graph,
         )
 
@@ -61,7 +61,7 @@ def scene_from_fem(fem: FEM, converter: SceneConverter) -> trimesh.Scene:
             scene=scene,
             merged_mesh=ms.faces,
             pbr_mat=ms.faces.material,
-            buffer_id=graph.next_node_id(),
+            buffer_id=graph.next_buffer_id(),
             graph_store=graph,
         )
 
@@ -71,7 +71,7 @@ def scene_from_fem(fem: FEM, converter: SceneConverter) -> trimesh.Scene:
             scene=scene,
             merged_mesh=ms.points,
             pbr_mat=ms.points.material,
-            buffer_id=graph.next_node_id(),
+            buffer_id=graph.next_buffer_id(),
             graph_store=graph,
         )
     bm_solid_node_name = None
@@ -80,7 +80,7 @@ def scene_from_fem(fem: FEM, converter: SceneConverter) -> trimesh.Scene:
             scene=scene,
             merged_mesh=ms.solid_beams,
             pbr_mat=ms.solid_beams.material,
-            buffer_id=graph.next_node_id(),
+            buffer_id=graph.next_buffer_id(),
             graph_store=graph,
         )
 

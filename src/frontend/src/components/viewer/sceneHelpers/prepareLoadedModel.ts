@@ -170,6 +170,19 @@ export async function prepareLoadedModel({gltf_scene, hash}: PrepareLoadedModelP
                 }
                 parent.add(pts);
             }
+        } else {
+            // No animation loaded: keep Points children as-is (zero deformation baseline)
+            const pointChildren = original.children.filter((c): c is THREE.Points => c instanceof THREE.Points);
+            for (const pts of pointChildren) {
+                try {
+                    // Ensure they have impostor material applied (already applied during traverse)
+                    const ps = optionsStore.pointSize ?? 5.0;
+                    applySphericalImpostor(pts, ps);
+                } catch (e) {
+                    // ignore if already set
+                }
+                parent.add(pts);
+            }
         }
         parent.remove(original);
 
