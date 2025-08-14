@@ -30,7 +30,7 @@ export function setupPointerHandler(
         const pointer = new THREE.Vector2(x, y);
         const ray = new THREE.Raycaster();
         // Set point picking tolerance to 0.02 (world units) per user preference/point spacing.
-        ray.params.Points = { ...ray.params.Points, threshold: 0.02 };
+        ray.params.Points = { ...ray.params.Points, threshold: 0.005 };
         ray.layers.set(0);
         ray.layers.disable(1);
         ray.setFromCamera(pointer, camera);

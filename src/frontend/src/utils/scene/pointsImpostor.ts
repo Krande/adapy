@@ -1,7 +1,9 @@
 import * as THREE from "three";
 
 // Creates a ShaderMaterial that renders points as circular, shaded sphere impostors.
-// It supports a uniform pointSize (in pixels, consistent with PointsMaterial) and a base color.
+// It supports both screen-space sizing (pointSize in pixels) and absolute world-space sizing
+// via uniforms. When uWorldSize is true, the shader converts a world-space diameter (uWorldPointSize)
+// into pixels using the camera FOV and viewport height.
 export function createSphericalPointMaterial(params: {
     pointSize: number;
     color?: THREE.Color | number | string;
@@ -16,7 +18,7 @@ export function createSphericalPointMaterial(params: {
         opacity = 1.0,
         useVertexColors = false,
         depthTest = true,
-        depthWrite = false,
+        depthWrite = true,
     } = params;
 
     const uColor = new THREE.Color(color as any);
@@ -27,12 +29,23 @@ export function createSphericalPointMaterial(params: {
         attribute vec3 color;
         varying vec3 vColor;
         #endif
-        uniform float pointSize; // in pixels
+        uniform float pointSize; // screen-space size (pixels)
+        uniform bool uWorldSize; // toggle for absolute sizing
+        uniform float uWorldPointSize; // world-space diameter
+        uniform float uFov; // degrees
+        uniform float uViewportHeight; // pixels
         void main() {
             vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
             gl_Position = projectionMatrix * mvPosition;
-            // Keep size semantics similar to PointsMaterial: in pixels
-            gl_PointSize = pointSize;
+
+            float pixelSize = pointSize;
+            if (uWorldSize) {
+                // Convert world diameter to pixel diameter: scale / -mvPosition.z
+                float scale = uViewportHeight / (2.0 * tan(radians(uFov) * 0.5));
+                pixelSize = uWorldPointSize * scale / -mvPosition.z;
+            }
+            gl_PointSize = pixelSize;
+
             #ifdef USE_COLOR
             vColor = color;
             #endif
@@ -79,6 +92,10 @@ export function createSphericalPointMaterial(params: {
         fragmentShader: fragment,
         uniforms: {
             pointSize: { value: pointSize },
+            uWorldSize: { value: false },
+            uWorldPointSize: { value: 1.0 },
+            uFov: { value: 50.0 },
+            uViewportHeight: { value: 800.0 },
             uColor: { value: uColor },
             uOpacity: { value: opacity },
         },
@@ -138,8 +155,8 @@ export function applySphericalImpostor(points: THREE.Points, defaultSize: number
         color: baseColor,
         opacity,
         useVertexColors: hasVertexColors,
-        depthTest: false,
-        depthWrite: false,
+        depthTest: true,
+        depthWrite: true,
     });
 
     points.material = sphereMat;

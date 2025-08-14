@@ -9,6 +9,7 @@ import {useAnimationStore} from "../../../state/animationStore";
 import {assignMorphToEdgeAlso} from "../../../utils/scene/animations/assignMorphToEdgeAlso";
 import {DesignDataExtension, SimulationDataExtensionMetadata} from "../../../extensions/design_and_analysis_extension";
 import {applySphericalImpostor} from "../../../utils/scene/pointsImpostor";
+import {updateAllPointsSize} from "../../../utils/scene/updatePointSizes";
 
 interface PrepareLoadedModelParams {
     gltf_scene: THREE.Object3D;
@@ -17,7 +18,7 @@ interface PrepareLoadedModelParams {
 
 async function get_ada_ext_simulation_data(mesh: THREE.Mesh): Promise<SimulationDataExtensionMetadata | null> {
     const ada_ext = adaExtensionRef.current;
-    if (!ada_ext){
+    if (!ada_ext) {
         return null;
     }
 
@@ -25,10 +26,10 @@ async function get_ada_ext_simulation_data(mesh: THREE.Mesh): Promise<Simulation
     if (ada_ext.simulation_objects) {
         for (const sim_obj of ada_ext.simulation_objects) {
             const sim_face_node_ref = sim_obj.node_references?.faces;
-            if (mesh.name == sim_face_node_ref){
+            if (mesh.name == sim_face_node_ref) {
                 return sim_obj;
             }
-            if (mesh.userData?.name == sim_face_node_ref){
+            if (mesh.userData?.name == sim_face_node_ref) {
                 return sim_obj;
             }
         }
@@ -38,17 +39,17 @@ async function get_ada_ext_simulation_data(mesh: THREE.Mesh): Promise<Simulation
 
 async function get_ada_ext_design_data(mesh: THREE.Mesh): Promise<DesignDataExtension | null> {
     const ada_ext = adaExtensionRef.current;
-    if (!ada_ext){
+    if (!ada_ext) {
         return null;
     }
 
     if (ada_ext.design_objects) {
         for (const design_obj of ada_ext.design_objects) {
             const design_face_node_ref = design_obj.node_references?.faces;
-            if (mesh.name == design_face_node_ref){
+            if (mesh.name == design_face_node_ref) {
                 return design_obj;
             }
-            if (mesh.userData?.name == design_face_node_ref){
+            if (mesh.userData?.name == design_face_node_ref) {
                 return design_obj;
             }
         }
@@ -104,7 +105,7 @@ export async function prepareLoadedModel({gltf_scene, hash}: PrepareLoadedModelP
         const node_id = original.userData?.node_id
 
         // if length is 0, we don't need to convert
-        if (!drawRangesData && node_id){
+        if (!drawRangesData && node_id) {
             drawRangesData = gltf_scene.userData[`draw_ranges_node${node_id}`] as Record<string, [number, number]>;
         }
         if (!drawRangesData) {
@@ -122,12 +123,11 @@ export async function prepareLoadedModel({gltf_scene, hash}: PrepareLoadedModelP
         const ada_ext_sim = await get_ada_ext_simulation_data(original);
 
         let is_design = false;
-        if (ada_ext_sim == null && ada_ext_design == null){
+        if (ada_ext_sim == null && ada_ext_design == null) {
             is_design = true;
-        }
-        else if (ada_ext_sim != null){
+        } else if (ada_ext_sim != null) {
             is_design = false
-        } else if (ada_ext_design != null){
+        } else if (ada_ext_design != null) {
             is_design = true
         }
         const ada_ext_data = is_design ? ada_ext_design : ada_ext_sim;
@@ -150,26 +150,8 @@ export async function prepareLoadedModel({gltf_scene, hash}: PrepareLoadedModelP
 
             parent.add(line_geo)
         }
-
-        // Preserve any THREE.Points that were children of the original mesh by re-parenting
-        const pointsToReattach: THREE.Points[] = [];
-        original.traverse((o) => {
-            if (o instanceof THREE.Points) {
-                pointsToReattach.push(o);
-            }
-        });
-        // Re-parent while preserving world transform
-        pointsToReattach.forEach((pt) => {
-            try {
-                parent.attach(pt);
-            } catch (e) {
-                // Fallback: add/remove if attach fails
-                pt.updateMatrixWorld(true);
-                parent.add(pt);
-            }
-        });
-
         parent.remove(original);
+
     }
 
     replaceBlackMaterials(gltf_scene);

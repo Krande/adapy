@@ -22,6 +22,8 @@ function OptionsComponent() {
         setEnableNodeEditor,
         pointSize,
         setPointSize,
+        pointSizeAbsolute,
+        setPointSizeAbsolute,
     } = useOptionsStore();
     const {showLegend, setShowLegend} = useColorStore();
     const {zIsUp, setZIsUp, defaultOrbitController, setDefaultOrbitController} = useModelState();
@@ -54,8 +56,28 @@ function OptionsComponent() {
 
     // Update point sizes in the scene whenever the option changes
     useEffect(() => {
-        updateAllPointsSize(pointSize);
-    }, [pointSize]);
+        updateAllPointsSize(pointSize, pointSizeAbsolute);
+    }, [pointSize, pointSizeAbsolute]);
+
+    // Keep absolute sizing correct on viewport resize
+    useEffect(() => {
+        const onResize = () => updateAllPointsSize(pointSize, pointSizeAbsolute);
+        window.addEventListener('resize', onResize);
+        return () => window.removeEventListener('resize', onResize);
+    }, [pointSize, pointSizeAbsolute]);
+
+    // Clamp point size into valid UI range upon toggling mode to avoid out-of-range values
+    useEffect(() => {
+        if (pointSizeAbsolute) {
+            if (pointSize > 0.1 || pointSize < 0.005) {
+                setPointSize(0.01);
+            }
+        } else {
+            if (pointSize < 5 || pointSize > 30) {
+                setPointSize(10);
+            }
+        }
+    }, [pointSizeAbsolute]);
 
     return (
         <Rnd
@@ -126,22 +148,31 @@ function OptionsComponent() {
                         <span className="w-32">Point Size</span>
                         <input
                             type="range"
-                            min={0.01}
-                            max={0.15}
-                            step={0.01}
+                            min={pointSizeAbsolute ? 0.005 : 5}
+                            max={pointSizeAbsolute ? 0.1 : 30}
+                            step={pointSizeAbsolute ? 0.005 : 1}
                             value={pointSize}
                             onChange={(e) => setPointSize(parseFloat(e.target.value))}
                             className="flex-1 no-drag"
                         />
                         <input
                             type="number"
-                            min={0.1}
-                            max={100}
-                            step={0.1}
+                            min={pointSizeAbsolute ? 0.005 : 5}
+                            max={pointSizeAbsolute ? 0.1 : 30}
+                            step={pointSizeAbsolute ? 0.005 : 1}
                             value={pointSize}
                             onChange={(e) => setPointSize(parseFloat(e.target.value) || 0)}
-                            className="w-16 bg-gray-700 text-white p-1 rounded no-drag"
+                            className="w-24 bg-gray-700 text-white p-1 rounded no-drag"
                         />
+                    </label>
+                    <label className="flex items-center space-x-2">
+                        <input
+                            type="checkbox"
+                            className="no-drag"
+                            checked={pointSizeAbsolute}
+                            onChange={() => setPointSizeAbsolute(!pointSizeAbsolute)}
+                        />
+                        <span>Absolute point size (world units)</span>
                     </label>
                 </div>
 
