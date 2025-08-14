@@ -103,7 +103,8 @@ class Animation:
 
                 target_idx = len(primitive["targets"])
                 primitive["targets"].append(deform_target)
-
+                if 'extras' not in mesh:
+                    mesh['extras'] = {}
                 if mesh["extras"].get("targetNames") is None:
                     mesh["extras"]["targetNames"] = []
                 mesh["extras"]["targetNames"].append(self.name)
@@ -111,7 +112,8 @@ class Animation:
                 if mesh.get("weights") is None:
                     mesh["weights"] = []
 
-                mesh["weights"].append(target_idx)
+                # Initialize the default morph target weight to 0.0 (no deformation at load)
+                mesh["weights"].append(0.0)
 
         # Update tree with data added to buffer
         if tree.get("animations") is None:

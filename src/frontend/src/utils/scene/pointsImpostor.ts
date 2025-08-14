@@ -25,17 +25,21 @@ export function createSphericalPointMaterial(params: {
 
     const vertex = `
         precision mediump float;
+        #include <common>
         #ifdef USE_COLOR
         attribute vec3 color;
         varying vec3 vColor;
         #endif
+        #include <morphtarget_pars_vertex>
         uniform float pointSize; // screen-space size (pixels)
         uniform bool uWorldSize; // toggle for absolute sizing
         uniform float uWorldPointSize; // world-space diameter
         uniform float uFov; // degrees
         uniform float uViewportHeight; // pixels
         void main() {
-            vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+            vec3 transformed = position;
+            #include <morphtarget_vertex>
+            vec4 mvPosition = modelViewMatrix * vec4(transformed, 1.0);
             gl_Position = projectionMatrix * mvPosition;
 
             float pixelSize = pointSize;
@@ -158,6 +162,13 @@ export function applySphericalImpostor(points: THREE.Points, defaultSize: number
         depthTest: true,
         depthWrite: true,
     });
+
+    // Enable morph targets on material if geometry provides morph attributes
+    const hasMorphs = !!geom.morphAttributes && Array.isArray(geom.morphAttributes.position) && geom.morphAttributes.position.length > 0;
+    if (hasMorphs) {
+        (sphereMat as any).morphTargets = true;
+        sphereMat.needsUpdate = true;
+    }
 
     points.material = sphereMat;
 }

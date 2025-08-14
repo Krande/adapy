@@ -7,6 +7,7 @@ import {useOptionsStore} from "../../../state/optionsStore";
 import {adaExtensionRef, rendererRef} from "../../../state/refs";
 import {useAnimationStore} from "../../../state/animationStore";
 import {assignMorphToEdgeAlso} from "../../../utils/scene/animations/assignMorphToEdgeAlso";
+import {assignMorphToPointsAlso} from "../../../utils/scene/animations/assignMorphToPointsAlso";
 import {DesignDataExtension, SimulationDataExtensionMetadata} from "../../../extensions/design_and_analysis_extension";
 import {applySphericalImpostor} from "../../../utils/scene/pointsImpostor";
 import {updateAllPointsSize} from "../../../utils/scene/updatePointSizes";
@@ -141,14 +142,34 @@ export async function prepareLoadedModel({gltf_scene, hash}: PrepareLoadedModelP
 
         parent.add(customMesh);
         if (useAnimationStore.getState().hasAnimation && !is_design) {
-            const line_geo = original.children[0] as THREE.LineSegments;
-            try {
-                assignMorphToEdgeAlso(customMesh, line_geo);
-            } catch (e) {
-                console.error("Error assigning morph to edge:", e);
+            // Handle edge overlay (LineSegments) morph following
+            const lineChildren = original.children.filter((c): c is THREE.LineSegments => c instanceof THREE.LineSegments);
+            for (const line_geo of lineChildren) {
+                try {
+                    assignMorphToEdgeAlso(customMesh, line_geo);
+                } catch (e) {
+                    console.error("Error assigning morph to edge:", e);
+                }
+                parent.add(line_geo);
             }
 
-            parent.add(line_geo)
+            // Handle Points children morph following
+            const pointChildren = original.children.filter((c): c is THREE.Points => c instanceof THREE.Points);
+            for (const pts of pointChildren) {
+                try {
+                    // Ensure spherical impostor with morph support is applied
+                    const ps = optionsStore.pointSize ?? 5.0;
+                    applySphericalImpostor(pts, ps);
+                } catch (e) {
+                    // ignore, fallback already applied in initial traverse
+                }
+                try {
+                    assignMorphToPointsAlso(customMesh, pts);
+                } catch (e) {
+                    console.error("Error assigning morph to points:", e);
+                }
+                parent.add(pts);
+            }
         }
         parent.remove(original);
 

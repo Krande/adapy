@@ -53,6 +53,7 @@ def scene_from_fem_results(fea_res: FEAResult, converter: SceneConverter):
     points_node = scene.add_geometry(points_mesh, node_name=f"{fea_res.name}_points", geom_name="points")
 
     face_node_idx = [i for i, n in enumerate(scene.graph.nodes) if n == face_node][0]
+    vrtx_node_idx = [i for i, n in enumerate(scene.graph.nodes) if n == points_node][0]
 
     # React renderer supports animations
     sim_data = export_sim_metadata(fea_res)
@@ -100,7 +101,7 @@ def scene_from_fem_results(fea_res: FEAResult, converter: SceneConverter):
             time_steps,
             deformation_weights_keyframes=weight_steps,
             deformation_shape=delta_vertices,
-            node_idx=[face_node_idx],
+            node_idx=[face_node_idx, vrtx_node_idx],
         )
         converter.add_animation(animation)
 

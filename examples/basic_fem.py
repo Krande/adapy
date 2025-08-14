@@ -160,6 +160,8 @@ def main():
     else:
         raise ValueError(f"Unknown solver: {args.solver}")
 
+    assembly.show()
+
     res = assembly.to_fem(
         case_name,
         solver_engine,
