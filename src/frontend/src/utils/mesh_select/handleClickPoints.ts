@@ -6,6 +6,7 @@ import {showSelectedPoint} from "../scene/highlightSelectedPoint";
 
 import {gpuPointPicker} from "./GpuPointPicker";
 import {useSelectedObjectStore} from "../../state/useSelectedObjectStore";
+import {queryMeshDrawRange, queryPointDrawRange} from "./queryMeshDrawRange";
 
 export async function handleClickPoints(
     intersect: THREE.Intersection,
@@ -50,10 +51,16 @@ export async function handleClickPoints(
     const clickPosition = worldPosition.clone();
     if (translation) clickPosition.sub(translation);
     useObjectInfoStore.getState().setClickCoordinate(clickPosition);
+    const hash = obj.userData['unique_hash'] as string;
+    if (idx == null){
+        return
+    }
+    const drawRange = await queryPointDrawRange(hash, obj.name, idx);
+
 
     // Set a readable name for info box
     const baseName = obj.name || "points";
-    const name = idx != null ? `${baseName}[${idx}]` : baseName;
+    const name = `${baseName}[${idx}]`
     useObjectInfoStore.getState().setName(name);
 
     // Show/update highlight for the selected point (use current point size), using exact world position

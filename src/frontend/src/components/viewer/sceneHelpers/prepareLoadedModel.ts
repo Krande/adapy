@@ -97,6 +97,7 @@ export async function prepareLoadedModel({gltf_scene, hash}: PrepareLoadedModelP
                 };
                 if (Array.isArray(mat)) mat.forEach(applySize); else if (mat) applySize(mat);
             }
+            object.userData["unique_hash"] = hash;
         }
     });
 

@@ -37,6 +37,12 @@ export interface ModelStoreAPI {
         faceIndex: number
     ): Promise<[string, number, number] | null>;
 
+    getPointId(
+        key: string,
+        meshName: string,
+        pointIndex: number
+    ): Promise<[string, number, number] | null>;
+
     getNameFromRangeId(
         key: string,
         rangeId: string

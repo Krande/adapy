@@ -43,9 +43,9 @@ def merged_mesh_to_trimesh_scene(
     elif merged_mesh.type == MeshType.POINTS:
         mesh = trimesh.points.PointCloud(vertices=vertices)
         # Convert the tuple to a numpy array and reshape it to have one row and X columns
-        t_array = np.array(pbr_mat.rgb255).reshape(1, -1)
-        result = np.tile(t_array, (len(vertices), 1))
-        mesh.visual = trimesh.visual.ColorVisuals(mesh=mesh, vertex_colors=result)
+        # t_array = np.array(pbr_mat.rgb255).reshape(1, -1)
+        # result = np.tile(t_array, (len(vertices), 1))
+        # mesh.visual = trimesh.visual.ColorVisuals(mesh=mesh, vertex_colors=result)
     else:
         raise NotImplementedError(f"Mesh type {merged_mesh.type} is not supported")
 
