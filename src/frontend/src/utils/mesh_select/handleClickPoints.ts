@@ -5,6 +5,7 @@ import {useOptionsStore} from "../../state/optionsStore";
 import {showSelectedPoint} from "../scene/highlightSelectedPoint";
 
 import {gpuPointPicker} from "./GpuPointPicker";
+import {useSelectedObjectStore} from "../../state/useSelectedObjectStore";
 
 export async function handleClickPoints(
     intersect: THREE.Intersection,
@@ -12,6 +13,9 @@ export async function handleClickPoints(
 ): Promise<void> {
     if (event.button === 2) return;
 
+    // Clear the selection if the draw range is already selected
+    const selectedObjectStore = useSelectedObjectStore.getState();
+    selectedObjectStore.clearSelectedObjects();
     const useGpu = useOptionsStore.getState().useGpuPointPicking;
 
     let obj = intersect.object as THREE.Points;

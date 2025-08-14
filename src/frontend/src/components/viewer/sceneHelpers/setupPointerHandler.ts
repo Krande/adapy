@@ -5,6 +5,7 @@ import {handleClickMesh} from "../../../utils/mesh_select/handleClickMesh";
 import {handleClickPoints} from "../../../utils/mesh_select/handleClickPoints";
 import {useOptionsStore} from "../../../state/optionsStore";
 import {gpuPointPicker} from "../../../utils/mesh_select/GpuPointPicker";
+import {clearSelectedPoint} from "../../../utils/scene/highlightSelectedPoint";
 
 export function setupPointerHandler(
     container: HTMLDivElement,
@@ -61,6 +62,7 @@ export function setupPointerHandler(
                 await handleClickPoints(first, e);
             } else {
                 // await the async handler
+                clearSelectedPoint()
                 await handleClickMesh(first, e);
             }
         }

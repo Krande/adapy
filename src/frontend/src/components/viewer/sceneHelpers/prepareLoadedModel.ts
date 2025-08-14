@@ -61,7 +61,6 @@ async function get_ada_ext_design_data(mesh: THREE.Mesh): Promise<DesignDataExte
 }
 
 export async function prepareLoadedModel({gltf_scene, hash}: PrepareLoadedModelParams): Promise<void> {
-    const modelStore = useModelState.getState()
     const optionsStore = useOptionsStore.getState()
 
     // we'll collect all edge geometries here
