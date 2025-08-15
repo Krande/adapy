@@ -45,7 +45,8 @@ export function createSphericalPointMaterial(params: {
             if (uWorldSize) {
                 // Convert world diameter to pixel diameter: scale / -mvPosition.z
                 float scale = uViewportHeight / (2.0 * tan(radians(uFov) * 0.5));
-                pixelSize = uWorldPointSize * scale / -mvPosition.z;
+                pixelSize = uWorldPointSize * scale / max(-mvPosition.z, 0.1); // Prevent division by tiny numbers
+                pixelSize = min(pixelSize, 1000.0); // Cap maximum point size
             }
             gl_PointSize = pixelSize;
 

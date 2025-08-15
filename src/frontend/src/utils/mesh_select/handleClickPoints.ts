@@ -52,16 +52,22 @@ export async function handleClickPoints(
     if (translation) clickPosition.sub(translation);
     useObjectInfoStore.getState().setClickCoordinate(clickPosition);
     const hash = obj.userData['unique_hash'] as string;
-    if (idx == null){
+    if (idx == null) {
         return
     }
     const drawRange = await queryPointDrawRange(hash, obj.name, idx);
+    let name = "";
 
-
-    // Set a readable name for info box
-    const baseName = obj.name || "points";
-    const name = `${baseName}[${idx}]`
+    if (drawRange) {
+        const pid = drawRange[1]
+        name = `P${pid}`
+    } else {
+        // Set a readable name for info box
+        const baseName = obj.name || "points";
+        name = `${baseName}[${idx}]`
+    }
     useObjectInfoStore.getState().setName(name);
+
 
     // Show/update highlight for the selected point (use current point size), using exact world position
     const ps = useOptionsStore.getState().pointSize;

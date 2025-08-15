@@ -22,7 +22,6 @@ def scene_from_fem(fem: FEM, converter: SceneConverter) -> trimesh.Scene:
     from ada import Node
     from ada.extension import simulation_extension_schema as sim_meta
     from ada.extension.simulation_extension_schema import FeObjectType
-    from ada.visit.gltf.store import merged_mesh_to_trimesh_scene
 
     params = converter.params
     graph = converter.graph
@@ -45,44 +44,7 @@ def scene_from_fem(fem: FEM, converter: SceneConverter) -> trimesh.Scene:
 
     scene = trimesh.Scene(base_frame=graph.top_level.name) if converter.scene is None else converter.scene
 
-    edges_node_name = None
-    if len(ms.lines.indices) > 0:
-        edges_node_name = merged_mesh_to_trimesh_scene(
-            scene=scene,
-            merged_mesh=ms.lines,
-            pbr_mat=ms.lines.material,
-            buffer_id=graph.next_buffer_id(),
-            graph_store=graph,
-        )
-
-    faces_node_name = None
-    if len(ms.faces.indices) > 0:
-        faces_node_name = merged_mesh_to_trimesh_scene(
-            scene=scene,
-            merged_mesh=ms.faces,
-            pbr_mat=ms.faces.material,
-            buffer_id=graph.next_buffer_id(),
-            graph_store=graph,
-        )
-
-    points_node_name = None
-    if len(ms.points.position) > 0:
-        points_node_name = merged_mesh_to_trimesh_scene(
-            scene=scene,
-            merged_mesh=ms.points,
-            pbr_mat=ms.points.material,
-            buffer_id=graph.next_buffer_id(),
-            graph_store=graph,
-        )
-    bm_solid_node_name = None
-    if ms.solid_beams is not None and len(ms.solid_beams.indices) > 0:
-        bm_solid_node_name = merged_mesh_to_trimesh_scene(
-            scene=scene,
-            merged_mesh=ms.solid_beams,
-            pbr_mat=ms.solid_beams.material,
-            buffer_id=graph.next_buffer_id(),
-            graph_store=graph,
-        )
+    ms.add_to_scene(scene, graph)
 
     groups = []
     for fset in fem.sets.sets:
@@ -120,7 +82,10 @@ def scene_from_fem(fem: FEM, converter: SceneConverter) -> trimesh.Scene:
         fea_software_version="N/A",
         steps=[],
         node_references=sim_meta.SimNodeReference(
-            points=points_node_name, edges=edges_node_name, faces=faces_node_name, solid_beams=bm_solid_node_name
+            points=ms.points_node_name,
+            edges=ms.edges_node_name,
+            faces=ms.faces_node_name,
+            solid_beams=ms.bm_solid_node_name,
         ),
         groups=groups,
     )

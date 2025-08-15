@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     from ada.fem import Elem, FemSet
     from ada.visit.colors import Color
     from ada.fem.results.concepts import EigenDataSummary
+    import trimesh
 
 
 @dataclass
@@ -63,6 +64,49 @@ class MeshStore:
     lines: MergedMesh
     faces: MergedMesh
     solid_beams: MergedMesh | None
+
+    edges_node_name: str | None = None
+    faces_node_name: str | None = None
+    points_node_name: str | None = None
+    bm_solid_node_name: str | None = None
+
+    def add_to_scene(self, scene: trimesh.Scene, graph: GraphStore):
+        from ada.visit.gltf.store import merged_mesh_to_trimesh_scene
+
+        if len(self.lines.indices) > 0:
+            self.edges_node_name = merged_mesh_to_trimesh_scene(
+                scene=scene,
+                merged_mesh=self.lines,
+                pbr_mat=self.lines.material,
+                buffer_id=graph.next_buffer_id(),
+                graph_store=graph,
+            )
+
+        if len(self.faces.indices) > 0:
+            self.faces_node_name = merged_mesh_to_trimesh_scene(
+                scene=scene,
+                merged_mesh=self.faces,
+                pbr_mat=self.faces.material,
+                buffer_id=graph.next_buffer_id(),
+                graph_store=graph,
+            )
+
+        if len(self.points.position) > 0:
+            self.points_node_name = merged_mesh_to_trimesh_scene(
+                scene=scene,
+                merged_mesh=self.points,
+                pbr_mat=self.points.material,
+                buffer_id=graph.next_buffer_id(),
+                graph_store=graph,
+            )
+        if self.solid_beams is not None and len(self.solid_beams.indices) > 0:
+            self.bm_solid_node_name = merged_mesh_to_trimesh_scene(
+                scene=scene,
+                merged_mesh=self.solid_beams,
+                pbr_mat=self.solid_beams.material,
+                buffer_id=graph.next_buffer_id(),
+                graph_store=graph,
+            )
 
 
 @dataclass
@@ -216,7 +260,7 @@ class Mesh:
         for i, n in enumerate(sorted(self.nodes.identifiers)):
             nid = graph.next_node_id()
             node = graph.add_node(GraphNode(f"P{int(n)}", nid, parent=points_node))
-            po_groups.append(GroupReference(node, nid, 1))
+            po_groups.append(GroupReference(node, i, 1))
 
         edges_mesh = MergedMesh(np.array(edges), coords, None, line_color, MeshType.LINES, groups=li_groups)
         points_mesh = MergedMesh(None, coords, None, points_color, MeshType.POINTS, groups=po_groups)

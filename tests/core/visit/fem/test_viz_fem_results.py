@@ -1,8 +1,9 @@
 import pytest
-
+import ada
 from ada.core.utils import traverse_hdf_datasets
 from ada.fem.formats.code_aster.results import get_eigen_data
 from ada.fem.results import EigenDataSummary
+from ada.visit.gltf.graph import GraphStore, GraphNode
 
 
 @pytest.fixture
@@ -31,5 +32,11 @@ def test_ca_sh_eig(code_aster_files):
     assert eig_res.modes[0].f_hz == pytest.approx(6.18343412480713)
     assert eig_res.modes[19].f_hz == pytest.approx(258.92237110772226)
 
-    # ares = ada.from_fem_res(rmed_sh_eig, proto_reader=True)
-    # ares.to_gltf('temp/rmed_sh_eig.glb', 0, )
+    fea_res = ada.from_fem_res(rmed_sh_eig)
+    # fea_res.show()
+    root = GraphNode("root", 0)
+    graph = GraphStore(root, {0: root})
+
+    # Check Mesh Stores
+    mesh_stores = fea_res.mesh.create_mesh_stores("test", graph, root)
+    assert mesh_stores is not None

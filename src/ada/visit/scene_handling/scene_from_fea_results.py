@@ -17,7 +17,6 @@ if TYPE_CHECKING:
 
 def scene_from_fem_results(fea_res: FEAResult, converter: SceneConverter):
     import trimesh
-    from trimesh.path.entities import Line
 
     from ada.api.animations import Animation
     from ada.core.vector_transforms import rot_matrix
@@ -30,34 +29,21 @@ def scene_from_fem_results(fea_res: FEAResult, converter: SceneConverter):
     warp_scale = params.fea_params.warp_scale
 
     # initial mesh
-    vertices = fea_res.mesh.nodes.coords
-
-    edges, faces = fea_res.mesh.get_edges_and_faces_from_mesh()
-
-    # faces
-    faces_mesh = trimesh.Trimesh(vertices=vertices, faces=faces)
-
-    # edges
-    entities = [Line(x) for x in edges]
-    edge_mesh = trimesh.path.Path3D(entities=entities, vertices=vertices)
-
-    # points
-    points_mesh = trimesh.points.PointCloud(vertices=vertices)
-
+    graph = converter.graph
     scene = trimesh.Scene(base_frame=converter.graph.top_level.name) if converter.scene is None else converter.scene
 
-    face_node = scene.add_geometry(faces_mesh, node_name=fea_res.name, geom_name="faces")
-    edge_node = scene.add_geometry(
-        edge_mesh, node_name=f"{fea_res.name}_edges", geom_name="edges", parent_node_name=fea_res.name
-    )
-    points_node = scene.add_geometry(points_mesh, node_name=f"{fea_res.name}_points", geom_name="points")
+    ms = fea_res.mesh.create_mesh_stores(fea_res.name, converter.graph, converter.graph.top_level)
+    ms.add_to_scene(scene, graph)
 
-    face_node_idx = [i for i, n in enumerate(scene.graph.nodes) if n == face_node][0]
-    vrtx_node_idx = [i for i, n in enumerate(scene.graph.nodes) if n == points_node][0]
+    face_node_idx = [i for i, n in enumerate(scene.graph.nodes) if n == ms.faces_node_name][0]
+    edge_node_idx = [i for i, n in enumerate(scene.graph.nodes) if n == ms.edges_node_name][0]
+    vrtx_node_idx = [i for i, n in enumerate(scene.graph.nodes) if n == ms.points_node_name][0]
 
     # React renderer supports animations
     sim_data = export_sim_metadata(fea_res)
-    sim_data.node_references = SimNodeReference(faces=face_node, edges=edge_node, points=points_node)
+    sim_data.node_references = SimNodeReference(
+        faces=ms.faces_node_name, edges=ms.edges_node_name, points=ms.points_node_name
+    )
 
     groups = []
     if fea_res.mesh.sets is not None:
@@ -101,7 +87,7 @@ def scene_from_fem_results(fea_res: FEAResult, converter: SceneConverter):
             time_steps,
             deformation_weights_keyframes=weight_steps,
             deformation_shape=delta_vertices,
-            node_idx=[face_node_idx, vrtx_node_idx],
+            node_idx=[face_node_idx, vrtx_node_idx, edge_node_idx],
         )
         converter.add_animation(animation)
 
