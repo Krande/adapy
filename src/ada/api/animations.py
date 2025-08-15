@@ -101,10 +101,9 @@ class Animation:
                 if primitive.get("targets") is None:
                     primitive["targets"] = []
 
-                target_idx = len(primitive["targets"])
                 primitive["targets"].append(deform_target)
-                if 'extras' not in mesh:
-                    mesh['extras'] = {}
+                if "extras" not in mesh:
+                    mesh["extras"] = {}
                 if mesh["extras"].get("targetNames") is None:
                     mesh["extras"]["targetNames"] = []
                 mesh["extras"]["targetNames"].append(self.name)

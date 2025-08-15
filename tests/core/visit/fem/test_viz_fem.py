@@ -42,7 +42,7 @@ def test_single_ses_elem(fem_files):
 
     ext_meta = AdaDesignAndAnalysisExtension(**scene.metadata.get("gltf_extensions", {}).get("ADA_EXT_data"))
     sim_obj = ext_meta.simulation_objects[0]
-    buffer_id = int(float(sim_obj.node_references.faces.replace('node', '')))
+    buffer_id = int(float(sim_obj.node_references.faces.replace("node", "")))
 
     backend = SqLiteBackend()
     tag = backend.add_metadata(scene.metadata, "sesam_1el_sh")
@@ -69,7 +69,7 @@ def test_double_ses_elem(fem_files):
 
     ext_meta = AdaDesignAndAnalysisExtension(**scene.metadata.get("gltf_extensions", {}).get("ADA_EXT_data"))
     sim_obj = ext_meta.simulation_objects[0]
-    buffer_id = int(float(sim_obj.node_references.faces.replace('node', '')))
+    buffer_id = int(float(sim_obj.node_references.faces.replace("node", "")))
 
     res = backend.get_mesh_data_from_face_index(1, buffer_id, tag)
     assert res.full_name == "EL1"
