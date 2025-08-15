@@ -163,7 +163,7 @@ export async function prepareLoadedModel({gltf_scene, hash}: PrepareLoadedModelP
             const lineChildren = original.children.filter((c): c is THREE.LineSegments => c instanceof THREE.LineSegments);
             for (const line_geo of lineChildren) {
                 try {
-                    assignMorphToEdgeAlso(customMesh, line_geo);
+                    // assignMorphToEdgeAlso(customMesh, line_geo);
                 } catch (e) {
                     console.error("Error assigning morph to edge:", e);
                 }

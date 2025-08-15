@@ -33,7 +33,8 @@ def test_ca_sh_eig(code_aster_files):
     assert eig_res.modes[19].f_hz == pytest.approx(258.92237110772226)
 
     fea_res = ada.from_fem_res(rmed_sh_eig)
-    # fea_res.show()
+
+    fea_res.show()
     root = GraphNode("root", 0)
     graph = GraphStore(root, {0: root})
 

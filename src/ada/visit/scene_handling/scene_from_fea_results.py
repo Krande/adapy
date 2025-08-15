@@ -87,7 +87,7 @@ def scene_from_fem_results(fea_res: FEAResult, converter: SceneConverter):
             time_steps,
             deformation_weights_keyframes=weight_steps,
             deformation_shape=delta_vertices,
-            node_idx=[face_node_idx, vrtx_node_idx, edge_node_idx],
+            node_idx=[face_node_idx, edge_node_idx,vrtx_node_idx],
         )
         converter.add_animation(animation)
 
