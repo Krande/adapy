@@ -36,7 +36,7 @@ def scene_from_fem_results(fea_res: FEAResult, converter: SceneConverter):
     ms.add_to_scene(scene, graph)
 
     face_node_idx = [i for i, n in enumerate(scene.graph.nodes) if n == ms.faces_node_name][0]
-    edge_node_idx = [i for i, n in enumerate(scene.graph.nodes) if n == ms.edges_node_name][0]
+    # edge_node_idx = [i for i, n in enumerate(scene.graph.nodes) if n == ms.edges_node_name][0]
     vrtx_node_idx = [i for i, n in enumerate(scene.graph.nodes) if n == ms.points_node_name][0]
 
     # React renderer supports animations

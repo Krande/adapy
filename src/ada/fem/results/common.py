@@ -16,15 +16,17 @@ from ada.visit.deprecated.websocket_server import send_to_viewer
 from ada.visit.gltf.graph import GraphNode, GraphStore
 from ada.visit.gltf.meshes import GroupReference, MergedMesh, MeshType
 from ada.visit.render_params import FEARenderParams, RenderParams
-from .field_data import ElementFieldData, NodalFieldData, NodalFieldType
+
 from ...comms.fb_wrap_model_gen import FilePurposeDC
+from .field_data import ElementFieldData, NodalFieldData, NodalFieldType
 
 if TYPE_CHECKING:
+    import trimesh
+
     from ada import Material, Node, Section
     from ada.fem import Elem, FemSet
-    from ada.visit.colors import Color
     from ada.fem.results.concepts import EigenDataSummary
-    import trimesh
+    from ada.visit.colors import Color
 
 
 @dataclass
@@ -213,8 +215,11 @@ class Mesh:
         nmap = {x: i for i, x in enumerate(self.nodes.identifiers)}
         keys = np.array(list(nmap.keys()))
 
+        coords = self.nodes.coords.flatten()
         edges = []
         faces = []
+
+        po_groups = []
         sh_groups = []
         li_groups = []
 
@@ -238,6 +243,7 @@ class Mesh:
                 edges += new_edges
 
                 if line_node is not None:
+
                     li_s = len(edges)
                     node = graph.add_node(
                         GraphNode(f"Li{elem_id}", graph.next_node_id(), hash=create_guid(), parent=line_node)
@@ -255,11 +261,8 @@ class Mesh:
                 )
                 sh_groups.append(GroupReference(node, face_s, len(new_faces)))
 
-        coords = self.nodes.coords.flatten()
-        po_groups = []
         for i, n in enumerate(sorted(self.nodes.identifiers)):
-            nid = graph.next_node_id()
-            node = graph.add_node(GraphNode(f"P{int(n)}", nid, parent=points_node))
+            node = graph.add_node(GraphNode(f"P{int(n)}", graph.next_node_id(), parent=points_node))
             po_groups.append(GroupReference(node, i, 1))
 
         edges_mesh = MergedMesh(np.array(edges), coords, None, line_color, MeshType.LINES, groups=li_groups)
@@ -269,10 +272,10 @@ class Mesh:
         bm_solid_mesh = None
         line_elems = self.get_line_elems() if self.elem_data is not None else []
         if use_solid_beams and len(line_elems) > 0:
+            from ada import Part
             from ada.fem.formats.utils import line_elem_to_beam
             from ada.occ.tessellating import BatchTessellator
             from ada.visit.gltf.optimize import concatenate_stores
-            from ada import Part
 
             dummy_part = Part(parent_name)
 
