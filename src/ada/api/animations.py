@@ -16,7 +16,7 @@ class Animation:
     deformation_shape: list[list[float]] = None
     node_idx: int | list[int] = None
 
-    def __call__(self, buffer_items, tree, morph_target_index, num_morph_targets):
+    def process(self, buffer_items, tree, morph_target_index, num_morph_targets):
         node_idx_list = self.node_idx
         if not isinstance(node_idx_list, list):
             node_idx_list = [node_idx_list]

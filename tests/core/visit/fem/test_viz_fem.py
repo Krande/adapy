@@ -81,7 +81,7 @@ def test_double_ses_elem(fem_files):
     assert res.full_name == "EL2"
 
     # a.to_gltf("temp/sesam_2el_sh.glb")
-
+    # a.show()
 
 def test_bm_fem(tmp_path):
     bm = ada.Beam("bm1", n1=[0, 0, 0], n2=[1, 0, 0], sec="IPE220", color="red")

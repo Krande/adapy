@@ -10,6 +10,13 @@ from ada.visit.gltf.graph import GraphStore, GraphNode
 def code_aster_files(example_files):
     return example_files / "fem_files" / "code_aster"
 
+def test_single_ses_elem_res(fem_files):
+    fea_res = ada.from_fem_res(fem_files / "sesam/1EL_SHELL_R1.SIF")
+    fea_res.show()
+
+def test_double_ses_elem_res(fem_files):
+    fea_res = ada.from_fem_res(fem_files / "sesam/2EL_SHELL_R1.SIF")
+    fea_res.show()
 
 def test_hdf5_file_structure(code_aster_files):
     rmed_bm_eig = code_aster_files / "Cantilever_CA_EIG_bm.rmed"

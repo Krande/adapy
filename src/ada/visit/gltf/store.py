@@ -35,7 +35,7 @@ def merged_mesh_to_trimesh_scene(
         mesh.visual.uv = np.zeros((len(mesh.vertices), 2))
     elif merged_mesh.type == MeshType.LINES:
         entities = [Line(x) for x in merged_mesh.indices.reshape(int(len(merged_mesh.indices) / 2), 2)]
-        mesh = trimesh.path.Path3D(entities=entities, vertices=vertices)
+        mesh = trimesh.path.Path3D(entities=entities, vertices=vertices, process=False)
         # Convert the tuple to a numpy array and reshape it to have one row and X columns
         t_array = np.array(pbr_mat.rgb255).reshape(1, -1)
         result = np.tile(t_array, (len(vertices), 1))

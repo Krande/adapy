@@ -175,7 +175,7 @@ class SceneConverter:
 
     def buffer_postprocessor(self, buffer_items, tree):
         for idx, animation in enumerate(self.animations):
-            animation(buffer_items, tree, morph_target_index=idx, num_morph_targets=len(self.animations))
+            animation.process(buffer_items, tree, morph_target_index=idx, num_morph_targets=len(self.animations))
 
     def tree_postprocessor(self, tree: OrderedDict):
         for material in tree["materials"]:
