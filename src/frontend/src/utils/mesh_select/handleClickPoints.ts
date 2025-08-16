@@ -31,7 +31,7 @@ export async function handleClickPoints(
             worldPosition = pick.worldPosition.clone();
         }
     } else {
-        // CPU fallback using raycaster data
+        // CPU fallback using raycaster data with morph deformation applied
         if (idx != null && obj.geometry && (obj.geometry as THREE.BufferGeometry).getAttribute) {
             const geom = obj.geometry as THREE.BufferGeometry;
             const posAttr = geom.getAttribute('position') as THREE.BufferAttribute | undefined;
@@ -41,6 +41,27 @@ export async function handleClickPoints(
                     posAttr.getY(idx),
                     posAttr.getZ(idx)
                 );
+                // Apply morph targets if present
+                const morphs = (geom.morphAttributes && geom.morphAttributes.position) as THREE.BufferAttribute[] | undefined;
+                const rel = geom.morphTargetsRelative === true;
+                const influences: number[] | undefined = (obj as any).morphTargetInfluences;
+                if (morphs && influences && morphs.length === influences.length) {
+                    let sum = 0;
+                    for (let i = 0; i < morphs.length; i++) {
+                        const inf = influences[i] || 0;
+                        if (inf === 0) continue;
+                        sum += inf;
+                        const mp = morphs[i];
+                        const mx = mp.getX(idx), my = mp.getY(idx), mz = mp.getZ(idx);
+                        if (rel) {
+                            local.x += mx * inf; local.y += my * inf; local.z += mz * inf;
+                        } else {
+                            local.x = local.x * (1 - sum) + mx * inf;
+                            local.y = local.y * (1 - sum) + my * inf;
+                            local.z = local.z * (1 - sum) + mz * inf;
+                        }
+                    }
+                }
                 worldPosition = local.applyMatrix4(obj.matrixWorld);
             }
         }

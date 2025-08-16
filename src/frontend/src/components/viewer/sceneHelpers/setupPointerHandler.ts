@@ -26,6 +26,21 @@ export function setupPointerHandler(
         const dy = e.clientY - pointerDownPos.y;
         if (dx * dx + dy * dy > clickThreshold * clickThreshold) return;
 
+        // Prefer GPU point picking for deformed impostor points if enabled
+        if (useOptionsStore.getState().useGpuPointPicking) {
+            const pick = gpuPointPicker.pickAt(e.clientX, e.clientY);
+            if (pick) {
+                const fakeIntersection: THREE.Intersection = {
+                    object: pick.object,
+                    index: pick.index,
+                    point: pick.worldPosition.clone(),
+                    distance: 0,
+                } as THREE.Intersection;
+                await handleClickPoints(fakeIntersection, e);
+                return;
+            }
+        }
+
         // cast a ray
         const rect = renderer.domElement.getBoundingClientRect();
         const x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
@@ -41,20 +56,6 @@ export function setupPointerHandler(
         const hits = ray.intersectObjects(scene.children, true);
 
         if (hits.length === 0) {
-            // Fallback: if GPU point picking is enabled, try picking deformed/translated points
-            if (useOptionsStore.getState().useGpuPointPicking) {
-                const pick = gpuPointPicker.pickAt(e.clientX, e.clientY);
-                if (pick) {
-                    const fakeIntersection: THREE.Intersection = {
-                        object: pick.object,
-                        index: pick.index,
-                        point: pick.worldPosition.clone(),
-                        distance: 0,
-                    } as THREE.Intersection;
-                    await handleClickPoints(fakeIntersection, e);
-                    return;
-                }
-            }
             handleClickEmptySpace(e);
         } else {
             const first = hits[0];

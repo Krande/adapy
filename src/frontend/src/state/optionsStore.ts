@@ -35,7 +35,7 @@ export const useOptionsStore = create<OptionsState>((set) => ({
     enableNodeEditor: false,
     pointSize: 0.01,
     pointSizeAbsolute: true,
-    useGpuPointPicking: false,
+    useGpuPointPicking: true,
 
     setIsOptionsVisible: (v) => set({isOptionsVisible: v}),
     setShowPerf: (v) => set({showPerf: v}),
