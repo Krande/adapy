@@ -25,6 +25,7 @@ export class CustomBatchedMesh extends THREE.Mesh {
     private _usesVertexColorsFlag: boolean = false;
     private _baseColors?: Float32Array; // snapshot of current animated/base colors
     private _selectionOverlay?: THREE.Mesh;
+    private _overlaySourceIndices?: Uint32Array; // mapping: overlay vertex i -> base vertex index
 
     // Class properties for raycasting
     private _raycast_inverseMatrix = new THREE.Matrix4();
@@ -152,6 +153,25 @@ export class CustomBatchedMesh extends THREE.Mesh {
         this.updateSelectionGroups(Array.from(this.selectedRanges));
     }
 
+    /** Disable vertex colors and restore original material behavior for non-vertex-colored mode */
+    public disableVertexColorsAndResetMaterial(): void {
+        // Remove color attribute from working geometry
+        if (this.geometry.getAttribute('color')) {
+            this.geometry.deleteAttribute('color');
+        }
+        this._baseColors = undefined;
+        // Turn off vertexColors on material slot 0 (original material)
+        const mat0 = (Array.isArray(this.material) ? (this.material as THREE.Material[])[0] : this.originalMaterial) as any;
+        if (mat0 && 'vertexColors' in mat0) {
+            mat0.vertexColors = false;
+            (mat0 as THREE.Material).needsUpdate = true;
+        }
+        this._recomputeUsesVertexColorsFlag();
+        this._disposeSelectionOverlay();
+        // Rebuild groups so selection uses material index swap again
+        this.updateGroups();
+    }
+
     /** Internal: recompute whether vertex colors are active based on current geometry/material */
     private _recomputeUsesVertexColorsFlag(): void {
         const hasColorAttr = !!this.geometry.getAttribute('color');
@@ -184,6 +204,7 @@ export class CustomBatchedMesh extends THREE.Mesh {
         // Clear overlay when nothing selected
         if (!rangeIds || rangeIds.length === 0) {
             this._disposeSelectionOverlay();
+            this._overlaySourceIndices = undefined;
             return;
         }
 
@@ -191,6 +212,7 @@ export class CustomBatchedMesh extends THREE.Mesh {
         const posAttr = srcGeom.getAttribute('position') as THREE.BufferAttribute | undefined;
         if (!posAttr) {
             this._disposeSelectionOverlay();
+            this._overlaySourceIndices = undefined;
             return;
         }
 
@@ -198,15 +220,48 @@ export class CustomBatchedMesh extends THREE.Mesh {
         const positions: number[] = [];
         const normals: number[] = [];
         const uvs: number[] = [];
+        const sourceIdx: number[] = [];
 
         const hasNormal = !!srcGeom.getAttribute('normal');
         const hasUV = !!srcGeom.getAttribute('uv');
         const nAttr = hasNormal ? (srcGeom.getAttribute('normal') as THREE.BufferAttribute) : undefined;
         const uvAttr = hasUV ? (srcGeom.getAttribute('uv') as THREE.BufferAttribute) : undefined;
 
+        // Read morph target data and current influences to initialize overlay at deformed shape
+        const morphPositions = (srcGeom.morphAttributes && srcGeom.morphAttributes.position) as THREE.BufferAttribute[] | undefined;
+        const morphTargetsRelative = srcGeom.morphTargetsRelative === true;
+        const influences: number[] | undefined = (this as any).morphTargetInfluences;
+
         const pushVertex = (vi: number) => {
-            const x = posAttr.getX(vi), y = posAttr.getY(vi), z = posAttr.getZ(vi);
-            positions.push(x, y, z);
+            // Start from base position
+            let mx = posAttr.getX(vi), my = posAttr.getY(vi), mz = posAttr.getZ(vi);
+
+            // Apply current morph target influences, if any
+            if (morphPositions && influences) {
+                let sumInf = 0;
+                for (let m = 0; m < morphPositions.length; m++) {
+                    const inf = influences[m] || 0;
+                    if (inf === 0) continue;
+                    sumInf += inf;
+                    const mp = morphPositions[m];
+                    const dx = mp.getX(vi);
+                    const dy = mp.getY(vi);
+                    const dz = mp.getZ(vi);
+                    if (morphTargetsRelative) {
+                        mx += dx * inf;
+                        my += dy * inf;
+                        mz += dz * inf;
+                    } else {
+                        // Blend towards absolute morph target
+                        mx = mx * (1 - sumInf) + dx * inf;
+                        my = my * (1 - sumInf) + dy * inf;
+                        mz = mz * (1 - sumInf) + dz * inf;
+                    }
+                }
+            }
+
+            positions.push(mx, my, mz);
+            sourceIdx.push(vi >>> 0);
             if (nAttr) {
                 const nx = nAttr.getX(vi), ny = nAttr.getY(vi), nz = nAttr.getZ(vi);
                 normals.push(nx, ny, nz);
@@ -249,6 +304,7 @@ export class CustomBatchedMesh extends THREE.Mesh {
         // Build overlay geometry
         if (positions.length === 0) {
             this._disposeSelectionOverlay();
+            this._overlaySourceIndices = undefined;
             return;
         }
 
@@ -264,10 +320,16 @@ export class CustomBatchedMesh extends THREE.Mesh {
         // Create or update overlay mesh
         const overlayMat = selectedMaterial.clone();
         overlayMat.side = THREE.DoubleSide;
+        // Make sure overlay can render without vertex colors and allow morph updates on CPU
+        ;(overlayMat as any).morphTargets = false;
         // Reduce z-fighting with base mesh
         (overlayMat as any).polygonOffset = true;
         (overlayMat as any).polygonOffsetFactor = -1;
         (overlayMat as any).polygonOffsetUnits = -1;
+
+        // Save mapping from overlay vertex to base index
+        this._overlaySourceIndices = new Uint32Array(sourceIdx);
+
         if (this._selectionOverlay) {
             // Replace geometry and material
             (this._selectionOverlay as THREE.Mesh).geometry.dispose();
@@ -282,6 +344,57 @@ export class CustomBatchedMesh extends THREE.Mesh {
             this._selectionOverlay.layers.mask = this.layers.mask;
             this.add(this._selectionOverlay);
         }
+    }
+
+    // Update overlay geometry positions each frame to match current morph-deformed shape
+    private _updateSelectionOverlayFromMorphs(): void {
+        if (!this._selectionOverlay || !this._overlaySourceIndices) return;
+        const baseGeom = this.geometry as THREE.BufferGeometry;
+        const posAttr = baseGeom.getAttribute('position') as THREE.BufferAttribute | undefined;
+        if (!posAttr) return;
+        const morphPositions = (baseGeom.morphAttributes && baseGeom.morphAttributes.position) as THREE.BufferAttribute[] | undefined;
+        const morphTargetsRelative = baseGeom.morphTargetsRelative === true;
+        const influences: number[] | undefined = (this as any).morphTargetInfluences;
+        const overlayGeom = this._selectionOverlay.geometry as THREE.BufferGeometry;
+        const oPosAttr = overlayGeom.getAttribute('position') as THREE.BufferAttribute | undefined;
+        if (!oPosAttr) return;
+
+        const arr = oPosAttr.array as Float32Array;
+        const srcIdx = this._overlaySourceIndices;
+        const tmp = new THREE.Vector3();
+        for (let i = 0, ov = 0; i < srcIdx.length; i++, ov += 3) {
+            const vi = srcIdx[i];
+            tmp.set(posAttr.getX(vi), posAttr.getY(vi), posAttr.getZ(vi));
+            if (morphPositions && influences) {
+                let sumInf = 0;
+                for (let m = 0; m < morphPositions.length; m++) {
+                    const inf = influences[m] || 0;
+                    if (inf === 0) continue;
+                    sumInf += inf;
+                    const mp = morphPositions[m];
+                    const mx = mp.getX(vi);
+                    const my = mp.getY(vi);
+                    const mz = mp.getZ(vi);
+                    if (morphTargetsRelative) {
+                        tmp.x += mx * inf;
+                        tmp.y += my * inf;
+                        tmp.z += mz * inf;
+                    } else {
+                        tmp.x = tmp.x * (1 - sumInf) + mx * inf;
+                        tmp.y = tmp.y * (1 - sumInf) + my * inf;
+                        tmp.z = tmp.z * (1 - sumInf) + mz * inf;
+                    }
+                }
+            }
+            arr[ov] = tmp.x; arr[ov + 1] = tmp.y; arr[ov + 2] = tmp.z;
+        }
+        oPosAttr.needsUpdate = true;
+        // Optionally, skip recomputing normals every frame for performance.
+    }
+
+    // Hook into render loop to keep overlay deformed with base morphs
+    public onBeforeRender(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera, geometry: THREE.BufferGeometry, material: THREE.Material, group: any): void {
+        this._updateSelectionOverlayFromMorphs();
     }
 
     public clearSelectionGroups() {

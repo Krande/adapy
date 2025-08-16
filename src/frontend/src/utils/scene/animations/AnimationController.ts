@@ -68,8 +68,10 @@ export class AnimationController {
             if (clip1) {
                 const mesh = this._get_mesh_from_action(clip1);
                 if (mesh) {
-                    // Avoid replacing material for CustomBatchedMesh
-                    if (!(mesh instanceof CustomBatchedMesh)) {
+                    if (mesh instanceof CustomBatchedMesh) {
+                        // Restore non-vertex-colored mode on our custom mesh
+                        mesh.disableVertexColorsAndResetMaterial();
+                    } else {
                         mesh.material = defaultMaterial;  // Reset to default material
                     }
                     mesh.geometry.attributes.position.needsUpdate = true;  // Update geometry
