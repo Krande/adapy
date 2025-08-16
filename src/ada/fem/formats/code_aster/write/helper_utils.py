@@ -13,7 +13,7 @@ def resolve_ids_in_multiple(tags, tags_data, is_elem):
     for t, memb in tags_data.items():
         fin_data[t] = []
         for mem in memb:
-            refs = list(filter(lambda x: type(x) == FemSet, mem.refs))
+            refs = list(filter(lambda x: type(x) is FemSet, mem.refs))
             if len(refs) > 1:
                 names = [r.name for r in refs]
                 if names not in tags.values():

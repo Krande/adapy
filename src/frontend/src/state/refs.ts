@@ -15,3 +15,6 @@ export const animationControllerRef = createRef<AnimationController | null>();
 export const simulationDataRef = createRef<SimulationDataExtensionMetadata | null>();
 export const adaExtensionRef = createRef<ADADesignAndAnalysisExtension | null>();
 export const modelKeyMapRef = createRef<Map<string, THREE.Object3D | THREE.Group> | null>();
+
+// Highlight for a selected point (single point overlay)
+export const selectedPointRef = createRef<THREE.Points | null>();

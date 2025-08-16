@@ -9,6 +9,15 @@ export async function queryMeshDrawRange(
     return await modelStore.getDrawRange(key, meshName, faceIndex);
 }
 
+// an async helper—still off the main thread:
+export async function queryPointDrawRange(
+    key: string,
+    meshName: string,
+    pointIndex: number
+): Promise<[string, number, number] | null> {
+    return await modelStore.getPointId(key, meshName, pointIndex);
+}
+
 export async function queryNameFromRangeId(
     key: string,
     rangeId: string

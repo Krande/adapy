@@ -1,14 +1,23 @@
 import * as THREE from 'three';
 import {useColorStore} from "../../../state/colorLegendStore";
+import {CustomBatchedMesh} from "../../mesh_select/CustomBatchedMesh";
 
 type Vector = number[];
 type Matrix = Vector[];
 
 export function updateMeshMaterial(mesh: THREE.Mesh) {
-    // Check if the material supports vertex colors
-    // Replace the material with one that supports vertex colors
+    // For CustomBatchedMesh, do not replace its material array; enable vertex colors on slot 0.
+    if (mesh instanceof CustomBatchedMesh) {
+        const mat0 = (Array.isArray(mesh.material) ? (mesh.material as THREE.Material[])[0] : mesh.material) as any;
+        if (mat0 && 'vertexColors' in mat0) {
+            mat0.vertexColors = true;
+            (mat0 as THREE.Material).side = THREE.DoubleSide;
+            (mat0 as THREE.Material).needsUpdate = true;
+        }
+        return;
+    }
+    // Otherwise, ensure the material supports vertex colors by replacing it
     mesh.material = new THREE.MeshBasicMaterial({vertexColors: true, side: THREE.DoubleSide});
-    // make sure the material is double sided so that we can see the back side of the mesh
 }
 
 
@@ -57,7 +66,7 @@ export function colorVerticesBasedOnDeformation(mesh: THREE.Mesh, morphTargetInd
     const morph_3xN = convertTo3xN(Array.from(morphAttribute.array));
     const coloredData = DataColorizer.colorizeData(morph_3xN);
 
-    // Create a color attribute
+    // Create or replace the color attribute
     const colors = new Float32Array(positionAttribute.count * 3);
     const colorAttribute = new THREE.BufferAttribute(colors, 3);
     geometry.setAttribute('color', colorAttribute);
@@ -74,4 +83,10 @@ export function colorVerticesBasedOnDeformation(mesh: THREE.Mesh, morphTargetInd
 
     // Update the material
     updateMeshMaterial(mesh);
+
+    // If this is a batched mesh, capture these as base colors for selection overlay
+    if (mesh instanceof CustomBatchedMesh) {
+        mesh.setBaseColorsFromCurrent();
+        mesh.reapplySelectionHighlight();
+    }
 }

@@ -1,13 +1,33 @@
 import pytest
 
+import ada
 from ada.core.utils import traverse_hdf_datasets
 from ada.fem.formats.code_aster.results import get_eigen_data
 from ada.fem.results import EigenDataSummary
+from ada.visit.gltf.graph import GraphNode, GraphStore
 
 
 @pytest.fixture
 def code_aster_files(example_files):
     return example_files / "fem_files" / "code_aster"
+
+
+def test_single_ses_elem_res(fem_files):
+    fea_res = ada.from_fem_res(fem_files / "sesam/1EL_SHELL_R1.SIF")
+    elem_blocks = fea_res.mesh.elements
+    assert len(elem_blocks) == 1
+    elem_block1 = elem_blocks[0]
+    assert len(elem_block1.identifiers) == 1
+    # fea_res.show()
+
+
+def test_double_ses_elem_res(fem_files):
+    fea_res = ada.from_fem_res(fem_files / "sesam/2EL_SHELL_R1.SIF")
+    elem_blocks = fea_res.mesh.elements
+    assert len(elem_blocks) == 1
+    elem_block1 = elem_blocks[0]
+    assert len(elem_block1.identifiers) == 2
+    # fea_res.show()
 
 
 def test_hdf5_file_structure(code_aster_files):
@@ -31,5 +51,12 @@ def test_ca_sh_eig(code_aster_files):
     assert eig_res.modes[0].f_hz == pytest.approx(6.18343412480713)
     assert eig_res.modes[19].f_hz == pytest.approx(258.92237110772226)
 
-    # ares = ada.from_fem_res(rmed_sh_eig, proto_reader=True)
-    # ares.to_gltf('temp/rmed_sh_eig.glb', 0, )
+    fea_res = ada.from_fem_res(rmed_sh_eig)
+
+    # fea_res.show()
+    root = GraphNode("root", 0)
+    graph = GraphStore(root, {0: root})
+
+    # Check Mesh Stores
+    mesh_stores = fea_res.mesh.create_mesh_stores("test", graph, root)
+    assert mesh_stores is not None

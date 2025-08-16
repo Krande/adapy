@@ -60,7 +60,7 @@ class MergedMesh:
     indices: np.ndarray
     position: np.ndarray
     normal: np.ndarray | None
-    material: int
+    material: int | Color
     type: MeshType
     groups: list[GroupReference]
 

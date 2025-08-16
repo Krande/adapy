@@ -10,6 +10,7 @@ import {cacheAndBuildTree} from "../../../state/model_worker/cacheModelUtils";
 import {mapAnimationTargets} from "../../../utils/scene/animations/mapAnimationTargets";
 import {loadGLTF} from "./asyncModelLoader";
 import {AnimationController} from "../../../utils/scene/animations/AnimationController";
+import {updateAllPointsSize} from "../../../utils/scene/updatePointSizes";
 
 export async function setupModelLoaderAsync(
     modelUrl: string | null, translate: boolean = true
@@ -109,6 +110,14 @@ export async function setupModelLoaderAsync(
     modelGroup.add(gltf_scene);
 
     main_scene.add(modelGroup);
+
+    // Ensure point sizes and sizing mode are applied after the model is in the scene,
+    // so points are visible immediately without needing the Options panel.
+    try {
+        const ps = optionsStore.pointSize ?? 0.01;
+        const abs = (optionsStore as any).pointSizeAbsolute ?? true;
+        updateAllPointsSize(ps, abs);
+    } catch {}
 
     if (!modelKeyMapRef.current) {
         modelKeyMapRef.current = new Map<string, THREE.Object3D>();

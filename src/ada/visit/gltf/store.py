@@ -35,17 +35,27 @@ def merged_mesh_to_trimesh_scene(
         mesh.visual.uv = np.zeros((len(mesh.vertices), 2))
     elif merged_mesh.type == MeshType.LINES:
         entities = [Line(x) for x in merged_mesh.indices.reshape(int(len(merged_mesh.indices) / 2), 2)]
-        mesh = trimesh.path.Path3D(entities=entities, vertices=vertices)
+        mesh = trimesh.path.Path3D(entities=entities, vertices=vertices, process=False)
         # Convert the tuple to a numpy array and reshape it to have one row and X columns
         t_array = np.array(pbr_mat.rgb255).reshape(1, -1)
         result = np.tile(t_array, (len(vertices), 1))
         mesh.visual = trimesh.visual.ColorVisuals(mesh=mesh, vertex_colors=result)
+        # Build expanded edge vertex mapping (per GL_LINES vertex order)
+        # For Line entities, each entity has two endpoints; the exported sequence
+        # is simply [i0, i1] per entity, stacked in order.
+        expanded = []
+        try:
+            edge_pairs = merged_mesh.indices.reshape(int(len(merged_mesh.indices) / 2), 2)
+            for i, j in edge_pairs:
+                expanded.append(int(i))
+                expanded.append(int(j))
+        except Exception:
+            expanded = []
+        if graph_store is not None and len(expanded) > 0:
+            # Store mapping keyed by buffer_id so the animation builder can retrieve it
+            graph_store.add_edge_mapping(buffer_id, expanded)
     elif merged_mesh.type == MeshType.POINTS:
         mesh = trimesh.points.PointCloud(vertices=vertices)
-        # Convert the tuple to a numpy array and reshape it to have one row and X columns
-        t_array = np.array(pbr_mat.rgb255).reshape(1, -1)
-        result = np.tile(t_array, (len(vertices), 1))
-        mesh.visual = trimesh.visual.ColorVisuals(mesh=mesh, vertex_colors=result)
     else:
         raise NotImplementedError(f"Mesh type {merged_mesh.type} is not supported")
 
@@ -63,7 +73,6 @@ def merged_mesh_to_trimesh_scene(
 
     if graph_store:
         graph_store.add_merged_mesh(buffer_id, merged_mesh)
-        # scene.metadata[f"draw_ranges_node{buffer_id}"] = create_id_sequence(graph_store, merged_mesh)
 
     return scene.add_geometry(
         mesh,

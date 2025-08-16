@@ -39,7 +39,7 @@ def get_eigen_data(dat_file: str | os.PathLike) -> EigenDataSummary:
 
 def read_sesam_results(results: "Results", file_ref: pathlib.Path, overwrite):
     dat_file = (file_ref.parent / "SESTRA").with_suffix(".LIS")
-    if dat_file.exists() and type(results.assembly.fem.steps[0]) == StepEigen:
+    if dat_file.exists() and type(results.assembly.fem.steps[0]) is StepEigen:
         results.eigen_mode_data = get_eigen_data(dat_file)
 
     convert_sin_to_sif(results.results_file_path)
