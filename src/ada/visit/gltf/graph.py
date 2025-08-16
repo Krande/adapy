@@ -18,6 +18,7 @@ class GraphStore:
     hash_map: dict[str, GraphNode] = field(repr=False, default=None)
     draw_ranges: list[GroupReference] = field(default_factory=list, repr=False)
     merged_meshes: dict[int, MergedMesh] = field(default_factory=dict, repr=False)
+    edge_mappings: dict[int, list[int]] = field(default_factory=dict, repr=False)
 
     def __post_init__(self):
         self.num_meshes = sum(len(n.mesh_indices) for n in self.nodes.values())
@@ -51,6 +52,9 @@ class GraphStore:
 
     def add_merged_mesh(self, buffer_id: int, merged_mesh: MergedMesh):
         self.merged_meshes[buffer_id] = merged_mesh
+
+    def add_edge_mapping(self, buffer_id: int, mapping: list[int]):
+        self.edge_mappings[buffer_id] = mapping
 
     def add_nodes_from_part(self, part: Part) -> None:
         """Add nodes from Part/Assembly"""

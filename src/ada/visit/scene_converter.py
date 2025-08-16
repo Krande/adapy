@@ -156,10 +156,17 @@ class SceneConverter:
             mesh_idx = tree["nodes"][node_idx]["mesh"]
             mesh = tree["meshes"][mesh_idx]
             for primitive in mesh["primitives"]:
-                self._update_buffer_view(tree, primitive["attributes"]["POSITION"], 34962)
-                self._update_buffer_view(tree, primitive["indices"], 34963)
-                for target in primitive["targets"]:
-                    self._update_buffer_view(tree, target["POSITION"], 34962)
+                # Set ARRAY_BUFFER target for common attributes if present
+                for attr in ("POSITION", "NORMAL", "TEXCOORD_0", "COLOR_0", "JOINTS_0", "WEIGHTS_0"):
+                    if attr in primitive.get("attributes", {}):
+                        self._update_buffer_view(tree, primitive["attributes"][attr], 34962)
+                # ELEMENT_ARRAY_BUFFER for indices if present
+                if "indices" in primitive:
+                    self._update_buffer_view(tree, primitive["indices"], 34963)
+                # Morph target POSITIONs
+                for target in primitive.get("targets", []):
+                    if "POSITION" in target:
+                        self._update_buffer_view(tree, target["POSITION"], 34962)
 
     def _update_extensions(self, tree: OrderedDict):
         if tree.get("extensionsUsed") is None:

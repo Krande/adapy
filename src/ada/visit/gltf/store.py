@@ -40,6 +40,20 @@ def merged_mesh_to_trimesh_scene(
         t_array = np.array(pbr_mat.rgb255).reshape(1, -1)
         result = np.tile(t_array, (len(vertices), 1))
         mesh.visual = trimesh.visual.ColorVisuals(mesh=mesh, vertex_colors=result)
+        # Build expanded edge vertex mapping (per GL_LINES vertex order)
+        # For Line entities, each entity has two endpoints; the exported sequence
+        # is simply [i0, i1] per entity, stacked in order.
+        expanded = []
+        try:
+            edge_pairs = merged_mesh.indices.reshape(int(len(merged_mesh.indices) / 2), 2)
+            for i, j in edge_pairs:
+                expanded.append(int(i))
+                expanded.append(int(j))
+        except Exception:
+            expanded = []
+        if graph_store is not None and len(expanded) > 0:
+            # Store mapping keyed by buffer_id so the animation builder can retrieve it
+            graph_store.add_edge_mapping(buffer_id, expanded)
     elif merged_mesh.type == MeshType.POINTS:
         mesh = trimesh.points.PointCloud(vertices=vertices)
     else:

@@ -212,7 +212,7 @@ nodejs = "*"
 flatbuffers = "==25.2.10"
 
 [tool.pixi.feature.lint.tasks]
-lint = "black . --config pyproject.toml && ruff check . --fix"
+lint = "black . --config pyproject.toml && ruff check . --fix && isort ."
 flat = { cmd = "python src/flatbuffers/update_flatbuffers.py && pixi run lint", cwd = "./" }
 
 json-code-gen-py = { cmd = [
