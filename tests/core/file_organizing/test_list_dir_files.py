@@ -8,6 +8,7 @@ def test_list_of_files(example_files, fem_files):
 
     # Only check the first 10 elements of the list
     desired_list = [
+        ".gitignore",
         "abaqus/box.inp",
         "abaqus/box_rigid.inp",
         "abaqus/element_elset.inp",
