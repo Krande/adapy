@@ -21,6 +21,11 @@ export class CustomBatchedMesh extends THREE.Mesh {
     private rangeIdToIndex?: Map<string, number>;
     private edgeMaterial?: THREE.ShaderMaterial;
 
+    // Selection coloring helpers
+    private _usesVertexColorsFlag: boolean = false;
+    private _baseColors?: Float32Array; // snapshot of current animated/base colors
+    private _selectionOverlay?: THREE.Mesh;
+
     // Class properties for raycasting
     private _raycast_inverseMatrix = new THREE.Matrix4();
     private _raycast_ray = new THREE.Ray();
@@ -46,15 +51,25 @@ export class CustomBatchedMesh extends THREE.Mesh {
         this.originalGeometry = geometry;
         this.originalMaterial = material.clone();
         this.drawRanges = drawRanges;
-        this.updateGroups();
         this.unique_key = unique_key;
         this.is_design = is_design;
         this.ada_ext_data = ada_ext_data;
+
+        // Determine if this mesh uses vertex colors initially
+        this._recomputeUsesVertexColorsFlag();
+        this.updateGroups();
     }
 
     private updateGroups() {
         const idxCount = this.geometry.index!.count;
         this.geometry.clearGroups();
+        // Recompute whether we use vertex colors based on current state
+        this._recomputeUsesVertexColorsFlag();
+        // If vertex coloring is not active, ensure any selection overlay is removed
+        if (!this._usesVertexColorsFlag) {
+            this._disposeSelectionOverlay();
+        }
+        // Keep three material slots: 0=original, 1=selected overlay (only for non-vertex-colored), 2=invisible
         this.material = [
             this.originalMaterial,
             selectedMaterial.clone(),
@@ -69,7 +84,7 @@ export class CustomBatchedMesh extends THREE.Mesh {
             if (s > cur) this.geometry.addGroup(cur, s - cur, 0);
             let mi: 0 | 1 | 2 = 0;
             if (this.hiddenRanges.has(id)) mi = 2;
-            else if (this.selectedRanges.has(id)) mi = 1;
+            else if (this.selectedRanges.has(id)) mi = (this._usesVertexColorsFlag ? 0 : 1);
             this.geometry.addGroup(s, c, mi);
             cur = s + c;
         }
@@ -97,10 +112,175 @@ export class CustomBatchedMesh extends THREE.Mesh {
 
     public updateSelectionGroups(rangeIds: string[]) {
         this.selectedRanges = new Set(rangeIds);
+
+        if (this._usesVertexColorsFlag) {
+            // When using vertex colors, do not recolor the base mesh. Instead, build a face overlay
+            // by duplicating the selected triangles into a child mesh using selectedMaterial.
+            this._rebuildSelectionOverlay(rangeIds);
+        }
+
+        // Update groups regardless (to maintain hidden/selected visibility and non-vertex-colored behavior)
         this.updateGroups();
+
+        // Edge overlay highlight (unchanged)
         if (this.edgeMaterial && this.rangeIdToIndex) {
             this.edgeMaterial.uniforms.uHighlighted.value =
                 rangeIds.length ? this.rangeIdToIndex.get(rangeIds[0])! : -1;
+        }
+    }
+
+    /** Capture the current geometry color attribute as the new base for future selection overlays */
+    public setBaseColorsFromCurrent(): void {
+        const attr = this.geometry.getAttribute('color') as THREE.BufferAttribute | undefined;
+        if (attr) {
+            const arr = attr.array as Float32Array;
+            this._baseColors = new Float32Array(arr.length);
+            this._baseColors.set(arr);
+            // Ensure vertex colors flag is on when base colors exist
+            this._recomputeUsesVertexColorsFlag();
+            // also ensure original material enables vertex colors
+            const mat0 = (Array.isArray(this.material) ? (this.material as THREE.Material[])[0] : this.originalMaterial) as any;
+            if (mat0 && 'vertexColors' in mat0) {
+                mat0.vertexColors = true;
+                (mat0 as THREE.Material).needsUpdate = true;
+            }
+        }
+    }
+
+    /** Reapply current selection highlighting on top of base colors */
+    public reapplySelectionHighlight(): void {
+        this.updateSelectionGroups(Array.from(this.selectedRanges));
+    }
+
+    /** Internal: recompute whether vertex colors are active based on current geometry/material */
+    private _recomputeUsesVertexColorsFlag(): void {
+        const hasColorAttr = !!this.geometry.getAttribute('color');
+        let usesVC = false;
+        // check material 0 if array, else originalMaterial
+        const mat0 = (Array.isArray(this.material) ? (this.material as THREE.Material[])[0] : this.originalMaterial) as any;
+        if (hasColorAttr && mat0 && 'vertexColors' in mat0) {
+            usesVC = !!mat0.vertexColors;
+        }
+        // also consider if we have a base color snapshot
+        this._usesVertexColorsFlag = usesVC || !!this._baseColors;
+    }
+
+    private _disposeSelectionOverlay(): void {
+        if (this._selectionOverlay) {
+            // Remove from scene graph
+            this.remove(this._selectionOverlay);
+            // Dispose geometry and material if we own them
+            const geom = this._selectionOverlay.geometry as THREE.BufferGeometry;
+            geom.dispose();
+            // Do not dispose selectedMaterial (it might be shared); only dispose if it was cloned.
+            // We clone here to be safe per-instance; so dispose material too.
+            const mat = this._selectionOverlay.material as THREE.Material;
+            mat.dispose();
+            this._selectionOverlay = undefined;
+        }
+    }
+
+    private _rebuildSelectionOverlay(rangeIds: string[]): void {
+        // Clear overlay when nothing selected
+        if (!rangeIds || rangeIds.length === 0) {
+            this._disposeSelectionOverlay();
+            return;
+        }
+
+        const srcGeom = this.geometry as THREE.BufferGeometry;
+        const posAttr = srcGeom.getAttribute('position') as THREE.BufferAttribute | undefined;
+        if (!posAttr) {
+            this._disposeSelectionOverlay();
+            return;
+        }
+
+        const indexAttr = srcGeom.getIndex();
+        const positions: number[] = [];
+        const normals: number[] = [];
+        const uvs: number[] = [];
+
+        const hasNormal = !!srcGeom.getAttribute('normal');
+        const hasUV = !!srcGeom.getAttribute('uv');
+        const nAttr = hasNormal ? (srcGeom.getAttribute('normal') as THREE.BufferAttribute) : undefined;
+        const uvAttr = hasUV ? (srcGeom.getAttribute('uv') as THREE.BufferAttribute) : undefined;
+
+        const pushVertex = (vi: number) => {
+            const x = posAttr.getX(vi), y = posAttr.getY(vi), z = posAttr.getZ(vi);
+            positions.push(x, y, z);
+            if (nAttr) {
+                const nx = nAttr.getX(vi), ny = nAttr.getY(vi), nz = nAttr.getZ(vi);
+                normals.push(nx, ny, nz);
+            }
+            if (uvAttr) {
+                const u = uvAttr.getX(vi), v = uvAttr.getY(vi);
+                uvs.push(u, v);
+            }
+        };
+
+        if (indexAttr) {
+            const idxArr = indexAttr.array as Uint16Array | Uint32Array;
+            for (const rid of rangeIds) {
+                if (this.hiddenRanges.has(rid)) continue;
+                const range = this.drawRanges.get(rid);
+                if (!range) continue;
+                const [start, count] = range;
+                const end = start + count;
+                // assume triangles; step 3
+                for (let i = start; i + 2 < end; i += 3) {
+                    const a = idxArr[i], b = idxArr[i + 1], c = idxArr[i + 2];
+                    pushVertex(a); pushVertex(b); pushVertex(c);
+                }
+            }
+        } else {
+            // Non-indexed: interpret start/count as triangle vertex span directly
+            const vertCount = posAttr.count;
+            for (const rid of rangeIds) {
+                if (this.hiddenRanges.has(rid)) continue;
+                const range = this.drawRanges.get(rid);
+                if (!range) continue;
+                let [start, count] = range;
+                const end = Math.min(start + count, vertCount);
+                for (let i = start; i + 2 < end; i += 3) {
+                    pushVertex(i); pushVertex(i + 1); pushVertex(i + 2);
+                }
+            }
+        }
+
+        // Build overlay geometry
+        if (positions.length === 0) {
+            this._disposeSelectionOverlay();
+            return;
+        }
+
+        const overlayGeom = new THREE.BufferGeometry();
+        overlayGeom.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+        if (normals.length > 0) overlayGeom.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+        if (uvs.length > 0) overlayGeom.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+        // Ensure normals exist if material requires lighting
+        if (!overlayGeom.getAttribute('normal')) {
+            overlayGeom.computeVertexNormals();
+        }
+
+        // Create or update overlay mesh
+        const overlayMat = selectedMaterial.clone();
+        overlayMat.side = THREE.DoubleSide;
+        // Reduce z-fighting with base mesh
+        (overlayMat as any).polygonOffset = true;
+        (overlayMat as any).polygonOffsetFactor = -1;
+        (overlayMat as any).polygonOffsetUnits = -1;
+        if (this._selectionOverlay) {
+            // Replace geometry and material
+            (this._selectionOverlay as THREE.Mesh).geometry.dispose();
+            (this._selectionOverlay as THREE.Mesh).material.dispose();
+            (this._selectionOverlay as THREE.Mesh).geometry = overlayGeom;
+            (this._selectionOverlay as THREE.Mesh).material = overlayMat;
+        } else {
+            this._selectionOverlay = new THREE.Mesh(overlayGeom, overlayMat);
+            // inherit transform as child
+            this._selectionOverlay.matrixAutoUpdate = true;
+            // Render on same layer(s)
+            this._selectionOverlay.layers.mask = this.layers.mask;
+            this.add(this._selectionOverlay);
         }
     }
 

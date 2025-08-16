@@ -3,6 +3,7 @@ import * as THREE from 'three';
 import {colorVerticesBasedOnDeformation} from "../analysis/colorize_vector_data";
 import {sceneRef} from "../../../state/refs";
 import {AnimationState, useAnimationStore} from "../../../state/animationStore";
+import {CustomBatchedMesh} from "../../mesh_select/CustomBatchedMesh";
 
 export class AnimationController {
     private mixer: THREE.AnimationMixer;
@@ -67,7 +68,10 @@ export class AnimationController {
             if (clip1) {
                 const mesh = this._get_mesh_from_action(clip1);
                 if (mesh) {
-                    mesh.material = defaultMaterial;  // Reset to default material
+                    // Avoid replacing material for CustomBatchedMesh
+                    if (!(mesh instanceof CustomBatchedMesh)) {
+                        mesh.material = defaultMaterial;  // Reset to default material
+                    }
                     mesh.geometry.attributes.position.needsUpdate = true;  // Update geometry
                 }
             }
