@@ -6,7 +6,9 @@ import {showSelectedPoint} from "../scene/highlightSelectedPoint";
 
 import {gpuPointPicker} from "./GpuPointPicker";
 import {useSelectedObjectStore} from "../../state/useSelectedObjectStore";
-import {queryMeshDrawRange, queryPointDrawRange} from "./queryMeshDrawRange";
+import {queryMeshDrawRange, queryNameFromRangeId, queryPointDrawRange} from "./queryMeshDrawRange";
+import {useTreeViewStore} from "../../state/treeViewStore";
+import {findNodeById} from "../tree_view/findNodeById";
 
 export async function handleClickPoints(
     intersect: THREE.Intersection,
@@ -17,6 +19,7 @@ export async function handleClickPoints(
     // Clear the selection if the draw range is already selected
     const selectedObjectStore = useSelectedObjectStore.getState();
     selectedObjectStore.clearSelectedObjects();
+
     const useGpu = useOptionsStore.getState().useGpuPointPicking;
 
     let obj = intersect.object as THREE.Points;
@@ -54,7 +57,9 @@ export async function handleClickPoints(
                         const mp = morphs[i];
                         const mx = mp.getX(idx), my = mp.getY(idx), mz = mp.getZ(idx);
                         if (rel) {
-                            local.x += mx * inf; local.y += my * inf; local.z += mz * inf;
+                            local.x += mx * inf;
+                            local.y += my * inf;
+                            local.z += mz * inf;
                         } else {
                             local.x = local.x * (1 - sum) + mx * inf;
                             local.y = local.y * (1 - sum) + my * inf;
@@ -77,20 +82,44 @@ export async function handleClickPoints(
         return
     }
     const drawRange = await queryPointDrawRange(hash, obj.name, idx);
-    let name = "";
-
-    if (drawRange) {
-        const pid = drawRange[1]
-        name = `P${pid}`
-    } else {
-        // Set a readable name for info box
-        const baseName = obj.name || "points";
-        name = `${baseName}[${idx}]`
+    // update object info
+    if (!drawRange) {
+        console.warn("selected mesh has no draw range");
+        return;
     }
-    useObjectInfoStore.getState().setName(name);
-
 
     // Show/update highlight for the selected point (use current point size), using exact world position
     const ps = useOptionsStore.getState().pointSize;
     showSelectedPoint(worldPosition.clone(), ps);
+
+
+    const [rangeId] = drawRange;
+    const selected = await queryNameFromRangeId(hash, rangeId);
+    if (!selected) {
+        console.warn("selected mesh has no name");
+        return;
+    }
+    useObjectInfoStore.getState().setName(selected);
+    // update tree selection
+    const treeViewStore = useTreeViewStore.getState();
+    if (treeViewStore.treeData && treeViewStore.tree && !treeViewStore.isTreeCollapsed) {
+        // flag programmatic change
+        // @ts-ignore
+        treeViewStore.tree.isProgrammaticChange = true;
+
+        const node_ids: string[] = [];
+        const node = findNodeById(treeViewStore.treeData, selected);
+        if (node) node_ids.push(node.id);
+
+        const lastNode = findNodeById(treeViewStore.treeData, selected);
+        treeViewStore.tree.setSelection({
+            ids: node_ids,
+            mostRecent: lastNode,
+            anchor: lastNode,
+        });
+        if (lastNode) treeViewStore.tree.scrollTo({id: lastNode.id});
+
+        // @ts-ignore
+        treeViewStore.tree.isProgrammaticChange = false;
+    }
 }
