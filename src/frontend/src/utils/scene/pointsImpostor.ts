@@ -30,6 +30,10 @@ export function createSphericalPointMaterial(params: {
         #include <color_pars_vertex>
         #endif
         #include <morphtarget_pars_vertex>
+        #ifdef USE_SELECTION
+        attribute float sel;
+        varying float vSel;
+        #endif
         uniform float pointSize; // screen-space size (pixels)
         uniform bool uWorldSize; // toggle for absolute sizing
         uniform float uWorldPointSize; // world-space diameter
@@ -53,6 +57,10 @@ export function createSphericalPointMaterial(params: {
             #ifdef USE_COLOR
             #include <color_vertex>
             #endif
+
+            #ifdef USE_SELECTION
+            vSel = sel;
+            #endif
         }
     `;
 
@@ -61,6 +69,10 @@ export function createSphericalPointMaterial(params: {
         #include <common>
         #ifdef USE_COLOR
         #include <color_pars_fragment>
+        #endif
+        #ifdef USE_SELECTION
+        varying float vSel;
+        uniform vec3 uSelColor;
         #endif
         uniform vec3 uColor;
         uniform float uOpacity;
@@ -87,7 +99,13 @@ export function createSphericalPointMaterial(params: {
                 uColor;
             #endif
 
-            vec3 col = base * lighting;
+            #ifdef USE_SELECTION
+            vec3 finalBase = mix(base, uSelColor, step(0.5, vSel));
+            #else
+            vec3 finalBase = base;
+            #endif
+
+            vec3 col = finalBase * lighting;
             gl_FragColor = vec4(col, uOpacity);
             #include <tonemapping_fragment>
             #include <colorspace_fragment>
@@ -105,6 +123,7 @@ export function createSphericalPointMaterial(params: {
             uViewportHeight: { value: 800.0 },
             uColor: { value: uColor },
             uOpacity: { value: opacity },
+            uSelColor: { value: new THREE.Color(1,1,1) },
         },
         transparent: opacity < 1.0,
         depthTest,
@@ -116,6 +135,26 @@ export function createSphericalPointMaterial(params: {
     }
 
     return mat;
+}
+
+export function enablePointSelectionMask(points: THREE.Points, selColor: THREE.Color) {
+    const geom = points.geometry as THREE.BufferGeometry;
+    const mat = points.material as THREE.ShaderMaterial & { uniforms?: any, defines?: any };
+    if (!mat || !(mat as any).isShaderMaterial) return;
+    mat.defines = { ...(mat.defines || {}), USE_SELECTION: 1 } as any;
+    if (mat.uniforms && mat.uniforms.uSelColor) {
+        mat.uniforms.uSelColor.value.copy(selColor);
+    }
+    mat.needsUpdate = true;
+    // Ensure selection attribute exists and is correct size
+    const pos = geom.getAttribute('position') as THREE.BufferAttribute;
+    const count = pos ? pos.count : 0;
+    let selAttr = geom.getAttribute('sel') as THREE.BufferAttribute | undefined;
+    if (!selAttr || selAttr.count !== count) {
+        const arr = new Float32Array(count);
+        selAttr = new THREE.BufferAttribute(arr, 1);
+        geom.setAttribute('sel', selAttr);
+    }
 }
 
 // Replace a THREE.Points' material with the spherical impostor material, preserving color and size when possible.

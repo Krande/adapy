@@ -2,7 +2,8 @@ import * as THREE from "three";
 import {useModelState} from "../../state/modelState";
 import {useObjectInfoStore} from "../../state/objectInfoStore";
 import {useOptionsStore} from "../../state/optionsStore";
-import {showSelectedPoint, showSelectedPoints} from "../scene/highlightSelectedPoint";
+import {enablePointSelectionMask} from "../scene/pointsImpostor";
+import {selectedMaterial} from "../default_materials";
 
 import {gpuPointPicker} from "./GpuPointPicker";
 import {useSelectedObjectStore} from "../../state/useSelectedObjectStore";
@@ -89,73 +90,76 @@ export async function handleClickPoints(
 
     const [rangeId] = drawRange;
 
+    // Capture previously selected Points objects (to clear masks if they become unselected)
+    const prevSelectedPoints = new Set<THREE.Points>();
+    for (const [o] of useSelectedObjectStore.getState().selectedObjects) {
+        if ((o as any).isPoints) prevSelectedPoints.add(o as THREE.Points);
+    }
+
     // Update unified selection state (supports multi-select with Shift)
     await perform_selection(obj, shiftKey, rangeId);
 
-    // Build multi-point highlight for all selected point ranges
-    const ps = useOptionsStore.getState().pointSize;
-
-    // Helper to compute deformed world position for a given points object and index
-    const getDeformedWorldPos = (pointsObj: THREE.Points, index: number): THREE.Vector3 | null => {
-        const geom = pointsObj.geometry as THREE.BufferGeometry;
-        const posAttr = geom.getAttribute('position') as THREE.BufferAttribute | undefined;
-        if (!posAttr || index < 0 || index >= posAttr.count) return null;
-        const local = new THREE.Vector3(
-            posAttr.getX(index),
-            posAttr.getY(index),
-            posAttr.getZ(index)
-        );
-        const morphs = (geom.morphAttributes && geom.morphAttributes.position) as THREE.BufferAttribute[] | undefined;
-        const rel = geom.morphTargetsRelative === true;
-        const influences: number[] | undefined = (pointsObj as any).morphTargetInfluences;
-        if (morphs && influences && morphs.length === influences.length) {
-            let sum = 0;
-            for (let i = 0; i < morphs.length; i++) {
-                const inf = influences[i] || 0;
-                if (inf === 0) continue;
-                sum += inf;
-                const mp = morphs[i];
-                const mx = mp.getX(index), my = mp.getY(index), mz = mp.getZ(index);
-                if (rel) {
-                    local.x += mx * inf;
-                    local.y += my * inf;
-                    local.z += mz * inf;
-                } else {
-                    local.x = local.x * (1 - sum) + mx * inf;
-                    local.y = local.y * (1 - sum) + my * inf;
-                    local.z = local.z * (1 - sum) + mz * inf;
-                }
-            }
-        }
-        return local.applyMatrix4(pointsObj.matrixWorld);
-    };
-
-    const positions: THREE.Vector3[] = [];
-    // Iterate through selected objects and gather all selected point positions
+    // Shader-based per-vertex selection coloring for Points
+    // 1) Build per-object selected indices from current selection map
+    const perObjIndices = new Map<THREE.Points, number[]>();
     for (const [o, selectedRanges] of useSelectedObjectStore.getState().selectedObjects) {
         const pointsObj = o as THREE.Points;
         if (!(pointsObj as any).isPoints) continue;
         const key: string | undefined = pointsObj.userData ? pointsObj.userData['unique_hash'] : undefined;
         if (!key) continue;
         const meshName = pointsObj.name;
+        const list: number[] = [];
         for (const rid of selectedRanges) {
             const range = await queryPointRangeByRangeId(key, meshName, rid);
             if (!range) continue;
             const [start, length] = range;
             const end = start + length;
-            for (let i = start; i < end; i++) {
-                const wp = getDeformedWorldPos(pointsObj, i);
-                if (wp) positions.push(wp);
-            }
+            for (let i = start; i < end; i++) list.push(i);
         }
+        perObjIndices.set(pointsObj, list);
+    }
+    // If nothing is selected (rare edge), highlight just the clicked index for feedback
+    if (perObjIndices.size === 0 && idx != null && (obj as any).isPoints) {
+        perObjIndices.set(obj, [idx]);
     }
 
-    if (positions.length > 0) {
-        showSelectedPoints(positions, ps);
-    } else {
-        // Fallback to last clicked point only
-        showSelectedPoint(worldPosition.clone(), ps);
+    // Helper to clear mask
+    const clearMask = (pointsObj: THREE.Points) => {
+        const geom = pointsObj.geometry as THREE.BufferGeometry;
+        const posAttr = geom.getAttribute('position') as THREE.BufferAttribute | undefined;
+        if (!posAttr) return;
+        let selAttr = geom.getAttribute('sel') as THREE.BufferAttribute | undefined;
+        if (!selAttr || selAttr.count !== posAttr.count) {
+            selAttr = new THREE.BufferAttribute(new Float32Array(posAttr.count), 1);
+            geom.setAttribute('sel', selAttr);
+        } else {
+            (selAttr.array as Float32Array).fill(0);
+            selAttr.needsUpdate = true;
+        }
+    };
+
+    // 3) Apply selection masks and selection color via shader
+    for (const [pointsObj, indices] of perObjIndices) {
+        enablePointSelectionMask(pointsObj, selectedMaterial.color);
+        const geom = pointsObj.geometry as THREE.BufferGeometry;
+        const posAttr = geom.getAttribute('position') as THREE.BufferAttribute | undefined;
+        if (!posAttr) continue;
+        let selAttr = geom.getAttribute('sel') as THREE.BufferAttribute | undefined;
+        if (!selAttr || selAttr.count !== posAttr.count) {
+            selAttr = new THREE.BufferAttribute(new Float32Array(posAttr.count), 1);
+            geom.setAttribute('sel', selAttr);
+        } else {
+            (selAttr.array as Float32Array).fill(0);
+        }
+        const arr = selAttr.array as Float32Array;
+        for (const i of indices) {
+            if (i >= 0 && i < arr.length) arr[i] = 1.0;
+        }
+        selAttr.needsUpdate = true;
+        prevSelectedPoints.delete(pointsObj);
     }
+    // 4) Clear masks on previously selected Points that are no longer selected
+    for (const p of prevSelectedPoints) clearMask(p);
 
     const selected = await queryNameFromRangeId(hash, rangeId);
     if (!selected) {
