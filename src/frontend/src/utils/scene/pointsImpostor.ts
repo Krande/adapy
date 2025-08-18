@@ -157,6 +157,20 @@ export function enablePointSelectionMask(points: THREE.Points, selColor: THREE.C
     }
 }
 
+export function clearPointSelectionMask(points: THREE.Points) {
+    const geom = points.geometry as THREE.BufferGeometry;
+    const posAttr = geom.getAttribute('position') as THREE.BufferAttribute | undefined;
+    if (!posAttr) return;
+    let selAttr = geom.getAttribute('sel') as THREE.BufferAttribute | undefined;
+    if (!selAttr || selAttr.count !== posAttr.count) {
+        selAttr = new THREE.BufferAttribute(new Float32Array(posAttr.count), 1);
+        geom.setAttribute('sel', selAttr);
+    } else {
+        (selAttr.array as Float32Array).fill(0);
+        selAttr.needsUpdate = true;
+    }
+}
+
 // Replace a THREE.Points' material with the spherical impostor material, preserving color and size when possible.
 export function applySphericalImpostor(points: THREE.Points, defaultSize: number) {
     const geom = points.geometry as THREE.BufferGeometry;
