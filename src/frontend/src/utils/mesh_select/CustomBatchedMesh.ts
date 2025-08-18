@@ -189,13 +189,14 @@ export class CustomBatchedMesh extends THREE.Mesh {
         if (this._selectionOverlay) {
             // Remove from scene graph
             this.remove(this._selectionOverlay);
-            // Dispose geometry and material if we own them
-            const geom = this._selectionOverlay.geometry as THREE.BufferGeometry;
-            geom.dispose();
-            // Do not dispose selectedMaterial (it might be shared); only dispose if it was cloned.
-            // We clone here to be safe per-instance; so dispose material too.
-            const mat = this._selectionOverlay.material as THREE.Material;
-            mat.dispose();
+            // IMPORTANT: Do not dispose geometry, as it references base geometry attributes/morphs.
+            // Only dispose the material(s) we cloned for the overlay to free GPU resources.
+            const m = this._selectionOverlay.material as THREE.Material | THREE.Material[];
+            if (Array.isArray(m)) {
+                for (const mm of m) mm.dispose();
+            } else if (m) {
+                m.dispose();
+            }
             this._selectionOverlay = undefined;
         }
     }
@@ -204,7 +205,7 @@ export class CustomBatchedMesh extends THREE.Mesh {
         // Clear overlay when nothing selected
         if (!rangeIds || rangeIds.length === 0) {
             this._disposeSelectionOverlay();
-            this._overlaySourceIndices = undefined;
+            this._overlaySourceIndices = undefined; // ensures CPU updater is skipped
             return;
         }
 
@@ -216,134 +217,106 @@ export class CustomBatchedMesh extends THREE.Mesh {
             return;
         }
 
-        const indexAttr = srcGeom.getIndex();
-        const positions: number[] = [];
-        const normals: number[] = [];
-        const uvs: number[] = [];
-        const sourceIdx: number[] = [];
-
-        const hasNormal = !!srcGeom.getAttribute('normal');
-        const hasUV = !!srcGeom.getAttribute('uv');
-        const nAttr = hasNormal ? (srcGeom.getAttribute('normal') as THREE.BufferAttribute) : undefined;
-        const uvAttr = hasUV ? (srcGeom.getAttribute('uv') as THREE.BufferAttribute) : undefined;
-
-        // Read morph target data and current influences to initialize overlay at deformed shape
-        const morphPositions = (srcGeom.morphAttributes && srcGeom.morphAttributes.position) as THREE.BufferAttribute[] | undefined;
-        const morphTargetsRelative = srcGeom.morphTargetsRelative === true;
-        const influences: number[] | undefined = (this as any).morphTargetInfluences;
-
-        const pushVertex = (vi: number) => {
-            // Start from base position
-            let mx = posAttr.getX(vi), my = posAttr.getY(vi), mz = posAttr.getZ(vi);
-
-            // Apply current morph target influences, if any
-            if (morphPositions && influences) {
-                let sumInf = 0;
-                for (let m = 0; m < morphPositions.length; m++) {
-                    const inf = influences[m] || 0;
-                    if (inf === 0) continue;
-                    sumInf += inf;
-                    const mp = morphPositions[m];
-                    const dx = mp.getX(vi);
-                    const dy = mp.getY(vi);
-                    const dz = mp.getZ(vi);
-                    if (morphTargetsRelative) {
-                        mx += dx * inf;
-                        my += dy * inf;
-                        mz += dz * inf;
-                    } else {
-                        // Blend towards absolute morph target
-                        mx = mx * (1 - sumInf) + dx * inf;
-                        my = my * (1 - sumInf) + dy * inf;
-                        mz = mz * (1 - sumInf) + dz * inf;
-                    }
-                }
-            }
-
-            positions.push(mx, my, mz);
-            sourceIdx.push(vi >>> 0);
-            if (nAttr) {
-                const nx = nAttr.getX(vi), ny = nAttr.getY(vi), nz = nAttr.getZ(vi);
-                normals.push(nx, ny, nz);
-            }
-            if (uvAttr) {
-                const u = uvAttr.getX(vi), v = uvAttr.getY(vi);
-                uvs.push(u, v);
-            }
-        };
-
-        if (indexAttr) {
-            const idxArr = indexAttr.array as Uint16Array | Uint32Array;
-            for (const rid of rangeIds) {
-                if (this.hiddenRanges.has(rid)) continue;
-                const range = this.drawRanges.get(rid);
-                if (!range) continue;
-                const [start, count] = range;
-                const end = start + count;
-                // assume triangles; step 3
-                for (let i = start; i + 2 < end; i += 3) {
-                    const a = idxArr[i], b = idxArr[i + 1], c = idxArr[i + 2];
-                    pushVertex(a); pushVertex(b); pushVertex(c);
-                }
-            }
-        } else {
-            // Non-indexed: interpret start/count as triangle vertex span directly
-            const vertCount = posAttr.count;
-            for (const rid of rangeIds) {
-                if (this.hiddenRanges.has(rid)) continue;
-                const range = this.drawRanges.get(rid);
-                if (!range) continue;
-                let [start, count] = range;
-                const end = Math.min(start + count, vertCount);
-                for (let i = start; i + 2 < end; i += 3) {
-                    pushVertex(i); pushVertex(i + 1); pushVertex(i + 2);
-                }
-            }
-        }
-
-        // Build overlay geometry
-        if (positions.length === 0) {
-            this._disposeSelectionOverlay();
-            this._overlaySourceIndices = undefined;
-            return;
-        }
-
-        const overlayGeom = new THREE.BufferGeometry();
-        overlayGeom.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-        if (normals.length > 0) overlayGeom.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
-        if (uvs.length > 0) overlayGeom.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
-        // Ensure normals exist if material requires lighting
-        if (!overlayGeom.getAttribute('normal')) {
-            overlayGeom.computeVertexNormals();
-        }
-
-        // Create or update overlay mesh
-        const overlayMat = selectedMaterial.clone();
-        overlayMat.side = THREE.DoubleSide;
-        // Make sure overlay can render without vertex colors and allow morph updates on CPU
-        ;(overlayMat as any).morphTargets = false;
-        // Reduce z-fighting with base mesh
-        (overlayMat as any).polygonOffset = true;
-        (overlayMat as any).polygonOffsetFactor = -1;
-        (overlayMat as any).polygonOffsetUnits = -1;
-
-        // Save mapping from overlay vertex to base index
-        this._overlaySourceIndices = new Uint32Array(sourceIdx);
+        // Build or update overlay geometry that shares base attributes and morphs.
+        // We only manipulate geometry groups to draw selected ranges; GPU handles morphing.
+        let overlayGeom: THREE.BufferGeometry;
+        let overlayMat: THREE.Material;
 
         if (this._selectionOverlay) {
-            // Replace geometry and material
-            (this._selectionOverlay as THREE.Mesh).geometry.dispose();
-            (this._selectionOverlay as THREE.Mesh).material.dispose();
-            (this._selectionOverlay as THREE.Mesh).geometry = overlayGeom;
-            (this._selectionOverlay as THREE.Mesh).material = overlayMat;
+            overlayGeom = (this._selectionOverlay as THREE.Mesh).geometry as THREE.BufferGeometry;
+            overlayMat = (this._selectionOverlay as THREE.Mesh).material as THREE.Material;
+            // Ensure overlay is referencing base attributes; if not, rebuild references
+            if (!overlayGeom.getAttribute('position') || overlayGeom.getAttribute('position') !== srcGeom.getAttribute('position')) {
+                overlayGeom = new THREE.BufferGeometry();
+                // Reference base attributes/index (do NOT clone to avoid extra memory and to leverage GPU morphs)
+                srcGeom.index && overlayGeom.setIndex(srcGeom.index);
+                for (const name of Object.keys(srcGeom.attributes)) {
+                    overlayGeom.setAttribute(name, srcGeom.getAttribute(name));
+                }
+                // Morph attributes
+                overlayGeom.morphAttributes = {} as any;
+                if (srcGeom.morphAttributes) {
+                    for (const mName of Object.keys(srcGeom.morphAttributes)) {
+                        // @ts-ignore
+                        overlayGeom.morphAttributes[mName] = (srcGeom.morphAttributes as any)[mName];
+                    }
+                }
+                overlayGeom.morphTargetsRelative = srcGeom.morphTargetsRelative === true;
+                (this._selectionOverlay as THREE.Mesh).geometry = overlayGeom;
+            }
+            // Ensure material is configured for GPU morphing and polygon offset
+            (overlayMat as any).morphTargets = true;
+            overlayMat.side = THREE.DoubleSide;
+            (overlayMat as any).polygonOffset = true;
+            (overlayMat as any).polygonOffsetFactor = -1;
+            (overlayMat as any).polygonOffsetUnits = -1;
         } else {
+            overlayGeom = new THREE.BufferGeometry();
+            srcGeom.index && overlayGeom.setIndex(srcGeom.index);
+            for (const name of Object.keys(srcGeom.attributes)) {
+                overlayGeom.setAttribute(name, srcGeom.getAttribute(name));
+            }
+            overlayGeom.morphAttributes = {} as any;
+            if (srcGeom.morphAttributes) {
+                for (const mName of Object.keys(srcGeom.morphAttributes)) {
+                    // @ts-ignore
+                    overlayGeom.morphAttributes[mName] = (srcGeom.morphAttributes as any)[mName];
+                }
+            }
+            overlayGeom.morphTargetsRelative = srcGeom.morphTargetsRelative === true;
+
+            overlayMat = selectedMaterial.clone();
+            (overlayMat as any).morphTargets = true; // let GPU handle morphs
+            overlayMat.side = THREE.DoubleSide;
+            (overlayMat as any).polygonOffset = true;
+            (overlayMat as any).polygonOffsetFactor = -1;
+            (overlayMat as any).polygonOffsetUnits = -1;
+
             this._selectionOverlay = new THREE.Mesh(overlayGeom, overlayMat);
-            // inherit transform as child
             this._selectionOverlay.matrixAutoUpdate = true;
-            // Render on same layer(s)
             this._selectionOverlay.layers.mask = this.layers.mask;
             this.add(this._selectionOverlay);
         }
+
+        // Build overlay materials as an array so Three.js respects geometry groups
+        const visibleSelMat = overlayMat instanceof Array ? (overlayMat[0] as THREE.Material) : overlayMat;
+        const invisibleMat = new THREE.MeshBasicMaterial({ visible: false });
+        // Ensure morphTargets on both
+        (visibleSelMat as any).morphTargets = true;
+        (invisibleMat as any).morphTargets = true;
+        // Reduce z-fighting for the visible overlay
+        (visibleSelMat as any).polygonOffset = true;
+        (visibleSelMat as any).polygonOffsetFactor = -1;
+        (visibleSelMat as any).polygonOffsetUnits = -1;
+
+        // Assign material array to overlay
+        (this._selectionOverlay as THREE.Mesh).material = [visibleSelMat, invisibleMat];
+
+        // Make overlay follow the same morph targets as the base mesh
+        (this._selectionOverlay as any).morphTargetInfluences = (this as any).morphTargetInfluences;
+        (this._selectionOverlay as any).morphTargetDictionary = (this as any).morphTargetDictionary;
+
+        // Rebuild groups to cover the entire index range, using materialIndex 0 for selected, 1 for others/hidden
+        overlayGeom.clearGroups();
+        const idxAttr = srcGeom.getIndex();
+        const idxCount = idxAttr ? idxAttr.count : (srcGeom.attributes.position?.count ?? 0);
+        const segs = Array.from(this.drawRanges.entries())
+            .map(([id, [s, c]]) => ({ id, s, c }))
+            .sort((a, b) => a.s - b.s);
+
+        let cur = 0;
+        const selectedSet = new Set(rangeIds);
+        for (const { id, s, c } of segs) {
+            if (s > cur) overlayGeom.addGroup(cur, s - cur, 1); // gap = invisible
+            let mi: 0 | 1 = 1; // default invisible
+            if (!this.hiddenRanges.has(id) && selectedSet.has(id)) mi = 0; // show selected
+            overlayGeom.addGroup(s, c, mi);
+            cur = s + c;
+        }
+        if (cur < idxCount) overlayGeom.addGroup(cur, idxCount - cur, 1);
+
+        // Ensure CPU updater is not used for this path
+        this._overlaySourceIndices = undefined;
     }
 
     // Update overlay geometry positions each frame to match current morph-deformed shape
