@@ -21,6 +21,10 @@ export class CustomBatchedMesh extends THREE.Mesh {
     private rangeIdToIndex?: Map<string, number>;
     private edgeMaterial?: THREE.ShaderMaterial;
 
+    // Cached materials to avoid per-click allocations for non-vertex-colored meshes
+    private _matSelected?: THREE.Material;
+    private _matInvisible?: THREE.Material;
+
     // Selection coloring helpers
     private _usesVertexColorsFlag: boolean = false;
     private _baseColors?: Float32Array; // snapshot of current animated/base colors
@@ -56,6 +60,10 @@ export class CustomBatchedMesh extends THREE.Mesh {
         this.is_design = is_design;
         this.ada_ext_data = ada_ext_data;
 
+        // Initialize cached materials to avoid per-click allocations
+        this._matSelected = selectedMaterial.clone();
+        this._matInvisible = new THREE.MeshBasicMaterial({ visible: false });
+
         // Determine if this mesh uses vertex colors initially
         this._recomputeUsesVertexColorsFlag();
         this.updateGroups();
@@ -71,10 +79,11 @@ export class CustomBatchedMesh extends THREE.Mesh {
             this._disposeSelectionOverlay();
         }
         // Keep three material slots: 0=original, 1=selected overlay (only for non-vertex-colored), 2=invisible
+        // Use cached instances to avoid per-selection allocations
         this.material = [
             this.originalMaterial,
-            selectedMaterial.clone(),
-            new THREE.MeshBasicMaterial({visible: false})
+            this._matSelected!,
+            this._matInvisible!
         ];
         const segs = Array.from(this.drawRanges.entries())
             .map(([id, [s, c]]) => ({id, s, c}))
