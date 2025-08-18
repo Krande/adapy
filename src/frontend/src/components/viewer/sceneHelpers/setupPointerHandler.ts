@@ -63,7 +63,10 @@ export function setupPointerHandler(
                 await handleClickPoints(first, e);
             } else {
                 // await the async handler
-                clearSelectedPoint()
+                // Only clear existing highlighted points if not in multi-select (Shift not held)
+                if (!e.shiftKey) {
+                    clearSelectedPoint();
+                }
                 await handleClickMesh(first, e);
             }
         }
