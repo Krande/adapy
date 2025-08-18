@@ -55,23 +55,49 @@ export function setupCameraControlsHandlers(
 }
 
 const zoomToAll = (scene: THREE.Scene, camera: THREE.PerspectiveCamera, controls: OrbitControls | CameraControls) => {
-    const box = new THREE.Box3().setFromObject(scene);
-    if (box.isEmpty()) return;
+    // Compute bounding box only from imported/visible meshes, excluding helpers like GridHelper
+    const overallBox = new THREE.Box3();
+    let hasMesh = false;
 
-    const size = box.getSize(new THREE.Vector3()).length();
-    const center = box.getCenter(new THREE.Vector3());
-    const distance = size * 0.5;
+    scene.traverse((obj) => {
+        if (obj instanceof THREE.Mesh) {
+            const objBox = new THREE.Box3().setFromObject(obj);
+            if (!objBox.isEmpty()) {
+                overallBox.union(objBox);
+                hasMesh = true;
+            }
+        }
+    });
 
+    if (!hasMesh || overallBox.isEmpty()) return;
+
+    // Compute a bounding sphere from the overall box for robust FOV-based fitting
+    const sphere = overallBox.getBoundingSphere(new THREE.Sphere());
+    if (!sphere || sphere.radius === 0) return;
+
+    const center = sphere.center.clone();
+    const radius = sphere.radius;
+
+    // Compute required distance so the sphere fits both vertically and horizontally
+    const vFov = THREE.MathUtils.degToRad(camera.fov);
+    const aspect = camera.aspect || 1;
+    const vDist = radius / Math.tan(vFov / 2);
+    const hFov = 2 * Math.atan(Math.tan(vFov / 2) * aspect);
+    const hDist = radius / Math.tan(hFov / 2);
+    const distance = Math.max(vDist, hDist);
+
+    // Move the camera back along its current viewing direction
     const direction = new THREE.Vector3();
     camera.getWorldDirection(direction).normalize();
+    const newPosition = center.clone().add(direction.clone().multiplyScalar(-distance));
 
-    camera.position.copy(center.clone().add(direction.clone().multiplyScalar(-distance)));
-    camera.lookAt(center);
     if (controls instanceof OrbitControls) {
+        camera.position.copy(newPosition);
+        camera.lookAt(center);
         controls.target.copy(center);
     } else if (controls instanceof CameraControls) {
         controls.setLookAt(
-            camera.position.x, camera.position.y, camera.position.z,
+            newPosition.x, newPosition.y, newPosition.z,
             center.x, center.y, center.z,
             true // enable smooth transition
         );
