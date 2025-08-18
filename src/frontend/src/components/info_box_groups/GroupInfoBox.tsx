@@ -49,7 +49,8 @@ const GroupInfoBox = () => {
                                     description: group.description,
                                     members: group.members,
                                     type: 'simulation' as const,
-                                    parent_name: simObj.name || 'Unnamed Object'
+                                    parent_name: simObj.name || 'Unnamed Object',
+                                    fe_object_type: group.fe_object_type
                                 });
                             });
                         }
