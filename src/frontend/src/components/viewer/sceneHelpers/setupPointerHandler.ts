@@ -26,49 +26,65 @@ export function setupPointerHandler(
         const dy = e.clientY - pointerDownPos.y;
         if (dx * dx + dy * dy > clickThreshold * clickThreshold) return;
 
-        // Prefer GPU point picking for deformed impostor points if enabled
+        // 1) Try GPU point picking first so points in front of meshes are prioritized
         if (useOptionsStore.getState().useGpuPointPicking) {
-            const pick = gpuPointPicker.pickAt(e.clientX, e.clientY);
-            if (pick) {
-                const fakeIntersection: THREE.Intersection = {
-                    object: pick.object,
-                    index: pick.index,
-                    point: pick.worldPosition.clone(),
-                    distance: 0,
-                } as THREE.Intersection;
-                await handleClickPoints(fakeIntersection, e);
-                return;
+            try {
+                const pick = gpuPointPicker.pickAt(e.clientX, e.clientY);
+                if (pick) {
+                    const fakeIntersection: THREE.Intersection = {
+                        object: pick.object,
+                        index: pick.index,
+                        point: pick.worldPosition.clone(),
+                        distance: 0,
+                    } as THREE.Intersection;
+                    await handleClickPoints(fakeIntersection, e);
+                    return;
+                }
+                // if pick is null => miss; continue to raycast
+            } catch (err) {
+                console.warn("GPU picking threw an error; falling back to raycast:", err);
             }
         }
 
-        // cast a ray
+        // 2) Raycast scene as fallback to detect meshes and points
         const rect = renderer.domElement.getBoundingClientRect();
-        const x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-        const y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
-        const pointer = new THREE.Vector2(x, y);
+        const nx = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+        const ny = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+        const pointer = new THREE.Vector2(nx, ny);
         const ray = new THREE.Raycaster();
-        // Set point picking tolerance to 0.005 (world units) per user preference/point spacing.
-        ray.params.Points = { ...ray.params.Points, threshold: 0.01 };
+
+        // Set point picking tolerance (world units) for CPU points fallback
+        ray.params.Points = { ...ray.params.Points, threshold: 0.02 };
         ray.layers.set(0);
         ray.layers.disable(1);
         ray.setFromCamera(pointer, camera);
 
         const hits = ray.intersectObjects(scene.children, true);
 
-        if (hits.length === 0) {
-            handleClickEmptySpace(e);
-        } else {
-            const first = hits[0];
-            if (first.object instanceof THREE.Points) {
-                await handleClickPoints(first, e);
+        // Separate nearest mesh vs nearest points from raycast results
+        let nearestMesh: THREE.Intersection | null = null;
+        let nearestPoints: THREE.Intersection | null = null;
+        for (const h of hits) {
+            if ((h.object as any).isPoints) {
+                if (!nearestPoints) nearestPoints = h;
             } else {
-                // await the async handler
-                // Only clear existing highlighted points if not in multi-select (Shift not held)
-                if (!e.shiftKey) {
-                    clearSelectedPoint();
-                }
-                await handleClickMesh(first, e);
+                nearestMesh = h;
+                break; // meshes are opaque/solid; take the first
             }
+        }
+
+        if (nearestMesh) {
+            // Clear any highlighted point if not multi-select
+            if (!e.shiftKey) clearSelectedPoint();
+            await handleClickMesh(nearestMesh, e);
+            return;
+        }
+
+        // 3) If raycast had a points hit, use it; else treat as empty space
+        if (nearestPoints) {
+            await handleClickPoints(nearestPoints, e);
+        } else {
+            handleClickEmptySpace(e);
         }
     });
 

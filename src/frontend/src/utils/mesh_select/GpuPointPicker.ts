@@ -199,24 +199,46 @@ class GpuPointPicker {
         const prevClear = renderer.getClearColor(new THREE.Color());
         const prevAlpha = renderer.getClearAlpha();
 
-        renderer.setRenderTarget(this.rt);
-        renderer.setClearColor(0x000000, 0);
-        renderer.clear();
-        renderer.render(scene, camera);
-
         const canvas = renderer.domElement;
         const rect = canvas.getBoundingClientRect();
-        const x = Math.floor((clientX - rect.left) * (this.rt!.width / rect.width));
-        const y = Math.floor((rect.bottom - clientY) * (this.rt!.height / rect.height));
+        // Early out if outside canvas bounds
+        if (clientX < rect.left || clientX > rect.right || clientY < rect.top || clientY > rect.bottom) {
+            // Restore scene before returning
+            for (const {obj, orig} of toSwap) obj.material = orig;
+            renderer.setRenderTarget(prevTarget);
+            renderer.setClearColor(prevClear, prevAlpha);
+            return null;
+        }
 
-        const pixel = new Uint8Array(4);
-        renderer.readRenderTargetPixels(this.rt!, x, y, 1, 1, pixel);
+        let pixel: Uint8Array | null = null;
+        try {
+            renderer.setRenderTarget(this.rt);
+            renderer.setClearColor(0x000000, 0);
+            renderer.clear();
+            renderer.render(scene, camera);
 
-        // Restore scene
-        for (const {obj, orig} of toSwap) obj.material = orig;
-        renderer.setRenderTarget(prevTarget);
-        renderer.setClearColor(prevClear, prevAlpha);
+            // Map client coords to RT pixels and clamp
+            const rx = this.rt!.width / Math.max(1, rect.width);
+            const ry = this.rt!.height / Math.max(1, rect.height);
+            let x = Math.floor((clientX - rect.left) * rx);
+            let y = Math.floor((rect.bottom - clientY) * ry);
+            x = Math.min(Math.max(0, x), this.rt!.width - 1);
+            y = Math.min(Math.max(0, y), this.rt!.height - 1);
 
+            pixel = new Uint8Array(4);
+            renderer.readRenderTargetPixels(this.rt!, x, y, 1, 1, pixel);
+        } catch (err) {
+            // Swallow GPU picking errors to avoid breaking mesh selection
+            console.warn("GPU point picking failed:", err);
+            pixel = null;
+        } finally {
+            // Restore scene
+            for (const {obj, orig} of toSwap) obj.material = orig;
+            renderer.setRenderTarget(prevTarget);
+            renderer.setClearColor(prevClear, prevAlpha);
+        }
+
+        if (!pixel) return null;
         const id = pixel[0] + (pixel[1] << 8) + (pixel[2] << 16);
         if (id === 0) return null;
         const entry = this.idToEntry.get(id);
