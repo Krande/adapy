@@ -168,6 +168,69 @@ export function showSelectedPoint(worldPosition: THREE.Vector3, size: number) {
     }
 }
 
+export function showSelectedPoints(worldPositions: THREE.Vector3[], size: number) {
+    const scene = sceneRef.current;
+    if (!scene) return;
+
+    // Always use impostor points for multi-point display for performance and simplicity
+    const displaySize = Math.max(size * 1.5, size + 0.01);
+
+    // Build geometry with all positions
+    const positions = new Float32Array(worldPositions.length * 3);
+    for (let i = 0; i < worldPositions.length; i++) {
+        const p = worldPositions[i];
+        positions[i * 3 + 0] = p.x;
+        positions[i * 3 + 1] = p.y;
+        positions[i * 3 + 2] = p.z;
+    }
+    const geom = new THREE.BufferGeometry();
+    geom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+
+    const mat = createSphericalPointMaterial({
+        pointSize: displaySize,
+        color: selectedMaterial.color,
+        opacity: 1.0,
+        useVertexColors: false,
+        depthTest: true,
+        depthWrite: true
+    });
+
+    // Initialize uniforms
+    const opts = useOptionsStore.getState();
+    const absolute = !!opts.pointSizeAbsolute;
+    const renderer = rendererRef.current;
+    const cam = cameraRef.current as THREE.PerspectiveCamera | null;
+    const viewportHeight = renderer ? renderer.getSize(new THREE.Vector2()).y : window.innerHeight;
+    const fov = cam && (cam as any).isPerspectiveCamera ? cam.fov : 50.0;
+    if ((mat as any).uniforms) {
+        const u = (mat as any).uniforms;
+        if (u.pointSize) u.pointSize.value = displaySize;
+        if (u.uWorldSize) u.uWorldSize.value = absolute;
+        if (u.uWorldPointSize) u.uWorldPointSize.value = displaySize;
+        if (u.uFov) u.uFov.value = fov;
+        if (u.uViewportHeight) u.uViewportHeight.value = viewportHeight;
+        if (u.uColor) u.uColor.value = selectedMaterial.color;
+        (mat as any).needsUpdate = true;
+    }
+
+    // Remove previous highlight (single or multi)
+    const prev = selectedPointRef.current;
+    if (prev) {
+        scene.remove(prev);
+        if (prev.geometry) prev.geometry.dispose();
+        if (Array.isArray(prev.material)) {
+            prev.material.forEach(m => m.dispose());
+        } else {
+            (prev.material as THREE.Material).dispose();
+        }
+    }
+
+    const points = new THREE.Points(geom, mat);
+    points.renderOrder = 9999;
+    selectedPointRef.current = points;
+    scene.add(points);
+}
+
 export function clearSelectedPoint() {
     const scene = sceneRef.current;
     const hl = selectedPointRef.current;

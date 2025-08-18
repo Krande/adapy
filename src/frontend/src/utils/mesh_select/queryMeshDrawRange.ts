@@ -24,3 +24,11 @@ export async function queryNameFromRangeId(
 ): Promise<string | null> {
     return await modelStore.getNameFromRangeId(key, rangeId);
 }
+
+export async function queryPointRangeByRangeId(
+    key: string,
+    meshName: string,
+    rangeId: string
+): Promise<[number, number] | null> {
+    return await modelStore.getPointRangeByRangeId(key, meshName, rangeId);
+}

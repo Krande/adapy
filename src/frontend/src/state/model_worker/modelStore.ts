@@ -43,6 +43,13 @@ export interface ModelStoreAPI {
         pointIndex: number
     ): Promise<[string, number, number] | null>;
 
+    // New: Reverse lookup for point ranges by rangeId
+    getPointRangeByRangeId(
+        key: string,
+        meshName: string,
+        rangeId: string
+    ): Promise<[number, number] | null>;
+
     getNameFromRangeId(
         key: string,
         rangeId: string
