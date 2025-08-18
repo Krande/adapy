@@ -6,9 +6,10 @@ import {showSelectedPoint} from "../scene/highlightSelectedPoint";
 
 import {gpuPointPicker} from "./GpuPointPicker";
 import {useSelectedObjectStore} from "../../state/useSelectedObjectStore";
-import {queryMeshDrawRange, queryNameFromRangeId, queryPointDrawRange} from "./queryMeshDrawRange";
+import {queryNameFromRangeId, queryPointDrawRange} from "./queryMeshDrawRange";
 import {useTreeViewStore} from "../../state/treeViewStore";
 import {findNodeById} from "../tree_view/findNodeById";
+import {perform_selection} from "./perform_selection";
 
 export async function handleClickPoints(
     intersect: THREE.Intersection,
@@ -16,9 +17,7 @@ export async function handleClickPoints(
 ): Promise<void> {
     if (event.button === 2) return;
 
-    // Clear the selection if the draw range is already selected
-    const selectedObjectStore = useSelectedObjectStore.getState();
-    selectedObjectStore.clearSelectedObjects();
+    const shiftKey = event.shiftKey;
 
     const useGpu = useOptionsStore.getState().useGpuPointPicking;
 
@@ -88,19 +87,23 @@ export async function handleClickPoints(
         return;
     }
 
+    const [rangeId] = drawRange;
+
+    // Update unified selection state (supports multi-select with Shift)
+    await perform_selection(obj, shiftKey, rangeId);
+
     // Show/update highlight for the selected point (use current point size), using exact world position
     const ps = useOptionsStore.getState().pointSize;
     showSelectedPoint(worldPosition.clone(), ps);
 
-
-    const [rangeId] = drawRange;
     const selected = await queryNameFromRangeId(hash, rangeId);
     if (!selected) {
         console.warn("selected mesh has no name");
         return;
     }
     useObjectInfoStore.getState().setName(selected);
-    // update tree selection
+
+    // update tree selection using unified store
     const treeViewStore = useTreeViewStore.getState();
     if (treeViewStore.treeData && treeViewStore.tree && !treeViewStore.isTreeCollapsed) {
         // flag programmatic change
@@ -108,8 +111,16 @@ export async function handleClickPoints(
         treeViewStore.tree.isProgrammaticChange = true;
 
         const node_ids: string[] = [];
-        const node = findNodeById(treeViewStore.treeData, selected);
-        if (node) node_ids.push(node.id);
+        for (const [o, selectedRanges] of useSelectedObjectStore.getState().selectedObjects) {
+            const lookupKey: string | undefined = (o as any).unique_key ?? (o.userData ? o.userData['unique_hash'] : undefined);
+            if (!lookupKey) continue;
+            for (const rid of selectedRanges) {
+                const nodeName = await queryNameFromRangeId(lookupKey, rid);
+                if (!nodeName) continue;
+                const node = findNodeById(treeViewStore.treeData, nodeName);
+                if (node) node_ids.push(node.id);
+            }
+        }
 
         const lastNode = findNodeById(treeViewStore.treeData, selected);
         treeViewStore.tree.setSelection({

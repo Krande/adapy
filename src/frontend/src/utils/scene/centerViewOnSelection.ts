@@ -18,7 +18,11 @@ export const centerViewOnSelection = (
         const boundingBox = new THREE.Box3();
         const vertex = new THREE.Vector3();
 
-        selectedObjects.forEach((drawRangeIds, mesh) => {
+        selectedObjects.forEach((drawRangeIds, obj) => {
+            // Only handle CustomBatchedMesh here; points are handled separately below
+            const mesh = obj as any;
+            if (!mesh || !mesh.geometry || !mesh.drawRanges) return;
+
             const geometry = mesh.geometry as THREE.BufferGeometry;
             const positionAttr = geometry.getAttribute('position');
             const indexAttr = geometry.getIndex();
