@@ -70,7 +70,7 @@ const GroupInfoBox = () => {
             setSelectedGroup(null);
             useObjectInfoStore.getState().setName('');
             // Clear selection will be handled by selectGroupMembers with empty array
-            await selectGroupMembers("", []);
+            await selectGroupMembers("", [], undefined);
             return;
         } 
 
@@ -101,7 +101,7 @@ const GroupInfoBox = () => {
                 console.warn(`Parent object ${group.parent_name} not found in scene`);
                 return;
             }
-            await selectGroupMembers(mesh_obj.unique_key, group.members);
+            await selectGroupMembers(mesh_obj.unique_key, group.members, group.fe_object_type);
         }
     };
 
