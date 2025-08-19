@@ -81,6 +81,7 @@ class SceneConverter:
 
         self.graph = GraphStore(root, {0: root})
 
+        has_meta = False
         if is_part:
             self._scene = scene_from_part_or_assembly(self.source, self)
             for subp in self.source.get_all_subparts(include_self=True):
@@ -94,12 +95,16 @@ class SceneConverter:
             self._scene = scene_from_fem_results(self.source, self)
         elif isinstance(self.source, trimesh.Scene):
             self._scene = self.source.copy()
+            if "id_hierarchy" in self.source.metadata.keys():
+                has_meta = True
         else:
             raise ValueError(f"Unsupported object type: {type(self.source)}")
 
         self.params.set_gltf_buffer_postprocessor(self.buffer_postprocessor)
         self.params.set_gltf_tree_postprocessor(self.tree_postprocessor)
-        self._scene.metadata.update(self.graph.to_json_hierarchy())
+
+        if not has_meta:
+            self._scene.metadata.update(self.graph.to_json_hierarchy())
 
         self.add_extension("ADA_EXT_data", self.ada_ext.model_dump(mode="json"))
 
