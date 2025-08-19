@@ -2,6 +2,20 @@
 
 
 
+## v0.7.4 (2025-08-19)
+
+### Chore
+
+* chore: bump the dependencies group with 2 updates (#153)
+
+Signed-off-by: dependabot[bot] &lt;support@github.com&gt;
+Co-authored-by: dependabot[bot] &lt;49699333+dependabot[bot]@users.noreply.github.com&gt; ([`e48d0ef`](https://github.com/Krande/adapy/commit/e48d0eff9d04c3bf90835c624d653236889349ea))
+
+### Fix
+
+* fix: fe points visualization and refactor (#151) ([`30299e4`](https://github.com/Krande/adapy/commit/30299e4c751c202845a405e448d01969510c3f7f))
+
+
 ## v0.7.3 (2025-08-11)
 
 ### Chore
