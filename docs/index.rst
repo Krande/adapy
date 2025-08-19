@@ -41,12 +41,19 @@ IFC and various Finite Element formats.
     :hidden:
     :maxdepth: 2
     :glob:
-    :caption: Examples
+    :caption: Modelling
 
     documents/notebooks/design/boolean_operations
     documents/notebooks/design/parts_and_assemblies
     documents/notebooks/design/placement
     documents/notebooks/design/sections
+
+.. toctree::
+    :hidden:
+    :maxdepth: 2
+    :glob:
+    :caption: Simulation
+
     documents/notebooks/analysis/simply_supported_beam_eigenvalue
     documents/notebooks/analysis/simply_supported_beam_static_gravity
 
