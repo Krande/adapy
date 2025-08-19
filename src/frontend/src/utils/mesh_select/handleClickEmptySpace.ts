@@ -2,6 +2,8 @@ import {useSelectedObjectStore} from "../../state/useSelectedObjectStore";
 import {CustomBatchedMesh} from "./CustomBatchedMesh";
 import {Object3D} from "three";
 import {clearSelectedPoint} from "../scene/highlightSelectedPoint";
+import {clearPointSelectionMask} from "../scene/pointsImpostor";
+import * as THREE from "three";
 
 export function handleClickEmptySpace(event: MouseEvent) {
     const selectedObjects = useSelectedObjectStore.getState().selectedObjects;
@@ -13,6 +15,8 @@ export function handleClickEmptySpace(event: MouseEvent) {
                     child.clearSelectionGroups();
                 }
             });
+        } else if ((mesh as any).isPoints) {
+            clearPointSelectionMask(mesh as unknown as THREE.Points);
         } else {
             mesh.clearSelectionGroups();
         }
@@ -20,4 +24,6 @@ export function handleClickEmptySpace(event: MouseEvent) {
 
     // Also clear any highlighted selected point
     clearSelectedPoint();
+
+
 }

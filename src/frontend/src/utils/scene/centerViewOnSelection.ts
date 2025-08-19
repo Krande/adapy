@@ -22,16 +22,12 @@ export const centerViewOnSelection = (
         if (selectedObjects.size > 0) {
             selectedObjects.forEach((drawRangeIds, obj) => {
                 const mesh = obj as any;
-                if (!mesh || !mesh.geometry || !mesh.drawRanges) return; // skip non-meshes (e.g., Points)
+                if (!mesh || !mesh.geometry) return;
 
                 const geometry = mesh.geometry as THREE.BufferGeometry;
                 const positionAttr = geometry.getAttribute('position') as THREE.BufferAttribute | undefined;
-                const indexAttr = geometry.getIndex();
-                if (!positionAttr || !indexAttr) {
-                    return;
-                }
+                if (!positionAttr) return;
 
-                const indexArray = indexAttr.array as Uint16Array | Uint32Array;
                 // Morph target data if present (handles deformed meshes / morph targets)
                 const morphPositions = (geometry.morphAttributes && (geometry.morphAttributes as any).position) as THREE.BufferAttribute[] | undefined;
                 const morphTargetsRelative = geometry.morphTargetsRelative === true;
@@ -59,6 +55,33 @@ export const centerViewOnSelection = (
                         }
                     }
                 };
+
+                // Handle Points objects: use 'sel' attribute to find selected indices
+                if ((mesh as any).isPoints) {
+                    const selAttr = geometry.getAttribute('sel') as THREE.BufferAttribute | undefined;
+                    if (selAttr) {
+                        for (let i = 0; i < selAttr.count; i++) {
+                            const sel = selAttr.getX(i);
+                            if (sel > 0.5) {
+                                vertex.fromBufferAttribute(positionAttr, i);
+                                applyMorph(i, vertex);
+                                if (isNaN(vertex.x) || isNaN(vertex.y) || isNaN(vertex.z)) continue;
+                                mesh.localToWorld(vertex);
+                                boundingBox.expandByPoint(vertex);
+                                expanded = true;
+                            }
+                        }
+                    }
+                    center_on_bounding_box(boundingBox, camera, fillFactor, controls);
+                    return;
+                }
+
+                // Handle triangle meshes with drawRanges as before
+                const indexAttr = geometry.getIndex();
+                if (!indexAttr || !mesh.drawRanges) {
+                    return;
+                }
+                const indexArray = indexAttr.array as Uint16Array | Uint32Array;
 
                 drawRangeIds.forEach((drawRangeId) => {
                     const drawRange = mesh.drawRanges.get(drawRangeId);
