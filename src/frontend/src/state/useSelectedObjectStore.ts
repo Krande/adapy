@@ -3,7 +3,6 @@ import {CustomBatchedMesh} from '../utils/mesh_select/CustomBatchedMesh';
 import * as THREE from "three";
 import {Object3D} from "three";
 import {clearPointSelectionMask} from "../utils/scene/pointsImpostor";
-import {clearSelectedPoint} from "../utils/scene/highlightSelectedPoint";
 
 type SelectedObjectState = {
     selectedObjects: Map<CustomBatchedMesh, Set<string>>;
@@ -100,7 +99,6 @@ export const useSelectedObjectStore = create<SelectedObjectState>((set) => ({
                 }
             });
             // Also clear any single-point overlay highlight (fallback path)
-            try { clearSelectedPoint(); } catch (_) {}
             return {selectedObjects: new Map()};
         }),
 

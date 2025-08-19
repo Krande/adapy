@@ -96,7 +96,7 @@ a.to_fem("MyCantilever_code_aster", "code_aster", overwrite=True, execute=True)
 ```
 
 after the code is executed you can look at the results using supported post-processing software or directly
-in python using Jupyter notebook/lab (currently only supported for Code Aster) for the FEA results.
+in python using the built-in THREEJS based viewer in a web browser or Jupyter notebook/lab for the FEA results.
 
 <img src="docs/_static/figures/fem_beam_paraview.png" alt="Calculix Results" height="220"/>
 <img src="docs/_static/figures/fem_beam_abaqus.png" alt="Abaqus Results" height="220"/>
@@ -124,8 +124,8 @@ setx ADA_code_aster_exe <absolute path to as_run.bat>
 :: Mac?
 ```
 
-Note! It is very important that any paths containing whitespaces be converted to "shortened paths". To shorten a path
-on windows you can use the utility [pathcopycopy](https://pathcopycopy.github.io/).
+Note! It is crucial that any paths containing whitespaces be converted to "shortened paths". To shorten a path
+on windows, you can use the utility [pathcopycopy](https://pathcopycopy.github.io/).
 
 For manual installation files of open source FEA software such as Calculix and Code Aster, 
 here are some relevant links:
@@ -157,6 +157,6 @@ If you feel that a certain package listed in the adapy dependencies should be li
 update the list :)
 
 
-## Project Responsible ###
+## Project Responsible ##
 
 	Kristoffer H. Andersen

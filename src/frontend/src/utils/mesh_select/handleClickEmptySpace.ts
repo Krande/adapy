@@ -1,9 +1,9 @@
 import {useSelectedObjectStore} from "../../state/useSelectedObjectStore";
 import {CustomBatchedMesh} from "./CustomBatchedMesh";
-import {Object3D} from "three";
-import {clearSelectedPoint} from "../scene/highlightSelectedPoint";
-import {clearPointSelectionMask} from "../scene/pointsImpostor";
 import * as THREE from "three";
+import {Object3D} from "three";
+import {clearPointSelectionMask} from "../scene/pointsImpostor";
+import {sceneRef} from "../../state/refs";
 
 export function handleClickEmptySpace(event: MouseEvent) {
     const selectedObjects = useSelectedObjectStore.getState().selectedObjects;
@@ -22,8 +22,15 @@ export function handleClickEmptySpace(event: MouseEvent) {
         }
     });
 
-    // Also clear any highlighted selected point
-    clearSelectedPoint();
-
-
+    // traverse over Three.POINTS in scene objects
+    const scene = sceneRef.current;
+    if (!scene) {
+        return;
+    }
+    (scene.traverse((child: Object3D) => {
+            if (child instanceof THREE.Points) {
+                clearPointSelectionMask(child as THREE.Points);
+            }
+        }
+    ))
 }

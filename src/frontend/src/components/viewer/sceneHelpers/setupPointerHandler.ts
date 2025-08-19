@@ -5,7 +5,6 @@ import {handleClickMesh} from "../../../utils/mesh_select/handleClickMesh";
 import {handleClickPoints} from "../../../utils/mesh_select/handleClickPoints";
 import {useOptionsStore} from "../../../state/optionsStore";
 import {gpuPointPicker} from "../../../utils/mesh_select/GpuPointPicker";
-import {clearSelectedPoint} from "../../../utils/scene/highlightSelectedPoint";
 
 export function setupPointerHandler(
     container: HTMLDivElement,
@@ -75,7 +74,6 @@ export function setupPointerHandler(
 
         if (nearestMesh) {
             // Clear any highlighted point if not multi-select
-            if (!e.shiftKey) clearSelectedPoint();
             await handleClickMesh(nearestMesh, e);
             return;
         }
