@@ -88,7 +88,7 @@ export async function setupModelLoaderAsync(
         const boundingBox = new THREE.Box3().setFromObject(gltf_scene);
         modelStore.setBoundingBox(boundingBox);
 
-        if (!optionsStore.lockTranslation && modelStore.model_type == FilePurpose.DESIGN) {
+        if (!optionsStore.lockTranslation) {
             const center = boundingBox.getCenter(new THREE.Vector3());
             const translation = center.clone().multiplyScalar(-1);
             if (modelStore.zIsUp) {
