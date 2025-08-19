@@ -64,8 +64,11 @@ export async function handleClickMesh(
 
         const node_ids: string[] = [];
         for (const [m, selectedRanges] of useSelectedObjectStore.getState().selectedObjects) {
+            // Determine lookup key per object type
+            const lookupKey: string | undefined = (m as any).unique_key ?? (m.userData ? m.userData['unique_hash'] : undefined);
+            if (!lookupKey) continue;
             for (const rid of selectedRanges) {
-                const nodeName = await queryNameFromRangeId(mesh.unique_key, rid);
+                const nodeName = await queryNameFromRangeId(lookupKey, rid);
                 if (!nodeName) continue;
                 const node = findNodeById(treeViewStore.treeData, nodeName);
                 if (node) node_ids.push(node.id);

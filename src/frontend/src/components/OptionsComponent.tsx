@@ -6,6 +6,7 @@ import {takeScreenshot} from "../utils/takeScreenshot";
 import {loadRobot} from "../utils/robots";
 import {useModelState} from "../state/modelState";
 import {debug_print} from "../utils/debug_print";
+import {updateAllPointsSize} from "../utils/scene/updatePointSizes";
 
 function OptionsComponent() {
     const {
@@ -18,7 +19,11 @@ function OptionsComponent() {
         setEnableWebsocket,
         enableWebsocket,
         enableNodeEditor,
-        setEnableNodeEditor
+        setEnableNodeEditor,
+        pointSize,
+        setPointSize,
+        pointSizeAbsolute,
+        setPointSizeAbsolute,
     } = useOptionsStore();
     const {showLegend, setShowLegend} = useColorStore();
     const {zIsUp, setZIsUp, defaultOrbitController, setDefaultOrbitController} = useModelState();
@@ -49,6 +54,31 @@ function OptionsComponent() {
         };
     }, [centerWindow]);
 
+    // Update point sizes in the scene whenever the option changes
+    useEffect(() => {
+        updateAllPointsSize(pointSize, pointSizeAbsolute);
+    }, [pointSize, pointSizeAbsolute]);
+
+    // Keep absolute sizing correct on viewport resize
+    useEffect(() => {
+        const onResize = () => updateAllPointsSize(pointSize, pointSizeAbsolute);
+        window.addEventListener('resize', onResize);
+        return () => window.removeEventListener('resize', onResize);
+    }, [pointSize, pointSizeAbsolute]);
+
+    // Clamp point size into valid UI range upon toggling mode to avoid out-of-range values
+    useEffect(() => {
+        if (pointSizeAbsolute) {
+            if (pointSize > 0.1 || pointSize < 0.005) {
+                setPointSize(0.01);
+            }
+        } else {
+            if (pointSize < 5 || pointSize > 30) {
+                setPointSize(10);
+            }
+        }
+    }, [pointSizeAbsolute]);
+
     return (
         <Rnd
             default={{
@@ -63,6 +93,8 @@ function OptionsComponent() {
                 right: true,
                 bottomRight: true,
             }}
+            dragHandleClassName="options-drag-handle"
+            cancel="input, button, select, textarea, .no-drag"
             onDragStop={(e, d) => setPosition({x: d.x, y: d.y})}
             onResizeStop={(e, direction, ref, delta, position) => {
                 setPosition(position);
@@ -79,7 +111,7 @@ function OptionsComponent() {
                 }}
 
             >
-                <div className="font-bold text-base">Options Panel</div>
+                <div className="options-drag-handle font-bold text-base cursor-move select-none">Options Panel</div>
                 <div className="text-xs text-gray-400">Version: {unique_version_id}</div>
 
                 <div className="space-y-2">
@@ -107,6 +139,41 @@ function OptionsComponent() {
                     >
                         Take Screenshot
                     </button>
+                </div>
+
+                <hr className="border-gray-600"/>
+
+                <div className="space-y-2">
+                    <label className="flex items-center space-x-2">
+                        <span className="w-32">Point Size</span>
+                        <input
+                            type="range"
+                            min={pointSizeAbsolute ? 0.005 : 5}
+                            max={pointSizeAbsolute ? 0.1 : 30}
+                            step={pointSizeAbsolute ? 0.005 : 1}
+                            value={pointSize}
+                            onChange={(e) => setPointSize(parseFloat(e.target.value))}
+                            className="flex-1 no-drag"
+                        />
+                        <input
+                            type="number"
+                            min={pointSizeAbsolute ? 0.005 : 5}
+                            max={pointSizeAbsolute ? 0.1 : 30}
+                            step={pointSizeAbsolute ? 0.005 : 1}
+                            value={pointSize}
+                            onChange={(e) => setPointSize(parseFloat(e.target.value) || 0)}
+                            className="w-24 bg-gray-700 text-white p-1 rounded no-drag"
+                        />
+                    </label>
+                    <label className="flex items-center space-x-2">
+                        <input
+                            type="checkbox"
+                            className="no-drag"
+                            checked={pointSizeAbsolute}
+                            onChange={() => setPointSizeAbsolute(!pointSizeAbsolute)}
+                        />
+                        <span>Absolute point size (world units)</span>
+                    </label>
                 </div>
 
                 <hr className="border-gray-600"/>

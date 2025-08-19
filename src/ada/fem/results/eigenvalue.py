@@ -33,6 +33,12 @@ class EigenDataSummary:
         for no in sorted(values_dict.keys(), key=int):
             self.modes.append(EigenMode(int(no), source_dict=values_dict[no]))
 
+    def get_eigenmode(self, no: int) -> EigenMode | None:
+        for m in self.modes:
+            if m.no == no:
+                return m
+        return None
+
 
 @dataclass
 class EigenMode:

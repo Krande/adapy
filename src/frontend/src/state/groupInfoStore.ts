@@ -5,6 +5,7 @@ export interface GroupInfo {
   description?: string;
   members?: string[];
   type: 'design' | 'simulation';
+  fe_object_type?: 'node' | 'element';
   parent_name: string;
 }
 

@@ -21,9 +21,12 @@ from ...comms.fb_wrap_model_gen import FilePurposeDC
 from .field_data import ElementFieldData, NodalFieldData, NodalFieldType
 
 if TYPE_CHECKING:
+    import trimesh
+
     from ada import Material, Node, Section
     from ada.fem import Elem, FemSet
     from ada.fem.results.concepts import EigenDataSummary
+    from ada.visit.colors import Color
 
 
 @dataclass
@@ -55,6 +58,57 @@ class FemNodes:
 
         node_indices = [np.where(self.identifiers == x)[0][0] for x in node_id]
         return [Node(x, int(node_id[i])) for i, x in enumerate(self.coords[node_indices])]
+
+
+@dataclass
+class MeshStore:
+    points: MergedMesh
+    lines: MergedMesh
+    faces: MergedMesh
+    solid_beams: MergedMesh | None
+
+    edges_node_name: str | None = None
+    faces_node_name: str | None = None
+    points_node_name: str | None = None
+    bm_solid_node_name: str | None = None
+
+    def add_to_scene(self, scene: trimesh.Scene, graph: GraphStore):
+        from ada.visit.gltf.store import merged_mesh_to_trimesh_scene
+
+        if len(self.lines.indices) > 0:
+            self.edges_node_name = merged_mesh_to_trimesh_scene(
+                scene=scene,
+                merged_mesh=self.lines,
+                pbr_mat=self.lines.material,
+                buffer_id=graph.next_buffer_id(),
+                graph_store=graph,
+            )
+
+        if len(self.faces.indices) > 0:
+            self.faces_node_name = merged_mesh_to_trimesh_scene(
+                scene=scene,
+                merged_mesh=self.faces,
+                pbr_mat=self.faces.material,
+                buffer_id=graph.next_buffer_id(),
+                graph_store=graph,
+            )
+
+        if len(self.points.position) > 0:
+            self.points_node_name = merged_mesh_to_trimesh_scene(
+                scene=scene,
+                merged_mesh=self.points,
+                pbr_mat=self.points.material,
+                buffer_id=graph.next_buffer_id(),
+                graph_store=graph,
+            )
+        if self.solid_beams is not None and len(self.solid_beams.indices) > 0:
+            self.bm_solid_node_name = merged_mesh_to_trimesh_scene(
+                scene=scene,
+                merged_mesh=self.solid_beams,
+                pbr_mat=self.solid_beams.material,
+                buffer_id=graph.next_buffer_id(),
+                graph_store=graph,
+            )
 
 
 @dataclass
@@ -124,15 +178,26 @@ class Mesh:
     def create_mesh_stores(
         self,
         parent_name: str,
-        shell_color,
-        line_color,
-        points_color,
         graph: GraphStore,
         parent_node: GraphNode,
         use_solid_beams=False,
-    ) -> tuple[MergedMesh, MergedMesh, MergedMesh]:
+        shell_color: Color | None = None,
+        line_color: Color | None = None,
+        points_color: Color | None = None,
+        solid_bm_color: Color | None = None,
+    ) -> MeshStore:
         from ada.fem.shapes import ElemShape
         from ada.fem.shapes import definitions as shape_def
+        from ada.visit.colors import Color
+
+        if shell_color is None:
+            shell_color = Color.from_str("white")
+        if line_color is None:
+            line_color = Color.from_str("gray")
+        if points_color is None:
+            points_color = Color.from_str("black")
+        if solid_bm_color is None:
+            solid_bm_color = Color.from_str("light-gray")
 
         face_node = graph.add_node(
             GraphNode(parent_name + "_sh", graph.next_node_id(), hash=create_guid(), parent=parent_node)
@@ -150,8 +215,11 @@ class Mesh:
         nmap = {x: i for i, x in enumerate(self.nodes.identifiers)}
         keys = np.array(list(nmap.keys()))
 
+        coords = self.nodes.coords.flatten()
         edges = []
         faces = []
+
+        po_groups = []
         sh_groups = []
         li_groups = []
 
@@ -175,6 +243,7 @@ class Mesh:
                 edges += new_edges
 
                 if line_node is not None:
+
                     li_s = len(edges)
                     node = graph.add_node(
                         GraphNode(f"Li{elem_id}", graph.next_node_id(), hash=create_guid(), parent=line_node)
@@ -192,18 +261,76 @@ class Mesh:
                 )
                 sh_groups.append(GroupReference(node, face_s, len(new_faces)))
 
-        coords = self.nodes.coords.flatten()
-        po_groups = []
         for i, n in enumerate(sorted(self.nodes.identifiers)):
-            nid = graph.next_node_id()
-            node = graph.add_node(GraphNode(f"P{int(n)}", nid, parent=points_node))
-            po_groups.append(GroupReference(node, nid, 1))
+            node = graph.add_node(GraphNode(f"P{int(n)}", graph.next_node_id(), parent=points_node))
+            po_groups.append(GroupReference(node, i, 1))
 
-        edges = MergedMesh(np.array(edges), coords, None, line_color, MeshType.LINES, groups=li_groups)
-        points = MergedMesh(None, coords, None, points_color, MeshType.POINTS, groups=po_groups)
+        edges_mesh = MergedMesh(np.array(edges), coords, None, line_color, MeshType.LINES, groups=li_groups)
+        points_mesh = MergedMesh(None, coords, None, points_color, MeshType.POINTS, groups=po_groups)
         face_mesh = MergedMesh(np.array(faces), coords, None, shell_color, MeshType.TRIANGLES, groups=sh_groups)
 
-        return points, edges, face_mesh
+        bm_solid_mesh = None
+        line_elems = self.get_line_elems() if self.elem_data is not None else []
+        if use_solid_beams and len(line_elems) > 0:
+            from ada import Part
+            from ada.fem.formats.utils import line_elem_to_beam
+            from ada.occ.tessellating import BatchTessellator
+            from ada.visit.gltf.optimize import concatenate_stores
+
+            dummy_part = Part(parent_name)
+
+            so_bm_node = graph.add_node(
+                GraphNode(parent_name + "_liSO", graph.next_node_id(), hash=create_guid(), parent=parent_node)
+            )
+            beams = [line_elem_to_beam(elem, dummy_part, "BM") for elem in line_elems]
+            for bm in beams:
+                graph.add_node(GraphNode(bm.name, graph.next_node_id(), hash=bm.guid, parent=so_bm_node))
+
+            bt = BatchTessellator()
+            meshes = bt.batch_tessellate(beams, graph_store=graph)
+            bm_solid_mesh = concatenate_stores(meshes)
+            bm_solid_mesh.material = solid_bm_color
+
+        return MeshStore(points_mesh, edges_mesh, face_mesh, bm_solid_mesh)
+
+    def get_line_elems(self) -> list[Elem]:
+        from ada.base.types import GeomRepr
+        from ada.fem import Elem, FemSection, FemSet
+        from ada.fem.shapes.definitions import LineShapes
+
+        # Build a quick lookup: el_id -> (mat_id, sec_id, vec_id)
+        # Using dict for O(1) access per element instead of repeated array filtering
+        el_props = {int(row[0]): (int(row[1]), int(row[2]), int(row[3])) for row in self.elem_data}
+
+        line_elems: list[Elem] = []
+        for block in self.elements:
+            # Only create elements for line-type blocks
+            if not isinstance(block.elem_info.type, LineShapes):
+                continue
+
+            # Iterate elements in this block
+            for idx_in_block, node_ids in enumerate(block.node_refs):
+                elem_id = int(block.identifiers[idx_in_block])
+
+                # Resolve nodes
+                nodes = self.nodes.get_node_by_id(node_ids)
+
+                # Create element
+                el = Elem(elem_id, nodes, block.elem_info.type)
+
+                # Resolve material/section/vector using precomputed map
+                mat_id, sec_id, vec_id = el_props.get(elem_id, (None, None, None))
+                mat = self.materials.get(mat_id) if self.materials is not None else None
+                sec = self.sections.get(sec_id) if self.sections is not None else None
+                vec = self.vectors.get(vec_id) if self.vectors is not None else None
+
+                # Assign FemSection similarly to get_elem_by_id
+                fs = FemSection(f"FS{sec_id}", GeomRepr.LINE, FemSet(f"El{elem_id}", [el]), mat, sec, local_z=vec)
+                el.fem_sec = fs
+
+                line_elems.append(el)
+
+        return line_elems
 
 
 @dataclass

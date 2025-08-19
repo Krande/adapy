@@ -70,6 +70,45 @@ class ModelWorkerAPI {
         return null;
     }
 
+    async getPointId(
+        key: string,
+        meshName: string,
+        pointIndex: number): Promise<[string, number, number] | null> {
+        const drawRanges = this.memoryCacheDrawRange.get(key)
+        if (!drawRanges) {
+            console.error("ModelWorkerAPI: No drawRanges found for key:", key);
+            return null;
+        }
+        const rangesForMesh = drawRanges[meshName];
+        if (!rangesForMesh) return null;
+
+        const faceStart = pointIndex;
+        for (const [rangeId, [start, length]] of Object.entries(rangesForMesh)) {
+            if (faceStart >= start && faceStart < start + length) {
+                return [rangeId, start, length];
+            }
+        }
+        return null;
+    }
+
+    async getPointRangeByRangeId(
+        key: string,
+        meshName: string,
+        rangeId: string
+    ): Promise<[number, number] | null> {
+        const drawRanges = this.memoryCacheDrawRange.get(key);
+        if (!drawRanges) {
+            console.error("ModelWorkerAPI: No drawRanges found for key:", key);
+            return null;
+        }
+        const rangesForMesh = drawRanges[meshName];
+        if (!rangesForMesh) return null;
+        const entry = (rangesForMesh as any)[rangeId];
+        if (!entry) return null;
+        const [start, length] = entry as [number, number];
+        return [start, length];
+    }
+
     async getNameFromRangeId(
         key: string,
         rangeId: string,

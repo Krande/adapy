@@ -678,7 +678,7 @@ class FemSets:
                 el_type = Node
                 get_func = get_nset
 
-            res = list(filter(lambda x: type(x) != el_type, fset.members))
+            res = list(filter(lambda x: type(x) is not el_type, fset.members))
             if len(res) > 0:
                 fset._members = [get_func(m) for m in fset.members]
 

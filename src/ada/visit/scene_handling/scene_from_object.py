@@ -3,15 +3,15 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ada.base.physical_objects import BackendGeom
-from ada.core.guid import create_guid
-from ada.visit.gltf.graph import GraphNode, GraphStore
-from ada.visit.render_params import RenderParams
+from ada.visit.gltf.graph import GraphNode
 
 if TYPE_CHECKING:
     import trimesh
 
+    from ada.visit.scene_converter import SceneConverter
 
-def scene_from_object(physical_object: BackendGeom, params: RenderParams) -> trimesh.Scene:
+
+def scene_from_object(physical_object: BackendGeom, converter: SceneConverter) -> trimesh.Scene:
     from itertools import groupby
 
     import trimesh
@@ -22,22 +22,23 @@ def scene_from_object(physical_object: BackendGeom, params: RenderParams) -> tri
     from ada.visit.gltf.store import merged_mesh_to_trimesh_scene
 
     bt = BatchTessellator()
+    params = converter.params
+    graph = converter.graph
+    root = graph.top_level
 
-    root = GraphNode("world", 0, hash=create_guid())
-    graph_store = GraphStore(top_level=root, nodes={0: root})
-    node = graph_store.add_node(
-        GraphNode(physical_object.name, graph_store.next_node_id(), hash=physical_object.guid, parent=root)
-    )
+    scene = trimesh.Scene(base_frame=converter.graph.top_level.name) if converter.scene is None else converter.scene
+
+    node = graph.add_node(GraphNode(physical_object.name, graph.next_node_id(), hash=physical_object.guid, parent=root))
 
     if isinstance(physical_object, Pipe):
         physical_objects = physical_object.segments
         for seg in physical_objects:
-            graph_store.add_node(GraphNode(seg.name, graph_store.next_node_id(), hash=seg.guid, parent=node))
+            graph.add_node(GraphNode(seg.name, graph.next_node_id(), hash=seg.guid, parent=node))
     else:
         physical_objects = [physical_object]
 
     mesh_stores = list(bt.batch_tessellate(physical_objects))
-    scene = trimesh.Scene()
+
     mesh_map = []
     for mat_id, meshes in groupby(mesh_stores, lambda x: x.material):
         meshes = list(meshes)
@@ -46,7 +47,7 @@ def scene_from_object(physical_object: BackendGeom, params: RenderParams) -> tri
         mesh_map.append((mat_id, meshes, merged_store))
 
         merged_mesh_to_trimesh_scene(
-            scene, merged_store, bt.get_mat_by_id(mat_id), mat_id, graph_store, apply_transform=params.apply_transform
+            scene, merged_store, bt.get_mat_by_id(mat_id), mat_id, graph, apply_transform=params.apply_transform
         )
 
     return scene

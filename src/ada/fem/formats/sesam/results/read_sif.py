@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Iterator
 
 import numpy as np
 
+from ada.config import logger
 from ada.core.utils import Counter
 from ada.fem.formats.sesam.common import sesam_eltype_2_general
 from ada.fem.formats.sesam.read import cards
@@ -414,12 +415,27 @@ class Sif2Mesh:
     mesh: Mesh = None
 
     def convert(self, sif_file) -> FEAResult:
-        from ada.fem.results.common import FEAResult, FEATypes
+        from ada.fem.formats.sesam.results._results import get_eigen_data
+        from ada.fem.results.common import FEAResult, FEATypes, NodalFieldData
 
         self.mesh = self.get_sif_mesh()
         results = self.get_sif_results()
         rnames = self.get_result_name_map()
         mlg_file = sif_file.parent / "SESTRA.MLG"
+        lis_file = sif_file.parent / "SESTRA.LIS"
+
+        if lis_file.exists():
+            try:
+                eig_data = get_eigen_data(lis_file)
+                for result in results:
+                    if not isinstance(result, NodalFieldData):
+                        continue
+                    eig_freq = eig_data.get_eigenmode(result.step)
+                    if eig_freq is not None:
+                        result.eigen_freq = eig_freq.f_hz
+                        result.eigen_value = eig_freq.eigenvalue
+            except Exception as e:
+                logger.info("Unable to extract eigen data from LIS file. Error: %s", e)
 
         software_version = "N/A"
         if mlg_file.exists():
