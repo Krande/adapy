@@ -14,80 +14,87 @@ export const centerViewOnSelection = (
     const selectedObjects = useSelectedObjectStore.getState().selectedObjects;
 
 
-    if (controls && camera && selectedObjects.size > 0) {
+    if (controls && camera) {
         const boundingBox = new THREE.Box3();
         const vertex = new THREE.Vector3();
+        let expanded = false;
 
-        selectedObjects.forEach((drawRangeIds, obj) => {
-            // Only handle CustomBatchedMesh here; points are handled separately below
-            const mesh = obj as any;
-            if (!mesh || !mesh.geometry || !mesh.drawRanges) return;
+        if (selectedObjects.size > 0) {
+            selectedObjects.forEach((drawRangeIds, obj) => {
+                const mesh = obj as any;
+                if (!mesh || !mesh.geometry || !mesh.drawRanges) return; // skip non-meshes (e.g., Points)
 
-            const geometry = mesh.geometry as THREE.BufferGeometry;
-            const positionAttr = geometry.getAttribute('position');
-            const indexAttr = geometry.getIndex();
+                const geometry = mesh.geometry as THREE.BufferGeometry;
+                const positionAttr = geometry.getAttribute('position') as THREE.BufferAttribute | undefined;
+                const indexAttr = geometry.getIndex();
+                if (!positionAttr || !indexAttr) {
+                    return;
+                }
 
-            if (!positionAttr) {
-                console.warn('Geometry has no position attribute.');
-                return;
-            }
+                const indexArray = indexAttr.array as Uint16Array | Uint32Array;
+                // Morph target data if present (handles deformed meshes / morph targets)
+                const morphPositions = (geometry.morphAttributes && (geometry.morphAttributes as any).position) as THREE.BufferAttribute[] | undefined;
+                const morphTargetsRelative = geometry.morphTargetsRelative === true;
+                const influences: number[] | undefined = (mesh as any).morphTargetInfluences;
 
-            if (!indexAttr) {
-                console.warn('Geometry has no index buffer.');
-                return;
-            }
-
-            const indexArray = indexAttr.array as Uint16Array | Uint32Array;
-            drawRangeIds.forEach((drawRangeId) => {
-                const drawRange = mesh.drawRanges.get(drawRangeId);
-                if (drawRange) {
-                    const [start, count] = drawRange;
-
-                    if (start < 0 || start + count > indexArray.length) {
-                        console.warn(`Draw range (start: ${start}, count: ${count}) is out of bounds.`);
-                        return;
+                const applyMorph = (idx: number, target: THREE.Vector3) => {
+                    if (!morphPositions || !influences) return;
+                    let sumInfluence = 0;
+                    for (let m = 0; m < morphPositions.length; m++) {
+                        const inf = influences[m] || 0;
+                        if (inf === 0) continue;
+                        sumInfluence += inf;
+                        const mp = morphPositions[m];
+                        const mx = mp.getX(idx);
+                        const my = mp.getY(idx);
+                        const mz = mp.getZ(idx);
+                        if (morphTargetsRelative) {
+                            target.x += mx * inf;
+                            target.y += my * inf;
+                            target.z += mz * inf;
+                        } else {
+                            target.x = target.x * (1 - sumInfluence) + mx * inf;
+                            target.y = target.y * (1 - sumInfluence) + my * inf;
+                            target.z = target.z * (1 - sumInfluence) + mz * inf;
+                        }
                     }
+                };
+
+                drawRangeIds.forEach((drawRangeId) => {
+                    const drawRange = mesh.drawRanges.get(drawRangeId);
+                    if (!drawRange) return;
+                    const [start, count] = drawRange;
+                    if (start < 0 || start + count > indexArray.length) return;
 
                     for (let i = start; i < start + count; i++) {
                         const index = indexArray[i];
-                        if (index < 0 || index >= positionAttr.count) {
-                            console.warn(`Index ${index} at position ${i} is out of bounds.`);
-                            continue;
-                        }
+                        if (index < 0 || index >= positionAttr.count) continue;
 
                         vertex.fromBufferAttribute(positionAttr, index);
-
-                        if (isNaN(vertex.x) || isNaN(vertex.y) || isNaN(vertex.z)) {
-                            console.warn(`NaN detected in vertex position at index ${index}. Skipping.`);
-                            continue;
-                        }
-
+                        applyMorph(index, vertex); // morph-aware
+                        if (isNaN(vertex.x) || isNaN(vertex.y) || isNaN(vertex.z)) continue;
                         mesh.localToWorld(vertex);
                         boundingBox.expandByPoint(vertex);
+                        expanded = true;
                     }
-                } else {
-                    console.warn(`Draw range ID ${drawRangeId} not found in mesh.`);
-                }
+                });
             });
-        });
+        }
 
-        center_on_bounding_box(boundingBox, camera, fillFactor, controls);
-
-    } else if (controls && selectedPointRef.current) {
-        // Use the new zoom-to-point function instead of bounding box
-        // zoomToSelectedPoint(selectedPointRef.current, camera, controls);
-        // This controls when a point is selected
-        const selectedPoint = selectedPointRef.current;
-        const position = selectedPoint.position;
-        const distance = 1.5;
-
-        const bounding_box = new THREE.Box3()
-        // create a box that contains the selected point.
-        bounding_box.setFromCenterAndSize(position, new THREE.Vector3(distance, distance, distance));
-        // move the camera to the center of the box
-        center_on_bounding_box(bounding_box, camera, fillFactor, controls);
+        if (expanded && !boundingBox.isEmpty()) {
+            center_on_bounding_box(boundingBox, camera, fillFactor, controls);
+        } else if (selectedPointRef.current) {
+            const selectedPoint = selectedPointRef.current;
+            const position = selectedPoint.position;
+            const distance = 1.5;
+            const bounding_box = new THREE.Box3();
+            bounding_box.setFromCenterAndSize(position, new THREE.Vector3(distance, distance, distance));
+            center_on_bounding_box(bounding_box, camera, fillFactor, controls);
+        } else {
+            console.warn('No selected geometry or points to center view on.');
+        }
     } else {
-        console.warn('No selected objects to center view on.');
+        console.warn('Controls or camera not available to center view.');
     }
 };
 
