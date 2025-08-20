@@ -30,13 +30,57 @@ def test_prim_sweep2(tmp_path):
         [(0, 0), (0.1, 0), (0.1, 0.1), (0, 0.1)],
         (0, 0, 1),
         (1, 0, 0),
-        (0, 0, 0),
+        origin=(0, 0, 0),
     )
     geom = sweep.solid_geom()
     assert isinstance(geom.geometry, geo_so.FixedReferenceSweptAreaSolid)
     mesh = sweep.solid_trimesh()
 
-    expected = np.asarray([0.6439524, 0.540736, 0.751686])
+    # sweep.show()
+
+    expected = np.asarray([0.622505, 0.415516, 0.808411])
     np.testing.assert_allclose(mesh.center_mass, expected, atol=0.0001)
 
-    # sweep.show()
+
+
+def test_prim_sweep_flipped_normals(tmp_path):
+    curve3d = [
+        (0, 0, 0),
+        (0, 1, 0),
+    ]
+    profile2d = [(0, 0), (1, 0), (1, 1)]
+    sweep = ada.PrimSweep("sweep1", curve3d, profile2d, profile_normal=(0,-1,0), profile_ydir=(0,0,1), color="red")
+    sweep_solid = sweep.solid_geom()
+    sweep_geom = sweep_solid.geometry
+    assert isinstance(sweep_geom, geo_so.FixedReferenceSweptAreaSolid)
+
+    # Directrix
+    sweep_geom_directrix = sweep_geom.directrix
+    assert sweep_geom_directrix.start.is_equal(ada.Point(0,0,0))
+    assert sweep_geom_directrix.end.is_equal(ada.Point(0,0,-1))
+
+    # Position
+    sweep_geom_position = sweep_geom.position
+    assert sweep_geom_position.axis.is_equal(ada.Direction(0,-1,0))
+    assert sweep_geom_position.location.is_equal(ada.Point(0,0,0))
+    assert sweep_geom_position.ref_direction.is_equal(ada.Direction(1,0,0))
+
+    sweep_flipped = ada.PrimSweep("sweep1_flipped", curve3d, profile2d, profile_normal=(0,1,0), profile_ydir=(0,0,1), color="blue")
+    fsweep_solid = sweep_flipped.solid_geom()
+    fsweep_geom = fsweep_solid.geometry
+    assert isinstance(fsweep_geom, geo_so.FixedReferenceSweptAreaSolid)
+
+    # p = ada.Part("MyPart") / [sweep, sweep_flipped]
+    # p.show()
+
+    # Directrix should be the same as the original sweep
+    fsweep_geom_directrix = fsweep_geom.directrix
+    assert fsweep_geom_directrix.start.is_equal(ada.Point(0,0,0))
+    assert fsweep_geom_directrix.end.is_equal(ada.Point(0,0,1))
+
+    # Position should be the same as the original sweep
+    fsweep_geom_position = fsweep_geom.position
+    assert fsweep_geom_position.axis.is_equal(ada.Direction(0,1,0))
+    assert fsweep_geom_position.location.is_equal(ada.Point(0,0,0))
+    assert fsweep_geom_position.ref_direction.is_equal(ada.Direction(-1,0,0))
+

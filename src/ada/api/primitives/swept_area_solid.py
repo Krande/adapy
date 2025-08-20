@@ -22,6 +22,7 @@ class PrimSweep(Shape):
         profile_curve_outer: Iterable[Iterable[float]] | CurvePoly2d,
         profile_xdir=None,
         profile_normal=None,
+        profile_ydir=None,
         origin=None,
         derived_reference=False,
         tol=1e-3,
@@ -36,6 +37,10 @@ class PrimSweep(Shape):
         place = Placement(origin=origin)
 
         if not isinstance(profile_curve_outer, CurvePoly2d):
+            if profile_ydir is not None:
+                import numpy as np
+                profile_xdir = Direction(*np.cross(profile_ydir, start_norm))
+
             profile_xdir = Direction(*profile_xdir) if profile_xdir is not None else Direction(1, 0, 0)
             profile_curve_outer = CurvePoly2d(
                 profile_curve_outer, origin=origin, normal=start_norm, xdir=profile_xdir, tol=tol
@@ -79,11 +84,20 @@ class PrimSweep(Shape):
 
         profile = ArbitraryProfileDef(ProfileType.AREA, outer_curve, [])
 
-        place = self.placement.to_axis2placement3d()
-
+        place_ident = Placement()
+        place = Placement(xdir=self.profile_curve_outer.xdir, ydir=self.profile_curve_outer.ydir, zdir=self.profile_curve_outer.normal)
+        a2place3d = place.to_axis2placement3d()
         booleans = [BooleanOperation(x.primitive.solid_geom(), x.bool_op) for x in self.booleans]
 
-        solid = FixedReferenceSweptAreaSolid(profile, place, self.sweep_curve.curve_geom())
+        is_identity = place.is_identity(use_absolute_placement=False)
+        if is_identity:
+            transformed_sweep_curve = self.sweep_curve
+        else:
+            curve_pts = self.sweep_curve.points3d
+            transformed_sweep_curve_pts = place.transform_array_from_other_place(curve_pts, place_ident)
+            transformed_sweep_curve = CurveOpen3d(transformed_sweep_curve_pts, radiis=self.sweep_curve.radiis, tol=self.sweep_curve._tol)
+
+        solid = FixedReferenceSweptAreaSolid(profile, a2place3d, transformed_sweep_curve.curve_geom())
         return Geometry(self.guid, solid, self.color, bool_operations=booleans)
 
     def __repr__(self):
