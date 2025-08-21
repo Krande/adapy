@@ -111,6 +111,8 @@ def make_fixed_reference_swept_area_shape_from_geom(frs: geo_so.FixedReferenceSw
     pipe_builder = BRepOffsetAPI_MakePipeShell(spine)
 
     # Set frenet frame algorithm for better orientation around bends
+    # BRepBuilderAPI_RoundCorner
+    # BRepBuilderAPI_RightCorner
     pipe_builder.SetTransitionMode(BRepBuilderAPI_RoundCorner)
 
     # Add the wire profile (not the face)
