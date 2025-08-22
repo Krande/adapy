@@ -109,7 +109,7 @@ class PrimSweep(Shape):
         from ada.geom.solids import FixedReferenceSweptAreaSolid
         from ada.geom.surfaces import ArbitraryProfileDef, ProfileType
 
-        outer_curve = self.profile_curve_outer.curve_geom(True)
+        outer_curve = self.profile_curve_outer.curve_geom(use_3d_segments=True)
 
         profile = ArbitraryProfileDef(ProfileType.AREA, outer_curve, [])
 

@@ -435,8 +435,13 @@ def add_colour(
         f.createIfcStyledItem(ifc_body, (surface_style,), ifc_color.Name)
 
 
-def calculate_unit_scale(file):
-    units = file.by_type("IfcUnitAssignment")[0]
+def calculate_unit_scale(file) -> float:
+    units = file.by_type("IfcUnitAssignment")
+    if len(units) == 0:
+        logger.warning("No unit assignment found in file. Assuming meters")
+        return 1.0
+
+    units = units[0]
     unit_scale = 1
     for unit in units.Units:
         if not hasattr(unit, "UnitType") or unit.UnitType != "LENGTHUNIT":
