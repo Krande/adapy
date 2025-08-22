@@ -179,7 +179,7 @@ class MockWebParams:
     client_type: TargetTypeDC.WEB
 
 
-@pytest_asyncio.fixture
+@pytest_asyncio.fixture(scope="module")
 def mock_async_web_client(event_loop) -> MockWebParams:
     task = asyncio.ensure_future(start_mock_web_client_connection(WS_HOST, WS_PORT), loop=event_loop)
 
