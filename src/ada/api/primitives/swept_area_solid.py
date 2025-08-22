@@ -78,7 +78,6 @@ class PrimSweep(Shape):
         return self._profile_curve_outer
 
     def solid_geom_2d_profile(self):
-        """"""
         from ada.geom.solids import FixedReferenceSweptAreaSolid
         from ada.geom.surfaces import ArbitraryProfileDef, ProfileType
 
