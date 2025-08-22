@@ -31,7 +31,10 @@ def generate_ifc_prim_sweep_geom(shape: PrimSweep, f):
     # FixedReference must lie in the plane defined by Position and fixes the Y-axis of the profile
     # Use the profile's local Y direction (as encoded in the Position) for FixedReference
     from ada import Placement
-    profile_place = Placement(xdir=shape.profile_curve_outer.xdir, ydir=shape.profile_curve_outer.ydir, zdir=shape.profile_curve_outer.normal)
+
+    profile_place = Placement(
+        xdir=shape.profile_curve_outer.xdir, ydir=shape.profile_curve_outer.ydir, zdir=shape.profile_curve_outer.normal
+    )
     local_y_dir = shape.profile_curve_outer.ydir
     result = Placement().transform_array_from_other_place(local_y_dir, profile_place)
     # local_y_dir = result

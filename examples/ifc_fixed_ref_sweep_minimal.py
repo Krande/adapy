@@ -12,6 +12,7 @@ import ada
 # Produces:
 #   minimal_ifc_sweep.ifc (with AdvancedSweptSolid using IfcFixedReferenceSweptAreaSolid)
 
+
 def dir3(f, xyz):
     return f.create_entity("IfcDirection", xyz)
 
@@ -119,7 +120,11 @@ def main():
     # Build BaseCurve = IfcCompositeCurve with 4 segments (line, clothoid, circle, discontinuous line)
     # Segment 1: Line, placement at (0,0) dir (1,0), length 400
     seg1_pl = axis2d(f, (0.0, 0.0), (1.0, 0.0))
-    line1 = f.create_entity("IfcLine", Pnt=pt2(f, (0.0, 0.0)), Dir=f.create_entity("IfcVector", Orientation=dir2(f, (1.0, 0.0)), Magnitude=1.0))
+    line1 = f.create_entity(
+        "IfcLine",
+        Pnt=pt2(f, (0.0, 0.0)),
+        Dir=f.create_entity("IfcVector", Orientation=dir2(f, (1.0, 0.0)), Magnitude=1.0),
+    )
     cc_seg1 = f.create_entity(
         "IfcCurveSegment",
         Transition="CONTSAMEGRADIENTSAMECURVATURE",
@@ -131,7 +136,9 @@ def main():
 
     # Segment 2: Clothoid, placement at (400,0) dir (1,0), length 150, constant -273.861278752584
     seg2_pl = axis2d(f, (400.0, 0.0), (1.0, 0.0))
-    clothoid = f.create_entity("IfcClothoid", Position=axis2d(f, (0.0, 0.0), (1.0, 0.0)), ClothoidConstant=-273.861278752584)
+    clothoid = f.create_entity(
+        "IfcClothoid", Position=axis2d(f, (0.0, 0.0), (1.0, 0.0)), ClothoidConstant=-273.861278752584
+    )
     cc_seg2 = f.create_entity(
         "IfcCurveSegment",
         Transition="CONTSAMEGRADIENTSAMECURVATURE",
@@ -155,7 +162,11 @@ def main():
 
     # Segment 4: Discontinuous line (as per reference), zero length, placement at (881.65153753789,-211.03194929054)
     seg4_pl = axis2d(f, (881.65153753789, -211.03194929054), (0.58168308946, -0.81341550478))
-    line_d = f.create_entity("IfcLine", Pnt=pt2(f, (0.0, 0.0)), Dir=f.create_entity("IfcVector", Orientation=dir2(f, (1.0, 0.0)), Magnitude=1.0))
+    line_d = f.create_entity(
+        "IfcLine",
+        Pnt=pt2(f, (0.0, 0.0)),
+        Dir=f.create_entity("IfcVector", Orientation=dir2(f, (1.0, 0.0)), Magnitude=1.0),
+    )
     cc_seg4 = f.create_entity(
         "IfcCurveSegment",
         Transition="DISCONTINUOUS",
@@ -165,12 +176,18 @@ def main():
         ParentCurve=line_d,
     )
 
-    base_curve = f.create_entity("IfcCompositeCurve", Segments=[cc_seg1, cc_seg2, cc_seg3, cc_seg4], SelfIntersect=False)
+    base_curve = f.create_entity(
+        "IfcCompositeCurve", Segments=[cc_seg1, cc_seg2, cc_seg3, cc_seg4], SelfIntersect=False
+    )
 
     # Build Directrix = IfcGradientCurve with 4 segments and BaseCurve ref
     # GC Segment 1: Line, placement (0,150) dir ~ (0.9999995,-0.001), length 450.000218741065
     g1_pl = axis2d(f, (0.0, 150.0), (0.999999500000375, -0.000999999499995919))
-    g_line1 = f.create_entity("IfcLine", Pnt=pt2(f, (0.0, 0.0)), Dir=f.create_entity("IfcVector", Orientation=dir2(f, (1.0, 0.0)), Magnitude=1.0))
+    g_line1 = f.create_entity(
+        "IfcLine",
+        Pnt=pt2(f, (0.0, 0.0)),
+        Dir=f.create_entity("IfcVector", Orientation=dir2(f, (1.0, 0.0)), Magnitude=1.0),
+    )
     g_seg1 = f.create_entity(
         "IfcCurveSegment",
         Transition="CONTSAMEGRADIENTSAMECURVATURE",
@@ -194,7 +211,11 @@ def main():
 
     # GC Segment 3: Line, placement (550,149.522222225005) dir ~ (0.999999001234583,0.000444444400554072), length 400.000039506171
     g3_pl = axis2d(f, (550.0, 149.522222225005), (0.999999001234583, 0.000444444400554072))
-    g_line3 = f.create_entity("IfcLine", Pnt=pt2(f, (0.0, 0.0)), Dir=f.create_entity("IfcVector", Orientation=dir2(f, (1.0, 0.0)), Magnitude=1.0))
+    g_line3 = f.create_entity(
+        "IfcLine",
+        Pnt=pt2(f, (0.0, 0.0)),
+        Dir=f.create_entity("IfcVector", Orientation=dir2(f, (1.0, 0.0)), Magnitude=1.0),
+    )
     g_seg3 = f.create_entity(
         "IfcCurveSegment",
         Transition="CONTSAMEGRADIENTSAMECURVATURE",
@@ -206,7 +227,11 @@ def main():
 
     # GC Segment 4: Discontinuous line, zero length, placement (950,149.7)
     g4_pl = axis2d(f, (950.0, 149.7), (0.999999001234583, 0.000444444400554072))
-    g_line4 = f.create_entity("IfcLine", Pnt=pt2(f, (0.0, 0.0)), Dir=f.create_entity("IfcVector", Orientation=dir2(f, (1.0, 0.0)), Magnitude=1.0))
+    g_line4 = f.create_entity(
+        "IfcLine",
+        Pnt=pt2(f, (0.0, 0.0)),
+        Dir=f.create_entity("IfcVector", Orientation=dir2(f, (1.0, 0.0)), Magnitude=1.0),
+    )
     g_seg4 = f.create_entity(
         "IfcCurveSegment",
         Transition="DISCONTINUOUS",

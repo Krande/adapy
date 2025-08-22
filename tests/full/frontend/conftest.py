@@ -179,6 +179,7 @@ class MockWebParams:
     port: int
     client_type: TargetTypeDC.WEB
 
+
 @pytest_asyncio.fixture(scope="module")
 async def mock_async_web_client() -> MockWebParams:
     # Schedule on the running loop managed by pytest-asyncio

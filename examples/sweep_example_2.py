@@ -24,7 +24,7 @@ def main():
         profile_normal=sweep1_profile_normal,
         profile_ydir=profile_y,
         color="red",
-        derived_reference=derived_reference
+        derived_reference=derived_reference,
     )
     sweep2 = ada.PrimSweep(
         "sweep2",
