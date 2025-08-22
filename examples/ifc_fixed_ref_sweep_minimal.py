@@ -1,3 +1,5 @@
+import os
+
 import ifcopenshell
 
 import ada
@@ -277,7 +279,8 @@ def main():
         RelatingStructure=site,
     )
 
-    out = "minimal_ifc_sweep.ifc"
+    os.makedirs("temp", exist_ok=True)
+    out = "temp/minimal_ifc_sweep.ifc"
     f.write(out)
     a = ada.from_ifc(out)
     a.show(stream_from_ifc_store=True)

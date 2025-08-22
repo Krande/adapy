@@ -32,8 +32,8 @@ def main():
         color="green",
     )
     sweeps = [
-        # sweep1,
-        # sweep2,
+        sweep1,
+        sweep2,
         sweep3,
     ]
     mesh_data = get_three_sweeps_mesh_data()
@@ -44,7 +44,7 @@ def main():
     assert len(mesh1_raw_vertices) == len(mesh1_vertices)
 
     a = ada.Assembly("part") / sweeps
-    a.to_ifc("swept_shape.ifc", validate=True)
+    a.to_ifc("temp/swept_shape.ifc", validate=True)
     a.show(stream_from_ifc_store=True)
     # a.show(stream_from_ifc_store=False)
 

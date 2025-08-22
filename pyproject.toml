@@ -87,6 +87,7 @@ pythonpath = ["src"]
 timeout = 600
 timeout_method = "thread"
 addopts = "--basetemp=temp"
+asyncio_mode = "auto"
 
 [tool.pixi.project]
 channels = ["conda-forge"]
