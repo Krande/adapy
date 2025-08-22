@@ -95,5 +95,3 @@ def test_ifc_reimport():
     assert "IFCSIUNIT(*,.LENGTHUNIT.,$,.METRE.)" in f_m_str
     assert "IFCSIUNIT(*,.AREAUNIT.,$,.SQUARE_METRE.)" in f_m_str
     assert "IFCSIUNIT(*,.VOLUMEUNIT.,$,.CUBIC_METRE.)" in f_m_str
-
-

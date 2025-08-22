@@ -105,7 +105,7 @@ def shape_to_tri_mesh(shape: TopoDS_Shape, rgba_color: Iterable[float, float, fl
     tm = tessellate_shape(shape)
     positions = tm.positions.reshape(len(tm.positions) // 3, 3)
     faces = tm.faces.reshape(len(tm.faces) // 3, 3)
-    mesh = trimesh.Trimesh(vertices=positions, faces=faces)
+    mesh = trimesh.Trimesh(vertices=positions, faces=faces, process=False)
     mesh.visual = trimesh.visual.TextureVisuals(
         material=trimesh.visual.material.PBRMaterial(baseColorFactor=rgba_color)
     )

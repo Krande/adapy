@@ -17,7 +17,7 @@ from OCC.Core.TColStd import (
     TColStd_Array2OfReal,
 )
 from OCC.Core.TopLoc import TopLoc_Location
-from OCC.Core.TopoDS import TopoDS_Shape, TopoDS_Shell
+from OCC.Core.TopoDS import TopoDS_Face, TopoDS_Shape, TopoDS_Shell
 
 from ada.config import Config, logger
 from ada.geom import curves as geo_cu
@@ -361,7 +361,7 @@ def make_face_from_curve(outer_curve: geo_cu.CURVE_GEOM_TYPES):
         raise NotImplementedError("Only IndexedPolyCurve is implemented")
 
 
-def make_profile_from_geom(area: geo_su.ProfileDef) -> TopoDS_Shape:
+def make_profile_from_geom(area: geo_su.ProfileDef) -> TopoDS_Shape | TopoDS_Face:
     if isinstance(area, geo_su.ArbitraryProfileDef):
         if area.profile_type == geo_su.ProfileType.AREA:
             profile = make_face_from_curve(area.outer_curve)

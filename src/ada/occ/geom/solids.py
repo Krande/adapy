@@ -101,8 +101,9 @@ def make_revolved_area_shape_from_geom(ras: geo_so.RevolvedAreaSolid) -> TopoDS_
 
 
 def make_fixed_reference_swept_area_shape_from_geom(frs: geo_so.FixedReferenceSweptAreaSolid) -> TopoDS_Solid:
-    profile_face = make_profile_from_geom(frs.swept_area)
     spine = make_wire_from_curve(frs.directrix)
+
+    profile_face = make_profile_from_geom(frs.swept_area)
 
     # Extract the outer wire from the profile face
     profile_wire = list(TopologyExplorer(profile_face).wires())[0]
@@ -116,7 +117,7 @@ def make_fixed_reference_swept_area_shape_from_geom(frs: geo_so.FixedReferenceSw
     pipe_builder.SetTransitionMode(BRepBuilderAPI_RoundCorner)
 
     # Add the wire profile (not the face)
-    pipe_builder.Add(profile_wire, True, True)  # with contact and correction
+    pipe_builder.Add(profile_wire, True, False)  # with contact and correction
 
     pipe_builder.Build()
     pipe_builder.MakeSolid()

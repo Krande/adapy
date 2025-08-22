@@ -13,6 +13,7 @@ from .points import cpt
 def arbitrary_profile_def(apd: geo_su.ArbitraryProfileDef, f: ifcopenshell.file) -> ifcopenshell.entity_instance:
     """Converts an ArbitraryProfileDefWithVoids to an IFC representation"""
     if isinstance(apd.outer_curve, geo_cu.IndexedPolyCurve):
+
         outer_curve = indexed_poly_curve(apd.outer_curve, f)
     elif isinstance(apd.outer_curve, geo_cu.Circle):
         outer_curve = circle_curve(apd.outer_curve, f)

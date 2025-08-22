@@ -343,7 +343,9 @@ class Placement:
         )
 
     def __repr__(self):
-        return f"Placement(origin={self.origin}, xdir={self.xdir}, ydir={self.ydir}, zdir={self.zdir}, scale={self.scale})"
+        return (
+            f"Placement(origin={self.origin}, xdir={self.xdir}, ydir={self.ydir}, zdir={self.zdir}, scale={self.scale})"
+        )
 
 
 @dataclass

@@ -57,7 +57,7 @@ class FixedReferenceSweptAreaSolid:
     IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcFixedReferenceSweptAreaSolid.htm)
     """
 
-    swept_area: ProfileDef
+    swept_area: SURFACE_GEOM_TYPES
     position: Axis2Placement3D
     directrix: CURVE_GEOM_TYPES
 

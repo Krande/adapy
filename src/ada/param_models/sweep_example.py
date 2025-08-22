@@ -1,8 +1,9 @@
 # Sweep example
 # Build swept solids from point arrays using pythonocc-core, with consistent profile alignment.
 # Run this file directly to visualize the 3 sweeps if you have a GUI environment.
-from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_RoundCorner
 from typing import Iterable, List, Optional, Tuple
+
+from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_RoundCorner
 
 wt = 8e-3
 # 2D profile (triangle/fillet) in local profile coordinates
@@ -88,6 +89,7 @@ sweep3_pts = [
 # OCC-based sweep construction
 # ----------------------
 
+
 def _np(v: Iterable[float]):
     x, y, z = v
     return x, y, z
@@ -95,6 +97,7 @@ def _np(v: Iterable[float]):
 
 def _normalize(v: Tuple[float, float, float]) -> Tuple[float, float, float]:
     from math import sqrt
+
     x, y, z = v
     n = sqrt(x * x + y * y + z * z)
     if n == 0:
@@ -132,10 +135,10 @@ def make_bspline_wire_from_points(pts: List[Iterable[float]]):
     Build a C1-continuous BSpline wire through the given 3D points.
     This reduces orientation artifacts at path vertices when sweeping.
     """
-    from OCC.Core.TColgp import TColgp_Array1OfPnt
-    from OCC.Core.gp import gp_Pnt
-    from OCC.Core.GeomAPI import GeomAPI_Interpolate
     from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_MakeEdge, BRepBuilderAPI_MakeWire
+    from OCC.Core.GeomAPI import GeomAPI_Interpolate
+    from OCC.Core.gp import gp_Pnt
+    from OCC.Core.TColgp import TColgp_Array1OfPnt
 
     assert len(pts) >= 2, "Need at least two points for a wire"
     arr = TColgp_Array1OfPnt(1, len(pts))
@@ -152,11 +155,11 @@ def make_bspline_wire_from_points(pts: List[Iterable[float]]):
 
 
 def make_profile_wire(
-        poly2d: List[Tuple[float, float]],
-        origin: Tuple[float, float, float],
-        normal: Tuple[float, float, float],
-        ydir: Optional[Tuple[float, float, float]] = None,
-        xdir: Optional[Tuple[float, float, float]] = None,
+    poly2d: List[Tuple[float, float]],
+    origin: Tuple[float, float, float],
+    normal: Tuple[float, float, float],
+    ydir: Optional[Tuple[float, float, float]] = None,
+    xdir: Optional[Tuple[float, float, float]] = None,
 ):
     """
     Build a 3D profile wire from 2D points by embedding them in a plane at origin with
@@ -201,11 +204,11 @@ def make_profile_wire(
 
 
 def sweep_profile_along_path(
-        path_pts: List[Iterable[float]],
-        profile2d: List[Tuple[float, float]],
-        profile_normal: Tuple[float, float, float],
-        profile_ydir: Optional[Tuple[float, float, float]] = None,
-        profile_xdir: Optional[Tuple[float, float, float]] = None,
+    path_pts: List[Iterable[float]],
+    profile2d: List[Tuple[float, float]],
+    profile_normal: Tuple[float, float, float],
+    profile_ydir: Optional[Tuple[float, float, float]] = None,
+    profile_xdir: Optional[Tuple[float, float, float]] = None,
 ):
     from OCC.Core.BRepOffsetAPI import BRepOffsetAPI_MakePipeShell
 
@@ -241,9 +244,6 @@ def build_three_sweeps():
     sweep2_normal = (-1.0, 0.0, 0.0)  # along -X
     sweep3_normal = (1.0, 0.0, 0.0)  # along +X
 
-    # For sweep3 we may want to lock X explicitly (matches project tests usage)
-    sweep3_xdir = (0.0, 1.0, 0.0)
-
     sh1 = sweep_profile_along_path(sweep1_pts, fillet, sweep1_normal, profile_ydir=profile_y)
     sh2 = sweep_profile_along_path(sweep2_pts, fillet, sweep2_normal, profile_ydir=profile_y)
     sh3 = sweep_profile_along_path(sweep3_pts, fillet, sweep3_normal, profile_ydir=profile_y)
@@ -257,9 +257,9 @@ def get_three_sweeps_mesh_data():
     """
     from ada.occ.tessellating import shape_to_tri_mesh
 
-    shapes = build_three_sweeps()
+    shapes_ = build_three_sweeps()
     data = []
-    for sh in shapes:
+    for sh in shapes_:
         tm = shape_to_tri_mesh(sh)
         # Ensure pure Python lists for stable JSON-like comparison (avoid np types)
         verts = tm.vertices.tolist()
@@ -283,14 +283,12 @@ def _try_display(shapes):
 
 
 def adapy_viewer(shapes_):
-    from ada.occ.tessellating import shape_to_tri_mesh
-
-    from ada.visit.render_params import RenderParams
-    from ada.comms.fb.fb_scene_gen import SceneDC
-    from ada.comms.fb.fb_scene_gen import SceneOperationsDC
-    from ada.visit.renderer_manager import RendererManager
     import trimesh
 
+    from ada.comms.fb.fb_scene_gen import SceneDC, SceneOperationsDC
+    from ada.occ.tessellating import shape_to_tri_mesh
+    from ada.visit.render_params import RenderParams
+    from ada.visit.renderer_manager import RendererManager
 
     scene = trimesh.Scene()
     for shp in shapes_:
@@ -309,5 +307,5 @@ if __name__ == "__main__":
         print("Failed to build sweeps:", e)
     else:
         print("Successfully built 3 swept solids. Launching viewer (if available)...")
-        #_try_display(shapes)
+        # _try_display(shapes)
         adapy_viewer(shapes)

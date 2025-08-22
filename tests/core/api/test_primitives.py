@@ -26,9 +26,6 @@ def test_export_primitives(tmp_path):
     print(b)
 
 
-
-
-
 def test_prim_face():
     ps_z = PrimFace("my_face_z", [(0, 0), (1, 0), (1, 1), (0, 1)], (0, 0, 1), (0, 0, 0))
     ps_y = PrimFace("my_face_y", [(0, 0), (1, 0), (1, 1), (0, 1)], (0, 1, 0), (0, 0, 0))

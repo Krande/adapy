@@ -46,13 +46,6 @@ class ArbitraryProfileDef(ProfileDef):
     inner_curves: list[geo_cu.CURVE_GEOM_TYPES] = field(default_factory=list)
     profile_name: str = None
 
-    def __post_init__(self):
-        # Check consistency of dimensions
-        if isinstance(self.outer_curve, geo_cu.IndexedPolyCurve):
-            for segment in self.outer_curve.segments:
-                if segment.dim != 2:
-                    raise ValueError("Invalid segment in outer_curve")
-
 
 @dataclass
 class FaceBound:
