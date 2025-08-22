@@ -11,7 +11,7 @@ from ada.geom import surfaces as geo_su
 
 
 def generate_ifc_prim_sweep_geom(shape: PrimSweep, f):
-    geom = shape.solid_geom()
+    geom = shape.solid_geom_2d_profile()
     if isinstance(geom.geometry.swept_area, geo_su.ArbitraryProfileDef):
         profile = arbitrary_profile_def(geom.geometry.swept_area, f)
     else:
@@ -21,8 +21,6 @@ def generate_ifc_prim_sweep_geom(shape: PrimSweep, f):
         if isinstance(geom.geometry.directrix, geo_cu.IndexedPolyCurve):
             sweep_curve = write_cu.indexed_poly_curve(geom.geometry.directrix, f)
         elif isinstance(geom.geometry.directrix, geo_cu.Edge):
-            # line = geom.geometry.directrix.to_line()
-            # sweep_curve = write_cu.create_line(line, f)
             curve = geo_cu.IndexedPolyCurve(segments=[geom.geometry.directrix])
             sweep_curve = write_cu.indexed_poly_curve(curve, f)
         else:

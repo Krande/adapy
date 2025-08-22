@@ -183,7 +183,6 @@ watchdog = "*"
 pytest = "*"
 pytest-benchmark = "*"
 pytest-asyncio = "*"
-scalene = "*"
 pyinstrument = "*"
 
 # Editable installs

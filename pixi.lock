@@ -4320,7 +4320,6 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/choreographer-1.0.9-pyhe01879c_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/click-8.2.1-pyh707e725_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/click-default-group-1.2.4-pyhd8ed1ab_1.conda
-      - conda: https://conda.anaconda.org/conda-forge/noarch/cloudpickle-3.1.1-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/colorama-0.4.6-pyhd8ed1ab_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/comm-0.2.3-pyhe01879c_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/debugpy-1.8.16-py312h8285ef7_0.conda
@@ -4465,7 +4464,6 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/notebook-7.4.5-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/notebook-shim-0.2.4-pyhd8ed1ab_1.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/numpy-2.3.2-py312h33ff503_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/noarch/nvidia-ml-py-13.580.65-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/occt-7.8.1-novtk_he2768ca_103.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/openexr-3.3.5-h09fa569_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/openjpeg-2.5.3-h55fea9a_1.conda
@@ -4527,7 +4525,6 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/rich-14.1.0-pyhe01879c_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/rpds-py-0.27.0-py312h868fb18_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/ruff-0.12.10-h718f522_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/linux-64/scalene-1.5.51-py312h1289d80_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/send2trash-1.8.3-pyh0d859eb_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/setuptools-80.9.0-pyhff2d567_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/shapely-2.1.1-py312h21f5128_0.conda
@@ -4565,7 +4562,6 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/websockets-15.0.1-py312h66e93f0_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/wgpu-native-24.0.3.1-h0f3a69f_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/wgpu-py-0.22.2-pyha804496_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/noarch/wheel-0.45.1-pyhd8ed1ab_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/widgetsnbextension-4.0.14-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/xkeyboard-config-2.45-hb9d3cd8_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/xorg-libice-1.1.2-hb9d3cd8_0.conda
@@ -4621,7 +4617,6 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/choreographer-1.0.9-pyhe01879c_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/click-8.2.1-pyh707e725_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/click-default-group-1.2.4-pyhd8ed1ab_1.conda
-      - conda: https://conda.anaconda.org/conda-forge/noarch/cloudpickle-3.1.1-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/colorama-0.4.6-pyhd8ed1ab_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/comm-0.2.3-pyhe01879c_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/debugpy-1.8.16-py312h2ac44ba_0.conda
@@ -4818,7 +4813,6 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/osx-64/rpds-py-0.27.0-py312h00ff6fd_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/rubicon-objc-0.5.2-pyhe01879c_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/ruff-0.12.10-hab3cb23_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-64/scalene-1.5.51-py312h462f358_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/send2trash-1.8.3-pyh31c8845_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/setuptools-80.9.0-pyhff2d567_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/shapely-2.1.1-py312hbf10b29_0.conda
@@ -4855,7 +4849,6 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/osx-64/websockets-15.0.1-py312h6efa6bc_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/wgpu-native-24.0.3.1-h1c25ca9_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/wgpu-py-0.22.2-pyh534df25_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/noarch/wheel-0.45.1-pyhd8ed1ab_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/widgetsnbextension-4.0.14-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/xorg-libice-1.1.2-h6e16a3a_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/xorg-libsm-1.2.6-h6e16a3a_0.conda
@@ -4903,7 +4896,6 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/choreographer-1.0.9-pyhe01879c_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/click-8.2.1-pyh7428d3b_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/click-default-group-1.2.4-pyhd8ed1ab_1.conda
-      - conda: https://conda.anaconda.org/conda-forge/noarch/cloudpickle-3.1.1-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/colorama-0.4.6-pyhd8ed1ab_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/comm-0.2.3-pyhe01879c_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/cpython-3.12.11-py312hd8ed1ab_0.conda
@@ -5035,7 +5027,6 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/notebook-7.4.5-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/notebook-shim-0.2.4-pyhd8ed1ab_1.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/numpy-2.3.2-py312ha72d056_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/noarch/nvidia-ml-py-13.580.65-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/occt-7.8.1-novtk_hdfbec02_103.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/openexr-3.3.5-h4750f91_0.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/openjpeg-2.5.3-h24db6dd_1.conda
@@ -5096,7 +5087,6 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/rich-14.1.0-pyhe01879c_0.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/rpds-py-0.27.0-py312hdabe01f_0.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/ruff-0.12.10-h429b229_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/win-64/scalene-1.5.51-py312hbb81ca0_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/send2trash-1.8.3-pyh5737063_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/setuptools-80.9.0-pyhff2d567_0.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/shapely-2.1.1-py312h3f81574_0.conda
@@ -5138,7 +5128,6 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/win-64/websockets-15.0.1-py312he5662c2_1.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/wgpu-native-24.0.3.1-ha08ef0e_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/wgpu-py-0.22.2-pyh7428d3b_0.conda
-      - conda: https://conda.anaconda.org/conda-forge/noarch/wheel-0.45.1-pyhd8ed1ab_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/widgetsnbextension-4.0.14-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/win_inet_pton-1.1.0-pyh7428d3b_8.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/winpty-0.4.3-4.tar.bz2
@@ -12915,20 +12904,6 @@ packages:
   license_family: BSD
   size: 7460218
   timestamp: 1753401558693
-- conda: https://conda.anaconda.org/conda-forge/noarch/nvidia-ml-py-13.580.65-pyhd8ed1ab_0.conda
-  sha256: 8c92af5f2779c19362582fffa0d1b49a148170a969c38ce9572ae05c487d1e2e
-  md5: 1f11c356a389bc4dda8ec9fecde4f0dc
-  depends:
-  - python >=3.9
-  constrains:
-  - nvidia-ml ==9999999999
-  - pynvml ~=13.0
-  license: BSD-3-Clause
-  license_family: BSD
-  purls:
-  - pkg:pypi/nvidia-ml-py?source=hash-mapping
-  size: 47573
-  timestamp: 1754418998212
 - conda: https://conda.anaconda.org/conda-forge/linux-64/occt-7.8.1-novtk_he2768ca_103.conda
   sha256: 801a89aad7276a56117f418ed0ebf1a94fc94b559651898bf679fadef6f98fe9
   md5: 2cc93f4634b2e18f9fd25ee0effda18e
@@ -15404,70 +15379,6 @@ packages:
   license_family: MIT
   size: 10821904
   timestamp: 1754600827894
-- conda: https://conda.anaconda.org/conda-forge/linux-64/scalene-1.5.51-py312h1289d80_0.conda
-  sha256: 373e3dfb62d4bd378cf93c002a843ab930a0664b44b16b27e811ee259a6280dd
-  md5: 19d40196177edf78a060a915704cd4b0
-  depends:
-  - __glibc >=2.17,<3.0.a0
-  - cloudpickle >=2.2.1
-  - jinja2 >=3.0.3
-  - libgcc >=14
-  - libstdcxx >=14
-  - numpy >=1.24.0,!=1.27
-  - nvidia-ml-py >=12.555.43
-  - psutil >=5.9.2
-  - pydantic >=2.6
-  - python >=3.12,<3.13.0a0
-  - python_abi 3.12.* *_cp312
-  - rich >=10.7.0
-  - wheel >=0.36.1
-  license: MIT AND Apache-2.0
-  purls:
-  - pkg:pypi/scalene?source=hash-mapping
-  size: 992323
-  timestamp: 1753142244310
-- conda: https://conda.anaconda.org/conda-forge/osx-64/scalene-1.5.51-py312h462f358_0.conda
-  sha256: 927d5027e9c596519fbf214235d47ebb79f9f7e76da4ee239c622df20c68b18f
-  md5: 60813b0a4803b02ed947fd4a88f43001
-  depends:
-  - __osx >=10.13
-  - cloudpickle >=2.2.1
-  - jinja2 >=3.0.3
-  - libcxx >=19
-  - numpy >=1.24.0,!=1.27
-  - psutil >=5.9.2
-  - pydantic >=2.6
-  - python >=3.12,<3.13.0a0
-  - python_abi 3.12.* *_cp312
-  - rich >=10.7.0
-  - wheel >=0.36.1
-  license: MIT AND Apache-2.0
-  purls:
-  - pkg:pypi/scalene?source=hash-mapping
-  size: 858273
-  timestamp: 1753142354418
-- conda: https://conda.anaconda.org/conda-forge/win-64/scalene-1.5.51-py312hbb81ca0_0.conda
-  sha256: 431f0b21f7cea207439fbc15635c315f87dbc5a057a188b71b25fc9455bdd050
-  md5: 378ed7612990afae4e3428f671d590dd
-  depends:
-  - cloudpickle >=2.2.1
-  - jinja2 >=3.0.3
-  - numpy >=1.24.0,!=1.27
-  - nvidia-ml-py >=12.555.43
-  - psutil >=5.9.2
-  - pydantic >=2.6
-  - python >=3.12,<3.13.0a0
-  - python_abi 3.12.* *_cp312
-  - rich >=10.7.0
-  - ucrt >=10.0.20348.0
-  - vc >=14.3,<15
-  - vc14_runtime >=14.44.35208
-  - wheel >=0.36.1
-  license: MIT AND Apache-2.0
-  purls:
-  - pkg:pypi/scalene?source=hash-mapping
-  size: 846810
-  timestamp: 1753142405077
 - conda: https://conda.anaconda.org/conda-forge/linux-64/scipy-1.16.1-py312h4ebe9ca_0.conda
   sha256: 988c9fb07058639c3ff6d8e1171a11dbd64bcc14d5b2dfe3039b610f6667b316
   md5: b01bd2fd775d142ead214687b793d20d
@@ -16804,17 +16715,6 @@ packages:
   - pkg:pypi/wgpu?source=hash-mapping
   size: 124328
   timestamp: 1747667123561
-- conda: https://conda.anaconda.org/conda-forge/noarch/wheel-0.45.1-pyhd8ed1ab_1.conda
-  sha256: 1b34021e815ff89a4d902d879c3bd2040bc1bd6169b32e9427497fa05c55f1ce
-  md5: 75cb7132eb58d97896e173ef12ac9986
-  depends:
-  - python >=3.9
-  license: MIT
-  license_family: MIT
-  purls:
-  - pkg:pypi/wheel?source=hash-mapping
-  size: 62931
-  timestamp: 1733130309598
 - conda: https://conda.anaconda.org/conda-forge/noarch/widgetsnbextension-4.0.14-pyhd8ed1ab_0.conda
   sha256: 7df3620c88343f2d960a58a81b79d4e4aa86ab870249e7165db7c3e2971a2664
   md5: 2f1f99b13b9d2a03570705030a0b3e7c

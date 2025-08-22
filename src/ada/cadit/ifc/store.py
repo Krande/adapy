@@ -14,7 +14,7 @@ from ada.cadit.ifc.units_conversion import convert_file_length_units
 from ada.cadit.ifc.utils import assembly_to_ifc_file, default_settings, get_unit_type
 from ada.cadit.ifc.write.write_sections import get_profile_class
 from ada.cadit.ifc.write.write_user import create_owner_history_from_user
-from ada.config import logger
+from ada.config import logger, Config
 
 if TYPE_CHECKING:
 
@@ -62,26 +62,27 @@ class IfcStore:
                 ParentContext=model_context,
                 TargetView=target_view,
             )
-        plan_context = self.f.create_entity(
-            "IfcGeometricRepresentationContext",
-            ContextType="Plan",
-            CoordinateSpaceDimension=2,
-            Precision=1e-5,
-            WorldCoordinateSystem=model_context.WorldCoordinateSystem,
-        )
-        for cid, target_view in [
-            ("Axis", "GRAPH_VIEW"),
-            ("Annotation", "PLAN_VIEW"),
-            ("Annotation", "SECTION_VIEW"),
-            ("Annotation", "ELEVATION_VIEW"),
-        ]:
-            self.f.create_entity(
-                "IfcGeometricRepresentationSubContext",
-                ContextIdentifier=cid,
+        if Config().ifc_include_plan_context:
+            plan_context = self.f.create_entity(
+                "IfcGeometricRepresentationContext",
                 ContextType="Plan",
-                ParentContext=plan_context,
-                TargetView=target_view,
+                CoordinateSpaceDimension=2,
+                Precision=1e-5,
+                WorldCoordinateSystem=model_context.WorldCoordinateSystem,
             )
+            for cid, target_view in [
+                ("Axis", "GRAPH_VIEW"),
+                ("Annotation", "PLAN_VIEW"),
+                ("Annotation", "SECTION_VIEW"),
+                ("Annotation", "ELEVATION_VIEW"),
+            ]:
+                self.f.create_entity(
+                    "IfcGeometricRepresentationSubContext",
+                    ContextIdentifier=cid,
+                    ContextType="Plan",
+                    ParentContext=plan_context,
+                    TargetView=target_view,
+                )
 
     def update_owner(self, user: User):
         self.owner_history = create_owner_history_from_user(user, self.f)

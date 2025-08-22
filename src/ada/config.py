@@ -103,6 +103,7 @@ class Config:
                 ConfigEntry("import_props", bool, True),
                 ConfigEntry("export_include_ecc", bool, True),
                 ConfigEntry("import_shape_geom", bool, False),
+                ConfigEntry("include_plan_context", bool, False),
             ],
         ),
         ConfigSection(

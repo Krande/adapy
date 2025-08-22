@@ -44,10 +44,11 @@ def main():
     assert len(mesh1_raw_vertices) == len(mesh1_vertices)
 
     a = ada.Assembly("part") / sweeps
-    a.to_ifc("temp/swept_shape.ifc", validate=True)
+    export_ifc_file = "temp/swept_shape_example_2.ifc"
+    a.to_ifc(export_ifc_file, validate=True)
+    # a = ada.from_ifc(export_ifc_file)
     a.show(stream_from_ifc_store=True)
-    # a.show(stream_from_ifc_store=False)
-
+    a.show(stream_from_ifc_store=False, append_to_scene=True)
 
 
 if __name__ == '__main__':

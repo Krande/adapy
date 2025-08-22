@@ -159,6 +159,8 @@ def assembly_to_ifc_file(a: "Assembly"):
     ifcopenshell.api.run(
         "context.add_context", f, context_type="Model", context_identifier="Body", target_view="MODEL_VIEW"
     )
+    f.wrapped_data.header.file_name.author = ("AdaUser",)
+    f.wrapped_data.header.file_name.organization = ("AdaOrg",)
     return f
 
 
