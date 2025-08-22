@@ -178,6 +178,11 @@ class MockWebParams:
     port: int
     client_type: TargetTypeDC.WEB
 
+@pytest.fixture(scope="module")
+def event_loop(request):
+    loop = asyncio.get_event_loop_policy().get_event_loop()
+    yield loop
+    loop.close()
 
 @pytest_asyncio.fixture(scope="module")
 def mock_async_web_client(event_loop) -> MockWebParams:
