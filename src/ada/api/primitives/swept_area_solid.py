@@ -41,8 +41,13 @@ class PrimSweep(Shape):
                 import numpy as np
 
                 profile_xdir = Direction(*np.cross(profile_ydir, start_norm))
-
-            profile_xdir = Direction(*profile_xdir) if profile_xdir is not None else Direction(1, 0, 0)
+            elif profile_xdir is not None:
+                profile_xdir = Direction(*profile_xdir)
+            else:
+                if start_norm.is_equal(Direction(1, 0, 0)):
+                    profile_xdir = Direction(0, 1, 0)
+                else:
+                    profile_xdir = Direction(1, 0, 0)
             profile_curve_outer = CurvePoly2d(
                 profile_curve_outer, origin=origin, normal=start_norm, xdir=profile_xdir, tol=tol
             )

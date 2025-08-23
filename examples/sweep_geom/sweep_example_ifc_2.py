@@ -57,7 +57,7 @@ def main():
     assert len(mesh1_raw_vertices) == len(mesh1_vertices)
 
     a = ada.Assembly("part") / sweeps
-    export_ifc_file = "temp/swept_shape_example_2.ifc"
+    export_ifc_file = "../temp/swept_shape_example_2.ifc"
     a.to_ifc(export_ifc_file, validate=True)
     a.to_stp("temp/swept_shape_example_2.stp")
     # a = ada.from_ifc(export_ifc_file)

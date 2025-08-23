@@ -84,90 +84,13 @@ FILLET_TRIANGLE_2D: List[Tuple[float, float]] = [(0.0, 0.0), (-wt, 0.0), (0.0, w
 # Select one of the pythonocc sweep paths as directrix (sweep1)
 SWEEP1_PTS: List[Tuple[float, float, float]] = [
     (287.85, 99.917, 513.26),
-    (287.85, 100.083, 513.26),
-    (287.85, 100.08950561835023, 513.2587059520527),
-    (287.85, 100.09502081528021, 513.2550208152801),
-    (287.85, 100.09870595205274, 513.2495056183502),
-    (287.85, 100.10000000000005, 513.2429999999999),
-    (287.85, 100.1, 513.077),
-    (287.85, 100.09870595205268, 513.0704943816498),
-    (287.85, 100.09502081528017, 513.0649791847198),
-    (287.85, 100.0895056183502, 513.0612940479473),
-    (287.85, 100.083, 513.06),
-    (287.85, 99.917, 513.06),
-    (287.85, 99.91049438164977, 513.0612940479473),
-    (287.85, 99.90497918471979, 513.0649791847198),
-    (287.85, 99.90129404794726, 513.0704943816497),
-    (287.85, 99.89999999999995, 513.077),
-    (287.85, 99.9, 513.2429999999999),
-    (287.85, 99.90129404794732, 513.2495056183501),
-    (287.85, 99.90497918471983, 513.2550208152801),
-    (287.85, 99.9104943816498, 513.2587059520527),
-    (287.85, 99.917, 513.26),
+    (287.85, 100.083, 513.26)
 ]
 
 
 # ----------------------
 # IFC model construction
 # ----------------------
-
-
-def build_gradient_curve_from_points(f, pts3d: List[Tuple[float, float, float]]):
-    """
-    Approximate a GradientCurve with line segments using YZ projection of pts3d.
-    Builds:
-      - BaseCurve: IfcCompositeCurve of IfcCurveSegment(IfcLine) with 2D placements
-      - Directrix: IfcGradientCurve with matching 2D line segments referencing BaseCurve
-    Note: This is an approximation to enable stable orientation; it uses 2D (y,z) only.
-    """
-    if len(pts3d) < 2:
-        raise ValueError("Need at least two points for gradient curve")
-
-    base_segments = []
-    grad_segments = []
-    for i in range(len(pts3d) - 1):
-        y0, z0 = float(pts3d[i][1]), float(pts3d[i][2])
-        y1, z1 = float(pts3d[i + 1][1]), float(pts3d[i + 1][2])
-        dy, dz = (y1 - y0), (z1 - z0)
-        seg_len = (dy * dy + dz * dz) ** 0.5
-        if seg_len <= 0.0:
-            continue
-        dir2d = (dy / seg_len, dz / seg_len)
-        pl = axis2d(f, (y0, z0), dir2d)
-        parent_line = f.create_entity(
-            "IfcLine",
-            Pnt=pt2(f, (0.0, 0.0)),
-            Dir=f.create_entity("IfcVector", Orientation=dir2(f, (1.0, 0.0)), Magnitude=1.0),
-        )
-        seg_base = f.create_entity(
-            "IfcCurveSegment",
-            Transition="CONTSAMEGRADIENTSAMECURVATURE",
-            Placement=pl,
-            SegmentStart=f.create_entity("IfcLengthMeasure", 0.0),
-            SegmentLength=f.create_entity("IfcLengthMeasure", float(seg_len)),
-            ParentCurve=parent_line,
-        )
-        base_segments.append(seg_base)
-
-        seg_grad = f.create_entity(
-            "IfcCurveSegment",
-            Transition="CONTSAMEGRADIENTSAMECURVATURE",
-            Placement=pl,
-            SegmentStart=f.create_entity("IfcLengthMeasure", 0.0),
-            SegmentLength=f.create_entity("IfcLengthMeasure", float(seg_len)),
-            ParentCurve=parent_line,
-        )
-        grad_segments.append(seg_grad)
-
-    base_curve = f.create_entity("IfcCompositeCurve", Segments=base_segments, SelfIntersect=False)
-    directrix = f.create_entity(
-        "IfcGradientCurve",
-        Segments=grad_segments,
-        SelfIntersect=False,
-        BaseCurve=base_curve,
-        EndPoint=None,
-    )
-    return directrix
 
 
 def _vsub(a: Sequence[float], b: Sequence[float]):
@@ -193,39 +116,6 @@ def _vproj_plane(v: Sequence[float], n: Sequence[float]):
     """Project vector v onto plane with normal n."""
     dn = _vdot(v, n)
     return (v[0] - dn * n[0], v[1] - dn * n[1], v[2] - dn * n[2])
-
-
-def _vcross(a: Sequence[float], b: Sequence[float]):
-    return (
-        a[1] * b[2] - a[2] * b[1],
-        a[2] * b[0] - a[0] * b[2],
-        a[0] * b[1] - a[1] * b[0],
-    )
-
-
-def compute_start_frame(points: List[Tuple[float, float, float]], fixed_ref_dir=(0.0, 0.0, 1.0)):
-    """
-    Compute a local placement aligned to the directrix start:
-    - origin at first point
-    - Axis (Z) along tangent from p0->p1
-    - RefDirection is the projection of fixed_ref_dir onto the plane perpendicular to Axis
-      (fallback to world X if nearly parallel)
-    Returns (origin, axis, refdir)
-    """
-    p0 = points[0]
-    p1 = points[1] if len(points) > 1 else (points[0][0], points[0][1] + 1.0, points[0][2])
-    tan = _vnorm(_vsub(p1, p0))
-    # Project fixed reference into plane normal to tangent
-    ref = _vproj_plane(fixed_ref_dir, tan)
-    if _vlen(ref) < 1e-9:
-        # fallback: project world X
-        ref = _vproj_plane((1.0, 0.0, 0.0), tan)
-        if _vlen(ref) < 1e-9:
-            ref = (0.0, 1.0, 0.0)
-    # normalize
-    l = _vlen(ref)
-    ref = (ref[0] / l, ref[1] / l, ref[2] / l)
-    return p0, tan, ref
 
 
 def build_ifc_fixed_ref_sweep(output_path: str = "temp\\sweep_example_3.ifc") -> str:
