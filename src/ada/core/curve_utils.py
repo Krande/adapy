@@ -1006,7 +1006,7 @@ def segments3d_from_points3d(
         )
 
         segments.append(LineSegment(new_seg2.p1.copy(), new_seg2.p2.copy()))
-    if len(radius_dict) == len(points): # There should be arcs in each original point position.
+    if len(radius_dict) == len(points):  # There should be arcs in each original point position.
         # Therefore looping over all points, there should be no line ends in point positions
         segment_map = defaultdict(list)
         for p in points:
@@ -1014,9 +1014,9 @@ def segments3d_from_points3d(
                 if isinstance(seg, LineSegment):
                     if seg.p1.is_equal(p):  # this end should be replaced with an arc
 
-                        segment_map[tuple(p.tolist())].append((seg, 'p1'))
+                        segment_map[tuple(p.tolist())].append((seg, "p1"))
                     elif seg.p2.is_equal(p):  # this end should be replaced with an arc
-                        segment_map[tuple(p.tolist())].append((seg, 'p2'))
+                        segment_map[tuple(p.tolist())].append((seg, "p2"))
         for p, segment_list in segment_map.items():
             # todo: place an arc at this position and trim the neighboring Line segments
             print(p)

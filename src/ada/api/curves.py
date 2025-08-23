@@ -425,6 +425,7 @@ class CurveOpen3d:
     def __repr__(self):
         return f"CurveOpen3d({self.points3d}, xdir={self.orientation.xdir}, zdir={self.orientation.zdir}, radiis={self.radiis})"
 
+
 class LineSegment:
     def __init__(self, p1, p2, edge_geom=None, placement: Placement = None):
         self._p1 = p1 if isinstance(p1, Point) else Point(*p1)

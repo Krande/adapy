@@ -79,7 +79,6 @@ sweep3_pts = [
 ]
 
 
-
 def main():
     wt = 8e-3
     fillet = [(0, 0), (-wt, 0), (0, wt)]

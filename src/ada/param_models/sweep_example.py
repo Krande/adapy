@@ -279,4 +279,4 @@ if __name__ == "__main__":
     else:
         print("Successfully built 3 swept solids. Launching viewer (if available)...")
         _try_display(shapes)
-        #adapy_viewer(shapes)
+        # adapy_viewer(shapes)

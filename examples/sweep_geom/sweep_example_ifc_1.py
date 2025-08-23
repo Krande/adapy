@@ -82,10 +82,7 @@ wt = 8e-3  # profile thickness used for the small fillet triangle
 FILLET_TRIANGLE_2D: List[Tuple[float, float]] = [(0.0, 0.0), (-wt, 0.0), (0.0, wt)]
 
 # Select one of the pythonocc sweep paths as directrix (sweep1)
-SWEEP1_PTS: List[Tuple[float, float, float]] = [
-    (287.85, 99.917, 513.26),
-    (287.85, 100.083, 513.26)
-]
+SWEEP1_PTS: List[Tuple[float, float, float]] = [(287.85, 99.917, 513.26), (287.85, 100.083, 513.26)]
 
 
 # ----------------------
