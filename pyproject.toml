@@ -230,7 +230,7 @@ fem-doc = { cmd = "python build_verification_report.py true true --export-format
 serve-fem = { cmd = "python doc_live_html.py", cwd = "./tests/fem", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 
 [tool.pixi.feature.tests.tasks]
-pre-install = { cmd = ["playwright", "install"], outputs = ["$PIXI_HOME/envs/tests/Scripts/playwright.exe"] }
+pre-install = { cmd = "playwright install --with-deps chromium", outputs = ["$PIXI_HOME/envs/tests/Scripts/playwright.exe"] }
 
 test = { cmd = "pytest tests --ignore=tests/profiling --ignore=tests/fem --durations=0", depends-on = ["pre-install"], env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 test-core = { cmd = "pytest tests/core --durations=0", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
