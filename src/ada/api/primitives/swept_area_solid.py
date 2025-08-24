@@ -92,20 +92,21 @@ class PrimSweep(Shape):
         origin = self.sweep_curve.points3d[0]
         place = Placement(origin=origin)
         other_place = Placement(
+            origin=origin,
             xdir=self.profile_curve_outer.xdir,
             ydir=self.profile_curve_outer.ydir,
             zdir=self.profile_curve_outer.normal,
         )
         booleans = [BooleanOperation(x.primitive.solid_geom(), x.bool_op) for x in self.booleans]
 
-        curve_pts = [p - origin for p in self.sweep_curve.points3d]
-        transformed_sweep_curve_pts = place.transform_array_from_other_place(curve_pts, other_place)
+        curve_pts = [p-origin for p in self.sweep_curve.points3d]
+        transformed_sweep_curve_pts = curve_pts
 
         transformed_sweep_curve = CurveOpen3d(
             transformed_sweep_curve_pts, radiis=self.sweep_curve.radiis, tol=self.sweep_curve._tol
         )
 
-        solid = FixedReferenceSweptAreaSolid(profile, place.to_axis2placement3d(), transformed_sweep_curve.curve_geom())
+        solid = FixedReferenceSweptAreaSolid(profile, other_place.to_axis2placement3d(), transformed_sweep_curve.curve_geom())
         return Geometry(self.guid, solid, self.color, bool_operations=booleans)
 
     def solid_geom(self) -> Geometry[FixedReferenceSweptAreaSolid]:
