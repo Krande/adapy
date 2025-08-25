@@ -7,11 +7,11 @@ from ada.fem.meshing import GmshOptions
 from ada.fem.shapes.definitions import LineShapes
 
 
-def test_edges_intersect(tmp_path):
+def test_edges_intersect():
     bm_name = Counter(1, "bm")
     pl = ada.Plate("pl1", [(0, 0), (1, 0), (1, 1), (0, 1)], 10e-3)
     points = pl.poly.points3d
-    objects = [pl]
+    objects: list[ada.Beam | ada.Plate] = [pl]
 
     # Beams along 3 of 4 along circumference
     for p1, p2 in zip(points[:-1], points[1:]):
@@ -47,7 +47,7 @@ def test_crossing_free_beams():
     # a.to_fem("MyIntersectingedge_ufo", "usfos", overwrite=True)
 
 
-def test_beams_enclosing_beams(tmp_path):
+def test_beams_enclosing_beams():
     name_gen = ada.Counter(prefix="bm")
 
     p1x1 = np.array([(0, 0), (1, 0), (1, 1), (0, 1)])

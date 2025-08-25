@@ -5,6 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "ada-py"
 version = "0.7.4"
+license = "GPL-3.0-or-later"
 authors = [
     { name = "Kristoffer H. Andersen", email = "kristoffer_andersen@outlook.com" },
 ]
@@ -14,7 +15,6 @@ requires-python = ">=3.10"
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
-    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
     "Operating System :: OS Independent",
     "Programming Language :: Python",
     "Programming Language :: Python :: 3.10",
@@ -86,7 +86,8 @@ pythonpath = ["src"]
 # This is meant to stop and catch any unintended hangs
 timeout = 600
 timeout_method = "thread"
-
+addopts = "--basetemp=temp"
+asyncio_mode = "auto"
 
 [tool.pixi.project]
 channels = ["conda-forge"]
@@ -182,7 +183,6 @@ watchdog = "*"
 pytest = "*"
 pytest-benchmark = "*"
 pytest-asyncio = "*"
-scalene = "*"
 pyinstrument = "*"
 
 # Editable installs
@@ -230,7 +230,7 @@ fem-doc = { cmd = "python build_verification_report.py true true --export-format
 serve-fem = { cmd = "python doc_live_html.py", cwd = "./tests/fem", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 
 [tool.pixi.feature.tests.tasks]
-pre-install = { cmd = ["playwright", "install"], outputs = ["$PIXI_HOME/envs/tests/Scripts/playwright.exe"] }
+pre-install = { cmd = "playwright install --with-deps chromium", outputs = ["$PIXI_HOME/envs/tests/Scripts/playwright.exe"] }
 
 test = { cmd = "pytest tests --ignore=tests/profiling --ignore=tests/fem --durations=0", depends-on = ["pre-install"], env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 test-core = { cmd = "pytest tests/core --durations=0", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }

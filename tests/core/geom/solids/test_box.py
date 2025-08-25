@@ -1,8 +1,10 @@
 import pytest
 
+import ada
 from ada.api.primitives.box import PrimBox
 from ada.api.transforms import Placement
 from ada.base.units import Units
+from ada.geom import solids as geo_so
 from ada.geom.points import Point
 
 
@@ -16,6 +18,12 @@ def simple_box():
 def box_with_material():
     """Create a box with material for testing"""
     return PrimBox("test_box", (0, 0, 0), (1, 1, 1), material="S355")
+
+
+def test_box():
+    box = ada.PrimBox("my_box", (0, 0, 0), (1, 1, 1))
+    geo = box.solid_geom()
+    assert isinstance(geo.geometry, geo_so.Box)
 
 
 def test_primbox_creation_with_tuples():
@@ -132,13 +140,9 @@ def test_units_property_setter_string(simple_box):
 
 def test_units_property_setter_units_object(simple_box):
     """Test units property setter with Units object"""
-    try:
-        new_units = Units.from_str("mm")
-        simple_box.units = new_units
-        assert simple_box.units == new_units
-    except Exception:
-        # Skip if units conversion has issues
-        pass
+    new_units = Units.from_str("mm")
+    simple_box.units = new_units
+    assert simple_box.units == new_units
 
 
 def test_units_property_setter_same_units(simple_box):

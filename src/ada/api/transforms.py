@@ -68,7 +68,7 @@ class Placement:
         self._scale: float = scale
         self._parent = parent
 
-        self._is_identity: bool = False
+        self._is_identity: bool = None
         self._computed_placement: ComputedPlacement = None
 
     def _init_computed_placement(self):
@@ -340,6 +340,11 @@ class Placement:
             ydir=self.ydir.copy(),
             zdir=self.zdir.copy(),
             scale=self.scale,
+        )
+
+    def __repr__(self):
+        return (
+            f"Placement(origin={self.origin}, xdir={self.xdir}, ydir={self.ydir}, zdir={self.zdir}, scale={self.scale})"
         )
 
 

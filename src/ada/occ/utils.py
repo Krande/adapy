@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 import pathlib
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Iterable, Union
 
 import numpy as np
@@ -253,6 +254,19 @@ def get_face_normal(a_face: TopoDS_Face) -> tuple[Point, Direction] | tuple[None
     location = gp_pln.Location().XYZ().Coord()  # a point of the plane
     normal = gp_pln.Axis().Direction()  # the plane normal
     return Point(*location), Direction(normal.X(), normal.Y(), normal.Z())
+
+
+@dataclass
+class TopoDSFaceDebug:
+    face: TopoDS_Face
+    point: Point
+    normal: Direction
+
+
+def get_face_debug_params(face: TopoDS_Face) -> TopoDSFaceDebug:
+    point, normal = get_face_normal(face)
+
+    return TopoDSFaceDebug(face, point, normal)
 
 
 def iter_faces_with_normal(shape, normal, point_in_plane: Iterable | Point = None):
