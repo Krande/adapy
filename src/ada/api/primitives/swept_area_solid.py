@@ -16,23 +16,23 @@ if TYPE_CHECKING:
 
 class PrimSweep(Shape):
     def __init__(
-        self,
-        name,
-        sweep_curve: Iterable[Iterable[float]] | CurveOpen3d,
-        profile_curve_outer: Iterable[Iterable[float]] | CurvePoly2d,
-        profile_xdir=None,
-        profile_normal=None,
-        profile_ydir=None,
-        origin=None,
-        derived_reference=False,
-        tol=1e-3,
-        radiis: dict[int, float] = None,
-        **kwargs,
+            self,
+            name,
+            sweep_curve: Iterable[Iterable[float]] | CurveOpen3d,
+            profile_curve_outer: Iterable[Iterable[float]] | CurvePoly2d,
+            profile_xdir=None,
+            profile_normal=None,
+            profile_ydir=None,
+            origin=None,
+            derived_reference=False,
+            tol=1e-3,
+            radiis: dict[int, float] = None,
+            **kwargs,
     ):
         if not isinstance(sweep_curve, CurveOpen3d):
             sweep_curve = CurveOpen3d(sweep_curve, radiis=radiis, tol=tol)
 
-        origin = sweep_curve.points3d[0] if origin is None else origin
+        origin = sweep_curve.segments[0].p1 if origin is None else origin
         start_norm = sweep_curve.start_vector.get_normalized() if profile_normal is None else Direction(*profile_normal)
         place = Placement(origin=origin)
 
@@ -89,8 +89,7 @@ class PrimSweep(Shape):
         outer_curve = self.profile_curve_outer.curve_geom(use_3d_segments=False)
 
         profile = ArbitraryProfileDef(ProfileType.AREA, outer_curve, [])
-        origin = self.sweep_curve.points3d[0]
-        place = Placement(origin=origin)
+        origin = self.sweep_curve.segments[0].p1
         other_place = Placement(
             origin=origin,
             xdir=self.profile_curve_outer.xdir,

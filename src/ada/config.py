@@ -104,6 +104,7 @@ class Config:
                 ConfigEntry("export_include_ecc", bool, True),
                 ConfigEntry("import_shape_geom", bool, False),
                 ConfigEntry("include_plan_context", bool, False),
+                ConfigEntry("use_index_poly_curve_segments", bool, True),
             ],
         ),
         ConfigSection(

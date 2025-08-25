@@ -283,8 +283,8 @@ def validate_fixed_reference_swept_area_solid(solid_or_id, file=None, verbose: b
             raise ValueError("When passing an entity id, 'file' must be provided")
         solid = file.by_id(solid_or_id)
 
-    if solid is None or not getattr(solid, "is_a", lambda: None)() == "IfcFixedReferenceSweptAreaSolid":
-        raise ValueError("Expected an IfcFixedReferenceSweptAreaSolid entity")
+    if solid is None or not getattr(solid, "is_a", lambda: None)() in ("IfcFixedReferenceSweptAreaSolid", "IfcDirectrixDerivedReferenceSweptAreaSolid"):
+        raise ValueError(f"Expected an IfcFixedReferenceSweptAreaSolid entity, not {solid.is_a() or 'unknown'}")
 
     profile = getattr(solid, "SweptArea", None)
     directrix = getattr(solid, "Directrix", None)

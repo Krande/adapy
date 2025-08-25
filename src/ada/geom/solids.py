@@ -55,6 +55,7 @@ class RevolvedAreaSolid:
 class FixedReferenceSweptAreaSolid:
     """
     IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3_0_0/lexical/IfcFixedReferenceSweptAreaSolid.htm)
+    STEP AP242 (https://www.steptools.com/stds/stp_aim/html/t_surface_curve_swept_area_solid.html)
     """
 
     swept_area: SURFACE_GEOM_TYPES

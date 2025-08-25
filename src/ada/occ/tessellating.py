@@ -255,7 +255,7 @@ class BatchTessellator:
         mat_id = self.add_color(color)
         return mat_id
 
-    def iter_ifc_store(self, ifc_store: IfcStore, cpus=1, settings=default_settings()) -> Iterable[MeshStore]:
+    def iter_ifc_store(self, ifc_store: IfcStore, cpus=1, settings=None) -> Iterable[MeshStore]:
         import ifcopenshell.geom
         import ifcopenshell.util.representation
 
@@ -263,6 +263,9 @@ class BatchTessellator:
 
         # see Ifcopenshell src/ifcgeom/ConversionSettings.h for the various parameters
         # https://github.com/IfcOpenShell/IfcOpenShell/blob/v0.8.0/src/ifcgeom/ConversionSettings.h#L102
+
+        if settings is None:
+            settings = default_settings()
 
         iterator = ifcopenshell.geom.iterator(settings, ifc_store.f, cpus)
 
