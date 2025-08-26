@@ -90,8 +90,8 @@ class PrimSweep(Shape):
 
         profile = ArbitraryProfileDef(ProfileType.AREA, outer_curve, [])
         origin = self.sweep_curve.segments[0].p1
+        place_ident = Placement()
         other_place = Placement(
-            origin=origin,
             xdir=self.profile_curve_outer.xdir,
             ydir=self.profile_curve_outer.ydir,
             zdir=self.profile_curve_outer.normal,
@@ -99,7 +99,8 @@ class PrimSweep(Shape):
         booleans = [BooleanOperation(x.primitive.solid_geom(), x.bool_op) for x in self.booleans]
 
         curve_pts = [p-origin for p in self.sweep_curve.points3d]
-        transformed_sweep_curve_pts = curve_pts
+        update_points = other_place.transform_array_from_other_place(curve_pts, place_ident)
+        transformed_sweep_curve_pts = update_points
 
         transformed_sweep_curve = CurveOpen3d(
             transformed_sweep_curve_pts, radiis=self.sweep_curve.radiis, tol=self.sweep_curve._tol

@@ -74,8 +74,8 @@ def main(read_from_file=False):
         validate_fixed_reference_swept_area_solid(solid, file=a.ifc_store.f, verbose=True)
         # a.to_stp("temp/swept_shape_example_2.stp")
 
-    a.show(stream_from_ifc_store=True)
-    # a.show(stream_from_ifc_store=False, append_to_scene=True)
+    a.show(stream_from_ifc_store=False, append_to_scene=False)
+    a.show(stream_from_ifc_store=True, append_to_scene=True)
 
 
 if __name__ == "__main__":

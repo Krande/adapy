@@ -7,9 +7,12 @@ sweep = ada.PrimSweep(
     profile_normal=(0, 0, -1),
     origin=(0, 0, 0),
     profile_xdir=(0, 1, 0),
+    # derived_reference=True
 )
 
 
 a = ada.Assembly() / sweep
-a.show(stream_from_ifc_store=True)
 a.to_ifc("temp/simple_sweep_2.ifc", validate=True)
+a.show(stream_from_ifc_store=False, append_to_scene=False)
+a.show(stream_from_ifc_store=True, append_to_scene=True)
+
