@@ -1,4 +1,7 @@
 import ada
+from ada.config import Config
+
+#Config().ifc_use_index_poly_curve_segments = False
 
 sweep = ada.PrimSweep(
     "sweep1",

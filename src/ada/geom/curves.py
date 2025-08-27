@@ -92,7 +92,6 @@ class IndexedPolyCurve:
     self_intersect: bool = False
 
     def get_points(self):
-
         points = []
         for i, p in enumerate(self.segments):
             if i==0:
