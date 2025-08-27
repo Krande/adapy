@@ -5,10 +5,10 @@ from ada.config import Config
 
 sweep = ada.PrimSweep(
     "sweep2",
-    [(0, 0, 0), (0.0, 0, 0.5, 0.2), (0.01, 0.8, 1), (0.8, 0.8, 2), (0.8, 1.7, 2)],
+    [(0, 0, 0), (0.0, 0, 0.5, 0.2), (0.01, 0.8, 1, 0.2), (0.8, 0.8, 2, 0.2), (0.8, 1.7, 2)],
     [(0, 0), (0.1, 0), (0.1, 0.05)],
     profile_normal=(0, 0, -1),
-    profile_xdir=(0, 1, 0),
+    profile_ydir=(0, 1, 0),
     origin=(50, 100, 200),
     # derived_reference=True
 )
