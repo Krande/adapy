@@ -4,7 +4,7 @@ import ifcopenshell
 
 from ada.cadit.ifc.write.geom.placement import ifc_placement_from_axis3d, vector
 from ada.cadit.ifc.write.geom.points import cpt, vrtx
-from ada.config import Config
+from ada.config import Config, logger
 from ada.geom import curves as geo_cu
 
 
@@ -29,10 +29,12 @@ def indexed_poly_curve_from_points_and_segments(
 
 def indexed_poly_curve(ipc: geo_cu.IndexedPolyCurve, f: ifcopenshell.file) -> ifcopenshell.entity_instance:
     """Converts an IndexedPolyCurve to an IFC representation"""
-
-    if Config().ifc_use_index_poly_curve_segments:
+    has_arclines = any([isinstance(seg, geo_cu.ArcLine) for seg in ipc.segments])
+    use_segments = Config().ifc_use_index_poly_curve_segments
+    if use_segments or has_arclines:
         unique_pts, segment_indices = ipc.get_unique_points_and_segment_indices()
-
+        if use_segments is False and has_arclines:
+            logger.info(f"Forcing the use indexed poly curve segments because it contains Arc segments")
         points = unique_pts.tolist()
         return indexed_poly_curve_from_points_and_segments(points, f, segment_indices)
     else:

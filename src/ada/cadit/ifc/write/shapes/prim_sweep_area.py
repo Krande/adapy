@@ -30,8 +30,8 @@ def generate_ifc_prim_sweep_geom(shape: PrimSweep, f):
 
     # FixedReference must lie in the plane defined by Position and fixes the Y-axis of the profile
     # Use the profile's local Y direction (as encoded in the Position) for FixedReference
-    local_y_dir = shape.profile_curve_outer.ydir
-    fixed_ref_dir = to_real(local_y_dir)
+    local_x_dir = shape.profile_curve_outer.xdir
+    fixed_ref_dir = to_real(local_x_dir)
     fixed_ref = f.create_entity("IfcDirection", fixed_ref_dir)
 
     position = geom.geometry.position
