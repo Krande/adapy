@@ -1,5 +1,6 @@
 import ada
 from ada.config import Config, logger
+
 logger.setLevel("INFO")
 Config().ifc_use_index_poly_curve_segments = False
 
@@ -18,4 +19,3 @@ a = ada.Assembly() / sweep
 a.to_ifc("temp/simple_sweep_2.ifc", validate=True)
 a.show(stream_from_ifc_store=False, append_to_scene=False)
 a.show(stream_from_ifc_store=True, append_to_scene=True)
-

@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from ada.config import logger
 from ada.base.physical_objects import BackendGeom
+from ada.config import logger
 from ada.visit.gltf.graph import GraphNode
 
 if TYPE_CHECKING:
@@ -39,8 +39,10 @@ def scene_from_object(physical_object: BackendGeom, converter: SceneConverter) -
         physical_objects = [physical_object]
 
     if params.stream_from_ifc_store:
-        logger.warning("Streaming from IFC store is not supported for show() called directly from a physical object. "
-                       "To do so, you need to call show() from an Assembly object")
+        logger.warning(
+            "Streaming from IFC store is not supported for show() called directly from a physical object. "
+            "To do so, you need to call show() from an Assembly object"
+        )
 
     mesh_stores = list(bt.batch_tessellate(physical_objects))
 

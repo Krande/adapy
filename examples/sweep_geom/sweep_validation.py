@@ -25,6 +25,7 @@ Notes:
   sufficient criteria (e.g., for circles and lines) to guarantee non-parallelism.
 - It accepts either an entity instance or an entity id (int) if `file` is provided.
 """
+
 from __future__ import annotations
 
 from math import sqrt
@@ -39,6 +40,7 @@ except Exception:  # pragma: no cover - validator can still be imported for type
 # ----------------------
 # Basic vector math helpers
 # ----------------------
+
 
 def _normalize(v: Tuple[float, float, float]) -> Tuple[float, float, float]:
     x, y, z = v
@@ -87,6 +89,7 @@ def _get_profile_outer_points_2d(profile) -> Optional[list]:
 # Validation checks
 # ----------------------
 
+
 def validate_profile_z0(profile) -> Dict[str, Any]:
     """Check that SweptArea lies in z=0 plane (i.e., 2D profile space).
 
@@ -109,13 +112,19 @@ def validate_profile_z0(profile) -> Dict[str, Any]:
     if pts2d:
         closed_ok = len(pts2d) >= 2 and pts2d[0] == pts2d[-1]
 
-    result.update({
-        "ok": bool(ok_type and z0_ok),
-        "z0": bool(z0_ok),
-        "is_profiledef": bool(ok_type),
-        "closed": closed_ok,
-        "detail": "SweptArea is IfcProfileDef with 2D coordinates (implicit z=0)" if ok_type and z0_ok else "SweptArea not 2D or not an IfcProfileDef",
-    })
+    result.update(
+        {
+            "ok": bool(ok_type and z0_ok),
+            "z0": bool(z0_ok),
+            "is_profiledef": bool(ok_type),
+            "closed": closed_ok,
+            "detail": (
+                "SweptArea is IfcProfileDef with 2D coordinates (implicit z=0)"
+                if ok_type and z0_ok
+                else "SweptArea not 2D or not an IfcProfileDef"
+            ),
+        }
+    )
     return result
 
 
@@ -150,7 +159,9 @@ def validate_directrix_t_continuous(directrix) -> Dict[str, Any]:
             res.update({"ok": True, "detail": "Single trimmed curve assumed smooth"})
             return res
         elif dtype == "IfcPolyline":
-            res.update({"ok": False, "detail": "Polyline is only G0 continuous; tangent continuity not guaranteed (WARN)"})
+            res.update(
+                {"ok": False, "detail": "Polyline is only G0 continuous; tangent continuity not guaranteed (WARN)"}
+            )
             return res
         else:
             res.update({"ok": False, "detail": f"Unsupported/direct type for continuity check: {dtype}"})
@@ -283,7 +294,10 @@ def validate_fixed_reference_swept_area_solid(solid_or_id, file=None, verbose: b
             raise ValueError("When passing an entity id, 'file' must be provided")
         solid = file.by_id(solid_or_id)
 
-    if solid is None or not getattr(solid, "is_a", lambda: None)() in ("IfcFixedReferenceSweptAreaSolid", "IfcDirectrixDerivedReferenceSweptAreaSolid"):
+    if solid is None or not getattr(solid, "is_a", lambda: None)() in (
+        "IfcFixedReferenceSweptAreaSolid",
+        "IfcDirectrixDerivedReferenceSweptAreaSolid",
+    ):
         raise ValueError(f"Expected an IfcFixedReferenceSweptAreaSolid entity, not {solid.is_a() or 'unknown'}")
 
     profile = getattr(solid, "SweptArea", None)
@@ -293,7 +307,11 @@ def validate_fixed_reference_swept_area_solid(solid_or_id, file=None, verbose: b
     chk_directrix = validate_directrix_t_continuous(directrix)
     chk_fixedref = validate_fixed_reference(solid)
 
-    overall_ok = bool(chk_profile.get("ok") and (chk_directrix.get("ok") or chk_directrix.get("type") == "IfcTrimmedCurve") and chk_fixedref.get("ok_start"))
+    overall_ok = bool(
+        chk_profile.get("ok")
+        and (chk_directrix.get("ok") or chk_directrix.get("type") == "IfcTrimmedCurve")
+        and chk_fixedref.get("ok_start")
+    )
 
     report: Dict[str, Any] = {
         "overall_ok": overall_ok,
@@ -305,15 +323,21 @@ def validate_fixed_reference_swept_area_solid(solid_or_id, file=None, verbose: b
     if verbose:
         print("=== Validation: IfcFixedReferenceSweptAreaSolid ===")
         # Profile
-        print(f"[0] SweptArea on z=0 (2D profile space) & type: {'PASS' if chk_profile.get('ok') else 'FAIL'} | details: {chk_profile.get('detail')}")
+        print(
+            f"[0] SweptArea on z=0 (2D profile space) & type: {'PASS' if chk_profile.get('ok') else 'FAIL'} | details: {chk_profile.get('detail')}"
+        )
         closed = chk_profile.get("closed")
         if closed is not None:
             print(f"    Closed profile: {'PASS' if closed else 'FAIL'}")
         # Directrix
         dtyp = chk_directrix.get("type")
-        print(f"[1] Directrix tangent-continuous: {'PASS' if chk_directrix.get('ok') else 'WARN' if dtyp == 'IfcPolyline' else 'FAIL'} | type={dtyp} | {chk_directrix.get('detail')}")
+        print(
+            f"[1] Directrix tangent-continuous: {'PASS' if chk_directrix.get('ok') else 'WARN' if dtyp == 'IfcPolyline' else 'FAIL'} | type={dtyp} | {chk_directrix.get('detail')}"
+        )
         # FixedReference
-        print(f"[2] FixedReference not parallel to start tangent: {'PASS' if chk_fixedref.get('ok_start') else 'FAIL'} | {chk_fixedref.get('detail')}")
+        print(
+            f"[2] FixedReference not parallel to start tangent: {'PASS' if chk_fixedref.get('ok_start') else 'FAIL'} | {chk_fixedref.get('detail')}"
+        )
         any_ok = chk_fixedref.get("ok_any")
         if any_ok is True:
             print("    Non-parallel along entire directrix: PASS (by curve-type criterion)")

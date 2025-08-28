@@ -16,18 +16,18 @@ if TYPE_CHECKING:
 
 class PrimSweep(Shape):
     def __init__(
-            self,
-            name,
-            sweep_curve: Iterable[Iterable[float]] | CurveOpen3d,
-            profile_curve_outer: Iterable[Iterable[float]] | CurvePoly2d,
-            profile_xdir=None,
-            profile_normal=None,
-            profile_ydir=None,
-            origin=None,
-            derived_reference=False,
-            tol=1e-3,
-            radiis: dict[int, float] = None,
-            **kwargs,
+        self,
+        name,
+        sweep_curve: Iterable[Iterable[float]] | CurveOpen3d,
+        profile_curve_outer: Iterable[Iterable[float]] | CurvePoly2d,
+        profile_xdir=None,
+        profile_normal=None,
+        profile_ydir=None,
+        origin=None,
+        derived_reference=False,
+        tol=1e-3,
+        radiis: dict[int, float] = None,
+        **kwargs,
     ):
         if not isinstance(sweep_curve, CurveOpen3d):
             sweep_curve = CurveOpen3d(sweep_curve, radiis=radiis, tol=tol)
@@ -98,7 +98,7 @@ class PrimSweep(Shape):
         )
         booleans = [BooleanOperation(x.primitive.solid_geom(), x.bool_op) for x in self.booleans]
 
-        curve_pts = [p+origin for p in self.sweep_curve.points3d]
+        curve_pts = [p + origin for p in self.sweep_curve.points3d]
         update_points = other_place.transform_array_from_other_place(curve_pts, place_ident)
         transformed_sweep_curve_pts = update_points
 
@@ -106,7 +106,9 @@ class PrimSweep(Shape):
             transformed_sweep_curve_pts, radiis=self.sweep_curve.radiis, tol=self.sweep_curve._tol
         )
 
-        solid = FixedReferenceSweptAreaSolid(profile, other_place.to_axis2placement3d(), transformed_sweep_curve.curve_geom())
+        solid = FixedReferenceSweptAreaSolid(
+            profile, other_place.to_axis2placement3d(), transformed_sweep_curve.curve_geom()
+        )
         return Geometry(self.guid, solid, self.color, bool_operations=booleans)
 
     def solid_geom(self) -> Geometry[FixedReferenceSweptAreaSolid]:
@@ -121,7 +123,7 @@ class PrimSweep(Shape):
         booleans = [BooleanOperation(x.primitive.solid_geom(), x.bool_op) for x in self.booleans]
 
         origin = self.placement.origin
-        curve_pts = [p+origin for p in self.sweep_curve.points3d]
+        curve_pts = [p + origin for p in self.sweep_curve.points3d]
         transformed_sweep_curve = CurveOpen3d(curve_pts, radiis=self.sweep_curve.radiis)
 
         solid = FixedReferenceSweptAreaSolid(profile, a2place3d, transformed_sweep_curve.curve_geom())

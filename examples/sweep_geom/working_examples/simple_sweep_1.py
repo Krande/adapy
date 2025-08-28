@@ -1,7 +1,7 @@
 import ada
 from ada.config import Config
 
-#Config().ifc_use_index_poly_curve_segments = False
+# Config().ifc_use_index_poly_curve_segments = False
 
 sweep = ada.PrimSweep(
     "sweep1",
@@ -10,7 +10,7 @@ sweep = ada.PrimSweep(
     profile_normal=(1, 0, 0),
     origin=(0, 0, 0),
     profile_ydir=(0, 1, 0),
-    derived_reference=False
+    derived_reference=False,
 )
 
 a = ada.Assembly() / sweep

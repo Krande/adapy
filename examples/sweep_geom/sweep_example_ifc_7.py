@@ -21,6 +21,7 @@ Alternative (if your environment is already active):
 Output:
   temp\\sweep_example_7.ifc
 """
+
 from __future__ import annotations
 
 import os
@@ -33,6 +34,7 @@ import ifcopenshell.guid
 # ----------------------
 # Helpers
 # ----------------------
+
 
 def dir3(f, xyz: Sequence[float]):
     return f.create_entity("IfcDirection", list(map(float, xyz)))
@@ -62,9 +64,11 @@ def axis3d(f, origin_xyz=(0.0, 0.0, 0.0), axis=(0.0, 0.0, 1.0), refdir=(1.0, 0.0
         RefDirection=dir3(f, refdir),
     )
 
+
 # ----------------------
 # Basic vector math
 # ----------------------
+
 
 def _normalize(v: Tuple[float, float, float]) -> Tuple[float, float, float]:
     x, y, z = v
@@ -115,6 +119,7 @@ def _translate_points_to_origin(points: List[Tuple[float, float, float]]) -> Lis
         return points
     return [(px - dx, py - dy, pz - dz) for (px, py, pz) in points]
 
+
 # ----------------------
 # Geometry data (use same as v6)
 # ----------------------
@@ -130,13 +135,14 @@ FILLET_TRIANGLE_2D: List[Tuple[float, float]] = [
 # Simplified 3D directrix points (these may be arbitrary, we normalize to start at origin)
 SIMPLIFIED_SWEEP_PTS: List[Tuple[float, float, float]] = [
     (0.0, 0.0, 0.0),  # start (will be normalized anyway)
-    (0.0, 1.0, 0.0),   # mid
-    (0.0, 1.5, 0.5), # end
+    (0.0, 1.0, 0.0),  # mid
+    (0.0, 1.5, 0.5),  # end
 ]
 
 # ----------------------
 # Directrix using IfcIndexedPolyCurve
 # ----------------------
+
 
 def _build_directrix_indexed_polycurve(f, pts: List[Tuple[float, float, float]]):
     """
@@ -167,9 +173,11 @@ def _build_directrix_indexed_polycurve(f, pts: List[Tuple[float, float, float]])
 
     return indexed_curve, t_start, None
 
+
 # ----------------------
 # IFC model construction (schema-compliant orientation)
 # ----------------------
+
 
 def build_ifc_sweep_v7(output_path: str = "temp\\sweep_example_7.ifc") -> str:
     f = ifcopenshell.file(schema="IFC4")
@@ -303,7 +311,9 @@ def build_ifc_sweep_v7(output_path: str = "temp\\sweep_example_7.ifc") -> str:
     # Validation printout
     dot_a1_t = _dot(axis1, t)
     d_fixed_t = _dot(fixed, t)
-    proj_len = sqrt((fixed[0] - d_fixed_t * t[0])**2 + (fixed[1] - d_fixed_t * t[1])**2 + (fixed[2] - d_fixed_t * t[2])**2)
+    proj_len = sqrt(
+        (fixed[0] - d_fixed_t * t[0]) ** 2 + (fixed[1] - d_fixed_t * t[1]) ** 2 + (fixed[2] - d_fixed_t * t[2]) ** 2
+    )
 
     print("=== IfcFixedReferenceSweptAreaSolid Validation (IndexedPolyCurve) ===")
     print(f"Directrix type: {directrix.is_a()}")
@@ -327,7 +337,9 @@ def build_ifc_sweep_v7(output_path: str = "temp\\sweep_example_7.ifc") -> str:
         closed_ok = len(pts2d) >= 2 and pts2d[0] == pts2d[-1]
     except Exception:
         closed_ok = False
-    print(f"[1] SweptArea is IfcProfileDef: {'PASS' if sweptarea_ok else 'FAIL'}; Closed: {'PASS' if closed_ok else 'FAIL'}")
+    print(
+        f"[1] SweptArea is IfcProfileDef: {'PASS' if sweptarea_ok else 'FAIL'}; Closed: {'PASS' if closed_ok else 'FAIL'}"
+    )
 
     # 2) Directrix continuity: indexed polycurve is piecewise linear; transition flags don't apply
     print(f"[2] Directrix is piecewise linear: continuity at vertices depends on point layout -> INFO")
@@ -350,6 +362,7 @@ def build_ifc_sweep_v7(output_path: str = "temp\\sweep_example_7.ifc") -> str:
     # External validator if available
     try:
         from sweep_validation import validate_fixed_reference_swept_area_solid as _validate_sweep
+
         print("\n--- External validator report (sweep_validation.py) ---")
         _validate_sweep(solid, file=f, verbose=True)
     except Exception as e:
@@ -368,6 +381,7 @@ def main(run_validation: bool = True, show_viewer: bool = True):
     if show_viewer:
         try:
             import ada
+
             a = ada.from_ifc(out)
             a.show(stream_from_ifc_store=True)
         except Exception as e:

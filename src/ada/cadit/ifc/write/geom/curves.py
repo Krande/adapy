@@ -27,6 +27,7 @@ def indexed_poly_curve_from_points_and_segments(
     else:
         return f.create_entity("IfcIndexedPolyCurve", Points=ifc_point_list, Segments=None, SelfIntersect=None)
 
+
 def indexed_poly_curve(ipc: geo_cu.IndexedPolyCurve, f: ifcopenshell.file) -> ifcopenshell.entity_instance:
     """Converts an IndexedPolyCurve to an IFC representation"""
     has_arclines = any([isinstance(seg, geo_cu.ArcLine) for seg in ipc.segments])
@@ -34,7 +35,7 @@ def indexed_poly_curve(ipc: geo_cu.IndexedPolyCurve, f: ifcopenshell.file) -> if
     if use_segments or has_arclines:
         unique_pts, segment_indices = ipc.get_unique_points_and_segment_indices()
         if use_segments is False and has_arclines:
-            logger.info(f"Forcing the use indexed poly curve segments because it contains Arc segments")
+            logger.info("Forcing the use indexed poly curve segments because it contains Arc segments")
         points = unique_pts.tolist()
         return indexed_poly_curve_from_points_and_segments(points, f, segment_indices)
     else:

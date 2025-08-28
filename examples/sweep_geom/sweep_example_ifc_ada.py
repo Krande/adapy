@@ -6,6 +6,7 @@ from ada.param_models.sweep_example import (
     sweep2_pts,
     sweep3_pts,
 )
+
 Config().ifc_use_index_poly_curve_segments = False
 
 
@@ -69,6 +70,7 @@ def main(read_from_file=False):
         entity = a.ifc_store.f.by_guid(sweeps[0].guid)
         from sweep_validation import validate_fixed_reference_swept_area_solid
         from ifcopenshell.util.representation import get_representations_iter
+
         solids = list(get_representations_iter(entity))
         solid = solids[0].Items[0]
         validate_fixed_reference_swept_area_solid(solid, file=a.ifc_store.f, verbose=True)

@@ -94,7 +94,7 @@ class IndexedPolyCurve:
     def get_points(self):
         points = []
         for i, p in enumerate(self.segments):
-            if i==0:
+            if i == 0:
                 points.append(p.start.tolist())
                 points.append(p.end.tolist())
             else:

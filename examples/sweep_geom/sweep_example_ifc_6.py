@@ -20,6 +20,7 @@ Alternative (if your environment is already active):
 Output:
   temp\\sweep_example_6.ifc
 """
+
 from __future__ import annotations
 
 import os
@@ -32,6 +33,7 @@ import ifcopenshell.guid
 # ----------------------
 # Helpers
 # ----------------------
+
 
 def dir3(f, xyz: Sequence[float]):
     return f.create_entity("IfcDirection", list(map(float, xyz)))
@@ -61,9 +63,11 @@ def axis3d(f, origin_xyz=(0.0, 0.0, 0.0), axis=(0.0, 0.0, 1.0), refdir=(1.0, 0.0
         RefDirection=dir3(f, refdir),
     )
 
+
 # ----------------------
 # Basic vector math
 # ----------------------
+
 
 def _normalize(v: Tuple[float, float, float]) -> Tuple[float, float, float]:
     x, y, z = v
@@ -119,9 +123,10 @@ def _translate_points_to_origin(points: List[Tuple[float, float, float]]) -> Lis
 # Circle through 3 points utilities
 # ----------------------
 
-def _circle_from_3pts(p0: Tuple[float, float, float],
-                      p1: Tuple[float, float, float],
-                      p2: Tuple[float, float, float]) -> Tuple[Tuple[float, float, float], Tuple[float, float, float], float, Tuple[float, float, float]]:
+
+def _circle_from_3pts(
+    p0: Tuple[float, float, float], p1: Tuple[float, float, float], p2: Tuple[float, float, float]
+) -> Tuple[Tuple[float, float, float], Tuple[float, float, float], float, Tuple[float, float, float]]:
     """
     Returns (center, normal, radius, refdir) for the circle through p0, p1, p2.
     refdir is chosen to point from center to p0, suitable for IfcAxis2Placement3D.RefDirection.
@@ -198,7 +203,9 @@ def _build_t_continuous_directrix_circle(f, pts: List[Tuple[float, float, float]
         dir_p0p1 = _normalize(_sub(p1, p0))
         # Project p0->p1 onto the tangent direction at p0 (orthogonal to radius)
         dpr = _dot(dir_p0p1, r_unit)
-        t_start = _normalize((dir_p0p1[0] - dpr * r_unit[0], dir_p0p1[1] - dpr * r_unit[1], dir_p0p1[2] - dpr * r_unit[2]))
+        t_start = _normalize(
+            (dir_p0p1[0] - dpr * r_unit[0], dir_p0p1[1] - dpr * r_unit[1], dir_p0p1[2] - dpr * r_unit[2])
+        )
         # If projection degenerates (shouldn't), fall back to right-hand rule
         if t_start == (0.0, 0.0, 0.0):
             t_start = _normalize(_cross(normal, r_unit))
@@ -223,6 +230,7 @@ def _build_t_continuous_directrix_circle(f, pts: List[Tuple[float, float, float]
         t_start = direction
         return comp, t_start, None
 
+
 # ----------------------
 # Geometry data (same as example 4, but use original 2D profile)
 # ----------------------
@@ -238,13 +246,14 @@ FILLET_TRIANGLE_2D: List[Tuple[float, float]] = [
 # Simplified 3D directrix points (these may be arbitrary, we normalize to start at origin)
 SIMPLIFIED_SWEEP_PTS: List[Tuple[float, float, float]] = [
     (0.0, 0.0, 0.0),  # start (will be normalized anyway)
-    (0.0, 1.0, 0.0),   # mid
-    (0.0, 1.5, 0.5), # end
+    (0.0, 1.0, 0.0),  # mid
+    (0.0, 1.5, 0.5),  # end
 ]
 
 # ----------------------
 # IFC model construction (schema-compliant orientation)
 # ----------------------
+
 
 def build_ifc_sweep_v6(output_path: str = "temp\\sweep_example_6.ifc") -> str:
     f = ifcopenshell.file(schema="IFC4")
@@ -389,7 +398,9 @@ def build_ifc_sweep_v6(output_path: str = "temp\\sweep_example_6.ifc") -> str:
     # Check that Axis1 is orthogonal to t and equals projection of FixedReference
     dot_a1_t = _dot(axis1, t)
     d_fixed_t = _dot(fixed, t)
-    proj_len = sqrt((fixed[0] - d_fixed_t * t[0])**2 + (fixed[1] - d_fixed_t * t[1])**2 + (fixed[2] - d_fixed_t * t[2])**2)
+    proj_len = sqrt(
+        (fixed[0] - d_fixed_t * t[0]) ** 2 + (fixed[1] - d_fixed_t * t[1]) ** 2 + (fixed[2] - d_fixed_t * t[2]) ** 2
+    )
 
     print("=== IfcFixedReferenceSweptAreaSolid Validation ===")
     print(f"Directrix type: {directrix.is_a()}")
@@ -415,17 +426,21 @@ def build_ifc_sweep_v6(output_path: str = "temp\\sweep_example_6.ifc") -> str:
         closed_ok = len(pts2d) >= 2 and pts2d[0] == pts2d[-1]
     except Exception:
         closed_ok = False
-    print(f"[1] SweptArea is IfcProfileDef: {'PASS' if sweptarea_ok else 'FAIL'}; Closed: {'PASS' if closed_ok else 'FAIL'}")
+    print(
+        f"[1] SweptArea is IfcProfileDef: {'PASS' if sweptarea_ok else 'FAIL'}; Closed: {'PASS' if closed_ok else 'FAIL'}"
+    )
 
     # 2) Directrix t-continuity
     # We constructed IfcCompositeCurve with Transition=CONTINUOUS and smooth basis (circle or line)
     try:
-        segs = directrix.Segments if hasattr(directrix, 'Segments') else []
-        transitions = [getattr(s, 'Transition', None) for s in (segs or [])]
-        tcont_flags_ok = all(str(tr) == 'CONTINUOUS' or tr == 'CONTINUOUS' for tr in transitions)
+        segs = directrix.Segments if hasattr(directrix, "Segments") else []
+        transitions = [getattr(s, "Transition", None) for s in (segs or [])]
+        tcont_flags_ok = all(str(tr) == "CONTINUOUS" or tr == "CONTINUOUS" for tr in transitions)
     except Exception:
         tcont_flags_ok = False
-    print(f"[2] Directrix transitions continuous: {'PASS' if tcont_flags_ok else 'WARN' if directrix.is_a('IfcPolyline') else 'FAIL'}")
+    print(
+        f"[2] Directrix transitions continuous: {'PASS' if tcont_flags_ok else 'WARN' if directrix.is_a('IfcPolyline') else 'FAIL'}"
+    )
 
     # 3) Axis3 (tangent) properties at start: orthogonal to radius and circle normal (for circular directrix)
     if circle_frame is not None:
@@ -433,7 +448,9 @@ def build_ifc_sweep_v6(output_path: str = "temp\\sweep_example_6.ifc") -> str:
         r_unit_chk = c_refdir
         dot_tr = abs(_dot(t, r_unit_chk))
         dot_tn = abs(_dot(t, c_normal))
-        print(f"[3] |dot(t, radius)|={dot_tr:.6e} (should be ~0), |dot(t, normal)|={dot_tn:.6e} (should be ~0) -> {'PASS' if dot_tr < 1e-9 and dot_tn < 1e-9 else 'OK' if dot_tr < 1e-6 and dot_tn < 1e-6 else 'WARN'}")
+        print(
+            f"[3] |dot(t, radius)|={dot_tr:.6e} (should be ~0), |dot(t, normal)|={dot_tn:.6e} (should be ~0) -> {'PASS' if dot_tr < 1e-9 and dot_tn < 1e-9 else 'OK' if dot_tr < 1e-6 and dot_tn < 1e-6 else 'WARN'}"
+        )
     else:
         # For line, tangent equals line direction
         print(f"[3] Tangent for line directrix is the line direction -> PASS")
@@ -464,6 +481,7 @@ def build_ifc_sweep_v6(output_path: str = "temp\\sweep_example_6.ifc") -> str:
     # Also run external reusable validator (applies to any IfcFixedReferenceSweptAreaSolid)
     try:
         from sweep_validation import validate_fixed_reference_swept_area_solid as _validate_sweep
+
         print("\n--- External validator report (sweep_validation.py) ---")
         _validate_sweep(solid, file=f, verbose=True)
     except Exception as e:
@@ -482,6 +500,7 @@ def main(run_validation: bool = True, show_viewer: bool = True):
     if show_viewer:
         try:
             import ada
+
             a = ada.from_ifc(out)
             a.show(stream_from_ifc_store=True)
         except Exception as e:
