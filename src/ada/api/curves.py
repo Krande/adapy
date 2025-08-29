@@ -370,7 +370,7 @@ class CurveOpen3d:
         self._radiis = {i: x[-1] for i, x in enumerate(points3d) if len(x) == 4} if radiis is None else radiis
         self._points3d = [Point(p[:3]) for p in points3d]
 
-        self._segments = segments3d_from_points3d(self._points3d, radius_dict=self._radiis)
+        self._segments = None
         self._tol = tol
         self._parent = parent
         self._orientation = Placement(origin, xdir=xdir, zdir=normal) if orientation is None else orientation
@@ -398,11 +398,13 @@ class CurveOpen3d:
 
     @property
     def segments(self) -> list[LineSegment | ArcSegment]:
+        if self._segments is None:
+            self._segments = segments3d_from_points3d(self._points3d, radius_dict=self._radiis)
         return self._segments
 
     @property
-    def start_vector(self):
-        seg0 = self._segments[0]
+    def start_vector(self) -> Direction:
+        seg0 = self.segments[0]
         if isinstance(seg0, ArcSegment):
             return seg0.s_normal
         else:
@@ -417,8 +419,11 @@ class CurveOpen3d:
         return self._radiis
 
     @property
-    def points3d(self) -> list[Point[float, float, float]]:
+    def points3d(self) -> list[Point]:
         return self._points3d
+
+    def __repr__(self):
+        return f"CurveOpen3d({self.points3d}, xdir={self.orientation.xdir}, zdir={self.orientation.zdir}, radiis={self.radiis})"
 
 
 class LineSegment:

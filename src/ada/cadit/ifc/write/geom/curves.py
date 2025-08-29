@@ -4,32 +4,44 @@ import ifcopenshell
 
 from ada.cadit.ifc.write.geom.placement import ifc_placement_from_axis3d, vector
 from ada.cadit.ifc.write.geom.points import cpt, vrtx
+from ada.config import Config, logger
 from ada.geom import curves as geo_cu
 
 
 def indexed_poly_curve_from_points_and_segments(
-    points: list[list[float]], segment_indices: list[list[int]], f: ifcopenshell.file
+    points: list[list[float]], f: ifcopenshell.file, segment_indices: list[list[int]] = None
 ) -> ifcopenshell.entity_instance:
     if len(points[0]) == 2:
         list_type = "IfcCartesianPointList2D"
     else:
         list_type = "IfcCartesianPointList3D"
 
-    ifc_point_list = f.create_entity(list_type, points)
-    s = [
-        f.create_entity("IfcArcIndex", i) if len(i) == 3 else f.create_entity("IfcLineIndex", i)
-        for i in segment_indices
-    ]
+    ifc_point_list = f.create_entity(list_type, CoordList=points)
+    if segment_indices is not None:
+        s = [
+            f.create_entity("IfcArcIndex", i) if len(i) == 3 else f.create_entity("IfcLineIndex", i)
+            for i in segment_indices
+        ]
 
-    return f.create_entity("IfcIndexedPolyCurve", ifc_point_list, s, False)
+        return f.create_entity("IfcIndexedPolyCurve", Points=ifc_point_list, Segments=s, SelfIntersect=None)
+    else:
+        return f.create_entity("IfcIndexedPolyCurve", Points=ifc_point_list, Segments=None, SelfIntersect=None)
 
 
 def indexed_poly_curve(ipc: geo_cu.IndexedPolyCurve, f: ifcopenshell.file) -> ifcopenshell.entity_instance:
     """Converts an IndexedPolyCurve to an IFC representation"""
-    unique_pts, segment_indices = ipc.get_points2d_and_segment_indices()
+    has_arclines = any([isinstance(seg, geo_cu.ArcLine) for seg in ipc.segments])
+    use_segments = Config().ifc_use_index_poly_curve_segments
+    if use_segments or has_arclines:
+        unique_pts, segment_indices = ipc.get_unique_points_and_segment_indices()
+        if use_segments is False and has_arclines:
+            logger.info("Forcing the use indexed poly curve segments because it contains Arc segments")
+        points = unique_pts.tolist()
+        return indexed_poly_curve_from_points_and_segments(points, f, segment_indices)
+    else:
+        points = ipc.get_points()
 
-    points = unique_pts.tolist()
-    return indexed_poly_curve_from_points_and_segments(points, segment_indices, f)
+        return indexed_poly_curve_from_points_and_segments(points, f)
 
 
 def circle_curve(circle: geo_cu.Circle, f: ifcopenshell.file) -> ifcopenshell.entity_instance:

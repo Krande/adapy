@@ -25,22 +25,22 @@ def bm3():
     return Beam("Ymem", (1, 0, 0), (1, 2, 0), "IPE300")
 
 
-def test_ipe_x2_90deg_Z(bm1, bm2, tmp_path):
+def test_ipe_x2_90deg_Z(bm1, bm2):
     a = Assembly("IPE") / [bm1, bm2]
     a.connections.find(joint_func=joint_map)
-    _ = a.to_ifc(tmp_path / "ipe_x2_90deg_Z.ifc", file_obj_only=True)
+    _ = a.to_ifc(file_obj_only=True)
 
 
-def test_ipe_x2_45deg_Z(bm1, bm2_1, tmp_path):
+def test_ipe_x2_45deg_Z(bm1, bm2_1):
     a = Assembly("IPE") / [bm1, bm2_1]
     a.connections.find(joint_func=joint_map)
-    _ = a.to_ifc(tmp_path / "ipe_x2_45deg_Z.ifc", file_obj_only=True)
+    _ = a.to_ifc(file_obj_only=True)
 
 
-def test_ipe_x2_90deg_Y(bm1, bm3, tmp_path):
+def test_ipe_x2_90deg_Y(bm1, bm3):
     a = Assembly("IPE") / [bm1, bm3]
     a.connections.find(joint_func=joint_map)
-    _ = a.to_ifc(tmp_path / "ipe_x2_90deg_Y.ifc", file_obj_only=True)
+    _ = a.to_ifc(file_obj_only=True)
 
 
 # TODO: Fix cause behind this test case no longer producing a correct result

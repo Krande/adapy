@@ -159,6 +159,8 @@ def assembly_to_ifc_file(a: "Assembly"):
     ifcopenshell.api.run(
         "context.add_context", f, context_type="Model", context_identifier="Body", target_view="MODEL_VIEW"
     )
+    f.wrapped_data.header.file_name.author = ("AdaUser",)
+    f.wrapped_data.header.file_name.organization = ("AdaOrg",)
     return f
 
 
@@ -435,8 +437,13 @@ def add_colour(
         f.createIfcStyledItem(ifc_body, (surface_style,), ifc_color.Name)
 
 
-def calculate_unit_scale(file):
-    units = file.by_type("IfcUnitAssignment")[0]
+def calculate_unit_scale(file) -> float:
+    units = file.by_type("IfcUnitAssignment")
+    if len(units) == 0:
+        logger.warning("No unit assignment found in file. Assuming meters")
+        return 1.0
+
+    units = units[0]
     unit_scale = 1
     for unit in units.Units:
         if not hasattr(unit, "UnitType") or unit.UnitType != "LENGTHUNIT":
@@ -679,6 +686,7 @@ def default_settings():
     # Wire intersection checks is prohibitively slow on advanced breps. See bug #5999.
     settings.set("no-wire-intersection-check", True)
     # settings.set("triangulation-type", ifcopenshell.ifcopenshell_wrapper.POLYHEDRON_WITHOUT_HOLES)
+    # settings.set("dimensionality", ifcopenshell.ifcopenshell_wrapper.CURVES_SURFACES_AND_SOLIDS)
 
     return settings
 

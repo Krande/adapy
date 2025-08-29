@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from collections import defaultdict
 from typing import TYPE_CHECKING, Iterable
 
 import numpy as np
@@ -103,6 +104,30 @@ def make_arc_segment_with_tolerance(
 def make_arc_segment(
     start: Iterable | Point, intersect_p: Iterable | Point, end: Iterable | Point, radius: float
 ) -> list[LineSegment | ArcSegment]:
+    """
+    Generates a list of segments, including lines and arcs, forming a path between the specified start,
+    intermediate intersection point, and end point with a given radius for the arc.
+
+    Parameters:
+    start : Iterable | Point
+        The starting point of the segment. Can be an instance of Point or an iterable representation.
+    intersect_p : Iterable | Point
+        The intermediate intersection point to form the arc. Can be an instance of Point or an
+        iterable representation.
+    end : Iterable | Point
+        The ending point of the segment. Can be an instance of Point or an iterable representation.
+    radius : float
+        The radius of the arc created at the intersection point.
+
+    Returns:
+    list[LineSegment | ArcSegment]
+        A list of segments forming the path. The segments are either LineSegment or ArcSegment instances.
+
+    Raises:
+    ValueError
+        If input points have inappropriate dimensions or are malformed. Other exceptions may occur
+        depending on the methods invoked by the helper classes like SegCreator and Placement.
+    """
     from ada import ArcSegment, LineSegment, Placement
 
     if not isinstance(start, Point):
@@ -1005,6 +1030,73 @@ def segments3d_from_points3d(
         )
 
         segments.append(LineSegment(new_seg2.p1.copy(), new_seg2.p2.copy()))
+
+    if radius_dict is not None and len(radius_dict) == len(
+        points
+    ):  # There should be arcs in each original point position.
+        # Therefore looping over all points, there should be no line ends in point positions
+        segment_map = defaultdict(list)
+        for i, p in enumerate(points[:-1]):
+            for j, seg in enumerate(segments):
+                if isinstance(seg, LineSegment):
+                    if seg.p1.is_equal(p):  # this end should be replaced with an arc
+                        segment_map[tuple(p.tolist())].append((seg, "p1", i, j))
+                    elif seg.p2.is_equal(p):  # this end should be replaced with an arc
+                        segment_map[tuple(p.tolist())].append((seg, "p2", i, j))
+        segments_copy = segments.copy()
+        for p, segment_list in segment_map.items():
+            # todo: place an arc at this position and trim the neighboring Line segments
+            unique_segments = set([s[0] for s in segment_list])
+            if len(unique_segments) != 2:
+                logger.warning(f"Unable to place arc at {p}. Unique segments: {unique_segments}")
+                continue
+            (seg1, side1, idx1, jdx1), (seg2, side2, idx2, jdx2) = segment_list
+
+            if side1 == "p1":
+                arc_end = seg1.p2
+            else:
+                arc_start = seg1.p1
+
+            if side2 == "p1":
+                arc_end = seg2.p2
+            else:
+                arc_start = seg2.p1
+
+            if idx1 != idx2:
+                logger.warning(f"Unable to place arc at {p}. Segments {seg1} and {seg2} are not adjacent")
+                continue
+
+            idx = idx1
+            if isinstance(radius_dict, dict):
+                r = radius_dict.get(idx + 1, min(seg1.length, seg2.length) / 3)
+            elif isinstance(radius, (int, float)):
+                r = radius
+            else:
+                raise ValueError(f"Radius must be a float, int, or dict. Got {type(radius)}")
+
+            new_seg1, arc, new_seg2 = make_arc_segment(arc_start, p, arc_end, r)
+
+            if side2 == "p1":
+                segments_copy[jdx2].p1 = new_seg2.p1
+                segments_copy[jdx1].p2 = new_seg1.p2
+            else:
+                segments_copy[jdx2].p2 = new_seg1.p2
+                segments_copy[jdx1].p1 = new_seg2.p1
+
+            segments_copy.insert(
+                jdx2 + 1,
+                ArcSegment(
+                    arc.p1.copy(),
+                    arc.p2.copy(),
+                    midpoint=arc.midpoint.copy(),
+                    center=arc.center.copy() if arc.center is not None else None,
+                    intersection=arc.intersection.copy() if arc.intersection is not None else None,
+                    radius=arc.radius,
+                    s_normal=arc.s_normal.copy(),
+                    e_normal=arc.e_normal.copy(),
+                ),
+            )
+            segments = segments_copy
 
     return segments
 

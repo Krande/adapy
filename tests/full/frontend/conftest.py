@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import http.server
 import os
 import threading
@@ -169,7 +170,7 @@ async def start_mock_web_client_connection(host, port):
                     await reply_ping(msg, ws_client)
 
         except asyncio.CancelledError as e:
-            logger.debug("Connection to server was cancelled due to: ", e)
+            logger.debug("Connection to server was cancelled", exc_info=e)
 
 
 @dataclass
@@ -179,12 +180,15 @@ class MockWebParams:
     client_type: TargetTypeDC.WEB
 
 
-@pytest_asyncio.fixture
-def mock_async_web_client(event_loop) -> MockWebParams:
-    task = asyncio.ensure_future(start_mock_web_client_connection(WS_HOST, WS_PORT), loop=event_loop)
+@pytest_asyncio.fixture(scope="module")
+async def mock_async_web_client() -> MockWebParams:
+    # Schedule on the running loop managed by pytest-asyncio
+    task = asyncio.create_task(start_mock_web_client_connection(WS_HOST, WS_PORT))
 
-    yield MockWebParams(WS_HOST, WS_PORT, TargetTypeDC.WEB)  # Use 'yield' to wait for the fixture to complete
-
-    # Cancel the task and wait for it to finish
-    task.cancel()
-    event_loop.run_until_complete(task)
+    try:
+        yield MockWebParams(WS_HOST, WS_PORT, TargetTypeDC.WEB)
+    finally:
+        task.cancel()
+        # Await the task but suppress the CancelledError expected from a cancelled task
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
