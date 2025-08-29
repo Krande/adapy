@@ -403,7 +403,7 @@ class CurveOpen3d:
         return self._segments
 
     @property
-    def start_vector(self):
+    def start_vector(self) -> Direction:
         seg0 = self.segments[0]
         if isinstance(seg0, ArcSegment):
             return seg0.s_normal

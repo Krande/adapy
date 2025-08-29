@@ -9,7 +9,7 @@ sweep = ada.PrimSweep(
     [(0, 0, 0), (0.0, 0, 0.5, 0.2), (0.01, 0.8, 1, 0.2), (0.8, 0.8, 2, 0.2), (0.8, 1.7, 2)],
     [(0, 0), (0.1, 0), (0.1, 0.05)],
     # profile_normal=(0, 0, 1),
-    # profile_ydir=(1, 0, 0),
+    profile_ydir=(1, 0, 0),
     origin=(50, 100, 200),
     # derived_reference=True
 )
