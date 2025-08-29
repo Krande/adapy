@@ -49,8 +49,8 @@ def main(read_from_file=False):
     )
     sweeps = [
         sweep1,
-        # sweep2,
-        # sweep3,
+        sweep2,
+        sweep3,
     ]
     mesh_data = get_three_sweeps_mesh_data()
     mesh1_raw = mesh_data[0]
