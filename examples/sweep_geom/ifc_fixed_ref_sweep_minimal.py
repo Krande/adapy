@@ -305,7 +305,7 @@ def main():
         RelatingStructure=site,
     )
 
-    os.makedirs("../../temp", exist_ok=True)
+    os.makedirs("../temp", exist_ok=True)
     out = "temp/minimal_ifc_sweep.ifc"
     f.write(out)
     a = ada.from_ifc(out)
