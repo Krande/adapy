@@ -119,8 +119,7 @@ class Wall(BackendGeom):
 
         p1 = wi.placement.origin - yvec * (wi.depth / 2 + tol)
         p2 = wi.placement.origin + yvec * (wi.depth / 2 + tol) + xvec * wi.width + zvec * wi.height
-
-        self._booleans.append(PrimBox("my_pen", p1, p2))
+        self.add_boolean(PrimBox("my_pen", p1, p2))
 
     def get_segment_props(self, wall_segment):
         if wall_segment > len(self._segments):

@@ -105,7 +105,7 @@ def shape_to_tri_mesh(shape: TopoDS_Shape, rgba_color: Iterable[float, float, fl
     tm = tessellate_shape(shape)
     positions = tm.positions.reshape(len(tm.positions) // 3, 3)
     faces = tm.faces.reshape(len(tm.faces) // 3, 3)
-    mesh = trimesh.Trimesh(vertices=positions, faces=faces)
+    mesh = trimesh.Trimesh(vertices=positions, faces=faces, process=False)
     mesh.visual = trimesh.visual.TextureVisuals(
         material=trimesh.visual.material.PBRMaterial(baseColorFactor=rgba_color)
     )
@@ -255,7 +255,7 @@ class BatchTessellator:
         mat_id = self.add_color(color)
         return mat_id
 
-    def iter_ifc_store(self, ifc_store: IfcStore, cpus=1, settings=default_settings()) -> Iterable[MeshStore]:
+    def iter_ifc_store(self, ifc_store: IfcStore, cpus=1, settings=None) -> Iterable[MeshStore]:
         import ifcopenshell.geom
         import ifcopenshell.util.representation
 
@@ -263,6 +263,9 @@ class BatchTessellator:
 
         # see Ifcopenshell src/ifcgeom/ConversionSettings.h for the various parameters
         # https://github.com/IfcOpenShell/IfcOpenShell/blob/v0.8.0/src/ifcgeom/ConversionSettings.h#L102
+
+        if settings is None:
+            settings = default_settings()
 
         iterator = ifcopenshell.geom.iterator(settings, ifc_store.f, cpus)
 

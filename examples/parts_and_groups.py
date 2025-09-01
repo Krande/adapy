@@ -23,7 +23,9 @@ def main():
     p.add_group("group1", [bm, bm2])
     p.add_group("group2", [bm3, bm4])
     p.add_group("group3", [bm, bm2, bm3, bm4])
-    p.show()
+    # p.show()
+    a = ada.Assembly() / p
+    a.show(stream_from_ifc_store=True)
 
 
 if __name__ == "__main__":

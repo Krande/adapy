@@ -12,6 +12,7 @@ if TYPE_CHECKING:
 def scene_from_part_or_assembly(part_or_assembly: Part | Assembly, converter: SceneConverter) -> trimesh.Scene:
     import ada.extension.design_extension_schema as design_ext
     from ada import Assembly
+    from ada.config import logger
     from ada.occ.tessellating import BatchTessellator
 
     params = converter.params
@@ -34,11 +35,18 @@ def scene_from_part_or_assembly(part_or_assembly: Part | Assembly, converter: Sc
         )
         groups.append(g)
 
-    if params.stream_from_ifc_store and isinstance(part_or_assembly, Assembly):
-        scene = bt.ifc_to_trimesh_scene(
-            part_or_assembly.get_assembly().ifc_store, merge_meshes=params.merge_meshes, graph=graph
-        )
-    else:
+    scene = None
+    if params.stream_from_ifc_store:
+        if isinstance(part_or_assembly, Assembly):
+            scene = bt.ifc_to_trimesh_scene(
+                part_or_assembly.get_assembly().ifc_store, merge_meshes=params.merge_meshes, graph=graph
+            )
+        else:
+            logger.warning(
+                "Stream from ifc store is only supported from Assembly objects, not Part objects. "
+                "Will use default tessellation using pythonocc-core"
+            )
+    if scene is None:
         scene = bt.tessellate_part(part_or_assembly, params=params, graph=graph)
 
     nodes_geom = set(scene.graph.nodes_geometry)

@@ -223,11 +223,11 @@ class BackendGeom(Root):
             params_override = RenderParams(
                 unique_id=unique_viewer_id,
                 auto_sync_ifc_store=auto_sync_ifc_store,
-                stream_from_ifc_store=stream_from_ifc_store,
                 add_ifc_backend=add_ifc_backend,
                 scene=SceneDC(operation=SceneOperationsDC.REPLACE if not append_to_scene else SceneOperationsDC.ADD),
                 apply_transform=apply_transform,
             )
+        params_override.stream_from_ifc_store = stream_from_ifc_store
         # Set up the renderer and WebSocket server
         renderer_instance = renderer_manager.render(
             self,

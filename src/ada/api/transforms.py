@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, ClassVar, Iterable, List, Union
 import numpy as np
 import pyquaternion as pq
 
+import ada
 from ada.core.vector_transforms import normal_to_points_in_plane, transform_3x3
 from ada.core.vector_utils import calc_xvec, calc_yvec, unit_vector
 from ada.geom.direction import Direction
@@ -68,7 +69,7 @@ class Placement:
         self._scale: float = scale
         self._parent = parent
 
-        self._is_identity: bool = False
+        self._is_identity: bool = None
         self._computed_placement: ComputedPlacement = None
 
     def _init_computed_placement(self):
@@ -342,6 +343,11 @@ class Placement:
             scale=self.scale,
         )
 
+    def __repr__(self):
+        return (
+            f"Placement(origin={self.origin}, xdir={self.xdir}, ydir={self.ydir}, zdir={self.zdir}, scale={self.scale})"
+        )
+
 
 @dataclass
 class Instance:
@@ -440,14 +446,38 @@ class EquationOfPlane:
         p4 = p0 + vec2 * p_dist - vec3 * p_dist
         return [p1, p2, p3, p4]
 
-    def project_point_onto_plane(self, point: Iterable) -> np.ndarray:
+    def project_point_onto_plane(self, point: Iterable) -> ada.Point:
         p = np.array(point)
         dist = p.dot(self.normal) + self.d
-        return p - dist * self.normal
+        return ada.Point(p - dist * self.normal)
 
-    def get_geom_as_part(self, name: str) -> Part:
-        """Get the plane and origin of the"""
-        from ada import Shape
+    def project_point_along_direction(self, point: Iterable, direction: Direction) -> ada.Point:
+        """
+        Project a point onto the plane along a given direction vector.
 
-        Shape()
-        return
+        Args:
+            point: The point to project
+            direction: The direction vector along which to project (Direction object)
+
+        Returns:
+            The projected point on the plane
+
+        Raises:
+            ValueError: If the direction is parallel to the plane (no intersection)
+        """
+        p = np.array(point)
+        dir_vec = np.array(direction)
+
+        # Check if direction is parallel to the plane
+        dot_product = np.dot(dir_vec, self.normal)
+        if abs(dot_product) < 1e-10:  # essentially zero
+            raise ValueError("Direction vector is parallel to the plane - no intersection possible")
+
+        # Calculate parameter t for the line equation: p + t * dir_vec
+        # where the line intersects the plane: (p + t * dir_vec) · normal + d = 0
+        t = -(np.dot(p, self.normal) + self.d) / dot_product
+
+        # Calculate intersection point
+        intersection = p + t * dir_vec
+
+        return ada.Point(intersection)

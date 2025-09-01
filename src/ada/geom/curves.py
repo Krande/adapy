@@ -91,7 +91,18 @@ class IndexedPolyCurve:
     segments: list[Edge | ArcLine]
     self_intersect: bool = False
 
-    def get_points2d_and_segment_indices(self) -> tuple[np.ndarray, list[list[int]]]:
+    def get_points(self):
+        points = []
+        for i, p in enumerate(self.segments):
+            if i == 0:
+                points.append(p.start.tolist())
+                points.append(p.end.tolist())
+            else:
+                points.append(p.end.tolist())
+
+        return points
+
+    def get_unique_points_and_segment_indices(self) -> tuple[np.ndarray, list[list[int]]]:
         points = list(chain.from_iterable([list(segment) for segment in self.segments]))
         points_tuple = [tuple(x) for x in chain.from_iterable([list(segment) for segment in self.segments])]
         unique_pts, pts_index = np.unique(points, axis=0, return_index=False, return_inverse=True)

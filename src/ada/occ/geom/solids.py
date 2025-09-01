@@ -6,7 +6,7 @@ from OCC.Core.BRepOffsetAPI import (
     BRepOffsetAPI_MakePipeShell,
     BRepOffsetAPI_ThruSections,
 )
-from OCC.Core.gp import gp_Ax1, gp_Ax2, gp_Ax3, gp_Dir, gp_Pnt, gp_Trsf, gp_Vec
+from OCC.Core.gp import gp_Ax1, gp_Ax2, gp_Dir, gp_Pnt, gp_Trsf, gp_Vec
 from OCC.Core.TopoDS import TopoDS_Shape, TopoDS_Solid
 from OCC.Extend.TopologyUtils import TopologyExplorer
 
@@ -101,8 +101,9 @@ def make_revolved_area_shape_from_geom(ras: geo_so.RevolvedAreaSolid) -> TopoDS_
 
 
 def make_fixed_reference_swept_area_shape_from_geom(frs: geo_so.FixedReferenceSweptAreaSolid) -> TopoDS_Solid:
-    profile_face = make_profile_from_geom(frs.swept_area)
     spine = make_wire_from_curve(frs.directrix)
+
+    profile_face = make_profile_from_geom(frs.swept_area)
 
     # Extract the outer wire from the profile face
     profile_wire = list(TopologyExplorer(profile_face).wires())[0]
@@ -111,31 +112,21 @@ def make_fixed_reference_swept_area_shape_from_geom(frs: geo_so.FixedReferenceSw
     pipe_builder = BRepOffsetAPI_MakePipeShell(spine)
 
     # Set frenet frame algorithm for better orientation around bends
+    # BRepBuilderAPI_RoundCorner
+    # BRepBuilderAPI_RightCorner
     pipe_builder.SetTransitionMode(BRepBuilderAPI_RoundCorner)
 
     # Add the wire profile (not the face)
-    pipe_builder.Add(profile_wire, True, True)  # with contact and correction
+    pipe_builder.Add(profile_wire, True, False)  # with contact and correction
 
     pipe_builder.Build()
     pipe_builder.MakeSolid()
     swept_solid = pipe_builder.Shape()
 
-    # Apply only rotation without translation
-    # First translate to origin
-    trsf_to_origin = gp_Trsf()
-    trsf_to_origin.SetTranslation(
-        gp_Vec(-frs.position.location[0], -frs.position.location[1], -frs.position.location[2])
-    )
-    solid_at_origin = BRepBuilderAPI_Transform(swept_solid, trsf_to_origin, True).Shape()
-
-    # Then rotate at origin
-    trsf_rot = gp_Trsf()
-    ax_global = gp_Ax3(gp_Pnt(0, 0, 0), gp_Dir(0, 0, 1), gp_Dir(1, 0, 0))
-    ax_local = gp_Ax3(gp_Pnt(0, 0, 0), gp_Dir(*frs.position.axis), gp_Dir(*frs.position.ref_direction))
-    trsf_rot.SetTransformation(ax_local, ax_global)
-    solid_rotated = BRepBuilderAPI_Transform(solid_at_origin, trsf_rot, True).Shape()
+    location = frs.position.location.tolist()
 
     # Then translate to final position
     trsf_to_pos = gp_Trsf()
-    trsf_to_pos.SetTranslation(gp_Vec(*frs.position.location))
-    return BRepBuilderAPI_Transform(solid_rotated, trsf_to_pos, True).Shape()
+    trsf_to_pos.SetTranslation(gp_Vec(*location))
+    transformed_solid = BRepBuilderAPI_Transform(swept_solid, trsf_to_pos, True, True).Shape()
+    return transformed_solid
