@@ -2,6 +2,13 @@
 
 
 
+## v0.7.5 (2025-09-01)
+
+### Fix
+
+* fix: sweep profile orientation (#154) ([`91b0e02`](https://github.com/Krande/adapy/commit/91b0e02888773db83ddbd0466e94551dc15d7e08))
+
+
 ## v0.7.4 (2025-08-19)
 
 ### Chore
