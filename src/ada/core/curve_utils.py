@@ -558,23 +558,10 @@ class SegCreator:
     @property
     def arc_start_tangent(self):
         if self.curve_data.p1 is not None:
-            n = np.array([0, 0, 1])
-            tangent = np.cross(unit_vector(self.curve_data.p1 - self.curve_data.center), n)
+            n = Direction(0, 0, 1)
+            unit_vec = np.array([*unit_vector(self.curve_data.p1 - self.curve_data.center), 0])
+            tangent = np.cross(unit_vec, n)
             return tangent[:2]
-        else:
-            return None
-
-    @property
-    def psegp2_arc_start_cross(self):
-        if self.curve_data.p1 is not None and self.pseg is not None:
-            return np.cross(unit_vector(self.curve_data.p1 - self.pseg.p2), np.array([0, 0, 1]))
-        else:
-            return None
-
-    @property
-    def arc_endp3_cross(self):
-        if self.curve_data.p2 is not None:
-            return np.cross(unit_vector(self.curve_data.p2 - self.p3), np.array([0, 0, 1]))
         else:
             return None
 
@@ -668,7 +655,8 @@ def segments_to_local_points(segments_in: list[LineSegment | ArcSegment]) -> lis
             v2 = (np.array([seg.p2[0], seg.p2[1]]), np.array([p4[0], p4[1]]))
             v1_ = v1[1] - v1[0]
             v2_ = v2[1] - v2[0]
-            ed = np.cross(v1_, v2_)
+            # Promote 2D vectors to 3D for stable cross in NumPy 2.0 and use z-component
+            ed = np.cross([v1_[0], v1_[1], 0.0], [v2_[0], v2_[1], 0.0])[2]
             if ed < 0:
                 local_points.append((seg.p1[0], seg.p1[1]))
             ip = intersection_point(v1, v2)
@@ -826,7 +814,14 @@ def calc_2darc_start_end_from_lines_radius(p1, p2, p3, radius, tol=1e-1) -> ArcS
 
     alpha = angle_between(v1, v2)
     s = radius / np.sin(alpha / 2)
-    dir_eval = np.cross(v1, v2)
+    # NumPy 2.0 deprecates cross for 2D vectors. Promote to 3D and use z-component for orientation.
+    if v1.shape[-1] == 2 and v2.shape[-1] == 2:
+        dir_eval = np.cross([v1[0], v1[1], 0.0], [v2[0], v2[1], 0.0])[2]
+    else:
+        dir_eval = np.cross(v1, v2)
+        # If result is a vector (3D), use its z-component for 2D orientation checks
+        if isinstance(dir_eval, np.ndarray):
+            dir_eval = dir_eval[-1]
     if dir_eval < 0:
         theta = -alpha / 2
     else:

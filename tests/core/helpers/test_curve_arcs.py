@@ -167,7 +167,7 @@ def test_basic_arc2():
     alpha = angle_between(v1, v2)
     s = radius / np.sin(alpha / 2)
 
-    dir_eval = np.cross(v1, v2)
+    dir_eval = np.cross([v1[0], v1[1], 0.0], [v2[0], v2[1], 0.0])[2]
 
     if dir_eval < 0:
         theta = -alpha / 2
