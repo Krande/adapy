@@ -76,7 +76,7 @@ profile = "black"
 # Keep isort happy during transition; match Ruff’s view of the world
 src_paths = ["src"]
 skip = [".pixi", "node_modules", "temp", "examples"]
-skip_glob = ["**/node_modules/**", "**/temp/**"]
+skip_glob = ["**/node_modules/**", "**/temp/**", "**/_build/**"]
 
 
 [tool.pytest.ini_options]
