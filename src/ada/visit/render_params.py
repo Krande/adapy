@@ -46,6 +46,7 @@ class RenderParams:
     render_override: dict[str, GeomRepr | str] = None
     filter_by_guids: list[str] = None
     embed_ada_extension: bool = True
+    force_y_is_up: bool = False
 
     def __post_init__(self):
         # ensure that if unique_id is set, it is a 32-bit integer
