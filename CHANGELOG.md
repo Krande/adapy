@@ -2,6 +2,17 @@
 
 
 
+## v0.7.6 (2025-09-03)
+
+### Chore
+
+* chore: update curve calculations for NumPy 2.0 compatibility and adju… (#155) ([`c027383`](https://github.com/Krande/adapy/commit/c0273832245793488df50a3afbb08f7185f8d181))
+
+### Fix
+
+* fix: add embed_ada_extension param and conditional handling for ADA… (#156) ([`6b07cf6`](https://github.com/Krande/adapy/commit/6b07cf64f54c255c2509f8b2c457fd161a631bef))
+
+
 ## v0.7.5 (2025-09-01)
 
 ### Fix
