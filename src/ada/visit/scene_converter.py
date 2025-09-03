@@ -9,6 +9,7 @@ from ada.visit.scene_handling.scene_from_fea_results import scene_from_fem_resul
 from ada.visit.scene_handling.scene_from_fem import scene_from_fem
 from ada.visit.scene_handling.scene_from_object import scene_from_object
 from ada.visit.scene_handling.scene_from_part import scene_from_part_or_assembly
+from ada.visit.scene_handling.scene_utils import from_z_to_y_is_up
 
 if TYPE_CHECKING:
     import trimesh
@@ -74,12 +75,14 @@ class SceneConverter:
             raise ValueError("No source object set")
 
         is_part = type(self.source) is Part or type(self.source) is Assembly
-        if is_part:
-            root = GraphNode(self.source.name, 0, hash=self.source.guid)
-        else:
-            root = GraphNode("root", 0, hash=create_guid())
 
-        self.graph = GraphStore(root, {0: root})
+        root_id = 0
+        if is_part:
+            root = GraphNode(self.source.name, root_id, hash=self.source.guid)
+        else:
+            root = GraphNode("root", root_id, hash=create_guid())
+
+        self.graph = GraphStore(root, {root_id: root})
 
         has_meta = False
         if is_part:
@@ -106,7 +109,8 @@ class SceneConverter:
         if not has_meta:
             self._scene.metadata.update(self.graph.to_json_hierarchy())
 
-        self.add_extension("ADA_EXT_data", self.ada_ext.model_dump(mode="json"))
+        if self.params.embed_ada_extension:
+            self.add_extension("ADA_EXT_data", self.ada_ext.model_dump(mode="json"))
 
         return self._scene
 
@@ -127,6 +131,9 @@ class SceneConverter:
     def build_glb(self) -> bytes:
         """Build scene as GLB"""
         scene = self.build_processed_scene()
+        if self.params.force_y_is_up:
+            from_z_to_y_is_up(scene)
+
         data = scene.export(
             file_type="glb",
             buffer_postprocessor=self.buffer_postprocessor,
@@ -194,7 +201,13 @@ class SceneConverter:
             material["doubleSided"] = True
 
         self._update_animations(tree)
-        self._update_extensions(tree)
+        if self.params.embed_ada_extension:
+            self._update_extensions(tree)
+
+        if self.params.gltf_asset_extras_dict is not None:
+            extras = tree.get("asset", {}).get("extras", {})
+            extras.update(self.params.gltf_asset_extras_dict)
+            tree["asset"]["extras"] = extras
 
     @property
     def scene(self) -> trimesh.Scene:
