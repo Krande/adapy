@@ -74,12 +74,14 @@ class SceneConverter:
             raise ValueError("No source object set")
 
         is_part = type(self.source) is Part or type(self.source) is Assembly
-        if is_part:
-            root = GraphNode(self.source.name, 0, hash=self.source.guid)
-        else:
-            root = GraphNode("root", 0, hash=create_guid())
 
-        self.graph = GraphStore(root, {0: root})
+        root_id = 0
+        if is_part:
+            root = GraphNode(self.source.name, root_id, hash=self.source.guid)
+        else:
+            root = GraphNode("root", root_id, hash=create_guid())
+
+        self.graph = GraphStore(root, {root_id: root})
 
         has_meta = False
         if is_part:
@@ -106,7 +108,8 @@ class SceneConverter:
         if not has_meta:
             self._scene.metadata.update(self.graph.to_json_hierarchy())
 
-        self.add_extension("ADA_EXT_data", self.ada_ext.model_dump(mode="json"))
+        if self.params.embed_ada_extension:
+            self.add_extension("ADA_EXT_data", self.ada_ext.model_dump(mode="json"))
 
         return self._scene
 
@@ -194,7 +197,13 @@ class SceneConverter:
             material["doubleSided"] = True
 
         self._update_animations(tree)
-        self._update_extensions(tree)
+        if self.params.embed_ada_extension:
+            self._update_extensions(tree)
+
+        if self.params.gltf_asset_extras_dict is not None:
+            extras = tree.get("asset", {}).get("extras", {})
+            extras.update(self.params.gltf_asset_extras_dict)
+            tree["asset"]["extras"] = extras
 
     @property
     def scene(self) -> trimesh.Scene:
