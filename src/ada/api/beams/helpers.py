@@ -16,6 +16,7 @@ if TYPE_CHECKING:
 
 _gen_point_tol = Config().general_point_tol
 
+
 class BeamConnectionProps:
     def __init__(self, beam: Beam):
         self._beam = beam

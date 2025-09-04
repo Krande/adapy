@@ -110,6 +110,7 @@ class JointBase(BackendGeom, ABC):
     def __repr__(self):
         return f'{self.__class__.__name__}("{self.name}", members:{len(self.beams)})'
 
+
 class Connection(BackendGeom):
     def __init__(self, name: str, parent: Connections = None):
         super(Connection, self).__init__(name, parent=parent)
