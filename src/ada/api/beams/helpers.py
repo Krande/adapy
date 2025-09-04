@@ -11,19 +11,20 @@ from ada.fem.elements import HingeProp
 from ada.geom.direction import Direction
 
 if TYPE_CHECKING:
-    from ada import Beam, Node
+    from ada import Beam, Node, Point
     from ada.api.connections import JointBase
 
+_gen_point_tol = Config().general_point_tol
 
 class BeamConnectionProps:
     def __init__(self, beam: Beam):
         self._beam = beam
         self._connected_to = []
-        self._connected_end1 = None
-        self._connected_end2 = None
+        self._connected_end1: JointBase | None = None
+        self._connected_end2: JointBase | None = None
         self._hinge_prop = None
 
-    def calc_con_points(self, point_tol=Config().general_point_tol):
+    def calc_con_points(self, point_tol=_gen_point_tol) -> list[Point]:
         from ada.core.vector_utils import sort_points_by_dist
 
         a = self._beam.n1.p
