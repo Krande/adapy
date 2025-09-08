@@ -67,3 +67,4 @@ jobs:
         with:
           token: ${{ secrets.CODSPEED_TOKEN }}
           run: bash -el -c "pytest ./tests --ignore=./tests/fem/ --ignore=./tests/full/ --codspeed"
+          mode: "instrumentation"
