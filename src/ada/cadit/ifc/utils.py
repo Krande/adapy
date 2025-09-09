@@ -281,12 +281,12 @@ def create_ifcrightcylinder(ifc_file, ifcaxis2placement, height, radius):
     ifcextrudedareasolid = ifc_file.createIfcRightCircularCylinder(ifcaxis2placement, height, radius)
     return ifcextrudedareasolid
 
+_value_map = {str: "IfcText", float: "IfcReal", int: "IfcInteger", bool: "IfcBoolean"}
 
 def ifc_value_map(f, value):
     if value is None:
         return f.create_entity("IfcText", "")
 
-    value_map = {str: "IfcText", float: "IfcReal", int: "IfcInteger", bool: "IfcBoolean"}
     if type(value) in (np.float64,):
         value = float(value)
     if type(value) in (np.int64,):
@@ -294,7 +294,7 @@ def ifc_value_map(f, value):
     if isinstance(value, Enum):
         value = value.value
 
-    ifc_type = value_map.get(type(value), None)
+    ifc_type = _value_map.get(type(value), None)
     if ifc_type is None:
         # Check if the value is a class instance
         if hasattr(value, "__class__") and hasattr(value.__class__, "__name__"):
