@@ -36,15 +36,28 @@ class BaseTypes(Enum):
         """Returns a map of valid section types and an example of each type."""
         return {
             BaseTypes.BOX: "BG800x600x20x30",
-            BaseTypes.TUBULAR: "TUB375x35",
+            BaseTypes.TUBULAR: "OD400x10",
             BaseTypes.IPROFILE: "HEA300",
-            BaseTypes.TPROFILE: "TG650x300x25x40",
+            BaseTypes.TPROFILE: "T650x300x25x40",
             BaseTypes.ANGULAR: "HP180x10",
             BaseTypes.CHANNEL: "UNP180x10",
             BaseTypes.CIRCULAR: "CIRC100",
             BaseTypes.FLATBAR: "FB100x10",
         }
 
+    @staticmethod
+    def get_valid_example_map_lists() -> dict[BaseTypes, list[str]]:
+        """Returns a map of valid section types and an example of each type."""
+        return {
+            BaseTypes.BOX: ["BG800x600x20x30", "BOX800x600x20x30"],
+            BaseTypes.TUBULAR: ["OD400x10", "TUB200x10"],
+            BaseTypes.IPROFILE: ["HEA300", "HEB300", "IPE300", "IG650x300x25x40"],
+            BaseTypes.TPROFILE: ["T650x300x25x40", "TG650x300x25x40"],
+            BaseTypes.ANGULAR: ["HP180x10"],
+            BaseTypes.CHANNEL: ["UNP180x10"],
+            BaseTypes.CIRCULAR: ["CIRC100"],
+            BaseTypes.FLATBAR: ["FB100x10"],
+        }
 
 class SectionCat:
     BASETYPES = BaseTypes
