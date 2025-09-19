@@ -87,6 +87,7 @@ class IndexedCollection(MutableSequence[T], Generic[T, K, N]):
     def items(self) -> list[T]:
         return self._items
 
+
 class BaseCollections:
     """The Base class for all collections"""
 

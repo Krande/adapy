@@ -1,0 +1,322 @@
+<?xml version="1.0" encoding="ASCII"?>
+<DNV_structure_concept_protocol version="1.6">
+	<administrative>
+		<program program="GeniE" version="V8.12-03" version_date="01-Apr-2025" platform="64bit" />
+		<session_info date="19-Sep-2025" time="09:34:55" user="UserX" />
+	</administrative>
+	<model name="wdwdw">
+		<units>
+			<model_units length="m" time="s" temp_diff="delC" force="N" angle="rad" mass="" />
+			<acis_units length="m" />
+			<input_units>
+				<input_unit phenomenon="Angle" unit="deg" />
+			</input_units>
+		</units>
+		<structure_domain>
+			<properties>
+				<sections>
+					<section name="IG1">
+						<i_section h="0.1" b="0.1" tw="0.01" tf="0.01" fabrication="unknown" sfy="1" sfz="1" general_properties_method="computed" />
+					</section>
+				</sections>
+				<materials>
+					<material name="S420">
+						<isotropic_linear_material yield_stress="420000000" density="7850" youngs_modulus="2.1e+11" poissons_ratio="0.3" thermal_expansion="1.2e-05" damping="0.03" />
+					</material>
+				</materials>
+				<mesh_properties />
+				<hydro_properties />
+			</properties>
+			<structures>
+				<structure>
+					<straight_beam name="Bm1">
+						<curve_orientation>
+							<customizable_curve_orientation use_default_rule="true">
+								<orientation>
+									<local_system>
+										<xvector x="0" y="1" z="0" />
+										<zvector x="0" y="0" z="1" />
+										<yvector x="-1" y="0" z="0" />
+									</local_system>
+								</orientation>
+							</customizable_curve_orientation>
+						</curve_orientation>
+						<local_system>
+							<vector x="0" y="1" z="0" dir="x" />
+							<vector x="-1" y="0" z="0" dir="y" />
+							<vector x="0" y="0" z="1" dir="z" />
+						</local_system>
+						<segments>
+							<straight_segment index="1" section_ref="IG1" material_ref="S420">
+								<geometry>
+									<wire>
+										<guide>
+											<position x="0" y="0" z="0" end="1" />
+											<position x="0" y="2" z="0" end="2" />
+										</guide>
+										<sat_reference>
+											<edge edge_ref="EDGE00000002" />
+										</sat_reference>
+									</wire>
+								</geometry>
+							</straight_segment>
+						</segments>
+						<curve_offset>
+							<constant_curve_offset use_local_system="false">
+								<constant_offset x="0" y="0" z="-0.05" />
+							</constant_curve_offset>
+						</curve_offset>
+						<end1 />
+						<end2 />
+					</straight_beam>
+				</structure>
+				<structure>
+					<straight_beam name="Bm2">
+						<curve_orientation>
+							<customizable_curve_orientation use_default_rule="false">
+								<orientation>
+									<local_system>
+										<xvector x="0" y="1" z="0" />
+										<zvector x="0" y="0" z="1" />
+										<yvector x="-1" y="0" z="0" />
+									</local_system>
+								</orientation>
+							</customizable_curve_orientation>
+						</curve_orientation>
+						<local_system>
+							<vector x="0" y="1" z="0" dir="x" />
+							<vector x="-1" y="0" z="0" dir="y" />
+							<vector x="0" y="0" z="1" dir="z" />
+						</local_system>
+						<segments>
+							<straight_segment index="1" section_ref="IG1" material_ref="S420">
+								<geometry>
+									<wire>
+										<guide>
+											<position x="1" y="0" z="0" end="1" />
+											<position x="1" y="2" z="0" end="2" />
+										</guide>
+										<sat_reference>
+											<edge edge_ref="EDGE00000001" />
+										</sat_reference>
+									</wire>
+								</geometry>
+							</straight_segment>
+						</segments>
+						<curve_offset>
+							<curve_end_offset keep_axial_eccentricity_at_end1="true" keep_axial_eccentricity_at_end2="true">
+								<curve_offset>
+									<constant_curve_offset use_local_system="false">
+										<constant_offset x="0" y="0" z="-0.05" />
+									</constant_curve_offset>
+								</curve_offset>
+							</curve_end_offset>
+						</curve_offset>
+						<end1 />
+						<end2 />
+					</straight_beam>
+				</structure>
+				<structure>
+					<straight_beam name="Bm3">
+						<curve_orientation>
+							<customizable_curve_orientation use_default_rule="false">
+								<orientation>
+									<local_system>
+										<xvector x="0" y="1" z="0" />
+										<zvector x="0" y="0" z="1" />
+										<yvector x="-1" y="0" z="0" />
+									</local_system>
+								</orientation>
+							</customizable_curve_orientation>
+						</curve_orientation>
+						<local_system>
+							<vector x="0" y="1" z="0" dir="x" />
+							<vector x="-1" y="0" z="0" dir="y" />
+							<vector x="0" y="0" z="1" dir="z" />
+						</local_system>
+						<segments>
+							<straight_segment index="1" section_ref="IG1" material_ref="S420">
+								<geometry>
+									<wire>
+										<guide>
+											<position x="2" y="0" z="0" end="1" />
+											<position x="2" y="2" z="0" end="2" />
+										</guide>
+										<sat_reference>
+											<edge edge_ref="EDGE00000003" />
+										</sat_reference>
+									</wire>
+								</geometry>
+							</straight_segment>
+						</segments>
+						<curve_offset>
+							<aligned_curve_offset alignment="flush_top" constant_value="0" />
+						</curve_offset>
+						<end1 />
+						<end2 />
+					</straight_beam>
+				</structure>
+			</structures>
+			<feature_concepts />
+			<geometry>
+				<sat_embedded encoding="base64" compression="zip" tag_name="dnvscp"><![CDATA[UEsDBC0AAAAIAFtMM1sOvuwLiAIAANEKAAALABQAYjY0dGVtcC5zYXQBABAAAAAAAAAAAAAAAAAAAAAAAKVWTW+bQBC9V+p/GKlcifaLj83JUUuiHNpDbUW9VcQQx6oNFsZ28+87uwtswUsiY/CaVfRm5s2bx8aMEAIEKC57ff5EY5gn87vv4MNq+5CX27yu3oAKuPv6OAfOb8gNhR8LYALuqzXM8x1QCUTecnEbBMAIC1QWlVzeyP4V5D6JgOY+JYjxCTyX2Rt4PgXzUTuveeC6hy+IorA5bHdDFAOPg0caDHNiBHiBxXDYv+abzRD0/wpV9YWWRAnD8FtFCmd2tSKbPvg4faxoL3RydbfpQzitq9wVKHWTuCsPtYNX9HFJFBplWOgQVbENjUdrUqpV64oO2UpYlnm2OouV+qMzMHgpq1NaZVpR/JMeIxkvybWSXckhWaTkrkmbpffCVo1tVQYmkAa9wBBTezTCEoo1er6NnUVwKP4U5alwCI5ER4hws/ReWiJK/paJaJgw0vOxquEx1axuhXE3leEYsJ99Xa2L1e+0xuezX6TbvN2v8sI325ao1VpVoqM3aZ6zELLiuF/uYIYRybeHhJiraSaEY17V+V8kLHpCYBt4AGhMZDHhGSYymFh1ka5Xr7W/PFTHobC06Vo9H/HWMbIVMu4JKZWQnGghcRScuoUcmgvHMU1IcZ2QzFSnnUic9UTCw4tzg2EWI84wRmy0zbtCEoeQOLlpnYcXdy7gKfm5SH71TIQ+2ZXronbOXAPCiQSjawk2w4lGCHbeiScSlNd5p/GFtL7ov2Dq/4Z5wfB96DDxGUYaDH3fO8zhHTTrpM4ZvXY0pnd8NVyjIZ13+ERzs8vPxwFBYeq7zW0PcD7R3Oxy7wwImhODu83NrIITza2P4KsIhqa+HCHYKJgUmV+++OpnqZ+ldQr/AFBLAQIAABQAAAAIAFtMM1sOvuwLiAIAANEKAAALAAAAAAAAAAEAAAAAAAAAAABiNjR0ZW1wLnNhdFBLBQYAAAAAAQABADkAAADFAgAAAAA=]]></sat_embedded>
+			</geometry>
+		</structure_domain>
+		<utilities>
+			<guide_geometry />
+		</utilities>
+		<rules>
+			<set_rules use_compact_scripting="true" />
+			<imported_file_history />
+			<tolerances use_tolerant_modelling="true" angle="0.03490658504" point="0.01" />
+			<geometry_rules guide_curve_topology_snapping="true" beam_topology_snapping="true" creation_grouping="creation_grouping_off" />
+			<joint_creation_rules auto_generate="false" selection_aware="false">
+				<exclusion_rules>
+					<exclusion_rule exclude="tb_free" in_use="true" />
+					<exclusion_rule exclude="tb_int_pure" in_use="true" />
+					<exclusion_rule exclude="tb_int_all" in_use="false" />
+					<exclusion_rule exclude="eb_free" in_use="true" />
+					<exclusion_rule exclude="eb_int_aligned" in_use="true" />
+					<exclusion_rule exclude="eb_int_all" in_use="false" />
+				</exclusion_rules>
+			</joint_creation_rules>
+			<connected_move_rules default_connected="false" use_geometric_points="false" rearrange_x_joints="false" />
+			<tubular_joint_rules copy_reinforcement_on_copy="false" auto_adjust_segment_lengths="false">
+				<can default_can_fac="0.25" default_can_min="0.3" chord_alignment_tolerance="0.0872664626" />
+				<stub default_stub_fac="1" default_stub_min="0.6" />
+				<gap min_gap="0.0508" gap_tolerance="0.001" plane_tolerance="0.01745329252" brace_angle_move_limit="0.1745329252" iterations="2" flush_braces="false" gap_method="planewise" />
+				<cone cone_angle="0.1651486774" />
+			</tubular_joint_rules>
+			<beam_creation_rules>
+				<default_curve_offset>
+					<reparameterized_beam_curve_offset />
+				</default_curve_offset>
+				<default_curve_orientation>
+					<customizable_curve_orientation use_default_rule="true">
+						<orientation>
+							<local_system>
+								<xvector x="1" y="0" z="0" />
+								<zvector x="0" y="0" z="1" />
+								<yvector x="0" y="1" z="0" />
+							</local_system>
+						</orientation>
+					</customizable_curve_orientation>
+				</default_curve_orientation>
+			</beam_creation_rules>
+			<transformation_rules copy_transformer_method="use_model_transformer" default_connected_copy="false" />
+			<meshing basic_lc_factor="1" analysis_folders="true" longitudinal_mass_on_nonstructural_elements="true" prefer_linear_dependencies="true" use_uniformized_face_parameterization="false">
+				<general>
+					<fem_options element_type="1st_order" super_element_type="1" />
+					<model_topology_performed_before_meshing auto_simply_topology="true" auto_split_periodic_geometry="false" repair_split_topology="false" />
+					<element_type_preferences>
+						<prefer_rectangular_mesh flag="false" />
+						<allow_triangular_elements flag="true" />
+						<prefer_point_mass_as_node_mass flag="true" />
+						<use_drilling_elements flag="false" />
+						<use_thick_override_thin_shell_elements flag="false" />
+						<use_eccentric_hinges flag="true" />
+					</element_type_preferences>
+					<other_preferences scantlings="gross_tickness" ignore_eccentricities="false" use_cocentricbeams="false" loads_based_on_gross_dimensions="true" automate_fem_load_case_numbering="combinations_automatic" node_loads_from_disconnected_point_loads="false">
+						<include_unused_properties flag="false" />
+						<mesh_density_rounded flag="false" />
+					</other_preferences>
+					<naming_preferences>
+						<use_long_loadcase_names flag="true" />
+						<use_long_set_names flag="true" />
+						<use_long_property_names flag="true" />
+					</naming_preferences>
+					<face_mesher face_mesh_strategy="template_quad_mesher" />
+					<edge_mesher edge_mesh_strategy="uniform_distribution" />
+					<idealizations eliminate_internal_vertices="true" eliminate_internal_edges="true" ignore_structure_not_part_of_subset_when_idealizing="false" />
+				</general>
+				<min_max_density_ratio>
+					<min_max_density_ratio_value active="false" value="0.1" />
+				</min_max_density_ratio>
+				<adjust_number_of_elements flag="true" />
+				<write_loads_seperate flag="true" />
+				<eliminate_internal_eccentricities flag="false" />
+				<ignore_fillet_radius flag="false" />
+				<min_max_angle>
+					<max_angle>
+						<error active="true" value="3.124139361" />
+						<split active="false" value="2.879793266" />
+					</max_angle>
+					<min_angle>
+						<error active="false" value="0.01745329252" />
+						<split active="false" value="0.2617993878" />
+					</min_angle>
+				</min_max_angle>
+				<max_twist_angle>
+					<error active="false" value="0.5235987756" />
+					<split active="false" value="0.1745329252" />
+				</max_twist_angle>
+				<jacobi>
+					<max_relative_jacobi>
+						<error active="false" value="10" />
+						<split active="false" value="5" />
+					</max_relative_jacobi>
+					<min_normalized_jacobi>
+						<error active="false" value="0" />
+						<split active="false" value="0.2" />
+					</min_normalized_jacobi>
+				</jacobi>
+				<eliminate_short_edges>
+					<none />
+				</eliminate_short_edges>
+				<chord_height>
+					<adjust_curved_edges active="false" value="0.2" />
+				</chord_height>
+			</meshing>
+			<compatibility user_defined_compatibility="false">
+				<compatibility_options>
+					<option value="true" option="SetDefaultNames" />
+					<option value="true" option="CaseInsensitiveFunctions" />
+					<option value="true" option="JournalledDefaultPrefix" />
+					<option value="true" option="SimplifyTopologyEnhancedVertexRemoval" />
+					<option value="true" option="PlateSnapping" />
+					<option value="true" option="PlateSortingCOGFirst" />
+					<option value="true" option="CurveSnapping" />
+					<option value="true" option="DefaultLongFemNames" />
+					<option value="true" option="DefaultEccentricHinghes" />
+					<option value="false" option="AutomaticallySaveModelAfterAnalysis" />
+					<option value="true" option="ValidateTransforms" />
+					<option value="true" option="CheckPlatesForErrorsDuringCreation" />
+					<option value="true" option="UseTopologySimplificationVersion7" />
+					<option value="true" option="UseSpliceVersionV" />
+					<option value="true" option="UseSpliceSecondOrderMoments" />
+					<option value="true" option="ImprovedJointDesign" />
+					<option value="true" option="EccentricBasedCapacityMemberRecognition" />
+					<option value="true" option="PreferLinearDependencies" />
+					<option value="true" option="PostponeFEMFileWrite" />
+					<option value="true" option="PostponeLoadApplication" />
+					<option value="true" option="UseSestra10" />
+					<option value="true" option="BucklingCapacityForSegmentedMembers" />
+					<option value="true" option="AlternativeJointBraceClassification" />
+					<option value="true" option="UseAutoSegmentation" />
+					<option value="true" option="AccurateCorrosionAddition" />
+					<option value="true" option="IncludeRotationalAccelerationInRotationField" />
+					<option value="true" option="ReplaceBNACCLOwithBRIGACifPossible" />
+					<option value="true" option="ParallellMeshing" />
+					<option value="true" option="UsePuls64bit" />
+					<option value="false" option="ACISFacetingV20" />
+					<option value="false" option="RenderUnoptimizedJavascriptLoads" />
+					<option value="true" option="UseNewHGLAGUI" />
+					<option value="true" option="AlphaNumericSortingOfLoadCases" />
+				</compatibility_options>
+			</compatibility>
+		</rules>
+		<equipment_domain>
+			<equipment_concepts />
+		</equipment_domain>
+		<evaluators>
+			<slicer_concepts />
+		</evaluators>
+		<environment>
+			<environment_properties />
+			<environment_concepts />
+		</environment>
+		<compartments>
+			<compartment_properties />
+		</compartments>
+	</model>
+</DNV_structure_concept_protocol>

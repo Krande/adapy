@@ -59,6 +59,7 @@ class BaseTypes(Enum):
             BaseTypes.FLATBAR: ["FB100x10"],
         }
 
+
 class SectionCat:
     BASETYPES = BaseTypes
 

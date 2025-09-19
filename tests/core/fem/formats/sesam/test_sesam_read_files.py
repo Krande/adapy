@@ -20,3 +20,14 @@ def test_read_hinged_beams_and_mass(example_files):
     p.fem.sections.merge_by_properties()
     assert len(p.fem.sections.lines) == 7
     assert len(p.materials) == 1
+
+
+def test_read_varying_offset(example_files):
+    a = ada.from_fem(example_files / "fem_files/sesam/varying_offset/varyingOffsetTypeT1.FEM")
+    a.create_objects_from_fem()
+    beams = list(a.get_all_physical_objects())
+    assert len(beams) == 3
+
+    ecc = ada.Direction(0, 0, -0.05)
+    for bm in beams:
+        assert bm.e1.is_equal(ecc)

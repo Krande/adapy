@@ -66,8 +66,8 @@ def add_plates(structure_domain: ET.Element, part: Part, sw: SatWriter):
 
     for plate in part.get_all_physical_objects(by_type=Plate):
         if plate.t not in thickness:
-            thick_mm = plate.t*1000
-            
+            thick_mm = plate.t * 1000
+
             if thick_mm.is_integer():
                 thick_mm_str = f"{int(thick_mm):03d}"
             else:

@@ -146,7 +146,7 @@ class Config:
             [
                 ConfigEntry("ecc_to_mpc", bool, True),
                 ConfigEntry("hinges_to_coupling", bool, True),
-                ConfigEntry("fem2concepts_include_ecc", bool, False),
+                ConfigEntry("fem2concepts_include_ecc", bool, True),
             ],
         ),
         ConfigSection(

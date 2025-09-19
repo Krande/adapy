@@ -281,7 +281,9 @@ def create_ifcrightcylinder(ifc_file, ifcaxis2placement, height, radius):
     ifcextrudedareasolid = ifc_file.createIfcRightCircularCylinder(ifcaxis2placement, height, radius)
     return ifcextrudedareasolid
 
+
 _value_map = {str: "IfcText", float: "IfcReal", int: "IfcInteger", bool: "IfcBoolean"}
+
 
 def ifc_value_map(f, value):
     if value is None:
