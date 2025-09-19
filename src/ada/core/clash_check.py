@@ -25,7 +25,7 @@ if TYPE_CHECKING:
     from ada.api.containers import Beams
 
 
-def basic_intersect(bm: Beam, margins, all_beam_containers: [Beams]):
+def basic_intersect(bm: Beam, margins, all_beam_containers: list[Beams]):
     if bm.section.type == "gensec":
         return bm, []
     try:

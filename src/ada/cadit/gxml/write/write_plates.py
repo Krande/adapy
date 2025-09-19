@@ -66,7 +66,14 @@ def add_plates(structure_domain: ET.Element, part: Part, sw: SatWriter):
 
     for plate in part.get_all_physical_objects(by_type=Plate):
         if plate.t not in thickness:
-            thickness[plate.t] = f"Tck{len(thickness)+1}"
+            thick_mm = plate.t * 1000
+
+            if thick_mm.is_integer():
+                thick_mm_str = f"{int(thick_mm):03d}"
+            else:
+                thick_mm_str = f"{int(thick_mm):03d}_{str(thick_mm).split('.')[1]}"
+            thick_name = f"thk{thick_mm_str}"
+            thickness[plate.t] = thick_name
             tck_elem = ET.Element("thickness", {"name": thickness[plate.t], "default": "true"})
             tck_elem.append(ET.Element("constant_thickness", {"th": str(plate.t)}))
             thickness_elem.append(tck_elem)

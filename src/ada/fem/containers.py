@@ -22,33 +22,18 @@ from ada.materials import Material
 from ada.sections import Section
 
 if TYPE_CHECKING:
-    from ada import FEM
+    from ada import FEM, Point
     from ada.fem.results.common import ElementBlock
 
 
 @dataclass
 class COG:
-    p: np.array
+    p: Point
     tot_mass: float = None
     tot_vol: float = None
     sh_mass: float = None
     bm_mass: float = None
     no_mass: float = None
-
-    @property
-    def x(self) -> float:
-        """Returns x-coordinate to the point p"""
-        return self.p[0]
-
-    @property
-    def y(self) -> float:
-        """Returns y-coordinate to the point p"""
-        return self.p[1]
-
-    @property
-    def z(self) -> float:
-        """Returns z-coordinate to the point p"""
-        return self.p[2]
 
 
 class FemElements:

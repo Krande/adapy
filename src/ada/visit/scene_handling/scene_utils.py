@@ -50,6 +50,8 @@ def from_z_to_y_is_up(source_scene: trimesh.Scene, transform_all_geom=True) -> N
 
 
 def transform_all_geom_to_z_up(source_scene: trimesh.Scene) -> None:
+    import trimesh
+
     for mesh in source_scene.geometry.values():
         if isinstance(mesh, trimesh.Trimesh):
             # switch Y and Z axes

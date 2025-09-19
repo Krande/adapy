@@ -555,7 +555,7 @@ class Part(BackendGeom):
     def calculate_cog(self) -> COG:
         import numpy as np
 
-        from ada import Beam, Plate, Shape
+        from ada import Beam, Plate, Point, Shape
         from ada.core.vector_transforms import local_2_global_points
         from ada.core.vector_utils import poly2d_center_of_gravity, poly_area_from_list
         from ada.fem.containers import COG
@@ -587,10 +587,10 @@ class Part(BackendGeom):
                 tot_mass += mass
 
         for mass in self.fem.masses.values():
-            cogs.append(np.array(mass.nodes[0].p) * mass.mass)
+            cogs.append(mass.nodes[0].p * mass.mass)
             tot_mass += mass.mass
 
-        cog = sum(cogs) / tot_mass
+        cog = Point(sum(cogs) / tot_mass)
         return COG(cog, tot_mass)
 
     def create_objects_from_fem(self, skip_plates=False, skip_beams=False) -> None:

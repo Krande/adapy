@@ -105,6 +105,9 @@ def from_fem(
     enable_cache=False,
     source_units=Units.M,
     fem_converter="default",
+    create_concept_objects=False,
+    convert_skip_plates=False,
+    convert_skip_beams=False,
 ) -> Assembly:
     """Create an Assembly object from a FEM file."""
     a = Assembly(enable_cache=enable_cache, units=source_units)
@@ -117,6 +120,9 @@ def from_fem(
             a.read_fem(f, fem_format_in, name_in, fem_converter=fem_converter)
     else:
         raise ValueError(f'fem_file must be either string or list. Passed type was "{type(fem_file)}"')
+
+    if create_concept_objects:
+        a.create_objects_from_fem(skip_beams=convert_skip_beams, skip_plates=convert_skip_plates)
 
     return a
 

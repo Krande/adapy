@@ -176,8 +176,17 @@ def read_line_section(elem: Elem, fem: FEM, mat: Material, geono, d, lcsysd, hin
     if fix_data == -1:
         add_hinge_prop_to_elem(elem, members, hinges_global, xvec, yvec)
 
-    if ecc_data == -1:
+    if ecc_data == -1:  # Eccentricity per node
         add_ecc_to_elem(elem, members, eccentricities, fix_data)
+    elif ecc_data > 0:  # Constant eccentricity
+        from ada.fem.elements import Eccentricity, EccPoint
+
+        ecc = eccentricities[ecc_data]
+        end1 = EccPoint(elem.nodes[0], ecc)
+        end2 = EccPoint(elem.nodes[1], ecc)
+        elem.eccentricity = Eccentricity(end1, end2)
+    else:
+        pass
 
     fem_set = FemSet(sec.name, [elem], "elset", metadata=dict(internal=True), parent=fem)
     fem.sets.add(fem_set, append_suffix_on_exist=True)

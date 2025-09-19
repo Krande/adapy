@@ -87,10 +87,14 @@ class Direction(np.ndarray, ImmutableNDArrayMixin):
             self.__dict__["_length"] = length
         return length
 
-    def get_angle(self, other: Direction) -> float:
+    def get_angle(self, other: Direction, as_degrees=False) -> float:
         a = (float(self[0]), float(self[1]), float(self[2]))
         b = (float(other[0]), float(other[1]), float(other[2]))
-        return _angle_between_tuples(a, b)
+        result = _angle_between_tuples(a, b)
+        if as_degrees:
+            return np.degrees(result)
+        else:
+            return result
 
     def is_parallel(self, other: Direction, angle_tol: float = 1e-1) -> bool:
         a = (float(self[0]), float(self[1]), float(self[2]))

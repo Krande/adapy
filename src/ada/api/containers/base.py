@@ -83,6 +83,10 @@ class IndexedCollection(MutableSequence[T], Generic[T, K, N]):
     def from_numeric_id(self, num: int) -> Optional[T]:
         return getattr(self, "_num_map", {}).get(num)
 
+    @property
+    def items(self) -> list[T]:
+        return self._items
+
 
 class BaseCollections:
     """The Base class for all collections"""

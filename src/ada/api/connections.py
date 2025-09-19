@@ -54,7 +54,7 @@ class JointBase(BackendGeom, ABC):
     num_mem: int
 
     def __init__(self, name, members: List[Beam], centre: Any[float], parent: Connections = None):
-        super(JointBase, self).__init__(name, parent)
+        super(JointBase, self).__init__(name, parent=parent)
         self._init_check(members)
         self._centre = centre
         self._beams = Beams(members)
@@ -109,3 +109,8 @@ class JointBase(BackendGeom, ABC):
 
     def __repr__(self):
         return f'{self.__class__.__name__}("{self.name}", members:{len(self.beams)})'
+
+
+class Connection(BackendGeom):
+    def __init__(self, name: str, parent: Connections = None):
+        super(Connection, self).__init__(name, parent=parent)
