@@ -2,6 +2,21 @@
 
 
 
+## v0.7.7 (2025-09-19)
+
+### Chore
+
+* chore: bump CodSpeedHQ/action from 3 to 4 in the dependencies group (#157)
+
+Signed-off-by: dependabot[bot] &lt;support@github.com&gt;
+Co-authored-by: dependabot[bot] &lt;49699333+dependabot[bot]@users.noreply.github.com&gt;
+Co-authored-by: Kristoffer Andersen &lt;kristoffer_andersen@outlook.com&gt; ([`134062b`](https://github.com/Krande/adapy/commit/134062b144295a1e4bb134b3069f50c7f971483c))
+
+### Fix
+
+* fix: minor sesam io fixes and various bugfixes  (#159) ([`9683d99`](https://github.com/Krande/adapy/commit/9683d99f3572c4ea236c6e2f07c8f935fd3f5914))
+
+
 ## v0.7.6 (2025-09-03)
 
 ### Chore
