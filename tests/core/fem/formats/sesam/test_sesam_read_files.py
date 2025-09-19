@@ -23,11 +23,28 @@ def test_read_hinged_beams_and_mass(example_files):
 
 
 def test_read_varying_offset(example_files):
-    a = ada.from_fem(example_files / "fem_files/sesam/varying_offset/varyingOffsetTypeT1.FEM")
-    a.create_objects_from_fem()
+    a = ada.from_fem(
+        example_files / "fem_files/sesam/varying_offset/varyingOffsetTypeT1.FEM", create_concept_objects=True
+    )
     beams = list(a.get_all_physical_objects())
     assert len(beams) == 3
 
     ecc = ada.Direction(0, 0, -0.05)
     for bm in beams:
         assert bm.e1.is_equal(ecc)
+
+
+def test_read_axial_ecc_ends(example_files):
+    a = ada.from_fem(
+        example_files / "fem_files/sesam/varying_offset/varyingAxialEndEccT1.FEM", create_concept_objects=True
+    )
+    beams = list(a.get_all_physical_objects())
+    assert len(beams) == 2
+
+    bm1 = beams[0]
+    assert bm1.e1.is_equal(ada.Direction(0, 0.5, -0.05))
+    assert bm1.e2.is_equal(ada.Direction(0, 0, -0.05))
+
+    bm2 = beams[1]
+    assert bm2.e1.is_equal(ada.Direction(0, 0, -0.05))
+    assert bm2.e2.is_equal(ada.Direction(0, 0.5, -0.05))
