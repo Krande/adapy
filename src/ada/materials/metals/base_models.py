@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 
@@ -258,7 +258,7 @@ class CarbonSteel(Metal):
 
     def __init__(
         self,
-        grade="S355",
+        grade: Literal["S355", "S420"] = "S355",
         plasticity_model: PlasticityModel = None,
         E=2.1e11,
         rho=7850,
