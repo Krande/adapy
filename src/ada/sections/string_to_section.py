@@ -10,7 +10,7 @@ from functools import lru_cache, wraps
 from ada.base.units import Units
 from ada.core.exceptions import UnsupportedUnits
 from ada.core.utils import roundoff as _rdoff
-from ada.sections.categories import SectionCat
+from ada.sections.categories import BaseTypes, SectionCat
 from ada.sections.concept import Section
 
 _digit = r"\d{0,5}\.?\d{0,5}|\d{0,5}|\d{0,5}\/\d{0,5}"
@@ -394,7 +394,25 @@ def angular_section(in_str: str, s: float, units: Units):
         res = re.search("({ang})({digit})x({digit})".format(ang=ang, digit=_digit), in_str, _re_in)
         if res is None:
             continue
-        sec = profile_db_collect(ang, "{}x{}".format(res.group(2), res.group(3)), units=units)
+        if ang == "L":
+            h_str, tw_str = res.group(2), res.group(3)
+            h = float(h_str) * s
+            w = h
+            t_w = float(tw_str) * s
+            sec = Section(
+                in_str,
+                sec_type=SectionCat.BASETYPES.ANGULAR,
+                h=h,
+                w_btn=w,
+                t_w=t_w,
+                t_fbtn=t_w,
+                metadata=dict(cad_str=in_str),
+                units=units,
+            )
+        elif ang == BaseTypes.ANGULAR.value:
+            sec = profile_db_collect(ang, "{}x{}".format(res.group(2), res.group(3)), units=units)
+        else:
+            continue
         return sec, None
 
 
