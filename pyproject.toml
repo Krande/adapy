@@ -131,12 +131,16 @@ ipywidgets = "*"
 jupyterlab = "*"
 pyparsing = "*"
 pyglfw = "*"
-pygfx = "*"
+pygfx = ">=0.13"
 flatbuffers = "*"
 python-flatbuffers = "*"
 lark = "*"
 pillow = "*"
 pydantic = "*"
+
+# For local development
+[tool.pixi.feature.prod.target.win-64.activation.env]
+PYTHONPATH="%PIXI_PROJECT_ROOT%/src"
 
 [tool.pixi.feature.fem-deps]
 channels = ["https://repo.prefix.dev/code-aster", "conda-forge"]

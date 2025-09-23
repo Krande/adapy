@@ -12,13 +12,11 @@ from ada.config import logger
 from ada.core.guid import create_guid
 from ada.fem.formats.general import FEATypes
 from ada.fem.shapes.definitions import LineShapes, MassTypes, ShellShapes, SolidShapes
-from ada.visit.deprecated.websocket_server import send_to_viewer
 from ada.visit.gltf.graph import GraphNode, GraphStore
 from ada.visit.gltf.meshes import GroupReference, MergedMesh, MeshType
 from ada.visit.render_params import FEARenderParams, RenderParams
-
-from ...comms.fb_wrap_model_gen import FilePurposeDC
 from .field_data import ElementFieldData, NodalFieldData, NodalFieldType
+from ...comms.fb_wrap_model_gen import FilePurposeDC
 
 if TYPE_CHECKING:
     import trimesh
@@ -580,11 +578,6 @@ class FEAResult:
         apply_transform=False,
     ):
         from ada.visit.renderer_manager import RendererManager
-
-        if renderer == "pygfx":
-            scene = self.to_trimesh(step, field, warp_field, warp_step, warp_scale, cfunc)
-            send_to_viewer(scene)
-            return None
 
         # Use RendererManager to handle renderer setup and WebSocket connection
         renderer_manager = RendererManager(
