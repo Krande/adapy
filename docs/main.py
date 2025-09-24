@@ -17,7 +17,7 @@ async def serve_static_files(file_path: str):
 
     # Resolve the full path and validate that it is inside the _build_dir
     try:
-        resolved_path = ( _build_dir / file_path ).resolve(strict=False)
+        resolved_path = (_build_dir / file_path).resolve(strict=False)
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid path.")
     # Check that the resolved path starts with the build dir (prevents path traversal)

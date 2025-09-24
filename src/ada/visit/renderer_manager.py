@@ -127,7 +127,7 @@ class RendererManager:
 
             scene = converter.build_processed_scene()
 
-            return start_pygfx_viewer(port=params.serve_ws_port,scene=scene)
+            return start_pygfx_viewer(port=params.serve_ws_port, scene=scene)
 
         if (
             self.is_in_notebook() and auto_embed_glb_in_notebook and always_use_external_viewer is False

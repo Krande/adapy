@@ -1,4 +1,3 @@
-# pip install -U pygfx glfw
 import pathlib
 from multiprocessing import Process, Queue
 from typing import Callable, Iterable
@@ -26,16 +25,9 @@ from ada.visit.scene_converter import SceneConverter
 
 PYGFX_RENDERER_EXE_PY = pathlib.Path(__file__)
 
-try:
-    import pygfx as gfx
-    from rendercanvas.auto import RenderCanvas, loop
-    import ada.visit.rendering.pygfx_helpers as gfx_utils
-except ImportError:
-    raise ImportError("Please install pygfx to use this renderer -> 'mamba install pygfx'.")
-try:
-    from wgpu.gui.auto import WgpuCanvas
-except ImportError:
-    raise ImportError("Please install wgpu to use this renderer -> 'mamba install wgpu'.")
+import pygfx as gfx
+from rendercanvas.auto import RenderCanvas, loop
+import ada.visit.rendering.pygfx_helpers as gfx_utils
 
 BG_GRAY = Color(57, 57, 57)
 PICKED_COLOR = Color(0, 123, 255)
@@ -61,7 +53,7 @@ class RendererPyGFX:
             self._renderer = None
         else:
             self._canvas = RenderCanvas(title=canvas_title, max_fps=60)
-            self._renderer = gfx.renderers.WgpuRenderer(self._canvas, show_fps=False)
+            self._renderer = gfx.renderers.WgpuRenderer(self._canvas)#, show_fps=False)
 
         self.before_render = None
         self.after_render = None
@@ -84,7 +76,7 @@ class RendererPyGFX:
         dir_light = gfx.DirectionalLight()
         camera = gfx.PerspectiveCamera(70, 1, depth_range=(0.1, 1000))
         self._camera = camera
-        self._controller = gfx.OrbitController(camera, register_events=self._renderer)
+
         scene.add(camera)
         scene.add(dir_light)
         camera.add(dir_light)
@@ -225,20 +217,27 @@ class RendererPyGFX:
         ob = self._scene_objects
         ob.add_event_handler(self.on_click, "pointer_down")
 
+    def animate(self):
+        self._renderer.render(self.scene, self._camera)
+        self._canvas.request_draw()
+
     def show(self):
         bbox = self.scene.get_world_bounding_box()
         grid_scale = 1.5 * max(bbox[1] - bbox[0])
         grid = gfx.GridHelper(grid_scale, 10)
         self.scene.add(grid)
-        #self._add_event_handlers()
+        # self._add_event_handlers()
         x, y, z, r = self.scene.get_world_bounding_sphere()
         view_pos = np.array([x, y, z]) - r * 5
         view_dir = unit_vector(view_pos + np.array([x, y, z]))
         self._camera.show_object(self.scene, view_dir=view_dir)
-
-        display = gfx.Display(canvas=self._canvas, renderer=self._renderer, before_render=self.before_render, controller=self._controller)
-        display.show(self.scene)
-
+        self._controller = gfx.OrbitController(self._camera, register_events=self._renderer)
+        self._canvas.request_draw(self.animate)
+        # display = gfx.Display(
+        #     canvas=self._canvas, renderer=self._renderer, before_render=self.before_render, controller=self._controller
+        # )
+        # display.show(self.scene)
+        loop.run()
 
 def highlight_clicked_mesh(mesh: gfx.Mesh, mesh_data: MeshInfo, material: gfx.MeshPhongMaterial) -> gfx.Mesh:
     geom = mesh.geometry
@@ -286,6 +285,7 @@ def scale_tri_mesh(mesh: trimesh.Trimesh, sfac: float):
     # Apply the transformation
     mesh.apply_transform(transform)
 
+
 def start_server(shared_queue: Queue = None, host="localhost", port=8765) -> None:
     ws = WebSocketClientSync(host=host, port=port)
     ws.connect()
@@ -293,6 +293,7 @@ def start_server(shared_queue: Queue = None, host="localhost", port=8765) -> Non
         msg = ws.receive(1)
         if msg:
             shared_queue.put()
+
 
 def start_pygfx_viewer(host="localhost", port="8765", scene=None):
     with RendererPyGFX(render_backend=SqLiteBackend()) as render:
