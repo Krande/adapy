@@ -226,12 +226,12 @@ class RendererPyGFX:
         grid_scale = 1.5 * max(bbox[1] - bbox[0])
         grid = gfx.GridHelper(grid_scale, 10)
         self.scene.add(grid)
-        # self._add_event_handlers()
+        self._add_event_handlers()
         x, y, z, r = self.scene.get_world_bounding_sphere()
         view_pos = np.array([x, y, z]) - r * 5
         view_dir = unit_vector(view_pos + np.array([x, y, z]))
         self._camera.show_object(self.scene, view_dir=view_dir)
-        self._controller = gfx.OrbitController(self._camera, register_events=self._renderer)
+        self._controller = gfx.OrbitController(camera=self._camera, register_events=self._renderer)
         self._canvas.request_draw(self.animate)
         # display = gfx.Display(
         #     canvas=self._canvas, renderer=self._renderer, before_render=self.before_render, controller=self._controller
