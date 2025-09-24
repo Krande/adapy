@@ -3,9 +3,12 @@ from multiprocessing import Process, Queue
 from typing import Callable, Iterable
 
 import numpy as np
+import pygfx as gfx
 import trimesh
 import trimesh.visual.material
+from rendercanvas.auto import RenderCanvas, loop
 
+import ada.visit.rendering.pygfx_helpers as gfx_utils
 from ada import Part
 from ada.base.types import GeomRepr
 from ada.comms.wsock_client_sync import WebSocketClientSync
@@ -25,9 +28,6 @@ from ada.visit.scene_converter import SceneConverter
 
 PYGFX_RENDERER_EXE_PY = pathlib.Path(__file__)
 
-import pygfx as gfx
-from rendercanvas.auto import RenderCanvas, loop
-import ada.visit.rendering.pygfx_helpers as gfx_utils
 
 BG_GRAY = Color(57, 57, 57)
 PICKED_COLOR = Color(0, 123, 255)
@@ -53,7 +53,7 @@ class RendererPyGFX:
             self._renderer = None
         else:
             self._canvas = RenderCanvas(title=canvas_title, max_fps=60)
-            self._renderer = gfx.renderers.WgpuRenderer(self._canvas)#, show_fps=False)
+            self._renderer = gfx.renderers.WgpuRenderer(self._canvas)  # , show_fps=False)
 
         self.before_render = None
         self.after_render = None
@@ -238,6 +238,7 @@ class RendererPyGFX:
         # )
         # display.show(self.scene)
         loop.run()
+
 
 def highlight_clicked_mesh(mesh: gfx.Mesh, mesh_data: MeshInfo, material: gfx.MeshPhongMaterial) -> gfx.Mesh:
     geom = mesh.geometry
