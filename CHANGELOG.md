@@ -2,6 +2,13 @@
 
 
 
+## v0.7.8 (2025-09-25)
+
+### Fix
+
+* fix: sections refactor and cleanup deprecated websocket handling (#160) ([`4c04b6b`](https://github.com/Krande/adapy/commit/4c04b6b523d105bfbbe169bf8d0d6142cdc88445))
+
+
 ## v0.7.7 (2025-09-19)
 
 ### Chore
