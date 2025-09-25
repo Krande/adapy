@@ -130,15 +130,18 @@ python-kaleido = ">=1.0.0"
 ipywidgets = "*"
 jupyterlab = "*"
 pyparsing = "*"
+glfw = "==3.4"
 pyglfw = "*"
-#wgpu-py = "0.24.*"
-#pylinalg = ">=0.6.7,<0.7.0"
 pygfx = ">=0.13"
 flatbuffers = "*"
 python-flatbuffers = "*"
 lark = "*"
 pillow = "*"
 pydantic = "*"
+
+[tool.pixi.feature.prod.target.win-64.dependencies]
+# Needed to fix issue with running from pycharm locally (llvm-openmp only works from pixi shell).
+intel-openmp = "*"
 
 # For local development
 [tool.pixi.feature.prod.target.win-64.activation.env]

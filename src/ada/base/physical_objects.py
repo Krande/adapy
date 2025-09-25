@@ -21,7 +21,7 @@ if TYPE_CHECKING:
         TopoDS_Wire,
     )
 
-    from ada import FEM, Boolean, Point
+    from ada import FEM, Boolean, BoolHalfSpace, Point
     from ada.cadit.ifc.store import IfcStore
     from ada.fem import Elem
     from ada.fem.meshing import GmshOptions
@@ -79,6 +79,8 @@ class BackendGeom(Root):
             boolean = Boolean(boolean, bool_op, parent=self)
             self._booleans.append(boolean)
         elif isinstance(boolean, Boolean):
+            self._booleans.append(boolean)
+        elif isinstance(boolean, BoolHalfSpace):
             self._booleans.append(boolean)
         else:
             raise ValueError(f"Cannot add {type(boolean)} to {type(self)}")

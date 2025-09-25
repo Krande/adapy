@@ -12,6 +12,8 @@ press 'l' to load the last saved state.
 # sphinx_gallery_pygfx_test = 'run'
 
 from rendercanvas.auto import RenderCanvas, loop
+
+# from rendercanvas.pyside6 import RenderCanvas, loop
 import pygfx as gfx
 import numpy as np
 import pylinalg as la

@@ -20,6 +20,7 @@ from ada.cadit.ifc.utils import add_colour, create_local_placement, tesselate_sh
 from ada.cadit.ifc.write.geom.surfaces import (
     advanced_face,
     create_closed_shell,
+    create_half_space_geom,
     curve_bounded_plane,
 )
 from ada.cadit.ifc.write.shapes.box import generate_ifc_box_geom
@@ -77,6 +78,8 @@ def write_ifc_shape(ifc_store: IfcStore, shape: Shape):
 
 
 def generate_parametric_solid(shape: Shape | PrimSphere, f):
+    from ada.api.primitives.bool_half_space import BoolHalfSpace
+
     a = shape.parent.get_assembly()
     body_context = a.ifc_store.get_context("Body")
 
@@ -95,6 +98,8 @@ def generate_parametric_solid(shape: Shape | PrimSphere, f):
         geo_su.AdvancedFace: advanced_face,
         geo_su.CurveBoundedPlane: curve_bounded_plane,
         geo_su.ClosedShell: create_closed_shell,
+        # Various
+        BoolHalfSpace: create_half_space_geom,
     }
 
     if type(shape) is Shape:

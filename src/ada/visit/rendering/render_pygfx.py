@@ -26,6 +26,9 @@ from ada.visit.rendering.render_backend import (
 )
 from ada.visit.scene_converter import SceneConverter
 
+# from rendercanvas.pyside6 import RenderCanvas, loop
+
+
 PYGFX_RENDERER_EXE_PY = pathlib.Path(__file__)
 
 
@@ -117,9 +120,14 @@ class RendererPyGFX:
         self.add_trimesh_scene(scene, part.name)
 
     def add_trimesh_scene(self, trimesh_scene: trimesh.Scene, tag: str):
-        meshes = self._get_scene_meshes(trimesh_scene, tag)
+        from ada.visit.scene_handling.scene_utils import from_z_to_y_is_up
+
+        rotated_scene = trimesh_scene.copy()
+        from_z_to_y_is_up(rotated_scene, transform_all_geom=True)
+
+        meshes = self._get_scene_meshes(rotated_scene, tag)
         self._scene_objects.add(*meshes)
-        self.backend.add_metadata(trimesh_scene.metadata, tag)
+        self.backend.add_metadata(rotated_scene.metadata, tag)
 
     def load_glb_files_into_scene(self, glb_files: Iterable[pathlib.Path]):
         num_scenes = 0
@@ -136,11 +144,12 @@ class RendererPyGFX:
         self.backend.commit()
 
     def on_click(self, event: gfx.PointerEvent):
+
         if self.on_click_pre is not None:
             self.on_click_pre(event)
 
         info = event.pick_info
-
+        print(f"Clicked: {info=}")
         if event.button != 1:
             return
 
@@ -215,7 +224,10 @@ class RendererPyGFX:
 
     def _add_event_handlers(self):
         ob = self._scene_objects
-        ob.add_event_handler(self.on_click, "pointer_down")
+        ob.add_event_handler(self.on_click, "pointer_down", "pointer_up")
+        # ob.add_event_handler(
+        #     self.on_click, "pointer_down", "pointer_up", "pointer_move", "pointer_out", "pointer_over"
+        # )
 
     def animate(self):
         self._renderer.render(self.scene, self._camera)
@@ -232,11 +244,8 @@ class RendererPyGFX:
         view_dir = unit_vector(view_pos + np.array([x, y, z]))
         self._camera.show_object(self.scene, view_dir=view_dir)
         self._controller = gfx.OrbitController(camera=self._camera, register_events=self._renderer)
-        self._canvas.request_draw(self.animate)
-        # display = gfx.Display(
-        #     canvas=self._canvas, renderer=self._renderer, before_render=self.before_render, controller=self._controller
-        # )
-        # display.show(self.scene)
+        self._canvas.request_draw(lambda: self._renderer.render(self.scene, self._camera))
+
         loop.run()
 
 

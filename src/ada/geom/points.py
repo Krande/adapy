@@ -60,7 +60,7 @@ class Point(np.ndarray, ImmutableNDArrayMixin):
     precision: int | None = None
     _cache: weakref.WeakValueDictionary[tuple[float, ...], Point] = weakref.WeakValueDictionary()
 
-    def __new__(cls, *coords: float | int) -> Point:
+    def __new__(cls, *coords: float | int | Iterable[float | int]) -> Point:
         # allow a single iterable (list, tuple, ndarray, etc.)
         if len(coords) == 1 and isinstance(coords[0], Iterable) and not isinstance(coords[0], (str, bytes)):
             coords = tuple(coords[0])  # type: ignore

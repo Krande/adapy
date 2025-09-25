@@ -106,6 +106,12 @@ class CurveBoundedPlane:
 
 
 @dataclass
+class HalfSpaceSolid:
+    base_surface: Plane
+    agreement_flag: bool = True
+
+
+@dataclass
 class SurfaceOfLinearExtrusion:
     """
     IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcSurfaceOfLinearExtrusion.htm)
@@ -302,6 +308,7 @@ class ShellBasedSurfaceModel:
 
 
 SURFACE_GEOM_TYPES = Union[
+    Plane,
     ArbitraryProfileDef,
     FaceBasedSurfaceModel,
     CurveBoundedPlane,
