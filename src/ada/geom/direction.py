@@ -39,7 +39,7 @@ class Direction(np.ndarray, ImmutableNDArrayMixin):
     precision: int | None = None
     _cache: weakref.WeakValueDictionary[tuple[float, ...], Direction] = weakref.WeakValueDictionary()
 
-    def __new__(cls, *coords: float | int) -> Direction:
+    def __new__(cls, *coords: float | int | Iterable[float]) -> Direction:
         if len(coords) == 1 and isinstance(coords[0], Iterable) and not isinstance(coords[0], (str, bytes)):
             coords = tuple(coords[0])  # type: ignore
         key, arr = _make_key_and_array(coords, cls.precision, "Direction", (2, 3))
