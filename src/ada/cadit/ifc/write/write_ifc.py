@@ -10,8 +10,12 @@ import ifcopenshell.geom
 
 import ada
 from ada.base.changes import ChangeAction
-from ada.cadit.ifc.read.reader_utils import get_ifc_body
+from ada.cadit.ifc.read.reader_utils import (
+    get_ifc_body,
+    get_ifc_body_shape_representation,
+)
 from ada.cadit.ifc.utils import add_negative_extrusion, write_elem_property_sets
+from ada.cadit.ifc.write.geom.surfaces import create_plane
 from ada.cadit.ifc.write.write_beams import update_ifc_beam, write_ifc_beam
 from ada.cadit.ifc.write.write_fasteners import write_ifc_fastener
 from ada.cadit.ifc.write.write_instances import write_mapped_instance
@@ -30,7 +34,17 @@ from ada.config import logger
 from ada.core.guid import create_guid
 
 if TYPE_CHECKING:
-    from ada import Beam, Material, Part, Pipe, Plate, Section, Shape, Wall
+    from ada import (
+        Beam,
+        BoolHalfSpace,
+        Material,
+        Part,
+        Pipe,
+        Plate,
+        Section,
+        Shape,
+        Wall,
+    )
     from ada.cadit.ifc.store import IfcStore
 
 
@@ -295,7 +309,7 @@ class IfcWriter:
             raise ValueError("Syncing of Materials failed")
 
     def create_ifc_openings(self, obj: Beam | Plate | Pipe | Shape | Wall, ifc_obj=None):
-        from ada import Part, Wall
+        from ada import BoolHalfSpace, Part, Wall
         from ada.core.constants import O, X, Z
 
         f = self.ifc_store.f
@@ -313,16 +327,35 @@ class IfcWriter:
         else:
             if len(obj.booleans) > 0:
                 for pen in obj.booleans:
-                    ifc_opening = generate_ifc_opening(pen)
-                    f.create_entity(
-                        "IfcRelVoidsElement",
-                        GlobalId=create_guid(),
-                        OwnerHistory=self.ifc_store.owner_history,
-                        Name=None,
-                        Description=None,
-                        RelatingBuildingElement=ifc_obj,
-                        RelatedOpeningElement=ifc_opening,
-                    )
+                    if hasattr(pen, "primitive") and isinstance(pen.primitive, BoolHalfSpace):
+                        hs: BoolHalfSpace = pen.primitive
+                        geometry = hs.solid_geom()
+                        plane = create_plane(geometry.geometry.base_surface, f)
+                        half_space = f.create_entity(
+                            "IfcHalfSpaceSolid",
+                            BaseSurface=plane,
+                            AgreementFlag=geometry.geometry.agreement_flag,
+                        )
+                        shape_rep = get_ifc_body_shape_representation(ifc_obj)
+                        body = get_ifc_body(ifc_obj)
+                        updated_item = f.create_entity(
+                            "IFCBOOLEANCLIPPINGRESULT",
+                            Operator="DIFFERENCE",
+                            FirstOperand=body,
+                            SecondOperand=half_space,
+                        )
+                        shape_rep.Items = [updated_item]
+                    else:
+                        ifc_opening = generate_ifc_opening(pen)
+                        f.create_entity(
+                            "IfcRelVoidsElement",
+                            GlobalId=create_guid(),
+                            OwnerHistory=self.ifc_store.owner_history,
+                            Name=None,
+                            Description=None,
+                            RelatingBuildingElement=ifc_obj,
+                            RelatedOpeningElement=ifc_opening,
+                        )
 
     def eval_validity(self, to_be_added, mat_map, rel_mats_map):
         from ada import Pipe, Shape, Wall

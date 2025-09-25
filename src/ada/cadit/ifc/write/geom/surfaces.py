@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ifcopenshell
 
+from ada import BoolHalfSpace
 from ada.geom import curves as geo_cu
 from ada.geom import surfaces as geo_su
 
@@ -190,8 +191,20 @@ def advanced_face(af: geo_su.AdvancedFace, f: ifcopenshell.file) -> ifcopenshell
     )
 
 
+def create_half_space_geom(bool_half_space: BoolHalfSpace, f: ifcopenshell.file) -> ifcopenshell.entity_instance:
+    """Converts a Half Space object to Plane to an IFC representation"""
+    half_space = bool_half_space.solid_geom()
+    plane = half_space.geometry.base_surface
+
+    return f.create_entity(
+        "IfcPlane",
+        Position=ifc_placement_from_axis3d(plane.position, f),
+    )
+
+
 def create_plane(plane: geo_su.Plane, f: ifcopenshell.file) -> ifcopenshell.entity_instance:
     """Converts a Plane to an IFC representation"""
+
     return f.create_entity(
         "IfcPlane",
         Position=ifc_placement_from_axis3d(plane.position, f),

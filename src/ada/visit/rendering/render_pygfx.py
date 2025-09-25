@@ -1,18 +1,17 @@
-# pip install -U pygfx glfw
-import base64
-import io
-import json
 import pathlib
-import time
-from multiprocessing import Manager, Process
+from multiprocessing import Process, Queue
 from typing import Callable, Iterable
 
 import numpy as np
+import pygfx as gfx
 import trimesh
 import trimesh.visual.material
+from rendercanvas.auto import RenderCanvas, loop
 
+import ada.visit.rendering.pygfx_helpers as gfx_utils
 from ada import Part
 from ada.base.types import GeomRepr
+from ada.comms.wsock_client_sync import WebSocketClientSync
 from ada.config import logger
 from ada.core.guid import create_guid
 from ada.core.vector_utils import unit_vector
@@ -27,18 +26,11 @@ from ada.visit.rendering.render_backend import (
 )
 from ada.visit.scene_converter import SceneConverter
 
+# from rendercanvas.pyside6 import RenderCanvas, loop
+
+
 PYGFX_RENDERER_EXE_PY = pathlib.Path(__file__)
 
-try:
-    import pygfx as gfx
-
-    import ada.visit.rendering.pygfx_helpers as gfx_utils
-except ImportError:
-    raise ImportError("Please install pygfx to use this renderer -> 'mamba install pygfx'.")
-try:
-    from wgpu.gui.auto import WgpuCanvas
-except ImportError:
-    raise ImportError("Please install wgpu to use this renderer -> 'mamba install wgpu'.")
 
 BG_GRAY = Color(57, 57, 57)
 PICKED_COLOR = Color(0, 123, 255)
@@ -63,11 +55,12 @@ class RendererPyGFX:
             self._canvas = None
             self._renderer = None
         else:
-            self._canvas = WgpuCanvas(title=canvas_title, max_fps=60)
-            self._renderer = gfx.renderers.WgpuRenderer(self._canvas, show_fps=False)
+            self._canvas = RenderCanvas(title=canvas_title, max_fps=60)
+            self._renderer = gfx.renderers.WgpuRenderer(self._canvas)  # , show_fps=False)
 
         self.before_render = None
         self.after_render = None
+        self._controller = None
         self.on_click_pre: Callable[[gfx.PointerEvent], None] | None = None
         self.on_click_post: Callable[[gfx.PointerEvent, MeshInfo], None] | None = None
         self._init_scene()
@@ -86,6 +79,7 @@ class RendererPyGFX:
         dir_light = gfx.DirectionalLight()
         camera = gfx.PerspectiveCamera(70, 1, depth_range=(0.1, 1000))
         self._camera = camera
+
         scene.add(camera)
         scene.add(dir_light)
         camera.add(dir_light)
@@ -126,9 +120,14 @@ class RendererPyGFX:
         self.add_trimesh_scene(scene, part.name)
 
     def add_trimesh_scene(self, trimesh_scene: trimesh.Scene, tag: str):
-        meshes = self._get_scene_meshes(trimesh_scene, tag)
+        from ada.visit.scene_handling.scene_utils import from_z_to_y_is_up
+
+        rotated_scene = trimesh_scene.copy()
+        from_z_to_y_is_up(rotated_scene, transform_all_geom=True)
+
+        meshes = self._get_scene_meshes(rotated_scene, tag)
         self._scene_objects.add(*meshes)
-        self.backend.add_metadata(trimesh_scene.metadata, tag)
+        self.backend.add_metadata(rotated_scene.metadata, tag)
 
     def load_glb_files_into_scene(self, glb_files: Iterable[pathlib.Path]):
         num_scenes = 0
@@ -145,11 +144,12 @@ class RendererPyGFX:
         self.backend.commit()
 
     def on_click(self, event: gfx.PointerEvent):
+
         if self.on_click_pre is not None:
             self.on_click_pre(event)
 
         info = event.pick_info
-
+        print(f"Clicked: {info=}")
         if event.button != 1:
             return
 
@@ -224,7 +224,14 @@ class RendererPyGFX:
 
     def _add_event_handlers(self):
         ob = self._scene_objects
-        ob.add_event_handler(self.on_click, "pointer_down")
+        ob.add_event_handler(self.on_click, "pointer_down", "pointer_up")
+        # ob.add_event_handler(
+        #     self.on_click, "pointer_down", "pointer_up", "pointer_move", "pointer_out", "pointer_over"
+        # )
+
+    def animate(self):
+        self._renderer.render(self.scene, self._camera)
+        self._canvas.request_draw()
 
     def show(self):
         bbox = self.scene.get_world_bounding_box()
@@ -236,8 +243,10 @@ class RendererPyGFX:
         view_pos = np.array([x, y, z]) - r * 5
         view_dir = unit_vector(view_pos + np.array([x, y, z]))
         self._camera.show_object(self.scene, view_dir=view_dir)
-        display = gfx.Display(canvas=self._canvas, renderer=self._renderer, before_render=self.before_render)
-        display.show(self.scene)
+        self._controller = gfx.OrbitController(camera=self._camera, register_events=self._renderer)
+        self._canvas.request_draw(lambda: self._renderer.render(self.scene, self._camera))
+
+        loop.run()
 
 
 def highlight_clicked_mesh(mesh: gfx.Mesh, mesh_data: MeshInfo, material: gfx.MeshPhongMaterial) -> gfx.Mesh:
@@ -287,44 +296,21 @@ def scale_tri_mesh(mesh: trimesh.Trimesh, sfac: float):
     mesh.apply_transform(transform)
 
 
-def standalone_viewer(host="localhost", port="8765"):
-    from ada.visit.deprecated.websocket_server import WsRenderMessage, start_server
+def start_server(shared_queue: Queue = None, host="localhost", port=8765) -> None:
+    ws = WebSocketClientSync(host=host, port=port)
+    ws.connect()
+    while True:
+        msg = ws.receive(1)
+        if msg:
+            shared_queue.put()
 
-    with Manager() as manager:
-        # Create a shared queue
-        shared_queue = manager.Queue()
 
-        # Start the server in a separate process, passing the shared queue
-        server_process = Process(target=start_server, args=(shared_queue, host, port))
-        server_process.start()
+def start_pygfx_viewer(host="localhost", port="8765", scene=None):
+    with RendererPyGFX(render_backend=SqLiteBackend()) as render:
+        if scene is not None:
+            render.add_trimesh_scene(scene, tag="userdata")
 
-        # Wait a moment to make sure the server has time to start
-        time.sleep(1)
-
-        # create a function that will run for each draw call and will check for messages
-        with RendererPyGFX(render_backend=SqLiteBackend()) as render:
-
-            def _check_for_messages():
-                while not shared_queue.empty():
-                    data = shared_queue.get()
-                    if data == "ping":
-                        continue
-                    if data == "pong":
-                        continue
-                    data_dict = json.loads(data)
-                    msg = WsRenderMessage(**data_dict)
-                    render._scene_objects.clear()
-                    logger.info("Got data from server")
-                    # process data here
-                    with io.BytesIO(base64.b64decode(msg.data)) as f:
-                        scene = trimesh.load_mesh(f, file_type="glb")
-
-                    render.add_trimesh_scene(scene, tag="userdata")
-                    render._camera.show_object(render.scene)
-
-            render.before_render = _check_for_messages
-            render.process_terminate_on_end = server_process
-            render.show()
+        render.show()
 
 
 def main():
@@ -334,7 +320,8 @@ def main():
     parser.add_argument("--host", type=str, default="localhost")
     parser.add_argument("--port", type=int, default=8765)
     args = parser.parse_args()
-    standalone_viewer(host=args.host, port=args.port)
+
+    start_pygfx_viewer(host=args.host, port=args.port)
 
 
 if __name__ == "__main__":

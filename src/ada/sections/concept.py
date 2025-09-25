@@ -292,15 +292,16 @@ class Section(Root):
 
     def __repr__(self):
         if self.type in SectionCat.circular + SectionCat.tubular:
-            return f"Section({self.name}, {self.type}, r: {self.r}, wt: {self.wt})"
+            props_str = f"r: {self.r}, wt: {self.wt}"
         elif self.type in SectionCat.general:
             p = self.properties
-            return f"Section({self.name}, {self.type}, Ax: {p.Ax}, Ix: {p.Ix}, Iy: {p.Iy}, Iz: {p.Iz}, Iyz: {p.Iyz})"
+            props_str = f"Ax: {p.Ax}, Ix: {p.Ix}, Iy: {p.Iy}, Iz: {p.Iz}, Iyz: {p.Iyz}"
         else:
-            return (
-                f"Section({self.name}, {self.type}, h: {self.h}, w_btn: {self.w_btn}, "
-                f"w_top: {self.w_top}, t_fbtn: {self.t_fbtn}, t_ftop: {self.t_ftop}, t_w: {self.t_w})"
+            props_str = (
+                f"h: {self.h}, w_btn: {self.w_btn}, w_top: {self.w_top}, t_fbtn: {self.t_fbtn}, "
+                f"t_ftop: {self.t_ftop}, t_w: {self.t_w}"
             )
+        return f"{self.__class__.__name__}({self.name}, {self.type}, {props_str})"
 
     def copy_to(self, name: str = None):
         """Make a copy of the section"""

@@ -32,7 +32,7 @@ def from_z_to_y_is_up(source_scene: trimesh.Scene, transform_all_geom=True) -> N
     if transform_all_geom:
         # Inverse of swapping Y and Z is the same swap back (Z,Y) -> (Y,Z)
         for mesh in source_scene.geometry.values():
-            if isinstance(mesh, trimesh.Trimesh):
+            if isinstance(mesh, (trimesh.Trimesh, trimesh.path.Path3D, trimesh.points.PointCloud)):
                 # switch Z and Y axes back
                 mesh.vertices = mesh.vertices @ rot_matrix((0, 1, 0), (0, 0, 1))
             else:

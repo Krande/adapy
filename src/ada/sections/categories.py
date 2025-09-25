@@ -70,7 +70,7 @@ class SectionCat:
     iprofiles = ["HEA", "HEB", "HEM", "IPE"]
     igirders = [BASETYPES.IPROFILE.value, "IG"]
     tprofiles = [BASETYPES.TPROFILE.value, "TG"]
-    angular = [BASETYPES.ANGULAR.value]
+    angular = [BASETYPES.ANGULAR.value, "L"]
     channels = [BASETYPES.CHANNEL.value]
     circular = [BASETYPES.CIRCULAR.value]
     general = [BASETYPES.GENERAL.value, "GENBEAM"]

@@ -31,6 +31,7 @@ from ada.api.primitives import (
     PrimSweep,
     Shape,
 )
+from ada.api.primitives.bool_half_space import BoolHalfSpace
 from ada.api.spatial import Assembly, Part
 from ada.api.spatial.equipment import Equipment
 from ada.api.transforms import Instance, Placement, Transform
@@ -169,6 +170,7 @@ __all__ = [
     "deprecated",
     "Equipment",
     "Group",
+    "BoolHalfSpace",
     "ConstraintConceptPoint",
     "ConstraintConceptCurve",
     "ConstraintConceptRigidLink",

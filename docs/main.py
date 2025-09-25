@@ -15,10 +15,17 @@ async def serve_static_files(file_path: str):
     if file_path == "":
         file_path = "index.html"
 
-    local_file_path = _build_dir / file_path
+    # Resolve the full path and validate that it is inside the _build_dir
+    try:
+        resolved_path = (_build_dir / file_path).resolve(strict=False)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid path.")
+    # Check that the resolved path starts with the build dir (prevents path traversal)
+    if not str(resolved_path).startswith(str(_build_dir)):
+        raise HTTPException(status_code=403, detail="Access is forbidden.")
 
     # Check if the file exists locally
-    if not local_file_path.exists():
+    if not resolved_path.exists():
         raise HTTPException(status_code=404, detail=f"File '{file_path}' not found locally.")
 
     # Determine the content type based on the file extension
@@ -37,7 +44,7 @@ async def serve_static_files(file_path: str):
         content_type = "image/svg+xml"
 
     # Serve the file content from the local directory
-    with open(local_file_path, "rb") as f:
+    with open(resolved_path, "rb") as f:
         return Response(content=f.read(), media_type=content_type)
 
 

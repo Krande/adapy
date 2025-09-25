@@ -39,9 +39,9 @@ jobs:
       - name: Set DATE env var
         run: echo "DATE=$(echo $(date +'%y%m%d'))" >> $GITHUB_ENV
 
-      - uses: prefix-dev/setup-pixi@v0.9.0
+      - uses: prefix-dev/setup-pixi@v0.9.1 # https://github.com/prefix-dev/setup-pixi
         with:
-          pixi-version: v0.45.0
+          pixi-version: v0.55.0
           environments: docs
           cache: true
 
