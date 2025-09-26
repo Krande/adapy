@@ -169,7 +169,7 @@ class RendererManager:
             target_id = params.unique_id
         else:
             target_id = None  # Currently does not support unique viewer IDs outside of notebooks
-
+        # target_id = params.unique_id
         with WebSocketClientSync(self.host, self.ws_port) as wc:
             renderer_instance = self.ensure_liveness(wc, target_id=target_id)
 

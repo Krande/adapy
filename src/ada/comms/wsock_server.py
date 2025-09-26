@@ -159,6 +159,10 @@ class WebSocketAsyncServer:
             logger.debug(f"Forwarding message to {sender}")
         message_sent = False
         clients_to_remove = []
+        client_ids = [client.instance_id for client in self.connected_clients]
+        # if target_id is not None and target_id not in client_ids:
+        #     from ada.visit.rendering.renderer_react import RendererReact
+        #     RendererReact().show(target_id=target_id)
         for client in self.connected_clients:
             if client == sender:
                 continue
