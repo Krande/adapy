@@ -48,12 +48,12 @@ export async function handleClickMesh(
     await perform_selection(mesh, shiftKey, rangeId);
 
     // update object info
-    const last_selected = await queryNameFromRangeId(mesh.unique_key, rangeId);
-    if (!last_selected) {
+    const last_selected_name = await queryNameFromRangeId(mesh.unique_key, rangeId);
+    if (!last_selected_name) {
         console.warn("selected mesh has no name");
         return;
     }
-    useObjectInfoStore.getState().setName(last_selected);
+    useObjectInfoStore.getState().setName(last_selected_name);
 
     // update tree selection
     const treeViewStore = useTreeViewStore.getState();
@@ -75,7 +75,7 @@ export async function handleClickMesh(
             }
         }
 
-        const lastNode = findNodeById(treeViewStore.treeData, last_selected);
+        const lastNode = findNodeById(treeViewStore.treeData, last_selected_name);
         treeViewStore.tree.setSelection({
             ids: node_ids,
             mostRecent: lastNode,
