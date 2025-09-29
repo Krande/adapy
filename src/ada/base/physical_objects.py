@@ -167,7 +167,8 @@ class BackendGeom(Root):
         return occ_geom_to_poly_mesh(self, geom_repr=geom_repr, export_config=export_config)
 
     def to_trimesh(self) -> trimesh.Trimesh:
-        from src.ada.occ.tessellating import shape_to_tri_mesh
+        from ada.occ.tessellating import shape_to_tri_mesh
+
         return shape_to_tri_mesh(self.solid_occ())
 
     def show(
