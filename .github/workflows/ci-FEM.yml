@@ -49,7 +49,7 @@ jobs:
         run: |
           pixi run fem-doc
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         if: failure()
         with:
           name: ADA-FEA-res-debug
