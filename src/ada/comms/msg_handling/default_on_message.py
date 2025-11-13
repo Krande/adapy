@@ -8,6 +8,7 @@ from ada.comms.fb_wrap_model_gen import CommandTypeDC
 from ada.comms.msg_handling.delete_file_object import delete_file_object
 from ada.comms.msg_handling.list_file_objects import list_file_objects
 from ada.comms.msg_handling.list_procedures import list_procedures
+from ada.comms.msg_handling.list_web_clients import list_web_clients
 from ada.comms.msg_handling.mesh_info_callback import mesh_info_callback
 from ada.comms.msg_handling.on_error_reply import on_error_reply
 from ada.comms.msg_handling.run_procedure import run_procedure
@@ -37,6 +38,8 @@ def default_on_message(server: WebSocketAsyncServer, client: ConnectedClient, me
             run_procedure(server, client, message)
         elif message.command_type == CommandTypeDC.LIST_FILE_OBJECTS:
             list_file_objects(server, client, message)
+        elif message.command_type == CommandTypeDC.LIST_WEB_CLIENTS:
+            list_web_clients(server, client, message)
         elif message.command_type == CommandTypeDC.VIEW_FILE_OBJECT:
             view_file_object(server, client, message.server.get_file_object_by_name)
         elif message.command_type == CommandTypeDC.DELETE_FILE_OBJECT:

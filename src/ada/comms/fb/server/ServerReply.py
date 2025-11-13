@@ -79,9 +79,35 @@ class ServerReply(object):
             return obj
         return None
 
+    # ServerReply
+    def WebClients(self, j):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(12))
+        if o != 0:
+            x = self._tab.Vector(o)
+            x += flatbuffers.number_types.UOffsetTFlags.py_type(j) * 4
+            x = self._tab.Indirect(x)
+            from ada.comms.fb.commands.WebClient import WebClient
+
+            obj = WebClient()
+            obj.Init(self._tab.Bytes, x)
+            return obj
+        return None
+
+    # ServerReply
+    def WebClientsLength(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(12))
+        if o != 0:
+            return self._tab.VectorLen(o)
+        return 0
+
+    # ServerReply
+    def WebClientsIsNone(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(12))
+        return o == 0
+
 
 def ServerReplyStart(builder):
-    builder.StartObject(4)
+    builder.StartObject(5)
 
 
 def Start(builder):
@@ -126,6 +152,22 @@ def ServerReplyAddError(builder, error):
 
 def AddError(builder, error):
     ServerReplyAddError(builder, error)
+
+
+def ServerReplyAddWebClients(builder, webClients):
+    builder.PrependUOffsetTRelativeSlot(4, flatbuffers.number_types.UOffsetTFlags.py_type(webClients), 0)
+
+
+def AddWebClients(builder, webClients):
+    ServerReplyAddWebClients(builder, webClients)
+
+
+def ServerReplyStartWebClientsVector(builder, numElems):
+    return builder.StartVector(4, numElems, 4)
+
+
+def StartWebClientsVector(builder, numElems):
+    return ServerReplyStartWebClientsVector(builder, numElems)
 
 
 def ServerReplyEnd(builder):

@@ -1,4 +1,5 @@
 from ada.comms.fb.fb_base_deserializer import deserialize_error, deserialize_fileobject
+from ada.comms.fb.fb_commands_deserializer import deserialize_webclient
 from ada.comms.fb.fb_commands_gen import CommandTypeDC
 from ada.comms.fb.fb_server_gen import ServerDC, ServerReplyDC
 
@@ -16,6 +17,11 @@ def deserialize_serverreply(fb_obj) -> ServerReplyDC | None:
         ),
         reply_to=CommandTypeDC(fb_obj.ReplyTo()),
         error=deserialize_error(fb_obj.Error()),
+        web_clients=(
+            [deserialize_webclient(fb_obj.WebClients(i)) for i in range(fb_obj.WebClientsLength())]
+            if fb_obj.WebClientsLength() > 0
+            else None
+        ),
     )
 
 

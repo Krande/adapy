@@ -7,6 +7,7 @@ import * as flatbuffers from 'flatbuffers';
 import { Error, ErrorT } from '../base/error.js';
 import { FileObject, FileObjectT } from '../base/file-object.js';
 import { CommandType } from '../commands/command-type.js';
+import { WebClient, WebClientT } from '../commands/web-client.js';
 
 
 export class ServerReply implements flatbuffers.IUnpackableObject<ServerReplyT> {
@@ -54,8 +55,18 @@ error(obj?:Error):Error|null {
   return offset ? (obj || new Error()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
 }
 
+webClients(index: number, obj?:WebClient):WebClient|null {
+  const offset = this.bb!.__offset(this.bb_pos, 12);
+  return offset ? (obj || new WebClient()).__init(this.bb!.__indirect(this.bb!.__vector(this.bb_pos + offset) + index * 4), this.bb!) : null;
+}
+
+webClientsLength():number {
+  const offset = this.bb!.__offset(this.bb_pos, 12);
+  return offset ? this.bb!.__vector_len(this.bb_pos + offset) : 0;
+}
+
 static startServerReply(builder:flatbuffers.Builder) {
-  builder.startObject(4);
+  builder.startObject(5);
 }
 
 static addMessage(builder:flatbuffers.Builder, messageOffset:flatbuffers.Offset) {
@@ -86,6 +97,22 @@ static addError(builder:flatbuffers.Builder, errorOffset:flatbuffers.Offset) {
   builder.addFieldOffset(3, errorOffset, 0);
 }
 
+static addWebClients(builder:flatbuffers.Builder, webClientsOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(4, webClientsOffset, 0);
+}
+
+static createWebClientsVector(builder:flatbuffers.Builder, data:flatbuffers.Offset[]):flatbuffers.Offset {
+  builder.startVector(4, data.length, 4);
+  for (let i = data.length - 1; i >= 0; i--) {
+    builder.addOffset(data[i]!);
+  }
+  return builder.endVector();
+}
+
+static startWebClientsVector(builder:flatbuffers.Builder, numElems:number) {
+  builder.startVector(4, numElems, 4);
+}
+
 static endServerReply(builder:flatbuffers.Builder):flatbuffers.Offset {
   const offset = builder.endObject();
   return offset;
@@ -97,7 +124,8 @@ unpack(): ServerReplyT {
     this.message(),
     this.bb!.createObjList<FileObject, FileObjectT>(this.fileObjects.bind(this), this.fileObjectsLength()),
     this.replyTo(),
-    (this.error() !== null ? this.error()!.unpack() : null)
+    (this.error() !== null ? this.error()!.unpack() : null),
+    this.bb!.createObjList<WebClient, WebClientT>(this.webClients.bind(this), this.webClientsLength())
   );
 }
 
@@ -107,6 +135,7 @@ unpackTo(_o: ServerReplyT): void {
   _o.fileObjects = this.bb!.createObjList<FileObject, FileObjectT>(this.fileObjects.bind(this), this.fileObjectsLength());
   _o.replyTo = this.replyTo();
   _o.error = (this.error() !== null ? this.error()!.unpack() : null);
+  _o.webClients = this.bb!.createObjList<WebClient, WebClientT>(this.webClients.bind(this), this.webClientsLength());
 }
 }
 
@@ -115,7 +144,8 @@ constructor(
   public message: string|Uint8Array|null = null,
   public fileObjects: (FileObjectT)[] = [],
   public replyTo: CommandType = CommandType.PING,
-  public error: ErrorT|null = null
+  public error: ErrorT|null = null,
+  public webClients: (WebClientT)[] = []
 ){}
 
 
@@ -123,12 +153,14 @@ pack(builder:flatbuffers.Builder): flatbuffers.Offset {
   const message = (this.message !== null ? builder.createString(this.message!) : 0);
   const fileObjects = ServerReply.createFileObjectsVector(builder, builder.createObjectOffsetList(this.fileObjects));
   const error = (this.error !== null ? this.error!.pack(builder) : 0);
+  const webClients = ServerReply.createWebClientsVector(builder, builder.createObjectOffsetList(this.webClients));
 
   ServerReply.startServerReply(builder);
   ServerReply.addMessage(builder, message);
   ServerReply.addFileObjects(builder, fileObjects);
   ServerReply.addReplyTo(builder, this.replyTo);
   ServerReply.addError(builder, error);
+  ServerReply.addWebClients(builder, webClients);
 
   return ServerReply.endServerReply(builder);
 }

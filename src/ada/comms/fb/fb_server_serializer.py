@@ -2,6 +2,7 @@ from typing import Optional
 
 import flatbuffers
 from ada.comms.fb.fb_base_serializer import serialize_error, serialize_fileobject
+from ada.comms.fb.fb_commands_serializer import serialize_webclient
 from ada.comms.fb.fb_server_gen import ServerDC, ServerReplyDC
 from ada.comms.fb.server import Server, ServerReply
 
@@ -22,6 +23,13 @@ def serialize_serverreply(builder: flatbuffers.Builder, obj: Optional[ServerRepl
     error_obj = None
     if obj.error is not None:
         error_obj = serialize_error(builder, obj.error)
+    web_clients_vector = None
+    if obj.web_clients is not None and len(obj.web_clients) > 0:
+        web_clients_list = [serialize_webclient(builder, item) for item in obj.web_clients]
+        ServerReply.StartWebClientsVector(builder, len(web_clients_list))
+        for item in reversed(web_clients_list):
+            builder.PrependUOffsetTRelative(item)
+        web_clients_vector = builder.EndVector()
 
     ServerReply.Start(builder)
     if message_str is not None:
@@ -30,6 +38,8 @@ def serialize_serverreply(builder: flatbuffers.Builder, obj: Optional[ServerRepl
         ServerReply.AddFileObjects(builder, file_objects_vector)
     if obj.error is not None:
         ServerReply.AddError(builder, error_obj)
+    if obj.web_clients is not None and len(obj.web_clients) > 0:
+        ServerReply.AddWebClients(builder, web_clients_vector)
     return ServerReply.End(builder)
 
 

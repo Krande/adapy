@@ -9,6 +9,7 @@ table ServerReply {
   file_objects: [base.FileObject];
   reply_to: commands.CommandType;
   error: base.Error;
+  web_clients: [commands.WebClient];
 }
 
 table Server {

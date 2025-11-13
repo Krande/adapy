@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import random
+import time
 from dataclasses import dataclass, field
 from typing import Callable, Optional, Set
 from urllib.parse import parse_qs, urlparse
@@ -15,7 +17,7 @@ from ada.comms.fb_wrap_model_gen import CommandTypeDC, MessageDC, TargetTypeDC
 from ada.comms.msg_handling.default_on_message import default_on_message
 from ada.comms.wsock.scene_model import SceneBackend
 from ada.comms.wsock.utils import client_from_str
-from ada.config import logger, Config
+from ada.config import Config, logger
 from ada.procedural_modelling.procedure_store import ProcedureStore
 
 
@@ -25,6 +27,8 @@ class ConnectedClient:
     group_type: TargetTypeDC | None = None
     instance_id: int | None = None
     port: int = field(init=False, default=None, repr=False)
+    # Monotonic timestamp (seconds) of the last heartbeat received from this client
+    last_heartbeat: float = field(default_factory=time.monotonic, repr=False)
 
     def __hash__(self):
         return hash(self.websocket)
@@ -96,6 +100,10 @@ class WebSocketAsyncServer:
         self.msg_queue = asyncio.Queue()
         self.procedure_store = ProcedureStore()
         self.debug = debug
+        # Heartbeat settings (seconds)
+        self.heartbeat_timeout: float = 15.0
+        self.heartbeat_check_interval: float = 5.0
+        self._heartbeat_task: Optional[asyncio.Task] = None
 
     def get_client_by_instance_id(self, instance_id: int) -> Optional[ConnectedClient]:
         for client in self.connected_clients:
@@ -138,6 +146,23 @@ class WebSocketAsyncServer:
                 client.instance_id = msg.instance_id
             if client.group_type is None:
                 client.group_type = msg.client_type
+
+        # Heartbeat handling: update last heartbeat on PINGs addressed to the server
+        if msg.command_type == CommandTypeDC.PING and msg.target_group == TargetTypeDC.SERVER:
+            client.last_heartbeat = time.monotonic()
+            logger.debug(f"Heartbeat received from client {client.instance_id} ({client.group_type})")
+            # Send PONG response back to the client
+            from ada.comms.fb_wrap_serializer import serialize_root_message
+            pong_message = MessageDC(
+                instance_id=self.instance_id,
+                command_type=CommandTypeDC.PONG,
+                target_id=client.instance_id,
+                target_group=client.group_type,
+                client_type=TargetTypeDC.SERVER,
+            )
+            pong_data = serialize_root_message(pong_message)
+            await client.websocket.send(pong_data)
+            return
 
         if msg.target_group != TargetTypeDC.SERVER:
             # Forward message to appropriate clients
@@ -199,6 +224,9 @@ class WebSocketAsyncServer:
         """Run the server asynchronously. Blocks until the server is stopped. Max size is set to 10MB."""
         self.server = await websockets.serve(self.handle_client, self.host, self.port, max_size=10**7)
         logger.debug(f"WebSocket server started on ws://{self.host}:{self.port}")
+        # Start background heartbeat pruning task
+        if self._heartbeat_task is None:
+            self._heartbeat_task = asyncio.create_task(self._prune_stale_clients_loop())
         await self.server.wait_closed()
 
     async def start_async_non_blocking(self):
@@ -206,9 +234,20 @@ class WebSocketAsyncServer:
         self.server = await websockets.serve(self.handle_client, self.host, self.port, max_size=10**7)
         print(f"WebSocket server started on ws://{self.host}:{self.port}")
         # Do not call await self.server.wait_closed() here
+        if self._heartbeat_task is None:
+            self._heartbeat_task = asyncio.create_task(self._prune_stale_clients_loop())
 
     async def stop(self):
         """Stop the server gracefully."""
+        # Stop heartbeat monitoring task
+        if self._heartbeat_task is not None:
+            self._heartbeat_task.cancel()
+            try:
+                await self._heartbeat_task
+            except asyncio.CancelledError:
+                pass
+            finally:
+                self._heartbeat_task = None
         if self.server is not None:
             self.server.close()
             await self.server.wait_closed()
@@ -221,6 +260,26 @@ class WebSocketAsyncServer:
         thread = threading.Thread(target=lambda: asyncio.run(self.start_async()), daemon=True)
         thread.start()
         return thread
+
+    async def _prune_stale_clients_loop(self):
+        """Periodically close connections that have missed heartbeats."""
+        try:
+            while True:
+                await asyncio.sleep(self.heartbeat_check_interval)
+                now = time.monotonic()
+                # Iterate over a snapshot to avoid concurrent modification issues
+                for client in list(self.connected_clients):
+                    # Only enforce heartbeat for WEB clients
+                    if client.group_type != TargetTypeDC.WEB:
+                        continue
+                    elapsed = now - (client.last_heartbeat or 0.0)
+                    if elapsed > self.heartbeat_timeout:
+                        logger.warning(f"Closing stale client {client.instance_id} (no heartbeat for {elapsed:.1f}s)")
+                        with contextlib.suppress(Exception):
+                            await client.websocket.close(code=4000, reason="Heartbeat timeout")
+        except asyncio.CancelledError:
+            # Graceful task cancellation
+            pass
 
 
 async def handle_partial_message(message) -> MessageDC | None:

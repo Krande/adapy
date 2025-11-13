@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import List, Optional
 
 from ada.comms.fb.fb_base_gen import ErrorDC, FileObjectDC
-from ada.comms.fb.fb_commands_gen import CommandTypeDC
+from ada.comms.fb.fb_commands_gen import CommandTypeDC, WebClientDC
 
 
 @dataclass
@@ -14,6 +14,7 @@ class ServerReplyDC:
     file_objects: Optional[List[FileObjectDC]] = None
     reply_to: Optional[CommandTypeDC] = None
     error: Optional[ErrorDC] = None
+    web_clients: Optional[List[WebClientDC]] = None
 
 
 @dataclass
