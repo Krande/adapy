@@ -1,7 +1,7 @@
 import argparse
 import pathlib
 
-from ada.comms.web_ui import start_serving
+from ada.comms.web.serve import start_serving
 
 NODE_EDITOR_CLI_PY = pathlib.Path(__file__)
 

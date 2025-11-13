@@ -25,7 +25,7 @@ class RendererManager:
         ws_port: int = 8765,
         server_exe: pathlib.Path = None,
         server_args: list[str] = None,
-        run_ws_in_thread: bool = False,
+        run_ws_in_thread: bool = True,
         ping_timeout=1,
         embed_glb: bool = False,
     ):
@@ -45,7 +45,7 @@ class RendererManager:
 
     def _start_websocket_server(self):
         """Starts the WebSocket server if needed."""
-        from ada.comms.wsockets_utils import start_ws_async_server
+        from ada.comms.wsock.utils import start_ws_async_server
 
         if self.renderer == "pygfx":
             from ada.visit.rendering.render_pygfx import PYGFX_RENDERER_EXE_PY
@@ -113,7 +113,7 @@ class RendererManager:
         import trimesh
 
         from ada import Assembly
-        from ada.comms.wsock_client_sync import WebSocketClientSync
+        from ada.comms.wsock.client_sync import WebSocketClientSync
         from ada.visit.rendering.renderer_react import RendererReact
 
         converter = SceneConverter(obj, params)
@@ -236,7 +236,7 @@ class RendererManager:
     def send_glb_file_to_viewer(self, name, glb_file: str | pathlib.Path, target_id=None, params: RenderParams = None):
         import gzip
 
-        from ada.comms.wsock_client_sync import WebSocketClientSync
+        from ada.comms.wsock.client_sync import WebSocketClientSync
         from ada.visit.rendering.render_backend import is_gzip_file
 
         if is_gzip_file(glb_file):

@@ -10,9 +10,9 @@ import pytest_asyncio
 
 from ada.comms.fb_wrap_model_gen import CommandTypeDC, MessageDC, TargetTypeDC
 from ada.comms.fb_wrap_serializer import serialize_root_message
-from ada.comms.web_ui import start_serving
-from ada.comms.wsock_client_async import WebSocketClientAsync
-from ada.comms.wsock_server import WebSocketAsyncServer, handle_partial_message
+from ada.comms.web.serve import start_serving
+from ada.comms.wsock.client_async import WebSocketClientAsync
+from ada.comms.wsock.server import WebSocketAsyncServer, handle_partial_message
 from ada.config import logger
 
 WS_HOST = "localhost"

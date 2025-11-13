@@ -119,7 +119,7 @@ class RendererReact:
         gltf_tree_postprocessor=None,
     ):
         """This starts a web server to serve the HTML viewer"""
-        from ada.comms.web_ui import start_serving
+        from ada.comms.web.serve import start_serving
 
         return start_serving(
             web_port=web_port,

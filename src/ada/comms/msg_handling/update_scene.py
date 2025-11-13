@@ -9,7 +9,7 @@ from ada.comms.fb_wrap_model_gen import FileObjectDC
 from ada.config import Config, logger
 
 if TYPE_CHECKING:
-    from ada.comms.wsock_server import ConnectedClient, WebSocketAsyncServer
+    from ada.comms.wsock.server import ConnectedClient, WebSocketAsyncServer
 
 
 def setup_backend_scene(glb_file_data: FileObjectDC, server: WebSocketAsyncServer) -> pathlib.Path:

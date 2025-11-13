@@ -80,7 +80,7 @@ class Procedure:
         )
 
     def get_component_output_dir(self):
-        from ada.comms.scene_model import SceneBackend
+        from ada.comms.wsock.scene_model import SceneBackend
 
         temp_dir = SceneBackend.get_temp_dir()
         component_dir = temp_dir / "components"
@@ -88,7 +88,7 @@ class Procedure:
         return component_dir / self.name
 
     def get_procedure_output_dir(self) -> pathlib.Path:
-        from ada.comms.scene_model import SceneBackend
+        from ada.comms.wsock.scene_model import SceneBackend
 
         temp_dir = SceneBackend.get_temp_dir()
         return temp_dir / "procedural" / self.name

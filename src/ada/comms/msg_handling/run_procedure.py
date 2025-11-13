@@ -24,7 +24,7 @@ from ada.config import logger
 from ada.procedural_modelling.procedure_model import Procedure
 
 if TYPE_CHECKING:
-    from ada.comms.wsock_server import ConnectedClient, WebSocketAsyncServer
+    from ada.comms.wsock.server import ConnectedClient, WebSocketAsyncServer
 
 
 def run_procedure(server: WebSocketAsyncServer, client: ConnectedClient, message: MessageDC) -> None:

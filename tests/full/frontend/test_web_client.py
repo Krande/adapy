@@ -6,8 +6,8 @@ from playwright.async_api import async_playwright
 from playwright.sync_api import sync_playwright
 
 import ada
-from ada.comms.web_ui import start_serving
-from ada.comms.wsock_client_async import WebSocketClientAsync
+from ada.comms.web.serve import start_serving
+from ada.comms.wsock.client_async import WebSocketClientAsync
 
 
 @pytest.fixture(scope="session", autouse=True)
