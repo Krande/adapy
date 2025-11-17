@@ -124,7 +124,7 @@ def from_acis(sat_file: str | pathlib.Path, source_units=Units.M, use_new_parser
 
         # Create assembly
         a = Assembly(units=source_units, name="ACIS_Import")
-        part = a.add_part("Main")
+        part = Part("Main")
 
         # Add geometry to part
         # TODO: Implement full geometry integration

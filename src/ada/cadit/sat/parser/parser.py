@@ -154,6 +154,10 @@ class AcisSatParser:
                 if not parts or not parts[0].replace('.', '').replace('-', '').isdigit():
                     continue
 
+                # Must have at least 2 parts: index and entity_type
+                if len(parts) < 2:
+                    continue
+
                 # Check if the index is an integer (entity) vs float (control point data)
                 try:
                     int(parts[0])
@@ -343,21 +347,38 @@ class AcisSatParser:
         )
 
     def _parse_face(self, index: int, data: str) -> AcisFace:
-        """Parse face entity."""
+        """Parse face entity.
+
+        ACIS face format varies by version but generally:
+        face attrib -1 -1 $-1 next_face loop shell $-1 surface sense sided containment flags...
+
+        Based on analysis of real files:
+        [0]: attrib (or next_face in some versions)
+        [1-3]: various refs including -1 markers
+        [4]: next_face (or other ref)
+        [5]: loop
+        [6]: shell (or other ref)
+        [7]: reference
+        [8]: surface <- THE SURFACE REFERENCE
+        [9]: sense (forward/reversed)
+        [10]: sided (double/single)
+        [11]: containment (out/in)
+        """
         parts = data.split()
+
         return AcisFace(
             index=index,
             entity_type="face",
-            next_face_ref=self._parse_ref(parts[0]) if len(parts) > 0 else None,
-            attrib_ref=self._parse_ref(parts[1]) if len(parts) > 1 else None,
-            shell_ref=self._parse_ref(parts[3]) if len(parts) > 3 else None,
-            subshell_ref=self._parse_ref(parts[4]) if len(parts) > 4 else None,
+            next_face_ref=self._parse_ref(parts[4]) if len(parts) > 4 else None,
+            attrib_ref=self._parse_ref(parts[0]) if len(parts) > 0 else None,
+            shell_ref=self._parse_ref(parts[6]) if len(parts) > 6 else None,
+            subshell_ref=None,  # Not clearly identified in this format
             loop_ref=self._parse_ref(parts[5]) if len(parts) > 5 else None,
-            sense=self._parse_sense(parts[7]) if len(parts) > 7 else SenseType.FORWARD,
-            double_sided=parts[8].lower() == "double" if len(parts) > 8 else False,
-            containment=parts[9] if len(parts) > 9 else "out",
-            surface_ref=self._parse_ref(parts[10]) if len(parts) > 10 else None,
-            bounding_box=self._parse_bbox(parts, 13) if len(parts) > 18 else None
+            sense=self._parse_sense(parts[9]) if len(parts) > 9 else SenseType.FORWARD,
+            double_sided=parts[10].lower() == "double" if len(parts) > 10 else False,
+            containment=parts[11] if len(parts) > 11 else "out",
+            surface_ref=self._parse_ref(parts[8]) if len(parts) > 8 else None,
+            bounding_box=self._parse_bbox(parts, 14) if len(parts) > 19 else None
         )
 
     def _parse_loop(self, index: int, data: str) -> AcisLoop:
@@ -419,22 +440,58 @@ class AcisSatParser:
     def _parse_point(self, index: int, data: str) -> AcisPoint:
         """Parse point entity."""
         parts = data.split()
+        # point format: $attrib -1/-1/$-1 -1/-1/$-1 -1/-1/$-1 x y z #
+        # The first 4 tokens are references, coordinates are the last 3 numbers before #
+        # Collect all numeric values, skip $ tokens and keywords
+        numeric_values = []
+        for part in parts:
+            if part.startswith('$') or part in ['I', 'F', '#']:
+                continue
+            try:
+                numeric_values.append(float(part))
+            except ValueError:
+                continue
+
+        # The coordinates are the LAST 3 numeric values (skip first refs which could be -1)
+        # Point format has 4 references followed by x, y, z coordinates
+        if len(numeric_values) >= 3:
+            # Take the last 3 values as coordinates
+            x = numeric_values[-3]
+            y = numeric_values[-2]
+            z = numeric_values[-1]
+        else:
+            x, y, z = 0.0, 0.0, 0.0
+
         return AcisPoint(
             index=index,
             entity_type="point",
-            x=float(parts[1]) if len(parts) > 1 else 0.0,
-            y=float(parts[2]) if len(parts) > 2 else 0.0,
-            z=float(parts[3]) if len(parts) > 3 else 0.0
+            x=x,
+            y=y,
+            z=z
         )
 
     def _parse_straight_curve(self, index: int, data: str) -> AcisStraightCurve:
         """Parse straight-curve entity."""
         parts = data.split()
+        # straight-curve format: $attrib origin(x,y,z) direction(x,y,z) I I #
+        # Skip reference tokens (starting with $) and find numeric values
+        numeric_values = []
+        for part in parts:
+            if part.startswith('$') or part in ['I', 'F', '#']:
+                continue
+            try:
+                numeric_values.append(float(part))
+            except ValueError:
+                continue
+
+        origin = numeric_values[0:3] if len(numeric_values) >= 3 else [0, 0, 0]
+        direction = numeric_values[3:6] if len(numeric_values) >= 6 else [0, 0, 1]
+
         return AcisStraightCurve(
             index=index,
             entity_type="straight-curve",
-            origin=[float(parts[i]) for i in range(4, 7)] if len(parts) > 6 else [0, 0, 0],
-            direction=[float(parts[i]) for i in range(7, 10)] if len(parts) > 9 else [0, 0, 1]
+            origin=origin,
+            direction=direction
         )
 
     def _parse_ellipse_curve(self, index: int, data: str) -> AcisEllipseCurve:
@@ -484,9 +541,16 @@ class AcisSatParser:
 
     def _parse_spline_curve_data(self, spline_str: str) -> Optional[AcisSplineCurveData]:
         """Parse B-spline curve data from spline string."""
+        # First try splitting by newlines, but if we get only one line, try tabs
         lines = [line.strip() for line in spline_str.split('\n') if line.strip()]
+
+        # If we have only one line, it might be tab-separated (common in lawintcur)
+        if len(lines) == 1 and '\t' in lines[0]:
+            lines = [line.strip() for line in lines[0].split('\t') if line.strip()]
+
         if not lines:
             return None
+
 
         first_line = lines[0].split()
         if not first_line:
@@ -531,21 +595,103 @@ class AcisSatParser:
                 control_points=[]
             )
 
-        # Handle exactcur and other standard formats
-        # Determine if it's rational
-        curve_type_idx = 2 if len(first_line) > 2 and first_line[1] == "0" else 1
-        curve_type_str = first_line[curve_type_idx] if len(first_line) > curve_type_idx else "nurbs"
-        curve_type = NurbsType.NURBS if curve_type_str == "nurbs" else NurbsType.NUBS
+        elif subtype == "lawintcur":
+            # lawintcur format: lawintcur full nubs/nurbs degree closure num_knots
+            # Example: lawintcur full nubs 3 open 4
+            curve_type_str = first_line[2] if len(first_line) > 2 else "nurbs"
+            curve_type = NurbsType.NURBS if curve_type_str == "nurbs" else NurbsType.NUBS
+            degree = int(first_line[3]) if len(first_line) > 3 else 3
 
-        degree = int(first_line[curve_type_idx + 1]) if len(first_line) > curve_type_idx + 1 else 3
+            # Parse knots if present (line 1 contains knot data)
+            knots = []
+            multiplicities = []
+            if len(lines) > 1:
+                try:
+                    # Knot line has format: knot_value multiplicity knot_value multiplicity ...
+                    knot_parts = lines[1].split()
+                    knot_data = []
+                    for part in knot_parts:
+                        try:
+                            knot_data.append(float(part))
+                        except ValueError:
+                            continue
+
+                    # Alternate between knot values and multiplicities
+                    if len(knot_data) >= 2:
+                        knots = [knot_data[i] for i in range(0, len(knot_data), 2)]
+                        multiplicities = [int(knot_data[i]) for i in range(1, len(knot_data), 2)]
+                except Exception as e:
+                    pass
+
+            # Parse control points (remaining lines after knot line)
+            control_points = []
+            for i in range(2, len(lines)):
+                try:
+                    line_parts = lines[i].split()
+                    # Skip lines that contain only keywords or are not control point data
+                    if not line_parts or line_parts[0] in ['null_surface', 'nullbs', 'I', 'F', 'none', 'spline']:
+                        continue
+                    # Skip lines starting with @ (references)
+                    if line_parts[0].startswith('@'):
+                        continue
+
+                    # Try to parse as numeric control point data
+                    cp_data = []
+                    for part in line_parts:
+                        try:
+                            cp_data.append(float(part))
+                        except ValueError:
+                            break  # Stop if we hit a non-numeric value
+
+                    if len(cp_data) >= 3:  # Valid control point needs at least x, y, z
+                        control_points.append(cp_data)
+                except ValueError:
+                    continue
+
+            return AcisSplineCurveData(
+                subtype=subtype,
+                curve_type=curve_type,
+                degree=degree,
+                rational=curve_type == NurbsType.NURBS,
+                knots=knots,
+                knot_multiplicities=multiplicities,
+                control_points=control_points
+            )
+
+        # Handle exactcur and other standard formats
+        # exactcur format: exactcur [full] [0] nubs/nurbs degree closure num_knots
+        # Find the curve type by looking for "nubs" or "nurbs" keyword
+        curve_type = NurbsType.NURBS
+        degree = 3
+        curve_type_idx = -1
+
+        for i, token in enumerate(first_line):
+            if token in ["nubs", "nurbs"]:
+                curve_type = NurbsType.NURBS if token == "nurbs" else NurbsType.NUBS
+                curve_type_idx = i
+                break
+
+        # Degree comes after the curve type
+        if curve_type_idx >= 0 and len(first_line) > curve_type_idx + 1:
+            try:
+                degree = int(first_line[curve_type_idx + 1])
+            except ValueError:
+                degree = 3
 
         # Parse knots (line 1)
         knots = []
         multiplicities = []
         if len(lines) > 1:
-            knot_data = [float(x) for x in lines[1].split()]
-            knots = knot_data[0::2]
-            multiplicities = knot_data[1::2]
+            knot_parts = lines[1].split()
+            # Knots and multiplicities alternate: knot multiplicity knot multiplicity ...
+            for i in range(0, len(knot_parts), 2):
+                try:
+                    if i < len(knot_parts):
+                        knots.append(float(knot_parts[i]))
+                    if i + 1 < len(knot_parts):
+                        multiplicities.append(int(knot_parts[i + 1]))
+                except (ValueError, IndexError):
+                    break
 
         # Parse control points (remaining lines)
         control_points = []
@@ -569,12 +715,27 @@ class AcisSatParser:
     def _parse_plane_surface(self, index: int, data: str) -> AcisPlaneSurface:
         """Parse plane-surface entity."""
         parts = data.split()
+        # plane-surface format: $attrib origin(x,y,z) normal(x,y,z) u_direction(x,y,z) sense I I I I #
+        # Skip reference tokens (starting with $) and non-numeric flags
+        numeric_values = []
+        for part in parts:
+            if part.startswith('$') or part in ['I', 'F', '#', 'forward', 'reversed', 'both', 'in', 'out', 'double', 'single']:
+                continue
+            try:
+                numeric_values.append(float(part))
+            except ValueError:
+                continue
+
+        origin = numeric_values[0:3] if len(numeric_values) >= 3 else [0, 0, 0]
+        normal = numeric_values[3:6] if len(numeric_values) >= 6 else [0, 0, 1]
+        u_direction = numeric_values[6:9] if len(numeric_values) >= 9 else [1, 0, 0]
+
         return AcisPlaneSurface(
             index=index,
             entity_type="plane-surface",
-            origin=[float(parts[i]) for i in range(4, 7)] if len(parts) > 6 else [0, 0, 0],
-            normal=[float(parts[i]) for i in range(7, 10)] if len(parts) > 9 else [0, 0, 1],
-            u_direction=[float(parts[i]) for i in range(10, 13)] if len(parts) > 12 else [1, 0, 0]
+            origin=origin,
+            normal=normal,
+            u_direction=u_direction
         )
 
     def _parse_cone_surface(self, index: int, data: str) -> AcisConeSurface:
