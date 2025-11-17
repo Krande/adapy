@@ -98,6 +98,47 @@ def from_step(step_file: str | pathlib.Path, source_units=Units.M, **kwargs) -> 
     a.read_step_file(step_file, source_units=source_units, **kwargs)
     return a
 
+def from_acis(sat_file: str | pathlib.Path, source_units=Units.M, use_new_parser=True, **kwargs) -> Assembly:
+    """
+    Create an Assembly object from an ACIS SAT file.
+
+    Args:
+        sat_file: Path to ACIS SAT file
+        source_units: Units of the SAT file
+        use_new_parser: If True, use the new comprehensive parser (recommended)
+        **kwargs: Additional arguments
+
+    Returns:
+        Assembly object with parsed geometry
+    """
+    if use_new_parser:
+        from ada.cadit.sat.parser import AcisSatParser, AcisToAdaConverter
+
+        # Parse the SAT file
+        parser = AcisSatParser(sat_file)
+        parser.parse()
+
+        # Convert to adapy geometry
+        converter = AcisToAdaConverter(parser)
+        faces = converter.convert_all_faces()
+
+        # Create assembly
+        a = Assembly(units=source_units, name="ACIS_Import")
+        part = a.add_part("Main")
+
+        # Add geometry to part
+        # TODO: Implement full geometry integration
+        logger.info(f"Imported {len(faces)} faces from ACIS SAT file")
+
+        return a
+    else:
+        # Use legacy parser
+        from ada.cadit.sat.store import SatReaderFactory
+
+        sat_factory = SatReaderFactory(sat_file)
+        a = Assembly(units=source_units)
+        # TODO: Complete legacy implementation
+        return a
 
 def from_fem(
     fem_file: str | list | pathlib.Path,

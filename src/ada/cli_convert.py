@@ -27,6 +27,7 @@ def app():
     args = parser.parse_args()
 
     ada.logger.setLevel(args.log_level)
+    ada.logger.propagate = False
 
     input_file = args.input
     in_suffix = input_file.split(".")[-1].lower()
@@ -39,6 +40,8 @@ def app():
         model = ada.from_genie_xml(input_file)
     elif in_suffix.lower() in ("inp", "fem"):
         model = ada.from_fem(input_file)
+    elif in_suffix.lower() in ("sat", "acis"):
+        model = ada.from_acis(input_file)
     else:
         raise ValueError(f"Unsupported input file format: {in_suffix}")
 
