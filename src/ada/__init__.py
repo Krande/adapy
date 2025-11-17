@@ -63,7 +63,7 @@ from ada.geom.points import Point
 from ada.materials import Material
 from ada.sections import Section
 from ada.visit.config import set_jupyter_part_renderer
-from ada.warnings import deprecated
+from ada.deprecation import deprecated
 
 if TYPE_CHECKING:
     import ifcopenshell

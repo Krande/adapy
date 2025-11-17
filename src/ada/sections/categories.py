@@ -66,7 +66,7 @@ class SectionCat:
     box = [BASETYPES.BOX.value, "BG", "CG"]
     shs = ["SHS"]
     rhs = ["RHS", "URHS"]
-    tubular = [BASETYPES.TUBULAR.value, "PIPE", "OD"]
+    tubular = [BASETYPES.TUBULAR.value, "PIPE", "OD", "P"]
     iprofiles = ["HEA", "HEB", "HEM", "IPE"]
     igirders = [BASETYPES.IPROFILE.value, "IG"]
     tprofiles = [BASETYPES.TPROFILE.value, "TG"]

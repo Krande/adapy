@@ -9,7 +9,7 @@ from ada.base.units import Units
 if TYPE_CHECKING:
     from ada.cadit.ifc.store import IfcStore
 
-    from .metals import CarbonSteel
+    from .metals import CarbonSteel, Metal
 
 
 class Material(Root):
@@ -18,7 +18,7 @@ class Material(Root):
     def __init__(
         self,
         name,
-        mat_model: CarbonSteel = None,
+        mat_model: Metal | CarbonSteel = None,
         mat_id=None,
         parent=None,
         metadata=None,
