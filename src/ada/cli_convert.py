@@ -23,6 +23,11 @@ def app():
         default="INFO",
         help="Logging level (e.g., DEBUG, INFO, WARNING, ERROR).",
     )
+    parser.add_argument(
+        "--split",
+        action="store_true",
+        help="When reading ACIS/SAT, split bodies into individual AdvancedFace objects (one shape per face).",
+    )
 
     args = parser.parse_args()
 
@@ -41,7 +46,7 @@ def app():
     elif in_suffix.lower() in ("inp", "fem"):
         model = ada.from_fem(input_file)
     elif in_suffix.lower() in ("sat", "acis"):
-        model = ada.from_acis(input_file)
+        model = ada.from_acis(input_file, split=args.split)
     else:
         raise ValueError(f"Unsupported input file format: {in_suffix}")
 

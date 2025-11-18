@@ -98,7 +98,7 @@ def from_step(step_file: str | pathlib.Path, source_units=Units.M, **kwargs) -> 
     a.read_step_file(step_file, source_units=source_units, **kwargs)
     return a
 
-def from_acis(sat_file: str | pathlib.Path, source_units=Units.M, use_new_parser=True, **kwargs) -> Assembly:
+def from_acis(sat_file: str | pathlib.Path, source_units=Units.M, split: bool = False) -> Assembly:
     """
     Create an Assembly object from an ACIS SAT file.
 
@@ -111,50 +111,68 @@ def from_acis(sat_file: str | pathlib.Path, source_units=Units.M, use_new_parser
     Returns:
         Assembly object with parsed geometry
     """
-    if use_new_parser:
-        from ada.geom import Geometry
-        from ada.cadit.sat.parser import AcisSatParser, AcisToAdaConverter
+    from ada.geom import Geometry
+    from ada.cadit.sat.parser import AcisSatParser, AcisToAdaConverter
 
-        # Parse the SAT file
-        parser = AcisSatParser(sat_file)
-        parser.parse()
+    # Parse the SAT file
+    parser = AcisSatParser(sat_file)
+    parser.parse()
 
-        # Convert to adapy geometry using body-based organization
-        converter = AcisToAdaConverter(parser)
-        bodies = converter.convert_all_bodies()
+    # Convert to adapy geometry using body-based organization
+    converter = AcisToAdaConverter(parser)
+    bodies = converter.convert_all_bodies()
 
-        # Create assembly
-        a = Assembly(units=source_units, name="ACIS_Import")
+    # Create assembly
+    a = Assembly(units=source_units, name="ACIS_Import")
 
-        # Create a part for each body
-        for body_name, geometries in bodies:
-            if not geometries:
-                logger.debug(f"Skipping body {body_name} - no geometries")
-                continue
+    # Create a part for each body
+    for body_idx, (body_name, geometries) in enumerate(bodies):
+        if not geometries:
+            logger.debug(f"Skipping body {body_name} - no geometries")
+            continue
 
-            part = Part(body_name)
+        # Suffix part name in split mode to indicate faces
+        part = Part(body_name if not split else f"{body_name}_faces")
 
-            # Each geometry is a ClosedShell or OpenShell containing face geometry
-            # For now, we'll add the part without shapes (geometry data is preserved in the conversion)
-            # TODO: Create proper Shape objects from ClosedShell geometry
+        # When split is False: add each shell/face geometry as-is (one shape per geometry)
+        # When split is True: decompose shells into individual AdvancedFace shapes
+        shape_count = 0
+        if not split:
             for i, geom in enumerate(geometries):
                 logger.debug(f"Body {body_name}: geometry {i} type={type(geom).__name__}")
                 shape = Shape(f"shape{i}", Geometry(i, geom))
                 part.add_shape(shape)
+                shape_count += 1
+        else:
+            import ada.geom.surfaces as geo_su
 
-            a.add_part(part)
+            for i, geom in enumerate(geometries):
+                logger.debug(f"[split] Body {body_name}: geometry {i} type={type(geom).__name__}")
+                # If geometry is a ClosedShell/OpenShell, split into faces
+                if isinstance(geom, (geo_su.ClosedShell, geo_su.OpenShell)):
+                    faces = getattr(geom, "cfs_faces", [])
+                    for j, face in enumerate(faces):
+                        # face is expected to be geo_su.AdvancedFace
+                        shape = Shape(f"face_{i}_{j}", Geometry(j, face))
+                        part.add_shape(shape)
+                        shape_count += 1
+                elif isinstance(geom, geo_su.AdvancedFace):
+                    shape = Shape(f"face_{i}", Geometry(i, geom))
+                    part.add_shape(shape)
+                    shape_count += 1
+                else:
+                    # Fallback: keep as one shape
+                    shape = Shape(f"shape_{i}", Geometry(i, geom))
+                    part.add_shape(shape)
+                    shape_count += 1
 
-        logger.info(f"Imported {len(bodies)} bodies from ACIS SAT file")
+        logger.info(f"Added part '{part.name}' with {shape_count} shape(s) ({'split' if split else 'grouped'} mode)")
 
-        return a
-    else:
-        # Use legacy parser
-        from ada.cadit.sat.store import SatReaderFactory
+        a.add_part(part)
 
-        sat_factory = SatReaderFactory(sat_file)
-        a = Assembly(units=source_units)
-        # TODO: Complete legacy implementation
-        return a
+    logger.info(f"Imported {len(bodies)} bodies from ACIS SAT file")
+
+    return a
 
 def from_fem(
     fem_file: str | list | pathlib.Path,
@@ -214,6 +232,7 @@ __all__ = [
     "from_ifc",
     "from_fem",
     "from_step",
+    "from_acis",
     "from_genie_xml",
     "from_fem_res",
     "Beam",

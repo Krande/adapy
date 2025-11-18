@@ -105,22 +105,14 @@ class AcisToAdaConverter:
             logger.warning(f"Face {face.index} has no bounds")
             return None
 
-        # Create appropriate surface type
-        if isinstance(surface, geo_su.Plane):
-            # For planar surfaces, create FaceSurface wrapped in ClosedShell
-            face_surface = geo_su.FaceSurface(
-                bounds=bounds,
-                face_surface=surface,
-                same_sense=True
-            )
-            return geo_su.ClosedShell([face_surface])
-        else:
-            # For complex surfaces (B-splines, etc.), create AdvancedFace
-            return geo_su.AdvancedFace(
-                bounds=bounds,
-                face_surface=surface,
-                same_sense=True
-            )
+        # Create AdvancedFace for all surface types
+        # AdvancedFace supports Plane, CylindricalSurface, ConicalSurface, SphericalSurface,
+        # ToroidalSurface, and BSpline surfaces
+        return geo_su.AdvancedFace(
+            bounds=bounds,
+            face_surface=surface,
+            same_sense=True
+        )
 
     def convert_face_bounds(self, face: AcisFace) -> List[geo_su.FaceBound]:
         """

@@ -89,7 +89,7 @@ def _interpret_raw(in_str: str, s: float, units: Units) -> tuple[Section, Sectio
         if result is not None:
             return result
 
-    for section_eval in [tub_section, angular_section, circ_section, channel_section, flat_section]:
+    for section_eval in [angular_section, tub_section, circ_section, channel_section, flat_section]:
         result = section_eval(in_str, s, units)
         if result is not None:
             return result
@@ -361,7 +361,7 @@ def iprofile_section(in_str: str, s: float, units: Units):
 
 def tub_section(in_str: str, s: float, units: Units):
     for tub in SectionCat.tubular:
-        res = re.search("({tub})({digit})x({digit})".format(tub=tub, digit=_digit), in_str, _re_in)
+        res = re.search("^({tub})({digit})x({digit})".format(tub=tub, digit=_digit), in_str, _re_in)
         if res is None:
             continue
         fac = 0.5 if tub in ["OD", "O"] else 1.0

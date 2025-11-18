@@ -6,6 +6,7 @@ from typing import Any, Iterable
 
 import OCC.Core.Interface as OCCInterface
 from OCC.Core.BRep import BRep_Builder
+from OCC.Core.BRepCheck import BRepCheck_Analyzer
 from OCC.Core.BRepBuilderAPI import (
     BRepBuilderAPI_MakeEdge,
     BRepBuilderAPI_MakeEdge2d,
@@ -63,6 +64,7 @@ class StepWriter:
         self.units = units
 
     def add_shape(self, shape: Any, name: str, rgb_color=None, parent=None):
+        # Normalize to a TopoDS_Shape when possible
         if issubclass(shape.__class__, gp_Pnt):
             # if a gp_Pnt is passed, first convert to vertex
             vertex = BRepBuilderAPI_MakeVertex(shape)
@@ -77,9 +79,33 @@ class StepWriter:
             edge2d = BRepBuilderAPI_MakeEdge2d(shape)
             shape = edge2d.Shape()
 
-        self.comp_builder.Add(self.comp, shape)
+        # Defensive guards: skip null or invalid shapes to avoid downstream crashes
+        try:
+            if hasattr(shape, "IsNull") and shape.IsNull():
+                logger.warning(f"Skipping NULL shape '{name}' (IsNull == True)")
+                return
+
+            # Validate topology using BRepCheck. If invalid, skip with a warning.
+            try:
+                analyzer = BRepCheck_Analyzer(shape, True)
+                if not analyzer.IsValid():
+                    logger.warning(f"Skipping invalid shape '{name}' (BRepCheck_Analyzer.IsValid == False)")
+                    return
+            except Exception as ex:
+                # If BRepCheck fails unexpectedly, log and continue without validation
+                logger.debug(f"BRepCheck_Analyzer failed for shape '{name}': {ex}")
+
+            self.comp_builder.Add(self.comp, shape)
+        except Exception as ex:
+            logger.warning(f"Failed to add shape '{name}' to compound: {ex}")
+            return
+
         parent = self.tll if parent is None else parent
-        shape_label = self.shape_tool.AddSubShape(parent, shape)
+        try:
+            shape_label = self.shape_tool.AddSubShape(parent, shape)
+        except Exception as ex:
+            logger.warning(f"AddSubShape failed for '{name}': {ex}. Trying AddShape instead.")
+            shape_label = self.shape_tool.AddShape(shape, False, False)
         if isinstance(rgb_color, Iterable):
             rgb_color = Color(*rgb_color)
         elif isinstance(rgb_color, str):
