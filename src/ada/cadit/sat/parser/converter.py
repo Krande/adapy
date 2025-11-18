@@ -23,8 +23,10 @@ from ada.cadit.sat.parser.acis_entities import (
     AcisFace,
     AcisIntcurveCurve,
     AcisLoop,
+    AcisLump,
     AcisPlaneSurface,
     AcisPoint,
+    AcisShell,
     AcisSphereSurface,
     AcisSplineSurface,
     AcisStraightCurve,
@@ -131,24 +133,35 @@ class AcisToAdaConverter:
             List of FaceBound objects
         """
         bounds = []
+        visited_loops = set()
 
         # Start with the first loop
         loop_ref = face.loop_ref
         if not loop_ref:
             return bounds
 
-        loop = self.entities.get(loop_ref)
-        if not loop:
-            return bounds
+        # Process all loops in the chain
+        while loop_ref and loop_ref not in visited_loops:
+            visited_loops.add(loop_ref)
+            loop = self.entities.get(loop_ref)
+            if not loop:
+                break
 
-        # Convert the loop to edge list
-        edges = self.convert_loop_to_edges(loop)
-        if edges:
-            edge_loop = geo_cu.EdgeLoop(edges)
-            bounds.append(geo_su.FaceBound(bound=edge_loop, orientation=True))
+            # Check if it's an AcisLoop instance
+            if not isinstance(loop, AcisLoop):
+                logger.warning(f"Expected AcisLoop but got {type(loop)}")
+                break
 
-        # TODO: Handle multiple loops (holes, etc.)
-        # For now, we only handle the first loop
+            # Convert the loop to edge list
+            edges = self.convert_loop_to_edges(loop)
+            if edges:
+                edge_loop = geo_cu.EdgeLoop(edges)
+                # First loop is outer boundary (orientation=True), rest are holes (orientation=False)
+                orientation = len(bounds) == 0
+                bounds.append(geo_su.FaceBound(bound=edge_loop, orientation=orientation))
+
+            # Move to next loop in chain
+            loop_ref = loop.next_loop_ref if hasattr(loop, 'next_loop_ref') else None
 
         return bounds
 
@@ -510,35 +523,204 @@ class AcisToAdaConverter:
                 knot_spec=KnotType.UNSPECIFIED
             )
 
-    def convert_cylinder_surface(self, surface: AcisCylinderSurface) -> Optional[geo_su.BSplineSurfaceWithKnots]:
+    def convert_cylinder_surface(self, surface: AcisCylinderSurface) -> geo_su.CylindricalSurface:
         """
-        Convert ACIS cylinder surface to adapy representation.
+        Convert ACIS cylinder surface to adapy CylindricalSurface.
 
-        Note: Cylindrical surfaces can be represented as B-splines or
-        as parametric surfaces. For now, we'll log and return a placeholder.
+        Args:
+            surface: AcisCylinderSurface entity
+
+        Returns:
+            CylindricalSurface object
         """
-        logger.info(f"Cylinder surface conversion (radius={surface.radius})")
-        # TODO: Implement proper cylinder surface conversion
-        # Could use BSplineSurface or a dedicated Cylinder class
-        return None
+        origin = Point(*surface.origin)
+        axis = Direction(*surface.axis).get_normalized()
+        major_axis = Direction(*surface.major_axis).get_normalized()
 
-    def convert_cone_surface(self, surface: AcisConeSurface) -> Optional[geo_su.BSplineSurfaceWithKnots]:
-        """Convert ACIS cone surface to adapy representation."""
-        logger.info("Cone surface conversion")
-        # TODO: Implement proper cone surface conversion
-        return None
+        position = Axis2Placement3D(
+            location=origin,
+            axis=axis,
+            ref_direction=major_axis
+        )
 
-    def convert_sphere_surface(self, surface: AcisSphereSurface) -> Optional[geo_su.BSplineSurfaceWithKnots]:
-        """Convert ACIS sphere surface to adapy representation."""
-        logger.info(f"Sphere surface conversion (radius={surface.radius})")
-        # TODO: Implement proper sphere surface conversion
-        return None
+        return geo_su.CylindricalSurface(position=position, radius=surface.radius)
 
-    def convert_torus_surface(self, surface: AcisTorusSurface) -> Optional[geo_su.BSplineSurfaceWithKnots]:
-        """Convert ACIS torus surface to adapy representation."""
-        logger.info(f"Torus surface conversion (major={surface.major_radius}, minor={surface.minor_radius})")
-        # TODO: Implement proper torus surface conversion
-        return None
+    def convert_cone_surface(self, surface: AcisConeSurface) -> geo_su.ConicalSurface:
+        """
+        Convert ACIS cone surface to adapy ConicalSurface.
+
+        Args:
+            surface: AcisConeSurface entity
+
+        Returns:
+            ConicalSurface object
+        """
+        import math
+
+        origin = Point(*surface.origin)
+        axis = Direction(*surface.axis).get_normalized()
+        major_axis = Direction(*surface.major_axis).get_normalized()
+
+        position = Axis2Placement3D(
+            location=origin,
+            axis=axis,
+            ref_direction=major_axis
+        )
+
+        # Calculate semi-angle from sine and cosine
+        # ACIS stores sine_angle and cosine_angle
+        semi_angle = math.atan2(surface.sine_angle, surface.cosine_angle)
+
+        # Calculate radius at the apex (base radius)
+        # For ACIS, the major_axis length gives the radius at the origin
+        radius = Direction(*surface.major_axis).get_length()
+
+        return geo_su.ConicalSurface(position=position, radius=radius, semi_angle=semi_angle)
+
+    def convert_sphere_surface(self, surface: AcisSphereSurface) -> geo_su.SphericalSurface:
+        """
+        Convert ACIS sphere surface to adapy SphericalSurface.
+
+        Args:
+            surface: AcisSphereSurface entity
+
+        Returns:
+            SphericalSurface object
+        """
+        center = Point(*surface.center)
+        pole = Direction(*surface.pole).get_normalized()
+        equator = Direction(*surface.equator).get_normalized()
+
+        position = Axis2Placement3D(
+            location=center,
+            axis=pole,
+            ref_direction=equator
+        )
+
+        return geo_su.SphericalSurface(position=position, radius=surface.radius)
+
+    def convert_torus_surface(self, surface: AcisTorusSurface) -> geo_su.ToroidalSurface:
+        """
+        Convert ACIS torus surface to adapy ToroidalSurface.
+
+        Args:
+            surface: AcisTorusSurface entity
+
+        Returns:
+            ToroidalSurface object
+        """
+        center = Point(*surface.center)
+        axis = Direction(*surface.axis).get_normalized()
+        major_axis = Direction(*surface.major_axis).get_normalized()
+
+        position = Axis2Placement3D(
+            location=center,
+            axis=axis,
+            ref_direction=major_axis
+        )
+
+        return geo_su.ToroidalSurface(
+            position=position,
+            major_radius=surface.major_radius,
+            minor_radius=surface.minor_radius
+        )
+
+    def convert_all_bodies(self) -> List[Tuple[str, List[geo_su.SURFACE_GEOM_TYPES]]]:
+        """
+        Convert all bodies in the ACIS model to adapy geometry organized by body.
+
+        Returns:
+            List of (body_name, [geometries]) tuples
+        """
+        results = []
+        bodies = self.parser.get_bodies()
+
+        logger.info(f"Converting {len(bodies)} bodies from ACIS to adapy geometry")
+
+        for body in bodies:
+            try:
+                name = self._get_body_name(body)
+                geometries = self.convert_body(body)
+                if geometries:
+                    results.append((name, geometries))
+            except Exception as e:
+                logger.warning(f"Failed to convert body {body.index}: {e}")
+
+        return results
+
+    def convert_body(self, body: AcisBody) -> List[geo_su.SURFACE_GEOM_TYPES]:
+        """
+        Convert an ACIS body to a list of adapy geometries.
+
+        Args:
+            body: AcisBody entity
+
+        Returns:
+            List of surface geometries
+        """
+        geometries = []
+
+        # Process all lumps in the body
+        lump_ref = body.lump_ref
+        while lump_ref:
+            lump = self.entities.get(lump_ref)
+            if not lump or not isinstance(lump, AcisLump):
+                break
+
+            # Process all shells in the lump
+            shell_ref = lump.shell_ref
+            while shell_ref:
+                shell = self.entities.get(shell_ref)
+                if not shell or not isinstance(shell, AcisShell):
+                    break
+
+                # Convert shell to geometry
+                shell_geom = self.convert_shell(shell)
+                if shell_geom:
+                    geometries.append(shell_geom)
+
+                # Move to next shell
+                shell_ref = shell.next_shell_ref if hasattr(shell, 'next_shell_ref') else None
+
+            # Move to next lump
+            lump_ref = lump.next_lump_ref if hasattr(lump, 'next_lump_ref') else None
+
+        return geometries
+
+    def convert_shell(self, shell: AcisShell) -> Optional[geo_su.ClosedShell | geo_su.OpenShell]:
+        """
+        Convert an ACIS shell to adapy ClosedShell or OpenShell.
+
+        Args:
+            shell: AcisShell entity
+
+        Returns:
+            ClosedShell or OpenShell geometry
+        """
+        faces = []
+        visited_faces = set()
+
+        # Collect all faces in the shell
+        face_ref = shell.face_ref
+        while face_ref and face_ref not in visited_faces:
+            visited_faces.add(face_ref)
+            face = self.entities.get(face_ref)
+            if not face or not isinstance(face, AcisFace):
+                break
+
+            # Convert face
+            face_geom = self.convert_face(face)
+            if face_geom:
+                faces.append(face_geom)
+
+            # Move to next face
+            face_ref = face.next_face_ref if hasattr(face, 'next_face_ref') else None
+
+        if not faces:
+            return None
+
+        # Assume closed shell for now (could check shell properties for open/closed)
+        return geo_su.ClosedShell(cfs_faces=faces)
 
     def _get_face_name(self, face: AcisFace) -> str:
         """
@@ -570,3 +752,16 @@ class AcisToAdaConverter:
         # Fallback to face index
         return f"face_{face.index}"
 
+    def _get_body_name(self, body: AcisBody) -> str:
+        """
+        Get the name of a body from its attributes.
+
+        Args:
+            body: AcisBody entity
+
+        Returns:
+            Body name string
+        """
+        # Try to get name from attributes (similar to face naming)
+        # For now, use body index
+        return f"body_{body.index}"

@@ -17,6 +17,48 @@ class Plane:
     position: Axis2Placement3D
 
 
+@dataclass
+class CylindricalSurface:
+    """
+    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcCylindricalSurface.htm)
+    STEP AP242 (https://www.steptools.com/stds/stp_aim/html/t_cylindrical_surface.html)
+    """
+    position: Axis2Placement3D
+    radius: float
+
+
+@dataclass
+class ConicalSurface:
+    """
+    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcSurface.htm)
+    STEP AP242 (https://www.steptools.com/stds/stp_aim/html/t_conical_surface.html)
+    """
+    position: Axis2Placement3D
+    radius: float
+    semi_angle: float  # Cone half-angle in radians
+
+
+@dataclass
+class SphericalSurface:
+    """
+    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcSphericalSurface.htm)
+    STEP AP242 (https://www.steptools.com/stds/stp_aim/html/t_spherical_surface.html)
+    """
+    position: Axis2Placement3D
+    radius: float
+
+
+@dataclass
+class ToroidalSurface:
+    """
+    IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcToroidalSurface.htm)
+    STEP AP242 (https://www.steptools.com/stds/stp_aim/html/t_toroidal_surface.html)
+    """
+    position: Axis2Placement3D
+    major_radius: float
+    minor_radius: float
+
+
 class ProfileType(Enum):
     AREA = "area"
     CURVE = "curve"
@@ -288,6 +330,11 @@ class AdvancedFace:
 
     bounds: list[FaceBound]
     face_surface: Union[
+        Plane,
+        CylindricalSurface,
+        ConicalSurface,
+        SphericalSurface,
+        ToroidalSurface,
         ArbitraryProfileDef,
         CircleProfileDef,
         RectangleProfileDef,
@@ -309,6 +356,10 @@ class ShellBasedSurfaceModel:
 
 SURFACE_GEOM_TYPES = Union[
     Plane,
+    CylindricalSurface,
+    ConicalSurface,
+    SphericalSurface,
+    ToroidalSurface,
     ArbitraryProfileDef,
     FaceBasedSurfaceModel,
     CurveBoundedPlane,
