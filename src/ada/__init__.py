@@ -112,6 +112,7 @@ def from_acis(sat_file: str | pathlib.Path, source_units=Units.M, use_new_parser
         Assembly object with parsed geometry
     """
     if use_new_parser:
+        from ada.geom import Geometry
         from ada.cadit.sat.parser import AcisSatParser, AcisToAdaConverter
 
         # Parse the SAT file
@@ -138,6 +139,8 @@ def from_acis(sat_file: str | pathlib.Path, source_units=Units.M, use_new_parser
             # TODO: Create proper Shape objects from ClosedShell geometry
             for i, geom in enumerate(geometries):
                 logger.debug(f"Body {body_name}: geometry {i} type={type(geom).__name__}")
+                shape = Shape(f"shape{i}", Geometry(i, geom))
+                part.add_shape(shape)
 
             a.add_part(part)
 
