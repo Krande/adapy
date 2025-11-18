@@ -165,6 +165,16 @@ class AcisSatParser:
                     # This is a float (control point), skip it
                     continue
 
+                # Check if parts[1] is a valid entity type (not a number)
+                # Valid entity types are strings like "body", "lump", "shell", "face", etc.
+                try:
+                    float(parts[1])
+                    # If parts[1] can be parsed as a number, this is not an entity line
+                    continue
+                except ValueError:
+                    # Good, parts[1] is not a number, so it's likely an entity type
+                    pass
+
                 entity_str = line
 
                 # Check if this entity contains braces (spline data)
@@ -180,7 +190,8 @@ class AcisSatParser:
                         entity_str += "\n" + next_line.rstrip()
                         if "}" in next_line:
                             break
-                else:
+                elif not line.rstrip().endswith("#"):
+                    # Only read continuation lines if current line doesn't end with #
                     # Read continuation lines (lines without - or # marker at start)
                     while True:
                         pos = f.tell()
@@ -193,6 +204,9 @@ class AcisSatParser:
                             f.seek(pos)
                             break
                         entity_str += " " + next_line_stripped
+                        # Check if we've reached the end marker
+                        if entity_str.rstrip().endswith("#"):
+                            break
 
                 # Parse the entity
                 entity = self._parse_entity_line(entity_str)
@@ -298,41 +312,51 @@ class AcisSatParser:
     # Entity-specific parsers
 
     def _parse_body(self, index: int, data: str) -> AcisBody:
-        """Parse body entity."""
+        """Parse body entity.
+
+        Format: $<attrib> <next> <prev> $<owner> $<lump> $<wire> $<transform> <flags> [bbox]
+        """
         parts = data.split()
         return AcisBody(
             index=index,
             entity_type="body",
-            lump_ref=self._parse_ref(parts[1]) if len(parts) > 1 else None,
-            wire_ref=self._parse_ref(parts[2]) if len(parts) > 2 else None,
-            transform_ref=self._parse_ref(parts[3]) if len(parts) > 3 else None,
-            bounding_box=self._parse_bbox(parts, 5) if len(parts) > 10 else None
+            lump_ref=self._parse_ref(parts[4]) if len(parts) > 4 else None,
+            wire_ref=self._parse_ref(parts[5]) if len(parts) > 5 else None,
+            transform_ref=self._parse_ref(parts[6]) if len(parts) > 6 else None,
+            bounding_box=self._parse_bbox(parts, 8) if len(parts) > 13 else None
         )
 
     def _parse_lump(self, index: int, data: str) -> AcisLump:
-        """Parse lump entity."""
+        """Parse lump entity.
+
+        Format: $<next_lump> <next> <prev> $<owner> $<unknown> $<shell> $<body> <flags> [bbox]
+        """
         parts = data.split()
         return AcisLump(
             index=index,
             entity_type="lump",
             next_lump_ref=self._parse_ref(parts[0]) if len(parts) > 0 else None,
-            shell_ref=self._parse_ref(parts[2]) if len(parts) > 2 else None,
-            body_ref=self._parse_ref(parts[3]) if len(parts) > 3 else None,
-            bounding_box=self._parse_bbox(parts, 5) if len(parts) > 10 else None
+            shell_ref=self._parse_ref(parts[5]) if len(parts) > 5 else None,
+            body_ref=self._parse_ref(parts[6]) if len(parts) > 6 else None,
+            bounding_box=self._parse_bbox(parts, 8) if len(parts) > 13 else None
         )
 
+
     def _parse_shell(self, index: int, data: str) -> AcisShell:
-        """Parse shell entity."""
+        """Parse shell entity.
+
+        Format: $<next_shell> <next> <prev> $<owner> $<subshell> $<...> $<face> $<wire> $<lump> <flags> [bbox]
+        """
         parts = data.split()
         return AcisShell(
             index=index,
             entity_type="shell",
             next_shell_ref=self._parse_ref(parts[0]) if len(parts) > 0 else None,
-            subshell_ref=self._parse_ref(parts[2]) if len(parts) > 2 else None,
-            face_ref=self._parse_ref(parts[3]) if len(parts) > 3 else None,
-            wire_ref=self._parse_ref(parts[4]) if len(parts) > 4 else None,
-            lump_ref=self._parse_ref(parts[5]) if len(parts) > 5 else None,
-            bounding_box=self._parse_bbox(parts, 7) if len(parts) > 12 else None
+            subshell_ref=self._parse_ref(parts[4]) if len(parts) > 4 else None,
+            face_ref=self._parse_ref(parts[6]) if len(parts) > 6 else None,
+            wire_ref=self._parse_ref(parts[7]) if len(parts) > 7 else None,
+            lump_ref=self._parse_ref(parts[8]) if len(parts) > 8 else None,
+            bounding_box=self._parse_bbox(parts, 10) if len(parts) > 15 else None
         )
 
     def _parse_subshell(self, index: int, data: str) -> AcisSubshell:

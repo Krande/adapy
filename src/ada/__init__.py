@@ -118,17 +118,30 @@ def from_acis(sat_file: str | pathlib.Path, source_units=Units.M, use_new_parser
         parser = AcisSatParser(sat_file)
         parser.parse()
 
-        # Convert to adapy geometry
+        # Convert to adapy geometry using body-based organization
         converter = AcisToAdaConverter(parser)
-        faces = converter.convert_all_faces()
+        bodies = converter.convert_all_bodies()
 
         # Create assembly
         a = Assembly(units=source_units, name="ACIS_Import")
-        part = Part("Main")
 
-        # Add geometry to part
-        # TODO: Implement full geometry integration
-        logger.info(f"Imported {len(faces)} faces from ACIS SAT file")
+        # Create a part for each body
+        for body_name, geometries in bodies:
+            if not geometries:
+                logger.debug(f"Skipping body {body_name} - no geometries")
+                continue
+
+            part = Part(body_name)
+
+            # Each geometry is a ClosedShell or OpenShell containing face geometry
+            # For now, we'll add the part without shapes (geometry data is preserved in the conversion)
+            # TODO: Create proper Shape objects from ClosedShell geometry
+            for i, geom in enumerate(geometries):
+                logger.debug(f"Body {body_name}: geometry {i} type={type(geom).__name__}")
+
+            a.add_part(part)
+
+        logger.info(f"Imported {len(bodies)} bodies from ACIS SAT file")
 
         return a
     else:
