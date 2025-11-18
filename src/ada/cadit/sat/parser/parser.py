@@ -419,16 +419,19 @@ class AcisSatParser:
         )
 
     def _parse_coedge(self, index: int, data: str) -> AcisCoedge:
-        """Parse coedge entity."""
+        """Parse coedge entity.
+
+        Format: $<attrib> -1 -1 $-1 $<next> $<prev> $<partner> $<edge> <sense> $<loop> $<pcurve> #
+        """
         parts = data.split()
         return AcisCoedge(
             index=index,
             entity_type="coedge",
-            next_coedge_ref=self._parse_ref(parts[0]) if len(parts) > 0 else None,
-            previous_coedge_ref=self._parse_ref(parts[1]) if len(parts) > 1 else None,
-            partner_coedge_ref=self._parse_ref(parts[2]) if len(parts) > 2 else None,
-            attrib_ref=self._parse_ref(parts[3]) if len(parts) > 3 else None,
-            loop_ref=self._parse_ref(parts[5]) if len(parts) > 5 else None,
+            next_coedge_ref=self._parse_ref(parts[4]) if len(parts) > 4 else None,
+            previous_coedge_ref=self._parse_ref(parts[5]) if len(parts) > 5 else None,
+            partner_coedge_ref=self._parse_ref(parts[6]) if len(parts) > 6 else None,
+            attrib_ref=self._parse_ref(parts[0]) if len(parts) > 0 else None,
+            loop_ref=self._parse_ref(parts[9]) if len(parts) > 9 else None,
             edge_ref=self._parse_ref(parts[7]) if len(parts) > 7 else None,
             sense=self._parse_sense(parts[8]) if len(parts) > 8 else SenseType.FORWARD
         )

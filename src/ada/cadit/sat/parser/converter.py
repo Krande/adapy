@@ -357,6 +357,24 @@ class AcisToAdaConverter:
         # For ACIS format, multiplicities are already provided
         knot_multiplicities = [int(m) for m in spline_data.knot_multiplicities]
 
+        # ACIS Fix: For open B-splines, ACIS may store end multiplicities as `degree`
+        # but OCC/STEP requires them to be `degree + 1` for clamped curves.
+        # Check if this is an open curve that needs adjustment.
+        n_poles = len(control_points)
+        degree = spline_data.degree
+        sum_mults = sum(knot_multiplicities)
+        expected_sum = n_poles + degree + 1
+
+        if sum_mults != expected_sum and len(knot_multiplicities) >= 2:
+            # Likely needs adjustment for open curve
+            # Increase first and last multiplicity by 1
+            logger.debug(f"Adjusting ACIS knot multiplicities from {knot_multiplicities} "
+                        f"(sum={sum_mults}) to match OCC convention (expected sum={expected_sum})")
+            knot_multiplicities = knot_multiplicities.copy()
+            knot_multiplicities[0] += 1
+            knot_multiplicities[-1] += 1
+            logger.debug(f"Adjusted multiplicities: {knot_multiplicities} (sum={sum(knot_multiplicities)})")
+
         # Determine if it's rational
         is_rational = any(isinstance(cp, (list, tuple)) and len(cp) > 3 for cp in spline_data.control_points)
 

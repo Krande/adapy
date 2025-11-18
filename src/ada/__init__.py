@@ -98,15 +98,15 @@ def from_step(step_file: str | pathlib.Path, source_units=Units.M, **kwargs) -> 
     a.read_step_file(step_file, source_units=source_units, **kwargs)
     return a
 
-def from_acis(sat_file: str | pathlib.Path, source_units=Units.M, split: bool = False) -> Assembly:
+def from_acis(sat_file: str | pathlib.Path, source_units=Units.M, split: bool = False, limit: int = None) -> Assembly:
     """
     Create an Assembly object from an ACIS SAT file.
 
     Args:
         sat_file: Path to ACIS SAT file
         source_units: Units of the SAT file
-        use_new_parser: If True, use the new comprehensive parser (recommended)
-        **kwargs: Additional arguments
+        split: If True, split shells into individual AdvancedFace objects
+        limit: Limit the number of geometries to export (useful for debugging)
 
     Returns:
         Assembly object with parsed geometry
@@ -131,6 +131,11 @@ def from_acis(sat_file: str | pathlib.Path, source_units=Units.M, split: bool = 
             logger.debug(f"Skipping body {body_name} - no geometries")
             continue
 
+        # Apply limit if specified
+        if limit is not None and limit > 0:
+            geometries = geometries[:limit]
+            logger.info(f"Limiting body {body_name} to {len(geometries)} geometries (limit={limit})")
+
         # Suffix part name in split mode to indicate faces
         part = Part(body_name if not split else f"{body_name}_faces")
 
@@ -151,11 +156,23 @@ def from_acis(sat_file: str | pathlib.Path, source_units=Units.M, split: bool = 
                 # If geometry is a ClosedShell/OpenShell, split into faces
                 if isinstance(geom, (geo_su.ClosedShell, geo_su.OpenShell)):
                     faces = getattr(geom, "cfs_faces", [])
+
+                    # Apply limit to faces if specified
+                    if limit is not None and limit > 0:
+                        remaining_limit = limit - shape_count
+                        if remaining_limit <= 0:
+                            break
+                        faces = faces[:remaining_limit]
+
                     for j, face in enumerate(faces):
                         # face is expected to be geo_su.AdvancedFace
                         shape = Shape(f"face_{i}_{j}", Geometry(j, face))
                         part.add_shape(shape)
                         shape_count += 1
+
+                        # Check if we hit the limit
+                        if limit is not None and shape_count >= limit:
+                            break
                 elif isinstance(geom, geo_su.AdvancedFace):
                     shape = Shape(f"face_{i}", Geometry(i, geom))
                     part.add_shape(shape)
@@ -165,6 +182,10 @@ def from_acis(sat_file: str | pathlib.Path, source_units=Units.M, split: bool = 
                     shape = Shape(f"shape_{i}", Geometry(i, geom))
                     part.add_shape(shape)
                     shape_count += 1
+
+                # Check if we hit the limit
+                if limit is not None and shape_count >= limit:
+                    break
 
         logger.info(f"Added part '{part.name}' with {shape_count} shape(s) ({'split' if split else 'grouped'} mode)")
 
