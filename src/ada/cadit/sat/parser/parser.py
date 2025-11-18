@@ -697,8 +697,25 @@ class AcisSatParser:
         control_points = []
         for i in range(2, len(lines)):
             try:
-                cp_data = [float(x) for x in lines[i].split()]
-                control_points.append(cp_data)
+                line_parts = lines[i].split()
+                # Skip lines that contain only keywords or are not control point data
+                if not line_parts or line_parts[0] in ['null_surface', 'nullbs', 'I', 'F', 'none', 'spline']:
+                    continue
+                # Skip lines starting with @ (references)
+                if line_parts[0].startswith('@'):
+                    continue
+
+                # Try to parse as numeric control point data
+                cp_data = []
+                for part in line_parts:
+                    try:
+                        cp_data.append(float(part))
+                    except ValueError:
+                        break  # Stop if we hit a non-numeric value
+
+                # Only add control points with at least 3 coordinates (x, y, z)
+                if len(cp_data) >= 3:
+                    control_points.append(cp_data)
             except ValueError:
                 continue
 

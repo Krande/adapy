@@ -76,6 +76,8 @@ class AcisToAdaConverter:
                 if geometry:
                     results.append((name, geometry))
             except Exception as e:
+                import traceback
+                trace = traceback.format_exc()
                 logger.warning(f"Failed to convert face {face.index}: {e}")
 
         return results
@@ -210,14 +212,18 @@ class AcisToAdaConverter:
         start_vertex = self.entities.get(edge.start_vertex_ref)
         end_vertex = self.entities.get(edge.end_vertex_ref)
 
-        if not start_vertex or not end_vertex:
+        if start_vertex is None or end_vertex is None:
+            return None
+
+        # Check if vertices are AcisVertex instances
+        if not isinstance(start_vertex, AcisVertex) or not isinstance(end_vertex, AcisVertex):
             return None
 
         # Convert vertices to points
         p1 = self.convert_vertex(start_vertex)
         p2 = self.convert_vertex(end_vertex)
 
-        if not p1 or not p2:
+        if p1 is None or p2 is None:
             return None
 
         # Flip points if coedge is reversed
@@ -330,10 +336,14 @@ class AcisToAdaConverter:
 
         spline_data = curve.spline_data
 
-        # Convert control points to Point objects
-        control_points = [
-            Point(*cp[:3]) for cp in spline_data.control_points
-        ]
+        # Validate and convert control points to Point objects
+        control_points = []
+        for cp in spline_data.control_points:
+            # Ensure cp is a list/array with at least 3 elements
+            if not isinstance(cp, (list, tuple)) or len(cp) < 3:
+                logger.warning(f"Invalid control point format: {cp} for curve idx {curve.index}. Expected list with at least 3 coordinates.")
+                return None
+            control_points.append(Point(cp[0], cp[1], cp[2]))
 
         if not control_points:
             return None
@@ -343,10 +353,11 @@ class AcisToAdaConverter:
         knot_multiplicities = [int(m) for m in spline_data.knot_multiplicities]
 
         # Determine if it's rational
-        is_rational = any(len(cp) > 3 for cp in spline_data.control_points)
+        is_rational = any(isinstance(cp, (list, tuple)) and len(cp) > 3 for cp in spline_data.control_points)
 
         if is_rational:
-            weights = [cp[3] if len(cp) > 3 else 1.0 for cp in spline_data.control_points]
+            weights = [cp[3] if isinstance(cp, (list, tuple)) and len(cp) > 3 else 1.0
+                      for cp in spline_data.control_points]
             return geo_cu.RationalBSplineCurveWithKnots(
                 degree=spline_data.degree,
                 control_points_list=control_points,
