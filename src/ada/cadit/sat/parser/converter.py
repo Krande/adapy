@@ -234,10 +234,92 @@ class AcisToAdaConverter:
             curve = geo_cu.Line(p1, Direction(p2 - p1))
 
         # Create edge curve
-        edge_curve = geo_cu.EdgeCurve(start=p1, end=p2, edge_geometry=curve, same_sense=True)
+        # If edge and coedge have the same sense (both forward or both reversed), 
+        # then the edge curve (defined by p1->p2) aligns with the underlying curve geometry direction.
+        # p1 and p2 are already swapped if coedge is reversed.
+        # So p1->p2 represents the Loop direction.
+        # If Edge is Forward, Curve matches VertexStart->VertexEnd.
+        # If Coedge is Forward, p1=VertexStart, p2=VertexEnd. So Curve matches p1->p2. (SameSense=True).
+        # If Coedge is Reversed, p1=VertexEnd, p2=VertexStart. So Curve matches p2->p1. (SameSense=False).
+        # If Edge is Reversed, Curve matches VertexEnd->VertexStart.
+        # If Coedge is Forward, p1=VertexStart, p2=VertexEnd. So Curve matches p2->p1. (SameSense=False).
+        # If Coedge is Reversed, p1=VertexEnd, p2=VertexStart. So Curve matches p1->p2. (SameSense=True).
+        
+        is_edge_fwd = edge.sense.value == "forward"
+        is_coedge_fwd = coedge.sense.value == "forward"
+        same_sense = is_edge_fwd == is_coedge_fwd
+        
+        edge_curve = geo_cu.EdgeCurve(start=p1, end=p2, edge_geometry=curve, same_sense=same_sense)
 
         # Determine orientation
-        orientation = edge.sense.value == "forward"
+        # If edge and coedge agree (SameSense=True), then OrientedEdge follows EdgeCurve.
+        # EdgeCurve follows p1->p2.
+        # If SameSense=True, Curve follows p1->p2.
+        # If SameSense=False, Curve follows p2->p1.
+        
+        # Standard: OrientedEdge orientation is True if it follows underlying EdgeCurve direction.
+        # EdgeCurve direction is defined as p1->p2.
+        # So OrientedEdge(start=p1, end=p2, ..., orientation=True) traverses p1->p2.
+        # OrientedEdge(start=p1, end=p2, ..., orientation=False) traverses p2->p1.
+        
+        # But we want to traverse p1->p2 (Loop direction).
+        # So we should use orientation=True?
+        
+        # Wait, if SameSense=False (Edge opposes Curve).
+        # And we want p1->p2.
+        # If we create EdgeCurve(p1, p2, SameSense=False).
+        # This means EdgeCurve traverses p1->p2 (Topology), but Curve is p2->p1 (Geometry).
+        # If we wrap it in OrientedEdge(orientation=True).
+        # It traverses p1->p2.
+        
+        # If we create EdgeCurve(p2, p1, SameSense=True).
+        # This means EdgeCurve traverses p2->p1 (Topology), and Curve is p2->p1 (Geometry).
+        # If we want p1->p2.
+        # We wrap in OrientedEdge(orientation=False).
+        
+        # The adapy EdgeCurve(start, end) seems to define the topological edge p1->p2.
+        # So if we always define start=p1, end=p2.
+        # Then OrientedEdge should always be True (to use p1->p2).
+        
+        # BUT, earlier analysis of STEP showed Orientation=REVERSED.
+        # This implies STEP constructed the edge using p2->p1?
+        # Or STEP constructed p1->p2 and used REVERSED?
+        # If p1->p2 is used Reversed, it traverses p2->p1.
+        # But Loop needs p1->p2.
+        # This means STEP constructed Edge as p2->p1.
+        # And Reversed it to get p1->p2.
+        
+        # In my case, p2 corresponds to u_min (0) [Bottom].
+        # p1 corresponds to u_max (11.56) [Top].
+        # Curve is Bottom->Top.
+        # So "Natural" Edge is Bottom->Top (p2->p1).
+        # So we should construct EdgeCurve(start=p2, end=p1, same_sense=True).
+        # And use it with Orientation=False (to get p1->p2).
+        
+        # Currently I construct EdgeCurve(start=p1, end=p2, same_sense=False).
+        # This attempts to define an Edge that goes Top->Bottom, opposing Curve.
+        # Does make_edge_from_edge support this?
+        # It projects p1 -> u_max, p2 -> u_min.
+        # MakeEdge(curve, u_max, u_min).
+        # This might fail or produce p2->p1 (Forward).
+        # If it produces p2->p1.
+        # And I return OrientedEdge(orientation=True).
+        # Then I get p2->p1.
+        # But I need p1->p2.
+        # So I need Orientation=False.
+        
+        # So: If I use p1 (u_max) and p2 (u_min).
+        # MakeEdge creates p2->p1.
+        # I need p1->p2.
+        # So I need Orientation=False.
+        
+        # When does this happen?
+        # When p1 is u_max. i.e. SameSense=False.
+        
+        # So if SameSense=False -> Orientation=False.
+        # If SameSense=True -> Orientation=True.
+        
+        orientation = same_sense
 
         return geo_cu.OrientedEdge(start=p1, end=p2, edge_element=edge_curve, orientation=orientation)
 
@@ -471,17 +553,20 @@ class AcisToAdaConverter:
             return None
 
         # Calculate multiplicities
-        num_u_points = len(control_points_list)
-        num_v_points = len(control_points_list[0]) if control_points_list else 0
-
-        u_mult, v_mult = calculate_multiplicities(
-            spline_data.u_degree,
-            spline_data.v_degree,
-            spline_data.u_knots,
-            spline_data.v_knots,
-            num_u_points,
-            num_v_points,
-        )
+        u_mult = [int(m) for m in spline_data.u_knot_multiplicities]
+        v_mult = [int(m) for m in spline_data.v_knot_multiplicities]
+        
+        # Adjust multiplicities for OCC/IFC compatibility if needed
+        # OCC typically expects degree+1 at ends for clamped curves/surfaces
+        if u_mult and u_mult[0] == spline_data.u_degree:
+             u_mult[0] += 1
+        if u_mult and u_mult[-1] == spline_data.u_degree:
+             u_mult[-1] += 1
+             
+        if v_mult and v_mult[0] == spline_data.v_degree:
+             v_mult[0] += 1
+        if v_mult and v_mult[-1] == spline_data.v_degree:
+             v_mult[-1] += 1
 
         if is_rational:
             return geo_su.RationalBSplineSurfaceWithKnots(

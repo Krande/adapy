@@ -121,6 +121,7 @@ def parse_spline_curve_data(spline_str: str) -> Optional[AcisSplineCurveData]:
         # Closure
         closure = ClosureType.OPEN
         clos_idx = _find_token(header_tokens, ["open", "periodic", "closed"])  # ACIS uses open/periodic
+        num_knots = None
         if clos_idx != -1:
             val = header_tokens[clos_idx].lower()
             if val == "open":
@@ -130,31 +131,82 @@ def parse_spline_curve_data(spline_str: str) -> Optional[AcisSplineCurveData]:
             elif val == "closed":
                 closure = ClosureType.CLOSED
 
+            # Try to read number of knots (usually follows closure keyword)
+            nk_val = _next_number(header_tokens, clos_idx + 1)
+            if nk_val is not None:
+                num_knots = int(nk_val)
+
         # Gather knot pairs from subsequent lines (may span multiple lines)
         knots: List[float] = []
         mults: List[int] = []
         nums: List[float] = []
+        
+        expected_values = num_knots * 2 if num_knots is not None else None
+        
+        # Track where we stopped reading knots
+        knot_end_idx = 1
+
         for i in range(1, len(lines)):
+            knot_end_idx = i
+            # If we have collected enough values, stop
+            if expected_values is not None and len(nums) >= expected_values:
+                break
+
             # Stop at the first line that looks like a 3-value control point row
-            if _looks_like_cp_row(lines[i]):
+            # ONLY if we don't have a specific expected count
+            if expected_values is None and _looks_like_cp_row(lines[i]):
                 break
             nums.extend(_to_floats_safe(lines[i].split()))
+            
+        # If we broke because we had enough values, we haven't consumed the current line 'i'
+        # UNLESS we consumed it in the previous iteration.
+        # Actually, let's simplify: verify if we consumed line 'i' or not.
+        # If len(nums) >= expected BEFORE extend, we break and don't consume i.
+        # If len(nums) < expected, we consume i.
+        # So knot_end_idx should point to the first line NOT consumed for knots.
+        
+        # Re-implementing loop for clarity and correctness
+        nums = []
+        knot_end_idx = 1
+        for i in range(1, len(lines)):
+            if expected_values is not None and len(nums) >= expected_values:
+                knot_end_idx = i
+                break
+            
+            # Check heuristic only if count unknown
+            if expected_values is None and _looks_like_cp_row(lines[i]):
+                knot_end_idx = i
+                break
+                
+            nums.extend(_to_floats_safe(lines[i].split()))
+            knot_end_idx = i + 1
 
         for i in range(0, len(nums) - 1, 2):
             knots.append(nums[i])
             mults.append(int(round(nums[i + 1])))
 
         # Number of poles from multiplicities and degree if available
-        n_poles = (sum(mults) - degree - 1) if mults else 0
+        # ACIS 'open' curves often imply multiplicity = degree + 1 at ends,
+        # even if the file stores multiplicity = degree.
+        # We must account for this to calculate the correct number of poles.
+        current_sum_mults = sum(mults) if mults else 0
+        if closure == ClosureType.OPEN and mults:
+            if mults[0] == degree:
+                current_sum_mults += 1
+            if mults[-1] == degree:
+                current_sum_mults += 1
+        
+        n_poles = (current_sum_mults - degree - 1) if mults else 0
 
         # Control points follow after knots; collect exactly n_poles rows
         cps: List[List[float]] = []
-        # Find starting line index for CPs
-        cp_start = 1
-        for i in range(1, len(lines)):
+        # Find starting line index for CPs - start search from where knots ended
+        cp_start = knot_end_idx
+        for i in range(knot_end_idx, len(lines)):
             if _looks_like_cp_row(lines[i]):
                 cp_start = i
                 break
+        
         if n_poles <= 0:
             # Fallback: try to parse all remaining rows with 3 or 4 floats
             for i in range(cp_start, len(lines)):
