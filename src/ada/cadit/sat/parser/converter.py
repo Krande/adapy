@@ -439,15 +439,33 @@ class AcisToAdaConverter:
 
         spline_data = surface.spline_data
 
+        # Determine if it's rational
+        is_rational = any(len(v_point) > 3 for u_row in spline_data.control_points for v_point in u_row)
+
         # Convert control points to Point objects
         control_points_list = []
+        weights_data = [] if is_rational else None
+
         for u_row in spline_data.control_points:
             row = []
+            w_row = [] if is_rational else None
             for v_point in u_row:
-                if len(v_point) >= 3:
-                    row.append(Point(*v_point[:3]))
+                if is_rational:
+                    w = v_point[3] if len(v_point) > 3 else 1.0
+                    # ACIS stores homogeneous coordinates (wx, wy, wz), so divide by w
+                    x = v_point[0] / w if w != 0 else v_point[0]
+                    y = v_point[1] / w if w != 0 else v_point[1]
+                    z = v_point[2] / w if w != 0 else v_point[2]
+                    row.append(Point(x, y, z))
+                    w_row.append(w)
+                else:
+                    if len(v_point) >= 3:
+                        row.append(Point(*v_point[:3]))
+            
             if row:
                 control_points_list.append(row)
+                if is_rational:
+                    weights_data.append(w_row)
 
         if not control_points_list:
             return None
@@ -465,18 +483,7 @@ class AcisToAdaConverter:
             num_v_points,
         )
 
-        # Determine if it's rational
-        is_rational = any(len(v_point) > 3 for u_row in spline_data.control_points for v_point in u_row)
-
         if is_rational:
-            # Extract weights
-            weights_data = []
-            for u_row in spline_data.control_points:
-                weights_row = []
-                for v_point in u_row:
-                    weights_row.append(v_point[3] if len(v_point) > 3 else 1.0)
-                weights_data.append(weights_row)
-
             return geo_su.RationalBSplineSurfaceWithKnots(
                 u_degree=spline_data.u_degree,
                 v_degree=spline_data.v_degree,
