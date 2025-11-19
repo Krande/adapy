@@ -715,7 +715,7 @@ class AcisSatParser:
             v_knots = v_knot_data[0::2]
             v_multiplicities = v_knot_data[1::2]
 
-        # Calculate control point counts
+        # Calculate control points count
         control_points_u = int(sum(u_multiplicities)) + 1 - u_degree if u_multiplicities else 0
         control_points_v = int(sum(v_multiplicities)) + 1 - v_degree if v_multiplicities else 0
 

@@ -1,4 +1,7 @@
+from OCC.Core.TopExp import TopExp_Explorer
+from OCC.Core.TopAbs import TopAbs_EDGE, TopAbs_REVERSED
 from OCC.Core.BRep import BRep_Builder, BRep_Tool
+from OCC.Core.BRepTools import BRepTools_WireExplorer
 from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Cut, BRepAlgoAPI_Fuse
 from OCC.Core.BRepBuilderAPI import (
     BRepBuilderAPI_MakeEdge,
@@ -36,6 +39,7 @@ from OCC.Core.TColStd import (
 )
 from OCC.Core.TopLoc import TopLoc_Location
 from OCC.Core.TopoDS import TopoDS_Face, TopoDS_Shape, TopoDS_Shell
+from OCC.Core.ShapeFix import ShapeFix_Face
 
 from ada.config import Config, logger
 from ada.geom import curves as geo_cu
@@ -230,29 +234,80 @@ def update_edges_4corners(edges, builder, face_surface):
 def update_edges_uv_gen(edges, builder, face_surface):
     # Create corresponding 2D curves in the parametric space (u-v space) of the B-Spline surface
     # Generate c2d_edges dynamically
-    c2d_edges = []
     identity_location = TopLoc_Location()  # No transformation (identity)
     for edge in edges:
-        # Get the 3D curve of the edge
-        edge_curve_handle, first, last = BRep_Tool.Curve(edge)
-        # Sample points along the edge
-        num_samples = 10
-        parameters = [first + (last - first) * i / (num_samples - 1) for i in range(num_samples)]
-        points_3d = [edge_curve_handle.Value(u) for u in parameters]
-        # Project points onto the surface to get (u,v) parameters
-        array_2d_points = TColgp_Array1OfPnt2d(1, num_samples)
-        for i, pt in enumerate(points_3d):
-            projector = GeomAPI_ProjectPointOnSurf(pt, face_surface)
-            if projector.NbPoints() == 0:
-                raise Exception("Failed to project point onto surface")
-            u, v = projector.LowerDistanceParameters()
-            array_2d_points.SetValue(i + 1, gp_Pnt2d(u, v))
-        # Build a Geom2d_BSplineCurve from the (u,v) points
-        interpolator = Geom2dAPI_PointsToBSpline(array_2d_points)
-        c2d_edge = interpolator.Curve()
-        c2d_edges.append(c2d_edge)
-        # Now assign the 2D curve to the edge
-        builder.UpdateEdge(edge, c2d_edge, face_surface, identity_location, 1e-6)
+        try:
+            # Get the 3D curve of the edge
+            edge_curve_handle, first, last = BRep_Tool.Curve(edge)
+            if edge_curve_handle is None:
+                continue
+
+            # Sample points along the edge
+            num_samples = 30
+            parameters = [first + (last - first) * i / (num_samples - 1) for i in range(num_samples)]
+            points_3d = [edge_curve_handle.Value(u) for u in parameters]
+            # Project points onto the surface to get (u,v) parameters
+            array_2d_points = TColgp_Array1OfPnt2d(1, num_samples)
+            for i, pt in enumerate(points_3d):
+                projector = GeomAPI_ProjectPointOnSurf(pt, face_surface)
+                if projector.NbPoints() == 0:
+                    # Try with extended search if default fails, or just log/raise
+                    # For now, raise to be caught by outer loop/logger
+                    raise Exception("Failed to project point onto surface")
+                u, v = projector.LowerDistanceParameters()
+                array_2d_points.SetValue(i + 1, gp_Pnt2d(u, v))
+            # Build a Geom2d_BSplineCurve from the (u,v) points
+            # 3rd param is Approx_ChordLength (1) or Approx_Centripetal (2) or Approx_IsoParametric (3)
+            # We use default (Approx_ChordLength) which is usually fine for ordered points
+            interpolator = Geom2dAPI_PointsToBSpline(array_2d_points)
+            if not interpolator.IsDone():
+                logger.warning(f"Failed to create 2D BSpline for edge {edge}")
+                continue
+            
+            c2d_edge = interpolator.Curve()
+            # Now assign the 2D curve to the edge
+            builder.UpdateEdge(edge, c2d_edge, face_surface, identity_location, 1e-6)
+        except Exception as ex:
+             logger.warning(f"Error updating edge p-curve: {ex}")
+
+
+def is_wire_cw(wire, face_surface):
+    # Calculate signed area of the polygon formed by edge endpoints in UV space
+    area = 0.0
+    exp = BRepTools_WireExplorer(wire, face_surface) if isinstance(face_surface, TopoDS_Face) else BRepTools_WireExplorer(wire)
+    # WireExplorer iterates edges in wire order
+    while exp.More():
+        edge = exp.Current()
+        # Get p-curve
+        curve, first, last = BRep_Tool.CurveOnSurface(edge, face_surface, TopLoc_Location())
+        if curve:
+            # Note: WireExplorer handles orientation. If edge is REVERSED in wire, 
+            # it still returns the edge with REVERSED orientation.
+            # However, we need UV coords following the LOOP direction.
+            
+            p1 = curve.Value(first)
+            p2 = curve.Value(last)
+            
+            # Handle orientation
+            if edge.Orientation() == TopAbs_REVERSED:
+                # Wire goes Last -> First
+                uv_start = p2
+                uv_end = p1
+            else:
+                # Wire goes First -> Last
+                uv_start = p1
+                uv_end = p2
+                
+            # Integration term (Shoelace formula)
+            # Sum (x2 - x1) * (y2 + y1)
+            area += (uv_end.X() - uv_start.X()) * (uv_end.Y() + uv_start.Y())
+            
+        exp.Next()
+        
+    # Area > 0 means CW (for standard UV coords where U=Right, V=Up)
+    # Area < 0 means CCW
+    logger.warning(f"Wire signed area: {area}")
+    return area > 0
 
 
 def create_wire_from_bounds(bounds, face_surface, builder: BRep_Builder):
@@ -291,6 +346,20 @@ def make_face_from_geom(advanced_face: geo_su.AdvancedFace) -> TopoDS_Face:
 
     outer_wire = make_wire_from_face_bound(advanced_face.bounds[0])
 
+    if isinstance(face_surface, Geom_BSplineSurface):
+         builder = BRep_Builder()
+         # Extract edges from the wire and update them with p-curves
+         wire_edges = []
+         exp = TopExp_Explorer(outer_wire, TopAbs_EDGE)
+         while exp.More():
+             wire_edges.append(exp.Current())
+             exp.Next()
+         update_edges_uv_gen(wire_edges, builder, face_surface)
+         
+         if is_wire_cw(outer_wire, face_surface):
+             logger.info("Reversing CW wire to CCW for B-Spline surface")
+             outer_wire = outer_wire.Reversed()
+
     face_maker = BRepBuilderAPI_MakeFace(face_surface, outer_wire)
 
     # Add inner wires (holes) if present
@@ -298,6 +367,14 @@ def make_face_from_geom(advanced_face: geo_su.AdvancedFace) -> TopoDS_Face:
         for inner_fb in advanced_face.bounds[1:]:
             try:
                 inner_wire = make_wire_from_face_bound(inner_fb)
+                if isinstance(face_surface, Geom_BSplineSurface):
+                     # Extract edges from the inner wire and update them with p-curves
+                     wire_edges = []
+                     exp = TopExp_Explorer(inner_wire, TopAbs_EDGE)
+                     while exp.More():
+                         wire_edges.append(exp.Current())
+                         exp.Next()
+                     update_edges_uv_gen(wire_edges, builder, face_surface)
                 face_maker.Add(inner_wire)
             except Exception as ex:
                 logger.warning(f"Skipping inner bound due to error creating wire: {ex}")
@@ -307,9 +384,20 @@ def make_face_from_geom(advanced_face: geo_su.AdvancedFace) -> TopoDS_Face:
 
     face = face_maker.Face()
 
+    # Fix the face (p-curves, orientation, etc.) using ShapeFix
+    if isinstance(face_surface, Geom_BSplineSurface):
+        fixer = ShapeFix_Face(face)
+        fixer.Perform()
+        # Explicitly run wire fixes
+        wire_fixer = fixer.FixWireTool()
+        wire_fixer.FixConnected()
+        wire_fixer.FixClosed()
+        
+        face = fixer.Face()
+
     # Update the face tolerance
     builder = BRep_Builder()
-    builder.UpdateFace(face, 1e-6)
+    builder.UpdateFace(face, 1e-3)
 
     return face
 

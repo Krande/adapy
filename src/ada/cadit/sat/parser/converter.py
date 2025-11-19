@@ -534,10 +534,11 @@ class AcisToAdaConverter:
             for v_point in u_row:
                 if is_rational:
                     w = v_point[3] if len(v_point) > 3 else 1.0
-                    # ACIS stores homogeneous coordinates (wx, wy, wz), so divide by w
-                    x = v_point[0] / w if w != 0 else v_point[0]
-                    y = v_point[1] / w if w != 0 else v_point[1]
-                    z = v_point[2] / w if w != 0 else v_point[2]
+                    # ACIS SAT stores control points as (x, y, z, w) where x,y,z are Euclidean coordinates.
+                    # We do NOT need to divide by w.
+                    x = v_point[0]
+                    y = v_point[1]
+                    z = v_point[2]
                     row.append(Point(x, y, z))
                     w_row.append(w)
                 else:
