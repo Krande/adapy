@@ -107,7 +107,8 @@ class AcisSatParser:
             if len(remainder) > 0:
                 try:
                     acis_version = AcisVersion.from_string(remainder[0])
-                except:
+                except (ValueError, IndexError, TypeError):
+                    # Leave acis_version as None if parsing fails
                     pass
             # Date is the rest
             date = " ".join(remainder[2:]) if len(remainder) > 2 else ""
@@ -289,7 +290,7 @@ class AcisSatParser:
         ref_str = ref_str.replace("$", "").strip()
         try:
             return int(ref_str)
-        except:
+        except (ValueError, TypeError):
             return None
 
     def _parse_sense(self, sense_str: str) -> SenseType:
@@ -308,7 +309,7 @@ class AcisSatParser:
         try:
             if start_idx + 5 < len(parts):
                 return [float(parts[i]) for i in range(start_idx, start_idx + 6)]
-        except:
+        except (ValueError, IndexError, TypeError):
             pass
         return None
 
@@ -599,7 +600,7 @@ class AcisSatParser:
                     if len(knot_data) >= 2:
                         knots = knot_data[0::2]
                         multiplicities = knot_data[1::2]
-                except:
+                except Exception:
                     pass
 
             return AcisSplineCurveData(
@@ -1025,12 +1026,12 @@ class AcisSatParser:
     def _parse_pcurve(self, index: int, data: str) -> AcisPCurve:
         """Parse pcurve entity."""
         # Extract the part before { if present
-        if "{" in data:
-            header_part = data[: data.index("{")].strip()
-        else:
-            header_part = data
+        # if "{" in data:
+        #     header_part = data[: data.index("{")].strip()
+        # else:
+        #     header_part = data
 
-        parts = header_part.split()
+        # Note: header values are not used currently; keep for future parsing if needed
 
         # Extract spline data if present
         spline_data = None

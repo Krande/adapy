@@ -6,6 +6,7 @@ can be parsed without errors by correctly skipping non-numeric tokens.
 """
 
 from pathlib import Path
+
 from src.ada.cadit.sat.parser.parser import AcisSatParser
 
 

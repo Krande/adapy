@@ -4,8 +4,8 @@ import subprocess
 import sys
 from typing import TYPE_CHECKING
 
-from ada.comms.web.cli_node_editor_startup import NODE_EDITOR_CLI_PY
 from ada.comms.fb_wrap_model_gen import MessageDC
+from ada.comms.web.cli_node_editor_startup import NODE_EDITOR_CLI_PY
 from ada.config import logger
 
 if TYPE_CHECKING:

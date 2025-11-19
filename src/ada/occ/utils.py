@@ -40,9 +40,9 @@ from OCC.Core.TopoDS import (
     TopoDS_Edge,
     TopoDS_Face,
     TopoDS_Shape,
+    TopoDS_Shell,
     TopoDS_Vertex,
     TopoDS_Wire,
-    TopoDS_Shell,
 )
 from OCC.Extend.ShapeFactory import make_extrusion, make_face, make_wire
 from OCC.Extend.TopologyUtils import TopologyExplorer

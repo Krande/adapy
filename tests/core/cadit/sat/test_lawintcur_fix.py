@@ -2,9 +2,10 @@
 Test script to verify the lawintcur parsing fix.
 """
 
-from src.ada.cadit.sat.parser.parser import AcisSatParser
-import tempfile
 import os
+import tempfile
+
+from src.ada.cadit.sat.parser.parser import AcisSatParser
 
 # Create a minimal SAT file with the problematic lawintcur line
 sat_content = """700 0 1 0

@@ -6,12 +6,12 @@ from typing import Any, Iterable
 
 import OCC.Core.Interface as OCCInterface
 from OCC.Core.BRep import BRep_Builder
-from OCC.Core.BRepCheck import BRepCheck_Analyzer
 from OCC.Core.BRepBuilderAPI import (
     BRepBuilderAPI_MakeEdge,
     BRepBuilderAPI_MakeEdge2d,
     BRepBuilderAPI_MakeVertex,
 )
+from OCC.Core.BRepCheck import BRepCheck_Analyzer
 from OCC.Core.Geom import Geom_Curve
 from OCC.Core.Geom2d import Geom2d_BSplineCurve
 from OCC.Core.gp import gp_Pnt, gp_Pnt2d

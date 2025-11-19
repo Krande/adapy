@@ -5,8 +5,9 @@ This test ensures that the parser correctly skips continuation lines that are
 just numbers (like control point data) and don't have an entity type.
 """
 
-from src.ada.cadit.sat.parser.parser import AcisSatParser
 import tempfile
+
+from src.ada.cadit.sat.parser.parser import AcisSatParser
 
 
 def test_parser_handles_numeric_continuation_lines():

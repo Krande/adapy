@@ -15,7 +15,7 @@ from ada.comms.fb_wrap_model_gen import CommandTypeDC, MessageDC, TargetTypeDC
 from ada.comms.msg_handling.default_on_message import default_on_message
 from ada.comms.wsock.scene_model import SceneBackend
 from ada.comms.wsock.utils import client_from_str
-from ada.config import logger, Config
+from ada.config import Config, logger
 from ada.procedural_modelling.procedure_store import ProcedureStore
 
 

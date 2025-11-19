@@ -6,7 +6,6 @@ import pathlib
 from itertools import chain
 from typing import TYPE_CHECKING, Any, BinaryIO, Callable, Iterable
 
-
 from ada import Node, Pipe, PrimBox, PrimCyl, PrimExtrude, PrimRevolve, Shape
 from ada.api.beams.base_bm import Beam
 from ada.api.beams.beam_tapered import BeamTapered

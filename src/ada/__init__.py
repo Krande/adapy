@@ -40,6 +40,7 @@ from ada.api.walls import Wall
 from ada.base.units import Units
 from ada.config import configure_logger, logger
 from ada.core.utils import Counter
+from ada.deprecation import deprecated
 from ada.fem import FEM
 from ada.fem.concept.constraints import (
     ConstraintConceptCurve,
@@ -63,7 +64,6 @@ from ada.geom.points import Point
 from ada.materials import Material
 from ada.sections import Section
 from ada.visit.config import set_jupyter_part_renderer
-from ada.deprecation import deprecated
 
 if TYPE_CHECKING:
     import ifcopenshell
@@ -112,8 +112,8 @@ def from_acis(sat_file: str | pathlib.Path, source_units=Units.M, split: bool = 
     Returns:
         Assembly object with parsed geometry
     """
-    from ada.geom import Geometry
     from ada.cadit.sat.parser import AcisSatParser, AcisToAdaConverter
+    from ada.geom import Geometry
 
     # Parse the SAT file
     parser = AcisSatParser(sat_file)

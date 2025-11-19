@@ -6,13 +6,13 @@ from OCC.Core.TopExp import TopExp_Explorer
 from OCC.Core.TopoDS import TopoDS_Face, TopoDS_Wire
 
 from ada import Direction
-from ada.geom.placement import Axis2Placement3D
 from ada.cadit.step.read.geom.helpers import (
     array1_to_int_list,
     array1_to_list,
     array1_to_point_list,
 )
 from ada.geom import curves as geo_cu
+from ada.geom.placement import Axis2Placement3D
 from ada.geom.points import Point
 
 

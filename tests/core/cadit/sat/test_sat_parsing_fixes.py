@@ -7,8 +7,9 @@ This test covers:
 3. Various edge cases in parsing
 """
 
-from src.ada.cadit.sat.parser.parser import AcisSatParser
 from pathlib import Path
+
+from src.ada.cadit.sat.parser.parser import AcisSatParser
 
 
 def test_comprehensive_parsing():

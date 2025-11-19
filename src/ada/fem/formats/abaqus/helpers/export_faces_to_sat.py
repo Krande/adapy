@@ -13,12 +13,13 @@ Or interactively in Abaqus CAE:
 """
 
 from __future__ import print_function
+
 import os
 
 # Abaqus imports - only available when run in Abaqus CAE environment
 try:
     from abaqus import mdb, session
-    from abaqusConstants import ON, OFF, THREE_D, DEFORMABLE_BODY, STANDARD_EXPLICIT
+    from abaqusConstants import DEFORMABLE_BODY, OFF, ON, STANDARD_EXPLICIT, THREE_D
 except ImportError:
     # Will be caught in function calls if not in Abaqus environment
     pass
@@ -190,7 +191,7 @@ def export_faces_to_sat(part_name=None, output_dir=None, model_name=None, loop_a
                 # We'll use CoverEdges or other surface creation methods
 
                 # Create a new part for the shell surface
-                shell_part = model.Part(name=temp_part_name, dimensionality=THREE_D, type=DEFORMABLE_BODY)
+                model.Part(name=temp_part_name, dimensionality=THREE_D, type=DEFORMABLE_BODY)
 
                 # Get edges of the face to create a shell
                 face_edges = face.getEdges()
@@ -207,7 +208,7 @@ def export_faces_to_sat(part_name=None, output_dir=None, model_name=None, loop_a
                 try:
                     if temp_part_name in model.parts:
                         del model.parts[temp_part_name]
-                except:
+                except Exception:
                     pass
 
             # Approach 2: Copy part and remove unwanted cells
@@ -229,7 +230,7 @@ def export_faces_to_sat(part_name=None, output_dir=None, model_name=None, loop_a
                 # Strategy depends on whether this is a solid part (with cells) or shell part (no cells)
                 if len(temp_cells) > 0:
                     # SOLID PART: Remove all cells except those adjacent to the target face
-                    target_face = temp_faces[idx]
+                    # target_face not needed explicitly; work with indices only
 
                     # Get the cell(s) adjacent to the target face
                     cells_adjacent_to_face = []
@@ -336,7 +337,7 @@ def export_faces_to_sat(part_name=None, output_dir=None, model_name=None, loop_a
                 # Clean up temporary part
                 try:
                     del model.parts[temp_part_name]
-                except:
+                except Exception:
                     pass
 
             except Exception as copy_error:
@@ -344,7 +345,7 @@ def export_faces_to_sat(part_name=None, output_dir=None, model_name=None, loop_a
                 try:
                     if temp_part_name in model.parts:
                         del model.parts[temp_part_name]
-                except:
+                except Exception:
                     pass
 
         except Exception as e:
@@ -357,7 +358,7 @@ def export_faces_to_sat(part_name=None, output_dir=None, model_name=None, loop_a
             try:
                 if temp_part_name in model.parts:
                     del model.parts[temp_part_name]
-            except:
+            except Exception:
                 pass
 
             continue
@@ -607,7 +608,7 @@ def import_sat_file(sat_file_path, part_name=None, model_name=None, combine=Fals
             try:
                 mdb.Model(name=model_name, modelType=STANDARD_EXPLICIT)
                 print("Created new model: {}".format(model_name))
-            except:
+            except Exception:
                 # STANDARD_EXPLICIT might not be available, try without modelType
                 mdb.Model(name=model_name)
                 print("Created new model: {}".format(model_name))
@@ -656,7 +657,7 @@ def import_sat_file(sat_file_path, part_name=None, model_name=None, combine=Fals
         # Display the part in viewport if running interactively
         try:
             session.viewports["Viewport: 1"].setValues(displayedObject=part)
-        except:
+        except Exception:
             pass  # May fail in noGUI mode
 
         print("Successfully imported SAT file as part '{}'".format(part_name))
@@ -778,11 +779,9 @@ if __name__ == "__main__":
 
     # Debug: Check what we're getting
     # print("DEBUG: sys.argv = {}".format(sys.argv))
-
     # Detect if running via command line vs execfile()
     # When execfile'd in interactive CAE: sys.argv has only script name or Abaqus internals
     # When run via 'abaqus cae noGUI=script.py -- --args': sys.argv has user args after '--'
-
     # Check if we have any user arguments (not just Abaqus internal ones)
     user_args = [
         arg

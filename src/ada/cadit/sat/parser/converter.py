@@ -76,9 +76,6 @@ class AcisToAdaConverter:
                 if geometry:
                     results.append((name, geometry))
             except Exception as e:
-                import traceback
-
-                trace = traceback.format_exc()
                 logger.warning(f"Failed to convert face {face.index}: {e}")
 
         return results

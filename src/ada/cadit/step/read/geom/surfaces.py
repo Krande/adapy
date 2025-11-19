@@ -17,7 +17,6 @@ from ada.config import logger
 from ada.geom import curves as geo_cu
 from ada.geom import surfaces as geo_su
 
-
 # Assuming occ_geom is your TopoDS_Compound
 # Helper functions to convert OCC arrays to Python lists
 

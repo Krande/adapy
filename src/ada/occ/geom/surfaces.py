@@ -7,8 +7,8 @@ from OCC.Core.BRepBuilderAPI import (
 )
 from OCC.Core.Geom import (
     Geom_BSplineSurface,
-    Geom_CylindricalSurface,
     Geom_ConicalSurface,
+    Geom_CylindricalSurface,
     Geom_SphericalSurface,
     Geom_ToroidalSurface,
 )
@@ -17,8 +17,8 @@ from OCC.Core.Geom2dAPI import Geom2dAPI_PointsToBSpline
 from OCC.Core.GeomAPI import GeomAPI_ProjectPointOnSurf
 from OCC.Core.gp import (
     gp_Ax3,
-    gp_Cylinder,
     gp_Cone,
+    gp_Cylinder,
     gp_Dir,
     gp_Dir2d,
     gp_Lin2d,
@@ -46,9 +46,9 @@ from ada.occ.geom.curves import (
     make_wire_from_circle,
     make_wire_from_curve,
     make_wire_from_edge_loop,
+    make_wire_from_face_bound,
     make_wire_from_indexed_poly_curve_geom,
     make_wire_from_poly_loop,
-    make_wire_from_face_bound,
 )
 from ada.occ.utils import point3d, transform_shape_to_pos
 

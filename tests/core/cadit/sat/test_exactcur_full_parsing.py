@@ -6,6 +6,7 @@ containing the 'full' keyword can be parsed without errors.
 """
 
 from pathlib import Path
+
 from src.ada.cadit.sat.parser.parser import AcisSatParser
 
 

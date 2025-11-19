@@ -8,7 +8,8 @@ These models provide validation and type safety for ACIS data structures.
 from __future__ import annotations
 
 from enum import Enum
-from typing import Optional, Union, List
+from typing import List, Optional, Union
+
 from pydantic import BaseModel, Field
 
 

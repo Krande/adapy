@@ -1,10 +1,10 @@
 from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_MakeEdge, BRepBuilderAPI_MakeWire
+from OCC.Core.GC import GC_MakeArcOfCircle
 from OCC.Core.Geom import Geom_BSplineCurve
-from OCC.Core.GeomAPI import GeomAPI_ProjectPointOnCurve, GeomAPI_PointsToBSpline
+from OCC.Core.GeomAPI import GeomAPI_PointsToBSpline, GeomAPI_ProjectPointOnCurve
+from OCC.Core.gp import gp_Ax2, gp_Circ, gp_Dir, gp_Elips, gp_Pnt
 from OCC.Core.TColgp import TColgp_Array1OfPnt
 from OCC.Core.TColStd import TColStd_Array1OfInteger, TColStd_Array1OfReal
-from OCC.Core.GC import GC_MakeArcOfCircle
-from OCC.Core.gp import gp_Ax2, gp_Circ, gp_Dir, gp_Elips, gp_Pnt
 from OCC.Core.TopAbs import TopAbs_FORWARD
 from OCC.Core.TopoDS import TopoDS_Edge, TopoDS_Wire
 
