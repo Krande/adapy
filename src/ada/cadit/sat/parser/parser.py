@@ -341,13 +341,13 @@ class AcisSatParser:
     def _parse_lump(self, index: int, data: str) -> AcisLump:
         """Parse lump entity.
 
-        Format: $<next_lump> <next> <prev> $<owner> $<unknown> $<shell> $<body> <flags> [bbox]
+        Format: $<attrib> <next> <prev> $<owner> $<next_lump> $<shell> $<body> <flags> [bbox]
         """
         parts = data.split()
         return AcisLump(
             index=index,
             entity_type="lump",
-            next_lump_ref=self._parse_ref(parts[0]) if len(parts) > 0 else None,
+            next_lump_ref=self._parse_ref(parts[4]) if len(parts) > 4 else None,
             shell_ref=self._parse_ref(parts[5]) if len(parts) > 5 else None,
             body_ref=self._parse_ref(parts[6]) if len(parts) > 6 else None,
             bounding_box=self._parse_bbox(parts, 8) if len(parts) > 13 else None,

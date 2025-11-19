@@ -636,6 +636,13 @@ class AcisToAdaConverter:
 
         # Process all lumps in the body
         lump_ref = body.lump_ref
+
+        # Fallback for some ACIS versions where lump is parsed as wire (index shift)
+        if lump_ref is None and body.wire_ref is not None:
+            wire_entity = self.entities.get(body.wire_ref)
+            if isinstance(wire_entity, AcisLump):
+                lump_ref = body.wire_ref
+
         while lump_ref:
             lump = self.entities.get(lump_ref)
             if not lump or not isinstance(lump, AcisLump):
