@@ -629,51 +629,83 @@ class AcisSatParser:
             curve_type = NurbsType.NURBS if curve_type_str == "nurbs" else NurbsType.NUBS
             degree = int(first_line[3]) if len(first_line) > 3 else 3
 
-            # Parse knots if present (line 1 contains knot data)
-            knots = []
-            multiplicities = []
+            # Parse knots (line 1 contains knot data, but ACIS may split across two lines)
+            knots: List[float] = []
+            multiplicities: List[int] = []
+            ctrl_point_line_idx = 2
             if len(lines) > 1:
                 try:
-                    # Knot line has format: knot_value multiplicity knot_value multiplicity ...
-                    knot_parts = lines[1].split()
-                    knot_data = []
-                    for part in knot_parts:
+                    # First knot line
+                    knot_data: List[float] = []
+                    for part in lines[1].split():
                         try:
                             knot_data.append(float(part))
                         except ValueError:
                             continue
 
-                    # Alternate between knot values and multiplicities
+                    # Some SAT exports continue the knot list on the next line.
+                    # Heuristic from legacy reader: if the following line does NOT look like a 3-value CP row,
+                    # treat it as continuation of the knot list.
+                    if len(lines) > 2:
+                        maybe_next = lines[2].split()
+                        # If it doesn't have exactly 3 numeric values, consider it a continuation of knots
+                        is_three_numeric = False
+                        if len(maybe_next) == 3:
+                            try:
+                                _ = [float(x) for x in maybe_next]
+                                is_three_numeric = True
+                            except Exception:
+                                is_three_numeric = False
+                        if not is_three_numeric:
+                            for part in maybe_next:
+                                try:
+                                    knot_data.append(float(part))
+                                except ValueError:
+                                    continue
+                            ctrl_point_line_idx = 3
+
                     if len(knot_data) >= 2:
                         knots = [knot_data[i] for i in range(0, len(knot_data), 2)]
-                        multiplicities = [int(knot_data[i]) for i in range(1, len(knot_data), 2)]
-                except Exception as e:
+                        multiplicities = [int(round(knot_data[i])) for i in range(1, len(knot_data), 2)]
+                except Exception:
                     pass
 
-            # Parse control points (remaining lines after knot line)
-            control_points = []
-            for i in range(2, len(lines)):
-                try:
-                    line_parts = lines[i].split()
-                    # Skip lines that contain only keywords or are not control point data
-                    if not line_parts or line_parts[0] in ['null_surface', 'nullbs', 'I', 'F', 'none', 'spline']:
-                        continue
-                    # Skip lines starting with @ (references)
-                    if line_parts[0].startswith('@'):
-                        continue
+            # Compute expected number of control points from knots and degree
+            n_poles = 0
+            try:
+                n_poles = sum(multiplicities) - degree - 1 if multiplicities else 0
+            except Exception:
+                n_poles = 0
 
-                    # Try to parse as numeric control point data
-                    cp_data = []
-                    for part in line_parts:
-                        try:
-                            cp_data.append(float(part))
-                        except ValueError:
-                            break  # Stop if we hit a non-numeric value
+            # Parse control points (take exactly n_poles from remaining lines after knot line)
+            control_points: List[List[float]] = []
+            if n_poles <= 0:
+                logger.error(f"Invalid B-spline definition for lawintcur: degree={degree}, mults={multiplicities}")
+            else:
+                for i in range(ctrl_point_line_idx, len(lines)):
+                    if len(control_points) >= n_poles:
+                        break
+                    try:
+                        line_parts = lines[i].split()
+                        # Skip lines that are clearly not CP rows
+                        if not line_parts or line_parts[0] in ['null_surface', 'nullbs', 'I', 'F', 'none', 'spline']:
+                            continue
+                        if line_parts[0].startswith('@'):
+                            continue
 
-                    if len(cp_data) >= 3:  # Valid control point needs at least x, y, z
-                        control_points.append(cp_data)
-                except ValueError:
-                    continue
+                        # Parse numeric tuple
+                        nums: List[float] = []
+                        for part in line_parts:
+                            try:
+                                nums.append(float(part))
+                            except ValueError:
+                                nums = []
+                                break
+                        if len(nums) >= 3:
+                            # keep optional weight if present (4th value)
+                            control_points.append(nums[:4])
+                    except Exception:
+                        continue
 
             return AcisSplineCurveData(
                 subtype=subtype,
@@ -705,46 +737,76 @@ class AcisSatParser:
             except ValueError:
                 degree = 3
 
-        # Parse knots (line 1)
-        knots = []
-        multiplicities = []
+        # Parse knots (line 1); ACIS exactcur may also split knots across two lines
+        knots: List[float] = []
+        multiplicities: List[int] = []
+        ctrl_point_line_idx = 2
         if len(lines) > 1:
-            knot_parts = lines[1].split()
-            # Knots and multiplicities alternate: knot multiplicity knot multiplicity ...
-            for i in range(0, len(knot_parts), 2):
-                try:
-                    if i < len(knot_parts):
-                        knots.append(float(knot_parts[i]))
-                    if i + 1 < len(knot_parts):
-                        multiplicities.append(int(knot_parts[i + 1]))
-                except (ValueError, IndexError):
-                    break
-
-        # Parse control points (remaining lines)
-        control_points = []
-        for i in range(2, len(lines)):
             try:
-                line_parts = lines[i].split()
-                # Skip lines that contain only keywords or are not control point data
-                if not line_parts or line_parts[0] in ['null_surface', 'nullbs', 'I', 'F', 'none', 'spline']:
-                    continue
-                # Skip lines starting with @ (references)
-                if line_parts[0].startswith('@'):
-                    continue
-
-                # Try to parse as numeric control point data
-                cp_data = []
-                for part in line_parts:
+                knot_data: List[float] = []
+                for part in lines[1].split():
                     try:
-                        cp_data.append(float(part))
+                        knot_data.append(float(part))
                     except ValueError:
-                        break  # Stop if we hit a non-numeric value
+                        continue
 
-                # Only add control points with at least 3 coordinates (x, y, z)
-                if len(cp_data) >= 3:
-                    control_points.append(cp_data)
-            except ValueError:
-                continue
+                # Check possible continuation on line 2 using the same heuristic as legacy reader
+                if len(lines) > 2:
+                    maybe_next = lines[2].split()
+                    is_three_numeric = False
+                    if len(maybe_next) == 3:
+                        try:
+                            _ = [float(x) for x in maybe_next]
+                            is_three_numeric = True
+                        except Exception:
+                            is_three_numeric = False
+                    if not is_three_numeric:
+                        for part in maybe_next:
+                            try:
+                                knot_data.append(float(part))
+                            except ValueError:
+                                continue
+                        ctrl_point_line_idx = 3
+
+                if len(knot_data) >= 2:
+                    knots = [knot_data[i] for i in range(0, len(knot_data), 2)]
+                    multiplicities = [int(round(knot_data[i])) for i in range(1, len(knot_data), 2)]
+            except Exception:
+                pass
+
+        # Compute expected number of control points
+        n_poles = 0
+        try:
+            n_poles = sum(multiplicities) - degree - 1 if multiplicities else 0
+        except Exception:
+            n_poles = 0
+
+        # Parse control points (take exactly n_poles)
+        control_points: List[List[float]] = []
+        if n_poles <= 0:
+            logger.error(f"Invalid B-spline definition for exactcur: degree={degree}, mults={multiplicities}")
+        else:
+            for i in range(ctrl_point_line_idx, len(lines)):
+                if len(control_points) >= n_poles:
+                    break
+                try:
+                    line_parts = lines[i].split()
+                    if not line_parts or line_parts[0] in ['null_surface', 'nullbs', 'I', 'F', 'none', 'spline']:
+                        continue
+                    if line_parts[0].startswith('@'):
+                        continue
+
+                    nums: List[float] = []
+                    for part in line_parts:
+                        try:
+                            nums.append(float(part))
+                        except ValueError:
+                            nums = []
+                            break
+                    if len(nums) >= 3:
+                        control_points.append(nums[:4])
+                except Exception:
+                    continue
 
         return AcisSplineCurveData(
             subtype=subtype,

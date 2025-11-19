@@ -42,6 +42,7 @@ from OCC.Core.TopoDS import (
     TopoDS_Shape,
     TopoDS_Vertex,
     TopoDS_Wire,
+    TopoDS_Shell,
 )
 from OCC.Extend.ShapeFactory import make_extrusion, make_face, make_wire
 from OCC.Extend.TopologyUtils import TopologyExplorer
@@ -78,6 +79,17 @@ def extract_shapes(step_path, scale, transform, rotate, include_shells=False):
         raise Exception(f'step_ref "{step_path}" does not represent neither file or folder found on system')
 
     shapes = [transform_shape(s, scale, transform, rotate) for s in shapes]
+    ada_shapes = []
+    for shp in shapes:
+        if isinstance(shp, TopoDS_Face):
+            from ada.cadit.step.read.geom.surfaces import occ_face_to_ada_face
+
+            ashp = occ_face_to_ada_face(shp)
+            ada_shapes.append(ashp)
+
+        else:
+            # import it as a generic OCC shape for now
+            ada_shapes.append(shp)
     return shapes
 
 
@@ -117,7 +129,7 @@ def walk_shapes(dir_path):
 def extract_subshapes(shp_, include_shells=False):
     t = TopologyExplorer(shp_)
     result = list(t.solids())
-    if include_shells:
+    if include_shells or len(result) == 0:
         result += list(t.shells())
         # result += list(t.vertices())
 

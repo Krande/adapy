@@ -64,7 +64,7 @@ def app():
         model.to_ifc(output_file)
     elif out_suffix.lower() in ["step", "stp"]:
         model.to_stp(output_file)
-    elif out_suffix.lower() == ("gltf", "glb"):
+    elif out_suffix.lower() in ("gltf", "glb"):
         model.to_gltf(output_file)
     elif out_suffix.lower() == "xml":
         model.to_genie_xml(output_file)
