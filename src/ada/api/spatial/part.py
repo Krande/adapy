@@ -7,7 +7,6 @@ from itertools import chain
 from typing import TYPE_CHECKING, Any, BinaryIO, Callable, Iterable
 
 
-
 from ada import Node, Pipe, PrimBox, PrimCyl, PrimExtrude, PrimRevolve, Shape
 from ada.api.beams.base_bm import Beam
 from ada.api.beams.beam_tapered import BeamTapered
@@ -544,9 +543,9 @@ class Part(BackendGeom):
         :param opacity: Assign Opacity upon import
         :param source_units: Unit of the imported STEP file. Default is 'm'
         """
-        from ada.occ.utils import extract_shapes
+        from ada.occ.utils import extract_occ_shapes
 
-        shapes = extract_shapes(step_path, scale, transform, rotate, include_shells=include_shells)
+        shapes = extract_occ_shapes(step_path, scale, transform, rotate, include_shells=include_shells)
 
         if len(shapes) > 0:
             ada_name = name if name is not None else "CAD" + str(len(self.shapes) + 1)

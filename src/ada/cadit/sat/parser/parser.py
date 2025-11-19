@@ -6,9 +6,8 @@ Core parser for reading and parsing ACIS SAT files into structured entity models
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
-from typing import Dict, List, Optional, TextIO, Tuple
+from typing import Dict, List, Optional, TextIO
 
 from ada.cadit.sat.parser.acis_entities import (
     AcisBody,
@@ -71,7 +70,7 @@ class AcisSatParser:
         """
         logger.info(f"Parsing ACIS SAT file: {self.sat_file}")
 
-        with open(self.sat_file, 'r', encoding='utf-8', errors='ignore') as f:
+        with open(self.sat_file, "r", encoding="utf-8", errors="ignore") as f:
             # Parse header
             self.header = self._parse_header(f)
             logger.info(f"ACIS Version: {self.header.acis_version}")
@@ -131,7 +130,7 @@ class AcisSatParser:
             date=date,
             units_code=units_code,
             resolution=resolution,
-            tolerance=tolerance
+            tolerance=tolerance,
         )
 
     def _parse_entities(self, f: TextIO):
@@ -151,7 +150,7 @@ class AcisSatParser:
             if line.startswith("-"):
                 # Check if this is actually an entity line (has entity type after index)
                 parts = line[1:].split(None, 2)
-                if not parts or not parts[0].replace('.', '').replace('-', '').isdigit():
+                if not parts or not parts[0].replace(".", "").replace("-", "").isdigit():
                     continue
 
                 # Must have at least 2 parts: index and entity_type
@@ -199,7 +198,11 @@ class AcisSatParser:
                         if not next_line:
                             break
                         next_line_stripped = next_line.strip()
-                        if next_line_stripped.startswith("-") or next_line_stripped.startswith("#") or not next_line_stripped:
+                        if (
+                            next_line_stripped.startswith("-")
+                            or next_line_stripped.startswith("#")
+                            or not next_line_stripped
+                        ):
                             # This is a new entity or end, backtrack
                             f.seek(pos)
                             break
@@ -323,7 +326,7 @@ class AcisSatParser:
             lump_ref=self._parse_ref(parts[4]) if len(parts) > 4 else None,
             wire_ref=self._parse_ref(parts[5]) if len(parts) > 5 else None,
             transform_ref=self._parse_ref(parts[6]) if len(parts) > 6 else None,
-            bounding_box=self._parse_bbox(parts, 8) if len(parts) > 13 else None
+            bounding_box=self._parse_bbox(parts, 8) if len(parts) > 13 else None,
         )
 
     def _parse_lump(self, index: int, data: str) -> AcisLump:
@@ -338,9 +341,8 @@ class AcisSatParser:
             next_lump_ref=self._parse_ref(parts[0]) if len(parts) > 0 else None,
             shell_ref=self._parse_ref(parts[5]) if len(parts) > 5 else None,
             body_ref=self._parse_ref(parts[6]) if len(parts) > 6 else None,
-            bounding_box=self._parse_bbox(parts, 8) if len(parts) > 13 else None
+            bounding_box=self._parse_bbox(parts, 8) if len(parts) > 13 else None,
         )
-
 
     def _parse_shell(self, index: int, data: str) -> AcisShell:
         """Parse shell entity.
@@ -356,7 +358,7 @@ class AcisSatParser:
             face_ref=self._parse_ref(parts[6]) if len(parts) > 6 else None,
             wire_ref=self._parse_ref(parts[7]) if len(parts) > 7 else None,
             lump_ref=self._parse_ref(parts[8]) if len(parts) > 8 else None,
-            bounding_box=self._parse_bbox(parts, 10) if len(parts) > 15 else None
+            bounding_box=self._parse_bbox(parts, 10) if len(parts) > 15 else None,
         )
 
     def _parse_subshell(self, index: int, data: str) -> AcisSubshell:
@@ -367,7 +369,7 @@ class AcisSatParser:
             entity_type="subshell",
             next_subshell_ref=self._parse_ref(parts[0]) if len(parts) > 0 else None,
             face_ref=self._parse_ref(parts[2]) if len(parts) > 2 else None,
-            shell_ref=self._parse_ref(parts[3]) if len(parts) > 3 else None
+            shell_ref=self._parse_ref(parts[3]) if len(parts) > 3 else None,
         )
 
     def _parse_face(self, index: int, data: str) -> AcisFace:
@@ -402,7 +404,7 @@ class AcisSatParser:
             double_sided=parts[10].lower() == "double" if len(parts) > 10 else False,
             containment=parts[11] if len(parts) > 11 else "out",
             surface_ref=self._parse_ref(parts[8]) if len(parts) > 8 else None,
-            bounding_box=self._parse_bbox(parts, 14) if len(parts) > 19 else None
+            bounding_box=self._parse_bbox(parts, 14) if len(parts) > 19 else None,
         )
 
     def _parse_loop(self, index: int, data: str) -> AcisLoop:
@@ -415,7 +417,7 @@ class AcisSatParser:
             attrib_ref=self._parse_ref(parts[1]) if len(parts) > 1 else None,
             face_ref=self._parse_ref(parts[3]) if len(parts) > 3 else None,
             coedge_ref=self._parse_ref(parts[5]) if len(parts) > 5 else None,
-            bounding_box=self._parse_bbox(parts, 7) if len(parts) > 12 else None
+            bounding_box=self._parse_bbox(parts, 7) if len(parts) > 12 else None,
         )
 
     def _parse_coedge(self, index: int, data: str) -> AcisCoedge:
@@ -433,7 +435,7 @@ class AcisSatParser:
             attrib_ref=self._parse_ref(parts[0]) if len(parts) > 0 else None,
             loop_ref=self._parse_ref(parts[9]) if len(parts) > 9 else None,
             edge_ref=self._parse_ref(parts[7]) if len(parts) > 7 else None,
-            sense=self._parse_sense(parts[8]) if len(parts) > 8 else SenseType.FORWARD
+            sense=self._parse_sense(parts[8]) if len(parts) > 8 else SenseType.FORWARD,
         )
 
     def _parse_edge(self, index: int, data: str) -> AcisEdge:
@@ -450,7 +452,7 @@ class AcisSatParser:
             curve_ref=self._parse_ref(parts[9]) if len(parts) > 9 else None,
             sense=self._parse_sense(parts[10]) if len(parts) > 10 else SenseType.FORWARD,
             convexity=parts[11] if len(parts) > 11 else "unknown",
-            bounding_box=self._parse_bbox(parts, 13) if len(parts) > 18 else None
+            bounding_box=self._parse_bbox(parts, 13) if len(parts) > 18 else None,
         )
 
     def _parse_vertex(self, index: int, data: str) -> AcisVertex:
@@ -461,7 +463,7 @@ class AcisSatParser:
             entity_type="vertex",
             attrib_ref=self._parse_ref(parts[0]) if len(parts) > 0 else None,
             edge_ref=self._parse_ref(parts[2]) if len(parts) > 2 else None,
-            point_ref=self._parse_ref(parts[5]) if len(parts) > 5 else None
+            point_ref=self._parse_ref(parts[5]) if len(parts) > 5 else None,
         )
 
     def _parse_point(self, index: int, data: str) -> AcisPoint:
@@ -472,7 +474,7 @@ class AcisSatParser:
         # Collect all numeric values, skip $ tokens and keywords
         numeric_values = []
         for part in parts:
-            if part.startswith('$') or part in ['I', 'F', '#']:
+            if part.startswith("$") or part in ["I", "F", "#"]:
                 continue
             try:
                 numeric_values.append(float(part))
@@ -489,13 +491,7 @@ class AcisSatParser:
         else:
             x, y, z = 0.0, 0.0, 0.0
 
-        return AcisPoint(
-            index=index,
-            entity_type="point",
-            x=x,
-            y=y,
-            z=z
-        )
+        return AcisPoint(index=index, entity_type="point", x=x, y=y, z=z)
 
     def _parse_straight_curve(self, index: int, data: str) -> AcisStraightCurve:
         """Parse straight-curve entity."""
@@ -504,7 +500,7 @@ class AcisSatParser:
         # Skip reference tokens (starting with $) and find numeric values
         numeric_values = []
         for part in parts:
-            if part.startswith('$') or part in ['I', 'F', '#']:
+            if part.startswith("$") or part in ["I", "F", "#"]:
                 continue
             try:
                 numeric_values.append(float(part))
@@ -514,12 +510,7 @@ class AcisSatParser:
         origin = numeric_values[0:3] if len(numeric_values) >= 3 else [0, 0, 0]
         direction = numeric_values[3:6] if len(numeric_values) >= 6 else [0, 0, 1]
 
-        return AcisStraightCurve(
-            index=index,
-            entity_type="straight-curve",
-            origin=origin,
-            direction=direction
-        )
+        return AcisStraightCurve(index=index, entity_type="straight-curve", origin=origin, direction=direction)
 
     def _parse_ellipse_curve(self, index: int, data: str) -> AcisEllipseCurve:
         """Parse ellipse-curve entity."""
@@ -530,14 +521,14 @@ class AcisSatParser:
             center=[float(parts[i]) for i in range(4, 7)] if len(parts) > 6 else [0, 0, 0],
             normal=[float(parts[i]) for i in range(7, 10)] if len(parts) > 9 else [0, 0, 1],
             major_axis=[float(parts[i]) for i in range(10, 13)] if len(parts) > 12 else [1, 0, 0],
-            radius_ratio=float(parts[13]) if len(parts) > 13 else 1.0
+            radius_ratio=float(parts[13]) if len(parts) > 13 else 1.0,
         )
 
     def _parse_intcurve_curve(self, index: int, data: str) -> AcisIntcurveCurve:
         """Parse intcurve-curve entity (B-spline curve)."""
         # Extract the part before { if present
         if "{" in data:
-            header_part = data[:data.index("{")].strip()
+            header_part = data[: data.index("{")].strip()
         else:
             header_part = data
 
@@ -546,14 +537,14 @@ class AcisSatParser:
         # Extract spline data if present (enclosed in {})
         spline_data = None
         if "{" in data and "}" in data:
-            spline_str = data[data.index("{")+1:data.rindex("}")]
+            spline_str = data[data.index("{") + 1 : data.rindex("}")]
             spline_data = self._parse_spline_curve_data(spline_str)
 
         # intcurve format: $attrib $edge $vertex sense { ... }
         # Find 'forward' or 'reversed' in parts
         sense = SenseType.FORWARD
         for part in parts:
-            if part.lower() in ['forward', 'reversed', 'both']:
+            if part.lower() in ["forward", "reversed", "both"]:
                 sense = self._parse_sense(part)
                 break
 
@@ -562,22 +553,21 @@ class AcisSatParser:
             entity_type="intcurve-curve",
             sense=sense,
             surface_ref=None,  # Will parse if needed
-            pcurve_ref=None,   # Will parse if needed
-            spline_data=spline_data
+            pcurve_ref=None,  # Will parse if needed
+            spline_data=spline_data,
         )
 
     def _parse_spline_curve_data(self, spline_str: str) -> Optional[AcisSplineCurveData]:
         """Parse B-spline curve data from spline string."""
         # First try splitting by newlines, but if we get only one line, try tabs
-        lines = [line.strip() for line in spline_str.split('\n') if line.strip()]
+        lines = [line.strip() for line in spline_str.split("\n") if line.strip()]
 
         # If we have only one line, it might be tab-separated (common in lawintcur)
-        if len(lines) == 1 and '\t' in lines[0]:
-            lines = [line.strip() for line in lines[0].split('\t') if line.strip()]
+        if len(lines) == 1 and "\t" in lines[0]:
+            lines = [line.strip() for line in lines[0].split("\t") if line.strip()]
 
         if not lines:
             return None
-
 
         first_line = lines[0].split()
         if not first_line:
@@ -601,7 +591,7 @@ class AcisSatParser:
                 try:
                     knot_data = []
                     for part in lines[1].split():
-                        if part not in ['spline']:  # Skip keywords
+                        if part not in ["spline"]:  # Skip keywords
                             try:
                                 knot_data.append(float(part))
                             except ValueError:
@@ -619,7 +609,7 @@ class AcisSatParser:
                 rational=curve_type == NurbsType.NURBS,
                 knots=knots,
                 knot_multiplicities=multiplicities,
-                control_points=[]
+                control_points=[],
             )
 
         elif subtype == "lawintcur":
@@ -688,9 +678,9 @@ class AcisSatParser:
                     try:
                         line_parts = lines[i].split()
                         # Skip lines that are clearly not CP rows
-                        if not line_parts or line_parts[0] in ['null_surface', 'nullbs', 'I', 'F', 'none', 'spline']:
+                        if not line_parts or line_parts[0] in ["null_surface", "nullbs", "I", "F", "none", "spline"]:
                             continue
-                        if line_parts[0].startswith('@'):
+                        if line_parts[0].startswith("@"):
                             continue
 
                         # Parse numeric tuple
@@ -714,7 +704,7 @@ class AcisSatParser:
                 rational=curve_type == NurbsType.NURBS,
                 knots=knots,
                 knot_multiplicities=multiplicities,
-                control_points=control_points
+                control_points=control_points,
             )
 
         # Handle exactcur and other standard formats
@@ -791,9 +781,9 @@ class AcisSatParser:
                     break
                 try:
                     line_parts = lines[i].split()
-                    if not line_parts or line_parts[0] in ['null_surface', 'nullbs', 'I', 'F', 'none', 'spline']:
+                    if not line_parts or line_parts[0] in ["null_surface", "nullbs", "I", "F", "none", "spline"]:
                         continue
-                    if line_parts[0].startswith('@'):
+                    if line_parts[0].startswith("@"):
                         continue
 
                     nums: List[float] = []
@@ -815,7 +805,7 @@ class AcisSatParser:
             rational=curve_type == NurbsType.NURBS,
             knots=knots,
             knot_multiplicities=multiplicities,
-            control_points=control_points
+            control_points=control_points,
         )
 
     def _parse_plane_surface(self, index: int, data: str) -> AcisPlaneSurface:
@@ -825,7 +815,18 @@ class AcisSatParser:
         # Skip reference tokens (starting with $) and non-numeric flags
         numeric_values = []
         for part in parts:
-            if part.startswith('$') or part in ['I', 'F', '#', 'forward', 'reversed', 'both', 'in', 'out', 'double', 'single']:
+            if part.startswith("$") or part in [
+                "I",
+                "F",
+                "#",
+                "forward",
+                "reversed",
+                "both",
+                "in",
+                "out",
+                "double",
+                "single",
+            ]:
                 continue
             try:
                 numeric_values.append(float(part))
@@ -837,11 +838,7 @@ class AcisSatParser:
         u_direction = numeric_values[6:9] if len(numeric_values) >= 9 else [1, 0, 0]
 
         return AcisPlaneSurface(
-            index=index,
-            entity_type="plane-surface",
-            origin=origin,
-            normal=normal,
-            u_direction=u_direction
+            index=index, entity_type="plane-surface", origin=origin, normal=normal, u_direction=u_direction
         )
 
     def _parse_cone_surface(self, index: int, data: str) -> AcisConeSurface:
@@ -855,7 +852,7 @@ class AcisSatParser:
             major_axis=[float(parts[i]) for i in range(10, 13)] if len(parts) > 12 else [1, 0, 0],
             radius_ratio=float(parts[13]) if len(parts) > 13 else 1.0,
             sine_angle=float(parts[14]) if len(parts) > 14 else 0.0,
-            cosine_angle=float(parts[15]) if len(parts) > 15 else 1.0
+            cosine_angle=float(parts[15]) if len(parts) > 15 else 1.0,
         )
 
     def _parse_cylinder_surface(self, index: int, data: str) -> AcisCylinderSurface:
@@ -867,7 +864,7 @@ class AcisSatParser:
             origin=[float(parts[i]) for i in range(4, 7)] if len(parts) > 6 else [0, 0, 0],
             axis=[float(parts[i]) for i in range(7, 10)] if len(parts) > 9 else [0, 0, 1],
             major_axis=[float(parts[i]) for i in range(10, 13)] if len(parts) > 12 else [1, 0, 0],
-            radius=float(parts[13]) if len(parts) > 13 else 1.0
+            radius=float(parts[13]) if len(parts) > 13 else 1.0,
         )
 
     def _parse_sphere_surface(self, index: int, data: str) -> AcisSphereSurface:
@@ -879,7 +876,7 @@ class AcisSatParser:
             center=[float(parts[i]) for i in range(4, 7)] if len(parts) > 6 else [0, 0, 0],
             radius=float(parts[7]) if len(parts) > 7 else 1.0,
             pole=[float(parts[i]) for i in range(8, 11)] if len(parts) > 10 else [0, 0, 1],
-            equator=[float(parts[i]) for i in range(11, 14)] if len(parts) > 13 else [1, 0, 0]
+            equator=[float(parts[i]) for i in range(11, 14)] if len(parts) > 13 else [1, 0, 0],
         )
 
     def _parse_torus_surface(self, index: int, data: str) -> AcisTorusSurface:
@@ -892,7 +889,7 @@ class AcisSatParser:
             axis=[float(parts[i]) for i in range(7, 10)] if len(parts) > 9 else [0, 0, 1],
             major_axis=[float(parts[i]) for i in range(10, 13)] if len(parts) > 12 else [1, 0, 0],
             major_radius=float(parts[13]) if len(parts) > 13 else 1.0,
-            minor_radius=float(parts[14]) if len(parts) > 14 else 0.5
+            minor_radius=float(parts[14]) if len(parts) > 14 else 0.5,
         )
 
     def _parse_spline_surface(self, index: int, data: str) -> AcisSplineSurface:
@@ -907,19 +904,14 @@ class AcisSatParser:
         # Extract spline data if present (enclosed in {})
         spline_data = None
         if "{" in data and "}" in data:
-            spline_str = data[data.index("{")+1:data.rindex("}")]
+            spline_str = data[data.index("{") + 1 : data.rindex("}")]
             spline_data = self._parse_spline_surface_data(spline_str)
 
-        return AcisSplineSurface(
-            index=index,
-            entity_type="spline-surface",
-            sense=sense,
-            spline_data=spline_data
-        )
+        return AcisSplineSurface(index=index, entity_type="spline-surface", sense=sense, spline_data=spline_data)
 
     def _parse_spline_surface_data(self, spline_str: str) -> Optional[AcisSplineSurfaceData]:
         """Parse B-spline surface data from spline string."""
-        lines = [line.strip() for line in spline_str.split('\n') if line.strip()]
+        lines = [line.strip() for line in spline_str.split("\n") if line.strip()]
         if not lines:
             return None
 
@@ -982,7 +974,7 @@ class AcisSatParser:
             u_knot_multiplicities=u_multiplicities,
             v_knots=v_knots,
             v_knot_multiplicities=v_multiplicities,
-            control_points=control_points
+            control_points=control_points,
         )
 
     def _parse_attrib(self, index: int, entity_type: str, data: str) -> AcisEntity:
@@ -1002,7 +994,7 @@ class AcisSatParser:
                 entity_type=entity_type,
                 next_attrib_ref=self._parse_ref(parts[0]) if len(parts) > 0 else None,
                 owner_ref=self._parse_ref(parts[2]) if len(parts) > 2 else None,
-                name=name
+                name=name,
             )
         elif "string" in entity_type.lower():
             return AcisStringAttrib(
@@ -1010,21 +1002,21 @@ class AcisSatParser:
                 entity_type=entity_type,
                 next_attrib_ref=self._parse_ref(parts[0]) if len(parts) > 0 else None,
                 owner_ref=self._parse_ref(parts[2]) if len(parts) > 2 else None,
-                value=parts[-1] if parts else ""
+                value=parts[-1] if parts else "",
             )
         elif "position" in entity_type.lower():
             return AcisPositionAttrib(
                 index=index,
                 entity_type=entity_type,
                 next_attrib_ref=self._parse_ref(parts[0]) if len(parts) > 0 else None,
-                owner_ref=self._parse_ref(parts[2]) if len(parts) > 2 else None
+                owner_ref=self._parse_ref(parts[2]) if len(parts) > 2 else None,
             )
         elif "rgb_color" in entity_type.lower():
             return AcisRgbColorAttrib(
                 index=index,
                 entity_type=entity_type,
                 next_attrib_ref=self._parse_ref(parts[0]) if len(parts) > 0 else None,
-                owner_ref=self._parse_ref(parts[2]) if len(parts) > 2 else None
+                owner_ref=self._parse_ref(parts[2]) if len(parts) > 2 else None,
             )
         else:
             # Generic attribute
@@ -1034,7 +1026,7 @@ class AcisSatParser:
         """Parse pcurve entity."""
         # Extract the part before { if present
         if "{" in data:
-            header_part = data[:data.index("{")].strip()
+            header_part = data[: data.index("{")].strip()
         else:
             header_part = data
 
@@ -1043,7 +1035,7 @@ class AcisSatParser:
         # Extract spline data if present
         spline_data = None
         if "{" in data and "}" in data:
-            spline_str = data[data.index("{")+1:data.rindex("}")]
+            spline_str = data[data.index("{") + 1 : data.rindex("}")]
             spline_data = self._parse_spline_curve_data(spline_str)
 
         return AcisPCurve(
@@ -1051,18 +1043,14 @@ class AcisSatParser:
             entity_type="pcurve",
             surface_ref=None,  # Will parse if needed
             intcurve_ref=None,  # Will parse if needed
-            spline_data=spline_data
+            spline_data=spline_data,
         )
 
     def _parse_transform(self, index: int, data: str) -> AcisTransform:
         """Parse transform entity."""
         parts = data.split()
 
-        return AcisTransform(
-            index=index,
-            entity_type="transform",
-            scale=float(parts[1]) if len(parts) > 1 else 1.0
-        )
+        return AcisTransform(index=index, entity_type="transform", scale=float(parts[1]) if len(parts) > 1 else 1.0)
 
     def get_entity(self, ref: int) -> Optional[AcisEntity]:
         """Get entity by reference index."""
@@ -1075,4 +1063,3 @@ class AcisSatParser:
     def get_faces(self) -> List[AcisFace]:
         """Get all face entities."""
         return [e for e in self.entities.values() if isinstance(e, AcisFace)]
-

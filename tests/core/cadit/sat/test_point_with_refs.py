@@ -5,7 +5,6 @@ This test verifies that point entities with reference tokens like $-1
 can be parsed without errors by correctly skipping non-numeric tokens.
 """
 
-import pytest
 from pathlib import Path
 from src.ada.cadit.sat.parser.parser import AcisSatParser
 
@@ -52,12 +51,12 @@ def test_point_with_refs_parsing():
     vertex1 = entities.get(14)
     assert vertex1 is not None, "Should find vertex entity 14"
     assert vertex1.point_ref == 18, "Vertex 14 should reference point 18"
-    print(f"✓ Vertex 14 correctly references point 18")
+    print("✓ Vertex 14 correctly references point 18")
 
     vertex2 = entities.get(15)
     assert vertex2 is not None, "Should find vertex entity 15"
     assert vertex2.point_ref == 19, "Vertex 15 should reference point 19"
-    print(f"✓ Vertex 15 correctly references point 19")
+    print("✓ Vertex 15 correctly references point 19")
 
     # Verify straight curves were parsed
     curve1 = entities.get(16)
@@ -73,4 +72,3 @@ def test_point_with_refs_parsing():
 
 if __name__ == "__main__":
     test_point_with_refs_parsing()
-

@@ -15,7 +15,19 @@ from OCC.Core.Geom import (
 from OCC.Core.Geom2d import Geom2d_Line, Geom2d_TrimmedCurve
 from OCC.Core.Geom2dAPI import Geom2dAPI_PointsToBSpline
 from OCC.Core.GeomAPI import GeomAPI_ProjectPointOnSurf
-from OCC.Core.gp import gp_Ax3, gp_Cylinder, gp_Cone, gp_Dir, gp_Dir2d, gp_Lin2d, gp_Pln, gp_Pnt, gp_Pnt2d, gp_Sphere, gp_Torus
+from OCC.Core.gp import (
+    gp_Ax3,
+    gp_Cylinder,
+    gp_Cone,
+    gp_Dir,
+    gp_Dir2d,
+    gp_Lin2d,
+    gp_Pln,
+    gp_Pnt,
+    gp_Pnt2d,
+    gp_Sphere,
+    gp_Torus,
+)
 from OCC.Core.TColgp import TColgp_Array1OfPnt2d, TColgp_Array2OfPnt
 from OCC.Core.TColStd import (
     TColStd_Array1OfInteger,
@@ -499,7 +511,9 @@ def make_closed_shell_from_geom(shell: geo_su.ClosedShell) -> TopoDS_Shell:
                 logger.warning(f"Skipping FaceSurface due to error during wire/face creation: {ex}")
                 continue
         else:
-            raise NotImplementedError(f"Face type {type(cfs_face)} is not implemented (supported: AdvancedFace, FaceSurface)")
+            raise NotImplementedError(
+                f"Face type {type(cfs_face)} is not implemented (supported: AdvancedFace, FaceSurface)"
+            )
 
     # Set the shell as closed
     occ_shell.Closed(True)

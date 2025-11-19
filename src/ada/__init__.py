@@ -98,6 +98,7 @@ def from_step(step_file: str | pathlib.Path, source_units=Units.M, **kwargs) -> 
     a.read_step_file(step_file, source_units=source_units, **kwargs)
     return a
 
+
 def from_acis(sat_file: str | pathlib.Path, source_units=Units.M, split: bool = False, limit: int = None) -> Assembly:
     """
     Create an Assembly object from an ACIS SAT file.
@@ -194,6 +195,7 @@ def from_acis(sat_file: str | pathlib.Path, source_units=Units.M, split: bool = 
     logger.info(f"Imported {len(bodies)} bodies from ACIS SAT file")
 
     return a
+
 
 def from_fem(
     fem_file: str | list | pathlib.Path,

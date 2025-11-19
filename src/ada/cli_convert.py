@@ -5,7 +5,6 @@ import pathlib
 def app():
     import ada
 
-
     parser = argparse.ArgumentParser(description="ADA CLI - A tool for converting CAD/FEA models and visualizations.")
     parser.add_argument(
         "input",
@@ -75,10 +74,10 @@ def app():
         raise ValueError(f"Unsupported output file format: {out_suffix}")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     try:
         app()
-    except Exception as e:
+    except Exception:
         import traceback
 
         traceback.print_exc()

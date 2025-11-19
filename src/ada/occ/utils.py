@@ -61,7 +61,9 @@ if TYPE_CHECKING:
     from ada import ArcSegment, Boolean, LineSegment, Part
 
 
-def extract_shapes(step_path, scale, transform, rotate, include_shells=False):
+def extract_occ_shapes(
+    step_path, scale, transform, rotate, include_shells=False
+) -> list[TopoDS_Shape | TopoDS_Shell | TopoDS_Face]:
     from OCC.Extend.DataExchange import read_step_file
 
     shapes = []
@@ -79,17 +81,6 @@ def extract_shapes(step_path, scale, transform, rotate, include_shells=False):
         raise Exception(f'step_ref "{step_path}" does not represent neither file or folder found on system')
 
     shapes = [transform_shape(s, scale, transform, rotate) for s in shapes]
-    ada_shapes = []
-    for shp in shapes:
-        if isinstance(shp, TopoDS_Face):
-            from ada.cadit.step.read.geom.surfaces import occ_face_to_ada_face
-
-            ashp = occ_face_to_ada_face(shp)
-            ada_shapes.append(ashp)
-
-        else:
-            # import it as a generic OCC shape for now
-            ada_shapes.append(shp)
     return shapes
 
 

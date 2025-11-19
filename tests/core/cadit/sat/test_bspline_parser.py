@@ -1,0 +1,37 @@
+from ada.cadit.sat.parser import AcisSatParser, AcisToAdaConverter
+from ada.cadit.step.read.geom.surfaces import occ_shell_to_ada_faces
+from ada.geom.surfaces import AdvancedFace
+from ada.occ.utils import extract_occ_shapes
+
+
+def test_read_b_spline_surf_w_knots_2_sat(example_files, tmp_path, monkeypatch):
+    # First read the STEP file
+    step_path = example_files / "sat_files/hullskin_face_0.stp"
+    shapes = extract_occ_shapes(step_path, scale=1.0, transform=None, rotate=None, include_shells=True)
+
+    assert len(shapes) == 1
+    shp = shapes[0]
+    # Convert shell to list of AdvancedFaces
+    ada_faces_from_stp = occ_shell_to_ada_faces(shp)
+    assert len(ada_faces_from_stp) == 1
+    stp_face = ada_faces_from_stp[0]
+    assert isinstance(stp_face, AdvancedFace)
+
+    # Then Parse the SAT file and make sure the resulting advanced faces are the same
+    sat_file = example_files / "sat_files/hullskin_face_0.sat"
+    parser = AcisSatParser(sat_file)
+    parser.parse()
+
+    # Convert to adapy geometry using body-based organization
+    converter = AcisToAdaConverter(parser)
+    bodies = converter.convert_all_bodies()
+    faces = converter.convert_all_faces()
+    assert len(bodies) == 1
+    assert len(faces) == 1
+
+    face_name, face_obj = faces[0]
+    assert face_name == "face_6"
+    assert isinstance(face_obj, AdvancedFace)
+
+    assert stp_face.face_surface == face_obj.face_surface
+    assert stp_face.bounds == face_obj.bounds

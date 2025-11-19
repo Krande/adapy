@@ -1,12 +1,17 @@
 from OCC.Core.BRep import BRep_Tool
-from OCC.Core.Geom import Geom_BSplineCurve, Geom_Line, Geom_Surface
+from OCC.Core.Geom import Geom_BSplineCurve, Geom_Circle, Geom_Line, Geom_Surface
 from OCC.Core.gp import gp_Dir, gp_Pnt
 from OCC.Core.TopAbs import TopAbs_EDGE, TopAbs_WIRE
 from OCC.Core.TopExp import TopExp_Explorer
 from OCC.Core.TopoDS import TopoDS_Face, TopoDS_Wire
 
 from ada import Direction
-from ada.cadit.step.read.geom.helpers import array1_to_list
+from ada.geom.placement import Axis2Placement3D
+from ada.cadit.step.read.geom.helpers import (
+    array1_to_int_list,
+    array1_to_list,
+    array1_to_point_list,
+)
 from ada.geom import curves as geo_cu
 from ada.geom.points import Point
 
@@ -47,16 +52,43 @@ def process_wire(wire: TopoDS_Wire, surface: Geom_Surface) -> list[geo_cu.CURVE_
             # Here you can check if the edge is a B-spline or other curve type
             # and process accordingly
             if curve_handle.DynamicType().Name() == "Geom_BSplineCurve":
-                # print("This edge is a B-spline curve.")
-                # Extract B-spline curve parameters here
+                # Extract B-spline curve parameters
                 bspline_curve = Geom_BSplineCurve.DownCast(curve_handle)
-                u_knots = bspline_curve.Knots()
-                poles = bspline_curve.Poles()
 
-                # Process the B-spline curve (similar to surface processing)
-                # print(f"Knots: {array1_to_list(u_knots)}")
-                # print(f"Poles: {[f'({p.X()}, {p.Y()}, {p.Z()})' for p in poles]}")
-                curve = geo_cu.BSplineCurveWithKnots(poles=poles, knots=array1_to_list(u_knots))
+                degree = bspline_curve.Degree()
+                poles = array1_to_point_list(bspline_curve.Poles())
+                knots = array1_to_list(bspline_curve.Knots())
+                mults = array1_to_int_list(bspline_curve.Multiplicities())
+                closed = bool(bspline_curve.IsClosed())
+                # There is no direct mapping for curve form / knot spec from OCC here; use UNSPECIFIED defaults
+                curve_form = geo_cu.BSplineCurveFormEnum.UNSPECIFIED
+                knot_spec = geo_cu.KnotType.UNSPECIFIED
+                self_intersect = False
+
+                if bspline_curve.IsRational():
+                    weights = array1_to_list(bspline_curve.Weights())
+                    curve = geo_cu.RationalBSplineCurveWithKnots(
+                        degree=degree,
+                        control_points_list=poles,
+                        curve_form=curve_form,
+                        closed_curve=closed,
+                        self_intersect=self_intersect,
+                        knot_multiplicities=mults,
+                        knots=knots,
+                        knot_spec=knot_spec,
+                        weights_data=weights,
+                    )
+                else:
+                    curve = geo_cu.BSplineCurveWithKnots(
+                        degree=degree,
+                        control_points_list=poles,
+                        curve_form=curve_form,
+                        closed_curve=closed,
+                        self_intersect=self_intersect,
+                        knot_multiplicities=mults,
+                        knots=knots,
+                        knot_spec=knot_spec,
+                    )
 
             elif curve_handle.DynamicType().Name() == "Geom_Line":
                 line_curve: Geom_Line = Geom_Line.DownCast(curve_handle)
@@ -68,6 +100,19 @@ def process_wire(wire: TopoDS_Wire, surface: Geom_Surface) -> list[geo_cu.CURVE_
                 d: gp_Dir = line_pos.Direction()
 
                 curve = geo_cu.Line(pnt=Point(o.X(), o.Y(), o.Z()), dir=Direction(d.X(), d.Y(), d.Z()))
+            elif curve_handle.DynamicType().Name() == "Geom_Circle":
+                circle = Geom_Circle.DownCast(curve_handle)
+                pos = circle.Position()
+                o: gp_Pnt = pos.Location()
+                axis_dir: gp_Dir = pos.Direction()
+                x_dir: gp_Dir = pos.XDirection()
+
+                placement = Axis2Placement3D(
+                    location=Point(o.X(), o.Y(), o.Z()),
+                    axis=Direction(axis_dir.X(), axis_dir.Y(), axis_dir.Z()),
+                    ref_direction=Direction(x_dir.X(), x_dir.Y(), x_dir.Z()),
+                )
+                curve = geo_cu.Circle(position=placement, radius=circle.Radius())
             else:
                 raise NotImplementedError(f"Edge geometry type {curve_handle.DynamicType().Name()} not implemented.")
             curves.append(curve)

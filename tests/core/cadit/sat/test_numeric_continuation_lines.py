@@ -6,7 +6,6 @@ just numbers (like control point data) and don't have an entity type.
 """
 
 from src.ada.cadit.sat.parser.parser import AcisSatParser
-from pathlib import Path
 import tempfile
 
 
@@ -41,7 +40,7 @@ End-of-ACIS-data
 """
 
     # Create temporary file
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.sat', delete=False, encoding='utf-8') as f:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".sat", delete=False, encoding="utf-8") as f:
         f.write(sat_content)
         temp_file = f.name
 
@@ -51,7 +50,7 @@ End-of-ACIS-data
         entities = parser.parse()
 
         print(f"✓ Successfully parsed {len(entities)} entities")
-        print(f"✓ Parser handled standalone numeric lines without crashing")
+        print("✓ Parser handled standalone numeric lines without crashing")
 
         # Verify we got the expected entities
         assert len(entities) > 0, "Should have parsed some entities"
@@ -78,10 +77,10 @@ End-of-ACIS-data
     finally:
         # Cleanup
         import os
+
         if os.path.exists(temp_file):
             os.unlink(temp_file)
 
 
 if __name__ == "__main__":
     test_parser_handles_numeric_continuation_lines()
-

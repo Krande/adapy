@@ -11,7 +11,7 @@ import numpy as np
 from ada.config import Config, logger
 
 if TYPE_CHECKING:
-    from ada import Node
+    pass
 
 
 class NewLine:

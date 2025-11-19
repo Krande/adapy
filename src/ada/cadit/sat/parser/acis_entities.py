@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 
 class AcisVersion(BaseModel):
     """ACIS version information from SAT file header."""
+
     major: int
     minor: int
     point: int = 0
@@ -21,16 +22,17 @@ class AcisVersion(BaseModel):
     @classmethod
     def from_string(cls, version_str: str) -> AcisVersion:
         """Parse version from string like '33.0.1'"""
-        parts = version_str.split('.')
+        parts = version_str.split(".")
         return cls(
             major=int(parts[0]),
             minor=int(parts[1]) if len(parts) > 1 else 0,
-            point=int(parts[2]) if len(parts) > 2 else 0
+            point=int(parts[2]) if len(parts) > 2 else 0,
         )
 
 
 class AcisHeader(BaseModel):
     """ACIS SAT file header information."""
+
     version_code: int
     num_records: int
     num_entities: int
@@ -45,6 +47,7 @@ class AcisHeader(BaseModel):
 
 class SenseType(str, Enum):
     """Direction/orientation sense."""
+
     FORWARD = "forward"
     REVERSED = "reversed"
     BOTH = "both"
@@ -53,6 +56,7 @@ class SenseType(str, Enum):
 
 class ClosureType(str, Enum):
     """Spline closure type."""
+
     OPEN = "open"
     CLOSED = "closed"
     PERIODIC = "periodic"
@@ -61,15 +65,18 @@ class ClosureType(str, Enum):
 
 class NurbsType(str, Enum):
     """NURBS surface/curve type."""
+
     NURBS = "nurbs"  # Rational B-spline
-    NUBS = "nubs"    # Non-rational B-spline
+    NUBS = "nubs"  # Non-rational B-spline
     NULLBS = "nullbs"  # Null B-spline
 
 
 # Base ACIS Entity Classes
 
+
 class AcisEntity(BaseModel):
     """Base class for all ACIS entities."""
+
     index: int = Field(..., description="Entity index in SAT file")
     entity_type: str = Field(..., description="ACIS entity type name")
 
@@ -79,13 +86,16 @@ class AcisEntity(BaseModel):
 
 class AcisGeometricEntity(AcisEntity):
     """Base class for geometric entities."""
+
     pass
 
 
 # Topological Entities
 
+
 class AcisBody(AcisEntity):
     """ACIS body entity - top-level container."""
+
     entity_type: str = "body"
     lump_ref: Optional[int] = None
     wire_ref: Optional[int] = None
@@ -95,6 +105,7 @@ class AcisBody(AcisEntity):
 
 class AcisLump(AcisEntity):
     """ACIS lump entity - collection of shells."""
+
     entity_type: str = "lump"
     next_lump_ref: Optional[int] = None
     shell_ref: Optional[int] = None
@@ -104,6 +115,7 @@ class AcisLump(AcisEntity):
 
 class AcisShell(AcisEntity):
     """ACIS shell entity - collection of faces."""
+
     entity_type: str = "shell"
     next_shell_ref: Optional[int] = None
     subshell_ref: Optional[int] = None
@@ -115,6 +127,7 @@ class AcisShell(AcisEntity):
 
 class AcisSubshell(AcisEntity):
     """ACIS subshell entity."""
+
     entity_type: str = "subshell"
     next_subshell_ref: Optional[int] = None
     face_ref: Optional[int] = None
@@ -123,6 +136,7 @@ class AcisSubshell(AcisEntity):
 
 class AcisFace(AcisEntity):
     """ACIS face entity - surface bounded by loops."""
+
     entity_type: str = "face"
     next_face_ref: Optional[int] = None
     attrib_ref: Optional[int] = None
@@ -138,6 +152,7 @@ class AcisFace(AcisEntity):
 
 class AcisLoop(AcisEntity):
     """ACIS loop entity - closed chain of coedges."""
+
     entity_type: str = "loop"
     next_loop_ref: Optional[int] = None
     attrib_ref: Optional[int] = None
@@ -148,6 +163,7 @@ class AcisLoop(AcisEntity):
 
 class AcisCoedge(AcisEntity):
     """ACIS coedge entity - oriented use of an edge."""
+
     entity_type: str = "coedge"
     next_coedge_ref: Optional[int] = None
     previous_coedge_ref: Optional[int] = None
@@ -160,6 +176,7 @@ class AcisCoedge(AcisEntity):
 
 class AcisEdge(AcisEntity):
     """ACIS edge entity - curve segment between vertices."""
+
     entity_type: str = "edge"
     next_edge_ref: Optional[int] = None
     attrib_ref: Optional[int] = None
@@ -174,6 +191,7 @@ class AcisEdge(AcisEntity):
 
 class AcisVertex(AcisEntity):
     """ACIS vertex entity - point in space."""
+
     entity_type: str = "vertex"
     attrib_ref: Optional[int] = None
     edge_ref: Optional[int] = None
@@ -182,6 +200,7 @@ class AcisVertex(AcisEntity):
 
 class AcisPoint(AcisGeometricEntity):
     """ACIS point entity."""
+
     entity_type: str = "point"
     x: float
     y: float
@@ -190,13 +209,16 @@ class AcisPoint(AcisGeometricEntity):
 
 # Curve Entities
 
+
 class AcisCurve(AcisGeometricEntity):
     """Base class for curve entities."""
+
     pass
 
 
 class AcisStraightCurve(AcisCurve):
     """ACIS straight line curve."""
+
     entity_type: str = "straight-curve"
     origin: List[float] = Field(..., description="Start point [x, y, z]")
     direction: List[float] = Field(..., description="Direction vector [x, y, z]")
@@ -204,6 +226,7 @@ class AcisStraightCurve(AcisCurve):
 
 class AcisEllipseCurve(AcisCurve):
     """ACIS ellipse/circle curve."""
+
     entity_type: str = "ellipse-curve"
     center: List[float] = Field(..., description="Center point [x, y, z]")
     normal: List[float] = Field(..., description="Normal vector [x, y, z]")
@@ -213,6 +236,7 @@ class AcisEllipseCurve(AcisCurve):
 
 class AcisIntcurveCurve(AcisCurve):
     """ACIS intersection curve (typically B-spline)."""
+
     entity_type: str = "intcurve-curve"
     sense: SenseType = SenseType.FORWARD
     surface_ref: Optional[int] = None
@@ -222,6 +246,7 @@ class AcisIntcurveCurve(AcisCurve):
 
 class AcisSplineCurveData(BaseModel):
     """ACIS B-spline curve data."""
+
     subtype: str = "exactcur"  # exactcur, exppc, lawintcur, etc.
     curve_type: NurbsType = NurbsType.NURBS
     degree: int
@@ -236,13 +261,16 @@ class AcisSplineCurveData(BaseModel):
 
 # Surface Entities
 
+
 class AcisSurface(AcisGeometricEntity):
     """Base class for surface entities."""
+
     pass
 
 
 class AcisPlaneSurface(AcisSurface):
     """ACIS planar surface."""
+
     entity_type: str = "plane-surface"
     origin: List[float] = Field(..., description="Origin point [x, y, z]")
     normal: List[float] = Field(..., description="Normal vector [x, y, z]")
@@ -252,6 +280,7 @@ class AcisPlaneSurface(AcisSurface):
 
 class AcisConeSurface(AcisSurface):
     """ACIS conical surface."""
+
     entity_type: str = "cone-surface"
     origin: List[float]
     axis: List[float]
@@ -263,6 +292,7 @@ class AcisConeSurface(AcisSurface):
 
 class AcisCylinderSurface(AcisSurface):
     """ACIS cylindrical surface."""
+
     entity_type: str = "cylinder-surface"
     origin: List[float]
     axis: List[float]
@@ -272,6 +302,7 @@ class AcisCylinderSurface(AcisSurface):
 
 class AcisSphereSurface(AcisSurface):
     """ACIS spherical surface."""
+
     entity_type: str = "sphere-surface"
     center: List[float]
     radius: float
@@ -281,6 +312,7 @@ class AcisSphereSurface(AcisSurface):
 
 class AcisTorusSurface(AcisSurface):
     """ACIS toroidal surface."""
+
     entity_type: str = "torus-surface"
     center: List[float]
     axis: List[float]
@@ -291,6 +323,7 @@ class AcisTorusSurface(AcisSurface):
 
 class AcisSplineSurface(AcisSurface):
     """ACIS B-spline surface."""
+
     entity_type: str = "spline-surface"
     sense: SenseType = SenseType.FORWARD
     spline_data: Optional[AcisSplineSurfaceData] = None
@@ -298,6 +331,7 @@ class AcisSplineSurface(AcisSurface):
 
 class AcisSplineSurfaceData(BaseModel):
     """ACIS B-spline surface data."""
+
     subtype: str = "exactsur"  # exactsur, exppc, etc.
     has_extra_zero: bool = False
     surface_type: NurbsType = NurbsType.NURBS
@@ -317,40 +351,48 @@ class AcisSplineSurfaceData(BaseModel):
 
 # Attribute Entities
 
+
 class AcisAttrib(AcisEntity):
     """Base class for attribute entities."""
+
     next_attrib_ref: Optional[int] = None
     owner_ref: Optional[int] = None
 
 
 class AcisNameAttrib(AcisAttrib):
     """ACIS name attribute."""
+
     entity_type: str = "name_attrib"
     name: str = ""
 
 
 class AcisStringAttrib(AcisAttrib):
     """ACIS string attribute."""
+
     entity_type: str = "string_attrib"
     value: str = ""
 
 
 class AcisPositionAttrib(AcisAttrib):
     """ACIS position attribute."""
+
     entity_type: str = "position_attrib"
     position: List[float] = Field(default_factory=lambda: [0.0, 0.0, 0.0])
 
 
 class AcisRgbColorAttrib(AcisAttrib):
     """ACIS RGB color attribute."""
+
     entity_type: str = "rgb_color-st-attrib"
     rgb: List[float] = Field(default_factory=lambda: [0.5, 0.5, 0.5])
 
 
 # PCurve (Parameter Space Curve)
 
+
 class AcisPCurve(AcisGeometricEntity):
     """ACIS parametric curve on a surface."""
+
     entity_type: str = "pcurve"
     surface_ref: Optional[int] = None
     intcurve_ref: Optional[int] = None
@@ -359,8 +401,10 @@ class AcisPCurve(AcisGeometricEntity):
 
 # Transform
 
+
 class AcisTransform(AcisEntity):
     """ACIS transformation matrix."""
+
     entity_type: str = "transform"
     scale: float = 1.0
     rotation: Optional[List[List[float]]] = None  # 3x3 rotation matrix
@@ -371,25 +415,18 @@ class AcisTransform(AcisEntity):
 # Union types for convenience
 
 AcisTopologyEntity = Union[
-    AcisBody, AcisLump, AcisShell, AcisSubshell,
-    AcisFace, AcisLoop, AcisCoedge, AcisEdge, AcisVertex
+    AcisBody, AcisLump, AcisShell, AcisSubshell, AcisFace, AcisLoop, AcisCoedge, AcisEdge, AcisVertex
 ]
 
-AcisCurveEntity = Union[
-    AcisStraightCurve, AcisEllipseCurve, AcisIntcurveCurve
-]
+AcisCurveEntity = Union[AcisStraightCurve, AcisEllipseCurve, AcisIntcurveCurve]
 
 AcisSurfaceEntity = Union[
-    AcisPlaneSurface, AcisConeSurface, AcisCylinderSurface,
-    AcisSphereSurface, AcisTorusSurface, AcisSplineSurface
+    AcisPlaneSurface, AcisConeSurface, AcisCylinderSurface, AcisSphereSurface, AcisTorusSurface, AcisSplineSurface
 ]
 
-AcisAttributeEntity = Union[
-    AcisNameAttrib, AcisStringAttrib, AcisPositionAttrib, AcisRgbColorAttrib
-]
+AcisAttributeEntity = Union[AcisNameAttrib, AcisStringAttrib, AcisPositionAttrib, AcisRgbColorAttrib]
 
 
 # Forward references for nested models
 AcisIntcurveCurve.model_rebuild()
 AcisSplineSurface.model_rebuild()
-

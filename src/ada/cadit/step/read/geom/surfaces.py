@@ -5,7 +5,7 @@ from OCC.Core.Geom import Geom_BSplineSurface, Geom_Surface
 from OCC.Core.GeomAbs import GeomAbs_C0, GeomAbs_C1, GeomAbs_C2, GeomAbs_CN
 from OCC.Core.TopAbs import TopAbs_FACE
 from OCC.Core.TopExp import TopExp_Explorer
-from OCC.Core.TopoDS import TopoDS_Compound, TopoDS_Face
+from OCC.Core.TopoDS import TopoDS_Compound, TopoDS_Face, TopoDS_Shell, topods
 
 from ada.cadit.step.read.geom.curves import get_wires_from_face
 from ada.cadit.step.read.geom.helpers import (
@@ -34,6 +34,27 @@ def occ_face_to_ada_face(face: TopoDS_Face) -> geo_su.AdvancedFace | None:
     else:
         logger.error(f"Geometry type {surface.__class__} not implemented")
     return None
+
+
+def occ_shell_to_ada_faces(shell: TopoDS_Shell) -> list[geo_su.AdvancedFace]:
+    """
+    Convert an OCC TopoDS_Shell to a list of ada AdvancedFace objects.
+
+    Args:
+        shell: TopoDS_Shell to convert
+
+    Returns:
+        List of AdvancedFace objects extracted from the shell
+    """
+    faces = []
+    explorer = TopExp_Explorer(shell, TopAbs_FACE)
+    while explorer.More():
+        face = topods.Face(explorer.Current())
+        ada_face = occ_face_to_ada_face(face)
+        if ada_face:
+            faces.append(ada_face)
+        explorer.Next()
+    return faces
 
 
 def iter_faces(occ_geom: TopoDS_Compound) -> Iterable[geo_su.SURFACE_GEOM_TYPES]:

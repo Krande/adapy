@@ -1,6 +1,7 @@
 """
 Test script to verify the lawintcur parsing fix.
 """
+
 from src.ada.cadit.sat.parser.parser import AcisSatParser
 import tempfile
 import os
@@ -24,10 +25,11 @@ sat_content = """700 0 1 0
 End-of-ACIS-data
 """
 
+
 def test_lawintcur_parsing():
     """Test that lawintcur entities can be parsed without ValueError."""
     # Create a temporary SAT file
-    with tempfile.NamedTemporaryFile(mode='w', suffix='.sat', delete=False, encoding='utf-8') as f:
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".sat", delete=False, encoding="utf-8") as f:
         f.write(sat_content)
         temp_file = f.name
 
@@ -46,11 +48,11 @@ def test_lawintcur_parsing():
         print(f"✓ Found intcurve-curve entity: {intcurve}")
 
         # Verify spline data exists
-        assert hasattr(intcurve, 'spline_data'), "Intcurve should have spline_data attribute"
+        assert hasattr(intcurve, "spline_data"), "Intcurve should have spline_data attribute"
         assert intcurve.spline_data is not None, "Spline data should not be None"
 
         spline_data = intcurve.spline_data
-        print(f"✓ Spline data parsed successfully:")
+        print("✓ Spline data parsed successfully:")
         print(f"  - Subtype: {spline_data.subtype}")
         print(f"  - Curve type: {spline_data.curve_type}")
         print(f"  - Degree: {spline_data.degree}")
@@ -63,17 +65,23 @@ def test_lawintcur_parsing():
 
         # Verify knots were parsed (should have 4 knots based on the SAT data)
         assert len(spline_data.knots) == 4, f"Expected 4 knots, got {len(spline_data.knots)}"
-        assert len(spline_data.knot_multiplicities) == 4, f"Expected 4 knot multiplicities, got {len(spline_data.knot_multiplicities)}"
+        assert (
+            len(spline_data.knot_multiplicities) == 4
+        ), f"Expected 4 knot multiplicities, got {len(spline_data.knot_multiplicities)}"
 
         # Verify the knot values (from the test data)
         expected_knots = [0, 4.0199502484483425, 10.049875621120814, 11.557356964288923]
         expected_multiplicities = [3, 1, 1, 3]
         for i, (knot, mult) in enumerate(zip(expected_knots, expected_multiplicities)):
             assert abs(spline_data.knots[i] - knot) < 1e-10, f"Knot {i} should be {knot}, got {spline_data.knots[i]}"
-            assert spline_data.knot_multiplicities[i] == mult, f"Multiplicity {i} should be {mult}, got {spline_data.knot_multiplicities[i]}"
+            assert (
+                spline_data.knot_multiplicities[i] == mult
+            ), f"Multiplicity {i} should be {mult}, got {spline_data.knot_multiplicities[i]}"
 
         # Verify control points were parsed (should have 6 control points)
-        assert len(spline_data.control_points) >= 6, f"Expected at least 6 control points, got {len(spline_data.control_points)}"
+        assert (
+            len(spline_data.control_points) >= 6
+        ), f"Expected at least 6 control points, got {len(spline_data.control_points)}"
 
         if spline_data.control_points:
             print(f"    First CP: {spline_data.control_points[0]}")
@@ -82,14 +90,16 @@ def test_lawintcur_parsing():
             # Verify first control point
             expected_first_cp = [-152.93449314192418, 28.065506858075835, 30]
             for i, val in enumerate(expected_first_cp):
-                assert abs(spline_data.control_points[0][i] - val) < 1e-10, \
-                    f"First CP coord {i} should be {val}, got {spline_data.control_points[0][i]}"
+                assert (
+                    abs(spline_data.control_points[0][i] - val) < 1e-10
+                ), f"First CP coord {i} should be {val}, got {spline_data.control_points[0][i]}"
 
             # Verify last control point
             expected_last_cp = [-152.12132034355963, 28.878679656440347, 41.5]
             for i, val in enumerate(expected_last_cp):
-                assert abs(spline_data.control_points[-1][i] - val) < 1e-10, \
-                    f"Last CP coord {i} should be {val}, got {spline_data.control_points[-1][i]}"
+                assert (
+                    abs(spline_data.control_points[-1][i] - val) < 1e-10
+                ), f"Last CP coord {i} should be {val}, got {spline_data.control_points[-1][i]}"
 
         # Verify other entities were parsed correctly too
         plane_surface = entities.get(10)
@@ -109,6 +119,7 @@ def test_lawintcur_parsing():
     except Exception as e:
         print(f"✗ Test FAILED with unexpected error: {e}")
         import traceback
+
         traceback.print_exc()
         return False
     finally:
@@ -116,7 +127,7 @@ def test_lawintcur_parsing():
         if os.path.exists(temp_file):
             os.remove(temp_file)
 
+
 if __name__ == "__main__":
     success = test_lawintcur_parsing()
     exit(0 if success else 1)
-

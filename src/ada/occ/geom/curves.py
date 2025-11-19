@@ -47,11 +47,11 @@ def make_edge_from_edge(edge: geo_cu.Edge) -> TopoDS_Edge:
             return False
 
     # Check if this is an OrientedEdge with an edge_element
-    if isinstance(edge, geo_cu.OrientedEdge) and hasattr(edge, 'edge_element'):
+    if isinstance(edge, geo_cu.OrientedEdge) and hasattr(edge, "edge_element"):
         edge_element = edge.edge_element
 
         # If edge_element is an EdgeCurve with geometry, use it
-        if isinstance(edge_element, geo_cu.EdgeCurve) and hasattr(edge_element, 'edge_geometry'):
+        if isinstance(edge_element, geo_cu.EdgeCurve) and hasattr(edge_element, "edge_geometry"):
             curve_geom = edge_element.edge_geometry
 
             logger.debug(f"Creating edge from {type(curve_geom).__name__}: start={edge.start}, end={edge.end}")
@@ -112,7 +112,9 @@ def make_edge_from_edge(edge: geo_cu.Edge) -> TopoDS_Edge:
 
                         if proj1.NbPoints() == 0 or proj2.NbPoints() == 0:
                             # Fallback to straight line if projection fails
-                            logger.warning("Failed to project points on BSpline curve; attempting interpolation fallback")
+                            logger.warning(
+                                "Failed to project points on BSpline curve; attempting interpolation fallback"
+                            )
                             # Try interpolation fallback before straight line
                             interp = GeomAPI_PointsToBSpline(poles)
                             occ_bs_fallback = interp.Curve()
@@ -122,7 +124,9 @@ def make_edge_from_edge(edge: geo_cu.Edge) -> TopoDS_Edge:
                                 proj1b = GeomAPI_ProjectPointOnCurve(p1, occ_bs_fallback)
                                 proj2b = GeomAPI_ProjectPointOnCurve(p2, occ_bs_fallback)
                                 if proj1b.NbPoints() == 0 or proj2b.NbPoints() == 0:
-                                    logger.warning("Interpolation fallback projection also failed; using straight line approximation")
+                                    logger.warning(
+                                        "Interpolation fallback projection also failed; using straight line approximation"
+                                    )
                                     edge_maker = BRepBuilderAPI_MakeEdge(p1, p2)
                                 else:
                                     u1 = proj1b.LowerDistanceParameter()
@@ -157,7 +161,9 @@ def make_edge_from_edge(edge: geo_cu.Edge) -> TopoDS_Edge:
                             proj1b = GeomAPI_ProjectPointOnCurve(p1, occ_bs_fallback)
                             proj2b = GeomAPI_ProjectPointOnCurve(p2, occ_bs_fallback)
                             if proj1b.NbPoints() == 0 or proj2b.NbPoints() == 0:
-                                logger.warning("Interpolation fallback projection failed; using straight line approximation")
+                                logger.warning(
+                                    "Interpolation fallback projection failed; using straight line approximation"
+                                )
                                 edge_maker = BRepBuilderAPI_MakeEdge(p1, p2)
                             else:
                                 u1 = proj1b.LowerDistanceParameter()
@@ -167,7 +173,9 @@ def make_edge_from_edge(edge: geo_cu.Edge) -> TopoDS_Edge:
                                 else:
                                     edge_maker = BRepBuilderAPI_MakeEdge(occ_bs_fallback, u1, u2)
                     except Exception as ex2:
-                        logger.warning(f"BSpline interpolation fallback failed ({ex2}); using straight line approximation")
+                        logger.warning(
+                            f"BSpline interpolation fallback failed ({ex2}); using straight line approximation"
+                        )
                         p1 = point3d(edge.start)
                         p2 = point3d(edge.end)
                         edge_maker = BRepBuilderAPI_MakeEdge(p1, p2)
@@ -175,7 +183,11 @@ def make_edge_from_edge(edge: geo_cu.Edge) -> TopoDS_Edge:
                 # Ellipse geometry support
                 try:
                     pos = curve_geom.position
-                    ax2 = gp_Ax2(gp_Pnt(*pos.location), gp_Dir(*pos.axis), gp_Dir(*pos.ref_direction)) if hasattr(pos, 'ref_direction') else gp_Ax2(gp_Pnt(*pos.location), gp_Dir(*pos.axis))
+                    ax2 = (
+                        gp_Ax2(gp_Pnt(*pos.location), gp_Dir(*pos.axis), gp_Dir(*pos.ref_direction))
+                        if hasattr(pos, "ref_direction")
+                        else gp_Ax2(gp_Pnt(*pos.location), gp_Dir(*pos.axis))
+                    )
                     el = gp_Elips(ax2, float(curve_geom.semi_axis1), float(curve_geom.semi_axis2))
                     if _points_equal(edge.start, edge.end):
                         edge_maker = BRepBuilderAPI_MakeEdge(el)
@@ -210,7 +222,7 @@ def make_edge_from_edge(edge: geo_cu.Edge) -> TopoDS_Edge:
         # If edge creation failed, it might be because start and end are too close
         # Try to skip degenerate edges
         error_msg = f"Failed to create edge from {type(edge).__name__}: start={edge.start}, end={edge.end}"
-        if isinstance(edge, geo_cu.OrientedEdge) and hasattr(edge, 'edge_element'):
+        if isinstance(edge, geo_cu.OrientedEdge) and hasattr(edge, "edge_element"):
             if isinstance(edge.edge_element, geo_cu.EdgeCurve):
                 error_msg += f", curve_type={type(edge.edge_element.edge_geometry).__name__}"
         raise UnableToCreateCurveOCCGeom(error_msg)
@@ -258,11 +270,7 @@ def make_wire_from_circle(circle: geo_cu.Circle) -> TopoDS_Wire:
 
 def make_wire_from_ellipse(ellipse: geo_cu.Ellipse) -> TopoDS_Wire:
     pos = ellipse.position
-    ax2 = gp_Ax2(
-        gp_Pnt(*pos.location),
-        gp_Dir(*pos.axis),
-        gp_Dir(*getattr(pos, 'ref_direction', pos.axis))
-    )
+    ax2 = gp_Ax2(gp_Pnt(*pos.location), gp_Dir(*pos.axis), gp_Dir(*getattr(pos, "ref_direction", pos.axis)))
     el = gp_Elips(ax2, float(ellipse.semi_axis1), float(ellipse.semi_axis2))
 
     ellipse_edge = BRepBuilderAPI_MakeEdge(el).Edge()
@@ -296,21 +304,21 @@ def make_wire_from_edge_loop(edge_loop: geo_cu.EdgeLoop) -> TopoDS_Wire:
         logger.debug(f"Single-edge loop detected. Edge type: {type(para_edge).__name__}")
         try:
             # If the underlying geometry is an EdgeCurve, check its curve type
-            if isinstance(para_edge, geo_cu.OrientedEdge) and hasattr(para_edge, 'edge_element'):
+            if isinstance(para_edge, geo_cu.OrientedEdge) and hasattr(para_edge, "edge_element"):
                 ee = para_edge.edge_element
                 logger.debug(f"Edge element type: {type(ee).__name__}")
                 if isinstance(ee, geo_cu.EdgeCurve):
                     geom = ee.edge_geometry
                     if isinstance(geom, geo_cu.Circle):
-                        logger.debug(f"Creating full-circle wire from Circle geometry")
+                        logger.debug("Creating full-circle wire from Circle geometry")
                         return make_wire_from_circle(geom)
                     if isinstance(geom, geo_cu.Ellipse) and _pts_equal(para_edge.start, para_edge.end):
-                        logger.debug(f"Creating full-ellipse wire from Ellipse geometry")
+                        logger.debug("Creating full-ellipse wire from Ellipse geometry")
                         return make_wire_from_ellipse(geom)
                     if isinstance(geom, (geo_cu.BSplineCurveWithKnots, geo_cu.RationalBSplineCurveWithKnots)):
                         # If marked closed or start==end, treat as full curve edge
-                        if getattr(geom, 'closed_curve', False) or _pts_equal(para_edge.start, para_edge.end):
-                            logger.debug(f"Creating full B-Spline wire from closed BSpline geometry")
+                        if getattr(geom, "closed_curve", False) or _pts_equal(para_edge.start, para_edge.end):
+                            logger.debug("Creating full B-Spline wire from closed BSpline geometry")
                             occ_edge = make_edge_from_edge(para_edge)
                             wire = BRepBuilderAPI_MakeWire()
                             wire.Add(occ_edge)
@@ -336,7 +344,9 @@ def make_wire_from_edge_loop(edge_loop: geo_cu.EdgeLoop) -> TopoDS_Wire:
         logger.debug(f"Skipped {skipped_edges} degenerate edges when creating wire (added {added_edges} edges)")
 
     if added_edges == 0:
-        raise UnableToCreateCurveOCCGeom(f"No valid edges could be created from EdgeLoop with {len(edge_loop.edge_list)} edges")
+        raise UnableToCreateCurveOCCGeom(
+            f"No valid edges could be created from EdgeLoop with {len(edge_loop.edge_list)} edges"
+        )
 
     wire.Build()
 

@@ -17,9 +17,7 @@ from ada.cadit.sat.parser.acis_entities import (
     AcisCoedge,
     AcisConeSurface,
     AcisCylinderSurface,
-    AcisEdge,
     AcisEllipseCurve,
-    AcisEntity,
     AcisFace,
     AcisIntcurveCurve,
     AcisLoop,
@@ -79,6 +77,7 @@ class AcisToAdaConverter:
                     results.append((name, geometry))
             except Exception as e:
                 import traceback
+
                 trace = traceback.format_exc()
                 logger.warning(f"Failed to convert face {face.index}: {e}")
 
@@ -108,11 +107,7 @@ class AcisToAdaConverter:
         # Create AdvancedFace for all surface types
         # AdvancedFace supports Plane, CylindricalSurface, ConicalSurface, SphericalSurface,
         # ToroidalSurface, and BSpline surfaces
-        return geo_su.AdvancedFace(
-            bounds=bounds,
-            face_surface=surface,
-            same_sense=True
-        )
+        return geo_su.AdvancedFace(bounds=bounds, face_surface=surface, same_sense=True)
 
     def convert_face_bounds(self, face: AcisFace) -> List[geo_su.FaceBound]:
         """
@@ -153,7 +148,7 @@ class AcisToAdaConverter:
                 bounds.append(geo_su.FaceBound(bound=edge_loop, orientation=orientation))
 
             # Move to next loop in chain
-            loop_ref = loop.next_loop_ref if hasattr(loop, 'next_loop_ref') else None
+            loop_ref = loop.next_loop_ref if hasattr(loop, "next_loop_ref") else None
 
         return bounds
 
@@ -242,22 +237,12 @@ class AcisToAdaConverter:
             curve = geo_cu.Line(p1, Direction(p2 - p1))
 
         # Create edge curve
-        edge_curve = geo_cu.EdgeCurve(
-            start=p1,
-            end=p2,
-            edge_geometry=curve,
-            same_sense=True
-        )
+        edge_curve = geo_cu.EdgeCurve(start=p1, end=p2, edge_geometry=curve, same_sense=True)
 
         # Determine orientation
         orientation = edge.sense.value == "forward"
 
-        return geo_cu.OrientedEdge(
-            start=p1,
-            end=p2,
-            edge_element=edge_curve,
-            orientation=orientation
-        )
+        return geo_cu.OrientedEdge(start=p1, end=p2, edge_element=edge_curve, orientation=orientation)
 
     def convert_vertex(self, vertex: AcisVertex) -> Optional[Point]:
         """
@@ -322,11 +307,7 @@ class AcisToAdaConverter:
 
         ref_direction = major_axis_vec.get_normalized()
 
-        position = Axis2Placement3D(
-            location=center,
-            axis=normal,
-            ref_direction=ref_direction
-        )
+        position = Axis2Placement3D(location=center, axis=normal, ref_direction=ref_direction)
 
         # If radius_ratio is 1.0, it's a circle
         if abs(curve.radius_ratio - 1.0) < 1e-9:
@@ -346,7 +327,9 @@ class AcisToAdaConverter:
         for cp in spline_data.control_points:
             # Ensure cp is a list/array with at least 3 elements
             if not isinstance(cp, (list, tuple)) or len(cp) < 3:
-                logger.warning(f"Invalid control point format: {cp} for curve idx {curve.index}. Expected list with at least 3 coordinates.")
+                logger.warning(
+                    f"Invalid control point format: {cp} for curve idx {curve.index}. Expected list with at least 3 coordinates."
+                )
                 return None
             control_points.append(Point(cp[0], cp[1], cp[2]))
 
@@ -368,8 +351,10 @@ class AcisToAdaConverter:
         if sum_mults != expected_sum and len(knot_multiplicities) >= 2:
             # Likely needs adjustment for open curve
             # Increase first and last multiplicity by 1
-            logger.debug(f"Adjusting ACIS knot multiplicities from {knot_multiplicities} "
-                        f"(sum={sum_mults}) to match OCC convention (expected sum={expected_sum})")
+            logger.debug(
+                f"Adjusting ACIS knot multiplicities from {knot_multiplicities} "
+                f"(sum={sum_mults}) to match OCC convention (expected sum={expected_sum})"
+            )
             knot_multiplicities = knot_multiplicities.copy()
             knot_multiplicities[0] += 1
             knot_multiplicities[-1] += 1
@@ -379,8 +364,9 @@ class AcisToAdaConverter:
         is_rational = any(isinstance(cp, (list, tuple)) and len(cp) > 3 for cp in spline_data.control_points)
 
         if is_rational:
-            weights = [cp[3] if isinstance(cp, (list, tuple)) and len(cp) > 3 else 1.0
-                      for cp in spline_data.control_points]
+            weights = [
+                cp[3] if isinstance(cp, (list, tuple)) and len(cp) > 3 else 1.0 for cp in spline_data.control_points
+            ]
             return geo_cu.RationalBSplineCurveWithKnots(
                 degree=spline_data.degree,
                 control_points_list=control_points,
@@ -390,7 +376,7 @@ class AcisToAdaConverter:
                 knot_multiplicities=knot_multiplicities,
                 knots=spline_data.knots,
                 knot_spec=KnotType.UNSPECIFIED,
-                weights_data=weights
+                weights_data=weights,
             )
         else:
             return geo_cu.BSplineCurveWithKnots(
@@ -401,7 +387,7 @@ class AcisToAdaConverter:
                 self_intersect=False,
                 knot_multiplicities=knot_multiplicities,
                 knots=spline_data.knots,
-                knot_spec=KnotType.UNSPECIFIED
+                knot_spec=KnotType.UNSPECIFIED,
             )
 
     def convert_surface(self, surface_ref: Optional[int]) -> Optional[geo_su.SURFACE_GEOM_TYPES]:
@@ -443,17 +429,13 @@ class AcisToAdaConverter:
         normal = Direction(*surface.normal).get_normalized()
         u_direction = Direction(*surface.u_direction).get_normalized()
 
-        position = Axis2Placement3D(
-            location=origin,
-            axis=normal,
-            ref_direction=u_direction
-        )
+        position = Axis2Placement3D(location=origin, axis=normal, ref_direction=u_direction)
 
         return geo_su.Plane(position=position)
 
-    def convert_spline_surface(self, surface: AcisSplineSurface) -> Optional[
-        geo_su.BSplineSurfaceWithKnots | geo_su.RationalBSplineSurfaceWithKnots
-    ]:
+    def convert_spline_surface(
+        self, surface: AcisSplineSurface
+    ) -> Optional[geo_su.BSplineSurfaceWithKnots | geo_su.RationalBSplineSurfaceWithKnots]:
         """Convert ACIS spline surface to BSplineSurfaceWithKnots."""
         if not surface.spline_data:
             return None
@@ -483,15 +465,11 @@ class AcisToAdaConverter:
             spline_data.u_knots,
             spline_data.v_knots,
             num_u_points,
-            num_v_points
+            num_v_points,
         )
 
         # Determine if it's rational
-        is_rational = any(
-            len(v_point) > 3
-            for u_row in spline_data.control_points
-            for v_point in u_row
-        )
+        is_rational = any(len(v_point) > 3 for u_row in spline_data.control_points for v_point in u_row)
 
         if is_rational:
             # Extract weights
@@ -515,7 +493,7 @@ class AcisToAdaConverter:
                 u_knots=spline_data.u_knots,
                 v_knots=spline_data.v_knots,
                 knot_spec=KnotType.UNSPECIFIED,
-                weights_data=weights_data
+                weights_data=weights_data,
             )
         else:
             return geo_su.BSplineSurfaceWithKnots(
@@ -530,7 +508,7 @@ class AcisToAdaConverter:
                 v_multiplicities=v_mult,
                 u_knots=spline_data.u_knots,
                 v_knots=spline_data.v_knots,
-                knot_spec=KnotType.UNSPECIFIED
+                knot_spec=KnotType.UNSPECIFIED,
             )
 
     def convert_cylinder_surface(self, surface: AcisCylinderSurface) -> geo_su.CylindricalSurface:
@@ -547,11 +525,7 @@ class AcisToAdaConverter:
         axis = Direction(*surface.axis).get_normalized()
         major_axis = Direction(*surface.major_axis).get_normalized()
 
-        position = Axis2Placement3D(
-            location=origin,
-            axis=axis,
-            ref_direction=major_axis
-        )
+        position = Axis2Placement3D(location=origin, axis=axis, ref_direction=major_axis)
 
         return geo_su.CylindricalSurface(position=position, radius=surface.radius)
 
@@ -571,11 +545,7 @@ class AcisToAdaConverter:
         axis = Direction(*surface.axis).get_normalized()
         major_axis = Direction(*surface.major_axis).get_normalized()
 
-        position = Axis2Placement3D(
-            location=origin,
-            axis=axis,
-            ref_direction=major_axis
-        )
+        position = Axis2Placement3D(location=origin, axis=axis, ref_direction=major_axis)
 
         # Calculate semi-angle from sine and cosine
         # ACIS stores sine_angle and cosine_angle
@@ -601,11 +571,7 @@ class AcisToAdaConverter:
         pole = Direction(*surface.pole).get_normalized()
         equator = Direction(*surface.equator).get_normalized()
 
-        position = Axis2Placement3D(
-            location=center,
-            axis=pole,
-            ref_direction=equator
-        )
+        position = Axis2Placement3D(location=center, axis=pole, ref_direction=equator)
 
         return geo_su.SphericalSurface(position=position, radius=surface.radius)
 
@@ -623,16 +589,10 @@ class AcisToAdaConverter:
         axis = Direction(*surface.axis).get_normalized()
         major_axis = Direction(*surface.major_axis).get_normalized()
 
-        position = Axis2Placement3D(
-            location=center,
-            axis=axis,
-            ref_direction=major_axis
-        )
+        position = Axis2Placement3D(location=center, axis=axis, ref_direction=major_axis)
 
         return geo_su.ToroidalSurface(
-            position=position,
-            major_radius=surface.major_radius,
-            minor_radius=surface.minor_radius
+            position=position, major_radius=surface.major_radius, minor_radius=surface.minor_radius
         )
 
     def convert_all_bodies(self) -> List[Tuple[str, List[geo_su.SURFACE_GEOM_TYPES]]]:
@@ -690,10 +650,10 @@ class AcisToAdaConverter:
                     geometries.append(shell_geom)
 
                 # Move to next shell
-                shell_ref = shell.next_shell_ref if hasattr(shell, 'next_shell_ref') else None
+                shell_ref = shell.next_shell_ref if hasattr(shell, "next_shell_ref") else None
 
             # Move to next lump
-            lump_ref = lump.next_lump_ref if hasattr(lump, 'next_lump_ref') else None
+            lump_ref = lump.next_lump_ref if hasattr(lump, "next_lump_ref") else None
 
         return geometries
 
@@ -724,7 +684,7 @@ class AcisToAdaConverter:
                 faces.append(face_geom)
 
             # Move to next face
-            face_ref = face.next_face_ref if hasattr(face, 'next_face_ref') else None
+            face_ref = face.next_face_ref if hasattr(face, "next_face_ref") else None
 
         if not faces:
             return None
@@ -750,11 +710,11 @@ class AcisToAdaConverter:
                 break
 
             # Check if it's a name attribute
-            if hasattr(attrib, 'name') and attrib.name:
+            if hasattr(attrib, "name") and attrib.name:
                 return attrib.name
 
             # Try next attribute in chain
-            if hasattr(attrib, 'next_attrib_ref'):
+            if hasattr(attrib, "next_attrib_ref"):
                 attrib_ref = attrib.next_attrib_ref
             else:
                 break
