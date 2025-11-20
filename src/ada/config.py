@@ -94,6 +94,8 @@ class Config:
                 ConfigEntry("guid_cache_num", int, 25000),
                 ConfigEntry("guid_cache_enabled", bool, True),
                 ConfigEntry("guid_cache_refill_threshold", int, 500),
+                #
+                ConfigEntry("target_id_support", bool, False),
             ],
         ),
         ConfigSection(

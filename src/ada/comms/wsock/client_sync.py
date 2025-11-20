@@ -13,7 +13,7 @@ from ada.comms.fb_wrap_model_gen import (
     SceneOperationsDC,
     TargetTypeDC,
 )
-from ada.comms.wsock_client_base import WebSocketClientBase
+from ada.comms.wsock.client_base import WebSocketClientBase
 from ada.config import logger
 
 

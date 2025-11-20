@@ -61,8 +61,8 @@ def start_ws_async_server(
     run_in_thread=False,
     override_binder_check=False,
 ) -> None:
-    from ada.comms.cli_async_ws_server import WS_ASYNC_SERVER_PY
-    from ada.comms.wsock_server import WebSocketAsyncServer
+    from ada.comms.wsock.cli import WS_ASYNC_SERVER_PY
+    from ada.comms.wsock.server import WebSocketAsyncServer
 
     if server_exe is None:
         server_exe = WS_ASYNC_SERVER_PY

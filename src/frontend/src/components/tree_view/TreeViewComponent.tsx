@@ -84,7 +84,28 @@ const TreeViewComponent: React.FC = () => {
                     disableMultiSelection={false}
                     searchTerm={searchTerm}
                     searchMatch={
-                        (node, term) => node.data.name.toLowerCase().includes(term.toLowerCase())
+                        (node, term) => {
+                            // Robustly handle both string and RegExp search terms and names that may be undefined
+                            const name = (node?.data?.name ?? '').toString().toLowerCase();
+                            let t: string;
+                            if (typeof term === 'string') {
+                                t = term;
+                            } else if (term instanceof RegExp) {
+                                // Use the regex source so special chars like ' don't cause toLowerCase errors
+                                t = term.source;
+                            } else {
+                                t = String(term ?? '');
+                            }
+                            const raw = t.toLowerCase();
+                            // Build candidate terms to match against
+                            const candidates: string[] = [raw];
+                            // If user wrapped the term in single quotes, also search for the inner text
+                            if (raw.length >= 2 && raw.startsWith("'") && raw.endsWith("'")) {
+                                candidates.push(raw.slice(1, -1));
+                            }
+                            // Return true if any candidate is contained in the node name
+                            return candidates.some((c) => c !== '' && name.includes(c));
+                        }
                     }
 
                     // If I use this, it will also trigger when I modify the selection programmatically. And bad things happen.

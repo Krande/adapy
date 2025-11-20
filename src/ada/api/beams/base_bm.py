@@ -139,6 +139,7 @@ class Beam(BackendGeom):
             self._material.parent = self
 
         # Define orientations
+        self._orientation = None
         self._init_orientation(angle, up)
         self._add_beam_to_node_refs()
         self._hi1 = hi1
@@ -392,6 +393,10 @@ class Beam(BackendGeom):
     def orientation(self) -> Placement:
         """This is the local orientation and position of the Beam within the local placement object"""
         return self._orientation
+
+    @orientation.setter
+    def orientation(self, value: Placement):
+        self._orientation = value
 
     @property
     def member_type(self):

@@ -40,6 +40,7 @@ from OCC.Core.TopoDS import (
     TopoDS_Edge,
     TopoDS_Face,
     TopoDS_Shape,
+    TopoDS_Shell,
     TopoDS_Vertex,
     TopoDS_Wire,
 )
@@ -60,7 +61,9 @@ if TYPE_CHECKING:
     from ada import ArcSegment, Boolean, LineSegment, Part
 
 
-def extract_shapes(step_path, scale, transform, rotate, include_shells=False):
+def extract_occ_shapes(
+    step_path, scale, transform, rotate, include_shells=False
+) -> list[TopoDS_Shape | TopoDS_Shell | TopoDS_Face]:
     from OCC.Extend.DataExchange import read_step_file
 
     shapes = []
@@ -117,7 +120,7 @@ def walk_shapes(dir_path):
 def extract_subshapes(shp_, include_shells=False):
     t = TopologyExplorer(shp_)
     result = list(t.solids())
-    if include_shells:
+    if include_shells or len(result) == 0:
         result += list(t.shells())
         # result += list(t.vertices())
 

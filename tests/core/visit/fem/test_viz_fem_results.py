@@ -1,7 +1,7 @@
 import pytest
 
 import ada
-from ada.core.utils import traverse_hdf_datasets
+from ada.core.hdf_utils import traverse_hdf_datasets
 from ada.fem.formats.code_aster.results import get_eigen_data
 from ada.fem.results import EigenDataSummary
 from ada.visit.gltf.graph import GraphNode, GraphStore

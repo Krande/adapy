@@ -19,5 +19,5 @@ T = TypeVar("T", SOLID_GEOM_TYPES, SURFACE_GEOM_TYPES, CURVE_GEOM_TYPES)
 class Geometry(Generic[T]):
     id: int | str
     geometry: T
-    color: Color | None
+    color: Color | None = None
     bool_operations: list[BooleanOperation] = field(default_factory=list)

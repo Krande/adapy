@@ -104,6 +104,7 @@ export async function prepareLoadedModel({gltf_scene, hash}: PrepareLoadedModelP
 
     for (const {original, parent} of meshesToReplace) {
         const meshName = original.name;
+
         let drawRangesData = gltf_scene.userData[`draw_ranges_${meshName}`] as Record<string, [number, number]>;
         const node_id = original.userData?.node_id
 
@@ -112,7 +113,8 @@ export async function prepareLoadedModel({gltf_scene, hash}: PrepareLoadedModelP
             drawRangesData = gltf_scene.userData[`draw_ranges_node${node_id}`] as Record<string, [number, number]>;
         }
         if (!drawRangesData) {
-            console.warn(`No draw ranges found for mesh: ${meshName}`);
+            console.warn(`No draw ranges found for mesh: ${meshName}, node_id: ${node_id}`);
+            console.warn(`Available userData keys:`, Object.keys(gltf_scene.userData));
         }
 
         const drawRanges = new Map<string, [number, number]>();
@@ -143,6 +145,7 @@ export async function prepareLoadedModel({gltf_scene, hash}: PrepareLoadedModelP
         }
 
         parent.add(customMesh);
+
         if (useAnimationStore.getState().hasAnimation && !is_design) {
             // Ensure custom mesh inherits morph target state for raycasting and rendering
             const geom = customMesh.geometry as THREE.BufferGeometry;
@@ -203,9 +206,29 @@ export async function prepareLoadedModel({gltf_scene, hash}: PrepareLoadedModelP
                 parent.add(pts);
             }
         }
-        parent.remove(original);
 
+        // Transfer all children from original mesh to customMesh before removing original
+        // This is important because the original mesh may have child nodes (not just Points/LineSegments)
+        // that we need to preserve
+        const childrenToTransfer = [...original.children];
+        for (const child of childrenToTransfer) {
+            // Skip Points and LineSegments as they're already handled above
+            if (!(child instanceof THREE.Points) && !(child instanceof THREE.LineSegments)) {
+                customMesh.add(child);
+            }
+        }
+
+        parent.remove(original);
     }
+
+    let meshCount = 0;
+    gltf_scene.traverse((obj) => {
+        if (obj.type === 'Mesh' || obj.constructor.name === 'CustomBatchedMesh') {
+            meshCount++;
+            console.log(`Found ${obj.constructor.name}: ${obj.name}`);
+        }
+    });
+    console.log(`Total mesh objects in scene: ${meshCount}`);
 
     replaceBlackMaterials(gltf_scene);
 }

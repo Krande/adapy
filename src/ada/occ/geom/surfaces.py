@@ -5,17 +5,39 @@ from OCC.Core.BRepBuilderAPI import (
     BRepBuilderAPI_MakeFace,
     BRepBuilderAPI_MakeWire,
 )
-from OCC.Core.Geom import Geom_BSplineSurface
+from OCC.Core.BRepTools import BRepTools_WireExplorer
+from OCC.Core.Geom import (
+    Geom_BSplineSurface,
+    Geom_ConicalSurface,
+    Geom_CylindricalSurface,
+    Geom_SphericalSurface,
+    Geom_ToroidalSurface,
+)
 from OCC.Core.Geom2d import Geom2d_Line, Geom2d_TrimmedCurve
 from OCC.Core.Geom2dAPI import Geom2dAPI_PointsToBSpline
 from OCC.Core.GeomAPI import GeomAPI_ProjectPointOnSurf
-from OCC.Core.gp import gp_Ax3, gp_Dir, gp_Dir2d, gp_Lin2d, gp_Pln, gp_Pnt, gp_Pnt2d
+from OCC.Core.gp import (
+    gp_Ax3,
+    gp_Cone,
+    gp_Cylinder,
+    gp_Dir,
+    gp_Dir2d,
+    gp_Lin2d,
+    gp_Pln,
+    gp_Pnt,
+    gp_Pnt2d,
+    gp_Sphere,
+    gp_Torus,
+)
+from OCC.Core.ShapeFix import ShapeFix_Face
 from OCC.Core.TColgp import TColgp_Array1OfPnt2d, TColgp_Array2OfPnt
 from OCC.Core.TColStd import (
     TColStd_Array1OfInteger,
     TColStd_Array1OfReal,
     TColStd_Array2OfReal,
 )
+from OCC.Core.TopAbs import TopAbs_EDGE, TopAbs_REVERSED
+from OCC.Core.TopExp import TopExp_Explorer
 from OCC.Core.TopLoc import TopLoc_Location
 from OCC.Core.TopoDS import TopoDS_Face, TopoDS_Shape, TopoDS_Shell
 
@@ -28,6 +50,7 @@ from ada.occ.geom.curves import (
     make_wire_from_circle,
     make_wire_from_curve,
     make_wire_from_edge_loop,
+    make_wire_from_face_bound,
     make_wire_from_indexed_poly_curve_geom,
     make_wire_from_poly_loop,
 )
@@ -211,29 +234,84 @@ def update_edges_4corners(edges, builder, face_surface):
 def update_edges_uv_gen(edges, builder, face_surface):
     # Create corresponding 2D curves in the parametric space (u-v space) of the B-Spline surface
     # Generate c2d_edges dynamically
-    c2d_edges = []
     identity_location = TopLoc_Location()  # No transformation (identity)
     for edge in edges:
-        # Get the 3D curve of the edge
-        edge_curve_handle, first, last = BRep_Tool.Curve(edge)
-        # Sample points along the edge
-        num_samples = 10
-        parameters = [first + (last - first) * i / (num_samples - 1) for i in range(num_samples)]
-        points_3d = [edge_curve_handle.Value(u) for u in parameters]
-        # Project points onto the surface to get (u,v) parameters
-        array_2d_points = TColgp_Array1OfPnt2d(1, num_samples)
-        for i, pt in enumerate(points_3d):
-            projector = GeomAPI_ProjectPointOnSurf(pt, face_surface)
-            if projector.NbPoints() == 0:
-                raise Exception("Failed to project point onto surface")
-            u, v = projector.LowerDistanceParameters()
-            array_2d_points.SetValue(i + 1, gp_Pnt2d(u, v))
-        # Build a Geom2d_BSplineCurve from the (u,v) points
-        interpolator = Geom2dAPI_PointsToBSpline(array_2d_points)
-        c2d_edge = interpolator.Curve()
-        c2d_edges.append(c2d_edge)
-        # Now assign the 2D curve to the edge
-        builder.UpdateEdge(edge, c2d_edge, face_surface, identity_location, 1e-6)
+        try:
+            # Get the 3D curve of the edge
+            edge_curve_handle, first, last = BRep_Tool.Curve(edge)
+            if edge_curve_handle is None:
+                continue
+
+            # Sample points along the edge
+            num_samples = 30
+            parameters = [first + (last - first) * i / (num_samples - 1) for i in range(num_samples)]
+            points_3d = [edge_curve_handle.Value(u) for u in parameters]
+            # Project points onto the surface to get (u,v) parameters
+            array_2d_points = TColgp_Array1OfPnt2d(1, num_samples)
+            for i, pt in enumerate(points_3d):
+                projector = GeomAPI_ProjectPointOnSurf(pt, face_surface)
+                if projector.NbPoints() == 0:
+                    # Try with extended search if default fails, or just log/raise
+                    # For now, raise to be caught by outer loop/logger
+                    raise Exception("Failed to project point onto surface")
+                u, v = projector.LowerDistanceParameters()
+                array_2d_points.SetValue(i + 1, gp_Pnt2d(u, v))
+            # Build a Geom2d_BSplineCurve from the (u,v) points
+            # 3rd param is Approx_ChordLength (1) or Approx_Centripetal (2) or Approx_IsoParametric (3)
+            # We use default (Approx_ChordLength) which is usually fine for ordered points
+            interpolator = Geom2dAPI_PointsToBSpline(array_2d_points)
+            if not interpolator.IsDone():
+                logger.warning(f"Failed to create 2D BSpline for edge {edge}")
+                continue
+
+            c2d_edge = interpolator.Curve()
+            # Now assign the 2D curve to the edge
+            builder.UpdateEdge(edge, c2d_edge, face_surface, identity_location, 1e-6)
+        except Exception as ex:
+            logger.warning(f"Error updating edge p-curve: {ex}")
+
+
+def is_wire_cw(wire, face_surface):
+    # Calculate signed area of the polygon formed by edge endpoints in UV space
+    area = 0.0
+    exp = (
+        BRepTools_WireExplorer(wire, face_surface)
+        if isinstance(face_surface, TopoDS_Face)
+        else BRepTools_WireExplorer(wire)
+    )
+    # WireExplorer iterates edges in wire order
+    while exp.More():
+        edge = exp.Current()
+        # Get p-curve
+        curve, first, last = BRep_Tool.CurveOnSurface(edge, face_surface, TopLoc_Location())
+        if curve:
+            # Note: WireExplorer handles orientation. If edge is REVERSED in wire,
+            # it still returns the edge with REVERSED orientation.
+            # However, we need UV coords following the LOOP direction.
+
+            p1 = curve.Value(first)
+            p2 = curve.Value(last)
+
+            # Handle orientation
+            if edge.Orientation() == TopAbs_REVERSED:
+                # Wire goes Last -> First
+                uv_start = p2
+                uv_end = p1
+            else:
+                # Wire goes First -> Last
+                uv_start = p1
+                uv_end = p2
+
+            # Integration term (Shoelace formula)
+            # Sum (x2 - x1) * (y2 + y1)
+            area += (uv_end.X() - uv_start.X()) * (uv_end.Y() + uv_start.Y())
+
+        exp.Next()
+
+    # Area > 0 means CW (for standard UV coords where U=Right, V=Up)
+    # Area < 0 means CCW
+    logger.warning(f"Wire signed area: {area}")
+    return area > 0
 
 
 def create_wire_from_bounds(bounds, face_surface, builder: BRep_Builder):
@@ -257,39 +335,75 @@ def create_wire_from_bounds(bounds, face_surface, builder: BRep_Builder):
     return wire_maker.Wire()
 
 
-def make_face_from_geom(advanced_face: geo_su.AdvancedFace) -> TopoDS_Shape:
-    if type(advanced_face.face_surface) in (geo_su.BSplineSurfaceWithKnots, geo_su.RationalBSplineSurfaceWithKnots):
-        face_surface = make_bspline_surface_with_knots(advanced_face.face_surface)
-    else:
-        raise NotImplementedError(
-            f"Only BSplineSurfaceWithKnots is implemented, not {type(advanced_face.face_surface)}"
-        )
+def make_face_from_geom(advanced_face: geo_su.AdvancedFace) -> TopoDS_Face:
+    """Create an OCC face from an AdvancedFace with arbitrary supported surface types and bounds.
 
+    Supports Plane, CylindricalSurface, ConicalSurface, SphericalSurface, ToroidalSurface,
+    BSplineSurfaceWithKnots and RationalBSplineSurfaceWithKnots.
+    """
+    # Build the OCC surface from the adapy face surface
+    face_surface = make_surface_from_geom(advanced_face.face_surface)
+
+    # Build outer and (optional) inner wires from the face bounds
+    if not advanced_face.bounds:
+        raise ValueError("AdvancedFace must have at least one bound")
+
+    outer_wire = make_wire_from_face_bound(advanced_face.bounds[0])
+
+    if isinstance(face_surface, Geom_BSplineSurface):
+        builder = BRep_Builder()
+        # Extract edges from the wire and update them with p-curves
+        wire_edges = []
+        exp = TopExp_Explorer(outer_wire, TopAbs_EDGE)
+        while exp.More():
+            wire_edges.append(exp.Current())
+            exp.Next()
+        update_edges_uv_gen(wire_edges, builder, face_surface)
+
+        if is_wire_cw(outer_wire, face_surface):
+            logger.info("Reversing CW wire to CCW for B-Spline surface")
+            outer_wire = outer_wire.Reversed()
+
+    face_maker = BRepBuilderAPI_MakeFace(face_surface, outer_wire)
+
+    # Add inner wires (holes) if present
+    if len(advanced_face.bounds) > 1:
+        for inner_fb in advanced_face.bounds[1:]:
+            try:
+                inner_wire = make_wire_from_face_bound(inner_fb)
+                if isinstance(face_surface, Geom_BSplineSurface):
+                    # Extract edges from the inner wire and update them with p-curves
+                    wire_edges = []
+                    exp = TopExp_Explorer(inner_wire, TopAbs_EDGE)
+                    while exp.More():
+                        wire_edges.append(exp.Current())
+                        exp.Next()
+                    update_edges_uv_gen(wire_edges, builder, face_surface)
+                face_maker.Add(inner_wire)
+            except Exception as ex:
+                logger.warning(f"Skipping inner bound due to error creating wire: {ex}")
+
+    if not face_maker.IsDone():
+        raise Exception(f"Failed to create face from surface type {type(advanced_face.face_surface)}")
+
+    face = face_maker.Face()
+
+    # Fix the face (p-curves, orientation, etc.) using ShapeFix
+    if isinstance(face_surface, Geom_BSplineSurface):
+        fixer = ShapeFix_Face(face)
+        fixer.Perform()
+        # Explicitly run wire fixes
+        wire_fixer = fixer.FixWireTool()
+        wire_fixer.FixConnected()
+        wire_fixer.FixClosed()
+
+        face = fixer.Face()
+
+    # Update the face tolerance
     builder = BRep_Builder()
-    shell = TopoDS_Shell()
-    builder.MakeShell(shell)
+    builder.UpdateFace(face, 1e-3)
 
-    wire = create_wire_from_bounds(advanced_face.bounds, face_surface, builder)
-
-    face = BRepBuilderAPI_MakeFace(face_surface, wire)
-    if not face.IsDone():
-        raise Exception("Failed to create face from B-Spline surface")
-
-    # Create a face from the B-Spline surface with the boundary wire
-    face = face.Face()
-
-    # Optionally, update the face tolerance
-    builder.UpdateFace(face, 1e-6)  # Set tolerance if needed
-
-    # Create the shell manually and add the face
-    shell = TopoDS_Shell()
-    builder.MakeShell(shell)
-    builder.Add(shell, face)
-
-    # Set the shell as closed
-    shell.Closed(True)
-
-    return shell
+    return face
 
 
 def make_plane_from_geom(plane: geo_su.Plane) -> gp_Pln:
@@ -314,40 +428,187 @@ def make_plane_from_geom(plane: geo_su.Plane) -> gp_Pln:
     return gp_Pln(ax3)
 
 
+def make_cylindrical_surface_from_geom(cylinder: geo_su.CylindricalSurface) -> Geom_CylindricalSurface:
+    location = cylinder.position.location
+    axis = cylinder.position.axis
+    ref_direction = cylinder.position.ref_direction
+
+    # Define the origin point of the cylinder
+    origin = gp_Pnt(*location)
+
+    # Define the axis direction
+    axis_dir = gp_Dir(*axis)
+
+    # Define the reference direction
+    ref_dir = gp_Dir(*ref_direction)
+
+    # Create an Ax3 object
+    ax3 = gp_Ax3(origin, axis_dir, ref_dir)
+
+    # Create the cylindrical surface
+    return Geom_CylindricalSurface(gp_Cylinder(ax3, cylinder.radius))
+
+
+def make_conical_surface_from_geom(cone: geo_su.ConicalSurface) -> Geom_ConicalSurface:
+    location = cone.position.location
+    axis = cone.position.axis
+    ref_direction = cone.position.ref_direction
+
+    # Define the origin point of the cone
+    origin = gp_Pnt(*location)
+
+    # Define the axis direction
+    axis_dir = gp_Dir(*axis)
+
+    # Define the reference direction
+    ref_dir = gp_Dir(*ref_direction)
+
+    # Create an Ax3 object
+    ax3 = gp_Ax3(origin, axis_dir, ref_dir)
+
+    # Create the conical surface
+    return Geom_ConicalSurface(gp_Cone(ax3, cone.semi_angle, cone.radius))
+
+
+def make_spherical_surface_from_geom(sphere: geo_su.SphericalSurface) -> Geom_SphericalSurface:
+    location = sphere.position.location
+    axis = sphere.position.axis
+    ref_direction = sphere.position.ref_direction
+
+    # Define the origin point of the sphere
+    origin = gp_Pnt(*location)
+
+    # Define the axis direction
+    axis_dir = gp_Dir(*axis)
+
+    # Define the reference direction
+    ref_dir = gp_Dir(*ref_direction)
+
+    # Create an Ax3 object
+    ax3 = gp_Ax3(origin, axis_dir, ref_dir)
+
+    # Create the spherical surface
+    return Geom_SphericalSurface(gp_Sphere(ax3, sphere.radius))
+
+
+def make_toroidal_surface_from_geom(torus: geo_su.ToroidalSurface) -> Geom_ToroidalSurface:
+    location = torus.position.location
+    axis = torus.position.axis
+    ref_direction = torus.position.ref_direction
+
+    # Define the origin point of the torus
+    origin = gp_Pnt(*location)
+
+    # Define the axis direction
+    axis_dir = gp_Dir(*axis)
+
+    # Define the reference direction
+    ref_dir = gp_Dir(*ref_direction)
+
+    # Create an Ax3 object
+    ax3 = gp_Ax3(origin, axis_dir, ref_dir)
+
+    # Create the toroidal surface
+    return Geom_ToroidalSurface(gp_Torus(ax3, torus.major_radius, torus.minor_radius))
+
+
+def make_surface_from_geom(face_surface):
+    """
+    Create an OCC surface from an adapy surface geometry definition.
+
+    Args:
+        face_surface: Any supported adapy surface type
+
+    Returns:
+        OCC surface object (gp_Pln, Geom_CylindricalSurface, etc.)
+    """
+    if type(face_surface) is geo_su.Plane:
+        return make_plane_from_geom(face_surface)
+    elif type(face_surface) is geo_su.CylindricalSurface:
+        return make_cylindrical_surface_from_geom(face_surface)
+    elif type(face_surface) is geo_su.ConicalSurface:
+        return make_conical_surface_from_geom(face_surface)
+    elif type(face_surface) is geo_su.SphericalSurface:
+        return make_spherical_surface_from_geom(face_surface)
+    elif type(face_surface) is geo_su.ToroidalSurface:
+        return make_toroidal_surface_from_geom(face_surface)
+    elif type(face_surface) in (geo_su.BSplineSurfaceWithKnots, geo_su.RationalBSplineSurfaceWithKnots):
+        return make_bspline_surface_with_knots(face_surface)
+    else:
+        raise NotImplementedError(f"Surface type {type(face_surface)} is not implemented")
+
+
 def make_closed_shell_from_geom(shell: geo_su.ClosedShell) -> TopoDS_Shell:
     builder = BRep_Builder()
     occ_shell = TopoDS_Shell()
     builder.MakeShell(occ_shell)
 
     for cfs_face in shell.cfs_faces:
-        if type(cfs_face) is geo_su.FaceSurface:
+        # Handle AdvancedFace
+        if type(cfs_face) is geo_su.AdvancedFace:
+            try:
+                # Create the surface from the face_surface
+                occ_face_surface = make_surface_from_geom(cfs_face.face_surface)
+
+                # Create wire from the face bounds (use first bound as outer)
+                if len(cfs_face.bounds) > 0:
+                    wire = make_wire_from_edge_loop(cfs_face.bounds[0].bound)
+                else:
+                    logger.warning("AdvancedFace without bounds encountered; skipping face")
+                    continue
+
+                # Create the face
+                face_maker = BRepBuilderAPI_MakeFace(occ_face_surface, wire)
+                if not face_maker.IsDone():
+                    logger.warning(
+                        f"Failed to create face from surface type {type(cfs_face.face_surface)}; skipping face"
+                    )
+                    continue
+
+                face = face_maker.Face()
+
+                # Update the face tolerance
+                builder.UpdateFace(face, 1e-6)
+
+                # Add the face to the shell
+                builder.Add(occ_shell, face)
+            except Exception as ex:
+                logger.warning(f"Skipping AdvancedFace due to error during wire/face creation: {ex}")
+                continue
+
+        # Handle FaceSurface (legacy support)
+        elif type(cfs_face) is geo_su.FaceSurface:
             face_surface = cfs_face.face_surface
             if type(face_surface) is geo_su.Plane:
                 occ_face_surface = make_plane_from_geom(face_surface)
             else:
-                raise NotImplementedError(f"Only Plane is implemented, not {type(face_surface)}")
+                raise NotImplementedError(f"Only Plane is implemented for FaceSurface, not {type(face_surface)}")
+
+            try:
+                wire = make_wire_from_edge_loop(cfs_face.bounds[0].bound)
+
+                face_maker = BRepBuilderAPI_MakeFace(occ_face_surface, wire)
+                if not face_maker.IsDone():
+                    logger.warning("Failed to create face from surface; skipping face")
+                    continue
+
+                face = face_maker.Face()
+
+                # Update the face tolerance
+                builder.UpdateFace(face, 1e-6)
+
+                # Add the face to the shell
+                builder.Add(occ_shell, face)
+            except Exception as ex:
+                logger.warning(f"Skipping FaceSurface due to error during wire/face creation: {ex}")
+                continue
         else:
-            raise NotImplementedError(f"Only FaceSurface is implemented, not {type(cfs_face)}")
+            raise NotImplementedError(
+                f"Face type {type(cfs_face)} is not implemented (supported: AdvancedFace, FaceSurface)"
+            )
 
-        wire = make_wire_from_edge_loop(cfs_face.bounds[0].bound)
-
-        face = BRepBuilderAPI_MakeFace(occ_face_surface, wire)
-        if not face.IsDone():
-            raise Exception("Failed to create face from B-Spline surface")
-
-        # Create a face from the B-Spline surface with the boundary wire
-        face = face.Face()
-
-        # Optionally, update the face tolerance
-        builder.UpdateFace(face, 1e-6)  # Set tolerance if needed
-
-        # Create the shell manually and add the face
-        shell = TopoDS_Shell()
-        builder.MakeShell(shell)
-        builder.Add(shell, face)
-
-        # Set the shell as closed
-        shell.Closed(True)
+    # Set the shell as closed
+    occ_shell.Closed(True)
 
     return occ_shell
 

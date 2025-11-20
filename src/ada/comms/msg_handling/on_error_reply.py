@@ -7,7 +7,7 @@ from ada.comms.fb_wrap_model_gen import CommandTypeDC, ErrorDC, MessageDC, Serve
 from ada.comms.fb_wrap_serializer import serialize_root_message
 
 if TYPE_CHECKING:
-    from ada.comms.wsock_server import ConnectedClient, WebSocketAsyncServer
+    from ada.comms.wsock.server import ConnectedClient, WebSocketAsyncServer
 
 
 def on_error_reply(server: WebSocketAsyncServer, client: ConnectedClient, error_message: str = None) -> None:

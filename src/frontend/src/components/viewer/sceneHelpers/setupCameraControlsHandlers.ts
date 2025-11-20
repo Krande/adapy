@@ -5,6 +5,7 @@ import {centerViewOnSelection} from "../../../utils/scene/centerViewOnSelection"
 import {OrbitControls} from "three/examples/jsm/controls/OrbitControls";
 import {useOptionsStore} from "../../../state/optionsStore";
 import CameraControls from "camera-controls";
+import {queryNameFromRangeId} from "../../../utils/mesh_select/queryMeshDrawRange";
 
 export function setupCameraControlsHandlers(
     scene: THREE.Scene,
@@ -44,6 +45,73 @@ export function setupCameraControlsHandlers(
         } else if (shift && key === "q") {
             const {isOptionsVisible, setIsOptionsVisible} = useOptionsStore.getState();
             setIsOptionsVisible(!isOptionsVisible);
+        } else if (shift && key === "c") {
+            // Copy the name of each object in the selection to the clipboard, one per line
+            void (async () => {
+                try {
+                    const lookups: Promise<string | null>[] = [];
+                    selectedObjects.forEach((_drawRangeIds, mesh) => {
+                        // Determine lookup key per object (supports both meshes that expose unique_key and those using userData.unique_hash)
+                        const lookupKey: string | undefined = (mesh as any).unique_key ?? ((mesh as any).userData ? (mesh as any).userData['unique_hash'] : undefined);
+                        if (!lookupKey) {
+                            console.warn('Shift+C: missing lookup key for mesh', mesh);
+                            return;
+                        }
+                        for (const rangeId of _drawRangeIds) {
+                            lookups.push(queryNameFromRangeId(lookupKey, rangeId));
+                        }
+                    });
+
+                    const names: string[] = [];
+                    const results = await Promise.allSettled(lookups);
+                    for (const res of results) {
+                        if (res.status === "fulfilled" && res.value) {
+                            names.push(res.value);
+                        }
+                    }
+
+                    const text = names.join("\n");
+                    if (text.length > 0) {
+                        let copied = false;
+                        if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
+                            try {
+                                await navigator.clipboard.writeText(text);
+                                copied = true;
+                            } catch (e) {
+                                // will try fallback below
+                            }
+                        }
+                        if (!copied && typeof document !== 'undefined' && document.body) {
+                            // Legacy fallback using a temporary textarea and execCommand
+                            const ta = document.createElement('textarea');
+                            ta.value = text;
+                            ta.style.position = 'fixed';
+                            ta.style.top = '0';
+                            ta.style.left = '0';
+                            ta.style.width = '1px';
+                            ta.style.height = '1px';
+                            ta.style.opacity = '0';
+                            ta.setAttribute('readonly', '');
+                            document.body.appendChild(ta);
+                            ta.focus();
+                            ta.select();
+                            try {
+                                document.execCommand('copy');
+                                copied = true;
+                            } catch (e) {
+                                // ignore
+                            } finally {
+                                document.body.removeChild(ta);
+                            }
+                        }
+                        if (!copied) {
+                            console.warn('Shift+C: Failed to copy to clipboard');
+                        }
+                    }
+                } catch (_e) {
+                    // No-op on errors; feature is best-effort only
+                }
+            })();
         }
     };
 

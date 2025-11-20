@@ -45,6 +45,7 @@ def get_degree_and_closure(dline: list[str], has_extra_zero) -> tuple[int, bool]
 
 def create_bspline_curve_from_lawintcur(data_lines: list[str]) -> geo_cu.BSplineCurveWithKnots | None:
     """Create a B-spline curve from a lawintcur data string."""
+    print(f"DEBUG: create_bspline_curve_from_lawintcur called with {len(data_lines)} lines")
 
     # Extract degree and closed/open status
     dline = data_lines[0].split()
@@ -133,6 +134,7 @@ def create_bspline_curve_from_lawintcur(data_lines: list[str]) -> geo_cu.BSpline
 
 def create_bspline_curve_from_exactcur(data_lines: list[str]) -> geo_cu.BSplineCurveWithKnots | None:
     """Create a B-spline curve from an exact_sur data string."""
+    print(f"DEBUG: create_bspline_curve_from_exactcur called with {len(data_lines)} lines")
     dline = data_lines[0].split()
     should_bump = dline[1] != "full"
 
@@ -145,8 +147,10 @@ def create_bspline_curve_from_exactcur(data_lines: list[str]) -> geo_cu.BSplineC
 
     # Extract knots and multiplicities
     knots_in = [float(x) for x in data_lines[1].split()]
+    print(f"DEBUG: knots_in len: {len(knots_in)}")
     knots = knots_in[0::2]
     mult = [int(x) for x in knots_in[1::2]]
+    print(f"DEBUG: knots len: {len(knots)}, mult len: {len(mult)}")
 
     # Adjust knot multiplicities to satisfy IFC requirements
     mult[0] = degree + 1  # Start multiplicity

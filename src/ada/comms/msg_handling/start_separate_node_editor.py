@@ -4,12 +4,12 @@ import subprocess
 import sys
 from typing import TYPE_CHECKING
 
-from ada.comms.cli_node_editor_startup import NODE_EDITOR_CLI_PY
 from ada.comms.fb_wrap_model_gen import MessageDC
+from ada.comms.web.cli_node_editor_startup import NODE_EDITOR_CLI_PY
 from ada.config import logger
 
 if TYPE_CHECKING:
-    from ada.comms.wsock_server import ConnectedClient, WebSocketAsyncServer
+    from ada.comms.wsock.server import ConnectedClient, WebSocketAsyncServer
 
 
 def start_separate_node_editor(server: WebSocketAsyncServer, client: ConnectedClient, message: MessageDC) -> None:

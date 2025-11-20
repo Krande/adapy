@@ -24,7 +24,7 @@ from ada.comms.fb_wrap_model_gen import (
     TargetTypeDC,
 )
 from ada.comms.fb_wrap_serializer import serialize_root_message
-from ada.comms.wsockets_utils import client_as_str
+from ada.comms.wsock.utils import client_as_str
 
 
 class WebSocketClientBase(ABC):

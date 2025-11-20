@@ -13,7 +13,7 @@ from ada.comms.fb_wrap_model_gen import FileObjectDC, FileTypeDC
 from ada.config import Config, logger
 
 if TYPE_CHECKING:
-    from ada.comms.wsock_server import ConnectedClient, WebSocketAsyncServer
+    from ada.comms.wsock.server import ConnectedClient, WebSocketAsyncServer
 
 
 def update_server(server: WebSocketAsyncServer, client: ConnectedClient, add_file: FileObjectDC) -> None:

@@ -40,6 +40,7 @@ from ada.api.walls import Wall
 from ada.base.units import Units
 from ada.config import configure_logger, logger
 from ada.core.utils import Counter
+from ada.deprecation import deprecated
 from ada.fem import FEM
 from ada.fem.concept.constraints import (
     ConstraintConceptCurve,
@@ -63,7 +64,6 @@ from ada.geom.points import Point
 from ada.materials import Material
 from ada.sections import Section
 from ada.visit.config import set_jupyter_part_renderer
-from ada.warnings import deprecated
 
 if TYPE_CHECKING:
     import ifcopenshell
@@ -96,6 +96,104 @@ def from_step(step_file: str | pathlib.Path, source_units=Units.M, **kwargs) -> 
     """Create an Assembly object from a STEP file."""
     a = Assembly()
     a.read_step_file(step_file, source_units=source_units, **kwargs)
+    return a
+
+
+def from_acis(sat_file: str | pathlib.Path, source_units=Units.M, split: bool = False, limit: int = None) -> Assembly:
+    """
+    Create an Assembly object from an ACIS SAT file.
+
+    Args:
+        sat_file: Path to ACIS SAT file
+        source_units: Units of the SAT file
+        split: If True, split shells into individual AdvancedFace objects
+        limit: Limit the number of geometries to export (useful for debugging)
+
+    Returns:
+        Assembly object with parsed geometry
+    """
+    from ada.cadit.sat.parser import AcisSatParser, AcisToAdaConverter
+    from ada.geom import Geometry
+
+    # Parse the SAT file
+    parser = AcisSatParser(sat_file)
+    parser.parse()
+
+    # Convert to adapy geometry using body-based organization
+    converter = AcisToAdaConverter(parser)
+    bodies = converter.convert_all_bodies()
+
+    # Create assembly
+    a = Assembly(units=source_units, name="ACIS_Import")
+
+    # Create a part for each body
+    for body_idx, (body_name, geometries) in enumerate(bodies):
+        if not geometries:
+            logger.debug(f"Skipping body {body_name} - no geometries")
+            continue
+
+        # Apply limit if specified
+        if limit is not None and limit > 0:
+            geometries = geometries[:limit]
+            logger.info(f"Limiting body {body_name} to {len(geometries)} geometries (limit={limit})")
+
+        # Suffix part name in split mode to indicate faces
+        part = Part(body_name if not split else f"{body_name}_faces")
+
+        # When split is False: add each shell/face geometry as-is (one shape per geometry)
+        # When split is True: decompose shells into individual AdvancedFace shapes
+        shape_count = 0
+        if not split:
+            for i, geom in enumerate(geometries):
+                logger.debug(f"Body {body_name}: geometry {i} type={type(geom).__name__}")
+                shape = Shape(f"shape{i}", Geometry(i, geom))
+                part.add_shape(shape)
+                shape_count += 1
+        else:
+            import ada.geom.surfaces as geo_su
+
+            for i, geom in enumerate(geometries):
+                logger.debug(f"[split] Body {body_name}: geometry {i} type={type(geom).__name__}")
+                # If geometry is a ClosedShell/OpenShell, split into faces
+                if isinstance(geom, (geo_su.ClosedShell, geo_su.OpenShell)):
+                    faces = getattr(geom, "cfs_faces", [])
+
+                    # Apply limit to faces if specified
+                    if limit is not None and limit > 0:
+                        remaining_limit = limit - shape_count
+                        if remaining_limit <= 0:
+                            break
+                        faces = faces[:remaining_limit]
+
+                    for j, face in enumerate(faces):
+                        # face is expected to be geo_su.AdvancedFace
+                        shape = Shape(f"face_{i}_{j}", Geometry(j, face))
+                        part.add_shape(shape)
+                        shape_count += 1
+
+                        # Check if we hit the limit
+                        if limit is not None and shape_count >= limit:
+                            break
+                elif isinstance(geom, geo_su.AdvancedFace):
+                    shape = Shape(f"face_{i}", Geometry(i, geom))
+                    part.add_shape(shape)
+                    shape_count += 1
+                else:
+                    # Fallback: keep as one shape
+                    shape = Shape(f"shape_{i}", Geometry(i, geom))
+                    part.add_shape(shape)
+                    shape_count += 1
+
+                # Check if we hit the limit
+                if limit is not None and shape_count >= limit:
+                    break
+
+        logger.info(f"Added part '{part.name}' with {shape_count} shape(s) ({'split' if split else 'grouped'} mode)")
+
+        a.add_part(part)
+
+    logger.info(f"Imported {len(bodies)} bodies from ACIS SAT file")
+
     return a
 
 
@@ -157,6 +255,7 @@ __all__ = [
     "from_ifc",
     "from_fem",
     "from_step",
+    "from_acis",
     "from_genie_xml",
     "from_fem_res",
     "Beam",

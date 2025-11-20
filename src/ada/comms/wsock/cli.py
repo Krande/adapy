@@ -2,7 +2,7 @@ import argparse
 import asyncio
 import pathlib
 
-from ada.comms.wsock_server import WebSocketAsyncServer
+from ada.comms.wsock.server import WebSocketAsyncServer
 from ada.config import logger
 
 WS_ASYNC_SERVER_PY = pathlib.Path(__file__)

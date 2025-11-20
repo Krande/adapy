@@ -1,6 +1,6 @@
 import pytest
 
-from ada.comms.wsock_client_async import WebSocketClientAsync
+from ada.comms.wsock.client_async import WebSocketClientAsync
 
 
 @pytest.mark.asyncio

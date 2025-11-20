@@ -19,7 +19,7 @@ from ada.comms.fb_wrap_serializer import serialize_root_message
 from ada.config import logger
 
 if TYPE_CHECKING:
-    from ada.comms.wsock_server import ConnectedClient, WebSocketAsyncServer
+    from ada.comms.wsock.server import ConnectedClient, WebSocketAsyncServer
 
 
 def view_file_object(server: WebSocketAsyncServer, client: ConnectedClient, file_object_name: str) -> None:

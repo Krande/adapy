@@ -11,7 +11,7 @@ from rendercanvas.auto import RenderCanvas, loop
 import ada.visit.rendering.pygfx_helpers as gfx_utils
 from ada import Part
 from ada.base.types import GeomRepr
-from ada.comms.wsock_client_sync import WebSocketClientSync
+from ada.comms.wsock.client_sync import WebSocketClientSync
 from ada.config import logger
 from ada.core.guid import create_guid
 from ada.core.vector_utils import unit_vector

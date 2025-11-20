@@ -1,6 +1,14 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from ada import Material, Part
 from ada.api.containers import Materials
+from ada.config import logger
 from ada.materials.metals import Metal
+
+if TYPE_CHECKING:
+    import xml.etree.ElementTree as ET
 
 
 def get_materials(xml_root, parent) -> Materials:
@@ -20,14 +28,29 @@ def interpret_material(name, mat_prop, parent: Part):
     return mat_interpreter(name, mat_prop, parent)
 
 
-def isotropic_linear_material(name, mat_prop, parent: Part) -> Material:
+def isotropic_linear_material(name, mat_prop: ET.Element, parent: Part) -> Material:
+    # RHO
+    rho = mat_prop.attrib.get("density")
+    if rho is None or rho == "":
+        logger.warning(f"Missing density for material {name}. Defaulting to steel density")
+        rho = 7850  # Default to steel density
+    rho = float(rho)
+
+    # DAMPING
+    damping = mat_prop.attrib.get("damping")
+    if damping is None or damping == "":
+        logger.warning(f"Missing damping for material {name}. Defaulting to 3%")
+        damping = 0.03  # Default to 3% damping
+
+    damping = float(damping)
+
     model = Metal(
         sig_y=float(mat_prop.attrib["yield_stress"]),
-        rho=float(mat_prop.attrib["density"]),
+        rho=rho,
         E=float(mat_prop.attrib["youngs_modulus"]),
         v=float(mat_prop.attrib["poissons_ratio"]),
         alpha=float(mat_prop.attrib["thermal_expansion"]),
-        zeta=float(mat_prop.attrib["damping"]),
+        zeta=damping,
         sig_u=None,
         plasticitymodel=None,
     )

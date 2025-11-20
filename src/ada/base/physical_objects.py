@@ -3,6 +3,8 @@ from __future__ import annotations
 import pathlib
 from typing import TYPE_CHECKING, Callable, Iterable, Literal
 
+import trimesh
+
 from ada.api.transforms import Placement
 from ada.base.root import Root
 from ada.base.types import GeomRepr
@@ -163,6 +165,11 @@ class BackendGeom(Root):
             geom_repr = GeomRepr.from_str(geom_repr)
 
         return occ_geom_to_poly_mesh(self, geom_repr=geom_repr, export_config=export_config)
+
+    def to_trimesh(self) -> trimesh.Trimesh:
+        from ada.occ.tessellating import shape_to_tri_mesh
+
+        return shape_to_tri_mesh(self.solid_occ())
 
     def show(
         self,

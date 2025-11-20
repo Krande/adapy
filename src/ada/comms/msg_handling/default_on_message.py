@@ -19,7 +19,7 @@ from ada.comms.msg_handling.view_file_object import view_file_object
 from ada.config import logger
 
 if TYPE_CHECKING:
-    from ada.comms.wsock_server import ConnectedClient, WebSocketAsyncServer
+    from ada.comms.wsock.server import ConnectedClient, WebSocketAsyncServer
 
 
 def default_on_message(server: WebSocketAsyncServer, client: ConnectedClient, message_data: bytes) -> None:
