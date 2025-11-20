@@ -1,5 +1,4 @@
 from __future__ import annotations
-from typing import Optional
 from enum import Enum
 from dataclasses import dataclass
 
@@ -37,4 +36,4 @@ class WebClientDC:
     name: str = ""
     address: str = ""
     port: int = None
-    last_heartbeat: Optional[longDC] = None
+    last_heartbeat: float = None

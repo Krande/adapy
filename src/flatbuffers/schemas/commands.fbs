@@ -32,5 +32,5 @@ table WebClient {
   name: string;
   address: string;
   port: int;
-  last_heartbeat: long;
+  last_heartbeat: float;
 }

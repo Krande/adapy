@@ -21,7 +21,7 @@ def list_web_clients_func(server: WebSocketAsyncServer, client: ConnectedClient,
             connected_at=cl.connected_at,
             last_heartbeat=cl.last_heartbeat,
         )
-        for cl in server.connected_clients
+        for cl in server.connected_web_clients
         if cl.group_type == TargetTypeDC.WEB
     ]
 

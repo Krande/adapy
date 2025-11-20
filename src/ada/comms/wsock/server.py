@@ -91,6 +91,7 @@ class WebSocketAsyncServer:
         self.host = host
         self.port = port
         self.connected_clients: Set[ConnectedClient] = set()
+        self.connected_web_clients: Set[ConnectedClient] = set()
         self.server: Optional[websockets.server.SERVER] = None
         self.on_connect = on_connect
         self.on_disconnect = on_disconnect
@@ -112,6 +113,10 @@ class WebSocketAsyncServer:
         client = await process_client(websocket)
 
         self.connected_clients.add(client)
+
+        if client.group_type == TargetTypeDC.WEB:
+            self.connected_web_clients.add(client)
+
         logger.debug(f"Client connected: {client} [{len(self.connected_clients)} clients connected]")
         if self.on_connect:
             await self.on_connect(client)
@@ -231,19 +236,20 @@ class WebSocketAsyncServer:
         thread.start()
         return thread
 
-    async def prune_inactive_clients(self, timeout: float):
+    async def prune_inactive_web_clients(self, timeout: float):
         """Prune clients that have not sent a heartbeat within the specified timeout."""
         while True:
             current_time = asyncio.get_event_loop().time()
             clients_to_remove = []
-            for client in self.connected_clients:
+            for client in self.connected_web_clients:
                 if client.group_type == TargetTypeDC.WEB and client.last_heartbeat is not None:
                     if current_time - client.last_heartbeat > timeout:
                         clients_to_remove.append(client)
             for client in clients_to_remove:
-                self.connected_clients.remove(client)
+                self.connected_web_clients.remove(client)
                 logger.debug(f"Pruned inactive client: {client}")
             await asyncio.sleep(timeout)
+
 
 async def handle_partial_message(message) -> MessageDC | None:
     """Parse only parts of the message needed to forward it to the appropriate clients."""

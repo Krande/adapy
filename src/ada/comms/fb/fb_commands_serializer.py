@@ -25,4 +25,6 @@ def serialize_webclient(builder: flatbuffers.Builder, obj: Optional[WebClientDC]
         WebClient.AddAddress(builder, address_str)
     if obj.port is not None:
         WebClient.AddPort(builder, obj.port)
+    if obj.last_heartbeat is not None:
+        WebClient.AddLastHeartbeat(builder, obj.last_heartbeat)
     return WebClient.End(builder)
