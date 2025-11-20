@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import random
+import time
 from dataclasses import dataclass, field
 from typing import Callable, Optional, Set
 from urllib.parse import parse_qs, urlparse
@@ -25,7 +26,7 @@ class ConnectedClient:
     group_type: TargetTypeDC | None = None
     instance_id: int | None = None
     port: int = field(init=False, default=None, repr=False)
-    last_heartbeat: float = None
+    last_heartbeat: int = None
 
     def __hash__(self):
         return hash(self.websocket)
@@ -56,7 +57,7 @@ async def process_client(websocket: ServerConnection) -> ConnectedClient:
             client.instance_id = int(instance_id)
 
     if client.group_type == TargetTypeDC.WEB:
-        client.last_heartbeat = asyncio.get_event_loop().time()
+        client.last_heartbeat = int(time.time() * 1000)
 
     return client
 
@@ -143,7 +144,7 @@ class WebSocketAsyncServer:
         logger.debug(f"Received message: {msg}")
 
         if msg.command_type == CommandTypeDC.HEARTBEAT:
-            client.last_heartbeat = asyncio.get_event_loop().time()
+            client.last_heartbeat = int(time.time() * 1000)
             return
 
         # Update instance_id if not set

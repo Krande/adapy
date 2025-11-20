@@ -1,17 +1,17 @@
-from ada.comms.fb.wsock import Message
-
-from ada.comms.fb.fb_wsock_gen import MessageDC
-from ada.comms.fb.fb_scene_deserializer import deserialize_scene, deserialize_screenshot
-
-from ada.comms.fb.fb_server_deserializer import deserialize_server, deserialize_serverreply
-
-from ada.comms.fb.fb_meshes_deserializer import deserialize_meshinfo, deserialize_appendmesh
-
 from ada.comms.fb.fb_commands_deserializer import deserialize_webclient
-
-from ada.comms.fb.fb_procedures_deserializer import deserialize_procedurestore
-
 from ada.comms.fb.fb_commands_gen import CommandTypeDC, TargetTypeDC
+from ada.comms.fb.fb_meshes_deserializer import (
+    deserialize_appendmesh,
+    deserialize_meshinfo,
+)
+from ada.comms.fb.fb_procedures_deserializer import deserialize_procedurestore
+from ada.comms.fb.fb_scene_deserializer import deserialize_scene, deserialize_screenshot
+from ada.comms.fb.fb_server_deserializer import (
+    deserialize_server,
+    deserialize_serverreply,
+)
+from ada.comms.fb.fb_wsock_gen import MessageDC
+from ada.comms.fb.wsock import Message
 
 
 def deserialize_message(fb_obj) -> MessageDC | None:

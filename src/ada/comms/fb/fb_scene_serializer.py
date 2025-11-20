@@ -1,11 +1,9 @@
-import flatbuffers
 from typing import Optional
 
-from ada.comms.fb.scene import CameraParams, Screenshot, Scene
-
-from ada.comms.fb.fb_scene_gen import CameraParamsDC, ScreenshotDC, SceneDC
-
+import flatbuffers
 from ada.comms.fb.fb_base_serializer import serialize_fileobject
+from ada.comms.fb.fb_scene_gen import CameraParamsDC, SceneDC, ScreenshotDC
+from ada.comms.fb.scene import CameraParams, Scene, Screenshot
 
 
 def serialize_cameraparams(builder: flatbuffers.Builder, obj: Optional[CameraParamsDC]) -> Optional[int]:

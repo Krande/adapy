@@ -1,9 +1,6 @@
 import argparse
 import asyncio
-import os
 import pathlib
-import sys
-import time
 
 from ada.comms.wsock.server import WebSocketAsyncServer
 from ada.config import logger
@@ -54,63 +51,6 @@ def ws_async_cli_app():
         RendererReact().show()
 
     asyncio.run(start_async_server(args.host, args.port, log_level=args.log_level))
-
-
-def ensure_ws_server(host: str = "localhost", port: int = 13579, wait_seconds: float = 3.0) -> bool:
-    """
-    Ensure a single background websocket relay server is running.
-
-    Returns True if a server is already running or was successfully started; False otherwise.
-    """
-    if ping_ws_server(host, port):
-        logger.debug(f"WebSocket server already running on {host}:{port}")
-        return True
-
-    # Spawn a detached background process: python -m paradoc.frontend.ws_server --host ... --port ...
-    cmd = [sys.executable, "-m", "paradoc.frontend.ws_server", "--host", host, "--port", str(port)]
-    logger.info(f"Starting WebSocket server with command: {' '.join(cmd)}")
-
-    # On Windows, detach the process using creationflags
-    # On Unix, use start_new_session to properly detach
-    creationflags = 0
-    start_new_session = False
-
-    if os.name == "nt":
-        # CREATE_NEW_PROCESS_GROUP (0x200) | DETACHED_PROCESS (0x8)
-        creationflags = 0x00000200 | 0x00000008
-    else:
-        # On Unix systems, start a new session to detach from parent
-        start_new_session = True
-
-    try:
-        import subprocess
-
-        with open(os.devnull, "wb") as devnull:
-            proc = subprocess.Popen(
-                cmd,
-                stdout=devnull,
-                stderr=devnull,
-                stdin=devnull,
-                creationflags=creationflags,
-                start_new_session=start_new_session,
-            )
-            logger.info(f"WebSocket server process started with PID: {proc.pid}")
-    except Exception as e:
-        logger.error(f"Failed to start WebSocket server: {e}", exc_info=True)
-        return False
-
-    # Wait briefly for it to boot and become pingable
-    deadline = time.time() + wait_seconds
-    attempts = 0
-    while time.time() < deadline:
-        if ping_ws_server(host, port):
-            logger.info(f"WebSocket server successfully started and responding on {host}:{port}")
-            return True
-        attempts += 1
-        time.sleep(0.1)
-
-    logger.error(f"WebSocket server failed to start after {wait_seconds}s and {attempts} ping attempts")
-    return False
 
 
 if __name__ == "__main__":

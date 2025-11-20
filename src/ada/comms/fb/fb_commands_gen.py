@@ -1,6 +1,7 @@
 from __future__ import annotations
-from enum import Enum
+
 from dataclasses import dataclass
+from enum import Enum
 
 
 class CommandTypeDC(Enum):
@@ -36,4 +37,4 @@ class WebClientDC:
     name: str = ""
     address: str = ""
     port: int = None
-    last_heartbeat: float = None
+    last_heartbeat: int = None

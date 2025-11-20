@@ -1,15 +1,13 @@
-import flatbuffers
 from typing import Optional
 
-from ada.comms.fb.procedures import ProcedureStore, Procedure
-
-from ada.comms.fb.fb_procedures_gen import ProcedureStoreDC, ProcedureDC
-
+import flatbuffers
 from ada.comms.fb.fb_base_serializer import (
-    serialize_procedurestart,
-    serialize_parameter,
     serialize_filearg,
+    serialize_parameter,
+    serialize_procedurestart,
 )
+from ada.comms.fb.fb_procedures_gen import ProcedureDC, ProcedureStoreDC
+from ada.comms.fb.procedures import Procedure, ProcedureStore
 
 
 def serialize_procedurestore(builder: flatbuffers.Builder, obj: Optional[ProcedureStoreDC]) -> Optional[int]:

@@ -1,14 +1,9 @@
-import flatbuffers
 from typing import Optional
 
-from ada.comms.fb.server import ServerReply, Server
-
-from ada.comms.fb.fb_server_gen import ServerReplyDC, ServerDC
-
-from ada.comms.fb.fb_base_serializer import (
-    serialize_error,
-    serialize_fileobject,
-)
+import flatbuffers
+from ada.comms.fb.fb_base_serializer import serialize_error, serialize_fileobject
+from ada.comms.fb.fb_server_gen import ServerDC, ServerReplyDC
+from ada.comms.fb.server import Server, ServerReply
 
 
 def serialize_serverreply(builder: flatbuffers.Builder, obj: Optional[ServerReplyDC]) -> Optional[int]:

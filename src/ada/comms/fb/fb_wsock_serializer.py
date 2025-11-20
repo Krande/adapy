@@ -1,15 +1,13 @@
-import flatbuffers
 from typing import Optional
 
-from ada.comms.fb.wsock import Message
-
-from ada.comms.fb.fb_wsock_gen import MessageDC
-
+import flatbuffers
+from ada.comms.fb.fb_commands_serializer import serialize_webclient
+from ada.comms.fb.fb_meshes_serializer import serialize_appendmesh, serialize_meshinfo
+from ada.comms.fb.fb_procedures_serializer import serialize_procedurestore
 from ada.comms.fb.fb_scene_serializer import serialize_scene, serialize_screenshot
 from ada.comms.fb.fb_server_serializer import serialize_server, serialize_serverreply
-from ada.comms.fb.fb_meshes_serializer import serialize_meshinfo, serialize_appendmesh
-from ada.comms.fb.fb_commands_serializer import serialize_webclient
-from ada.comms.fb.fb_procedures_serializer import serialize_procedurestore
+from ada.comms.fb.fb_wsock_gen import MessageDC
+from ada.comms.fb.wsock import Message
 
 
 def serialize_message(builder: flatbuffers.Builder, obj: Optional[MessageDC]) -> Optional[int]:
@@ -80,6 +78,13 @@ def serialize_root_message(message: MessageDC, builder: flatbuffers.Builder = No
     mesh_info_obj = None
     if message.mesh_info is not None:
         mesh_info_obj = serialize_meshinfo(builder, message.mesh_info)
+    web_clients_vector = None
+    if message.web_clients is not None and len(message.web_clients) > 0:
+        web_clients_list = [serialize_webclient(builder, item) for item in message.web_clients]
+        Message.StartWebClientsVector(builder, len(web_clients_list))
+        for item in reversed(web_clients_list):
+            builder.PrependUOffsetTRelative(item)
+        web_clients_vector = builder.EndVector()
     procedure_store_obj = None
     if message.procedure_store is not None:
         procedure_store_obj = serialize_procedurestore(builder, message.procedure_store)
@@ -111,8 +116,8 @@ def serialize_root_message(message: MessageDC, builder: flatbuffers.Builder = No
     if message.target_id is not None:
         Message.AddTargetId(builder, message.target_id)
     if message.web_clients is not None:
-        webclient_list = [serialize_webclient(builder, item) for item in message.web_clients]
-        Message.AddWebClients(builder, builder.CreateByteVector(webclient_list))
+        if web_clients_vector is not None:
+            Message.AddWebClients(builder, web_clients_vector)
     if message.procedure_store is not None:
         Message.AddProcedureStore(builder, procedure_store_obj)
     if message.server_reply is not None:

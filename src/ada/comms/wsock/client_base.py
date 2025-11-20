@@ -227,5 +227,5 @@ class WebSocketClientBase(ABC):
         pass
 
     @abstractmethod
-    def list_connected_clients(self) -> list[int]:
+    def list_connected_web_clients(self) -> list[int]:
         pass

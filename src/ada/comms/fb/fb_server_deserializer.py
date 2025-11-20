@@ -1,10 +1,6 @@
-from ada.comms.fb.fb_server_gen import ServerReplyDC, ServerDC
-from ada.comms.fb.fb_base_deserializer import (
-    deserialize_error,
-    deserialize_fileobject,
-)
-
+from ada.comms.fb.fb_base_deserializer import deserialize_error, deserialize_fileobject
 from ada.comms.fb.fb_commands_gen import CommandTypeDC
+from ada.comms.fb.fb_server_gen import ServerDC, ServerReplyDC
 
 
 def deserialize_serverreply(fb_obj) -> ServerReplyDC | None:
