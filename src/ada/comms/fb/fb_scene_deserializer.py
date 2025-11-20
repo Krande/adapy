@@ -1,10 +1,5 @@
+from ada.comms.fb.fb_scene_gen import CameraParamsDC, ScreenshotDC, SceneDC, SceneOperationsDC
 from ada.comms.fb.fb_base_deserializer import deserialize_fileobject
-from ada.comms.fb.fb_scene_gen import (
-    CameraParamsDC,
-    SceneDC,
-    SceneOperationsDC,
-    ScreenshotDC,
-)
 
 
 def deserialize_cameraparams(fb_obj) -> CameraParamsDC | None:

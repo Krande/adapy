@@ -48,8 +48,13 @@ port():number {
   return offset ? this.bb!.readInt32(this.bb_pos + offset) : 0;
 }
 
+lastHeartbeat():bigint {
+  const offset = this.bb!.__offset(this.bb_pos, 12);
+  return offset ? this.bb!.readInt64(this.bb_pos + offset) : BigInt('0');
+}
+
 static startWebClient(builder:flatbuffers.Builder) {
-  builder.startObject(4);
+  builder.startObject(5);
 }
 
 static addInstanceId(builder:flatbuffers.Builder, instanceId:number) {
@@ -68,17 +73,22 @@ static addPort(builder:flatbuffers.Builder, port:number) {
   builder.addFieldInt32(3, port, 0);
 }
 
+static addLastHeartbeat(builder:flatbuffers.Builder, lastHeartbeat:bigint) {
+  builder.addFieldInt64(4, lastHeartbeat, BigInt('0'));
+}
+
 static endWebClient(builder:flatbuffers.Builder):flatbuffers.Offset {
   const offset = builder.endObject();
   return offset;
 }
 
-static createWebClient(builder:flatbuffers.Builder, instanceId:number, nameOffset:flatbuffers.Offset, addressOffset:flatbuffers.Offset, port:number):flatbuffers.Offset {
+static createWebClient(builder:flatbuffers.Builder, instanceId:number, nameOffset:flatbuffers.Offset, addressOffset:flatbuffers.Offset, port:number, lastHeartbeat:bigint):flatbuffers.Offset {
   WebClient.startWebClient(builder);
   WebClient.addInstanceId(builder, instanceId);
   WebClient.addName(builder, nameOffset);
   WebClient.addAddress(builder, addressOffset);
   WebClient.addPort(builder, port);
+  WebClient.addLastHeartbeat(builder, lastHeartbeat);
   return WebClient.endWebClient(builder);
 }
 
@@ -87,7 +97,8 @@ unpack(): WebClientT {
     this.instanceId(),
     this.name(),
     this.address(),
-    this.port()
+    this.port(),
+    this.lastHeartbeat()
   );
 }
 
@@ -97,6 +108,7 @@ unpackTo(_o: WebClientT): void {
   _o.name = this.name();
   _o.address = this.address();
   _o.port = this.port();
+  _o.lastHeartbeat = this.lastHeartbeat();
 }
 }
 
@@ -105,7 +117,8 @@ constructor(
   public instanceId: number = 0,
   public name: string|Uint8Array|null = null,
   public address: string|Uint8Array|null = null,
-  public port: number = 0
+  public port: number = 0,
+  public lastHeartbeat: bigint = BigInt('0')
 ){}
 
 
@@ -117,7 +130,8 @@ pack(builder:flatbuffers.Builder): flatbuffers.Offset {
     this.instanceId,
     name,
     address,
-    this.port
+    this.port,
+    this.lastHeartbeat
   );
 }
 }

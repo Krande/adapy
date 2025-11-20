@@ -1,7 +1,7 @@
 from __future__ import annotations
-
-from dataclasses import dataclass
+from typing import Optional
 from enum import Enum
+from dataclasses import dataclass
 
 
 class CommandTypeDC(Enum):
@@ -22,6 +22,7 @@ class CommandTypeDC(Enum):
     START_NEW_NODE_EDITOR = 14
     START_FILE_IN_LOCAL_APP = 15
     SCREENSHOT = 16
+    HEARTBEAT = 17
 
 
 class TargetTypeDC(Enum):
@@ -36,3 +37,4 @@ class WebClientDC:
     name: str = ""
     address: str = ""
     port: int = None
+    last_heartbeat: Optional[longDC] = None

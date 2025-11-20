@@ -1,9 +1,8 @@
 from __future__ import annotations
-
-import pathlib
-from dataclasses import dataclass
+from typing import Optional, List
 from enum import Enum
-from typing import List, Optional
+from dataclasses import dataclass
+import pathlib
 
 
 class ParameterTypeDC(Enum):

@@ -1,8 +1,7 @@
 from __future__ import annotations
-
-import pathlib
+from typing import Optional, List
 from dataclasses import dataclass
-from typing import List, Optional
+import pathlib
 
 from ada.comms.fb.fb_base_gen import ErrorDC, FileObjectDC
 from ada.comms.fb.fb_commands_gen import CommandTypeDC

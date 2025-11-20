@@ -25,6 +25,7 @@ class ConnectedClient:
     group_type: TargetTypeDC | None = None
     instance_id: int | None = None
     port: int = field(init=False, default=None, repr=False)
+    last_heartbeat: float = None
 
     def __hash__(self):
         return hash(self.websocket)
@@ -38,6 +39,7 @@ async def process_client(websocket: ServerConnection) -> ConnectedClient:
         instance_id = int(instance_id)
     if group_type is not None:
         group_type = client_from_str(group_type)
+
     client = ConnectedClient(websocket=websocket, group_type=group_type, instance_id=instance_id)
 
     if client.group_type is None and "instance-id" in path:
@@ -52,6 +54,9 @@ async def process_client(websocket: ServerConnection) -> ConnectedClient:
         instance_id = query_params.get("instance-id", [None])[0]
         if instance_id is not None:
             client.instance_id = int(instance_id)
+
+    if client.group_type == TargetTypeDC.WEB:
+        client.last_heartbeat = asyncio.get_event_loop().time()
 
     return client
 
@@ -131,6 +136,10 @@ class WebSocketAsyncServer:
     async def handle_message(self, message: bytes, client: ConnectedClient, websocket: ServerConnection):
         msg = await handle_partial_message(message)
         logger.debug(f"Received message: {msg}")
+
+        if msg.command_type == CommandTypeDC.HEARTBEAT:
+            client.last_heartbeat = asyncio.get_event_loop().time()
+            return
 
         # Update instance_id if not set
         if client.websocket == websocket:
@@ -222,6 +231,19 @@ class WebSocketAsyncServer:
         thread.start()
         return thread
 
+    async def prune_inactive_clients(self, timeout: float):
+        """Prune clients that have not sent a heartbeat within the specified timeout."""
+        while True:
+            current_time = asyncio.get_event_loop().time()
+            clients_to_remove = []
+            for client in self.connected_clients:
+                if client.group_type == TargetTypeDC.WEB and client.last_heartbeat is not None:
+                    if current_time - client.last_heartbeat > timeout:
+                        clients_to_remove.append(client)
+            for client in clients_to_remove:
+                self.connected_clients.remove(client)
+                logger.debug(f"Pruned inactive client: {client}")
+            await asyncio.sleep(timeout)
 
 async def handle_partial_message(message) -> MessageDC | None:
     """Parse only parts of the message needed to forward it to the appropriate clients."""

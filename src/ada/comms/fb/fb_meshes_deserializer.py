@@ -1,4 +1,4 @@
-from ada.comms.fb.fb_meshes_gen import AppendMeshDC, MeshDC, MeshInfoDC
+from ada.comms.fb.fb_meshes_gen import MeshDC, AppendMeshDC, MeshInfoDC
 
 
 def deserialize_mesh(fb_obj) -> MeshDC | None:

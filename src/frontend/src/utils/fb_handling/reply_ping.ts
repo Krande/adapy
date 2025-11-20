@@ -11,7 +11,7 @@ export async function reply_ping(message: Message): Promise<void> {
 
     const builder = new flatbuffers.Builder(1024);
     Message.startMessage(builder);
-    Message.addInstanceId(builder, webSocketAsyncHandler.instanceId);
+    Message.addInstanceId(builder, webSocketAsyncHandler.instance_id);
     Message.addCommandType(builder, CommandType.PONG);
     Message.addTargetId(builder, message.instanceId());
     Message.addTargetGroup(builder, TargetType.LOCAL);

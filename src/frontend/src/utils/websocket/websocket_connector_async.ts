@@ -1,6 +1,9 @@
 // websocket_connector_async.ts
+import { send_heartbeat } from "../fb_handling/send_heartbeat";
+
 export class AsyncWebSocketHandler {
     public socket: WebSocket | null = null;
+    private heartbeatInterval: number | null = null;
     public retryWait = 1000;
     public instance_id = this.getRandomInt32();
     private shouldReconnect = true;
@@ -9,6 +12,21 @@ export class AsyncWebSocketHandler {
         return Math.floor(
             Math.random() * (2147483647 - -2147483648 + 1)
         ) + -2147483648;
+    }
+
+    private startHeartbeat() {
+        this.stopHeartbeat();
+        send_heartbeat(this);
+        this.heartbeatInterval = window.setInterval(() => {
+            send_heartbeat(this);
+        }, 3000);
+    }
+
+    private stopHeartbeat() {
+        if (this.heartbeatInterval !== null) {
+            clearInterval(this.heartbeatInterval);
+            this.heartbeatInterval = null;
+        }
     }
 
     async connect(url: string): Promise<void> {
@@ -28,6 +46,7 @@ export class AsyncWebSocketHandler {
             // Set up handlers *before* waiting for open()
             this.socket.addEventListener('message', evt => this.enqueue(evt));
             this.socket.addEventListener('close', () => {
+                this.stopHeartbeat();
                 console.log('WebSocket connection closed.');
                 if (this.shouldReconnect) {
                     console.log(
@@ -45,6 +64,7 @@ export class AsyncWebSocketHandler {
             await new Promise<void>((resolve, reject) => {
                 this.socket!.addEventListener('open', () => {
                     console.log('WebSocket connected');
+                    this.startHeartbeat();
                     resolve();
                 });
                 this.socket!.addEventListener('error', ev => {
@@ -96,6 +116,7 @@ export class AsyncWebSocketHandler {
     }
 
     async disconnect(): Promise<void> {
+        this.stopHeartbeat();
         this.shouldReconnect = false;
         this.resolvers.forEach(r =>
             r(new MessageEvent('close'))

@@ -167,6 +167,14 @@ class WebSocketClientBase(ABC):
         )
         return serialize_root_message(message)
 
+    def _list_connected_clients_prep(self) -> bytes:
+        message = MessageDC(
+            instance_id=self.instance_id,
+            command_type=CommandTypeDC.LIST_WEB_CLIENTS,
+            target_group=TargetTypeDC.SERVER,
+        )
+        return serialize_root_message(message)
+
     @abstractmethod
     def connect(self):
         pass
@@ -216,4 +224,8 @@ class WebSocketClientBase(ABC):
 
     @abstractmethod
     def view_file_object(self, file_name: str) -> None:
+        pass
+
+    @abstractmethod
+    def list_connected_clients(self) -> list[int]:
         pass

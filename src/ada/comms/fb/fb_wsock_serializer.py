@@ -1,13 +1,15 @@
+import flatbuffers
 from typing import Optional
 
-import flatbuffers
-from ada.comms.fb.fb_commands_serializer import serialize_webclient
-from ada.comms.fb.fb_meshes_serializer import serialize_appendmesh, serialize_meshinfo
-from ada.comms.fb.fb_procedures_serializer import serialize_procedurestore
+from ada.comms.fb.wsock import Message
+
+from ada.comms.fb.fb_wsock_gen import MessageDC
+
 from ada.comms.fb.fb_scene_serializer import serialize_scene, serialize_screenshot
 from ada.comms.fb.fb_server_serializer import serialize_server, serialize_serverreply
-from ada.comms.fb.fb_wsock_gen import MessageDC
-from ada.comms.fb.wsock import Message
+from ada.comms.fb.fb_meshes_serializer import serialize_meshinfo, serialize_appendmesh
+from ada.comms.fb.fb_commands_serializer import serialize_webclient
+from ada.comms.fb.fb_procedures_serializer import serialize_procedurestore
 
 
 def serialize_message(builder: flatbuffers.Builder, obj: Optional[MessageDC]) -> Optional[int]:

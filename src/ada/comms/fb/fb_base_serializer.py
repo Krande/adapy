@@ -1,23 +1,16 @@
+import flatbuffers
 from typing import Optional
 
-import flatbuffers
-from ada.comms.fb.base import (
-    Error,
-    FileArg,
-    FileObject,
-    FileObjectRef,
-    Parameter,
-    ProcedureStart,
-    Value,
-)
+from ada.comms.fb.base import Value, Parameter, Error, ProcedureStart, FileObject, FileObjectRef, FileArg
+
 from ada.comms.fb.fb_base_gen import (
+    ValueDC,
+    ParameterDC,
     ErrorDC,
-    FileArgDC,
+    ProcedureStartDC,
     FileObjectDC,
     FileObjectRefDC,
-    ParameterDC,
-    ProcedureStartDC,
-    ValueDC,
+    FileArgDC,
 )
 
 

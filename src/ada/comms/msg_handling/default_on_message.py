@@ -8,6 +8,7 @@ from ada.comms.fb_wrap_model_gen import CommandTypeDC
 from ada.comms.msg_handling.delete_file_object import delete_file_object
 from ada.comms.msg_handling.list_file_objects import list_file_objects
 from ada.comms.msg_handling.list_procedures import list_procedures
+from ada.comms.msg_handling.list_web_clients import list_web_clients_func
 from ada.comms.msg_handling.mesh_info_callback import mesh_info_callback
 from ada.comms.msg_handling.on_error_reply import on_error_reply
 from ada.comms.msg_handling.run_procedure import run_procedure
@@ -45,6 +46,8 @@ def default_on_message(server: WebSocketAsyncServer, client: ConnectedClient, me
             start_separate_node_editor(server, client, message)
         elif message.command_type == CommandTypeDC.START_FILE_IN_LOCAL_APP:
             start_local_app(server, client, message)
+        elif message.command_type == CommandTypeDC.LIST_WEB_CLIENTS:
+            list_web_clients_func(server, client, message)
         else:
             logger.error(f"Unknown command type: {message.command_type}")
             on_error_reply(server, client, error_message=f"Unknown command type: {message.command_type}")

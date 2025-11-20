@@ -21,3 +21,4 @@ class CommandType(object):
     START_NEW_NODE_EDITOR = 14
     START_FILE_IN_LOCAL_APP = 15
     SCREENSHOT = 16
+    HEARTBEAT = 17

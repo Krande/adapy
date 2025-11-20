@@ -1,10 +1,9 @@
 from __future__ import annotations
-
-from dataclasses import dataclass
+from typing import Optional, List
 from enum import Enum
-from typing import List, Optional
+from dataclasses import dataclass
 
-from ada.comms.fb.fb_base_gen import FileArgDC, ParameterDC, ProcedureStartDC
+from ada.comms.fb.fb_base_gen import ProcedureStartDC, ParameterDC, FileArgDC
 
 
 class ProcedureStateDC(Enum):

@@ -1,12 +1,8 @@
+from ada.comms.fb.fb_procedures_gen import ProcedureStoreDC, ProcedureDC, ProcedureStateDC
 from ada.comms.fb.fb_base_deserializer import (
-    deserialize_filearg,
-    deserialize_parameter,
     deserialize_procedurestart,
-)
-from ada.comms.fb.fb_procedures_gen import (
-    ProcedureDC,
-    ProcedureStateDC,
-    ProcedureStoreDC,
+    deserialize_parameter,
+    deserialize_filearg,
 )
 
 

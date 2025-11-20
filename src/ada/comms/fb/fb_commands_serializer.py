@@ -1,7 +1,8 @@
+import flatbuffers
 from typing import Optional
 
-import flatbuffers
 from ada.comms.fb.commands import WebClient
+
 from ada.comms.fb.fb_commands_gen import WebClientDC
 
 
