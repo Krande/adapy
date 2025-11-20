@@ -2,6 +2,40 @@
 
 
 
+## v0.7.9 (2025-11-20)
+
+### Chore
+
+* chore: bump prefix-dev/setup-pixi from 0.9.2 to 0.9.3 in the dependencies group (#165)
+
+Signed-off-by: dependabot[bot] &lt;support@github.com&gt;
+Co-authored-by: dependabot[bot] &lt;49699333+dependabot[bot]@users.noreply.github.com&gt; ([`5565e8a`](https://github.com/Krande/adapy/commit/5565e8a26fe47c043ce11dff570875a4547404c0))
+
+* chore: bump actions/upload-artifact from 4 to 5 in the dependencies group (#164)
+
+Signed-off-by: dependabot[bot] &lt;support@github.com&gt;
+Co-authored-by: dependabot[bot] &lt;49699333+dependabot[bot]@users.noreply.github.com&gt; ([`4274fd6`](https://github.com/Krande/adapy/commit/4274fd62c4f5ecc1c6c0aa40113fba98b41e65f1))
+
+* chore: bump prefix-dev/setup-pixi from 0.9.1 to 0.9.2 in the dependencies group (#163)
+
+Signed-off-by: dependabot[bot] &lt;support@github.com&gt;
+Co-authored-by: dependabot[bot] &lt;49699333+dependabot[bot]@users.noreply.github.com&gt; ([`be3cdae`](https://github.com/Krande/adapy/commit/be3cdae035c39de4b39069936fda4f26e465a3b4))
+
+* chore: bump github/codeql-action from 3 to 4 in the dependencies group (#162)
+
+Signed-off-by: dependabot[bot] &lt;support@github.com&gt;
+Co-authored-by: dependabot[bot] &lt;49699333+dependabot[bot]@users.noreply.github.com&gt; ([`50aae8d`](https://github.com/Krande/adapy/commit/50aae8d1a6ae5be9aa63562e7824a26a3317ac27))
+
+* chore: bump prefix-dev/setup-pixi from 0.9.0 to 0.9.1 in the dependencies group (#161)
+
+Signed-off-by: dependabot[bot] &lt;support@github.com&gt;
+Co-authored-by: dependabot[bot] &lt;49699333+dependabot[bot]@users.noreply.github.com&gt; ([`18dbfee`](https://github.com/Krande/adapy/commit/18dbfeeb8f844046454b75de97bd33b2656c24c0))
+
+### Fix
+
+* fix: frontend copy &amp; fixes (#169) ([`a997ff0`](https://github.com/Krande/adapy/commit/a997ff01763085530cd94e0a2ff803cbd43a6b8f))
+
+
 ## v0.7.8 (2025-09-25)
 
 ### Fix
