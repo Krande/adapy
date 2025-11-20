@@ -43,10 +43,10 @@ from ada.cadit.sat.parser.acis_entities import (
     NurbsType,
     SenseType,
 )
-from ada.config import logger
 from ada.cadit.sat.parser.spline_parsers import (
     parse_spline_curve_data as _spline_curve_data_helper,
 )
+from ada.config import logger
 
 
 class AcisSatParser:

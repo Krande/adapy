@@ -1,13 +1,11 @@
-from OCC.Core.TopExp import TopExp_Explorer
-from OCC.Core.TopAbs import TopAbs_EDGE, TopAbs_REVERSED
 from OCC.Core.BRep import BRep_Builder, BRep_Tool
-from OCC.Core.BRepTools import BRepTools_WireExplorer
 from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Cut, BRepAlgoAPI_Fuse
 from OCC.Core.BRepBuilderAPI import (
     BRepBuilderAPI_MakeEdge,
     BRepBuilderAPI_MakeFace,
     BRepBuilderAPI_MakeWire,
 )
+from OCC.Core.BRepTools import BRepTools_WireExplorer
 from OCC.Core.Geom import (
     Geom_BSplineSurface,
     Geom_ConicalSurface,
@@ -31,15 +29,17 @@ from OCC.Core.gp import (
     gp_Sphere,
     gp_Torus,
 )
+from OCC.Core.ShapeFix import ShapeFix_Face
 from OCC.Core.TColgp import TColgp_Array1OfPnt2d, TColgp_Array2OfPnt
 from OCC.Core.TColStd import (
     TColStd_Array1OfInteger,
     TColStd_Array1OfReal,
     TColStd_Array2OfReal,
 )
+from OCC.Core.TopAbs import TopAbs_EDGE, TopAbs_REVERSED
+from OCC.Core.TopExp import TopExp_Explorer
 from OCC.Core.TopLoc import TopLoc_Location
 from OCC.Core.TopoDS import TopoDS_Face, TopoDS_Shape, TopoDS_Shell
-from OCC.Core.ShapeFix import ShapeFix_Face
 
 from ada.config import Config, logger
 from ada.geom import curves as geo_cu
@@ -263,31 +263,35 @@ def update_edges_uv_gen(edges, builder, face_surface):
             if not interpolator.IsDone():
                 logger.warning(f"Failed to create 2D BSpline for edge {edge}")
                 continue
-            
+
             c2d_edge = interpolator.Curve()
             # Now assign the 2D curve to the edge
             builder.UpdateEdge(edge, c2d_edge, face_surface, identity_location, 1e-6)
         except Exception as ex:
-             logger.warning(f"Error updating edge p-curve: {ex}")
+            logger.warning(f"Error updating edge p-curve: {ex}")
 
 
 def is_wire_cw(wire, face_surface):
     # Calculate signed area of the polygon formed by edge endpoints in UV space
     area = 0.0
-    exp = BRepTools_WireExplorer(wire, face_surface) if isinstance(face_surface, TopoDS_Face) else BRepTools_WireExplorer(wire)
+    exp = (
+        BRepTools_WireExplorer(wire, face_surface)
+        if isinstance(face_surface, TopoDS_Face)
+        else BRepTools_WireExplorer(wire)
+    )
     # WireExplorer iterates edges in wire order
     while exp.More():
         edge = exp.Current()
         # Get p-curve
         curve, first, last = BRep_Tool.CurveOnSurface(edge, face_surface, TopLoc_Location())
         if curve:
-            # Note: WireExplorer handles orientation. If edge is REVERSED in wire, 
+            # Note: WireExplorer handles orientation. If edge is REVERSED in wire,
             # it still returns the edge with REVERSED orientation.
             # However, we need UV coords following the LOOP direction.
-            
+
             p1 = curve.Value(first)
             p2 = curve.Value(last)
-            
+
             # Handle orientation
             if edge.Orientation() == TopAbs_REVERSED:
                 # Wire goes Last -> First
@@ -297,13 +301,13 @@ def is_wire_cw(wire, face_surface):
                 # Wire goes First -> Last
                 uv_start = p1
                 uv_end = p2
-                
+
             # Integration term (Shoelace formula)
             # Sum (x2 - x1) * (y2 + y1)
             area += (uv_end.X() - uv_start.X()) * (uv_end.Y() + uv_start.Y())
-            
+
         exp.Next()
-        
+
     # Area > 0 means CW (for standard UV coords where U=Right, V=Up)
     # Area < 0 means CCW
     logger.warning(f"Wire signed area: {area}")
@@ -347,18 +351,18 @@ def make_face_from_geom(advanced_face: geo_su.AdvancedFace) -> TopoDS_Face:
     outer_wire = make_wire_from_face_bound(advanced_face.bounds[0])
 
     if isinstance(face_surface, Geom_BSplineSurface):
-         builder = BRep_Builder()
-         # Extract edges from the wire and update them with p-curves
-         wire_edges = []
-         exp = TopExp_Explorer(outer_wire, TopAbs_EDGE)
-         while exp.More():
-             wire_edges.append(exp.Current())
-             exp.Next()
-         update_edges_uv_gen(wire_edges, builder, face_surface)
-         
-         if is_wire_cw(outer_wire, face_surface):
-             logger.info("Reversing CW wire to CCW for B-Spline surface")
-             outer_wire = outer_wire.Reversed()
+        builder = BRep_Builder()
+        # Extract edges from the wire and update them with p-curves
+        wire_edges = []
+        exp = TopExp_Explorer(outer_wire, TopAbs_EDGE)
+        while exp.More():
+            wire_edges.append(exp.Current())
+            exp.Next()
+        update_edges_uv_gen(wire_edges, builder, face_surface)
+
+        if is_wire_cw(outer_wire, face_surface):
+            logger.info("Reversing CW wire to CCW for B-Spline surface")
+            outer_wire = outer_wire.Reversed()
 
     face_maker = BRepBuilderAPI_MakeFace(face_surface, outer_wire)
 
@@ -368,13 +372,13 @@ def make_face_from_geom(advanced_face: geo_su.AdvancedFace) -> TopoDS_Face:
             try:
                 inner_wire = make_wire_from_face_bound(inner_fb)
                 if isinstance(face_surface, Geom_BSplineSurface):
-                     # Extract edges from the inner wire and update them with p-curves
-                     wire_edges = []
-                     exp = TopExp_Explorer(inner_wire, TopAbs_EDGE)
-                     while exp.More():
-                         wire_edges.append(exp.Current())
-                         exp.Next()
-                     update_edges_uv_gen(wire_edges, builder, face_surface)
+                    # Extract edges from the inner wire and update them with p-curves
+                    wire_edges = []
+                    exp = TopExp_Explorer(inner_wire, TopAbs_EDGE)
+                    while exp.More():
+                        wire_edges.append(exp.Current())
+                        exp.Next()
+                    update_edges_uv_gen(wire_edges, builder, face_surface)
                 face_maker.Add(inner_wire)
             except Exception as ex:
                 logger.warning(f"Skipping inner bound due to error creating wire: {ex}")
@@ -392,7 +396,7 @@ def make_face_from_geom(advanced_face: geo_su.AdvancedFace) -> TopoDS_Face:
         wire_fixer = fixer.FixWireTool()
         wire_fixer.FixConnected()
         wire_fixer.FixClosed()
-        
+
         face = fixer.Face()
 
     # Update the face tolerance

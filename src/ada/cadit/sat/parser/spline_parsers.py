@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from ada.cadit.sat.parser.acis_entities import AcisSplineCurveData, NurbsType, ClosureType
+from ada.cadit.sat.parser.acis_entities import (
+    AcisSplineCurveData,
+    ClosureType,
+    NurbsType,
+)
 
 
 def _to_floats_safe(tokens: List[str]) -> List[float]:
@@ -140,9 +144,9 @@ def parse_spline_curve_data(spline_str: str) -> Optional[AcisSplineCurveData]:
         knots: List[float] = []
         mults: List[int] = []
         nums: List[float] = []
-        
+
         expected_values = num_knots * 2 if num_knots is not None else None
-        
+
         # Track where we stopped reading knots
         knot_end_idx = 1
 
@@ -157,14 +161,14 @@ def parse_spline_curve_data(spline_str: str) -> Optional[AcisSplineCurveData]:
             if expected_values is None and _looks_like_cp_row(lines[i]):
                 break
             nums.extend(_to_floats_safe(lines[i].split()))
-            
+
         # If we broke because we had enough values, we haven't consumed the current line 'i'
         # UNLESS we consumed it in the previous iteration.
         # Actually, let's simplify: verify if we consumed line 'i' or not.
         # If len(nums) >= expected BEFORE extend, we break and don't consume i.
         # If len(nums) < expected, we consume i.
         # So knot_end_idx should point to the first line NOT consumed for knots.
-        
+
         # Re-implementing loop for clarity and correctness
         nums = []
         knot_end_idx = 1
@@ -172,12 +176,12 @@ def parse_spline_curve_data(spline_str: str) -> Optional[AcisSplineCurveData]:
             if expected_values is not None and len(nums) >= expected_values:
                 knot_end_idx = i
                 break
-            
+
             # Check heuristic only if count unknown
             if expected_values is None and _looks_like_cp_row(lines[i]):
                 knot_end_idx = i
                 break
-                
+
             nums.extend(_to_floats_safe(lines[i].split()))
             knot_end_idx = i + 1
 
@@ -195,7 +199,7 @@ def parse_spline_curve_data(spline_str: str) -> Optional[AcisSplineCurveData]:
                 current_sum_mults += 1
             if mults[-1] == degree:
                 current_sum_mults += 1
-        
+
         n_poles = (current_sum_mults - degree - 1) if mults else 0
 
         # Control points follow after knots; collect exactly n_poles rows
@@ -206,7 +210,7 @@ def parse_spline_curve_data(spline_str: str) -> Optional[AcisSplineCurveData]:
             if _looks_like_cp_row(lines[i]):
                 cp_start = i
                 break
-        
+
         if n_poles <= 0:
             # Fallback: try to parse all remaining rows with 3 or 4 floats
             for i in range(cp_start, len(lines)):
