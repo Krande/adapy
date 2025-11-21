@@ -148,11 +148,11 @@ intel-openmp = "*"
 PYTHONPATH="%PIXI_PROJECT_ROOT%/src"
 
 [tool.pixi.feature.fem-deps]
-channels = ["https://repo.prefix.dev/code-aster", "conda-forge"]
+channels = ["conda-forge"]
 [tool.pixi.feature.fem]
-channels = ["https://repo.prefix.dev/code-aster", "conda-forge"]
+channels = ["conda-forge"]
 [tool.pixi.feature.docs]
-channels = ["https://repo.prefix.dev/code-aster", "conda-forge"]
+channels = ["conda-forge"]
 
 
 [tool.pixi.feature.fem-deps.dependencies]
@@ -162,9 +162,9 @@ calculix = "*"
 # These are not available on conda-forge
 code-aster = "*"
 
-[tool.pixi.feature.fem-deps.target.win-64.dependencies]
+#[tool.pixi.feature.fem-deps.target.win-64.dependencies]
 
-code-aster = { version = "*", channel = "https://repo.prefix.dev/code-aster" }
+#code-aster = { version = "*", channel = "https://repo.prefix.dev/code-aster" }
 # Attempt to update to the latest version of the dependencies
 #code-aster = { version = "==17.2.8.1", channel = "https://repo.prefix.dev/code-aster" }
 #ifcopenshell = { version = "==0.8.1.250324", channel = "https://repo.prefix.dev/code-aster" }

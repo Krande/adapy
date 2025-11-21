@@ -115,7 +115,7 @@ class WebSocketClientAsync(WebSocketClientBase):
         await self.websocket.send(self._view_file_object_prep(file_name))
 
     async def list_connected_web_clients(self) -> list[WebClientDC]:
-        await self.websocket.send(self._list_connected_clients_prep())
+        await self.websocket.send(self._list_connected_web_clients_prep())
         msg = await self.receive()
         web_clients = msg.web_clients
         if web_clients is None:
