@@ -47,5 +47,6 @@ def test_fem_eig(
         eigen_modes=eigen_modes,
         name=name,
         debug=debug,
+        scratch_dir=SCRATCH_DIR,
         **kwargs,
     )
