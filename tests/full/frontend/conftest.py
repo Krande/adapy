@@ -42,7 +42,7 @@ class MockWSClient:
         return f"ws://{self.host}:{self.port}"
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="function")
 def ws_server() -> MockWSClient:
     def start_ws_server(loop):
         asyncio.set_event_loop(loop)
