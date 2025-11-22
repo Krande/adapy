@@ -76,14 +76,24 @@ def start_ws_async_server(
         logger.warning("Binder does not support websockets, so you will not be able to send data to the viewer")
         run_in_thread = True
 
-    if is_server_running(host, port) is False:
+    # In headless CI environments, don't try to spawn external UI/terminals
+    no_external_ui = os.getenv("ADA_NO_EXTERNAL_UI", "").lower() in {"1", "true", "yes", "on"}
+
+    if no_external_ui and not run_in_thread:
+        # Fall back to background thread mode if we must start a server locally
+        run_in_thread = True
+
+    # Note: `is_server_running` may return an asyncio.Task when called from within a running event loop.
+    # Use boolean semantics instead of identity comparison to handle that case safely.
+    if not is_server_running(host, port):
         if run_in_thread:
             ws = WebSocketAsyncServer(host=host, port=port)
             ws.run_in_background()
         else:
             start_external_ws_server(server_exe, server_args)
 
-        while is_server_running(host, port) is False:
+        # Wait briefly until the server is reachable
+        while not is_server_running(host, port):
             time.sleep(0.1)
 
 

@@ -45,12 +45,20 @@ class RendererManager:
 
     def _start_websocket_server(self):
         """Starts the WebSocket server if needed."""
-        from ada.comms.wsock.utils import start_ws_async_server
+        from ada.comms.wsock.utils import start_ws_async_server, is_port_open
 
         if self.renderer == "pygfx":
             from ada.visit.rendering.render_pygfx import PYGFX_RENDERER_EXE_PY
 
             self.server_exe = PYGFX_RENDERER_EXE_PY
+
+        # If a server is already listening on the configured port, don't start another one
+        try:
+            if is_port_open(self.host, self.ws_port):
+                return
+        except Exception:
+            # Best effort check; if it fails we proceed with the normal startup logic
+            pass
 
         start_ws_async_server(
             server_exe=self.server_exe,
