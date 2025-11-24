@@ -121,7 +121,7 @@ pythonocc-core = "*"
 python-gmsh = "*"
 pyquaternion = "*"
 trimesh = "*"
-occt = "==7.8.1"
+occt = "*"
 send2trash = "*"
 meshio = "*"
 websockets = ">=14"
@@ -160,7 +160,7 @@ calculix = "*"
 
 [tool.pixi.feature.fem-deps.target.linux-64.dependencies]
 # These are not available on conda-forge
-code-aster = "*"
+code-aster = ">=17.3.16"
 
 #[tool.pixi.feature.fem-deps.target.win-64.dependencies]
 

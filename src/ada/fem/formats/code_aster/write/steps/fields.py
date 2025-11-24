@@ -3,14 +3,21 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from ada.api.spatial import Part
     from ada.fem.steps import FieldOutput, Step
 
 
-def _create_field_output(field: FieldOutput, nl_geom) -> str:
+def _create_field_output(field: FieldOutput, nl_geom, part: Part) -> str:
     # TODO: Make this a function of field output. Not randomly chosen hardcoded variables
     _ = {"S": "SIGM_ELNO"}
 
-    default_contrainte = ["EFGE_ELNO", "EFGE_NOEU", "SIGM_ELNO", "SIEF_ELNO", "SIPO_ELNO", "SIPM_ELNO"]
+    # EFGE (element forces) only makes sense for shell and beam elements, not for 3D solid elements
+    has_shells_or_beams = len(part.fem.sections.shells) > 0 or len(part.fem.sections.lines) > 0
+
+    default_contrainte = ["SIGM_ELNO", "SIEF_ELNO", "SIPO_ELNO", "SIPM_ELNO"]
+    if has_shells_or_beams:
+        default_contrainte = ["EFGE_ELNO", "EFGE_NOEU"] + default_contrainte
+
     default_deformation = ["EPSI_ELNO", "EPSP_ELNO"]
     default_force = ["REAC_NODA"]
 
@@ -63,16 +70,29 @@ strainP = POST_CHAMP(
 )"""
 
 
-def final_writer():
-    return """
-    IMPR_RESU(
-    RESU=(
-        _F(
+def final_writer(part: Part):
+    # EFGE (element forces) only makes sense for shell and beam elements, not for 3D solid elements
+    has_shells_or_beams = len(part.fem.sections.shells) > 0 or len(part.fem.sections.lines) > 0
+
+    if has_shells_or_beams:
+        efge_output = """_F(
             NOM_CHAM=("DEPL", "EFGE_ELNO", "EFGE_NOEU"),
             NOM_CHAM_MED=("DISP", "GEN_FORCES_ELEM", "GEN_FORCES_NODES"),
             RESULTAT=result,
         ),
-        _F(
+        """
+    else:
+        efge_output = """_F(
+            NOM_CHAM=("DEPL",),
+            NOM_CHAM_MED=("DISP",),
+            RESULTAT=result,
+        ),
+        """
+
+    return f"""
+    IMPR_RESU(
+    RESU=(
+        {efge_output}_F(
             NOM_CHAM=("SIGM_ELNO", "SIGM_NOEU"),
             NOM_CHAM_MED=("STRESSES_ELEM", "STRESSES_NODES"),
             RESULTAT=stress,
@@ -93,9 +113,9 @@ def final_writer():
 """
 
 
-def create_field_output_str(step: Step) -> str:
+def create_field_output_str(step: Step, part: Part) -> str:
     out_str = ""
     for f in step.field_outputs:
-        out_str += _create_field_output(f, step.nl_geom)
+        out_str += _create_field_output(f, step.nl_geom, part)
 
     return out_str
