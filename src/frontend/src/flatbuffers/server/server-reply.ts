@@ -7,6 +7,7 @@ import * as flatbuffers from 'flatbuffers';
 import { Error, ErrorT } from '../base/error.js';
 import { FileObject, FileObjectT } from '../base/file-object.js';
 import { CommandType } from '../commands/command-type.js';
+import { ServerProcessInfo, ServerProcessInfoT } from '../server/server-process-info.js';
 
 
 export class ServerReply implements flatbuffers.IUnpackableObject<ServerReplyT> {
@@ -54,8 +55,13 @@ error(obj?:Error):Error|null {
   return offset ? (obj || new Error()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
 }
 
+processInfo(obj?:ServerProcessInfo):ServerProcessInfo|null {
+  const offset = this.bb!.__offset(this.bb_pos, 12);
+  return offset ? (obj || new ServerProcessInfo()).__init(this.bb!.__indirect(this.bb_pos + offset), this.bb!) : null;
+}
+
 static startServerReply(builder:flatbuffers.Builder) {
-  builder.startObject(4);
+  builder.startObject(5);
 }
 
 static addMessage(builder:flatbuffers.Builder, messageOffset:flatbuffers.Offset) {
@@ -86,6 +92,10 @@ static addError(builder:flatbuffers.Builder, errorOffset:flatbuffers.Offset) {
   builder.addFieldOffset(3, errorOffset, 0);
 }
 
+static addProcessInfo(builder:flatbuffers.Builder, processInfoOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(4, processInfoOffset, 0);
+}
+
 static endServerReply(builder:flatbuffers.Builder):flatbuffers.Offset {
   const offset = builder.endObject();
   return offset;
@@ -97,7 +107,8 @@ unpack(): ServerReplyT {
     this.message(),
     this.bb!.createObjList<FileObject, FileObjectT>(this.fileObjects.bind(this), this.fileObjectsLength()),
     this.replyTo(),
-    (this.error() !== null ? this.error()!.unpack() : null)
+    (this.error() !== null ? this.error()!.unpack() : null),
+    (this.processInfo() !== null ? this.processInfo()!.unpack() : null)
   );
 }
 
@@ -107,6 +118,7 @@ unpackTo(_o: ServerReplyT): void {
   _o.fileObjects = this.bb!.createObjList<FileObject, FileObjectT>(this.fileObjects.bind(this), this.fileObjectsLength());
   _o.replyTo = this.replyTo();
   _o.error = (this.error() !== null ? this.error()!.unpack() : null);
+  _o.processInfo = (this.processInfo() !== null ? this.processInfo()!.unpack() : null);
 }
 }
 
@@ -115,7 +127,8 @@ constructor(
   public message: string|Uint8Array|null = null,
   public fileObjects: (FileObjectT)[] = [],
   public replyTo: CommandType = CommandType.PING,
-  public error: ErrorT|null = null
+  public error: ErrorT|null = null,
+  public processInfo: ServerProcessInfoT|null = null
 ){}
 
 
@@ -123,12 +136,14 @@ pack(builder:flatbuffers.Builder): flatbuffers.Offset {
   const message = (this.message !== null ? builder.createString(this.message!) : 0);
   const fileObjects = ServerReply.createFileObjectsVector(builder, builder.createObjectOffsetList(this.fileObjects));
   const error = (this.error !== null ? this.error!.pack(builder) : 0);
+  const processInfo = (this.processInfo !== null ? this.processInfo!.pack(builder) : 0);
 
   ServerReply.startServerReply(builder);
   ServerReply.addMessage(builder, message);
   ServerReply.addFileObjects(builder, fileObjects);
   ServerReply.addReplyTo(builder, this.replyTo);
   ServerReply.addError(builder, error);
+  ServerReply.addProcessInfo(builder, processInfo);
 
   return ServerReply.endServerReply(builder);
 }

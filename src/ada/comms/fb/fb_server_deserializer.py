@@ -1,6 +1,17 @@
 from ada.comms.fb.fb_base_deserializer import deserialize_error, deserialize_fileobject
 from ada.comms.fb.fb_commands_gen import CommandTypeDC
-from ada.comms.fb.fb_server_gen import ServerDC, ServerReplyDC
+from ada.comms.fb.fb_server_gen import ServerDC, ServerProcessInfoDC, ServerReplyDC
+
+
+def deserialize_serverprocessinfo(fb_obj) -> ServerProcessInfoDC | None:
+    if fb_obj is None:
+        return None
+
+    return ServerProcessInfoDC(
+        pid=fb_obj.Pid(),
+        thread_id=fb_obj.ThreadId(),
+        log_file_path=fb_obj.LogFilePath().decode("utf-8") if fb_obj.LogFilePath() is not None else None,
+    )
 
 
 def deserialize_serverreply(fb_obj) -> ServerReplyDC | None:
@@ -16,6 +27,7 @@ def deserialize_serverreply(fb_obj) -> ServerReplyDC | None:
         ),
         reply_to=CommandTypeDC(fb_obj.ReplyTo()),
         error=deserialize_error(fb_obj.Error()),
+        process_info=deserialize_serverprocessinfo(fb_obj.ProcessInfo()),
     )
 
 

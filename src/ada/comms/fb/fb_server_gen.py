@@ -9,11 +9,19 @@ from ada.comms.fb.fb_commands_gen import CommandTypeDC
 
 
 @dataclass
+class ServerProcessInfoDC:
+    pid: int = None
+    thread_id: int = None
+    log_file_path: pathlib.Path | str = ""
+
+
+@dataclass
 class ServerReplyDC:
     message: str = ""
     file_objects: Optional[List[FileObjectDC]] = None
     reply_to: Optional[CommandTypeDC] = None
     error: Optional[ErrorDC] = None
+    process_info: Optional[ServerProcessInfoDC] = None
 
 
 @dataclass

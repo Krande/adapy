@@ -3,4 +3,5 @@
 /* eslint-disable @typescript-eslint/no-unused-vars, @typescript-eslint/no-explicit-any, @typescript-eslint/no-non-null-assertion */
 
 export { Server, ServerT } from './server/server.js';
+export { ServerProcessInfo, ServerProcessInfoT } from './server/server-process-info.js';
 export { ServerReply, ServerReplyT } from './server/server-reply.js';

@@ -8,6 +8,7 @@ import { receive_mesh_info_reply } from '../mesh_select/comms/receive_mesh_info_
 import { update_nodes } from '../node_editor/comms/update_nodes';
 import { handle_finished_procedure } from '../node_editor/comms/handle_finished_procedure';
 import { receive_list_of_files_from_server } from '../server_info/comms/receive_list_of_files_from_server';
+import { useWebsocketStatusStore } from '../../state/websocketStatusStore';
 
 export async function handleFlatbufferMessage(buffer: ArrayBuffer): Promise<void> {
   try {
@@ -30,6 +31,27 @@ export async function handleFlatbufferMessage(buffer: ArrayBuffer): Promise<void
         await receive_mesh_info_reply(message);
         break;
 
+      case CommandType.LIST_WEB_CLIENTS:
+        {
+          const clients = [];
+          const clientCount = message.webClientsLength();
+          for (let i = 0; i < clientCount; i++) {
+            const client = message.webClients(i);
+            if (client) {
+              clients.push({
+                instanceId: client.instanceId(),
+                name: client.name(),
+                address: client.address(),
+                port: client.port(),
+                lastHeartbeat: client.lastHeartbeat(),
+              });
+            }
+          }
+          useWebsocketStatusStore.getState().setConnectedClients(clients);
+          console.log('LIST_WEB_CLIENTS received:', clients);
+        }
+        break;
+
       case CommandType.SERVER_REPLY:
         const replyTo = message.serverReply()?.replyTo();
         switch (replyTo) {
@@ -49,6 +71,23 @@ export async function handleFlatbufferMessage(buffer: ArrayBuffer): Promise<void
             break;
           case CommandType.LIST_FILE_OBJECTS:
             await receive_list_of_files_from_server(message);
+            break;
+          case CommandType.GET_SERVER_INFO:
+            {
+              const processInfo = message.serverReply()?.processInfo();
+              if (processInfo) {
+                useWebsocketStatusStore.getState().setProcessInfo({
+                  pid: processInfo.pid(),
+                  threadId: processInfo.threadId(),
+                  logFilePath: processInfo.logFilePath(),
+                });
+                console.log('GET_SERVER_INFO received:', {
+                  pid: processInfo.pid(),
+                  threadId: processInfo.threadId(),
+                  logFilePath: processInfo.logFilePath(),
+                });
+              }
+            }
             break;
           default:
             console.error(

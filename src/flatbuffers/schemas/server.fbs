@@ -3,12 +3,18 @@ include "commands.fbs";
 
 namespace server;
 
+table ServerProcessInfo {
+  pid: int;
+  thread_id: int;
+  log_file_path: string;
+}
 
 table ServerReply {
   message: string;
   file_objects: [base.FileObject];
   reply_to: commands.CommandType;
   error: base.Error;
+  process_info: ServerProcessInfo;
 }
 
 table Server {

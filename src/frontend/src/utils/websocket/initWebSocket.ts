@@ -1,9 +1,11 @@
 import {useWebSocketStore} from "../../state/webSocketStore";
+import {useWebsocketStatusStore} from "../../state/websocketStatusStore";
 import {webSocketAsyncHandler} from "./websocket_connector_async";
 import {handleWebSocketMessage} from "./handleWebSocketMessage";
 
 export async function initWebSocket() {
     const url = useWebSocketStore.getState().webSocketAddress;
+    const statusStore = useWebsocketStatusStore.getState();
 
     if ((window as any).DEACTIVATE_WS === true) {
         console.log("DEACTIVATE_WS is set to true, not connecting to websocket");
@@ -12,6 +14,10 @@ export async function initWebSocket() {
 
     try {
         await webSocketAsyncHandler.connect(url);
+        
+        // Update connection status
+        statusStore.setConnected(true);
+        statusStore.setFrontendId(webSocketAsyncHandler.instance_id);
 
         // start listening for incoming messages
         for await (const event of webSocketAsyncHandler.messages()) {
@@ -19,5 +25,6 @@ export async function initWebSocket() {
         }
     } catch (err) {
         console.error('WebSocket connection failed:', err);
+        statusStore.setConnected(false);
     }
 }

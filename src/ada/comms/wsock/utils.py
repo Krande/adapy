@@ -19,10 +19,10 @@ from ada.config import logger
 
 def is_port_open(host: str, port: int, timeout: float = 1.0) -> bool:
     """Quickly check if a port is open using a TCP connection.
-    
+
     Uses socket.create_connection() which is a safer and cleaner approach
     that handles socket creation and connection in one call with proper cleanup.
-    
+
     Note: This uses a raw TCP socket which will cause 'opening handshake failed' errors
     on the WebSocket server side. This is expected and harmless - it's just a quick
     check to see if anything is listening on the port before attempting a full
@@ -137,10 +137,10 @@ def start_ws_async_server(
 ) -> None:
     """
     Ensure a WebSocket server is running, starting one if necessary.
-    
+
     By default, uses `ensure_ws_server` which spawns a fully detached background process
     that persists independently of the parent process.
-    
+
     Args:
         host: The host address for the WebSocket server.
         port: The port for the WebSocket server.
@@ -150,7 +150,6 @@ def start_ws_async_server(
         override_binder_check: If True, skip binder environment detection.
     """
     from ada.comms.wsock.cli import WS_ASYNC_SERVER_PY
-    from ada.comms.wsock.server import WebSocketAsyncServer
 
     if server_exe is None:
         server_exe = WS_ASYNC_SERVER_PY
@@ -186,6 +185,7 @@ def start_ws_async_server(
         # Wait briefly until the server is reachable
         while not is_server_running(host, port):
             time.sleep(0.1)
+
 
 def client_as_str(client_type: TargetTypeDC) -> str:
     if client_type == TargetTypeDC.LOCAL:

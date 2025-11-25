@@ -45,7 +45,7 @@ class RendererManager:
 
     def _start_websocket_server(self):
         """Starts the WebSocket server if needed."""
-        from ada.comms.wsock.utils import start_ws_async_server, is_port_open
+        from ada.comms.wsock.utils import is_port_open, start_ws_async_server
 
         if self.renderer == "pygfx":
             from ada.visit.rendering.render_pygfx import PYGFX_RENDERER_EXE_PY

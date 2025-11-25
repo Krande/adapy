@@ -22,3 +22,5 @@ class CommandType(object):
     START_FILE_IN_LOCAL_APP = 15
     SCREENSHOT = 16
     HEARTBEAT = 17
+    GET_SERVER_INFO = 18
+    SHUTDOWN_SERVER = 19
