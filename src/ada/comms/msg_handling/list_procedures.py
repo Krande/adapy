@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 from typing import TYPE_CHECKING
 
 from ada.comms.fb_wrap_model_gen import (
@@ -36,5 +35,4 @@ def list_procedures(server: WebSocketAsyncServer, client: ConnectedClient, messa
     )
     fb_message = serialize_root_message(reply_message)
 
-    # run the client.websocket in an event loop
-    asyncio.run(client.websocket.send(fb_message))
+    server.send_message_threadsafe(client, fb_message)

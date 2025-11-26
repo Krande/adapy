@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import json
 from typing import TYPE_CHECKING
 
@@ -49,5 +48,4 @@ def mesh_info_callback(server: WebSocketAsyncServer, client: ConnectedClient, me
         target_group=TargetTypeDC.WEB,
     )
     fb_message = serialize_root_message(reply_message)
-    # run the client.websocket in an event loop
-    asyncio.run(client.websocket.send(fb_message))
+    server.send_message_threadsafe(client, fb_message)

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import pathlib
 import random
 from typing import TYPE_CHECKING
@@ -133,7 +132,7 @@ def update_server_on_successful_procedure_run(
 
     fb_message = serialize_root_message(reply_message)
 
-    asyncio.run(client.websocket.send(fb_message))
+    server.send_message_threadsafe(client, fb_message)
 
     # view the last IFC file object
     for new_file_object in new_file_objects:

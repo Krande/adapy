@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import random
 import time
 from dataclasses import dataclass, field
@@ -18,6 +19,27 @@ from ada.comms.wsock.scene_model import SceneBackend
 from ada.comms.wsock.utils import client_from_str
 from ada.config import Config, logger
 from ada.procedural_modelling.procedure_store import ProcedureStore
+
+
+class WebSocketHandshakeFilter(logging.Filter):
+    """Filter to suppress expected WebSocket handshake errors.
+
+    These errors occur when TCP port availability checks are performed
+    using raw sockets (e.g., in is_port_open()). The raw TCP connection
+    doesn't complete the WebSocket handshake protocol, causing these
+    expected and harmless error messages.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        # Suppress "opening handshake failed" errors from websockets.server
+        if record.name == "websockets.server" and "opening handshake failed" in record.getMessage():
+            return False
+        return True
+
+
+# Apply the filter to the websockets.server logger to suppress expected handshake errors
+_ws_server_logger = logging.getLogger("websockets.server")
+_ws_server_logger.addFilter(WebSocketHandshakeFilter())
 
 
 @dataclass
@@ -103,6 +125,20 @@ class WebSocketAsyncServer:
         self.msg_queue = asyncio.Queue()
         self.procedure_store = ProcedureStore()
         self.debug = debug
+        self._event_loop: Optional[asyncio.AbstractEventLoop] = None
+
+    def send_message_threadsafe(self, client: ConnectedClient, message: bytes) -> None:
+        """Send a message to a client from any thread (including threads created by asyncio.to_thread).
+        
+        This method uses run_coroutine_threadsafe to schedule the send operation
+        on the main event loop, which is necessary because websocket operations
+        must be performed on the same event loop that owns the connection.
+        """
+        if self._event_loop is None:
+            raise RuntimeError("Event loop not set. Server must be started first.")
+        future = asyncio.run_coroutine_threadsafe(client.websocket.send(message), self._event_loop)
+        # Wait for the result to ensure the message is sent before returning
+        future.result()
 
     def get_client_by_instance_id(self, instance_id: int) -> Optional[ConnectedClient]:
         for client in self.connected_clients:
@@ -131,6 +167,9 @@ class WebSocketAsyncServer:
 
         finally:
             self.connected_clients.remove(client)
+            if client in self.connected_web_clients:
+                self.connected_web_clients.remove(client)
+                logger.debug(f"Removing web client from heartbeat tracking: {client.instance_id}")
             logger.debug(f"Client disconnected: {client.instance_id} [{await self._get_clients_str()}]")
             if self.on_disconnect:
                 await self.on_disconnect(client)
@@ -213,12 +252,14 @@ class WebSocketAsyncServer:
 
     async def start_async(self):
         """Run the server asynchronously. Blocks until the server is stopped. Max size is set to 10MB."""
+        self._event_loop = asyncio.get_running_loop()
         self.server = await websockets.serve(self.handle_client, self.host, self.port, max_size=10**7)
         logger.debug(f"WebSocket server started on ws://{self.host}:{self.port}")
         await self.server.wait_closed()
 
     async def start_async_non_blocking(self):
         """Start the server asynchronously. Does not block the event loop. Max size is set to 10MB."""
+        self._event_loop = asyncio.get_running_loop()
         self.server = await websockets.serve(self.handle_client, self.host, self.port, max_size=10**7)
         print(f"WebSocket server started on ws://{self.host}:{self.port}")
         # Do not call await self.server.wait_closed() here

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 from typing import TYPE_CHECKING
 
 from ada.comms.fb_wrap_model_gen import CommandTypeDC, ErrorDC, MessageDC, ServerReplyDC
@@ -19,5 +18,4 @@ def on_error_reply(server: WebSocketAsyncServer, client: ConnectedClient, error_
         server_reply=ServerReplyDC(error=ErrorDC(message=str(error_message))),
     )
     fb_message = serialize_root_message(reply_message)
-    # run the client.websocket in an event loop
-    asyncio.run(client.websocket.send(fb_message))
+    server.send_message_threadsafe(client, fb_message)

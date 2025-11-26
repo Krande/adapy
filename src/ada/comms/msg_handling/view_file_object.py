@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import io
 from typing import TYPE_CHECKING
 
@@ -53,6 +52,6 @@ def view_file_object(server: WebSocketAsyncServer, client: ConnectedClient, file
         )
 
         fb_message = serialize_root_message(msg)
-        asyncio.run(client.websocket.send(fb_message))
+        server.send_message_threadsafe(client, fb_message)
 
     server.scene.mesh_meta = scene.metadata

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import os
 import threading
 from typing import TYPE_CHECKING
@@ -47,4 +46,4 @@ def get_server_info_func(server: WebSocketAsyncServer, client: ConnectedClient, 
 
     # Serialize and send the reply message
     serialized_reply = serialize_root_message(reply_message)
-    asyncio.run(client.websocket.send(serialized_reply))
+    server.send_message_threadsafe(client, serialized_reply)
