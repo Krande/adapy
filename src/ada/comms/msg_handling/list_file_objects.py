@@ -17,8 +17,8 @@ if TYPE_CHECKING:
 
 
 def list_file_objects(server: WebSocketAsyncServer, client: ConnectedClient, message: MessageDC) -> None:
-    logger.info(f"Received message from {client} to list procedures")
-    logger.info(f"Message: {message}")
+    logger.info(f"Received message from {client.instance_id} to list procedures")
+    logger.debug(f"Message: {message}")
 
     file_objects = server.scene.file_objects
 

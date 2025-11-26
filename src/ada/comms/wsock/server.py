@@ -141,7 +141,7 @@ class WebSocketAsyncServer:
 
     async def handle_message(self, message: bytes, client: ConnectedClient, websocket: ServerConnection):
         msg = await handle_partial_message(message)
-        logger.debug(f"Received message: {msg}")
+        logger.debug(f"Received message: {msg.command_type.value} from {client.instance_id}")
 
         if msg.command_type == CommandTypeDC.HEARTBEAT:
             client.last_heartbeat = int(time.time() * 1000)
