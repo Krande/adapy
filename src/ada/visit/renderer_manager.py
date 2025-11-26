@@ -4,12 +4,14 @@ import pathlib
 from typing import TYPE_CHECKING, Literal
 
 from ada.comms.fb_wrap_model_gen import FileObjectDC, FilePurposeDC, FileTypeDC, MeshDC
+
 from ada.config import Config
 from ada.visit.render_params import RenderParams
 from ada.visit.scene_converter import SceneConverter
 
 if TYPE_CHECKING:
     import trimesh
+    from ada.comms.wsock.client_sync import WebSocketClientSync
     from IPython.display import HTML
 
     from ada import FEM, Assembly, Part
@@ -76,13 +78,13 @@ class RendererManager:
 
         return self._is_in_notebook
 
-    def ensure_liveness(self, wc, target_id=None) -> None | HTML:
+    def ensure_liveness(self, wc: WebSocketClientSync, target_id=None) -> None | HTML:
         """Ensures that the WebSocket client is connected and target is live."""
         if not self.is_in_notebook():
             target_id = None  # Currently does not support unique viewer IDs outside of notebooks
 
-        if wc.check_target_liveness(target_id=target_id, timeout=self.ping_timeout):
-            # The target is alive meaning a viewer is running
+        con_client = wc.list_connected_web_clients()
+        if len(con_client) > 0:
             return None
 
         renderer = None
