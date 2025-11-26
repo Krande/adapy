@@ -48,6 +48,8 @@ def serialize_serverreply(builder: flatbuffers.Builder, obj: Optional[ServerRepl
         ServerReply.AddMessage(builder, message_str)
     if obj.file_objects is not None and len(obj.file_objects) > 0:
         ServerReply.AddFileObjects(builder, file_objects_vector)
+    if obj.reply_to is not None:
+        ServerReply.AddReplyTo(builder, obj.reply_to.value)
     if obj.error is not None:
         ServerReply.AddError(builder, error_obj)
     if obj.process_info is not None:

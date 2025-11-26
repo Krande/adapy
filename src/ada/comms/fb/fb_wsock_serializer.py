@@ -45,12 +45,18 @@ def serialize_message(builder: flatbuffers.Builder, obj: Optional[MessageDC]) ->
     Message.Start(builder)
     if obj.instance_id is not None:
         Message.AddInstanceId(builder, obj.instance_id)
+    if obj.command_type is not None:
+        Message.AddCommandType(builder, obj.command_type.value)
     if obj.scene is not None:
         Message.AddScene(builder, scene_obj)
     if obj.server is not None:
         Message.AddServer(builder, server_obj)
     if obj.mesh_info is not None:
         Message.AddMeshInfo(builder, mesh_info_obj)
+    if obj.target_group is not None:
+        Message.AddTargetGroup(builder, obj.target_group.value)
+    if obj.client_type is not None:
+        Message.AddClientType(builder, obj.client_type.value)
     if obj.target_id is not None:
         Message.AddTargetId(builder, obj.target_id)
     if obj.web_clients is not None and len(obj.web_clients) > 0:

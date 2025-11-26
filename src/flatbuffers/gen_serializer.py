@@ -32,7 +32,7 @@ def float32_serialize_code(field_name: str, builder_name: str, head_spacing: int
 
 def generate_table_serialize_function(table: TableDefinition) -> str:
     included_table_names = [table.name for incl in table.schema.includes for table in incl.tables]
-    enum_names = [enum.name for enum in table.schema.enums]
+    enum_names = [enum.name for incl in table.schema.includes for enum in incl.enums]
 
     serialize_code = f"def serialize_{table.name.lower()}(builder: flatbuffers.Builder, obj: Optional[{table.name}DC]) -> Optional[int]:\n"
     serialize_code += "    if obj is None:\n        return None\n"
