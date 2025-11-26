@@ -54,6 +54,7 @@ export async function handleFlatbufferMessage(buffer: ArrayBuffer): Promise<void
 
       case CommandType.SERVER_REPLY:
         const replyTo = message.serverReply()?.replyTo();
+        console.log(replyTo);
         switch (replyTo) {
           case CommandType.LIST_PROCEDURES:
             await update_nodes(message);

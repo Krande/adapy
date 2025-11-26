@@ -16,6 +16,7 @@ if TYPE_CHECKING:
 
 def get_server_info_func(server: WebSocketAsyncServer, client: ConnectedClient, message: MessageDC) -> None:
     """Handles a request to get server process information."""
+    logger.debug("Getting server info...")
     pid = os.getpid()
     thread_id = threading.get_ident()
 
@@ -43,6 +44,7 @@ def get_server_info_func(server: WebSocketAsyncServer, client: ConnectedClient, 
         command_type=CommandTypeDC.SERVER_REPLY,
         server_reply=server_reply,
     )
+    logger.debug(f"Server info: PID={pid}, ThreadID={thread_id}, LogFile={log_file_path}")
 
     # Serialize and send the reply message
     serialized_reply = serialize_root_message(reply_message)

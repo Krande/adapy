@@ -129,7 +129,7 @@ class WebSocketAsyncServer:
 
     def send_message_threadsafe(self, client: ConnectedClient, message: bytes) -> None:
         """Send a message to a client from any thread (including threads created by asyncio.to_thread).
-        
+
         This method uses run_coroutine_threadsafe to schedule the send operation
         on the main event loop, which is necessary because websocket operations
         must be performed on the same event loop that owns the connection.
