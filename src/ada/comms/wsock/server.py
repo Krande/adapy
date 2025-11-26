@@ -115,7 +115,8 @@ class WebSocketAsyncServer:
 
         self.connected_clients.add(client)
 
-        if client.group_type == TargetTypeDC.WEB:
+        if client.group_type == TargetTypeDC.WEB and client not in self.connected_web_clients:
+            logger.debug(f"Adding web client to heartbeat tracking: {client.instance_id}")
             self.connected_web_clients.add(client)
 
         logger.debug(f"Client connected: {client.instance_id} [{len(self.connected_clients)} clients connected]")

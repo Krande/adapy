@@ -16,9 +16,9 @@ export class AsyncWebSocketHandler {
 
     private startHeartbeat() {
         this.stopHeartbeat();
-        send_heartbeat(this);
+        send_heartbeat();
         this.heartbeatInterval = window.setInterval(() => {
-            send_heartbeat(this);
+            send_heartbeat();
         }, 3000);
     }
 
