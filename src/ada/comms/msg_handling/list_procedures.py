@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 
 
 def list_procedures(server: WebSocketAsyncServer, client: ConnectedClient, message: MessageDC) -> None:
-    logger.info(f"Received message from {client} to list procedures")
+    logger.info(f"Received message from {client.instance_id} to list procedures")
     logger.info(f"Message: {message}")
 
     server.procedure_store.update_procedures()

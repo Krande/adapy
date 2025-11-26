@@ -28,7 +28,7 @@ if TYPE_CHECKING:
 
 
 def run_procedure(server: WebSocketAsyncServer, client: ConnectedClient, message: MessageDC) -> None:
-    logger.info(f"Received message from {client} to run procedure")
+    logger.info(f"Received message from {client.instance_id} to run procedure")
     start_procedure = message.procedure_store.start_procedure
 
     procedure: Procedure = server.procedure_store.get(start_procedure.procedure_name)

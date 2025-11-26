@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import sys
 from typing import TYPE_CHECKING
 
 from ada.config import logger
@@ -13,5 +14,4 @@ def shutdown_server_func(server: WebSocketAsyncServer, client: ConnectedClient, 
     """Handles a request to shutdown the server."""
     logger.info(f"Shutdown request received from client {client.instance_id}")
 
-    # Schedule the server shutdown
-    asyncio.create_task(server.stop())
+    sys.exit(0)

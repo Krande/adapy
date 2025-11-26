@@ -118,7 +118,7 @@ class WebSocketAsyncServer:
         if client.group_type == TargetTypeDC.WEB:
             self.connected_web_clients.add(client)
 
-        logger.debug(f"Client connected: {client} [{len(self.connected_clients)} clients connected]")
+        logger.debug(f"Client connected: {client.instance_id} [{len(self.connected_clients)} clients connected]")
         if self.on_connect:
             await self.on_connect(client)
         try:
@@ -130,7 +130,7 @@ class WebSocketAsyncServer:
 
         finally:
             self.connected_clients.remove(client)
-            logger.debug(f"Client disconnected: {client} [{await self._get_clients_str()}]")
+            logger.debug(f"Client disconnected: {client.instance_id} [{await self._get_clients_str()}]")
             if self.on_disconnect:
                 await self.on_disconnect(client)
 
@@ -141,7 +141,7 @@ class WebSocketAsyncServer:
 
     async def handle_message(self, message: bytes, client: ConnectedClient, websocket: ServerConnection):
         msg = await handle_partial_message(message)
-        logger.debug(f"Received message: {msg.command_type.value} from {client.instance_id}")
+        logger.debug(f"Received message: {msg.command_type.name} from {client.instance_id}")
 
         if msg.command_type == CommandTypeDC.HEARTBEAT:
             client.last_heartbeat = int(time.time() * 1000)
@@ -171,7 +171,7 @@ class WebSocketAsyncServer:
         target_id = msg.target_id
         target_group = msg.target_group
         if is_forwarded_message:
-            logger.debug(f"Forwarding message to {sender}")
+            logger.debug(f"Forwarding message to {sender.instance_id}")
         message_sent = False
         clients_to_remove = []
         if Config().general_target_id_support:
@@ -195,7 +195,7 @@ class WebSocketAsyncServer:
             if target_group and client.group_type != target_group:
                 continue
 
-            logger.debug(f"Forwarding message to {client}")
+            logger.debug(f"Forwarding message to {client.instance_id}")
 
             await client.websocket.send(message)
             message_sent = True

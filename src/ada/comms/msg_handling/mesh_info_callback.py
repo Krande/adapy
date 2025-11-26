@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 
 
 def mesh_info_callback(server: WebSocketAsyncServer, client: ConnectedClient, message: MessageDC) -> None:
-    logger.info(f"Received message from {client} to update mesh info")
+    logger.info(f"Received message from {client.instance_id} to update mesh info")
     logger.info(f"Message: {message}")
     if server.scene.ifc_sql_store is None:
         logger.error("IFC SQL store not initialized")
