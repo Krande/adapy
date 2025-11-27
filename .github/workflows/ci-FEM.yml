@@ -35,7 +35,7 @@ jobs:
       run:
         shell: bash -l {0}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - name: Set DATE env var
         run: echo "DATE=$(echo $(date +'%y%m%d'))" >> $GITHUB_ENV
 
