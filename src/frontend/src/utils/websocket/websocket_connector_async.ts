@@ -13,9 +13,21 @@ export class AsyncWebSocketHandler {
   private lastUrl: string | null = null;
 
   private getRandomInt32(): number {
-    return (
-      Math.floor(Math.random() * (2147483647 - -2147483648 + 1)) + -2147483648
-    );
+    // Return a positive 32-bit integer in [1, 2147483647]
+    return Math.floor(Math.random() * 2147483647) + 1;
+  }
+
+  // Ensure the instance id is always a positive int32 (> 0)
+  private normalizeInstanceId(id: number): number {
+    const INT32_MAX = 2147483647;
+    if (typeof id !== "number" || !Number.isFinite(id)) {
+      return this.getRandomInt32();
+    }
+    id = Math.trunc(id);
+    if (id === 0) return 1;
+    if (id < 0) id = Math.abs(id);
+    if (id > INT32_MAX) id = INT32_MAX;
+    return id;
   }
 
   async connect(url: string): Promise<void> {
@@ -24,7 +36,7 @@ export class AsyncWebSocketHandler {
     const overrideId = (window as any).WEBSOCKET_ID;
     if (overrideId) {
       console.log("WebSocket ID Override:", overrideId);
-      this.instance_id = overrideId;
+      this.instance_id = this.normalizeInstanceId(overrideId);
     }
 
     // remember last attempted URL for possible reconnects (e.g., when ID changes)
@@ -138,6 +150,11 @@ export class AsyncWebSocketHandler {
     const INT32_MAX = 2147483647;
     if (newId < INT32_MIN || newId > INT32_MAX) {
       throw new Error(`Instance ID must be int32 (${INT32_MIN}..${INT32_MAX})`);
+    }
+
+    // Enforce positivity: convert non-positive values to positive within range
+    if (newId <= 0) {
+      newId = Math.max(1, Math.abs(newId));
     }
 
     this.instance_id = newId;
