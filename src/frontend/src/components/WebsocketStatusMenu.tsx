@@ -70,7 +70,7 @@ export function WebsocketStatusBox() {
                     <div className="font-medium mb-1">WebSocket Server</div>
                     <div className="flex justify-between">
                         <span className="font-medium">Status:</span>
-                        <span className={connected ? 'text-green-500 font-semibold' : 'text-red-700'}>
+                        <span className={connected ? 'text-green-500 font-semibold' : 'text-red-400 font-semibold'}>
                             {connected ? 'Connected' : 'Disconnected'}
                         </span>
                     </div>
