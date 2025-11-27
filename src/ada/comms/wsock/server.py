@@ -121,7 +121,7 @@ class WebSocketAsyncServer:
         self.on_message = on_message
         self.on_unsent_message = on_unsent_message
         self.scene = SceneBackend()
-        self.instance_id = random.randint(0, 2**31 - 1)  # Generates a random int32 value
+        self.instance_id = random.randint(1, 2**31 - 1)  # Generates a random int32 value (>0)
         self.msg_queue = asyncio.Queue()
         self.procedure_store = ProcedureStore()
         self.debug = debug

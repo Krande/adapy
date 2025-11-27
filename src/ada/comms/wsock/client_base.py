@@ -40,7 +40,7 @@ class WebSocketClientBase(ABC):
         self.host = host
         self.port = port
         self.client_type = client_type
-        self.instance_id = random.randint(0, 2**31 - 1)
+        self.instance_id = random.randint(1, 2**31 - 1)
         self.websocket = None
         self.url_override = url_override
 
