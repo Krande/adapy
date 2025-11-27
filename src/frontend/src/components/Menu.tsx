@@ -18,7 +18,8 @@ import ToggleControlsIcon from "./icons/AnimationControlToggle";
 import {useGroupInfoStore} from "../state/groupInfoStore";
 import GroupIcon from "./icons/GroupIcon";
 import GroupInfoBox from "./info_box_groups/GroupInfoBox";
-import {WebsocketStatusMenu} from "./WebsocketStatusMenu";
+import {WebsocketStatusMenu, WebsocketStatusBox} from "./WebsocketStatusMenu";
+import {useWebsocketStatusStore} from "../state/websocketStatusStore";
 
 
 const Menu = () => {
@@ -29,6 +30,7 @@ const Menu = () => {
     const {isTreeCollapsed, setIsTreeCollapsed} = useTreeViewStore();
     const {showServerInfoBox, setShowServerInfoBox} = useServerInfoStore();
     const {hasAnimation, isControlsVisible, setIsControlsVisible} = useAnimationStore();
+    const {showInfoBox: showWebsocketInfoBox} = useWebsocketStatusStore();
 
     return (
         <div className="relative w-full h-full">
@@ -99,6 +101,7 @@ const Menu = () => {
                     {showServerInfoBox && <ServerInfoBox/>}
                     {show_info_box && <ObjectInfoBox/>}
                     {show_group_info_box && <GroupInfoBox/>}
+                    {showWebsocketInfoBox && <WebsocketStatusBox/>}
                     {isControlsVisible && <SimulationControls/>}
                 </div>
             </div>
