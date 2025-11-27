@@ -163,14 +163,17 @@ class WebSocketAsyncServer:
                     idle_for = time.monotonic() - self._last_activity_monotonic
                     if idle_for > self._idle_timeout_sec:
                         logger.warning(
-                            f"No web clients and no recent local activity for {idle_for:.1f}s (> {self._idle_timeout_sec}s). Exiting."
+                            f"No web clients and no recent local activity for {idle_for:.1f}s (> {self._idle_timeout_sec}s). Shutting down server gracefully."
                         )
-                        # Exit process to avoid detached server lingering
-                        sys.exit(0)
+                        # Trigger a graceful shutdown: close the server so start_async() unblocks
+                        if self.server is not None:
+                            self.server.close()
+                        # End the watchdog task cleanly without raising exceptions
+                        return
         except asyncio.CancelledError:
-            # Task cancelled during server shutdown
+            # Task cancelled during server shutdown; exit quietly to avoid noisy logs
             logger.debug("Idle watchdog task cancelled")
-            raise
+            return
 
     def send_message_threadsafe(self, client: ConnectedClient, message: bytes) -> None:
         """Send a message to a client from any thread (including threads created by asyncio.to_thread).

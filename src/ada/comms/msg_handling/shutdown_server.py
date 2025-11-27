@@ -13,4 +13,4 @@ def shutdown_server_func(server: WebSocketAsyncServer, client: ConnectedClient, 
     """Handles a request to shutdown the server."""
     logger.info(f"Shutdown request received from client {client.instance_id}")
 
-    sys.exit(0)
+    server.server.close()
