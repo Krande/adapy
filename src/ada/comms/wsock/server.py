@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import sys
 import random
 import time
 from dataclasses import dataclass, field
@@ -126,6 +127,50 @@ class WebSocketAsyncServer:
         self.procedure_store = ProcedureStore()
         self.debug = debug
         self._event_loop: Optional[asyncio.AbstractEventLoop] = None
+        # Idle shutdown watchdog settings/state
+        self._idle_timeout_sec: int = 30
+        self._watchdog_interval_sec: int = 5
+        self._watchdog_task: Optional[asyncio.Task] = None
+        self._last_activity_monotonic: float = time.monotonic()
+        self._last_web_count: int = 0
+
+    def _reset_idle_timer(self, reason: str = "") -> None:
+        """Reset the idle timer to postpone automatic shutdown.
+
+        This is non-blocking and safe to call from within the event loop.
+        """
+        self._last_activity_monotonic = time.monotonic()
+        if reason:
+            logger.debug(f"Idle timer reset: {reason}")
+
+    async def _idle_check_loop(self) -> None:
+        """Periodic, non-blocking watchdog that exits the process after inactivity.
+
+        Rules:
+        - Runs every 5 seconds.
+        - Maintains a single inactivity timer that resets when:
+          * The number of web clients changes (add/remove), or
+          * A local client connects (or sends a message).
+        - If there are zero web clients AND more than 30 seconds have passed
+          since the last activity, exit the process.
+        """
+        try:
+            while True:
+                await asyncio.sleep(self._watchdog_interval_sec)
+                # Only consider shutdown when there are zero web clients
+                current_web_count = len([cl for cl in self.connected_clients if cl.group_type == TargetTypeDC.WEB])
+                if current_web_count == 0:
+                    idle_for = time.monotonic() - self._last_activity_monotonic
+                    if idle_for > self._idle_timeout_sec:
+                        logger.warning(
+                            f"No web clients and no recent local activity for {idle_for:.1f}s (> {self._idle_timeout_sec}s). Exiting."
+                        )
+                        # Exit process to avoid detached server lingering
+                        sys.exit(0)
+        except asyncio.CancelledError:
+            # Task cancelled during server shutdown
+            logger.debug("Idle watchdog task cancelled")
+            raise
 
     def send_message_threadsafe(self, client: ConnectedClient, message: bytes) -> None:
         """Send a message to a client from any thread (including threads created by asyncio.to_thread).
@@ -154,6 +199,15 @@ class WebSocketAsyncServer:
         if client.group_type == TargetTypeDC.WEB and client not in self.connected_web_clients:
             logger.debug(f"Adding web client to heartbeat tracking: {client.instance_id}")
             self.connected_web_clients.add(client)
+        # If the number of web clients changed, reset the idle timer
+        current_web_count = len(self.connected_web_clients)
+        if current_web_count != self._last_web_count:
+            self._last_web_count = current_web_count
+            self._reset_idle_timer("web clients count changed (connect)")
+
+        # If a local client connects, reset the idle timer
+        if client.group_type == TargetTypeDC.LOCAL:
+            self._reset_idle_timer("local client connected")
 
         logger.debug(f"Client connected: {client.instance_id} [{len(self.connected_clients)} clients connected]")
         if self.on_connect:
@@ -170,6 +224,11 @@ class WebSocketAsyncServer:
             if client in self.connected_web_clients:
                 self.connected_web_clients.remove(client)
                 logger.debug(f"Removing web client from heartbeat tracking: {client.instance_id}")
+            # If the number of web clients changed, reset the idle timer
+            current_web_count = len(self.connected_web_clients)
+            if current_web_count != self._last_web_count:
+                self._last_web_count = current_web_count
+                self._reset_idle_timer("web clients count changed (disconnect)")
             logger.debug(f"Client disconnected: {client.instance_id} [{await self._get_clients_str()}]")
             if self.on_disconnect:
                 await self.on_disconnect(client)
@@ -186,6 +245,10 @@ class WebSocketAsyncServer:
         if msg.command_type == CommandTypeDC.HEARTBEAT:
             client.last_heartbeat = int(time.time() * 1000)
             return
+
+        # If a local client sends any message, consider that activity and reset timer
+        if client.group_type == TargetTypeDC.LOCAL:
+            self._reset_idle_timer("message from local client")
 
         # Update instance_id if not set
         if client.websocket == websocket:
@@ -255,6 +318,9 @@ class WebSocketAsyncServer:
         self._event_loop = asyncio.get_running_loop()
         self.server = await websockets.serve(self.handle_client, self.host, self.port, max_size=10**7)
         logger.debug(f"WebSocket server started on ws://{self.host}:{self.port}")
+        # Start idle watchdog task (non-blocking loop)
+        if self._watchdog_task is None or self._watchdog_task.done():
+            self._watchdog_task = asyncio.create_task(self._idle_check_loop())
         await self.server.wait_closed()
 
     async def start_async_non_blocking(self):
@@ -262,6 +328,9 @@ class WebSocketAsyncServer:
         self._event_loop = asyncio.get_running_loop()
         self.server = await websockets.serve(self.handle_client, self.host, self.port, max_size=10**7)
         print(f"WebSocket server started on ws://{self.host}:{self.port}")
+        # Start idle watchdog task (non-blocking loop)
+        if self._watchdog_task is None or self._watchdog_task.done():
+            self._watchdog_task = asyncio.create_task(self._idle_check_loop())
         # Do not call await self.server.wait_closed() here
 
     async def stop(self):
@@ -269,29 +338,14 @@ class WebSocketAsyncServer:
         if self.server is not None:
             self.server.close()
             await self.server.wait_closed()
+        # Cancel watchdog task
+        if self._watchdog_task is not None and not self._watchdog_task.done():
+            self._watchdog_task.cancel()
+            try:
+                await self._watchdog_task
+            except asyncio.CancelledError:
+                pass
         logger.debug("WebSocket server stopped")
-
-    def run_in_background(self):
-        """Run the server in a background thread."""
-        import threading
-
-        thread = threading.Thread(target=lambda: asyncio.run(self.start_async()), daemon=True)
-        thread.start()
-        return thread
-
-    async def prune_inactive_web_clients(self, timeout: float):
-        """Prune clients that have not sent a heartbeat within the specified timeout."""
-        while True:
-            current_time = asyncio.get_event_loop().time()
-            clients_to_remove = []
-            for client in self.connected_web_clients:
-                if client.group_type == TargetTypeDC.WEB and client.last_heartbeat is not None:
-                    if current_time - client.last_heartbeat > timeout:
-                        clients_to_remove.append(client)
-            for client in clients_to_remove:
-                self.connected_web_clients.remove(client)
-                logger.debug(f"Pruned inactive client: {client}")
-            await asyncio.sleep(timeout)
 
 
 async def handle_partial_message(message) -> MessageDC | None:
