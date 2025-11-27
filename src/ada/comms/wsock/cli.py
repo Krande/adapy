@@ -3,7 +3,6 @@ import asyncio
 import pathlib
 
 from ada.comms.wsock.server import WebSocketAsyncServer
-from ada.comms.wsock.utils import ensure_ws_server
 from ada.config import logger
 
 WS_ASYNC_SERVER_PY = pathlib.Path(__file__)
@@ -17,6 +16,7 @@ async def start_async_server(host="localhost", port=8765, debug_mode=False, log_
 
     server = WebSocketAsyncServer(host, port, debug=is_debug)
     await server.start_async()
+
 
 def ws_async_cli_app():
     parser = argparse.ArgumentParser()

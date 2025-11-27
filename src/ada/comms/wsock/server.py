@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import sys
 import random
 import time
 from dataclasses import dataclass, field
@@ -199,7 +198,6 @@ class WebSocketAsyncServer:
             if client.instance_id == instance_id:
                 return client
         return None
-
 
     async def handle_client(self, websocket: ServerConnection):
         client = await process_client(websocket)

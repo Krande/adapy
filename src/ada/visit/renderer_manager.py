@@ -4,18 +4,17 @@ import pathlib
 from typing import TYPE_CHECKING, Literal
 
 from ada.comms.fb_wrap_model_gen import FileObjectDC, FilePurposeDC, FileTypeDC, MeshDC
-
 from ada.config import Config
 from ada.visit.render_params import RenderParams
 from ada.visit.scene_converter import SceneConverter
 
 if TYPE_CHECKING:
     import trimesh
-    from ada.comms.wsock.client_sync import WebSocketClientSync
     from IPython.display import HTML
 
     from ada import FEM, Assembly, Part
     from ada.base.physical_objects import BackendGeom
+    from ada.comms.wsock.client_sync import WebSocketClientSync
     from ada.fem.results.common import FEAResult
 
 
