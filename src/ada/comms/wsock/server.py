@@ -194,6 +194,13 @@ class WebSocketAsyncServer:
                 return client
         return None
 
+    def get_web_client_by_instance_id(self, instance_id: int) -> Optional[ConnectedClient]:
+        for client in self.connected_web_clients:
+            if client.instance_id == instance_id:
+                return client
+        return None
+
+
     async def handle_client(self, websocket: ServerConnection):
         client = await process_client(websocket)
 
@@ -201,7 +208,13 @@ class WebSocketAsyncServer:
 
         if client.group_type == TargetTypeDC.WEB and client not in self.connected_web_clients:
             logger.debug(f"Adding web client to heartbeat tracking: {client.instance_id}")
+            existing_client = self.get_web_client_by_instance_id(client.instance_id)
+            if existing_client:
+                # Most likely a edited frontend instance id. Will remove the old client which has a slightly different hash
+                self.connected_web_clients.remove(existing_client)
+                logger.debug(f"Removing old web client from heartbeat tracking: {existing_client.instance_id}")
             self.connected_web_clients.add(client)
+
         # If the number of web clients changed, reset the idle timer
         current_web_count = len(self.connected_web_clients)
         if current_web_count != self._last_web_count:
@@ -244,10 +257,6 @@ class WebSocketAsyncServer:
     async def handle_message(self, message: bytes, client: ConnectedClient, websocket: ServerConnection):
         msg = await handle_partial_message(message)
         logger.debug(f"Received message: {msg.command_type.name} from {client.instance_id}")
-
-        if msg.command_type == CommandTypeDC.HEARTBEAT:
-            client.last_heartbeat = int(time.time() * 1000)
-            return
 
         # If a local client sends any message, consider that activity and reset timer
         if client.group_type == TargetTypeDC.LOCAL:

@@ -1,4 +1,4 @@
-import React, {useState} from 'react';
+import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {useWebsocketStatusStore} from '../state/websocketStatusStore';
 import {webSocketAsyncHandler} from '../utils/websocket/websocket_connector_async';
 import {requestServerInfo} from '../utils/websocket/requestServerInfo';
@@ -39,6 +39,9 @@ export function WebsocketStatusMenu() {
 
 export function WebsocketStatusBox() {
     const [showClientsList, setShowClientsList] = useState(false);
+    const [editingId, setEditingId] = useState(false);
+    const [tempId, setTempId] = useState<string>('');
+    const inputRef = useRef<HTMLInputElement | null>(null);
     const {
         connected,
         frontendId,
@@ -53,6 +56,49 @@ export function WebsocketStatusBox() {
         }
     };
 
+    useEffect(() => {
+        if (editingId && inputRef.current) {
+            inputRef.current.focus();
+            inputRef.current.select();
+        }
+    }, [editingId]);
+
+    const currentId = frontendId || webSocketAsyncHandler.instance_id;
+
+    const startEdit = useCallback(() => {
+        setTempId(String(currentId ?? ''));
+        setEditingId(true);
+    }, [currentId]);
+
+    const cancelEdit = useCallback(() => {
+        setEditingId(false);
+    }, []);
+
+    const saveEdit = useCallback(async () => {
+        const parsed = Number(tempId);
+        if (!Number.isFinite(parsed)) {
+            alert('Please enter a valid number for Instance ID.');
+            return;
+        }
+        try {
+            await webSocketAsyncHandler.setInstanceId(Math.trunc(parsed), true);
+            // Server info will refresh after reconnect in handler.connect()
+            setEditingId(false);
+        } catch (e: any) {
+            alert(e?.message || 'Failed to set instance ID');
+        }
+    }, [tempId]);
+
+    const onKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            saveEdit();
+        } else if (e.key === 'Escape') {
+            e.preventDefault();
+            cancelEdit();
+        }
+    }, [saveEdit, cancelEdit]);
+
     return (
         <div className="bg-gray-400 bg-opacity-50 rounded p-2 min-w-80 pointer-events-auto">
             <h2 className="font-bold">WebSocket Status</h2>
@@ -60,9 +106,45 @@ export function WebsocketStatusBox() {
                 <div className="border-b border-gray-300 pb-2">
                     <div className="font-medium mb-1">Frontend Instance</div>
                     <div className="flex items-center justify-between gap-2">
-                        <span className="font-mono text-xs truncate flex-1" title={String(frontendId)}>
-                            ID: {frontendId || webSocketAsyncHandler.instance_id}
-                        </span>
+                        {!editingId ? (
+                            <>
+                                <span className="font-mono text-xs truncate flex-1" title={String(currentId)}>
+                                    ID: {currentId}
+                                </span>
+                                <button
+                                    className="cursor-pointer text-white bg-blue-600 hover:bg-blue-700 text-xs px-2 py-1 rounded"
+                                    title="Edit Instance ID"
+                                    onClick={startEdit}
+                                >
+                                    Edit
+                                </button>
+                            </>
+                        ) : (
+                            <div className="flex items-center gap-2 flex-1">
+                                <input
+                                    ref={inputRef}
+                                    className="flex-1 text-xs font-mono px-2 py-1 border rounded outline-none focus:ring-2 focus:ring-blue-300"
+                                    value={tempId}
+                                    onChange={(e) => setTempId(e.target.value)}
+                                    onKeyDown={onKeyDown}
+                                    aria-label="Frontend Instance ID"
+                                />
+                                <button
+                                    className="cursor-pointer text-white bg-blue-600 hover:bg-blue-700 text-xs px-2 py-1 rounded"
+                                    onClick={saveEdit}
+                                    title="Save"
+                                >
+                                    Save
+                                </button>
+                                <button
+                                    className="cursor-pointer text-gray-700 hover:text-gray-900 text-xs px-2 py-1 border border-gray-300 rounded"
+                                    onClick={cancelEdit}
+                                    title="Cancel"
+                                >
+                                    Cancel
+                                </button>
+                            </div>
+                        )}
                     </div>
                 </div>
 

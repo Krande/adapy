@@ -9,18 +9,14 @@ from ada.config import logger
 WS_ASYNC_SERVER_PY = pathlib.Path(__file__)
 
 
-async def start_async_server(host="localhost", port=8765, run_in_thread=False, log_level="DEBUG"):
+async def start_async_server(host="localhost", port=8765, debug_mode=False, log_level="DEBUG"):
     logger.setLevel(log_level)
     is_debug = False
     if log_level == "DEBUG":
         is_debug = True
 
-    if run_in_thread:
-        ensure_ws_server(host, port)
-    else:
-        server = WebSocketAsyncServer(host, port, debug=is_debug)
-        await server.start_async()
-
+    server = WebSocketAsyncServer(host, port, debug=is_debug)
+    await server.start_async()
 
 def ws_async_cli_app():
     parser = argparse.ArgumentParser()

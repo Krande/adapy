@@ -10,6 +10,7 @@ export class AsyncWebSocketHandler {
   public retryWait = 1000;
   public instance_id = this.getRandomInt32();
   private shouldReconnect = true;
+  private lastUrl: string | null = null;
 
   private getRandomInt32(): number {
     return (
@@ -25,6 +26,9 @@ export class AsyncWebSocketHandler {
       console.log("WebSocket ID Override:", overrideId);
       this.instance_id = overrideId;
     }
+
+    // remember last attempted URL for possible reconnects (e.g., when ID changes)
+    this.lastUrl = url;
 
     const wsUrl = `${url}?client-type=web&instance-id=${this.instance_id}`;
     this.shouldReconnect = true;
@@ -56,6 +60,8 @@ export class AsyncWebSocketHandler {
           console.log("WebSocket connected");
           // Update connection status
           statusStore.setConnected(true);
+          // reflect the current instance id in the status store
+          statusStore.setFrontendId(this.instance_id);
           requestServerInfo();
           requestConnectedClients();
           resolve();
@@ -115,6 +121,46 @@ export class AsyncWebSocketHandler {
     if (this.socket) {
       this.socket.close();
       this.socket = null;
+    }
+  }
+
+  /**
+   * Update the client instance id. Optionally triggers a reconnect so the
+   * server immediately sees the new id in the connection query string.
+   */
+  async setInstanceId(newId: number, reconnect: boolean = true): Promise<void> {
+    // Coerce to integer and clamp to signed 32-bit range
+    if (typeof newId !== "number" || !Number.isFinite(newId)) {
+      throw new Error("Instance ID must be a finite number");
+    }
+    newId = Math.trunc(newId);
+    const INT32_MIN = -2147483648;
+    const INT32_MAX = 2147483647;
+    if (newId < INT32_MIN || newId > INT32_MAX) {
+      throw new Error(`Instance ID must be int32 (${INT32_MIN}..${INT32_MAX})`);
+    }
+
+    this.instance_id = newId;
+    // Persist override so page reload keeps the chosen ID
+    (window as any).WEBSOCKET_ID = newId;
+
+    // Update UI store immediately
+    const statusStore = useWebsocketStatusStore.getState();
+    statusStore.setFrontendId(newId);
+
+    if (reconnect) {
+      const url = this.lastUrl;
+      if (url) {
+        const wasConnected = this.socket?.readyState === WebSocket.OPEN;
+        try {
+          if (wasConnected || this.socket) {
+            await this.disconnect();
+          }
+        } catch (_) {
+          // ignore
+        }
+        await this.connect(url);
+      }
     }
   }
 }
