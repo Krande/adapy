@@ -74,7 +74,7 @@ class RendererReact:
 
         html_inject_str = ""
         if target_id is not None:
-            html_inject_str += f'<script>window.WEBSOCKET_ID = "{target_id}";</script>\n'
+            html_inject_str += f'<script>window.WEBSOCKET_ID = {target_id};</script>\n'
         if ws_port is not None:
             html_inject_str += f"<script>window.WEBSOCKET_PORT = {ws_port};</script>"
         if node_editor_only:

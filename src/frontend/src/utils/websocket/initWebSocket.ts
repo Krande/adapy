@@ -14,8 +14,6 @@ export async function initWebSocket() {
 
     try {
         await webSocketAsyncHandler.connect(url);
-        
-
         statusStore.setFrontendId(webSocketAsyncHandler.instance_id);
 
         // start listening for incoming messages
