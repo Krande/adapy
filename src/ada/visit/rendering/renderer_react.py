@@ -74,13 +74,13 @@ class RendererReact:
 
         html_inject_str = ""
         if target_id is not None:
-            html_inject_str += f'<script>window.WEBSOCKET_ID = {target_id};</script>\n'
+            html_inject_str += f"<script>window.WEBSOCKET_ID = {target_id};</script>\n"
         if ws_port is not None:
             html_inject_str += f"<script>window.WEBSOCKET_PORT = {ws_port};</script>"
         if node_editor_only:
             html_inject_str += "\n<script>window.NODE_EDITOR_ONLY = true;</script>"
         if target_instance is not None:
-            html_inject_str += f'\n<script>window.TARGET_INSTANCE_ID = "{target_instance}";</script>'
+            html_inject_str += f"\n<script>window.TARGET_INSTANCE_ID = {target_instance};</script>"
 
         if embed_trimesh_scene is not None or embed_base64_glb is not None:
             if gltf_tree_postprocessor is not None:
@@ -99,7 +99,7 @@ class RendererReact:
                 encoded = embed_base64_glb
             # replace keyword with our scene data
             html_inject_str += f'<script>window.B64GLTF = "{encoded}";</script>'
-            if force_ws is False:
+            if not force_ws:
                 html_inject_str += "<script>window.DEACTIVATE_WS = true;</script>"
 
         # Inject the unique ID into the HTML content
