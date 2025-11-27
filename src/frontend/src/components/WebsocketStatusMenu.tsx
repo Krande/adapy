@@ -29,7 +29,7 @@ export function WebsocketStatusMenu() {
                           d="M8.288 15.038a5.25 5.25 0 0 1 7.424 0M5.106 11.856c3.807-3.808 9.98-3.808 13.788 0M1.924 8.674c5.565-5.565 14.587-5.565 20.152 0M12.53 18.22l-.53.53-.53-.53a.75.75 0 0 1 1.06 0Z"/>
                 </svg>
                 <div
-                    className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full border border-white"
+                    className="absolute -top-1 -right-1 w-3 h-3 rounded-full border-2 border-white"
                     style={{backgroundColor: connected ? '#22c55e' : '#ef4444'}}
                 />
             </button>
@@ -54,7 +54,7 @@ export function WebsocketStatusBox() {
     };
 
     return (
-        <div className="bg-gray-400 bg-opacity-50 rounded p-2 min-w-80">
+        <div className="bg-gray-400 bg-opacity-50 rounded p-2 min-w-80 pointer-events-auto">
             <h2 className="font-bold">WebSocket Status</h2>
             <div className="text-xs text-gray-800 space-y-2 mb-2">
                 <div className="border-b border-gray-300 pb-2">
@@ -70,7 +70,7 @@ export function WebsocketStatusBox() {
                     <div className="font-medium mb-1">WebSocket Server</div>
                     <div className="flex justify-between">
                         <span className="font-medium">Status:</span>
-                        <span className={connected ? 'text-green-700' : 'text-red-700'}>
+                        <span className={connected ? 'text-green-500 font-semibold' : 'text-red-700'}>
                             {connected ? 'Connected' : 'Disconnected'}
                         </span>
                     </div>
