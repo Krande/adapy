@@ -121,7 +121,7 @@ pythonocc-core = "*"
 python-gmsh = "*"
 pyquaternion = "*"
 trimesh = "*"
-occt = "==7.8.1"
+occt = "*"
 send2trash = "*"
 meshio = "*"
 websockets = ">=14"
@@ -148,11 +148,11 @@ intel-openmp = "*"
 PYTHONPATH="%PIXI_PROJECT_ROOT%/src"
 
 [tool.pixi.feature.fem-deps]
-channels = ["https://repo.prefix.dev/code-aster", "conda-forge"]
+channels = ["conda-forge"]
 [tool.pixi.feature.fem]
-channels = ["https://repo.prefix.dev/code-aster", "conda-forge"]
+channels = ["conda-forge"]
 [tool.pixi.feature.docs]
-channels = ["https://repo.prefix.dev/code-aster", "conda-forge"]
+channels = ["conda-forge"]
 
 
 [tool.pixi.feature.fem-deps.dependencies]
@@ -160,11 +160,11 @@ calculix = "*"
 
 [tool.pixi.feature.fem-deps.target.linux-64.dependencies]
 # These are not available on conda-forge
-code-aster = "*"
+code-aster = ">=17.3.16"
 
-[tool.pixi.feature.fem-deps.target.win-64.dependencies]
+#[tool.pixi.feature.fem-deps.target.win-64.dependencies]
 
-code-aster = { version = "*", channel = "https://repo.prefix.dev/code-aster" }
+#code-aster = { version = "*", channel = "https://repo.prefix.dev/code-aster" }
 # Attempt to update to the latest version of the dependencies
 #code-aster = { version = "==17.2.8.1", channel = "https://repo.prefix.dev/code-aster" }
 #ifcopenshell = { version = "==0.8.1.250324", channel = "https://repo.prefix.dev/code-aster" }

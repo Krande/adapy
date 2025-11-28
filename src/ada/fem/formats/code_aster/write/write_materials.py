@@ -32,8 +32,15 @@ def material_str(material: Material, nl_geom) -> str:
     if has_plasticity and nl_geom is True:
         nl_mat = "nl_mat=(	\n	"
         eps = [e for e in model.plasticity_model.eps_p]
-        eps[0] = 1e-5  # Epsilon index=0 cannot be zero
-        nl_mat += "".join([f"{e:.4E},{s:.4E}," + next(nl) for e, s in zip(eps, model.plasticity_model.sig_p)]) + ")"
+        sig = [s for s in model.plasticity_model.sig_p]
+
+        # Code_Aster validates that the slope from the first point matches Young's modulus
+        # If eps[0] is zero or very small, adjust it and ensure sig[0] = E * eps[0]
+        if eps[0] < 1e-10:
+            eps[0] = 1e-5  # Epsilon index=0 cannot be zero
+            sig[0] = model.E * eps[0]  # Ensure the slope matches Young's modulus
+
+        nl_mat += "".join([f"{e:.4E},{s:.4E}," + next(nl) for e, s in zip(eps, sig)]) + ")"
         nl_mat += """
 Traction=DEFI_FONCTION(
     NOM_PARA='EPSI', NOM_RESU='SIGM', VALE=nl_mat, INTERPOL='LIN', PROL_DROITE='LINEAIRE', PROL_GAUCHE='CONSTANT'

@@ -6,6 +6,7 @@ import trimesh
 import websockets
 
 from ada.comms.exceptions import ServerError
+from ada.comms.fb.fb_commands_gen import WebClientDC
 from ada.comms.fb_wrap_deserializer import deserialize_root_message
 from ada.comms.fb_wrap_model_gen import (
     CommandTypeDC,
@@ -112,3 +113,11 @@ class WebSocketClientAsync(WebSocketClientBase):
 
     async def view_file_object(self, file_name: str) -> None:
         await self.websocket.send(self._view_file_object_prep(file_name))
+
+    async def list_connected_web_clients(self) -> list[WebClientDC]:
+        await self.websocket.send(self._list_connected_web_clients_prep())
+        msg = await self.receive()
+        web_clients = msg.web_clients
+        if web_clients is None:
+            return []
+        return web_clients

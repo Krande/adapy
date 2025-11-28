@@ -452,8 +452,8 @@ def configure_logger():
         handler.setFormatter(logging.Formatter("[%(asctime)s: %(levelname)s/%(name)s] | %(message)s"))
         _logger.addHandler(handler)
 
-    # Optional: Avoid double-logging if root also logs
-    # _logger.propagate = False
+    # Avoid double-logging if root also logs
+    _logger.propagate = False
 
 
 def get_logger():

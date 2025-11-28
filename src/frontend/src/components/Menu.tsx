@@ -18,6 +18,8 @@ import ToggleControlsIcon from "./icons/AnimationControlToggle";
 import {useGroupInfoStore} from "../state/groupInfoStore";
 import GroupIcon from "./icons/GroupIcon";
 import GroupInfoBox from "./info_box_groups/GroupInfoBox";
+import {WebsocketStatusMenu, WebsocketStatusBox} from "./WebsocketStatusMenu";
+import {useWebsocketStatusStore} from "../state/websocketStatusStore";
 
 
 const Menu = () => {
@@ -28,11 +30,13 @@ const Menu = () => {
     const {isTreeCollapsed, setIsTreeCollapsed} = useTreeViewStore();
     const {showServerInfoBox, setShowServerInfoBox} = useServerInfoStore();
     const {hasAnimation, isControlsVisible, setIsControlsVisible} = useAnimationStore();
+    const {showInfoBox: showWebsocketInfoBox} = useWebsocketStatusStore();
 
     return (
         <div className="relative w-full h-full">
             <div className="absolute left-0 top-0 z-10 py-2 gap-2 flex flex-col pointer-events-none">
                 <div className={"flex flex-row items-center gap-2 px-2 max-w-full pointer-events-auto"}>
+
                     {use_node_editor_only && (
                         <button
                             className={"flex relative bg-blue-700 hover:bg-blue-700/50 text-white p-1 rounded"}
@@ -87,12 +91,17 @@ const Menu = () => {
                         hidden={!hasAnimation}
                         onClick={() => setIsControlsVisible(!isControlsVisible)}
                     ><ToggleControlsIcon/></button>
+                    <div
+                        className={"bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded"}>
+                        <WebsocketStatusMenu/>
+                    </div>
 
                 </div>
                 <div className={"px-2 gap-2 flex flex-col"}>
                     {showServerInfoBox && <ServerInfoBox/>}
                     {show_info_box && <ObjectInfoBox/>}
                     {show_group_info_box && <GroupInfoBox/>}
+                    {showWebsocketInfoBox && <WebsocketStatusBox/>}
                     {isControlsVisible && <SimulationControls/>}
                 </div>
             </div>

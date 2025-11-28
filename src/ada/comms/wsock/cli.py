@@ -8,20 +8,14 @@ from ada.config import logger
 WS_ASYNC_SERVER_PY = pathlib.Path(__file__)
 
 
-async def start_async_server(host="localhost", port=8765, run_in_thread=False, log_level="DEBUG"):
+async def start_async_server(host="localhost", port=8765, debug_mode=False, log_level="DEBUG"):
     logger.setLevel(log_level)
     is_debug = False
     if log_level == "DEBUG":
         is_debug = True
+
     server = WebSocketAsyncServer(host, port, debug=is_debug)
-    if run_in_thread:
-        await server.run_in_background()
-    else:
-        await server.start_async()
-
-
-def start_async_ws_server(host="localhost", port=8765, run_in_thread=False):
-    asyncio.run(start_async_server(host, port, run_in_thread))
+    await server.start_async()
 
 
 def ws_async_cli_app():

@@ -9,6 +9,7 @@ from ada.config import Config
 from ada.fem.shapes import definitions as shape_def
 
 from ..common import ada_to_med_type
+from ..elem_shapes import med_geometry_type
 from .write_sets import _add_cell_sets, _add_node_sets
 
 if TYPE_CHECKING:
@@ -43,6 +44,10 @@ def med_elements(part: Part, time_step: h5py.Group, profile: str, families: h5py
         med_cells.attrs.create("CGT", 1)
         med_cells.attrs.create("CGS", 1)
         med_cells.attrs.create("PFL", np.bytes_(profile))
+
+        # Add GEO attribute with the MED geometry type code
+        if med_type in med_geometry_type:
+            med_cells.attrs.create("GEO", med_geometry_type[med_type])
 
         nod = med_cells.create_dataset("NOD", data=cells.flatten(order="F"))
         nod.attrs.create("CGT", 1)

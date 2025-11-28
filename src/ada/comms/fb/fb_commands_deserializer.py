@@ -10,4 +10,5 @@ def deserialize_webclient(fb_obj) -> WebClientDC | None:
         name=fb_obj.Name().decode("utf-8") if fb_obj.Name() is not None else None,
         address=fb_obj.Address().decode("utf-8") if fb_obj.Address() is not None else None,
         port=fb_obj.Port(),
+        last_heartbeat=fb_obj.LastHeartbeat(),
     )

@@ -14,6 +14,7 @@ if TYPE_CHECKING:
 
     from ada import FEM, Assembly, Part
     from ada.base.physical_objects import BackendGeom
+    from ada.comms.wsock.client_sync import WebSocketClientSync
     from ada.fem.results.common import FEAResult
 
 
@@ -45,12 +46,20 @@ class RendererManager:
 
     def _start_websocket_server(self):
         """Starts the WebSocket server if needed."""
-        from ada.comms.wsock.utils import start_ws_async_server
+        from ada.comms.wsock.utils import is_port_open, start_ws_async_server
 
         if self.renderer == "pygfx":
             from ada.visit.rendering.render_pygfx import PYGFX_RENDERER_EXE_PY
 
             self.server_exe = PYGFX_RENDERER_EXE_PY
+
+        # If a server is already listening on the configured port, don't start another one
+        try:
+            if is_port_open(self.host, self.ws_port):
+                return
+        except Exception:
+            # Best effort check; if it fails we proceed with the normal startup logic
+            pass
 
         start_ws_async_server(
             server_exe=self.server_exe,
@@ -68,13 +77,13 @@ class RendererManager:
 
         return self._is_in_notebook
 
-    def ensure_liveness(self, wc, target_id=None) -> None | HTML:
+    def ensure_liveness(self, wc: WebSocketClientSync, target_id=None) -> None | HTML:
         """Ensures that the WebSocket client is connected and target is live."""
         if not self.is_in_notebook():
             target_id = None  # Currently does not support unique viewer IDs outside of notebooks
 
-        if wc.check_target_liveness(target_id=target_id, timeout=self.ping_timeout):
-            # The target is alive meaning a viewer is running
+        con_client = wc.list_connected_web_clients()
+        if len(con_client) > 0:
             return None
 
         renderer = None

@@ -38,7 +38,7 @@ def setup_backend_scene(glb_file_data: FileObjectDC, server: WebSocketAsyncServe
 
 
 def update_scene(server: WebSocketAsyncServer, client: ConnectedClient, glb_file_data: FileObjectDC) -> None:
-    logger.info(f"Received message from {client} to update scene")
+    logger.info(f"Received message from {client.instance_id} to update scene")
 
     local_glb_file = setup_backend_scene(glb_file_data, server)
 

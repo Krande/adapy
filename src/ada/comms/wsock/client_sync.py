@@ -1,6 +1,7 @@
 import trimesh
 from websockets.sync.client import connect
 
+from ada.comms.fb.fb_commands_gen import WebClientDC
 from ada.comms.fb_wrap_deserializer import deserialize_root_message
 from ada.comms.fb_wrap_model_gen import (
     CommandTypeDC,
@@ -101,3 +102,10 @@ class WebSocketClientSync(WebSocketClientBase):
 
     def view_file_object(self, file_name: str) -> None:
         self.websocket.send(self._get_file_object_prep(file_name))
+
+    def list_connected_web_clients(self) -> list[WebClientDC]:
+        self.websocket.send(self._list_connected_web_clients_prep())
+        msg = self.receive()
+        if msg.web_clients is None:
+            return []
+        return msg.web_clients

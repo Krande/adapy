@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import io
 from typing import TYPE_CHECKING
 
@@ -23,7 +22,7 @@ if TYPE_CHECKING:
 
 
 def view_file_object(server: WebSocketAsyncServer, client: ConnectedClient, file_object_name: str) -> None:
-    logger.info(f"Received message from {client} to get file object")
+    logger.info(f"Received message from {client.instance_id} to get file object")
     result = server.scene.get_file_object(file_object_name)
     if result is None:
         raise ServerError(f"File object {file_object_name} not found")
@@ -53,6 +52,6 @@ def view_file_object(server: WebSocketAsyncServer, client: ConnectedClient, file
         )
 
         fb_message = serialize_root_message(msg)
-        asyncio.run(client.websocket.send(fb_message))
+        server.send_message_threadsafe(client, fb_message)
 
     server.scene.mesh_meta = scene.metadata

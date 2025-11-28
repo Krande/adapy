@@ -18,6 +18,9 @@ enum CommandType : byte {
   START_NEW_NODE_EDITOR = 14,
   START_FILE_IN_LOCAL_APP = 15,
   SCREENSHOT = 16,
+  HEARTBEAT = 17,
+  GET_SERVER_INFO = 18,
+  SHUTDOWN_SERVER = 19,
 }
 
 enum TargetType : byte {
@@ -31,4 +34,5 @@ table WebClient {
   name: string;
   address: string;
   port: int;
+  last_heartbeat: long;
 }

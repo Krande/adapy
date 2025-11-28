@@ -79,9 +79,21 @@ class ServerReply(object):
             return obj
         return None
 
+    # ServerReply
+    def ProcessInfo(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(12))
+        if o != 0:
+            x = self._tab.Indirect(o + self._tab.Pos)
+            from ada.comms.fb.server.ServerProcessInfo import ServerProcessInfo
+
+            obj = ServerProcessInfo()
+            obj.Init(self._tab.Bytes, x)
+            return obj
+        return None
+
 
 def ServerReplyStart(builder):
-    builder.StartObject(4)
+    builder.StartObject(5)
 
 
 def Start(builder):
@@ -126,6 +138,14 @@ def ServerReplyAddError(builder, error):
 
 def AddError(builder, error):
     ServerReplyAddError(builder, error)
+
+
+def ServerReplyAddProcessInfo(builder, processInfo):
+    builder.PrependUOffsetTRelativeSlot(4, flatbuffers.number_types.UOffsetTFlags.py_type(processInfo), 0)
+
+
+def AddProcessInfo(builder, processInfo):
+    ServerReplyAddProcessInfo(builder, processInfo)
 
 
 def ServerReplyEnd(builder):

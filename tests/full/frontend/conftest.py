@@ -16,7 +16,8 @@ from ada.comms.wsock.server import WebSocketAsyncServer, handle_partial_message
 from ada.config import logger
 
 WS_HOST = "localhost"
-WS_PORT = 1122
+# Use 0 to let the OS pick a free port per test; avoid clashes across tests/CI
+WS_PORT = 0
 
 
 @dataclass
@@ -42,48 +43,90 @@ class MockWSClient:
         return f"ws://{self.host}:{self.port}"
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="function")
 def ws_server() -> MockWSClient:
-    def start_ws_server(loop):
+    """Start a fresh WebSocket server per test on an ephemeral port.
+
+    Ensures:
+    - The server is fully started before yielding (prevents handshake timeouts).
+    - A unique, free port is used each time to avoid EADDRINUSE on CI.
+    - Graceful shutdown via server.stop() to release the port promptly.
+    """
+
+    # Cross-thread ready signal and holders for port and server instance
+    ready_event = threading.Event()
+    port_holder = {"port": None}
+    server_holder = {"instance": None}
+
+    def start_ws_server(loop: asyncio.AbstractEventLoop):
         asyncio.set_event_loop(loop)
-        ws_server_instance = WebSocketAsyncServer(WS_HOST, WS_PORT)
-        loop.run_until_complete(ws_server_instance.start_async())
-        print(f"WebSocket server started on ws://{WS_HOST}:{WS_PORT}")
+        ws_server_instance = WebSocketAsyncServer(WS_HOST, 0)
+        server_holder["instance"] = ws_server_instance
+
+        async def starter():
+            # Start without blocking and then expose the chosen port
+            await ws_server_instance.start_async_non_blocking()
+            try:
+                # Extract the OS-assigned port
+                sockets = getattr(ws_server_instance.server, "sockets", None) or []
+                if sockets:
+                    port_holder["port"] = sockets[0].getsockname()[1]
+                else:
+                    # Fallback to the configured port
+                    port_holder["port"] = ws_server_instance.port
+            finally:
+                ready_event.set()
+
+        # Run the starter to completion, then keep the loop alive for connections
+        loop.run_until_complete(starter())
         try:
             loop.run_forever()
         finally:
-            print("WebSocket server stopped")
+            # Make sure the server is closed if the loop exits
+            try:
+                loop.run_until_complete(ws_server_instance.stop())
+            except Exception:
+                pass
 
     ws_loop = asyncio.new_event_loop()
     ws_thread = threading.Thread(target=start_ws_server, args=(ws_loop,), daemon=True)
     ws_thread.start()
 
+    # Wait for the server to be ready with a reasonable timeout
+    if not ready_event.wait(timeout=5):
+        raise RuntimeError("WebSocket test server failed to start within 5 seconds")
+
+    assigned_port = int(port_holder["port"]) if port_holder["port"] is not None else None
+    if not assigned_port:
+        # Defensive: stop the loop/thread if startup failed partially
+        ws_loop.call_soon_threadsafe(ws_loop.stop)
+        ws_thread.join(timeout=3)
+        raise RuntimeError("WebSocket test server didn't report a bound port")
+
     try:
-        yield MockWSClient(WS_HOST, WS_PORT)
+        yield MockWSClient(WS_HOST, assigned_port)
     finally:
-        # Safely attempt to stop the loop
-        def teardown():
-            try:
-                pending_tasks = asyncio.all_tasks(loop=ws_loop)
-                for task in pending_tasks:
-                    task.cancel()
-                ws_loop.call_soon_threadsafe(ws_loop.stop)
-            except Exception as e:
-                print(f"Error during ws_server teardown: {e}")
+        # Graceful shutdown: close the server and stop the loop
+        try:
+            inst = server_holder.get("instance")
+            if inst is not None:
+                fut = asyncio.run_coroutine_threadsafe(inst.stop(), ws_loop)
+                try:
+                    fut.result(timeout=3)
+                except Exception:
+                    pass
+        except Exception:
+            # If the above approach fails, attempt to stop the loop directly
+            pass
 
-        # Wrap teardown in a timeout
-        done_event = threading.Event()
+        # Best-effort: cancel tasks and stop loop
+        try:
+            ws_loop.call_soon_threadsafe(ws_loop.stop)
+        except Exception:
+            pass
 
-        def teardown_wrapper():
-            teardown()
-            ws_thread.join(timeout=5)
-            done_event.set()
-
-        watchdog = threading.Thread(target=teardown_wrapper)
-        watchdog.start()
-        watchdog.join(timeout=6)
-
-        if not done_event.is_set():
+        ws_thread.join(timeout=5)
+        if ws_thread.is_alive():
             print("⚠️ Timeout in ws_server fixture teardown. WebSocket server thread didn't shut down in time.")
 
 
@@ -121,13 +164,13 @@ class CustomHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             super().do_GET()
 
 
-@pytest.fixture(scope="module")
-def http_server() -> MockHttpServer:
+@pytest.fixture(scope="function")
+def http_server(ws_server) -> MockHttpServer:
     # Generate a unique ID or obtain it from your application logic
     unique_id: int = 88442233
 
     server, server_thread = start_serving(
-        web_port=0, ws_port=WS_PORT, unique_id=unique_id, node_editor_only=False, non_blocking=True
+        web_port=0, ws_port=ws_server.port, unique_id=unique_id, node_editor_only=False, non_blocking=True
     )
     port = server.server_address[1]
     try:
@@ -180,13 +223,13 @@ class MockWebParams:
     client_type: TargetTypeDC.WEB
 
 
-@pytest_asyncio.fixture(scope="module")
-async def mock_async_web_client() -> MockWebParams:
+@pytest_asyncio.fixture(scope="function")
+async def mock_async_web_client(ws_server) -> MockWebParams:
     # Schedule on the running loop managed by pytest-asyncio
-    task = asyncio.create_task(start_mock_web_client_connection(WS_HOST, WS_PORT))
+    task = asyncio.create_task(start_mock_web_client_connection(ws_server.host, ws_server.port))
 
     try:
-        yield MockWebParams(WS_HOST, WS_PORT, TargetTypeDC.WEB)
+        yield MockWebParams(ws_server.host, ws_server.port, TargetTypeDC.WEB)
     finally:
         task.cancel()
         # Await the task but suppress the CancelledError expected from a cancelled task

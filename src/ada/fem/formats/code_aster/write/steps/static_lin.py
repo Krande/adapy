@@ -39,7 +39,7 @@ def step_static_lin_str(step: StepImplicitStatic, part: Part) -> str:
     if len(part.fem.sections.lines) > 0 or len(part.fem.sections.shells) > 0:
         sec_str = "\n    CARA_ELEM=element,"
 
-    field_str = create_field_output_str(step)
+    field_str = create_field_output_str(step, part)
 
     return f"""
 {load_str}

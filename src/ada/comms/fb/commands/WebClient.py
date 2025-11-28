@@ -55,9 +55,16 @@ class WebClient(object):
             return self._tab.Get(flatbuffers.number_types.Int32Flags, o + self._tab.Pos)
         return 0
 
+    # WebClient
+    def LastHeartbeat(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(12))
+        if o != 0:
+            return self._tab.Get(flatbuffers.number_types.Int64Flags, o + self._tab.Pos)
+        return 0
+
 
 def WebClientStart(builder):
-    builder.StartObject(4)
+    builder.StartObject(5)
 
 
 def Start(builder):
@@ -94,6 +101,14 @@ def WebClientAddPort(builder, port):
 
 def AddPort(builder, port):
     WebClientAddPort(builder, port)
+
+
+def WebClientAddLastHeartbeat(builder, lastHeartbeat):
+    builder.PrependInt64Slot(4, lastHeartbeat, 0)
+
+
+def AddLastHeartbeat(builder, lastHeartbeat):
+    WebClientAddLastHeartbeat(builder, lastHeartbeat)
 
 
 def WebClientEnd(builder):

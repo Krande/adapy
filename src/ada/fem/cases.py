@@ -48,6 +48,7 @@ def eigen_test(
     eigen_modes=11,
     name=None,
     debug=False,
+    scratch_dir: pathlib.Path = SCRATCH_DIR,
     **kwargs,
 ) -> FEAResult | None:
     geom_repr = GeomRepr.from_str(geom_repr)
@@ -89,7 +90,7 @@ def eigen_test(
         if "PYTEST_CURRENT_TEST" in os.environ:
             return None
 
-        res_path = default_fem_res_path(name, scratch_dir=SCRATCH_DIR, fem_format=fem_format)
+        res_path = default_fem_res_path(name, scratch_dir=scratch_dir, fem_format=fem_format)
         if isinstance(res_path, pathlib.Path) and not res_path.exists():
             print(f"Result file {res_path} not found.")
             return None
@@ -108,7 +109,7 @@ def eigen_test(
         p.fem.options.CODE_ASTER.use_reduced_integration = reduced_integration
 
     try:
-        res = a.to_fem(name, fem_format, overwrite=overwrite, execute=execute, scratch_dir=SCRATCH_DIR)
+        res = a.to_fem(name, fem_format, overwrite=overwrite, execute=execute, scratch_dir=scratch_dir)
     except IncompatibleElements as e:
         logging.error(e)
         # if is_conditions_unsupported(fem_format, geom_repr, elem_order, reduced_integration, use_hex_quad):

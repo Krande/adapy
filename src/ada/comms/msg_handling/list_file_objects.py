@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 from typing import TYPE_CHECKING
 
 from ada.comms.fb_wrap_model_gen import (
@@ -17,8 +16,7 @@ if TYPE_CHECKING:
 
 
 def list_file_objects(server: WebSocketAsyncServer, client: ConnectedClient, message: MessageDC) -> None:
-    logger.info(f"Received message from {client} to list procedures")
-    logger.info(f"Message: {message}")
+    logger.info(f"Received message from {client.instance_id} to list file objects")
 
     file_objects = server.scene.file_objects
 
@@ -32,5 +30,4 @@ def list_file_objects(server: WebSocketAsyncServer, client: ConnectedClient, mes
     )
     fb_message = serialize_root_message(reply_message)
 
-    # run the client.websocket in an event loop
-    asyncio.run(client.websocket.send(fb_message))
+    server.send_message_threadsafe(client, fb_message)

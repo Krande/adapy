@@ -7,6 +7,7 @@ from abc import ABC, abstractmethod
 import trimesh
 
 from ada import logger
+from ada.comms.fb.fb_commands_gen import WebClientDC
 from ada.comms.fb_wrap_model_gen import (
     AppendMeshDC,
     CommandTypeDC,
@@ -39,7 +40,7 @@ class WebSocketClientBase(ABC):
         self.host = host
         self.port = port
         self.client_type = client_type
-        self.instance_id = random.randint(0, 2**31 - 1)
+        self.instance_id = random.randint(1, 2**31 - 1)
         self.websocket = None
         self.url_override = url_override
 
@@ -167,6 +168,14 @@ class WebSocketClientBase(ABC):
         )
         return serialize_root_message(message)
 
+    def _list_connected_web_clients_prep(self) -> bytes:
+        message = MessageDC(
+            instance_id=self.instance_id,
+            command_type=CommandTypeDC.LIST_WEB_CLIENTS,
+            target_group=TargetTypeDC.SERVER,
+        )
+        return serialize_root_message(message)
+
     @abstractmethod
     def connect(self):
         pass
@@ -216,4 +225,8 @@ class WebSocketClientBase(ABC):
 
     @abstractmethod
     def view_file_object(self, file_name: str) -> None:
+        pass
+
+    @abstractmethod
+    def list_connected_web_clients(self) -> list[WebClientDC]:
         pass

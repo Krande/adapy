@@ -2,8 +2,25 @@ from typing import Optional
 
 import flatbuffers
 from ada.comms.fb.fb_base_serializer import serialize_error, serialize_fileobject
-from ada.comms.fb.fb_server_gen import ServerDC, ServerReplyDC
-from ada.comms.fb.server import Server, ServerReply
+from ada.comms.fb.fb_server_gen import ServerDC, ServerProcessInfoDC, ServerReplyDC
+from ada.comms.fb.server import Server, ServerProcessInfo, ServerReply
+
+
+def serialize_serverprocessinfo(builder: flatbuffers.Builder, obj: Optional[ServerProcessInfoDC]) -> Optional[int]:
+    if obj is None:
+        return None
+    log_file_path_str = None
+    if obj.log_file_path is not None:
+        log_file_path_str = builder.CreateString(str(obj.log_file_path))
+
+    ServerProcessInfo.Start(builder)
+    if obj.pid is not None:
+        ServerProcessInfo.AddPid(builder, obj.pid)
+    if obj.thread_id is not None:
+        ServerProcessInfo.AddThreadId(builder, obj.thread_id)
+    if log_file_path_str is not None:
+        ServerProcessInfo.AddLogFilePath(builder, log_file_path_str)
+    return ServerProcessInfo.End(builder)
 
 
 def serialize_serverreply(builder: flatbuffers.Builder, obj: Optional[ServerReplyDC]) -> Optional[int]:
@@ -22,14 +39,21 @@ def serialize_serverreply(builder: flatbuffers.Builder, obj: Optional[ServerRepl
     error_obj = None
     if obj.error is not None:
         error_obj = serialize_error(builder, obj.error)
+    process_info_obj = None
+    if obj.process_info is not None:
+        process_info_obj = serialize_serverprocessinfo(builder, obj.process_info)
 
     ServerReply.Start(builder)
     if message_str is not None:
         ServerReply.AddMessage(builder, message_str)
     if obj.file_objects is not None and len(obj.file_objects) > 0:
         ServerReply.AddFileObjects(builder, file_objects_vector)
+    if obj.reply_to is not None:
+        ServerReply.AddReplyTo(builder, obj.reply_to.value)
     if obj.error is not None:
         ServerReply.AddError(builder, error_obj)
+    if obj.process_info is not None:
+        ServerReply.AddProcessInfo(builder, process_info_obj)
     return ServerReply.End(builder)
 
 

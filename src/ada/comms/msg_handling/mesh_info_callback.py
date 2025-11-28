@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import json
 from typing import TYPE_CHECKING
 
@@ -18,7 +17,7 @@ if TYPE_CHECKING:
 
 
 def mesh_info_callback(server: WebSocketAsyncServer, client: ConnectedClient, message: MessageDC) -> None:
-    logger.info(f"Received message from {client} to update mesh info")
+    logger.info(f"Received message from {client.instance_id} to update mesh info")
     logger.info(f"Message: {message}")
     if server.scene.ifc_sql_store is None:
         logger.error("IFC SQL store not initialized")
@@ -49,5 +48,4 @@ def mesh_info_callback(server: WebSocketAsyncServer, client: ConnectedClient, me
         target_group=TargetTypeDC.WEB,
     )
     fb_message = serialize_root_message(reply_message)
-    # run the client.websocket in an event loop
-    asyncio.run(client.websocket.send(fb_message))
+    server.send_message_threadsafe(client, fb_message)

@@ -5,6 +5,7 @@ import os
 import pathlib
 import platform
 import socket
+import subprocess
 import sys
 import time
 from asyncio import Task
@@ -16,15 +17,88 @@ from ada.comms.fb_wrap_model_gen import TargetTypeDC
 from ada.config import logger
 
 
-def is_port_open(host: str, port: int) -> bool:
-    """Quickly check if a port is open using a socket connection."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        s.settimeout(1)
-        try:
-            s.connect((host, port))
+def is_port_open(host: str, port: int, timeout: float = 1.0) -> bool:
+    """Quickly check if a port is open using a TCP connection.
+
+    Uses socket.create_connection() which is a safer and cleaner approach
+    that handles socket creation and connection in one call with proper cleanup.
+
+    Note: This uses a raw TCP socket which will cause 'opening handshake failed' errors
+    on the WebSocket server side. This is expected and harmless - it's just a quick
+    check to see if anything is listening on the port before attempting a full
+    WebSocket connection.
+    """
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            logger.debug(f"Successfully connected to WebSocket server via TCP on {host}:{port}")
             return True
-        except (ConnectionRefusedError, socket.timeout):
-            return False
+    except Exception as e:
+        logger.debug(f"Failed to connect via TCP to {host}:{port}: {e}")
+        return False
+
+
+def ping_ws_server(host: str, port: int) -> bool:
+    """Check if a WebSocket server is running and responding."""
+    return is_port_open(host, port)
+
+
+def ensure_ws_server(host: str = "localhost", port: int = 8765, wait_seconds: float = 3.0) -> bool:
+    """
+    Ensure a single background websocket server is running.
+
+    Spawns a fully detached background process that will persist independently
+    of the parent process. On Windows, uses DETACHED_PROCESS and CREATE_NEW_PROCESS_GROUP
+    flags. On Unix, uses start_new_session to properly detach.
+
+    Returns True if a server is already running or was successfully started; False otherwise.
+    """
+    if ping_ws_server(host, port):
+        logger.debug(f"WebSocket server already running on {host}:{port}")
+        return True
+
+    # Spawn a detached background process: python -m ada.comms.wsock.cli --host ... --port ...
+    cmd = [sys.executable, "-m", "ada.comms.wsock.cli", "--host", host, "--port", str(port)]
+    logger.info(f"Starting WebSocket server with command: {' '.join(cmd)}")
+
+    # On Windows, detach the process using creationflags
+    # On Unix, use start_new_session to properly detach
+    creationflags = 0
+    start_new_session = False
+
+    if os.name == "nt":
+        # CREATE_NEW_PROCESS_GROUP (0x200) | DETACHED_PROCESS (0x8)
+        creationflags = 0x00000200 | 0x00000008
+    else:
+        # On Unix systems, start a new session to detach from parent
+        start_new_session = True
+
+    try:
+        with open(os.devnull, "wb") as devnull:
+            proc = subprocess.Popen(
+                cmd,
+                stdout=devnull,
+                stderr=devnull,
+                stdin=devnull,
+                creationflags=creationflags,
+                start_new_session=start_new_session,
+            )
+            logger.info(f"WebSocket server process started with PID: {proc.pid}")
+    except Exception as e:
+        logger.error(f"Failed to start WebSocket server: {e}", exc_info=True)
+        return False
+
+    # Wait briefly for it to boot and become pingable
+    deadline = time.time() + wait_seconds
+    attempts = 0
+    while time.time() < deadline:
+        if ping_ws_server(host, port):
+            logger.info(f"WebSocket server successfully started and responding on {host}:{port}")
+            return True
+        attempts += 1
+        time.sleep(0.1)
+
+    logger.error(f"WebSocket server failed to start after {wait_seconds}s and {attempts} ping attempts")
+    return False
 
 
 async def _check_websocket_server(host: str, port: int) -> bool:
@@ -58,11 +132,24 @@ def start_ws_async_server(
     port=8765,
     server_exe: pathlib.Path = None,
     server_args: list[str] = None,
-    run_in_thread=False,
+    run_in_thread=True,
     override_binder_check=False,
 ) -> None:
+    """
+    Ensure a WebSocket server is running, starting one if necessary.
+
+    By default, uses `ensure_ws_server` which spawns a fully detached background process
+    that persists independently of the parent process.
+
+    Args:
+        host: The host address for the WebSocket server.
+        port: The port for the WebSocket server.
+        server_exe: Optional path to server executable (used only for terminal launch mode).
+        server_args: Optional arguments for the server (used only for terminal launch mode).
+        run_in_thread: If True, run the server in a background thread instead of a detached process.
+        override_binder_check: If True, skip binder environment detection.
+    """
     from ada.comms.wsock.cli import WS_ASYNC_SERVER_PY
-    from ada.comms.wsock.server import WebSocketAsyncServer
 
     if server_exe is None:
         server_exe = WS_ASYNC_SERVER_PY
@@ -76,14 +163,27 @@ def start_ws_async_server(
         logger.warning("Binder does not support websockets, so you will not be able to send data to the viewer")
         run_in_thread = True
 
-    if is_server_running(host, port) is False:
-        if run_in_thread:
-            ws = WebSocketAsyncServer(host=host, port=port)
-            ws.run_in_background()
-        else:
-            start_external_ws_server(server_exe, server_args)
+    # In headless CI environments, don't try to spawn external UI/terminals
+    no_external_ui = os.getenv("ADA_NO_EXTERNAL_UI", "").lower() in {"1", "true", "yes", "on"}
 
-        while is_server_running(host, port) is False:
+    if no_external_ui and not run_in_thread:
+        # Fall back to background thread mode if we must start a server locally
+        run_in_thread = True
+
+    # Check if server is already running
+    if ping_ws_server(host, port):
+        logger.debug(f"WebSocket server already running on {host}:{port}")
+        return
+
+    if run_in_thread:
+        # Use fully detached background process (default mode)
+        ensure_ws_server(host, port)
+    else:
+        # Alternatively, launch in a new terminal window (good for debugging)
+        start_external_ws_server(server_exe, server_args)
+
+        # Wait briefly until the server is reachable
+        while not is_server_running(host, port):
             time.sleep(0.1)
 
 

@@ -103,6 +103,7 @@ def convert_flatbuffer_type_to_python(flat_type: str) -> tuple[str, bool]:
         "byte": "int",
         "[ubyte]": "bytes",
         "int": "int",
+        "long": "int",
         "[uint32]": "List[int]",
         "string": "str",
         "bool": "bool",

@@ -9,6 +9,6 @@ bool1 = bm.add_boolean(ada.BoolHalfSpace(p1, ada.Direction(0, 0, -1)))
 bool2 = bm.add_boolean(ada.BoolHalfSpace(p2, ada.Direction(1, 0, 0)))
 
 a = ada.Assembly("P1") / bm
-a.show(unique_viewer_id=11)
+a.show(unique_viewer_id=11, run_ws_in_thread=False)
 a.show(stream_from_ifc_store=False, unique_viewer_id=12)
 a.to_ifc("temp/half_space_solid.ifc", validate=True)

@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 
 
 def update_server(server: WebSocketAsyncServer, client: ConnectedClient, add_file: FileObjectDC) -> None:
-    logger.info(f"Received message from {client} to update server")
+    logger.info(f"Received message from {client.instance_id} to update server")
     if add_file.file_type == FileTypeDC.IFC and add_file.filepath:
         tmp_ifc_fp = pathlib.Path(add_file.filepath)
         if not tmp_ifc_fp.exists():

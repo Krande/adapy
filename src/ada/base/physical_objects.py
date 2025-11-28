@@ -178,7 +178,7 @@ class BackendGeom(Root):
         ws_port=8765,
         server_exe: pathlib.Path = None,
         server_args: list[str] = None,
-        run_ws_in_thread=False,
+        run_ws_in_thread=True,
         unique_viewer_id=None,
         stream_from_ifc_store=False,
         append_to_scene=False,

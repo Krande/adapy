@@ -63,13 +63,23 @@ class PostCalc:
     part: Part
 
     def write(self):
+        # EFGE (element forces) only makes sense for shell and beam elements, not for 3D solid elements
+        has_solids = len(self.part.fem.sections.solids) > 0
+        has_shells_or_beams = len(self.part.fem.sections.shells) > 0 or len(self.part.fem.sections.lines) > 0
+
+        contrainte_fields = ["SIGM_ELNO"]
+        if has_shells_or_beams:
+            contrainte_fields.extend(["EFGE_ELNO", "EFGE_NOEU"])
+
+        contrainte_str = ", ".join([f'"{field}"' for field in contrainte_fields])
+
         post_calc_str = f"""
 {self.stat_non_line.name} = CALC_CHAMP(
     reuse={self.stat_non_line.name}, RESULTAT={self.stat_non_line.name},
-    CONTRAINTE=("EFGE_ELNO", "EFGE_NOEU", "SIGM_ELNO"),
+    CONTRAINTE=({contrainte_str}),
     DEFORMATION=("EPSI_ELNO", "EPSP_ELNO"),
 )"""
-        if len(self.part.fem.sections.solids) > 0:
+        if has_solids:
             return post_calc_str
 
         return (
@@ -136,11 +146,21 @@ class ImprResu:
         ),"""
 
     def write(self):
+        # EFGE (element forces) only makes sense for shell and beam elements, not for 3D solid elements
+        has_shells_or_beams = len(self.part.fem.sections.shells) > 0 or len(self.part.fem.sections.lines) > 0
+
+        if has_shells_or_beams:
+            result_nom_cham = '("DEPL", "EFGE_ELNO", "EFGE_NOEU")'
+            result_nom_cham_med = '("DISP", "GEN_FORCES_ELEM", "GEN_FORCES_NODES")'
+        else:
+            result_nom_cham = '("DEPL",)'
+            result_nom_cham_med = '("DISP",)'
+
         return f"""IMPR_RESU(
     RESU=(
         _F(
-            NOM_CHAM=("DEPL", "EFGE_ELNO", "EFGE_NOEU"),
-            NOM_CHAM_MED=("DISP", "GEN_FORCES_ELEM", "GEN_FORCES_NODES"),
+            NOM_CHAM={result_nom_cham},
+            NOM_CHAM_MED={result_nom_cham_med},
             RESULTAT={self.stat_nl.name},
         ),
         {self.post_calc_include}
