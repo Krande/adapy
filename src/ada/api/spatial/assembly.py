@@ -267,19 +267,6 @@ class Assembly(Part):
 
         return destination_xml
 
-    def push(self, comment, bimserver_url, username, password, project, merge=False, sync=False):
-        """Push current assembly to BimServer with a comment tag that defines the revision name"""
-        from ada.core.bimserver import BimServerConnect
-
-        bimcon = BimServerConnect(bimserver_url, username, password, self)
-        bimcon.push(project, comment, merge, sync)
-
-    def pull(self, bimserver_url, username, password, project, checkout=False):
-        from ada.core.bimserver import BimServerConnect
-
-        bimcon = BimServerConnect(bimserver_url, username, password, self)
-        bimcon.pull(project, checkout)
-
     def get_ifc_source_by_name(self, ifc_file):
         from ada.cadit.ifc.read.reader_utils import open_ifc
 
