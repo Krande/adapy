@@ -2,6 +2,20 @@
 
 
 
+## v0.7.10 (2025-11-28)
+
+### Chore
+
+* chore: bump actions/checkout from 5 to 6 in the dependencies group (#170)
+
+Signed-off-by: dependabot[bot] &lt;support@github.com&gt;
+Co-authored-by: dependabot[bot] &lt;49699333+dependabot[bot]@users.noreply.github.com&gt; ([`03ca252`](https://github.com/Krande/adapy/commit/03ca25254d9cdf03943f6bfc497b6095d002dfce))
+
+### Fix
+
+* fix: websocket implementation (#171) ([`95770e5`](https://github.com/Krande/adapy/commit/95770e5a77bbfd55e38b99f3ddfbedc10c917ef0))
+
+
 ## v0.7.9 (2025-11-20)
 
 ### Chore
