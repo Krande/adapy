@@ -25,6 +25,7 @@ from ada.fem.concept.base import ConceptFEM
 from ada.visit.gltf.graph import GraphNode, GraphStore
 from ada.visit.render_params import RenderParams
 from ada.visit.scene_converter import SceneConverter
+from ada.api.transforms import Placement
 
 if TYPE_CHECKING:
     import trimesh
@@ -34,7 +35,7 @@ if TYPE_CHECKING:
         Boolean,
         Instance,
         Material,
-        Placement,
+        #Placement,
         Plate,
         Point,
         Section,
@@ -572,17 +573,13 @@ class Part(BackendGeom):
                 area = obj.section.properties.Ax
                 length = obj.length
                 mass = rho * area * length
-                cog = (obj.n1.p + obj.n2.p) / 2
+                cog = obj.cog
                 cogs.append(cog * mass)
                 tot_mass += mass
             elif isinstance(obj, Plate):
                 rho = obj.material.model.rho
-                positions = np.array(obj.poly.points2d)
-                place = obj.poly.placement
-
                 area = poly_area_from_list(obj.poly.points2d)
-                cog2d = poly2d_center_of_gravity(positions)
-                cog = local_2_global_points([cog2d], place.origin, place.xdir, place.zdir)[0]
+                cog = obj.cog
                 mass = rho * obj.t * area
                 cogs.append(cog * mass)
                 tot_mass += mass

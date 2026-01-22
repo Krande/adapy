@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Iterable, Literal, TypeAlias, Union
 
+from ada.core.vector_utils import poly2d_center_of_gravity
+
 from ada.api.bounding_box import BoundingBox
 from ada.api.curves import CurvePoly2d
 from ada.api.nodes import Node
@@ -14,6 +16,8 @@ from ada.geom.points import Point
 from ada.geom.solids import ExtrudedAreaSolid
 from ada.materials import Material
 from ada.materials.metals import CarbonSteel
+
+import numpy as np
 
 if TYPE_CHECKING:
     from OCC.Core.TopoDS import TopoDS_Compound, TopoDS_Shape, TopoDS_Solid
@@ -188,6 +192,69 @@ class Plate(BackendGeom):
             origin = self.placement.origin
 
         return Plate(name, self.poly.copy_to(origin, xdir, n), copy.copy(self.t), self.material.copy_to())
+
+    @property
+    def cog(self) -> Point:
+        """
+        Plate centroid in global coordinates.
+
+        Convention:
+        - poly.points2d are expressed in the plate's 2D local system (X,Y).
+        - poly.origin is the local 3D origin of that 2D system.
+        - poly.xdir defines local X direction in 3D.
+        - poly.normal defines local Z (plane normal) in 3D.
+        - local Y is constructed as (normal × xdir) to enforce right-hand rule.
+
+        If plate has a non-identity placement, we:
+        - rotate xdir and normal by placement rotation
+        - translate origin by placement translation (origin = place_abs.origin + poly.origin)
+        """
+        from ada import Placement
+
+        # 2D centroid
+        c2 = poly2d_center_of_gravity(np.asarray(self.poly.points2d, dtype=float))
+        if c2 is None:
+            # degenerate polygon
+            return Point(self.poly.origin.copy(), units=self.units)
+
+        cx, cy = float(c2[0]), float(c2[1])
+
+        # Start from poly basis
+        origin = np.asarray(self.poly.origin, dtype=float)
+        xdir = np.asarray(self.poly.xdir, dtype=float)
+        normal = np.asarray(self.poly.normal, dtype=float)
+
+        # Apply plate placement the same way as solid_geom
+        if self.placement is not None and self.placement.is_identity() is False:
+            ident = Placement()
+            place_abs = self.placement.get_absolute_placement(include_rotations=True)
+
+            # rotate basis vectors (ignore translation)
+            new_vectors = place_abs.transform_array_from_other_place(
+                np.asarray([normal, xdir], dtype=float), ident, ignore_translation=True
+            )
+            normal = new_vectors[0]
+            xdir = new_vectors[1]
+
+            # translate origin (do NOT rotate origin here; you don't in solid_geom either)
+            origin = np.asarray(place_abs.origin, dtype=float) + origin
+
+        # Enforce right-handed in-plane y
+        # y = z × x
+        ydir = np.cross(normal, xdir)
+        yn = np.linalg.norm(ydir)
+        if yn == 0.0:
+            raise ValueError(f"Plate '{self.name}': invalid basis, normal and xdir are parallel.")
+        ydir = ydir / yn
+
+        # Normalize xdir too (safe)
+        xn = np.linalg.norm(xdir)
+        if xn == 0.0:
+            raise ValueError(f"Plate '{self.name}': xdir has zero length.")
+        xdir = xdir / xn
+
+        cog = origin + cx * xdir + cy * ydir
+        return Point(cog)
 
     @property
     def id(self):

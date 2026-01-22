@@ -207,6 +207,88 @@ class Beam(BackendGeom):
         self._up = self._orientation.zdir
         self._angle = angle
 
+    def _local_axes_in_absolute(self):
+        """
+        Returns (xvec, yvec, up) expressed in the absolute/global system,
+        respecting self.placement rotations (same logic as exporter).
+        """
+        from ada import Placement
+
+        xvec = self.xvec
+        yvec = self.yvec
+        up = self.up
+
+        if self.placement is not None and self.placement.is_identity() is False:
+            ident_place = Placement()
+            place_abs = self.placement.get_absolute_placement(include_rotations=True)
+
+            # Only transform if rotation differs
+            if not np.allclose(place_abs.rot_matrix, ident_place.rot_matrix):
+                ori_vectors = place_abs.transform_array_from_other_place(
+                    np.asarray([xvec, yvec, up]), ident_place, ignore_translation=True
+                )
+                xvec = ori_vectors[0]
+                yvec = ori_vectors[1]
+                up = ori_vectors[2]
+
+        return xvec, yvec, up
+
+    def _point_to_absolute(self, p: np.ndarray) -> np.ndarray:
+        """
+        Transforms a point p from the beam's local system into absolute/global,
+        using self.placement. If identity, returns p unchanged.
+        """
+        from ada import Placement
+
+        if self.placement is None or self.placement.is_identity():
+            return p
+
+        ident_place = Placement()
+        place_abs = self.placement.get_absolute_placement(include_rotations=True)
+        # include translation
+        return place_abs.transform_array_from_other_place(
+            np.asarray([p]), ident_place, ignore_translation=False
+        )[0]
+
+    @property
+    def cog(self):
+        """
+        Beam COG = cog_line (no e1/e2) + section centroid offset (Cy,Cz).
+        """
+        import numpy as np
+
+        mid_abs = np.asarray(self.cog_line, dtype=float) if not hasattr(self.cog_line, "p") else self.cog_line.p
+
+        Cy, Cz = self.section.centroid_2d()
+        _, y_abs, up_abs = self._local_axes_in_absolute()
+
+        offset_abs = float(Cy) * np.asarray(y_abs, dtype=float) + float(Cz) * np.asarray(up_abs, dtype=float)
+        cog_abs = mid_abs + offset_abs
+
+        try:
+            from ada import Point
+            return Point(cog_abs, units=self.units)
+        except Exception:
+            return cog_abs
+
+    @property
+    def cog_line(self):
+        """
+        Midpoint of the beam line between n1 and n2 ONLY (no eccentricities).
+        Returned in absolute/global coordinates (placement applied).
+        """
+        p1 = self.n1.p.copy()
+        p2 = self.n2.p.copy()
+        mid = 0.5 * (p1 + p2)
+
+        mid_abs = self._point_to_absolute(mid)
+
+        try:
+            from ada import Point
+            return Point(mid_abs, units=self.units)
+        except Exception:
+            return mid_abs
+
     def is_point_on_beam(self, point: Union[np.ndarray, Node]) -> bool:
         if isinstance(point, Node):
             point = point.p

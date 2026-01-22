@@ -89,6 +89,67 @@ class Section(Root):
 
         self.auto_display_in_html = auto_display_in_html
 
+    def centroid_2d(self) -> tuple[float, float]:
+        """
+        Returns (Cy, Cz) in the section's local 2D coordinates.
+
+        Convention used here:
+          - z is vertical, z=0 at bottom of section, z=h at top
+          - y is horizontal, y=0 at web centerline (symmetric shapes => Cy = 0)
+
+        Units follow the section's current units.
+        """
+        t = self.type
+
+        if t == BaseTypes.TPROFILE:
+            return self._centroid_tprofile()
+
+        if t == BaseTypes.GENERAL:
+            # If GENERAL stores centroid in properties
+            p = self.properties
+            if p.Cy is None or p.Cz is None:
+                raise ValueError("GENERAL section missing centroid (Cy/Cz) in properties.")
+            return (p.Cy, p.Cz)
+
+        if t == BaseTypes.POLY:
+            # If you have polygon centroid available, hook it up here later
+            raise NotImplementedError("POLY centroid not implemented here yet.")
+
+        raise NotImplementedError(f"Centroid not implemented for section type {t}.")
+
+    def _centroid_tprofile(self) -> tuple[float, float]:
+        h = self.h
+        w = self.w_top
+        tw = self.t_w
+        tf = self.t_ftop
+
+        if None in (h, w, tw, tf):
+            raise ValueError("TPROFILE requires h, w_top, t_w, t_ftop to compute centroid.")
+
+        if tf <= 0 or tw <= 0 or w <= 0 or h <= 0:
+            raise ValueError("Invalid dimensions for TPROFILE (must be > 0).")
+
+        if tf > h:
+            raise ValueError("Invalid TPROFILE: t_ftop cannot be greater than h.")
+
+        # Areas (non-overlapping rectangles)
+        A_flange = w * tf
+        A_web = tw * (h - tf)
+        A_total = A_flange + A_web
+
+        if A_total <= 0:
+            raise ValueError("Invalid TPROFILE: total area <= 0.")
+
+        # Centroid locations measured from bottom (z=0)
+        z_flange = h - tf / 2.0
+        z_web = (h - tf) / 2.0
+
+        Cz = (A_flange * z_flange + A_web * z_web) / A_total
+
+        # Symmetry about web centerline
+        Cy = 0.0
+        return (Cy, Cz)
+
     def equal_props(self, other: Section):
         for propa, propb in zip(self.unique_props(), other.unique_props()):
             if propa != propb:
@@ -112,6 +173,14 @@ class Section(Root):
             return [sec, tap]
 
         return sec
+
+    @property
+    def Cy(self) -> float:
+        return self.centroid_2d()[0]
+
+    @property
+    def Cz(self) -> float:
+        return self.centroid_2d()[1]
 
     @property
     def type(self) -> BaseTypes:

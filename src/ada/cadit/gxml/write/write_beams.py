@@ -4,6 +4,8 @@ import itertools
 import xml.etree.ElementTree as ET
 from typing import TYPE_CHECKING
 
+from ada.config import get_logger
+
 from ada.api.spatial.equipment import Equipment, EquipRepr
 from ada.cadit.sat.write.writer import SatWriter
 
@@ -58,8 +60,31 @@ def add_straight_beam(beam: Beam, xml_root: ET.Element):
     if beam.hinge2 is not None:
         ET.SubElement(straight_beam, "end2", {"hinge_ref": beam.hinge2.name})
 
+    #curve_offset = ET.SubElement(straight_beam, "curve_offset")
+    #ET.SubElement(curve_offset, "reparameterized_beam_curve_offset")
+
+
+    # --- curve_offset: write constant offset from beam object ---
+    # Build local axes in the same coordinate system you wrote to <local_system>
+    x_axis = np.asarray(xvec, dtype=float)
+    y_axis = np.asarray(yvec, dtype=float)
+    z_axis = np.asarray(up, dtype=float)
+
+    # Section centroid offset in beam-local coordinates (y,z)
+    Cy, Cz = beam.section.centroid_2d()
+
     curve_offset = ET.SubElement(straight_beam, "curve_offset")
-    ET.SubElement(curve_offset, "reparameterized_beam_curve_offset")
+    cco = ET.SubElement(curve_offset, "constant_curve_offset", {"use_local_system": "true"})
+    ET.SubElement(
+        cco,
+        "constant_offset",
+        {
+            "x": "0",
+            "y": f"{float(Cy):.12g}",
+            "z": f"{float(Cz):.12g}",
+        },
+    )
+
 
 
 def add_curve_orientation(beam: Beam, straight_beam: ET.Element):
@@ -115,3 +140,5 @@ def add_segments(beam: Beam):
     # ET.SubElement(sat_ref, "edge_ref", dict(edge_ref=""))
 
     return segments
+
+logger = get_logger()
