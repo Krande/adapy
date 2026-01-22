@@ -72,6 +72,8 @@ def add_straight_beam(beam: Beam, xml_root: ET.Element):
 
     # Section centroid offset in beam-local coordinates (y,z)
     Cy, Cz = beam.section.centroid_2d()
+    #Cy = beam.section.properties.Cy
+    #Cz = beam.section.properties.Cz
 
     curve_offset = ET.SubElement(straight_beam, "curve_offset")
     cco = ET.SubElement(curve_offset, "constant_curve_offset", {"use_local_system": "true"})

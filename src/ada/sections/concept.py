@@ -89,6 +89,8 @@ class Section(Root):
 
         self.auto_display_in_html = auto_display_in_html
 
+
+    #todo remove this, use properties.Cy Cz, unless any special needs for genie fit
     def centroid_2d(self) -> tuple[float, float]:
         """
         Returns (Cy, Cz) in the section's local 2D coordinates.
@@ -104,6 +106,9 @@ class Section(Root):
         if t == BaseTypes.TPROFILE:
             return self._centroid_tprofile()
 
+        if self.type == BaseTypes.ANGULAR:
+            return self._centroid_angular()
+
         if t == BaseTypes.GENERAL:
             # If GENERAL stores centroid in properties
             p = self.properties
@@ -116,6 +121,48 @@ class Section(Root):
             raise NotImplementedError("POLY centroid not implemented here yet.")
 
         raise NotImplementedError(f"Centroid not implemented for section type {t}.")
+
+    def _centroid_angular(self) -> tuple[float, float]:
+        """
+        L/Angle section centroid (Cy, Cz) measured from the outer corner.
+
+        Geometry:
+          - bottom flange: width = w_btn, thickness = t_fbtn
+          - vertical web: thickness = t_w, height = h - t_fbtn
+            (starts on top of the flange to avoid overlap)
+
+        Returns:
+          (Cy, Cz) from outer corner (y=0,z=0).
+        """
+        h  = self.h
+        B  = self.w_btn
+        tw = self.t_w
+        tf = self.t_fbtn
+
+        if None in (h, B, tw, tf):
+            raise ValueError("ANGULAR requires h, w_btn, t_w, t_fbtn to compute centroid.")
+
+        if h <= 0 or B <= 0 or tw <= 0 or tf <= 0:
+            raise ValueError("Invalid ANGULAR dimensions (must be > 0).")
+
+        if tf > h:
+            raise ValueError("Invalid ANGULAR: t_fbtn cannot be greater than h.")
+
+        # Web rectangle (A): tw x (h - tf), located from z=tf..h and y=0..tw
+        A_web = tw * (h - tf)
+        y_web = tw / 2.0
+        z_web = tf + (h - tf) / 2.0
+
+        # Flange rectangle (B): B x tf, located from z=0..tf and y=0..B
+        A_fl = B * tf
+        y_fl = B / 2.0
+        z_fl = tf / 2.0
+
+        A_tot = A_web + A_fl
+        Cy = (A_web * y_web + A_fl * y_fl) / A_tot
+        Cz = (A_web * z_web + A_fl * z_fl) / A_tot-h # -h to flush wanted way
+
+        return (Cy, Cz)
 
     def _centroid_tprofile(self) -> tuple[float, float]:
         h = self.h

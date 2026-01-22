@@ -260,6 +260,8 @@ class Beam(BackendGeom):
         mid_abs = np.asarray(self.cog_line, dtype=float) if not hasattr(self.cog_line, "p") else self.cog_line.p
 
         Cy, Cz = self.section.centroid_2d()
+        #Cy = self.section.properties.Cy
+        #Cz = self.section.properties.Cz
         _, y_abs, up_abs = self._local_axes_in_absolute()
 
         offset_abs = float(Cy) * np.asarray(y_abs, dtype=float) + float(Cz) * np.asarray(up_abs, dtype=float)

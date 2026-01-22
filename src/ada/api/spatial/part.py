@@ -574,6 +574,36 @@ class Part(BackendGeom):
                 length = obj.length
                 mass = rho * area * length
                 cog = obj.cog
+
+                print(f"cog: {obj.cog}")
+                print(f"section h: {obj.section.h}")
+                print(f"section w_btn: {obj.section.w_btn}")
+                print(f"section Cy: {obj.section.properties.Cy}")
+                print(f"section Cz: {obj.section.properties.Cz}")
+                print(f"e1: {obj.e1}")
+                print(f"e2: {obj.e2}")
+
+
+
+                sec = obj.section
+                tf = sec.t_fbtn
+                tw = sec.t_w
+                h = sec.h
+                B = sec.w_btn
+
+                A_web = tw * (h - tf)
+                z_web = tf + (h - tf) / 2.0
+
+                A_fl = B * tf
+                z_fl = tf / 2.0
+
+                z_bar = (A_web * z_web + A_fl * z_fl) / (A_web + A_fl)
+
+                print(f"ez { h - z_bar}")
+
+
+                #print("genie offset wanted 0 m 0.008767029973 m -0.03920429155-0.06804")
+
                 cogs.append(cog * mass)
                 tot_mass += mass
             elif isinstance(obj, Plate):
