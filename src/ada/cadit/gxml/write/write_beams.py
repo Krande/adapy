@@ -4,6 +4,8 @@ import itertools
 import xml.etree.ElementTree as ET
 from typing import TYPE_CHECKING
 
+from ada.sections.categories import BaseTypes
+
 from ada.config import get_logger
 
 from ada.api.spatial.equipment import Equipment, EquipRepr
@@ -63,30 +65,108 @@ def add_straight_beam(beam: Beam, xml_root: ET.Element):
     #curve_offset = ET.SubElement(straight_beam, "curve_offset")
     #ET.SubElement(curve_offset, "reparameterized_beam_curve_offset")
 
-
-    # --- curve_offset: write constant offset from beam object ---
-    # Build local axes in the same coordinate system you wrote to <local_system>
-    x_axis = np.asarray(xvec, dtype=float)
-    y_axis = np.asarray(yvec, dtype=float)
-    z_axis = np.asarray(up, dtype=float)
-
-    # Section centroid offset in beam-local coordinates (y,z)
-    Cy, Cz = beam.section.centroid_2d()
-    #Cy = beam.section.properties.Cy
-    #Cz = beam.section.properties.Cz
+    # todo testing without
+    flush_offset_genie = beam.flush_offset_genie
+    flush_offset_genie = False
 
     curve_offset = ET.SubElement(straight_beam, "curve_offset")
-    cco = ET.SubElement(curve_offset, "constant_curve_offset", {"use_local_system": "true"})
-    ET.SubElement(
-        cco,
-        "constant_offset",
-        {
-            "x": "0",
-            "y": f"{float(Cy):.12g}",
-            "z": f"{float(Cz):.12g}",
-        },
-    )
+    data = beam._curve_offset_local()
+    (ox1, oy1, oz1) = data["end1"]
+    (ox2, oy2, oz2) = data["end2"]
 
+    if data["is_varying"]:
+        lvo = ET.SubElement(curve_offset, "linear_varying_curve_offset", {"use_local_system": "true"})
+        ET.SubElement(lvo, "offset_end1", {"x": f"{ox1:.12g}", "y": f"{oy1:.12g}", "z": f"{oz1:.12g}"})
+        ET.SubElement(lvo, "offset_end2", {"x": f"{ox2:.12g}", "y": f"{oy2:.12g}", "z": f"{oz2:.12g}"})
+    else:
+        # only write offset if needed
+        curve_offset = ET.SubElement(straight_beam, "curve_offset")
+        if not ox1 == oy1 == oz1 == 0:
+            if flush_offset_genie:
+                if beam.section.type == BaseTypes.ANGULAR:
+                    alignment = "flush_top"
+                    ET.SubElement(curve_offset, "aligned_curve_offset", {"alignment": alignment, "constant_value": "0"})
+                else:
+                    alignment = "flush_bottom"
+                    ET.SubElement(curve_offset, "aligned_curve_offset", {"alignment": alignment, "constant_value": "0"})
+            else:
+                cco = ET.SubElement(curve_offset, "constant_curve_offset", {"use_local_system": "true"})
+                ET.SubElement(
+                    cco,
+                    "constant_offset",
+                    {
+                        "x": f"{float(ox1):.12g}",
+                        "y": f"{float(oy1):.12g}",
+                        "z": f"{float(oz1):.12g}",
+                    },
+                )
+
+
+'''
+    # todo offset for both e1 and e2 if different
+    if beam.e1 is not None:
+        offset_x = -beam.e1.x
+        offset_y = -beam.e1.y
+        offset_z = -beam.e1.z
+    else:
+        offset_x = offset_y = offset_z = 0.0
+
+    # todo this is special for these sections, must be handled the same way when calculating cog
+    if beam.section.type == BaseTypes.ANGULAR:
+        offset_z += beam.section.properties.Cgz - beam.section.h
+
+    if beam.section.type == BaseTypes.TPROFILE:
+        offset_z += beam.section.properties.Cgz - beam.section.h/2
+
+    # only write offset if needed
+    curve_offset = ET.SubElement(straight_beam, "curve_offset")
+    if not offset_x == offset_y == offset_z == 0:
+        if flush_offset_genie:
+            if beam.section.type == BaseTypes.ANGULAR:
+                alignment = "flush_top"
+                ET.SubElement(curve_offset, "aligned_curve_offset", {"alignment": alignment, "constant_value": "0"})
+            else:
+                alignment = "flush_bottom"
+                ET.SubElement(curve_offset, "aligned_curve_offset", {"alignment": alignment, "constant_value": "0"})
+        else:
+            # todo if beam.e1 is different from beam.e2, write two curve offsets
+            cco = ET.SubElement(curve_offset, "constant_curve_offset", {"use_local_system": "true"})
+            ET.SubElement(
+                cco,
+                "constant_offset",
+                {
+                    "x": f"{float(offset_x):.12g}",
+                    "y": f"{float(offset_y):.12g}",
+                    "z": f"{float(offset_z):.12g}",
+                },
+            )
+            '''
+'''
+            else:
+                lvo = ET.SubElement(
+                    curve_offset,
+                    "linear_varying_curve_offset",
+                    {"use_local_system": "true"},
+                )
+                ET.SubElement(
+                    lvo,
+                    "offset_end1",
+                    {
+                        "x": f"{float(offset_x1):.12g}",
+                        "y": f"{float(offset_y1):.12g}",
+                        "z": f"{float(offset_z1):.12g}",
+                    },
+                )
+                ET.SubElement(
+                    lvo,
+                    "offset_end2",
+                    {
+                        "x": f"{float(offset_x2):.12g}",
+                        "y": f"{float(offset_y2):.12g}",
+                        "z": f"{float(offset_z2):.12g}",
+                    },
+                )
+                '''
 
 
 def add_curve_orientation(beam: Beam, straight_beam: ET.Element):
