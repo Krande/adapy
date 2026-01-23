@@ -15,6 +15,7 @@ from ada.api.groups import Group
 from ada.api.plates import PlateCurved
 from ada.api.presentation_layers import PresentationLayers
 from ada.api.spatial.eq_types import EquipRepr
+from ada.api.transforms import Placement
 from ada.base.changes import ChangeAction
 from ada.base.ifc_types import SpatialTypes
 from ada.base.physical_objects import BackendGeom
@@ -26,24 +27,21 @@ from ada.fem.concept.base import ConceptFEM
 from ada.visit.gltf.graph import GraphNode, GraphStore
 from ada.visit.render_params import RenderParams
 from ada.visit.scene_converter import SceneConverter
-from ada.api.transforms import Placement
 
 if TYPE_CHECKING:
     import trimesh
 
-    from ada import (
+    from ada import (  # Placement,
         FEM,
         Boolean,
         Instance,
         Material,
-        #Placement,
         Plate,
         Point,
         Section,
         Wall,
         Weld,
     )
-    from ada.api.spatial.equipment import Equipment
     from ada.api.mass import MassPoint
     from ada.cadit.ifc.store import IfcStore
     from ada.fem.containers import COG
@@ -560,8 +558,7 @@ class Part(BackendGeom):
         import numpy as np
 
         from ada import Beam, Plate, Point, Shape
-        from ada.core.vector_transforms import local_2_global_points
-        from ada.core.vector_utils import poly2d_center_of_gravity, poly_area_from_list
+        from ada.core.vector_utils import poly_area_from_list
         from ada.fem.containers import COG
 
         tot_mass = 0
@@ -571,7 +568,9 @@ class Part(BackendGeom):
             if hasattr(parent, "eq_repr") and parent.eq_repr != EquipRepr.AS_IS and not issubclass(type(obj), Shape):
                 continue
 
-            if issubclass(type(obj), Shape):  # Assuming Mass & COG is manually assigned to arbitrary shape (Mass Point is Shape)
+            if issubclass(
+                type(obj), Shape
+            ):  # Assuming Mass & COG is manually assigned to arbitrary shape (Mass Point is Shape)
                 cogs.append(np.array(obj.cog) * obj.mass)
                 tot_mass += obj.mass
             elif isinstance(obj, Beam):

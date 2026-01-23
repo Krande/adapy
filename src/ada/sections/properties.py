@@ -311,8 +311,8 @@ def calc_angular(sec: Section) -> GeneralProperties:
         Sz=Sz,
         Sfy=1,
         Sfz=1,
-        Cy=Cy, # shear center not centroid!
-        Cz=Cz, # shear center not centroid!
+        Cy=Cy,  # shear center not centroid!
+        Cz=Cz,  # shear center not centroid!
         Cgy=c_y,
         Cgz=c_z,
         parent=sec,

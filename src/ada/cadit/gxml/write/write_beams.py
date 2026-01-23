@@ -4,13 +4,11 @@ import itertools
 import xml.etree.ElementTree as ET
 from typing import TYPE_CHECKING
 
-from ada.sections.categories import BaseTypes
-
-from ada.config import get_logger
-
-from ada.api.spatial.equipment import Equipment
 from ada.api.spatial.eq_types import EquipRepr
+from ada.api.spatial.equipment import Equipment
 from ada.cadit.sat.write.writer import SatWriter
+from ada.config import get_logger
+from ada.sections.categories import BaseTypes
 
 from .write_utils import add_local_system
 
@@ -65,7 +63,7 @@ def add_straight_beam(beam: Beam, xml_root: ET.Element):
 
     flush_offset_genie = beam.flush_offset_genie
     # uncomment if need to debug ada cog calc
-    #flush_offset_genie = False
+    # flush_offset_genie = False
 
     curve_offset = ET.SubElement(straight_beam, "curve_offset")
     data = beam._curve_offset_local()
@@ -98,6 +96,7 @@ def add_straight_beam(beam: Beam, xml_root: ET.Element):
                         "z": f"{float(oz1):.12g}",
                     },
                 )
+
 
 def add_curve_orientation(beam: Beam, straight_beam: ET.Element):
     curve_orientation = ET.SubElement(straight_beam, "curve_orientation")
@@ -152,5 +151,6 @@ def add_segments(beam: Beam):
     # ET.SubElement(sat_ref, "edge_ref", dict(edge_ref=""))
 
     return segments
+
 
 logger = get_logger()

@@ -89,7 +89,6 @@ class Section(Root):
 
         self.auto_display_in_html = auto_display_in_html
 
-
     def equal_props(self, other: Section):
         for propa, propb in zip(self.unique_props(), other.unique_props()):
             if propa != propb:
@@ -400,8 +399,8 @@ class GeneralProperties:
     Cy: float = None
     Cz: float = None
     # --- geometric centroid (for geometry / COG) ---
-    Cgy: float = None    # geometric centroid Y
-    Cgz: float = None    # geometric centroid Z
+    Cgy: float = None  # geometric centroid Y
+    Cgz: float = None  # geometric centroid Z
 
     def __hash__(self):
         return hash(

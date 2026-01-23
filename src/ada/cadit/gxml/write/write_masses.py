@@ -3,8 +3,8 @@ from __future__ import annotations
 import xml.etree.ElementTree as ET
 from typing import TYPE_CHECKING
 
-from ada.api.spatial.equipment import Equipment
 from ada.api.spatial.eq_types import EquipRepr
+from ada.api.spatial.equipment import Equipment
 from ada.core.constants import X, Y, Z
 
 from .write_utils import add_local_system

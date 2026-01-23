@@ -4,7 +4,6 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Iterable, Literal, TypeAlias, Union
 
 import numpy as np
-from ada.sections.categories import BaseTypes
 
 import ada.api.beams.geom_beams as geo_conv
 from ada.api.bounding_box import BoundingBox
@@ -22,6 +21,7 @@ from ada.geom.points import Point
 from ada.materials import Material
 from ada.materials.utils import get_material
 from ada.sections import Section
+from ada.sections.categories import BaseTypes
 from ada.sections.string_to_section import interpret_section_str
 
 if TYPE_CHECKING:
@@ -250,9 +250,7 @@ class Beam(BackendGeom):
         ident_place = Placement()
         place_abs = self.placement.get_absolute_placement(include_rotations=True)
         # include translation
-        return place_abs.transform_array_from_other_place(
-            np.asarray([p]), ident_place, ignore_translation=False
-        )[0]
+        return place_abs.transform_array_from_other_place(np.asarray([p]), ident_place, ignore_translation=False)[0]
 
     def _curve_offset_local(self):
         """
@@ -323,47 +321,12 @@ class Beam(BackendGeom):
 
     @property
     def flush_offset_genie(self) -> bool:
-        """If True, apply Genie-style flush offsets """
+        """If True, apply Genie-style flush offsets"""
         return self._flush_offset_genie
 
     @flush_offset_genie.setter
     def flush_offset_genie(self, value: bool):
         self._flush_offset_genie = bool(value)
-
-    @property
-    def OLDcog(self):
-        """
-        Beam COG
-        """
-        import numpy as np
-
-        mid_abs = np.asarray(self.cog_line, dtype=float) if not hasattr(self.cog_line, "p") else self.cog_line.p
-
-        # todo, implement support for when offset e1 and e2 is different, also now offset_x is not used, but it should be used
-        if self.e1 is not None:
-            offset_x = -self.e1.x
-            offset_y = -self.e1.y
-            offset_z = -self.e1.z
-        else:
-            offset_x = offset_y = offset_z = 0.0
-
-        # special for these sections, handled the same way creating genie xml
-        if self.section.type == BaseTypes.ANGULAR:
-            offset_z += self.section.properties.Cgz - self.section.h
-
-        if self.section.type == BaseTypes.TPROFILE:
-            offset_z += self.section.properties.Cgz - self.section.h / 2
-
-        _, y_abs, up_abs = self._local_axes_in_absolute()
-
-        offset_abs = float(offset_y) * np.asarray(y_abs, dtype=float) + float(offset_z) * np.asarray(up_abs, dtype=float)
-        cog_abs = mid_abs + offset_abs
-
-        try:
-            from ada import Point
-            return Point(cog_abs, units=self.units)
-        except Exception:
-            return cog_abs
 
     @property
     def cog(self):
@@ -378,68 +341,12 @@ class Beam(BackendGeom):
           - Section geometric centroid uses Cgy/Cgz (not shear center).
           - For ANGULAR/TPROFILE we apply the same "flush-to-top" offset convention you use in Genie.
         """
-        import numpy as np
         import warnings
+
+        import numpy as np
 
         # Midpoint of beam line (no e)
         mid = self.cog_line.p if hasattr(self.cog_line, "p") else np.asarray(self.cog_line, dtype=float)
-
-        '''
-        # --- eccentricity handling (constant part) ---
-        e1 = np.asarray([self.e1.x, self.e1.y, self.e1.z], dtype=float) if self.e1 is not None else np.zeros(3)
-        e2 = np.asarray([self.e2.x, self.e2.y, self.e2.z], dtype=float) if self.e2 is not None else np.zeros(3)
-
-        if not np.allclose(e1, e2):
-            warnings.warn(
-                f"Beam '{self.name}': e1 != e2. COG uses average eccentricity (e1+e2)/2.",
-                RuntimeWarning,
-                stacklevel=2,
-            )
-
-        e_avg = 0.5 * (e1 + e2)
-
-        # By your current sign convention you used -e1.* for offsets
-        offset_x = -float(e_avg[0])
-        offset_y = -float(e_avg[1])
-        offset_z = -float(e_avg[2])
-
-        # --- section geometric centroid / flush conventions ---
-        # Use geometric centroid fields (Cgy/Cgz) if you added them
-        p = self.section.properties
-        if getattr(p, "Cgy", None) is not None and getattr(p, "Cgz", None) is not None:
-            Cgy = float(p.Cgy)
-            Cgz = float(p.Cgz)
-        else:
-            raise ValueError(f"Section '{self.section.name}' does not have Cgy/Cgz fields.")
-
-        # Match your Genie export convention: ANGULAR and TPROFILE flush-to-top offsets
-        if self.section.type == BaseTypes.ANGULAR:
-            offset_z += (Cgz - float(self.section.h))
-            offset_y += Cgy
-
-        elif self.section.type == BaseTypes.TPROFILE:
-            # If T profile centroid is measured from bottom and you want ref at mid-height:
-            # adjust per your existing rule
-            offset_z += (Cgz - float(self.section.h) / 2.0)
-            offset_y += Cgy
-
-        else:
-            # default: place at centroid (if that's what you want)
-            offset_y += Cgy
-            offset_z += Cgz
-
-        # --- map local offsets into global ---
-        x_abs, y_abs, up_abs = self._local_axes_in_absolute()
-
-        offset_abs = (
-                offset_x * np.asarray(x_abs, dtype=float)
-                + offset_y * np.asarray(y_abs, dtype=float)
-                + offset_z * np.asarray(up_abs, dtype=float)
-        )
-
-        cog_abs = mid + offset_abs
-        
-        '''
 
         data = self._curve_offset_local()  # numeric offsets for COG
         ox, oy, oz = data["avg"]
@@ -457,6 +364,7 @@ class Beam(BackendGeom):
 
         try:
             from ada import Point
+
             return Point(cog_abs)
         except Exception:
             return cog_abs
@@ -475,6 +383,7 @@ class Beam(BackendGeom):
 
         try:
             from ada import Point
+
             return Point(mid_abs, units=self.units)
         except Exception:
             return mid_abs

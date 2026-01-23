@@ -54,11 +54,11 @@ def add_plate_polygon(plate: Plate, thck_name: str, structures_elem: ET.Element)
     polygons = ET.SubElement(sheet, "polygons")
     polygon = ET.SubElement(polygons, "polygon")
 
-   #abs_place = plate.placement.get_absolute_placement()
-   #origin = abs_place.origin
-   #for pt in plate.poly.points3d:
-   #    p_tra = origin + pt.copy()
-   #    ET.SubElement(polygon, "position", {"x": str(p_tra[0]), "y": str(p_tra[1]), "z": str(p_tra[2])})
+    # abs_place = plate.placement.get_absolute_placement()
+    # origin = abs_place.origin
+    # for pt in plate.poly.points3d:
+    #    p_tra = origin + pt.copy()
+    #    ET.SubElement(polygon, "position", {"x": str(p_tra[0]), "y": str(p_tra[1]), "z": str(p_tra[2])})
 
     abs_place = plate.placement.get_absolute_placement(include_rotations=True)
     ident = Placement()  # identity place
@@ -69,7 +69,6 @@ def add_plate_polygon(plate: Plate, thck_name: str, structures_elem: ET.Element)
             np.asarray([pt], dtype=float), ident, ignore_translation=False
         )[0]
         ET.SubElement(polygon, "position", {"x": str(p_global[0]), "y": str(p_global[1]), "z": str(p_global[2])})
-
 
 
 def add_plates(structure_domain: ET.Element, part: Part, sw: SatWriter):

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Iterable, Literal, TypeAlias, Union
 
-from ada.core.vector_utils import poly2d_center_of_gravity
+import numpy as np
 
 from ada.api.bounding_box import BoundingBox
 from ada.api.curves import CurvePoly2d
@@ -10,14 +10,13 @@ from ada.api.nodes import Node
 from ada.base.physical_objects import BackendGeom
 from ada.base.units import Units
 from ada.config import Config
+from ada.core.vector_utils import poly2d_center_of_gravity
 from ada.geom import Geometry
 from ada.geom.direction import Direction
 from ada.geom.points import Point
 from ada.geom.solids import ExtrudedAreaSolid
 from ada.materials import Material
 from ada.materials.metals import CarbonSteel
-
-import numpy as np
 
 if TYPE_CHECKING:
     from OCC.Core.TopoDS import TopoDS_Compound, TopoDS_Shape, TopoDS_Solid

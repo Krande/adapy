@@ -8,6 +8,7 @@ from .part import Part
 if TYPE_CHECKING:
     from ada import LoadConceptCase, Point
 
+
 class Equipment(Part):
     def __init__(
         self,
