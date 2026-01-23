@@ -14,6 +14,7 @@ from ada.api.containers import Beams, Connections, Materials, Nodes, Plates, Sec
 from ada.api.groups import Group
 from ada.api.plates import PlateCurved
 from ada.api.presentation_layers import PresentationLayers
+from ada.api.spatial.eq_types import EquipRepr
 from ada.base.changes import ChangeAction
 from ada.base.ifc_types import SpatialTypes
 from ada.base.physical_objects import BackendGeom
@@ -42,6 +43,7 @@ if TYPE_CHECKING:
         Wall,
         Weld,
     )
+    from ada.api.spatial.equipment import Equipment
     from ada.api.mass import MassPoint
     from ada.cadit.ifc.store import IfcStore
     from ada.fem.containers import COG
@@ -565,7 +567,11 @@ class Part(BackendGeom):
         tot_mass = 0
         cogs = []
         for obj in self.get_all_physical_objects():
-            if issubclass(type(obj), Shape):  # Assuming Mass & COG is manually assigned to arbitrary shape
+            parent = obj.parent
+            if hasattr(parent, "eq_repr") and parent.eq_repr != EquipRepr.AS_IS and not issubclass(type(obj), Shape):
+                continue
+
+            if issubclass(type(obj), Shape):  # Assuming Mass & COG is manually assigned to arbitrary shape (Mass Point is Shape)
                 cogs.append(np.array(obj.cog) * obj.mass)
                 tot_mass += obj.mass
             elif isinstance(obj, Beam):
@@ -574,15 +580,6 @@ class Part(BackendGeom):
                 length = obj.length
                 mass = rho * area * length
                 cog = obj.cog
-
-                print("==================BEAM")
-                print(f"cog: {obj.cog}")
-                print(f"section Cy: {obj.section.properties.Cgy}")
-                print(f"section Cz: {obj.section.properties.Cgz}")
-                print(f"e1: {obj.e1}")
-                print(f"e2: {obj.e2}")
-
-
                 cogs.append(cog * mass)
                 tot_mass += mass
             elif isinstance(obj, Plate):

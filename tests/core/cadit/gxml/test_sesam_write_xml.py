@@ -1,7 +1,7 @@
 import xml.etree.ElementTree as ET
 
 import ada
-from ada.api.spatial.equipment import EquipRepr
+from ada.api.spatial.eq_types import EquipRepr
 
 
 def test_roundtrip_xml(fem_files, tmp_path):

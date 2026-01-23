@@ -8,7 +8,8 @@ from ada.sections.categories import BaseTypes
 
 from ada.config import get_logger
 
-from ada.api.spatial.equipment import Equipment, EquipRepr
+from ada.api.spatial.equipment import Equipment
+from ada.api.spatial.eq_types import EquipRepr
 from ada.cadit.sat.write.writer import SatWriter
 
 from .write_utils import add_local_system
@@ -62,12 +63,9 @@ def add_straight_beam(beam: Beam, xml_root: ET.Element):
     if beam.hinge2 is not None:
         ET.SubElement(straight_beam, "end2", {"hinge_ref": beam.hinge2.name})
 
-    #curve_offset = ET.SubElement(straight_beam, "curve_offset")
-    #ET.SubElement(curve_offset, "reparameterized_beam_curve_offset")
-
-    # todo testing without
     flush_offset_genie = beam.flush_offset_genie
-    flush_offset_genie = False
+    # uncomment if need to debug ada cog calc
+    #flush_offset_genie = False
 
     curve_offset = ET.SubElement(straight_beam, "curve_offset")
     data = beam._curve_offset_local()
@@ -100,74 +98,6 @@ def add_straight_beam(beam: Beam, xml_root: ET.Element):
                         "z": f"{float(oz1):.12g}",
                     },
                 )
-
-
-'''
-    # todo offset for both e1 and e2 if different
-    if beam.e1 is not None:
-        offset_x = -beam.e1.x
-        offset_y = -beam.e1.y
-        offset_z = -beam.e1.z
-    else:
-        offset_x = offset_y = offset_z = 0.0
-
-    # todo this is special for these sections, must be handled the same way when calculating cog
-    if beam.section.type == BaseTypes.ANGULAR:
-        offset_z += beam.section.properties.Cgz - beam.section.h
-
-    if beam.section.type == BaseTypes.TPROFILE:
-        offset_z += beam.section.properties.Cgz - beam.section.h/2
-
-    # only write offset if needed
-    curve_offset = ET.SubElement(straight_beam, "curve_offset")
-    if not offset_x == offset_y == offset_z == 0:
-        if flush_offset_genie:
-            if beam.section.type == BaseTypes.ANGULAR:
-                alignment = "flush_top"
-                ET.SubElement(curve_offset, "aligned_curve_offset", {"alignment": alignment, "constant_value": "0"})
-            else:
-                alignment = "flush_bottom"
-                ET.SubElement(curve_offset, "aligned_curve_offset", {"alignment": alignment, "constant_value": "0"})
-        else:
-            # todo if beam.e1 is different from beam.e2, write two curve offsets
-            cco = ET.SubElement(curve_offset, "constant_curve_offset", {"use_local_system": "true"})
-            ET.SubElement(
-                cco,
-                "constant_offset",
-                {
-                    "x": f"{float(offset_x):.12g}",
-                    "y": f"{float(offset_y):.12g}",
-                    "z": f"{float(offset_z):.12g}",
-                },
-            )
-            '''
-'''
-            else:
-                lvo = ET.SubElement(
-                    curve_offset,
-                    "linear_varying_curve_offset",
-                    {"use_local_system": "true"},
-                )
-                ET.SubElement(
-                    lvo,
-                    "offset_end1",
-                    {
-                        "x": f"{float(offset_x1):.12g}",
-                        "y": f"{float(offset_y1):.12g}",
-                        "z": f"{float(offset_z1):.12g}",
-                    },
-                )
-                ET.SubElement(
-                    lvo,
-                    "offset_end2",
-                    {
-                        "x": f"{float(offset_x2):.12g}",
-                        "y": f"{float(offset_y2):.12g}",
-                        "z": f"{float(offset_z2):.12g}",
-                    },
-                )
-                '''
-
 
 def add_curve_orientation(beam: Beam, straight_beam: ET.Element):
     curve_orientation = ET.SubElement(straight_beam, "curve_orientation")
