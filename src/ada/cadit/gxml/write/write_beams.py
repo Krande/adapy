@@ -63,7 +63,7 @@ def add_straight_beam(beam: Beam, xml_root: ET.Element):
 
     flush_offset_genie = beam.flush_offset_genie
     # uncomment if need to debug ada cog calc
-    # flush_offset_genie = False
+    flush_offset_genie = False
 
     curve_offset = ET.SubElement(straight_beam, "curve_offset")
     data = beam._curve_offset_local()
@@ -82,9 +82,26 @@ def add_straight_beam(beam: Beam, xml_root: ET.Element):
                 if beam.section.type == BaseTypes.ANGULAR:
                     alignment = "flush_top"
                     ET.SubElement(curve_offset, "aligned_curve_offset", {"alignment": alignment, "constant_value": "0"})
-                else:
+                elif beam.section.type == BaseTypes.BOX:
+                    alignment = "flush_top"
+                    ET.SubElement(curve_offset, "aligned_curve_offset", {"alignment": alignment, "constant_value": "0"})
+                elif beam.section.type == BaseTypes.TUBULAR:
+                    alignment = "flush_top"
+                    ET.SubElement(curve_offset, "aligned_curve_offset", {"alignment": alignment, "constant_value": "0"})
+                elif beam.section.type == BaseTypes.IPROFILE:
+                    alignment = "flush_top"
+                    ET.SubElement(curve_offset, "aligned_curve_offset", {"alignment": alignment, "constant_value": "0"})
+                elif beam.section.type == BaseTypes.TPROFILE:
                     alignment = "flush_bottom"
                     ET.SubElement(curve_offset, "aligned_curve_offset", {"alignment": alignment, "constant_value": "0"})
+                elif beam.section.type == BaseTypes.CHANNEL:
+                    alignment = "flush_top"
+                    ET.SubElement(curve_offset, "aligned_curve_offset", {"alignment": alignment, "constant_value": "0"})
+                elif beam.section.type == BaseTypes.FLATBAR:
+                    alignment = "flush_top"
+                    ET.SubElement(curve_offset, "aligned_curve_offset", {"alignment": alignment, "constant_value": "0"})
+                else:
+                    logger.warning(f"Unknown section type {beam.section.type} for flush offset")
             else:
                 cco = ET.SubElement(curve_offset, "constant_curve_offset", {"use_local_system": "true"})
                 ET.SubElement(
