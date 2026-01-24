@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from enum import Enum
 from typing import TYPE_CHECKING, Iterable
 
 import numpy as np
@@ -8,7 +7,6 @@ import numpy as np
 from ada.config import Config, logger
 from ada.core.vector_utils import is_between_endpoints, is_parallel, vector_length
 from ada.fem.elements import HingeProp
-from ada.geom.direction import Direction
 
 if TYPE_CHECKING:
     from ada import Beam, Node, Point
@@ -110,23 +108,6 @@ class BeamConnectionProps:
         self._hinge_prop = value
 
 
-class Justification(Enum):
-    NA = "neutral axis"
-    TOS = "top of steel"
-    CUSTOM = "custom"
-
-
-def get_offset_from_justification(beam: Beam, just: Justification) -> Direction:
-    if just == Justification.NA:
-        return Direction(0, 0, 0)
-    elif just == Justification.TOS:
-        return beam.up * beam.section.h / 2
-    elif just == Justification.CUSTOM:
-        pass
-    else:
-        raise ValueError(f"Unknown justification: {just}")
-
-
 def is_on_beam(beam: Beam, point: Node) -> bool:
     """Returns if a node is on the beam axis including endpoints"""
     return point in beam.nodes or is_between_endpoints(point.p, beam.n1.p, beam.n2.p)
@@ -203,24 +184,6 @@ def is_weak_axis_stiffened(beam: Beam, other_beam: Beam) -> bool:
 def is_strong_axis_stiffened(beam: Beam, other_beam: Beam) -> bool:
     """Assumes rotation local y-vector is strong axis"""
     return np.abs(np.dot(beam.yvec, other_beam.xvec)) < Config().general_point_tol and beam is not other_beam
-
-
-def get_justification(beam: Beam) -> Justification:
-    """Justification line"""
-    # Check if both self.e1 and self.e2 are None
-    if beam.section.type in (beam.section.TYPES.TUBULAR, beam.section.TYPES.CIRCULAR):
-        bm_height = beam.section.r * 2
-    else:
-        bm_height = beam.section.h
-
-    if beam.e1 is None and beam.e2 is None:
-        return Justification.NA
-    elif beam.e1 is None or beam.e2 is None:
-        return Justification.CUSTOM
-    elif beam.e1.is_equal(beam.e2) and beam.e1.is_equal(beam.up * bm_height / 2):
-        return Justification.TOS
-    else:
-        return Justification.CUSTOM
 
 
 class NodeNotOnEndpointError(Exception):

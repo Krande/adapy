@@ -4,10 +4,7 @@ import pytest
 from ada import Assembly, Beam, Node, Part
 from ada.api.beams.helpers import (
     BeamConnectionProps,
-    Justification,
     get_beam_extensions,
-    get_justification,
-    get_offset_from_justification,
     have_equivalent_props,
     is_on_beam,
     is_strong_axis_stiffened,
@@ -15,6 +12,7 @@ from ada.api.beams.helpers import (
     split_beam,
     updating_nodes,
 )
+from ada.api.beams.justification import Justification, get_offset_from_justification, get_justification
 from ada.geom.direction import Direction
 
 

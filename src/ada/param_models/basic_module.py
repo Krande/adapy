@@ -4,7 +4,7 @@ import numpy as np
 
 import ada
 from ada import Assembly, Beam, Material, Node, Part, Pipe, Plate, PrimSphere, Section
-from ada.api.beams.helpers import Justification, get_offset_from_justification
+from ada.api.beams.justification import Justification, get_offset_from_justification
 from ada.api.transforms import Placement
 from ada.core.clash_check import penetration_check
 from ada.core.constants import X, Y, Z

@@ -4,6 +4,7 @@ import itertools
 import xml.etree.ElementTree as ET
 from typing import TYPE_CHECKING
 
+from ada.api.beams.justification import Justification
 from ada.api.spatial.eq_types import EquipRepr
 from ada.api.spatial.equipment import Equipment
 from ada.cadit.sat.write.writer import SatWriter
@@ -61,12 +62,10 @@ def add_straight_beam(beam: Beam, xml_root: ET.Element):
     if beam.hinge2 is not None:
         ET.SubElement(straight_beam, "end2", {"hinge_ref": beam.hinge2.name})
 
-    flush_offset_genie = beam.flush_offset_genie
-    # uncomment if need to debug ada cog calc
-    # flush_offset_genie = False
+    flush_offset_genie = beam.justification is Justification.TOS
 
     curve_offset = ET.SubElement(straight_beam, "curve_offset")
-    data = beam._curve_offset_local()
+    data = beam.offset_helper._curve_offset_local()
     (ox1, oy1, oz1) = data["end1"]
     (ox2, oy2, oz2) = data["end2"]
 

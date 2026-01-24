@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Callable, ClassVar, Iterable
 
 import numpy as np
 
-from ada.api.beams.helpers import Justification, get_justification
+from ada.api.beams.justification import Justification, get_justification
 from ada.base.units import Units
 from ada.config import logger
 from ada.sections.categories import BaseTypes

@@ -638,8 +638,8 @@ def convert_bm_jusl_to_ifc(bm: Beam) -> int:
 
     https://standards.buildingsmart.org/IFC/RELEASE/IFC4_1/FINAL/HTML/schema/ifcmaterialresource/lexical/ifccardinalpointreference.htm
     """
-    from ada.api.beams.helpers import Justification as jt
-    from ada.api.beams.helpers import get_justification
+    from ada.api.beams.justification import Justification as jt
+    from ada.api.beams.justification import get_justification
 
     just = get_justification(bm)
 
