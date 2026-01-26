@@ -135,6 +135,7 @@ def to_gxml_box_section(section: Section):
 
 
 def to_gxml_unsymm_i_section(section: Section):
+    # Note: this logic must be aligned with get_alignment in read_beams.js
     return ET.Element(
         "unsymmetrical_i_section",
         dict(

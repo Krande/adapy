@@ -111,23 +111,39 @@ def get_alignment(bm_el: ET.Element, segments: list[Beam]):
 
     alignment = aligned_offset.attrib.get("alignment")
     aligned_offset.attrib.get("constant_value")
+
+    flush_factor = 0
     if alignment == "flush_top":
-        if sec0.type == sec0.TYPES.ANGULAR:
-            pass  # Angular profiles are already flush
-        elif sec0.type == sec0.TYPES.TUBULAR:
-            offset = -zv * sec0.r
-            return offset
-        else:
-            offset = -zv * sec0.h / 2
-            return offset
+        flush_factor = -1
     elif alignment == "flush_bottom":
-        if sec0.type == sec0.TYPES.IPROFILE:
+        flush_factor = 1
+
+    if sec0.type == sec0.TYPES.ANGULAR:
+        if alignment == "flush_top":
+            pass  # Angular profiles are already flush
+        elif alignment == "flush_bottom":
+            offset = zv * sec0.h
+            return offset
+        elif alignment == "no_flush":
             offset = zv * sec0.properties.Cgz
-        else:
-            ...
-            pass
-            # todo test other sections and implement here!
+            return offset
+    elif sec0.type == sec0.TYPES.TUBULAR:
+        offset = flush_factor * zv * sec0.r
         return offset
+    elif sec0.type == sec0.TYPES.IPROFILE and sec0.w_btn != sec0.w_top:
+        # Note: this logic must be  aligned with to_gxml_unsymm_i_section in write_sections.js
+        if sec0.t_fbtn == sec0.t_ftop and sec0.t_w == sec0.w_btn: # this aims to identify a genie TPROFILE implemented as an unsymmetric IPROFILE
+            offset = flush_factor * zv * sec0.properties.Cgz
+            return offset
+        else:
+            logger.warning(f"The section {sec0.name} type {sec0.type} is not yet tested for Genie XML read")
+            offset = flush_factor * zv * sec0.h / 2
+            return offset
+    else:
+        offset = flush_factor * zv * sec0.h / 2
+        return offset
+
+
 
 def convert_offset_to_global_csys(o: np.ndarray, bm: Beam):
     xv = bm.xvec

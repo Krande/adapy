@@ -8,9 +8,12 @@ a_list = list()
 a_list.append(ada.from_genie_xml(r"./files/beams_constant_offset.xml"))
 a_list.append(ada.from_genie_xml(r"./files/beams_flush_offset.xml"))
 
-#a_list[0].show()
 
-#todo create mass property on beam and uncomment asserts below to include check !
+
+# uncomment to show only for debug
+a_list[0].show() #todo the glb file in the ada viewer seems not to be correct for one of the IPROFILE (cube_TPROFILE_Room1_f3_i1_j1_gbm1)
+
+#todo create mass property on beam and uncomment asserts below to include check
 
 for a in a_list:
 
@@ -38,7 +41,6 @@ for a in a_list:
         elif bm.section.type == BaseTypes.IPROFILE and bm.name == "cube_TPROFILE_Room1_f3_i1_j1_gbm1":
             #beam: cube_TPROFILE_Room1_f3_i1_j1_gbm1, cog: [ 0.5         4.4875     -0.44811927]
             # assert round(bm.mass, 3) == 213.912
-            print(f"beam: {bm.name}, cog: {bm.cog}")
             assert round(bm_cog.x, 3) == 0.500
             assert round(bm_cog.y, 4) == 4.500
             assert round(bm_cog.z, 3) == -0.448
@@ -60,7 +62,3 @@ for a in a_list:
             assert round(bm_cog.x, 3) == 0.500
             assert round(bm_cog.y, 3) == 9.00
             assert round(bm_cog.z, 3) == 0.05
-
-            # constant offset
-            # Assembly Mass : 1532.266,  CoG  : (0.500, 1.799, 0.231) WARNING: known bug in ada calculate_cog()
-            # Assembly Mass : 1532.266,  CoG  : (0.500, 1.799, 0.231)
