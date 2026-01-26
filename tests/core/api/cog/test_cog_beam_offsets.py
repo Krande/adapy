@@ -10,9 +10,10 @@ a_list.append(ada.from_genie_xml(r"./files/beams_flush_offset.xml"))
 
 #a_list[0].show()
 
-#todo create mass property on beam and uncomment asserts below to include check!
+#todo create mass property on beam and uncomment asserts below to include check !
 
 for a in a_list:
+
     for bm in a.get_all_physical_objects(by_type=Beam):
         #print(f"beam: {bm.name}, cog: {bm.cog}")
         bm_cog = bm.cog
