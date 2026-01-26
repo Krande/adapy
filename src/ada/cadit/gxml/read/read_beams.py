@@ -111,7 +111,7 @@ def get_alignment(bm_el: ET.Element, segments: list[Beam]):
 
     alignment = aligned_offset.attrib.get("alignment")
     aligned_offset.attrib.get("constant_value")
-    if alignment == "flush_top": #todo also implement flush_bottom!
+    if alignment == "flush_top":
         if sec0.type == sec0.TYPES.ANGULAR:
             pass  # Angular profiles are already flush
         elif sec0.type == sec0.TYPES.TUBULAR:
@@ -120,7 +120,14 @@ def get_alignment(bm_el: ET.Element, segments: list[Beam]):
         else:
             offset = -zv * sec0.h / 2
             return offset
-
+    elif alignment == "flush_bottom":
+        if sec0.type == sec0.TYPES.IPROFILE:
+            offset = zv * sec0.properties.Cgz
+        else:
+            ...
+            pass
+            # todo test other sections and implement here!
+        return offset
 
 def convert_offset_to_global_csys(o: np.ndarray, bm: Beam):
     xv = bm.xvec

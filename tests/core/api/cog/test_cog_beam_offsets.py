@@ -38,9 +38,10 @@ for a in a_list:
         elif bm.section.type == BaseTypes.IPROFILE and bm.name == "cube_TPROFILE_Room1_f3_i1_j1_gbm1":
             #beam: cube_TPROFILE_Room1_f3_i1_j1_gbm1, cog: [ 0.5         4.4875     -0.44811927]
             # assert round(bm.mass, 3) == 213.912
+            print(f"beam: {bm.name}, cog: {bm.cog}")
             assert round(bm_cog.x, 3) == 0.500
             assert round(bm_cog.y, 4) == 4.500
-            assert round(bm_cog.z, 3) == -0.448 # todo Note this is a beam which was defined as TPROFILE in ada, but when exported to gxml it will be written as IPROFILE, may be there are some checks for unsymmetric sections that makes it behave different that the other beam check above? is only fails for the flushed
+            assert round(bm_cog.z, 3) == -0.448
         elif bm.section.type == BaseTypes.ANGULAR:
             #beam: beam: cube_ANGULAR_Room1_f3_i1_j1_gbm1, cog: [ 5.00000000e-01  6.00000000e+00 -3.81468468e-12]
             # assert round(bm.mass, 4) == 18.0059
