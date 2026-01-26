@@ -4,7 +4,7 @@ from typing import List, Tuple
 
 import numpy as np
 
-from ada import Beam, Node, Part
+from ada import Beam, Node, Part, Direction
 from ada.api.containers import Beams
 from ada.config import logger
 from ada.core.exceptions import VectorNormalizeError
@@ -72,11 +72,16 @@ def apply_offsets_and_alignments(name: str, bm_el: ET.Element, segs: list[Beam])
 
 def get_offsets(bm_el: ET.Element) -> tuple[np.ndarray, np.ndarray, bool]:
     linear_offset = bm_el.find("curve_offset/linear_varying_curve_offset")
+    constant_offset = bm_el.find("curve_offset/constant_curve_offset")
 
     end1_o = None
     end2_o = None
     use_local = False
-    if linear_offset is not None:
+    if constant_offset is not None:
+        end1 = constant_offset.find("constant_offset")
+        end2 = end1
+        use_local = False if constant_offset.attrib["use_local_system"] == "false" else True
+    elif linear_offset is not None:
         end1 = linear_offset.find("offset_end1")
         end2 = linear_offset.find("offset_end2")
         use_local = False if linear_offset.attrib["use_local_system"] == "false" else True
@@ -99,14 +104,14 @@ def get_alignment(bm_el: ET.Element, segments: list[Beam]):
     aligned_offset = bm_el.find("curve_offset/aligned_curve_offset")
 
     if aligned_offset is None:
-        # if sec0.type == sec0.TYPES.ANGULAR:
-        #     offset = zv * sec0.h / 2
-        #     return offset
+        if sec0.type == sec0.TYPES.ANGULAR:
+            offset = -zv * (sec0.properties.Cgz - sec0.h)
+            return offset
         return None
 
     alignment = aligned_offset.attrib.get("alignment")
     aligned_offset.attrib.get("constant_value")
-    if alignment == "flush_top":
+    if alignment == "flush_top": #todo also implement flush_bottom!
         if sec0.type == sec0.TYPES.ANGULAR:
             pass  # Angular profiles are already flush
         elif sec0.type == sec0.TYPES.TUBULAR:

@@ -2,7 +2,7 @@
 <DNV_structure_concept_protocol version="1.6">
 	<administrative>
 		<program program="GeniE" version="V8.13-02" version_date="12-Oct-2025" platform="64bit" />
-		<session_info date="25-Jan-2026" time="00:25:23" user="ofsolha3" />
+		<session_info date="26-Jan-2026" time="13:28:50" user="ofsolha3" />
 	</administrative>
 	<model name="Assembly">
 		<units>
@@ -22,7 +22,7 @@
 						<bar_section h="0.1" b="0.01" fabrication="unknown" sfy="1" sfz="1" general_properties_method="computed" />
 					</section>
 					<section name="HEA300">
-						<i_section h="0.29" b="0.3" tw="0.0085" tf="0.014" fillet_radius="0.024" fabrication="unknown" sfy="1" sfz="1" general_properties_method="computed" />
+						<i_section h="0.29" b="0.3" tw="0.0085" tf="0.014" fabrication="unknown" sfy="1" sfz="1" general_properties_method="computed" />
 					</section>
 					<section name="HP180x10">
 						<l_section h="0.18" b="0.035" tw="0.01" tf="0.01975" fabrication="unknown" sfy="1" sfz="1" general_properties_method="computed" />
@@ -48,14 +48,14 @@
 					</material>
 				</materials>
 				<thicknesses>
-					<thickness name="thk008" default="true">
-						<constant_thickness th="0.008" />
+					<thickness name="thk001" default="true">
+						<constant_thickness th="0.001" />
 					</thickness>
 				</thicknesses>
 			</properties>
 			<structures>
 				<structure>
-					<flat_plate name="cube_ANGULAR_Room1_f3_i1_j1" thickness_ref="thk008" material_ref="S420">
+					<flat_plate name="cube_ANGULAR_Room1_f3_i1_j1" thickness_ref="thk001" material_ref="S420">
 						<segmentation />
 						<front />
 						<back />
@@ -105,16 +105,14 @@
 							</straight_segment>
 						</segments>
 						<curve_offset>
-							<constant_curve_offset use_local_system="true">
-								<constant_offset x="0" y="0.008767029973" z="-0.1072476158" />
-							</constant_curve_offset>
+							<aligned_curve_offset alignment="flush_top" constant_value="0" />
 						</curve_offset>
 						<end1 />
 						<end2 />
 					</straight_beam>
 				</structure>
 				<structure>
-					<flat_plate name="cube_BOX_Room1_f3_i1_j1" thickness_ref="thk008" material_ref="S420">
+					<flat_plate name="cube_BOX_Room1_f3_i1_j1" thickness_ref="thk001" material_ref="S420">
 						<segmentation />
 						<front />
 						<back />
@@ -164,16 +162,14 @@
 							</straight_segment>
 						</segments>
 						<curve_offset>
-							<constant_curve_offset use_local_system="true">
-								<constant_offset x="0" y="0" z="-0.4" />
-							</constant_curve_offset>
+							<aligned_curve_offset alignment="flush_top" constant_value="0" />
 						</curve_offset>
 						<end1 />
 						<end2 />
 					</straight_beam>
 				</structure>
 				<structure>
-					<flat_plate name="cube_CHANNEL_Room1_f3_i1_j1" thickness_ref="thk008" material_ref="S420">
+					<flat_plate name="cube_CHANNEL_Room1_f3_i1_j1" thickness_ref="thk001" material_ref="S420">
 						<segmentation />
 						<front />
 						<back />
@@ -223,16 +219,14 @@
 							</straight_segment>
 						</segments>
 						<curve_offset>
-							<constant_curve_offset use_local_system="true">
-								<constant_offset x="0" y="0" z="-0.09" />
-							</constant_curve_offset>
+							<aligned_curve_offset alignment="flush_top" constant_value="0" />
 						</curve_offset>
 						<end1 />
 						<end2 />
 					</straight_beam>
 				</structure>
 				<structure>
-					<flat_plate name="cube_FLATBAR_Room1_f3_i1_j1" thickness_ref="thk008" material_ref="S420">
+					<flat_plate name="cube_FLATBAR_Room1_f3_i1_j1" thickness_ref="thk001" material_ref="S420">
 						<segmentation />
 						<front />
 						<back />
@@ -282,16 +276,14 @@
 							</straight_segment>
 						</segments>
 						<curve_offset>
-							<constant_curve_offset use_local_system="true">
-								<constant_offset x="0" y="0" z="-0.05" />
-							</constant_curve_offset>
+							<aligned_curve_offset alignment="flush_top" constant_value="0" />
 						</curve_offset>
 						<end1 />
 						<end2 />
 					</straight_beam>
 				</structure>
 				<structure>
-					<flat_plate name="cube_IPROFILE_Room1_f3_i1_j1" thickness_ref="thk008" material_ref="S420">
+					<flat_plate name="cube_IPROFILE_Room1_f3_i1_j1" thickness_ref="thk001" material_ref="S420">
 						<segmentation />
 						<front />
 						<back />
@@ -341,16 +333,14 @@
 							</straight_segment>
 						</segments>
 						<curve_offset>
-							<constant_curve_offset use_local_system="true">
-								<constant_offset x="0" y="0" z="-0.145" />
-							</constant_curve_offset>
+							<aligned_curve_offset alignment="flush_top" constant_value="0" />
 						</curve_offset>
 						<end1 />
 						<end2 />
 					</straight_beam>
 				</structure>
 				<structure>
-					<flat_plate name="cube_TPROFILE_Room1_f3_i1_j1" thickness_ref="thk008" material_ref="S420">
+					<flat_plate name="cube_TPROFILE_Room1_f3_i1_j1" thickness_ref="thk001" material_ref="S420">
 						<segmentation />
 						<front />
 						<back />
@@ -400,16 +390,14 @@
 							</straight_segment>
 						</segments>
 						<curve_offset>
-							<constant_curve_offset use_local_system="true">
-								<constant_offset x="0" y="0.0125" z="0.4481192661" />
-							</constant_curve_offset>
+							<aligned_curve_offset alignment="flush_bottom" constant_value="0" />
 						</curve_offset>
 						<end1 />
 						<end2 />
 					</straight_beam>
 				</structure>
 				<structure>
-					<flat_plate name="cube_TUBULAR_Room1_f3_i1_j1" thickness_ref="thk008" material_ref="S420">
+					<flat_plate name="cube_TUBULAR_Room1_f3_i1_j1" thickness_ref="thk001" material_ref="S420">
 						<segmentation />
 						<front />
 						<back />
@@ -459,9 +447,7 @@
 							</straight_segment>
 						</segments>
 						<curve_offset>
-							<constant_curve_offset use_local_system="true">
-								<constant_offset x="0" y="0" z="-0.375" />
-							</constant_curve_offset>
+							<aligned_curve_offset alignment="flush_top" constant_value="0" />
 						</curve_offset>
 						<end1 />
 						<end2 />
@@ -556,7 +542,7 @@
 				</set>
 			</sets>
 			<geometry>
-				<sat_embedded encoding="base64" compression="zip" tag_name="dnvscp"><![CDATA[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]]></sat_embedded>
+				<sat_embedded encoding="base64" compression="zip" tag_name="dnvscp"><![CDATA[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]]></sat_embedded>
 			</geometry>
 		</structure_domain>
 		<utilities>
