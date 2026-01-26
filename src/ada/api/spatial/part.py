@@ -578,7 +578,7 @@ class Part(BackendGeom):
                 area = obj.section.properties.Ax
                 length = obj.length
                 mass = rho * area * length
-                cog = obj.cog
+                cog = obj.get_cog()
                 cogs.append(cog * mass)
                 tot_mass += mass
             elif isinstance(obj, Plate):

@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Iterable, Literal, TypeAlias, Union
 import numpy as np
 
 import ada.api.beams.geom_beams as geo_conv
+from ada.api.beams.justification import Justification, OffsetHelper
 from ada.api.bounding_box import BoundingBox
 from ada.api.curves import LineSegment
 from ada.api.nodes import Node, get_singular_node_by_volume
@@ -21,7 +22,6 @@ from ada.geom.points import Point
 from ada.materials import Material
 from ada.materials.utils import get_material
 from ada.sections import Section
-from ada.sections.categories import BaseTypes
 from ada.sections.string_to_section import interpret_section_str
 
 if TYPE_CHECKING:
@@ -110,7 +110,7 @@ class Beam(BackendGeom):
         units=Units.M,
         hi1: BeamHinge = None,
         hi2: BeamHinge = None,
-        flush_offset_genie: bool = False,
+        justification: Justification | str = Justification.NA,
         **kwargs,
     ):
         from ada.api.beams.helpers import BeamConnectionProps
@@ -148,7 +148,11 @@ class Beam(BackendGeom):
         self._hi2 = hi2
         self._hash = None
 
-        self._flush_offset_genie = bool(flush_offset_genie)
+        if isinstance(justification, str):
+            justification = Justification.from_str(justification)
+
+        self._justification = justification
+        self._offset_helper = OffsetHelper(self)
 
     @staticmethod
     def array_from_list_of_coords(
@@ -211,185 +215,8 @@ class Beam(BackendGeom):
         self._up = self._orientation.zdir
         self._angle = angle
 
-    def _local_axes_in_absolute(self):
-        """
-        Returns (xvec, yvec, up) expressed in the absolute/global system,
-        respecting self.placement rotations (same logic as exporter).
-        """
-        from ada import Placement
-
-        xvec = self.xvec
-        yvec = self.yvec
-        up = self.up
-
-        if self.placement is not None and self.placement.is_identity() is False:
-            ident_place = Placement()
-            place_abs = self.placement.get_absolute_placement(include_rotations=True)
-
-            # Only transform if rotation differs
-            if not np.allclose(place_abs.rot_matrix, ident_place.rot_matrix):
-                ori_vectors = place_abs.transform_array_from_other_place(
-                    np.asarray([xvec, yvec, up]), ident_place, ignore_translation=True
-                )
-                xvec = ori_vectors[0]
-                yvec = ori_vectors[1]
-                up = ori_vectors[2]
-
-        return xvec, yvec, up
-
-    def _point_to_absolute(self, p: np.ndarray) -> np.ndarray:
-        """
-        Transforms a point p from the beam's local system into absolute/global,
-        using self.placement. If identity, returns p unchanged.
-        """
-        from ada import Placement
-
-        if self.placement is None or self.placement.is_identity():
-            return p
-
-        ident_place = Placement()
-        place_abs = self.placement.get_absolute_placement(include_rotations=True)
-        # include translation
-        return place_abs.transform_array_from_other_place(np.asarray([p]), ident_place, ignore_translation=False)[0]
-
-    def _curve_offset_local(self):
-        """
-        Compute local (x,y,z) curve offsets for Genie / COG, at end1 and end2.
-
-        Returns a dict:
-          {
-            "end1": (ox1, oy1, oz1),
-            "end2": (ox2, oy2, oz2),
-            "avg":  (ox,  oy,  oz),   # average of end1/end2 (useful for COG)
-            "is_varying": bool,       # True if end1 != end2
-          }
-
-        Notes:
-        - Uses geometric centroid Cgy/Cgz.
-        - Uses your sign convention: local offsets start from -e.
-        """
-        import numpy as np
-
-        # --- e1/e2 -> numeric vectors ---
-        e1 = np.array([self.e1.x, self.e1.y, self.e1.z], dtype=float) if self.e1 is not None else np.zeros(3)
-        e2 = np.array([self.e2.x, self.e2.y, self.e2.z], dtype=float) if self.e2 is not None else np.zeros(3)
-
-        # your sign convention
-        off1 = -e1
-        off2 = -e2
-
-        # --- section geometric centroid data ---
-        p = self.section.properties
-        if getattr(p, "Cgy", None) is None or getattr(p, "Cgz", None) is None:
-            raise ValueError(f"Section '{self.section.name}' missing geometric centroid (Cgy/Cgz).")
-
-        Cgz = float(p.Cgz)
-        h = float(self.section.h) if self.section.h is not None else None
-
-        # Numeric offsets: place section relative to beam curve explicitly
-        # Default: place curve at centroid (add centroid coords)
-        # Special: your existing conventions for ANGULAR/TPROFILE
-        if self.section.type == BaseTypes.ANGULAR:
-            if h is None:
-                raise ValueError("ANGULAR requires h to compute flush offset.")
-            # flush-to-top: dz = (Cgz - h) = -ez
-            dz = Cgz - h
-            dy = 0
-        elif self.section.type == BaseTypes.TPROFILE:
-            if h is None:
-                raise ValueError("TPROFILE requires h to compute offset.")
-            dz = Cgz - h / 2.0
-            dy = 0  # should be 0 for symmetrical profiles!
-        # elif self.section.type == BaseTypes.IPROFILE and self.section.w_btn != self.section.w_top:
-        #    logger.warning(f"IPROFILE with w_btn != w_top not yet supported. Using default offset.")
-        #    dz = 0
-        #    dy = 0
-        else:
-            dz = 0
-            dy = 0
-
-        add = np.array([0.0, dy, dz], dtype=float)
-        off1 = off1 + add
-        off2 = off2 + add
-
-        is_varying = not np.allclose(off1, off2)
-        avg = 0.5 * (off1 + off2)
-
-        return {
-            "end1": (float(off1[0]), float(off1[1]), float(off1[2])),
-            "end2": (float(off2[0]), float(off2[1]), float(off2[2])),
-            "avg": (float(avg[0]), float(avg[1]), float(avg[2])),
-            "is_varying": bool(is_varying),
-        }
-
-    @property
-    def flush_offset_genie(self) -> bool:
-        """If True, apply Genie-style flush offsets"""
-        return self._flush_offset_genie
-
-    @flush_offset_genie.setter
-    def flush_offset_genie(self, value: bool):
-        self._flush_offset_genie = bool(value)
-
-    @property
-    def cog(self):
-        """
-        Beam COG in global coordinates.
-
-        Conventions used here:
-          - cog_line is midpoint of the beam line WITHOUT eccentricities.
-          - Eccentricities e1/e2 are treated as offsets of the section/reference line
-            relative to the beam line. If both ends exist and differ, we use their average
-            for the COG (constant part).
-          - Section geometric centroid uses Cgy/Cgz (not shear center).
-          - For ANGULAR/TPROFILE we apply the same "flush-to-top" offset convention you use in Genie.
-        """
-        import warnings
-
-        import numpy as np
-
-        # Midpoint of beam line (no e)
-        mid = self.cog_line.p if hasattr(self.cog_line, "p") else np.asarray(self.cog_line, dtype=float)
-
-        data = self._curve_offset_local()  # numeric offsets for COG
-        ox, oy, oz = data["avg"]
-
-        if data["is_varying"]:
-            warnings.warn(
-                f"Beam '{self.name}': e1 != e2. COG uses average curve offset.",
-                RuntimeWarning,
-                stacklevel=2,
-            )
-
-        x_abs, y_abs, up_abs = self._local_axes_in_absolute()
-        offset_abs = ox * np.asarray(x_abs, float) + oy * np.asarray(y_abs, float) + oz * np.asarray(up_abs, float)
-        cog_abs = mid + offset_abs
-
-        try:
-            from ada import Point
-
-            return Point(cog_abs)
-        except Exception:
-            return cog_abs
-
-    @property
-    def cog_line(self):
-        """
-        Midpoint of the beam line between n1 and n2 ONLY (no eccentricities).
-        Returned in absolute/global coordinates (placement applied).
-        """
-        p1 = self.n1.p.copy()
-        p2 = self.n2.p.copy()
-        mid = 0.5 * (p1 + p2)
-
-        mid_abs = self._point_to_absolute(mid)
-
-        try:
-            from ada import Point
-
-            return Point(mid_abs, units=self.units)
-        except Exception:
-            return mid_abs
+    def get_cog(self):
+        return self.offset_helper.get_cog()
 
     def is_point_on_beam(self, point: Union[np.ndarray, Node]) -> bool:
         if isinstance(point, Node):
@@ -684,6 +511,20 @@ class Beam(BackendGeom):
     @e2.setter
     def e2(self, value: Iterable):
         self._e2 = Direction(*value)
+
+    @property
+    def justification(self) -> Justification:
+        return self._justification
+
+    @justification.setter
+    def justification(self, value: Justification | str):
+        if isinstance(value, str):
+            value = Justification.from_str(value)
+        self._justification = value
+
+    @property
+    def offset_helper(self) -> OffsetHelper:
+        return self._offset_helper
 
     @property
     def nodes(self) -> list[Node]:

@@ -11,7 +11,7 @@ def test_gxml_offset(xml_file_name, example_files):
     a = ada.from_genie_xml(example_files / "fem_files/sesam/varying_offset" / xml_file_name)
     for bm in a.get_all_physical_objects(by_type=ada.Beam):
         # print(f"beam: {bm.name}, cog: {bm.cog}")
-        bm_cog = bm.cog
+        bm_cog = bm.get_cog()
         if bm.section.type == BaseTypes.BOX:
             # beam: cube_BOX_Room1_f3_i1_j1_gbm1, cog: [0.5 0.  0.4]
             # assert round(bm.mass, 3) == 514.96
