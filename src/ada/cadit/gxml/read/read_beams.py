@@ -4,7 +4,7 @@ from typing import List, Tuple
 
 import numpy as np
 
-from ada import Beam, Node, Part, Direction
+from ada import Beam, Node, Part
 from ada.api.containers import Beams
 from ada.config import logger
 from ada.core.exceptions import VectorNormalizeError
@@ -132,7 +132,9 @@ def get_alignment(bm_el: ET.Element, segments: list[Beam]):
         return offset
     elif sec0.type == sec0.TYPES.IPROFILE and sec0.w_btn != sec0.w_top:
         # Note: this logic must be  aligned with to_gxml_unsymm_i_section in write_sections.js
-        if sec0.t_fbtn == sec0.t_ftop and sec0.t_w == sec0.w_btn: # this aims to identify a genie TPROFILE implemented as an unsymmetric IPROFILE
+        if (
+            sec0.t_fbtn == sec0.t_ftop and sec0.t_w == sec0.w_btn
+        ):  # this aims to identify a genie TPROFILE implemented as an unsymmetric IPROFILE
             offset = flush_factor * zv * sec0.properties.Cgz
             return offset
         else:
@@ -142,7 +144,6 @@ def get_alignment(bm_el: ET.Element, segments: list[Beam]):
     else:
         offset = flush_factor * zv * sec0.h / 2
         return offset
-
 
 
 def convert_offset_to_global_csys(o: np.ndarray, bm: Beam):

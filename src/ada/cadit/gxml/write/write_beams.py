@@ -63,7 +63,7 @@ def add_straight_beam(beam: Beam, xml_root: ET.Element):
 
     flush_offset_genie = beam.flush_offset_genie
     # uncomment if need to debug ada cog calc
-    #flush_offset_genie = False
+    # flush_offset_genie = False
 
     curve_offset = ET.SubElement(straight_beam, "curve_offset")
     data = beam._curve_offset_local()

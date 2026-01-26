@@ -108,7 +108,7 @@ def to_gxml_i_section(section: Section):
             b=str(section.w_top),
             tw=str(section.t_w),
             tf=str(section.t_fbtn),
-            fillet_radius="0.00", # note this will be used in genie cog calc!
+            fillet_radius="0.00",  # note this will be used in genie cog calc!
             fabrication="unknown",
             sfy="1",
             sfz="1",

@@ -4,7 +4,6 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Iterable, Literal, TypeAlias, Union
 
 import numpy as np
-from ada.config import logger
 
 import ada.api.beams.geom_beams as geo_conv
 from ada.api.bounding_box import BoundingBox
@@ -284,7 +283,6 @@ class Beam(BackendGeom):
         if getattr(p, "Cgy", None) is None or getattr(p, "Cgz", None) is None:
             raise ValueError(f"Section '{self.section.name}' missing geometric centroid (Cgy/Cgz).")
 
-        Cgy = float(p.Cgy)
         Cgz = float(p.Cgz)
         h = float(self.section.h) if self.section.h is not None else None
 
@@ -301,8 +299,8 @@ class Beam(BackendGeom):
             if h is None:
                 raise ValueError("TPROFILE requires h to compute offset.")
             dz = Cgz - h / 2.0
-            dy = 0 # should be 0 for symmetrical profiles!
-        #elif self.section.type == BaseTypes.IPROFILE and self.section.w_btn != self.section.w_top:
+            dy = 0  # should be 0 for symmetrical profiles!
+        # elif self.section.type == BaseTypes.IPROFILE and self.section.w_btn != self.section.w_top:
         #    logger.warning(f"IPROFILE with w_btn != w_top not yet supported. Using default offset.")
         #    dz = 0
         #    dy = 0
