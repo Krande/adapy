@@ -571,7 +571,6 @@ class Part(BackendGeom):
         shapes_tot_cogs = []
         point_masses_tot_cogs = []
 
-
         tot_mass = 0
         cogs = []
         for obj in self.get_all_physical_objects():
@@ -618,7 +617,7 @@ class Part(BackendGeom):
         cog = Point(sum(cogs) / tot_mass)
         #
 
-        if beams_tot_mass >0:
+        if beams_tot_mass > 0:
             beams_cog = Point(sum(beams_cogs) / beams_tot_mass)
             logger.debug(f"{self.name}: beams cog: {beams_cog} mass: {beams_tot_mass}")
         if plates_tot_mass > 0:
@@ -626,7 +625,9 @@ class Part(BackendGeom):
             logger.debug(f"{self.name}: plates cog: {plates_cog} mass: {plates_tot_mass}")
         if shapes_tot_mass > 0:
             shapes_tot_cog = Point(sum(shapes_tot_cogs) / shapes_tot_mass)
-            logger.debug(f"{self.name}: shapes cog abs (equipments and point masses): {shapes_tot_cog} mass: {shapes_tot_mass}")
+            logger.debug(
+                f"{self.name}: shapes cog abs (equipments and point masses): {shapes_tot_cog} mass: {shapes_tot_mass}"
+            )
         if point_masses_tot_mass > 0:
             point_masses_tot_cog = Point(sum(point_masses_tot_cogs) / point_masses_tot_mass)
             logger.debug(f"{self.name}: fem point masses cog: {point_masses_tot_cog} mass: {point_masses_tot_mass}")
