@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Iterable, Literal
 
-
 from ada.api.bounding_box import BoundingBox
 from ada.api.transforms import Placement
 from ada.base.ifc_types import ShapeTypes

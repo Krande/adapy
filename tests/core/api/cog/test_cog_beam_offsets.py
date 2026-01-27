@@ -8,11 +8,13 @@ from ada.sections.categories import BaseTypes
 @pytest.mark.parametrize("xml_file_name", ["beams_constant_offset.xml", "beams_flush_offset.xml"])
 def test_gxml_offset(xml_file_name, example_files):
     a = ada.from_genie_xml(example_files / "fem_files/sesam/varying_offset" / xml_file_name)
+
     model_cog = a.calculate_cog()
     if xml_file_name == "beams_constant_offset.xml":
-        assert model_cog.p.is_equal(ada.Point([0.5       , 1.79937725, 0.23109376]))
+        assert model_cog.p.is_equal(ada.Point([0.5, 1.79937725, 0.23109376]))
     elif xml_file_name == "beams_flush_offset.xml":
-        assert model_cog.p.is_equal(ada.Point([0.5       , 1.79937725, 0.23109376]))
+        assert model_cog.p.is_equal(ada.Point([0.5, 1.79937725, 0.23109376]))
+
     for bm in a.get_all_physical_objects(by_type=ada.Beam):
         bm: ada.Beam
         bm_cog = bm.get_cog()
