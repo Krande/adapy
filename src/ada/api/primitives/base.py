@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Iterable, Literal
 
+import numpy as np
+
 from ada.api.bounding_box import BoundingBox
 from ada.api.transforms import Placement
 from ada.base.ifc_types import ShapeTypes
@@ -68,6 +70,21 @@ class Shape(BackendGeom):
         self._bbox = None
         self._ifc_class = ifc_class
 
+    def _point_to_absolute(self, p: Point) -> Point:
+        """
+        Transforms a point p from the local system into absolute/global,
+        using self.placement. If identity, returns p unchanged.
+        """
+        from ada import Placement
+
+        if self.placement is None or self.placement.is_identity():
+            return p
+
+        ident_place = Placement()
+        place_abs = self.placement.get_absolute_placement(include_rotations=True)
+        # include translation
+        return place_abs.transform_array_from_other_place(np.asarray([p]), ident_place, ignore_translation=False)[0]
+
     @property
     def mass(self) -> float:
         return self._mass
@@ -75,6 +92,10 @@ class Shape(BackendGeom):
     @mass.setter
     def mass(self, value: float):
         self._mass = value
+
+    @property
+    def cog_abs(self) -> Point:
+        return self._point_to_absolute(self._cog)
 
     @property
     def cog(self) -> Point:

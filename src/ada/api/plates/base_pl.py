@@ -224,7 +224,7 @@ class Plate(BackendGeom):
         normal = np.asarray(self.poly.normal, dtype=float)
 
         # Apply plate placement the same way as solid_geom
-        if self.placement is not None and self.placement.is_identity() is False:
+        if self.placement is not None:
             ident = Placement()
             place_abs = self.placement.get_absolute_placement(include_rotations=True)
 
