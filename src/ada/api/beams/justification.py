@@ -109,6 +109,7 @@ class OffsetHelper:
 
         ident_place = Placement()
         place_abs = self.beam.placement.get_absolute_placement(include_rotations=True)
+
         # include translation
         return place_abs.transform_array_from_other_place(np.asarray([p]), ident_place, ignore_translation=False)[0]
 
@@ -128,8 +129,6 @@ class OffsetHelper:
         - Uses geometric centroid Cgy/Cgz.
         - Uses your sign convention: local offsets start from -e.
         """
-        import numpy as np
-
         # --- e1/e2 -> numeric vectors ---
         e1 = np.array([*self.beam.e1], dtype=float) if self.beam.e1 is not None else np.zeros(3)
         e2 = np.array([*self.beam.e2], dtype=float) if self.beam.e2 is not None else np.zeros(3)
@@ -143,7 +142,7 @@ class OffsetHelper:
         if getattr(p, "Cgy", None) is None or getattr(p, "Cgz", None) is None:
             raise ValueError(f"Section '{self.beam.section.name}' missing geometric centroid (Cgy/Cgz).")
 
-        Cgz = float(p.Cgz)
+        cgz = float(p.Cgz)
         h = float(self.beam.section.h) if self.beam.section.h is not None else None
 
         # Numeric offsets: place section relative to beam curve explicitly
@@ -153,12 +152,12 @@ class OffsetHelper:
             if h is None:
                 raise ValueError("ANGULAR requires h to compute flush offset.")
             # flush-to-top: dz = (Cgz - h) = -ez
-            dz = Cgz - h
+            dz = cgz - h
             dy = 0
         elif self.beam.section.type == BaseTypes.TPROFILE:
             if h is None:
                 raise ValueError("TPROFILE requires h to compute offset.")
-            dz = Cgz - h / 2.0
+            dz = cgz - h / 2.0
             dy = 0  # should be 0 for symmetrical profiles!
         # elif self.section.type == BaseTypes.IPROFILE and self.section.w_btn != self.section.w_top:
         #    logger.warning(f"IPROFILE with w_btn != w_top not yet supported. Using default offset.")
@@ -194,8 +193,6 @@ class OffsetHelper:
           - Section geometric centroid uses Cgy/Cgz (not shear center).
           - For ANGULAR/TPROFILE we apply the same "flush-to-top" offset convention you use in Genie.
         """
-        import numpy as np
-
         from ada import Point
 
         # Midpoint of beam line (no e)

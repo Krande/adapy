@@ -215,8 +215,16 @@ class Beam(BackendGeom):
         self._up = self._orientation.zdir
         self._angle = angle
 
-    def get_cog(self):
+    def get_cog(self) -> Point:
         return self.offset_helper.get_cog()
+
+    def get_volume(self) -> float:
+        area = self.section.properties.Ax
+        length = self.length
+        return area * length
+
+    def get_mass(self) -> float:
+        return self.get_volume() * self.material.model.rho
 
     def is_point_on_beam(self, point: Union[np.ndarray, Node]) -> bool:
         if isinstance(point, Node):
