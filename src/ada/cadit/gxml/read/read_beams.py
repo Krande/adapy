@@ -46,7 +46,7 @@ def el_to_beam(bm_el: ET.Element, parent: Part) -> List[Beam]:
 
 def apply_offsets_and_alignments(name: str, bm_el: ET.Element, segs: list[Beam]):
     e1, e2, use_local = get_offsets(bm_el)
-    alignment = get_alignment(bm_el, segs)
+    alignment, justification = get_alignment(bm_el, segs)
 
     if len(segs) > 1 and (e1 is not None or e2 is not None):
         logger.debug(f"Offset at end 1 for beam {name} is ignored as there are more than 1 segments")
@@ -66,6 +66,8 @@ def apply_offsets_and_alignments(name: str, bm_el: ET.Element, segs: list[Beam])
 
     if alignment is not None:
         for seg in segs:
+            if justification is not None:
+                seg.justification = justification
             seg.e1 = alignment if seg.e1 is None else seg.e1 + alignment
             seg.e2 = alignment if seg.e2 is None else seg.e2 + alignment
 
@@ -98,6 +100,7 @@ def get_offsets(bm_el: ET.Element) -> tuple[np.ndarray, np.ndarray, bool]:
 
 
 def get_alignment(bm_el: ET.Element, segments: list[Beam]):
+    justification = None
     seg0 = segments[0]
     sec0 = seg0.section
     zv = seg0.up
@@ -106,7 +109,7 @@ def get_alignment(bm_el: ET.Element, segments: list[Beam]):
     if aligned_offset is None:
         if sec0.type == sec0.TYPES.ANGULAR:
             offset = -zv * (sec0.properties.Cgz - sec0.h)
-            return offset
+            return offset, justification
         return None
 
     alignment = aligned_offset.attrib.get("alignment")
@@ -114,8 +117,10 @@ def get_alignment(bm_el: ET.Element, segments: list[Beam]):
 
     flush_factor = 0
     if alignment == "flush_top":
+        justification = "flush offset"
         flush_factor = -1
     elif alignment == "flush_bottom":
+        justification = "flush offset"
         flush_factor = 1
 
     if sec0.type == sec0.TYPES.ANGULAR:
@@ -123,27 +128,27 @@ def get_alignment(bm_el: ET.Element, segments: list[Beam]):
             pass  # Angular profiles are already flush
         elif alignment == "flush_bottom":
             offset = zv * sec0.h
-            return offset
+            return offset, justification
         elif alignment == "no_flush":
             offset = zv * sec0.properties.Cgz
-            return offset
+            return offset, justification
     elif sec0.type == sec0.TYPES.TUBULAR:
         offset = flush_factor * zv * sec0.r
-        return offset
+        return offset, justification
     elif sec0.type == sec0.TYPES.IPROFILE and sec0.w_btn != sec0.w_top:
         # Note: this logic must be  aligned with to_gxml_unsymm_i_section in write_sections.js
         if (
             sec0.t_fbtn == sec0.t_ftop and sec0.t_w == sec0.w_btn
         ):  # this aims to identify a genie TPROFILE implemented as an unsymmetric IPROFILE
             offset = flush_factor * zv * sec0.properties.Cgz
-            return offset
+            return offset, justification
         else:
             logger.warning(f"The section {sec0.name} type {sec0.type} is not yet tested for Genie XML read")
             offset = flush_factor * zv * sec0.h / 2
-            return offset
+            return offset, justification
     else:
         offset = flush_factor * zv * sec0.h / 2
-        return offset
+        return offset, justification
 
 
 def convert_offset_to_global_csys(o: np.ndarray, bm: Beam):
