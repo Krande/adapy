@@ -558,7 +558,6 @@ class Part(BackendGeom):
         import numpy as np
 
         from ada import Beam, Plate, Point, Shape
-        from ada.core.vector_utils import poly_area_from_list
         from ada.fem.containers import COG
 
         beams_tot_mass = 0
@@ -587,10 +586,7 @@ class Part(BackendGeom):
                 shapes_tot_cogs.append(np.array(obj.cog_abs) * obj.mass)
                 shapes_tot_mass += obj.mass
             elif isinstance(obj, Beam):
-                rho = obj.material.model.rho
-                area = obj.section.properties.Ax
-                length = obj.length
-                mass = rho * area * length
+                mass = obj.get_mass()
                 cog = obj.get_cog()
                 cogs.append(cog * mass)
                 tot_mass += mass
@@ -598,10 +594,8 @@ class Part(BackendGeom):
                 beams_cogs.append(cog * mass)
                 beams_tot_mass += mass
             elif isinstance(obj, Plate):
-                rho = obj.material.model.rho
-                area = poly_area_from_list(obj.poly.points2d)
-                cog = obj.cog
-                mass = rho * obj.t * area
+                cog = obj.get_cog()
+                mass = obj.get_mass()
                 cogs.append(cog * mass)
                 tot_mass += mass
                 # plates only
@@ -615,7 +609,6 @@ class Part(BackendGeom):
             point_masses_tot_mass += mass.mass
 
         cog = Point(sum(cogs) / tot_mass)
-        #
 
         if beams_tot_mass > 0:
             beams_cog = Point(sum(beams_cogs) / beams_tot_mass)
@@ -632,7 +625,7 @@ class Part(BackendGeom):
             point_masses_tot_cog = Point(sum(point_masses_tot_cogs) / point_masses_tot_mass)
             logger.debug(f"{self.name}: fem point masses cog: {point_masses_tot_cog} mass: {point_masses_tot_mass}")
 
-        return COG(cog, tot_mass)
+        return COG(cog, tot_mass, None, plates_tot_mass, beams_tot_mass, point_masses_tot_mass)
 
     def create_objects_from_fem(self, skip_plates=False, skip_beams=False) -> None:
         """Build Beams and Plates from the contents of the local FEM object"""

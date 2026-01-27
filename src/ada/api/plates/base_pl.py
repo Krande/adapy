@@ -192,8 +192,7 @@ class Plate(BackendGeom):
 
         return Plate(name, self.poly.copy_to(origin, xdir, n), copy.copy(self.t), self.material.copy_to())
 
-    @property
-    def cog(self) -> Point:
+    def get_cog(self) -> Point:
         """
         Plate centroid in global coordinates.
 
@@ -254,6 +253,12 @@ class Plate(BackendGeom):
 
         cog = origin + cx * xdir + cy * ydir
         return Point(cog)
+
+    def get_volume(self) -> float:
+        return self.t * self.poly.get_area()
+
+    def get_mass(self) -> float:
+        return self.get_volume() * self.material.model.rho
 
     @property
     def id(self):

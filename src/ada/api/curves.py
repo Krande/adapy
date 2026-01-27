@@ -18,7 +18,7 @@ from ada.core.curve_utils import (
     transform_2d_arc_segment_to_3d,
 )
 from ada.core.vector_transforms import global_2_local_nodes, local_2_global_points
-from ada.core.vector_utils import is_clockwise
+from ada.core.vector_utils import is_clockwise, poly_area_from_list
 from ada.geom.direction import Direction
 from ada.geom.points import Point
 from ada.geom.surfaces import ArbitraryProfileDef, ProfileType
@@ -208,6 +208,9 @@ class CurveOpen2d:
         self._points2d = [Point(*[x * scale_factor for x in p]) for p in self._points2d]
         self._points3d = [Point(*x) for x in self.orientation.transform_local_points_to_global(self._points2d)]
         self._points_to_segments(self.points2d, tol=tol)
+
+    def get_area(self) -> float:
+        return poly_area_from_list(self.points2d)
 
     @property
     def orientation(self) -> Placement:

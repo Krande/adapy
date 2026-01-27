@@ -63,8 +63,6 @@ def add_straight_beam(beam: Beam, xml_root: ET.Element):
         ET.SubElement(straight_beam, "end2", {"hinge_ref": beam.hinge2.name})
 
     flush_offset_genie = beam.justification == Justification.FLUSH_OFFSET
-    # uncomment if need to debug ada cog calc, it will force to use calculated constant offset
-    # flush_offset_genie = False
 
     curve_offset = ET.SubElement(straight_beam, "curve_offset")
     data = beam.offset_helper.curve_offset_local()
