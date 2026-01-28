@@ -2,6 +2,22 @@
 
 
 
+## v0.7.11 (2026-01-28)
+
+### Chore
+
+* chore: bump actions/upload-artifact from 5 to 6 in the dependencies group (#172)
+
+Signed-off-by: dependabot[bot] &lt;support@github.com&gt;
+Co-authored-by: dependabot[bot] &lt;49699333+dependabot[bot]@users.noreply.github.com&gt; ([`9bc4058`](https://github.com/Krande/adapy/commit/9bc40582bcbeb6ccfefbfe8e7f91d762c81d033c))
+
+### Fix
+
+* fix: cog calc (#174)
+
+Co-authored-by: krande &lt;kristoffer_andersen@outlook.com&gt; ([`8ef0a67`](https://github.com/Krande/adapy/commit/8ef0a67058d64218a0b161e0e9eb9c3fb6640a89))
+
+
 ## v0.7.10 (2025-11-28)
 
 ### Chore
