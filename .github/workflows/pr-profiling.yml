@@ -1,0 +1,76 @@
+name: PR Profiling
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'src/**'
+      - 'tests/profiling/**'
+      - 'pyproject.toml'
+      - 'pixi.lock'
+
+concurrency:
+  group: pr-profiling-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  profile:
+    name: Profile and Track Performance
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Setup Pixi
+        uses: prefix-dev/setup-pixi@v0.9.3
+        with:
+          pixi-version: v0.55.0
+          environments: profile
+          cache: true
+
+      - name: Restore Profiling History
+        uses: actions/cache@v4
+        with:
+          path: output/profiling_history.json
+          key: profiling-history-${{ github.event.pull_request.number }}
+          restore-keys: |
+            profiling-history-
+
+      - name: Run Profiling
+        run: pixi run -e profile benchmark-profile
+
+      - name: Process Results
+        run: pixi run -e profile python scripts/process_benchmark_results.py
+        env:
+          GITHUB_SHA: ${{ github.event.pull_request.head.sha }}
+
+      - name: Save Profiling History
+        uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: output/profiling_history.json
+          key: profiling-history-${{ github.event.pull_request.number }}-${{ github.run_id }}
+
+      - name: Upload Profiling Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: profiling-results-${{ github.event.pull_request.head.sha }}
+          path: output/
+          # Alternatively list files explicitly if we don't want everything in output/
+          # path: |
+          #   output/profiling_report.html
+          #   output/profiling_data.prof
+          #   output/top_20_stats.json
+          #   output/profiling_comment.md
+
+      - name: Post Comment
+        uses: thollander/actions-comment-pull-request@v2
+        with:
+          filePath: output/profiling_comment.md
+          comment_tag: profiling-results

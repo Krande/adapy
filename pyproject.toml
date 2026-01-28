@@ -267,6 +267,7 @@ json-code-gen-ts = { cmd = [
     "--output","$PIXI_PROJECT_ROOT/src/frontend/src/extensions/design_and_analysis_extension.d.ts"], depends-on = ["json-code-gen-py"], env = { "npm_config_cache" = "$PIXI_PROJECT_ROOT/temp/npm_config" }, cwd="src/gltf_extension_schema/" }
 
 [tool.pixi.feature.profile.tasks]
+benchmark-profile = { cmd = "python scripts/benchmark_profile.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 scalene = { cmd = "scalene --json -m pytest ./tests/profiling --outfile=profile.json", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 cprofile = { cmd = "python -m cProfile -o profile.prof -m pytest ./tests/profiling", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 pyprofile = { cmd = "pyinstrument -m pytest ./tests/profiling", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
