@@ -82,7 +82,7 @@ class OffsetHelper:
         yvec = self.beam.yvec
         up = self.beam.up
 
-        if self.beam.placement is not None and self.beam.placement.is_identity() is False:
+        if self.beam.placement is not None:
             ident_place = Placement()
             place_abs = self.beam.placement.get_absolute_placement(include_rotations=True)
 
@@ -104,7 +104,7 @@ class OffsetHelper:
         """
         from ada import Placement
 
-        if self.beam.placement is None or self.beam.placement.is_identity():
+        if self.beam.placement is None:
             return p
 
         ident_place = Placement()

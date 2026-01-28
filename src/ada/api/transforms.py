@@ -227,9 +227,6 @@ class Placement:
         """
         from ada import Placement
 
-        if self.is_identity():
-            return p
-
         ident_place = Placement()
         place_abs = self.get_absolute_placement(include_rotations=True)
         # include translation
