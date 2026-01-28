@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Iterable, Literal, TypeAlias, Union
 import numpy as np
 
 import ada.api.beams.geom_beams as geo_conv
+from ada.api.beams.justification import Justification, OffsetHelper
 from ada.api.bounding_box import BoundingBox
 from ada.api.curves import LineSegment
 from ada.api.nodes import Node, get_singular_node_by_volume
@@ -109,6 +110,7 @@ class Beam(BackendGeom):
         units=Units.M,
         hi1: BeamHinge = None,
         hi2: BeamHinge = None,
+        justification: Justification | str = Justification.NA,
         **kwargs,
     ):
         from ada.api.beams.helpers import BeamConnectionProps
@@ -145,6 +147,12 @@ class Beam(BackendGeom):
         self._hi1 = hi1
         self._hi2 = hi2
         self._hash = None
+
+        if isinstance(justification, str):
+            justification = Justification.from_str(justification)
+
+        self._justification = justification
+        self._offset_helper = OffsetHelper(self)
 
     @staticmethod
     def array_from_list_of_coords(
@@ -206,6 +214,17 @@ class Beam(BackendGeom):
         self._yvec = self._orientation.ydir
         self._up = self._orientation.zdir
         self._angle = angle
+
+    def get_cog(self) -> Point:
+        return self.offset_helper.get_cog()
+
+    def get_volume(self) -> float:
+        area = self.section.properties.Ax
+        length = self.length
+        return area * length
+
+    def get_mass(self) -> float:
+        return self.get_volume() * self.material.model.rho
 
     def is_point_on_beam(self, point: Union[np.ndarray, Node]) -> bool:
         if isinstance(point, Node):
@@ -500,6 +519,20 @@ class Beam(BackendGeom):
     @e2.setter
     def e2(self, value: Iterable):
         self._e2 = Direction(*value)
+
+    @property
+    def justification(self) -> Justification:
+        return self._justification
+
+    @justification.setter
+    def justification(self, value: Justification | str):
+        if isinstance(value, str):
+            value = Justification.from_str(value)
+        self._justification = value
+
+    @property
+    def offset_helper(self) -> OffsetHelper:
+        return self._offset_helper
 
     @property
     def nodes(self) -> list[Node]:

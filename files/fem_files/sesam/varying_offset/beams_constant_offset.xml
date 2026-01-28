@@ -1,0 +1,579 @@
+<?xml version="1.0" encoding="ASCII"?>
+<DNV_structure_concept_protocol version="1.6">
+	<administrative>
+		<program program="GeniE" version="V8.13-02" version_date="12-Oct-2025" platform="64bit" />
+		<session_info date="26-Jan-2026" time="13:15:00" user="ofsolha3" />
+	</administrative>
+	<model name="Assembly">
+		<units>
+			<model_units length="m" time="s" temp_diff="delC" force="N" angle="rad" mass="" />
+			<acis_units length="m" />
+			<input_units>
+				<input_unit phenomenon="Angle" unit="deg" />
+			</input_units>
+		</units>
+		<structure_domain>
+			<properties>
+				<sections>
+					<section name="BG800x600x20x30">
+						<box_section h="0.8" b="0.6" tw="0.02" tftop="0.03" tfbot="0.03" fabrication="unknown" sfy="1" sfz="1" general_properties_method="computed" />
+					</section>
+					<section name="FB100x10">
+						<bar_section h="0.1" b="0.01" fabrication="unknown" sfy="1" sfz="1" general_properties_method="computed" />
+					</section>
+					<section name="HEA300">
+						<i_section h="0.29" b="0.3" tw="0.0085" tf="0.014" fabrication="unknown" sfy="1" sfz="1" general_properties_method="computed" />
+					</section>
+					<section name="HP180x10">
+						<l_section h="0.18" b="0.035" tw="0.01" tf="0.01975" fabrication="unknown" sfy="1" sfz="1" general_properties_method="computed" />
+					</section>
+					<section name="TG650x300x25x40">
+						<unsymmetrical_i_section h="0.65" tw="0.025" bftop="0.3" bftop1="0.15" tftop="0.04" bfbot="0.025" bfbot1="0.0125" tfbot="0.04" fabrication="unknown" sfy="1" sfz="1" general_properties_method="computed" />
+					</section>
+					<section name="TUB375x35">
+						<pipe_section od="0.75" th="0.035" fabrication="unknown" sfy="1" sfz="1" general_properties_method="computed" />
+					</section>
+					<section name="UNP180">
+						<channel_section h="0.18" b="0.07" tw="0.008" tf="0.011" fabrication="unknown" sfy="1" sfz="1" general_properties_method="computed" />
+					</section>
+				</sections>
+				<mesh_properties />
+				<hydro_properties />
+				<materials>
+					<material name="S355">
+						<isotropic_linear_material yield_stress="355000000" density="7850" youngs_modulus="2.1e+11" poissons_ratio="0.3" thermal_expansion="1.2e-05" damping="0.03" />
+					</material>
+					<material name="S420">
+						<isotropic_linear_material yield_stress="420000000" density="7850" youngs_modulus="2.1e+11" poissons_ratio="0.3" thermal_expansion="1.2e-05" damping="0.03" />
+					</material>
+				</materials>
+				<thicknesses>
+					<thickness name="thk001" default="true">
+						<constant_thickness th="0.001" />
+					</thickness>
+				</thicknesses>
+			</properties>
+			<structures>
+				<structure>
+					<flat_plate name="cube_ANGULAR_Room1_f3_i1_j1" thickness_ref="thk001" material_ref="S420">
+						<segmentation />
+						<front />
+						<back />
+						<local_system>
+							<vector x="0" y="0" z="-1" dir="z" />
+						</local_system>
+						<geometry>
+							<sheet>
+								<sat_reference>
+									<face face_ref="FACE00000006" />
+								</sat_reference>
+							</sheet>
+						</geometry>
+					</flat_plate>
+				</structure>
+				<structure>
+					<straight_beam name="cube_ANGULAR_Room1_f3_i1_j1_gbm1">
+						<curve_orientation>
+							<customizable_curve_orientation use_default_rule="false">
+								<orientation>
+									<local_system>
+										<xvector x="1" y="0" z="0" />
+										<zvector x="0" y="0" z="1" />
+										<yvector x="0" y="1" z="0" />
+									</local_system>
+								</orientation>
+							</customizable_curve_orientation>
+						</curve_orientation>
+						<local_system>
+							<vector x="1" y="0" z="0" dir="x" />
+							<vector x="0" y="1" z="0" dir="y" />
+							<vector x="0" y="0" z="1" dir="z" />
+						</local_system>
+						<segments>
+							<straight_segment index="1" section_ref="HP180x10" material_ref="S355">
+								<geometry>
+									<wire>
+										<guide>
+											<position x="0" y="6" z="0" end="1" />
+											<position x="1" y="6" z="0" end="2" />
+										</guide>
+										<sat_reference>
+											<edge edge_ref="EDGE00000006" />
+										</sat_reference>
+									</wire>
+								</geometry>
+							</straight_segment>
+						</segments>
+						<curve_offset>
+							<constant_curve_offset use_local_system="true">
+								<constant_offset x="0" y="0" z="-0.1072476158" />
+							</constant_curve_offset>
+						</curve_offset>
+						<end1 />
+						<end2 />
+					</straight_beam>
+				</structure>
+				<structure>
+					<flat_plate name="cube_BOX_Room1_f3_i1_j1" thickness_ref="thk001" material_ref="S420">
+						<segmentation />
+						<front />
+						<back />
+						<local_system>
+							<vector x="0" y="0" z="-1" dir="z" />
+						</local_system>
+						<geometry>
+							<sheet>
+								<sat_reference>
+									<face face_ref="FACE00000004" />
+								</sat_reference>
+							</sheet>
+						</geometry>
+					</flat_plate>
+				</structure>
+				<structure>
+					<straight_beam name="cube_BOX_Room1_f3_i1_j1_gbm1">
+						<curve_orientation>
+							<customizable_curve_orientation use_default_rule="false">
+								<orientation>
+									<local_system>
+										<xvector x="1" y="0" z="0" />
+										<zvector x="0" y="0" z="-1" />
+										<yvector x="0" y="-1" z="0" />
+									</local_system>
+								</orientation>
+							</customizable_curve_orientation>
+						</curve_orientation>
+						<local_system>
+							<vector x="1" y="0" z="0" dir="x" />
+							<vector x="0" y="-1" z="0" dir="y" />
+							<vector x="0" y="0" z="-1" dir="z" />
+						</local_system>
+						<segments>
+							<straight_segment index="1" section_ref="BG800x600x20x30" material_ref="S355">
+								<geometry>
+									<wire>
+										<guide>
+											<position x="0" y="0" z="0" end="1" />
+											<position x="1" y="0" z="0" end="2" />
+										</guide>
+										<sat_reference>
+											<edge edge_ref="EDGE00000004" />
+										</sat_reference>
+									</wire>
+								</geometry>
+							</straight_segment>
+						</segments>
+						<curve_offset>
+							<constant_curve_offset use_local_system="true">
+								<constant_offset x="0" y="0" z="-0.4" />
+							</constant_curve_offset>
+						</curve_offset>
+						<end1 />
+						<end2 />
+					</straight_beam>
+				</structure>
+				<structure>
+					<flat_plate name="cube_CHANNEL_Room1_f3_i1_j1" thickness_ref="thk001" material_ref="S420">
+						<segmentation />
+						<front />
+						<back />
+						<local_system>
+							<vector x="0" y="0" z="-1" dir="z" />
+						</local_system>
+						<geometry>
+							<sheet>
+								<sat_reference>
+									<face face_ref="FACE00000001" />
+								</sat_reference>
+							</sheet>
+						</geometry>
+					</flat_plate>
+				</structure>
+				<structure>
+					<straight_beam name="cube_CHANNEL_Room1_f3_i1_j1_gbm1">
+						<curve_orientation>
+							<customizable_curve_orientation use_default_rule="false">
+								<orientation>
+									<local_system>
+										<xvector x="1" y="0" z="0" />
+										<zvector x="0" y="0" z="-1" />
+										<yvector x="0" y="-1" z="0" />
+									</local_system>
+								</orientation>
+							</customizable_curve_orientation>
+						</curve_orientation>
+						<local_system>
+							<vector x="1" y="0" z="0" dir="x" />
+							<vector x="0" y="-1" z="0" dir="y" />
+							<vector x="0" y="0" z="-1" dir="z" />
+						</local_system>
+						<segments>
+							<straight_segment index="1" section_ref="UNP180" material_ref="S355">
+								<geometry>
+									<wire>
+										<guide>
+											<position x="0" y="7.5" z="0" end="1" />
+											<position x="1" y="7.5" z="0" end="2" />
+										</guide>
+										<sat_reference>
+											<edge edge_ref="EDGE00000001" />
+										</sat_reference>
+									</wire>
+								</geometry>
+							</straight_segment>
+						</segments>
+						<curve_offset>
+							<constant_curve_offset use_local_system="true">
+								<constant_offset x="0" y="0" z="-0.09" />
+							</constant_curve_offset>
+						</curve_offset>
+						<end1 />
+						<end2 />
+					</straight_beam>
+				</structure>
+				<structure>
+					<flat_plate name="cube_FLATBAR_Room1_f3_i1_j1" thickness_ref="thk001" material_ref="S420">
+						<segmentation />
+						<front />
+						<back />
+						<local_system>
+							<vector x="0" y="0" z="-1" dir="z" />
+						</local_system>
+						<geometry>
+							<sheet>
+								<sat_reference>
+									<face face_ref="FACE00000007" />
+								</sat_reference>
+							</sheet>
+						</geometry>
+					</flat_plate>
+				</structure>
+				<structure>
+					<straight_beam name="cube_FLATBAR_Room1_f3_i1_j1_gbm1">
+						<curve_orientation>
+							<customizable_curve_orientation use_default_rule="false">
+								<orientation>
+									<local_system>
+										<xvector x="1" y="0" z="0" />
+										<zvector x="0" y="0" z="-1" />
+										<yvector x="0" y="-1" z="0" />
+									</local_system>
+								</orientation>
+							</customizable_curve_orientation>
+						</curve_orientation>
+						<local_system>
+							<vector x="1" y="0" z="0" dir="x" />
+							<vector x="0" y="-1" z="0" dir="y" />
+							<vector x="0" y="0" z="-1" dir="z" />
+						</local_system>
+						<segments>
+							<straight_segment index="1" section_ref="FB100x10" material_ref="S355">
+								<geometry>
+									<wire>
+										<guide>
+											<position x="0" y="9" z="0" end="1" />
+											<position x="1" y="9" z="0" end="2" />
+										</guide>
+										<sat_reference>
+											<edge edge_ref="EDGE00000007" />
+										</sat_reference>
+									</wire>
+								</geometry>
+							</straight_segment>
+						</segments>
+						<curve_offset>
+							<constant_curve_offset use_local_system="true">
+								<constant_offset x="0" y="0" z="-0.05" />
+							</constant_curve_offset>
+						</curve_offset>
+						<end1 />
+						<end2 />
+					</straight_beam>
+				</structure>
+				<structure>
+					<flat_plate name="cube_IPROFILE_Room1_f3_i1_j1" thickness_ref="thk001" material_ref="S420">
+						<segmentation />
+						<front />
+						<back />
+						<local_system>
+							<vector x="0" y="0" z="-1" dir="z" />
+						</local_system>
+						<geometry>
+							<sheet>
+								<sat_reference>
+									<face face_ref="FACE00000005" />
+								</sat_reference>
+							</sheet>
+						</geometry>
+					</flat_plate>
+				</structure>
+				<structure>
+					<straight_beam name="cube_IPROFILE_Room1_f3_i1_j1_gbm1">
+						<curve_orientation>
+							<customizable_curve_orientation use_default_rule="false">
+								<orientation>
+									<local_system>
+										<xvector x="1" y="0" z="0" />
+										<zvector x="0" y="0" z="-1" />
+										<yvector x="0" y="-1" z="0" />
+									</local_system>
+								</orientation>
+							</customizable_curve_orientation>
+						</curve_orientation>
+						<local_system>
+							<vector x="1" y="0" z="0" dir="x" />
+							<vector x="0" y="-1" z="0" dir="y" />
+							<vector x="0" y="0" z="-1" dir="z" />
+						</local_system>
+						<segments>
+							<straight_segment index="1" section_ref="HEA300" material_ref="S355">
+								<geometry>
+									<wire>
+										<guide>
+											<position x="0" y="3" z="0" end="1" />
+											<position x="1" y="3" z="0" end="2" />
+										</guide>
+										<sat_reference>
+											<edge edge_ref="EDGE00000005" />
+										</sat_reference>
+									</wire>
+								</geometry>
+							</straight_segment>
+						</segments>
+						<curve_offset>
+							<constant_curve_offset use_local_system="true">
+								<constant_offset x="0" y="0" z="-0.145" />
+							</constant_curve_offset>
+						</curve_offset>
+						<end1 />
+						<end2 />
+					</straight_beam>
+				</structure>
+				<structure>
+					<flat_plate name="cube_TPROFILE_Room1_f3_i1_j1" thickness_ref="thk001" material_ref="S420">
+						<segmentation />
+						<front />
+						<back />
+						<local_system>
+							<vector x="0" y="0" z="-1" dir="z" />
+						</local_system>
+						<geometry>
+							<sheet>
+								<sat_reference>
+									<face face_ref="FACE00000002" />
+								</sat_reference>
+							</sheet>
+						</geometry>
+					</flat_plate>
+				</structure>
+				<structure>
+					<straight_beam name="cube_TPROFILE_Room1_f3_i1_j1_gbm1">
+						<curve_orientation>
+							<customizable_curve_orientation use_default_rule="false">
+								<orientation>
+									<local_system>
+										<xvector x="1" y="0" z="0" />
+										<zvector x="0" y="0" z="-1" />
+										<yvector x="0" y="-1" z="0" />
+									</local_system>
+								</orientation>
+							</customizable_curve_orientation>
+						</curve_orientation>
+						<local_system>
+							<vector x="1" y="0" z="0" dir="x" />
+							<vector x="0" y="-1" z="0" dir="y" />
+							<vector x="0" y="0" z="-1" dir="z" />
+						</local_system>
+						<segments>
+							<straight_segment index="1" section_ref="TG650x300x25x40" material_ref="S355">
+								<geometry>
+									<wire>
+										<guide>
+											<position x="0" y="4.5" z="0" end="1" />
+											<position x="1" y="4.5" z="0" end="2" />
+										</guide>
+										<sat_reference>
+											<edge edge_ref="EDGE00000002" />
+										</sat_reference>
+									</wire>
+								</geometry>
+							</straight_segment>
+						</segments>
+						<curve_offset>
+							<constant_curve_offset use_local_system="true">
+								<constant_offset x="0" y="0" z="0.4481192661" />
+							</constant_curve_offset>
+						</curve_offset>
+						<end1 />
+						<end2 />
+					</straight_beam>
+				</structure>
+				<structure>
+					<flat_plate name="cube_TUBULAR_Room1_f3_i1_j1" thickness_ref="thk001" material_ref="S420">
+						<segmentation />
+						<front />
+						<back />
+						<local_system>
+							<vector x="0" y="0" z="-1" dir="z" />
+						</local_system>
+						<geometry>
+							<sheet>
+								<sat_reference>
+									<face face_ref="FACE00000003" />
+								</sat_reference>
+							</sheet>
+						</geometry>
+					</flat_plate>
+				</structure>
+				<structure>
+					<straight_beam name="cube_TUBULAR_Room1_f3_i1_j1_gbm1">
+						<curve_orientation>
+							<customizable_curve_orientation use_default_rule="false">
+								<orientation>
+									<local_system>
+										<xvector x="1" y="0" z="0" />
+										<zvector x="0" y="0" z="-1" />
+										<yvector x="0" y="-1" z="0" />
+									</local_system>
+								</orientation>
+							</customizable_curve_orientation>
+						</curve_orientation>
+						<local_system>
+							<vector x="1" y="0" z="0" dir="x" />
+							<vector x="0" y="-1" z="0" dir="y" />
+							<vector x="0" y="0" z="-1" dir="z" />
+						</local_system>
+						<segments>
+							<straight_segment index="1" section_ref="TUB375x35" material_ref="S355">
+								<geometry>
+									<wire>
+										<guide>
+											<position x="0" y="1.5" z="0" end="1" />
+											<position x="1" y="1.5" z="0" end="2" />
+										</guide>
+										<sat_reference>
+											<edge edge_ref="EDGE00000003" />
+										</sat_reference>
+									</wire>
+								</geometry>
+							</straight_segment>
+						</segments>
+						<curve_offset>
+							<constant_curve_offset use_local_system="true">
+								<constant_offset x="0" y="0" z="-0.375" />
+							</constant_curve_offset>
+						</curve_offset>
+						<end1 />
+						<end2 />
+					</straight_beam>
+				</structure>
+			</structures>
+			<feature_concepts />
+			<sets>
+				<set name="cube_BOX">
+					<concepts>
+						<concept concept_ref="cube_BOX_Room1_f3_i1_j1_gbm1" />
+						<concept concept_ref="cube_BOX_Room1_f3_i1_j1" />
+					</concepts>
+				</set>
+				<set name="cube_BOX_area_P100">
+					<concepts>
+						<concept concept_ref="cube_BOX_Room1_f3_i1_j1_gbm1" />
+						<concept concept_ref="cube_BOX_Room1_f3_i1_j1" />
+					</concepts>
+				</set>
+				<set name="cube_TUBULAR">
+					<concepts>
+						<concept concept_ref="cube_TUBULAR_Room1_f3_i1_j1_gbm1" />
+						<concept concept_ref="cube_TUBULAR_Room1_f3_i1_j1" />
+					</concepts>
+				</set>
+				<set name="cube_TUBULAR_area_P100">
+					<concepts>
+						<concept concept_ref="cube_TUBULAR_Room1_f3_i1_j1_gbm1" />
+						<concept concept_ref="cube_TUBULAR_Room1_f3_i1_j1" />
+					</concepts>
+				</set>
+				<set name="cube_IPROFILE">
+					<concepts>
+						<concept concept_ref="cube_IPROFILE_Room1_f3_i1_j1_gbm1" />
+						<concept concept_ref="cube_IPROFILE_Room1_f3_i1_j1" />
+					</concepts>
+				</set>
+				<set name="cube_IPROFILE_area_P100">
+					<concepts>
+						<concept concept_ref="cube_IPROFILE_Room1_f3_i1_j1_gbm1" />
+						<concept concept_ref="cube_IPROFILE_Room1_f3_i1_j1" />
+					</concepts>
+				</set>
+				<set name="cube_TPROFILE">
+					<concepts>
+						<concept concept_ref="cube_TPROFILE_Room1_f3_i1_j1_gbm1" />
+						<concept concept_ref="cube_TPROFILE_Room1_f3_i1_j1" />
+					</concepts>
+				</set>
+				<set name="cube_TPROFILE_area_P100">
+					<concepts>
+						<concept concept_ref="cube_TPROFILE_Room1_f3_i1_j1_gbm1" />
+						<concept concept_ref="cube_TPROFILE_Room1_f3_i1_j1" />
+					</concepts>
+				</set>
+				<set name="cube_ANGULAR">
+					<concepts>
+						<concept concept_ref="cube_ANGULAR_Room1_f3_i1_j1_gbm1" />
+						<concept concept_ref="cube_ANGULAR_Room1_f3_i1_j1" />
+					</concepts>
+				</set>
+				<set name="cube_ANGULAR_area_P100">
+					<concepts>
+						<concept concept_ref="cube_ANGULAR_Room1_f3_i1_j1_gbm1" />
+						<concept concept_ref="cube_ANGULAR_Room1_f3_i1_j1" />
+					</concepts>
+				</set>
+				<set name="cube_CHANNEL">
+					<concepts>
+						<concept concept_ref="cube_CHANNEL_Room1_f3_i1_j1_gbm1" />
+						<concept concept_ref="cube_CHANNEL_Room1_f3_i1_j1" />
+					</concepts>
+				</set>
+				<set name="cube_CHANNEL_area_P100">
+					<concepts>
+						<concept concept_ref="cube_CHANNEL_Room1_f3_i1_j1_gbm1" />
+						<concept concept_ref="cube_CHANNEL_Room1_f3_i1_j1" />
+					</concepts>
+				</set>
+				<set name="cube_FLATBAR">
+					<concepts>
+						<concept concept_ref="cube_FLATBAR_Room1_f3_i1_j1_gbm1" />
+						<concept concept_ref="cube_FLATBAR_Room1_f3_i1_j1" />
+					</concepts>
+				</set>
+				<set name="cube_FLATBAR_area_P100">
+					<concepts>
+						<concept concept_ref="cube_FLATBAR_Room1_f3_i1_j1_gbm1" />
+						<concept concept_ref="cube_FLATBAR_Room1_f3_i1_j1" />
+					</concepts>
+				</set>
+			</sets>
+			<geometry>
+				<sat_embedded encoding="base64" compression="zip" tag_name="dnvscp"><![CDATA[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]]></sat_embedded>
+			</geometry>
+		</structure_domain>
+		<utilities>
+			<guide_geometry />
+		</utilities>
+		<equipment_domain>
+			<equipment_concepts />
+		</equipment_domain>
+		<evaluators>
+			<slicer_concepts />
+		</evaluators>
+		<environment>
+			<environment_properties />
+			<environment_concepts />
+		</environment>
+		<compartments>
+			<compartment_properties />
+		</compartments>
+	</model>
+</DNV_structure_concept_protocol>

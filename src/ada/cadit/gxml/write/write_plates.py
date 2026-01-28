@@ -3,6 +3,10 @@ from __future__ import annotations
 import xml.etree.ElementTree as ET
 from typing import TYPE_CHECKING
 
+import numpy as np
+
+from ada.api.transforms import Placement
+
 from ...sat.write.writer import SatWriter
 
 if TYPE_CHECKING:
@@ -49,11 +53,22 @@ def add_plate_polygon(plate: Plate, thck_name: str, structures_elem: ET.Element)
     sheet = ET.SubElement(geometry, "sheet")
     polygons = ET.SubElement(sheet, "polygons")
     polygon = ET.SubElement(polygons, "polygon")
-    abs_place = plate.placement.get_absolute_placement()
-    origin = abs_place.origin
+
+    # abs_place = plate.placement.get_absolute_placement()
+    # origin = abs_place.origin
+    # for pt in plate.poly.points3d:
+    #    p_tra = origin + pt.copy()
+    #    ET.SubElement(polygon, "position", {"x": str(p_tra[0]), "y": str(p_tra[1]), "z": str(p_tra[2])})
+
+    abs_place = plate.placement.get_absolute_placement(include_rotations=True)
+    ident = Placement()  # identity place
+
     for pt in plate.poly.points3d:
-        p_tra = origin + pt.copy()
-        ET.SubElement(polygon, "position", {"x": str(p_tra[0]), "y": str(p_tra[1]), "z": str(p_tra[2])})
+        # pt is local in plate coords -> transform to global with rotation+translation
+        p_global = abs_place.transform_array_from_other_place(
+            np.asarray([pt], dtype=float), ident, ignore_translation=False
+        )[0]
+        ET.SubElement(polygon, "position", {"x": str(p_global[0]), "y": str(p_global[1]), "z": str(p_global[2])})
 
 
 def add_plates(structure_domain: ET.Element, part: Part, sw: SatWriter):

@@ -77,7 +77,13 @@ class Shape(BackendGeom):
         self._mass = value
 
     @property
+    def cog_abs(self) -> Point:
+        """COG in absolute coordinate system"""
+        return self.placement.transfom_point_to_absolute(self._cog)
+
+    @property
     def cog(self) -> Point:
+        """COG in the local coordinate system"""
         return self._cog
 
     @cog.setter

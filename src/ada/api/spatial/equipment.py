@@ -1,21 +1,12 @@
 from __future__ import annotations
 
-from enum import Enum
 from typing import TYPE_CHECKING, Iterable
 
+from .eq_types import EquipRepr
 from .part import Part
 
 if TYPE_CHECKING:
     from ada import LoadConceptCase, Point
-
-
-class EquipRepr(str, Enum):
-    AS_IS = "AS_IS"
-    LINE_LOAD = "LINE_LOAD"
-    BEAMS_AND_MASS = "BEAM_MASS"
-    ECCENTRIC_MASS = "ECCENTRIC_MASS"
-    FOOTPRINT_MASS = "FOOTPRINT_MASS"
-    VERTICAL_BEAMS_AND_MASS = "VERTICAL_BEAM_MASS"
 
 
 class Equipment(Part):

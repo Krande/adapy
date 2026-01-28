@@ -33,8 +33,9 @@ jobs:
           run:
             shell: bash -l {0}
         strategy:
+          fail-fast: false
           matrix:
-            os: [ubuntu-latest, windows-latest, macos-13]
+            os: [ubuntu-latest, windows-latest, macos-latest]
         steps:
         - uses: actions/checkout@v6
           with:

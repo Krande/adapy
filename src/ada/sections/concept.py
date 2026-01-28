@@ -398,6 +398,9 @@ class GeneralProperties:
     Sfz: float = 1
     Cy: float = None
     Cz: float = None
+    # --- geometric centroid (for geometry / COG) ---
+    Cgy: float = None  # geometric centroid Y
+    Cgz: float = None  # geometric centroid Z
 
     def __hash__(self):
         return hash(
@@ -420,6 +423,8 @@ class GeneralProperties:
                 self.Sfz,
                 self.Cy,
                 self.Cz,
+                self.Cgy,
+                self.Cgz,
             )
         )
 

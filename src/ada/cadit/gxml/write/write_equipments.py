@@ -3,7 +3,7 @@ from __future__ import annotations
 import xml.etree.ElementTree as ET
 from typing import TYPE_CHECKING
 
-from ada.api.spatial.equipment import EquipRepr
+from ada.api.spatial.eq_types import EquipRepr
 from ada.cadit.gxml.write.write_utils import add_local_system
 from ada.config import logger
 

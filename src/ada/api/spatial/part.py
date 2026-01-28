@@ -14,6 +14,8 @@ from ada.api.containers import Beams, Connections, Materials, Nodes, Plates, Sec
 from ada.api.groups import Group
 from ada.api.plates import PlateCurved
 from ada.api.presentation_layers import PresentationLayers
+from ada.api.spatial.eq_types import EquipRepr
+from ada.api.transforms import Placement
 from ada.base.changes import ChangeAction
 from ada.base.ifc_types import SpatialTypes
 from ada.base.physical_objects import BackendGeom
@@ -29,12 +31,11 @@ from ada.visit.scene_converter import SceneConverter
 if TYPE_CHECKING:
     import trimesh
 
-    from ada import (
+    from ada import (  # Placement,
         FEM,
         Boolean,
         Instance,
         Material,
-        Placement,
         Plate,
         Point,
         Section,
@@ -557,42 +558,74 @@ class Part(BackendGeom):
         import numpy as np
 
         from ada import Beam, Plate, Point, Shape
-        from ada.core.vector_transforms import local_2_global_points
-        from ada.core.vector_utils import poly2d_center_of_gravity, poly_area_from_list
         from ada.fem.containers import COG
+
+        beams_tot_mass = 0
+        plates_tot_mass = 0
+        shapes_tot_mass = 0
+        point_masses_tot_mass = 0
+
+        beams_cogs = []
+        plates_cogs = []
+        shapes_tot_cogs = []
+        point_masses_tot_cogs = []
 
         tot_mass = 0
         cogs = []
         for obj in self.get_all_physical_objects():
-            if issubclass(type(obj), Shape):  # Assuming Mass & COG is manually assigned to arbitrary shape
-                cogs.append(np.array(obj.cog) * obj.mass)
+            parent = obj.parent
+            if hasattr(parent, "eq_repr") and parent.eq_repr != EquipRepr.AS_IS and not issubclass(type(obj), Shape):
+                continue
+
+            if issubclass(
+                type(obj), Shape
+            ):  # Assuming Mass & COG is manually assigned to arbitrary shape (Mass Point is Shape)
+                cogs.append(np.array(obj.cog_abs) * obj.mass)
                 tot_mass += obj.mass
+                # shapes only
+                shapes_tot_cogs.append(np.array(obj.cog_abs) * obj.mass)
+                shapes_tot_mass += obj.mass
             elif isinstance(obj, Beam):
-                rho = obj.material.model.rho
-                area = obj.section.properties.Ax
-                length = obj.length
-                mass = rho * area * length
-                cog = (obj.n1.p + obj.n2.p) / 2
+                mass = obj.get_mass()
+                cog = obj.get_cog()
                 cogs.append(cog * mass)
                 tot_mass += mass
+                # beams only
+                beams_cogs.append(cog * mass)
+                beams_tot_mass += mass
             elif isinstance(obj, Plate):
-                rho = obj.material.model.rho
-                positions = np.array(obj.poly.points2d)
-                place = obj.poly.placement
-
-                area = poly_area_from_list(obj.poly.points2d)
-                cog2d = poly2d_center_of_gravity(positions)
-                cog = local_2_global_points([cog2d], place.origin, place.xdir, place.zdir)[0]
-                mass = rho * obj.t * area
+                cog = obj.get_cog()
+                mass = obj.get_mass()
                 cogs.append(cog * mass)
                 tot_mass += mass
-
+                # plates only
+                plates_cogs.append(cog * mass)
+                plates_tot_mass += mass
         for mass in self.fem.masses.values():
             cogs.append(mass.nodes[0].p * mass.mass)
             tot_mass += mass.mass
+            # point masses only
+            point_masses_tot_cogs.append(mass.nodes[0].p * mass.mass)
+            point_masses_tot_mass += mass.mass
 
         cog = Point(sum(cogs) / tot_mass)
-        return COG(cog, tot_mass)
+
+        if beams_tot_mass > 0:
+            beams_cog = Point(sum(beams_cogs) / beams_tot_mass)
+            logger.debug(f"{self.name}: beams cog: {beams_cog} mass: {beams_tot_mass}")
+        if plates_tot_mass > 0:
+            plates_cog = Point(sum(plates_cogs) / plates_tot_mass)
+            logger.debug(f"{self.name}: plates cog: {plates_cog} mass: {plates_tot_mass}")
+        if shapes_tot_mass > 0:
+            shapes_tot_cog = Point(sum(shapes_tot_cogs) / shapes_tot_mass)
+            logger.debug(
+                f"{self.name}: shapes cog abs (equipments and point masses): {shapes_tot_cog} mass: {shapes_tot_mass}"
+            )
+        if point_masses_tot_mass > 0:
+            point_masses_tot_cog = Point(sum(point_masses_tot_cogs) / point_masses_tot_mass)
+            logger.debug(f"{self.name}: fem point masses cog: {point_masses_tot_cog} mass: {point_masses_tot_mass}")
+
+        return COG(cog, tot_mass, None, plates_tot_mass, beams_tot_mass, point_masses_tot_mass)
 
     def create_objects_from_fem(self, skip_plates=False, skip_beams=False) -> None:
         """Build Beams and Plates from the contents of the local FEM object"""

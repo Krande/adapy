@@ -4,8 +4,12 @@ import itertools
 import xml.etree.ElementTree as ET
 from typing import TYPE_CHECKING
 
-from ada.api.spatial.equipment import Equipment, EquipRepr
+from ada.api.beams.justification import Justification
+from ada.api.spatial.eq_types import EquipRepr
+from ada.api.spatial.equipment import Equipment
 from ada.cadit.sat.write.writer import SatWriter
+from ada.config import get_logger
+from ada.sections.categories import BaseTypes
 
 from .write_utils import add_local_system
 
@@ -58,8 +62,56 @@ def add_straight_beam(beam: Beam, xml_root: ET.Element):
     if beam.hinge2 is not None:
         ET.SubElement(straight_beam, "end2", {"hinge_ref": beam.hinge2.name})
 
+    flush_offset_genie = beam.justification == Justification.FLUSH_OFFSET
+
     curve_offset = ET.SubElement(straight_beam, "curve_offset")
-    ET.SubElement(curve_offset, "reparameterized_beam_curve_offset")
+    data = beam.offset_helper.curve_offset_local()
+    (ox1, oy1, oz1) = data["end1"]
+    (ox2, oy2, oz2) = data["end2"]
+
+    if data["is_varying"]:
+        lvo = ET.SubElement(curve_offset, "linear_varying_curve_offset", {"use_local_system": "true"})
+        ET.SubElement(lvo, "offset_end1", {"x": f"{ox1:.12g}", "y": f"{oy1:.12g}", "z": f"{oz1:.12g}"})
+        ET.SubElement(lvo, "offset_end2", {"x": f"{ox2:.12g}", "y": f"{oy2:.12g}", "z": f"{oz2:.12g}"})
+    else:
+        # only write offset if needed
+        curve_offset = ET.SubElement(straight_beam, "curve_offset")
+        if not ox1 == oy1 == oz1 == 0:
+            if flush_offset_genie:
+                if beam.section.type == BaseTypes.ANGULAR:
+                    alignment = "flush_top"
+                    ET.SubElement(curve_offset, "aligned_curve_offset", {"alignment": alignment, "constant_value": "0"})
+                elif beam.section.type == BaseTypes.BOX:
+                    alignment = "flush_top"
+                    ET.SubElement(curve_offset, "aligned_curve_offset", {"alignment": alignment, "constant_value": "0"})
+                elif beam.section.type == BaseTypes.TUBULAR:
+                    alignment = "flush_top"
+                    ET.SubElement(curve_offset, "aligned_curve_offset", {"alignment": alignment, "constant_value": "0"})
+                elif beam.section.type == BaseTypes.IPROFILE:
+                    alignment = "flush_top"
+                    ET.SubElement(curve_offset, "aligned_curve_offset", {"alignment": alignment, "constant_value": "0"})
+                elif beam.section.type == BaseTypes.TPROFILE:
+                    alignment = "flush_bottom"
+                    ET.SubElement(curve_offset, "aligned_curve_offset", {"alignment": alignment, "constant_value": "0"})
+                elif beam.section.type == BaseTypes.CHANNEL:
+                    alignment = "flush_top"
+                    ET.SubElement(curve_offset, "aligned_curve_offset", {"alignment": alignment, "constant_value": "0"})
+                elif beam.section.type == BaseTypes.FLATBAR:
+                    alignment = "flush_top"
+                    ET.SubElement(curve_offset, "aligned_curve_offset", {"alignment": alignment, "constant_value": "0"})
+                else:
+                    logger.warning(f"Unknown section type {beam.section.type} for flush offset")
+            else:
+                cco = ET.SubElement(curve_offset, "constant_curve_offset", {"use_local_system": "true"})
+                ET.SubElement(
+                    cco,
+                    "constant_offset",
+                    {
+                        "x": f"{float(ox1):.12g}",
+                        "y": f"{float(oy1):.12g}",
+                        "z": f"{float(oz1):.12g}",
+                    },
+                )
 
 
 def add_curve_orientation(beam: Beam, straight_beam: ET.Element):
@@ -115,3 +167,6 @@ def add_segments(beam: Beam):
     # ET.SubElement(sat_ref, "edge_ref", dict(edge_ref=""))
 
     return segments
+
+
+logger = get_logger()

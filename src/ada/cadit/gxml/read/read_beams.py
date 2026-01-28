@@ -4,7 +4,8 @@ from typing import List, Tuple
 
 import numpy as np
 
-from ada import Beam, Node, Part
+from ada import Beam, Direction, Node, Part
+from ada.api.beams.justification import Justification
 from ada.api.containers import Beams
 from ada.config import logger
 from ada.core.exceptions import VectorNormalizeError
@@ -46,8 +47,7 @@ def el_to_beam(bm_el: ET.Element, parent: Part) -> List[Beam]:
 
 def apply_offsets_and_alignments(name: str, bm_el: ET.Element, segs: list[Beam]):
     e1, e2, use_local = get_offsets(bm_el)
-    alignment = get_alignment(bm_el, segs)
-
+    alignment, justification = get_alignment(bm_el, segs)
     if len(segs) > 1 and (e1 is not None or e2 is not None):
         logger.debug(f"Offset at end 1 for beam {name} is ignored as there are more than 1 segments")
 
@@ -66,17 +66,24 @@ def apply_offsets_and_alignments(name: str, bm_el: ET.Element, segs: list[Beam])
 
     if alignment is not None:
         for seg in segs:
+            if justification is not None:
+                seg.justification = justification
             seg.e1 = alignment if seg.e1 is None else seg.e1 + alignment
             seg.e2 = alignment if seg.e2 is None else seg.e2 + alignment
 
 
 def get_offsets(bm_el: ET.Element) -> tuple[np.ndarray, np.ndarray, bool]:
     linear_offset = bm_el.find("curve_offset/linear_varying_curve_offset")
+    constant_offset = bm_el.find("curve_offset/constant_curve_offset")
 
     end1_o = None
     end2_o = None
     use_local = False
-    if linear_offset is not None:
+    if constant_offset is not None:
+        end1 = constant_offset.find("constant_offset")
+        end2 = end1
+        use_local = False if constant_offset.attrib["use_local_system"] == "false" else True
+    elif linear_offset is not None:
         end1 = linear_offset.find("offset_end1")
         end2 = linear_offset.find("offset_end2")
         use_local = False if linear_offset.attrib["use_local_system"] == "false" else True
@@ -92,29 +99,56 @@ def get_offsets(bm_el: ET.Element) -> tuple[np.ndarray, np.ndarray, bool]:
     return end1_o, end2_o, use_local
 
 
-def get_alignment(bm_el: ET.Element, segments: list[Beam]):
+def get_alignment(bm_el: ET.Element, segments: list[Beam]) -> tuple[Direction | None, Justification | None]:
+    justification = None
     seg0 = segments[0]
     sec0 = seg0.section
     zv = seg0.up
     aligned_offset = bm_el.find("curve_offset/aligned_curve_offset")
 
     if aligned_offset is None:
-        # if sec0.type == sec0.TYPES.ANGULAR:
-        #     offset = zv * sec0.h / 2
-        #     return offset
-        return None
+        if sec0.type == sec0.TYPES.ANGULAR:
+            offset = -zv * (sec0.properties.Cgz - sec0.h)
+            return offset, None
+        return None, None
 
     alignment = aligned_offset.attrib.get("alignment")
     aligned_offset.attrib.get("constant_value")
+
+    flush_factor = 0
     if alignment == "flush_top":
-        if sec0.type == sec0.TYPES.ANGULAR:
-            pass  # Angular profiles are already flush
-        elif sec0.type == sec0.TYPES.TUBULAR:
-            offset = -zv * sec0.r
-            return offset
+        justification = Justification.FLUSH_OFFSET
+        flush_factor = -1
+    elif alignment == "flush_bottom":
+        justification = Justification.FLUSH_OFFSET
+        flush_factor = 1
+
+    if sec0.type == sec0.TYPES.ANGULAR:
+        if alignment == "flush_top":
+            return Direction(0, 0, 0), justification
+        elif alignment == "flush_bottom":
+            offset = zv * sec0.h
+            return offset, justification
+        elif alignment == "no_flush":
+            offset = zv * sec0.properties.Cgz
+            return offset, justification
+    elif sec0.type == sec0.TYPES.TUBULAR:
+        offset = flush_factor * zv * sec0.r
+        return offset, justification
+    elif sec0.type == sec0.TYPES.IPROFILE and sec0.w_btn != sec0.w_top:
+        # Note: this logic must be  aligned with to_gxml_unsymm_i_section in write_sections.js
+        if (
+            sec0.t_fbtn == sec0.t_ftop and sec0.t_w == sec0.w_btn
+        ):  # this aims to identify a genie TPROFILE implemented as an unsymmetric IPROFILE
+            offset = flush_factor * zv * sec0.properties.Cgz
+            return offset, justification
         else:
-            offset = -zv * sec0.h / 2
-            return offset
+            logger.warning(f"The section {sec0.name} type {sec0.type} is not yet tested for Genie XML read")
+            offset = flush_factor * zv * sec0.h / 2
+            return offset, justification
+    else:
+        offset = flush_factor * zv * sec0.h / 2
+        return offset, justification
 
 
 def convert_offset_to_global_csys(o: np.ndarray, bm: Beam):

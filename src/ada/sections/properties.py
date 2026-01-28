@@ -97,6 +97,8 @@ def calc_box(sec: Section) -> GeneralProperties:
     Shcenz = c - h - sec.t_fbtn * ha / (sec.t_fbtn + sec.t_ftop)
     Cy = sec.w_top / 2
     Cz = h
+    Cgy = Cy
+    Cgz = Cz
     return GeneralProperties(
         Ax=Ax,
         Ix=Ix,
@@ -116,6 +118,8 @@ def calc_box(sec: Section) -> GeneralProperties:
         Sfz=sfz,
         Cy=Cy,
         Cz=Cz,
+        Cgy=Cgy,
+        Cgz=Cgz,
         parent=sec,
     )
 
@@ -171,6 +175,9 @@ def calc_isec(sec: Section) -> GeneralProperties:
     Cy = bb / 2
     Cz = z
 
+    Cgy = Cy
+    Cgz = Cz
+
     return GeneralProperties(
         Ax=Ax,
         Ix=Ix,
@@ -190,6 +197,8 @@ def calc_isec(sec: Section) -> GeneralProperties:
         Sfz=1,
         Cy=Cy,
         Cz=Cz,
+        Cgy=Cgy,
+        Cgz=Cgz,
         parent=sec,
     )
 
@@ -302,8 +311,10 @@ def calc_angular(sec: Section) -> GeneralProperties:
         Sz=Sz,
         Sfy=1,
         Sfz=1,
-        Cy=Cy,
-        Cz=Cz,
+        Cy=Cy,  # shear center not centroid!
+        Cz=Cz,  # shear center not centroid!
+        Cgy=c_y,
+        Cgz=c_z,
         parent=sec,
     )
 
@@ -334,6 +345,9 @@ def calc_tubular(sec: Section) -> GeneralProperties:
     Cy = 0.0
     Cz = 0.0
 
+    Cgy = Cy
+    Cgz = Cz
+
     return GeneralProperties(
         Ax=Ax,
         Ix=Ix,
@@ -353,6 +367,8 @@ def calc_tubular(sec: Section) -> GeneralProperties:
         Sfz=1,
         Cy=Cy,
         Cz=Cz,
+        Cgy=Cgy,
+        Cgz=Cgz,
         parent=sec,
     )
 
@@ -382,6 +398,8 @@ def calc_circular(sec: Section) -> GeneralProperties:
     Shcenz = 0
     Cy = 0.0
     Cz = 0.0
+    Cgy = Cy
+    Cgz = Cz
 
     return GeneralProperties(
         Ax=Ax,
@@ -402,6 +420,8 @@ def calc_circular(sec: Section) -> GeneralProperties:
         Sfz=Sfz,
         Cy=Cy,
         Cz=Cz,
+        Cgy=Cgy,
+        Cgz=Cgz,
         parent=sec,
     )
 
@@ -456,6 +476,9 @@ def calc_flatbar(sec: Section) -> GeneralProperties:
     Cy = w / 2
     Cz = hz
 
+    Cgy = Cy
+    Cgz = Cz
+
     return GeneralProperties(
         Ax=Ax,
         Ix=Ix,
@@ -475,6 +498,8 @@ def calc_flatbar(sec: Section) -> GeneralProperties:
         Sfz=Sfz,
         Cy=Cy,
         Cz=Cz,
+        Cgy=Cgy,
+        Cgz=Cgz,
         parent=sec,
     )
 
@@ -526,6 +551,20 @@ def calc_channel(sec: Section) -> GeneralProperties:
     Cz = hz / 2
     Shcenz = 0
 
+    # --- geometric centroid (from outer corner y=0 at web outside, z=0 at bottom) ---
+    a = hz - 2 * tz
+
+    A_web = ty * a
+    y_web = ty / 2.0
+
+    A_fl = by * tz
+    y_fl = by / 2.0
+
+    A_tot = A_web + 2.0 * A_fl
+
+    Cgy = (A_web * y_web + 2.0 * A_fl * y_fl) / A_tot
+    Cgz = hz / 2.0
+
     return GeneralProperties(
         Ax=Ax,
         Ix=Ix,
@@ -545,5 +584,7 @@ def calc_channel(sec: Section) -> GeneralProperties:
         Sfz=sfz,
         Cy=Cy,
         Cz=Cz,
+        Cgy=Cgy,
+        Cgz=Cgz,
         parent=sec,
     )

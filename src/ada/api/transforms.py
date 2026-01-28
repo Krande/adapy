@@ -220,6 +220,18 @@ class Placement:
         Rt = np.hstack([self.rot_matrix, t])
         return np.vstack([Rt, np.array([0.0, 0.0, 0.0, 1.0])])
 
+    def transfom_point_to_absolute(self, p: Point) -> Point:
+        """
+        Transforms a point p from the local system into absolute/global,
+        using self.placement. If identity, returns p unchanged.
+        """
+        from ada import Placement
+
+        ident_place = Placement()
+        place_abs = self.get_absolute_placement(include_rotations=True)
+        # include translation
+        return place_abs.transform_array_from_other_place(np.asarray([p]), ident_place, ignore_translation=False)[0]
+
     def transform_vector(self, vec: Iterable[float | int], inverse=False) -> np.ndarray:
         """Transform a vector using optimized caching."""
         if not isinstance(vec, np.ndarray):

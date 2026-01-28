@@ -108,7 +108,7 @@ def to_gxml_i_section(section: Section):
             b=str(section.w_top),
             tw=str(section.t_w),
             tf=str(section.t_fbtn),
-            fillet_radius="0.024",
+            fillet_radius="0.00",  # note this will be used in genie cog calc!
             fabrication="unknown",
             sfy="1",
             sfz="1",
@@ -135,6 +135,7 @@ def to_gxml_box_section(section: Section):
 
 
 def to_gxml_unsymm_i_section(section: Section):
+    # Note: this logic must be aligned with get_alignment in read_beams.js
     return ET.Element(
         "unsymmetrical_i_section",
         dict(
