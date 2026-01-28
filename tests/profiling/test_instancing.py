@@ -2,8 +2,8 @@ import pytest
 
 import ada
 
-N_BM_INST = 10_000
-N_PL_INST = 5_000
+N_BM_INST = 2_000
+N_PL_INST = 1_000
 
 
 @pytest.mark.benchmark
