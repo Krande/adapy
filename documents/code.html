@@ -359,7 +359,7 @@ If this proves to create issues regarding performance this should be evaluated f
 
 <dl class="py class">
 <dt class="sig sig-object py" id="ada.Beam">
-<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">ada.</span></span><span class="sig-name descname"><span class="pre">Beam</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n1</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#ada.Node" title="ada.api.nodes.Node"><span class="pre">Node</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">Iterable</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n2</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#ada.Node" title="ada.api.nodes.Node"><span class="pre">Node</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">Iterable</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">sec</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">Section</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">mat</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference internal" href="#ada.Material" title="ada.materials.concept.Material"><span class="pre">Material</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">up</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">angle</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">e1</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">e2</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">units</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">Units.M</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">hi1</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#ada.BeamHinge" title="ada.api.beams.base_bm.BeamHinge"><span class="pre">BeamHinge</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">hi2</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#ada.BeamHinge" title="ada.api.beams.base_bm.BeamHinge"><span class="pre">BeamHinge</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#ada.Beam" title="Link to this definition">¶</a></dt>
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">ada.</span></span><span class="sig-name descname"><span class="pre">Beam</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n1</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#ada.Node" title="ada.api.nodes.Node"><span class="pre">Node</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">Iterable</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">n2</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#ada.Node" title="ada.api.nodes.Node"><span class="pre">Node</span></a><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">Iterable</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">sec</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">Section</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">mat</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">str</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><a class="reference internal" href="#ada.Material" title="ada.materials.concept.Material"><span class="pre">Material</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">up</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">angle</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">0.0</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">e1</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">e2</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">units</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">Units.M</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">hi1</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#ada.BeamHinge" title="ada.api.beams.base_bm.BeamHinge"><span class="pre">BeamHinge</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">hi2</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><a class="reference internal" href="#ada.BeamHinge" title="ada.api.beams.base_bm.BeamHinge"><span class="pre">BeamHinge</span></a></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">justification</span></span><span class="p"><span class="pre">:</span></span><span class="w"> </span><span class="n"><span class="pre">Justification</span><span class="w"> </span><span class="p"><span class="pre">|</span></span><span class="w"> </span><span class="pre">str</span></span><span class="w"> </span><span class="o"><span class="pre">=</span></span><span class="w"> </span><span class="default_value"><span class="pre">Justification.NA</span></span></em>, <em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#ada.Beam" title="Link to this definition">¶</a></dt>
 <dd><p>The base Beam object</p>
 <dl class="field-list simple">
 <dt class="field-odd">Parameters<span class="colon">:</span></dt>
@@ -860,6 +860,21 @@ described by an id (index) and a Node object.</p>
 <dd><p>Bounding Box of plate</p>
 </dd></dl>
 
+<dl class="py method">
+<dt class="sig sig-object py" id="ada.Plate.get_cog">
+<span class="sig-name descname"><span class="pre">get_cog</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span> <span class="sig-return"><span class="sig-return-icon">&#x2192;</span> <span class="sig-return-typehint"><a class="reference internal" href="#ada.Point" title="ada.geom.points.Point"><span class="pre">Point</span></a></span></span><a class="headerlink" href="#ada.Plate.get_cog" title="Link to this definition">¶</a></dt>
+<dd><p>Plate centroid in global coordinates.</p>
+<p>Convention:
+- poly.points2d are expressed in the plate’s 2D local system (X,Y).
+- poly.origin is the local 3D origin of that 2D system.
+- poly.xdir defines local X direction in 3D.
+- poly.normal defines local Z (plane normal) in 3D.
+- local Y is constructed as (normal × xdir) to enforce right-hand rule.</p>
+<p>If plate has a non-identity placement, we:
+- rotate xdir and normal by placement rotation
+- translate origin by placement translation (origin = place_abs.origin + poly.origin)</p>
+</dd></dl>
+
 <dl class="py property">
 <dt class="sig sig-object py" id="ada.Plate.normal">
 <em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">normal</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference internal" href="#ada.Direction" title="ada.geom.direction.Direction"><span class="pre">Direction</span></a></em><a class="headerlink" href="#ada.Plate.normal" title="Link to this definition">¶</a></dt>
@@ -950,6 +965,18 @@ described by an id (index) and a Node object.</p>
 <dt class="sig sig-object py" id="ada.Shape.IFC_CLASSES">
 <span class="sig-name descname"><span class="pre">IFC_CLASSES</span></span><a class="headerlink" href="#ada.Shape.IFC_CLASSES" title="Link to this definition">¶</a></dt>
 <dd><p>alias of <code class="xref py py-class docutils literal notranslate"><span class="pre">ShapeTypes</span></code></p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="ada.Shape.cog">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">cog</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference internal" href="#ada.Point" title="ada.geom.points.Point"><span class="pre">Point</span></a></em><a class="headerlink" href="#ada.Shape.cog" title="Link to this definition">¶</a></dt>
+<dd><p>COG in the local coordinate system</p>
+</dd></dl>
+
+<dl class="py property">
+<dt class="sig sig-object py" id="ada.Shape.cog_abs">
+<em class="property"><span class="k"><span class="pre">property</span></span><span class="w"> </span></em><span class="sig-name descname"><span class="pre">cog_abs</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference internal" href="#ada.Point" title="ada.geom.points.Point"><span class="pre">Point</span></a></em><a class="headerlink" href="#ada.Shape.cog_abs" title="Link to this definition">¶</a></dt>
+<dd><p>COG in absolute coordinate system</p>
 </dd></dl>
 
 </dd></dl>
@@ -1060,7 +1087,7 @@ limit: Limit the number of geometries to export (useful for debugging)</p>
         <div class="bottom-of-page">
           <div class="left-details">
             <div class="copyright">
-                Copyright &#169; 2025, Kristoffer H. Andersen
+                Copyright &#169; 2026, Kristoffer H. Andersen
             </div>
             Made with <a href="https://www.sphinx-doc.org/">Sphinx</a> and <a class="muted-link" href="https://pradyunsg.me">@pradyunsg</a>'s
             
@@ -1183,6 +1210,7 @@ limit: Limit the number of geometries to export (useful for debugging)</p>
 <li><a class="reference internal" href="#ada.PipeSegStraight"><code class="docutils literal notranslate"><span class="pre">PipeSegStraight</span></code></a></li>
 <li><a class="reference internal" href="#ada.Plate"><code class="docutils literal notranslate"><span class="pre">Plate</span></code></a><ul>
 <li><a class="reference internal" href="#ada.Plate.bbox"><code class="docutils literal notranslate"><span class="pre">Plate.bbox()</span></code></a></li>
+<li><a class="reference internal" href="#ada.Plate.get_cog"><code class="docutils literal notranslate"><span class="pre">Plate.get_cog()</span></code></a></li>
 <li><a class="reference internal" href="#ada.Plate.normal"><code class="docutils literal notranslate"><span class="pre">Plate.normal</span></code></a></li>
 <li><a class="reference internal" href="#ada.Plate.t"><code class="docutils literal notranslate"><span class="pre">Plate.t</span></code></a></li>
 </ul>
@@ -1206,6 +1234,8 @@ limit: Limit the number of geometries to export (useful for debugging)</p>
 <li><a class="reference internal" href="#ada.RotationalAccelerationField"><code class="docutils literal notranslate"><span class="pre">RotationalAccelerationField</span></code></a></li>
 <li><a class="reference internal" href="#ada.Shape"><code class="docutils literal notranslate"><span class="pre">Shape</span></code></a><ul>
 <li><a class="reference internal" href="#ada.Shape.IFC_CLASSES"><code class="docutils literal notranslate"><span class="pre">Shape.IFC_CLASSES</span></code></a></li>
+<li><a class="reference internal" href="#ada.Shape.cog"><code class="docutils literal notranslate"><span class="pre">Shape.cog</span></code></a></li>
+<li><a class="reference internal" href="#ada.Shape.cog_abs"><code class="docutils literal notranslate"><span class="pre">Shape.cog_abs</span></code></a></li>
 </ul>
 </li>
 <li><a class="reference internal" href="#ada.Transform"><code class="docutils literal notranslate"><span class="pre">Transform</span></code></a></li>
@@ -1235,7 +1265,7 @@ limit: Limit the number of geometries to export (useful for debugging)</p>
       
     </aside>
   </div>
-</div><script src="../_static/documentation_options.js?v=7f44dfda"></script>
+</div><script src="../_static/documentation_options.js?v=db3c5bc3"></script>
     <script src="../_static/doctools.js?v=9bcbadda"></script>
     <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
     <script src="../_static/scripts/furo.js?v=5fa4622c"></script>
