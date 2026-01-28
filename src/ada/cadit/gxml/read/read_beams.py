@@ -4,7 +4,8 @@ from typing import List, Tuple
 
 import numpy as np
 
-from ada import Beam, Node, Part
+from ada import Beam, Direction, Node, Part
+from ada.api.beams.justification import Justification
 from ada.api.containers import Beams
 from ada.config import logger
 from ada.core.exceptions import VectorNormalizeError
@@ -47,7 +48,6 @@ def el_to_beam(bm_el: ET.Element, parent: Part) -> List[Beam]:
 def apply_offsets_and_alignments(name: str, bm_el: ET.Element, segs: list[Beam]):
     e1, e2, use_local = get_offsets(bm_el)
     alignment, justification = get_alignment(bm_el, segs)
-
     if len(segs) > 1 and (e1 is not None or e2 is not None):
         logger.debug(f"Offset at end 1 for beam {name} is ignored as there are more than 1 segments")
 
@@ -99,7 +99,7 @@ def get_offsets(bm_el: ET.Element) -> tuple[np.ndarray, np.ndarray, bool]:
     return end1_o, end2_o, use_local
 
 
-def get_alignment(bm_el: ET.Element, segments: list[Beam]):
+def get_alignment(bm_el: ET.Element, segments: list[Beam]) -> tuple[Direction | None, Justification | None]:
     justification = None
     seg0 = segments[0]
     sec0 = seg0.section
@@ -109,23 +109,23 @@ def get_alignment(bm_el: ET.Element, segments: list[Beam]):
     if aligned_offset is None:
         if sec0.type == sec0.TYPES.ANGULAR:
             offset = -zv * (sec0.properties.Cgz - sec0.h)
-            return offset, justification
-        return None
+            return offset, None
+        return None, None
 
     alignment = aligned_offset.attrib.get("alignment")
     aligned_offset.attrib.get("constant_value")
 
     flush_factor = 0
     if alignment == "flush_top":
-        justification = "flush offset"
+        justification = Justification.FLUSH_OFFSET
         flush_factor = -1
     elif alignment == "flush_bottom":
-        justification = "flush offset"
+        justification = Justification.FLUSH_OFFSET
         flush_factor = 1
 
     if sec0.type == sec0.TYPES.ANGULAR:
         if alignment == "flush_top":
-            pass  # Angular profiles are already flush
+            return Direction(0, 0, 0), justification
         elif alignment == "flush_bottom":
             offset = zv * sec0.h
             return offset, justification
