@@ -27,10 +27,22 @@ def main():
 
     commit_sha = os.environ.get("GITHUB_SHA", "local")
 
+    # Calculate totals from flat list
+    total_duration = sum(s.get("duration", 0) for s in current_stats)
+    total_calls = sum(s.get("calls", 0) for s in current_stats)
+
     # Avoid duplicate entries for the same commit
     history = [h for h in history if h.get("commit") != commit_sha]
 
-    history.append({"commit": commit_sha, "stats": current_stats})
+    # Create entry with metadata fields for dashboard compatibility
+    new_entry = {
+        "commit": commit_sha,
+        "commit_short": commit_sha[:7] if commit_sha != "local" else "local",
+        "total_duration": round(total_duration, 4),
+        "total_calls": total_calls,
+        "stats": current_stats,
+    }
+    history.append(new_entry)
 
     # Limit history
     history = history[-20:]
