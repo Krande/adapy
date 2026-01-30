@@ -159,6 +159,10 @@ def main():
         # Check if there are changes to commit
         result = run_git("diff", "--cached", "--quiet", check=False)
         if result.returncode != 0:
+            # Configure git user for GitHub Actions
+            run_git("config", "user.name", "github-actions[bot]")
+            run_git("config", "user.email", "github-actions[bot]@users.noreply.github.com")
+
             run_git(
                 "commit",
                 "-m",
