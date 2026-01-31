@@ -82,6 +82,14 @@ IFC and various Finite Element formats.
 
     documents/code
 
+.. toctree::
+    :hidden:
+    :maxdepth: 2
+    :glob:
+    :caption: Profiling
+
+    documents/profiling
+
 
 Build, Analyze and Postprocess in Code
 ==========================================================
