@@ -1,0 +1,113 @@
+[
+  {
+    "commit": "44e4ef34f7ea12e39f8c3a9711aae5c807520190",
+    "commit_short": "44e4ef3",
+    "message": "chore: configure git user for commits in GitHub Actions (#176)",
+    "author": "Kristoffer Andersen",
+    "date": "2026-01-31T20:06:59+01:00",
+    "total_duration": 106.7583,
+    "total_calls": 2153502,
+    "stats": [
+      {
+        "function": "<built-in method builtins.exec> (~:0)",
+        "calls": 2026,
+        "duration": 16.795187901000002
+      },
+      {
+        "function": "<module> (<string>:1)",
+        "calls": 1,
+        "duration": 16.795147066000002
+      },
+      {
+        "function": "to_ifc (src/ada/api/spatial/assembly.py:228)",
+        "calls": 5,
+        "duration": 7.111387612000001
+      },
+      {
+        "function": "test_build_big_ifc_pipe (tests/profiling/test_ifc_creation.py:48)",
+        "calls": 1,
+        "duration": 6.978974677
+      },
+      {
+        "function": "sync (src/ada/cadit/ifc/store.py:104)",
+        "calls": 5,
+        "duration": 6.743417965000001
+      },
+      {
+        "function": "sync_added_physical_objects (src/ada/cadit/ifc/write/write_ifc.py:88)",
+        "calls": 5,
+        "duration": 6.715407908
+      },
+      {
+        "function": "add (src/ada/cadit/ifc/write/write_ifc.py:412)",
+        "calls": 2200,
+        "duration": 6.642585296
+      },
+      {
+        "function": "__truediv__ (src/ada/api/spatial/part.py:1370)",
+        "calls": 8,
+        "duration": 5.295503455
+      },
+      {
+        "function": "add_object (src/ada/api/spatial/part.py:283)",
+        "calls": 1201,
+        "duration": 3.576982745
+      },
+      {
+        "function": "add_pipe (src/ada/api/spatial/part.py:159)",
+        "calls": 200,
+        "duration": 3.556717314
+      },
+      {
+        "function": "write_ifc_pipe (src/ada/cadit/ifc/write/write_pipe.py:18)",
+        "calls": 200,
+        "duration": 3.3568274070000004
+      },
+      {
+        "function": "add_section (src/ada/api/spatial/part.py:268)",
+        "calls": 801,
+        "duration": 3.110825929
+      },
+      {
+        "function": "add (src/ada/api/containers/sections.py:139)",
+        "calls": 805,
+        "duration": 3.106814957
+      },
+      {
+        "function": "write_pipe_segment (src/ada/cadit/ifc/write/write_pipe.py:38)",
+        "calls": 600,
+        "duration": 2.9897886660000004
+      },
+      {
+        "function": "equal_props (src/ada/sections/concept.py:92)",
+        "calls": 241399,
+        "duration": 2.902233529
+      },
+      {
+        "function": "unique_props (src/ada/sections/concept.py:99)",
+        "calls": 482798,
+        "duration": 2.610028866
+      },
+      {
+        "function": "test_build_big_ifc_beams (tests/profiling/test_ifc_creation.py:6)",
+        "calls": 1,
+        "duration": 2.342225796
+      },
+      {
+        "function": "walk (.pixi/envs/profile/lib/python3.12/site-packages/ifcopenshell/entity_instance.py:242)",
+        "calls": 1291324,
+        "duration": 2.252260327
+      },
+      {
+        "function": "create_entity (.pixi/envs/profile/lib/python3.12/site-packages/ifcopenshell/file.py:352)",
+        "calls": 67921,
+        "duration": 1.96005592
+      },
+      {
+        "function": "__getattr__ (.pixi/envs/profile/lib/python3.12/site-packages/ifcopenshell/entity_instance.py:183)",
+        "calls": 62001,
+        "duration": 1.915924956
+      }
+    ]
+  }
+]
