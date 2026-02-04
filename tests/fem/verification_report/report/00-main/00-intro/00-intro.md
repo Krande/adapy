@@ -21,8 +21,8 @@ The simulations are pre- and post processed using [adapy](https://github.com/Kra
 automatically generated using [paradoc](https://github.com/Krande/paradoc) as 
 part of a ci/cd pipeline within the _adapy_ repositories. 
 
-For each new addition of code affecting the handling of 
-FEM in _adapy_ a new series of analysis is performed whereas the results are gathered in this auto-generated document.
+For each new addition of code affecting the handling of FEM in _adapy_ a new set of analyses is performed, 
+whereas the results are gathered in this auto-generated document.
 
 Please note! This report will not go into detail into the specifics of why the results are different 
 between different element representations. This report will only investigate
