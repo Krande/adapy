@@ -2,6 +2,63 @@
 channels = ["conda-forge"]
 platforms = ["win-64", "linux-64", "osx-64"]
 
+[feature.lint.tasks]
+lint = "black . --config pyproject.toml && ruff check . --fix && isort ."
+flat = { cmd = "python src/flatbuffers/update_flatbuffers.py && pixi run lint", cwd = "./" }
+
+json-code-gen-py = { cmd = [
+    "datamodel-codegen",
+    "--input", "src/gltf_extension_schema",
+    "--input-file-type", "jsonschema",
+    "--output", "src/ada/extension",
+    "--output-model-type", "pydantic_v2.BaseModel"], cwd = "./" }
+
+[feature.docs.tasks]
+docs = { cmd = "cd docs && sphinx-build -b html -v . _build/html", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+serve = { cmd = "python docs/main.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" }, depends-on = ["docs"] }
+fem-doc = { cmd = "python build_verification_report.py true true --export-format=docx", cwd = "./tests/fem/verification_report", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+fea-web = { cmd = "python build_verification_report.py true true --export-static-web", cwd = "./tests/fem/verification_report", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src:$PIXI_PROJECT_ROOT/../paradoc/src" } }
+
+serve-fea = { cmd = "python doc_live_html.py", cwd = "./tests/fem/verification_report", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src:$PIXI_PROJECT_ROOT/../paradoc/src" } }
+
+[feature.tests.tasks]
+pre-install = { cmd = "playwright install --with-deps chromium", outputs = ["$PIXI_HOME/envs/tests/Scripts/playwright.exe"] }
+
+test = { cmd = "pytest tests --ignore=tests/profiling --ignore=tests/fem --durations=0", depends-on = ["pre-install"], env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+test-core = { cmd = "pytest tests/core --durations=0", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+test-full = { cmd = "pytest tests/full --durations=0", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+test-cov = { cmd = "pytest tests --ignore=tests/profiling --ignore=tests/fem --cov=src/ada --cov-report=html --cov-report=term --durations=0", depends-on = ["pre-install"], env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+
+[feature.fem.tasks]
+test-all = { cmd = "pytest tests --durations=0", depends-on = ["pre-install"], env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+test-fem = { cmd = "pytest tests/fem --durations=0", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+test-basic-fem = { cmd = "python basic_fem.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" }, cwd = "examples" }
+test-fem-viz = { cmd = "pytest tests/fem/visualization --durations=0", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+
+print-paths = { cmd = "python -c \"import sys, os; print('\\n'.join(sys.path + os.environ.get('PYTHONPATH', '').split(os.pathsep)))\"" }
+
+[feature.frontend.tasks]
+npm = { cmd = "npm", cwd = "./src/frontend" }
+winstall = { cmd = "npm install", cwd = "./src/frontend", outputs = ["$PIXI_PROJECT_ROOT/src/frontend/node_modules"] }
+wdev = { cmd = "npm run dev", cwd = "./src/frontend", depends-on = ["winstall"] }
+wbuild = { cmd = "npm run build", cwd = "./src/frontend", depends-on = ["winstall"] }
+fdepcheck = { cmd = "depcheck", cwd = "./src/frontend", depends-on = ["winstall"] }
+
+json-code-gen-ts = { cmd = [
+    "npx", "--yes", "-p", "json-schema-to-typescript", "json2ts",
+    "--input","design_and_analysis_extension.schema.json",
+    "--output","$PIXI_PROJECT_ROOT/src/frontend/src/extensions/design_and_analysis_extension.d.ts"], depends-on = ["json-code-gen-py"], env = { "npm_config_cache" = "$PIXI_PROJECT_ROOT/temp/npm_config" }, cwd="src/gltf_extension_schema/" }
+
+[feature.profile.tasks]
+benchmark-profile = { cmd = "python scripts/benchmark_profile.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+scalene = { cmd = "scalene --json -m pytest ./tests/profiling --outfile=profile.json", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+cprofile = { cmd = "python -m cProfile -o profile.prof -m pytest ./tests/profiling", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+pyprofile = { cmd = "pyinstrument -m pytest ./tests/profiling", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+pyprofile-all = { cmd = "pyinstrument -m pytest ./tests", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+pyprofile-html = { cmd = "pyinstrument -r html -o profile_profiling_tests.html -m pytest ./tests/profiling", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+pyprofile-html-all = { cmd = "pyinstrument -r html -o profile_all_tests.html -m pytest ./tests", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+
+
 [environments]
 prod = { features = ["prod"], solve-group = "prod", no-default-feature = true }
 lint = { features = ["lint"], no-default-feature = true }
@@ -128,63 +185,6 @@ pandas = "*"
 [feature.frontend.dependencies]
 nodejs = "*"
 flatbuffers = "==25.2.10"
-
-[feature.lint.tasks]
-lint = "black . --config pyproject.toml && ruff check . --fix && isort ."
-flat = { cmd = "python src/flatbuffers/update_flatbuffers.py && pixi run lint", cwd = "./" }
-
-json-code-gen-py = { cmd = [
-    "datamodel-codegen",
-    "--input", "src/gltf_extension_schema",
-    "--input-file-type", "jsonschema",
-    "--output", "src/ada/extension",
-    "--output-model-type", "pydantic_v2.BaseModel"], cwd = "./" }
-
-
-[feature.docs.tasks]
-docs = { cmd = "cd docs && sphinx-build -b html -v . _build/html", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
-serve = { cmd = "python docs/main.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" }, depends-on = ["docs"] }
-fem-doc = { cmd = "python build_verification_report.py true true --export-format=docx", cwd = "./tests/fem/verification_report", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
-fea-web = { cmd = "python build_verification_report.py true true --export-static-web", cwd = "./tests/fem/verification_report", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src:$PIXI_PROJECT_ROOT/../paradoc/src" } }
-
-serve-fea = { cmd = "python doc_live_html.py", cwd = "./tests/fem/verification_report", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src:$PIXI_PROJECT_ROOT/../paradoc/src" } }
-
-[feature.tests.tasks]
-pre-install = { cmd = "playwright install --with-deps chromium", outputs = ["$PIXI_HOME/envs/tests/Scripts/playwright.exe"] }
-
-test = { cmd = "pytest tests --ignore=tests/profiling --ignore=tests/fem --durations=0", depends-on = ["pre-install"], env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
-test-core = { cmd = "pytest tests/core --durations=0", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
-test-full = { cmd = "pytest tests/full --durations=0", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
-test-cov = { cmd = "pytest tests --ignore=tests/profiling --ignore=tests/fem --cov=src/ada --cov-report=html --cov-report=term --durations=0", depends-on = ["pre-install"], env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
-
-[feature.fem.tasks]
-test-all = { cmd = "pytest tests --durations=0", depends-on = ["pre-install"], env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
-test-fem = { cmd = "pytest tests/fem --durations=0", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
-test-basic-fem = { cmd = "python basic_fem.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" }, cwd = "examples" }
-test-fem-viz = { cmd = "pytest tests/fem/visualization --durations=0", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
-
-print-paths = { cmd = "python -c \"import sys, os; print('\\n'.join(sys.path + os.environ.get('PYTHONPATH', '').split(os.pathsep)))\"" }
-
-[feature.frontend.tasks]
-npm = { cmd = "npm", cwd = "./src/frontend" }
-winstall = { cmd = "npm install", cwd = "./src/frontend", outputs = ["$PIXI_PROJECT_ROOT/src/frontend/node_modules"] }
-wdev = { cmd = "npm run dev", cwd = "./src/frontend", depends-on = ["winstall"] }
-wbuild = { cmd = "npm run build", cwd = "./src/frontend", depends-on = ["winstall"] }
-fdepcheck = { cmd = "depcheck", cwd = "./src/frontend", depends-on = ["winstall"] }
-
-json-code-gen-ts = { cmd = [
-    "npx", "--yes", "-p", "json-schema-to-typescript", "json2ts",
-    "--input","design_and_analysis_extension.schema.json",
-    "--output","$PIXI_PROJECT_ROOT/src/frontend/src/extensions/design_and_analysis_extension.d.ts"], depends-on = ["json-code-gen-py"], env = { "npm_config_cache" = "$PIXI_PROJECT_ROOT/temp/npm_config" }, cwd="src/gltf_extension_schema/" }
-
-[feature.profile.tasks]
-benchmark-profile = { cmd = "python scripts/benchmark_profile.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
-scalene = { cmd = "scalene --json -m pytest ./tests/profiling --outfile=profile.json", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
-cprofile = { cmd = "python -m cProfile -o profile.prof -m pytest ./tests/profiling", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
-pyprofile = { cmd = "pyinstrument -m pytest ./tests/profiling", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
-pyprofile-all = { cmd = "pyinstrument -m pytest ./tests", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
-pyprofile-html = { cmd = "pyinstrument -r html -o profile_profiling_tests.html -m pytest ./tests/profiling", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
-pyprofile-html-all = { cmd = "pyinstrument -r html -o profile_all_tests.html -m pytest ./tests", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 
 [dependencies]
 pixi-pycharm = ">=0.0.8,<0.0.9"
