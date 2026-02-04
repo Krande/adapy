@@ -188,7 +188,7 @@ def build_fea_report(bm: ada.Beam, results, eig_modes, export_format="docx"):
     return one
 
 
-def create_fea_report(overwrite, execute, export_format="docx", export_static_web: bool = False):
+def create_fea_report(overwrite, execute, export_format="docx", export_static_web: bool = False, live_update: bool = False):
     if ru.ODB_DUMP_EXE is not None:
         AbaqusSetup.set_default_post_processor(ru.post_processing_abaqus)
 
@@ -215,7 +215,8 @@ def create_fea_report(overwrite, execute, export_format="docx", export_static_we
         static_output_dir = adapy_root / "docs" / "_static" / "fea-report"
         logger.info(f"Exporting static web files to: {static_output_dir}")
         one.export_static(static_output_dir)
-
+    if live_update:
+        one.send_to_frontend()
 
 if __name__ == "__main__":
     logging.getLogger().setLevel(logging.INFO)

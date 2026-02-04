@@ -123,15 +123,12 @@ class FileChangeHandler(FileSystemEventHandler):
         current_time = time.time()
         if current_time - self.last_update_time > self.min_time_between_updates:
             try:
-                create_fea_report(False, False, export_format="html")
+                create_fea_report(False, False, export_format="html", live_update=True)
             except subprocess.CalledProcessError:
                 logger.error("Error while updating the report")
                 self.last_update_time = current_time
                 self.ongoing_update = False
                 return
-            insert_html_inject("temp/_dist/ADA-FEA-verification.html", self.ws_port)
-            asyncio.run(send_reload_message())
-            # insert the html_inject into the index.html file located at temp/_dist/crash_barrier.html
             self.last_update_time = current_time
             logger.info(f"File {event.src_path} has been updated")
 

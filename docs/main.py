@@ -10,7 +10,8 @@ _build_dir = pathlib.Path("docs/_build/html").resolve().absolute()
 
 
 # serve a html directory _build/html with index.html as the default page
-@app.get("/{file_path:path}")
+# Support both GET and HEAD methods (HEAD is used by paradoc frontend for static mode detection)
+@app.api_route("/{file_path:path}", methods=["GET", "HEAD"])
 async def serve_static_files(file_path: str):
     if file_path == "":
         file_path = "index.html"
