@@ -185,8 +185,10 @@ def build_fea_report(bm: ada.Beam, results, eig_modes, export_format="docx"):
 
     one.compile("ADA-FEA-verification", export_format=export_format)
 
+    return one
 
-def create_fea_report(overwrite, execute, export_format="docx"):
+
+def create_fea_report(overwrite, execute, export_format="docx", export_static_web: bool = False):
     if ru.ODB_DUMP_EXE is not None:
         AbaqusSetup.set_default_post_processor(ru.post_processing_abaqus)
 
@@ -204,7 +206,15 @@ def create_fea_report(overwrite, execute, export_format="docx"):
 
     ru.retrieve_cached_results(results, cache_dir)
 
-    build_fea_report(bm, results, eig_modes, export_format=export_format)
+    one = build_fea_report(bm, results, eig_modes, export_format=export_format)
+
+    # Export to static web files for docs embedding
+    if export_static_web:
+        # Output directory for static web files (relative to adapy docs)
+        adapy_root = pathlib.Path(__file__).parent.parent.parent.parent.resolve().absolute()
+        static_output_dir = adapy_root / "docs" / "_static" / "fea-report"
+        logger.info(f"Exporting static web files to: {static_output_dir}")
+        one.export_static(static_output_dir)
 
 
 if __name__ == "__main__":

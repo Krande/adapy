@@ -36,6 +36,8 @@ async def serve_static_files(file_path: str):
         content_type = "text/css"
     elif file_path.endswith(".js"):
         content_type = "application/javascript"
+    elif file_path.endswith(".json"):
+        content_type = "application/json"
     elif file_path.endswith(".png"):
         content_type = "image/png"
     elif file_path.endswith(".jpg") or file_path.endswith(".jpeg"):

@@ -236,6 +236,8 @@ json-code-gen-py = { cmd = [
 docs = { cmd = "cd docs && sphinx-build -b html -v . _build/html", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 serve = { cmd = "python docs/main.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" }, depends-on = ["docs"] }
 fem-doc = { cmd = "python build_verification_report.py true true --export-format=docx", cwd = "./tests/fem/verification_report", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+fea-web = { cmd = "python build_verification_report.py true true --export-static-web", cwd = "./tests/fem/verification_report", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+
 serve-fem = { cmd = "python doc_live_html.py", cwd = "./tests/fem", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 
 [tool.pixi.feature.tests.tasks]
