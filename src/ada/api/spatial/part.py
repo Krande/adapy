@@ -45,6 +45,7 @@ if TYPE_CHECKING:
     from ada.api.mass import MassPoint
     from ada.cadit.ifc.store import IfcStore
     from ada.fem.containers import COG
+    from PIL.Image import Image
     from ada.fem.meshing import GmshOptions
 
 
@@ -1118,6 +1119,11 @@ class Part(BackendGeom):
             scene.metadata["gltf_extensions"]["ADA_EXT_data"] = converter.ada_ext.model_dump(mode="json")
 
         return scene
+
+    def render_offscreen(self) -> Image:
+        from ada.visit.rendering.pygfx_offscreen_utils import trimesh_scene_to_image
+
+        return trimesh_scene_to_image(self.to_trimesh_scene())
 
     def to_stp(
         self,

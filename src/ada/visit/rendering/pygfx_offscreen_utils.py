@@ -1,5 +1,6 @@
 import numpy as np
 import pygfx as gfx
+import trimesh
 from PIL import Image
 from wgpu.gui.offscreen import WgpuCanvas
 
@@ -8,7 +9,12 @@ import ada
 
 def screenshot(part: ada.Part, filename: str):
     tri_scene = part.to_trimesh_scene()
+    image = trimesh_scene_to_image(tri_scene)
+    # Save the image to a file
+    image.save(filename)
 
+
+def trimesh_scene_to_image(tri_scene: trimesh.Scene) -> Image.Image:
     canvas = WgpuCanvas(size=(640, 480), pixel_ratio=1)
     renderer = gfx.renderers.WgpuRenderer(canvas)
 
@@ -32,6 +38,4 @@ def screenshot(part: ada.Part, filename: str):
     scene.add(dir_light)
     canvas.request_draw(lambda: renderer.render(scene, camera))
     im1 = canvas.draw()
-    image = Image.fromarray(np.asarray(im1))
-    # Save the image to a file
-    image.save(filename)
+    return Image.fromarray(np.asarray(im1))
