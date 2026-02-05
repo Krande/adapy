@@ -30,6 +30,7 @@ from ada.visit.scene_converter import SceneConverter
 
 if TYPE_CHECKING:
     import trimesh
+    from PIL.Image import Image
 
     from ada import (  # Placement,
         FEM,
@@ -45,8 +46,8 @@ if TYPE_CHECKING:
     from ada.api.mass import MassPoint
     from ada.cadit.ifc.store import IfcStore
     from ada.fem.containers import COG
-    from PIL.Image import Image
     from ada.fem.meshing import GmshOptions
+    from ada.visit.rendering.camera import Camera
 
 
 class Part(BackendGeom):
@@ -551,7 +552,6 @@ class Part(BackendGeom):
         if len(shapes) > 0:
             ada_name = name if name is not None else "CAD" + str(len(self.shapes) + 1)
             for i, shp in enumerate(shapes):
-
                 ada_shape = Shape(ada_name + "_" + str(i), shp, colour, opacity, units=source_units)
                 self.add_shape(ada_shape)
 
@@ -1120,10 +1120,10 @@ class Part(BackendGeom):
 
         return scene
 
-    def render_offscreen(self) -> Image:
+    def render_offscreen(self, camera: Camera | None) -> Image:
         from ada.visit.rendering.pygfx_offscreen_utils import trimesh_scene_to_image
 
-        return trimesh_scene_to_image(self.to_trimesh_scene())
+        return trimesh_scene_to_image(self.to_trimesh_scene(), camera=camera)
 
     def to_stp(
         self,
