@@ -69,7 +69,7 @@ class SectionCat:
     tubular = [BASETYPES.TUBULAR.value, "PIPE", "OD", "P"]
     iprofiles = ["HEA", "HEB", "HEM", "IPE"]
     igirders = [BASETYPES.IPROFILE.value, "IG"]
-    tprofiles = [BASETYPES.TPROFILE.value, "TG"]
+    tprofiles = [BASETYPES.TPROFILE.value, "TG", "T"]
     angular = [BASETYPES.ANGULAR.value, "L"]
     channels = [BASETYPES.CHANNEL.value]
     circular = [BASETYPES.CIRCULAR.value]

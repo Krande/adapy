@@ -20,8 +20,8 @@ if TYPE_CHECKING:
     from ada import PipeSegStraight, Section
     from ada.api.beams import Beam, BeamSweep, BeamTapered
 
-
-def straight_beam_to_geom(beam: Beam | PipeSegStraight, is_solid=True) -> Geometry:
+#todo ORG remove it new is ok
+def OLDstraight_beam_to_geom(beam: Beam | PipeSegStraight, is_solid=True) -> Geometry:
     xvec = beam.xvec
     yvec = beam.yvec
     p1 = beam.n1.p
@@ -93,6 +93,84 @@ def straight_tapered_beam_to_geom(beam: BeamTapered, is_solid=True) -> Geometry:
     else:
         raise NotImplementedError(f"Beam section type {beam.section.type} not implemented")
 
+# todo new
+def straight_beam_to_geom(beam: Beam | PipeSegStraight, is_solid=True) -> Geometry:
+    xvec = beam.xvec
+    yvec = beam.yvec
+    up = beam.up
+    p1 = beam.n1.p
+
+    # ---- Apply placement rotation/translation to axes and p1 (same as exporter) ----
+    if beam.placement.is_identity() is False:
+        ident_place = ada.Placement()
+        place_abs = beam.placement.get_absolute_placement(include_rotations=True)
+
+        if not np.allclose(place_abs.rot_matrix, ident_place.rot_matrix):
+            ori_vectors = place_abs.transform_array_from_other_place(
+                np.asarray([xvec, yvec, up]), ident_place, ignore_translation=True
+            )
+            xvec = ori_vectors[0]
+            yvec = ori_vectors[1]
+            up = ori_vectors[2]
+
+            tra_vectors = place_abs.transform_array_from_other_place(np.asarray([p1]), ident_place)
+            p1 = tra_vectors[0]
+        else:
+            p1 = place_abs.origin + p1
+
+    # ---- Apply Genie-equivalent curve_offset at end1 ----
+    # NOTE: curve_offset_local() returns offsets in the beam local system.
+    # We convert to global using the (possibly placement-rotated) axes above.
+    data = beam.offset_helper.curve_offset_local()
+    ox1, oy1, oz1 = data["end1"]
+
+    # todo this is where we can change the visual representation without changing the cog calc or genie offset stuff
+
+    # ---- ANGULAR special handling (HP etc.) ----
+    # Genie semantics (curve_offset) are correct already; ANGULAR profiles are not Y-centered in our profile geometry.
+    # Compensate here so IFC/GLB/ADA viewer match Genie without changing Genie behavior.
+    if beam.section.type == beam.section.TYPES.ANGULAR:
+        cgz = getattr(beam.section.properties, "Cgz", 0.0) or 0.0
+        oz1 = float(oz1) - float(cgz) + beam.section.h
+    # Special handling of TPROFILE
+    if beam.section.type == beam.section.TYPES.TPROFILE:
+        cgz = getattr(beam.section.properties, "Cgz", 0.0) or 0.0
+        oz1 = float(oz1) - float(cgz) + beam.section.h / 2
+
+    # todo need special handling of IPROFILE
+
+
+    p1 = (
+        np.asarray(p1, dtype=float)
+        + float(ox1) * np.asarray(xvec, dtype=float)
+        + float(oy1) * np.asarray(yvec, dtype=float)
+        + float(oz1) * np.asarray(up, dtype=float)
+    )
+
+    if is_solid:
+        profile = section_to_arbitrary_profile_def_with_voids(beam.section)
+        place = Axis2Placement3D(location=p1, axis=xvec, ref_direction=yvec)
+        solid = geo_so.ExtrudedAreaSolid(profile, place, beam.length, Direction(0, 0, 1))
+        geom = Geometry(beam.guid, solid, beam.color)
+    else:
+        if beam.section.type in (
+            beam.section.TYPES.IPROFILE,
+            beam.section.TYPES.TPROFILE,
+            beam.section.TYPES.ANGULAR,
+            beam.section.TYPES.CHANNEL,
+            beam.section.TYPES.FLATBAR,
+        ):
+            geom = profile_disconnected_to_face_geom(beam)
+        elif beam.section.type == beam.section.TYPES.BOX:
+            geom = box_to_face_geom(beam)
+        elif beam.section.type in (beam.section.TYPES.TUBULAR, beam.section.TYPES.CIRCULAR):
+            # Tubular shell is represented by the outer surface of the shell.
+            geom = circ_to_face_geom(beam)
+        else:
+            raise NotImplementedError(f"Beam section type {beam.section.type} not implemented")
+
+    geom.bool_operations = [BooleanOperation(x.primitive.solid_geom(), x.bool_op) for x in beam.booleans]
+    return geom
 
 def swept_beam_to_face_geom(beam):
     pass

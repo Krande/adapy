@@ -215,6 +215,7 @@ class Beam(BackendGeom):
         self._up = self._orientation.zdir
         self._angle = angle
 
+
     def get_cog(self) -> Point:
         return self.offset_helper.get_cog()
 
