@@ -3,13 +3,13 @@ from itertools import chain
 from typing import List, Tuple
 
 import numpy as np
-from ada.sections.categories import BaseTypes
 
 from ada import Beam, Direction, Node, Part
 from ada.api.beams.justification import Justification
 from ada.api.containers import Beams
 from ada.config import logger
 from ada.core.exceptions import VectorNormalizeError
+from ada.sections.categories import BaseTypes
 
 
 def get_beams(xml_root: ET.Element, parent: Part) -> Beams:
@@ -44,6 +44,7 @@ def el_to_beam(bm_el: ET.Element, parent: Part) -> List[Beam]:
         logger.warning(f"No segments found for beam {name}")
 
     return segs
+
 
 def apply_offsets_and_alignments(name: str, bm_el: ET.Element, segs: list[Beam]):
     """
@@ -95,6 +96,7 @@ def apply_offsets_and_alignments(name: str, bm_el: ET.Element, segs: list[Beam])
     for seg in segs:
         seg.justification = Justification.CUSTOM
 
+
 def _curve_offset_add_local(bm: "Beam") -> np.ndarray:
     """
     This MUST match the 'add' logic in OffsetHelper.curve_offset_local().
@@ -122,6 +124,7 @@ def _curve_offset_add_local(bm: "Beam") -> np.ndarray:
         dz = cgz - h / 2.0
 
     return np.array([0.0, dy, dz], dtype=float)
+
 
 def curve_offset_to_eccentricity_global(offset: np.ndarray, bm: "Beam", use_local: bool) -> "Direction":
     """
@@ -206,10 +209,10 @@ def get_offsets(bm_el: ET.Element) -> tuple[np.ndarray | None, np.ndarray | None
         end2_o = np.array(xyz_to_floats(end2), dtype=float)
 
     print(
-        f"[get_offsets] beam={bm_el.attrib.get('name')} src={src} use_local={use_local} "
-        f"end1={end1_o} end2={end2_o}"
+        f"[get_offsets] beam={bm_el.attrib.get('name')} src={src} use_local={use_local} " f"end1={end1_o} end2={end2_o}"
     )
     return end1_o, end2_o, use_local
+
 
 def convert_offset_to_global_csys(o: np.ndarray, bm: Beam):
     xv = bm.xvec

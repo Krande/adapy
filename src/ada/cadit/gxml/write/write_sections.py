@@ -18,8 +18,6 @@ def get_section_props(section: Section) -> ET.Element | None:
         return to_gxml_i_section(section)
     elif section.type == section.TYPES.IPROFILE and section.w_btn != section.w_top:
         return to_gxml_unsymm_i_section(section)
-    # todo special case for genie, since Tprofile does not exist in genie, but how will the offset be handled now?
-    #  should we instead try to pick up this in simlar way when reading in genie, so it will become Tprofile again in ada.
     elif section.type == section.TYPES.TPROFILE and section.w_btn != section.w_top:
         return to_gxml_unsymm_i_section(section)
     elif section.type == section.TYPES.BOX:

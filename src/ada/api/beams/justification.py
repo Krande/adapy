@@ -43,6 +43,7 @@ class Justification(Enum):
 
         raise ValueError(f"Unknown justification string: {label}")
 
+
 def resolve_justification(beam: "Beam", just: Justification) -> Optional["Direction"]:
     """
     Resolve a semantic justification into a *local-z based* offset vector (in GLOBAL coords),
@@ -73,8 +74,7 @@ def resolve_justification(beam: "Beam", just: Justification) -> Optional["Direct
     sec = beam.section
     zv = beam.up
 
-
-    #sign = 1.0 if just == Justification.FLUSH_TOP else -1.0
+    # sign = 1.0 if just == Justification.FLUSH_TOP else -1.0
     sign = 1.0
 
     # NOTE:
@@ -103,6 +103,7 @@ def resolve_justification(beam: "Beam", just: Justification) -> Optional["Direct
 
     # Default for most profiles (I/BOX/CHANNEL/FLATBAR/etc.)
     return sign * zv * float(sec.h) / 2.0
+
 
 def get_offset_from_justification(beam: "Beam", just: Justification) -> Optional["Direction"]:
     """

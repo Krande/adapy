@@ -29,11 +29,11 @@ def add_beams(root: ET.Element, part: Part, sw: SatWriter = None):
             continue
         add_straight_beam(beam, root)
 
+
 def add_straight_beam(beam: Beam, xml_root: ET.Element):
     import numpy as np
+
     from ada import Placement
-    from ada.sections.categories import BaseTypes
-    from ada.api.beams.justification import Justification  # adjust import if needed
 
     structure_elem = ET.SubElement(xml_root, "structure")
     straight_beam = ET.SubElement(structure_elem, "straight_beam", {"name": beam.name})
@@ -95,7 +95,6 @@ def add_straight_beam(beam: Beam, xml_root: ET.Element):
             # NOTE: Genie has no TPROFILE; your exporter writes unsymm I for T -> keep this legacy special-case.
             alignment = "flush_bottom" if beam.section.type == BaseTypes.TPROFILE else "flush_top"
 
-
         ET.SubElement(curve_offset, "aligned_curve_offset", {"alignment": alignment, "constant_value": "0"})
         return
 
@@ -109,6 +108,7 @@ def add_straight_beam(beam: Beam, xml_root: ET.Element):
         "constant_offset",
         {"x": f"{float(ox1):.12g}", "y": f"{float(oy1):.12g}", "z": f"{float(oz1):.12g}"},
     )
+
 
 def add_curve_orientation(beam: Beam, straight_beam: ET.Element):
     curve_orientation = ET.SubElement(straight_beam, "curve_orientation")

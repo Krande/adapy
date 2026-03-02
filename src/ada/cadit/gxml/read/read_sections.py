@@ -110,18 +110,6 @@ def unsymm_isec(name, sec_prop) -> Section:
             t_fbtn=t_fbtn,
         )
 
-    return Section(
-        name=name,
-        sec_type=Section.TYPES.IPROFILE,
-        sec_str=name,
-        h=float(sec_prop.attrib["h"]),
-        w_btn=float(sec_prop.attrib["bfbot"]),
-        w_top=float(sec_prop.attrib["bftop"]),
-        t_w=float(sec_prop.attrib["tw"]),
-        t_ftop=float(sec_prop.attrib["tftop"]),
-        t_fbtn=float(sec_prop.attrib["tfbot"]),
-    )
-
 
 def pipe_section(name, sec_prop) -> Section:
     return Section(

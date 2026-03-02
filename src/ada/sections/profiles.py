@@ -149,6 +149,7 @@ def iprofiles(sec: Section, return_solid) -> SectionProfile:
         shell_thickness_map=shell_thick_map,
     )
 
+
 @lru_cache
 def tprofiles(sec: Section, return_solid) -> SectionProfile:
     h = sec.h
@@ -190,6 +191,7 @@ def tprofiles(sec: Section, return_solid) -> SectionProfile:
         disconnected=disconnected,
         shell_thickness_map=shell_thick_map,
     )
+
 
 @lru_cache
 def box(sec: Section, return_solid) -> SectionProfile:

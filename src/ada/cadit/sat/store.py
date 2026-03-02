@@ -123,18 +123,9 @@ class SatReaderFactory:
         self.header = ""
         self.failed_faces = []
 
-    # todo delete when ok
-    def OLDload_sat_data_from_file(self):
-        sat_reader = SatReader(self.sat_file)
-        self.header = next(sat_reader)
-        for sat_object_str in sat_reader:
-            if sat_object_str.startswith("T @"):
-                continue
-            self.sat_store.add(sat_object_str)
-
     def load_sat_data_from_file(self):
         # Always reset store before loading
-        #self.sat_store.clear()
+        # self.sat_store.clear()
 
         sat_reader = SatReader(self.sat_file)
 

@@ -44,43 +44,6 @@ def apply_mass_density_factors(root, p: Part):
         else:
             bm.material = existing_mat
 
-# todo delete when tested that the new version works
-def OLDyield_plate_elems_to_plate(plate_elem, parent, sat_ref_d, thick_map):
-    from ada import Plate
-
-    name = plate_elem.attrib["name"]
-    mat = parent.materials.get_by_name(plate_elem.attrib["material_ref"])
-    for i, res in enumerate(plate_elem.findall(".//face"), start=1):
-        face_ref = res.attrib["face_ref"]
-
-        if i > 1:
-            name += f"_{i:02d}"
-
-        sat_data = sat_ref_d.get(face_ref, None)
-        t = thick_map.get(plate_elem.attrib["thickness_ref"])
-
-        if isinstance(sat_data, Geometry) and Config().gxml_import_advanced_faces is True:
-            yield PlateCurved(
-                name, sat_data, t=t, mat=mat, metadata=dict(props=dict(gxml_face_ref=face_ref)), parent=parent
-            )
-        else:
-            if sat_data is None:
-                logger.debug(f'Unable to find face_ref="{face_ref}"')
-                continue
-
-            try:
-                pl = Plate.from_3d_points(
-                    name,
-                    sat_data,
-                    t,
-                    mat=mat,
-                    metadata=dict(props=dict(gxml_face_ref=face_ref)),
-                    parent=parent,
-                )
-            except BaseException as e:
-                logger.error(f"Failed converting plate {name} due to {e}")
-                continue
-            yield pl
 
 def yield_plate_elems_to_plate(plate_elem, parent, sat_ref_d, thick_map):
     from ada import Plate
