@@ -82,7 +82,6 @@ def add_straight_beam(beam: Beam, xml_root: ET.Element):
     # 2) Constant case: if justification requests FLUSH semantics, write aligned_curve_offset
     #    IMPORTANT: do this BEFORE the "offset is zero" early-return.
     if (not force_constant_offsets) and beam.justification in (
-        Justification.FLUSH_OFFSET,   # legacy
         Justification.FLUSH_TOP,
         Justification.FLUSH_BOTTOM,
     ):

@@ -22,9 +22,6 @@ class Justification(Enum):
     FLUSH_TOP = "flush_top"
     FLUSH_BOTTOM = "flush_bottom"
 
-    # Legacy (keep for verification during transition)
-    FLUSH_OFFSET = "FLUSH_OFFSET"
-
     @staticmethod
     def from_str(label: str) -> "Justification":
         label = label.strip().lower()
@@ -44,27 +41,7 @@ class Justification(Enum):
         if label in ("flush_bottom", "flush bottom"):
             return Justification.FLUSH_BOTTOM
 
-        # Legacy input
-        if label in ("flush offset", "flush_offset", "flushoffset", "flushoffset"):
-            return Justification.FLUSH_OFFSET
-
         raise ValueError(f"Unknown justification string: {label}")
-
-def _legacy_flush_offset_to_side(beam: "Beam") -> Justification:
-    """
-    Genie legacy behavior: FLUSH_OFFSET is an intent, but the side depends on section type.
-    Your Genie exporter currently does:
-      - TPROFILE -> flush_bottom
-      - most others -> flush_top
-    Keep that mapping here so FLUSH_OFFSET can remain as a verification mode.
-    """
-    sec_type = beam.section.type
-
-    if sec_type == BaseTypes.TPROFILE:
-        return Justification.FLUSH_BOTTOM
-
-    # matches your existing exporter mapping (ANGULAR/BOX/TUBULAR/IPROFILE/CHANNEL/FLATBAR -> flush_top)
-    return Justification.FLUSH_TOP
 
 def resolve_justification(beam: "Beam", just: Justification) -> Optional["Direction"]:
     """
@@ -76,9 +53,6 @@ def resolve_justification(beam: "Beam", just: Justification) -> Optional["Direct
       - None for CUSTOM/UNSET (meaning: must rely on explicit e1/e2)
     """
     from ada import Direction
-
-    if just == Justification.FLUSH_OFFSET:
-        just = _legacy_flush_offset_to_side(beam)
 
     if just == Justification.NA:
         return Direction(0, 0, 0)
@@ -219,9 +193,22 @@ class OffsetHelper:
         - Uses sign convention: local offsets start from -e.
         """
 
-        # --- e1/e2 -> numeric vectors ---
-        e1 = np.array([*self.beam.e1], dtype=float) if self.beam.e1 is not None else np.zeros(3)
-        e2 = np.array([*self.beam.e2], dtype=float) if self.beam.e2 is not None else np.zeros(3)
+        # Absolute axes for the beam's local basis (x, y, up) expressed in global coords
+        x_abs, y_abs, up_abs = self._local_axes_in_absolute()
+        x_abs = np.asarray(x_abs, dtype=float)
+        y_abs = np.asarray(y_abs, dtype=float)
+        up_abs = np.asarray(up_abs, dtype=float)
+
+        def abs_vec_to_local_components(v_abs: np.ndarray) -> np.ndarray:
+            """Project an absolute/global vector onto (x,y,up) -> local components."""
+            return np.array(
+                [float(np.dot(v_abs, x_abs)), float(np.dot(v_abs, y_abs)), float(np.dot(v_abs, up_abs))],
+                dtype=float,
+            )
+
+        # --- e1/e2 as absolute vectors ---
+        e1_abs = np.array([*self.beam.e1], dtype=float) if self.beam.e1 is not None else np.zeros(3)
+        e2_abs = np.array([*self.beam.e2], dtype=float) if self.beam.e2 is not None else np.zeros(3)
 
         # ------------------------------------------------------------------
         # Fallback: derive numeric e from justification intent (if no e1/e2)
@@ -230,57 +217,49 @@ class OffsetHelper:
 
             just = self.beam.justification
             sec0 = self.beam.section
-            zv = self.beam.up
+            zv_abs = np.asarray(self.beam.up, dtype=float)  # beam.up is "top" in absolute coords
 
             # If imported from Genie, prefer explicit aligned metadata
             alignment_str = None
             if getattr(self.beam, "metadata", None):
                 alignment_str = self.beam.metadata.get("aligned_curve_offset_alignment")
 
-            # Convert metadata string -> explicit justification
             if alignment_str == "flush_top":
                 just = Justification.FLUSH_TOP
             elif alignment_str == "flush_bottom":
                 just = Justification.FLUSH_BOTTOM
 
-            # Legacy mapping: FLUSH_OFFSET without metadata
-            if just == Justification.FLUSH_OFFSET:
-                if sec0.type == BaseTypes.TPROFILE:
-                    just = Justification.FLUSH_BOTTOM
-                else:
-                    just = Justification.FLUSH_TOP
-
             if just in (Justification.FLUSH_TOP, Justification.FLUSH_BOTTOM):
-
                 flush_factor = 1.0 if just == Justification.FLUSH_TOP else -1.0
 
                 # --- section-specific rules (match Genie semantics) ---
                 if sec0.type == sec0.TYPES.ANGULAR:
                     if just == Justification.FLUSH_TOP:
-                        e = flush_factor * zv * 0.0
+                        e_abs = zv_abs * 0.0
                     else:
-                        e = flush_factor * zv * sec0.h
+                        e_abs = zv_abs * float(sec0.h)
 
                 elif sec0.type == sec0.TYPES.TUBULAR:
-                    e = flush_factor * zv * sec0.r
+                    e_abs = flush_factor * zv_abs * float(sec0.r)
 
                 else:
-                    # Default half depth
-                    e = flush_factor * zv * (sec0.h / 2.0)
+                    e_abs = flush_factor * zv_abs * (float(sec0.h) / 2.0)
 
-                e1 = np.array([*e], dtype=float)
-                e2 = np.array([*e], dtype=float)
+                e1_abs = np.array(e_abs, dtype=float)
+                e2_abs = np.array(e_abs, dtype=float)
 
-        # --- your sign convention ---
-        off1 = -e1
-        off2 = -e2
+        # --- your sign convention: local offsets start from -e ---
+        off1_abs = -e1_abs
+        off2_abs = -e2_abs
 
-        # --- geometric centroid adjustments ---
+        # Convert absolute offsets -> LOCAL components (x,y,up)
+        off1 = abs_vec_to_local_components(off1_abs)
+        off2 = abs_vec_to_local_components(off2_abs)
+
+        # --- geometric centroid adjustments (these are LOCAL y/z tweaks) ---
         p = self.beam.section.properties
         if getattr(p, "Cgy", None) is None or getattr(p, "Cgz", None) is None:
-            raise ValueError(
-                f"Section '{self.beam.section.name}' missing geometric centroid (Cgy/Cgz)."
-            )
+            raise ValueError(f"Section '{self.beam.section.name}' missing geometric centroid (Cgy/Cgz).")
 
         cgz = float(p.Cgz)
         h = float(self.beam.section.h) if self.beam.section.h is not None else None
@@ -301,9 +280,10 @@ class OffsetHelper:
             dz = 0.0
             dy = 0.0
 
-        add = np.array([0.0, dy, dz], dtype=float)
-        off1 = off1 + add
-        off2 = off2 + add
+        add_local = np.array([0.0, dy, dz], dtype=float)
+
+        off1 = off1 + add_local
+        off2 = off2 + add_local
 
         is_varying = not np.allclose(off1, off2)
         avg = 0.5 * (off1 + off2)
