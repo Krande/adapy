@@ -58,7 +58,7 @@ jobs:
           key: profiling-history-${{ github.event.pull_request.number }}-${{ github.run_id }}
 
       - name: Upload Profiling Artifacts
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: profiling-results-${{ github.event.pull_request.head.sha }}
           path: output/
