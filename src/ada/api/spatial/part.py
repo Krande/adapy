@@ -563,12 +563,12 @@ class Part(BackendGeom):
         beams_tot_mass = 0
         plates_tot_mass = 0
         shapes_tot_mass = 0
-        point_masses_tot_mass = 0
+        node_masses_tot_mass = 0
 
         beams_cogs = []
         plates_cogs = []
         shapes_tot_cogs = []
-        point_masses_tot_cogs = []
+        node_masses_tot_cogs = []
 
         tot_mass = 0
         cogs = []
@@ -604,9 +604,9 @@ class Part(BackendGeom):
         for mass in self.fem.masses.values():
             cogs.append(mass.nodes[0].p * mass.mass)
             tot_mass += mass.mass
-            # point masses only
-            point_masses_tot_cogs.append(mass.nodes[0].p * mass.mass)
-            point_masses_tot_mass += mass.mass
+            # node masses only
+            node_masses_tot_cogs.append(mass.nodes[0].p * mass.mass)
+            node_masses_tot_mass += mass.mass
 
         cog = Point(sum(cogs) / tot_mass)
 
@@ -621,11 +621,21 @@ class Part(BackendGeom):
             logger.debug(
                 f"{self.name}: shapes cog abs (equipments and point masses): {shapes_tot_cog} mass: {shapes_tot_mass}"
             )
-        if point_masses_tot_mass > 0:
-            point_masses_tot_cog = Point(sum(point_masses_tot_cogs) / point_masses_tot_mass)
-            logger.debug(f"{self.name}: fem point masses cog: {point_masses_tot_cog} mass: {point_masses_tot_mass}")
+        if node_masses_tot_mass > 0:
+            node_masses_tot_cog = Point(sum(node_masses_tot_cogs) / node_masses_tot_mass)
+            logger.debug(f"{self.name}: fem node masses cog: {node_masses_tot_cog} mass: {node_masses_tot_mass}")
 
-        return COG(cog, tot_mass, None, plates_tot_mass, beams_tot_mass, point_masses_tot_mass)
+        tot_vol = None
+
+        return COG(
+            p=cog,
+            tot_mass=tot_mass,
+            tot_vol=tot_vol,
+            sh_mass=shapes_tot_mass,
+            bm_mass=beams_tot_mass,
+            pl_mass=plates_tot_mass,
+            no_mass=node_masses_tot_mass,
+        )
 
     def create_objects_from_fem(self, skip_plates=False, skip_beams=False) -> None:
         """Build Beams and Plates from the contents of the local FEM object"""
