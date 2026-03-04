@@ -83,15 +83,15 @@ def write_pipe_segment(segment: PipeSegElbow | PipeSegStraight) -> ifcopenshell.
     return pipe_seg
 
 
-def write_pipe_ifc_elem(pipe: Pipe):
+def write_pipe_ifc_elem(ifc_store: IfcStore, pipe: Pipe):
     if pipe.parent is None:
         raise ValueError("Cannot build ifc element without parent")
 
-    a = pipe.get_assembly()
-    f = a.ifc_store.f
+    f = ifc_store.f
+    owner_history = ifc_store.owner_history
 
-    owner_history = a.ifc_store.owner_history
-    parent = f.by_guid(pipe.parent.guid)
+    # parent = f.by_guid(pipe.parent.guid)
+    parent = ifc_store.get_by_guid(pipe.parent.guid)
 
     placement = create_local_placement(
         f,
@@ -117,7 +117,7 @@ def write_pipe_ifc_elem(pipe: Pipe):
     f.createIfcRelAggregates(
         create_guid(),
         owner_history,
-        "Site Container",
+        "Pipe Container",
         None,
         parent,
         [ifc_elem],
