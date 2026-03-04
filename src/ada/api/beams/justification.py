@@ -44,7 +44,8 @@ class Justification(Enum):
         raise ValueError(f"Unknown justification string: {label}")
 
 
-def resolve_justification(beam: "Beam", just: Justification) -> Optional["Direction"]:
+# todo remove?
+def OLDresolve_justification(beam: "Beam", just: Justification) -> Optional["Direction"]:
     """
     Resolve a semantic justification into a *local-z based* offset vector (in GLOBAL coords),
     using beam.up as the "top" direction (same conceptual meaning as Genie).
@@ -104,7 +105,46 @@ def resolve_justification(beam: "Beam", just: Justification) -> Optional["Direct
     # Default for most profiles (I/BOX/CHANNEL/FLATBAR/etc.)
     return sign * zv * float(sec.h) / 2.0
 
+def resolve_justification(beam: "Beam", just: Justification) -> Optional["Direction"]:
+    from ada import Direction
 
+    # ---- validation ----
+    if not isinstance(just, Justification):
+        raise ValueError(f"Unknown justification: {just}")
+
+    if just == Justification.NA:
+        return Direction(0, 0, 0)
+
+    if just == Justification.TOS:
+        if beam.section.h is None:
+            return Direction(0, 0, 0)
+        return beam.up * (beam.section.h / 2.0)
+
+    if just in (Justification.CUSTOM, Justification.UNSET):
+        return None
+
+    sec = beam.section
+    zv = beam.up
+
+    sign = 1.0 if just == Justification.FLUSH_TOP else -1.0
+
+    if sec.type in (BaseTypes.TUBULAR, BaseTypes.CIRCULAR):
+        return sign * zv * float(sec.r)
+
+    if sec.h is None:
+        return Direction(0, 0, 0)
+
+    if sec.type == BaseTypes.ANGULAR:
+        if just == Justification.FLUSH_TOP:
+            return Direction(0, 0, 0)
+        return (-zv) * float(sec.h)
+
+    if sec.type == BaseTypes.TPROFILE:
+        return sign * zv * float(sec.h) / 2.0
+
+    return sign * zv * float(sec.h) / 2.0
+
+# todo this is the old method, remove when calls are updates
 def get_offset_from_justification(beam: "Beam", just: Justification) -> Optional["Direction"]:
     """
     Backward-compatible name.

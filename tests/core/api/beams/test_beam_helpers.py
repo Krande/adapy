@@ -46,7 +46,7 @@ def test_justification_enum():
 
 def test_get_offset_from_justification_na(simple_beam):
     """Test get_offset_from_justification with neutral axis"""
-    offset = get_offset_from_justification(simple_beam, Justification.NA)
+    offset = get_offset_from_justification(simple_beam, Justification.NA) # todo this is the old method, need to adapt
     assert isinstance(offset, Direction)
     assert offset.x == 0
     assert offset.y == 0
@@ -55,7 +55,7 @@ def test_get_offset_from_justification_na(simple_beam):
 
 def test_get_offset_from_justification_tos(simple_beam):
     """Test get_offset_from_justification with top of steel"""
-    offset = get_offset_from_justification(simple_beam, Justification.TOS)
+    offset = get_offset_from_justification(simple_beam, Justification.TOS) # todo this is the old method, need to adapt
     assert isinstance(offset, Direction)
     # For IPE300, height should be 0.3m, so offset should be 0.15m in up direction
     expected_offset = simple_beam.up * simple_beam.section.h / 2
@@ -65,7 +65,7 @@ def test_get_offset_from_justification_tos(simple_beam):
 def test_get_offset_from_justification_invalid(simple_beam):
     """Test get_offset_from_justification with invalid justification"""
     with pytest.raises(ValueError, match="Unknown justification"):
-        get_offset_from_justification(simple_beam, "invalid")
+        get_offset_from_justification(simple_beam, "invalid") # todo this is the old method, need to adapt
 
 
 def test_is_on_beam(simple_beam):
