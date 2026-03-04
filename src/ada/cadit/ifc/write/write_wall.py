@@ -19,6 +19,8 @@ from .write_building_components import write_door, write_window
 if TYPE_CHECKING:
     from ada.cadit.ifc.store import IfcStore
 
+def update_ifc_wall(ifc_store: IfcStore, wall: Wall):
+    logger.warning("Updating IFC wall not implemented yet")
 
 def write_ifc_wall(ifc_store: IfcStore, wall: Wall):
     if wall.parent is None:

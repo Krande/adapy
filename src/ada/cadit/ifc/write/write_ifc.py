@@ -21,15 +21,15 @@ from ada.cadit.ifc.write.write_fasteners import write_ifc_fastener
 from ada.cadit.ifc.write.write_instances import write_mapped_instance
 from ada.cadit.ifc.write.write_material import write_ifc_mat
 from ada.cadit.ifc.write.write_openings import generate_ifc_opening
-from ada.cadit.ifc.write.write_pipe import write_ifc_pipe
-from ada.cadit.ifc.write.write_plates import write_ifc_plate, write_ifc_plate_curved
+from ada.cadit.ifc.write.write_pipe import write_ifc_pipe, update_ifc_pipe
+from ada.cadit.ifc.write.write_plates import write_ifc_plate, write_ifc_plate_curved, update_ifc_plate
 from ada.cadit.ifc.write.write_sections import export_beam_section_profile_def
-from ada.cadit.ifc.write.write_shapes import write_ifc_shape
+from ada.cadit.ifc.write.write_shapes import write_ifc_shape, update_ifc_shape
 from ada.cadit.ifc.write.write_spatial_elements import (
     write_ifc_part,
     write_ifc_spatial_hierarchy,
 )
-from ada.cadit.ifc.write.write_wall import write_ifc_wall
+from ada.cadit.ifc.write.write_wall import write_ifc_wall, update_ifc_wall
 from ada.config import logger
 from ada.core.guid import create_guid
 
@@ -479,13 +479,13 @@ class IfcWriter:
         if isinstance(obj, Beam):
             return update_ifc_beam(self.ifc_store, obj)
         elif isinstance(obj, Plate):
-            return write_ifc_plate(obj)
+            return update_ifc_plate(self.ifc_store, obj)
         elif isinstance(obj, Pipe):
-            return write_ifc_pipe(obj)
+            return update_ifc_pipe(self.ifc_store, obj)
         elif issubclass(type(obj), Shape):
-            return write_ifc_shape(obj)
+            return update_ifc_shape(self.ifc_store, obj)
         elif isinstance(obj, Wall):
-            return write_ifc_wall(obj)
+            return update_ifc_wall(self.ifc_store, obj)
         else:
             raise NotImplementedError(f"Object {obj} is not supported")
 

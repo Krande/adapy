@@ -51,6 +51,9 @@ def _default_relative_placement(f):
                 return pl
     return None
 
+def update_ifc_shape(ifc_store: IfcStore, shape: Shape):
+    logger.warning("Updating IFC shape not implemented yet")
+
 
 def write_ifc_shape(ifc_store: IfcStore, shape: Shape):
     if shape.parent is None:

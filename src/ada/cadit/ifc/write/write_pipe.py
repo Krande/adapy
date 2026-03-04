@@ -16,6 +16,10 @@ if TYPE_CHECKING:
     from ada.cadit.ifc.store import IfcStore
 
 
+def update_ifc_pipe(ifc_store: IfcStore, pipe: Pipe):
+    logger.warning("Updating IFC pipe not implemented yet")
+
+
 def write_ifc_pipe(ifc_store: IfcStore, pipe: Pipe):
     # Create the pipe container element in THIS store/file
     ifc_pipe = write_pipe_ifc_elem(ifc_store, pipe)
