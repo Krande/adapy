@@ -37,19 +37,51 @@ if TYPE_CHECKING:
     from ada.cadit.ifc.store import IfcStore
 
 
+def _default_relative_placement(f):
+    """
+    Pick a stable placement anchor already in the IFC file.
+    Prefer Storey -> Building -> Site -> Project.
+    """
+    for t in ("IfcBuildingStorey", "IfcBuilding", "IfcSite", "IfcProject"):
+        elems = f.by_type(t)
+        if elems:
+            # These should have ObjectPlacement for spatial structure
+            pl = getattr(elems[0], "ObjectPlacement", None)
+            if pl is not None:
+                return pl
+    return None
+
+
 def write_ifc_shape(ifc_store: IfcStore, shape: Shape):
     if shape.parent is None:
         raise ValueError("Parent cannot be None for IFC export")
 
     a = shape.parent.get_assembly()
     f = a.ifc_store.f
-
     owner_history = a.ifc_store.owner_history
-    parent = f.by_guid(shape.parent.guid)
+
+    parent_ifc = None
+    parent_guid = getattr(shape.parent, "guid", None)
+
+    if parent_guid:
+        try:
+            parent_ifc = f.by_guid(parent_guid)
+        except RuntimeError:
+            parent_ifc = None
+
+    if parent_ifc is not None and getattr(parent_ifc, "ObjectPlacement", None) is not None:
+        rel_to = parent_ifc.ObjectPlacement
+    else:
+        rel_to = _default_relative_placement(f)
+        # If rel_to is still None, create_local_placement should be able to handle it,
+        # but if not, you can explicitly create an absolute placement here.
+
+    shape_placement = create_local_placement(f, relative_to=rel_to)
+
     schema = f.wrapped_data.schema
 
-    shape_placement = create_local_placement(f, relative_to=parent.ObjectPlacement)
-
+    # NOTE: issubclass(type(shape), Shape) is always True here.
+    # If you intended a special subclass check, change it to something meaningful.
     if issubclass(type(shape), Shape):
         ifc_shape = generate_parametric_solid(shape, f)
     else:

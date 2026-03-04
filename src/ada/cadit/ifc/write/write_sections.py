@@ -44,27 +44,17 @@ def get_profile_class(section: Section) -> ProfileBase:
         raise UnrecognizedSectionType(f"Type -> {section.type}")
 
 
-def export_beam_section_profile_def(section: Section):
-    if section.parent is None or section.parent.parent is None:
-        raise ValueError("Lacking parent")
-
+def export_beam_section_profile_def(f: ifcopenshell.file, section: Section):
     if section.name is None:
         raise ValueError("Name cannot be None!")
-
-    a = section.parent.parent.get_assembly()
-    f = a.ifc_store.f
 
     sec_props = dict(ProfileType="AREA", ProfileName=section.name)
 
     section_profile_instance = get_profile_class(section)
-
-    sec_props_input = section_profile_instance.get_ifc_props(f)
-    sec_props.update(sec_props_input)
+    sec_props.update(section_profile_instance.get_ifc_props(f))
 
     ifc_sec_type = section_profile_instance.get_ifc_type()
-
     profile = f.create_entity(ifc_sec_type, **sec_props)
-
     return profile
 
 

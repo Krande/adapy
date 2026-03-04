@@ -20,13 +20,21 @@ if TYPE_CHECKING:
     from ada.api.beams import Beam, BeamSweep, BeamTapered
 
 
+# Ole: this is where we can change the visual representation without changing the cog calc or genie offset stuff
 def straight_beam_to_geom(beam: Beam | PipeSegStraight, is_solid=True) -> Geometry:
-    xvec = beam.xvec
-    yvec = beam.yvec
-    up = beam.up
-    p1 = beam.n1.p
+    import numpy as np
 
-    # ---- Apply placement rotation/translation to axes and p1 (same as exporter) ----
+    from ada import Direction
+    from ada.geom import solids as geo_so
+    from ada.geom.placement import Axis2Placement3D
+
+    xvec = np.asarray(beam.xvec, dtype=float)
+    yvec = np.asarray(beam.yvec, dtype=float)
+    up = np.asarray(beam.up, dtype=float)
+    p1 = np.asarray(beam.n1.p, dtype=float)
+    p2 = np.asarray(beam.n2.p, dtype=float)
+
+    # ---- Apply placement rotation/translation to axes and endpoints (same as exporter intent) ----
     if beam.placement.is_identity() is False:
         ident_place = ada.Placement()
         place_abs = beam.placement.get_absolute_placement(include_rotations=True)
@@ -35,47 +43,77 @@ def straight_beam_to_geom(beam: Beam | PipeSegStraight, is_solid=True) -> Geomet
             ori_vectors = place_abs.transform_array_from_other_place(
                 np.asarray([xvec, yvec, up]), ident_place, ignore_translation=True
             )
-            xvec = ori_vectors[0]
-            yvec = ori_vectors[1]
-            up = ori_vectors[2]
+            xvec, yvec, up = (
+                np.asarray(ori_vectors[0], float),
+                np.asarray(ori_vectors[1], float),
+                np.asarray(ori_vectors[2], float),
+            )
 
-            tra_vectors = place_abs.transform_array_from_other_place(np.asarray([p1]), ident_place)
-            p1 = tra_vectors[0]
+            tra_vectors = place_abs.transform_array_from_other_place(np.asarray([p1, p2]), ident_place)
+            p1, p2 = np.asarray(tra_vectors[0], float), np.asarray(tra_vectors[1], float)
         else:
             p1 = place_abs.origin + p1
+            p2 = place_abs.origin + p2
 
-    # ---- Apply Genie-equivalent curve_offset at end1 ----
-    # NOTE: curve_offset_local() returns offsets in the beam local system.
-    # We convert to global using the (possibly placement-rotated) axes above.
+    # ---- Apply Genie-equivalent curve_offset at BOTH ends ----
     data = beam.offset_helper.curve_offset_local()
-    ox1, oy1, oz1 = data["end1"]
 
-    # todo this is where we can change the visual representation without changing the cog calc or genie offset stuff
+    ox1, oy1, oz1 = map(float, data.get("end1", (0.0, 0.0, 0.0)))
+    ox2, oy2, oz2 = map(float, data.get("end2", data.get("end1", (0.0, 0.0, 0.0))))  # fallback constant
 
-    # ---- ANGULAR special handling (HP etc.) ----
-    # Genie semantics (curve_offset) are correct already; ANGULAR profiles are not Y-centered in our profile geometry.
-    # Compensate here so IFC/GLB/ADA viewer match Genie without changing Genie behavior.
+    # ---- Section-specific visual corrections (apply to both ends consistently) ----
     if beam.section.type == beam.section.TYPES.ANGULAR:
-        cgz = getattr(beam.section.properties, "Cgz", 0.0) or 0.0
-        oz1 = float(oz1) - float(cgz) + beam.section.h
-    # Special handling of TPROFILE
-    if beam.section.type == beam.section.TYPES.TPROFILE:
-        cgz = getattr(beam.section.properties, "Cgz", 0.0) or 0.0
-        oz1 = float(oz1) - float(cgz) + beam.section.h / 2
+        cgz = float(getattr(beam.section.properties, "Cgz", 0.0) or 0.0)
+        oz1 = oz1 - cgz + float(beam.section.h)
+        oz2 = oz2 - cgz + float(beam.section.h)
 
-    p1 = (
-        np.asarray(p1, dtype=float)
-        + float(ox1) * np.asarray(xvec, dtype=float)
-        + float(oy1) * np.asarray(yvec, dtype=float)
-        + float(oz1) * np.asarray(up, dtype=float)
-    )
+    if beam.section.type == beam.section.TYPES.TPROFILE:
+        cgz = float(getattr(beam.section.properties, "Cgz", 0.0) or 0.0)
+        oz1 = oz1 - cgz + float(beam.section.h) / 2.0
+        oz2 = oz2 - cgz + float(beam.section.h) / 2.0
+
+    # Offset endpoints in GLOBAL space using current axes
+    p1_off = p1 + ox1 * xvec + oy1 * yvec + oz1 * up
+    p2_off = p2 + ox2 * xvec + oy2 * yvec + oz2 * up
+
+    # New axis & length derived from offset endpoints (this is what fixes Bm3/Bm4/Bm6 visuals)
+    v = p2_off - p1_off
+    L = float(np.linalg.norm(v))
+    if L <= 1e-12:
+        raise ValueError(f"Beam {getattr(beam, 'name', beam.guid)} has ~zero length after offsets")
+
+    xvec2 = v / L
+
+    # Rebuild y/up to stay orthonormal & close to original 'up'
+    up0 = up / (np.linalg.norm(up) + 1e-30)
+    ytmp = np.cross(up0, xvec2)
+    yn = np.linalg.norm(ytmp)
+    if yn <= 1e-12:
+        # up parallel to x -> fall back to original yvec
+        y0 = yvec / (np.linalg.norm(yvec) + 1e-30)
+        ytmp = np.cross(y0, xvec2)
+        yn = np.linalg.norm(ytmp)
+        if yn <= 1e-12:
+            # last resort: pick any perpendicular vector
+            a = np.array([1.0, 0.0, 0.0])
+            if abs(np.dot(a, xvec2)) > 0.9:
+                a = np.array([0.0, 1.0, 0.0])
+            ytmp = np.cross(a, xvec2)
+            yn = np.linalg.norm(ytmp)
+
+    yvec2 = ytmp / (yn + 1e-30)
+    up2 = np.cross(xvec2, yvec2)
+    up2 = up2 / (np.linalg.norm(up2) + 1e-30)
 
     if is_solid:
         profile = section_to_arbitrary_profile_def_with_voids(beam.section)
-        place = Axis2Placement3D(location=p1, axis=xvec, ref_direction=yvec)
-        solid = geo_so.ExtrudedAreaSolid(profile, place, beam.length, Direction(0, 0, 1))
+        # NOTE: in your convention Axis2Placement3D(axis=Z) is using xvec as "axis" (extrusion direction)
+        place = Axis2Placement3D(location=p1_off, axis=xvec2, ref_direction=yvec2)
+        solid = geo_so.ExtrudedAreaSolid(profile, place, L, Direction(0, 0, 1))
         geom = Geometry(beam.guid, solid, beam.color)
     else:
+        # If you want shells/lines to match varying end offsets too,
+        # you should update the downstream helpers similarly (use p1_off/p2_off and xvec2/yvec2/up2).
         if beam.section.type in (
             beam.section.TYPES.IPROFILE,
             beam.section.TYPES.TPROFILE,
@@ -87,7 +125,6 @@ def straight_beam_to_geom(beam: Beam | PipeSegStraight, is_solid=True) -> Geomet
         elif beam.section.type == beam.section.TYPES.BOX:
             geom = box_to_face_geom(beam)
         elif beam.section.type in (beam.section.TYPES.TUBULAR, beam.section.TYPES.CIRCULAR):
-            # Tubular shell is represented by the outer surface of the shell.
             geom = circ_to_face_geom(beam)
         else:
             raise NotImplementedError(f"Beam section type {beam.section.type} not implemented")

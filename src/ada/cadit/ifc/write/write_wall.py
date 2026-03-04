@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from ada import Wall
 from ada.base.units import Units
 from ada.cadit.ifc.utils import (
@@ -12,32 +16,60 @@ from ada.core.guid import create_guid
 
 from .write_building_components import write_door, write_window
 
+if TYPE_CHECKING:
+    from ada.cadit.ifc.store import IfcStore
 
-def write_ifc_wall(wall: Wall):
+
+def write_ifc_wall(ifc_store: IfcStore, wall: Wall):
     if wall.parent is None:
         raise ValueError("Ifc element cannot be built without any parent element")
 
-    a = wall.parent.get_assembly()
-    ifc_store = a.ifc_store
     f = ifc_store.f
-
     owner_history = ifc_store.owner_history
+
     parent = f.by_guid(wall.parent.guid)
+    if parent is None:
+        raise ValueError(f"Parent IFC element not found for wall.parent.guid={wall.parent.guid}")
+
     elevation = wall.placement.origin[2]
 
-    # Wall creation: Define the wall shape as a polyline axis and an extruded area solid
+    # Place wall relative to its parent placement
     wall_placement = create_local_placement(f, relative_to=parent.ObjectPlacement)
 
+    # Axis representation (2D curve)
     polyline2d = create_ifcpolyline(f, wall.points)
-    axis_representation = f.createIfcShapeRepresentation(ifc_store.get_context("Axis"), "Axis", "Curve2D", [polyline2d])
+    axis_representation = f.createIfcShapeRepresentation(
+        ifc_store.get_context("Axis"),
+        "Axis",
+        "Curve2D",
+        [polyline2d],
+    )
 
-    extrusion_placement = create_ifc_placement(f, (0.0, 0.0, float(elevation)), (0.0, 0.0, 1.0), (1.0, 0.0, 0.0))
+    # Body representation (extruded swept solid)
+    extrusion_placement = create_ifc_placement(
+        f,
+        (0.0, 0.0, float(elevation)),
+        (0.0, 0.0, 1.0),
+        (1.0, 0.0, 0.0),
+    )
 
     polyline = create_ifcpolyline(f, wall.extrusion_area())
     profile = f.createIfcArbitraryClosedProfileDef("AREA", None, polyline)
 
-    solid = create_ifcextrudedareasolid(f, profile, extrusion_placement, (0.0, 0.0, 1.0), wall.height)
-    body = f.createIfcShapeRepresentation(ifc_store.get_context("Body"), "Body", "SweptSolid", [solid])
+    solid = create_ifcextrudedareasolid(
+        f,
+        profile,
+        extrusion_placement,
+        (0.0, 0.0, 1.0),
+        wall.height,
+    )
+
+    body = f.createIfcShapeRepresentation(
+        ifc_store.get_context("Body"),
+        "Body",
+        "SweptSolid",
+        [solid],
+    )
 
     product_shape = f.createIfcProductDefinitionShape(None, None, [axis_representation, body])
 

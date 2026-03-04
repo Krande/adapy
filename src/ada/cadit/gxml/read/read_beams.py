@@ -46,19 +46,46 @@ def el_to_beam(bm_el: ET.Element, parent: Part) -> List[Beam]:
     return segs
 
 
-def apply_offsets_and_alignments(name: str, bm_el: ET.Element, segs: list[Beam]):
+def apply_offsets_and_alignments(name: str, bm_el: ET.Element, segs: list["Beam"]):
     """
     Import rule:
       - aligned_curve_offset: semantic only (justification), no numeric e1/e2
       - constant/linear curve_offset: numeric -> materialize into e1/e2 (eccentricity)
+      - curve_end_offset.keep_axial_eccentricity_at_end1/end2:
+          controls whether the AXIAL component of the numeric offset is applied at that end.
     """
+
+    def _parse_bool(attr_val: str | None) -> bool:
+        if attr_val is None:
+            return False
+        v = attr_val.strip().lower()
+        return v in ("true", "1", "yes")
+
+    def _remove_axial_component(offset: np.ndarray, bm: "Beam", use_local: bool) -> np.ndarray:
+        """
+        Remove the component along the beam axis (local x).
+        - if use_local: just zero the local-x component
+        - if global: subtract projection onto bm axis (bm.xvec)
+        """
+        o = np.asarray(offset, dtype=float).copy()
+
+        if use_local:
+            o[0] = 0.0
+            return o
+
+        x = np.asarray(bm.xvec, dtype=float)
+        n = np.linalg.norm(x)
+        if n <= 0.0:
+            return o
+        xhat = x / n
+        return o - np.dot(o, xhat) * xhat
+
     # ---- aligned (flush) ----
     aligned_el = bm_el.find("curve_offset/aligned_curve_offset")
     if aligned_el is not None:
         alignment_str = aligned_el.attrib.get("alignment")  # flush_top/flush_bottom/no_flush
 
         for seg in segs:
-            # Preserve semantic intent
             if alignment_str == "flush_top":
                 seg.justification = Justification.FLUSH_TOP
             elif alignment_str == "flush_bottom":
@@ -66,12 +93,10 @@ def apply_offsets_and_alignments(name: str, bm_el: ET.Element, segs: list[Beam])
             else:
                 seg.justification = Justification.NA
 
-            # Keep original string for debugging / future logic
             if seg.metadata is None:
                 seg.metadata = {}
             seg.metadata["aligned_curve_offset_alignment"] = alignment_str
 
-        # IMPORTANT: don't set e1/e2 for aligned offsets
         return
 
     # ---- explicit numeric curve offsets ----
@@ -81,9 +106,21 @@ def apply_offsets_and_alignments(name: str, bm_el: ET.Element, segs: list[Beam])
 
     # If one of them is missing, treat as constant
     if o1 is None and o2 is not None:
-        o1 = o2
+        o1 = np.asarray(o2, dtype=float)
     if o2 is None and o1 is not None:
-        o2 = o1
+        o2 = np.asarray(o1, dtype=float)
+
+    # ---- CurveEndOffset axial handling (THIS fixes Bm3/Bm4 behavior) ----
+    ceo = bm_el.find("curve_offset/curve_end_offset")
+    if ceo is not None:
+        keep1 = _parse_bool(ceo.attrib.get("keep_axial_eccentricity_at_end1"))
+        keep2 = _parse_bool(ceo.attrib.get("keep_axial_eccentricity_at_end2"))
+
+        # If keep axial is FALSE at an end => remove axial component from the OFFSET at that end
+        if o1 is not None and not keep1:
+            o1 = _remove_axial_component(o1, segs[0], use_local)
+        if o2 is not None and not keep2:
+            o2 = _remove_axial_component(o2, segs[-1], use_local)
 
     # Convert curve_offset -> eccentricity e (inverse of exporter convention)
     e1_global = curve_offset_to_eccentricity_global(o1, segs[0], use_local)
@@ -92,7 +129,6 @@ def apply_offsets_and_alignments(name: str, bm_el: ET.Element, segs: list[Beam])
     segs[0].e1 = e1_global
     segs[-1].e2 = e2_global
 
-    # explicit numeric offsets => custom justification semantics
     for seg in segs:
         seg.justification = Justification.CUSTOM
 
@@ -166,51 +202,68 @@ def get_offsets(bm_el: ET.Element) -> tuple[np.ndarray | None, np.ndarray | None
     where end1_o/end2_o are np.ndarray([x,y,z]) or None, and use_local indicates
     whether the offsets are expressed in the beam's local coordinate system.
     """
-    linear_offset = bm_el.find("curve_offset/linear_varying_curve_offset")
-    constant_offset = bm_el.find("curve_offset/constant_curve_offset")
 
-    end1_o = None
-    end2_o = None
-    use_local = False
-    src = "NONE"
-
-    def _parse_use_local(attr_val: str | None) -> bool:
+    def _parse_bool(attr_val: str | None) -> bool:
         if attr_val is None:
             return False
         v = attr_val.strip().lower()
         return v in ("true", "1", "yes")
 
+    def _get_xyz(el: ET.Element | None) -> np.ndarray | None:
+        if el is None:
+            return None
+        # expects attributes x,y,z (as Genie exports)
+        return np.array(xyz_to_floats(el), dtype=float)
+
+    curve_offset_el = bm_el.find("curve_offset")
+    if curve_offset_el is None:
+        return None, None, False
+
+    # Genie can wrap numeric offsets in:
+    # curve_offset/curve_end_offset/curve_offset/<constant_curve_offset|linear_varying_curve_offset>
+    offsets_root = curve_offset_el
+    ceo = curve_offset_el.find("curve_end_offset")
+    if ceo is not None:
+        offsets_root = ceo.find("curve_offset") or ceo  # be defensive
+
+    # Direct numeric nodes under offsets_root
+    constant_offset = offsets_root.find("constant_curve_offset")
+    linear_offset = offsets_root.find("linear_varying_curve_offset")
+
+    # Fallback search anywhere below offsets_root (handles older/alternate layouts)
+    if constant_offset is None:
+        constant_offset = offsets_root.find(".//constant_curve_offset")
+    if linear_offset is None:
+        linear_offset = offsets_root.find(".//linear_varying_curve_offset")
+
+    end1_o = None
+    end2_o = None
+    use_local = False
+
     if constant_offset is not None:
-        src = "constant_curve_offset"
-        end1 = constant_offset.find("constant_offset")
-        end2 = end1
-        use_local = _parse_use_local(constant_offset.attrib.get("use_local_system"))
+        use_local = _parse_bool(constant_offset.attrib.get("use_local_system"))
+        v = _get_xyz(constant_offset.find("constant_offset"))
+        end1_o = v
+        end2_o = v
 
     elif linear_offset is not None:
-        src = "linear_varying_curve_offset"
-        end1 = linear_offset.find("offset_end1")
-        end2 = linear_offset.find("offset_end2")
-        use_local = _parse_use_local(linear_offset.attrib.get("use_local_system"))
+        use_local = _parse_bool(linear_offset.attrib.get("use_local_system"))
+        end1_o = _get_xyz(linear_offset.find("offset_end1"))
+        end2_o = _get_xyz(linear_offset.find("offset_end2"))
 
     else:
-        # legacy / fallback patterns
-        src = "fallback .//offset_end1"
-        end1 = bm_el.find(".//offset_end1")
-        end2 = bm_el.find(".//offset_end2")
-        # if fallback nodes exist but some parent carries use_local_system, respect it
-        # (best-effort; harmless if not present)
-        curve_offset_el = bm_el.find("curve_offset")
-        if curve_offset_el is not None:
-            use_local = _parse_use_local(curve_offset_el.attrib.get("use_local_system"))
+        # last-resort legacy patterns
+        end1 = offsets_root.find(".//offset_end1")
+        end2 = offsets_root.find(".//offset_end2")
+        end1_o = _get_xyz(end1)
+        end2_o = _get_xyz(end2)
 
-    if end1 is not None:
-        end1_o = np.array(xyz_to_floats(end1), dtype=float)
-    if end2 is not None:
-        end2_o = np.array(xyz_to_floats(end2), dtype=float)
+        # try to respect any use_local_system we can find
+        if offsets_root is not None:
+            use_local = _parse_bool(offsets_root.attrib.get("use_local_system"))
+        if not use_local and curve_offset_el is not None:
+            use_local = _parse_bool(curve_offset_el.attrib.get("use_local_system"))
 
-    print(
-        f"[get_offsets] beam={bm_el.attrib.get('name')} src={src} use_local={use_local} " f"end1={end1_o} end2={end2_o}"
-    )
     return end1_o, end2_o, use_local
 
 

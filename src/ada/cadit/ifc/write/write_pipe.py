@@ -13,24 +13,27 @@ from ada.core.guid import create_guid
 
 if TYPE_CHECKING:
     from ada import Pipe, PipeSegElbow, PipeSegStraight
+    from ada.cadit.ifc.store import IfcStore
 
 
-def write_ifc_pipe(pipe: Pipe):
-    ifc_pipe = write_pipe_ifc_elem(pipe)
+def write_ifc_pipe(ifc_store: IfcStore, pipe: Pipe):
+    # Create the pipe container element in THIS store/file
+    ifc_pipe = write_pipe_ifc_elem(ifc_store, pipe)
 
-    a = pipe.get_assembly()
-    ifc_store = a.ifc_store
-    f = ifc_store.f
+    # f = ifc_store.f
 
     segments = []
     for param_seg in pipe.segments:
-        res = write_pipe_segment(param_seg)
+        res = write_pipe_segment(ifc_store, param_seg)
         if res is None:
             logger.error(f'Branch "{param_seg.name}" was not converted to ifc element')
-        f.add(res)
-        segments += [res]
+            continue
 
-    ifc_store.writer.add_related_elements_to_spatial_container(segments, ifc_pipe.GlobalId)
+        segments.append(res)
+
+    # Put segments inside the pipe's spatial container (the pipe itself)
+    if segments:
+        ifc_store.writer.add_related_elements_to_spatial_container(segments, ifc_pipe.GlobalId)
 
     return ifc_pipe
 

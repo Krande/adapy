@@ -296,38 +296,89 @@ class OffsetHelper:
             "is_varying": bool(is_varying),
         }
 
-    def get_cog(self) -> Point:
+    def get_cog(self) -> "Point":
         """
-        Beam COG in global coordinates.
+        Beam COG in global coordinates, accounting for end-specific offsets.
 
-        Conventions used here:
-          - cog_line is midpoint of the beam line WITHOUT eccentricities.
-          - Eccentricities e1/e2 are treated as offsets of the section/reference line
-            relative to the beam line. If both ends exist and differ, we use their average
-            for the COG (constant part).
-          - Section geometric centroid uses Cgy/Cgz (not shear center).
-          - For ANGULAR/TPROFILE we apply the same "flush-to-top" offset convention you use in Genie.
+        This computes the centroid of a straight prismatic beam whose reference line endpoints
+        are shifted by curve offsets at end1 and end2:
+
+            start_abs = p1_abs + off1_abs
+            end_abs   = p2_abs + off2_abs
+            cog_abs   = 0.5 * (start_abs + end_abs)
+
+        This correctly handles:
+          - different axial (local x) offsets at each end (beam appears longer/shorter)
+          - varying y/z offsets (centroid uses the average via endpoint midpoint)
+          - placement rotation/translation (via _local_axes_in_absolute and _point_to_absolute)
         """
         from ada import Point
 
-        # Midpoint of beam line (no e)
-        mid = self.get_cog_line()
+        # Endpoints of the *beam line* in absolute/global coordinates (placement applied)
+        p1_abs = self._point_to_absolute(self.beam.n1.p.copy())
+        p2_abs = self._point_to_absolute(self.beam.n2.p.copy())
 
-        data = self.curve_offset_local()  # numeric offsets for COG
-        ox, oy, oz = data["avg"]
+        # Get curve offsets at BOTH ends (local components in beam basis)
+        data = self.curve_offset_local()
+        ox1, oy1, oz1 = data["end1"]
+        ox2, oy2, oz2 = data["end2"]
 
-        if data["is_varying"]:
+        # Local beam basis expressed in absolute/global coords (placement rotation applied)
+        x_abs, y_abs, up_abs = self._local_axes_in_absolute()
+        x_abs = np.asarray(x_abs, dtype=float)
+        y_abs = np.asarray(y_abs, dtype=float)
+        up_abs = np.asarray(up_abs, dtype=float)
+
+        # Convert local offset components -> absolute vectors
+        off1_abs = float(ox1) * x_abs + float(oy1) * y_abs + float(oz1) * up_abs
+        off2_abs = float(ox2) * x_abs + float(oy2) * y_abs + float(oz2) * up_abs
+
+        # Offset endpoints and midpoint
+        start_abs = np.asarray(p1_abs, dtype=float) + off1_abs
+        end_abs = np.asarray(p2_abs, dtype=float) + off2_abs
+        cog_abs = 0.5 * (start_abs + end_abs)
+
+        # Optional: warn when varying offsets exist (kept from your earlier intent)
+        if data.get("is_varying", False):
             logger.warning(
-                f"Beam '{self.beam.name}': e1 != e2. COG uses average curve offset.",
-                RuntimeWarning,
-                stacklevel=2,
+                "Beam '%s': curve offset varies between ends; COG computed from offset endpoints.",
+                self.beam.name,
             )
 
-        x_abs, y_abs, up_abs = self._local_axes_in_absolute()
-        offset_abs = ox * np.asarray(x_abs, float) + oy * np.asarray(y_abs, float) + oz * np.asarray(up_abs, float)
-        cog_abs = mid + offset_abs
+        logger.warning(
+            "Beam '%s': varying curve offsets detected end1=%s end2=%s. COG computed from offset endpoints.",
+            self.beam.name,
+            data["end1"],
+            data["end2"],
+        )
 
         return Point(cog_abs)
+
+    def get_effective_length(self) -> float:
+        """
+        Beam length after curve offsets (including axial components).
+        """
+        p1 = self._point_to_absolute(self.beam.n1.p.copy())
+        p2 = self._point_to_absolute(self.beam.n2.p.copy())
+
+        data = self.curve_offset_local()
+
+        ox1, oy1, oz1 = data["end1"]
+        ox2, oy2, oz2 = data["end2"]
+
+        x_abs, y_abs, up_abs = self._local_axes_in_absolute()
+
+        x_abs = np.asarray(x_abs, float)
+        y_abs = np.asarray(y_abs, float)
+        up_abs = np.asarray(up_abs, float)
+
+        off1 = ox1 * x_abs + oy1 * y_abs + oz1 * up_abs
+        off2 = ox2 * x_abs + oy2 * y_abs + oz2 * up_abs
+
+        p1 = np.asarray(p1, float) + off1
+        p2 = np.asarray(p2, float) + off2
+
+        return float(np.linalg.norm(p2 - p1))
 
     def get_cog_line(self) -> Point:
         """
