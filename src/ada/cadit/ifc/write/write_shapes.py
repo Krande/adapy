@@ -36,6 +36,8 @@ from ada.cadit.ifc.write.shapes.sphere import generate_ifc_prim_sphere_geom
 if TYPE_CHECKING:
     from ada.cadit.ifc.store import IfcStore
 
+from ada.config import logger
+
 
 def _default_relative_placement(f):
     """
@@ -50,6 +52,7 @@ def _default_relative_placement(f):
             if pl is not None:
                 return pl
     return None
+
 
 def update_ifc_shape(ifc_store: IfcStore, shape: Shape):
     logger.warning("Updating IFC shape not implemented yet")

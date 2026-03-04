@@ -11,6 +11,7 @@ from ada.cadit.ifc.utils import (
     create_local_placement,
     tesselate_shape,
 )
+from ada.config import logger
 from ada.core.constants import O, X, Z
 from ada.core.guid import create_guid
 
@@ -19,8 +20,10 @@ from .write_building_components import write_door, write_window
 if TYPE_CHECKING:
     from ada.cadit.ifc.store import IfcStore
 
+
 def update_ifc_wall(ifc_store: IfcStore, wall: Wall):
     logger.warning("Updating IFC wall not implemented yet")
+
 
 def write_ifc_wall(ifc_store: IfcStore, wall: Wall):
     if wall.parent is None:

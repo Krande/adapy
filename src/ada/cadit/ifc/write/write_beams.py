@@ -129,4 +129,3 @@ class IfcBeamWriter:
 
 def update_ifc_beam(ifc_store: IfcStore, beam: Beam):
     logger.warning("Updating IFC beam not implemented yet")
-

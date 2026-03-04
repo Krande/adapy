@@ -12,8 +12,12 @@ if TYPE_CHECKING:
     from ada.cadit.ifc.store import IfcStore
 
 
+from ada.config import logger
+
+
 def update_ifc_plate(ifc_store: IfcStore, plate: Plate):
     logger.warning("Updating IFC plate not implemented yet")
+
 
 def write_ifc_plate(ifc_store: IfcStore, plate: Plate):
     if plate.parent is None:
