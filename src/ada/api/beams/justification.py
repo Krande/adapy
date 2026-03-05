@@ -152,9 +152,14 @@ def get_offset_from_justification(beam: "Beam", just: Justification) -> Optional
     """
     return resolve_justification(beam, just)
 
-
+# todo remove and replace this function??
 def get_justification(beam: Beam) -> Justification:
     """Justification line"""
+
+    # todo instead use beam.justification
+    #  the below tries to set justification bases on some logic, instead, the justification should be set when creating a beam?
+
+
     # Check if both self.e1 and self.e2 are None
     if beam.section.type in (beam.section.TYPES.TUBULAR, beam.section.TYPES.CIRCULAR):
         bm_height = beam.section.r * 2
@@ -217,6 +222,8 @@ class OffsetHelper:
         # include translation
         return place_abs.transform_array_from_other_place(np.asarray([p]), ident_place, ignore_translation=False)[0]
 
+    # todo this is the new method for where the offsets are calculated, and should replace get_offset_from_justification and resolve_justification ?
+    #  needs to be updated for TOS and other
     def curve_offset_local(self):
         """
         Compute local (x,y,z) curve offsets for Genie / COG, at end1 and end2.
@@ -330,9 +337,9 @@ class OffsetHelper:
         avg = 0.5 * (off1 + off2)
 
         return {
-            "end1": (float(off1[0]), float(off1[1]), float(off1[2])),
-            "end2": (float(off2[0]), float(off2[1]), float(off2[2])),
-            "avg": (float(avg[0]), float(avg[1]), float(avg[2])),
+            "end1": (float(off1[0]), float(off1[1]), float(off1[2])), # todo return as Direction instead?
+            "end2": (float(off2[0]), float(off2[1]), float(off2[2])), # todo return as Direction instead?
+            "avg": (float(avg[0]), float(avg[1]), float(avg[2])),     # todo return as Direction instead?
             "is_varying": bool(is_varying),
         }
 

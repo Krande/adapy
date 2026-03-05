@@ -217,7 +217,7 @@ class E3DWriter:
         vec_up_str = vector_to_orientation(beam.up)
 
         bangle_str = ""
-        just = get_justification(beam)
+        just = get_justification(beam) # todo instead use beam.justification ?
         if just == Justification.TOS:
             jus_str = "CTOP"
         elif just == Justification.NA:
