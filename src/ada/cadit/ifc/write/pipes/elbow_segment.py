@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import numpy as np
 
 from ada import PipeSegElbow, Units
@@ -17,8 +19,12 @@ from ada.core.vector_transforms import global_2_local_nodes
 from ada.core.vector_utils import angle_between, calc_yvec, calc_zvec, unit_vector
 from ada.geom import solids as geo_so
 
+if TYPE_CHECKING:
+    from ada.cadit.ifc.store import IfcStore
 
-def write_pipe_elbow_seg(pipe_elbow: PipeSegElbow):
+
+# todo remove
+def OLDwrite_pipe_elbow_seg(pipe_elbow: PipeSegElbow):
     if pipe_elbow.parent is None:
         raise ValueError("Parent cannot be None for IFC export")
 
@@ -39,6 +45,50 @@ def write_pipe_elbow_seg(pipe_elbow: PipeSegElbow):
         OwnerHistory=owner_history,
         Name=pipe_elbow.name,
         Description="An curved pipe segment",
+        ObjectType=None,
+        ObjectPlacement=pfitting_placement,
+        Representation=ifc_elbow,
+        Tag=None,
+        PredefinedType="BEND",
+    )
+
+    props = dict(
+        bend_radius=pipe_elbow.bend_radius,
+        p1=pipe_elbow.arc_seg.p1,
+        p2=pipe_elbow.arc_seg.p2,
+        midpoint=pipe_elbow.arc_seg.midpoint,
+    )
+
+    write_elem_property_sets(props, pfitting, f, owner_history)
+
+    return pfitting
+
+
+def write_pipe_elbow_seg(ifc_store: IfcStore, pipe_elbow: PipeSegElbow):  # -> ifcopenshell.entity_instance:
+    if pipe_elbow.parent is None:
+        raise ValueError("Parent cannot be None for IFC export")
+
+    f = ifc_store.f
+    owner_history = ifc_store.owner_history
+
+    assembly = pipe_elbow.parent.get_assembly()
+    tol = Units.get_general_point_tol(assembly.units)
+
+    ifc_elbow = elbow_revolved_solid(pipe_elbow, f, tol)
+
+    parent = ifc_store.get_by_guid(pipe_elbow.parent.guid)
+
+    pfitting_placement = create_local_placement(
+        f,
+        relative_to=parent.ObjectPlacement,
+    )
+
+    pfitting = f.create_entity(
+        "IfcPipeFitting",
+        GlobalId=pipe_elbow.guid,
+        OwnerHistory=owner_history,
+        Name=pipe_elbow.name,
+        Description="Curved pipe segment",
         ObjectType=None,
         ObjectPlacement=pfitting_placement,
         Representation=ifc_elbow,
