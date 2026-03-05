@@ -295,6 +295,26 @@ class OffsetHelper:
 
                 e1_abs = np.array(e_abs, dtype=float)
                 e2_abs = np.array(e_abs, dtype=float)
+            # todo below elifs not testet yet
+            elif just in (Justification.NA, Justification.UNSET) :
+                e_abs = zv_abs * 0.0
+                e1_abs = np.array(e_abs, dtype=float)
+                e2_abs = np.array(e_abs, dtype=float)
+            elif just == Justification.TOS:
+                if self.beam.section.h is None:
+                    e_abs = zv_abs * 0.0
+                    e1_abs = np.array(e_abs, dtype=float)
+                    e2_abs = np.array(e_abs, dtype=float)
+                else:
+                    e_abs = zv_abs * (self.beam.section.h / 2.0)
+                    e1_abs = np.array(e_abs, dtype=float)
+                    e2_abs = np.array(e_abs, dtype=float)
+            elif just in (Justification.CUSTOM):
+                e1_abs = np.array(zv_abs * (self.beam.e1), dtype=float)
+                e2_abs = np.array(zv_abs * (self.beam.e2), dtype=float)
+            else:
+                raise ValueError(f"Unknown justification: {just}")
+
 
         # --- your sign convention: local offsets start from -e ---
         off1_abs = -e1_abs
