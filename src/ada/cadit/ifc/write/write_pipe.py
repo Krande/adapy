@@ -19,8 +19,8 @@ if TYPE_CHECKING:
 def update_ifc_pipe(ifc_store: IfcStore, pipe: Pipe):
     logger.warning("Updating IFC pipe not implemented yet")
 
-
-def write_ifc_pipe(ifc_store: IfcStore, pipe: Pipe):
+# todo remove
+def OLDwrite_ifc_pipe(ifc_store: IfcStore, pipe: Pipe):
     # Create the pipe container element in THIS store/file
     ifc_pipe = write_pipe_ifc_elem(ifc_store, pipe)
 
@@ -41,8 +41,30 @@ def write_ifc_pipe(ifc_store: IfcStore, pipe: Pipe):
 
     return ifc_pipe
 
+def write_ifc_pipe(ifc_store: IfcStore, pipe: Pipe):
 
-def write_pipe_segment(segment: PipeSegElbow | PipeSegStraight) -> ifcopenshell.entity_instance:
+    ifc_pipe = write_pipe_ifc_elem(ifc_store, pipe)
+
+    segments = []
+
+    for param_seg in pipe.segments:
+        res = write_pipe_segment(ifc_store, param_seg)
+
+        if res is None:
+            logger.error(f'Branch "{param_seg.name}" was not converted to ifc element')
+            continue
+
+        segments.append(res)
+
+    if segments:
+        ifc_store.writer.add_related_elements_to_spatial_container(
+            segments, ifc_pipe.GlobalId
+        )
+
+    return ifc_pipe
+
+# todo remove
+def OLDwrite_pipe_segment(segment: PipeSegElbow | PipeSegStraight) -> ifcopenshell.entity_instance:
     from ada import PipeSegElbow, PipeSegStraight
 
     if isinstance(segment, PipeSegElbow):
@@ -82,6 +104,44 @@ def write_pipe_segment(segment: PipeSegElbow | PipeSegStraight) -> ifcopenshell.
 
     return pipe_seg
 
+def write_pipe_segment(ifc_store: IfcStore, segment: PipeSegElbow | PipeSegStraight) -> ifcopenshell.entity_instance:
+    from ada import PipeSegElbow, PipeSegStraight
+
+    if isinstance(segment, PipeSegElbow):
+        pipe_seg = write_pipe_elbow_seg(ifc_store, segment)
+    elif isinstance(segment, PipeSegStraight):
+        pipe_seg = write_pipe_straight_seg(ifc_store, segment)
+    else:
+        raise ValueError(f'Unrecognized Pipe Segment type "{type(segment)}"')
+
+    f = ifc_store.f
+
+    found_existing_relationship = False
+
+    beam_type = ifc_store.get_beam_type(segment.section)
+    if beam_type is None:
+        raise ValueError(f"No beam type found for section {segment.section}")
+
+    for ifcrel in f.by_type("IfcRelDefinesByType"):
+        if ifcrel.RelatingType == beam_type:
+            ifcrel.RelatedObjects = tuple([*ifcrel.RelatedObjects, pipe_seg])
+            found_existing_relationship = True
+            break
+
+    if not found_existing_relationship:
+        f.create_entity(
+            "IfcRelDefinesByType",
+            GlobalId=create_guid(),
+            OwnerHistory=ifc_store.owner_history,
+            Name=segment.section.type.value,
+            Description=None,
+            RelatedObjects=[pipe_seg],
+            RelatingType=beam_type,
+        )
+
+    ifc_store.writer.associate_elem_with_material(segment.material, pipe_seg)
+
+    return pipe_seg
 
 def write_pipe_ifc_elem(ifc_store: IfcStore, pipe: Pipe):
     if pipe.parent is None:
