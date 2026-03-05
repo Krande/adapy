@@ -105,6 +105,7 @@ def OLDresolve_justification(beam: "Beam", just: Justification) -> Optional["Dir
     # Default for most profiles (I/BOX/CHANNEL/FLATBAR/etc.)
     return sign * zv * float(sec.h) / 2.0
 
+
 def resolve_justification(beam: "Beam", just: Justification) -> Optional["Direction"]:
     from ada import Direction
 
@@ -144,6 +145,7 @@ def resolve_justification(beam: "Beam", just: Justification) -> Optional["Direct
 
     return sign * zv * float(sec.h) / 2.0
 
+
 # todo this is the old method, remove when calls are updates
 def get_offset_from_justification(beam: "Beam", just: Justification) -> Optional["Direction"]:
     """
@@ -152,13 +154,13 @@ def get_offset_from_justification(beam: "Beam", just: Justification) -> Optional
     """
     return resolve_justification(beam, just)
 
+
 # todo remove and replace this function??
 def get_justification(beam: Beam) -> Justification:
     """Justification line"""
 
     # todo instead use beam.justification
     #  the below tries to set justification bases on some logic, instead, the justification should be set when creating a beam?
-
 
     # Check if both self.e1 and self.e2 are None
     if beam.section.type in (beam.section.TYPES.TUBULAR, beam.section.TYPES.CIRCULAR):
@@ -296,7 +298,7 @@ class OffsetHelper:
                 e1_abs = np.array(e_abs, dtype=float)
                 e2_abs = np.array(e_abs, dtype=float)
             # todo below elifs not testet yet
-            elif just in (Justification.NA, Justification.UNSET) :
+            elif just in (Justification.NA, Justification.UNSET):
                 e_abs = zv_abs * 0.0
                 e1_abs = np.array(e_abs, dtype=float)
                 e2_abs = np.array(e_abs, dtype=float)
@@ -314,7 +316,6 @@ class OffsetHelper:
                 e2_abs = np.array(zv_abs * (self.beam.e2), dtype=float)
             else:
                 raise ValueError(f"Unknown justification: {just}")
-
 
         # --- your sign convention: local offsets start from -e ---
         off1_abs = -e1_abs
@@ -357,9 +358,9 @@ class OffsetHelper:
         avg = 0.5 * (off1 + off2)
 
         return {
-            "end1": (float(off1[0]), float(off1[1]), float(off1[2])), # todo return as Direction instead?
-            "end2": (float(off2[0]), float(off2[1]), float(off2[2])), # todo return as Direction instead?
-            "avg": (float(avg[0]), float(avg[1]), float(avg[2])),     # todo return as Direction instead?
+            "end1": (float(off1[0]), float(off1[1]), float(off1[2])),  # todo return as Direction instead?
+            "end2": (float(off2[0]), float(off2[1]), float(off2[2])),  # todo return as Direction instead?
+            "avg": (float(avg[0]), float(avg[1]), float(avg[2])),  # todo return as Direction instead?
             "is_varying": bool(is_varying),
         }
 

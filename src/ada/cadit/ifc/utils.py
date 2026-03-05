@@ -641,7 +641,7 @@ def convert_bm_jusl_to_ifc(bm: Beam) -> int:
     from ada.api.beams.justification import Justification as jt
     from ada.api.beams.justification import get_justification
 
-    just = get_justification(bm) # todo instead use bm.justification
+    just = get_justification(bm)  # todo instead use bm.justification
 
     jusl_map = {jt.NA: 5, jt.TOS: 8}
 

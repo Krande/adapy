@@ -19,6 +19,7 @@ if TYPE_CHECKING:
 def update_ifc_pipe(ifc_store: IfcStore, pipe: Pipe):
     logger.warning("Updating IFC pipe not implemented yet")
 
+
 # todo remove
 def OLDwrite_ifc_pipe(ifc_store: IfcStore, pipe: Pipe):
     # Create the pipe container element in THIS store/file
@@ -41,6 +42,7 @@ def OLDwrite_ifc_pipe(ifc_store: IfcStore, pipe: Pipe):
 
     return ifc_pipe
 
+
 def write_ifc_pipe(ifc_store: IfcStore, pipe: Pipe):
 
     ifc_pipe = write_pipe_ifc_elem(ifc_store, pipe)
@@ -57,11 +59,10 @@ def write_ifc_pipe(ifc_store: IfcStore, pipe: Pipe):
         segments.append(res)
 
     if segments:
-        ifc_store.writer.add_related_elements_to_spatial_container(
-            segments, ifc_pipe.GlobalId
-        )
+        ifc_store.writer.add_related_elements_to_spatial_container(segments, ifc_pipe.GlobalId)
 
     return ifc_pipe
+
 
 # todo remove
 def OLDwrite_pipe_segment(segment: PipeSegElbow | PipeSegStraight) -> ifcopenshell.entity_instance:
@@ -104,6 +105,7 @@ def OLDwrite_pipe_segment(segment: PipeSegElbow | PipeSegStraight) -> ifcopenshe
 
     return pipe_seg
 
+
 def write_pipe_segment(ifc_store: IfcStore, segment: PipeSegElbow | PipeSegStraight) -> ifcopenshell.entity_instance:
     from ada import PipeSegElbow, PipeSegStraight
 
@@ -142,6 +144,7 @@ def write_pipe_segment(ifc_store: IfcStore, segment: PipeSegElbow | PipeSegStrai
     ifc_store.writer.associate_elem_with_material(segment.material, pipe_seg)
 
     return pipe_seg
+
 
 def write_pipe_ifc_elem(ifc_store: IfcStore, pipe: Pipe):
     if pipe.parent is None:
