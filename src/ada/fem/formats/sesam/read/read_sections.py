@@ -15,7 +15,7 @@ from ada.fem.shapes import definitions as shape_def
 from ada.materials import Material
 from ada.sections import GeneralProperties
 from ada.sections.concept import Section
-
+from ada.sections.properties import normalize_general_properties
 from . import cards
 
 
@@ -123,10 +123,21 @@ def add_general_sections(match, fem) -> None:
         Sz=float(d["sz"]),
     )
 
+    # todo remove
+    #if sec_id in fem.parent.sections.id_map.keys():
+    #    sec = fem.parent.sections.get_by_id(sec_id)
+    #    sec._genprops = gen_props
+    #    gen_props.parent = sec
+    #else:
+    #    stype = Section.TYPES.GENERAL
+    #    sec = Section(name=f"GB{sec_id}", sec_id=sec_id, sec_type=stype, genprops=gen_props, parent=fem.parent)
+    #    gen_props.parent = sec
+    #    fem.parent.sections.add(sec)
+
     if sec_id in fem.parent.sections.id_map.keys():
         sec = fem.parent.sections.get_by_id(sec_id)
-        sec._genprops = gen_props
         gen_props.parent = sec
+        sec._genprops = normalize_general_properties(sec, gen_props)
     else:
         stype = Section.TYPES.GENERAL
         sec = Section(name=f"GB{sec_id}", sec_id=sec_id, sec_type=stype, genprops=gen_props, parent=fem.parent)

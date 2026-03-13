@@ -172,7 +172,7 @@ def transform_4x4(matrix4x4: np.ndarray, pos: np.ndarray) -> np.ndarray:
 
     return transformed[:, :3]
 
-
+# todo this caused a c++ dll type of crash returning a negative integer during read in on FEM file with plate / not sure if this is due to bad test env install or what, seems to work when importing the same file in another env
 def transform_3x3(matrix3x3: np.ndarray, pos: np.ndarray, inverse=False) -> np.ndarray:
     """Transforms 2d or 3d cartesian points by a transformation matrix."""
 
@@ -186,6 +186,40 @@ def transform_3x3(matrix3x3: np.ndarray, pos: np.ndarray, inverse=False) -> np.n
         transformed = np.dot(pos, matrix3x3.T)
 
     return transformed
+# todo use this new?
+def NEWtransform_3x3(matrix3x3: np.ndarray, pos: np.ndarray, inverse: bool = False) -> np.ndarray:
+    """Transforms 2D or 3D cartesian points by a transformation matrix."""
+
+    m = np.asarray(matrix3x3, dtype=np.float64)
+    p = np.asarray(pos, dtype=np.float64)
+
+    if p.ndim == 1:
+        p = p.reshape(1, -1)
+
+    if p.shape[1] == 2:
+        z = np.zeros((p.shape[0], 1), dtype=np.float64)
+        p = np.concatenate((p, z), axis=1)
+
+    if m.shape != (3, 3):
+        raise ValueError(f"Expected matrix3x3 shape (3, 3), got {m.shape}")
+
+    if p.shape[1] != 3:
+        raise ValueError(f"Expected points with 3 coordinates, got shape {p.shape}")
+
+    out = np.empty((p.shape[0], 3), dtype=np.float64)
+
+    if inverse:
+        # equivalent to p @ m
+        out[:, 0] = p[:, 0] * m[0, 0] + p[:, 1] * m[1, 0] + p[:, 2] * m[2, 0]
+        out[:, 1] = p[:, 0] * m[0, 1] + p[:, 1] * m[1, 1] + p[:, 2] * m[2, 1]
+        out[:, 2] = p[:, 0] * m[0, 2] + p[:, 1] * m[1, 2] + p[:, 2] * m[2, 2]
+    else:
+        # equivalent to p @ m.T
+        out[:, 0] = p[:, 0] * m[0, 0] + p[:, 1] * m[0, 1] + p[:, 2] * m[0, 2]
+        out[:, 1] = p[:, 0] * m[1, 0] + p[:, 1] * m[1, 1] + p[:, 2] * m[1, 2]
+        out[:, 2] = p[:, 0] * m[2, 0] + p[:, 1] * m[2, 1] + p[:, 2] * m[2, 2]
+
+    return out
 
 
 def transform3d(csys_1, csys_2, origin, points) -> list[Point]:

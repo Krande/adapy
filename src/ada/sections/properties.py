@@ -26,6 +26,47 @@ logger = get_logger()
 #     Van Nostrand Company Inc.
 
 
+def normalize_general_properties(sec: Section, p: GeneralProperties) -> GeneralProperties:
+    if p is None:
+        return p
+
+    # Symmetric sections: centroid and shear center coincide
+    if sec.type in {SectionCat.BASETYPES.TUBULAR, SectionCat.BASETYPES.CIRCULAR}:
+        if p.Cy is None:
+            p.Cy = 0.0
+        if p.Cz is None:
+            p.Cz = 0.0
+        if p.Cgy is None:
+            p.Cgy = 0.0
+        if p.Cgz is None:
+            p.Cgz = 0.0
+
+    # Doubly symmetric sections
+    elif sec.type in {SectionCat.BASETYPES.IPROFILE, SectionCat.BASETYPES.BOX, SectionCat.BASETYPES.FLATBAR}:
+        calc_p = calculate_general_properties(sec)
+        if p.Cy is None:
+            p.Cy = calc_p.Cy
+        if p.Cz is None:
+            p.Cz = calc_p.Cz
+        if p.Cgy is None:
+            p.Cgy = calc_p.Cgy
+        if p.Cgz is None:
+            p.Cgz = calc_p.Cgz
+
+    # Unsymmetric sections
+    elif sec.type in {SectionCat.BASETYPES.CHANNEL, SectionCat.BASETYPES.ANGULAR}:
+        calc_p = calculate_general_properties(sec)
+        if p.Cy is None:
+            p.Cy = calc_p.Cy
+        if p.Cz is None:
+            p.Cz = calc_p.Cz
+        if p.Cgy is None:
+            p.Cgy = calc_p.Cgy
+        if p.Cgz is None:
+            p.Cgz = calc_p.Cgz
+
+    return p
+
 def calculate_general_properties(section: Section) -> Union[None, GeneralProperties]:
     """Calculations of cross section properties are based on different sources of information."""
     bt = SectionCat.BASETYPES
@@ -321,7 +362,6 @@ def calc_angular(sec: Section) -> GeneralProperties:
 
 def calc_tubular(sec: Section) -> GeneralProperties:
     """Calculate Tubular cross section properties"""
-
     t = sec.wt
     sfy = 1.0
     sfz = 1.0
@@ -345,8 +385,8 @@ def calc_tubular(sec: Section) -> GeneralProperties:
     Cy = 0.0
     Cz = 0.0
 
-    Cgy = Cy
-    Cgz = Cz
+    Cgy = 0.0
+    Cgz = 0.0
 
     return GeneralProperties(
         Ax=Ax,
