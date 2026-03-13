@@ -328,7 +328,9 @@ class OffsetHelper:
         # --- geometric centroid adjustments (these are LOCAL y/z tweaks) ---
         p = self.beam.section.properties
         if getattr(p, "Cgy", None) is None or getattr(p, "Cgz", None) is None:
-            raise ValueError(f"Section '{self.beam.section.name}', section type: {self.beam.section.type} missing geometric centroid (Cgy/Cgz). section.properties: {p}")
+            raise ValueError(
+                f"Section '{self.beam.section.name}', section type: {self.beam.section.type} missing geometric centroid (Cgy/Cgz). section.properties: {p}"
+            )
 
         cgz = float(p.Cgz)
         h = float(self.beam.section.h) if self.beam.section.h is not None else None

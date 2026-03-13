@@ -65,7 +65,20 @@ def normalize_general_properties(sec: Section, p: GeneralProperties) -> GeneralP
         if p.Cgz is None:
             p.Cgz = calc_p.Cgz
 
+    # Poly sections
+    # elif sec.type in {SectionCat.BASETYPES.POLY}:
+    #    #  todo testing hardcoded fix setting values to 0
+    #    if p.Cy is None:
+    #        p.Cy = 0.0
+    #    if p.Cz is None:
+    #        p.Cz = 0.0
+    #    if p.Cgy is None:
+    #        p.Cgy = 0.0
+    #    if p.Cgz is None:
+    #        p.Cgz = 0.0
+
     return p
+
 
 def calculate_general_properties(section: Section) -> Union[None, GeneralProperties]:
     """Calculations of cross section properties are based on different sources of information."""
@@ -79,6 +92,7 @@ def calculate_general_properties(section: Section) -> Union[None, GeneralPropert
         bt.CHANNEL: calc_channel,
         bt.FLATBAR: calc_flatbar,
         bt.TPROFILE: calc_isec,
+        bt.POLY: calc_poly,
     }
 
     if section.type == bt.GENERAL:
@@ -88,9 +102,7 @@ def calculate_general_properties(section: Section) -> Union[None, GeneralPropert
     calc_func = section_map.get(section.type, None)
 
     if calc_func is None:
-        raise Exception(
-            f'Section type "{section.type}" is not yet supported in the cross section parameter calculations'
-        )
+        raise Warning(f'Section type "{section.type}" is not yet supported in the cross section parameter calculations')
 
     return calc_func(section)
 
@@ -626,5 +638,36 @@ def calc_channel(sec: Section) -> GeneralProperties:
         Cz=Cz,
         Cgy=Cgy,
         Cgz=Cgz,
+        parent=sec,
+    )
+
+
+def calc_poly(sec: Section) -> GeneralProperties:
+    # todo implement
+    # raise NotImplementedError
+    logger.warning(
+        f"Section properties not implemented for POLY section types, all section properties set to 0. Triggered by section: {sec.name}"
+    )
+    return GeneralProperties(
+        Ax=0,
+        Ix=0,
+        Iy=0,
+        Iz=0,
+        Iyz=0,
+        Wxmin=0,
+        Wymin=0,
+        Wzmin=0,
+        Shary=0,
+        Sharz=0,
+        Shceny=0,
+        Shcenz=0,
+        Sy=0,
+        Sz=0,
+        Sfy=0,
+        Sfz=0,
+        Cy=0,
+        Cz=0,
+        Cgy=0,
+        Cgz=0,
         parent=sec,
     )

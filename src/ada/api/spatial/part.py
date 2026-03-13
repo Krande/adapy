@@ -608,7 +608,7 @@ class Part(BackendGeom):
             node_masses_tot_cogs.append(mass.nodes[0].p * mass.mass)
             node_masses_tot_mass += mass.mass
 
-        #for el in self.fem.elements
+        # for el in self.fem.elements
 
         if not cogs:
             raise ValueError("Cannot calculate COG: no mass contributions found")

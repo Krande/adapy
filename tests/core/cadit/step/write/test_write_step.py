@@ -9,8 +9,9 @@ def test_simple_beam(tmp_path):
 
 def test_advanced_beam(tmp_path: object) -> None:
     poly = CurvePoly2d([(0, 0), (0.1, 0, 0.01), (0.1, 0.1, 0.01), (0, 0.1)], (0, 0, 0), (1, 0, 0), (0, 1, 0))
-    bm = Beam("MyBeam", (0, 0, 0), (1, 0, 0), Section("MySec", outer_poly=poly))
+    bm = Beam("MyBeam", (0, 0, 0), (1, 0, 0), Section("MySec", sec_type="POLY", outer_poly=poly))
     bm.to_stp(tmp_path / "MySimpleBeamPoly.stp")
+
 
 def test_plate1_w_hole(tmp_path, plate1):
     plate1.add_boolean(ada.PrimCyl("MyPen", (0.5, 0.5, -0.2), (0.5, 0.5, 0.2), 0.2))

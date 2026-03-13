@@ -15,6 +15,7 @@ if TYPE_CHECKING:
 
 logger = get_logger()
 
+
 class Section(Root):
     TYPES = BaseTypes
 
@@ -219,12 +220,17 @@ class Section(Root):
     @property
     def properties(self) -> GeneralProperties:
         if self._genprops is None:
-            from .properties import calculate_general_properties, normalize_general_properties
+            from .properties import (
+                calculate_general_properties,
+                normalize_general_properties,
+            )
+
             self._genprops = calculate_general_properties(self)
             if self._genprops is not None:
                 self._genprops = normalize_general_properties(self, self._genprops)
         else:
             from .properties import normalize_general_properties
+
             self._genprops = normalize_general_properties(self, self._genprops)
 
         return self._genprops

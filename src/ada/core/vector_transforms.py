@@ -172,6 +172,7 @@ def transform_4x4(matrix4x4: np.ndarray, pos: np.ndarray) -> np.ndarray:
 
     return transformed[:, :3]
 
+
 # todo this caused a c++ dll type of crash returning a negative integer during read in on FEM file with plate / not sure if this is due to bad test env install or what, seems to work when importing the same file in another env
 def transform_3x3(matrix3x3: np.ndarray, pos: np.ndarray, inverse=False) -> np.ndarray:
     """Transforms 2d or 3d cartesian points by a transformation matrix."""
@@ -186,6 +187,8 @@ def transform_3x3(matrix3x3: np.ndarray, pos: np.ndarray, inverse=False) -> np.n
         transformed = np.dot(pos, matrix3x3.T)
 
     return transformed
+
+
 # todo use this new?
 def NEWtransform_3x3(matrix3x3: np.ndarray, pos: np.ndarray, inverse: bool = False) -> np.ndarray:
     """Transforms 2D or 3D cartesian points by a transformation matrix."""
