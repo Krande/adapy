@@ -42,7 +42,7 @@ def test_read_axial_ecc_ends(example_files):
     assert len(beams) == 2
 
     bm1 = beams[0]
-    assert bm1.e1.is_equal(ada.Direction(0, -0.5, 0.05)
+    assert bm1.e1.is_equal(ada.Direction(0, -0.5, 0.05))
     assert bm1.e2.is_equal(ada.Direction(0, -0, 0.05))
 
     bm2 = beams[1]
