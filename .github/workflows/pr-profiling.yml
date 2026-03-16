@@ -72,5 +72,7 @@ jobs:
       - name: Post Comment
         uses: thollander/actions-comment-pull-request@v3
         with:
-          filePath: output/profiling_comment.md
-          comment_tag: profiling-results
+          file-path: output/profiling_comment.md
+          comment-tag: profiling-results
+          mode: upsert
+          create-if-not-exists: true
