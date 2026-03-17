@@ -408,19 +408,19 @@ class OffsetHelper:
         end_abs = np.asarray(p2_abs, dtype=float) + off2_abs
         cog_abs = 0.5 * (start_abs + end_abs)
 
-        # Optional: warn when varying offsets exist (kept from your earlier intent)
-        if data.get("is_varying", False):
-            logger.warning(
-                "Beam '%s': curve offset varies between ends; COG computed from offset endpoints.",
-                self.beam.name,
-            )
-
-        logger.warning(
-            "Beam '%s': varying curve offsets detected end1=%s end2=%s. COG computed from offset endpoints.",
-            self.beam.name,
-            data["end1"],
-            data["end2"],
-        )
+        ## Optional: warn when varying offsets exist (kept from your earlier intent)
+        #if data.get("is_varying", False):
+        #    logger.warning(
+        #        "Beam '%s': curve offset varies between ends; COG computed from offset endpoints.",
+        #        self.beam.name,
+        #    )
+#
+        #logger.warning(
+        #    "Beam '%s': varying curve offsets detected end1=%s end2=%s. COG computed from offset endpoints.",
+        #    self.beam.name,
+        #    data["end1"],
+        #    data["end2"],
+        #)
 
         return Point(cog_abs)
 
