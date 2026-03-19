@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING, Optional
 
 import numpy as np
 
-from ada.config import logger
 from ada.sections.categories import BaseTypes
 
 if TYPE_CHECKING:
@@ -409,18 +408,18 @@ class OffsetHelper:
         cog_abs = 0.5 * (start_abs + end_abs)
 
         ## Optional: warn when varying offsets exist (kept from your earlier intent)
-        #if data.get("is_varying", False):
+        # if data.get("is_varying", False):
         #    logger.warning(
         #        "Beam '%s': curve offset varies between ends; COG computed from offset endpoints.",
         #        self.beam.name,
         #    )
-#
-        #logger.warning(
+        #
+        # logger.warning(
         #    "Beam '%s': varying curve offsets detected end1=%s end2=%s. COG computed from offset endpoints.",
         #    self.beam.name,
         #    data["end1"],
         #    data["end2"],
-        #)
+        # )
 
         return Point(cog_abs)
 
