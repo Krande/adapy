@@ -338,6 +338,12 @@ class IfcWriter:
 
     def sync_materials(self):
         all_mats = self.ifc_store.assembly.get_all_materials()
+
+        orphan_mats = [m for m in all_mats if m.parent is None]
+        if orphan_mats:
+            names = ", ".join(f"{m.name} ({m.guid})" for m in orphan_mats)
+            logger.warning(f"Materials without parent found during IFC sync: {names}")
+
         skipped_mats = []
         for mat in all_mats:
             if mat.change_type != ChangeAction.ADDED:
@@ -510,7 +516,8 @@ class IfcWriter:
         )
 
     def create_ifc_material(self, material: Material):
-        ifc_mat = write_ifc_mat(material)
+        #ifc_mat = write_ifc_mat(material)
+        ifc_mat = write_ifc_mat(self.ifc_store.f, material)
         self.create_rel_associates_material(material.guid, ifc_mat)
         return ifc_mat
 

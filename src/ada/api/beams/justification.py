@@ -43,68 +43,6 @@ class Justification(Enum):
         raise ValueError(f"Unknown justification string: {label}")
 
 
-# todo remove?
-def OLDresolve_justification(beam: "Beam", just: Justification) -> Optional["Direction"]:
-    """
-    Resolve a semantic justification into a *local-z based* offset vector (in GLOBAL coords),
-    using beam.up as the "top" direction (same conceptual meaning as Genie).
-
-    Returns:
-      - Direction(...) for NA/TOS/FLUSH_* when computable
-      - None for CUSTOM/UNSET (meaning: must rely on explicit e1/e2)
-    """
-    from ada import Direction
-
-    if just == Justification.NA:
-        return Direction(0, 0, 0)
-
-    if just == Justification.TOS:
-        # Keep your existing convention here (you can later decide if TOS should mean +h/2 or something else)
-        if beam.section.h is None:
-            return Direction(0, 0, 0)
-        return beam.up * (beam.section.h / 2.0)
-
-    if just in (Justification.CUSTOM, Justification.UNSET):
-        return None
-
-    # Flush semantics:
-    # - "top" is +beam.up
-    # - "bottom" is -beam.up
-    # Offset magnitude depends on section type
-    sec = beam.section
-    zv = beam.up
-
-    # sign = 1.0 if just == Justification.FLUSH_TOP else -1.0
-    sign = 1.0
-
-    # NOTE:
-    # This is the *semantic* resolver. It must match Genie’s understanding.
-    # We keep it intentionally simple: “flush” means move by half depth (or radius)
-    # except where Genie differs.
-    if sec.type in (BaseTypes.TUBULAR, BaseTypes.CIRCULAR):
-        return sign * zv * float(sec.r)
-
-    if sec.h is None:
-        return Direction(0, 0, 0)
-
-    # Genie special cases you already identified:
-    if sec.type == BaseTypes.ANGULAR:
-        # In your current Genie exporter: ANGULAR flush_top is effectively "no extra offset" (0)
-        # (because angular origin is already at the flush reference in Genie’s aligned_offset behavior)
-        if just == Justification.FLUSH_TOP:
-            return Direction(0, 0, 0)
-        # flush_bottom = move down by full height
-        return (-zv) * float(sec.h)
-
-    if sec.type == BaseTypes.TPROFILE:
-        # Genie legacy mapping already flips to flush_bottom for TPROFILE.
-        # Here: flush_top means +h/2, flush_bottom means -h/2 (relative to beam.up)
-        return sign * zv * float(sec.h) / 2.0
-
-    # Default for most profiles (I/BOX/CHANNEL/FLATBAR/etc.)
-    return sign * zv * float(sec.h) / 2.0
-
-
 def resolve_justification(beam: "Beam", just: Justification) -> Optional["Direction"]:
     from ada import Direction
 

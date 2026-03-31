@@ -124,17 +124,6 @@ def add_general_sections(match, fem) -> None:
         Sz=float(d["sz"]),
     )
 
-    # todo remove
-    # if sec_id in fem.parent.sections.id_map.keys():
-    #    sec = fem.parent.sections.get_by_id(sec_id)
-    #    sec._genprops = gen_props
-    #    gen_props.parent = sec
-    # else:
-    #    stype = Section.TYPES.GENERAL
-    #    sec = Section(name=f"GB{sec_id}", sec_id=sec_id, sec_type=stype, genprops=gen_props, parent=fem.parent)
-    #    gen_props.parent = sec
-    #    fem.parent.sections.add(sec)
-
     if sec_id in fem.parent.sections.id_map.keys():
         sec = fem.parent.sections.get_by_id(sec_id)
         gen_props.parent = sec
