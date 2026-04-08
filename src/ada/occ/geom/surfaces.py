@@ -623,15 +623,34 @@ def make_face_from_curve(outer_curve: geo_cu.CURVE_GEOM_TYPES):
 
 
 def make_profile_from_geom(area: geo_su.ProfileDef) -> TopoDS_Shape | TopoDS_Face:
-    if isinstance(area, geo_su.ArbitraryProfileDef):
-        if area.profile_type == geo_su.ProfileType.AREA:
-            profile = make_face_from_curve(area.outer_curve)
-            for inner_curve in map(make_face_from_curve, area.inner_curves):
-                profile = BRepAlgoAPI_Cut(profile, inner_curve).Shape()
-        else:
-            profile = make_wire_from_curve(area.outer_curve)
-            for inner_curve in map(make_wire_from_curve, area.inner_curves):
-                profile = BRepAlgoAPI_Cut(profile, inner_curve).Shape()
-    else:
+    if not isinstance(area, geo_su.ArbitraryProfileDef):
         raise NotImplementedError("Only ArbitraryProfileDefWithVoids is implemented")
+
+    if area.profile_type == geo_su.ProfileType.AREA:
+        profile = make_face_from_curve(area.outer_curve)
+
+        for inner in area.inner_curves:
+            try:
+                inner_face = make_face_from_curve(inner)
+            except ValueError as e:
+                # Typical case for “pipe with t ~= r”: inner radius ~ 0 or tiny negative
+                logger.warning(f"[profile] Skipping inner void curve (treated as solid): {e}")
+                logger.warning(f"[profile] Inner curve: {inner!r}")
+                continue
+
+            profile = BRepAlgoAPI_Cut(profile, inner_face).Shape()
+
+        return profile
+
+    # non-area profile
+    profile = make_wire_from_curve(area.outer_curve)
+    for inner in area.inner_curves:
+        try:
+            inner_wire = make_wire_from_curve(inner)
+        except ValueError as e:
+            logger.warning(f"[profile] Skipping inner wire: {e}")
+            logger.warning(f"[profile] Inner curve: {inner!r}")
+            continue
+        profile = BRepAlgoAPI_Cut(profile, inner_wire).Shape()
+
     return profile

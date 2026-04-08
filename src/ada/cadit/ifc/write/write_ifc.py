@@ -21,15 +21,19 @@ from ada.cadit.ifc.write.write_fasteners import write_ifc_fastener
 from ada.cadit.ifc.write.write_instances import write_mapped_instance
 from ada.cadit.ifc.write.write_material import write_ifc_mat
 from ada.cadit.ifc.write.write_openings import generate_ifc_opening
-from ada.cadit.ifc.write.write_pipe import write_ifc_pipe
-from ada.cadit.ifc.write.write_plates import write_ifc_plate, write_ifc_plate_curved
+from ada.cadit.ifc.write.write_pipe import update_ifc_pipe, write_ifc_pipe
+from ada.cadit.ifc.write.write_plates import (
+    update_ifc_plate,
+    write_ifc_plate,
+    write_ifc_plate_curved,
+)
 from ada.cadit.ifc.write.write_sections import export_beam_section_profile_def
-from ada.cadit.ifc.write.write_shapes import write_ifc_shape
+from ada.cadit.ifc.write.write_shapes import update_ifc_shape, write_ifc_shape
 from ada.cadit.ifc.write.write_spatial_elements import (
     write_ifc_part,
     write_ifc_spatial_hierarchy,
 )
-from ada.cadit.ifc.write.write_wall import write_ifc_wall
+from ada.cadit.ifc.write.write_wall import update_ifc_wall, write_ifc_wall
 from ada.config import logger
 from ada.core.guid import create_guid
 
@@ -89,43 +93,86 @@ class IfcWriter:
         from ada import Pipe
 
         a = self.ifc_store.assembly
+
         mat_map = {mat.guid: mat for mat in a.get_all_materials()}
         rel_mats_map = {
             m.GlobalId: m
             for m in filter(
-                lambda x: x.RelatingMaterial.is_a("IfcMaterial"), self.ifc_store.f.by_type("IfcRelAssociatesMaterial")
+                lambda x: x.RelatingMaterial.is_a("IfcMaterial"),
+                self.ifc_store.f.by_type("IfcRelAssociatesMaterial"),
             )
         }
+
         new_objects = list(filter(is_added, list(a.get_all_physical_objects())))
         num_new_objects = len(new_objects)
+
         contained_in_spatial = {x.guid: [] for x in a.get_all_parts_in_assembly(include_self=True)}
+
+        # Track IFC instances we actually created for each object GUID.
+        # This avoids brittle f.by_guid(obj.guid) lookups (which can fail for some object types).
+        created_ifc_by_obj_guid: dict[str, object] = {}
 
         for i, to_be_added in enumerate(new_objects, start=1):
             self.eval_validity(to_be_added, mat_map, rel_mats_map)
 
             ifc_elem = self.add(to_be_added)
+            created_ifc_by_obj_guid[to_be_added.guid] = ifc_elem
+
             self.create_ifc_openings(to_be_added, ifc_elem)
 
-            write_elem_property_sets(to_be_added.metadata, ifc_elem, self.ifc_store.f, self.ifc_store.owner_history)
+            write_elem_property_sets(
+                to_be_added.metadata,
+                ifc_elem,
+                self.ifc_store.f,
+                self.ifc_store.owner_history,
+            )
 
             contained_in_spatial[to_be_added.parent.guid].append(ifc_elem)
             to_be_added.change_type = ChangeAction.NOCHANGE
+
             if self.callback is not None:
                 self.callback(i, num_new_objects)
 
-        # Create relationships between materials and physical objects here inside the object creation
+        # Create relationships between materials and physical objects
         obj_map = defaultdict(list)
         for obj in new_objects:
             if not hasattr(obj, "material"):
                 continue
             obj_map[obj.material].append(obj)
 
+        f = self.ifc_store.f
+
         for mat, objects in obj_map.items():
-            rel_mat = self.ifc_store.f.by_guid(mat.guid)
-            ifc_elems = [self.ifc_store.f.by_guid(obj.guid) for obj in objects if not isinstance(obj, Pipe)]
-            ifc_elems_pipe_seg = [
-                self.ifc_store.f.by_guid(seg.guid) for obj in objects if isinstance(obj, Pipe) for seg in obj.segments
-            ]
+            rel_mat = f.by_guid(mat.guid)
+            if rel_mat is None:
+                raise ValueError(f"No IfcRelAssociatesMaterial found for mat.guid={mat.guid}")
+
+            ifc_elems = []
+            ifc_elems_pipe_seg = []
+
+            for obj in objects:
+                if isinstance(obj, Pipe):
+                    # Pipes are represented by segments with their own GUIDs
+                    for seg in obj.segments:
+                        try:
+                            ifc_elems_pipe_seg.append(f.by_guid(seg.guid))
+                        except RuntimeError:
+                            # Segment not found; skip to avoid hard crash
+                            pass
+                    continue
+
+                # Prefer the IFC instance we just created
+                ifc_elem = created_ifc_by_obj_guid.get(obj.guid)
+                if ifc_elem is not None:
+                    ifc_elems.append(ifc_elem)
+                    continue
+
+                # Fallback: try lookup, but don't crash if missing
+                try:
+                    ifc_elems.append(f.by_guid(obj.guid))
+                except RuntimeError:
+                    pass
+
             rel_mat.RelatedObjects = [*rel_mat.RelatedObjects, *ifc_elems, *ifc_elems_pipe_seg]
 
         for spatial_elem_guid, relating_elements in contained_in_spatial.items():
@@ -288,6 +335,12 @@ class IfcWriter:
 
     def sync_materials(self):
         all_mats = self.ifc_store.assembly.get_all_materials()
+
+        orphan_mats = [m for m in all_mats if m.parent is None]
+        if orphan_mats:
+            names = ", ".join(f"{m.name} ({m.guid})" for m in orphan_mats)
+            logger.warning(f"Materials without parent found during IFC sync: {names}")
+
         skipped_mats = []
         for mat in all_mats:
             if mat.change_type != ChangeAction.ADDED:
@@ -415,15 +468,15 @@ class IfcWriter:
         if isinstance(obj, Beam):
             return write_ifc_beam(self.ifc_store, obj)
         elif isinstance(obj, Plate):
-            return write_ifc_plate(obj)
+            return write_ifc_plate(self.ifc_store, obj)
         elif isinstance(obj, PlateCurved):
-            return write_ifc_plate_curved(obj)
+            return write_ifc_plate_curved(self.ifc_store, obj)
         elif isinstance(obj, Pipe):
-            return write_ifc_pipe(obj)
+            return write_ifc_pipe(self.ifc_store, obj)
         elif issubclass(type(obj), Shape):
             return write_ifc_shape(self.ifc_store, obj)
         elif isinstance(obj, Wall):
-            return write_ifc_wall(obj)
+            return write_ifc_wall(self.ifc_store, obj)
         else:
             raise NotImplementedError(f"Object {obj} is not supported")
 
@@ -433,13 +486,13 @@ class IfcWriter:
         if isinstance(obj, Beam):
             return update_ifc_beam(self.ifc_store, obj)
         elif isinstance(obj, Plate):
-            return write_ifc_plate(obj)
+            return update_ifc_plate(self.ifc_store, obj)
         elif isinstance(obj, Pipe):
-            return write_ifc_pipe(obj)
+            return update_ifc_pipe(self.ifc_store, obj)
         elif issubclass(type(obj), Shape):
-            return write_ifc_shape(obj)
+            return update_ifc_shape(self.ifc_store, obj)
         elif isinstance(obj, Wall):
-            return write_ifc_wall(obj)
+            return update_ifc_wall(self.ifc_store, obj)
         else:
             raise NotImplementedError(f"Object {obj} is not supported")
 
@@ -447,7 +500,7 @@ class IfcWriter:
         return write_ifc_part(self.ifc_store, part, include_fem=include_fem)
 
     def create_ifc_profile_def(self, section: Section):
-        export_beam_section_profile_def(section)
+        export_beam_section_profile_def(self.ifc_store.f, section)
 
     def create_ifc_beam_type(self, section: Section):
         self.ifc_store.f.create_entity(
@@ -460,7 +513,7 @@ class IfcWriter:
         )
 
     def create_ifc_material(self, material: Material):
-        ifc_mat = write_ifc_mat(material)
+        ifc_mat = write_ifc_mat(self.ifc_store.f, material)
         self.create_rel_associates_material(material.guid, ifc_mat)
         return ifc_mat
 

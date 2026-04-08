@@ -220,7 +220,7 @@ class Beam(BackendGeom):
 
     def get_volume(self) -> float:
         area = self.section.properties.Ax
-        length = self.length
+        length = self.offset_helper.get_effective_length()  # takes axial offsets into account
         return area * length
 
     def get_mass(self) -> float:

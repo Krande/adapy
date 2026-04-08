@@ -124,8 +124,18 @@ class SatReaderFactory:
         self.failed_faces = []
 
     def load_sat_data_from_file(self):
+        # Always reset store before loading
+        # self.sat_store.clear()
+
         sat_reader = SatReader(self.sat_file)
-        self.header = next(sat_reader)
+
+        try:
+            self.header = next(sat_reader)
+        except StopIteration:
+            # Empty SAT file → no header, no records
+            self.header = None
+            return
+
         for sat_object_str in sat_reader:
             if sat_object_str.startswith("T @"):
                 continue

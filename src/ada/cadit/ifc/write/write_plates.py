@@ -1,16 +1,28 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from ada import Plate, PlateCurved
 from ada.cadit.ifc.utils import add_colour
 from ada.cadit.ifc.write.geom.placement import ifc_placement_from_axis3d
 from ada.cadit.ifc.write.geom.solids import extruded_area_solid
 from ada.cadit.ifc.write.geom.surfaces import advanced_face
 
+if TYPE_CHECKING:
+    from ada.cadit.ifc.store import IfcStore
 
-def write_ifc_plate(plate: Plate):
+
+from ada.config import logger
+
+
+def update_ifc_plate(ifc_store: IfcStore, plate: Plate):
+    logger.warning("Updating IFC plate not implemented yet")
+
+
+def write_ifc_plate(ifc_store: IfcStore, plate: Plate):
     if plate.parent is None:
         raise ValueError("Ifc element cannot be built without any parent element")
 
-    a = plate.get_assembly()
-    ifc_store = a.ifc_store
     owner_history = ifc_store.owner_history
     f = ifc_store.f
 
@@ -18,24 +30,22 @@ def write_ifc_plate(plate: Plate):
     axis2placement = ifc_placement_from_axis3d(ori, f)
 
     plate_placement = f.create_entity("IfcLocalPlacement", PlacementRelTo=None, RelativePlacement=axis2placement)
-    representations = []
 
     solid = extruded_area_solid(plate.solid_geom().geometry, f)
     body = f.createIfcShapeRepresentation(ifc_store.get_context("Body"), "Body", "SolidModel", [solid])
-    representations.append(body)
 
-    product_shape = f.create_entity("IfcProductDefinitionShape", None, None, representations)
+    product_shape = f.create_entity("IfcProductDefinitionShape", None, None, [body])
 
     ifc_plate = f.create_entity(
         "IfcPlate",
-        plate.guid,
-        owner_history,
-        plate.name,
-        plate.name,
-        None,
-        plate_placement,
-        product_shape,
-        None,
+        GlobalId=plate.guid,
+        OwnerHistory=owner_history,
+        Name=plate.name,
+        Description=plate.name,
+        ObjectType=None,
+        ObjectPlacement=plate_placement,
+        Representation=product_shape,
+        Tag=None,
     )
 
     # Add colour
@@ -45,12 +55,10 @@ def write_ifc_plate(plate: Plate):
     return ifc_plate
 
 
-def write_ifc_plate_curved(plate: PlateCurved):
+def write_ifc_plate_curved(ifc_store: IfcStore, plate: PlateCurved):
     if plate.parent is None:
         raise ValueError("Ifc element cannot be built without any parent element")
 
-    a = plate.get_assembly()
-    ifc_store = a.ifc_store
     owner_history = ifc_store.owner_history
     f = ifc_store.f
 
@@ -58,24 +66,23 @@ def write_ifc_plate_curved(plate: PlateCurved):
     axis2placement = ifc_placement_from_axis3d(ori, f)
 
     plate_placement = f.create_entity("IfcLocalPlacement", PlacementRelTo=None, RelativePlacement=axis2placement)
-    representations = []
 
     solid = advanced_face(plate.geom.geometry, f)
     body = f.createIfcShapeRepresentation(ifc_store.get_context("Body"), "Body", "SolidModel", [solid])
-    representations.append(body)
 
-    product_shape = f.create_entity("IfcProductDefinitionShape", None, None, representations)
+    product_shape = f.create_entity("IfcProductDefinitionShape", None, None, [body])
 
+    # Use keyword args to avoid positional mistakes and ensure GlobalId is correct.
     ifc_plate = f.create_entity(
         "IfcPlate",
-        plate.guid,
-        owner_history,
-        plate.name,
-        plate.name,
-        None,
-        plate_placement,
-        product_shape,
-        None,
+        GlobalId=plate.guid,
+        OwnerHistory=owner_history,
+        Name=plate.name,
+        Description=plate.name,
+        ObjectType=None,
+        ObjectPlacement=plate_placement,
+        Representation=product_shape,
+        Tag=None,
     )
 
     # Add colour

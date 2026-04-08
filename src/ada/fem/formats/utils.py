@@ -542,8 +542,18 @@ def line_elem_to_beam(elem: Elem, parent: Part, prefix="bm") -> Beam:
             ecc = elem.eccentricity
             if ecc.end1 is not None and ecc.end1.node.id == n1.id:
                 e1 = ecc.end1.ecc_vector
+                e1 = (
+                    e1[0],
+                    -e1[1],
+                    -e1[2],
+                )  # todo this gives alignment cog calc and ada viewer etc (tested only for horizontal beam with box section with offset in global z)
             if ecc.end2 is not None and ecc.end2.node.id == n2.id:
                 e2 = ecc.end2.ecc_vector
+                e2 = (
+                    e2[0],
+                    -e2[1],
+                    -e2[2],
+                )  # todo this gives alignment cog calc and ada viewer etc (tested only for  horizontal beam with box section with offset in global z)
 
     if elem.fem_sec.section.type == "GENBEAM":
         logger.error(f"Beam elem {elem.id}  uses a GENBEAM which might not represent an actual cross section")

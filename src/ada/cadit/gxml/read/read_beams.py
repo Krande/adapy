@@ -9,6 +9,7 @@ from ada.api.beams.justification import Justification
 from ada.api.containers import Beams
 from ada.config import logger
 from ada.core.exceptions import VectorNormalizeError
+from ada.sections.categories import BaseTypes
 
 
 def get_beams(xml_root: ET.Element, parent: Part) -> Beams:
@@ -45,110 +46,225 @@ def el_to_beam(bm_el: ET.Element, parent: Part) -> List[Beam]:
     return segs
 
 
-def apply_offsets_and_alignments(name: str, bm_el: ET.Element, segs: list[Beam]):
-    e1, e2, use_local = get_offsets(bm_el)
-    alignment, justification = get_alignment(bm_el, segs)
-    if len(segs) > 1 and (e1 is not None or e2 is not None):
-        logger.debug(f"Offset at end 1 for beam {name} is ignored as there are more than 1 segments")
+def apply_offsets_and_alignments(name: str, bm_el: ET.Element, segs: list["Beam"]):
+    """
+    Import rule:
+      - aligned_curve_offset: semantic only (justification), no numeric e1/e2
+      - constant/linear curve_offset: numeric -> materialize into e1/e2 (eccentricity)
+      - curve_end_offset.keep_axial_eccentricity_at_end1/end2:
+          controls whether the AXIAL component of the numeric offset is applied at that end.
+    """
 
-    if e1 is not None:
-        if use_local:
-            e1_global = convert_offset_to_global_csys(e1, segs[0])
-        else:
-            e1_global = e1
-        segs[0].e1 = e1_global
-    if e2 is not None:
-        if use_local:
-            e2_global = convert_offset_to_global_csys(e2, segs[-1])
-        else:
-            e2_global = e2
-        segs[-1].e2 = e2_global
+    def _parse_bool(attr_val: str | None) -> bool:
+        if attr_val is None:
+            return False
+        v = attr_val.strip().lower()
+        return v in ("true", "1", "yes")
 
-    if alignment is not None:
+    def _remove_axial_component(offset: np.ndarray, bm: "Beam", use_local: bool) -> np.ndarray:
+        """
+        Remove the component along the beam axis (local x).
+        - if use_local: just zero the local-x component
+        - if global: subtract projection onto bm axis (bm.xvec)
+        """
+        o = np.asarray(offset, dtype=float).copy()
+
+        if use_local:
+            o[0] = 0.0
+            return o
+
+        x = np.asarray(bm.xvec, dtype=float)
+        n = np.linalg.norm(x)
+        if n <= 0.0:
+            return o
+        xhat = x / n
+        return o - np.dot(o, xhat) * xhat
+
+    # ---- aligned (flush) ----
+    aligned_el = bm_el.find("curve_offset/aligned_curve_offset")
+    if aligned_el is not None:
+        alignment_str = aligned_el.attrib.get("alignment")  # flush_top/flush_bottom/no_flush
+
         for seg in segs:
-            if justification is not None:
-                seg.justification = justification
-            seg.e1 = alignment if seg.e1 is None else seg.e1 + alignment
-            seg.e2 = alignment if seg.e2 is None else seg.e2 + alignment
+            if alignment_str == "flush_top":
+                seg.justification = Justification.FLUSH_TOP
+            elif alignment_str == "flush_bottom":
+                seg.justification = Justification.FLUSH_BOTTOM
+            else:
+                seg.justification = Justification.NA
+
+            if seg.metadata is None:
+                seg.metadata = {}
+            seg.metadata["aligned_curve_offset_alignment"] = alignment_str
+
+        return
+
+    # ---- explicit numeric curve offsets ----
+    o1, o2, use_local = get_offsets(bm_el)
+    if o1 is None and o2 is None:
+        return
+
+    # If one of them is missing, treat as constant
+    if o1 is None and o2 is not None:
+        o1 = np.asarray(o2, dtype=float)
+    if o2 is None and o1 is not None:
+        o2 = np.asarray(o1, dtype=float)
+
+    # ---- CurveEndOffset axial handling (THIS fixes Bm3/Bm4 behavior) ----
+    ceo = bm_el.find("curve_offset/curve_end_offset")
+    if ceo is not None:
+        keep1 = _parse_bool(ceo.attrib.get("keep_axial_eccentricity_at_end1"))
+        keep2 = _parse_bool(ceo.attrib.get("keep_axial_eccentricity_at_end2"))
+
+        # If keep axial is FALSE at an end => remove axial component from the OFFSET at that end
+        if o1 is not None and not keep1:
+            o1 = _remove_axial_component(o1, segs[0], use_local)
+        if o2 is not None and not keep2:
+            o2 = _remove_axial_component(o2, segs[-1], use_local)
+
+    # Convert curve_offset -> eccentricity e (inverse of exporter convention)
+    e1_global = curve_offset_to_eccentricity_global(o1, segs[0], use_local)
+    e2_global = curve_offset_to_eccentricity_global(o2, segs[-1], use_local)
+
+    segs[0].e1 = e1_global
+    segs[-1].e2 = e2_global
+
+    for seg in segs:
+        seg.justification = Justification.CUSTOM
 
 
-def get_offsets(bm_el: ET.Element) -> tuple[np.ndarray, np.ndarray, bool]:
-    linear_offset = bm_el.find("curve_offset/linear_varying_curve_offset")
-    constant_offset = bm_el.find("curve_offset/constant_curve_offset")
+def _curve_offset_add_local(bm: "Beam") -> np.ndarray:
+    """
+    This MUST match the 'add' logic in OffsetHelper.curve_offset_local().
+
+    Returns add vector in BEAM LOCAL coordinates (x,y,z components).
+    """
+    sec = bm.section
+    p = sec.properties
+
+    # default
+    dy = 0.0
+    dz = 0.0
+
+    # These are the only special cases you currently have in OffsetHelper.curve_offset_local()
+    if sec.type == BaseTypes.ANGULAR:
+        # OffsetHelper uses: dz = Cgz - h
+        cgz = float(getattr(p, "Cgz", 0.0) or 0.0)
+        h = float(sec.h)
+        dz = cgz - h
+
+    elif sec.type == BaseTypes.TPROFILE:
+        # OffsetHelper uses: dz = Cgz - h/2
+        cgz = float(getattr(p, "Cgz", 0.0) or 0.0)
+        h = float(sec.h)
+        dz = cgz - h / 2.0
+
+    return np.array([0.0, dy, dz], dtype=float)
+
+
+def curve_offset_to_eccentricity_global(offset: np.ndarray, bm: "Beam", use_local: bool) -> "Direction":
+    """
+    Convert Genie XML curve_offset (constant_offset / offset_end1) to beam eccentricity e (global vector).
+
+    In exporter / OffsetHelper.curve_offset_local():
+        offset_local = -e_local + add_local
+    Therefore:
+        e_local = add_local - offset_local
+
+    If use_local=True: offset is in beam local coordinates (x,y,z components).
+    If use_local=False: offset is already a global vector and must be treated in global coordinates.
+    """
+    from ada import Direction
+
+    offset = np.asarray(offset, dtype=float)
+    add_local = _curve_offset_add_local(bm)
+
+    if use_local:
+        # offset is local components
+        e_local = add_local - offset
+        e_global = convert_offset_to_global_csys(e_local, bm)  # uses bm.xvec/yvec/up
+        return Direction(*e_global)
+
+    # offset is already global
+    # convert add_local to global, then subtract
+    add_global = convert_offset_to_global_csys(add_local, bm)
+    e_global = add_global - offset
+    return Direction(*e_global)
+
+
+def get_offsets(bm_el: ET.Element) -> tuple[np.ndarray | None, np.ndarray | None, bool]:
+    """
+    Reads curve offset definitions from Genie XML.
+
+    Returns:
+      (end1_o, end2_o, use_local)
+
+    where end1_o/end2_o are np.ndarray([x,y,z]) or None, and use_local indicates
+    whether the offsets are expressed in the beam's local coordinate system.
+    """
+
+    def _parse_bool(attr_val: str | None) -> bool:
+        if attr_val is None:
+            return False
+        v = attr_val.strip().lower()
+        return v in ("true", "1", "yes")
+
+    def _get_xyz(el: ET.Element | None) -> np.ndarray | None:
+        if el is None:
+            return None
+        # expects attributes x,y,z (as Genie exports)
+        return np.array(xyz_to_floats(el), dtype=float)
+
+    curve_offset_el = bm_el.find("curve_offset")
+    if curve_offset_el is None:
+        return None, None, False
+
+    # Genie can wrap numeric offsets in:
+    # curve_offset/curve_end_offset/curve_offset/<constant_curve_offset|linear_varying_curve_offset>
+    offsets_root = curve_offset_el
+    ceo = curve_offset_el.find("curve_end_offset")
+    if ceo is not None:
+        offsets_root = ceo.find("curve_offset") or ceo  # be defensive
+
+    # Direct numeric nodes under offsets_root
+    constant_offset = offsets_root.find("constant_curve_offset")
+    linear_offset = offsets_root.find("linear_varying_curve_offset")
+
+    # Fallback search anywhere below offsets_root (handles older/alternate layouts)
+    if constant_offset is None:
+        constant_offset = offsets_root.find(".//constant_curve_offset")
+    if linear_offset is None:
+        linear_offset = offsets_root.find(".//linear_varying_curve_offset")
 
     end1_o = None
     end2_o = None
     use_local = False
-    if constant_offset is not None:
-        end1 = constant_offset.find("constant_offset")
-        end2 = end1
-        use_local = False if constant_offset.attrib["use_local_system"] == "false" else True
-    elif linear_offset is not None:
-        end1 = linear_offset.find("offset_end1")
-        end2 = linear_offset.find("offset_end2")
-        use_local = False if linear_offset.attrib["use_local_system"] == "false" else True
-    else:
-        end1 = bm_el.find(".//offset_end1")
-        end2 = bm_el.find(".//offset_end2")
 
-    if end1 is not None:
-        end1_o = np.array(xyz_to_floats(end1))
-    if end2 is not None:
-        end2_o = np.array(xyz_to_floats(end2))
+    if constant_offset is not None:
+        use_local = _parse_bool(constant_offset.attrib.get("use_local_system"))
+        v = _get_xyz(constant_offset.find("constant_offset"))
+        end1_o = v
+        end2_o = v
+
+    elif linear_offset is not None:
+        use_local = _parse_bool(linear_offset.attrib.get("use_local_system"))
+        end1_o = _get_xyz(linear_offset.find("offset_end1"))
+        end2_o = _get_xyz(linear_offset.find("offset_end2"))
+
+    else:
+        # last-resort legacy patterns
+        end1 = offsets_root.find(".//offset_end1")
+        end2 = offsets_root.find(".//offset_end2")
+        end1_o = _get_xyz(end1)
+        end2_o = _get_xyz(end2)
+
+        # try to respect any use_local_system we can find
+        if offsets_root is not None:
+            use_local = _parse_bool(offsets_root.attrib.get("use_local_system"))
+        if not use_local and curve_offset_el is not None:
+            use_local = _parse_bool(curve_offset_el.attrib.get("use_local_system"))
 
     return end1_o, end2_o, use_local
-
-
-def get_alignment(bm_el: ET.Element, segments: list[Beam]) -> tuple[Direction | None, Justification | None]:
-    justification = None
-    seg0 = segments[0]
-    sec0 = seg0.section
-    zv = seg0.up
-    aligned_offset = bm_el.find("curve_offset/aligned_curve_offset")
-
-    if aligned_offset is None:
-        if sec0.type == sec0.TYPES.ANGULAR:
-            offset = -zv * (sec0.properties.Cgz - sec0.h)
-            return offset, None
-        return None, None
-
-    alignment = aligned_offset.attrib.get("alignment")
-    aligned_offset.attrib.get("constant_value")
-
-    flush_factor = 0
-    if alignment == "flush_top":
-        justification = Justification.FLUSH_OFFSET
-        flush_factor = -1
-    elif alignment == "flush_bottom":
-        justification = Justification.FLUSH_OFFSET
-        flush_factor = 1
-
-    if sec0.type == sec0.TYPES.ANGULAR:
-        if alignment == "flush_top":
-            return Direction(0, 0, 0), justification
-        elif alignment == "flush_bottom":
-            offset = zv * sec0.h
-            return offset, justification
-        elif alignment == "no_flush":
-            offset = zv * sec0.properties.Cgz
-            return offset, justification
-    elif sec0.type == sec0.TYPES.TUBULAR:
-        offset = flush_factor * zv * sec0.r
-        return offset, justification
-    elif sec0.type == sec0.TYPES.IPROFILE and sec0.w_btn != sec0.w_top:
-        # Note: this logic must be  aligned with to_gxml_unsymm_i_section in write_sections.js
-        if (
-            sec0.t_fbtn == sec0.t_ftop and sec0.t_w == sec0.w_btn
-        ):  # this aims to identify a genie TPROFILE implemented as an unsymmetric IPROFILE
-            offset = flush_factor * zv * sec0.properties.Cgz
-            return offset, justification
-        else:
-            logger.warning(f"The section {sec0.name} type {sec0.type} is not yet tested for Genie XML read")
-            offset = flush_factor * zv * sec0.h / 2
-            return offset, justification
-    else:
-        offset = flush_factor * zv * sec0.h / 2
-        return offset, justification
 
 
 def convert_offset_to_global_csys(o: np.ndarray, bm: Beam):
@@ -156,11 +272,6 @@ def convert_offset_to_global_csys(o: np.ndarray, bm: Beam):
     yv = bm.yvec
     zv = bm.up
     return xv * o[0] + yv * o[1] + zv * o[2]
-
-
-def apply_offset(o: np.ndarray, n: Node, bm: Beam):
-    res = convert_offset_to_global_csys(o, bm)
-    return n.p + res
 
 
 def seg_to_beam(name: str, seg: ET.Element, parent: Part, prev_bm: Beam, zv):

@@ -1,3 +1,5 @@
+import math
+
 from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_MakeEdge, BRepBuilderAPI_MakeWire
 from OCC.Core.GC import GC_MakeArcOfCircle
 from OCC.Core.Geom import Geom_BSplineCurve
@@ -12,6 +14,8 @@ from ada.geom import curves as geo_cu
 from ada.geom import surfaces as geo_su
 from ada.occ.exceptions import UnableToCreateCurveOCCGeom
 from ada.occ.utils import point3d
+
+OCC_RADIUS_TOL = 1e-9  # geometric tolerance in model units
 
 
 def make_edge_from_line(geom: geo_cu.Edge | geo_cu.ArcLine) -> TopoDS_Edge:
@@ -258,14 +262,35 @@ def make_wire_from_poly_loop(poly_loop: geo_cu.PolyLoop) -> TopoDS_Wire:
 
 
 def make_wire_from_circle(circle: geo_cu.Circle) -> TopoDS_Wire:
-    circle_origin = gp_Ax2(gp_Pnt(*circle.position.location), gp_Dir(*circle.position.axis))
-    circle = gp_Circ(circle_origin, circle.radius)
+    r = circle.radius
 
-    circle_edge = BRepBuilderAPI_MakeEdge(circle).Edge()
-    wire = BRepBuilderAPI_MakeWire()
-    wire.Add(circle_edge)
-    wire.Build()
-    return wire.Wire()
+    # ---- Validate radius ----
+    if r is None:
+        raise ValueError(f"Circle radius is None: {circle}")
+
+    if isinstance(r, float) and (math.isnan(r) or math.isinf(r)):
+        raise ValueError(f"Circle radius invalid (NaN/Inf): {r} for circle={circle}")
+
+    if r <= OCC_RADIUS_TOL:
+        raise ValueError(
+            f"Circle radius must be > {OCC_RADIUS_TOL}, got {r}. " f"Circle={circle}, origin={circle.position.location}"
+        )
+
+    # ---- Build OCC circle ----
+    circle_origin = gp_Ax2(
+        gp_Pnt(*circle.position.location),
+        gp_Dir(*circle.position.axis),
+    )
+
+    occ_circle = gp_Circ(circle_origin, float(r))
+
+    circle_edge = BRepBuilderAPI_MakeEdge(occ_circle).Edge()
+
+    wire_builder = BRepBuilderAPI_MakeWire()
+    wire_builder.Add(circle_edge)
+    wire_builder.Build()
+
+    return wire_builder.Wire()
 
 
 def make_wire_from_ellipse(ellipse: geo_cu.Ellipse) -> TopoDS_Wire:
