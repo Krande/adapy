@@ -1,7 +1,7 @@
 name: PR Profiling
 
 on:
-  pull_request:
+  pull_request_target:
     branches:
       - main
     paths:
@@ -26,6 +26,7 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Setup Pixi
         uses: prefix-dev/setup-pixi@v0.9.5
@@ -76,3 +77,4 @@ jobs:
           comment-tag: profiling-results
           mode: upsert
           create-if-not-exists: true
+          github-token: ${{ secrets.GITHUB_TOKEN }}
