@@ -243,9 +243,7 @@ def test_get_justification_tos():
     beam.e2 = offset
 
     justification = get_justification(beam)
-    assert (
-        justification == Justification.TOS
-    )  # todo instead of trying to resolve what he justification is from offset, it should be set?
+    assert justification == Justification.TOS
 
 
 def test_get_justification_custom():
@@ -255,18 +253,14 @@ def test_get_justification_custom():
     beam.e1 = Direction(0, 0, 0.1)
 
     justification = get_justification(beam)
-    assert (
-        justification == Justification.CUSTOM
-    )  # todo instead of trying to resolve what he justification is from offset, it should be set?
+    assert justification == Justification.CUSTOM
 
 
 def test_get_justification_tubular():
     """Test get_justification function for tubular section"""
     beam = Beam("test_beam", (0, 0, 0), (1, 0, 0), "PIPE300x20")
     justification = get_justification(beam)
-    assert (
-        justification == Justification.NA
-    )  # todo instead of trying to resolve what he justification is from offset, it should be set?
+    assert justification == Justification.NA
 
 
 def test_updating_nodes():
