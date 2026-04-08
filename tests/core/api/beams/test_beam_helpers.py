@@ -42,11 +42,6 @@ def test_justification_enum():
 
 def test_get_offset_from_justification_na(simple_beam: Beam):
     """Test get_offset_from_justification with neutral axis"""
-    # offset = get_offset_from_justification(simple_beam, Justification.NA) # todo this is the old method, need to adapt
-    # assert isinstance(offset, Direction)
-    # assert offset.x == 0
-    # assert offset.y == 0
-    # assert offset.z == 0
 
     simple_beam.justification = "NA"
 

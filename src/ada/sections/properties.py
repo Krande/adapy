@@ -644,7 +644,6 @@ def calc_channel(sec: Section) -> GeneralProperties:
 
 def calc_poly(sec: Section) -> GeneralProperties:
     # todo implement
-    # raise NotImplementedError
     logger.warning(
         f"Section properties not implemented for POLY section types, all section properties set to 0. Triggered by section: {sec.name}"
     )

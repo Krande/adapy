@@ -3,9 +3,6 @@ from ada.materials.metals import CarbonSteel
 
 
 def write_ifc_mat(f, material: Material):
-    # if material is None:
-    #    raise ValueError("material cannot be None")
-
     ifc_mat = f.create_entity("IfcMaterial", Name=material.name, Category="Steel")
 
     properties = []

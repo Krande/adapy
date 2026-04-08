@@ -106,9 +106,6 @@ class IfcWriter:
         new_objects = list(filter(is_added, list(a.get_all_physical_objects())))
         num_new_objects = len(new_objects)
 
-        # print("NEW OBJECTS:",
-        #      [(o.__class__.__module__ + "." + o.__class__.__name__, getattr(o, "name", None)) for o in new_objects])
-
         contained_in_spatial = {x.guid: [] for x in a.get_all_parts_in_assembly(include_self=True)}
 
         # Track IFC instances we actually created for each object GUID.
@@ -516,7 +513,6 @@ class IfcWriter:
         )
 
     def create_ifc_material(self, material: Material):
-        # ifc_mat = write_ifc_mat(material)
         ifc_mat = write_ifc_mat(self.ifc_store.f, material)
         self.create_rel_associates_material(material.guid, ifc_mat)
         return ifc_mat

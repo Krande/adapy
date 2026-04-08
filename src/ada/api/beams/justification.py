@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import TYPE_CHECKING, Optional, NamedTuple
+from typing import TYPE_CHECKING, NamedTuple, Optional
 
 import numpy as np
 
