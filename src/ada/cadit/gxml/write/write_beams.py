@@ -69,11 +69,11 @@ def add_straight_beam(beam: Beam, xml_root: ET.Element):
 
     curve_offset = ET.SubElement(straight_beam, "curve_offset")
     data = beam.offset_helper.curve_offset_local()
-    (ox1, oy1, oz1) = data["end1"]
-    (ox2, oy2, oz2) = data["end2"]
+    (ox1, oy1, oz1) = data.end1
+    (ox2, oy2, oz2) = data.end2
 
     # 1) Varying offset: always explicit numeric
-    if data["is_varying"]:
+    if data.is_varying:
         lvo = ET.SubElement(curve_offset, "linear_varying_curve_offset", {"use_local_system": "true"})
         ET.SubElement(lvo, "offset_end1", {"x": f"{ox1:.12g}", "y": f"{oy1:.12g}", "z": f"{oz1:.12g}"})
         ET.SubElement(lvo, "offset_end2", {"x": f"{ox2:.12g}", "y": f"{oy2:.12g}", "z": f"{oz2:.12g}"})

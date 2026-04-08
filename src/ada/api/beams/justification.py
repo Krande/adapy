@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Optional, NamedTuple
 
 import numpy as np
 
@@ -115,6 +115,13 @@ def get_justification(beam: Beam) -> Justification:
         return Justification.CUSTOM
 
 
+class CurveOffsetResult(NamedTuple):
+    end1: tuple[float, float, float]
+    end2: tuple[float, float, float]
+    avg: tuple[float, float, float]
+    is_varying: bool
+
+
 class OffsetHelper:
     def __init__(self, beam: Beam):
         self.beam = beam
@@ -161,19 +168,15 @@ class OffsetHelper:
         # include translation
         return place_abs.transform_array_from_other_place(np.asarray([p]), ident_place, ignore_translation=False)[0]
 
-    # todo this is the new method for where the offsets are calculated, and should replace get_offset_from_justification and resolve_justification ?
-    #  needs to be updated for TOS and other
-    def curve_offset_local(self):
+    def curve_offset_local(self) -> CurveOffsetResult:
         """
         Compute local (x,y,z) curve offsets for Genie / COG, at end1 and end2.
 
-        Returns a dict:
-          {
-            "end1": (ox1, oy1, oz1),
-            "end2": (ox2, oy2, oz2),
-            "avg":  (ox,  oy,  oz),
-            "is_varying": bool,
-          }
+        Returns a CurveOffsetResult object with:
+          - end1: (ox1, oy1, oz1)
+          - end2: (ox2, oy2, oz2)
+          - avg:  (ox,  oy,  oz)
+          - is_varying: bool
 
         Notes:
         - Uses geometric centroid Cgy/Cgz.
@@ -296,12 +299,12 @@ class OffsetHelper:
         is_varying = not np.allclose(off1, off2)
         avg = 0.5 * (off1 + off2)
 
-        return {
-            "end1": (float(off1[0]), float(off1[1]), float(off1[2])),  # todo return as Direction instead?
-            "end2": (float(off2[0]), float(off2[1]), float(off2[2])),  # todo return as Direction instead?
-            "avg": (float(avg[0]), float(avg[1]), float(avg[2])),  # todo return as Direction instead?
-            "is_varying": bool(is_varying),
-        }
+        return CurveOffsetResult(
+            end1=(float(off1[0]), float(off1[1]), float(off1[2])),
+            end2=(float(off2[0]), float(off2[1]), float(off2[2])),
+            avg=(float(avg[0]), float(avg[1]), float(avg[2])),
+            is_varying=bool(is_varying),
+        )
 
     def get_cog(self) -> "Point":
         """
@@ -327,8 +330,8 @@ class OffsetHelper:
 
         # Get curve offsets at BOTH ends (local components in beam basis)
         data = self.curve_offset_local()
-        ox1, oy1, oz1 = data["end1"]
-        ox2, oy2, oz2 = data["end2"]
+        ox1, oy1, oz1 = data.end1
+        ox2, oy2, oz2 = data.end2
 
         # Local beam basis expressed in absolute/global coords (placement rotation applied)
         x_abs, y_abs, up_abs = self._local_axes_in_absolute()
@@ -370,8 +373,8 @@ class OffsetHelper:
 
         data = self.curve_offset_local()
 
-        ox1, oy1, oz1 = data["end1"]
-        ox2, oy2, oz2 = data["end2"]
+        ox1, oy1, oz1 = data.end1
+        ox2, oy2, oz2 = data.end2
 
         x_abs, y_abs, up_abs = self._local_axes_in_absolute()
 

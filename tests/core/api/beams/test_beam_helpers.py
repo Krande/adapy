@@ -51,8 +51,8 @@ def test_get_offset_from_justification_na(simple_beam: Beam):
     simple_beam.justification = "NA"
 
     data = simple_beam.offset_helper.curve_offset_local()
-    (ox1, oy1, oz1) = data["end1"]
-    (ox2, oy2, oz2) = data["end2"]
+    (ox1, oy1, oz1) = data.end1
+    (ox2, oy2, oz2) = data.end2
 
     # assert isinstance(offset, Direction)
     assert ox1 == 0
@@ -78,8 +78,8 @@ def test_get_offset_from_justification_tos(simple_beam: Beam):
     simple_beam.justification = Justification.TOS
 
     data = simple_beam.offset_helper.curve_offset_local()
-    (ox1, oy1, oz1) = data["end1"]
-    (ox2, oy2, oz2) = data["end2"]
+    (ox1, oy1, oz1) = data.end1
+    (ox2, oy2, oz2) = data.end2
     # For IPE300, height should be 0.3m, so offset should be 0.15m in up direction
     expected_offset = simple_beam.up * simple_beam.section.h / 2
     assert np.allclose([ox1, oy1, oz1], [expected_offset.x, expected_offset.y, expected_offset.z])
@@ -97,8 +97,8 @@ def test_get_offset_from_justification_invalid(simple_beam: Beam):
     simple_beam.justification = "NA"
 
     data = simple_beam.offset_helper.curve_offset_local()
-    (ox1, oy1, oz1) = data["end1"]
-    (ox2, oy2, oz2) = data["end2"]
+    (ox1, oy1, oz1) = data.end1
+    (ox2, oy2, oz2) = data.end2
 
 
 def test_is_on_beam(simple_beam):

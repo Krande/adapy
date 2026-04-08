@@ -51,8 +51,8 @@ def straight_beam_to_geom(beam: Beam | PipeSegStraight, is_solid=True) -> Geomet
     # ---- Apply Genie-equivalent curve_offset at BOTH ends ----
     data = beam.offset_helper.curve_offset_local()
 
-    ox1, oy1, oz1 = map(float, data.get("end1", (0.0, 0.0, 0.0)))
-    ox2, oy2, oz2 = map(float, data.get("end2", data.get("end1", (0.0, 0.0, 0.0))))  # fallback constant
+    ox1, oy1, oz1 = map(float, data.end1)
+    ox2, oy2, oz2 = map(float, data.end2)
 
     # ---- Section-specific visual corrections (apply to both ends consistently) ----
     if beam.section.type == beam.section.TYPES.ANGULAR:
