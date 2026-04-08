@@ -20,19 +20,12 @@ if TYPE_CHECKING:
     from ada.api.beams import Beam, BeamSweep, BeamTapered
 
 
-# Ole: this is where we can change the visual representation without changing the cog calc or genie offset stuff
 def straight_beam_to_geom(beam: Beam | PipeSegStraight, is_solid=True) -> Geometry:
-    import numpy as np
-
-    from ada import Direction
-    from ada.geom import solids as geo_so
-    from ada.geom.placement import Axis2Placement3D
-
-    xvec = np.asarray(beam.xvec, dtype=float)
-    yvec = np.asarray(beam.yvec, dtype=float)
-    up = np.asarray(beam.up, dtype=float)
-    p1 = np.asarray(beam.n1.p, dtype=float)
-    p2 = np.asarray(beam.n2.p, dtype=float)
+    xvec = beam.xvec
+    yvec = beam.yvec
+    up = beam.up
+    p1 = beam.n1.p
+    p2 = beam.n2.p
 
     # ---- Apply placement rotation/translation to axes and endpoints (same as exporter intent) ----
     if beam.placement.is_identity() is False:
