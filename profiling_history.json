@@ -109,5 +109,116 @@
         "duration": 1.915924956
       }
     ]
+  },
+  {
+    "commit": "caaf1863a7b4dd71f72f37f3772ff48980628692",
+    "commit_short": "caaf186",
+    "message": "fix: justification fix, beam offset calc fixes, ifc and glb export fixes and more (#182)",
+    "author": "Ole Andor Hansen",
+    "date": "2026-04-08T13:57:56+02:00",
+    "total_duration": 109.3945,
+    "total_calls": 2093401,
+    "stats": [
+      {
+        "function": "<built-in method builtins.exec> (~:0)",
+        "calls": 2026,
+        "duration": 17.206339916
+      },
+      {
+        "function": "<module> (<string>:1)",
+        "calls": 1,
+        "duration": 17.206293861000002
+      },
+      {
+        "function": "to_ifc (src/ada/api/spatial/assembly.py:228)",
+        "calls": 5,
+        "duration": 7.462221207000001
+      },
+      {
+        "function": "sync (src/ada/cadit/ifc/store.py:103)",
+        "calls": 5,
+        "duration": 7.082532259000001
+      },
+      {
+        "function": "sync_added_physical_objects (src/ada/cadit/ifc/write/write_ifc.py:92)",
+        "calls": 5,
+        "duration": 7.050529226
+      },
+      {
+        "function": "test_build_big_ifc_pipe (tests/profiling/test_ifc_creation.py:48)",
+        "calls": 1,
+        "duration": 7.003007373000001
+      },
+      {
+        "function": "add (src/ada/cadit/ifc/write/write_ifc.py:465)",
+        "calls": 2200,
+        "duration": 6.983697746000001
+      },
+      {
+        "function": "__truediv__ (src/ada/api/spatial/part.py:1388)",
+        "calls": 8,
+        "duration": 5.299145082
+      },
+      {
+        "function": "add_object (src/ada/api/spatial/part.py:283)",
+        "calls": 1201,
+        "duration": 3.5831653470000004
+      },
+      {
+        "function": "add_pipe (src/ada/api/spatial/part.py:159)",
+        "calls": 200,
+        "duration": 3.5626147720000003
+      },
+      {
+        "function": "write_ifc_pipe (src/ada/cadit/ifc/write/write_pipe.py:23)",
+        "calls": 200,
+        "duration": 3.3744073350000003
+      },
+      {
+        "function": "add_section (src/ada/api/spatial/part.py:268)",
+        "calls": 801,
+        "duration": 3.1087677460000003
+      },
+      {
+        "function": "add (src/ada/api/containers/sections.py:139)",
+        "calls": 805,
+        "duration": 3.104599599
+      },
+      {
+        "function": "write_pipe_segment (src/ada/cadit/ifc/write/write_pipe.py:44)",
+        "calls": 600,
+        "duration": 3.0134778370000004
+      },
+      {
+        "function": "equal_props (src/ada/sections/concept.py:92)",
+        "calls": 241399,
+        "duration": 2.896204488
+      },
+      {
+        "function": "test_build_big_ifc_beams (tests/profiling/test_ifc_creation.py:6)",
+        "calls": 1,
+        "duration": 2.6794933750000003
+      },
+      {
+        "function": "unique_props (src/ada/sections/concept.py:99)",
+        "calls": 482798,
+        "duration": 2.5907303510000004
+      },
+      {
+        "function": "walk (.pixi/envs/profile/lib/python3.12/site-packages/ifcopenshell/entity_instance.py:242)",
+        "calls": 1292724,
+        "duration": 2.252607911
+      },
+      {
+        "function": "create_entity (.pixi/envs/profile/lib/python3.12/site-packages/ifcopenshell/file.py:352)",
+        "calls": 67921,
+        "duration": 1.978156846
+      },
+      {
+        "function": "write_ifc_beam (src/ada/cadit/ifc/write/write_beams.py:22)",
+        "calls": 500,
+        "duration": 1.956461556
+      }
+    ]
   }
 ]
