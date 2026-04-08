@@ -220,7 +220,7 @@ class IfcStore:
     def get_by_guid(self, guid: str) -> ifcopenshell.entity_instance:
         return self.f.by_guid(guid)
 
-    def get_beam_type(self, section: Section, match_description=False) -> ifcopenshell.entity_instance:
+    def get_beam_type(self, section: Section, match_description=False) -> ifcopenshell.entity_instance | None:
 
         for beam_type in self.f.by_type("IfcBeamType"):
             if section.name == beam_type.Name:
@@ -229,7 +229,7 @@ class IfcStore:
         logger.warning(f"Unable to find beam type for {section.name=}")
         return None
 
-    def get_profile_def(self, section: Section):
+    def get_profile_def(self, section: Section) -> ifcopenshell.entity_instance | None:
         for p in self.f.by_type("IfcProfileDef"):
             if getattr(p, "ProfileName", None) == section.name:
                 return p
