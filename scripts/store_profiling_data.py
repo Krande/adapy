@@ -55,17 +55,21 @@ def main():
 
     # Get commit info
     commit_sha = os.environ.get("GITHUB_SHA", "local")
-    commit_info = get_commit_info(commit_sha) if commit_sha != "local" else {
-        "sha": "local",
-        "message": "Local run",
-        "author": "local",
-        "date": datetime.now(timezone.utc).isoformat(),
-    }
+    commit_info = (
+        get_commit_info(commit_sha)
+        if commit_sha != "local"
+        else {
+            "sha": "local",
+            "message": "Local run",
+            "author": "local",
+            "date": datetime.now(timezone.utc).isoformat(),
+        }
+    )
 
     # Calculate total duration for quick reference
     total_duration = 0
     total_calls = 0
-    
+
     # Handle both flat list format (from benchmark_profile.py) and nested dict format
     if isinstance(current_stats, list):
         # Flat list: [{"function": ..., "calls": ..., "duration": ...}, ...]
@@ -99,7 +103,7 @@ def main():
     try:
         # Fetch the branch
         run_git("fetch", "origin", f"{profiling_branch}:{profiling_branch}", check=False)
-        
+
         # Try to read existing history
         result = run_git("show", f"{profiling_branch}:{history_file}", check=False)
         if result.returncode == 0 and result.stdout:
@@ -138,7 +142,7 @@ def main():
             # Create orphan branch (no history from main)
             run_git("checkout", "--orphan", profiling_branch)
             run_git("rm", "-rf", ".", check=False)
-            
+
             # Create a README for the branch
             with open("README.md", "w", encoding="utf-8") as f:
                 f.write("# Profiling Data\n\n")
@@ -184,16 +188,16 @@ def main():
 
     # Also generate the markdown comment for reference
     generate_markdown_comment(output_dir, current_stats, history)
-    print(f"Profiling data stored successfully")
+    print("Profiling data stored successfully")
 
 
 def generate_markdown_comment(output_dir, current_stats, history):
     """Generate a markdown summary of the profiling results."""
     comment_file = os.path.join(output_dir, "profiling_comment.md")
-    
+
     with open(comment_file, "w", encoding="utf-8") as f:
         f.write("### 🚀 Profiling Results (Top 20 Functions)\n\n")
-        
+
         # Handle both flat list and nested dict formats
         if isinstance(current_stats, list):
             # Flat list format from benchmark_profile.py
@@ -218,7 +222,7 @@ def generate_markdown_comment(output_dir, current_stats, history):
             f.write("### 📈 Recent Performance History\n\n")
             f.write("| Commit | Date | Total Duration (s) | Change |\n")
             f.write("| :--- | :--- | :---: | :---: |\n")
-            
+
             prev_total = None
             for entry in history[-10:]:  # Show last 10 entries
                 total_duration = entry.get("total_duration", 0)
@@ -228,7 +232,7 @@ def generate_markdown_comment(output_dir, current_stats, history):
                     percent = (diff / prev_total) * 100
                     color = "🔴" if percent > 5 else "🟢" if percent < -5 else "⚪"
                     change = f"{color} {diff:+.4f} ({percent:+.2f}%)"
-                
+
                 sha_short = entry.get("commit_short", entry.get("commit", "")[:7])
                 date = entry.get("date", "")[:10]
                 f.write(f"| {sha_short} | {date} | {total_duration:.4f} | {change} |\n")
