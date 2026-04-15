@@ -364,7 +364,7 @@ def tub_section(in_str: str, s: float, units: Units):
         res = re.search("^({tub})({digit})x({digit})".format(tub=tub, digit=_digit), in_str, _re_in)
         if res is None:
             continue
-        fac = 0.5 if tub in ["OD", "O", "P"] else 1.0
+        fac = 0.5 if tub in ["OD", "O"] else 1.0
         r = [_rdoff(float(x) * s * fac) for x in res.group(2).split("/")]
         wt = [_rdoff(float(x) * s) for x in res.group(3).split("/")]
         sec = Section(
