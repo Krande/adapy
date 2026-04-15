@@ -2,6 +2,35 @@
 
 
 
+## v0.7.12 (2026-04-15)
+
+### Chore
+
+* chore: bump the dependencies group across 1 directory with 2 updates (#183)
+
+Signed-off-by: dependabot[bot] &lt;support@github.com&gt;
+Co-authored-by: dependabot[bot] &lt;49699333+dependabot[bot]@users.noreply.github.com&gt; ([`8e8260f`](https://github.com/Krande/adapy/commit/8e8260f097df8893d60cce961be988ac7a000aed))
+
+* chore: bump the dependencies group with 5 updates (#177)
+
+Signed-off-by: dependabot[bot] &lt;support@github.com&gt;
+Co-authored-by: dependabot[bot] &lt;49699333+dependabot[bot]@users.noreply.github.com&gt; ([`b3727c8`](https://github.com/Krande/adapy/commit/b3727c8e762c21d93b3154f68365d15a06611cd1))
+
+* chore: configure git user for commits in GitHub Actions (#176) ([`44e4ef3`](https://github.com/Krande/adapy/commit/44e4ef34f7ea12e39f8c3a9711aae5c807520190))
+
+* chore: add profiling scripts, CI workflow, and benchmark configuration (#175) ([`30ee010`](https://github.com/Krande/adapy/commit/30ee01042961502025a968873d99697cc8d34aec))
+
+### Fix
+
+* fix: gxml import issues for some plates with internal edge or point in plate surface  (#185)
+
+Co-authored-by: krande &lt;kristoffer_andersen@outlook.com&gt; ([`5b90a20`](https://github.com/Krande/adapy/commit/5b90a2015743a4e2c8f9774b9d43614a21be0d3b))
+
+* fix: justification fix, beam offset calc fixes, ifc and glb export fixes and more (#182)
+
+Co-authored-by: Kristoffer Andersen &lt;kristoffer_andersen@outlook.com&gt; ([`caaf186`](https://github.com/Krande/adapy/commit/caaf1863a7b4dd71f72f37f3772ff48980628692))
+
+
 ## v0.7.11 (2026-01-28)
 
 ### Chore
