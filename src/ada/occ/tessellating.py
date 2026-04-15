@@ -158,7 +158,21 @@ class BatchTessellator:
         )
 
     def tessellate_geom(self, geom: Geometry, obj: BackendGeom, graph_store: GraphStore = None) -> MeshStore:
-        occ_geom = geom_to_occ_geom(geom)
+        try:
+            occ_geom = geom_to_occ_geom(geom)
+        except Exception as e:
+            print("\n================ GLB TESSELLATION ERROR ================")
+            print(f"Beam name: {getattr(obj, 'name', None)}")
+            print(f"Beam guid: {getattr(obj, 'guid', None)}")
+            print(f"Beam type: {type(obj)}")
+
+            # If it has section
+            if hasattr(obj, "section"):
+                print(f"Section: {obj.section}")
+
+            print("Exception:", e)
+            print("========================================================\n")
+            raise
 
         if graph_store is not None:
             node_ref = graph_store.hash_map.get(obj.guid)

@@ -30,9 +30,10 @@ if TYPE_CHECKING:
 class COG:
     p: Point
     tot_mass: float = None
-    tot_vol: float = None
-    sh_mass: float = None
+    tot_vol: float = None  # what volume is this supposed to represent?
+    sh_mass: float = None  # Genie Concept Point Masses and Equipments are defined as Shapes
     bm_mass: float = None
+    pl_mass: float = None
     no_mass: float = None
 
 

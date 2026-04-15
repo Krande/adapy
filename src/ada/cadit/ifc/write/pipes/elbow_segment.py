@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import numpy as np
 
 from ada import PipeSegElbow, Units
@@ -17,28 +19,35 @@ from ada.core.vector_transforms import global_2_local_nodes
 from ada.core.vector_utils import angle_between, calc_yvec, calc_zvec, unit_vector
 from ada.geom import solids as geo_so
 
+if TYPE_CHECKING:
+    from ada.cadit.ifc.store import IfcStore
 
-def write_pipe_elbow_seg(pipe_elbow: PipeSegElbow):
+
+def write_pipe_elbow_seg(ifc_store: IfcStore, pipe_elbow: PipeSegElbow):  # -> ifcopenshell.entity_instance:
     if pipe_elbow.parent is None:
         raise ValueError("Parent cannot be None for IFC export")
 
-    a = pipe_elbow.parent.get_assembly()
-    f = a.ifc_store.f
+    f = ifc_store.f
+    owner_history = ifc_store.owner_history
 
-    owner_history = a.ifc_store.owner_history
-
-    tol = Units.get_general_point_tol(a.units)
+    assembly = pipe_elbow.parent.get_assembly()
+    tol = Units.get_general_point_tol(assembly.units)
 
     ifc_elbow = elbow_revolved_solid(pipe_elbow, f, tol)
 
-    pfitting_placement = create_local_placement(f)
+    parent = ifc_store.get_by_guid(pipe_elbow.parent.guid)
+
+    pfitting_placement = create_local_placement(
+        f,
+        relative_to=parent.ObjectPlacement,
+    )
 
     pfitting = f.create_entity(
         "IfcPipeFitting",
         GlobalId=pipe_elbow.guid,
         OwnerHistory=owner_history,
         Name=pipe_elbow.name,
-        Description="An curved pipe segment",
+        Description="Curved pipe segment",
         ObjectType=None,
         ObjectPlacement=pfitting_placement,
         Representation=ifc_elbow,

@@ -93,12 +93,29 @@ class IfcBeamWriter:
         f = ifc_store.f
 
         ifc_mat_rel = ifc_store.f.by_guid(mat.guid)
+        if ifc_mat_rel is None:
+            raise ValueError(f"No IfcRelAssociatesMaterial found for mat.guid={mat.guid}")
+
         ifc_mat = ifc_mat_rel.RelatingMaterial
 
         ifc_profile = ifc_store.get_profile_def(beam.section)
+
+        if ifc_profile is None:
+            raise ValueError(f"get_profile_def returned None for section={sec!r} (sec.name={sec.name})")
+
+        # IfcOpenShell entities have is_a()
+        if not hasattr(ifc_profile, "is_a") or not ifc_profile.is_a("IfcProfileDef"):
+            raise TypeError(f"Expected IfcProfileDef, got {getattr(ifc_profile, 'is_a', lambda: type(ifc_profile))()}")
+
         mat_profile = f.createIfcMaterialProfile(
-            sec.name, "A material profile", ifc_mat, ifc_profile, None, "LoadBearing"
+            Name=sec.name,
+            Description="A material profile",
+            Material=ifc_mat,
+            Profile=ifc_profile,
+            Priority=None,
+            Category="LoadBearing",
         )
+
         mat_profile_set = f.createIfcMaterialProfileSet(sec.name, None, [mat_profile], None)
 
         mat_usage = f.create_entity("IfcMaterialProfileSetUsage", mat_profile_set, convert_bm_jusl_to_ifc(beam))

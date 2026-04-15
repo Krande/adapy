@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple, Optional
 
 import numpy as np
 
-from ada.config import logger
 from ada.sections.categories import BaseTypes
 
 if TYPE_CHECKING:
@@ -17,40 +16,89 @@ class Justification(Enum):
     TOS = "top of steel"
     CUSTOM = "custom"
     UNSET = "unset"
-    FLUSH_OFFSET = "FLUSH_OFFSET"
+
+    # New semantic values (explicit)
+    FLUSH_TOP = "flush_top"
+    FLUSH_BOTTOM = "flush_bottom"
 
     @staticmethod
-    def from_str(label: str) -> Justification:
-        label = label.lower()
+    def from_str(label: str) -> "Justification":
+        label = label.strip().lower()
+
         if label in ("na", "neutral axis"):
             return Justification.NA
-        elif label in ("tos", "top of steel"):
+        if label in ("tos", "top of steel"):
             return Justification.TOS
-        elif label in ("custom",):
+        if label in ("custom",):
             return Justification.CUSTOM
-        elif label in ("unset",):
+        if label in ("unset",):
             return Justification.UNSET
-        elif label in ("flush offset",):
-            return Justification.FLUSH_OFFSET
-        else:
-            raise ValueError(f"Unknown justification string: {label}")
+
+        # New explicit strings
+        if label in ("flush_top", "flush top"):
+            return Justification.FLUSH_TOP
+        if label in ("flush_bottom", "flush bottom"):
+            return Justification.FLUSH_BOTTOM
+
+        raise ValueError(f"Unknown justification string: {label}")
 
 
-def get_offset_from_justification(beam: Beam, just: Justification) -> Direction | None:
+def resolve_justification(beam: "Beam", just: Justification) -> Optional["Direction"]:
     from ada import Direction
+
+    # ---- validation ----
+    if not isinstance(just, Justification):
+        raise ValueError(f"Unknown justification: {just}")
 
     if just == Justification.NA:
         return Direction(0, 0, 0)
-    elif just == Justification.TOS:
-        return beam.up * beam.section.h / 2
-    elif just == Justification.CUSTOM:
+
+    if just == Justification.TOS:
+        if beam.section.h is None:
+            return Direction(0, 0, 0)
+        return beam.up * (beam.section.h / 2.0)
+
+    if just in (Justification.CUSTOM, Justification.UNSET):
         return None
-    else:
-        raise ValueError(f"Unknown justification: {just}")
+
+    sec = beam.section
+    zv = beam.up
+
+    sign = 1.0 if just == Justification.FLUSH_TOP else -1.0
+
+    if sec.type in (BaseTypes.TUBULAR, BaseTypes.CIRCULAR):
+        return sign * zv * float(sec.r)
+
+    if sec.h is None:
+        return Direction(0, 0, 0)
+
+    if sec.type == BaseTypes.ANGULAR:
+        if just == Justification.FLUSH_TOP:
+            return Direction(0, 0, 0)
+        return (-zv) * float(sec.h)
+
+    if sec.type == BaseTypes.TPROFILE:
+        return sign * zv * float(sec.h) / 2.0
+
+    return sign * zv * float(sec.h) / 2.0
 
 
+# todo this is the old method, remove when calls are updates
+def get_offset_from_justification(beam: "Beam", just: Justification) -> Optional["Direction"]:
+    """
+    Backward-compatible name.
+    Keep for now; later we can deprecate and rename everywhere to resolve_justification().
+    """
+    return resolve_justification(beam, just)
+
+
+# todo remove and replace this function??
 def get_justification(beam: Beam) -> Justification:
     """Justification line"""
+
+    # todo instead use beam.justification
+    #  the below tries to set justification bases on some logic, instead, the justification should be set when creating a beam?
+
     # Check if both self.e1 and self.e2 are None
     if beam.section.type in (beam.section.TYPES.TUBULAR, beam.section.TYPES.CIRCULAR):
         bm_height = beam.section.r * 2
@@ -65,6 +113,13 @@ def get_justification(beam: Beam) -> Justification:
         return Justification.TOS
     else:
         return Justification.CUSTOM
+
+
+class CurveOffsetResult(NamedTuple):
+    end1: tuple[float, float, float]
+    end2: tuple[float, float, float]
+    avg: tuple[float, float, float]
+    is_varying: bool
 
 
 class OffsetHelper:
@@ -113,106 +168,227 @@ class OffsetHelper:
         # include translation
         return place_abs.transform_array_from_other_place(np.asarray([p]), ident_place, ignore_translation=False)[0]
 
-    def curve_offset_local(self):
+    def curve_offset_local(self) -> CurveOffsetResult:
         """
         Compute local (x,y,z) curve offsets for Genie / COG, at end1 and end2.
 
-        Returns a dict:
-          {
-            "end1": (ox1, oy1, oz1),
-            "end2": (ox2, oy2, oz2),
-            "avg":  (ox,  oy,  oz),   # average of end1/end2 (useful for COG)
-            "is_varying": bool,       # True if end1 != end2
-          }
+        Returns a CurveOffsetResult object with:
+          - end1: (ox1, oy1, oz1)
+          - end2: (ox2, oy2, oz2)
+          - avg:  (ox,  oy,  oz)
+          - is_varying: bool
 
         Notes:
         - Uses geometric centroid Cgy/Cgz.
-        - Uses your sign convention: local offsets start from -e.
+        - Uses sign convention: local offsets start from -e.
         """
-        # --- e1/e2 -> numeric vectors ---
-        e1 = np.array([*self.beam.e1], dtype=float) if self.beam.e1 is not None else np.zeros(3)
-        e2 = np.array([*self.beam.e2], dtype=float) if self.beam.e2 is not None else np.zeros(3)
 
-        # your sign convention
-        off1 = -e1
-        off2 = -e2
+        # Absolute axes for the beam's local basis (x, y, up) expressed in global coords
+        x_abs, y_abs, up_abs = self._local_axes_in_absolute()
+        x_abs = np.asarray(x_abs, dtype=float)
+        y_abs = np.asarray(y_abs, dtype=float)
+        up_abs = np.asarray(up_abs, dtype=float)
 
-        # --- section geometric centroid data ---
+        def abs_vec_to_local_components(v_abs: np.ndarray) -> np.ndarray:
+            """Project an absolute/global vector onto (x,y,up) -> local components."""
+            return np.array(
+                [float(np.dot(v_abs, x_abs)), float(np.dot(v_abs, y_abs)), float(np.dot(v_abs, up_abs))],
+                dtype=float,
+            )
+
+        # --- e1/e2 as absolute vectors ---
+        e1_abs = np.array([*self.beam.e1], dtype=float) if self.beam.e1 is not None else np.zeros(3)
+        e2_abs = np.array([*self.beam.e2], dtype=float) if self.beam.e2 is not None else np.zeros(3)
+
+        # ------------------------------------------------------------------
+        # Fallback: derive numeric e from justification intent (if no e1/e2)
+        # ------------------------------------------------------------------
+        if self.beam.e1 is None and self.beam.e2 is None:
+
+            just = self.beam.justification
+            sec0 = self.beam.section
+            zv_abs = np.asarray(self.beam.up, dtype=float)  # beam.up is "top" in absolute coords
+
+            # If imported from Genie, prefer explicit aligned metadata
+            alignment_str = None
+            if getattr(self.beam, "metadata", None):
+                alignment_str = self.beam.metadata.get("aligned_curve_offset_alignment")
+
+            if alignment_str == "flush_top":
+                just = Justification.FLUSH_TOP
+            elif alignment_str == "flush_bottom":
+                just = Justification.FLUSH_BOTTOM
+
+            if just in (Justification.FLUSH_TOP, Justification.FLUSH_BOTTOM):
+                flush_factor = 1.0 if just == Justification.FLUSH_TOP else -1.0
+
+                # --- section-specific rules (match Genie semantics) ---
+                if sec0.type == sec0.TYPES.ANGULAR:
+                    if just == Justification.FLUSH_TOP:
+                        e_abs = zv_abs * 0.0
+                    else:
+                        e_abs = zv_abs * float(sec0.h)
+
+                elif sec0.type == sec0.TYPES.TUBULAR:
+                    e_abs = flush_factor * zv_abs * float(sec0.r)
+
+                else:
+                    e_abs = flush_factor * zv_abs * (float(sec0.h) / 2.0)
+
+                e1_abs = np.array(e_abs, dtype=float)
+                e2_abs = np.array(e_abs, dtype=float)
+            # todo below elifs not tested yet
+            elif just in (Justification.NA, Justification.UNSET):
+                e_abs = zv_abs * 0.0
+                e1_abs = np.array(e_abs, dtype=float)
+                e2_abs = np.array(e_abs, dtype=float)
+            elif just == Justification.TOS:
+                if self.beam.section.h is None:
+                    e_abs = zv_abs * 0.0
+                    e1_abs = np.array(e_abs, dtype=float)
+                    e2_abs = np.array(e_abs, dtype=float)
+                else:
+                    e_abs = zv_abs * (-self.beam.section.h / 2.0)
+                    e1_abs = np.array(e_abs, dtype=float)
+                    e2_abs = np.array(e_abs, dtype=float)
+            elif just in (Justification.CUSTOM):
+                e1_abs = np.array(zv_abs * (-self.beam.e1), dtype=float)
+                e2_abs = np.array(zv_abs * (-self.beam.e2), dtype=float)
+            else:
+                raise ValueError(f"Unknown justification: {just}")
+
+        # --- your sign convention: local offsets start from -e ---
+        off1_abs = -e1_abs
+        off2_abs = -e2_abs
+
+        # Convert absolute offsets -> LOCAL components (x,y,up)
+        off1 = abs_vec_to_local_components(off1_abs)
+        off2 = abs_vec_to_local_components(off2_abs)
+
+        # --- geometric centroid adjustments (these are LOCAL y/z tweaks) ---
         p = self.beam.section.properties
         if getattr(p, "Cgy", None) is None or getattr(p, "Cgz", None) is None:
-            raise ValueError(f"Section '{self.beam.section.name}' missing geometric centroid (Cgy/Cgz).")
+            raise ValueError(
+                f"Section '{self.beam.section.name}', section type: {self.beam.section.type} missing geometric centroid (Cgy/Cgz). section.properties: {p}"
+            )
 
         cgz = float(p.Cgz)
         h = float(self.beam.section.h) if self.beam.section.h is not None else None
 
-        # Numeric offsets: place section relative to beam curve explicitly
-        # Default: place curve at centroid (add centroid coords)
-        # Special: your existing conventions for ANGULAR/TPROFILE
         if self.beam.section.type == BaseTypes.ANGULAR:
             if h is None:
                 raise ValueError("ANGULAR requires h to compute flush offset.")
-            # flush-to-top: dz = (Cgz - h) = -ez
             dz = cgz - h
-            dy = 0
+            dy = 0.0
+
         elif self.beam.section.type == BaseTypes.TPROFILE:
             if h is None:
                 raise ValueError("TPROFILE requires h to compute offset.")
             dz = cgz - h / 2.0
-            dy = 0  # should be 0 for symmetrical profiles!
-        # elif self.section.type == BaseTypes.IPROFILE and self.section.w_btn != self.section.w_top:
-        #    logger.warning(f"IPROFILE with w_btn != w_top not yet supported. Using default offset.")
-        #    dz = 0
-        #    dy = 0
-        else:
-            dz = 0
-            dy = 0
+            dy = 0.0
 
-        add = np.array([0.0, dy, dz], dtype=float)
-        off1 = off1 + add
-        off2 = off2 + add
+        else:
+            dz = 0.0
+            dy = 0.0
+
+        add_local = np.array([0.0, dy, dz], dtype=float)
+
+        off1 = off1 + add_local
+        off2 = off2 + add_local
 
         is_varying = not np.allclose(off1, off2)
         avg = 0.5 * (off1 + off2)
 
-        return {
-            "end1": (float(off1[0]), float(off1[1]), float(off1[2])),
-            "end2": (float(off2[0]), float(off2[1]), float(off2[2])),
-            "avg": (float(avg[0]), float(avg[1]), float(avg[2])),
-            "is_varying": bool(is_varying),
-        }
+        return CurveOffsetResult(
+            end1=(float(off1[0]), float(off1[1]), float(off1[2])),
+            end2=(float(off2[0]), float(off2[1]), float(off2[2])),
+            avg=(float(avg[0]), float(avg[1]), float(avg[2])),
+            is_varying=bool(is_varying),
+        )
 
-    def get_cog(self) -> Point:
+    def get_cog(self) -> "Point":
         """
-        Beam COG in global coordinates.
+        Beam COG in global coordinates, accounting for end-specific offsets.
 
-        Conventions used here:
-          - cog_line is midpoint of the beam line WITHOUT eccentricities.
-          - Eccentricities e1/e2 are treated as offsets of the section/reference line
-            relative to the beam line. If both ends exist and differ, we use their average
-            for the COG (constant part).
-          - Section geometric centroid uses Cgy/Cgz (not shear center).
-          - For ANGULAR/TPROFILE we apply the same "flush-to-top" offset convention you use in Genie.
+        This computes the centroid of a straight prismatic beam whose reference line endpoints
+        are shifted by curve offsets at end1 and end2:
+
+            start_abs = p1_abs + off1_abs
+            end_abs   = p2_abs + off2_abs
+            cog_abs   = 0.5 * (start_abs + end_abs)
+
+        This correctly handles:
+          - different axial (local x) offsets at each end (beam appears longer/shorter)
+          - varying y/z offsets (centroid uses the average via endpoint midpoint)
+          - placement rotation/translation (via _local_axes_in_absolute and _point_to_absolute)
         """
         from ada import Point
 
-        # Midpoint of beam line (no e)
-        mid = self.get_cog_line()
+        # Endpoints of the *beam line* in absolute/global coordinates (placement applied)
+        p1_abs = self._point_to_absolute(self.beam.n1.p.copy())
+        p2_abs = self._point_to_absolute(self.beam.n2.p.copy())
 
-        data = self.curve_offset_local()  # numeric offsets for COG
-        ox, oy, oz = data["avg"]
+        # Get curve offsets at BOTH ends (local components in beam basis)
+        data = self.curve_offset_local()
+        ox1, oy1, oz1 = data.end1
+        ox2, oy2, oz2 = data.end2
 
-        if data["is_varying"]:
-            logger.warning(
-                f"Beam '{self.beam.name}': e1 != e2. COG uses average curve offset.",
-                RuntimeWarning,
-                stacklevel=2,
-            )
-
+        # Local beam basis expressed in absolute/global coords (placement rotation applied)
         x_abs, y_abs, up_abs = self._local_axes_in_absolute()
-        offset_abs = ox * np.asarray(x_abs, float) + oy * np.asarray(y_abs, float) + oz * np.asarray(up_abs, float)
-        cog_abs = mid + offset_abs
+        x_abs = np.asarray(x_abs, dtype=float)
+        y_abs = np.asarray(y_abs, dtype=float)
+        up_abs = np.asarray(up_abs, dtype=float)
+
+        # Convert local offset components -> absolute vectors
+        off1_abs = float(ox1) * x_abs + float(oy1) * y_abs + float(oz1) * up_abs
+        off2_abs = float(ox2) * x_abs + float(oy2) * y_abs + float(oz2) * up_abs
+
+        # Offset endpoints and midpoint
+        start_abs = np.asarray(p1_abs, dtype=float) + off1_abs
+        end_abs = np.asarray(p2_abs, dtype=float) + off2_abs
+        cog_abs = 0.5 * (start_abs + end_abs)
+
+        ## Optional: warn when varying offsets exist (kept from your earlier intent)
+        # if data.get("is_varying", False):
+        #    logger.warning(
+        #        "Beam '%s': curve offset varies between ends; COG computed from offset endpoints.",
+        #        self.beam.name,
+        #    )
+        #
+        # logger.warning(
+        #    "Beam '%s': varying curve offsets detected end1=%s end2=%s. COG computed from offset endpoints.",
+        #    self.beam.name,
+        #    data["end1"],
+        #    data["end2"],
+        # )
 
         return Point(cog_abs)
+
+    def get_effective_length(self) -> float:
+        """
+        Beam length after curve offsets (including axial components).
+        """
+        p1 = self._point_to_absolute(self.beam.n1.p.copy())
+        p2 = self._point_to_absolute(self.beam.n2.p.copy())
+
+        data = self.curve_offset_local()
+
+        ox1, oy1, oz1 = data.end1
+        ox2, oy2, oz2 = data.end2
+
+        x_abs, y_abs, up_abs = self._local_axes_in_absolute()
+
+        x_abs = np.asarray(x_abs, float)
+        y_abs = np.asarray(y_abs, float)
+        up_abs = np.asarray(up_abs, float)
+
+        off1 = ox1 * x_abs + oy1 * y_abs + oz1 * up_abs
+        off2 = ox2 * x_abs + oy2 * y_abs + oz2 * up_abs
+
+        p1 = np.asarray(p1, float) + off1
+        p2 = np.asarray(p2, float) + off2
+
+        return float(np.linalg.norm(p2 - p1))
 
     def get_cog_line(self) -> Point:
         """

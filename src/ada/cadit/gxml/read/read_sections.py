@@ -14,7 +14,7 @@ def interpret_section_props(name, sec_prop, parent: Part) -> Section:
         box_section=box_sec,
         i_section=isec,
         l_section=angular,
-        unsymmetrical_i_section=unsymm_isec,
+        unsymmetrical_i_section=unsymm_isec,  # Note identifies Genie unsymmetrical_i_section and create TPROFILE in ada, since Tprofile does not exist in Genie!
         pipe_section=pipe_section,
         channel_section=channel_section,
         bar_section=bar_section,
@@ -74,17 +74,41 @@ def isec(name, sec_prop) -> Section:
 
 
 def unsymm_isec(name, sec_prop) -> Section:
-    return Section(
-        name=name,
-        sec_type=Section.TYPES.IPROFILE,
-        sec_str=name,
-        h=float(sec_prop.attrib["h"]),
-        w_btn=float(sec_prop.attrib["bfbot"]),
-        w_top=float(sec_prop.attrib["bftop"]),
-        t_w=float(sec_prop.attrib["tw"]),
-        t_ftop=float(sec_prop.attrib["tftop"]),
-        t_fbtn=float(sec_prop.attrib["tfbot"]),
-    )
+
+    h = float(sec_prop.attrib["h"])
+    w_btn = float(sec_prop.attrib["bfbot"])
+    w_top = float(sec_prop.attrib["bftop"])
+    t_w = float(sec_prop.attrib["tw"])
+    t_ftop = float(sec_prop.attrib["tftop"])
+    t_fbtn = float(sec_prop.attrib["tfbot"])
+
+    # Detect unsymmetric I as Tprofile. Genie does not have support for Tprofile. On export from ada, Tprofile will be unsymm_isec in Genie. Now when we import the unsymm_isec from Genie, its time to pick up that, and read it as a Tprofile in ada again.
+    is_t_disguised = (t_fbtn == t_ftop) and (t_w == w_btn)
+
+    if is_t_disguised:
+        return Section(
+            name=name,
+            sec_type=Section.TYPES.TPROFILE,
+            sec_str=name,
+            h=h,
+            w_btn=w_btn,
+            w_top=w_top,
+            t_w=t_w,
+            t_ftop=t_ftop,
+            t_fbtn=t_fbtn,
+        )
+    else:
+        return Section(
+            name=name,
+            sec_type=Section.TYPES.IPROFILE,
+            sec_str=name,
+            h=h,
+            w_btn=w_btn,
+            w_top=w_top,
+            t_w=t_w,
+            t_ftop=t_ftop,
+            t_fbtn=t_fbtn,
+        )
 
 
 def pipe_section(name, sec_prop) -> Section:

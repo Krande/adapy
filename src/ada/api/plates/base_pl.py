@@ -159,7 +159,7 @@ class Plate(BackendGeom):
         normal = self.poly.normal
         xdir = self.poly.xdir
 
-        if self.placement.is_identity() is False:
+        if not self.placement.is_identity():
             ident_place = Placement()
             place_abs = self.placement.get_absolute_placement(include_rotations=True)
             place_abs_rot_mat = place_abs.rot_matrix

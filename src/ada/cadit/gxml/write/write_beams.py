@@ -42,76 +42,72 @@ def add_straight_beam(beam: Beam, xml_root: ET.Element):
     yvec = beam.yvec
     up = beam.up
 
+    # placement rotation for curve_orientation vectors (same as you already do)
     if beam.placement.is_identity() is False:
         ident_place = Placement()
         place_abs = beam.placement.get_absolute_placement(include_rotations=True)
-        place_abs_rot_mat = place_abs.rot_matrix
-        ident_rot_mat = ident_place.rot_matrix
-        # check if the 3x3 rotational np arrays are identical
-        if not np.allclose(place_abs_rot_mat, ident_rot_mat):
+        if not np.allclose(place_abs.rot_matrix, ident_place.rot_matrix):
             ori_vectors = place_abs.transform_array_from_other_place(
                 np.asarray([xvec, yvec, up]), ident_place, ignore_translation=True
             )
             xvec = ori_vectors[0]
             yvec = ori_vectors[1]
+            up = ori_vectors[2]
 
     straight_beam.append(add_local_system(xvec, yvec, up))
     straight_beam.append(add_segments(beam))
+
     if beam.hinge1 is not None:
         ET.SubElement(straight_beam, "end1", {"hinge_ref": beam.hinge1.name})
     if beam.hinge2 is not None:
         ET.SubElement(straight_beam, "end2", {"hinge_ref": beam.hinge2.name})
 
-    flush_offset_genie = beam.justification == Justification.FLUSH_OFFSET
+    # ---------------------------------------------------------------------
+    # Decide whether to write aligned_curve_offset (preferred) or constants
+    # ---------------------------------------------------------------------
+    force_constant_offsets = False  # set True for debugging if needed
 
     curve_offset = ET.SubElement(straight_beam, "curve_offset")
     data = beam.offset_helper.curve_offset_local()
-    (ox1, oy1, oz1) = data["end1"]
-    (ox2, oy2, oz2) = data["end2"]
+    (ox1, oy1, oz1) = data.end1
+    (ox2, oy2, oz2) = data.end2
 
-    if data["is_varying"]:
+    # 1) Varying offset: always explicit numeric
+    if data.is_varying:
         lvo = ET.SubElement(curve_offset, "linear_varying_curve_offset", {"use_local_system": "true"})
         ET.SubElement(lvo, "offset_end1", {"x": f"{ox1:.12g}", "y": f"{oy1:.12g}", "z": f"{oz1:.12g}"})
         ET.SubElement(lvo, "offset_end2", {"x": f"{ox2:.12g}", "y": f"{oy2:.12g}", "z": f"{oz2:.12g}"})
-    else:
-        # only write offset if needed
-        curve_offset = ET.SubElement(straight_beam, "curve_offset")
-        if not ox1 == oy1 == oz1 == 0:
-            if flush_offset_genie:
-                if beam.section.type == BaseTypes.ANGULAR:
-                    alignment = "flush_top"
-                    ET.SubElement(curve_offset, "aligned_curve_offset", {"alignment": alignment, "constant_value": "0"})
-                elif beam.section.type == BaseTypes.BOX:
-                    alignment = "flush_top"
-                    ET.SubElement(curve_offset, "aligned_curve_offset", {"alignment": alignment, "constant_value": "0"})
-                elif beam.section.type == BaseTypes.TUBULAR:
-                    alignment = "flush_top"
-                    ET.SubElement(curve_offset, "aligned_curve_offset", {"alignment": alignment, "constant_value": "0"})
-                elif beam.section.type == BaseTypes.IPROFILE:
-                    alignment = "flush_top"
-                    ET.SubElement(curve_offset, "aligned_curve_offset", {"alignment": alignment, "constant_value": "0"})
-                elif beam.section.type == BaseTypes.TPROFILE:
-                    alignment = "flush_bottom"
-                    ET.SubElement(curve_offset, "aligned_curve_offset", {"alignment": alignment, "constant_value": "0"})
-                elif beam.section.type == BaseTypes.CHANNEL:
-                    alignment = "flush_top"
-                    ET.SubElement(curve_offset, "aligned_curve_offset", {"alignment": alignment, "constant_value": "0"})
-                elif beam.section.type == BaseTypes.FLATBAR:
-                    alignment = "flush_top"
-                    ET.SubElement(curve_offset, "aligned_curve_offset", {"alignment": alignment, "constant_value": "0"})
-                else:
-                    logger.warning(f"Unknown section type {beam.section.type} for flush offset")
-            else:
-                cco = ET.SubElement(curve_offset, "constant_curve_offset", {"use_local_system": "true"})
-                ET.SubElement(
-                    cco,
-                    "constant_offset",
-                    {
-                        "x": f"{float(ox1):.12g}",
-                        "y": f"{float(oy1):.12g}",
-                        "z": f"{float(oz1):.12g}",
-                    },
-                )
+        return
+
+    # 2) Constant case: if justification requests FLUSH semantics, write aligned_curve_offset
+    #    IMPORTANT: do this BEFORE the "offset is zero" early-return.
+    if (not force_constant_offsets) and beam.justification in (
+        Justification.FLUSH_TOP,
+        Justification.FLUSH_BOTTOM,
+    ):
+
+        if beam.justification == Justification.FLUSH_TOP:
+            alignment = "flush_top"
+        elif beam.justification == Justification.FLUSH_BOTTOM:
+            alignment = "flush_bottom"
+        else:
+            # Legacy mapping (keep while you transition/verify)
+            # NOTE: Genie has no TPROFILE; your exporter writes unsymm I for T -> keep this legacy special-case.
+            alignment = "flush_bottom" if beam.section.type == BaseTypes.TPROFILE else "flush_top"
+
+        ET.SubElement(curve_offset, "aligned_curve_offset", {"alignment": alignment, "constant_value": "0"})
+        return
+
+    # 3) Constant numeric offset: only write if non-zero
+    if ox1 == oy1 == oz1 == 0:
+        return
+
+    cco = ET.SubElement(curve_offset, "constant_curve_offset", {"use_local_system": "true"})
+    ET.SubElement(
+        cco,
+        "constant_offset",
+        {"x": f"{float(ox1):.12g}", "y": f"{float(oy1):.12g}", "z": f"{float(oz1):.12g}"},
+    )
 
 
 def add_curve_orientation(beam: Beam, straight_beam: ET.Element):
