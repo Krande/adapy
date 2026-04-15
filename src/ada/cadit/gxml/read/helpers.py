@@ -63,9 +63,7 @@ def _collect_sat_face_point_sets(face_refs, sat_ref_d):
 
 
 def _read_inline_polygon(poly_elem):
-    pts = [
-        (float(p.attrib["x"]), float(p.attrib["y"]), float(p.attrib["z"])) for p in poly_elem.findall("./position")
-    ]
+    pts = [(float(p.attrib["x"]), float(p.attrib["y"]), float(p.attrib["z"])) for p in poly_elem.findall("./position")]
     if len(pts) >= 2 and pts[0] == pts[-1]:
         pts = pts[:-1]
     return pts

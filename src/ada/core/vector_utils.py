@@ -11,7 +11,7 @@ from ada.geom.direction import Direction
 from .exceptions import VectorNormalizeError
 
 if TYPE_CHECKING:
-    from ada import Point
+    from ada import Placement, Point
 
 
 def angle_between(v1, v2):
@@ -454,7 +454,7 @@ def is_coplanar_points(points, tol: float = 1e-6) -> bool:
     return True
 
 
-def project_points_to_local_2d(points3d) -> tuple[list[tuple[float, float]], "Placement"]:
+def project_points_to_local_2d(points3d) -> tuple[list[tuple[float, float]], Placement]:
     """Project coplanar 3D points to their best-fit local 2D frame.
 
     Returns ``(pts2d, placement)``. Use ``placement`` to round-trip back to 3D.

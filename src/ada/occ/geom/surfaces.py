@@ -70,6 +70,7 @@ def make_face_from_indexed_poly_curve_geom(curve: geo_cu.IndexedPolyCurve) -> To
 def make_face_from_circle(circle: geo_cu.Circle):
     if circle.radius <= 0:
         from ada.config import logger
+
         logger.error(f"make_face_from_circle: bad radius={circle.radius} at {circle.position.location}")
     circle_wire = make_wire_from_circle(circle)
     return BRepBuilderAPI_MakeFace(circle_wire).Shape()
