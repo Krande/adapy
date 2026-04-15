@@ -11,7 +11,7 @@ from ada.geom.direction import Direction
 from .exceptions import VectorNormalizeError
 
 if TYPE_CHECKING:
-    from ada import Point
+    from ada import Placement, Point
 
 
 def angle_between(v1, v2):
@@ -393,6 +393,225 @@ def get_centroid(points) -> Point:
 
 
 Point3 = tuple[float, float, float]
+
+
+def is_coplanar_points(points, tol: float = 1e-6) -> bool:
+    """Return True if all 3D points lie on a common plane within ``tol``.
+
+    Unlike :func:`is_coplanar`, which only accepts exactly four points and uses
+    exact equality, this accepts any number of points and uses a tolerance.
+    """
+    unique: list[tuple[float, float, float]] = []
+    seen: set[tuple[float, float, float]] = set()
+    for p in points:
+        key = (round(float(p[0]), 9), round(float(p[1]), 9), round(float(p[2]), 9))
+        if key not in seen:
+            seen.add(key)
+            unique.append((float(p[0]), float(p[1]), float(p[2])))
+
+    if len(unique) < 4:
+        return True
+
+    p0 = unique[0]
+    v1 = None
+    v2 = None
+    tol_sq = tol * tol
+
+    for i in range(1, len(unique)):
+        va = (unique[i][0] - p0[0], unique[i][1] - p0[1], unique[i][2] - p0[2])
+        if va[0] * va[0] + va[1] * va[1] + va[2] * va[2] <= tol_sq:
+            continue
+        for j in range(i + 1, len(unique)):
+            vb = (unique[j][0] - p0[0], unique[j][1] - p0[1], unique[j][2] - p0[2])
+            cross = (
+                va[1] * vb[2] - va[2] * vb[1],
+                va[2] * vb[0] - va[0] * vb[2],
+                va[0] * vb[1] - va[1] * vb[0],
+            )
+            if cross[0] * cross[0] + cross[1] * cross[1] + cross[2] * cross[2] > tol_sq:
+                v1, v2 = va, vb
+                break
+        if v1 is not None:
+            break
+
+    if v1 is None:
+        return False
+
+    normal = (
+        v1[1] * v2[2] - v1[2] * v2[1],
+        v1[2] * v2[0] - v1[0] * v2[2],
+        v1[0] * v2[1] - v1[1] * v2[0],
+    )
+    nlen = (normal[0] ** 2 + normal[1] ** 2 + normal[2] ** 2) ** 0.5
+    if nlen <= tol:
+        return False
+    nx, ny, nz = normal[0] / nlen, normal[1] / nlen, normal[2] / nlen
+
+    for p in unique:
+        dx, dy, dz = p[0] - p0[0], p[1] - p0[1], p[2] - p0[2]
+        if abs(dx * nx + dy * ny + dz * nz) > tol:
+            return False
+    return True
+
+
+def project_points_to_local_2d(points3d) -> tuple[list[tuple[float, float]], Placement]:
+    """Project coplanar 3D points to their best-fit local 2D frame.
+
+    Returns ``(pts2d, placement)``. Use ``placement`` to round-trip back to 3D.
+    """
+    from ada.api.transforms import Placement
+
+    arr = np.asarray(points3d, dtype=float)
+    place = Placement.from_co_linear_points(arr)
+    pts2d = place.transform_global_points_to_local(arr)
+    return [(float(p[0]), float(p[1])) for p in pts2d], place
+
+
+def _polygon_scale_2d(pts2d) -> float:
+    xs = [p[0] for p in pts2d]
+    ys = [p[1] for p in pts2d]
+    return max(max(xs) - min(xs), max(ys) - min(ys), 1.0)
+
+
+def remove_near_collinear_points(points3d, tol_factor: float = 1e-8):
+    """Drop vertices of a closed planar polygon that are (near-)collinear with their neighbors.
+
+    Uses a best-fit plane to project to 2D before measuring the triangle area,
+    so it works for polygons on arbitrarily-oriented planes.
+    """
+    pts = list(points3d)
+    if len(pts) < 4:
+        return pts
+
+    try:
+        pts2d, _ = project_points_to_local_2d(pts)
+    except Exception:
+        return pts
+
+    scale = _polygon_scale_2d(pts2d)
+    tol = tol_factor * scale * scale
+
+    cleaned = []
+    n = len(pts)
+    for i in range(n):
+        a = pts2d[i - 1]
+        b = pts2d[i]
+        c = pts2d[(i + 1) % n]
+        cross = (b[0] - a[0]) * (c[1] - b[1]) - (b[1] - a[1]) * (c[0] - b[0])
+        if abs(cross) > tol:
+            cleaned.append(pts[i])
+
+    return cleaned if len(cleaned) >= 3 else pts
+
+
+def has_reflex_vertex(pts2d, tol: float = 1e-9) -> bool:
+    """Return True if the closed 2D polygon has at least one reflex (non-convex) vertex."""
+    n = len(pts2d)
+    if n < 4:
+        return False
+
+    area = 0.0
+    for i in range(n):
+        x1, y1 = pts2d[i]
+        x2, y2 = pts2d[(i + 1) % n]
+        area += x1 * y2 - x2 * y1
+    area *= 0.5
+    if abs(area) < tol:
+        return False
+
+    orientation = 1.0 if area > 0.0 else -1.0
+    for i in range(n):
+        ax, ay = pts2d[i - 1]
+        bx, by = pts2d[i]
+        cx, cy = pts2d[(i + 1) % n]
+        cross = (bx - ax) * (cy - by) - (by - ay) * (cx - bx)
+        if cross * orientation < -tol:
+            return True
+    return False
+
+
+def merge_coplanar_loops_by_edge_cancellation(loops, ndigits: int = 9):
+    """Merge coplanar planar polygon loops by canceling edges shared between them.
+
+    Each input loop is a list of 3D points (not repeating the first point).
+    Returns a single outer loop as 3D points, or ``None`` if the inputs do not
+    form a single topologically clean outer boundary (e.g. they produce a hole,
+    leave a non-manifold vertex, or split into multiple loops).
+    """
+
+    def _round(pt):
+        return (round(float(pt[0]), ndigits), round(float(pt[1]), ndigits), round(float(pt[2]), ndigits))
+
+    def _edge_key(a, b):
+        return (a, b) if a <= b else (b, a)
+
+    edge_counts: dict = {}
+    point_repr: dict = {}
+    any_valid = False
+
+    for pts in loops:
+        pts = list(pts)
+        if len(pts) >= 2 and _round(pts[0]) == _round(pts[-1]):
+            pts = pts[:-1]
+        if len(pts) < 3:
+            continue
+        any_valid = True
+
+        n = len(pts)
+        for i in range(n):
+            p1 = pts[i]
+            p2 = pts[(i + 1) % n]
+            k1, k2 = _round(p1), _round(p2)
+            if k1 == k2:
+                continue
+            key = _edge_key(k1, k2)
+            edge_counts[key] = edge_counts.get(key, 0) + 1
+            point_repr.setdefault(k1, p1)
+            point_repr.setdefault(k2, p2)
+
+    if not any_valid:
+        return None
+
+    boundary = [k for k, c in edge_counts.items() if c == 1]
+    if len(boundary) < 3:
+        return None
+
+    adjacency: dict = {}
+    for k1, k2 in boundary:
+        adjacency.setdefault(k1, []).append(k2)
+        adjacency.setdefault(k2, []).append(k1)
+
+    if any(len(neigh) != 2 for neigh in adjacency.values()):
+        return None
+
+    unused = set(boundary)
+    loops_found = []
+    while unused:
+        start = next(iter(unused))[0]
+        loop = [start]
+        current = start
+        prev = None
+        while True:
+            neigh = adjacency[current]
+            nxt = neigh[0] if prev is None or neigh[0] != prev else neigh[1]
+            key = _edge_key(current, nxt)
+            if key not in unused:
+                return None
+            unused.remove(key)
+            prev, current = current, nxt
+            if current == start:
+                break
+            loop.append(current)
+        loops_found.append(loop)
+
+    if len(loops_found) != 1:
+        return None
+
+    merged = [point_repr[k] for k in loops_found[0]]
+    merged = remove_near_collinear_points(merged)
+    if len(merged) < 3:
+        return None
+    return merged
 
 
 class FastSegment:

@@ -165,7 +165,8 @@ def section_to_arbitrary_profile_def_with_voids(section: Section, solid=True) ->
     inner_curves = []
     if section.type == section.TYPES.TUBULAR:
         outer_curve = Circle(Axis2Placement3D(), section.r)
-        inner_curves += [Circle(Axis2Placement3D(), section.r - section.wt)]
+        if section.wt < section.r:
+            inner_curves += [Circle(Axis2Placement3D(), section.r - section.wt)]
     elif section.type == section.TYPES.CIRCULAR:
         outer_curve = Circle(Axis2Placement3D(), section.r)
     else:

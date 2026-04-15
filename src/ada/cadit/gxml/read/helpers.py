@@ -8,6 +8,10 @@ from ada.cadit.gxml.read.read_beams import el_to_beam
 from ada.cadit.gxml.read.read_materials import get_materials
 from ada.cadit.gxml.read.read_sections import get_sections
 from ada.config import Config, logger
+from ada.core.vector_utils import (
+    is_coplanar_points,
+    merge_coplanar_loops_by_edge_cancellation,
+)
 from ada.geom import Geometry
 
 if TYPE_CHECKING:
@@ -45,6 +49,26 @@ def apply_mass_density_factors(root, p: Part):
             bm.material = existing_mat
 
 
+def _collect_sat_face_point_sets(face_refs, sat_ref_d):
+    """Return per-face point loops, or None if any face is unavailable or non-point-loop."""
+    face_point_sets = []
+    for face_ref in face_refs:
+        sat_data = sat_ref_d.get(face_ref, None)
+        if sat_data is None or isinstance(sat_data, Geometry):
+            return None
+        if not isinstance(sat_data, (list, tuple)) or len(sat_data) < 3:
+            return None
+        face_point_sets.append(list(sat_data))
+    return face_point_sets
+
+
+def _read_inline_polygon(poly_elem):
+    pts = [(float(p.attrib["x"]), float(p.attrib["y"]), float(p.attrib["z"])) for p in poly_elem.findall("./position")]
+    if len(pts) >= 2 and pts[0] == pts[-1]:
+        pts = pts[:-1]
+    return pts
+
+
 def yield_plate_elems_to_plate(plate_elem, parent, sat_ref_d, thick_map):
     from ada import Plate
 
@@ -52,15 +76,33 @@ def yield_plate_elems_to_plate(plate_elem, parent, sat_ref_d, thick_map):
     mat = parent.materials.get_by_name(plate_elem.attrib["material_ref"])
     t = thick_map.get(plate_elem.attrib.get("thickness_ref"))
 
-    # --- 1) Existing path: SAT face references ---
     face_elems = list(plate_elem.findall(".//face"))
     if face_elems:
-        name = base_name
+        face_refs = [res.attrib["face_ref"] for res in face_elems]
+
+        # Try to merge multi-face coplanar plates/shells into one outer loop.
+        if len(face_elems) > 1:
+            face_point_sets = _collect_sat_face_point_sets(face_refs, sat_ref_d)
+            if face_point_sets is not None and is_coplanar_points([p for s in face_point_sets for p in s]):
+                merged_points = merge_coplanar_loops_by_edge_cancellation(face_point_sets)
+                if merged_points is not None:
+                    try:
+                        yield Plate.from_3d_points(
+                            base_name,
+                            merged_points,
+                            t,
+                            mat=mat,
+                            metadata=dict(props=dict(gxml_face_refs=face_refs)),
+                            parent=parent,
+                        )
+                        return
+                    except Exception as e:
+                        logger.error(f"Failed converting merged plate {base_name} due to {e}")
+                        # fall through to per-face behavior
+
         for i, res in enumerate(face_elems, start=1):
             face_ref = res.attrib["face_ref"]
-
-            if i > 1:
-                name = f"{base_name}_{i:02d}"
+            name = base_name if i == 1 else f"{base_name}_{i:02d}"
 
             sat_data = sat_ref_d.get(face_ref, None)
 
@@ -80,7 +122,7 @@ def yield_plate_elems_to_plate(plate_elem, parent, sat_ref_d, thick_map):
                 continue
 
             try:
-                pl = Plate.from_3d_points(
+                yield Plate.from_3d_points(
                     name,
                     sat_data,
                     t,
@@ -88,37 +130,23 @@ def yield_plate_elems_to_plate(plate_elem, parent, sat_ref_d, thick_map):
                     metadata=dict(props=dict(gxml_face_ref=face_ref)),
                     parent=parent,
                 )
-            except BaseException as e:
+            except Exception as e:
                 logger.error(f"Failed converting plate {name} due to {e}")
                 continue
 
-            yield pl
+        return
 
-        return  # done
-
-    # --- 2) New path: inline polygon geometry (no SAT face refs) ---
-    # Typical for <flat_plate> with <geometry><sheet><polygons><polygon><position .../></polygon>...
+    # Inline polygon geometry (no SAT face refs).
     poly_elems = list(plate_elem.findall(".//geometry//sheet//polygons//polygon"))
-    if not poly_elems:
-        return  # nothing we recognize
-
     for i, poly in enumerate(poly_elems, start=1):
-        pts = []
-        for p in poly.findall("./position"):
-            pts.append((float(p.attrib["x"]), float(p.attrib["y"]), float(p.attrib["z"])))
-
-        # If polygon is closed (last == first), drop the duplicate last point
-        if len(pts) >= 2 and pts[0] == pts[-1]:
-            pts = pts[:-1]
-
+        pts = _read_inline_polygon(poly)
         if len(pts) < 3:
             logger.debug(f'Plate "{base_name}" polygon #{i} has < 3 points, skipping')
             continue
 
         name = base_name if i == 1 else f"{base_name}_{i:02d}"
-
         try:
-            pl = Plate.from_3d_points(
+            yield Plate.from_3d_points(
                 name,
                 pts,
                 t,
@@ -126,8 +154,6 @@ def yield_plate_elems_to_plate(plate_elem, parent, sat_ref_d, thick_map):
                 metadata=dict(props=dict(gxml_polygon_index=i)),
                 parent=parent,
             )
-        except BaseException as e:
+        except Exception as e:
             logger.error(f"Failed converting polygon plate {name} due to {e}")
             continue
-
-        yield pl

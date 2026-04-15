@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 from ada.cadit.sat.exceptions import ACISInsufficientPointsError
 from ada.cadit.sat.read.sat_entities import AcisRecord
 from ada.config import logger
+from ada.core.vector_utils import remove_near_collinear_points
 
 if TYPE_CHECKING:
     from ada.cadit.sat.store import SatStore
@@ -16,6 +17,7 @@ class PlateFactory:
     loop_idx = 7
 
     # Loop row
+    next_loop_idx = 6
     coedge_ref = 7
 
     def __init__(self, sat_store: SatStore):
@@ -28,7 +30,16 @@ class PlateFactory:
         if not name.startswith("FACE"):
             raise NotImplementedError(f"Only face_refs starting with 'FACE' is supported. Found {name}")
 
-        edges = self.get_edges(chunks)
+        # Walk to the face's periphery loop; SAT faces can carry multiple loops
+        # (periphery + holes) chained via the next-loop pointer, and the first
+        # one is not necessarily the outer boundary.
+        loop = self._get_primary_loop(chunks)
+        if loop is None:
+            logger.warning(f"face: '{name}' has no usable loop. Skipping...")
+            return None
+
+        edges = self.get_edges_from_loop(loop)
+        edges = self._drop_whisker_coedges(edges)
 
         try:
             points = self.get_points(edges)
@@ -36,7 +47,42 @@ class PlateFactory:
             logger.warning(f"face: '{name}' failed to get points due to {e}. Skipping...")
             return None
 
+        points = remove_near_collinear_points(points)
+
         return name, points
+
+    def _loop_type(self, loop: AcisRecord) -> str | None:
+        for token in loop.chunks:
+            if token == "periphery":
+                return "periphery"
+            if token == "hole":
+                return "hole"
+        return None
+
+    def _iter_face_loops(self, face_data_list: list[str]):
+        loop_id = face_data_list[self.loop_idx]
+        visited = set()
+        max_iter = 100
+        i = 0
+
+        while loop_id not in ("$-1", None) and loop_id not in visited:
+            visited.add(loop_id)
+            loop = self.sat_store.get(loop_id)
+            yield loop
+
+            loop_id = loop.chunks[self.next_loop_idx]
+
+            i += 1
+            if i > max_iter:
+                raise ValueError(f"Loop traversal exceeded max={max_iter}")
+
+    def _get_primary_loop(self, face_data_list: list[str]) -> AcisRecord | None:
+        loops = list(self._iter_face_loops(face_data_list))
+        if not loops:
+            return None
+
+        periphery_loop = next((lp for lp in loops if self._loop_type(lp) == "periphery"), None)
+        return periphery_loop if periphery_loop is not None else loops[0]
 
     def get_points(self, edges: list[AcisRecord]) -> list[tuple[float]]:
         p1, p2 = self.get_points_from_edge(edges[0])
@@ -63,7 +109,31 @@ class PlateFactory:
         return points
 
     def get_edges(self, face_data_list: list[str]) -> list[AcisRecord]:
-        loop = self.sat_store.get(face_data_list[self.loop_idx])
+        loop = self._get_primary_loop(face_data_list)
+        if loop is None:
+            raise ValueError("Face has no usable loop")
+        return self.get_edges_from_loop(loop)
+
+    def _drop_whisker_coedges(self, coedges: list[AcisRecord]) -> list[AcisRecord]:
+        """Remove coedge pairs that reference the same underlying edge.
+
+        Some SAT loops contain dangling zero-width "whisker" edges where the
+        loop walks out along an edge and immediately comes back. Those
+        coedges share the same physical edge record. Keeping them produces a
+        self-touching polygon that collapses to a spurious diagonal when the
+        downstream vertex dedupe in :meth:`get_points` runs.
+        """
+        edge_ref_idx = 9
+        refs = [c.chunks[edge_ref_idx] for c in coedges]
+        counts: dict[str, int] = {}
+        for r in refs:
+            counts[r] = counts.get(r, 0) + 1
+        paired = {r for r, n in counts.items() if n >= 2}
+        if not paired:
+            return coedges
+        return [c for c, r in zip(coedges, refs) if r not in paired]
+
+    def get_edges_from_loop(self, loop: AcisRecord) -> list[AcisRecord]:
         coedge_start_id = loop.chunks[self.coedge_ref]
         coedge_first = self.sat_store.get(coedge_start_id)
 
