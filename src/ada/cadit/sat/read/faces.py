@@ -39,6 +39,7 @@ class PlateFactory:
             return None
 
         edges = self.get_edges_from_loop(loop)
+        edges = self._drop_whisker_coedges(edges)
 
         try:
             points = self.get_points(edges)
@@ -112,6 +113,25 @@ class PlateFactory:
         if loop is None:
             raise ValueError("Face has no usable loop")
         return self.get_edges_from_loop(loop)
+
+    def _drop_whisker_coedges(self, coedges: list[AcisRecord]) -> list[AcisRecord]:
+        """Remove coedge pairs that reference the same underlying edge.
+
+        Some SAT loops contain dangling zero-width "whisker" edges where the
+        loop walks out along an edge and immediately comes back. Those
+        coedges share the same physical edge record. Keeping them produces a
+        self-touching polygon that collapses to a spurious diagonal when the
+        downstream vertex dedupe in :meth:`get_points` runs.
+        """
+        edge_ref_idx = 9
+        refs = [c.chunks[edge_ref_idx] for c in coedges]
+        counts: dict[str, int] = {}
+        for r in refs:
+            counts[r] = counts.get(r, 0) + 1
+        paired = {r for r, n in counts.items() if n >= 2}
+        if not paired:
+            return coedges
+        return [c for c, r in zip(coedges, refs) if r not in paired]
 
     def get_edges_from_loop(self, loop: AcisRecord) -> list[AcisRecord]:
         coedge_start_id = loop.chunks[self.coedge_ref]
