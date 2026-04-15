@@ -220,5 +220,116 @@
         "duration": 1.956461556
       }
     ]
+  },
+  {
+    "commit": "5b90a2015743a4e2c8f9774b9d43614a21be0d3b",
+    "commit_short": "5b90a20",
+    "message": "fix: gxml import issues for some plates with internal edge or point in plate surface  (#185)",
+    "author": "Ole Andor Hansen",
+    "date": "2026-04-15T13:59:58+02:00",
+    "total_duration": 109.3005,
+    "total_calls": 7573998,
+    "stats": [
+      {
+        "function": "<built-in method builtins.exec> (~:0)",
+        "calls": 2026,
+        "duration": 17.057541422
+      },
+      {
+        "function": "<module> (<string>:1)",
+        "calls": 1,
+        "duration": 17.057495453
+      },
+      {
+        "function": "to_ifc (src/ada/api/spatial/assembly.py:228)",
+        "calls": 5,
+        "duration": 7.2597497980000005
+      },
+      {
+        "function": "test_build_big_ifc_pipe (tests/profiling/test_ifc_creation.py:48)",
+        "calls": 1,
+        "duration": 7.108746836000001
+      },
+      {
+        "function": "sync (src/ada/cadit/ifc/store.py:103)",
+        "calls": 5,
+        "duration": 6.887795927000001
+      },
+      {
+        "function": "sync_added_physical_objects (src/ada/cadit/ifc/write/write_ifc.py:92)",
+        "calls": 5,
+        "duration": 6.856279596
+      },
+      {
+        "function": "add (src/ada/cadit/ifc/write/write_ifc.py:465)",
+        "calls": 2200,
+        "duration": 6.7866913360000005
+      },
+      {
+        "function": "__truediv__ (src/ada/api/spatial/part.py:1388)",
+        "calls": 8,
+        "duration": 5.442512817000001
+      },
+      {
+        "function": "add_object (src/ada/api/spatial/part.py:283)",
+        "calls": 1201,
+        "duration": 3.729939648
+      },
+      {
+        "function": "add_pipe (src/ada/api/spatial/part.py:159)",
+        "calls": 200,
+        "duration": 3.70880299
+      },
+      {
+        "function": "write_ifc_pipe (src/ada/cadit/ifc/write/write_pipe.py:23)",
+        "calls": 200,
+        "duration": 3.3340685010000004
+      },
+      {
+        "function": "add_section (src/ada/api/spatial/part.py:268)",
+        "calls": 801,
+        "duration": 3.266441297
+      },
+      {
+        "function": "add (src/ada/api/containers/sections.py:139)",
+        "calls": 805,
+        "duration": 3.261388623
+      },
+      {
+        "function": "equal_props (src/ada/sections/concept.py:92)",
+        "calls": 241399,
+        "duration": 3.044692489
+      },
+      {
+        "function": "write_pipe_segment (src/ada/cadit/ifc/write/write_pipe.py:44)",
+        "calls": 600,
+        "duration": 2.9751108040000003
+      },
+      {
+        "function": "unique_props (src/ada/sections/concept.py:99)",
+        "calls": 482798,
+        "duration": 2.7461108750000003
+      },
+      {
+        "function": "test_build_big_ifc_beams (tests/profiling/test_ifc_creation.py:6)",
+        "calls": 1,
+        "duration": 2.585064253
+      },
+      {
+        "function": "walk (.pixi/envs/profile/lib/python3.12/site-packages/ifcopenshell/entity_instance.py:242)",
+        "calls": 1292724,
+        "duration": 2.274259675
+      },
+      {
+        "function": "<built-in method builtins.getattr> (~:0)",
+        "calls": 5485817,
+        "duration": 1.9730316950000002
+      },
+      {
+        "function": "__getattr__ (.pixi/envs/profile/lib/python3.12/site-packages/ifcopenshell/entity_instance.py:183)",
+        "calls": 63201,
+        "duration": 1.944770751
+      }
+    ]
   }
 ]
