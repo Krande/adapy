@@ -1,58 +1,53 @@
 # syntax=docker/dockerfile:1.7
 #
-# Conversion worker — fat image with the full ada-py stack
-# (ifcopenshell, pythonocc, trimesh, gmsh, ...). Built via pixi so we
-# get conda-forge wheels for the heavy native deps.
+# Conversion worker — fat env (ifcopenshell, pythonocc, trimesh, gmsh)
+# resolved by pixi in the build stage and copied into a slim runtime
+# stage. Pixi itself isn't shipped in the final image, just the
+# resolved environment under /app/.pixi/envs/viewer-api plus a
+# shell-hook entrypoint that activates it before exec'ing the command.
 #
-# This image deliberately does NOT serve HTTP. It connects to NATS,
-# pulls jobs, and writes results back to the same object store the
-# API server reads from. Scale this deployment independently from the
-# API to handle conversion throughput.
+# Pattern follows the official pixi container guide:
+# https://pixi.sh/latest/deployment/container/
 
 ARG PIXI_VERSION=0.67.0
 
-FROM debian:bookworm-slim AS runtime
-ARG PIXI_VERSION
-ENV DEBIAN_FRONTEND=noninteractive \
-    PIXI_HOME=/opt/pixi \
-    PATH=/opt/pixi/bin:$PATH
-
-# Minimal OS deps: ca-certs for HTTPS, libgomp for occt/gmsh, libgl1 in
-# case any tessellator pulls Mesa, tini for signal handling, curl for
-# pixi install.
-RUN apt-get update \
- && apt-get install -y --no-install-recommends \
-        ca-certificates \
-        curl \
-        libgomp1 \
-        libgl1 \
-        libxrender1 \
-        libxext6 \
-        tini \
- && rm -rf /var/lib/apt/lists/*
-
-# Install pixi via the official installer, pinned to PIXI_VERSION.
-RUN curl -fsSL "https://github.com/prefix-dev/pixi/releases/download/v${PIXI_VERSION}/pixi-x86_64-unknown-linux-musl.tar.gz" \
-        -o /tmp/pixi.tar.gz \
- && mkdir -p "${PIXI_HOME}/bin" \
- && tar -xzf /tmp/pixi.tar.gz -C "${PIXI_HOME}/bin" \
- && rm /tmp/pixi.tar.gz \
- && pixi --version
-
+# --- build stage: pixi resolves and materializes the env -------------
+FROM ghcr.io/prefix-dev/pixi:${PIXI_VERSION} AS build
 WORKDIR /app
 
-# Solve the env first using just pixi.* — better build-cache behavior:
-# editing source code doesn't bust the heavy solve layer.
+# Lockfile-defining files only — keeps the heavy solve cached across
+# source-only edits.
 COPY pixi.toml pixi.lock pyproject.toml ./
 RUN pixi install --environment viewer-api --locked
 
-# Source last so iterating on Python doesn't re-solve.
-COPY src/ ./src/
+# Bake the activation script the runtime stage will source as PID 1.
+RUN pixi shell-hook --environment viewer-api -s bash > /shell-hook \
+ && printf '#!/bin/bash\nset -e\n' > /entrypoint.sh \
+ && cat /shell-hook >> /entrypoint.sh \
+ && printf '\nexec "$@"\n' >> /entrypoint.sh \
+ && chmod +x /entrypoint.sh
+
+# --- runtime stage: only what's needed to run --------------------------
+FROM ubuntu:24.04 AS runtime
+WORKDIR /app
+
+# tini gives us proper PID-1 signal forwarding without bringing in
+# pixi or apt's full dependency set. ca-certificates lets the worker
+# talk to S3/Garage over TLS.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates tini \
+ && rm -rf /var/lib/apt/lists/*
+
+COPY --from=build /app/.pixi/envs/viewer-api /app/.pixi/envs/viewer-api
+COPY --from=build /entrypoint.sh /app/entrypoint.sh
+
+# Source code last — iterating on Python doesn't bust the env layer.
+COPY src/ /app/src/
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONPATH=/app/src \
     ADA_VIEWER_STORAGE_KIND=local \
     ADA_VIEWER_LOCAL_PATH=/data
 
-ENTRYPOINT ["/usr/bin/tini", "--"]
-CMD ["pixi", "run", "--environment", "viewer-api", "viewer-worker"]
+ENTRYPOINT ["/usr/bin/tini", "--", "/app/entrypoint.sh"]
+CMD ["python", "-m", "ada.comms.rest.worker"]
