@@ -5,7 +5,7 @@ import {Procedure, ProcedureStore, ProcedureT,} from '../../../flatbuffers/proce
 import {useNodeEditorStore} from '../../../state/useNodeEditorStore';
 import * as flatbuffers from "flatbuffers"; // Import the node editor Zustand store
 import {Builder} from "flatbuffers";
-import {webSocketAsyncHandler} from "../../websocket/websocket_connector_async";
+import {comms} from "../../comms";
 
 function extract_input_params(builder: Builder, params: string[], procedureT: ProcedureT) {
     // the param strings are div keys in the form of 'param-<procedure_name>-<index>'
@@ -215,7 +215,7 @@ export async function run_procedure(props: { id: string, data: Record<string, st
         console.log('Overriding TARGET_ID:', (window as any).TARGET_INSTANCE_ID)
         Message.addInstanceId(builder, (window as any).TARGET_INSTANCE_ID);
     } else {
-        Message.addInstanceId(builder, webSocketAsyncHandler.instance_id);
+        Message.addInstanceId(builder, comms.getInstanceId());
     }
 
     Message.addCommandType(builder, CommandType.RUN_PROCEDURE);
@@ -224,5 +224,5 @@ export async function run_procedure(props: { id: string, data: Record<string, st
     Message.addProcedureStore(builder, procedureStore);
     builder.finish(Message.endMessage(builder));
 
-    await webSocketAsyncHandler.sendMessage(builder.asUint8Array());
+    await comms.sendCommand(builder.asUint8Array());
 }

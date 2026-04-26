@@ -1,6 +1,6 @@
 import * as flatbuffers from "flatbuffers";
 import {Message} from "../../../flatbuffers/wsock/message";
-import {webSocketAsyncHandler} from "../../websocket/websocket_connector_async";
+import {comms} from "../../comms";
 import {CommandType} from "../../../flatbuffers/commands/command-type";
 import {TargetType} from "../../../flatbuffers/commands/target-type";
 import {Server} from "../../../flatbuffers/server/server";
@@ -51,10 +51,10 @@ async function delete_file_object(file_object: any) {
 
     Message.startMessage(builder);
     Message.addServer(builder, server_data);
-    Message.addInstanceId(builder, webSocketAsyncHandler.instance_id);
+    Message.addInstanceId(builder, comms.getInstanceId());
     Message.addCommandType(builder, CommandType.DELETE_FILE_OBJECT);
     Message.addTargetGroup(builder, TargetType.SERVER);
     Message.addClientType(builder, TargetType.WEB);
     builder.finish(Message.endMessage(builder));
-    await webSocketAsyncHandler.sendMessage(builder.asUint8Array());
+    await comms.sendCommand(builder.asUint8Array());
 }

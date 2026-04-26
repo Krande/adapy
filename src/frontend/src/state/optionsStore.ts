@@ -1,8 +1,7 @@
 // useOptionsStore.ts
 import {create} from "zustand";
-import {webSocketAsyncHandler} from "../utils/websocket/websocket_connector_async";
+import {comms} from "../utils/comms";
 import {useWebSocketStore} from "./webSocketStore";
-import {handleWebSocketMessage} from "../utils/websocket/handleWebSocketMessage";
 
 export type OptionsState = {
     isOptionsVisible: boolean;
@@ -54,18 +53,10 @@ export const useOptionsStore = create<OptionsState>((set) => ({
         try {
             if (enable) {
                 const url = useWebSocketStore.getState().webSocketAddress;
-                await webSocketAsyncHandler.connect(url);
-
-                (async () => {
-                    for await (const evt of webSocketAsyncHandler.messages()) {
-                        await handleWebSocketMessage(evt);
-                    }
-                })().catch(err => {
-                    console.error("Error in WS message loop:", err);
-                });
+                await comms.connect(url);
             } else {
                 // gracefully tear down
-                await webSocketAsyncHandler.disconnect();
+                await comms.disconnect();
             }
         } catch (err) {
             console.error("Error toggling WebSocket:", err);

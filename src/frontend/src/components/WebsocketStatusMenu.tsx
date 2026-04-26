@@ -1,6 +1,6 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {useWebsocketStatusStore} from '../state/websocketStatusStore';
-import {webSocketAsyncHandler} from '../utils/websocket/websocket_connector_async';
+import {comms} from '../utils/comms';
 import {requestServerInfo} from '../utils/websocket/requestServerInfo';
 import {requestConnectedClients} from '../utils/websocket/requestConnectedClients';
 import {requestShutdownServer} from '../utils/websocket/requestShutdownServer';
@@ -63,7 +63,7 @@ export function WebsocketStatusBox() {
         }
     }, [editingId]);
 
-    const currentId = frontendId || webSocketAsyncHandler.instance_id;
+    const currentId = frontendId || comms.getInstanceId();
 
     const startEdit = useCallback(() => {
         setTempId(String(currentId ?? ''));
@@ -81,7 +81,7 @@ export function WebsocketStatusBox() {
             return;
         }
         try {
-            await webSocketAsyncHandler.setInstanceId(Math.trunc(parsed), true);
+            await comms.setInstanceId(Math.trunc(parsed), true);
             // Server info will refresh after reconnect in handler.connect()
             setEditingId(false);
         } catch (e: any) {
@@ -178,13 +178,13 @@ export function WebsocketStatusBox() {
                                 <div
                                     key={client.instanceId}
                                     className={`text-xs font-mono px-2 py-1 rounded mb-1 ${
-                                        client.instanceId === webSocketAsyncHandler.instance_id
+                                        client.instanceId === comms.getInstanceId()
                                             ? 'bg-blue-200 text-blue-900 font-semibold'
                                             : 'bg-gray-200 text-gray-800'
                                     }`}
                                     title={String(client.instanceId)}
                                 >
-                                    {client.instanceId === webSocketAsyncHandler.instance_id && (
+                                    {client.instanceId === comms.getInstanceId() && (
                                         <span className="text-blue-700 mr-1">●</span>
                                     )}
                                     {client.name || `Client ${client.instanceId}`}
