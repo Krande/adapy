@@ -32,6 +32,10 @@ jobs:
         env:
           REGISTRY_IMAGE: ${{ secrets.VIEWER_REGISTRY_IMAGE }}
         run: |
+          if [ -z "$REGISTRY_IMAGE" ]; then
+            echo "::error::VIEWER_REGISTRY_IMAGE secret is not set on this repo. Configure it (and REGISTRY_DOCKER_CONFIG) under Settings → Actions → Secrets before re-running."
+            exit 1
+          fi
           TAG="sha-${GITHUB_SHA::7}"
           BRANCH_TAG="branch-${GITHUB_REF_NAME//\//-}"
           docker build \
