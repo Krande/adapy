@@ -32,8 +32,10 @@ RUN pip install --upgrade pip \
 # Copy only what the API actually imports. ada.comms.* is the API
 # surface; ada.config provides the logger. Anything else (CAD/FEM
 # stacks) is unused in viewer mode and pulling it in would balloon the
-# image for no benefit.
-COPY src/ada/__init__.py /app/src/ada/__init__.py
+# image for no benefit. The real ada/__init__.py imports the full API
+# (beams, fem, sections, …) which isn't shipped here, so we replace it
+# with a slim init that only sets up logging.
+COPY deploy/viewer-ada-init.py /app/src/ada/__init__.py
 COPY src/ada/config.py /app/src/ada/config.py
 COPY src/ada/comms/ /app/src/ada/comms/
 
