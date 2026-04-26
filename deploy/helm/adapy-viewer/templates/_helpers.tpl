@@ -60,3 +60,24 @@ Garage service. Otherwise use the explicit endpoint from values.
 {{- printf "%s-s3" (include "adapy-viewer.fullname" .) -}}
 {{- end -}}
 {{- end -}}
+
+{{- define "adapy-viewer.workerFullname" -}}
+{{- printf "%s-worker" (include "adapy-viewer.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
+{{- define "adapy-viewer.natsFullname" -}}
+{{- printf "%s-nats" (include "adapy-viewer.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
+{{/*
+NATS URL the API and worker connect to. If nats.enabled, point at the
+in-cluster NATS service. Otherwise use the explicit URL from values
+(empty disables conversion entirely on the API side).
+*/}}
+{{- define "adapy-viewer.natsUrl" -}}
+{{- if .Values.nats.enabled -}}
+{{- printf "nats://%s:%d" (include "adapy-viewer.natsFullname" .) (int .Values.nats.service.clientPort) -}}
+{{- else -}}
+{{- .Values.nats.url -}}
+{{- end -}}
+{{- end -}}

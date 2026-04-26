@@ -1,33 +1,35 @@
+{{- if .Values.worker.enabled -}}
+{{- $name := include "adapy-viewer.workerFullname" . -}}
+{{- $natsUrl := include "adapy-viewer.natsUrl" . -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "adapy-viewer.fullname" . }}
-  labels: {{- include "adapy-viewer.labels" . | nindent 4 }}
+  name: {{ $name }}
+  labels:
+    {{- include "adapy-viewer.labels" . | nindent 4 }}
+    app.kubernetes.io/component: worker
 spec:
-  replicas: {{ .Values.replicaCount }}
+  replicas: {{ .Values.worker.replicaCount }}
   selector:
-    matchLabels: {{- include "adapy-viewer.selectorLabels" . | nindent 6 }}
+    matchLabels:
+      {{- include "adapy-viewer.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: worker
   template:
     metadata:
-      labels: {{- include "adapy-viewer.selectorLabels" . | nindent 8 }}
-      {{- with .Values.podAnnotations }}
+      labels:
+        {{- include "adapy-viewer.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: worker
+      {{- with .Values.worker.podAnnotations }}
       annotations: {{- toYaml . | nindent 8 }}
       {{- end }}
     spec:
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets: {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with .Values.podSecurityContext }}
-      securityContext: {{- toYaml . | nindent 8 }}
-      {{- end }}
       containers:
-        - name: viewer
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
-          ports:
-            - name: http
-              containerPort: 8080
-              protocol: TCP
+        - name: worker
+          image: "{{ .Values.worker.image.repository }}:{{ .Values.worker.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.worker.image.pullPolicy }}
           env:
             - name: ADA_VIEWER_STORAGE_KIND
               value: {{ .Values.storage.kind | quote }}
@@ -56,30 +58,15 @@ spec:
             - name: ADA_VIEWER_LOCAL_PATH
               value: /data
             {{- end }}
-            {{- $natsUrl := include "adapy-viewer.natsUrl" . }}
-            {{- if $natsUrl }}
             - name: ADA_VIEWER_NATS_URL
               value: {{ $natsUrl | quote }}
-            {{- end }}
           {{- if eq .Values.storage.kind "local" }}
           volumeMounts:
             - name: data
               mountPath: /data
           {{- end }}
-          livenessProbe:
-            httpGet:
-              path: /healthz
-              port: http
-            initialDelaySeconds: 10
-            periodSeconds: 20
-          readinessProbe:
-            httpGet:
-              path: /healthz
-              port: http
-            initialDelaySeconds: 2
-            periodSeconds: 10
-          resources: {{- toYaml .Values.resources | nindent 12 }}
-          {{- with .Values.securityContext }}
+          resources: {{- toYaml .Values.worker.resources | nindent 12 }}
+          {{- with .Values.worker.securityContext }}
           securityContext: {{- toYaml . | nindent 12 }}
           {{- end }}
       {{- if eq .Values.storage.kind "local" }}
@@ -96,3 +83,4 @@ spec:
           emptyDir: {}
           {{- end }}
       {{- end }}
+{{- end }}

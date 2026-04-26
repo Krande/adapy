@@ -12,6 +12,57 @@ fullnameOverride: ""
 
 replicaCount: 1
 
+## Conversion worker. Pulls source files from storage, converts to GLB,
+## writes back under _derived/. Required for IFC/STEP/FEM viewing —
+## without it only existing GLB files can be displayed.
+worker:
+  enabled: true
+  replicaCount: 1
+  image:
+    repository: ghcr.io/krande/adapy-viewer-worker
+    tag: ""
+    pullPolicy: IfNotPresent
+  resources:
+    limits:
+      cpu: 2
+      memory: 4Gi
+    requests:
+      cpu: 250m
+      memory: 1Gi
+  podAnnotations: {}
+  ## The conversion stack (occt, ifcopenshell) often needs a writable
+  ## tmpdir; allow root by default but make it overrideable.
+  securityContext:
+    runAsNonRoot: false
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop: ["ALL"]
+
+## NATS JetStream — job queue for conversion. When nats.enabled, the
+## chart deploys a single-node NATS server with JetStream on a PVC. To
+## point at an existing NATS, set nats.enabled=false and nats.url.
+nats:
+  enabled: true
+  url: ""           # external nats:// URL when nats.enabled=false
+  image:
+    repository: nats
+    tag: "2.10-alpine"
+    pullPolicy: IfNotPresent
+  service:
+    clientPort: 4222
+    monitorPort: 8222
+  persistence:
+    enabled: true
+    size: 4Gi
+    storageClass: ""
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 50m
+      memory: 64Mi
+
 podAnnotations: {}
 podSecurityContext: {}
 securityContext:

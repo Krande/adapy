@@ -15,6 +15,9 @@ on:
       - 'src/ada/comms/**'
       - 'src/frontend/**'
       - 'deploy/Dockerfile.viewer'
+      - 'deploy/Dockerfile.worker'
+      - 'pixi.toml'
+      - 'pixi.lock'
       - '.forgejo/workflows/build-viewer.yaml'
 
 jobs:
@@ -45,6 +48,24 @@ jobs:
             .
           docker push "${REGISTRY_IMAGE}:${TAG}"
           docker push "${REGISTRY_IMAGE}:${BRANCH_TAG}"
+
+      - name: Build and push worker image
+        env:
+          WORKER_REGISTRY_IMAGE: ${{ secrets.WORKER_REGISTRY_IMAGE }}
+        run: |
+          if [ -z "$WORKER_REGISTRY_IMAGE" ]; then
+            echo "WORKER_REGISTRY_IMAGE secret not set; skipping worker image build."
+            exit 0
+          fi
+          TAG="sha-${GITHUB_SHA::7}"
+          BRANCH_TAG="branch-$(printf '%s' "$GITHUB_REF_NAME" | tr '/' '-')"
+          docker build \
+            -f deploy/Dockerfile.worker \
+            -t "${WORKER_REGISTRY_IMAGE}:${TAG}" \
+            -t "${WORKER_REGISTRY_IMAGE}:${BRANCH_TAG}" \
+            .
+          docker push "${WORKER_REGISTRY_IMAGE}:${TAG}"
+          docker push "${WORKER_REGISTRY_IMAGE}:${BRANCH_TAG}"
 
       - name: Update gitops manifest
         env:

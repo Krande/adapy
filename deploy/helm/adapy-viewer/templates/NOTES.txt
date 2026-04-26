@@ -6,6 +6,14 @@ Storage: {{ .Values.storage.kind }}{{- if eq .Values.storage.kind "s3" }} ({{ in
 {{- if .Values.garage.enabled }}
 Bundled Garage deployed at {{ include "adapy-viewer.garageFullname" . }}.
 {{- end }}
+{{- if .Values.nats.enabled }}
+Bundled NATS JetStream deployed at {{ include "adapy-viewer.natsFullname" . }}.
+{{- end }}
+{{- if .Values.worker.enabled }}
+Conversion worker: {{ include "adapy-viewer.workerFullname" . }} ({{ .Values.worker.replicaCount }} replica(s)).
+{{- else }}
+Conversion worker disabled — only existing GLB files can be viewed.
+{{- end }}
 
 Quick check (port-forward):
   kubectl port-forward svc/{{ $name }} 8080:{{ .Values.service.port }}

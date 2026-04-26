@@ -1,0 +1,52 @@
+# syntax=docker/dockerfile:1.7
+#
+# Conversion worker — fat image with the full ada-py stack
+# (ifcopenshell, pythonocc, trimesh, gmsh, ...). Built via pixi so we
+# get conda-forge wheels for the heavy native deps.
+#
+# This image deliberately does NOT serve HTTP. It connects to NATS,
+# pulls jobs, and writes results back to the same object store the
+# API server reads from. Scale this deployment independently from the
+# API to handle conversion throughput.
+
+ARG PIXI_VERSION=v0.67.0
+
+FROM ghcr.io/prefix-dev/pixi:${PIXI_VERSION} AS pixi-base
+
+FROM debian:bookworm-slim AS runtime
+ENV DEBIAN_FRONTEND=noninteractive \
+    PIXI_HOME=/opt/pixi \
+    PATH=/opt/pixi/bin:/app/.pixi/envs/viewer-api/bin:$PATH
+
+# Bring the pixi binary in. The base image places it at /usr/local/bin/pixi.
+COPY --from=pixi-base /usr/local/bin/pixi /usr/local/bin/pixi
+
+# Minimal OS deps: ca-certs for HTTPS, libgomp for occt/gmsh, libgl1 in
+# case any tessellator pulls Mesa, tini for signal handling.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        libgomp1 \
+        libgl1 \
+        libxrender1 \
+        libxext6 \
+        tini \
+ && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Solve the env first using just pixi.* — better build-cache behavior:
+# editing source code doesn't bust the heavy solve layer.
+COPY pixi.toml pixi.lock pyproject.toml ./
+RUN pixi install --environment viewer-api --locked
+
+# Source last so iterating on Python doesn't re-solve.
+COPY src/ ./src/
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app/src \
+    ADA_VIEWER_STORAGE_KIND=local \
+    ADA_VIEWER_LOCAL_PATH=/data
+
+ENTRYPOINT ["/usr/bin/tini", "--"]
+CMD ["pixi", "run", "--environment", "viewer-api", "viewer-worker"]
