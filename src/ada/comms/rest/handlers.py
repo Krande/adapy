@@ -37,12 +37,14 @@ from ada.comms.fb_wrap_model_gen import (
 from ada.comms.fb_wrap_serializer import serialize_root_message
 from ada.config import logger
 
+from .converter import derived_key_for, is_derived_key, is_supported_source
 from .storage import Storage
 
 # The REST server has no persistent instance id; this is the value that
 # appears in outgoing Messages so frontend logs are coherent.
 SERVER_INSTANCE_ID = 0
 
+# Direct mappings to wire-level FileTypeDC values.
 _EXT_TO_TYPE: dict[str, FileTypeDC] = {
     ".ifc": FileTypeDC.IFC,
     ".glb": FileTypeDC.GLB,
@@ -53,10 +55,22 @@ _EXT_TO_TYPE: dict[str, FileTypeDC] = {
     ".csv": FileTypeDC.CSV,
 }
 
+# Convertable CAD/FEM source formats with no dedicated FileTypeDC entry.
+# We flag them as IFC on the wire so the frontend's "non-GLB → needs
+# conversion" branch fires; the actual format is recoverable from the
+# filename extension if needed.
+_CONVERTABLE_AS_IFC: frozenset[str] = frozenset(
+    {".step", ".stp", ".xml", ".inp", ".fem", ".sat", ".acis", ".obj", ".stl", ".ply", ".dae", ".off"}
+)
+
 
 def _infer_file_type(key: str) -> FileTypeDC | None:
     ext = PurePosixPath(key).suffix.lower()
-    return _EXT_TO_TYPE.get(ext)
+    if ext in _EXT_TO_TYPE:
+        return _EXT_TO_TYPE[ext]
+    if ext in _CONVERTABLE_AS_IFC:
+        return FileTypeDC.IFC
+    return None
 
 
 def _error_reply(message: MessageDC, msg: str) -> bytes:
@@ -76,6 +90,9 @@ async def _handle_list_file_objects(message: MessageDC, storage: Storage) -> byt
     files = await storage.list()
     file_objects: list[FileObjectDC] = []
     for entry in files:
+        # Hide internal derived blobs from the user-facing file list.
+        if is_derived_key(entry.key):
+            continue
         ftype = _infer_file_type(entry.key)
         if ftype is None:
             continue
@@ -105,25 +122,35 @@ async def _handle_view_file_object(message: MessageDC, storage: Storage) -> byte
     if not key:
         return _error_reply(message, "view_file_object: missing file name")
 
-    ftype = _infer_file_type(key)
-    # v1: only GLB pass-through is supported. Conversion for IFC/STEP belongs
-    # to a future upload pipeline that pre-converts before storage.
-    if ftype != FileTypeDC.GLB:
+    # Resolve the GLB to actually serve. A direct GLB key is served as-is;
+    # for any other supported source we serve its sibling derived GLB if
+    # it has been converted already. Frontend kicks off /api/convert when
+    # the derived blob is missing.
+    glb_key: str | None = None
+    if PurePosixPath(key).suffix.lower() == ".glb":
+        glb_key = key
+    elif is_supported_source(key):
+        candidate = derived_key_for(key)
+        if await storage.exists(candidate):
+            glb_key = candidate
+
+    if glb_key is None:
         return _error_reply(
-            message, f"view_file_object: only GLB files are supported in v1 (got {ftype})"
+            message,
+            f"view_file_object: no GLB available for {key!r}; convert it first",
         )
 
     try:
-        glb_bytes = await storage.get_bytes(key)
+        glb_bytes = await storage.get_bytes(glb_key)
     except Exception as exc:  # obstore raises a generic Exception subclass on miss
-        logger.warning("view_file_object: storage error for %s: %s", key, exc)
+        logger.warning("view_file_object: storage error for %s: %s", glb_key, exc)
         return _error_reply(message, f"view_file_object: storage error: {exc}")
 
     glb_file = FileObjectDC(
         name=key,
         file_type=FileTypeDC.GLB,
         purpose=FilePurposeDC.DESIGN,
-        filepath=key,
+        filepath=glb_key,
         filedata=glb_bytes,
     )
     reply = MessageDC(
