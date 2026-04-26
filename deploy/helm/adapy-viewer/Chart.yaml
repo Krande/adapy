@@ -1,0 +1,22 @@
+apiVersion: v2
+name: adapy-viewer
+description: |
+  Hosted ada-py viewer: a single-pod web app that visualizes 3D model
+  files (FEA, CAD, GLB) from S3-compatible storage. Bring your own
+  Garage/MinIO/S3 endpoint, or enable the bundled Garage deployment
+  for self-contained dev/demo setups.
+type: application
+version: 0.1.0
+appVersion: "0.7.12"
+keywords:
+  - ada-py
+  - viewer
+  - cad
+  - fea
+  - 3d
+home: https://github.com/Krande/adapy
+sources:
+  - https://github.com/Krande/adapy
+maintainers:
+  - name: krande
+    email: kristoffer_andersen@outlook.com

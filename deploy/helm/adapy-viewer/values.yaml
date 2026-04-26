@@ -1,0 +1,87 @@
+## Default values for adapy-viewer.
+## Override these in your own values.yaml or via --set.
+
+image:
+  repository: ghcr.io/krande/adapy-viewer
+  tag: ""           # defaults to .Chart.AppVersion when empty
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+replicaCount: 1
+
+podAnnotations: {}
+podSecurityContext: {}
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop: ["ALL"]
+
+resources:
+  limits:
+    cpu: 1
+    memory: 1Gi
+  requests:
+    cpu: 100m
+    memory: 256Mi
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 8080
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  host: viewer.local
+  tls: []           # [{ secretName: viewer-tls, hosts: [viewer.example.com] }]
+
+## Storage backend served by the API. Either point at an existing
+## S3-compatible service (Garage, MinIO, AWS), or enable garage.* below
+## to deploy one in-cluster, or use a hostPath/PVC for local mode.
+storage:
+  kind: s3          # s3 | local
+  s3:
+    bucket: viewer
+    endpoint: ""    # e.g. http://garage:3900 — required for non-AWS
+    region: garage
+    prefix: ""
+    virtualHostedStyle: false
+    ## Either set credentials inline (chart creates a Secret), or
+    ## reference an existing Secret you manage out-of-band.
+    existingSecret: ""             # name of an existing Secret (preferred)
+    existingSecretKeyId: AWS_ACCESS_KEY_ID
+    existingSecretSecretKey: AWS_SECRET_ACCESS_KEY
+    accessKeyId: ""
+    secretAccessKey: ""
+  local:
+    ## hostPath or pre-existing PVC. Only used when storage.kind=local.
+    hostPath: ""
+    existingClaim: ""
+
+## Optional bundled Garage. Off by default — most users will point the
+## API at an existing Garage. Enable for a self-contained demo cluster.
+garage:
+  enabled: false
+  image:
+    repository: dxflrs/garage
+    tag: v1.0.1
+    pullPolicy: IfNotPresent
+  persistence:
+    enabled: true
+    size: 10Gi
+    storageClass: ""
+  ## Garage admin token used by the chart to bootstrap a layout/bucket.
+  ## Replace in production; this default is a placeholder so dev/demo
+  ## works without extra setup.
+  rpcSecret: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcd
+  adminToken: garage-admin-token-change-me
+  service:
+    s3Port: 3900
+    rpcPort: 3901
+    adminPort: 3903

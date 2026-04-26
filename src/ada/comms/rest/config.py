@@ -29,6 +29,9 @@ class Settings:
     local: LocalConfig | None
     host: str
     port: int
+    # Optional path on disk to a built frontend bundle (index.html + assets/).
+    # When set, the API also serves the SPA. Empty disables static serving.
+    static_path: str
 
 
 def _bool(v: str | None, default: bool) -> bool:
@@ -41,6 +44,7 @@ def load_settings() -> Settings:
     kind = os.environ.get("ADA_VIEWER_STORAGE_KIND", "local").strip().lower()
     host = os.environ.get("ADA_VIEWER_HOST", "0.0.0.0")
     port = int(os.environ.get("ADA_VIEWER_PORT", "8080"))
+    static_path = os.environ.get("ADA_VIEWER_STATIC_PATH", "").strip()
 
     if kind == "s3":
         s3 = S3Config(
@@ -54,13 +58,27 @@ def load_settings() -> Settings:
                 os.environ.get("ADA_VIEWER_S3_VIRTUAL_HOSTED_STYLE"), default=False
             ),
         )
-        return Settings(storage_kind="s3", s3=s3, local=None, host=host, port=port)
+        return Settings(
+            storage_kind="s3",
+            s3=s3,
+            local=None,
+            host=host,
+            port=port,
+            static_path=static_path,
+        )
 
     if kind == "local":
         local = LocalConfig(
             path=os.environ.get("ADA_VIEWER_LOCAL_PATH", "./viewer-data"),
             prefix=os.environ.get("ADA_VIEWER_LOCAL_PREFIX", "").strip("/"),
         )
-        return Settings(storage_kind="local", s3=None, local=local, host=host, port=port)
+        return Settings(
+            storage_kind="local",
+            s3=None,
+            local=local,
+            host=host,
+            port=port,
+            static_path=static_path,
+        )
 
     raise ValueError(f"Unsupported ADA_VIEWER_STORAGE_KIND: {kind!r} (expected 's3' or 'local')")

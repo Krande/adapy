@@ -1,0 +1,16 @@
+{{- $name := include "adapy-viewer.fullname" . -}}
+adapy-viewer {{ .Chart.AppVersion }} installed as release {{ .Release.Name }}.
+
+Service: {{ $name }} on port {{ .Values.service.port }}.
+Storage: {{ .Values.storage.kind }}{{- if eq .Values.storage.kind "s3" }} ({{ include "adapy-viewer.s3Endpoint" . }}, bucket={{ .Values.storage.s3.bucket }}){{- end }}.
+{{- if .Values.garage.enabled }}
+Bundled Garage deployed at {{ include "adapy-viewer.garageFullname" . }}.
+{{- end }}
+
+Quick check (port-forward):
+  kubectl port-forward svc/{{ $name }} 8080:{{ .Values.service.port }}
+  open http://localhost:8080
+
+{{- if .Values.ingress.enabled }}
+Ingress: http{{- if .Values.ingress.tls }}s{{- end }}://{{ .Values.ingress.host }}
+{{- end }}

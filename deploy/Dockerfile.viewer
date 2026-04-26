@@ -1,0 +1,56 @@
+# syntax=docker/dockerfile:1.7
+
+# Stage 1: build the SPA bundle.
+FROM node:20-slim AS frontend-build
+WORKDIR /build
+COPY src/frontend/package.json src/frontend/package-lock.json ./
+RUN npm ci
+COPY src/frontend/ ./
+RUN npm run build
+
+# Stage 2: runtime — slim Python with the API and the static SPA.
+# We avoid pixi here because the viewer-api has a small dep set; pip is
+# faster and produces a smaller image. ada-py itself is needed only for
+# the flatbuffer wrappers, so we install it without optional extras.
+FROM python:3.12-slim AS runtime
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_NO_CACHE_DIR=1
+
+WORKDIR /app
+
+# Runtime deps: API stack plus what the flatbuffer (de)serializers need.
+RUN pip install --upgrade pip \
+ && pip install \
+        "fastapi>=0.110" \
+        "uvicorn[standard]>=0.27" \
+        "obstore>=0.9" \
+        "flatbuffers>=25" \
+        "pydantic>=2"
+
+# Copy only what the API actually imports. ada.comms.* is the API
+# surface; ada.config provides the logger. Anything else (CAD/FEM
+# stacks) is unused in viewer mode and pulling it in would balloon the
+# image for no benefit.
+COPY src/ada/__init__.py /app/src/ada/__init__.py
+COPY src/ada/config.py /app/src/ada/config.py
+COPY src/ada/comms/ /app/src/ada/comms/
+
+# Static SPA bundle from the first stage.
+COPY --from=frontend-build /build/dist /app/static
+
+ENV PYTHONPATH=/app/src \
+    ADA_VIEWER_HOST=0.0.0.0 \
+    ADA_VIEWER_PORT=8080 \
+    ADA_VIEWER_STATIC_PATH=/app/static \
+    ADA_VIEWER_STORAGE_KIND=local \
+    ADA_VIEWER_LOCAL_PATH=/data
+
+EXPOSE 8080
+
+# Healthcheck hits the API liveness endpoint.
+HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
+    CMD python -c "import urllib.request, sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=2).status == 200 else 1)"
+
+CMD ["python", "-m", "ada.comms.rest"]

@@ -1,0 +1,114 @@
+{{- if .Values.garage.enabled }}
+{{- $garageName := include "adapy-viewer.garageFullname" . -}}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $garageName }}-config
+  labels: {{- include "adapy-viewer.labels" . | nindent 4 }}
+data:
+  garage.toml: |
+    metadata_dir = "/var/lib/garage/meta"
+    data_dir = "/var/lib/garage/data"
+    db_engine = "lmdb"
+
+    replication_factor = 1
+
+    rpc_bind_addr = "[::]:{{ .Values.garage.service.rpcPort }}"
+    rpc_public_addr = "{{ $garageName }}:{{ .Values.garage.service.rpcPort }}"
+    rpc_secret = "{{ .Values.garage.rpcSecret }}"
+
+    [s3_api]
+    s3_region = "{{ .Values.storage.s3.region }}"
+    api_bind_addr = "[::]:{{ .Values.garage.service.s3Port }}"
+    root_domain = ".s3.garage.local"
+
+    [admin]
+    api_bind_addr = "[::]:{{ .Values.garage.service.adminPort }}"
+    admin_token = "{{ .Values.garage.adminToken }}"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $garageName }}
+  labels: {{- include "adapy-viewer.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - name: s3
+      port: {{ .Values.garage.service.s3Port }}
+      targetPort: {{ .Values.garage.service.s3Port }}
+    - name: rpc
+      port: {{ .Values.garage.service.rpcPort }}
+      targetPort: {{ .Values.garage.service.rpcPort }}
+    - name: admin
+      port: {{ .Values.garage.service.adminPort }}
+      targetPort: {{ .Values.garage.service.adminPort }}
+  selector:
+    app.kubernetes.io/name: {{ include "adapy-viewer.name" . }}-garage
+    app.kubernetes.io/instance: {{ .Release.Name }}
+{{- if .Values.garage.persistence.enabled }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ $garageName }}-data
+  labels: {{- include "adapy-viewer.labels" . | nindent 4 }}
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: {{ .Values.garage.persistence.size }}
+  {{- with .Values.garage.persistence.storageClass }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+{{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $garageName }}
+  labels: {{- include "adapy-viewer.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "adapy-viewer.name" . }}-garage
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "adapy-viewer.name" . }}-garage
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      containers:
+        - name: garage
+          image: "{{ .Values.garage.image.repository }}:{{ .Values.garage.image.tag }}"
+          imagePullPolicy: {{ .Values.garage.image.pullPolicy }}
+          ports:
+            - name: s3
+              containerPort: {{ .Values.garage.service.s3Port }}
+            - name: rpc
+              containerPort: {{ .Values.garage.service.rpcPort }}
+            - name: admin
+              containerPort: {{ .Values.garage.service.adminPort }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/garage.toml
+              subPath: garage.toml
+            - name: data
+              mountPath: /var/lib/garage
+      volumes:
+        - name: config
+          configMap:
+            name: {{ $garageName }}-config
+        - name: data
+          {{- if .Values.garage.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ $garageName }}-data
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+{{- end }}

@@ -7,6 +7,12 @@
     </head>
     <body>
         <div id="root" class=""></div>
+        <!--
+          Hosted viewer mode injects window.COMMS_MODE / window.API_BASE
+          via /config.js. In Vite dev or embedded mode the request 404s
+          and the comms picker falls back to the WS default.
+        -->
+        <script src="/config.js" onerror="this.remove()"></script>
         <script type="module" src="index.tsx"></script>
         <!-- Inject the startup config placeholder into a script -->
         <!--STARTUP_CONFIG_PLACEHOLDER-->

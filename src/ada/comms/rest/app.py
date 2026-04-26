@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import pathlib
+
 from fastapi import FastAPI, HTTPException, Request, Response
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 
 from ada.config import logger
 
@@ -51,6 +54,27 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             logger.warning("blob fetch failed for %s: %s", key, exc)
             raise HTTPException(status_code=500, detail=str(exc)) from exc
         return StreamingResponse(stream, media_type="application/octet-stream")
+
+    @app.get("/config.js")
+    async def config_js() -> PlainTextResponse:
+        # Tiny JS shim the SPA loads before its main bundle. Sets the
+        # window globals that comms/index.ts inspects to pick the
+        # transport. Generated dynamically so a single image targets
+        # multiple deployments.
+        body = (
+            'window.COMMS_MODE = "rest";\n'
+            'window.API_BASE = "/api";\n'
+        )
+        return PlainTextResponse(body, media_type="application/javascript")
+
+    if settings.static_path:
+        static_dir = pathlib.Path(settings.static_path)
+        if not static_dir.is_dir():
+            logger.warning("ADA_VIEWER_STATIC_PATH=%s is not a directory; skipping", static_dir)
+        else:
+            # Mount last so /api/* and /config.js win over the static fallback.
+            # html=True makes / serve index.html and SPA routes fall back to it.
+            app.mount("/", StaticFiles(directory=str(static_dir), html=True), name="spa")
 
     return app
 
