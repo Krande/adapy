@@ -1,0 +1,90 @@
+name: Build viewer image
+
+# Runs only on the self-hosted runner labelled `docker-build`. GitHub Actions
+# does not have that label, so this workflow is a no-op when the branch is
+# pushed to GitHub. All registry/gitops endpoints come from secrets so the
+# workflow file itself reveals no infrastructure details.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [chore/fea-report-v2]
+    paths:
+      - 'src/ada/__init__.py'
+      - 'src/ada/config.py'
+      - 'src/ada/comms/**'
+      - 'src/frontend/**'
+      - 'deploy/Dockerfile.viewer'
+      - '.forgejo/workflows/build-viewer.yaml'
+
+jobs:
+  build:
+    runs-on: docker-build
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Login to registry
+        run: |
+          mkdir -p ~/.docker
+          printf '%s' '${{ secrets.REGISTRY_DOCKER_CONFIG }}' > ~/.docker/config.json
+
+      - name: Build and push viewer image
+        env:
+          REGISTRY_IMAGE: ${{ secrets.VIEWER_REGISTRY_IMAGE }}
+        run: |
+          TAG="sha-${GITHUB_SHA::7}"
+          BRANCH_TAG="branch-${GITHUB_REF_NAME//\//-}"
+          docker build \
+            -f deploy/Dockerfile.viewer \
+            -t "${REGISTRY_IMAGE}:${TAG}" \
+            -t "${REGISTRY_IMAGE}:${BRANCH_TAG}" \
+            .
+          docker push "${REGISTRY_IMAGE}:${TAG}"
+          docker push "${REGISTRY_IMAGE}:${BRANCH_TAG}"
+
+      - name: Update gitops manifest
+        env:
+          GITOPS_REMOTE: ${{ secrets.GITOPS_REMOTE }}
+          GITOPS_TOKEN: ${{ secrets.GITOPS_TOKEN }}
+          GITOPS_BRANCH: ${{ secrets.GITOPS_BRANCH }}
+          GITOPS_MANIFEST: ${{ secrets.VIEWER_GITOPS_MANIFEST }}
+          REGISTRY_IMAGE: ${{ secrets.VIEWER_REGISTRY_IMAGE }}
+        run: |
+          for v in GITOPS_REMOTE GITOPS_TOKEN GITOPS_BRANCH GITOPS_MANIFEST REGISTRY_IMAGE; do
+            if [ -z "${!v}" ]; then
+              echo "$v is not set; skipping gitops write-back."
+              exit 0
+            fi
+          done
+
+          TAG="sha-${GITHUB_SHA::7}"
+          WORK=$(mktemp -d)
+          cd "$WORK"
+          git clone --branch "$GITOPS_BRANCH" \
+            "https://x-access-token:${GITOPS_TOKEN}@${GITOPS_REMOTE}" .
+          git config user.name "Forgejo CI"
+          git config user.email "ci@local"
+
+          if [ ! -f "$GITOPS_MANIFEST" ]; then
+            echo "$GITOPS_MANIFEST not present yet; skipping."
+            exit 0
+          fi
+
+          for i in 1 2 3; do
+            git pull --rebase origin "$GITOPS_BRANCH"
+            sed -i "s|image: ${REGISTRY_IMAGE}:.*|image: ${REGISTRY_IMAGE}:${TAG}|" "$GITOPS_MANIFEST"
+            git add "$GITOPS_MANIFEST"
+            if git diff --cached --quiet; then
+              echo "No image change to commit."
+              exit 0
+            fi
+            git commit -m "[skip ci] ci: update adapy-viewer to ${TAG}"
+            if git push origin "HEAD:$GITOPS_BRANCH"; then
+              exit 0
+            fi
+            echo "Push failed (attempt $i), retrying..."
+            git reset --hard "origin/$GITOPS_BRANCH"
+            sleep 2
+          done
+          echo "Failed to push after 3 attempts" >&2
+          exit 1
