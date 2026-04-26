@@ -9,6 +9,8 @@ import {useTreeViewStore} from "../state/treeViewStore";
 import {request_list_of_nodes} from "../utils/node_editor/comms/request_list_of_nodes";
 import {useServerInfoStore} from "../state/serverInfoStore";
 import ServerInfoBox from "./server_info/ServerInfoBox";
+import StorageBrowser from "./storage/StorageBrowser";
+import {triggerUploadPicker} from "../utils/scene/comms/upload_source_file";
 import GraphIcon from "./icons/GraphIcon";
 import InfoIcon from "./icons/InfoIcon";
 import TreeViewIcon from "./icons/TreeViewIcon";
@@ -67,14 +69,24 @@ const Menu = () => {
                     >
                         <GraphIcon/>
                     </button>
-                    <button
-                        className={"bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded"}
-                        // hidden={use_node_editor_only}
-                        hidden={true}
-                        onClick={() => setShowServerInfoBox(!showServerInfoBox)}
-                    >
-                        <ServerIcon/>
-                    </button>
+                    {(window as any).COMMS_MODE === "rest" && (
+                        <>
+                            <button
+                                className={"bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded"}
+                                onClick={() => setShowServerInfoBox(!showServerInfoBox)}
+                                title="Storage"
+                            >
+                                <ServerIcon/>
+                            </button>
+                            <button
+                                className={"bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded"}
+                                onClick={() => triggerUploadPicker()}
+                                title="Upload file"
+                            >
+                                +
+                            </button>
+                        </>
+                    )}
                     <button
                         className={"bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded"}
                         hidden={use_node_editor_only}
@@ -98,7 +110,11 @@ const Menu = () => {
 
                 </div>
                 <div className={"px-2 gap-2 flex flex-col"}>
-                    {showServerInfoBox && <ServerInfoBox/>}
+                    {showServerInfoBox && (
+                        (window as any).COMMS_MODE === "rest"
+                            ? <StorageBrowser/>
+                            : <ServerInfoBox/>
+                    )}
                     {show_info_box && <ObjectInfoBox/>}
                     {show_group_info_box && <GroupInfoBox/>}
                     {showWebsocketInfoBox && <WebsocketStatusBox/>}

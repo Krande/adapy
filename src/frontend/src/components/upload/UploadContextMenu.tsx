@@ -1,5 +1,5 @@
 import React, {useEffect, useRef, useState} from "react";
-import {uploadAcceptAttr, uploadFile} from "../../utils/scene/comms/upload_source_file";
+import {UPLOAD_TRIGGER_EVENT, uploadAcceptAttr, uploadFile} from "../../utils/scene/comms/upload_source_file";
 
 interface MenuPos {
     x: number;
@@ -33,13 +33,21 @@ const UploadContextMenu: React.FC = () => {
         const onEsc = (e: KeyboardEvent) => {
             if (e.key === "Escape") setPos(null);
         };
+        const onTrigger = () => {
+            // Mobile/menu-button entry point — open the picker without
+            // showing the right-click menu. Same upload flow.
+            setPos(null);
+            fileInputRef.current?.click();
+        };
         window.addEventListener("contextmenu", onContext);
         window.addEventListener("click", onClickAway);
         window.addEventListener("keydown", onEsc);
+        window.addEventListener(UPLOAD_TRIGGER_EVENT, onTrigger);
         return () => {
             window.removeEventListener("contextmenu", onContext);
             window.removeEventListener("click", onClickAway);
             window.removeEventListener("keydown", onEsc);
+            window.removeEventListener(UPLOAD_TRIGGER_EVENT, onTrigger);
         };
     }, []);
 

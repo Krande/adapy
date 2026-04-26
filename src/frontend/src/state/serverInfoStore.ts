@@ -1,11 +1,19 @@
 import {create} from 'zustand';
-import {FileObjectT} from "../flatbuffers/wsock/file-object";
+import {FileType} from "../flatbuffers/base";
+
+export interface ServerFileEntry {
+    name: string;
+    fileType: FileType;
+    filepath: string;
+}
 
 type ServerInfoState = {
     showServerInfoBox: boolean;
     setShowServerInfoBox: (show_info_box: boolean) => void;
     serverFiles: string[];
     setServerFiles: (serverFiles: string[]) => void;
+    serverFileObjects: ServerFileEntry[];
+    setServerFileObjects: (files: ServerFileEntry[]) => void;
     showUrdfLoader: boolean;
     setShowUrdfLoader: (showUrdfLoader: boolean) => void;
 };
@@ -13,6 +21,8 @@ type ServerInfoState = {
 export const useServerInfoStore = create<ServerInfoState>((set) => ({
     serverFiles: [],
     setServerFiles: (serverFiles) => set({serverFiles: serverFiles}),
+    serverFileObjects: [],
+    setServerFileObjects: (files) => set({serverFileObjects: files}),
     showServerInfoBox: false,
     setShowServerInfoBox: (show_info_box) => set({showServerInfoBox: show_info_box}),
     showUrdfLoader: false,

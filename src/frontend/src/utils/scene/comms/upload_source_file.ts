@@ -9,6 +9,15 @@ const SUPPORTED_EXTS = [
     ".obj", ".stl", ".ply", ".dae", ".off",
 ];
 
+// Custom event the upload picker listens for; lets UI surfaces (menu
+// button, context menu) ask the picker to open without each one
+// owning its own hidden <input>.
+export const UPLOAD_TRIGGER_EVENT = "ada-upload-trigger";
+
+export function triggerUploadPicker(): void {
+    window.dispatchEvent(new CustomEvent(UPLOAD_TRIGGER_EVENT));
+}
+
 function apiBase(): string {
     return ((window as any).API_BASE || "/api").replace(/\/+$/, "");
 }

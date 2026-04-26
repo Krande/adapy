@@ -4,6 +4,7 @@ import {comms} from "../comms";
 import {handleFlatbufferMessage} from "../fb_handling/handle_incoming_buffers";
 import {requestServerInfo} from "./requestServerInfo";
 import {requestConnectedClients} from "./requestConnectedClients";
+import {request_list_of_files_from_server} from "../server_info/comms/request_list_of_files_from_server";
 
 function pickConnectUrl(): string {
     if ((window as any).COMMS_MODE === "rest") {
@@ -21,6 +22,7 @@ export async function initWebSocket() {
     comms.onConnect(() => {
         requestServerInfo();
         requestConnectedClients();
+        request_list_of_files_from_server();
     });
 
     if ((window as any).DEACTIVATE_WS === true) {
