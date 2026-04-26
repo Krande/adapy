@@ -9,6 +9,7 @@ import {useOptionsStore} from './state/optionsStore';
 import ResizableTreeView from './components/tree_view/ResizableTreeView';
 import {useNodeEditorStore} from "./state/useNodeEditorStore";
 import NodeEditorComponent from "./components/node_editor/NodeEditorComponent";
+import ConversionProgress from "./components/conversion/ConversionProgress";
 
 
 function App() {
@@ -53,6 +54,8 @@ function App() {
             {isOptionsVisible && (
                 <OptionsComponent/>
             )}
+
+            <ConversionProgress/>
 
         </div>
     );

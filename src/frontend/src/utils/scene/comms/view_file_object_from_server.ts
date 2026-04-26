@@ -5,6 +5,16 @@ import {comms} from "../../comms";
 import {CommandType} from "../../../flatbuffers/commands";
 import {TargetType} from "../../../flatbuffers/commands/target-type";
 import {Server} from "../../../flatbuffers/server/server";
+import {ensureConvertedGlb} from "./convert_source_file";
+import {useConversionStore} from "../../../state/conversionStore";
+
+function isRestMode(): boolean {
+    return (window as any).COMMS_MODE === "rest";
+}
+
+function convertEnabled(): boolean {
+    return Boolean((window as any).CONVERT_ENABLED);
+}
 
 async function start_file_in_local_app(fileobject: FileObject) {
     console.log("start_file_in_local_app" + fileobject.name());
@@ -33,21 +43,9 @@ async function start_file_in_local_app(fileobject: FileObject) {
     await comms.sendCommand(builder.asUint8Array());
 }
 
-export async function view_file_object_from_server(fileobject: FileObject) {
-    console.log("get_file_object_from_server" + fileobject.name());
+async function send_view_request(name: string) {
     let builder = new flatbuffers.Builder(1024);
-    if (fileobject.fileType() !== FileType.IFC) {
-        await start_file_in_local_app(fileobject);
-        return
-    }
-
-    let glb_file = fileobject.glbFile();
-    if (!glb_file) {
-        console.log("No GLB file found in the file object");
-        return
-    }
-
-    let get_file_name = builder.createString(glb_file.name());
+    let get_file_name = builder.createString(name);
 
     Server.startServer(builder);
     Server.addGetFileObjectByName(builder, get_file_name);
@@ -62,4 +60,55 @@ export async function view_file_object_from_server(fileobject: FileObject) {
     builder.finish(Message.endMessage(builder));
 
     await comms.sendCommand(builder.asUint8Array());
+}
+
+export async function view_file_object_from_server(fileobject: FileObject) {
+    const sourceName = fileobject.name() || "";
+    console.log("get_file_object_from_server" + sourceName);
+
+    // REST (hosted) mode: anything that isn't already GLB goes through
+    // the server-side conversion pipeline. The backend serves the
+    // derived blob via VIEW_FILE_OBJECT once /api/convert reports done.
+    if (isRestMode()) {
+        const isGlb = sourceName.toLowerCase().endsWith(".glb");
+        if (isGlb) {
+            await send_view_request(sourceName);
+            return;
+        }
+        if (!convertEnabled()) {
+            console.warn("non-GLB file but conversion is disabled on this deployment");
+            return;
+        }
+        try {
+            await ensureConvertedGlb(sourceName);
+            await send_view_request(sourceName);
+        } catch (err) {
+            console.error("conversion failed", err);
+            useConversionStore.getState().setJob(sourceName, {
+                sourceKey: sourceName,
+                jobId: "",
+                derivedKey: "",
+                status: "error",
+                progress: 0,
+                stage: "error",
+                error: err instanceof Error ? err.message : String(err),
+                startedAt: Date.now(),
+            });
+        }
+        return;
+    }
+
+    // Desktop (WS) mode: legacy flow — IFC has a sub-GLB attached;
+    // anything else opens in the desktop app.
+    if (fileobject.fileType() !== FileType.IFC) {
+        await start_file_in_local_app(fileobject);
+        return;
+    }
+
+    const glb_file = fileobject.glbFile();
+    if (!glb_file) {
+        console.log("No GLB file found in the file object");
+        return;
+    }
+    await send_view_request(glb_file.name() || "");
 }
