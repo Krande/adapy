@@ -71,6 +71,7 @@ tests = { features = ["tests", "tests-core", "prod"], solve-group = "prod", no-d
 fem-deps = { features = ["fem-deps", "prod", "tests-core"], no-default-feature = true }
 fem = { features = ["fem", "prod", "tests-core", "fem-deps"], no-default-feature = true }
 docs = { features = ["docs", "prod", "fem-deps", "tests-core"], no-default-feature = true }
+viewer-api = { features = ["viewer-api", "prod"], solve-group = "prod", no-default-feature = true }
 
 [feature.jupyterlite.dependencies]
 jupyterlite-core = "*"
@@ -181,6 +182,14 @@ nbsphinx = "*"
 scipy = "*"
 fastapi = "*"  # For the API docs
 pandas = "*"
+
+[feature.viewer-api.dependencies]
+fastapi = "*"
+uvicorn = "*"
+obstore = "*"
+
+[feature.viewer-api.tasks]
+viewer-api = { cmd = "python -m ada.comms.rest", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 
 [feature.frontend.dependencies]
 nodejs = "*"
