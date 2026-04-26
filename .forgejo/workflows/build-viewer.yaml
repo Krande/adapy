@@ -29,7 +29,6 @@ jobs:
           printf '%s' '${{ secrets.REGISTRY_DOCKER_CONFIG }}' > ~/.docker/config.json
 
       - name: Build and push viewer image
-        shell: bash
         env:
           REGISTRY_IMAGE: ${{ secrets.VIEWER_REGISTRY_IMAGE }}
         run: |
@@ -38,7 +37,7 @@ jobs:
             exit 1
           fi
           TAG="sha-${GITHUB_SHA::7}"
-          BRANCH_TAG="branch-${GITHUB_REF_NAME//\//-}"
+          BRANCH_TAG="branch-$(printf '%s' "$GITHUB_REF_NAME" | tr '/' '-')"
           docker build \
             -f deploy/Dockerfile.viewer \
             -t "${REGISTRY_IMAGE}:${TAG}" \
@@ -48,7 +47,6 @@ jobs:
           docker push "${REGISTRY_IMAGE}:${BRANCH_TAG}"
 
       - name: Update gitops manifest
-        shell: bash
         env:
           GITOPS_REMOTE: ${{ secrets.GITOPS_REMOTE }}
           GITOPS_TOKEN: ${{ secrets.GITOPS_TOKEN }}
@@ -56,12 +54,16 @@ jobs:
           GITOPS_MANIFEST: ${{ secrets.VIEWER_GITOPS_MANIFEST }}
           REGISTRY_IMAGE: ${{ secrets.VIEWER_REGISTRY_IMAGE }}
         run: |
-          missing=()
+          # Skip cleanly if any required secret is unset (POSIX-only — the
+          # runner image's default shell is sh, and explicit `shell: bash`
+          # fails because bash is not on PATH).
+          MISSING=""
           for v in GITOPS_REMOTE GITOPS_TOKEN GITOPS_BRANCH GITOPS_MANIFEST REGISTRY_IMAGE; do
-            [ -z "${!v}" ] && missing+=("$v")
+            eval "val=\$$v"
+            [ -z "$val" ] && MISSING="$MISSING $v"
           done
-          if [ ${#missing[@]} -gt 0 ]; then
-            echo "Missing gitops secrets: ${missing[*]} — skipping write-back."
+          if [ -n "$MISSING" ]; then
+            echo "Missing gitops secrets:$MISSING — skipping write-back."
             exit 0
           fi
 
@@ -78,9 +80,20 @@ jobs:
             exit 0
           fi
 
-          for i in 1 2 3; do
+          # Two supported manifest formats:
+          #   helm values:   `  tag: sha-XXXXXXX`        (preferred for chart releases)
+          #   raw deployment:`  image: <repo>:sha-XXX`   (matches conda-server pattern)
+          i=1
+          while [ "$i" -le 3 ]; do
             git pull --rebase origin "$GITOPS_BRANCH"
-            sed -i "s|image: ${REGISTRY_IMAGE}:.*|image: ${REGISTRY_IMAGE}:${TAG}|" "$GITOPS_MANIFEST"
+            if grep -qE "^[[:space:]]+tag:[[:space:]]+sha-" "$GITOPS_MANIFEST"; then
+              sed -i "s|^\([[:space:]]*tag:[[:space:]]*\)sha-[a-f0-9]*|\1${TAG}|" "$GITOPS_MANIFEST"
+            elif grep -qF "image: ${REGISTRY_IMAGE}:" "$GITOPS_MANIFEST"; then
+              sed -i "s|image: ${REGISTRY_IMAGE}:.*|image: ${REGISTRY_IMAGE}:${TAG}|" "$GITOPS_MANIFEST"
+            else
+              echo "::error::No tag/image line matched in $GITOPS_MANIFEST"
+              exit 1
+            fi
             git add "$GITOPS_MANIFEST"
             if git diff --cached --quiet; then
               echo "No image change to commit."
@@ -93,6 +106,7 @@ jobs:
             echo "Push failed (attempt $i), retrying..."
             git reset --hard "origin/$GITOPS_BRANCH"
             sleep 2
+            i=$((i+1))
           done
           echo "Failed to push after 3 attempts" >&2
           exit 1
