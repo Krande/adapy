@@ -67,24 +67,25 @@ jobs:
           docker push "${WORKER_REGISTRY_IMAGE}:${TAG}"
           docker push "${WORKER_REGISTRY_IMAGE}:${BRANCH_TAG}"
 
-      - name: Update gitops manifest
+      - name: Update gitops manifests
         env:
           GITOPS_REMOTE: ${{ secrets.GITOPS_REMOTE }}
           GITOPS_TOKEN: ${{ secrets.GITOPS_TOKEN }}
           GITOPS_BRANCH: ${{ secrets.GITOPS_BRANCH }}
-          GITOPS_MANIFEST: ${{ secrets.VIEWER_GITOPS_MANIFEST }}
-          REGISTRY_IMAGE: ${{ secrets.VIEWER_REGISTRY_IMAGE }}
+          VIEWER_MANIFEST: ${{ secrets.VIEWER_GITOPS_MANIFEST }}
+          VIEWER_IMAGE: ${{ secrets.VIEWER_REGISTRY_IMAGE }}
+          WORKER_MANIFEST: ${{ secrets.WORKER_GITOPS_MANIFEST }}
+          WORKER_IMAGE: ${{ secrets.WORKER_REGISTRY_IMAGE }}
         run: |
-          # Skip cleanly if any required secret is unset (POSIX-only — the
-          # runner image's default shell is sh, and explicit `shell: bash`
-          # fails because bash is not on PATH).
+          # Skip cleanly if the gitops core (remote/token/branch) isn't
+          # configured. POSIX-only — runner default shell is sh.
           MISSING=""
-          for v in GITOPS_REMOTE GITOPS_TOKEN GITOPS_BRANCH GITOPS_MANIFEST REGISTRY_IMAGE; do
+          for v in GITOPS_REMOTE GITOPS_TOKEN GITOPS_BRANCH; do
             eval "val=\$$v"
             [ -z "$val" ] && MISSING="$MISSING $v"
           done
           if [ -n "$MISSING" ]; then
-            echo "Missing gitops secrets:$MISSING — skipping write-back."
+            echo "Missing gitops core secrets:$MISSING — skipping write-back."
             exit 0
           fi
 
@@ -96,31 +97,51 @@ jobs:
           git config user.name "Forgejo CI"
           git config user.email "ci@local"
 
-          if [ ! -f "$GITOPS_MANIFEST" ]; then
-            echo "$GITOPS_MANIFEST not present yet; skipping."
-            exit 0
-          fi
+          # Apply image:tag bumps in $1 (manifest) for the image at $2.
+          # Two supported formats:
+          #   helm values:   `  tag: sha-XXXXXXX`       (preferred)
+          #   raw deployment:`  image: <repo>:sha-XXX`  (image-targeted)
+          # The image-targeted form is unambiguous when multiple image
+          # tags coexist in one file; the helm form rewrites every
+          # `tag: sha-...` line, which is fine when both images share
+          # the build SHA (they do — same workflow run).
+          apply_bump() {
+            manifest="$1"
+            image="$2"
+            label="$3"
+            if [ -z "$manifest" ] || [ -z "$image" ]; then
+              return 0
+            fi
+            if [ ! -f "$manifest" ]; then
+              echo "$manifest not present yet; skipping $label."
+              return 0
+            fi
+            if grep -qF "image: ${image}:" "$manifest"; then
+              sed -i "s|image: ${image}:.*|image: ${image}:${TAG}|" "$manifest"
+            elif grep -qE "^[[:space:]]+tag:[[:space:]]+sha-" "$manifest"; then
+              sed -i "s|^\([[:space:]]*tag:[[:space:]]*\)sha-[a-f0-9]*|\1${TAG}|" "$manifest"
+            else
+              echo "::error::No tag/image line matched in $manifest for $label"
+              return 1
+            fi
+          }
 
-          # Two supported manifest formats:
-          #   helm values:   `  tag: sha-XXXXXXX`        (preferred for chart releases)
-          #   raw deployment:`  image: <repo>:sha-XXX`   (matches conda-server pattern)
           i=1
           while [ "$i" -le 3 ]; do
             git pull --rebase origin "$GITOPS_BRANCH"
-            if grep -qE "^[[:space:]]+tag:[[:space:]]+sha-" "$GITOPS_MANIFEST"; then
-              sed -i "s|^\([[:space:]]*tag:[[:space:]]*\)sha-[a-f0-9]*|\1${TAG}|" "$GITOPS_MANIFEST"
-            elif grep -qF "image: ${REGISTRY_IMAGE}:" "$GITOPS_MANIFEST"; then
-              sed -i "s|image: ${REGISTRY_IMAGE}:.*|image: ${REGISTRY_IMAGE}:${TAG}|" "$GITOPS_MANIFEST"
-            else
-              echo "::error::No tag/image line matched in $GITOPS_MANIFEST"
-              exit 1
-            fi
-            git add "$GITOPS_MANIFEST"
+
+            apply_bump "$VIEWER_MANIFEST" "$VIEWER_IMAGE" "viewer" || exit 1
+            apply_bump "$WORKER_MANIFEST" "$WORKER_IMAGE" "worker" || exit 1
+
+            # Stage only files that actually changed.
+            [ -n "$VIEWER_MANIFEST" ] && [ -f "$VIEWER_MANIFEST" ] && git add "$VIEWER_MANIFEST"
+            [ -n "$WORKER_MANIFEST" ] && [ -f "$WORKER_MANIFEST" ] && git add "$WORKER_MANIFEST"
+
             if git diff --cached --quiet; then
-              echo "No image change to commit."
+              echo "No image changes to commit."
               exit 0
             fi
-            git commit -m "[skip ci] ci: update adapy-viewer to ${TAG}"
+            git commit -m "[skip ci] ci: update adapy-viewer/worker to ${TAG}"
             if git push origin "HEAD:$GITOPS_BRANCH"; then
               exit 0
             fi
