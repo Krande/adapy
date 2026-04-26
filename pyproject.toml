@@ -26,6 +26,7 @@ classifiers = [
 [project.scripts]
 ada-viewer = "ada.comms.wsock_cli:ws_cli_app"
 ada-viewer-api = "ada.comms.rest.__main__:run"
+ada-viewer-worker = "ada.comms.rest.worker:run"
 
 [project.urls]
 "Homepage" = "https://github.com/Krande/adapy"

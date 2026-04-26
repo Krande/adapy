@@ -79,6 +79,16 @@ class Storage:
         result = await self._store.get_async(self._full_key(key))
         return bytes(await result.bytes_async())
 
+    async def put_bytes(self, key: str, data: bytes) -> None:
+        await obs.put_async(self._store, self._full_key(key), data)
+
+    async def exists(self, key: str) -> bool:
+        try:
+            await self._store.head_async(self._full_key(key))
+        except FileNotFoundError:
+            return False
+        return True
+
     async def open_stream(self, key: str) -> AsyncIterator[bytes]:
         """Open a byte stream eagerly: raises FileNotFoundError immediately
         if the key is missing, then returns an async iterator over chunks.

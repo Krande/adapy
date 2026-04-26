@@ -191,6 +191,7 @@ nats-py = "*"
 
 [feature.viewer-api.tasks]
 viewer-api = { cmd = "python -m ada.comms.rest", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+viewer-worker = { cmd = "python -m ada.comms.rest.worker", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 
 [feature.frontend.dependencies]
 nodejs = "*"
