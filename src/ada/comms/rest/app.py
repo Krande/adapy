@@ -133,6 +133,30 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=500, detail=str(exc)) from exc
         return StreamingResponse(stream, media_type="application/octet-stream")
 
+    @app.put("/api/blobs/{key:path}")
+    async def api_blob_put(key: str, request: Request) -> JSONResponse:
+        # Upload raw file bytes. Frontend uses this from the upload
+        # context menu; key is the user-visible filename. Writing to
+        # _derived/* is forbidden so users can't poison the cache.
+        from .converter import is_derived_key, is_supported_source
+
+        clean = key.lstrip("/")
+        if not clean:
+            raise HTTPException(status_code=400, detail="empty key")
+        if is_derived_key(clean):
+            raise HTTPException(status_code=403, detail="cannot write to _derived/")
+        if not is_supported_source(clean):
+            raise HTTPException(status_code=415, detail=f"unsupported file type: {clean}")
+        data = await request.body()
+        if not data:
+            raise HTTPException(status_code=400, detail="empty body")
+        try:
+            await storage.put_bytes(clean, data)
+        except Exception as exc:
+            logger.exception("blob upload failed for %s", clean)
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+        return JSONResponse({"key": clean, "size": len(data)}, status_code=201)
+
     @app.get("/config.js")
     async def config_js() -> PlainTextResponse:
         # Tiny JS shim the SPA loads before its main bundle. Sets the

@@ -10,6 +10,7 @@ import ResizableTreeView from './components/tree_view/ResizableTreeView';
 import {useNodeEditorStore} from "./state/useNodeEditorStore";
 import NodeEditorComponent from "./components/node_editor/NodeEditorComponent";
 import ConversionProgress from "./components/conversion/ConversionProgress";
+import UploadContextMenu from "./components/upload/UploadContextMenu";
 
 
 function App() {
@@ -56,6 +57,7 @@ function App() {
             )}
 
             <ConversionProgress/>
+            <UploadContextMenu/>
 
         </div>
     );
