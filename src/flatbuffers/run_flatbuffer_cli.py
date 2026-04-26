@@ -65,10 +65,10 @@ def run_flatc():
     # Clean wsock directory and generated directory
     shutil.rmtree(_GEN_DIR, ignore_errors=True)
     shutil.rmtree(_COMMS_DIR, ignore_errors=True)
-    flatc_exe = shutil.which("flatc.exe")
-    if flatc_exe is None:  #
-        flatc_exe = pathlib.Path(sys.prefix) / "Library/bin/flatc.exe"
-        flatc_exe = shutil.which(flatc_exe)
+    flatc_exe = shutil.which("flatc") or shutil.which("flatc.exe")
+    if flatc_exe is None:
+        win_candidate = pathlib.Path(sys.prefix) / "Library/bin/flatc.exe"
+        flatc_exe = shutil.which(win_candidate.as_posix())
 
     if flatc_exe is None:
         raise Exception("FlatBuffers compiler not found in PATH!")
@@ -96,7 +96,7 @@ def run_flatc():
         _GEN_DIR.as_posix(),
     ]
 
-    result = subprocess.run(finalize_args, shell=True, check=True)
+    result = subprocess.run(finalize_args, check=True)
 
     if result.returncode != 0:
         raise Exception("Error generating FlatBuffers!")

@@ -24,7 +24,7 @@ def add_to_git():
         _GEN_DIR.as_posix(),
     ]
 
-    result = subprocess.run(finalize_args, shell=True, check=True)
+    result = subprocess.run(finalize_args, check=True)
 
     if result.returncode != 0:
         raise Exception("Error adding FlatBuffers files to git!")
