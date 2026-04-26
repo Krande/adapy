@@ -67,25 +67,24 @@ jobs:
           docker push "${WORKER_REGISTRY_IMAGE}:${TAG}"
           docker push "${WORKER_REGISTRY_IMAGE}:${BRANCH_TAG}"
 
-      - name: Update gitops manifests
+      - name: Update gitops manifest
         env:
           GITOPS_REMOTE: ${{ secrets.GITOPS_REMOTE }}
           GITOPS_TOKEN: ${{ secrets.GITOPS_TOKEN }}
           GITOPS_BRANCH: ${{ secrets.GITOPS_BRANCH }}
-          VIEWER_MANIFEST: ${{ secrets.VIEWER_GITOPS_MANIFEST }}
+          GITOPS_MANIFEST: ${{ secrets.VIEWER_GITOPS_MANIFEST }}
           VIEWER_IMAGE: ${{ secrets.VIEWER_REGISTRY_IMAGE }}
-          WORKER_MANIFEST: ${{ secrets.WORKER_GITOPS_MANIFEST }}
           WORKER_IMAGE: ${{ secrets.WORKER_REGISTRY_IMAGE }}
         run: |
-          # Skip cleanly if the gitops core (remote/token/branch) isn't
-          # configured. POSIX-only — runner default shell is sh.
+          # Skip cleanly if the gitops core isn't configured. POSIX-only
+          # — runner default shell is sh.
           MISSING=""
-          for v in GITOPS_REMOTE GITOPS_TOKEN GITOPS_BRANCH; do
+          for v in GITOPS_REMOTE GITOPS_TOKEN GITOPS_BRANCH GITOPS_MANIFEST; do
             eval "val=\$$v"
             [ -z "$val" ] && MISSING="$MISSING $v"
           done
           if [ -n "$MISSING" ]; then
-            echo "Missing gitops core secrets:$MISSING — skipping write-back."
+            echo "Missing gitops secrets:$MISSING — skipping write-back."
             exit 0
           fi
 
@@ -97,32 +96,33 @@ jobs:
           git config user.name "Forgejo CI"
           git config user.email "ci@local"
 
-          # Apply image:tag bumps in $1 (manifest) for the image at $2.
-          # Two supported formats:
-          #   helm values:   `  tag: sha-XXXXXXX`       (preferred)
-          #   raw deployment:`  image: <repo>:sha-XXX`  (image-targeted)
-          # The image-targeted form is unambiguous when multiple image
-          # tags coexist in one file; the helm form rewrites every
-          # `tag: sha-...` line, which is fine when both images share
-          # the build SHA (they do — same workflow run).
+          if [ ! -f "$GITOPS_MANIFEST" ]; then
+            echo "$GITOPS_MANIFEST not present yet; skipping."
+            exit 0
+          fi
+
+          # Bump a specific image:tag line in the shared manifest. The
+          # image-targeted form is unambiguous when both viewer and
+          # worker entries live in the same file.
           apply_bump() {
-            manifest="$1"
-            image="$2"
-            label="$3"
-            if [ -z "$manifest" ] || [ -z "$image" ]; then
+            image="$1"
+            label="$2"
+            if [ -z "$image" ]; then
               return 0
             fi
-            if [ ! -f "$manifest" ]; then
-              echo "$manifest not present yet; skipping $label."
-              return 0
-            fi
-            if grep -qF "image: ${image}:" "$manifest"; then
-              sed -i "s|image: ${image}:.*|image: ${image}:${TAG}|" "$manifest"
-            elif grep -qE "^[[:space:]]+tag:[[:space:]]+sha-" "$manifest"; then
-              sed -i "s|^\([[:space:]]*tag:[[:space:]]*\)sha-[a-f0-9]*|\1${TAG}|" "$manifest"
+            if grep -qF "image: ${image}:" "$GITOPS_MANIFEST"; then
+              sed -i "s|image: ${image}:.*|image: ${image}:${TAG}|" "$GITOPS_MANIFEST"
             else
-              echo "::error::No tag/image line matched in $manifest for $label"
-              return 1
+              echo "No image: ${image} line in $GITOPS_MANIFEST — skipping $label."
+            fi
+          }
+
+          # Helm values fallback: when the manifest uses `tag: sha-XXX`
+          # without an inline image: ref, rewrite every such line. Safe
+          # because viewer and worker share the build SHA in this run.
+          apply_helm_tag_fallback() {
+            if grep -qE "^[[:space:]]+tag:[[:space:]]+sha-" "$GITOPS_MANIFEST"; then
+              sed -i "s|^\([[:space:]]*tag:[[:space:]]*\)sha-[a-f0-9]*|\1${TAG}|" "$GITOPS_MANIFEST"
             fi
           }
 
@@ -130,13 +130,11 @@ jobs:
           while [ "$i" -le 3 ]; do
             git pull --rebase origin "$GITOPS_BRANCH"
 
-            apply_bump "$VIEWER_MANIFEST" "$VIEWER_IMAGE" "viewer" || exit 1
-            apply_bump "$WORKER_MANIFEST" "$WORKER_IMAGE" "worker" || exit 1
+            apply_bump "$VIEWER_IMAGE" "viewer"
+            apply_bump "$WORKER_IMAGE" "worker"
+            apply_helm_tag_fallback
 
-            # Stage only files that actually changed.
-            [ -n "$VIEWER_MANIFEST" ] && [ -f "$VIEWER_MANIFEST" ] && git add "$VIEWER_MANIFEST"
-            [ -n "$WORKER_MANIFEST" ] && [ -f "$WORKER_MANIFEST" ] && git add "$WORKER_MANIFEST"
-
+            git add "$GITOPS_MANIFEST"
             if git diff --cached --quiet; then
               echo "No image changes to commit."
               exit 0
