@@ -1,53 +1,30 @@
 # syntax=docker/dockerfile:1.7
 #
 # Conversion worker — fat env (ifcopenshell, pythonocc, trimesh, gmsh)
-# resolved by pixi in the build stage and copied into a slim runtime
-# stage. Pixi itself isn't shipped in the final image, just the
-# resolved environment under /app/.pixi/envs/viewer-api plus a
-# shell-hook entrypoint that activates it before exec'ing the command.
-#
-# Pattern follows the official pixi container guide:
-# https://pixi.sh/latest/deployment/container/
+# resolved by pixi. Built on top of the official pixi base image so we
+# inherit ca-certificates and bash without needing apt at build time
+# (the build runner has no egress to Ubuntu mirrors). The conda env
+# itself dominates final image size, so a multi-stage trim wouldn't
+# meaningfully shrink things.
 
 ARG PIXI_VERSION=0.67.0
 
-# --- build stage: pixi resolves and materializes the env -------------
-FROM ghcr.io/prefix-dev/pixi:${PIXI_VERSION} AS build
+FROM ghcr.io/prefix-dev/pixi:${PIXI_VERSION}
 WORKDIR /app
 
-# Lockfile-defining files only — keeps the heavy solve cached across
-# source-only edits.
+# Solve and materialize the env first — keeps the heavy layer cached
+# across source-only edits.
 COPY pixi.toml pixi.lock pyproject.toml ./
 RUN pixi install --environment viewer-api --locked
 
-# Bake the activation script the runtime stage will source as PID 1.
-RUN pixi shell-hook --environment viewer-api -s bash > /shell-hook \
- && printf '#!/bin/bash\nset -e\n' > /entrypoint.sh \
- && cat /shell-hook >> /entrypoint.sh \
- && printf '\nexec "$@"\n' >> /entrypoint.sh \
- && chmod +x /entrypoint.sh
-
-# --- runtime stage: only what's needed to run --------------------------
-FROM ubuntu:24.04 AS runtime
-WORKDIR /app
-
-# tini gives us proper PID-1 signal forwarding without bringing in
-# pixi or apt's full dependency set. ca-certificates lets the worker
-# talk to S3/Garage over TLS.
-RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates tini \
- && rm -rf /var/lib/apt/lists/*
-
-COPY --from=build /app/.pixi/envs/viewer-api /app/.pixi/envs/viewer-api
-COPY --from=build /entrypoint.sh /app/entrypoint.sh
-
-# Source code last — iterating on Python doesn't bust the env layer.
-COPY src/ /app/src/
+# Source last so iterating on Python doesn't re-solve.
+COPY src/ ./src/
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONPATH=/app/src \
     ADA_VIEWER_STORAGE_KIND=local \
     ADA_VIEWER_LOCAL_PATH=/data
 
-ENTRYPOINT ["/usr/bin/tini", "--", "/app/entrypoint.sh"]
-CMD ["python", "-m", "ada.comms.rest.worker"]
+# `pixi run` activates the env and exec's the task. Python's asyncio
+# signal handlers in the worker handle SIGTERM/SIGINT cleanly as PID 1.
+CMD ["pixi", "run", "--environment", "viewer-api", "viewer-worker"]
