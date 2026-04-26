@@ -187,6 +187,7 @@ pandas = "*"
 fastapi = "*"
 uvicorn = "*"
 obstore = "*"
+nats-py = "*"
 
 [feature.viewer-api.tasks]
 viewer-api = { cmd = "python -m ada.comms.rest", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
