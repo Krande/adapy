@@ -9,29 +9,35 @@
 # API server reads from. Scale this deployment independently from the
 # API to handle conversion throughput.
 
-ARG PIXI_VERSION=v0.67.0
-
-FROM ghcr.io/prefix-dev/pixi:${PIXI_VERSION} AS pixi-base
+ARG PIXI_VERSION=0.67.0
 
 FROM debian:bookworm-slim AS runtime
+ARG PIXI_VERSION
 ENV DEBIAN_FRONTEND=noninteractive \
     PIXI_HOME=/opt/pixi \
-    PATH=/opt/pixi/bin:/app/.pixi/envs/viewer-api/bin:$PATH
-
-# Bring the pixi binary in. The base image places it at /usr/local/bin/pixi.
-COPY --from=pixi-base /usr/local/bin/pixi /usr/local/bin/pixi
+    PATH=/opt/pixi/bin:$PATH
 
 # Minimal OS deps: ca-certs for HTTPS, libgomp for occt/gmsh, libgl1 in
-# case any tessellator pulls Mesa, tini for signal handling.
+# case any tessellator pulls Mesa, tini for signal handling, curl for
+# pixi install.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
         ca-certificates \
+        curl \
         libgomp1 \
         libgl1 \
         libxrender1 \
         libxext6 \
         tini \
  && rm -rf /var/lib/apt/lists/*
+
+# Install pixi via the official installer, pinned to PIXI_VERSION.
+RUN curl -fsSL "https://github.com/prefix-dev/pixi/releases/download/v${PIXI_VERSION}/pixi-x86_64-unknown-linux-musl.tar.gz" \
+        -o /tmp/pixi.tar.gz \
+ && mkdir -p "${PIXI_HOME}/bin" \
+ && tar -xzf /tmp/pixi.tar.gz -C "${PIXI_HOME}/bin" \
+ && rm /tmp/pixi.tar.gz \
+ && pixi --version
 
 WORKDIR /app
 
