@@ -84,8 +84,8 @@ export async function view_file_object_from_server(fileobject: FileObject) {
             await send_view_request(sourceName);
         } catch (err) {
             console.error("conversion failed", err);
-            useConversionStore.getState().setJob(sourceName, {
-                sourceKey: sourceName,
+            useConversionStore.getState().setJob(`${sourceName}::glb`, {
+                sourceKey: `${sourceName}::glb`,
                 jobId: "",
                 derivedKey: "",
                 status: "error",

@@ -11,7 +11,13 @@ from fastapi.staticfiles import StaticFiles
 from ada.config import logger
 
 from .config import Settings, load_settings
-from .converter import derived_key_for, is_supported_source
+from .converter import (
+    TARGET_FORMATS,
+    UnsupportedFormat,
+    derived_key_for,
+    is_supported_source,
+    supported_targets_for,
+)
 from .handlers import dispatch
 from .queue import JobQueue
 from .storage import Storage
@@ -74,26 +80,42 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @app.post("/api/convert")
     async def api_convert(request: Request) -> JSONResponse:
-        if not queue.enabled:
-            raise HTTPException(status_code=503, detail="conversion disabled (no NATS configured)")
         body = await request.json()
         source_key = (body.get("source_key") or "").strip()
+        target_format = (body.get("target_format") or "glb").strip().lower()
         if not source_key:
             raise HTTPException(status_code=400, detail="source_key required")
         if not is_supported_source(source_key):
             raise HTTPException(status_code=415, detail=f"unsupported source format: {source_key}")
+        if target_format not in TARGET_FORMATS:
+            raise HTTPException(
+                status_code=415,
+                detail=f"unknown target_format {target_format!r}; allowed: {sorted(TARGET_FORMATS)}",
+            )
+        viable = supported_targets_for(source_key)
+        if target_format not in viable:
+            raise HTTPException(
+                status_code=415,
+                detail=f"target {target_format!r} not viable for source {source_key!r}; allowed: {viable}",
+            )
         if not await storage.exists(source_key):
             raise HTTPException(status_code=404, detail=f"source not found: {source_key}")
+        if not queue.enabled:
+            raise HTTPException(status_code=503, detail="conversion disabled (no NATS configured)")
 
         # Cheap fast-path: if the derived blob is already there, skip the
         # queue entirely and report a synthetic done job.
-        derived_key = derived_key_for(source_key)
+        try:
+            derived_key = derived_key_for(source_key, target_format)
+        except UnsupportedFormat as exc:
+            raise HTTPException(status_code=415, detail=str(exc)) from exc
         if await storage.exists(derived_key):
             return JSONResponse(
                 {
                     "job_id": "",
                     "source_key": source_key,
                     "derived_key": derived_key,
+                    "target_format": target_format,
                     "status": "done",
                     "progress": 1.0,
                     "stage": "cached",
@@ -102,7 +124,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             )
 
         try:
-            job = await queue.enqueue(source_key)
+            job = await queue.enqueue(source_key, target_format)
         except Exception as exc:
             logger.exception("enqueue failed")
             raise HTTPException(status_code=503, detail=f"enqueue failed: {exc}") from exc
@@ -110,6 +132,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         payload = asdict(job)
         payload["cached"] = False
         return JSONResponse(payload, status_code=202)
+
+    @app.get("/api/convert/targets")
+    async def api_convert_targets(source_key: str) -> JSONResponse:
+        # Lets the frontend render only viable target options for a
+        # given source. Cheap and side-effect-free.
+        return JSONResponse(
+            {"source_key": source_key, "targets": supported_targets_for(source_key)}
+        )
 
     @app.get("/api/convert/{job_id}")
     async def api_convert_status(job_id: str) -> JSONResponse:

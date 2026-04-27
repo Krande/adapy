@@ -23,7 +23,7 @@ from typing import Awaitable, Callable
 from ada.config import logger
 
 from .config import load_settings
-from .converter import convert_to_glb
+from .converter import convert
 from .queue import (
     JOB_STATUS_DONE,
     JOB_STATUS_ERROR,
@@ -100,11 +100,11 @@ async def _process_one(
             pass
 
     try:
-        glb_bytes = await loop.run_in_executor(
-            pool, convert_to_glb, source_bytes, job.source_key, _on_progress
+        out_bytes = await loop.run_in_executor(
+            pool, convert, source_bytes, job.source_key, job.target_format, _on_progress
         )
     except Exception as exc:
-        logger.exception("worker: conversion failed for %s", job.source_key)
+        logger.exception("worker: conversion failed for %s -> %s", job.source_key, job.target_format)
         await queue.update(
             job_id, status=JOB_STATUS_ERROR, stage="convert", error=str(exc)
         )
@@ -112,7 +112,7 @@ async def _process_one(
 
     await queue.update(job_id, stage="uploading", progress=0.95)
     try:
-        await storage.put_bytes(job.derived_key, glb_bytes)
+        await storage.put_bytes(job.derived_key, out_bytes)
     except Exception as exc:
         logger.exception("worker: upload failed for %s", job.derived_key)
         await queue.update(

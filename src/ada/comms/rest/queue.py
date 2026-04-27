@@ -44,6 +44,7 @@ class Job:
     source_key: str
     derived_key: str
     status: str
+    target_format: str = "glb"
     progress: float = 0.0
     stage: str = ""
     error: str | None = None
@@ -111,13 +112,14 @@ class JobQueue:
 
     # --- producer side (called from API) -----------------------------
 
-    async def enqueue(self, source_key: str) -> Job:
+    async def enqueue(self, source_key: str, target_format: str = "glb") -> Job:
         now = time.time()
         job = Job(
             job_id=uuid.uuid4().hex,
             source_key=source_key,
-            derived_key=derived_key_for(source_key),
+            derived_key=derived_key_for(source_key, target_format),
             status=JOB_STATUS_QUEUED,
+            target_format=target_format,
             progress=0.0,
             stage="queued",
             created_at=now,
