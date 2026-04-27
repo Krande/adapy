@@ -99,11 +99,17 @@ const StorageBrowser: React.FC = () => {
     return (
         <div
             data-no-upload-menu
-            className="bg-gray-800/95 text-gray-100 rounded p-2 mt-2 w-full max-w-md border border-gray-700"
+            // Match ObjectInfoBox styling. The viewport-clamped max-width
+            // makes the panel self-contain regardless of what the panel-row
+            // does — on mobile it stays inside the viewport even if the
+            // parent's width hasn't resolved. min-w-0 lets it actually
+            // shrink below intrinsic content width so the header buttons
+            // don't push past the right edge.
+            className="bg-gray-400 bg-opacity-50 rounded p-2 w-full min-w-0 max-w-[calc(100vw-1rem)] md:max-w-md"
         >
-            <div className="flex justify-between items-center mb-2">
-                <h2 className="font-bold">Storage</h2>
-                <div className="flex items-center gap-1">
+            <div className="flex justify-between items-center gap-2 mb-2">
+                <h2 className="font-bold truncate">Storage</h2>
+                <div className="flex items-center gap-1 shrink-0">
                     <input
                         ref={fileInputRef}
                         type="file"
@@ -129,11 +135,11 @@ const StorageBrowser: React.FC = () => {
                 </div>
             </div>
             {files.length === 0 ? (
-                <div className="text-xs text-gray-400 italic">
+                <div className="text-xs italic">
                     No files yet. Use the Upload button (or right-click the viewer) to add one.
                 </div>
             ) : (
-                <ul className="flex flex-col gap-1 max-h-80 overflow-auto">
+                <ul className="flex flex-col divide-y divide-gray-500/40 max-h-80 overflow-auto">
                     {files.map((f) => {
                         const targets = viableTargets(f.name);
                         const downloadable = targets.filter((t) => t !== "glb");
@@ -142,7 +148,7 @@ const StorageBrowser: React.FC = () => {
                         return (
                             <li
                                 key={f.name}
-                                className="flex items-center justify-between bg-gray-900/60 rounded px-2 py-1 text-xs gap-2"
+                                className="flex items-center justify-between px-1 py-1 text-xs gap-2"
                             >
                                 {/* min-w-0 lets `truncate` actually clip inside a
                                     flex item (default min-width is auto = content).
@@ -158,14 +164,14 @@ const StorageBrowser: React.FC = () => {
                                 </button>
                                 <div className="flex items-center gap-1 shrink-0">
                                     <button
-                                        className="p-1 rounded hover:bg-gray-700"
+                                        className="p-1 rounded hover:bg-gray-300/40"
                                         onClick={() => onView(f)}
                                         title="View"
                                     >
                                         <ViewIcon/>
                                     </button>
                                     <button
-                                        className="px-2 py-0.5 rounded hover:bg-gray-700 text-[10px] uppercase tracking-wide text-gray-300"
+                                        className="px-2 py-0.5 rounded hover:bg-gray-300/40 text-[10px] uppercase tracking-wide"
                                         onClick={() => downloadByKey(f.name, f.name)}
                                         title="Download original"
                                     >
@@ -174,7 +180,7 @@ const StorageBrowser: React.FC = () => {
                                     {runtime.convertEnabled() && downloadable.length > 0 && (
                                         <select
                                             disabled={busy}
-                                            className="bg-gray-700 hover:bg-gray-600 text-[10px] uppercase rounded px-1 py-0.5 text-gray-300 disabled:opacity-60"
+                                            className="bg-gray-200 hover:bg-gray-300 text-[10px] uppercase rounded px-1 py-0.5 disabled:opacity-60"
                                             value=""
                                             onChange={(e) => {
                                                 const target = e.target.value as TargetFormat | "";
