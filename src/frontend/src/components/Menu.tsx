@@ -38,7 +38,7 @@ const Menu = () => {
     return (
         <div className="relative w-full h-full">
             <div className="absolute left-0 top-0 z-10 py-2 gap-2 flex flex-col pointer-events-none">
-                <div className={"flex flex-row flex-wrap items-center gap-2 px-2 max-w-full pointer-events-auto"}>
+                <div className={"flex flex-row items-center gap-2 px-2 max-w-full pointer-events-auto"}>
 
                     {use_node_editor_only && (
                         <button
