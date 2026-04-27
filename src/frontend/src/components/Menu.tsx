@@ -12,12 +12,6 @@ import ServerInfoBox from "./server_info/ServerInfoBox";
 import {runtime} from "@/runtime/config";
 // REST-only — code-split so the embedded desktop zip stays slim.
 const StorageBrowser = React.lazy(() => import("./storage/StorageBrowser"));
-// Lazy import for the upload trigger keeps upload_source_file out of
-// the WS-mode bundle. We resolve it on demand from the menu button.
-const triggerUploadPicker = async () => {
-    const mod = await import("../utils/scene/handlers/upload_source_file");
-    mod.triggerUploadPicker();
-};
 import GraphIcon from "./icons/GraphIcon";
 import InfoIcon from "./icons/InfoIcon";
 import TreeViewIcon from "./icons/TreeViewIcon";
@@ -77,22 +71,13 @@ const Menu = () => {
                         <GraphIcon/>
                     </button>
                     {runtime.isRestMode() && (
-                        <>
-                            <button
-                                className={"bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded"}
-                                onClick={() => setShowServerInfoBox(!showServerInfoBox)}
-                                title="Storage"
-                            >
-                                <ServerIcon/>
-                            </button>
-                            <button
-                                className={"bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded"}
-                                onClick={() => triggerUploadPicker()}
-                                title="Upload file"
-                            >
-                                +
-                            </button>
-                        </>
+                        <button
+                            className={"bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded"}
+                            onClick={() => setShowServerInfoBox(!showServerInfoBox)}
+                            title="Storage"
+                        >
+                            <ServerIcon/>
+                        </button>
                     )}
                     <button
                         className={"bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded"}

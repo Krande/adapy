@@ -42,6 +42,11 @@ class Storage:
             }
             if cfg.endpoint:
                 kwargs["endpoint"] = cfg.endpoint
+                # Object_store / reqwest reject plain http:// schemes by
+                # default. Cluster-local Garage / MinIO listen on http,
+                # so we opt in when the endpoint clearly is http.
+                if cfg.endpoint.lower().startswith("http://"):
+                    kwargs["allow_http"] = True
             if cfg.access_key_id:
                 kwargs["access_key_id"] = cfg.access_key_id
             if cfg.secret_access_key:
