@@ -74,6 +74,11 @@ class Settings:
     static_path: str
     queue: QueueConfig
     auth: AuthConfig
+    # Optional Postgres connection string. When empty the REST viewer
+    # runs in shared-only mode (no projects, no admin panel, no audit
+    # log) so the helm chart's ``postgres.enabled: false`` path stays
+    # functional for tiny deployments.
+    database_url: str
 
 
 def _bool(v: str | None, default: bool) -> bool:
@@ -116,6 +121,11 @@ def load_settings() -> Settings:
             "and ADA_VIEWER_AUTH_CLIENT_ID to be set"
         )
 
+    # Standard env name (DATABASE_URL) so the viewer plays nicely with
+    # operators / sub-charts that already inject it (Bitnami Postgres,
+    # CNPG, Render, etc.). Empty → shared-only mode.
+    database_url = os.environ.get("DATABASE_URL", "").strip()
+
     if kind == "s3":
         s3 = S3Config(
             bucket=os.environ["ADA_VIEWER_S3_BUCKET"],
@@ -137,6 +147,7 @@ def load_settings() -> Settings:
             static_path=static_path,
             queue=queue,
             auth=auth,
+            database_url=database_url,
         )
 
     if kind == "local":
@@ -153,6 +164,7 @@ def load_settings() -> Settings:
             static_path=static_path,
             queue=queue,
             auth=auth,
+            database_url=database_url,
         )
 
     raise ValueError(f"Unsupported ADA_VIEWER_STORAGE_KIND: {kind!r} (expected 's3' or 'local')")

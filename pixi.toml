@@ -196,6 +196,10 @@ nats-py = "*"
 pyjwt = "*"
 cryptography = "*"
 httpx = "*"
+# Optional: project membership + audit log live in Postgres when the
+# deployment opts into it via DATABASE_URL. Without DATABASE_URL the
+# REST viewer runs in shared-only mode and asyncpg goes unused.
+asyncpg = "*"
 
 [feature.viewer-api.tasks]
 viewer-api = { cmd = "python -m ada.comms.rest", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }

@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from ada.config import logger
 
 from . import auth as auth_module
+from . import db as db_module
 from .auth import User
 from .config import Settings, load_settings
 from .converter import (
@@ -53,12 +54,25 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 logger.info("queue connected to %s", settings.queue.url)
             except Exception as exc:
                 logger.warning("queue connect failed (%s); convert endpoints will return 503", exc)
+        # Postgres pool — ``None`` when DATABASE_URL is empty. We don't
+        # let DB connect failures abort startup: the API can still
+        # serve the shared bucket, and a failed pool surfaces as 503s
+        # on the multi-tenant endpoints rather than a crash loop.
+        try:
+            app.state.db_pool = await db_module.init_pool(settings.database_url)
+        except Exception:
+            logger.exception("db: pool init failed; running shared-only")
+            app.state.db_pool = None
         yield
         if queue.enabled:
             try:
                 await queue.close()
             except Exception:
                 logger.exception("queue close failed")
+        try:
+            await db_module.close_pool(app.state.db_pool)
+        except Exception:
+            logger.exception("db close failed")
         # Release the OIDC JWKS HTTP client (no-op when auth is disabled).
         try:
             await auth_module.aclose(app)
