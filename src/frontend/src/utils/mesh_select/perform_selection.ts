@@ -1,4 +1,4 @@
-import { useSelectedObjectStore } from "../../state/useSelectedObjectStore";
+import { useSelectedObjectStore } from "@/state/useSelectedObjectStore";
 import { Object3D } from "three";
 
 export async function perform_selection(

@@ -1,5 +1,5 @@
 import React from "react";
-import {useConversionStore} from "../../state/conversionStore";
+import {useConversionStore} from "@/state/conversionStore";
 
 const STATUS_LABEL: Record<string, string> = {
     queued: "Queued",

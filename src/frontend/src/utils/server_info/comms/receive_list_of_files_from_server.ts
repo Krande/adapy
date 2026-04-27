@@ -1,6 +1,6 @@
-import {useServerInfoStore, ServerFileEntry} from "../../../state/serverInfoStore";
-import {Message} from "../../../flatbuffers/wsock/message";
-import {FileType} from "../../../flatbuffers/base";
+import {useServerInfoStore, ServerFileEntry} from "@/state/serverInfoStore";
+import {Message} from "@/flatbuffers/wsock/message";
+import {FileType} from "@/flatbuffers/base";
 
 export async function receive_list_of_files_from_server(message: Message) {
     const server = message.server();

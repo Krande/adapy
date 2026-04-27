@@ -1,14 +1,14 @@
 import * as THREE from "three";
-import {useModelState} from "../../state/modelState";
-import {useObjectInfoStore} from "../../state/objectInfoStore";
-import {useOptionsStore} from "../../state/optionsStore";
+import {useModelState} from "@/state/modelState";
+import {useObjectInfoStore} from "@/state/objectInfoStore";
+import {useOptionsStore} from "@/state/optionsStore";
 import {enablePointSelectionMask} from "../scene/pointsImpostor";
 import {selectedMaterial} from "../default_materials";
 
 import {gpuPointPicker} from "./GpuPointPicker";
-import {useSelectedObjectStore} from "../../state/useSelectedObjectStore";
+import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
 import {queryNameFromRangeId, queryPointDrawRange, queryPointRangeByRangeId} from "./queryMeshDrawRange";
-import {useTreeViewStore} from "../../state/treeViewStore";
+import {useTreeViewStore} from "@/state/treeViewStore";
 import {findNodeById} from "../tree_view/findNodeById";
 import {perform_selection} from "./perform_selection";
 

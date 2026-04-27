@@ -1,17 +1,17 @@
 // sceneHelpers/prepareLoadedModel.ts
 import * as THREE from "three";
-import {convert_to_custom_batch_mesh} from "../../../utils/scene/convert_to_custom_batch_mesh";
-import {replaceBlackMaterials} from "../../../utils/scene/assignDefaultMaterial";
-import {useModelState} from "../../../state/modelState";
-import {useOptionsStore} from "../../../state/optionsStore";
-import {adaExtensionRef, rendererRef} from "../../../state/refs";
-import {useAnimationStore} from "../../../state/animationStore";
-import {assignMorphToEdgeAlso} from "../../../utils/scene/animations/assignMorphToEdgeAlso";
-import {assignMorphToPointsAlso} from "../../../utils/scene/animations/assignMorphToPointsAlso";
-import {DesignDataExtension, SimulationDataExtensionMetadata} from "../../../extensions/design_and_analysis_extension";
-import {applySphericalImpostor} from "../../../utils/scene/pointsImpostor";
-import {updateAllPointsSize} from "../../../utils/scene/updatePointSizes";
-import {gpuPointPicker} from "../../../utils/mesh_select/GpuPointPicker";
+import {convert_to_custom_batch_mesh} from "@/utils/scene/convert_to_custom_batch_mesh";
+import {replaceBlackMaterials} from "@/utils/scene/assignDefaultMaterial";
+import {useModelState} from "@/state/modelState";
+import {useOptionsStore} from "@/state/optionsStore";
+import {adaExtensionRef, rendererRef} from "@/state/refs";
+import {useAnimationStore} from "@/state/animationStore";
+import {assignMorphToEdgeAlso} from "@/utils/scene/animations/assignMorphToEdgeAlso";
+import {assignMorphToPointsAlso} from "@/utils/scene/animations/assignMorphToPointsAlso";
+import {DesignDataExtension, SimulationDataExtensionMetadata} from "@/extensions/design_and_analysis_extension";
+import {applySphericalImpostor} from "@/utils/scene/pointsImpostor";
+import {updateAllPointsSize} from "@/utils/scene/updatePointSizes";
+import {gpuPointPicker} from "@/utils/mesh_select/GpuPointPicker";
 
 interface PrepareLoadedModelParams {
     gltf_scene: THREE.Object3D;

@@ -1,8 +1,8 @@
 import {NodeApi} from "react-arborist";
-import {useSelectedObjectStore} from "../../state/useSelectedObjectStore";
+import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
 import {CustomBatchedMesh} from "../mesh_select/CustomBatchedMesh";
-import {modelKeyMapRef} from "../../state/refs";
-import {useObjectInfoStore} from "../../state/objectInfoStore";
+import {modelKeyMapRef} from "@/state/refs";
+import {useObjectInfoStore} from "@/state/objectInfoStore";
 
 
 export async function get_nodes_recursive(node: NodeApi, nodes: NodeApi[]) {

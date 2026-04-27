@@ -1,4 +1,4 @@
-import { useWebsocketStatusStore } from "../../state/websocketStatusStore";
+import { useWebsocketStatusStore } from "@/state/websocketStatusStore";
 import type {
   Comms,
   CommsConnectHandler,

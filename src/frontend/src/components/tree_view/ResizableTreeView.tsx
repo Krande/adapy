@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import TreeViewComponent from './TreeViewComponent';
-import { useTreeViewStore } from "../../state/treeViewStore";
+import { useTreeViewStore } from "@/state/treeViewStore";
 
 const ResizableTreeView: React.FC = () => {
     const [treeViewWidth, setTreeViewWidth] = useState(256); // Initial width of 256px

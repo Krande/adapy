@@ -1,9 +1,9 @@
 // reply_ping.ts
-import { Message } from "../../flatbuffers/wsock/message";
+import { Message } from "@/flatbuffers/wsock/message";
 import * as flatbuffers from "flatbuffers";
 import { comms } from "../comms";
-import { CommandType } from "../../flatbuffers/commands/command-type";
-import { TargetType } from "../../flatbuffers/commands/target-type";
+import { CommandType } from "@/flatbuffers/commands/command-type";
+import { TargetType } from "@/flatbuffers/commands/target-type";
 
 export async function reply_ping(message: Message): Promise<void> {
   try {

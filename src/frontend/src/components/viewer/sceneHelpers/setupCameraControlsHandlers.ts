@@ -1,11 +1,11 @@
 import * as THREE from "three";
-import {useSelectedObjectStore} from "../../../state/useSelectedObjectStore";
-import {CustomBatchedMesh} from "../../../utils/mesh_select/CustomBatchedMesh";
-import {centerViewOnSelection} from "../../../utils/scene/centerViewOnSelection";
+import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
+import {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
+import {centerViewOnSelection} from "@/utils/scene/centerViewOnSelection";
 import {OrbitControls} from "three/examples/jsm/controls/OrbitControls";
-import {useOptionsStore} from "../../../state/optionsStore";
+import {useOptionsStore} from "@/state/optionsStore";
 import CameraControls from "camera-controls";
-import {queryNameFromRangeId} from "../../../utils/mesh_select/queryMeshDrawRange";
+import {queryNameFromRangeId} from "@/utils/mesh_select/queryMeshDrawRange";
 
 export function setupCameraControlsHandlers(
     scene: THREE.Scene,

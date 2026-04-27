@@ -1,5 +1,5 @@
 import React from "react";
-import { useModelState } from "../../state/modelState";
+import { useModelState } from "@/state/modelState";
 import CopyIcon from "../icons/copyIcon";
 
 interface ClickCoordinate {

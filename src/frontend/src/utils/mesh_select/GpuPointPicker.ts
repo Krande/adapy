@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import {cameraRef, rendererRef, sceneRef} from "../../state/refs";
+import {cameraRef, rendererRef, sceneRef} from "@/state/refs";
 
 // Simple singleton GPU point picker for THREE.Points
 // - Assigns each point (vertex) a unique RGB id (1..16,777,215)

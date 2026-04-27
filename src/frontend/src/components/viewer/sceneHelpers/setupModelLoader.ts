@@ -1,16 +1,16 @@
 import * as THREE from "three";
 import {prepareLoadedModel} from "./prepareLoadedModel";
-import {useModelState} from "../../../state/modelState";
-import {useOptionsStore} from "../../../state/optionsStore";
-import {useAnimationStore} from "../../../state/animationStore";
-import {animationControllerRef, modelKeyMapRef, sceneRef, simulationDataRef, adaExtensionRef} from "../../../state/refs";
-import {SimulationDataExtensionMetadata} from "../../../extensions/design_and_analysis_extension";
-import {FilePurpose} from "../../../flatbuffers/base/file-purpose";
-import {cacheAndBuildTree} from "../../../state/model_worker/cacheModelUtils";
-import {mapAnimationTargets} from "../../../utils/scene/animations/mapAnimationTargets";
+import {useModelState} from "@/state/modelState";
+import {useOptionsStore} from "@/state/optionsStore";
+import {useAnimationStore} from "@/state/animationStore";
+import {animationControllerRef, modelKeyMapRef, sceneRef, simulationDataRef, adaExtensionRef} from "@/state/refs";
+import {SimulationDataExtensionMetadata} from "@/extensions/design_and_analysis_extension";
+import {FilePurpose} from "@/flatbuffers/base/file-purpose";
+import {cacheAndBuildTree} from "@/state/model_worker/cacheModelUtils";
+import {mapAnimationTargets} from "@/utils/scene/animations/mapAnimationTargets";
 import {loadGLTF} from "./asyncModelLoader";
-import {AnimationController} from "../../../utils/scene/animations/AnimationController";
-import {updateAllPointsSize} from "../../../utils/scene/updatePointSizes";
+import {AnimationController} from "@/utils/scene/animations/AnimationController";
+import {updateAllPointsSize} from "@/utils/scene/updatePointSizes";
 
 export async function setupModelLoaderAsync(
     modelUrl: string | null, translate: boolean = true

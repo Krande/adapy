@@ -1,6 +1,6 @@
-import {Message} from '../../../flatbuffers/wsock';
-import {FileArgT, FileType} from '../../../flatbuffers/base';
-import {useNodeEditorStore} from '../../../state/useNodeEditorStore'; // Import the node editor Zustand store
+import {Message} from '@/flatbuffers/wsock';
+import {FileArgT, FileType} from '@/flatbuffers/base';
+import {useNodeEditorStore} from '@/state/useNodeEditorStore'; // Import the node editor Zustand store
 
 
 export async function update_nodes(message: Message) {

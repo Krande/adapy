@@ -1,7 +1,7 @@
 // AnimationControls.tsx
 import React, {useEffect, useState} from "react";
-import {useAnimationStore} from "../../state/animationStore";
-import {animationControllerRef} from "../../state/refs";
+import {useAnimationStore} from "@/state/animationStore";
+import {animationControllerRef} from "@/state/refs";
 import PlayPauseIcon from "../icons/PlayPauseIcon";
 import StopIcon from "../icons/StopIcon";
 import SimulationDataInfoPanel from "./SimulationDataInfoPanel";

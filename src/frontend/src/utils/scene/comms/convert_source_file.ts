@@ -1,6 +1,6 @@
-import {useConversionStore, ConversionJob, ConvertStatus} from "../../../state/conversionStore";
-import {useExperimentalStore} from "../../../state/experimentalStore";
-import {convertIfcViaPyodide} from "../../pyodide/pyodide_converter";
+import {useConversionStore, ConversionJob, ConvertStatus} from "@/state/conversionStore";
+import {useExperimentalStore} from "@/state/experimentalStore";
+import {convertIfcViaPyodide} from "@/utils/pyodide/pyodide_converter";
 
 const POLL_INTERVAL_MS = 1000;
 const MAX_POLL_ATTEMPTS = 60 * 30; // ~30 min ceiling — generous enough for big IFC

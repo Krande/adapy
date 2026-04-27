@@ -1,6 +1,6 @@
 import * as flatbuffers from 'flatbuffers';
-import {Message} from '../../flatbuffers/wsock';
-import {CommandType, TargetType} from '../../flatbuffers/commands';
+import {Message} from '@/flatbuffers/wsock';
+import {CommandType, TargetType} from '@/flatbuffers/commands';
 import {comms} from '../comms';
 
 export function requestServerInfo(): void {

@@ -1,4 +1,4 @@
-import {request_list_of_files_from_server} from "../../server_info/comms/request_list_of_files_from_server";
+import {request_list_of_files_from_server} from "@/utils/server_info/comms/request_list_of_files_from_server";
 import {ensureConvertedGlb} from "./convert_source_file";
 
 const SUPPORTED_EXTS = [

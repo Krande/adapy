@@ -1,9 +1,9 @@
-import {useSelectedObjectStore} from "../../state/useSelectedObjectStore";
+import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
 import {CustomBatchedMesh} from "./CustomBatchedMesh";
 import * as THREE from "three";
 import {Object3D} from "three";
 import {clearPointSelectionMask} from "../scene/pointsImpostor";
-import {sceneRef} from "../../state/refs";
+import {sceneRef} from "@/state/refs";
 
 export function handleClickEmptySpace(event: MouseEvent) {
     const selectedObjects = useSelectedObjectStore.getState().selectedObjects;

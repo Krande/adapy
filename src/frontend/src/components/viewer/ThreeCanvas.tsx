@@ -1,8 +1,8 @@
 // ThreeCanvas.tsx
 import React, {useEffect, useRef} from "react";
 import * as THREE from "three";
-import {useModelState} from "../../state/modelState";
-import {useOptionsStore} from "../../state/optionsStore";
+import {useModelState} from "@/state/modelState";
+import {useOptionsStore} from "@/state/optionsStore";
 import {OrientationGizmo} from "./sceneHelpers/OrientationGizmo";
 import {setupCameraControlsHandlers} from "./sceneHelpers/setupCameraControlsHandlers";
 import {setupCamera} from "./sceneHelpers/setupCamera";
@@ -13,10 +13,10 @@ import {setupGizmo} from "./sceneHelpers/setupGizmo";
 import {setupStats} from "./sceneHelpers/setupStats";
 import {setupResizeHandler} from "./sceneHelpers/setupResizeHandler";
 import {setupPointerHandler} from "./sceneHelpers/setupPointerHandler";
-import {animationControllerRef, cameraRef, controlsRef, rendererRef, sceneRef, updatelightRef} from "../../state/refs";
+import {animationControllerRef, cameraRef, controlsRef, rendererRef, sceneRef, updatelightRef} from "@/state/refs";
 import {OrbitControls} from "three/examples/jsm/controls/OrbitControls";
-import {AnimationController} from "../../utils/scene/animations/AnimationController";
-import {replace_model} from "../../utils/scene/comms/update_scene_from_message";
+import {AnimationController} from "@/utils/scene/animations/AnimationController";
+import {replace_model} from "@/utils/scene/comms/update_scene_from_message";
 
 
 const ThreeCanvas: React.FC = () => {

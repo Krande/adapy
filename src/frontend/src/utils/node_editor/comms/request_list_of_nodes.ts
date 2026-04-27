@@ -1,8 +1,8 @@
-import {Message} from '../../../flatbuffers/wsock'
-import {CommandType} from '../../../flatbuffers/commands/command-type'
-import {TargetType} from '../../../flatbuffers/commands/target-type'
+import {Message} from '@/flatbuffers/wsock'
+import {CommandType} from '@/flatbuffers/commands/command-type'
+import {TargetType} from '@/flatbuffers/commands/target-type'
 import * as flatbuffers from "flatbuffers";
-import {comms} from "../../comms";
+import {comms} from "@/utils/comms";
 
 export async function request_list_of_nodes() {
     console.log('Querying server for mesh info');

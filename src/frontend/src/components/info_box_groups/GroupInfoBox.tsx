@@ -1,9 +1,9 @@
 import React, { useEffect } from 'react';
-import { useGroupInfoStore, GroupInfo } from '../../state/groupInfoStore';
-import { adaExtensionRef, sceneRef } from '../../state/refs';
-import { useObjectInfoStore } from '../../state/objectInfoStore';
-import {selectGroupMembers} from "../../utils/selectGroupMembers";
-import {CustomBatchedMesh} from "../../utils/mesh_select/CustomBatchedMesh";
+import { useGroupInfoStore, GroupInfo } from '@/state/groupInfoStore';
+import { adaExtensionRef, sceneRef } from '@/state/refs';
+import { useObjectInfoStore } from '@/state/objectInfoStore';
+import {selectGroupMembers} from "@/utils/selectGroupMembers";
+import {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
 
 
 

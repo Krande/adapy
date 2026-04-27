@@ -1,15 +1,15 @@
 // utils/mesh_select/handleClickMesh.ts
 import * as THREE from "three";
 import {CustomBatchedMesh} from "./CustomBatchedMesh";
-import {useModelState} from "../../state/modelState";
-import {useObjectInfoStore} from "../../state/objectInfoStore";
+import {useModelState} from "@/state/modelState";
+import {useObjectInfoStore} from "@/state/objectInfoStore";
 import {queryMeshDrawRange, queryNameFromRangeId} from "./queryMeshDrawRange";
 import {perform_selection} from "./perform_selection";
-import {useTreeViewStore} from "../../state/treeViewStore";
-import {useSelectedObjectStore} from "../../state/useSelectedObjectStore";
+import {useTreeViewStore} from "@/state/treeViewStore";
+import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
 import {findNodeById} from "../tree_view/findNodeById";
-import {simulationDataRef} from "../../state/refs";
-import {SimulationDataExtensionMetadata} from "../../extensions/design_and_analysis_extension";
+import {simulationDataRef} from "@/state/refs";
+import {SimulationDataExtensionMetadata} from "@/extensions/design_and_analysis_extension";
 
 export async function handleClickMesh(
     intersect: THREE.Intersection,

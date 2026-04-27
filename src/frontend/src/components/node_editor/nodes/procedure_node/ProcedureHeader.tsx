@@ -1,6 +1,6 @@
 import React from "react";
-import ProcedureIcon from "../../../icons/ProcedureIcon";
-import ComponentIcon from "../../../icons/ComponentIcon";
+import ProcedureIcon from "@/components/icons/ProcedureIcon";
+import ComponentIcon from "@/components/icons/ComponentIcon";
 
 
 export function ProcedureHeader({label, onRun, is_component}: {

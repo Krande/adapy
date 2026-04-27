@@ -1,9 +1,9 @@
 import React, {useState} from "react";
-import {useServerInfoStore, ServerFileEntry} from "../../state/serverInfoStore";
-import {request_list_of_files_from_server} from "../../utils/server_info/comms/request_list_of_files_from_server";
-import {view_file_object_from_server} from "../../utils/scene/comms/view_file_object_from_server";
-import {ensureConverted, TargetFormat} from "../../utils/scene/comms/convert_source_file";
-import {FileObjectT, FileObject} from "../../flatbuffers/base/file-object";
+import {useServerInfoStore, ServerFileEntry} from "@/state/serverInfoStore";
+import {request_list_of_files_from_server} from "@/utils/server_info/comms/request_list_of_files_from_server";
+import {view_file_object_from_server} from "@/utils/scene/comms/view_file_object_from_server";
+import {ensureConverted, TargetFormat} from "@/utils/scene/comms/convert_source_file";
+import {FileObjectT, FileObject} from "@/flatbuffers/base/file-object";
 import * as flatbuffers from "flatbuffers";
 import ReloadIcon from "../icons/ReloadIcon";
 import ViewIcon from "../icons/ViewIcon";

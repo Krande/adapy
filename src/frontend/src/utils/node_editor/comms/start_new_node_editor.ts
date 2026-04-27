@@ -1,8 +1,8 @@
-import {Message} from "../../../flatbuffers/wsock/message";
-import {comms} from "../../comms";
-import {CommandType, TargetType} from "../../../flatbuffers/commands";
+import {Message} from "@/flatbuffers/wsock/message";
+import {comms} from "@/utils/comms";
+import {CommandType, TargetType} from "@/flatbuffers/commands";
 import * as flatbuffers from "flatbuffers";
-import {useNodeEditorStore} from "../../../state/useNodeEditorStore";
+import {useNodeEditorStore} from "@/state/useNodeEditorStore";
 
 export async function start_new_node_editor(){
 

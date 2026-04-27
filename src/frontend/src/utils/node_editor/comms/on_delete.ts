@@ -1,10 +1,10 @@
 import * as flatbuffers from "flatbuffers";
-import {Message} from "../../../flatbuffers/wsock/message";
-import {comms} from "../../comms";
-import {CommandType} from "../../../flatbuffers/commands/command-type";
-import {TargetType} from "../../../flatbuffers/commands/target-type";
-import {Server} from "../../../flatbuffers/server/server";
-import {FileObject} from "../../../flatbuffers/base";
+import {Message} from "@/flatbuffers/wsock/message";
+import {comms} from "@/utils/comms";
+import {CommandType} from "@/flatbuffers/commands/command-type";
+import {TargetType} from "@/flatbuffers/commands/target-type";
+import {Server} from "@/flatbuffers/server/server";
+import {FileObject} from "@/flatbuffers/base";
 
 export async function onDelete(elements: { nodes: any[], edges: any[] }) {
     if (elements.nodes.length > 0) {

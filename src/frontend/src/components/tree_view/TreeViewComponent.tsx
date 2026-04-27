@@ -1,8 +1,8 @@
 import React, {useEffect, useRef, useState} from 'react';
-import {useTreeViewStore} from '../../state/treeViewStore';
+import {useTreeViewStore} from '@/state/treeViewStore';
 import {NodeApi, Tree} from "react-arborist";
 import {CustomNode} from './CustomNode';
-import {handleTreeSelectionChange} from "../../utils/tree_view/handleClickedNode";
+import {handleTreeSelectionChange} from "@/utils/tree_view/handleClickedNode";
 
 const TreeViewComponent: React.FC = () => {
     const {treeData, setTree, searchTerm} = useTreeViewStore();

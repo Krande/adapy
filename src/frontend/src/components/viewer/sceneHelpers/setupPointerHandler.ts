@@ -1,10 +1,10 @@
 // state/utils/setupPointerHandler.ts
 import * as THREE from "three";
-import {handleClickEmptySpace} from "../../../utils/mesh_select/handleClickEmptySpace";
-import {handleClickMesh} from "../../../utils/mesh_select/handleClickMesh";
-import {handleClickPoints} from "../../../utils/mesh_select/handleClickPoints";
-import {useOptionsStore} from "../../../state/optionsStore";
-import {gpuPointPicker} from "../../../utils/mesh_select/GpuPointPicker";
+import {handleClickEmptySpace} from "@/utils/mesh_select/handleClickEmptySpace";
+import {handleClickMesh} from "@/utils/mesh_select/handleClickMesh";
+import {handleClickPoints} from "@/utils/mesh_select/handleClickPoints";
+import {useOptionsStore} from "@/state/optionsStore";
+import {gpuPointPicker} from "@/utils/mesh_select/GpuPointPicker";
 
 export function setupPointerHandler(
     container: HTMLDivElement,

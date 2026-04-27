@@ -1,7 +1,7 @@
-import {Message} from "../../../flatbuffers/wsock/message";
-import {comms} from "../../comms";
+import {Message} from "@/flatbuffers/wsock/message";
+import {comms} from "@/utils/comms";
 import * as flatbuffers from "flatbuffers";
-import {CommandType, TargetType} from "../../../flatbuffers/commands";
+import {CommandType, TargetType} from "@/flatbuffers/commands";
 
 
 export async function request_list_of_files_from_server() {

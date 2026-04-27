@@ -1,9 +1,9 @@
 import React, {memo} from 'react';
 import {Handle, Position} from '@xyflow/react';
-import {view_file_object_from_server} from "../../../../utils/scene/comms/view_file_object_from_server";
-import {FileObject} from "../../../../flatbuffers/base/file-object";
-import DocumentIcon from "../../../icons/DocumentIcon";
-import ViewIcon from "../../../icons/ViewIcon";
+import {view_file_object_from_server} from "@/utils/scene/comms/view_file_object_from_server";
+import {FileObject} from "@/flatbuffers/base/file-object";
+import DocumentIcon from "@/components/icons/DocumentIcon";
+import ViewIcon from "@/components/icons/ViewIcon";
 
 
 function CustomFileObjectNode(props: { id: string, data: Record<string, string | FileObject> }) {

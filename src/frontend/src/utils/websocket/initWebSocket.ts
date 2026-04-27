@@ -1,5 +1,5 @@
-import {useWebSocketStore} from "../../state/webSocketStore";
-import {useWebsocketStatusStore} from "../../state/websocketStatusStore";
+import {useWebSocketStore} from "@/state/webSocketStore";
+import {useWebsocketStatusStore} from "@/state/websocketStatusStore";
 import {comms} from "../comms";
 import {handleFlatbufferMessage} from "../fb_handling/handle_incoming_buffers";
 import {requestServerInfo} from "./requestServerInfo";

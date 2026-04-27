@@ -1,7 +1,7 @@
 // state/cacheModelUtils.ts
 import {modelStore} from "./modelStore";
 import {useTreeViewStore} from "../treeViewStore";
-import {TreeNodeData} from "../../components/tree_view/CustomNode";
+import {TreeNodeData} from "@/components/tree_view/CustomNode";
 
 /**
  * 1) cache hierarchy + drawRanges

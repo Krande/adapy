@@ -1,5 +1,5 @@
 import React from 'react';
-import {useObjectInfoStore} from '../../state/objectInfoStore';
+import {useObjectInfoStore} from '@/state/objectInfoStore';
 import JsonViewerComponent from './JsonViewerComponent';
 import CoordinateDisplay from "./CoordinateDisplay";
 

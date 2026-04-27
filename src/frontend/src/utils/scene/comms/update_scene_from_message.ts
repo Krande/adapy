@@ -1,14 +1,14 @@
-import {Message} from "../../../flatbuffers/wsock/message";
-import {useModelState} from "../../../state/modelState";
-import {SceneOperations} from "../../../flatbuffers/scene/scene-operations";
+import {Message} from "@/flatbuffers/wsock/message";
+import {useModelState} from "@/state/modelState";
+import {SceneOperations} from "@/flatbuffers/scene/scene-operations";
 import {add_mesh_to_scene} from "./append_to_scene_from_message";
 
 import {ungzip} from 'pako';
-import {setupModelLoaderAsync} from "../../../components/viewer/sceneHelpers/setupModelLoader";
-import {animationControllerRef, modelKeyMapRef, sceneRef} from "../../../state/refs";
-import {useTreeViewStore} from "../../../state/treeViewStore";
+import {setupModelLoaderAsync} from "@/components/viewer/sceneHelpers/setupModelLoader";
+import {animationControllerRef, modelKeyMapRef, sceneRef} from "@/state/refs";
+import {useTreeViewStore} from "@/state/treeViewStore";
 import {loadGLTFfrombase64} from "../loadGLTFfrombase64";
-import {useAnimationStore} from "../../../state/animationStore";
+import {useAnimationStore} from "@/state/animationStore";
 
 
 export function load_base64_model(){

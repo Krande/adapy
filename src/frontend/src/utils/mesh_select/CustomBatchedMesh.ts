@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import {selectedMaterial} from '../default_materials';
 import {buildEdgeGeometryWithRangeIds, makeEdgeShaderMaterial} from './EdgeShaderHelper';
-import {DesignDataExtension, SimulationDataExtensionMetadata} from "../../extensions/design_and_analysis_extension";
+import {DesignDataExtension, SimulationDataExtensionMetadata} from "@/extensions/design_and_analysis_extension";
 
 
 export class CustomBatchedMesh extends THREE.Mesh {

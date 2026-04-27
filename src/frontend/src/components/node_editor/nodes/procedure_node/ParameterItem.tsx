@@ -1,5 +1,5 @@
 import React from 'react';
-import {ParameterT, ParameterType, ValueT} from "../../../../flatbuffers/base";
+import {ParameterT, ParameterType, ValueT} from "@/flatbuffers/base";
 
 
 export function ParameterItem({

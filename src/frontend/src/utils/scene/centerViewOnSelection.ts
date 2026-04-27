@@ -1,10 +1,10 @@
 import * as THREE from 'three';
 import {Camera} from 'three';
-import {useSelectedObjectStore} from '../../state/useSelectedObjectStore';
-import {useModelState} from '../../state/modelState';
+import {useSelectedObjectStore} from '@/state/useSelectedObjectStore';
+import {useModelState} from '@/state/modelState';
 import {OrbitControls} from 'three/examples/jsm/controls/OrbitControls';
 import CameraControls from 'camera-controls';
-import {selectedPointRef} from "../../state/refs";
+import {selectedPointRef} from "@/state/refs";
 
 export const centerViewOnSelection = (
     controls: OrbitControls | CameraControls,

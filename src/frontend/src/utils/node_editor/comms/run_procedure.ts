@@ -1,11 +1,11 @@
-import {Message,} from '../../../flatbuffers/wsock'
-import {CommandType, TargetType} from '../../../flatbuffers/commands';
-import {FileArgT, Parameter, ParameterT, ParameterType, Value, ProcedureStart} from '../../../flatbuffers/base';
-import {Procedure, ProcedureStore, ProcedureT,} from '../../../flatbuffers/procedures';
-import {useNodeEditorStore} from '../../../state/useNodeEditorStore';
+import {Message,} from '@/flatbuffers/wsock'
+import {CommandType, TargetType} from '@/flatbuffers/commands';
+import {FileArgT, Parameter, ParameterT, ParameterType, Value, ProcedureStart} from '@/flatbuffers/base';
+import {Procedure, ProcedureStore, ProcedureT,} from '@/flatbuffers/procedures';
+import {useNodeEditorStore} from '@/state/useNodeEditorStore';
 import * as flatbuffers from "flatbuffers"; // Import the node editor Zustand store
 import {Builder} from "flatbuffers";
-import {comms} from "../../comms";
+import {comms} from "@/utils/comms";
 
 function extract_input_params(builder: Builder, params: string[], procedureT: ProcedureT) {
     // the param strings are div keys in the form of 'param-<procedure_name>-<index>'

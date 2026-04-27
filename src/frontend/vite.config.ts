@@ -10,6 +10,11 @@ export default defineConfig({
     publicDir: path.resolve(__dirname, 'public'), // Set the public directory to 'public'
     base: './',
     plugins: [react() ],// , visualizer({open: true, gzipSize: true, brotliSize: true})],
+    resolve: {
+        alias: {
+            "@": path.resolve(__dirname, 'src'),
+        },
+    },
     build: {
         outDir: path.resolve(__dirname, 'dist'), // Output directory outside of 'src'
         sourcemap: false,

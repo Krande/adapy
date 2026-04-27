@@ -1,10 +1,10 @@
-import {FileObject, FileType} from "../../../flatbuffers/base";
+import {FileObject, FileType} from "@/flatbuffers/base";
 import * as flatbuffers from "flatbuffers";
-import {Message} from "../../../flatbuffers/wsock/message";
-import {comms} from "../../comms";
-import {CommandType} from "../../../flatbuffers/commands";
-import {TargetType} from "../../../flatbuffers/commands/target-type";
-import {Server} from "../../../flatbuffers/server/server";
+import {Message} from "@/flatbuffers/wsock/message";
+import {comms} from "@/utils/comms";
+import {CommandType} from "@/flatbuffers/commands";
+import {TargetType} from "@/flatbuffers/commands/target-type";
+import {Server} from "@/flatbuffers/server/server";
 // NOTE: convert_source_file and conversionStore are imported lazily
 // inside the REST branch below. In WS / desktop mode (the embedded
 // zip shipped with the Python package) they're never reached, and

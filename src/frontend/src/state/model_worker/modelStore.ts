@@ -2,7 +2,7 @@
 import * as Comlink from "comlink";
 // inline the worker so it’s embedded in the bundle
 import Worker from "./modelCache.worker.ts?worker&inline";
-import {TreeNodeData} from "../../components/tree_view/CustomNode";
+import {TreeNodeData} from "@/components/tree_view/CustomNode";
 
 // This must match what your worker returns via Comlink.expose
 export interface ModelData {

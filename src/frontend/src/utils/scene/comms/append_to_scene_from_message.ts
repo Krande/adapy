@@ -1,8 +1,8 @@
-import {useModelState} from "../../../state/modelState";
+import {useModelState} from "@/state/modelState";
 import * as THREE from "three";
-import {sceneRef} from "../../../state/refs";
-import {MeshT} from "../../../flatbuffers/meshes/mesh";
-import {prepareLoadedModel} from "../../../components/viewer/sceneHelpers/prepareLoadedModel";
+import {sceneRef} from "@/state/refs";
+import {MeshT} from "@/flatbuffers/meshes/mesh";
+import {prepareLoadedModel} from "@/components/viewer/sceneHelpers/prepareLoadedModel";
 
 export async function add_mesh_to_scene(mesh: MeshT) {
     let three_scene = sceneRef.current;

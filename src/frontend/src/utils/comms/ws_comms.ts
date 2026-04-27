@@ -1,4 +1,4 @@
-import { useWebsocketStatusStore } from "../../state/websocketStatusStore";
+import { useWebsocketStatusStore } from "@/state/websocketStatusStore";
 import type { Comms, CommsConnectHandler, CommsMessageHandler, Unsubscribe } from "./types";
 
 const INT32_MAX = 2147483647;
