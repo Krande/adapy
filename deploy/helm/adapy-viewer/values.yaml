@@ -127,6 +127,45 @@ storage:
     hostPath: ""
     existingClaim: ""
 
+## OIDC bearer-token authentication. Provider-agnostic: works with any
+## OIDC issuer that publishes a discovery document (Authentik, Azure
+## AD direct, Auth0, Keycloak, etc.). When auth.enabled is false the
+## API is open — fine for dev / single-tenant / behind another auth
+## layer; turn it on for any multi-user deployment.
+##
+## The viewer uses PKCE (public-client) flow, so client_secret is not
+## required and not configured here. The backend verifies tokens
+## against the issuer's JWKS — public-key only.
+auth:
+  enabled: false
+  ## Issuer URL — the prefix served by the IdP. Used to build the
+  ## discovery URL (<issuer>/.well-known/openid-configuration). Trailing
+  ## slashes are stripped server-side.
+  issuer: ""
+  ## OAuth client id registered with the IdP for this viewer.
+  clientId: ""
+  ## Token audience. Most IdPs (including Authentik) issue tokens with
+  ## aud == client_id; Azure AD v2 splits the two. Falls back to
+  ## clientId when blank.
+  audience: ""
+  ## Group claim value that grants admin access. For Authentik this is
+  ## a group name (e.g. "ada-viewer-admins"); for Azure AD it's the
+  ## group's object id. Match is exact-string. Blank disables admin.
+  adminGroup: ""
+
+## Optional Postgres. When DATABASE_URL is set the viewer enables
+## per-project storage tiers, the admin panel, and the audit log.
+## Without it the API serves the shared bucket only — fine for tiny
+## deployments. Either inline a URL (dev only) or reference an
+## externally-managed Secret (preferred for production).
+database:
+  ## Inline DSN — convenient for dev, leaks into helm values for prod.
+  ## Use existingSecret instead in production.
+  url: ""
+  ## Name of an existing Secret holding DATABASE_URL.
+  existingSecret: ""
+  existingSecretKey: DATABASE_URL
+
 ## Optional bundled Garage. Off by default — most users will point the
 ## API at an existing Garage. Enable for a self-contained demo cluster.
 garage:

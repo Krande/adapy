@@ -81,3 +81,48 @@ in-cluster NATS service. Otherwise use the explicit URL from values
 {{- .Values.nats.url -}}
 {{- end -}}
 {{- end -}}
+
+{{/*
+Auth env block. Rendered into the api Deployment when auth.enabled is
+true. Worker pods don't need auth (no inbound HTTP). The block emits
+nothing when disabled, leaving server defaults — which keep the API
+open and untouched from phase-1-and-earlier behavior.
+*/}}
+{{- define "adapy-viewer.authEnv" -}}
+{{- if .Values.auth.enabled }}
+- name: ADA_VIEWER_AUTH_ENABLED
+  value: "true"
+- name: ADA_VIEWER_AUTH_ISSUER
+  value: {{ .Values.auth.issuer | quote }}
+- name: ADA_VIEWER_AUTH_CLIENT_ID
+  value: {{ .Values.auth.clientId | quote }}
+{{- if .Values.auth.audience }}
+- name: ADA_VIEWER_AUTH_AUDIENCE
+  value: {{ .Values.auth.audience | quote }}
+{{- end }}
+{{- if .Values.auth.adminGroup }}
+- name: ADA_VIEWER_AUTH_ADMIN_GROUP
+  value: {{ .Values.auth.adminGroup | quote }}
+{{- end }}
+{{- end }}
+{{- end -}}
+
+{{/*
+DATABASE_URL env block. Rendered into both the api and worker
+deployments. Picks the existingSecret reference when set (preferred
+in production / gitops); falls back to the inline values DSN, which
+is acceptable for dev. Emits nothing when neither is set — that's the
+"shared-only mode" path.
+*/}}
+{{- define "adapy-viewer.databaseEnv" -}}
+{{- if .Values.database.existingSecret }}
+- name: DATABASE_URL
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.database.existingSecret }}
+      key: {{ .Values.database.existingSecretKey | default "DATABASE_URL" }}
+{{- else if .Values.database.url }}
+- name: DATABASE_URL
+  value: {{ .Values.database.url | quote }}
+{{- end }}
+{{- end -}}

@@ -60,6 +60,7 @@ spec:
             {{- end }}
             - name: ADA_VIEWER_NATS_URL
               value: {{ $natsUrl | quote }}
+            {{- include "adapy-viewer.databaseEnv" . | nindent 12 }}
           {{- if eq .Values.storage.kind "local" }}
           volumeMounts:
             - name: data
