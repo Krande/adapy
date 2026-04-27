@@ -34,14 +34,20 @@ function extOf(name: string): string {
  * refresh the file list. Non-GLB uploads also enqueue a conversion
  * job so the file is ready to view by the time the user clicks it.
  */
-export async function uploadFile(file: File, opts?: {autoConvert?: boolean}): Promise<void> {
+export async function uploadFile(
+    file: File,
+    opts?: {
+        autoConvert?: boolean;
+        onProgress?: (loaded: number, total: number) => void;
+    },
+): Promise<void> {
     const key = file.name;
     const ext = extOf(key);
     if (!SUPPORTED_EXTS.includes(ext)) {
         throw new Error(`unsupported file type: ${ext || "(no extension)"}`);
     }
 
-    await viewerApi.putBlob(key, file);
+    await viewerApi.putBlob(key, file, {onProgress: opts?.onProgress});
     await request_list_of_files_from_server();
 
     const autoConvert = opts?.autoConvert !== false;

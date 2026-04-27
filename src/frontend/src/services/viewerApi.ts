@@ -64,17 +64,57 @@ export const viewerApi = {
         return await r.arrayBuffer();
     },
 
-    /** Upload bytes under a given key. body is anything fetch's BodyInit
-     * accepts (File, Blob, ArrayBuffer, Uint8Array, ...). */
-    async putBlob(key: string, body: BodyInit): Promise<void> {
-        const r = await fetch(this.blobUrl(key), {
-            method: "PUT",
-            body,
-            headers: {"Content-Type": "application/octet-stream"},
-        });
-        if (!r.ok) {
-            throw new ApiError(`putBlob(${key})`, r.status, await readDetail(r));
+    /** Upload bytes under a given key. body is anything fetch/XHR can
+     * send (File, Blob, ArrayBuffer, ...). When `onProgress` is given,
+     * the request goes through XMLHttpRequest because fetch doesn't
+     * expose upload progress consistently across browsers. */
+    async putBlob(
+        key: string,
+        body: BodyInit,
+        opts?: {onProgress?: (loaded: number, total: number) => void},
+    ): Promise<void> {
+        if (!opts?.onProgress) {
+            const r = await fetch(this.blobUrl(key), {
+                method: "PUT",
+                body,
+                headers: {"Content-Type": "application/octet-stream"},
+            });
+            if (!r.ok) {
+                throw new ApiError(`putBlob(${key})`, r.status, await readDetail(r));
+            }
+            return;
         }
+
+        await new Promise<void>((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            xhr.open("PUT", this.blobUrl(key));
+            xhr.setRequestHeader("Content-Type", "application/octet-stream");
+            xhr.upload.addEventListener("progress", (e) => {
+                if (e.lengthComputable) {
+                    opts.onProgress!(e.loaded, e.total);
+                }
+            });
+            xhr.addEventListener("load", () => {
+                if (xhr.status >= 200 && xhr.status < 300) {
+                    resolve();
+                } else {
+                    reject(
+                        new ApiError(
+                            `putBlob(${key}) failed: ${xhr.status}`,
+                            xhr.status,
+                            xhr.responseText || "",
+                        ),
+                    );
+                }
+            });
+            xhr.addEventListener("error", () =>
+                reject(new ApiError(`putBlob(${key}) network error`, 0, "")),
+            );
+            xhr.addEventListener("abort", () =>
+                reject(new ApiError(`putBlob(${key}) aborted`, 0, "")),
+            );
+            xhr.send(body as XMLHttpRequestBodyInit);
+        });
     },
 
     /** Enqueue a server-side conversion. Returns either a fresh queued

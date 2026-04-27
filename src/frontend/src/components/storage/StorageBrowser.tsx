@@ -50,6 +50,13 @@ function downloadByKey(key: string, suggestedName?: string) {
     document.body.removeChild(a);
 }
 
+function formatBytes(n: number): string {
+    if (n < 1024) return `${n} B`;
+    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+    if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
+    return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`;
+}
+
 function buildFlatbufferFileObject(entry: ServerFileEntry): FileObject {
     const builder = new flatbuffers.Builder(256);
     const t = new FileObjectT(entry.name, entry.fileType, undefined, entry.filepath || entry.name);
@@ -63,6 +70,12 @@ const StorageBrowser: React.FC = () => {
     const conversionJobs = useConversionStore((s) => s.jobs);
     const [convertingKey, setConvertingKey] = useState<string | null>(null);
     const [uploading, setUploading] = useState(false);
+    // Upload progress: name = current file (or null), loaded/total in
+    // bytes. Total may stay 0 if the browser can't determine it (rare
+    // for File uploads); we treat that as indeterminate.
+    const [uploadName, setUploadName] = useState<string | null>(null);
+    const [uploadLoaded, setUploadLoaded] = useState(0);
+    const [uploadTotal, setUploadTotal] = useState(0);
     const [expandedName, setExpandedName] = useState<string | null>(null);
     const [viewingName, setViewingName] = useState<string | null>(null);
     // Owned input — clicking it must happen synchronously inside the
@@ -89,12 +102,23 @@ const StorageBrowser: React.FC = () => {
         e.target.value = "";
         if (!file) return;
         setUploading(true);
+        setUploadName(file.name);
+        setUploadLoaded(0);
+        setUploadTotal(file.size);
         try {
-            await uploadFile(file);
+            await uploadFile(file, {
+                onProgress: (loaded, total) => {
+                    setUploadLoaded(loaded);
+                    if (total) setUploadTotal(total);
+                },
+            });
         } catch (err) {
             console.error("upload failed", err);
         } finally {
             setUploading(false);
+            setUploadName(null);
+            setUploadLoaded(0);
+            setUploadTotal(0);
         }
     };
 
@@ -154,6 +178,35 @@ const StorageBrowser: React.FC = () => {
                     </button>
                 </div>
             </div>
+            {uploadName && (
+                <div className="mb-2 text-xs">
+                    <div className="flex items-center justify-between gap-2">
+                        <span className="truncate flex-1 min-w-0" title={uploadName}>
+                            Uploading {uploadName}
+                        </span>
+                        <span className="shrink-0 tabular-nums">
+                            {uploadTotal > 0
+                                ? `${formatBytes(uploadLoaded)} / ${formatBytes(uploadTotal)}`
+                                : formatBytes(uploadLoaded)}
+                        </span>
+                    </div>
+                    <div className="mt-1 h-1 w-full bg-gray-300/50 rounded overflow-hidden">
+                        {uploadTotal > 0 ? (
+                            <div
+                                className="h-full bg-blue-600 transition-[width] duration-200"
+                                style={{
+                                    width: `${Math.max(
+                                        0,
+                                        Math.min(100, Math.round((uploadLoaded / uploadTotal) * 100)),
+                                    )}%`,
+                                }}
+                            />
+                        ) : (
+                            <div className="h-full w-1/3 bg-blue-600 animate-[indeterminate_1.4s_ease-in-out_infinite]"/>
+                        )}
+                    </div>
+                </div>
+            )}
             {files.length === 0 ? (
                 <div className="text-xs italic">
                     No files yet. Use the Upload button (or right-click the viewer) to add one.
