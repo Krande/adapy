@@ -1,32 +1,13 @@
-import {useConversionStore, ConversionJob, ConvertStatus} from "@/state/conversionStore";
+import {useConversionStore, ConversionJob} from "@/state/conversionStore";
 import {useExperimentalStore} from "@/state/experimentalStore";
 import {convertIfcViaPyodide} from "@/utils/pyodide/pyodide_converter";
 import {runtime} from "@/runtime/config";
+import {viewerApi, ConvertResponse, TargetFormat} from "@/services/viewerApi";
 
 const POLL_INTERVAL_MS = 1000;
 const MAX_POLL_ATTEMPTS = 60 * 30; // ~30 min ceiling — generous enough for big IFC
 
-export type TargetFormat = "glb" | "ifc" | "xml";
-
-interface ConvertResponse {
-    job_id: string;
-    source_key: string;
-    derived_key: string;
-    target_format?: TargetFormat;
-    status: ConvertStatus;
-    progress: number;
-    stage: string;
-    error: string | null;
-    cached: boolean;
-}
-
-function apiBase(): string {
-    return runtime.apiBase();
-}
-
-function convertEnabled(): boolean {
-    return runtime.convertEnabled();
-}
+export type {TargetFormat} from "@/services/viewerApi";
 
 function buildJob(sourceKey: string, payload: ConvertResponse): ConversionJob {
     return {
@@ -39,14 +20,6 @@ function buildJob(sourceKey: string, payload: ConvertResponse): ConversionJob {
         error: payload.error,
         startedAt: Date.now(),
     };
-}
-
-async function pollOnce(jobId: string): Promise<ConvertResponse> {
-    const r = await fetch(`${apiBase()}/convert/${encodeURIComponent(jobId)}`);
-    if (!r.ok) {
-        throw new Error(`convert status fetch failed: ${r.status} ${r.statusText}`);
-    }
-    return await r.json() as ConvertResponse;
 }
 
 function shouldUsePyodide(sourceKey: string, targetFormat: TargetFormat): boolean {
@@ -70,10 +43,7 @@ async function convertViaPyodideAndUpload(sourceKey: string): Promise<string> {
     };
     store.setJob(storeKey, job);
 
-    const sourceUrl = `${apiBase()}/blobs/${encodeURIComponent(sourceKey)}`;
-    const r = await fetch(sourceUrl);
-    if (!r.ok) throw new Error(`fetch source failed: ${r.status}`);
-    const sourceBuf = await r.arrayBuffer();
+    const sourceBuf = await viewerApi.getBlob(sourceKey);
 
     store.setJob(storeKey, {...job, progress: 0.15, stage: "tessellating in browser"});
 
@@ -91,15 +61,7 @@ async function convertViaPyodideAndUpload(sourceKey: string): Promise<string> {
     });
 
     const derivedKey = `_derived/${sourceKey}.glb`;
-    const put = await fetch(`${apiBase()}/blobs/${encodeURIComponent(derivedKey)}`, {
-        method: "PUT",
-        body: glb,
-        headers: {"Content-Type": "application/octet-stream"},
-    });
-    if (!put.ok) {
-        const detail = await put.text().catch(() => "");
-        throw new Error(`upload derived failed: ${put.status} ${detail}`);
-    }
+    await viewerApi.putBlob(derivedKey, glb);
 
     store.setJob(storeKey, {
         ...store.jobs[storeKey] || job,
@@ -128,7 +90,7 @@ export async function ensureConverted(
         return await convertViaPyodideAndUpload(sourceKey);
     }
 
-    if (!convertEnabled()) {
+    if (!runtime.convertEnabled()) {
         throw new Error("conversion not enabled on this deployment");
     }
 
@@ -137,16 +99,7 @@ export async function ensureConverted(
     const storeKey = `${sourceKey}::${targetFormat}`;
     const store = useConversionStore.getState();
 
-    const r = await fetch(`${apiBase()}/convert`, {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({source_key: sourceKey, target_format: targetFormat}),
-    });
-    if (!r.ok) {
-        const detail = await r.text().catch(() => "");
-        throw new Error(`convert enqueue failed: ${r.status} ${detail}`);
-    }
-    const initial = await r.json() as ConvertResponse;
+    const initial = await viewerApi.convert(sourceKey, targetFormat);
     let job = buildJob(storeKey, initial);
     store.setJob(storeKey, job);
 
@@ -163,7 +116,7 @@ export async function ensureConverted(
         await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
         let payload: ConvertResponse;
         try {
-            payload = await pollOnce(initial.job_id);
+            payload = await viewerApi.convertStatus(initial.job_id);
         } catch (err) {
             console.warn("convert poll error", err);
             continue;
@@ -194,11 +147,5 @@ export async function ensureConvertedGlb(sourceKey: string): Promise<void> {
 }
 
 export async function fetchSupportedTargets(sourceKey: string): Promise<TargetFormat[]> {
-    const url = `${apiBase()}/convert/targets?source_key=${encodeURIComponent(sourceKey)}`;
-    const r = await fetch(url);
-    if (!r.ok) {
-        return [];
-    }
-    const body = await r.json() as {targets: TargetFormat[]};
-    return body.targets || [];
+    return viewerApi.convertTargets(sourceKey);
 }

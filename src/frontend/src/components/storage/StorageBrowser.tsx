@@ -8,6 +8,7 @@ import * as flatbuffers from "flatbuffers";
 import ReloadIcon from "../icons/ReloadIcon";
 import ViewIcon from "../icons/ViewIcon";
 import {runtime} from "@/runtime/config";
+import {viewerApi} from "@/services/viewerApi";
 
 const ADA_LOADABLE_EXTS = new Set([
     ".ifc", ".step", ".stp", ".xml", ".inp", ".fem", ".sat", ".acis",
@@ -29,9 +30,8 @@ function viableTargets(name: string): TargetFormat[] {
 }
 
 function downloadByKey(key: string, suggestedName?: string) {
-    const url = `${runtime.apiBase()}/blobs/${encodeURIComponent(key)}`;
     const a = document.createElement("a");
-    a.href = url;
+    a.href = viewerApi.blobUrl(key);
     if (suggestedName) a.download = suggestedName;
     a.style.display = "none";
     document.body.appendChild(a);

@@ -1,6 +1,7 @@
 import {request_list_of_files_from_server} from "@/utils/server_info/comms/request_list_of_files_from_server";
 import {ensureConvertedGlb} from "./convert_source_file";
 import {runtime} from "@/runtime/config";
+import {viewerApi} from "@/services/viewerApi";
 
 const SUPPORTED_EXTS = [
     ".glb", ".gltf",
@@ -17,10 +18,6 @@ export const UPLOAD_TRIGGER_EVENT = "ada-upload-trigger";
 
 export function triggerUploadPicker(): void {
     window.dispatchEvent(new CustomEvent(UPLOAD_TRIGGER_EVENT));
-}
-
-function apiBase(): string {
-    return runtime.apiBase();
 }
 
 export function uploadAcceptAttr(): string {
@@ -44,17 +41,7 @@ export async function uploadFile(file: File, opts?: {autoConvert?: boolean}): Pr
         throw new Error(`unsupported file type: ${ext || "(no extension)"}`);
     }
 
-    const url = `${apiBase()}/blobs/${encodeURIComponent(key)}`;
-    const r = await fetch(url, {
-        method: "PUT",
-        body: file,
-        headers: {"Content-Type": "application/octet-stream"},
-    });
-    if (!r.ok) {
-        const detail = await r.text().catch(() => "");
-        throw new Error(`upload failed: ${r.status} ${detail}`);
-    }
-
+    await viewerApi.putBlob(key, file);
     await request_list_of_files_from_server();
 
     const autoConvert = opts?.autoConvert !== false;
