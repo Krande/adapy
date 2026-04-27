@@ -10,6 +10,17 @@ imagePullSecrets: []
 nameOverride: ""
 fullnameOverride: ""
 
+## Optional /etc/hosts entries injected into both api and worker pods.
+## Useful when an in-cluster service is only reachable via a public
+## hostname that resolves to an external IP — point the hostname at the
+## ingress controller's ClusterIP instead, so the round-trip stays
+## inside the cluster (and works without public DNS / TLS round-trips
+## from the pod). Standard Kubernetes shape:
+##   hostAliases:
+##     - ip: 10.0.0.1
+##       hostnames: [auth.example.com]
+hostAliases: []
+
 replicaCount: 1
 
 ## Rollout strategy for the API deployment. Defaults to surge-only (no
