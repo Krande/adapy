@@ -38,18 +38,22 @@ const ResizableTreeView: React.FC = () => {
 
     return (
         <div className="relative flex h-full">
-            {/* Tree View Section */}
+            {/* Tree View Section.
+                On mobile (< md) the panel floats over the canvas instead of
+                pushing it aside — there's not enough horizontal room to
+                shrink the 3D view and still see anything. On desktop it
+                stays inline so the user can resize the split. */}
             {!isTreeCollapsed && (
                 <div
                     style={{ width: `${treeViewWidth}px` }}
-                    className="flex-grow-0 flex-shrink-0 h-full bg-gray-800 overflow-auto relative"
+                    className="absolute md:relative top-0 left-0 z-20 max-w-[85vw] flex-grow-0 flex-shrink-0 h-full bg-gray-800 overflow-auto shadow-lg md:shadow-none md:max-w-none"
                 >
                     {/* The actual tree view component */}
                     <TreeViewComponent />
 
-                    {/* Resize Handle */}
+                    {/* Resize Handle — desktop only, no value on touch. */}
                     <div
-                        className="absolute top-0 right-0 w-2 h-full cursor-ew-resize bg-gray-600"
+                        className="absolute top-0 right-0 w-2 h-full cursor-ew-resize bg-gray-600 hidden md:block"
                         onMouseDown={handleMouseDown}
                     />
                 </div>

@@ -1,9 +1,9 @@
-import React, {useState} from "react";
+import React, {useRef, useState} from "react";
 import {useServerInfoStore, ServerFileEntry} from "@/state/serverInfoStore";
 import {request_list_of_files_from_server} from "@/utils/server_info/handlers/request_list_of_files_from_server";
 import {view_file_object_from_server} from "@/utils/scene/handlers/view_file_object_from_server";
 import {ensureConverted, TargetFormat} from "@/services/conversion";
-import {triggerUploadPicker} from "@/utils/scene/handlers/upload_source_file";
+import {uploadAcceptAttr, uploadFile} from "@/utils/scene/handlers/upload_source_file";
 import {FileObjectT, FileObject} from "@/flatbuffers/base/file-object";
 import * as flatbuffers from "flatbuffers";
 import ReloadIcon from "../icons/ReloadIcon";
@@ -51,9 +51,30 @@ function buildFlatbufferFileObject(entry: ServerFileEntry): FileObject {
 const StorageBrowser: React.FC = () => {
     const files = useServerInfoStore((s) => s.serverFileObjects);
     const [convertingKey, setConvertingKey] = useState<string | null>(null);
+    const [uploading, setUploading] = useState(false);
+    // Owned input — clicking it must happen synchronously inside the
+    // button's onClick to preserve the user-activation gesture (iOS Safari
+    // refuses the file picker otherwise). The previous implementation
+    // dispatched a CustomEvent that UploadContextMenu listened for, which
+    // broke the gesture chain on mobile.
+    const fileInputRef = useRef<HTMLInputElement>(null);
 
     const onView = (entry: ServerFileEntry) => {
         view_file_object_from_server(buildFlatbufferFileObject(entry));
+    };
+
+    const onFilePicked = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        e.target.value = "";
+        if (!file) return;
+        setUploading(true);
+        try {
+            await uploadFile(file);
+        } catch (err) {
+            console.error("upload failed", err);
+        } finally {
+            setUploading(false);
+        }
     };
 
     const onConvertAndDownload = async (sourceName: string, target: TargetFormat) => {
@@ -82,12 +103,20 @@ const StorageBrowser: React.FC = () => {
             <div className="flex justify-between items-center mb-2">
                 <h2 className="font-bold">Storage</h2>
                 <div className="flex items-center gap-1">
+                    <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept={uploadAcceptAttr()}
+                        style={{display: "none"}}
+                        onChange={onFilePicked}
+                    />
                     <button
-                        className="bg-blue-700 hover:bg-blue-600 text-white px-2 py-1 rounded text-xs"
-                        onClick={() => triggerUploadPicker()}
+                        className="bg-blue-700 hover:bg-blue-600 text-white px-2 py-1 rounded text-xs disabled:opacity-60"
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={uploading}
                         title="Upload file"
                     >
-                        + Upload
+                        {uploading ? "…" : "+ Upload"}
                     </button>
                     <button
                         className="bg-blue-700 hover:bg-blue-600 text-white p-1 rounded"
