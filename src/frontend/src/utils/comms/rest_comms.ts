@@ -1,5 +1,7 @@
 import { useWebsocketStatusStore } from "@/state/websocketStatusStore";
 import { runtime } from "@/runtime/config";
+import { getAccessToken } from "@/services/auth/oidc";
+import { scopeUrlPart, useScopeStore } from "@/state/scopeStore";
 import type {
   Comms,
   CommsConnectHandler,
@@ -116,9 +118,18 @@ export class RESTComms implements Comms {
     // Fire the request eagerly (matches WS socket.send semantics: caller
     // does not block on the response). Dispatch the response through the
     // chain so handler order matches request order.
+    const headers: Record<string, string> = {
+      "Content-Type": "application/octet-stream",
+      // Phase 2C: scope rides on a header so the FlatBuffer envelope
+      // stays untouched. The server resolves "user:me" to the caller's
+      // sub before authorising.
+      "X-Scope": scopeUrlPart(useScopeStore.getState().current),
+    };
+    const token = getAccessToken();
+    if (token) headers["Authorization"] = `Bearer ${token}`;
     const respPromise = fetch(`${this.apiBase}/rpc`, {
       method: "POST",
-      headers: { "Content-Type": "application/octet-stream" },
+      headers,
       body: payload,
       signal: ctl.signal,
     });

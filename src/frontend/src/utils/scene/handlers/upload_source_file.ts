@@ -1,7 +1,8 @@
 import {request_list_of_files_from_server} from "@/utils/server_info/handlers/request_list_of_files_from_server";
 import {ensureConvertedGlb} from "@/services/conversion";
 import {runtime} from "@/runtime/config";
-import {viewerApi} from "@/services/viewerApi";
+import {viewerApi, ScopeUrl} from "@/services/viewerApi";
+import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
 
 const SUPPORTED_EXTS = [
     ".glb", ".gltf",
@@ -30,15 +31,19 @@ function extOf(name: string): string {
 }
 
 /**
- * Upload a user-picked file to the viewer's storage backend, then
- * refresh the file list. Non-GLB uploads also enqueue a conversion
- * job so the file is ready to view by the time the user clicks it.
+ * Upload a user-picked file to the viewer's storage backend under the
+ * caller's current scope, then refresh the file list. Non-GLB uploads
+ * also enqueue a conversion job so the file is ready to view by the
+ * time the user clicks it.
  */
 export async function uploadFile(
     file: File,
     opts?: {
         autoConvert?: boolean;
         onProgress?: (loaded: number, total: number) => void;
+        /** Override the scope for this upload. Defaults to whatever
+         * the user has selected in the scope picker. */
+        scope?: ScopeUrl;
     },
 ): Promise<void> {
     const key = file.name;
@@ -47,7 +52,8 @@ export async function uploadFile(
         throw new Error(`unsupported file type: ${ext || "(no extension)"}`);
     }
 
-    await viewerApi.putBlob(key, file, {onProgress: opts?.onProgress});
+    const scope = opts?.scope ?? scopeUrlPart(useScopeStore.getState().current);
+    await viewerApi.putBlob(scope, key, file, {onProgress: opts?.onProgress});
     await request_list_of_files_from_server();
 
     const autoConvert = opts?.autoConvert !== false;
@@ -56,7 +62,7 @@ export async function uploadFile(
         // Fire-and-forget: ensureConvertedGlb updates the conversion
         // store as it polls so the UI reflects progress without
         // blocking the upload helper.
-        ensureConvertedGlb(key).catch((err) => {
+        ensureConvertedGlb(scope, key).catch((err) => {
             console.warn("auto-convert after upload failed", err);
         });
     }

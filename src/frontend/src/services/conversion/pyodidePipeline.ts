@@ -5,9 +5,12 @@
 
 import {useConversionStore, ConversionJob} from "@/state/conversionStore";
 import {convertIfcViaPyodide} from "@/utils/pyodide/pyodide_converter";
-import {viewerApi} from "@/services/viewerApi";
+import {viewerApi, ScopeUrl} from "@/services/viewerApi";
 
-export async function convertViaPyodideAndUpload(sourceKey: string): Promise<string> {
+export async function convertViaPyodideAndUpload(
+    scope: ScopeUrl,
+    sourceKey: string,
+): Promise<string> {
     const storeKey = `${sourceKey}::glb`;
     const store = useConversionStore.getState();
     const job: ConversionJob = {
@@ -22,7 +25,7 @@ export async function convertViaPyodideAndUpload(sourceKey: string): Promise<str
     };
     store.setJob(storeKey, job);
 
-    const sourceBuf = await viewerApi.getBlob(sourceKey);
+    const sourceBuf = await viewerApi.getBlob(scope, sourceKey);
 
     store.setJob(storeKey, {...job, progress: 0.15, stage: "tessellating in browser"});
 
@@ -40,7 +43,11 @@ export async function convertViaPyodideAndUpload(sourceKey: string): Promise<str
     });
 
     const derivedKey = `_derived/${sourceKey}.glb`;
-    await viewerApi.putBlob(derivedKey, glb);
+    // NOTE: the API layer rejects writes to _derived/* (it's the
+    // server-managed cache). The pyodide-experiment toggle will get a
+    // dedicated upload route in a follow-up; for now this branch is
+    // expected to fail with 403 when actually used.
+    await viewerApi.putBlob(scope, derivedKey, glb);
 
     store.setJob(storeKey, {
         ...store.jobs[storeKey] || job,

@@ -11,6 +11,7 @@ import ReloadIcon from "../icons/ReloadIcon";
 import ViewIcon from "../icons/ViewIcon";
 import {runtime} from "@/runtime/config";
 import {viewerApi} from "@/services/viewerApi";
+import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
 
 // Small inline CSS spinner. Uses border tricks rather than an SVG so
 // it scales with text size and stays crisp at 16px tall icons.
@@ -40,10 +41,10 @@ function viableTargets(name: string): TargetFormat[] {
     return [];
 }
 
-function downloadByKey(key: string, suggestedName?: string) {
+function downloadByKey(scope: string, key: string, suggestedName?: string) {
     // Goes through viewerApi.downloadBlob so the bearer token rides
     // along when auth is on; with auth off it's just a fetch+anchor.
-    void viewerApi.downloadBlob(key, suggestedName || key).catch((err) => {
+    void viewerApi.downloadBlob(scope, key, suggestedName || key).catch((err) => {
         console.error("download failed", err);
     });
 }
@@ -66,6 +67,8 @@ function buildFlatbufferFileObject(entry: ServerFileEntry): FileObject {
 const StorageBrowser: React.FC = () => {
     const files = useServerInfoStore((s) => s.serverFileObjects);
     const conversionJobs = useConversionStore((s) => s.jobs);
+    const currentScope = useScopeStore((s) => s.current);
+    const scope = scopeUrlPart(currentScope);
     const [convertingKey, setConvertingKey] = useState<string | null>(null);
     const [uploading, setUploading] = useState(false);
     // Upload progress: name = current file (or null), loaded/total in
@@ -124,11 +127,11 @@ const StorageBrowser: React.FC = () => {
         const stateKey = `${sourceName}::${target}`;
         setConvertingKey(stateKey);
         try {
-            const derivedKey = await ensureConverted(sourceName, target);
+            const derivedKey = await ensureConverted(scope, sourceName, target);
             // Suggest the source's basename + new extension as the
             // downloaded filename.
             const base = sourceName.replace(/\.[^./]+$/, "");
-            downloadByKey(derivedKey, `${base}.${target}`);
+            downloadByKey(scope, derivedKey, `${base}.${target}`);
         } catch (err) {
             // ensureConverted already updates the store with error;
             // the conversion progress widget surfaces it.
@@ -257,7 +260,7 @@ const StorageBrowser: React.FC = () => {
                                         </button>
                                         <button
                                             className="px-2 py-0.5 rounded hover:bg-gray-300/40 text-[10px] uppercase tracking-wide"
-                                            onClick={() => downloadByKey(f.name, f.name)}
+                                            onClick={() => downloadByKey(scope, f.name, f.name)}
                                             title="Download original"
                                         >
                                             DL

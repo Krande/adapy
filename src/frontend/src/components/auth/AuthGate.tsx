@@ -1,5 +1,7 @@
 import React, {useEffect, useState} from "react";
 import {bootstrap, isAuthEnabled, isSignedIn, signIn} from "@/services/auth/oidc";
+import {viewerApi} from "@/services/viewerApi";
+import {useScopeStore} from "@/state/scopeStore";
 
 // Gates the REST-mode app behind a verified bearer token. When auth
 // is disabled (default in dev / desktop) it's a transparent
@@ -8,22 +10,42 @@ import {bootstrap, isAuthEnabled, isSignedIn, signIn} from "@/services/auth/oidc
 //
 // The bootstrap call attempts a silent token refresh from the stashed
 // refresh token (sessionStorage) so reload-in-tab doesn't always
-// bounce through the IdP.
+// bounce through the IdP. After auth resolves we also fetch /api/me
+// and populate the scope store so the project picker has data
+// immediately.
+async function loadAvailableScopes(): Promise<void> {
+    try {
+        const me = await viewerApi.me();
+        useScopeStore.getState().setAvailable(me.scopes);
+    } catch (err) {
+        console.warn("failed to load /api/me", err);
+    }
+}
+
 const AuthGate: React.FC<{children: React.ReactNode}> = ({children}) => {
     const enabled = isAuthEnabled();
     const [ready, setReady] = useState(!enabled);
     const [signedIn, setSignedIn] = useState(!enabled || isSignedIn());
 
     useEffect(() => {
-        if (!enabled) return;
         let cancelled = false;
+        const finish = async () => {
+            if (cancelled) return;
+            const live = isSignedIn() || !enabled;
+            setSignedIn(live);
+            setReady(true);
+            // Load scopes whenever we have something to talk to: either
+            // a valid token (auth on) or the synthetic local-dev user
+            // (auth off). Skip when the sign-in prompt is being shown.
+            if (live) await loadAvailableScopes();
+        };
+        if (!enabled) {
+            void finish();
+            return () => { cancelled = true; };
+        }
         bootstrap()
             .catch(() => {/* refresh failed → show the sign-in button */})
-            .finally(() => {
-                if (cancelled) return;
-                setSignedIn(isSignedIn());
-                setReady(true);
-            });
+            .finally(finish);
         return () => {
             cancelled = true;
         };

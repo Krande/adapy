@@ -78,7 +78,9 @@ export async function view_file_object_from_server(fileobject: FileObject) {
         }
         try {
             const {ensureConvertedGlb} = await import("@/services/conversion");
-            await ensureConvertedGlb(sourceName);
+            const {scopeUrlPart, useScopeStore} = await import("@/state/scopeStore");
+            const scope = scopeUrlPart(useScopeStore.getState().current);
+            await ensureConvertedGlb(scope, sourceName);
             await send_view_request(sourceName);
         } catch (err) {
             console.error("conversion failed", err);

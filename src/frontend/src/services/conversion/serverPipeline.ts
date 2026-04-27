@@ -3,7 +3,7 @@
 // is ready or the job errors out.
 
 import {useConversionStore, ConversionJob} from "@/state/conversionStore";
-import {viewerApi, ConvertResponse, TargetFormat} from "@/services/viewerApi";
+import {viewerApi, ConvertResponse, TargetFormat, ScopeUrl} from "@/services/viewerApi";
 
 const POLL_INTERVAL_MS = 1000;
 const MAX_POLL_ATTEMPTS = 60 * 30; // ~30 min ceiling — generous enough for big IFC
@@ -22,6 +22,7 @@ function buildJob(sourceKey: string, payload: ConvertResponse): ConversionJob {
 }
 
 export async function convertViaServer(
+    scope: ScopeUrl,
     sourceKey: string,
     targetFormat: TargetFormat,
 ): Promise<string> {
@@ -30,7 +31,7 @@ export async function convertViaServer(
     const storeKey = `${sourceKey}::${targetFormat}`;
     const store = useConversionStore.getState();
 
-    const initial = await viewerApi.convert(sourceKey, targetFormat);
+    const initial = await viewerApi.convert(scope, sourceKey, targetFormat);
     let job = buildJob(storeKey, initial);
     store.setJob(storeKey, job);
 

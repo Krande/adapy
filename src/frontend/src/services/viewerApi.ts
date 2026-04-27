@@ -10,6 +10,25 @@ import {getAccessToken, isAuthEnabled, refreshAccessToken, signIn} from "@/servi
 export type TargetFormat = "glb" | "ifc" | "xml";
 export type ConvertStatus = "queued" | "running" | "done" | "error";
 
+/** Wire-format scope identifier, one of: "shared", "user:me",
+ *  "project:<id>". `user:me` is resolved server-side to the caller's
+ *  sub so URLs are user-agnostic. */
+export type ScopeUrl = string;
+
+export interface MeResponse {
+    sub: string;
+    email: string;
+    displayName: string;
+    isAdmin: boolean;
+    scopes: Array<{kind: "shared" | "user" | "project"; id: string | null; name: string}>;
+    projects: Array<{id: string; slug: string; name: string; role: string}>;
+}
+
+export interface FileEntry {
+    key: string;
+    size: number;
+}
+
 export interface ConvertResponse {
     job_id: string;
     source_key: string;
@@ -20,6 +39,8 @@ export interface ConvertResponse {
     stage: string;
     error: string | null;
     cached: boolean;
+    scope_kind?: string;
+    scope_id?: string | null;
 }
 
 export interface ConvertTargetsResponse {
@@ -88,13 +109,26 @@ async function authedFetch(url: string, init: RequestInit = {}): Promise<Respons
 }
 
 export const viewerApi = {
-    /** Direct URL — only safe to use as `<a href download>` when auth
-     * is disabled. With auth enabled the browser would send a no-token
-     * GET and be 401'd; use :func:`downloadBlob` for triggered downloads
-     * so the auth header travels along. Still useful as an `<img src>`
-     * for unauthenticated bootstrap (none today). */
-    blobUrl(key: string): string {
-        return `${runtime.apiBase()}/blobs/${encodeURIComponent(key)}`;
+    /** Direct URL for the addressable blob endpoint. Includes scope.
+     * Only safe to use as `<a href download>` when auth is disabled —
+     * with auth on use :func:`downloadBlob` so the bearer token rides
+     * along. */
+    blobUrl(scope: ScopeUrl, key: string): string {
+        return `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/blobs/${encodeURIComponent(key)}`;
+    },
+
+    /** Bootstrap the SPA's identity + available scopes. */
+    async me(): Promise<MeResponse> {
+        const r = await authedFetch(`${runtime.apiBase()}/me`);
+        return jsonOrThrow<MeResponse>(r, "me");
+    },
+
+    async listFiles(scope: ScopeUrl): Promise<FileEntry[]> {
+        const r = await authedFetch(
+            `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/files`,
+        );
+        const body = await jsonOrThrow<{files: FileEntry[]}>(r, `listFiles(${scope})`);
+        return body.files;
     },
 
     /** Trigger a browser download of a stored blob. Fetches with auth,
@@ -102,8 +136,8 @@ export const viewerApi = {
      * the URL to release memory. Works in both auth-on and auth-off
      * modes — the only cost over `<a href>` is one extra round-trip
      * the browser would have made anyway. */
-    async downloadBlob(key: string, suggestedName: string): Promise<void> {
-        const r = await authedFetch(this.blobUrl(key));
+    async downloadBlob(scope: ScopeUrl, key: string, suggestedName: string): Promise<void> {
+        const r = await authedFetch(this.blobUrl(scope, key));
         if (!r.ok) {
             throw new ApiError(`downloadBlob(${key})`, r.status, await readDetail(r));
         }
@@ -124,8 +158,8 @@ export const viewerApi = {
 
     /** Fetch raw bytes for a key. Used by the in-browser Pyodide
      * pipeline to read its source from storage. */
-    async getBlob(key: string): Promise<ArrayBuffer> {
-        const r = await authedFetch(this.blobUrl(key));
+    async getBlob(scope: ScopeUrl, key: string): Promise<ArrayBuffer> {
+        const r = await authedFetch(this.blobUrl(scope, key));
         if (!r.ok) {
             throw new ApiError(`getBlob(${key})`, r.status, await readDetail(r));
         }
@@ -137,12 +171,13 @@ export const viewerApi = {
      * the request goes through XMLHttpRequest because fetch doesn't
      * expose upload progress consistently across browsers. */
     async putBlob(
+        scope: ScopeUrl,
         key: string,
         body: BodyInit,
         opts?: {onProgress?: (loaded: number, total: number) => void},
     ): Promise<void> {
         if (!opts?.onProgress) {
-            const r = await authedFetch(this.blobUrl(key), {
+            const r = await authedFetch(this.blobUrl(scope, key), {
                 method: "PUT",
                 body,
                 headers: {"Content-Type": "application/octet-stream"},
@@ -158,7 +193,7 @@ export const viewerApi = {
         // makes mid-upload expiry vanishingly unlikely.
         await new Promise<void>((resolve, reject) => {
             const xhr = new XMLHttpRequest();
-            xhr.open("PUT", this.blobUrl(key));
+            xhr.open("PUT", this.blobUrl(scope, key));
             xhr.setRequestHeader("Content-Type", "application/octet-stream");
             const t = getAccessToken();
             if (t) xhr.setRequestHeader("Authorization", `Bearer ${t}`);
@@ -193,16 +228,25 @@ export const viewerApi = {
     /** Enqueue a server-side conversion. Returns either a fresh queued
      * job, a synthesised "cached" response (derived already present),
      * or rejects with ApiError. */
-    async convert(sourceKey: string, targetFormat: TargetFormat = "glb"): Promise<ConvertResponse> {
-        const r = await authedFetch(`${runtime.apiBase()}/convert`, {
-            method: "POST",
-            headers: {"Content-Type": "application/json"},
-            body: JSON.stringify({source_key: sourceKey, target_format: targetFormat}),
-        });
+    async convert(
+        scope: ScopeUrl,
+        sourceKey: string,
+        targetFormat: TargetFormat = "glb",
+    ): Promise<ConvertResponse> {
+        const r = await authedFetch(
+            `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/convert`,
+            {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({source_key: sourceKey, target_format: targetFormat}),
+            },
+        );
         return jsonOrThrow<ConvertResponse>(r, `convert(${sourceKey} -> ${targetFormat})`);
     },
 
-    /** Poll a single conversion job by id. */
+    /** Poll a single conversion job by id. Job_id is globally unique,
+     * so the URL doesn't carry a scope — the server re-checks access
+     * against the scope recorded on the job. */
     async convertStatus(jobId: string): Promise<ConvertResponse> {
         const r = await authedFetch(`${runtime.apiBase()}/convert/${encodeURIComponent(jobId)}`);
         return jsonOrThrow<ConvertResponse>(r, `convertStatus(${jobId})`);
@@ -210,8 +254,10 @@ export const viewerApi = {
 
     /** Server-side viable-target listing. The frontend mirrors this
      * mapping client-side too, but this lets us cross-check. */
-    async convertTargets(sourceKey: string): Promise<TargetFormat[]> {
-        const url = `${runtime.apiBase()}/convert/targets?source_key=${encodeURIComponent(sourceKey)}`;
+    async convertTargets(scope: ScopeUrl, sourceKey: string): Promise<TargetFormat[]> {
+        const url =
+            `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}` +
+            `/convert/targets?source_key=${encodeURIComponent(sourceKey)}`;
         const r = await authedFetch(url);
         if (!r.ok) return [];
         const body = (await r.json()) as ConvertTargetsResponse;
