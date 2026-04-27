@@ -192,6 +192,9 @@ nats-py = "*"
 [feature.viewer-api.tasks]
 viewer-api = { cmd = "python -m ada.comms.rest", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 viewer-worker = { cmd = "python -m ada.comms.rest.worker", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+# Static server for the Pyodide IFC->GLB experiment. Web Workers refuse
+# to run from file:// URLs, so this hands the directory at port 8088.
+pyodide-experiment = { cmd = "python -m http.server 8088", cwd = "experiments/pyodide-converter" }
 
 [feature.frontend.dependencies]
 nodejs = "*"
