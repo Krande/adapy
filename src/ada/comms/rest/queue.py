@@ -50,13 +50,22 @@ class Job:
     error: str | None = None
     created_at: float = 0.0
     updated_at: float = 0.0
+    # Scope under which the source/derived blobs live. Defaults to
+    # "shared" for backward compat with phase-1 jobs already in flight
+    # at the moment of upgrade.
+    scope_kind: str = "shared"
+    scope_id: str | None = None
 
     def to_json(self) -> bytes:
         return json.dumps(asdict(self)).encode("utf-8")
 
     @classmethod
     def from_json(cls, raw: bytes) -> "Job":
-        return cls(**json.loads(raw.decode("utf-8")))
+        # Tolerate older serialized jobs that pre-date scope_kind /
+        # scope_id by ignoring unknown fields and supplying defaults.
+        data = json.loads(raw.decode("utf-8"))
+        known = {f for f in cls.__dataclass_fields__}
+        return cls(**{k: v for k, v in data.items() if k in known})
 
 
 class QueueDisabled(RuntimeError):
@@ -112,7 +121,14 @@ class JobQueue:
 
     # --- producer side (called from API) -----------------------------
 
-    async def enqueue(self, source_key: str, target_format: str = "glb") -> Job:
+    async def enqueue(
+        self,
+        source_key: str,
+        target_format: str = "glb",
+        *,
+        scope_kind: str = "shared",
+        scope_id: str | None = None,
+    ) -> Job:
         now = time.time()
         job = Job(
             job_id=uuid.uuid4().hex,
@@ -124,6 +140,8 @@ class JobQueue:
             stage="queued",
             created_at=now,
             updated_at=now,
+            scope_kind=scope_kind,
+            scope_id=scope_id,
         )
         await self._put(job)
         await self._js.publish(self._cfg.subject, job.job_id.encode("utf-8"))

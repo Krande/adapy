@@ -34,6 +34,7 @@ import obstore as obs
 from obstore.store import LocalStore, S3Store
 
 from .config import Settings
+from .scope import Scope
 
 
 # gzip RFC 1952: every member starts with 0x1F 0x8B. Used as a portable
@@ -43,6 +44,10 @@ _GZIP_MAGIC = b"\x1f\x8b"
 
 @dataclass(frozen=True)
 class FileEntry:
+    """Bucket-level file entry. ``key`` is scope-relative — the
+    on-bucket prefix has been stripped, so callers see e.g.
+    ``foo.ifc`` not ``users/abc/foo.ifc``."""
+
     key: str
     size: int
 
@@ -95,37 +100,53 @@ class Storage:
         assert settings.local is not None
         return cls(LocalStore(settings.local.path), prefix=settings.local.prefix)
 
-    def _full_key(self, key: str) -> str:
-        key = key.lstrip("/")
-        if not self._prefix:
-            return key
-        return f"{self._prefix}/{key}"
+    def _scope_prefix(self, scope: Scope) -> str:
+        """Combine the deployment-level base prefix with the scope's
+        bucket sub-prefix. ``shared`` → ``<base>/shared``,
+        ``users/<sub>`` → ``<base>/users/<sub>``, etc.
+        """
+        parts = [p for p in (self._prefix, scope.prefix()) if p]
+        return "/".join(parts)
 
-    def _strip_prefix(self, full: str) -> str:
-        if self._prefix and full.startswith(self._prefix + "/"):
-            return full[len(self._prefix) + 1 :]
+    def _full_key(self, scope: Scope, key: str) -> str:
+        prefix = self._scope_prefix(scope)
+        key = key.lstrip("/")
+        if not prefix:
+            return key
+        return f"{prefix}/{key}"
+
+    def _strip_scope_prefix(self, scope: Scope, full: str) -> str:
+        prefix = self._scope_prefix(scope)
+        if prefix and full.startswith(prefix + "/"):
+            return full[len(prefix) + 1 :]
         return full
 
-    async def list(self) -> list[FileEntry]:
+    async def list(self, scope: Scope) -> list[FileEntry]:
         entries: list[FileEntry] = []
         # obs.list returns a ListStream of pages; each page is a Sequence
-        # of ObjectMeta dicts with keys "path" and "size".
-        stream = obs.list(self._store, prefix=self._prefix or None)
+        # of ObjectMeta dicts with keys "path" and "size". The scope
+        # prefix bounds the listing — a project list never sees user
+        # files and vice versa.
+        prefix = self._scope_prefix(scope)
+        stream = obs.list(self._store, prefix=prefix or None)
         async for page in stream:
             for meta in page:
                 entries.append(
-                    FileEntry(key=self._strip_prefix(meta["path"]), size=int(meta["size"]))
+                    FileEntry(
+                        key=self._strip_scope_prefix(scope, meta["path"]),
+                        size=int(meta["size"]),
+                    )
                 )
         return entries
 
-    async def get_bytes(self, key: str) -> bytes:
+    async def get_bytes(self, scope: Scope, key: str) -> bytes:
         """Read an object and return its decompressed payload.
 
         Auto-decompresses if the stored bytes start with the gzip magic
         marker, regardless of whether the backend kept Content-Encoding
         metadata.
         """
-        result = await self._store.get_async(self._full_key(key))
+        result = await self._store.get_async(self._full_key(scope, key))
         raw = bytes(await result.bytes_async())
         if raw[:2] == _GZIP_MAGIC:
             return gzip.decompress(raw)
@@ -133,6 +154,7 @@ class Storage:
 
     async def put_bytes(
         self,
+        scope: Scope,
         key: str,
         data: bytes,
         *,
@@ -148,12 +170,13 @@ class Storage:
         if content_encoding is not None and content_encoding != "gzip":
             raise ValueError(f"unsupported content_encoding: {content_encoding!r}")
 
+        full = self._full_key(scope, key)
         if content_encoding == "gzip":
             payload = gzip.compress(data)
             try:
                 await obs.put_async(
                     self._store,
-                    self._full_key(key),
+                    full,
                     payload,
                     attributes={"Content-Encoding": "gzip"},
                 )
@@ -162,19 +185,19 @@ class Storage:
                 # LocalStore (filesystem) has no attribute slot. Fall
                 # through and write the gzipped bytes — get_bytes /
                 # open_stream sniff the magic header on read.
-                await obs.put_async(self._store, self._full_key(key), payload)
+                await obs.put_async(self._store, full, payload)
                 return
 
-        await obs.put_async(self._store, self._full_key(key), data)
+        await obs.put_async(self._store, full, data)
 
-    async def exists(self, key: str) -> bool:
+    async def exists(self, scope: Scope, key: str) -> bool:
         try:
-            await self._store.head_async(self._full_key(key))
+            await self._store.head_async(self._full_key(scope, key))
         except FileNotFoundError:
             return False
         return True
 
-    async def open_stream(self, key: str) -> StreamResult:
+    async def open_stream(self, scope: Scope, key: str) -> StreamResult:
         """Open a byte stream eagerly: raises FileNotFoundError immediately
         if the key is missing, then returns an async iterator over chunks
         plus the detected ``Content-Encoding`` (or None).
@@ -184,7 +207,7 @@ class Storage:
         compressed bytes are *not* expanded — the caller is expected to
         forward ``Content-Encoding: gzip`` so the browser does that.
         """
-        result = await self._store.get_async(self._full_key(key))
+        result = await self._store.get_async(self._full_key(scope, key))
 
         # Some backends populate this from object metadata; treat it as
         # a hint, but fall back to magic-byte sniffing below either way.

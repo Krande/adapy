@@ -14,6 +14,7 @@ from . import auth as auth_module
 from . import db as db_module
 from .auth import User
 from .config import Settings, load_settings
+from .scope import Scope
 from .converter import (
     TARGET_FORMATS,
     UnsupportedFormat,
@@ -152,7 +153,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 status_code=415,
                 detail=f"target {target_format!r} not viable for source {source_key!r}; allowed: {viable}",
             )
-        if not await storage.exists(source_key):
+        # Phase 2B: scope is hardcoded to ``shared`` here so existing
+        # /api/* routes keep working unchanged. The scope-shaped URLs
+        # land in phase 2C.
+        if not await storage.exists(Scope.shared(), source_key):
             raise HTTPException(status_code=404, detail=f"source not found: {source_key}")
         if not queue.enabled:
             raise HTTPException(status_code=503, detail="conversion disabled (no NATS configured)")
@@ -163,7 +167,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             derived_key = derived_key_for(source_key, target_format)
         except UnsupportedFormat as exc:
             raise HTTPException(status_code=415, detail=str(exc)) from exc
-        if await storage.exists(derived_key):
+        if await storage.exists(Scope.shared(), derived_key):
             return JSONResponse(
                 {
                     "job_id": "",
@@ -209,7 +213,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # Streams raw bytes from storage. Useful for direct GLB fetches
         # outside the RPC envelope (CDN-cacheable, addressable).
         try:
-            result = await storage.open_stream(key)
+            result = await storage.open_stream(Scope.shared(), key)
         except FileNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         except Exception as exc:
@@ -243,7 +247,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if not data:
             raise HTTPException(status_code=400, detail="empty body")
         try:
-            await storage.put_bytes(clean, data, content_encoding=_content_encoding_for(clean))
+            await storage.put_bytes(Scope.shared(), clean, data, content_encoding=_content_encoding_for(clean))
         except Exception as exc:
             logger.exception("blob upload failed for %s", clean)
             raise HTTPException(status_code=500, detail=str(exc)) from exc

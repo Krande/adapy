@@ -38,6 +38,7 @@ from ada.comms.fb_wrap_serializer import serialize_root_message
 from ada.config import logger
 
 from .converter import derived_key_for, is_derived_key, is_supported_source
+from .scope import Scope
 from .storage import Storage
 
 # The REST server has no persistent instance id; this is the value that
@@ -87,7 +88,10 @@ def _error_reply(message: MessageDC, msg: str) -> bytes:
 
 
 async def _handle_list_file_objects(message: MessageDC, storage: Storage) -> bytes:
-    files = await storage.list()
+    # Phase 2B: legacy RPC handlers operate on the shared scope only.
+    # Phase 2C surfaces a scope arg via a separate, scope-aware RPC if
+    # the WS-style envelope ever needs multi-tenant access.
+    files = await storage.list(Scope.shared())
     file_objects: list[FileObjectDC] = []
     for entry in files:
         # Hide internal derived blobs from the user-facing file list.
@@ -131,7 +135,7 @@ async def _handle_view_file_object(message: MessageDC, storage: Storage) -> byte
         glb_key = key
     elif is_supported_source(key):
         candidate = derived_key_for(key)
-        if await storage.exists(candidate):
+        if await storage.exists(Scope.shared(), candidate):
             glb_key = candidate
 
     if glb_key is None:
@@ -141,7 +145,7 @@ async def _handle_view_file_object(message: MessageDC, storage: Storage) -> byte
         )
 
     try:
-        glb_bytes = await storage.get_bytes(glb_key)
+        glb_bytes = await storage.get_bytes(Scope.shared(), glb_key)
     except Exception as exc:  # obstore raises a generic Exception subclass on miss
         logger.warning("view_file_object: storage error for %s: %s", glb_key, exc)
         return _error_reply(message, f"view_file_object: storage error: {exc}")

@@ -31,7 +31,19 @@ from .queue import (
     Job,
     JobQueue,
 )
+from .scope import Scope
 from .storage import Storage
+
+
+def _scope_of(job: Job) -> Scope:
+    """Reconstruct the Scope a job's source/derived blobs live under.
+    Defaults to ``shared`` for jobs serialized before scope_kind existed.
+    """
+    if job.scope_kind == "project" and job.scope_id:
+        return Scope.project(job.scope_id)
+    if job.scope_kind == "user" and job.scope_id:
+        return Scope.user(job.scope_id)
+    return Scope.shared()
 
 
 # How long the pull-subscriber waits per fetch round before re-issuing.
@@ -53,9 +65,11 @@ async def _process_one(
         logger.warning("worker: job %s not found in KV; skipping", job_id)
         return
 
+    scope = _scope_of(job)
+
     # Skip if a previous run already produced the derived blob. This is
     # the cheap safety net for redelivered messages.
-    if await storage.exists(job.derived_key):
+    if await storage.exists(scope, job.derived_key):
         await queue.update(
             job_id,
             status=JOB_STATUS_DONE,
@@ -68,7 +82,7 @@ async def _process_one(
     await queue.update(job_id, status=JOB_STATUS_RUNNING, stage="loading", progress=0.05)
 
     try:
-        source_bytes = await storage.get_bytes(job.source_key)
+        source_bytes = await storage.get_bytes(scope, job.source_key)
     except FileNotFoundError as exc:
         logger.warning("worker: source %s missing for job %s", job.source_key, job_id)
         await queue.update(
@@ -116,7 +130,7 @@ async def _process_one(
     # viewer fetches on the hot path.
     derived_encoding = "gzip" if job.target_format in {"ifc", "xml"} else None
     try:
-        await storage.put_bytes(job.derived_key, out_bytes, content_encoding=derived_encoding)
+        await storage.put_bytes(scope, job.derived_key, out_bytes, content_encoding=derived_encoding)
     except Exception as exc:
         logger.exception("worker: upload failed for %s", job.derived_key)
         await queue.update(
