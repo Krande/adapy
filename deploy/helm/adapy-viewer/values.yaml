@@ -167,15 +167,61 @@ auth:
 ## Optional Postgres. When DATABASE_URL is set the viewer enables
 ## per-project storage tiers, the admin panel, and the audit log.
 ## Without it the API serves the shared bucket only — fine for tiny
-## deployments. Either inline a URL (dev only) or reference an
-## externally-managed Secret (preferred for production).
+## deployments.
+##
+## Three modes, in priority order:
+##   1. postgres.enabled=true       → chart deploys a single-node
+##                                    Postgres StatefulSet (see below)
+##                                    and wires DATABASE_URL into the
+##                                    api + worker pods automatically.
+##   2. database.existingSecret set → external Postgres, DSN read from
+##                                    the named Secret. Preferred for
+##                                    production (Vault/ESO-managed).
+##   3. database.url set            → external Postgres, inline DSN.
+##                                    Fine for dev / one-off installs.
+##   4. none                        → shared-only mode.
 database:
-  ## Inline DSN — convenient for dev, leaks into helm values for prod.
-  ## Use existingSecret instead in production.
   url: ""
-  ## Name of an existing Secret holding DATABASE_URL.
   existingSecret: ""
   existingSecretKey: DATABASE_URL
+
+## Optional bundled Postgres. Off by default — production deployments
+## should run Postgres as a separately-managed workload (managed PG,
+## CNPG operator, or a per-app StatefulSet in gitops) and point at it
+## via database.existingSecret. Enable for self-contained dev / demo
+## clusters that just want everything in one helm install.
+##
+## The StatefulSet runs postgres:16-alpine on a PVC and is reachable
+## as <release>-pg.<namespace>.svc on port 5432. Migrations are applied
+## by the api pod on startup; no init scripts here.
+postgres:
+  enabled: false
+  image:
+    repository: postgres
+    tag: "16-alpine"
+    pullPolicy: IfNotPresent
+  database: adapy_viewer
+  username: adapy_viewer
+  ## Password resolution: if existingSecret is set, the chart references
+  ## that Secret (preferred for any non-toy deployment). Otherwise
+  ## password is read inline — it MUST be set explicitly when bundled
+  ## Postgres is enabled, no surprise random defaults.
+  password: ""
+  existingSecret: ""
+  existingSecretPasswordKey: password
+  service:
+    port: 5432
+  persistence:
+    enabled: true
+    size: 5Gi
+    storageClass: ""
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 50m
+      memory: 128Mi
 
 ## Optional bundled Garage. Off by default — most users will point the
 ## API at an existing Garage. Enable for a self-contained demo cluster.

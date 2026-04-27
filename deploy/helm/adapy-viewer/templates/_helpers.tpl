@@ -107,15 +107,52 @@ open and untouched from phase-1-and-earlier behavior.
 {{- end }}
 {{- end -}}
 
+{{- define "adapy-viewer.postgresFullname" -}}
+{{- printf "%s-pg" (include "adapy-viewer.fullname" .) | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
+{{- define "adapy-viewer.postgresSecretName" -}}
+{{- if .Values.postgres.existingSecret -}}
+{{- .Values.postgres.existingSecret -}}
+{{- else -}}
+{{- printf "%s-pg" (include "adapy-viewer.fullname" .) -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "adapy-viewer.postgresPasswordKey" -}}
+{{- if .Values.postgres.existingSecret -}}
+{{- .Values.postgres.existingSecretPasswordKey | default "password" -}}
+{{- else -}}
+password
+{{- end -}}
+{{- end -}}
+
 {{/*
 DATABASE_URL env block. Rendered into both the api and worker
-deployments. Picks the existingSecret reference when set (preferred
-in production / gitops); falls back to the inline values DSN, which
-is acceptable for dev. Emits nothing when neither is set — that's the
-"shared-only mode" path.
+deployments. Three modes, in priority order:
+
+  1. postgres.enabled — bundled in-cluster Postgres. POSTGRES_PASSWORD
+     is pulled from the chart-managed (or referenced) Secret, then
+     DATABASE_URL is built using kubelet's $(VAR) substitution — that
+     way the password never needs to materialize in the rendered
+     manifest, but the DSN still ends up usable.
+  2. database.existingSecret — external Postgres, DSN read from the
+     named Secret. Preferred for production / gitops.
+  3. database.url — external Postgres, inline DSN. Acceptable for dev.
+
+When none apply, no DATABASE_URL env is emitted and the API runs in
+shared-only mode.
 */}}
 {{- define "adapy-viewer.databaseEnv" -}}
-{{- if .Values.database.existingSecret }}
+{{- if .Values.postgres.enabled }}
+- name: POSTGRES_PASSWORD
+  valueFrom:
+    secretKeyRef:
+      name: {{ include "adapy-viewer.postgresSecretName" . }}
+      key: {{ include "adapy-viewer.postgresPasswordKey" . }}
+- name: DATABASE_URL
+  value: {{ printf "postgres://%s:$(POSTGRES_PASSWORD)@%s:%d/%s" .Values.postgres.username (include "adapy-viewer.postgresFullname" .) (int .Values.postgres.service.port) .Values.postgres.database | quote }}
+{{- else if .Values.database.existingSecret }}
 - name: DATABASE_URL
   valueFrom:
     secretKeyRef:

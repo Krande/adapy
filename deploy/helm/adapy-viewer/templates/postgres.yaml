@@ -1,0 +1,127 @@
+{{- if .Values.postgres.enabled -}}
+{{- if and (not .Values.postgres.existingSecret) (not .Values.postgres.password) -}}
+{{- fail "postgres.enabled=true requires either postgres.password or postgres.existingSecret to be set" -}}
+{{- end -}}
+{{- $name := include "adapy-viewer.postgresFullname" . -}}
+{{- $secretName := include "adapy-viewer.postgresSecretName" . -}}
+{{- $passwordKey := include "adapy-viewer.postgresPasswordKey" . -}}
+{{- if not .Values.postgres.existingSecret -}}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ $secretName }}
+  labels:
+    {{- include "adapy-viewer.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgres
+type: Opaque
+stringData:
+  {{ $passwordKey }}: {{ .Values.postgres.password | quote }}
+---
+{{- end }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "adapy-viewer.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgres
+spec:
+  # Headless service — pgsql clients don't benefit from kube-proxy
+  # round-robin (single replica anyway), and the StatefulSet's per-pod
+  # DNS name is what we'd use if we ever scaled up.
+  clusterIP: None
+  selector:
+    {{- include "adapy-viewer.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: postgres
+  ports:
+    - port: {{ .Values.postgres.service.port }}
+      targetPort: postgres
+      name: postgres
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "adapy-viewer.labels" . | nindent 4 }}
+    app.kubernetes.io/component: postgres
+spec:
+  serviceName: {{ $name }}
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "adapy-viewer.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: postgres
+  template:
+    metadata:
+      labels:
+        {{- include "adapy-viewer.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: postgres
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        # The official postgres image runs the entrypoint as root and
+        # uses gosu to drop to uid 70 (postgres); fsGroup=70 makes the
+        # PVC writable by that user.
+        fsGroup: 70
+        seccompProfile:
+          type: RuntimeDefault
+      {{- with .Values.hostAliases }}
+      hostAliases: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: postgres
+          image: "{{ .Values.postgres.image.repository }}:{{ .Values.postgres.image.tag }}"
+          imagePullPolicy: {{ .Values.postgres.image.pullPolicy }}
+          ports:
+            - containerPort: 5432
+              name: postgres
+          env:
+            - name: POSTGRES_USER
+              value: {{ .Values.postgres.username | quote }}
+            - name: POSTGRES_DB
+              value: {{ .Values.postgres.database | quote }}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $secretName }}
+                  key: {{ $passwordKey }}
+            # Subdir of the PVC mount so postgres init doesn't fight
+            # with lost+found / other filesystem artifacts.
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", {{ .Values.postgres.username | quote }}, "-d", {{ .Values.postgres.database | quote }}]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", {{ .Values.postgres.username | quote }}, "-d", {{ .Values.postgres.database | quote }}]
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          resources: {{- toYaml .Values.postgres.resources | nindent 12 }}
+          securityContext:
+            # postgres entrypoint needs to drop privs from root → uid 70
+            # via gosu. That requires SETUID/SETGID + the file-ownership
+            # caps — capabilities locked tight otherwise.
+            allowPrivilegeEscalation: true
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop: ["ALL"]
+              add: ["CHOWN", "DAC_READ_SEARCH", "FOWNER", "SETGID", "SETUID"]
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        {{- if .Values.postgres.persistence.storageClass }}
+        storageClassName: {{ .Values.postgres.persistence.storageClass | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.postgres.persistence.size }}
+{{- end }}
