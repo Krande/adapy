@@ -5,8 +5,11 @@ import {comms} from "../../comms";
 import {CommandType} from "../../../flatbuffers/commands";
 import {TargetType} from "../../../flatbuffers/commands/target-type";
 import {Server} from "../../../flatbuffers/server/server";
-import {ensureConvertedGlb} from "./convert_source_file";
-import {useConversionStore} from "../../../state/conversionStore";
+// NOTE: convert_source_file and conversionStore are imported lazily
+// inside the REST branch below. In WS / desktop mode (the embedded
+// zip shipped with the Python package) they're never reached, and
+// dynamic-import keeps them out of the main bundle that gets inlined
+// into index.html — Vite emits them as separate chunks instead.
 
 function isRestMode(): boolean {
     return (window as any).COMMS_MODE === "rest";
@@ -80,10 +83,12 @@ export async function view_file_object_from_server(fileobject: FileObject) {
             return;
         }
         try {
+            const {ensureConvertedGlb} = await import("./convert_source_file");
             await ensureConvertedGlb(sourceName);
             await send_view_request(sourceName);
         } catch (err) {
             console.error("conversion failed", err);
+            const {useConversionStore} = await import("../../../state/conversionStore");
             useConversionStore.getState().setJob(`${sourceName}::glb`, {
                 sourceKey: `${sourceName}::glb`,
                 jobId: "",

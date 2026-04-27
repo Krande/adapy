@@ -1,6 +1,6 @@
 // src/App.tsx
 import "./app.css";
-import React, {useEffect} from 'react'
+import React, {useEffect, Suspense} from 'react'
 import CanvasWrapper from './components/viewer/CanvasWrapper';
 import Menu from './components/Menu';
 import OptionsComponent from './components/OptionsComponent';
@@ -9,8 +9,12 @@ import {useOptionsStore} from './state/optionsStore';
 import ResizableTreeView from './components/tree_view/ResizableTreeView';
 import {useNodeEditorStore} from "./state/useNodeEditorStore";
 import NodeEditorComponent from "./components/node_editor/NodeEditorComponent";
-import ConversionProgress from "./components/conversion/ConversionProgress";
-import UploadContextMenu from "./components/upload/UploadContextMenu";
+
+// REST-only UI lives in its own chunk so the embedded desktop bundle
+// (the index.zip shipped with ada-py) doesn't pull in the conversion /
+// upload / Pyodide code. The chunk only loads when COMMS_MODE === "rest".
+const RestModeUI = React.lazy(() => import("./components/rest_mode/RestModeUI"));
+const isRestMode = (window as any).COMMS_MODE === "rest";
 
 
 function App() {
@@ -56,8 +60,11 @@ function App() {
                 <OptionsComponent/>
             )}
 
-            <ConversionProgress/>
-            <UploadContextMenu/>
+            {isRestMode && (
+                <Suspense fallback={null}>
+                    <RestModeUI/>
+                </Suspense>
+            )}
 
         </div>
     );

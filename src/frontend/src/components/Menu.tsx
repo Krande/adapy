@@ -1,4 +1,4 @@
-import React from 'react';
+import React, {Suspense} from 'react';
 import ObjectInfoBox from "./info_box_selected_object/ObjectInfoBoxComponent";
 import {useObjectInfoStore} from "../state/objectInfoStore";
 import SimulationControls from "./simulation/SimulationControls";
@@ -9,8 +9,14 @@ import {useTreeViewStore} from "../state/treeViewStore";
 import {request_list_of_nodes} from "../utils/node_editor/comms/request_list_of_nodes";
 import {useServerInfoStore} from "../state/serverInfoStore";
 import ServerInfoBox from "./server_info/ServerInfoBox";
-import StorageBrowser from "./storage/StorageBrowser";
-import {triggerUploadPicker} from "../utils/scene/comms/upload_source_file";
+// REST-only — code-split so the embedded desktop zip stays slim.
+const StorageBrowser = React.lazy(() => import("./storage/StorageBrowser"));
+// Lazy import for the upload trigger keeps upload_source_file out of
+// the WS-mode bundle. We resolve it on demand from the menu button.
+const triggerUploadPicker = async () => {
+    const mod = await import("../utils/scene/comms/upload_source_file");
+    mod.triggerUploadPicker();
+};
 import GraphIcon from "./icons/GraphIcon";
 import InfoIcon from "./icons/InfoIcon";
 import TreeViewIcon from "./icons/TreeViewIcon";
@@ -112,7 +118,7 @@ const Menu = () => {
                 <div className={"px-2 gap-2 flex flex-col"}>
                     {showServerInfoBox && (
                         (window as any).COMMS_MODE === "rest"
-                            ? <StorageBrowser/>
+                            ? <Suspense fallback={null}><StorageBrowser/></Suspense>
                             : <ServerInfoBox/>
                     )}
                     {show_info_box && <ObjectInfoBox/>}
