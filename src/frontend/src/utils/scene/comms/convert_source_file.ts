@@ -1,4 +1,6 @@
 import {useConversionStore, ConversionJob, ConvertStatus} from "../../../state/conversionStore";
+import {useExperimentalStore} from "../../../state/experimentalStore";
+import {convertIfcViaPyodide} from "../../pyodide/pyodide_converter";
 
 const POLL_INTERVAL_MS = 1000;
 const MAX_POLL_ATTEMPTS = 60 * 30; // ~30 min ceiling — generous enough for big IFC
@@ -46,11 +48,73 @@ async function pollOnce(jobId: string): Promise<ConvertResponse> {
     return await r.json() as ConvertResponse;
 }
 
+function shouldUsePyodide(sourceKey: string, targetFormat: TargetFormat): boolean {
+    if (targetFormat !== "glb") return false;
+    if (!sourceKey.toLowerCase().endsWith(".ifc")) return false;
+    return useExperimentalStore.getState().pyodideConverter;
+}
+
+async function convertViaPyodideAndUpload(sourceKey: string): Promise<string> {
+    const storeKey = `${sourceKey}::glb`;
+    const store = useConversionStore.getState();
+    const job: ConversionJob = {
+        sourceKey: storeKey,
+        jobId: "pyodide",
+        derivedKey: "",
+        status: "running",
+        progress: 0.05,
+        stage: "fetching source",
+        error: null,
+        startedAt: Date.now(),
+    };
+    store.setJob(storeKey, job);
+
+    const sourceUrl = `${apiBase()}/blobs/${encodeURIComponent(sourceKey)}`;
+    const r = await fetch(sourceUrl);
+    if (!r.ok) throw new Error(`fetch source failed: ${r.status}`);
+    const sourceBuf = await r.arrayBuffer();
+
+    store.setJob(storeKey, {...job, progress: 0.15, stage: "tessellating in browser"});
+
+    const glb = await convertIfcViaPyodide(sourceBuf, {
+        onLog: (msg) => store.setJob(storeKey, {
+            ...store.jobs[storeKey] || job,
+            stage: msg,
+        }),
+    });
+
+    store.setJob(storeKey, {
+        ...store.jobs[storeKey] || job,
+        progress: 0.9,
+        stage: "uploading derived",
+    });
+
+    const derivedKey = `_derived/${sourceKey}.glb`;
+    const put = await fetch(`${apiBase()}/blobs/${encodeURIComponent(derivedKey)}`, {
+        method: "PUT",
+        body: glb,
+        headers: {"Content-Type": "application/octet-stream"},
+    });
+    if (!put.ok) {
+        const detail = await put.text().catch(() => "");
+        throw new Error(`upload derived failed: ${put.status} ${detail}`);
+    }
+
+    store.setJob(storeKey, {
+        ...store.jobs[storeKey] || job,
+        progress: 1.0,
+        stage: "ready",
+        status: "done",
+        derivedKey,
+    });
+    return derivedKey;
+}
+
 /**
- * Enqueue a server-side conversion for a source key and resolve when
- * the derived blob is ready. Updates the conversion store as the job
- * progresses so the UI can render a progress hint. Returns the
- * derived storage key so callers can download or re-fetch it.
+ * Enqueue a conversion for a source key and resolve when the derived
+ * blob is ready. Routes through the Pyodide in-browser path when the
+ * experimental toggle is on AND the source/target combination is
+ * supported there; otherwise hits the server-side NATS pipeline.
  *
  * Throws if the API rejects the source, the job errors out, or the
  * poll loop exceeds MAX_POLL_ATTEMPTS.
@@ -59,6 +123,10 @@ export async function ensureConverted(
     sourceKey: string,
     targetFormat: TargetFormat = "glb",
 ): Promise<string> {
+    if (shouldUsePyodide(sourceKey, targetFormat)) {
+        return await convertViaPyodideAndUpload(sourceKey);
+    }
+
     if (!convertEnabled()) {
         throw new Error("conversion not enabled on this deployment");
     }

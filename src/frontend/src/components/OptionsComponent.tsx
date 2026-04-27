@@ -7,6 +7,7 @@ import {loadRobot} from "../utils/robots";
 import {useModelState} from "../state/modelState";
 import {debug_print} from "../utils/debug_print";
 import {updateAllPointsSize} from "../utils/scene/updatePointSizes";
+import {useExperimentalStore} from "../state/experimentalStore";
 
 function OptionsComponent() {
     const {
@@ -27,6 +28,7 @@ function OptionsComponent() {
     } = useOptionsStore();
     const {showLegend, setShowLegend} = useColorStore();
     const {zIsUp, setZIsUp, defaultOrbitController, setDefaultOrbitController} = useModelState();
+    const {pyodideConverter, setPyodideConverter} = useExperimentalStore();
 
     const [size] = useState({width: 300, height: 460});
     const [position, setPosition] = useState({x: 0, y: 0});
@@ -242,6 +244,28 @@ function OptionsComponent() {
                             onChange={() => setDefaultOrbitController(!defaultOrbitController)}
                         />
                         <span>Use Default Orbitcontroller</span>
+                    </label>
+                </div>
+
+                <hr className="border-gray-600"/>
+
+                <div className="space-y-1">
+                    <div className="font-semibold text-xs uppercase tracking-wide text-gray-400">
+                        Experimental
+                    </div>
+                    <label className="flex items-start space-x-2">
+                        <input
+                            type="checkbox"
+                            className="mt-1"
+                            checked={pyodideConverter}
+                            onChange={() => setPyodideConverter(!pyodideConverter)}
+                        />
+                        <span className="leading-tight">
+                            Convert IFC in-browser (Pyodide).
+                            <span className="block text-xs text-gray-400">
+                                Lazy-loads ifcopenshell WASM on first use. Server pipeline still handles other formats.
+                            </span>
+                        </span>
                     </label>
                 </div>
 
