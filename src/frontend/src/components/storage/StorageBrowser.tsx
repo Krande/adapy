@@ -1,7 +1,7 @@
 import React, {useState} from "react";
 import {useServerInfoStore, ServerFileEntry} from "@/state/serverInfoStore";
-import {request_list_of_files_from_server} from "@/utils/server_info/comms/request_list_of_files_from_server";
-import {view_file_object_from_server} from "@/utils/scene/comms/view_file_object_from_server";
+import {request_list_of_files_from_server} from "@/utils/server_info/handlers/request_list_of_files_from_server";
+import {view_file_object_from_server} from "@/utils/scene/handlers/view_file_object_from_server";
 import {ensureConverted, TargetFormat} from "@/services/conversion";
 import {FileObjectT, FileObject} from "@/flatbuffers/base/file-object";
 import * as flatbuffers from "flatbuffers";

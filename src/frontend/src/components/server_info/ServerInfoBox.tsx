@@ -1,7 +1,7 @@
 import React from 'react';
 import {useServerInfoStore} from "@/state/serverInfoStore";
 import ReloadIcon from "../icons/ReloadIcon";
-import {request_list_of_files_from_server} from "@/utils/server_info/comms/request_list_of_files_from_server";
+import {request_list_of_files_from_server} from "@/utils/server_info/handlers/request_list_of_files_from_server";
 
 const ServerInfoBox = () => {
     const {} = useServerInfoStore();

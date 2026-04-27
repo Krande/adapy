@@ -5,7 +5,7 @@ import {comms} from "../comms";
 import {handleFlatbufferMessage} from "../fb_handling/handle_incoming_buffers";
 import {requestServerInfo} from "./requestServerInfo";
 import {requestConnectedClients} from "./requestConnectedClients";
-import {request_list_of_files_from_server} from "../server_info/comms/request_list_of_files_from_server";
+import {request_list_of_files_from_server} from "../server_info/handlers/request_list_of_files_from_server";
 import {bindTransportToOptions} from "@/services/transport";
 
 function pickConnectUrl(): string {

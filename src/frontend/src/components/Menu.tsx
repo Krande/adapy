@@ -6,7 +6,7 @@ import {useNodeEditorStore} from "../state/useNodeEditorStore";
 import {useAnimationStore} from "../state/animationStore";
 import {useOptionsStore} from "../state/optionsStore";
 import {useTreeViewStore} from "../state/treeViewStore";
-import {request_list_of_nodes} from "../utils/node_editor/comms/request_list_of_nodes";
+import {request_list_of_nodes} from "../utils/node_editor/handlers/request_list_of_nodes";
 import {useServerInfoStore} from "../state/serverInfoStore";
 import ServerInfoBox from "./server_info/ServerInfoBox";
 import {runtime} from "@/runtime/config";
@@ -15,7 +15,7 @@ const StorageBrowser = React.lazy(() => import("./storage/StorageBrowser"));
 // Lazy import for the upload trigger keeps upload_source_file out of
 // the WS-mode bundle. We resolve it on demand from the menu button.
 const triggerUploadPicker = async () => {
-    const mod = await import("../utils/scene/comms/upload_source_file");
+    const mod = await import("../utils/scene/handlers/upload_source_file");
     mod.triggerUploadPicker();
 };
 import GraphIcon from "./icons/GraphIcon";

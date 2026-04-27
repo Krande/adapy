@@ -17,7 +17,7 @@ import {setupPointerHandler} from "./sceneHelpers/setupPointerHandler";
 import {animationControllerRef, cameraRef, controlsRef, rendererRef, sceneRef, updatelightRef} from "@/state/refs";
 import {OrbitControls} from "three/examples/jsm/controls/OrbitControls";
 import {AnimationController} from "@/utils/scene/animations/AnimationController";
-import {replace_model} from "@/utils/scene/comms/update_scene_from_message";
+import {replace_model} from "@/utils/scene/handlers/update_scene_from_message";
 
 
 const ThreeCanvas: React.FC = () => {

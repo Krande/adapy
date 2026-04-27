@@ -2,7 +2,7 @@ import {createRoot} from 'react-dom/client';
 import App from './app';
 import React from "react";
 import {initWebSocket} from "./utils/websocket/initWebSocket";
-import {load_base64_model} from "./utils/scene/comms/update_scene_from_message";
+import {load_base64_model} from "./utils/scene/handlers/update_scene_from_message";
 import {runtime} from "@/runtime/config";
 
 // start websocket here

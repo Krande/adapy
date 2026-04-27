@@ -1,5 +1,5 @@
 import React, {useEffect, useRef, useState} from "react";
-import {UPLOAD_TRIGGER_EVENT, uploadAcceptAttr, uploadFile} from "@/utils/scene/comms/upload_source_file";
+import {UPLOAD_TRIGGER_EVENT, uploadAcceptAttr, uploadFile} from "@/utils/scene/handlers/upload_source_file";
 import {runtime} from "@/runtime/config";
 
 interface MenuPos {
