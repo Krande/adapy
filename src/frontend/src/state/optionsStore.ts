@@ -1,7 +1,8 @@
-// useOptionsStore.ts
 import {create} from "zustand";
-import {comms} from "../utils/comms";
-import {useWebSocketStore} from "./webSocketStore";
+
+// Pure UI / behaviour flags. Side-effects (e.g. opening or tearing
+// down the transport when enableWebsocket toggles) live in
+// services/transport.ts so the store has no transport coupling.
 
 export type OptionsState = {
     isOptionsVisible: boolean;
@@ -18,7 +19,7 @@ export type OptionsState = {
     setShowPerf: (value: boolean) => void;
     setShowEdges: (value: boolean) => void;
     setLockTranslation: (value: boolean) => void;
-    setEnableWebsocket: (value: boolean) => void; // we’ll make this async internally
+    setEnableWebsocket: (value: boolean) => void;
     setEnableNodeEditor: (value: boolean) => void;
     setPointSize: (value: number) => void;
     setPointSizeAbsolute: (value: boolean) => void;
@@ -40,26 +41,9 @@ export const useOptionsStore = create<OptionsState>((set) => ({
     setShowPerf: (v) => set({showPerf: v}),
     setShowEdges: (v) => set({showEdges: v}),
     setLockTranslation: (v) => set({lockTranslation: v}),
+    setEnableWebsocket: (v) => set({enableWebsocket: v}),
     setEnableNodeEditor: (v) => set({enableNodeEditor: v}),
     setPointSize: (v) => set({pointSize: v}),
     setPointSizeAbsolute: (v) => set({pointSizeAbsolute: v}),
     setUseGpuPointPicking: (v) => set({useGpuPointPicking: v}),
-
-    // toggle WS on/off
-    setEnableWebsocket: async (enable: boolean) => {
-        // 1) flip the UI state right away
-        set({enableWebsocket: enable});
-
-        try {
-            if (enable) {
-                const url = useWebSocketStore.getState().webSocketAddress;
-                await comms.connect(url);
-            } else {
-                // gracefully tear down
-                await comms.disconnect();
-            }
-        } catch (err) {
-            console.error("Error toggling WebSocket:", err);
-        }
-    },
 }));

@@ -6,6 +6,7 @@ import {handleFlatbufferMessage} from "../fb_handling/handle_incoming_buffers";
 import {requestServerInfo} from "./requestServerInfo";
 import {requestConnectedClients} from "./requestConnectedClients";
 import {request_list_of_files_from_server} from "../server_info/comms/request_list_of_files_from_server";
+import {bindTransportToOptions} from "@/services/transport";
 
 function pickConnectUrl(): string {
     if (runtime.isRestMode()) {
@@ -25,6 +26,10 @@ export async function initWebSocket() {
         requestConnectedClients();
         request_list_of_files_from_server();
     });
+
+    // Reflect enableWebsocket toggles onto the transport. Subscription
+    // lives outside the store so the store stays comms-free.
+    bindTransportToOptions();
 
     if (runtime.websocketDeactivated()) {
         console.log("DEACTIVATE_WS is set to true, not connecting");
