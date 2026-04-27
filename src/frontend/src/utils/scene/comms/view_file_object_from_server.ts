@@ -6,11 +6,12 @@ import {CommandType} from "@/flatbuffers/commands";
 import {TargetType} from "@/flatbuffers/commands/target-type";
 import {Server} from "@/flatbuffers/server/server";
 import {runtime} from "@/runtime/config";
-// NOTE: convert_source_file and conversionStore are imported lazily
-// inside the REST branch below. In WS / desktop mode (the embedded
-// zip shipped with the Python package) they're never reached, and
-// dynamic-import keeps them out of the main bundle that gets inlined
-// into index.html — Vite emits them as separate chunks instead.
+// NOTE: the conversion service and the conversionStore are imported
+// lazily inside the REST branch below. In WS / desktop mode (the
+// embedded zip shipped with the Python package) they're never
+// reached, and dynamic-import keeps them out of the main bundle that
+// gets inlined into index.html — Vite emits them as separate chunks
+// instead.
 
 async function start_file_in_local_app(fileobject: FileObject) {
     console.log("start_file_in_local_app" + fileobject.name());
@@ -76,7 +77,7 @@ export async function view_file_object_from_server(fileobject: FileObject) {
             return;
         }
         try {
-            const {ensureConvertedGlb} = await import("./convert_source_file");
+            const {ensureConvertedGlb} = await import("@/services/conversion");
             await ensureConvertedGlb(sourceName);
             await send_view_request(sourceName);
         } catch (err) {
