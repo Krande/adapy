@@ -10,4 +10,6 @@ spec:
       port: {{ .Values.service.port }}
       targetPort: {{ .Values.service.targetPort }}
       protocol: TCP
-  selector: {{- include "adapy-viewer.selectorLabels" . | nindent 4 }}
+  selector:
+    {{- include "adapy-viewer.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: api

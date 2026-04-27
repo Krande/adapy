@@ -2,17 +2,23 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ include "adapy-viewer.fullname" . }}
-  labels: {{- include "adapy-viewer.labels" . | nindent 4 }}
+  labels:
+    {{- include "adapy-viewer.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
 spec:
   replicas: {{ .Values.replicaCount }}
   {{- with .Values.strategy }}
   strategy: {{- toYaml . | nindent 4 }}
   {{- end }}
   selector:
-    matchLabels: {{- include "adapy-viewer.selectorLabels" . | nindent 6 }}
+    matchLabels:
+      {{- include "adapy-viewer.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: api
   template:
     metadata:
-      labels: {{- include "adapy-viewer.selectorLabels" . | nindent 8 }}
+      labels:
+        {{- include "adapy-viewer.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: api
       {{- with .Values.podAnnotations }}
       annotations: {{- toYaml . | nindent 8 }}
       {{- end }}
