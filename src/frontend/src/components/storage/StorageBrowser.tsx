@@ -1,5 +1,6 @@
 import React, {useRef, useState} from "react";
 import {useServerInfoStore, ServerFileEntry} from "@/state/serverInfoStore";
+import {useConversionStore} from "@/state/conversionStore";
 import {request_list_of_files_from_server} from "@/utils/server_info/handlers/request_list_of_files_from_server";
 import {view_file_object_from_server} from "@/utils/scene/handlers/view_file_object_from_server";
 import {ensureConverted, TargetFormat} from "@/services/conversion";
@@ -10,6 +11,15 @@ import ReloadIcon from "../icons/ReloadIcon";
 import ViewIcon from "../icons/ViewIcon";
 import {runtime} from "@/runtime/config";
 import {viewerApi} from "@/services/viewerApi";
+
+// Small inline CSS spinner. Uses border tricks rather than an SVG so
+// it scales with text size and stays crisp at 16px tall icons.
+const Spinner: React.FC<{className?: string}> = ({className = ""}) => (
+    <span
+        className={`inline-block w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin ${className}`}
+        aria-hidden="true"
+    />
+);
 
 const ADA_LOADABLE_EXTS = new Set([
     ".ifc", ".step", ".stp", ".xml", ".inp", ".fem", ".sat", ".acis",
@@ -50,9 +60,11 @@ function buildFlatbufferFileObject(entry: ServerFileEntry): FileObject {
 
 const StorageBrowser: React.FC = () => {
     const files = useServerInfoStore((s) => s.serverFileObjects);
+    const conversionJobs = useConversionStore((s) => s.jobs);
     const [convertingKey, setConvertingKey] = useState<string | null>(null);
     const [uploading, setUploading] = useState(false);
     const [expandedName, setExpandedName] = useState<string | null>(null);
+    const [viewingName, setViewingName] = useState<string | null>(null);
     // Owned input — clicking it must happen synchronously inside the
     // button's onClick to preserve the user-activation gesture (iOS Safari
     // refuses the file picker otherwise). The previous implementation
@@ -60,8 +72,16 @@ const StorageBrowser: React.FC = () => {
     // broke the gesture chain on mobile.
     const fileInputRef = useRef<HTMLInputElement>(null);
 
-    const onView = (entry: ServerFileEntry) => {
-        view_file_object_from_server(buildFlatbufferFileObject(entry));
+    const onView = async (entry: ServerFileEntry) => {
+        if (viewingName) return; // already busy with another file
+        setViewingName(entry.name);
+        try {
+            await view_file_object_from_server(buildFlatbufferFileObject(entry));
+        } catch (err) {
+            console.error("view failed", err);
+        } finally {
+            setViewingName(null);
+        }
     };
 
     const onFilePicked = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -145,57 +165,88 @@ const StorageBrowser: React.FC = () => {
                         const downloadable = targets.filter((t) => t !== "glb");
                         const stateKey = `${f.name}::`;
                         const busy = convertingKey?.startsWith(stateKey) ?? false;
+                        const isViewing = viewingName === f.name;
+                        const otherViewing = viewingName !== null && !isViewing;
+                        // Progress for the implicit "view" conversion job
+                        // (`<name>::glb`) — only shown while we're actively
+                        // viewing this file so a stale done/error from a
+                        // previous run doesn't render a leftover bar.
+                        const viewJob = isViewing ? conversionJobs[`${f.name}::glb`] : undefined;
+                        // progress is 0–1 in the store; clamp + percentise.
+                        const viewProgressPct = viewJob
+                            ? Math.max(0, Math.min(100, Math.round(viewJob.progress * 100)))
+                            : 0;
                         return (
                             <li
                                 key={f.name}
-                                className="flex items-center justify-between px-1 py-1 text-xs gap-2"
+                                className="flex flex-col px-1 py-1 text-xs"
                             >
-                                {/* min-w-0 lets `truncate` actually clip inside a
-                                    flex item (default min-width is auto = content).
-                                    Tap to toggle between truncated and wrapped so
-                                    the full filename is reachable on touch. */}
-                                <button
-                                    type="button"
-                                    onClick={() => setExpandedName(expandedName === f.name ? null : f.name)}
-                                    className={`flex-1 min-w-0 text-left ${expandedName === f.name ? 'whitespace-normal break-all' : 'truncate'}`}
-                                    title={f.name}
-                                >
-                                    {f.name}
-                                </button>
-                                <div className="flex items-center gap-1 shrink-0">
+                                <div className="flex items-center justify-between gap-2">
+                                    {/* min-w-0 lets `truncate` actually clip inside a
+                                        flex item (default min-width is auto = content).
+                                        Tap to toggle between truncated and wrapped so
+                                        the full filename is reachable on touch. */}
                                     <button
-                                        className="p-1 rounded hover:bg-gray-300/40"
-                                        onClick={() => onView(f)}
-                                        title="View"
+                                        type="button"
+                                        onClick={() => setExpandedName(expandedName === f.name ? null : f.name)}
+                                        className={`flex-1 min-w-0 text-left ${expandedName === f.name ? 'whitespace-normal break-all' : 'truncate'}`}
+                                        title={f.name}
                                     >
-                                        <ViewIcon/>
+                                        {f.name}
                                     </button>
-                                    <button
-                                        className="px-2 py-0.5 rounded hover:bg-gray-300/40 text-[10px] uppercase tracking-wide"
-                                        onClick={() => downloadByKey(f.name, f.name)}
-                                        title="Download original"
-                                    >
-                                        DL
-                                    </button>
-                                    {runtime.convertEnabled() && downloadable.length > 0 && (
-                                        <select
-                                            disabled={busy}
-                                            className="bg-gray-200 hover:bg-gray-300 text-[10px] uppercase rounded px-1 py-0.5 disabled:opacity-60"
-                                            value=""
-                                            onChange={(e) => {
-                                                const target = e.target.value as TargetFormat | "";
-                                                e.target.value = "";
-                                                if (target) onConvertAndDownload(f.name, target);
-                                            }}
-                                            title="Convert and download"
+                                    <div className="flex items-center gap-1 shrink-0">
+                                        <button
+                                            className="p-1 rounded hover:bg-gray-300/40 disabled:opacity-50 disabled:cursor-not-allowed"
+                                            onClick={() => onView(f)}
+                                            disabled={isViewing || otherViewing}
+                                            title={isViewing ? "Loading…" : otherViewing ? "Another file is loading" : "View"}
+                                            aria-busy={isViewing || undefined}
                                         >
-                                            <option value="">{busy ? "…" : "as ▾"}</option>
-                                            {downloadable.map((t) => (
-                                                <option key={t} value={t}>{t.toUpperCase()}</option>
-                                            ))}
-                                        </select>
-                                    )}
+                                            {isViewing ? <Spinner/> : <ViewIcon/>}
+                                        </button>
+                                        <button
+                                            className="px-2 py-0.5 rounded hover:bg-gray-300/40 text-[10px] uppercase tracking-wide"
+                                            onClick={() => downloadByKey(f.name, f.name)}
+                                            title="Download original"
+                                        >
+                                            DL
+                                        </button>
+                                        {runtime.convertEnabled() && downloadable.length > 0 && (
+                                            <select
+                                                disabled={busy}
+                                                className="bg-gray-200 hover:bg-gray-300 text-[10px] uppercase rounded px-1 py-0.5 disabled:opacity-60"
+                                                value=""
+                                                onChange={(e) => {
+                                                    const target = e.target.value as TargetFormat | "";
+                                                    e.target.value = "";
+                                                    if (target) onConvertAndDownload(f.name, target);
+                                                }}
+                                                title="Convert and download"
+                                            >
+                                                <option value="">{busy ? "…" : "as ▾"}</option>
+                                                {downloadable.map((t) => (
+                                                    <option key={t} value={t}>{t.toUpperCase()}</option>
+                                                ))}
+                                            </select>
+                                        )}
+                                    </div>
                                 </div>
+                                {isViewing && (
+                                    <div className="mt-1 h-1 w-full bg-gray-300/50 rounded overflow-hidden">
+                                        {viewJob && viewJob.status !== 'queued' ? (
+                                            <div
+                                                className="h-full bg-blue-600 transition-[width] duration-200"
+                                                style={{width: `${viewProgressPct}%`}}
+                                            />
+                                        ) : (
+                                            // Indeterminate slider: a 1/3-width
+                                            // bar that pings back and forth so
+                                            // the user knows something is
+                                            // happening before any % comes back.
+                                            <div className="h-full w-1/3 bg-blue-600 animate-[indeterminate_1.4s_ease-in-out_infinite]"/>
+                                        )}
+                                    </div>
+                                )}
                             </li>
                         );
                     })}

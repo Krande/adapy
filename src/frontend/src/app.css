@@ -2,6 +2,14 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Indeterminate progress bar — slides a 1/3-width fill back and forth.
+   Used by StorageBrowser while waiting for a job before any percentage
+   is reported. */
+@keyframes indeterminate {
+    0%   { transform: translateX(-100%); }
+    100% { transform: translateX(300%); }
+}
+
 /* Use dvh so the canvas fills the *visible* viewport on mobile, where
    the URL bar shrinks the visible area below the layout viewport that
    `100%`/`100vh` reports. Without this the gizmo at bottom-right ends
