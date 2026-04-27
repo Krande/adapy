@@ -23,10 +23,10 @@ export function addOrientationGizmo(
     fontSize: isNarrow ? "8px" : "10px",
     anchor: "bottom-right",
     anchorMarginX: 8,
-    // Bigger Y margin on phones to clear Android gesture-nav pill —
-    // safe-area-inset-bottom (added on top inside the gizmo) is not
-    // reliably populated by Chrome on Android.
-    anchorMarginY: isNarrow ? 36 : 8,
+    // Slightly bigger Y margin on phones to clear the Android
+    // gesture-nav pill — safe-area-inset-bottom (added on top inside
+    // the gizmo) is not reliably populated by Chrome on Android.
+    anchorMarginY: isNarrow ? 20 : 8,
   });
 
   container.appendChild(gizmo);
