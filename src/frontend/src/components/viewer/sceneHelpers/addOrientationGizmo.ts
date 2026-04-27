@@ -10,10 +10,23 @@ export function addOrientationGizmo(
     customElements.define("orientation-gizmo", OrientationGizmo);
   }
 
-  const gizmo = new OrientationGizmo(camera, {});
+  // Smaller gizmo on phone-sized viewports — the default 150 takes a
+  // sizeable bite out of the visible canvas. Match Tailwind's `md`
+  // breakpoint (768px).
+  const isNarrow = window.matchMedia("(max-width: 767px)").matches;
+  const size = isNarrow ? 80 : 150;
+
+  const gizmo = new OrientationGizmo(camera, {
+    size,
+    bubbleSizePrimary: isNarrow ? 6 : 10,
+    bubbleSizeSeconday: isNarrow ? 6 : 10,
+    fontSize: isNarrow ? "8px" : "10px",
+  });
   gizmo.style.position = "absolute";
-  gizmo.style.bottom = "8px";
-  gizmo.style.right = "8px";
+  // Respect iOS safe-area insets so the gizmo isn't clipped under the
+  // home-indicator / notch in landscape.
+  gizmo.style.bottom = "max(8px, env(safe-area-inset-bottom, 0px))";
+  gizmo.style.right = "max(8px, env(safe-area-inset-right, 0px))";
   gizmo.style.pointerEvents = "auto";
   gizmo.style.zIndex = "10";
 
