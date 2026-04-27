@@ -24,6 +24,14 @@ WORKDIR /app
 # nats-py is only used for the conversion job-queue producer/status
 # endpoints; the worker container has the full pixi env with conversion
 # stack so we don't need it on the slim API image except as a client.
+#
+# Phase 1+ deps (mirror src/ada/comms/rest/auth.py and db.py imports):
+#   pyjwt[crypto] — JWKS verification (cryptography rides via the extra)
+#   httpx         — async HTTP client used by the JWKS verifier
+#   asyncpg       — Postgres driver (used only when DATABASE_URL is set;
+#                   the dep is dormant in shared-only deployments).
+# Mirror any new imports here when extending the API surface — pixi
+# only feeds the worker; this image is pip-only by design.
 RUN pip install --upgrade pip \
  && pip install \
         "fastapi>=0.110" \
@@ -31,7 +39,10 @@ RUN pip install --upgrade pip \
         "obstore>=0.9" \
         "flatbuffers>=25" \
         "pydantic>=2" \
-        "nats-py>=2.6"
+        "nats-py>=2.6" \
+        "pyjwt[crypto]>=2.8" \
+        "httpx>=0.27" \
+        "asyncpg>=0.29"
 
 # Copy only what the API actually imports. ada.comms.* is the API
 # surface; ada.config provides the logger. Anything else (CAD/FEM
