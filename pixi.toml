@@ -72,6 +72,9 @@ fem-deps = { features = ["fem-deps", "prod", "tests-core"], no-default-feature =
 fem = { features = ["fem", "prod", "tests-core", "fem-deps"], no-default-feature = true }
 docs = { features = ["docs", "prod", "fem-deps", "tests-core"], no-default-feature = true }
 viewer-api = { features = ["viewer-api", "prod"], solve-group = "prod", no-default-feature = true }
+# Separate test env for the REST viewer module: layers pytest on top
+# of the runtime deps so the production `viewer-api` image stays slim.
+viewer-api-tests = { features = ["viewer-api", "tests-core", "prod"], solve-group = "prod", no-default-feature = true }
 
 [feature.jupyterlite.dependencies]
 jupyterlite-core = "*"
@@ -188,6 +191,11 @@ fastapi = "*"
 uvicorn = "*"
 obstore = "*"
 nats-py = "*"
+# OIDC token verification (REST mode only). pyjwt[crypto] pulls in
+# `cryptography` for RS256/ES256 signature checks against JWKS keys.
+pyjwt = "*"
+cryptography = "*"
+httpx = "*"
 
 [feature.viewer-api.tasks]
 viewer-api = { cmd = "python -m ada.comms.rest", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }

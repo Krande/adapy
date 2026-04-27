@@ -34,6 +34,35 @@ class QueueConfig:
 
 
 @dataclass(frozen=True)
+class AuthConfig:
+    """Provider-agnostic OIDC settings.
+
+    One implementation handles both Authentik (homelab) and Azure AD
+    direct (enterprise) — both expose a `.well-known/openid-configuration`
+    discovery doc and a JWKS endpoint.
+
+    `enabled=False` (the default) disables every check: the FastAPI
+    dep returns a synthetic local user. This keeps dev + the desktop
+    code path untouched.
+
+    `audience` falls back to `client_id` when blank — Authentik issues
+    tokens with `aud == client_id`, while Azure AD's v2.0 endpoint can
+    split the two.
+
+    `admin_group` is matched against the token's `groups` claim. Use a
+    group *name* for Authentik (e.g. ``ada-viewer-admins``) and a group
+    *object id* for Azure AD; the comparison is exact-string either
+    way.
+    """
+
+    enabled: bool
+    issuer: str
+    client_id: str
+    audience: str
+    admin_group: str
+
+
+@dataclass(frozen=True)
 class Settings:
     storage_kind: str  # "s3" | "local"
     s3: S3Config | None
@@ -44,6 +73,7 @@ class Settings:
     # When set, the API also serves the SPA. Empty disables static serving.
     static_path: str
     queue: QueueConfig
+    auth: AuthConfig
 
 
 def _bool(v: str | None, default: bool) -> bool:
@@ -67,6 +97,25 @@ def load_settings() -> Settings:
         durable=os.environ.get("ADA_VIEWER_NATS_DURABLE", "ada-viewer-worker"),
     )
 
+    auth_enabled = _bool(os.environ.get("ADA_VIEWER_AUTH_ENABLED"), default=False)
+    auth_client_id = os.environ.get("ADA_VIEWER_AUTH_CLIENT_ID", "").strip()
+    # Trailing slashes on issuer URLs cause subtle mismatches when
+    # comparing against the `iss` claim (Authentik issues without one).
+    auth_issuer = os.environ.get("ADA_VIEWER_AUTH_ISSUER", "").strip().rstrip("/")
+    auth_audience = os.environ.get("ADA_VIEWER_AUTH_AUDIENCE", "").strip() or auth_client_id
+    auth = AuthConfig(
+        enabled=auth_enabled,
+        issuer=auth_issuer,
+        client_id=auth_client_id,
+        audience=auth_audience,
+        admin_group=os.environ.get("ADA_VIEWER_AUTH_ADMIN_GROUP", "").strip(),
+    )
+    if auth.enabled and (not auth.issuer or not auth.client_id):
+        raise ValueError(
+            "ADA_VIEWER_AUTH_ENABLED=true requires ADA_VIEWER_AUTH_ISSUER "
+            "and ADA_VIEWER_AUTH_CLIENT_ID to be set"
+        )
+
     if kind == "s3":
         s3 = S3Config(
             bucket=os.environ["ADA_VIEWER_S3_BUCKET"],
@@ -87,6 +136,7 @@ def load_settings() -> Settings:
             port=port,
             static_path=static_path,
             queue=queue,
+            auth=auth,
         )
 
     if kind == "local":
@@ -102,6 +152,7 @@ def load_settings() -> Settings:
             port=port,
             static_path=static_path,
             queue=queue,
+            auth=auth,
         )
 
     raise ValueError(f"Unsupported ADA_VIEWER_STORAGE_KIND: {kind!r} (expected 's3' or 'local')")

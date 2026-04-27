@@ -4,12 +4,14 @@ import pathlib
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 
-from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, Response
 from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 from ada.config import logger
 
+from . import auth as auth_module
+from .auth import User
 from .config import Settings, load_settings
 from .converter import (
     TARGET_FORMATS,
@@ -43,7 +45,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     queue = JobQueue(settings.queue)
 
     @asynccontextmanager
-    async def lifespan(_app: FastAPI):
+    async def lifespan(app: FastAPI):
         # Connect to NATS lazily; a missing URL just disables the queue.
         if queue.enabled:
             try:
@@ -57,6 +59,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 await queue.close()
             except Exception:
                 logger.exception("queue close failed")
+        # Release the OIDC JWKS HTTP client (no-op when auth is disabled).
+        try:
+            await auth_module.aclose(app)
+        except Exception:
+            logger.exception("auth close failed")
 
     app = FastAPI(
         title="ada-py viewer API",
@@ -64,21 +71,40 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         openapi_url="/api/openapi.json",
         lifespan=lifespan,
     )
+    auth_module.install(app, settings.auth)
 
     @app.get("/healthz")
     async def healthz() -> Response:
+        # Public — load balancers + readiness probes hit this.
         return Response(status_code=200)
 
+    # /api/config is *almost* public (the SPA fetches it before it has
+    # a token, to learn whether auth is enabled and what the issuer is)
+    # — but it never leaks user data, so we serve it unauthenticated.
     @app.get("/api/config")
     async def api_config() -> JSONResponse:
-        # Bootstrap config consumed by the frontend (window.COMMS_MODE etc).
         return JSONResponse({
             "transport": "rest",
             "apiBase": "/api",
             "convertEnabled": queue.enabled,
+            "auth": {
+                "enabled": settings.auth.enabled,
+                "issuer": settings.auth.issuer,
+                "clientId": settings.auth.client_id,
+                # Audience usually = clientId; expose it so the SPA can
+                # request the right token from Azure-style providers.
+                "audience": settings.auth.audience,
+            },
         })
 
-    @app.post("/api/rpc")
+    # Every /api/* below this line requires a verified user. The dep is
+    # attached to the router so individual routes don't have to repeat
+    # `Depends(current_user)`. When auth is disabled the dep returns the
+    # synthetic local-dev user, so dev / desktop paths see no behavior
+    # change beyond an extra (free) function call per request.
+    api = APIRouter(prefix="/api", dependencies=[Depends(auth_module.current_user)])
+
+    @api.post("/rpc")
     async def api_rpc(request: Request) -> Response:
         payload = await request.body()
         if not payload:
@@ -92,7 +118,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             return Response(status_code=204)
         return Response(content=reply, media_type="application/octet-stream")
 
-    @app.post("/api/convert")
+    @api.post("/convert")
     async def api_convert(request: Request) -> JSONResponse:
         body = await request.json()
         source_key = (body.get("source_key") or "").strip()
@@ -147,7 +173,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         payload["cached"] = False
         return JSONResponse(payload, status_code=202)
 
-    @app.get("/api/convert/targets")
+    @api.get("/convert/targets")
     async def api_convert_targets(source_key: str) -> JSONResponse:
         # Lets the frontend render only viable target options for a
         # given source. Cheap and side-effect-free.
@@ -155,7 +181,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             {"source_key": source_key, "targets": supported_targets_for(source_key)}
         )
 
-    @app.get("/api/convert/{job_id}")
+    @api.get("/convert/{job_id}")
     async def api_convert_status(job_id: str) -> JSONResponse:
         if not queue.enabled:
             raise HTTPException(status_code=503, detail="conversion disabled (no NATS configured)")
@@ -164,7 +190,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail=f"job {job_id} not found")
         return JSONResponse(asdict(job))
 
-    @app.get("/api/blobs/{key:path}")
+    @api.get("/blobs/{key:path}")
     async def api_blob(key: str) -> StreamingResponse:
         # Streams raw bytes from storage. Useful for direct GLB fetches
         # outside the RPC envelope (CDN-cacheable, addressable).
@@ -185,7 +211,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             result.stream, media_type="application/octet-stream", headers=headers
         )
 
-    @app.put("/api/blobs/{key:path}")
+    @api.put("/blobs/{key:path}")
     async def api_blob_put(key: str, request: Request) -> JSONResponse:
         # Upload raw file bytes. Frontend uses this from the upload
         # context menu; key is the user-visible filename. Writing to
@@ -208,6 +234,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             logger.exception("blob upload failed for %s", clean)
             raise HTTPException(status_code=500, detail=str(exc)) from exc
         return JSONResponse({"key": clean, "size": len(data)}, status_code=201)
+
+    app.include_router(api)
 
     @app.get("/config.js")
     async def config_js() -> PlainTextResponse:
