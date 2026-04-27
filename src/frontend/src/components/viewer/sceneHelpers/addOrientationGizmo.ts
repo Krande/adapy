@@ -22,6 +22,14 @@ export function addOrientationGizmo(
     bubbleSizeSeconday: isNarrow ? 6 : 10,
     fontSize: isNarrow ? "8px" : "10px",
   });
+  // Custom HTMLElements default to display:inline with no intrinsic
+  // dimensions; the inner <canvas> would overflow the wrapper from a
+  // zero-sized anchor box, so right/bottom positioning ended up landing
+  // the canvas *centred* on the corner instead of *inside* it. Force
+  // block + explicit size so the bounding box is deterministic.
+  gizmo.style.display = "block";
+  gizmo.style.width = `${size}px`;
+  gizmo.style.height = `${size}px`;
   gizmo.style.position = "absolute";
   // Clear Android's gesture-nav pill (Chrome on Android often reports
   // safe-area-inset-bottom as 0 even with viewport-fit=cover, so we
