@@ -87,11 +87,10 @@ def _error_reply(message: MessageDC, msg: str) -> bytes:
     return serialize_root_message(reply)
 
 
-async def _handle_list_file_objects(message: MessageDC, storage: Storage) -> bytes:
-    # Phase 2B: legacy RPC handlers operate on the shared scope only.
-    # Phase 2C surfaces a scope arg via a separate, scope-aware RPC if
-    # the WS-style envelope ever needs multi-tenant access.
-    files = await storage.list(Scope.shared())
+async def _handle_list_file_objects(
+    message: MessageDC, storage: Storage, scope: Scope
+) -> bytes:
+    files = await storage.list(scope)
     file_objects: list[FileObjectDC] = []
     for entry in files:
         # Hide internal derived blobs from the user-facing file list.
@@ -119,7 +118,9 @@ async def _handle_list_file_objects(message: MessageDC, storage: Storage) -> byt
     return serialize_root_message(reply)
 
 
-async def _handle_view_file_object(message: MessageDC, storage: Storage) -> bytes:
+async def _handle_view_file_object(
+    message: MessageDC, storage: Storage, scope: Scope
+) -> bytes:
     key = ""
     if message.server is not None:
         key = (message.server.get_file_object_by_name or "").strip()
@@ -135,7 +136,7 @@ async def _handle_view_file_object(message: MessageDC, storage: Storage) -> byte
         glb_key = key
     elif is_supported_source(key):
         candidate = derived_key_for(key)
-        if await storage.exists(Scope.shared(), candidate):
+        if await storage.exists(scope, candidate):
             glb_key = candidate
 
     if glb_key is None:
@@ -145,7 +146,7 @@ async def _handle_view_file_object(message: MessageDC, storage: Storage) -> byte
         )
 
     try:
-        glb_bytes = await storage.get_bytes(Scope.shared(), glb_key)
+        glb_bytes = await storage.get_bytes(scope, glb_key)
     except Exception as exc:  # obstore raises a generic Exception subclass on miss
         logger.warning("view_file_object: storage error for %s: %s", glb_key, exc)
         return _error_reply(message, f"view_file_object: storage error: {exc}")
@@ -170,7 +171,9 @@ async def _handle_view_file_object(message: MessageDC, storage: Storage) -> byte
     return serialize_root_message(reply)
 
 
-async def _handle_get_server_info(message: MessageDC, _storage: Storage) -> bytes:
+async def _handle_get_server_info(
+    message: MessageDC, _storage: Storage, _scope: Scope
+) -> bytes:
     log_path = ""
     for handler in logger.handlers:
         if hasattr(handler, "baseFilename"):
@@ -205,11 +208,14 @@ _HANDLERS = {
 }
 
 
-async def dispatch(payload: bytes, storage: Storage) -> bytes | None:
-    """Deserialize, dispatch, return serialized response (or None for no-reply)."""
+async def dispatch(
+    payload: bytes, storage: Storage, scope: Scope
+) -> bytes | None:
+    """Deserialize, dispatch (passing the request's scope to handlers),
+    return serialized response (or None for no-reply)."""
     message = deserialize_root_message(payload)
     handler = _HANDLERS.get(message.command_type)
     if handler is None:
         logger.info("REST: unsupported command_type %s", message.command_type)
         return _error_reply(message, f"command_type {message.command_type} not supported in REST mode")
-    return await handler(message, storage)
+    return await handler(message, storage, scope)

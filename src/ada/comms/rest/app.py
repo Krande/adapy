@@ -14,7 +14,7 @@ from . import auth as auth_module
 from . import db as db_module
 from .auth import User
 from .config import Settings, load_settings
-from .scope import Scope
+from .scope import Scope, can_access as scope_can_access
 from .converter import (
     TARGET_FORMATS,
     UnsupportedFormat,
@@ -119,13 +119,69 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # change beyond an extra (free) function call per request.
     api = APIRouter(prefix="/api", dependencies=[Depends(auth_module.current_user)])
 
+    # ── Scope helpers ────────────────────────────────────────────────
+    #
+    # Scope wire format: a single path segment / header value, one of
+    #   shared          — the shared bucket (any auth user)
+    #   user:me         — the caller's personal scope (resolved server-
+    #                     side to user.sub so URLs are user-agnostic)
+    #   project:<id>    — a project the caller is a member of
+    #
+    # Membership and project existence are checked against the DB; with
+    # no DB, project scopes are categorically inaccessible.
+
+    def _parse_scope(s: str, user: User) -> Scope:
+        if s == "shared":
+            return Scope.shared()
+        if s == "user:me":
+            return Scope.user(user.sub)
+        if s.startswith("user:"):
+            # Naming another user explicitly is intentionally not
+            # allowed; admins use phase-3 admin endpoints instead.
+            raise HTTPException(
+                status_code=400,
+                detail="use 'user:me' for personal scope",
+            )
+        if s.startswith("project:"):
+            pid = s[len("project:"):].strip()
+            if not pid:
+                raise HTTPException(status_code=400, detail="missing project id")
+            return Scope.project(pid)
+        raise HTTPException(status_code=400, detail=f"invalid scope {s!r}")
+
+    async def _scope_from_path(
+        scope: str,
+        request: Request,
+        user: User = Depends(auth_module.current_user),
+    ) -> Scope:
+        s = _parse_scope(scope, user)
+        if not await scope_can_access(user, s, getattr(request.app.state, "db_pool", None)):
+            raise HTTPException(status_code=403, detail="forbidden")
+        return s
+
+    async def _scope_from_header(
+        request: Request,
+        user: User = Depends(auth_module.current_user),
+    ) -> Scope:
+        s = _parse_scope(request.headers.get("X-Scope", "shared"), user)
+        if not await scope_can_access(user, s, getattr(request.app.state, "db_pool", None)):
+            raise HTTPException(status_code=403, detail="forbidden")
+        return s
+
     @api.post("/rpc")
-    async def api_rpc(request: Request) -> Response:
+    async def api_rpc(
+        request: Request,
+        scope: Scope = Depends(_scope_from_header),
+    ) -> Response:
+        # FlatBuffer envelope used by the SPA's WebSocket-style flow
+        # (LIST_FILE_OBJECTS, VIEW_FILE_OBJECT, ...). The scope rides
+        # on an X-Scope header so the existing serializer doesn't need
+        # to change.
         payload = await request.body()
         if not payload:
             raise HTTPException(status_code=400, detail="empty body")
         try:
-            reply = await dispatch(payload, storage)
+            reply = await dispatch(payload, storage, scope)
         except Exception as exc:
             logger.exception("rpc dispatch failed")
             raise HTTPException(status_code=500, detail=str(exc)) from exc
@@ -133,8 +189,136 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             return Response(status_code=204)
         return Response(content=reply, media_type="application/octet-stream")
 
-    @api.post("/convert")
-    async def api_convert(request: Request) -> JSONResponse:
+    # ── /api/me + /api/projects ──────────────────────────────────────
+
+    @api.get("/me")
+    async def api_me(
+        request: Request,
+        user: User = Depends(auth_module.current_user),
+    ) -> JSONResponse:
+        # Lazy upsert on first authenticated hit so the `users` table
+        # tracks who has actually signed in. No-op when DB is off.
+        pool = getattr(request.app.state, "db_pool", None)
+        projects: list[dict] = []
+        if pool is not None:
+            await db_module.upsert_user(pool, user.sub, user.email, user.display_name)
+            for p in await db_module.list_user_projects(pool, user.sub):
+                projects.append({"id": p.id, "slug": p.slug, "name": p.name, "role": p.role})
+
+        # Scopes the caller can pick from in the SPA's project picker.
+        # Order matters — first entry is the default landing scope.
+        scopes: list[dict] = [
+            {"kind": "user", "id": "me", "name": "Personal"},
+            {"kind": "shared", "id": None, "name": "Shared"},
+        ]
+        for p in projects:
+            scopes.append({"kind": "project", "id": p["id"], "name": p["name"]})
+
+        return JSONResponse(
+            {
+                "sub": user.sub,
+                "email": user.email,
+                "displayName": user.display_name,
+                "isAdmin": user.is_admin,
+                "scopes": scopes,
+                "projects": projects,
+            }
+        )
+
+    @api.get("/projects")
+    async def api_projects(
+        request: Request,
+        user: User = Depends(auth_module.current_user),
+    ) -> JSONResponse:
+        pool = getattr(request.app.state, "db_pool", None)
+        if pool is None:
+            return JSONResponse({"projects": []})
+        rows = await db_module.list_user_projects(pool, user.sub)
+        return JSONResponse(
+            {
+                "projects": [
+                    {"id": p.id, "slug": p.slug, "name": p.name, "role": p.role}
+                    for p in rows
+                ]
+            }
+        )
+
+    # ── Scope-shaped storage + conversion routes ─────────────────────
+
+    @api.get("/scopes/{scope}/files")
+    async def api_scope_files(scope_obj: Scope = Depends(_scope_from_path)) -> JSONResponse:
+        from .converter import is_derived_key
+
+        files = await storage.list(scope_obj)
+        # Hide the _derived/ namespace — those blobs are an internal
+        # cache, not user files. Convert + download surfaces them
+        # explicitly when needed.
+        return JSONResponse(
+            {
+                "files": [
+                    {"key": f.key, "size": f.size}
+                    for f in files
+                    if not is_derived_key(f.key)
+                ],
+            }
+        )
+
+    @api.get("/scopes/{scope}/blobs/{key:path}")
+    async def api_scope_blob_get(
+        key: str,
+        scope_obj: Scope = Depends(_scope_from_path),
+    ) -> StreamingResponse:
+        try:
+            result = await storage.open_stream(scope_obj, key)
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except Exception as exc:
+            logger.warning("blob fetch failed for %s: %s", key, exc)
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+        headers: dict[str, str] = {}
+        if result.content_encoding:
+            # See storage.py: gzipped sources/derived round-trip via
+            # Content-Encoding so the browser auto-decompresses.
+            headers["Content-Encoding"] = result.content_encoding
+        return StreamingResponse(
+            result.stream, media_type="application/octet-stream", headers=headers
+        )
+
+    @api.put("/scopes/{scope}/blobs/{key:path}")
+    async def api_scope_blob_put(
+        key: str,
+        request: Request,
+        scope_obj: Scope = Depends(_scope_from_path),
+    ) -> JSONResponse:
+        from .converter import is_derived_key, is_supported_source
+
+        clean = key.lstrip("/")
+        if not clean:
+            raise HTTPException(status_code=400, detail="empty key")
+        if is_derived_key(clean):
+            raise HTTPException(status_code=403, detail="cannot write to _derived/")
+        if not is_supported_source(clean):
+            raise HTTPException(status_code=415, detail=f"unsupported file type: {clean}")
+        data = await request.body()
+        if not data:
+            raise HTTPException(status_code=400, detail="empty body")
+        try:
+            await storage.put_bytes(
+                scope_obj,
+                clean,
+                data,
+                content_encoding=_content_encoding_for(clean),
+            )
+        except Exception as exc:
+            logger.exception("blob upload failed for %s", clean)
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+        return JSONResponse({"key": clean, "size": len(data)}, status_code=201)
+
+    @api.post("/scopes/{scope}/convert")
+    async def api_scope_convert(
+        request: Request,
+        scope_obj: Scope = Depends(_scope_from_path),
+    ) -> JSONResponse:
         body = await request.json()
         source_key = (body.get("source_key") or "").strip()
         target_format = (body.get("target_format") or "glb").strip().lower()
@@ -153,21 +337,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 status_code=415,
                 detail=f"target {target_format!r} not viable for source {source_key!r}; allowed: {viable}",
             )
-        # Phase 2B: scope is hardcoded to ``shared`` here so existing
-        # /api/* routes keep working unchanged. The scope-shaped URLs
-        # land in phase 2C.
-        if not await storage.exists(Scope.shared(), source_key):
+        if not await storage.exists(scope_obj, source_key):
             raise HTTPException(status_code=404, detail=f"source not found: {source_key}")
         if not queue.enabled:
             raise HTTPException(status_code=503, detail="conversion disabled (no NATS configured)")
 
-        # Cheap fast-path: if the derived blob is already there, skip the
-        # queue entirely and report a synthetic done job.
         try:
             derived_key = derived_key_for(source_key, target_format)
         except UnsupportedFormat as exc:
             raise HTTPException(status_code=415, detail=str(exc)) from exc
-        if await storage.exists(Scope.shared(), derived_key):
+        if await storage.exists(scope_obj, derived_key):
             return JSONResponse(
                 {
                     "job_id": "",
@@ -177,12 +356,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     "status": "done",
                     "progress": 1.0,
                     "stage": "cached",
+                    "scope_kind": scope_obj.kind,
+                    "scope_id": scope_obj.id,
                     "cached": True,
                 }
             )
 
         try:
-            job = await queue.enqueue(source_key, target_format)
+            job = await queue.enqueue(
+                source_key,
+                target_format,
+                scope_kind=scope_obj.kind,
+                scope_id=scope_obj.id,
+            )
         except Exception as exc:
             logger.exception("enqueue failed")
             raise HTTPException(status_code=503, detail=f"enqueue failed: {exc}") from exc
@@ -191,67 +377,39 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         payload["cached"] = False
         return JSONResponse(payload, status_code=202)
 
-    @api.get("/convert/targets")
-    async def api_convert_targets(source_key: str) -> JSONResponse:
-        # Lets the frontend render only viable target options for a
-        # given source. Cheap and side-effect-free.
+    @api.get("/scopes/{scope}/convert/targets")
+    async def api_scope_convert_targets(
+        source_key: str,
+        scope_obj: Scope = Depends(_scope_from_path),  # auth + access check
+    ) -> JSONResponse:
         return JSONResponse(
             {"source_key": source_key, "targets": supported_targets_for(source_key)}
         )
 
     @api.get("/convert/{job_id}")
-    async def api_convert_status(job_id: str) -> JSONResponse:
+    async def api_convert_status(
+        job_id: str,
+        user: User = Depends(auth_module.current_user),
+        request: Request = ...,
+    ) -> JSONResponse:
+        # Job status is identified by a globally unique job_id, so the
+        # URL doesn't carry a scope. We still enforce that the caller
+        # could access the job's recorded scope before returning it.
         if not queue.enabled:
             raise HTTPException(status_code=503, detail="conversion disabled (no NATS configured)")
         job = await queue.get(job_id)
         if job is None:
             raise HTTPException(status_code=404, detail=f"job {job_id} not found")
-        return JSONResponse(asdict(job))
-
-    @api.get("/blobs/{key:path}")
-    async def api_blob(key: str) -> StreamingResponse:
-        # Streams raw bytes from storage. Useful for direct GLB fetches
-        # outside the RPC envelope (CDN-cacheable, addressable).
-        try:
-            result = await storage.open_stream(Scope.shared(), key)
-        except FileNotFoundError as exc:
-            raise HTTPException(status_code=404, detail=str(exc)) from exc
-        except Exception as exc:
-            logger.warning("blob fetch failed for %s: %s", key, exc)
-            raise HTTPException(status_code=500, detail=str(exc)) from exc
-        headers: dict[str, str] = {}
-        if result.content_encoding:
-            # Tell the browser to decompress on receipt — keeps the
-            # download UX identical (foo.ifc lands uncompressed on disk)
-            # while we ship 5–10× less bytes over the wire.
-            headers["Content-Encoding"] = result.content_encoding
-        return StreamingResponse(
-            result.stream, media_type="application/octet-stream", headers=headers
+        job_scope = (
+            Scope.shared()
+            if job.scope_kind == "shared"
+            else Scope(kind=job.scope_kind, id=job.scope_id)  # type: ignore[arg-type]
         )
-
-    @api.put("/blobs/{key:path}")
-    async def api_blob_put(key: str, request: Request) -> JSONResponse:
-        # Upload raw file bytes. Frontend uses this from the upload
-        # context menu; key is the user-visible filename. Writing to
-        # _derived/* is forbidden so users can't poison the cache.
-        from .converter import is_derived_key, is_supported_source
-
-        clean = key.lstrip("/")
-        if not clean:
-            raise HTTPException(status_code=400, detail="empty key")
-        if is_derived_key(clean):
-            raise HTTPException(status_code=403, detail="cannot write to _derived/")
-        if not is_supported_source(clean):
-            raise HTTPException(status_code=415, detail=f"unsupported file type: {clean}")
-        data = await request.body()
-        if not data:
-            raise HTTPException(status_code=400, detail="empty body")
-        try:
-            await storage.put_bytes(Scope.shared(), clean, data, content_encoding=_content_encoding_for(clean))
-        except Exception as exc:
-            logger.exception("blob upload failed for %s", clean)
-            raise HTTPException(status_code=500, detail=str(exc)) from exc
-        return JSONResponse({"key": clean, "size": len(data)}, status_code=201)
+        if not await scope_can_access(
+            user, job_scope, getattr(request.app.state, "db_pool", None)
+        ):
+            raise HTTPException(status_code=403, detail="forbidden")
+        return JSONResponse(asdict(job))
 
     app.include_router(api)
 
