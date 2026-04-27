@@ -1,6 +1,7 @@
 import {useConversionStore, ConversionJob, ConvertStatus} from "@/state/conversionStore";
 import {useExperimentalStore} from "@/state/experimentalStore";
 import {convertIfcViaPyodide} from "@/utils/pyodide/pyodide_converter";
+import {runtime} from "@/runtime/config";
 
 const POLL_INTERVAL_MS = 1000;
 const MAX_POLL_ATTEMPTS = 60 * 30; // ~30 min ceiling — generous enough for big IFC
@@ -20,11 +21,11 @@ interface ConvertResponse {
 }
 
 function apiBase(): string {
-    return ((window as any).API_BASE || "/api").replace(/\/+$/, "");
+    return runtime.apiBase();
 }
 
 function convertEnabled(): boolean {
-    return Boolean((window as any).CONVERT_ENABLED);
+    return runtime.convertEnabled();
 }
 
 function buildJob(sourceKey: string, payload: ConvertResponse): ConversionJob {

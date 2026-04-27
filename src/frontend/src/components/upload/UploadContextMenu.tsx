@@ -1,12 +1,11 @@
 import React, {useEffect, useRef, useState} from "react";
 import {UPLOAD_TRIGGER_EVENT, uploadAcceptAttr, uploadFile} from "@/utils/scene/comms/upload_source_file";
+import {runtime} from "@/runtime/config";
 
 interface MenuPos {
     x: number;
     y: number;
 }
-
-const isRestMode = () => (window as any).COMMS_MODE === "rest";
 
 const UploadContextMenu: React.FC = () => {
     const [pos, setPos] = useState<MenuPos | null>(null);
@@ -15,7 +14,7 @@ const UploadContextMenu: React.FC = () => {
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     useEffect(() => {
-        if (!isRestMode()) {
+        if (!runtime.isRestMode()) {
             return;
         }
         const onContext = (e: MouseEvent) => {
@@ -51,7 +50,7 @@ const UploadContextMenu: React.FC = () => {
         };
     }, []);
 
-    if (!isRestMode()) {
+    if (!runtime.isRestMode()) {
         return null;
     }
 

@@ -7,9 +7,7 @@ import {FileObjectT, FileObject} from "@/flatbuffers/base/file-object";
 import * as flatbuffers from "flatbuffers";
 import ReloadIcon from "../icons/ReloadIcon";
 import ViewIcon from "../icons/ViewIcon";
-
-const apiBase = () => ((window as any).API_BASE || "/api").replace(/\/+$/, "");
-const convertEnabled = () => Boolean((window as any).CONVERT_ENABLED);
+import {runtime} from "@/runtime/config";
 
 const ADA_LOADABLE_EXTS = new Set([
     ".ifc", ".step", ".stp", ".xml", ".inp", ".fem", ".sat", ".acis",
@@ -31,7 +29,7 @@ function viableTargets(name: string): TargetFormat[] {
 }
 
 function downloadByKey(key: string, suggestedName?: string) {
-    const url = `${apiBase()}/blobs/${encodeURIComponent(key)}`;
+    const url = `${runtime.apiBase()}/blobs/${encodeURIComponent(key)}`;
     const a = document.createElement("a");
     a.href = url;
     if (suggestedName) a.download = suggestedName;
@@ -122,7 +120,7 @@ const StorageBrowser: React.FC = () => {
                                     >
                                         DL
                                     </button>
-                                    {convertEnabled() && downloadable.length > 0 && (
+                                    {runtime.convertEnabled() && downloadable.length > 0 && (
                                         <select
                                             disabled={busy}
                                             className="bg-gray-700 hover:bg-gray-600 text-[10px] uppercase rounded px-1 py-0.5 text-gray-300 disabled:opacity-60"

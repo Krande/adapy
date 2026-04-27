@@ -1,4 +1,5 @@
 import { useWebsocketStatusStore } from "@/state/websocketStatusStore";
+import { runtime } from "@/runtime/config";
 import type { Comms, CommsConnectHandler, CommsMessageHandler, Unsubscribe } from "./types";
 
 const INT32_MAX = 2147483647;
@@ -56,10 +57,10 @@ export class WSComms implements Comms {
   async connect(url: string): Promise<void> {
     const statusStore = useWebsocketStatusStore.getState();
 
-    const overrideId = (window as any).WEBSOCKET_ID;
-    if (overrideId) {
+    const overrideId = runtime.websocketId();
+    if (overrideId !== undefined && overrideId !== "") {
       console.log("WebSocket ID Override:", overrideId);
-      this.instance_id = normalizeInstanceId(overrideId);
+      this.instance_id = normalizeInstanceId(Number(overrideId));
     }
 
     this.lastUrl = url;
@@ -137,7 +138,7 @@ export class WSComms implements Comms {
     if (newId <= 0) newId = Math.max(1, Math.abs(newId));
 
     this.instance_id = newId;
-    (window as any).WEBSOCKET_ID = newId;
+    window.WEBSOCKET_ID = newId;
     useWebsocketStatusStore.getState().setFrontendId(newId);
 
     if (reconnect && this.lastUrl) {

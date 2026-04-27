@@ -1,5 +1,6 @@
 import {useWebSocketStore} from "@/state/webSocketStore";
 import {useWebsocketStatusStore} from "@/state/websocketStatusStore";
+import {runtime} from "@/runtime/config";
 import {comms} from "../comms";
 import {handleFlatbufferMessage} from "../fb_handling/handle_incoming_buffers";
 import {requestServerInfo} from "./requestServerInfo";
@@ -7,8 +8,8 @@ import {requestConnectedClients} from "./requestConnectedClients";
 import {request_list_of_files_from_server} from "../server_info/comms/request_list_of_files_from_server";
 
 function pickConnectUrl(): string {
-    if ((window as any).COMMS_MODE === "rest") {
-        return (window as any).API_BASE || "/api";
+    if (runtime.isRestMode()) {
+        return runtime.apiBase();
     }
     return useWebSocketStore.getState().webSocketAddress;
 }
@@ -25,7 +26,7 @@ export async function initWebSocket() {
         request_list_of_files_from_server();
     });
 
-    if ((window as any).DEACTIVATE_WS === true) {
+    if (runtime.websocketDeactivated()) {
         console.log("DEACTIVATE_WS is set to true, not connecting");
         return;
     }

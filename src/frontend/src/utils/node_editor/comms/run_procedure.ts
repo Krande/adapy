@@ -6,6 +6,7 @@ import {useNodeEditorStore} from '@/state/useNodeEditorStore';
 import * as flatbuffers from "flatbuffers"; // Import the node editor Zustand store
 import {Builder} from "flatbuffers";
 import {comms} from "@/utils/comms";
+import {runtime} from "@/runtime/config";
 
 function extract_input_params(builder: Builder, params: string[], procedureT: ProcedureT) {
     // the param strings are div keys in the form of 'param-<procedure_name>-<index>'
@@ -211,9 +212,10 @@ export async function run_procedure(props: { id: string, data: Record<string, st
     let procedureStore = ProcedureStore.endProcedureStore(builder);
 
     Message.startMessage(builder);
-    if ((window as any).TARGET_INSTANCE_ID) {
-        console.log('Overriding TARGET_ID:', (window as any).TARGET_INSTANCE_ID)
-        Message.addInstanceId(builder, (window as any).TARGET_INSTANCE_ID);
+    const targetId = runtime.targetInstanceId();
+    if (targetId !== undefined && targetId !== "") {
+        console.log('Overriding TARGET_ID:', targetId)
+        Message.addInstanceId(builder, Number(targetId));
     } else {
         Message.addInstanceId(builder, comms.getInstanceId());
     }

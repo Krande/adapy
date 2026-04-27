@@ -3,6 +3,7 @@ import React, {useEffect, useRef} from "react";
 import * as THREE from "three";
 import {useModelState} from "@/state/modelState";
 import {useOptionsStore} from "@/state/optionsStore";
+import {runtime} from "@/runtime/config";
 import {OrientationGizmo} from "./sceneHelpers/OrientationGizmo";
 import {setupCameraControlsHandlers} from "./sceneHelpers/setupCameraControlsHandlers";
 import {setupCamera} from "./sceneHelpers/setupCamera";
@@ -121,8 +122,8 @@ const ThreeCanvas: React.FC = () => {
         if (modelUrl) {
             replace_model(modelUrl)
             // delete the B64GLTF from the window object (if it exists)
-            if ((window as any).B64GLTF) {
-                delete (window as any).B64GLTF;
+            if (runtime.b64Gltf()) {
+                runtime.clearB64Gltf();
             }
         }
         if (modelGroupRef.current) {

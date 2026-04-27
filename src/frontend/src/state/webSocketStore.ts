@@ -1,4 +1,5 @@
 import {create} from 'zustand';
+import {runtime} from '@/runtime/config';
 
 type WebSocketStore = {
     webSocketAddress: string;
@@ -7,8 +8,7 @@ type WebSocketStore = {
 };
 
 export const useWebSocketStore = create<WebSocketStore>((set) => {
-    const websocketPort = (window as any).WEBSOCKET_PORT || 8765;
-    const webSocketAddress = 'ws://localhost:' + websocketPort;
+    const webSocketAddress = `ws://localhost:${runtime.websocketPort()}`;
 
     return {
         webSocketAddress,

@@ -1,5 +1,6 @@
 import {request_list_of_files_from_server} from "@/utils/server_info/comms/request_list_of_files_from_server";
 import {ensureConvertedGlb} from "./convert_source_file";
+import {runtime} from "@/runtime/config";
 
 const SUPPORTED_EXTS = [
     ".glb", ".gltf",
@@ -19,7 +20,7 @@ export function triggerUploadPicker(): void {
 }
 
 function apiBase(): string {
-    return ((window as any).API_BASE || "/api").replace(/\/+$/, "");
+    return runtime.apiBase();
 }
 
 export function uploadAcceptAttr(): string {
@@ -57,7 +58,7 @@ export async function uploadFile(file: File, opts?: {autoConvert?: boolean}): Pr
     await request_list_of_files_from_server();
 
     const autoConvert = opts?.autoConvert !== false;
-    const convertEnabled = Boolean((window as any).CONVERT_ENABLED);
+    const convertEnabled = runtime.convertEnabled();
     if (autoConvert && convertEnabled && ext !== ".glb") {
         // Fire-and-forget: ensureConvertedGlb updates the conversion
         // store as it polls so the UI reflects progress without

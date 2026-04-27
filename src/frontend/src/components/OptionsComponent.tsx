@@ -8,6 +8,7 @@ import {useModelState} from "../state/modelState";
 import {debug_print} from "../utils/debug_print";
 import {updateAllPointsSize} from "../utils/scene/updatePointSizes";
 import {useExperimentalStore} from "../state/experimentalStore";
+import {runtime} from "@/runtime/config";
 
 function OptionsComponent() {
     const {
@@ -34,7 +35,7 @@ function OptionsComponent() {
     const [position, setPosition] = useState({x: 0, y: 0});
     const [isModalOpen, setIsModalOpen] = useState(false);
 
-    const unique_version_id = (window as any).UNIQUE_VERSION_ID || 0;
+    const unique_version_id = runtime.uniqueVersionId();
 
     const clampPosition = useCallback((pos: { x: number; y: number }) => {
         const clampedX = Math.min(Math.max(0, pos.x), window.innerWidth - size.width);

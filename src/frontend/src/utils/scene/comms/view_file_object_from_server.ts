@@ -5,19 +5,12 @@ import {comms} from "@/utils/comms";
 import {CommandType} from "@/flatbuffers/commands";
 import {TargetType} from "@/flatbuffers/commands/target-type";
 import {Server} from "@/flatbuffers/server/server";
+import {runtime} from "@/runtime/config";
 // NOTE: convert_source_file and conversionStore are imported lazily
 // inside the REST branch below. In WS / desktop mode (the embedded
 // zip shipped with the Python package) they're never reached, and
 // dynamic-import keeps them out of the main bundle that gets inlined
 // into index.html — Vite emits them as separate chunks instead.
-
-function isRestMode(): boolean {
-    return (window as any).COMMS_MODE === "rest";
-}
-
-function convertEnabled(): boolean {
-    return Boolean((window as any).CONVERT_ENABLED);
-}
 
 async function start_file_in_local_app(fileobject: FileObject) {
     console.log("start_file_in_local_app" + fileobject.name());
@@ -72,13 +65,13 @@ export async function view_file_object_from_server(fileobject: FileObject) {
     // REST (hosted) mode: anything that isn't already GLB goes through
     // the server-side conversion pipeline. The backend serves the
     // derived blob via VIEW_FILE_OBJECT once /api/convert reports done.
-    if (isRestMode()) {
+    if (runtime.isRestMode()) {
         const isGlb = sourceName.toLowerCase().endsWith(".glb");
         if (isGlb) {
             await send_view_request(sourceName);
             return;
         }
-        if (!convertEnabled()) {
+        if (!runtime.convertEnabled()) {
             console.warn("non-GLB file but conversion is disabled on this deployment");
             return;
         }

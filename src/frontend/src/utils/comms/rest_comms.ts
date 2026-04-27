@@ -1,4 +1,5 @@
 import { useWebsocketStatusStore } from "@/state/websocketStatusStore";
+import { runtime } from "@/runtime/config";
 import type {
   Comms,
   CommsConnectHandler,
@@ -62,8 +63,10 @@ export class RESTComms implements Comms {
   }
 
   async connect(url: string): Promise<void> {
-    const overrideId = (window as any).WEBSOCKET_ID;
-    if (overrideId) this.instance_id = normalizeInstanceId(overrideId);
+    const overrideId = runtime.websocketId();
+    if (overrideId !== undefined && overrideId !== "") {
+      this.instance_id = normalizeInstanceId(Number(overrideId));
+    }
 
     // Trim trailing slash; an empty url falls back to /api.
     this.apiBase = (url || "/api").replace(/\/+$/, "") || "/api";
@@ -155,7 +158,7 @@ export class RESTComms implements Comms {
     if (newId <= 0) newId = Math.max(1, Math.abs(newId));
 
     this.instance_id = newId;
-    (window as any).WEBSOCKET_ID = newId;
+    window.WEBSOCKET_ID = newId;
     useWebsocketStatusStore.getState().setFrontendId(newId);
     // REST is connectionless; no reconnect needed. The next sendCommand
     // will use the new id (callers read it from getInstanceId() at build time).

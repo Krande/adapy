@@ -1,5 +1,6 @@
 import {create} from 'zustand';
 import { Node, Edge, OnConnect, addEdge, NodeChange, EdgeChange, applyNodeChanges, applyEdgeChanges } from '@xyflow/react';
+import { runtime } from '@/runtime/config';
 
 // Define the type for the store's state
 type NodeEditorState = {
@@ -42,5 +43,5 @@ export const useNodeEditorStore = create<NodeEditorState>((set) => ({
         set((state) => ({
             edges: addEdge(params, state.edges),
         })),
-    use_node_editor_only: (window as any).NODE_EDITOR_ONLY || false,
+    use_node_editor_only: runtime.nodeEditorOnly(),
 }));

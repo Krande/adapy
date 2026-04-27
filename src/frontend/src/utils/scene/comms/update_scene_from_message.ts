@@ -9,11 +9,14 @@ import {animationControllerRef, modelKeyMapRef, sceneRef} from "@/state/refs";
 import {useTreeViewStore} from "@/state/treeViewStore";
 import {loadGLTFfrombase64} from "../loadGLTFfrombase64";
 import {useAnimationStore} from "@/state/animationStore";
+import {runtime} from "@/runtime/config";
 
 
 export function load_base64_model(){
     console.log("B64GLTF exists, loading model");
-    let blob_uri = loadGLTFfrombase64((window as any).B64GLTF);
+    const b64 = runtime.b64Gltf();
+    if (!b64) return;
+    const blob_uri = loadGLTFfrombase64(b64);
     useModelState.getState().setModelUrl(blob_uri, SceneOperations.REPLACE);
 
 }

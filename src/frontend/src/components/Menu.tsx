@@ -9,6 +9,7 @@ import {useTreeViewStore} from "../state/treeViewStore";
 import {request_list_of_nodes} from "../utils/node_editor/comms/request_list_of_nodes";
 import {useServerInfoStore} from "../state/serverInfoStore";
 import ServerInfoBox from "./server_info/ServerInfoBox";
+import {runtime} from "@/runtime/config";
 // REST-only — code-split so the embedded desktop zip stays slim.
 const StorageBrowser = React.lazy(() => import("./storage/StorageBrowser"));
 // Lazy import for the upload trigger keeps upload_source_file out of
@@ -75,7 +76,7 @@ const Menu = () => {
                     >
                         <GraphIcon/>
                     </button>
-                    {(window as any).COMMS_MODE === "rest" && (
+                    {runtime.isRestMode() && (
                         <>
                             <button
                                 className={"bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded"}
@@ -117,7 +118,7 @@ const Menu = () => {
                 </div>
                 <div className={"px-2 gap-2 flex flex-col"}>
                     {showServerInfoBox && (
-                        (window as any).COMMS_MODE === "rest"
+                        runtime.isRestMode()
                             ? <Suspense fallback={null}><StorageBrowser/></Suspense>
                             : <ServerInfoBox/>
                     )}

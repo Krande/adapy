@@ -5,6 +5,7 @@ import CanvasWrapper from './components/viewer/CanvasWrapper';
 import Menu from './components/Menu';
 import OptionsComponent from './components/OptionsComponent';
 import {useOptionsStore} from './state/optionsStore';
+import {runtime} from "@/runtime/config";
 
 import ResizableTreeView from './components/tree_view/ResizableTreeView';
 import {useNodeEditorStore} from "./state/useNodeEditorStore";
@@ -14,7 +15,7 @@ import NodeEditorComponent from "./components/node_editor/NodeEditorComponent";
 // (the index.zip shipped with ada-py) doesn't pull in the conversion /
 // upload / Pyodide code. The chunk only loads when COMMS_MODE === "rest".
 const RestModeUI = React.lazy(() => import("./components/rest_mode/RestModeUI"));
-const isRestMode = (window as any).COMMS_MODE === "rest";
+const isRestMode = runtime.isRestMode();
 
 
 function App() {
@@ -22,8 +23,8 @@ function App() {
     const {isNodeEditorVisible, use_node_editor_only} = useNodeEditorStore();
     useEffect(() => {
         // Check if running inside a Jupyter Notebook
-        if ((window as any).Jupyter) {
-            const widgetManager = (window as any).Jupyter.notebook.kernel.comm_manager;
+        if (runtime.inJupyter()) {
+            const widgetManager = runtime.jupyter().notebook.kernel.comm_manager;
 
             // Find the Jupyter widget
             widgetManager.register_target("ReactViewerWidget", function (comm: any) {
