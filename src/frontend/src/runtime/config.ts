@@ -15,6 +15,12 @@ declare global {
         COMMS_MODE?: "rest" | "ws" | string;
         API_BASE?: string;
         CONVERT_ENABLED?: boolean;
+        // OIDC bootstrap (REST mode). When AUTH_ENABLED is false the
+        // others are unused; the SPA renders without an auth gate.
+        AUTH_ENABLED?: boolean;
+        AUTH_ISSUER?: string;
+        AUTH_CLIENT_ID?: string;
+        AUTH_AUDIENCE?: string;
         WEBSOCKET_ID?: number | string;
         WEBSOCKET_PORT?: number | string;
         TARGET_INSTANCE_ID?: number | string;
@@ -36,6 +42,14 @@ export const runtime = {
 
     // REST conversion pipeline
     convertEnabled: (): boolean => Boolean(w().CONVERT_ENABLED),
+
+    // OIDC bootstrap. authEnabled() drives whether the SPA puts up an
+    // auth gate at all; in dev / desktop it's false and the rest of
+    // these go unread.
+    authEnabled: (): boolean => Boolean(w().AUTH_ENABLED),
+    authIssuer: (): string => (w().AUTH_ISSUER || "").replace(/\/+$/, ""),
+    authClientId: (): string => w().AUTH_CLIENT_ID || "",
+    authAudience: (): string => w().AUTH_AUDIENCE || w().AUTH_CLIENT_ID || "",
 
     // WebSocket / desktop bundle
     websocketPort: (): number => Number(w().WEBSOCKET_PORT ?? 8765),

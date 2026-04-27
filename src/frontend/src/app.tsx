@@ -13,9 +13,13 @@ import NodeEditorComponent from "./components/node_editor/NodeEditorComponent";
 
 // REST-only UI lives in its own chunk so the embedded desktop bundle
 // (the index.zip shipped with ada-py) doesn't pull in the conversion /
-// upload / Pyodide code. The chunk only loads when COMMS_MODE === "rest".
+// upload / Pyodide / OIDC code. The chunk only loads when
+// COMMS_MODE === "rest".
 const RestModeUI = React.lazy(() => import("./components/rest_mode/RestModeUI"));
+const AuthGate = React.lazy(() => import("./components/auth/AuthGate"));
+const AuthCallback = React.lazy(() => import("./components/auth/AuthCallback"));
 const isRestMode = runtime.isRestMode();
+const isAuthCallback = isRestMode && window.location.pathname === "/auth/callback";
 
 
 function App() {
@@ -38,7 +42,17 @@ function App() {
             });
         }
     }, []);
-    return (
+    if (isAuthCallback) {
+        // Dedicated landing for OIDC redirect_uri. Doesn't render the
+        // viewer at all — it just exchanges the code and bounces back.
+        return (
+            <Suspense fallback={null}>
+                <AuthCallback/>
+            </Suspense>
+        );
+    }
+
+    const tree = (
         <div className={"relative flex flex-row h-full w-full bg-gray-900"}>
             {/* Tree View Section */}
             <div className={"relative h-full"}>
@@ -68,6 +82,15 @@ function App() {
             )}
 
         </div>
+    );
+
+    if (!isRestMode) return tree;
+    // AuthGate is a pass-through when AUTH_ENABLED is false; the real
+    // sign-in UI only fires when the deployment turns auth on.
+    return (
+        <Suspense fallback={null}>
+            <AuthGate>{tree}</AuthGate>
+        </Suspense>
     );
 }
 

@@ -241,12 +241,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def config_js() -> PlainTextResponse:
         # Tiny JS shim the SPA loads before its main bundle. Sets the
         # window globals that comms/index.ts inspects to pick the
-        # transport. Generated dynamically so a single image targets
-        # multiple deployments.
+        # transport and bootstrap auth. Generated dynamically so a
+        # single image targets multiple deployments. Strings are JSON-
+        # encoded so any embedded quotes can't break out of the literal.
+        import json as _json
+
+        a = settings.auth
         body = (
             'window.COMMS_MODE = "rest";\n'
             'window.API_BASE = "/api";\n'
             f'window.CONVERT_ENABLED = {"true" if queue.enabled else "false"};\n'
+            f'window.AUTH_ENABLED = {"true" if a.enabled else "false"};\n'
+            f"window.AUTH_ISSUER = {_json.dumps(a.issuer)};\n"
+            f"window.AUTH_CLIENT_ID = {_json.dumps(a.client_id)};\n"
+            f"window.AUTH_AUDIENCE = {_json.dumps(a.audience)};\n"
         )
         return PlainTextResponse(body, media_type="application/javascript")
 

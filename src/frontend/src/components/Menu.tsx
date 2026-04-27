@@ -11,6 +11,7 @@ import ServerInfoBox from "./server_info/ServerInfoBox";
 import {runtime} from "@/runtime/config";
 // REST-only — code-split so the embedded desktop zip stays slim.
 const StorageBrowser = React.lazy(() => import("./storage/StorageBrowser"));
+const UserMenu = React.lazy(() => import("./auth/UserMenu"));
 import GraphIcon from "./icons/GraphIcon";
 import InfoIcon from "./icons/InfoIcon";
 import ReloadIcon from "./icons/ReloadIcon";
@@ -90,6 +91,11 @@ const Menu = () => {
                             className={"bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded"}>
                             <WebsocketStatusMenu/>
                         </div>
+                    )}
+                    {runtime.isRestMode() && (
+                        <Suspense fallback={null}>
+                            <UserMenu/>
+                        </Suspense>
                     )}
 
                 </div>

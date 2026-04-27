@@ -41,13 +41,11 @@ function viableTargets(name: string): TargetFormat[] {
 }
 
 function downloadByKey(key: string, suggestedName?: string) {
-    const a = document.createElement("a");
-    a.href = viewerApi.blobUrl(key);
-    if (suggestedName) a.download = suggestedName;
-    a.style.display = "none";
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+    // Goes through viewerApi.downloadBlob so the bearer token rides
+    // along when auth is on; with auth off it's just a fetch+anchor.
+    void viewerApi.downloadBlob(key, suggestedName || key).catch((err) => {
+        console.error("download failed", err);
+    });
 }
 
 function formatBytes(n: number): string {
