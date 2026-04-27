@@ -95,10 +95,12 @@ const Menu = () => {
                         hidden={!hasAnimation}
                         onClick={() => setIsControlsVisible(!isControlsVisible)}
                     ><ToggleControlsIcon/></button>
-                    <div
-                        className={"bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded"}>
-                        <WebsocketStatusMenu/>
-                    </div>
+                    {!runtime.isRestMode() && (
+                        <div
+                            className={"bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded"}>
+                            <WebsocketStatusMenu/>
+                        </div>
+                    )}
 
                 </div>
                 <div className={"px-2 gap-2 flex flex-col"}>
