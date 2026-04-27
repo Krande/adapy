@@ -12,6 +12,18 @@ fullnameOverride: ""
 
 replicaCount: 1
 
+## Rollout strategy for the API deployment. Defaults to surge-only (no
+## unavailability window) so a single-replica deployment still has
+## zero-downtime rollouts: k8s starts the new pod, waits for it to become
+## Ready, then terminates the old one. Combined with the preStop sleep in
+## the deployment template this also avoids 502s from in-flight requests
+## landing on a closed listener mid-shutdown.
+strategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxSurge: 1
+    maxUnavailable: 0
+
 ## Conversion worker. Pulls source files from storage, converts to GLB,
 ## writes back under _derived/. Required for IFC/STEP/FEM viewing —
 ## without it only existing GLB files can be displayed.

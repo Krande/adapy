@@ -5,6 +5,9 @@ metadata:
   labels: {{- include "adapy-viewer.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.replicaCount }}
+  {{- with .Values.strategy }}
+  strategy: {{- toYaml . | nindent 4 }}
+  {{- end }}
   selector:
     matchLabels: {{- include "adapy-viewer.selectorLabels" . | nindent 6 }}
   template:
@@ -78,6 +81,14 @@ spec:
               port: http
             initialDelaySeconds: 2
             periodSeconds: 10
+          # Sleep on shutdown so kube-proxy / Traefik have time to drop the
+          # endpoint before uvicorn stops listening. Without this, in-flight
+          # connections during a rollout get a 502/Bad Gateway from the proxy
+          # even though strategy.maxUnavailable=0 keeps the new pod ready.
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sleep", "5"]
           resources: {{- toYaml .Values.resources | nindent 12 }}
           {{- with .Values.securityContext }}
           securityContext: {{- toYaml . | nindent 12 }}
