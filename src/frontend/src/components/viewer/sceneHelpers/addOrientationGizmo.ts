@@ -10,9 +10,9 @@ export function addOrientationGizmo(
     customElements.define("orientation-gizmo", OrientationGizmo);
   }
 
-  // Smaller gizmo on phone-sized viewports — the default 150 takes a
-  // sizeable bite out of the visible canvas. Match Tailwind's `md`
-  // breakpoint (768px).
+  // The gizmo class now self-positions in connectedCallback (display,
+  // size, position:fixed, anchor → top/right/bottom/left). Caller just
+  // picks the size, anchor, and margins.
   const isNarrow = window.matchMedia("(max-width: 767px)").matches;
   const size = isNarrow ? 80 : 150;
 
@@ -21,26 +21,13 @@ export function addOrientationGizmo(
     bubbleSizePrimary: isNarrow ? 6 : 10,
     bubbleSizeSeconday: isNarrow ? 6 : 10,
     fontSize: isNarrow ? "8px" : "10px",
+    anchor: "bottom-right",
+    anchorMarginX: 8,
+    // Bigger Y margin on phones to clear Android gesture-nav pill —
+    // safe-area-inset-bottom (added on top inside the gizmo) is not
+    // reliably populated by Chrome on Android.
+    anchorMarginY: isNarrow ? 36 : 8,
   });
-  // Custom HTMLElements default to display:inline with no intrinsic
-  // dimensions; the inner <canvas> would overflow the wrapper from a
-  // zero-sized anchor box, so right/bottom positioning ended up landing
-  // the canvas *centred* on the corner instead of *inside* it. Force
-  // block + explicit size so the bounding box is deterministic.
-  gizmo.style.display = "block";
-  gizmo.style.width = `${size}px`;
-  gizmo.style.height = `${size}px`;
-  gizmo.style.position = "absolute";
-  // Clear Android's gesture-nav pill (Chrome on Android often reports
-  // safe-area-inset-bottom as 0 even with viewport-fit=cover, so we
-  // need an explicit floor on mobile). 36px clears the standard pill;
-  // safe-area-inset-bottom adds on top for iOS home-indicator.
-  const bottomFloor = isNarrow ? 36 : 8;
-  const sideFloor = 8;
-  gizmo.style.bottom = `calc(env(safe-area-inset-bottom, 0px) + ${bottomFloor}px)`;
-  gizmo.style.right = `calc(env(safe-area-inset-right, 0px) + ${sideFloor}px)`;
-  gizmo.style.pointerEvents = "auto";
-  gizmo.style.zIndex = "10";
 
   container.appendChild(gizmo);
 
