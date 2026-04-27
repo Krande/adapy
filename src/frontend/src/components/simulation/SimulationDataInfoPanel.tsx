@@ -32,7 +32,7 @@ export default function SimulationDataInfoPanel() {
   const currentField = fields[selectedField] as FieldObject;
 
   return (
-    <div className="p-6 border rounded-lg shadow-sm bg-white bg-opacity-50 max-h-96 overflow-auto pointer-events-auto">
+    <div className="p-6 border rounded-lg shadow-sm bg-white bg-opacity-50 max-h-96 overflow-auto">
       <h2 className="text-xl font-semibold text-gray-800">{simData.name}</h2>
       <p className="text-sm text-gray-500 mt-1">
         {new Date(simData.date).toLocaleString()}

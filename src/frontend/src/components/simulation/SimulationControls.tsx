@@ -47,7 +47,7 @@ const SimulationControls = () => {
 
     return (
         <div className="flex flex-col gap-2">
-            <div className="flex flex-row items-center gap-x-2 min-w-0 pointer-events-auto">
+            <div className="flex flex-row items-center gap-x-2 min-w-0">
                 <select
                     className="text-black font-bold py-2 px-4 rounded w-60"
                     value={selectedAnimation}

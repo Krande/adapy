@@ -100,7 +100,7 @@ export function WebsocketStatusBox() {
     }, [saveEdit, cancelEdit]);
 
     return (
-        <div className="bg-gray-400 bg-opacity-50 rounded p-2 min-w-80 pointer-events-auto">
+        <div className="bg-gray-400 bg-opacity-50 rounded p-2 min-w-80">
             <h2 className="font-bold">WebSocket Status</h2>
             <div className="text-xs text-gray-800 space-y-2 mb-2">
                 <div className="border-b border-gray-300 pb-2">
