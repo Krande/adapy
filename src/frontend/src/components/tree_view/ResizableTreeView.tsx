@@ -1,11 +1,13 @@
 import React, { useState, useRef } from 'react';
 import TreeViewComponent from './TreeViewComponent';
 import { useTreeViewStore } from "@/state/treeViewStore";
+import { useNodeEditorStore } from "@/state/useNodeEditorStore";
 
 const ResizableTreeView: React.FC = () => {
     const [treeViewWidth, setTreeViewWidth] = useState(256); // Initial width of 256px
     const isResizing = useRef(false);
-    const { isTreeCollapsed } = useTreeViewStore();
+    const { isTreeCollapsed, setIsTreeCollapsed } = useTreeViewStore();
+    const { use_node_editor_only } = useNodeEditorStore();
 
     // Handle mouse down event on the resize handle
     const handleMouseDown = (e: React.MouseEvent) => {
@@ -57,6 +59,23 @@ const ResizableTreeView: React.FC = () => {
                         onMouseDown={handleMouseDown}
                     />
                 </div>
+            )}
+
+            {/* Tree toggle tab — vertical leaf on the left edge of the
+                viewport when closed, on the right edge of the panel when
+                open. Replaces the dedicated tree button in the top bar so
+                the top bar stays compact on mobile. */}
+            {!use_node_editor_only && (
+                <button
+                    type="button"
+                    onClick={() => setIsTreeCollapsed(!isTreeCollapsed)}
+                    style={{ left: isTreeCollapsed ? 0 : `min(${treeViewWidth}px, 85vw)` }}
+                    className="absolute top-1/2 -translate-y-1/2 z-30 bg-blue-700 hover:bg-blue-600 text-white py-3 px-1 rounded-r shadow-lg transition-[left] duration-150 select-none"
+                    aria-label={isTreeCollapsed ? 'Show tree' : 'Hide tree'}
+                    title={isTreeCollapsed ? 'Show tree' : 'Hide tree'}
+                >
+                    {isTreeCollapsed ? '›' : '‹'}
+                </button>
             )}
         </div>
     );

@@ -5,7 +5,6 @@ import SimulationControls from "./simulation/SimulationControls";
 import {useNodeEditorStore} from "../state/useNodeEditorStore";
 import {useAnimationStore} from "../state/animationStore";
 import {useOptionsStore} from "../state/optionsStore";
-import {useTreeViewStore} from "../state/treeViewStore";
 import {request_list_of_nodes} from "../utils/node_editor/handlers/request_list_of_nodes";
 import {useServerInfoStore} from "../state/serverInfoStore";
 import ServerInfoBox from "./server_info/ServerInfoBox";
@@ -14,7 +13,6 @@ import {runtime} from "@/runtime/config";
 const StorageBrowser = React.lazy(() => import("./storage/StorageBrowser"));
 import GraphIcon from "./icons/GraphIcon";
 import InfoIcon from "./icons/InfoIcon";
-import TreeViewIcon from "./icons/TreeViewIcon";
 import ReloadIcon from "./icons/ReloadIcon";
 import ServerIcon from "./icons/ServerIcon";
 import ToggleControlsIcon from "./icons/AnimationControlToggle";
@@ -30,7 +28,6 @@ const Menu = () => {
     const {show_group_info_box} = useGroupInfoStore();
     const {isNodeEditorVisible, setIsNodeEditorVisible, use_node_editor_only} = useNodeEditorStore();
     const {isOptionsVisible, setIsOptionsVisible, enableNodeEditor} = useOptionsStore(); // use the useNavBarStore function
-    const {isTreeCollapsed, setIsTreeCollapsed} = useTreeViewStore();
     const {showServerInfoBox, setShowServerInfoBox} = useServerInfoStore();
     const {hasAnimation, isControlsVisible, setIsControlsVisible} = useAnimationStore();
     const {showInfoBox: showWebsocketInfoBox} = useWebsocketStatusStore();
@@ -54,13 +51,6 @@ const Menu = () => {
                         hidden={use_node_editor_only}
                         onClick={() => setIsOptionsVisible(!isOptionsVisible)}
                     >☰
-                    </button>
-                    <button
-                        className="bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded"
-                        hidden={use_node_editor_only}
-                        onClick={() => setIsTreeCollapsed(!isTreeCollapsed)}
-                    >
-                        <TreeViewIcon/>
                     </button>
 
                     <button
