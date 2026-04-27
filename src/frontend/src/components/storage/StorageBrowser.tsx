@@ -52,6 +52,7 @@ const StorageBrowser: React.FC = () => {
     const files = useServerInfoStore((s) => s.serverFileObjects);
     const [convertingKey, setConvertingKey] = useState<string | null>(null);
     const [uploading, setUploading] = useState(false);
+    const [expandedName, setExpandedName] = useState<string | null>(null);
     // Owned input — clicking it must happen synchronously inside the
     // button's onClick to preserve the user-activation gesture (iOS Safari
     // refuses the file picker otherwise). The previous implementation
@@ -98,7 +99,7 @@ const StorageBrowser: React.FC = () => {
     return (
         <div
             data-no-upload-menu
-            className="bg-gray-800/95 text-gray-100 rounded p-2 mt-2 ml-2 mr-2 min-w-80 max-w-md border border-gray-700"
+            className="bg-gray-800/95 text-gray-100 rounded p-2 mt-2 w-full max-w-md border border-gray-700"
         >
             <div className="flex justify-between items-center mb-2">
                 <h2 className="font-bold">Storage</h2>
@@ -141,9 +142,20 @@ const StorageBrowser: React.FC = () => {
                         return (
                             <li
                                 key={f.name}
-                                className="flex items-center justify-between bg-gray-900/60 rounded px-2 py-1 text-xs"
+                                className="flex items-center justify-between bg-gray-900/60 rounded px-2 py-1 text-xs gap-2"
                             >
-                                <span className="truncate flex-1 mr-2" title={f.name}>{f.name}</span>
+                                {/* min-w-0 lets `truncate` actually clip inside a
+                                    flex item (default min-width is auto = content).
+                                    Tap to toggle between truncated and wrapped so
+                                    the full filename is reachable on touch. */}
+                                <button
+                                    type="button"
+                                    onClick={() => setExpandedName(expandedName === f.name ? null : f.name)}
+                                    className={`flex-1 min-w-0 text-left ${expandedName === f.name ? 'whitespace-normal break-all' : 'truncate'}`}
+                                    title={f.name}
+                                >
+                                    {f.name}
+                                </button>
                                 <div className="flex items-center gap-1 shrink-0">
                                     <button
                                         className="p-1 rounded hover:bg-gray-700"

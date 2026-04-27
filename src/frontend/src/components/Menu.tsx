@@ -93,7 +93,7 @@ const Menu = () => {
                     )}
 
                 </div>
-                <div className={"px-2 gap-2 flex flex-col pointer-events-auto"}>
+                <div className={"px-2 gap-2 flex flex-col pointer-events-auto max-w-[100vw]"}>
                     {showServerInfoBox && (
                         runtime.isRestMode()
                             ? <Suspense fallback={null}><StorageBrowser/></Suspense>

@@ -2,13 +2,21 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Use dvh so the canvas fills the *visible* viewport on mobile, where
+   the URL bar shrinks the visible area below the layout viewport that
+   `100%`/`100vh` reports. Without this the gizmo at bottom-right ends
+   up under the address bar. Fallback to vh for browsers without dvh. */
 html, body {
-    height: 100%;
+    height: 100vh;
+    height: 100dvh;
     margin: 0;
+    overflow: hidden;
+    overscroll-behavior: none;
 }
 
 #root {
-    height: 100%;
+    height: 100vh;
+    height: 100dvh;
 }
 
 body {
