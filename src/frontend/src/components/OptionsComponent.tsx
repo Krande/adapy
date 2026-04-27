@@ -1,16 +1,23 @@
 import React, {useCallback, useEffect, useState} from "react";
 import {Rnd} from "react-rnd";
 import {runtime} from "@/runtime/config";
+import {useOptionsStore} from "@/state/optionsStore";
 import ActionButtons from "./options/ActionButtons";
 import PointSizeOptions from "./options/PointSizeOptions";
 import DisplayOptions from "./options/DisplayOptions";
 import ExperimentalOptions from "./options/ExperimentalOptions";
 import ShortcutsModal from "./options/ShortcutsModal";
 
+const MOBILE_QUERY = "(max-width: 767px)";
+
 // Layout shell. Each section under options/ owns its state and effects.
 function OptionsComponent() {
     const [size] = useState({width: 300, height: 460});
     const [, setPosition] = useState({x: 0, y: 0});
+    const [isMobile, setIsMobile] = useState(
+        () => typeof window !== "undefined" && window.matchMedia(MOBILE_QUERY).matches
+    );
+    const setIsOptionsVisible = useOptionsStore((s) => s.setIsOptionsVisible);
 
     const unique_version_id = runtime.uniqueVersionId();
 
@@ -31,6 +38,54 @@ function OptionsComponent() {
         window.addEventListener("resize", centerWindow);
         return () => window.removeEventListener("resize", centerWindow);
     }, [centerWindow]);
+
+    useEffect(() => {
+        const mq = window.matchMedia(MOBILE_QUERY);
+        const onChange = (e: MediaQueryListEvent) => setIsMobile(e.matches);
+        mq.addEventListener("change", onChange);
+        return () => mq.removeEventListener("change", onChange);
+    }, []);
+
+    const sections = (
+        <>
+            <ActionButtons/>
+            <hr className="border-gray-600"/>
+            <PointSizeOptions/>
+            <hr className="border-gray-600"/>
+            <DisplayOptions/>
+            <hr className="border-gray-600"/>
+            <ExperimentalOptions/>
+            <hr className="border-gray-600"/>
+            <ShortcutsModal/>
+        </>
+    );
+
+    if (isMobile) {
+        // Drawer pinned to the left edge, full visible-viewport height.
+        // No floating window on phones — there isn't enough room for the
+        // panel's contents to be reachable, and a centred float clips
+        // off-screen.
+        return (
+            <div className="fixed inset-y-0 left-0 z-40 w-[85vw] max-w-sm bg-gray-800 text-white text-sm shadow-xl flex flex-col">
+                <div className="flex items-center justify-between p-3 border-b border-gray-700">
+                    <span className="font-bold text-base">Options</span>
+                    <button
+                        type="button"
+                        onClick={() => setIsOptionsVisible(false)}
+                        className="text-gray-300 hover:text-white text-xl leading-none px-2"
+                        aria-label="Close options"
+                        title="Close"
+                    >
+                        ×
+                    </button>
+                </div>
+                <div className="flex-1 overflow-y-auto p-4 flex flex-col space-y-4">
+                    <div className="text-xs text-gray-400">Version: {unique_version_id}</div>
+                    {sections}
+                </div>
+            </div>
+        );
+    }
 
     return (
         <Rnd
@@ -63,15 +118,7 @@ function OptionsComponent() {
                 </div>
                 <div className="text-xs text-gray-400">Version: {unique_version_id}</div>
 
-                <ActionButtons/>
-                <hr className="border-gray-600"/>
-                <PointSizeOptions/>
-                <hr className="border-gray-600"/>
-                <DisplayOptions/>
-                <hr className="border-gray-600"/>
-                <ExperimentalOptions/>
-                <hr className="border-gray-600"/>
-                <ShortcutsModal/>
+                {sections}
             </div>
         </Rnd>
     );
