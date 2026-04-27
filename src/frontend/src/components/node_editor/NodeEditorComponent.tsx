@@ -5,7 +5,7 @@ import '@xyflow/react/dist/style.css';
 import {request_list_of_nodes} from "@/utils/node_editor/comms/request_list_of_nodes";
 import {useNodeEditorStore} from '@/state/useNodeEditorStore'; // Import the Zustand store
 import ProcedureNode from './nodes/procedure_node/ProcedureNode';
-import CustomFileObjectNode from './nodes/file_node/customFileObjectNode';
+import CustomFileObjectNode from './nodes/file_node/CustomFileObjectNode';
 import {onDelete} from "@/utils/node_editor/comms/on_delete";
 import {start_new_node_editor} from "@/utils/node_editor/comms/start_new_node_editor";
 import ReloadIcon from "../icons/ReloadIcon";

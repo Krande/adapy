@@ -1,6 +1,6 @@
 import React from "react";
 import { useModelState } from "@/state/modelState";
-import CopyIcon from "../icons/copyIcon";
+import CopyIcon from "../icons/CopyIcon";
 
 interface ClickCoordinate {
   x: number;

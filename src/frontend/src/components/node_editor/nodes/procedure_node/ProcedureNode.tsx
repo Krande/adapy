@@ -1,6 +1,6 @@
 import React, {memo} from 'react';
 import {ProcedureHeader} from "./ProcedureHeader";
-import {ParameterList} from "./Parameterlist";
+import {ParameterList} from "./ParameterList";
 import DynamicHandle from "../DynamicHandle";
 import {run_procedure} from "@/utils/node_editor/comms/run_procedure";
 import {ProcedureT} from "@/flatbuffers/procedures/procedure";
