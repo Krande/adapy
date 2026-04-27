@@ -23,10 +23,14 @@ export function addOrientationGizmo(
     fontSize: isNarrow ? "8px" : "10px",
   });
   gizmo.style.position = "absolute";
-  // Respect iOS safe-area insets so the gizmo isn't clipped under the
-  // home-indicator / notch in landscape.
-  gizmo.style.bottom = "max(8px, env(safe-area-inset-bottom, 0px))";
-  gizmo.style.right = "max(8px, env(safe-area-inset-right, 0px))";
+  // Clear Android's gesture-nav pill (Chrome on Android often reports
+  // safe-area-inset-bottom as 0 even with viewport-fit=cover, so we
+  // need an explicit floor on mobile). 36px clears the standard pill;
+  // safe-area-inset-bottom adds on top for iOS home-indicator.
+  const bottomFloor = isNarrow ? 36 : 8;
+  const sideFloor = 8;
+  gizmo.style.bottom = `calc(env(safe-area-inset-bottom, 0px) + ${bottomFloor}px)`;
+  gizmo.style.right = `calc(env(safe-area-inset-right, 0px) + ${sideFloor}px)`;
   gizmo.style.pointerEvents = "auto";
   gizmo.style.zIndex = "10";
 
