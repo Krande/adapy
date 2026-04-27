@@ -22,6 +22,20 @@ from .handlers import dispatch
 from .queue import JobQueue
 from .storage import Storage
 
+# Text-heavy CAD/FEM formats compress 5–10× with gzip; binary mesh
+# formats already pack their geometry tightly so we skip them. The
+# storage layer transparently decompresses on read; the download
+# endpoint forwards Content-Encoding: gzip so browsers handle it on
+# the user's machine. ada.from_<format> in the worker sees the original
+# bytes via Storage.get_bytes.
+_GZIP_UPLOAD_EXTS: frozenset[str] = frozenset(
+    {".ifc", ".step", ".stp", ".xml", ".inp", ".fem", ".sat", ".acis"}
+)
+
+
+def _content_encoding_for(key: str) -> str | None:
+    return "gzip" if pathlib.PurePosixPath(key).suffix.lower() in _GZIP_UPLOAD_EXTS else None
+
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or load_settings()
@@ -155,13 +169,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # Streams raw bytes from storage. Useful for direct GLB fetches
         # outside the RPC envelope (CDN-cacheable, addressable).
         try:
-            stream = await storage.open_stream(key)
+            result = await storage.open_stream(key)
         except FileNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         except Exception as exc:
             logger.warning("blob fetch failed for %s: %s", key, exc)
             raise HTTPException(status_code=500, detail=str(exc)) from exc
-        return StreamingResponse(stream, media_type="application/octet-stream")
+        headers: dict[str, str] = {}
+        if result.content_encoding:
+            # Tell the browser to decompress on receipt — keeps the
+            # download UX identical (foo.ifc lands uncompressed on disk)
+            # while we ship 5–10× less bytes over the wire.
+            headers["Content-Encoding"] = result.content_encoding
+        return StreamingResponse(
+            result.stream, media_type="application/octet-stream", headers=headers
+        )
 
     @app.put("/api/blobs/{key:path}")
     async def api_blob_put(key: str, request: Request) -> JSONResponse:
@@ -181,7 +203,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if not data:
             raise HTTPException(status_code=400, detail="empty body")
         try:
-            await storage.put_bytes(clean, data)
+            await storage.put_bytes(clean, data, content_encoding=_content_encoding_for(clean))
         except Exception as exc:
             logger.exception("blob upload failed for %s", clean)
             raise HTTPException(status_code=500, detail=str(exc)) from exc

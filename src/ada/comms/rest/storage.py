@@ -3,10 +3,30 @@
 obstore (the Python binding to the Rust object_store crate) gives us a
 single async API across S3, GCS, Azure, and the local filesystem. The
 viewer only needs list / get / stream so we keep the wrapper small.
+
+Transparent gzip
+================
+
+Text-heavy formats (IFC, STEP, Genie XML, FEM input decks) compress
+5–10× with gzip. Callers ask `put_bytes` to gzip on the way in via
+`content_encoding="gzip"` and the storage layer:
+
+* gzips the bytes, then writes them under the same logical key;
+* tries to set the ``Content-Encoding`` attribute on the object so S3
+  reports it on HEAD/GET (LocalStore raises NotImplementedError for
+  attributes — we silently fall back to "no metadata, just bytes").
+
+`get_bytes` always returns the decompressed payload. It detects gzip
+content via the magic bytes 0x1F 0x8B at offset 0, which is bulletproof
+across backends and survives metadata loss. `open_stream` peeks the
+first chunk for the same magic, returns the raw (still-compressed)
+stream plus a `content_encoding` hint, and lets the HTTP layer forward
+``Content-Encoding: gzip`` so the browser auto-decompresses on download.
 """
 
 from __future__ import annotations
 
+import gzip
 from dataclasses import dataclass
 from typing import AsyncIterator
 
@@ -16,10 +36,28 @@ from obstore.store import LocalStore, S3Store
 from .config import Settings
 
 
+# gzip RFC 1952: every member starts with 0x1F 0x8B. Used as a portable
+# encoding marker that doesn't depend on backend metadata support.
+_GZIP_MAGIC = b"\x1f\x8b"
+
+
 @dataclass(frozen=True)
 class FileEntry:
     key: str
     size: int
+
+
+@dataclass
+class StreamResult:
+    """Streaming read with an HTTP-style encoding hint.
+
+    `content_encoding` is "gzip" if the stored bytes were compressed
+    (and the caller is expected to forward it as a response header so
+    the browser auto-decompresses), or None if the bytes are plain.
+    """
+
+    stream: AsyncIterator[bytes]
+    content_encoding: str | None
 
 
 class Storage:
@@ -81,10 +119,52 @@ class Storage:
         return entries
 
     async def get_bytes(self, key: str) -> bytes:
-        result = await self._store.get_async(self._full_key(key))
-        return bytes(await result.bytes_async())
+        """Read an object and return its decompressed payload.
 
-    async def put_bytes(self, key: str, data: bytes) -> None:
+        Auto-decompresses if the stored bytes start with the gzip magic
+        marker, regardless of whether the backend kept Content-Encoding
+        metadata.
+        """
+        result = await self._store.get_async(self._full_key(key))
+        raw = bytes(await result.bytes_async())
+        if raw[:2] == _GZIP_MAGIC:
+            return gzip.decompress(raw)
+        return raw
+
+    async def put_bytes(
+        self,
+        key: str,
+        data: bytes,
+        *,
+        content_encoding: str | None = None,
+    ) -> None:
+        """Store an object, optionally gzipping it first.
+
+        With ``content_encoding="gzip"`` the bytes are compressed and
+        the Content-Encoding attribute is best-effort attached to the
+        object. LocalStore doesn't support attributes; the gzip magic
+        bytes still let the read path recognise compressed content.
+        """
+        if content_encoding is not None and content_encoding != "gzip":
+            raise ValueError(f"unsupported content_encoding: {content_encoding!r}")
+
+        if content_encoding == "gzip":
+            payload = gzip.compress(data)
+            try:
+                await obs.put_async(
+                    self._store,
+                    self._full_key(key),
+                    payload,
+                    attributes={"Content-Encoding": "gzip"},
+                )
+                return
+            except NotImplementedError:
+                # LocalStore (filesystem) has no attribute slot. Fall
+                # through and write the gzipped bytes — get_bytes /
+                # open_stream sniff the magic header on read.
+                await obs.put_async(self._store, self._full_key(key), payload)
+                return
+
         await obs.put_async(self._store, self._full_key(key), data)
 
     async def exists(self, key: str) -> bool:
@@ -94,14 +174,41 @@ class Storage:
             return False
         return True
 
-    async def open_stream(self, key: str) -> AsyncIterator[bytes]:
+    async def open_stream(self, key: str) -> StreamResult:
         """Open a byte stream eagerly: raises FileNotFoundError immediately
-        if the key is missing, then returns an async iterator over chunks.
+        if the key is missing, then returns an async iterator over chunks
+        plus the detected ``Content-Encoding`` (or None).
+
+        The first chunk is peeked to detect the gzip magic; the stream
+        is reconstituted so the caller still sees every byte. The
+        compressed bytes are *not* expanded — the caller is expected to
+        forward ``Content-Encoding: gzip`` so the browser does that.
         """
         result = await self._store.get_async(self._full_key(key))
 
+        # Some backends populate this from object metadata; treat it as
+        # a hint, but fall back to magic-byte sniffing below either way.
+        meta_encoding = None
+        attrs = getattr(result, "attributes", None)
+        if isinstance(attrs, dict):
+            meta_encoding = attrs.get("Content-Encoding") or attrs.get("content-encoding")
+
+        chunk_iter = result.stream().__aiter__()
+        try:
+            first_chunk = bytes(await chunk_iter.__anext__())
+        except StopAsyncIteration:
+            first_chunk = b""
+
+        encoding: str | None = None
+        if first_chunk[:2] == _GZIP_MAGIC:
+            encoding = "gzip"
+        elif meta_encoding:
+            encoding = meta_encoding
+
         async def _gen() -> AsyncIterator[bytes]:
-            async for chunk in result.stream():
+            if first_chunk:
+                yield first_chunk
+            async for chunk in chunk_iter:
                 yield bytes(chunk)
 
-        return _gen()
+        return StreamResult(stream=_gen(), content_encoding=encoding)

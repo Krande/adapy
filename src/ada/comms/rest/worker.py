@@ -111,8 +111,12 @@ async def _process_one(
         return
 
     await queue.update(job_id, stage="uploading", progress=0.95)
+    # Gzip text-format outputs (IFC, Genie XML); GLB is binary geometry
+    # that doesn't compress meaningfully and is what the in-browser
+    # viewer fetches on the hot path.
+    derived_encoding = "gzip" if job.target_format in {"ifc", "xml"} else None
     try:
-        await storage.put_bytes(job.derived_key, out_bytes)
+        await storage.put_bytes(job.derived_key, out_bytes, content_encoding=derived_encoding)
     except Exception as exc:
         logger.exception("worker: upload failed for %s", job.derived_key)
         await queue.update(
