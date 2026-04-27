@@ -5,8 +5,12 @@ from contextlib import asynccontextmanager
 from dataclasses import asdict
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, Response
-from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import (
+    FileResponse,
+    JSONResponse,
+    PlainTextResponse,
+    StreamingResponse,
+)
 
 from ada.config import logger
 
@@ -439,11 +443,45 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if not static_dir.is_dir():
             logger.warning("ADA_VIEWER_STATIC_PATH=%s is not a directory; skipping", static_dir)
         else:
-            # Mount last so /api/* and /config.js win over the static fallback.
-            # html=True makes / serve index.html and SPA routes fall back to it.
-            app.mount("/", StaticFiles(directory=str(static_dir), html=True), name="spa")
+            _wire_spa_fallback(app, static_dir)
 
     return app
+
+
+def _wire_spa_fallback(app: FastAPI, static_dir: pathlib.Path) -> None:
+    """Register a catch-all that serves the SPA shell for client-side routes.
+
+    StaticFiles(html=True) only serves index.html for directory roots —
+    a deep link like ``/auth/callback`` (which is what OIDC redirects
+    to) misses the disk and falls into FastAPI's default 404. We
+    instead resolve every non-API request manually:
+
+    1. ``/api/*`` misses → 404 (don't disguise API bugs as SPA pages).
+    2. Path matches a file on disk → serve it (assets, favicon, etc.).
+    3. Anything else → return ``index.html`` and let the SPA router
+       consume the URL.
+
+    Must register *after* every explicit route the API exposes; the
+    path-converter pattern matches anything that didn't already match.
+    """
+    static_root = static_dir.resolve()
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    async def spa_fallback(full_path: str) -> FileResponse:
+        # Don't paper over API mistakes by returning the SPA shell.
+        if full_path.startswith("api/"):
+            raise HTTPException(status_code=404)
+        if full_path:
+            candidate = (static_dir / full_path).resolve()
+            # Reject path traversal — the resolved target must live
+            # inside static_dir.
+            try:
+                candidate.relative_to(static_root)
+            except ValueError:
+                raise HTTPException(status_code=404)
+            if candidate.is_file():
+                return FileResponse(candidate)
+        return FileResponse(static_dir / "index.html")
 
 
 app = create_app()
