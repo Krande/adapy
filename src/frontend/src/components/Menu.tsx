@@ -1,4 +1,4 @@
-import React, {Suspense} from 'react';
+import React, {Suspense, useState} from 'react';
 import ObjectInfoBox from "./info_box_selected_object/ObjectInfoBoxComponent";
 import {useObjectInfoStore} from "../state/objectInfoStore";
 import SimulationControls from "./simulation/SimulationControls";
@@ -9,10 +9,12 @@ import {request_list_of_nodes} from "../utils/node_editor/handlers/request_list_
 import {useServerInfoStore} from "../state/serverInfoStore";
 import ServerInfoBox from "./server_info/ServerInfoBox";
 import {runtime} from "@/runtime/config";
+import {useMeStore} from "../state/meStore";
 // REST-only — code-split so the embedded desktop zip stays slim.
 const StorageBrowser = React.lazy(() => import("./storage/StorageBrowser"));
 const UserMenu = React.lazy(() => import("./auth/UserMenu"));
 const ScopePicker = React.lazy(() => import("./scope/ScopePicker"));
+const AdminPanel = React.lazy(() => import("./admin/AdminPanel"));
 import GraphIcon from "./icons/GraphIcon";
 import InfoIcon from "./icons/InfoIcon";
 import ReloadIcon from "./icons/ReloadIcon";
@@ -33,6 +35,8 @@ const Menu = () => {
     const {showServerInfoBox, setShowServerInfoBox} = useServerInfoStore();
     const {hasAnimation, isControlsVisible, setIsControlsVisible} = useAnimationStore();
     const {showInfoBox: showWebsocketInfoBox} = useWebsocketStatusStore();
+    const isAdmin = useMeStore((s) => s.isAdmin);
+    const [showAdmin, setShowAdmin] = useState(false);
 
     return (
         <div className="relative w-full h-full">
@@ -98,6 +102,15 @@ const Menu = () => {
                             <ScopePicker/>
                         </Suspense>
                     )}
+                    {runtime.isRestMode() && isAdmin && (
+                        <button
+                            className={"bg-purple-700 hover:bg-purple-700/50 text-white text-xs px-3 py-2 rounded"}
+                            onClick={() => setShowAdmin(true)}
+                            title="Admin panel"
+                        >
+                            Admin
+                        </button>
+                    )}
                     {runtime.isRestMode() && (
                         <Suspense fallback={null}>
                             <UserMenu/>
@@ -117,6 +130,11 @@ const Menu = () => {
                     {isControlsVisible && <SimulationControls/>}
                 </div>
             </div>
+            {showAdmin && (
+                <Suspense fallback={null}>
+                    <AdminPanel onClose={() => setShowAdmin(false)}/>
+                </Suspense>
+            )}
         </div>
     );
 }

@@ -2,6 +2,7 @@ import React, {useEffect, useState} from "react";
 import {bootstrap, isAuthEnabled, isSignedIn, signIn} from "@/services/auth/oidc";
 import {viewerApi} from "@/services/viewerApi";
 import {useScopeStore} from "@/state/scopeStore";
+import {useMeStore} from "@/state/meStore";
 
 // Gates the REST-mode app behind a verified bearer token. When auth
 // is disabled (default in dev / desktop) it's a transparent
@@ -11,12 +12,18 @@ import {useScopeStore} from "@/state/scopeStore";
 // The bootstrap call attempts a silent token refresh from the stashed
 // refresh token (sessionStorage) so reload-in-tab doesn't always
 // bounce through the IdP. After auth resolves we also fetch /api/me
-// and populate the scope store so the project picker has data
-// immediately.
-async function loadAvailableScopes(): Promise<void> {
+// and populate the scope + me stores so the project picker and admin
+// button have data immediately.
+async function loadMe(): Promise<void> {
     try {
         const me = await viewerApi.me();
         useScopeStore.getState().setAvailable(me.scopes);
+        useMeStore.getState().set({
+            sub: me.sub,
+            email: me.email,
+            displayName: me.displayName,
+            isAdmin: me.isAdmin,
+        });
     } catch (err) {
         console.warn("failed to load /api/me", err);
     }
@@ -34,10 +41,10 @@ const AuthGate: React.FC<{children: React.ReactNode}> = ({children}) => {
             const live = isSignedIn() || !enabled;
             setSignedIn(live);
             setReady(true);
-            // Load scopes whenever we have something to talk to: either
+            // Load /api/me whenever we have something to talk to: either
             // a valid token (auth on) or the synthetic local-dev user
             // (auth off). Skip when the sign-in prompt is being shown.
-            if (live) await loadAvailableScopes();
+            if (live) await loadMe();
         };
         if (!enabled) {
             void finish();

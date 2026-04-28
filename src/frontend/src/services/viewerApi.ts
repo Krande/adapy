@@ -108,6 +108,47 @@ async function authedFetch(url: string, init: RequestInit = {}): Promise<Respons
     return r;
 }
 
+export interface AuditEntry {
+    id: number;
+    ts: string | null;
+    user_sub: string | null;
+    scope_kind: string;
+    scope_id: string | null;
+    action: string;
+    key: string | null;
+    target_format: string | null;
+    status: string | null;
+    error: string | null;
+    duration_ms: number | null;
+}
+
+export interface AdminProject {
+    id: string;
+    slug: string;
+    name: string;
+    created_at: string | null;
+    archived_at: string | null;
+    member_count: number;
+}
+
+export interface ProjectMember {
+    user_sub: string;
+    role: string;
+    added_at: string | null;
+    email: string | null;
+    display_name: string | null;
+    last_seen_at: string | null;
+}
+
+export interface AuditFilters {
+    user_sub?: string;
+    scope_kind?: string;
+    scope_id?: string;
+    action?: string;
+    before_id?: number;
+    limit?: number;
+}
+
 export const viewerApi = {
     /** Direct URL for the addressable blob endpoint. Includes scope.
      * Only safe to use as `<a href download>` when auth is disabled —
@@ -262,6 +303,82 @@ export const viewerApi = {
         if (!r.ok) return [];
         const body = (await r.json()) as ConvertTargetsResponse;
         return body.targets || [];
+    },
+
+    /** Admin: paged audit log. ``before_id`` is the keyset cursor —
+     * pass ``next_before_id`` from the previous page to get the next
+     * older one. Returns null for ``next_before_id`` when at the end. */
+    async adminAudit(
+        filters: AuditFilters = {},
+    ): Promise<{entries: AuditEntry[]; next_before_id: number | null}> {
+        const params = new URLSearchParams();
+        for (const [k, v] of Object.entries(filters)) {
+            if (v !== undefined && v !== "" && v !== null) params.set(k, String(v));
+        }
+        const qs = params.toString();
+        const url = `${runtime.apiBase()}/admin/audit${qs ? `?${qs}` : ""}`;
+        const r = await authedFetch(url);
+        return jsonOrThrow(r, "adminAudit");
+    },
+
+    async adminListProjects(): Promise<AdminProject[]> {
+        const r = await authedFetch(`${runtime.apiBase()}/admin/projects`);
+        const body = await jsonOrThrow<{projects: AdminProject[]}>(r, "adminListProjects");
+        return body.projects;
+    },
+
+    async adminCreateProject(slug: string, name: string): Promise<AdminProject> {
+        const r = await authedFetch(`${runtime.apiBase()}/admin/projects`, {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({slug, name}),
+        });
+        return jsonOrThrow<AdminProject>(r, "adminCreateProject");
+    },
+
+    async adminArchiveProject(projectId: string): Promise<void> {
+        const r = await authedFetch(
+            `${runtime.apiBase()}/admin/projects/${encodeURIComponent(projectId)}`,
+            {method: "DELETE"},
+        );
+        if (!r.ok && r.status !== 204) {
+            throw new ApiError(`adminArchiveProject failed: ${r.status}`, r.status, await readDetail(r));
+        }
+    },
+
+    async adminListMembers(projectId: string): Promise<ProjectMember[]> {
+        const r = await authedFetch(
+            `${runtime.apiBase()}/admin/projects/${encodeURIComponent(projectId)}/members`,
+        );
+        const body = await jsonOrThrow<{members: ProjectMember[]}>(r, "adminListMembers");
+        return body.members;
+    },
+
+    async adminAddMember(
+        projectId: string,
+        userSub: string,
+        role: string = "member",
+    ): Promise<{user_sub: string; role: string; added: boolean}> {
+        const r = await authedFetch(
+            `${runtime.apiBase()}/admin/projects/${encodeURIComponent(projectId)}/members`,
+            {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({user_sub: userSub, role}),
+            },
+        );
+        return jsonOrThrow(r, "adminAddMember");
+    },
+
+    async adminRemoveMember(projectId: string, userSub: string): Promise<void> {
+        const r = await authedFetch(
+            `${runtime.apiBase()}/admin/projects/${encodeURIComponent(projectId)}` +
+                `/members/${encodeURIComponent(userSub)}`,
+            {method: "DELETE"},
+        );
+        if (!r.ok && r.status !== 204) {
+            throw new ApiError(`adminRemoveMember failed: ${r.status}`, r.status, await readDetail(r));
+        }
     },
 };
 
