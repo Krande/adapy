@@ -1,11 +1,11 @@
 import React, {useEffect, useState} from "react";
 import {AdminProject, ApiError, ProjectMember, viewerApi} from "@/services/viewerApi";
 
-// Two-pane project management: project list on the left, member detail
-// on the right. Operator picks a project, then adds/removes members
-// against it. Slug/name capture happens in a tiny form at the top of
-// the list pane; conflicts surface as inline error text rather than
-// alerts so the operator can fix and retry without losing context.
+// Project management. Two layouts:
+// * sm:↑ side-by-side list + member detail (the desktop two-pane view).
+// * mobile — only one of {list, detail} is visible at a time, with a
+//   "Back" button to return to the list. Saves horizontal real estate
+//   on phones where 50/50 split is unreadable.
 
 const ProjectsTab: React.FC = () => {
     const [projects, setProjects] = useState<AdminProject[]>([]);
@@ -18,8 +18,6 @@ const ProjectsTab: React.FC = () => {
         try {
             const xs = await viewerApi.adminListProjects();
             setProjects(xs);
-            // Reconcile selection — if the picked project went away
-            // (archived, etc.), drop it.
             if (selected) {
                 const still = xs.find((p) => p.id === selected.id);
                 setSelected(still || null);
@@ -58,9 +56,16 @@ const ProjectsTab: React.FC = () => {
         }
     };
 
+    const showDetailOnly = selected !== null; // mobile-only: pick one pane
+
     return (
         <div className="flex h-full">
-            <div className="w-1/3 min-w-[260px] border-r border-gray-700 flex flex-col">
+            <div
+                className={
+                    "flex-col border-r border-gray-700 sm:flex sm:w-1/3 sm:min-w-[260px] " +
+                    (showDetailOnly ? "hidden sm:flex" : "flex w-full")
+                }
+            >
                 <CreateProjectForm onCreate={onCreate}/>
                 {error && (
                     <div className="px-3 py-2 text-red-300 text-xs border-b border-gray-700">
@@ -72,7 +77,7 @@ const ProjectsTab: React.FC = () => {
                         <button
                             key={p.id}
                             className={
-                                "w-full text-left px-3 py-2 border-b border-gray-800 hover:bg-gray-800 " +
+                                "w-full text-left px-3 py-3 sm:py-2 border-b border-gray-800 hover:bg-gray-800 " +
                                 (selected?.id === p.id ? "bg-gray-800" : "")
                             }
                             onClick={() => setSelected(p)}
@@ -99,11 +104,20 @@ const ProjectsTab: React.FC = () => {
                     )}
                 </div>
             </div>
-            <div className="flex-1 overflow-auto">
+            <div
+                className={
+                    "flex-1 overflow-auto " +
+                    (showDetailOnly ? "block" : "hidden sm:block")
+                }
+            >
                 {selected ? (
-                    <MemberPane project={selected} onArchive={() => onArchive(selected)}/>
+                    <MemberPane
+                        project={selected}
+                        onArchive={() => onArchive(selected)}
+                        onBack={() => setSelected(null)}
+                    />
                 ) : (
-                    <div className="flex h-full items-center justify-center text-gray-500 text-sm">
+                    <div className="hidden sm:flex h-full items-center justify-center text-gray-500 text-sm">
                         Pick a project to manage its members.
                     </div>
                 )}
@@ -118,8 +132,6 @@ const CreateProjectForm: React.FC<{onCreate: (slug: string, name: string) => voi
     const [name, setName] = useState("");
     const [slug, setSlug] = useState("");
     const [touchedSlug, setTouchedSlug] = useState(false);
-    // Auto-derive slug from name until the operator types directly into
-    // the slug field — a small affordance, not a hard rule.
     const effectiveSlug = touchedSlug ? slug : autoSlug(name);
     return (
         <form
@@ -134,13 +146,13 @@ const CreateProjectForm: React.FC<{onCreate: (slug: string, name: string) => voi
             }}
         >
             <input
-                className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm"
+                className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-2 text-sm"
                 placeholder="Project name"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
             />
             <input
-                className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs text-gray-300"
+                className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-2 text-xs text-gray-300"
                 placeholder="slug"
                 value={effectiveSlug}
                 onChange={(e) => {
@@ -150,7 +162,7 @@ const CreateProjectForm: React.FC<{onCreate: (slug: string, name: string) => voi
             />
             <button
                 type="submit"
-                className="w-full bg-blue-700 hover:bg-blue-600 px-2 py-1 rounded text-sm disabled:opacity-50"
+                className="w-full bg-blue-700 hover:bg-blue-600 px-2 py-2 rounded text-sm disabled:opacity-50"
                 disabled={!name.trim() || !effectiveSlug}
             >
                 Create project
@@ -159,10 +171,11 @@ const CreateProjectForm: React.FC<{onCreate: (slug: string, name: string) => voi
     );
 };
 
-const MemberPane: React.FC<{project: AdminProject; onArchive: () => void}> = ({
-    project,
-    onArchive,
-}) => {
+const MemberPane: React.FC<{
+    project: AdminProject;
+    onArchive: () => void;
+    onBack: () => void;
+}> = ({project, onArchive, onBack}) => {
     const [members, setMembers] = useState<ProjectMember[]>([]);
     const [error, setError] = useState<string | null>(null);
     const [adding, setAdding] = useState(false);
@@ -209,9 +222,15 @@ const MemberPane: React.FC<{project: AdminProject; onArchive: () => void}> = ({
 
     return (
         <div className="flex flex-col h-full">
-            <div className="px-4 py-3 border-b border-gray-700">
-                <div className="flex items-center justify-between gap-2">
-                    <div className="min-w-0">
+            <div className="px-3 sm:px-4 py-3 border-b border-gray-700">
+                <div className="flex items-center gap-2 mb-1">
+                    <button
+                        className="sm:hidden bg-gray-800 hover:bg-gray-700 text-xs px-2 py-1 rounded"
+                        onClick={onBack}
+                    >
+                        ← Projects
+                    </button>
+                    <div className="min-w-0 flex-1">
                         <div className="text-sm font-semibold truncate" title={project.name}>
                             {project.name}
                         </div>
@@ -230,9 +249,9 @@ const MemberPane: React.FC<{project: AdminProject; onArchive: () => void}> = ({
                 </div>
             </div>
             {!project.archived_at && (
-                <div className="flex gap-2 px-4 py-2 border-b border-gray-700">
+                <div className="flex flex-col sm:flex-row gap-2 px-3 sm:px-4 py-2 border-b border-gray-700">
                     <input
-                        className="flex-1 bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs"
+                        className="flex-1 bg-gray-800 border border-gray-700 rounded px-2 py-2 text-xs"
                         placeholder="user_sub (from OIDC token)"
                         value={newSub}
                         onChange={(e) => setNewSub(e.target.value)}
@@ -240,30 +259,33 @@ const MemberPane: React.FC<{project: AdminProject; onArchive: () => void}> = ({
                             if (e.key === "Enter") void onAdd();
                         }}
                     />
-                    <select
-                        className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs"
-                        value={newRole}
-                        onChange={(e) => setNewRole(e.target.value)}
-                    >
-                        <option value="member">member</option>
-                        <option value="owner">owner</option>
-                    </select>
-                    <button
-                        className="bg-blue-700 hover:bg-blue-600 px-2 py-1 rounded text-xs disabled:opacity-50"
-                        onClick={() => void onAdd()}
-                        disabled={adding || !newSub.trim()}
-                    >
-                        Add
-                    </button>
+                    <div className="flex gap-2">
+                        <select
+                            className="flex-1 sm:flex-initial bg-gray-800 border border-gray-700 rounded px-2 py-2 text-xs"
+                            value={newRole}
+                            onChange={(e) => setNewRole(e.target.value)}
+                        >
+                            <option value="member">member</option>
+                            <option value="owner">owner</option>
+                        </select>
+                        <button
+                            className="bg-blue-700 hover:bg-blue-600 px-3 py-2 rounded text-xs disabled:opacity-50"
+                            onClick={() => void onAdd()}
+                            disabled={adding || !newSub.trim()}
+                        >
+                            Add
+                        </button>
+                    </div>
                 </div>
             )}
             {error && (
-                <div className="px-4 py-2 text-red-300 text-xs border-b border-gray-700">
+                <div className="px-3 sm:px-4 py-2 text-red-300 text-xs border-b border-gray-700">
                     {error}
                 </div>
             )}
             <div className="flex-1 overflow-auto">
-                <table className="w-full text-xs">
+                {/* Desktop / tablet table */}
+                <table className="hidden sm:table w-full text-xs">
                     <thead className="sticky top-0 bg-gray-800 text-left">
                     <tr>
                         <Th>Display name</Th>
@@ -298,6 +320,34 @@ const MemberPane: React.FC<{project: AdminProject; onArchive: () => void}> = ({
                     ))}
                     </tbody>
                 </table>
+                {/* Mobile cards */}
+                <ul className="sm:hidden divide-y divide-gray-800">
+                    {members.map((m) => (
+                        <li key={m.user_sub} className="px-3 py-3 text-xs">
+                            <div className="flex items-center justify-between gap-2">
+                                <div className="min-w-0">
+                                    <div className="text-sm font-medium truncate">
+                                        {m.display_name || m.email || shortSub(m.user_sub)}
+                                    </div>
+                                    {m.email && m.display_name && (
+                                        <div className="text-gray-400 truncate">{m.email}</div>
+                                    )}
+                                    <div className="text-gray-500 text-[11px] truncate" title={m.user_sub}>
+                                        {shortSub(m.user_sub)} · {m.role}
+                                    </div>
+                                </div>
+                                {!project.archived_at && (
+                                    <button
+                                        className="text-red-300 hover:text-red-200 text-xs px-2 py-1 rounded border border-red-900"
+                                        onClick={() => onRemove(m.user_sub)}
+                                    >
+                                        Remove
+                                    </button>
+                                )}
+                            </div>
+                        </li>
+                    ))}
+                </ul>
                 {members.length === 0 && (
                     <div className="px-4 py-8 text-center text-gray-500 text-sm">
                         No members yet.

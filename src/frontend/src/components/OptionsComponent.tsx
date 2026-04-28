@@ -1,4 +1,4 @@
-import React, {useCallback, useEffect, useState} from "react";
+import React, {Suspense, useCallback, useEffect, useState} from "react";
 import {Rnd} from "react-rnd";
 import {runtime} from "@/runtime/config";
 import {useOptionsStore} from "@/state/optionsStore";
@@ -7,6 +7,11 @@ import PointSizeOptions from "./options/PointSizeOptions";
 import DisplayOptions from "./options/DisplayOptions";
 import ExperimentalOptions from "./options/ExperimentalOptions";
 import ShortcutsModal from "./options/ShortcutsModal";
+
+// REST-only controls (scope picker, signed-in row, admin button) live
+// here so they're reachable on phones and don't crowd the top bar.
+// Lazy-loaded so the desktop bundle stays slim.
+const RestSection = React.lazy(() => import("./options/RestSection"));
 
 const MOBILE_QUERY = "(max-width: 767px)";
 
@@ -48,6 +53,14 @@ function OptionsComponent() {
 
     const sections = (
         <>
+            {runtime.isRestMode() && (
+                <>
+                    <Suspense fallback={null}>
+                        <RestSection/>
+                    </Suspense>
+                    <hr className="border-gray-600"/>
+                </>
+            )}
             <ActionButtons/>
             <hr className="border-gray-600"/>
             <PointSizeOptions/>

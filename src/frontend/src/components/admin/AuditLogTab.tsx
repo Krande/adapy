@@ -1,10 +1,14 @@
 import React, {useEffect, useState} from "react";
 import {ApiError, AuditEntry, AuditFilters, viewerApi} from "@/services/viewerApi";
 
-// Filterable audit log view. Client-side filters call /api/admin/audit
-// with query-string params; pagination is keyset (server returns
-// next_before_id) so the table scrolls cleanly even as new rows are
-// inserted while the operator is reading.
+// Filterable audit log view. Two layouts:
+// * sm:↑ desktop — table with sticky header, fits everything in columns.
+// * mobile — collapsible filters + card-per-entry, so a 320px viewport
+//   stays readable without horizontal scrolling.
+//
+// Pagination is keyset on the BIGSERIAL id (the server returns
+// next_before_id) — that way the table doesn't shift while new audit
+// rows are inserted between pages.
 
 const ACTIONS = ["", "upload", "download", "convert", "view"];
 const KINDS = ["", "shared", "project", "user"];
@@ -15,6 +19,8 @@ const AuditLogTab: React.FC = () => {
     const [nextBeforeId, setNextBeforeId] = useState<number | null>(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [filtersOpen, setFiltersOpen] = useState(false);
+    const activeFilterCount = countActive(filters);
 
     const reload = async (f: AuditFilters) => {
         setLoading(true);
@@ -57,44 +63,67 @@ const AuditLogTab: React.FC = () => {
 
     return (
         <div className="flex flex-col h-full">
-            <div className="flex flex-wrap gap-2 px-4 py-2 border-b border-gray-700 text-xs">
-                <FilterInput
-                    placeholder="user_sub"
-                    value={filters.user_sub || ""}
-                    onChange={(v) => onFilter({user_sub: v || undefined})}
-                />
-                <FilterSelect
-                    options={KINDS}
-                    value={filters.scope_kind || ""}
-                    onChange={(v) => onFilter({scope_kind: v || undefined})}
-                    placeholder="any kind"
-                />
-                <FilterInput
-                    placeholder="scope_id"
-                    value={filters.scope_id || ""}
-                    onChange={(v) => onFilter({scope_id: v || undefined})}
-                />
-                <FilterSelect
-                    options={ACTIONS}
-                    value={filters.action || ""}
-                    onChange={(v) => onFilter({action: v || undefined})}
-                    placeholder="any action"
-                />
-                <button
-                    className="ml-auto bg-blue-700 hover:bg-blue-600 px-2 py-1 rounded"
-                    onClick={() => reload(filters)}
-                    disabled={loading}
+            <div className="border-b border-gray-700">
+                <div className="flex items-center gap-2 px-3 py-2 sm:hidden">
+                    <button
+                        className="bg-gray-800 hover:bg-gray-700 px-2 py-1 rounded text-xs"
+                        onClick={() => setFiltersOpen((v) => !v)}
+                    >
+                        Filters{activeFilterCount > 0 ? ` (${activeFilterCount})` : ""} {filtersOpen ? "▲" : "▼"}
+                    </button>
+                    <button
+                        className="ml-auto bg-blue-700 hover:bg-blue-600 px-3 py-1 rounded text-xs"
+                        onClick={() => reload(filters)}
+                        disabled={loading}
+                    >
+                        {loading ? "Loading…" : "Refresh"}
+                    </button>
+                </div>
+                <div
+                    className={
+                        (filtersOpen ? "flex" : "hidden") +
+                        " sm:flex flex-wrap gap-2 px-3 sm:px-4 pb-2 sm:py-2 text-xs"
+                    }
                 >
-                    Refresh
-                </button>
+                    <FilterInput
+                        placeholder="user_sub"
+                        value={filters.user_sub || ""}
+                        onChange={(v) => onFilter({user_sub: v || undefined})}
+                    />
+                    <FilterSelect
+                        options={KINDS}
+                        value={filters.scope_kind || ""}
+                        onChange={(v) => onFilter({scope_kind: v || undefined})}
+                        placeholder="any kind"
+                    />
+                    <FilterInput
+                        placeholder="scope_id"
+                        value={filters.scope_id || ""}
+                        onChange={(v) => onFilter({scope_id: v || undefined})}
+                    />
+                    <FilterSelect
+                        options={ACTIONS}
+                        value={filters.action || ""}
+                        onChange={(v) => onFilter({action: v || undefined})}
+                        placeholder="any action"
+                    />
+                    <button
+                        className="hidden sm:inline-block ml-auto bg-blue-700 hover:bg-blue-600 px-2 py-1 rounded"
+                        onClick={() => reload(filters)}
+                        disabled={loading}
+                    >
+                        Refresh
+                    </button>
+                </div>
             </div>
             {error && (
-                <div className="px-4 py-2 text-red-300 text-xs border-b border-gray-700">
+                <div className="px-3 sm:px-4 py-2 text-red-300 text-xs border-b border-gray-700">
                     {error}
                 </div>
             )}
             <div className="flex-1 overflow-auto">
-                <table className="w-full text-xs">
+                {/* Desktop / tablet table */}
+                <table className="hidden sm:table w-full text-xs">
                     <thead className="sticky top-0 bg-gray-800">
                     <tr className="text-left">
                         <Th>Time</Th>
@@ -109,7 +138,7 @@ const AuditLogTab: React.FC = () => {
                     <tbody>
                     {entries.map((e) => (
                         <tr key={e.id} className="border-t border-gray-800 hover:bg-gray-800/40">
-                            <Td title={e.ts || ""}>{e.ts ? e.ts.replace("T", " ").slice(0, 19) : ""}</Td>
+                            <Td title={e.ts || ""}>{formatTs(e.ts)}</Td>
                             <Td title={e.user_sub || ""}>{shortSub(e.user_sub)}</Td>
                             <Td>
                                 {e.scope_kind}
@@ -125,16 +154,51 @@ const AuditLogTab: React.FC = () => {
                     ))}
                     </tbody>
                 </table>
+                {/* Mobile cards */}
+                <ul className="sm:hidden divide-y divide-gray-800">
+                    {entries.map((e) => (
+                        <li key={e.id} className="px-3 py-2 text-xs">
+                            <div className="flex items-baseline justify-between gap-2">
+                                <span className="font-medium">{e.action}</span>
+                                <span className={statusClass(e.status) + " text-[11px]"}>
+                                    {e.status || ""}
+                                </span>
+                            </div>
+                            <div className="text-gray-400 mt-0.5">
+                                {formatTs(e.ts)} · {e.scope_kind}
+                                {e.scope_id ? `:${shortSub(e.scope_id)}` : ""}
+                            </div>
+                            {e.key && (
+                                <div className="text-gray-300 mt-1 break-all" title={e.key}>
+                                    {e.key}
+                                    {e.target_format ? (
+                                        <span className="text-gray-400"> → {e.target_format}</span>
+                                    ) : null}
+                                </div>
+                            )}
+                            {e.user_sub && (
+                                <div className="text-gray-500 mt-0.5" title={e.user_sub}>
+                                    by {shortSub(e.user_sub)}
+                                </div>
+                            )}
+                            {e.error && (
+                                <div className="text-red-300 mt-1 break-all" title={e.error}>
+                                    {e.error}
+                                </div>
+                            )}
+                        </li>
+                    ))}
+                </ul>
                 {!loading && entries.length === 0 && (
                     <div className="px-4 py-8 text-center text-gray-500 text-sm">
                         No matching audit entries.
                     </div>
                 )}
             </div>
-            <div className="border-t border-gray-700 px-4 py-2 flex items-center gap-3 text-xs">
+            <div className="border-t border-gray-700 px-3 sm:px-4 py-2 flex items-center gap-3 text-xs">
                 <span className="text-gray-400">{entries.length} rows</span>
                 <button
-                    className="bg-gray-700 hover:bg-gray-600 px-2 py-1 rounded disabled:opacity-50"
+                    className="bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded disabled:opacity-50"
                     onClick={loadMore}
                     disabled={loading || nextBeforeId == null}
                 >
@@ -155,7 +219,7 @@ const FilterInput: React.FC<{
     useEffect(() => setLocal(value), [value]);
     return (
         <input
-            className="bg-gray-800 border border-gray-700 rounded px-2 py-1 w-44 text-white"
+            className="bg-gray-800 border border-gray-700 rounded px-2 py-1 w-full sm:w-44 text-white"
             placeholder={placeholder}
             value={local}
             onChange={(e) => setLocal(e.target.value)}
@@ -174,7 +238,7 @@ const FilterSelect: React.FC<{
     placeholder: string;
 }> = ({options, value, onChange, placeholder}) => (
     <select
-        className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-white"
+        className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-white w-full sm:w-auto"
         value={value}
         onChange={(e) => onChange(e.target.value)}
     >
@@ -208,11 +272,25 @@ function shortSub(s: string | null): string {
     return `${s.slice(0, 8)}…${s.slice(-4)}`;
 }
 
+function formatTs(ts: string | null): string {
+    if (!ts) return "";
+    return ts.replace("T", " ").slice(0, 19);
+}
+
 function statusClass(s: string | null): string {
     if (s === "ok" || s === "done") return "text-green-400";
     if (s === "error") return "text-red-400";
     if (s === "queued") return "text-yellow-300";
     return "text-gray-300";
+}
+
+function countActive(f: AuditFilters): number {
+    let n = 0;
+    if (f.user_sub) n++;
+    if (f.scope_kind) n++;
+    if (f.scope_id) n++;
+    if (f.action) n++;
+    return n;
 }
 
 export default AuditLogTab;
