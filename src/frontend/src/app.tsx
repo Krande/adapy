@@ -3,8 +3,6 @@ import "./app.css";
 import React, {useEffect, Suspense} from 'react'
 import CanvasWrapper from './components/viewer/CanvasWrapper';
 import Menu from './components/Menu';
-import OptionsComponent from './components/OptionsComponent';
-import {useOptionsStore} from './state/optionsStore';
 import {runtime} from "@/runtime/config";
 
 import ResizableTreeView from './components/tree_view/ResizableTreeView';
@@ -23,7 +21,6 @@ const isAuthCallback = isRestMode && window.location.pathname === "/auth/callbac
 
 
 function App() {
-    const {isOptionsVisible} = useOptionsStore(); // use the useNavBarStore function
     const {isNodeEditorVisible, use_node_editor_only} = useNodeEditorStore();
     useEffect(() => {
         // Check if running inside a Jupyter Notebook
@@ -69,11 +66,6 @@ function App() {
 
             {/* Only render NodeEditorComponent if it's visible */}
             {isNodeEditorVisible && <NodeEditorComponent/>}
-
-            {/* Only render NavBar if it's visible */}
-            {isOptionsVisible && (
-                <OptionsComponent/>
-            )}
 
             {isRestMode && (
                 <Suspense fallback={null}>

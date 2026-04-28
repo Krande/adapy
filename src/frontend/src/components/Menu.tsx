@@ -14,6 +14,7 @@ import {runtime} from "@/runtime/config";
 // (RestSection); the menu bar is kept tight so it stays usable on
 // phones.
 const StorageBrowser = React.lazy(() => import("./storage/StorageBrowser"));
+import OptionsComponent from "./OptionsComponent";
 import GraphIcon from "./icons/GraphIcon";
 import InfoIcon from "./icons/InfoIcon";
 import ReloadIcon from "./icons/ReloadIcon";
@@ -164,6 +165,7 @@ const Menu = () => {
                     )}
                 </div>
                 <div className={"px-2 gap-2 flex flex-col pointer-events-auto max-w-[100vw]"}>
+                    {isOptionsVisible && <OptionsComponent/>}
                     {showServerInfoBox && (
                         runtime.isRestMode()
                             ? <Suspense fallback={null}><StorageBrowser/></Suspense>
