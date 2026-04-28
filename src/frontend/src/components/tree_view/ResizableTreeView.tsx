@@ -41,14 +41,16 @@ const ResizableTreeView: React.FC = () => {
     return (
         <div className="relative flex h-full">
             {/* Tree View Section.
-                On mobile (< md) the panel floats over the canvas instead of
-                pushing it aside — there's not enough horizontal room to
-                shrink the 3D view and still see anything. On desktop it
-                stays inline so the user can resize the split. */}
+                Always floats over the canvas (mobile and desktop) so the
+                3D view doesn't reflow when the panel opens/closes/resizes.
+                Reflowing the canvas resizes the WebGL context which
+                visually "jumps" the camera and re-fits the model — bad UX
+                while you're navigating. The desktop drag handle still
+                resizes the panel itself, just non-destructively. */}
             {!isTreeCollapsed && (
                 <div
                     style={{ width: `${treeViewWidth}px` }}
-                    className="absolute md:relative top-0 left-0 z-20 max-w-[85vw] flex-grow-0 flex-shrink-0 h-full bg-gray-800 overflow-auto shadow-lg md:shadow-none md:max-w-none"
+                    className="absolute top-0 left-0 z-20 max-w-[85vw] flex-grow-0 flex-shrink-0 h-full bg-gray-800 overflow-auto shadow-lg"
                 >
                     {/* The actual tree view component */}
                     <TreeViewComponent />

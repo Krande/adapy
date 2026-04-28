@@ -5,18 +5,33 @@ import {handleClickMesh} from "@/utils/mesh_select/handleClickMesh";
 import {handleClickPoints} from "@/utils/mesh_select/handleClickPoints";
 import {useOptionsStore} from "@/state/optionsStore";
 import {gpuPointPicker} from "@/utils/mesh_select/GpuPointPicker";
+import {OrbitControls} from "three/examples/jsm/controls/OrbitControls";
+import CameraControls from "camera-controls";
+
+// A second tap inside this window + radius counts as a double-tap.
+// 350ms matches the OS-level double-tap threshold on iOS / Android; we
+// stay generous on the radius (24px) because finger taps are imprecise
+// and we'd rather catch real double-taps than reject borderline ones.
+const DOUBLE_TAP_MS = 350;
+const DOUBLE_TAP_PX = 24;
 
 export function setupPointerHandler(
     container: HTMLDivElement,
     camera: THREE.PerspectiveCamera,
     scene: THREE.Scene,
     renderer: THREE.WebGLRenderer,
+    controls?: CameraControls | OrbitControls,
 ) {
     let pointerDownPos: { x: number; y: number } | null = null;
+    let pointerDownType: string | null = null;
     const clickThreshold = 5;
+
+    let lastTapTime = 0;
+    let lastTapPos: { x: number; y: number } | null = null;
 
     container.addEventListener("pointerdown", (e) => {
         pointerDownPos = {x: e.clientX, y: e.clientY};
+        pointerDownType = e.pointerType;
     });
 
     container.addEventListener("click", async (e: MouseEvent) => {
@@ -24,6 +39,43 @@ export function setupPointerHandler(
         const dx = e.clientX - pointerDownPos.x;
         const dy = e.clientY - pointerDownPos.y;
         if (dx * dx + dy * dy > clickThreshold * clickThreshold) return;
+
+        // Double-tap → set the camera's rotation pivot to the world
+        // point under the finger. Touch only by design: desktop users
+        // have middle-click-drag and other ways to orbit, so we don't
+        // want to silently change what double-click does on mouse.
+        // Mobile has no equivalent gesture, so it earns its keep there.
+        //
+        // We check timing against the previous tap here rather than
+        // relying on the browser's `dblclick` event, which fires
+        // inconsistently on mobile browsers (Safari iOS in particular).
+        const isTouch = pointerDownType === "touch";
+        const now = performance.now();
+        if (
+            isTouch &&
+            controls &&
+            lastTapPos &&
+            now - lastTapTime <= DOUBLE_TAP_MS &&
+            Math.hypot(e.clientX - lastTapPos.x, e.clientY - lastTapPos.y) <= DOUBLE_TAP_PX
+        ) {
+            // Reset so a third quick tap doesn't immediately pair with
+            // the second and chain double-taps.
+            lastTapTime = 0;
+            lastTapPos = null;
+            const point = pickWorldPoint(e, camera, scene, renderer);
+            if (point) {
+                applyOrbitPoint(controls, point);
+                // Skip normal selection on the double-tap — the first
+                // tap already set the selection state; the second is
+                // dedicated to camera repositioning.
+                return;
+            }
+            // No surface under the second tap → fall through to normal
+            // selection logic. Avoids "double-tap on empty space did
+            // nothing" surprise.
+        }
+        lastTapTime = now;
+        lastTapPos = {x: e.clientX, y: e.clientY};
 
         // 1) Try GPU point picking first so points in front of meshes are prioritized
         if (useOptionsStore.getState().useGpuPointPicking) {
@@ -92,4 +144,41 @@ export function setupPointerHandler(
         container.removeEventListener("click", () => {
         });
     };
+}
+
+/** Raycast at screen coords and return the nearest world-space hit on
+ *  any mesh (points hits also count). Returns null on a clean miss. */
+function pickWorldPoint(
+    e: MouseEvent,
+    camera: THREE.PerspectiveCamera,
+    scene: THREE.Scene,
+    renderer: THREE.WebGLRenderer,
+): THREE.Vector3 | null {
+    const rect = renderer.domElement.getBoundingClientRect();
+    const nx = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+    const ny = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+    const pointer = new THREE.Vector2(nx, ny);
+    const ray = new THREE.Raycaster();
+    ray.layers.set(0);
+    ray.layers.disable(1);
+    ray.setFromCamera(pointer, camera);
+    const hits = ray.intersectObjects(scene.children, true);
+    return hits.length > 0 ? hits[0].point.clone() : null;
+}
+
+/** Set the camera's rotation pivot without moving the camera. */
+function applyOrbitPoint(
+    controls: CameraControls | OrbitControls,
+    point: THREE.Vector3,
+): void {
+    if (controls instanceof CameraControls) {
+        // setOrbitPoint pivots without translating the camera, which
+        // is what the user expects from a "set rotation center" gesture.
+        controls.setOrbitPoint(point.x, point.y, point.z);
+    } else {
+        // OrbitControls' .target *is* the rotation pivot. Updating it
+        // re-anchors orbit/zoom around the new point.
+        controls.target.copy(point);
+        controls.update();
+    }
 }

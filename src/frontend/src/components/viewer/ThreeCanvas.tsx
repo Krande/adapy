@@ -169,7 +169,7 @@ const ThreeCanvas: React.FC = () => {
         animate();
 
         const cleanupResizeHandler = setupResizeHandler(containerRef.current, camera, renderer);
-        const cleanupPointerHandler = setupPointerHandler(containerRef.current, camera, scene, renderer);
+        const cleanupPointerHandler = setupPointerHandler(containerRef.current, camera, scene, renderer, controls);
 
         return () => {
             // cleanupResizeHandler();
