@@ -128,7 +128,7 @@ const AuditLogTab: React.FC = () => {
                     rest of the row. Removes the postage-stamp truncation
                     that kicked in even when the modal had room to show
                     the full path. */}
-                <table className="hidden sm:table w-full text-sm table-fixed min-w-[1000px]">
+                <table className="hidden sm:table w-full text-sm table-fixed min-w-[1200px]">
                     <colgroup>
                         <col className="w-[10rem]"/>
                         <col className="w-[8rem]"/>

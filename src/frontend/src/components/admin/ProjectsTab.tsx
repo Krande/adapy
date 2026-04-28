@@ -285,7 +285,7 @@ const MemberPane: React.FC<{
             )}
             <div className="flex-1 overflow-auto">
                 {/* Desktop / tablet table */}
-                <table className="hidden sm:table w-full text-sm table-fixed min-w-[900px]">
+                <table className="hidden sm:table w-full text-sm table-fixed min-w-[1200px]">
                     <colgroup>
                         <col className="w-[14rem]"/>
                         <col className="w-[16rem]"/>
