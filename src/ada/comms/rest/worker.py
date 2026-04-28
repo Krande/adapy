@@ -25,6 +25,7 @@ import asyncpg
 from ada.config import logger
 
 from . import db as db_module
+from .bundle import BundleError
 from .config import load_settings
 from .converter import convert
 from .queue import (
@@ -147,6 +148,17 @@ async def _process_one(
         out_bytes = await loop.run_in_executor(
             pool, convert, source_bytes, job.source_key, job.target_format, _on_progress
         )
+    except BundleError as exc:
+        # User-visible bundle problem (missing include, mixed formats,
+        # ambiguous entry, ...). The message is already operator-
+        # friendly — log at info, not exception, so the worker's stderr
+        # doesn't fill with stack traces for what is really user input.
+        logger.info("worker: bundle rejected for %s: %s", job.source_key, exc)
+        await queue.update(
+            job_id, status=JOB_STATUS_ERROR, stage="convert", error=str(exc)
+        )
+        await _audit_done(db_pool, job_id, "error", str(exc), started_at)
+        return
     except Exception as exc:
         logger.exception("worker: conversion failed for %s -> %s", job.source_key, job.target_format)
         await queue.update(

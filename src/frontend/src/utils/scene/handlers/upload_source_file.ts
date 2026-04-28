@@ -10,6 +10,10 @@ const SUPPORTED_EXTS = [
     ".xml", ".inp", ".fem",
     ".sat", ".acis",
     ".obj", ".stl", ".ply", ".dae", ".off",
+    // Multi-file analysis bundles. Worker unpacks + validates the
+    // include chain at convert time; rejects mixed-format / ambiguous
+    // entry / missing includes with a clear error.
+    ".zip",
 ];
 
 // Custom event the upload picker listens for; lets UI surfaces (menu

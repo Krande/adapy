@@ -47,6 +47,11 @@ _ADA_LOADABLE_EXTS: frozenset[str] = frozenset(
     {".ifc", ".step", ".stp", ".xml", ".inp", ".fem", ".sat", ".acis"}
 )
 
+# Multi-file analysis bundles, packaged as zip. Currently only Abaqus
+# (`.inp` with `*INCLUDE` chains) is supported; bundle.py rejects other
+# families with a clear error.
+_BUNDLE_EXTS: frozenset[str] = frozenset({".zip"})
+
 # Allowed target formats. Each value is the file extension (with dot)
 # of the produced bytes.
 TARGET_FORMATS: frozenset[str] = frozenset({"glb", "ifc", "xml"})
@@ -82,6 +87,7 @@ def is_supported_source(key: str) -> bool:
         or ext in _TRIMESH_EXTS
         or ext in {".gltf"}
         or ext in _ADA_LOADABLE_EXTS
+        or ext in _BUNDLE_EXTS
     )
 
 
@@ -95,6 +101,11 @@ def supported_targets_for(source_key: str) -> list[str]:
         targets.append("glb")
     if ext in _ADA_LOADABLE_EXTS:
         # ada-loadable sources can produce any target.
+        targets = ["glb", "ifc", "xml"]
+    if ext in _BUNDLE_EXTS:
+        # Bundles unpack to an Abaqus deck, which goes through the
+        # same ada-py path as a single .inp — so all three targets are
+        # available. Validation runs at convert time, not here.
         targets = ["glb", "ifc", "xml"]
     return targets
 
@@ -180,6 +191,39 @@ def _via_ada(data: bytes, source_ext: str, target_format: str, on_progress: Prog
                 pass
 
 
+def _via_bundle(data: bytes, target_format: str, on_progress: ProgressFn) -> bytes:
+    """Unpack a zip, validate the include chain, then run ada-py on the
+    entry-point with the bundle's tempdir as cwd so relative INCLUDEs
+    resolve.
+
+    Bundle errors propagate as :class:`bundle.BundleError`, which the
+    worker translates into a job-level ``error`` audit row with the
+    user-visible reason ("missing include: foo.inp", "ambiguous
+    entry-point: a.inp, b.inp", etc.).
+    """
+    from . import bundle as bundle_mod
+
+    on_progress("unpacking", 0.05)
+    tmp, info = bundle_mod.unpack_and_inspect(data)
+    try:
+        on_progress("parsing", 0.20)
+        # ada.from_fem reads the file at `info.entry`; the includes it
+        # references are next to it under the same tempdir, so relative
+        # resolution Just Works without us touching cwd.
+        model = _load_with_ada(info.entry, _ext(info.entry.name))
+        suffix = ".glb" if target_format == "glb" else f".{target_format}"
+        out_path = pathlib.Path(tempfile.mkstemp(suffix=suffix)[1])
+        try:
+            return _export_with_ada(model, target_format, out_path, on_progress)
+        finally:
+            try:
+                out_path.unlink()
+            except OSError:
+                pass
+    finally:
+        tmp.cleanup()
+
+
 def convert(
     data: bytes,
     source_key: str,
@@ -197,6 +241,9 @@ def convert(
     src_ext = _ext(source_key)
     if not src_ext:
         raise UnsupportedFormat(f"missing extension on key {source_key!r}")
+
+    if src_ext in _BUNDLE_EXTS:
+        return _via_bundle(data, fmt, progress)
 
     if fmt == "glb":
         if src_ext in _PASSTHROUGH_EXTS:
@@ -230,4 +277,5 @@ def supported_extensions() -> Iterable[str]:
         | _TRIMESH_EXTS
         | {".gltf"}
         | _ADA_LOADABLE_EXTS
+        | _BUNDLE_EXTS
     )

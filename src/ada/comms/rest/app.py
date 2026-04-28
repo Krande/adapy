@@ -648,6 +648,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         ".fem": "Sesam FEM",
         ".sat": "ACIS",
         ".acis": "ACIS",
+        ".zip": "Bundle (zip)",
     }
 
     def _format_label(key: str) -> str:
