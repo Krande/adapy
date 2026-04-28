@@ -99,10 +99,15 @@ const StorageTab: React.FC = () => {
                 </div>
             )}
             <div className="flex-1 overflow-auto">
-                {/* Desktop table */}
-                <table className="hidden sm:table w-full text-sm table-fixed">
+                {/* Desktop table.
+                    Min-width keeps columns readable even when the
+                    parent shrinks (narrow window, tree panel open) —
+                    the surrounding overflow-auto then provides a
+                    horizontal scrollbar instead of squishing everything
+                    into unreadable mush. */}
+                <table className="hidden sm:table w-full text-sm table-fixed min-w-[1200px]">
                     <colgroup>
-                        <col/>
+                        <col className="w-[24rem]"/>
                         <col className="w-[10rem]"/>
                         <col className="w-[7rem]"/>
                         <col className="w-[12rem]"/>
