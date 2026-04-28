@@ -179,6 +179,66 @@ async def test_admin_project_lifecycle(tmp_path):
 
 @needs_postgres
 @pytest.mark.asyncio
+async def test_audit_job_lifecycle():
+    """The convert-job audit pattern: API inserts a 'queued' row with a
+    job_id, the worker patches it to 'done' or 'error' once it finishes."""
+    pool = await dbm.init_pool(POSTGRES_URL)
+    assert pool is not None
+    try:
+        job_id = uuid.uuid4().hex
+        sub = f"sub-{uuid.uuid4().hex[:12]}"
+        await dbm.insert_audit(
+            pool,
+            user_sub=sub,
+            scope_kind="user",
+            scope_id=sub,
+            action="convert",
+            key="model.ifc",
+            target_format="glb",
+            status="queued",
+            job_id=job_id,
+        )
+        rows = await dbm.list_audit(pool, user_sub=sub)
+        assert len(rows) == 1
+        assert rows[0]["status"] == "queued"
+
+        # Worker happy path → done + duration set, error stays NULL.
+        await dbm.update_audit_by_job(
+            pool, job_id=job_id, status="done", error=None, duration_ms=4321
+        )
+        rows = await dbm.list_audit(pool, user_sub=sub)
+        assert rows[0]["status"] == "done"
+        assert rows[0]["duration_ms"] == 4321
+
+        # Worker error path on a second job → error + message recorded.
+        job_id_b = uuid.uuid4().hex
+        await dbm.insert_audit(
+            pool,
+            user_sub=sub,
+            scope_kind="user",
+            scope_id=sub,
+            action="convert",
+            status="queued",
+            job_id=job_id_b,
+        )
+        await dbm.update_audit_by_job(
+            pool, job_id=job_id_b, status="error", error="conversion crashed", duration_ms=120
+        )
+        rows = await dbm.list_audit(pool, user_sub=sub, action="convert")
+        # Newest first, so job_id_b is row 0.
+        assert rows[0]["status"] == "error"
+        assert rows[0]["error"] == "conversion crashed"
+
+        # Update for an unknown job_id is a no-op (doesn't insert, doesn't raise).
+        await dbm.update_audit_by_job(
+            pool, job_id="never-existed", status="error", error="x"
+        )
+    finally:
+        await dbm.close_pool(pool)
+
+
+@needs_postgres
+@pytest.mark.asyncio
 async def test_admin_audit_filters(tmp_path):
     """list_audit honours the per-column filters and keyset pagination."""
     pool = await dbm.init_pool(POSTGRES_URL)

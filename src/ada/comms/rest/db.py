@@ -181,13 +181,14 @@ async def insert_audit(
     status: str | None = None,
     error: str | None = None,
     duration_ms: int | None = None,
+    job_id: str | None = None,
 ) -> None:
     await pool.execute(
         """
         INSERT INTO audit_log
             (user_sub, scope_kind, scope_id, action, key,
-             target_format, status, error, duration_ms)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+             target_format, status, error, duration_ms, job_id)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
         """,
         user_sub,
         scope_kind,
@@ -195,6 +196,36 @@ async def insert_audit(
         action,
         key,
         target_format,
+        status,
+        error,
+        duration_ms,
+        job_id,
+    )
+
+
+async def update_audit_by_job(
+    pool: asyncpg.Pool,
+    *,
+    job_id: str,
+    status: str,
+    error: str | None = None,
+    duration_ms: int | None = None,
+) -> None:
+    """Patch the audit row tied to a queue job with its final outcome.
+
+    No-op when the row is missing (job predates the migration, or the
+    enqueue-time audit insert failed). COALESCE preserves any existing
+    error / duration_ms when the caller passes None.
+    """
+    await pool.execute(
+        """
+        UPDATE audit_log
+        SET status = $2,
+            error = COALESCE($3, error),
+            duration_ms = COALESCE($4, duration_ms)
+        WHERE job_id = $1
+        """,
+        job_id,
         status,
         error,
         duration_ms,

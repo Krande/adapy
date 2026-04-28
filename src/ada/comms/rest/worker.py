@@ -20,8 +20,11 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import Awaitable, Callable
 
+import asyncpg
+
 from ada.config import logger
 
+from . import db as db_module
 from .config import load_settings
 from .converter import convert
 from .queue import (
@@ -54,12 +57,37 @@ FETCH_TIMEOUT = 5.0
 FETCH_BATCH = 1
 
 
+async def _audit_done(
+    db_pool: asyncpg.Pool | None,
+    job_id: str,
+    status: str,
+    error: str | None,
+    started_at: float,
+) -> None:
+    """Patch the audit_log row for this job with its final outcome.
+    Best-effort: a DB hiccup must never break job processing."""
+    if db_pool is None:
+        return
+    try:
+        await db_module.update_audit_by_job(
+            db_pool,
+            job_id=job_id,
+            status=status,
+            error=error,
+            duration_ms=int((time.monotonic() - started_at) * 1000),
+        )
+    except Exception:
+        logger.exception("worker: audit update failed for job %s", job_id)
+
+
 async def _process_one(
     job_id: str,
     queue: JobQueue,
     storage: Storage,
     pool: ThreadPoolExecutor,
+    db_pool: asyncpg.Pool | None,
 ) -> None:
+    started_at = time.monotonic()
     job = await queue.get(job_id)
     if job is None:
         logger.warning("worker: job %s not found in KV; skipping", job_id)
@@ -77,6 +105,7 @@ async def _process_one(
             progress=1.0,
             error=None,
         )
+        await _audit_done(db_pool, job_id, "done", None, started_at)
         return
 
     await queue.update(job_id, status=JOB_STATUS_RUNNING, stage="loading", progress=0.05)
@@ -88,6 +117,7 @@ async def _process_one(
         await queue.update(
             job_id, status=JOB_STATUS_ERROR, stage="loading", error=str(exc)
         )
+        await _audit_done(db_pool, job_id, "error", str(exc), started_at)
         return
 
     # Hop into a thread for the conversion — ada-py / trimesh are
@@ -122,6 +152,7 @@ async def _process_one(
         await queue.update(
             job_id, status=JOB_STATUS_ERROR, stage="convert", error=str(exc)
         )
+        await _audit_done(db_pool, job_id, "error", str(exc), started_at)
         return
 
     await queue.update(job_id, stage="uploading", progress=0.95)
@@ -136,11 +167,13 @@ async def _process_one(
         await queue.update(
             job_id, status=JOB_STATUS_ERROR, stage="upload", error=str(exc)
         )
+        await _audit_done(db_pool, job_id, "error", str(exc), started_at)
         return
 
     await queue.update(
         job_id, status=JOB_STATUS_DONE, stage="ready", progress=1.0, error=None
     )
+    await _audit_done(db_pool, job_id, "done", None, started_at)
 
 
 async def _run() -> None:
@@ -151,6 +184,24 @@ async def _run() -> None:
     storage = Storage.from_settings(settings)
     queue = JobQueue(settings.queue)
     await queue.connect()
+
+    # Optional DB pool — only used to flip audit_log rows from 'queued'
+    # to 'done'/'error' when a job finishes. Without it the worker still
+    # functions; admin panel rows just stay at 'queued'. Migrations are
+    # the API's job, so the worker does NOT call init_pool — it builds a
+    # plain pool and trusts the schema is already applied.
+    db_pool: asyncpg.Pool | None = None
+    if settings.database_url:
+        try:
+            db_pool = await asyncpg.create_pool(
+                dsn=settings.database_url,
+                min_size=1,
+                max_size=4,
+                max_inactive_connection_lifetime=600.0,
+            )
+            logger.info("worker: db pool ready")
+        except Exception:
+            logger.exception("worker: db connect failed; running without audit updates")
 
     sub = await queue.pull_subscribe()
 
@@ -181,12 +232,17 @@ async def _run() -> None:
                 job_id = msg.data.decode("utf-8")
                 logger.info("worker: picked up job %s", job_id)
                 try:
-                    await _process_one(job_id, queue, storage, pool)
+                    await _process_one(job_id, queue, storage, pool, db_pool)
                 finally:
                     await msg.ack()
     finally:
         pool.shutdown(wait=False, cancel_futures=True)
         await queue.close()
+        if db_pool is not None:
+            try:
+                await db_pool.close()
+            except Exception:
+                logger.exception("worker: db pool close failed")
         logger.info("worker: stopped")
 
 

@@ -183,6 +183,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         status: str | None = None,
         error: str | None = None,
         duration_ms: int | None = None,
+        job_id: str | None = None,
     ) -> None:
         """Best-effort audit row insert. No-ops without DB; never raises.
 
@@ -204,6 +205,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 status=status,
                 error=error,
                 duration_ms=duration_ms,
+                job_id=job_id,
             )
         except Exception:
             logger.exception("audit insert failed (action=%s)", action)
@@ -437,6 +439,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         await _audit(
             request, user, scope_obj, "convert",
             key=source_key, target_format=target_format, status="queued",
+            job_id=job.job_id,
         )
         payload = asdict(job)
         payload["cached"] = False
