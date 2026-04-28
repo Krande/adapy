@@ -199,3 +199,200 @@ async def insert_audit(
         error,
         duration_ms,
     )
+
+
+# ── Admin queries ────────────────────────────────────────────────────
+
+
+async def list_audit(
+    pool: asyncpg.Pool,
+    *,
+    user_sub: str | None = None,
+    scope_kind: str | None = None,
+    scope_id: str | None = None,
+    action: str | None = None,
+    limit: int = 100,
+    before_id: int | None = None,
+) -> list[dict]:
+    """Reverse-chronological audit_log scan, optionally filtered.
+
+    Pagination is keyset-style on ``id`` (the BIGSERIAL primary key) —
+    pass the smallest id from the previous page as ``before_id``. id
+    monotonicity matches ``ts`` ordering and avoids the offset-based
+    "page drift" surprise when new rows arrive between requests.
+    """
+    where: list[str] = []
+    args: list = []
+    if user_sub:
+        args.append(user_sub)
+        where.append(f"user_sub = ${len(args)}")
+    if scope_kind:
+        args.append(scope_kind)
+        where.append(f"scope_kind = ${len(args)}")
+    if scope_id:
+        args.append(scope_id)
+        where.append(f"scope_id = ${len(args)}")
+    if action:
+        args.append(action)
+        where.append(f"action = ${len(args)}")
+    if before_id is not None:
+        args.append(before_id)
+        where.append(f"id < ${len(args)}")
+    args.append(min(max(limit, 1), 500))
+    sql = (
+        "SELECT id, ts, user_sub, scope_kind, scope_id, action, key,"
+        " target_format, status, error, duration_ms FROM audit_log"
+    )
+    if where:
+        sql += " WHERE " + " AND ".join(where)
+    sql += f" ORDER BY id DESC LIMIT ${len(args)}"
+    rows = await pool.fetch(sql, *args)
+    return [
+        {
+            "id": r["id"],
+            "ts": r["ts"].isoformat() if r["ts"] is not None else None,
+            "user_sub": r["user_sub"],
+            "scope_kind": r["scope_kind"],
+            "scope_id": r["scope_id"],
+            "action": r["action"],
+            "key": r["key"],
+            "target_format": r["target_format"],
+            "status": r["status"],
+            "error": r["error"],
+            "duration_ms": r["duration_ms"],
+        }
+        for r in rows
+    ]
+
+
+async def list_all_projects(pool: asyncpg.Pool) -> list[dict]:
+    """Admin view: every project (including archived). Member count too."""
+    rows = await pool.fetch(
+        """
+        SELECT p.id, p.slug, p.name, p.created_at, p.archived_at,
+               COUNT(m.user_sub) AS member_count
+        FROM projects p
+        LEFT JOIN project_members m ON m.project_id = p.id
+        GROUP BY p.id
+        ORDER BY p.archived_at IS NOT NULL, p.name
+        """
+    )
+    return [
+        {
+            "id": str(r["id"]),
+            "slug": r["slug"],
+            "name": r["name"],
+            "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+            "archived_at": r["archived_at"].isoformat() if r["archived_at"] else None,
+            "member_count": int(r["member_count"]),
+        }
+        for r in rows
+    ]
+
+
+async def create_project(pool: asyncpg.Pool, slug: str, name: str) -> dict:
+    """Insert a project and return it. Slug is unique; conflicts → ValueError."""
+    try:
+        row = await pool.fetchrow(
+            """
+            INSERT INTO projects (slug, name) VALUES ($1, $2)
+            RETURNING id, slug, name, created_at, archived_at
+            """,
+            slug,
+            name,
+        )
+    except asyncpg.UniqueViolationError as exc:
+        raise ValueError(f"slug {slug!r} already exists") from exc
+    assert row is not None
+    return {
+        "id": str(row["id"]),
+        "slug": row["slug"],
+        "name": row["name"],
+        "created_at": row["created_at"].isoformat() if row["created_at"] else None,
+        "archived_at": row["archived_at"].isoformat() if row["archived_at"] else None,
+        "member_count": 0,
+    }
+
+
+async def archive_project(pool: asyncpg.Pool, project_id: str) -> bool:
+    """Soft-delete: stamp archived_at. Returns False when not found.
+
+    Soft delete preserves audit_log scope_id references and lets us
+    un-archive without orphaning. Hard-delete is intentionally not
+    exposed via the admin API.
+    """
+    row = await pool.fetchrow(
+        "UPDATE projects SET archived_at = NOW() WHERE id = $1 AND archived_at IS NULL RETURNING id",
+        project_id,
+    )
+    return row is not None
+
+
+async def list_project_members(pool: asyncpg.Pool, project_id: str) -> list[dict]:
+    rows = await pool.fetch(
+        """
+        SELECT m.user_sub, m.role, m.added_at,
+               u.email, u.display_name, u.last_seen_at
+        FROM project_members m
+        LEFT JOIN users u ON u.sub = m.user_sub
+        WHERE m.project_id = $1
+        ORDER BY u.display_name, m.user_sub
+        """,
+        project_id,
+    )
+    return [
+        {
+            "user_sub": r["user_sub"],
+            "role": r["role"],
+            "added_at": r["added_at"].isoformat() if r["added_at"] else None,
+            "email": r["email"],
+            "display_name": r["display_name"],
+            "last_seen_at": r["last_seen_at"].isoformat() if r["last_seen_at"] else None,
+        }
+        for r in rows
+    ]
+
+
+async def add_project_member(
+    pool: asyncpg.Pool, project_id: str, user_sub: str, role: str = "member"
+) -> bool:
+    """Idempotent membership add. Returns True on insert, False on duplicate.
+
+    Inserts a placeholder ``users`` row when the sub hasn't been seen
+    yet so the FK holds — the row gets enriched (email, display_name)
+    on the user's first authenticated request.
+    """
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            await conn.execute(
+                "INSERT INTO users (sub) VALUES ($1) ON CONFLICT (sub) DO NOTHING",
+                user_sub,
+            )
+            row = await conn.fetchrow(
+                """
+                INSERT INTO project_members (project_id, user_sub, role)
+                VALUES ($1, $2, $3)
+                ON CONFLICT (project_id, user_sub) DO NOTHING
+                RETURNING user_sub
+                """,
+                project_id,
+                user_sub,
+                role,
+            )
+    return row is not None
+
+
+async def remove_project_member(
+    pool: asyncpg.Pool, project_id: str, user_sub: str
+) -> bool:
+    row = await pool.fetchrow(
+        "DELETE FROM project_members WHERE project_id = $1 AND user_sub = $2 RETURNING user_sub",
+        project_id,
+        user_sub,
+    )
+    return row is not None
+
+
+async def project_exists(pool: asyncpg.Pool, project_id: str) -> bool:
+    row = await pool.fetchrow("SELECT 1 FROM projects WHERE id = $1", project_id)
+    return row is not None

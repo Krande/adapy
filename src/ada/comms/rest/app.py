@@ -172,6 +172,42 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=403, detail="forbidden")
         return s
 
+    async def _audit(
+        request: Request,
+        user: User,
+        scope: Scope,
+        action: str,
+        *,
+        key: str | None = None,
+        target_format: str | None = None,
+        status: str | None = None,
+        error: str | None = None,
+        duration_ms: int | None = None,
+    ) -> None:
+        """Best-effort audit row insert. No-ops without DB; never raises.
+
+        Audit failures must not break user requests — a missing log line
+        is preferable to a 500 on a successful upload.
+        """
+        pool = getattr(request.app.state, "db_pool", None)
+        if pool is None:
+            return
+        try:
+            await db_module.insert_audit(
+                pool,
+                user_sub=user.sub,
+                scope_kind=scope.kind,
+                scope_id=scope.id,
+                action=action,
+                key=key,
+                target_format=target_format,
+                status=status,
+                error=error,
+                duration_ms=duration_ms,
+            )
+        except Exception:
+            logger.exception("audit insert failed (action=%s)", action)
+
     @api.post("/rpc")
     async def api_rpc(
         request: Request,
@@ -270,7 +306,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @api.get("/scopes/{scope}/blobs/{key:path}")
     async def api_scope_blob_get(
         key: str,
+        request: Request,
         scope_obj: Scope = Depends(_scope_from_path),
+        user: User = Depends(auth_module.current_user),
     ) -> StreamingResponse:
         try:
             result = await storage.open_stream(scope_obj, key)
@@ -279,6 +317,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except Exception as exc:
             logger.warning("blob fetch failed for %s: %s", key, exc)
             raise HTTPException(status_code=500, detail=str(exc)) from exc
+        # Audit user-driven downloads, not derived blob fetches — the
+        # latter happen for every /api/rpc VIEW_FILE_OBJECT cycle and
+        # would drown the log.
+        from .converter import is_derived_key
+        if not is_derived_key(key):
+            await _audit(request, user, scope_obj, "download", key=key, status="ok")
         headers: dict[str, str] = {}
         if result.content_encoding:
             # See storage.py: gzipped sources/derived round-trip via
@@ -293,6 +337,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         key: str,
         request: Request,
         scope_obj: Scope = Depends(_scope_from_path),
+        user: User = Depends(auth_module.current_user),
     ) -> JSONResponse:
         from .converter import is_derived_key, is_supported_source
 
@@ -315,13 +360,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             )
         except Exception as exc:
             logger.exception("blob upload failed for %s", clean)
+            await _audit(request, user, scope_obj, "upload", key=clean, status="error", error=str(exc))
             raise HTTPException(status_code=500, detail=str(exc)) from exc
+        await _audit(request, user, scope_obj, "upload", key=clean, status="ok")
         return JSONResponse({"key": clean, "size": len(data)}, status_code=201)
 
     @api.post("/scopes/{scope}/convert")
     async def api_scope_convert(
         request: Request,
         scope_obj: Scope = Depends(_scope_from_path),
+        user: User = Depends(auth_module.current_user),
     ) -> JSONResponse:
         body = await request.json()
         source_key = (body.get("source_key") or "").strip()
@@ -351,6 +399,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except UnsupportedFormat as exc:
             raise HTTPException(status_code=415, detail=str(exc)) from exc
         if await storage.exists(scope_obj, derived_key):
+            await _audit(
+                request, user, scope_obj, "convert",
+                key=source_key, target_format=target_format, status="done",
+            )
             return JSONResponse(
                 {
                     "job_id": "",
@@ -375,8 +427,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             )
         except Exception as exc:
             logger.exception("enqueue failed")
+            await _audit(
+                request, user, scope_obj, "convert",
+                key=source_key, target_format=target_format,
+                status="error", error=str(exc),
+            )
             raise HTTPException(status_code=503, detail=f"enqueue failed: {exc}") from exc
 
+        await _audit(
+            request, user, scope_obj, "convert",
+            key=source_key, target_format=target_format, status="queued",
+        )
         payload = asdict(job)
         payload["cached"] = False
         return JSONResponse(payload, status_code=202)
@@ -416,6 +477,144 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return JSONResponse(asdict(job))
 
     app.include_router(api)
+
+    # ── /api/admin/* ────────────────────────────────────────────────
+    #
+    # Every endpoint below is admin-gated via require_admin (composes
+    # with current_user). Without DB everything 503s — there's no
+    # in-memory fallback for project membership, by design.
+    admin = APIRouter(
+        prefix="/api/admin",
+        dependencies=[Depends(auth_module.require_admin)],
+    )
+
+    def _require_pool(request: Request):
+        pool = getattr(request.app.state, "db_pool", None)
+        if pool is None:
+            raise HTTPException(
+                status_code=503,
+                detail="admin endpoints require a Postgres-backed deployment",
+            )
+        return pool
+
+    def _validate_uuid(value: str, what: str = "id") -> str:
+        import uuid as _uuid
+        try:
+            return str(_uuid.UUID(value))
+        except (ValueError, AttributeError, TypeError) as exc:
+            raise HTTPException(status_code=400, detail=f"invalid {what}") from exc
+
+    @admin.get("/audit")
+    async def admin_audit(
+        request: Request,
+        user_sub: str | None = None,
+        scope_kind: str | None = None,
+        scope_id: str | None = None,
+        action: str | None = None,
+        before_id: int | None = None,
+        limit: int = 100,
+    ) -> JSONResponse:
+        pool = _require_pool(request)
+        rows = await db_module.list_audit(
+            pool,
+            user_sub=user_sub,
+            scope_kind=scope_kind,
+            scope_id=scope_id,
+            action=action,
+            limit=limit,
+            before_id=before_id,
+        )
+        # Page cursor: smallest id from this batch. Caller passes it back
+        # as ``before_id`` to fetch the next older page.
+        next_before = rows[-1]["id"] if len(rows) >= max(1, min(limit, 500)) else None
+        return JSONResponse({"entries": rows, "next_before_id": next_before})
+
+    @admin.get("/projects")
+    async def admin_projects_list(request: Request) -> JSONResponse:
+        pool = _require_pool(request)
+        return JSONResponse({"projects": await db_module.list_all_projects(pool)})
+
+    @admin.post("/projects")
+    async def admin_projects_create(request: Request) -> JSONResponse:
+        pool = _require_pool(request)
+        body = await request.json()
+        slug = (body.get("slug") or "").strip()
+        name = (body.get("name") or "").strip()
+        if not slug or not name:
+            raise HTTPException(status_code=400, detail="slug and name required")
+        # Slug shape: lowercase, alnum + hyphens. Keeps URLs / on-disk
+        # prefixes predictable; doesn't otherwise constrain the name.
+        import re
+        if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,62}", slug):
+            raise HTTPException(
+                status_code=400,
+                detail="slug must be lowercase alnum/hyphens (max 63)",
+            )
+        try:
+            project = await db_module.create_project(pool, slug, name)
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return JSONResponse(project, status_code=201)
+
+    @admin.delete("/projects/{project_id}")
+    async def admin_projects_archive(
+        project_id: str,
+        request: Request,
+    ) -> Response:
+        pool = _require_pool(request)
+        pid = _validate_uuid(project_id, "project_id")
+        ok = await db_module.archive_project(pool, pid)
+        if not ok:
+            raise HTTPException(status_code=404, detail="project not found")
+        return Response(status_code=204)
+
+    @admin.get("/projects/{project_id}/members")
+    async def admin_project_members_list(
+        project_id: str,
+        request: Request,
+    ) -> JSONResponse:
+        pool = _require_pool(request)
+        pid = _validate_uuid(project_id, "project_id")
+        if not await db_module.project_exists(pool, pid):
+            raise HTTPException(status_code=404, detail="project not found")
+        return JSONResponse(
+            {"members": await db_module.list_project_members(pool, pid)}
+        )
+
+    @admin.post("/projects/{project_id}/members")
+    async def admin_project_members_add(
+        project_id: str,
+        request: Request,
+    ) -> JSONResponse:
+        pool = _require_pool(request)
+        pid = _validate_uuid(project_id, "project_id")
+        body = await request.json()
+        sub = (body.get("user_sub") or "").strip()
+        role = (body.get("role") or "member").strip() or "member"
+        if not sub:
+            raise HTTPException(status_code=400, detail="user_sub required")
+        if not await db_module.project_exists(pool, pid):
+            raise HTTPException(status_code=404, detail="project not found")
+        added = await db_module.add_project_member(pool, pid, sub, role)
+        return JSONResponse(
+            {"user_sub": sub, "role": role, "added": added},
+            status_code=201 if added else 200,
+        )
+
+    @admin.delete("/projects/{project_id}/members/{user_sub}")
+    async def admin_project_members_remove(
+        project_id: str,
+        user_sub: str,
+        request: Request,
+    ) -> Response:
+        pool = _require_pool(request)
+        pid = _validate_uuid(project_id, "project_id")
+        ok = await db_module.remove_project_member(pool, pid, user_sub)
+        if not ok:
+            raise HTTPException(status_code=404, detail="not a member")
+        return Response(status_code=204)
+
+    app.include_router(admin)
 
     @app.get("/config.js")
     async def config_js() -> PlainTextResponse:
