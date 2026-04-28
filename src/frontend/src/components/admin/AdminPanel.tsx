@@ -25,7 +25,7 @@ const AdminPanel: React.FC<{onClose: () => void}> = ({onClose}) => {
                 className="
                     flex flex-col bg-gray-900 text-white shadow-xl
                     w-full h-full
-                    sm:w-[min(1100px,95vw)] sm:h-[min(720px,90vh)] sm:rounded
+                    sm:w-[95vw] sm:h-[92vh] sm:max-w-[1600px] sm:max-h-[1000px] sm:rounded
                 "
             >
                 <div className="flex items-center justify-between border-b border-gray-700 px-3 py-2 sm:px-4">

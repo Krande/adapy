@@ -62,7 +62,7 @@ const ProjectsTab: React.FC = () => {
         <div className="flex h-full">
             <div
                 className={
-                    "flex-col border-r border-gray-700 sm:flex sm:w-1/3 sm:min-w-[260px] " +
+                    "flex-col border-r border-gray-700 sm:flex sm:w-80 sm:min-w-[280px] sm:flex-shrink-0 lg:w-96 " +
                     (showDetailOnly ? "hidden sm:flex" : "flex w-full")
                 }
             >
@@ -285,7 +285,15 @@ const MemberPane: React.FC<{
             )}
             <div className="flex-1 overflow-auto">
                 {/* Desktop / tablet table */}
-                <table className="hidden sm:table w-full text-xs">
+                <table className="hidden sm:table w-full text-sm table-fixed">
+                    <colgroup>
+                        <col/>
+                        <col/>
+                        <col className="w-[12rem]"/>
+                        <col className="w-[7rem]"/>
+                        <col className="w-[12rem]"/>
+                        <col className="w-[6rem]"/>
+                    </colgroup>
                     <thead className="sticky top-0 bg-gray-800 text-left">
                     <tr>
                         <Th>Display name</Th>
@@ -299,8 +307,8 @@ const MemberPane: React.FC<{
                     <tbody>
                     {members.map((m) => (
                         <tr key={m.user_sub} className="border-t border-gray-800">
-                            <Td>{m.display_name || ""}</Td>
-                            <Td>{m.email || ""}</Td>
+                            <Td title={m.display_name || ""}>{m.display_name || ""}</Td>
+                            <Td title={m.email || ""}>{m.email || ""}</Td>
                             <Td title={m.user_sub}>{shortSub(m.user_sub)}</Td>
                             <Td>{m.role}</Td>
                             <Td title={m.last_seen_at || ""}>
@@ -359,11 +367,11 @@ const MemberPane: React.FC<{
 };
 
 const Th: React.FC<{children: React.ReactNode}> = ({children}) => (
-    <th className="px-3 py-1 font-medium text-gray-300">{children}</th>
+    <th className="px-3 py-2 font-medium text-gray-300 whitespace-nowrap">{children}</th>
 );
 
 const Td: React.FC<{children: React.ReactNode; title?: string}> = ({children, title}) => (
-    <td className="px-3 py-1 truncate max-w-[24ch]" title={title}>
+    <td className="px-3 py-1 truncate" title={title}>
         {children}
     </td>
 );

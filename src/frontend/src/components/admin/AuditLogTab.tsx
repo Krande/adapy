@@ -122,8 +122,22 @@ const AuditLogTab: React.FC = () => {
                 </div>
             )}
             <div className="flex-1 overflow-auto">
-                {/* Desktop / tablet table */}
-                <table className="hidden sm:table w-full text-xs">
+                {/* Desktop / tablet table.
+                    Time/User/Scope/Action/Target/Status are predictable in
+                    width, so we fix them and let Key flex to consume the
+                    rest of the row. Removes the postage-stamp truncation
+                    that kicked in even when the modal had room to show
+                    the full path. */}
+                <table className="hidden sm:table w-full text-sm table-fixed">
+                    <colgroup>
+                        <col className="w-[10rem]"/>
+                        <col className="w-[8rem]"/>
+                        <col className="w-[12rem]"/>
+                        <col className="w-[6rem]"/>
+                        <col/>
+                        <col className="w-[6rem]"/>
+                        <col className="w-[6rem]"/>
+                    </colgroup>
                     <thead className="sticky top-0 bg-gray-800">
                     <tr className="text-left">
                         <Th>Time</Th>
@@ -140,7 +154,7 @@ const AuditLogTab: React.FC = () => {
                         <tr key={e.id} className="border-t border-gray-800 hover:bg-gray-800/40">
                             <Td title={e.ts || ""}>{formatTs(e.ts)}</Td>
                             <Td title={e.user_sub || ""}>{shortSub(e.user_sub)}</Td>
-                            <Td>
+                            <Td title={e.scope_id || ""}>
                                 {e.scope_kind}
                                 {e.scope_id ? `:${shortSub(e.scope_id)}` : ""}
                             </Td>
@@ -219,7 +233,7 @@ const FilterInput: React.FC<{
     useEffect(() => setLocal(value), [value]);
     return (
         <input
-            className="bg-gray-800 border border-gray-700 rounded px-2 py-1 w-full sm:w-44 text-white"
+            className="bg-gray-800 border border-gray-700 rounded px-2 py-1 w-full sm:w-56 lg:w-72 text-white"
             placeholder={placeholder}
             value={local}
             onChange={(e) => setLocal(e.target.value)}
@@ -257,11 +271,14 @@ const FilterSelect: React.FC<{
 );
 
 const Th: React.FC<{children: React.ReactNode}> = ({children}) => (
-    <th className="px-3 py-1 font-medium text-gray-300">{children}</th>
+    <th className="px-3 py-2 font-medium text-gray-300 whitespace-nowrap">{children}</th>
 );
 
+// Truncation lives at the cell level so long values (paths, error
+// messages, full subs) don't break layout — but we let the column
+// widths do the gating now via <colgroup>, not a hard 20ch cap.
 const Td: React.FC<{children: React.ReactNode; title?: string}> = ({children, title}) => (
-    <td className="px-3 py-1 truncate max-w-[20ch]" title={title}>
+    <td className="px-3 py-1 truncate" title={title}>
         {children}
     </td>
 );
