@@ -104,9 +104,10 @@ def load_settings() -> Settings:
 
     auth_enabled = _bool(os.environ.get("ADA_VIEWER_AUTH_ENABLED"), default=False)
     auth_client_id = os.environ.get("ADA_VIEWER_AUTH_CLIENT_ID", "").strip()
-    # Trailing slashes on issuer URLs cause subtle mismatches when
-    # comparing against the `iss` claim (Authentik issues without one).
-    auth_issuer = os.environ.get("ADA_VIEWER_AUTH_ISSUER", "").strip().rstrip("/")
+    # Whatever the operator sets is compared exact-string against the `iss`
+    # claim by PyJWT — IdPs differ on trailing slash (Authentik includes
+    # one, Azure AD doesn't), so don't normalize here.
+    auth_issuer = os.environ.get("ADA_VIEWER_AUTH_ISSUER", "").strip()
     auth_audience = os.environ.get("ADA_VIEWER_AUTH_AUDIENCE", "").strip() or auth_client_id
     auth = AuthConfig(
         enabled=auth_enabled,

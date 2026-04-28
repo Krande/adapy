@@ -111,7 +111,9 @@ class _JWKSVerifier:
         now = time.monotonic()
         if self._discovery and now - self._discovery_at < _DISCOVERY_TTL:
             return self._discovery
-        url = f"{self._config.issuer}/.well-known/openid-configuration"
+        # Issuer is preserved verbatim for `iss` exact-compare during decode;
+        # strip any trailing slash here so the discovery URL doesn't double up.
+        url = f"{self._config.issuer.rstrip('/')}/.well-known/openid-configuration"
         r = await self._http.get(url)
         r.raise_for_status()
         self._discovery = r.json()
