@@ -33,6 +33,20 @@ import {useTreeViewStore} from "../state/treeViewStore";
 // across breakpoints) without re-architecting around CSS-only rules.
 const DESKTOP_QUERY = "(min-width: 768px)";
 
+// Top-bar button styling. Inactive uses a translucent hover (lighter
+// than the base) so the button "lifts" on hover. Active uses a darker
+// blue + inset shadow so the button reads as "pressed" — distinct from
+// hover (lighter) and from the base (mid-tone). Applied to every
+// toggle in the bar so the whole row uses one visual vocabulary.
+const NAV_BTN_BASE =
+    "text-white font-bold py-2 px-4 rounded transition-colors";
+const NAV_BTN_INACTIVE = "bg-blue-700 hover:bg-blue-700/50";
+const NAV_BTN_ACTIVE = "bg-blue-900 hover:bg-blue-800 shadow-inner";
+
+function navBtnClass(active: boolean, extra: string = ""): string {
+    return `${NAV_BTN_BASE} ${active ? NAV_BTN_ACTIVE : NAV_BTN_INACTIVE} ${extra}`.trim();
+}
+
 function useIsDesktop(): boolean {
     const [isDesktop, setIsDesktop] = useState(
         () => typeof window !== "undefined" && window.matchMedia(DESKTOP_QUERY).matches,
@@ -73,22 +87,25 @@ const Menu = () => {
 
                     {use_node_editor_only && (
                         <button
-                            className={"flex relative bg-blue-700 hover:bg-blue-700/50 text-white p-1 rounded"}
+                            className={"flex relative bg-blue-700 hover:bg-blue-700/50 text-white p-1 rounded transition-colors"}
                             onClick={() => request_list_of_nodes()}
+                            title="Reload nodes"
                         >
                             <ReloadIcon/>
                         </button>
                     )}
 
                     <button
-                        className={"bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded"}
+                        className={navBtnClass(isOptionsVisible)}
                         hidden={use_node_editor_only}
                         onClick={() => setIsOptionsVisible(!isOptionsVisible)}
+                        title="Toggle options drawer"
+                        aria-pressed={isOptionsVisible}
                     >☰
                     </button>
 
                     <button
-                        className={`bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded ${!isTreeCollapsed ? "ring-2 ring-white/40" : ""}`}
+                        className={navBtnClass(!isTreeCollapsed)}
                         hidden={use_node_editor_only}
                         onClick={() => setIsTreeCollapsed(!isTreeCollapsed)}
                         title={isTreeCollapsed ? "Show selection tree (Shift+T)" : "Hide selection tree (Shift+T)"}
@@ -99,40 +116,49 @@ const Menu = () => {
                     </button>
 
                     <button
-                        className={"bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded"}
+                        className={navBtnClass(isNodeEditorVisible)}
                         hidden={use_node_editor_only || !enableNodeEditor}
                         onClick={() => setIsNodeEditorVisible(!isNodeEditorVisible)}
+                        title="Toggle node editor"
+                        aria-pressed={isNodeEditorVisible}
                     >
                         <GraphIcon/>
                     </button>
                     {runtime.isRestMode() && (
                         <button
-                            className={"bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded"}
+                            className={navBtnClass(showServerInfoBox)}
                             onClick={() => setShowServerInfoBox(!showServerInfoBox)}
                             title="Storage"
+                            aria-pressed={showServerInfoBox}
                         >
                             <ServerIcon/>
                         </button>
                     )}
                     <button
-                        className={"bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded"}
+                        className={navBtnClass(show_info_box)}
                         hidden={use_node_editor_only}
                         onClick={useObjectInfoStore.getState().toggle}
+                        title="Toggle object info"
+                        aria-pressed={show_info_box}
                     ><InfoIcon/></button>
                     <button
-                        className={"bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded"}
+                        className={navBtnClass(show_group_info_box)}
                         hidden={use_node_editor_only}
                         onClick={useGroupInfoStore.getState().toggle}
+                        title="Toggle group info"
+                        aria-pressed={show_group_info_box}
                     ><GroupIcon/></button>
 
                     <button
-                        className={"bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded"}
+                        className={navBtnClass(isControlsVisible)}
                         hidden={!hasAnimation}
                         onClick={() => setIsControlsVisible(!isControlsVisible)}
+                        title="Toggle animation controls"
+                        aria-pressed={isControlsVisible}
                     ><ToggleControlsIcon/></button>
                     {!runtime.isRestMode() && (
                         <div
-                            className={"bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded"}>
+                            className={navBtnClass(showWebsocketInfoBox)}>
                             <WebsocketStatusMenu/>
                         </div>
                     )}
