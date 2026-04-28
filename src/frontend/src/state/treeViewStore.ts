@@ -19,6 +19,11 @@ export interface TreeViewState {
     searchTerm: string;
     setSearchTerm: (searchTerm: string) => void;
     max_id: number
+    /** Width of the floating tree panel in pixels. Lifted out of
+     *  ResizableTreeView's local state so the menu bar can shift to
+     *  the right of it on desktop without overlapping. */
+    treeViewWidth: number;
+    setTreeViewWidth: (w: number) => void;
 
     setMaxId(max_id: number): void;
 }
@@ -34,5 +39,7 @@ export const useTreeViewStore = create<TreeViewState>((set) => ({
     clearTreeData: () => set({treeData: null}),
     isTreeCollapsed: true,
     setIsTreeCollapsed: (collapsed) => set({isTreeCollapsed: collapsed}),
+    treeViewWidth: 256,
+    setTreeViewWidth: (w) => set({treeViewWidth: w}),
     setMaxId: (max_id) => set({max_id: max_id}),
 }));

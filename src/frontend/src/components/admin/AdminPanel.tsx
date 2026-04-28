@@ -2,6 +2,7 @@ import React, {useEffect, useState} from "react";
 import {useMeStore} from "@/state/meStore";
 import AuditLogTab from "./AuditLogTab";
 import ProjectsTab from "./ProjectsTab";
+import StorageTab from "./StorageTab";
 
 // Modal-style admin panel. Lazy-loaded so the desktop bundle never
 // pulls it in. The opener is gated on me.isAdmin; the server enforces
@@ -11,7 +12,7 @@ import ProjectsTab from "./ProjectsTab";
 // when keyboards / OS chrome eat half the viewport), centred dialog
 // with margin on tablets and up.
 
-type Tab = "audit" | "projects";
+type Tab = "audit" | "projects" | "storage";
 
 const AdminPanel: React.FC<{onClose: () => void}> = ({onClose}) => {
     const isAdmin = useMeStore((s) => s.isAdmin);
@@ -36,6 +37,9 @@ const AdminPanel: React.FC<{onClose: () => void}> = ({onClose}) => {
                         <TabButton active={tab === "projects"} onClick={() => setTab("projects")}>
                             Projects
                         </TabButton>
+                        <TabButton active={tab === "storage"} onClick={() => setTab("storage")}>
+                            Storage
+                        </TabButton>
                     </div>
                     <button
                         className="text-gray-300 hover:text-white text-2xl leading-none px-3 py-1 -my-1"
@@ -47,7 +51,9 @@ const AdminPanel: React.FC<{onClose: () => void}> = ({onClose}) => {
                     </button>
                 </div>
                 <div className="flex-1 overflow-hidden">
-                    {tab === "audit" ? <AuditLogTab/> : <ProjectsTab/>}
+                    {tab === "audit" && <AuditLogTab/>}
+                    {tab === "projects" && <ProjectsTab/>}
+                    {tab === "storage" && <StorageTab/>}
                 </div>
             </div>
         </div>

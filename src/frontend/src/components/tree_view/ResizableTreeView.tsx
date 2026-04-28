@@ -1,12 +1,11 @@
-import React, { useState, useRef } from 'react';
+import React, { useRef } from 'react';
 import TreeViewComponent from './TreeViewComponent';
 import { useTreeViewStore } from "@/state/treeViewStore";
 import { useNodeEditorStore } from "@/state/useNodeEditorStore";
 
 const ResizableTreeView: React.FC = () => {
-    const [treeViewWidth, setTreeViewWidth] = useState(256); // Initial width of 256px
     const isResizing = useRef(false);
-    const { isTreeCollapsed, setIsTreeCollapsed } = useTreeViewStore();
+    const { isTreeCollapsed, setIsTreeCollapsed, treeViewWidth, setTreeViewWidth } = useTreeViewStore();
     const { use_node_editor_only } = useNodeEditorStore();
 
     // Handle mouse down event on the resize handle

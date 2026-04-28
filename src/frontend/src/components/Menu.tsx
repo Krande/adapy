@@ -1,4 +1,4 @@
-import React, {Suspense} from 'react';
+import React, {Suspense, useEffect, useState} from 'react';
 import ObjectInfoBox from "./info_box_selected_object/ObjectInfoBoxComponent";
 import {useObjectInfoStore} from "../state/objectInfoStore";
 import SimulationControls from "./simulation/SimulationControls";
@@ -24,7 +24,26 @@ import GroupIcon from "./icons/GroupIcon";
 import GroupInfoBox from "./info_box_groups/GroupInfoBox";
 import {WebsocketStatusMenu, WebsocketStatusBox} from "./WebsocketStatusMenu";
 import {useWebsocketStatusStore} from "../state/websocketStatusStore";
+import {useTreeViewStore} from "../state/treeViewStore";
 
+
+// `md:` Tailwind breakpoint. Match it with matchMedia so the menu can
+// react to viewport changes (rotating a tablet, dragging the window
+// across breakpoints) without re-architecting around CSS-only rules.
+const DESKTOP_QUERY = "(min-width: 768px)";
+
+function useIsDesktop(): boolean {
+    const [isDesktop, setIsDesktop] = useState(
+        () => typeof window !== "undefined" && window.matchMedia(DESKTOP_QUERY).matches,
+    );
+    useEffect(() => {
+        const mq = window.matchMedia(DESKTOP_QUERY);
+        const onChange = (e: MediaQueryListEvent) => setIsDesktop(e.matches);
+        mq.addEventListener("change", onChange);
+        return () => mq.removeEventListener("change", onChange);
+    }, []);
+    return isDesktop;
+}
 
 const Menu = () => {
     const {show_info_box} = useObjectInfoStore();
@@ -34,10 +53,21 @@ const Menu = () => {
     const {showServerInfoBox, setShowServerInfoBox} = useServerInfoStore();
     const {hasAnimation, isControlsVisible, setIsControlsVisible} = useAnimationStore();
     const {showInfoBox: showWebsocketInfoBox} = useWebsocketStatusStore();
+    const {isTreeCollapsed, treeViewWidth} = useTreeViewStore();
+    const isDesktop = useIsDesktop();
+
+    // On desktop the tree panel pushes the menu bar to its right so
+    // the buttons aren't hidden behind it. Mobile keeps overlay
+    // behaviour — there's no horizontal room to give up, and the user
+    // closes the tree to reach the menu anyway.
+    const menuShiftPx = !isTreeCollapsed && isDesktop ? treeViewWidth : 0;
 
     return (
         <div className="relative w-full h-full">
-            <div className="absolute left-0 top-0 z-10 py-2 gap-2 flex flex-col pointer-events-none">
+            <div
+                className="absolute left-0 top-0 z-10 py-2 gap-2 flex flex-col pointer-events-none transition-[padding] duration-150"
+                style={{paddingLeft: `${menuShiftPx}px`}}
+            >
                 <div className={"flex flex-row items-center gap-2 px-2 max-w-full pointer-events-auto"}>
 
                     {use_node_editor_only && (

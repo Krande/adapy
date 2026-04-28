@@ -3,15 +3,12 @@ import {useServerInfoStore, ServerFileEntry} from "@/state/serverInfoStore";
 import {useConversionStore} from "@/state/conversionStore";
 import {request_list_of_files_from_server} from "@/utils/server_info/handlers/request_list_of_files_from_server";
 import {view_file_object_from_server} from "@/utils/scene/handlers/view_file_object_from_server";
-import {ensureConverted, TargetFormat} from "@/services/conversion";
 import {uploadAcceptAttr, uploadFile} from "@/utils/scene/handlers/upload_source_file";
 import {FileObjectT, FileObject} from "@/flatbuffers/base/file-object";
 import * as flatbuffers from "flatbuffers";
 import ReloadIcon from "../icons/ReloadIcon";
+import UploadIcon from "../icons/UploadIcon";
 import ViewIcon from "../icons/ViewIcon";
-import {runtime} from "@/runtime/config";
-import {viewerApi} from "@/services/viewerApi";
-import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
 
 // Small inline CSS spinner. Uses border tricks rather than an SVG so
 // it scales with text size and stays crisp at 16px tall icons.
@@ -21,33 +18,6 @@ const Spinner: React.FC<{className?: string}> = ({className = ""}) => (
         aria-hidden="true"
     />
 );
-
-const ADA_LOADABLE_EXTS = new Set([
-    ".ifc", ".step", ".stp", ".xml", ".inp", ".fem", ".sat", ".acis",
-]);
-const GLB_ONLY_EXTS = new Set([
-    ".glb", ".gltf", ".obj", ".stl", ".ply", ".dae", ".off",
-]);
-
-function extOf(name: string): string {
-    const i = name.lastIndexOf(".");
-    return i === -1 ? "" : name.slice(i).toLowerCase();
-}
-
-function viableTargets(name: string): TargetFormat[] {
-    const ext = extOf(name);
-    if (ADA_LOADABLE_EXTS.has(ext)) return ["glb", "ifc", "xml"];
-    if (GLB_ONLY_EXTS.has(ext)) return ["glb"];
-    return [];
-}
-
-function downloadByKey(scope: string, key: string, suggestedName?: string) {
-    // Goes through viewerApi.downloadBlob so the bearer token rides
-    // along when auth is on; with auth off it's just a fetch+anchor.
-    void viewerApi.downloadBlob(scope, key, suggestedName || key).catch((err) => {
-        console.error("download failed", err);
-    });
-}
 
 function formatBytes(n: number): string {
     if (n < 1024) return `${n} B`;
@@ -67,9 +37,6 @@ function buildFlatbufferFileObject(entry: ServerFileEntry): FileObject {
 const StorageBrowser: React.FC = () => {
     const files = useServerInfoStore((s) => s.serverFileObjects);
     const conversionJobs = useConversionStore((s) => s.jobs);
-    const currentScope = useScopeStore((s) => s.current);
-    const scope = scopeUrlPart(currentScope);
-    const [convertingKey, setConvertingKey] = useState<string | null>(null);
     const [uploading, setUploading] = useState(false);
     // Upload progress: name = current file (or null), loaded/total in
     // bytes. Total may stay 0 if the browser can't determine it (rare
@@ -123,24 +90,6 @@ const StorageBrowser: React.FC = () => {
         }
     };
 
-    const onConvertAndDownload = async (sourceName: string, target: TargetFormat) => {
-        const stateKey = `${sourceName}::${target}`;
-        setConvertingKey(stateKey);
-        try {
-            const derivedKey = await ensureConverted(scope, sourceName, target);
-            // Suggest the source's basename + new extension as the
-            // downloaded filename.
-            const base = sourceName.replace(/\.[^./]+$/, "");
-            downloadByKey(scope, derivedKey, `${base}.${target}`);
-        } catch (err) {
-            // ensureConverted already updates the store with error;
-            // the conversion progress widget surfaces it.
-            console.error("convert+download failed", err);
-        } finally {
-            setConvertingKey(null);
-        }
-    };
-
     return (
         <div
             data-no-upload-menu
@@ -163,17 +112,19 @@ const StorageBrowser: React.FC = () => {
                         onChange={onFilePicked}
                     />
                     <button
-                        className="bg-blue-700 hover:bg-blue-600 text-white px-2 py-1 rounded text-xs disabled:opacity-60"
+                        className="bg-blue-700 hover:bg-blue-600 text-white p-1 rounded disabled:opacity-60 flex items-center justify-center"
                         onClick={() => fileInputRef.current?.click()}
                         disabled={uploading}
-                        title="Upload file"
+                        title="Upload a file to this scope"
+                        aria-label="Upload file"
                     >
-                        {uploading ? "…" : "+ Upload"}
+                        {uploading ? <Spinner/> : <UploadIcon/>}
                     </button>
                     <button
-                        className="bg-blue-700 hover:bg-blue-600 text-white p-1 rounded"
+                        className="bg-blue-700 hover:bg-blue-600 text-white p-1 rounded flex items-center justify-center"
                         onClick={() => request_list_of_files_from_server()}
-                        title="Refresh list"
+                        title="Refresh file list"
+                        aria-label="Refresh list"
                     >
                         <ReloadIcon/>
                     </button>
@@ -215,10 +166,6 @@ const StorageBrowser: React.FC = () => {
             ) : (
                 <ul className="flex flex-col divide-y divide-gray-500/40 max-h-80 overflow-auto">
                     {files.map((f) => {
-                        const targets = viableTargets(f.name);
-                        const downloadable = targets.filter((t) => t !== "glb");
-                        const stateKey = `${f.name}::`;
-                        const busy = convertingKey?.startsWith(stateKey) ?? false;
                         const isViewing = viewingName === f.name;
                         const otherViewing = viewingName !== null && !isViewing;
                         // Progress for the implicit "view" conversion job
@@ -258,31 +205,6 @@ const StorageBrowser: React.FC = () => {
                                         >
                                             {isViewing ? <Spinner/> : <ViewIcon/>}
                                         </button>
-                                        <button
-                                            className="px-2 py-0.5 rounded hover:bg-gray-300/40 text-[10px] uppercase tracking-wide"
-                                            onClick={() => downloadByKey(scope, f.name, f.name)}
-                                            title="Download original"
-                                        >
-                                            DL
-                                        </button>
-                                        {runtime.convertEnabled() && downloadable.length > 0 && (
-                                            <select
-                                                disabled={busy}
-                                                className="bg-gray-200 hover:bg-gray-300 text-[10px] uppercase rounded px-1 py-0.5 disabled:opacity-60"
-                                                value=""
-                                                onChange={(e) => {
-                                                    const target = e.target.value as TargetFormat | "";
-                                                    e.target.value = "";
-                                                    if (target) onConvertAndDownload(f.name, target);
-                                                }}
-                                                title="Convert and download"
-                                            >
-                                                <option value="">{busy ? "…" : "as ▾"}</option>
-                                                {downloadable.map((t) => (
-                                                    <option key={t} value={t}>{t.toUpperCase()}</option>
-                                                ))}
-                                            </select>
-                                        )}
                                     </div>
                                 </div>
                                 {isViewing && (

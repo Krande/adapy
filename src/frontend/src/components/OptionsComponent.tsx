@@ -15,6 +15,30 @@ const RestSection = React.lazy(() => import("./options/RestSection"));
 
 const MOBILE_QUERY = "(max-width: 767px)";
 
+// Lightweight disclosure. State is local — these sections are leaf-y
+// enough that no other component cares whether they're open. Defaults
+// to closed; click the header to toggle.
+const CollapsibleSection: React.FC<{title: string; children: React.ReactNode}> = ({
+    title,
+    children,
+}) => {
+    const [open, setOpen] = useState(false);
+    return (
+        <div>
+            <button
+                type="button"
+                className="w-full flex items-center justify-between py-1 text-left font-semibold no-drag"
+                onClick={() => setOpen((v) => !v)}
+                aria-expanded={open}
+            >
+                <span>{title}</span>
+                <span className="text-gray-400 text-xs">{open ? "▾" : "▸"}</span>
+            </button>
+            {open && <div className="mt-2">{children}</div>}
+        </div>
+    );
+};
+
 // Layout shell. Each section under options/ owns its state and effects.
 function OptionsComponent() {
     const [size] = useState({width: 300, height: 460});
@@ -61,11 +85,22 @@ function OptionsComponent() {
                     <hr className="border-gray-600"/>
                 </>
             )}
-            <ActionButtons/>
+            {/* Closed by default — debug print, URDF load, screenshot
+                aren't first-tier actions for everyday users; they only
+                matter when you actually need them. */}
+            <CollapsibleSection title="Actions">
+                <ActionButtons/>
+            </CollapsibleSection>
             <hr className="border-gray-600"/>
-            <PointSizeOptions/>
-            <hr className="border-gray-600"/>
-            <DisplayOptions/>
+            {/* Same idea for the scene-config knobs. The defaults are
+                tuned for the common case; tucking the controls behind a
+                disclosure keeps the drawer from feeling overwhelming. */}
+            <CollapsibleSection title="Scene config">
+                <div className="space-y-4">
+                    <PointSizeOptions/>
+                    <DisplayOptions/>
+                </div>
+            </CollapsibleSection>
             <hr className="border-gray-600"/>
             <ExperimentalOptions/>
             <hr className="border-gray-600"/>

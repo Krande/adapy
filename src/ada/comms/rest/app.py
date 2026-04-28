@@ -617,6 +617,177 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="not a member")
         return Response(status_code=204)
 
+    # ── Admin storage view ──────────────────────────────────────────
+    #
+    # Enriched per-scope listing for the admin storage tab: every
+    # source file with its detected format, size, last_modified, and
+    # the derived blobs already cached for it. The DELETE endpoint
+    # removes a source plus all of its derived siblings — the admin
+    # panel surfaces it as a single "delete" action so the bucket
+    # doesn't drift into a state where derived blobs outlive their
+    # source.
+    #
+    # Scoped via the same _scope_from_path dep as the user-facing
+    # storage routes — admins still need scope access (member of the
+    # project, owner of the user scope, etc.). Shared scope is open to
+    # any authed user.
+
+    _SOURCE_FORMAT_NAMES = {
+        ".ifc": "IFC",
+        ".step": "STEP",
+        ".stp": "STEP",
+        ".stl": "STL",
+        ".obj": "OBJ",
+        ".ply": "PLY",
+        ".dae": "Collada",
+        ".off": "OFF",
+        ".gltf": "glTF",
+        ".glb": "glTF (binary)",
+        ".xml": "Genie XML",
+        ".inp": "Abaqus input",
+        ".fem": "Sesam FEM",
+        ".sat": "ACIS",
+        ".acis": "ACIS",
+    }
+
+    def _format_label(key: str) -> str:
+        ext = pathlib.PurePosixPath(key).suffix.lower()
+        return _SOURCE_FORMAT_NAMES.get(ext, ext.lstrip(".").upper() or "—")
+
+    def _derived_source_of(derived_key: str) -> tuple[str, str] | None:
+        """Recover (source_key, target_format) from a `_derived/<src>.<fmt>`
+        key. Returns None when the key doesn't match the convention."""
+        from .converter import TARGET_FORMATS, is_derived_key
+        if not is_derived_key(derived_key):
+            return None
+        stripped = derived_key[len("_derived/"):]
+        for tgt in TARGET_FORMATS:
+            suffix = "." + tgt
+            if stripped.endswith(suffix):
+                return stripped[: -len(suffix)], tgt
+        return None
+
+    @admin.get("/scopes/{scope}/files")
+    async def admin_storage_list(
+        request: Request,
+        scope_obj: Scope = Depends(_scope_from_path),
+    ) -> JSONResponse:
+        from .converter import is_derived_key, supported_targets_for
+
+        files = await storage.list(scope_obj)
+        sources: dict[str, dict] = {}
+        derived_index: dict[str, list[dict]] = {}
+
+        for f in files:
+            if is_derived_key(f.key):
+                parsed = _derived_source_of(f.key)
+                if parsed is None:
+                    continue  # malformed derived key — ignore quietly
+                src_key, target = parsed
+                derived_index.setdefault(src_key, []).append(
+                    {
+                        "format": target,
+                        "key": f.key,
+                        "size": f.size,
+                        "last_modified": f.last_modified,
+                    }
+                )
+            else:
+                sources[f.key] = {
+                    "key": f.key,
+                    "size": f.size,
+                    "last_modified": f.last_modified,
+                    "format": _format_label(f.key),
+                    "available_targets": supported_targets_for(f.key),
+                    "derived": [],
+                }
+
+        for src_key, derived_list in derived_index.items():
+            entry = sources.get(src_key)
+            if entry is None:
+                # Orphan — derived blob without its source. Surface it
+                # as a synthetic entry so the admin can clean it up.
+                sources[src_key] = {
+                    "key": src_key,
+                    "size": 0,
+                    "last_modified": None,
+                    "format": _format_label(src_key),
+                    "available_targets": [],
+                    "orphan": True,
+                    "derived": derived_list,
+                }
+            else:
+                entry["derived"] = derived_list
+
+        out = sorted(
+            sources.values(),
+            key=lambda e: e.get("last_modified") or "",
+            reverse=True,
+        )
+        return JSONResponse({"files": out})
+
+    @admin.delete("/scopes/{scope}/blobs/{key:path}")
+    async def admin_storage_delete(
+        key: str,
+        request: Request,
+        scope_obj: Scope = Depends(_scope_from_path),
+        user: User = Depends(auth_module.current_user),
+    ) -> JSONResponse:
+        from .converter import TARGET_FORMATS, derived_key_for, is_derived_key
+
+        clean = key.lstrip("/")
+        if not clean:
+            raise HTTPException(status_code=400, detail="empty key")
+
+        # If the admin pointed at a derived blob, only that blob goes;
+        # don't fan out and delete the source under their feet.
+        if is_derived_key(clean):
+            try:
+                await storage.delete(scope_obj, clean)
+            except Exception as exc:
+                logger.exception("admin: delete failed for %s", clean)
+                raise HTTPException(status_code=500, detail=str(exc)) from exc
+            await _audit(request, user, scope_obj, "delete", key=clean, status="ok")
+            return JSONResponse({"deleted": [clean]})
+
+        # Source delete: also reap every derived blob keyed off this
+        # source. Build the candidate set up front so a partial failure
+        # mid-loop doesn't leave inconsistent metadata.
+        candidates = [clean]
+        for tgt in TARGET_FORMATS:
+            try:
+                candidates.append(derived_key_for(clean, tgt))
+            except Exception:
+                continue
+
+        deleted: list[str] = []
+        errors: list[str] = []
+        for k in candidates:
+            try:
+                await storage.delete(scope_obj, k)
+                deleted.append(k)
+            except FileNotFoundError:
+                # Derived blob just wasn't there — that's fine.
+                continue
+            except Exception as exc:
+                # Some backends raise a generic error for "not found";
+                # treat it as benign for derived siblings, but if the
+                # source itself can't be deleted, surface the failure.
+                msg = str(exc).lower()
+                if "not found" in msg or "no such" in msg:
+                    continue
+                if k == clean:
+                    logger.exception("admin: delete failed for source %s", clean)
+                    raise HTTPException(status_code=500, detail=str(exc)) from exc
+                errors.append(f"{k}: {exc}")
+
+        await _audit(
+            request, user, scope_obj, "delete",
+            key=clean, status="ok",
+            error="; ".join(errors) or None,
+        )
+        return JSONResponse({"deleted": deleted, "errors": errors})
+
     app.include_router(admin)
 
     @app.get("/config.js")

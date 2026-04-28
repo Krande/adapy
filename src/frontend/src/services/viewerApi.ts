@@ -149,6 +149,23 @@ export interface AuditFilters {
     limit?: number;
 }
 
+export interface DerivedBlob {
+    format: string;
+    key: string;
+    size: number;
+    last_modified: string | null;
+}
+
+export interface AdminFileEntry {
+    key: string;
+    size: number;
+    last_modified: string | null;
+    format: string;
+    available_targets: TargetFormat[];
+    derived: DerivedBlob[];
+    orphan?: boolean;
+}
+
 export const viewerApi = {
     /** Direct URL for the addressable blob endpoint. Includes scope.
      * Only safe to use as `<a href download>` when auth is disabled —
@@ -368,6 +385,30 @@ export const viewerApi = {
             },
         );
         return jsonOrThrow(r, "adminAddMember");
+    },
+
+    /** Admin: enriched per-scope listing (format, last_modified,
+     * derived products). Same scope check as the user-facing /files
+     * endpoint — admins still need scope access. */
+    async adminListStorage(scope: ScopeUrl): Promise<AdminFileEntry[]> {
+        const r = await authedFetch(
+            `${runtime.apiBase()}/admin/scopes/${encodeURIComponent(scope)}/files`,
+        );
+        const body = await jsonOrThrow<{files: AdminFileEntry[]}>(r, "adminListStorage");
+        return body.files;
+    },
+
+    /** Admin: delete a source (and all its derived blobs) or a single
+     * derived blob. Returns the list of keys actually removed. */
+    async adminDeleteBlob(
+        scope: ScopeUrl,
+        key: string,
+    ): Promise<{deleted: string[]; errors?: string[]}> {
+        const r = await authedFetch(
+            `${runtime.apiBase()}/admin/scopes/${encodeURIComponent(scope)}/blobs/${encodeURIComponent(key)}`,
+            {method: "DELETE"},
+        );
+        return jsonOrThrow(r, "adminDeleteBlob");
     },
 
     async adminRemoveMember(projectId: string, userSub: string): Promise<void> {

@@ -46,10 +46,17 @@ _GZIP_MAGIC = b"\x1f\x8b"
 class FileEntry:
     """Bucket-level file entry. ``key`` is scope-relative — the
     on-bucket prefix has been stripped, so callers see e.g.
-    ``foo.ifc`` not ``users/abc/foo.ifc``."""
+    ``foo.ifc`` not ``users/abc/foo.ifc``.
+
+    ``last_modified`` is an ISO-8601 string when the backend reports
+    one (S3, Garage, MinIO all do), or None for backends that don't
+    track it. The admin storage view sorts by it, so missing values
+    sort consistently rather than crashing.
+    """
 
     key: str
     size: int
+    last_modified: str | None = None
 
 
 @dataclass
@@ -124,20 +131,37 @@ class Storage:
     async def list(self, scope: Scope) -> list[FileEntry]:
         entries: list[FileEntry] = []
         # obs.list returns a ListStream of pages; each page is a Sequence
-        # of ObjectMeta dicts with keys "path" and "size". The scope
+        # of ObjectMeta dicts with keys "path", "size", "last_modified",
+        # "e_tag" (last_modified is a datetime when present). The scope
         # prefix bounds the listing — a project list never sees user
         # files and vice versa.
         prefix = self._scope_prefix(scope)
         stream = obs.list(self._store, prefix=prefix or None)
         async for page in stream:
             for meta in page:
+                lm = meta.get("last_modified") if isinstance(meta, dict) else getattr(meta, "last_modified", None)
+                lm_iso = lm.isoformat() if hasattr(lm, "isoformat") else (str(lm) if lm else None)
                 entries.append(
                     FileEntry(
                         key=self._strip_scope_prefix(scope, meta["path"]),
                         size=int(meta["size"]),
+                        last_modified=lm_iso,
                     )
                 )
         return entries
+
+    async def delete(self, scope: Scope, key: str) -> None:
+        """Remove a single object. Raises FileNotFoundError when the
+        backend reports the object doesn't exist; other backend errors
+        propagate."""
+        try:
+            await self._store.delete_async(self._full_key(scope, key))
+        except Exception as exc:
+            # obstore raises a generic error that may include "not found"
+            # in the message; let callers translate to 404 if they want
+            # a clean separation. We don't try to introspect — different
+            # backends word it differently.
+            raise
 
     async def get_bytes(self, scope: Scope, key: str) -> bytes:
         """Read an object and return its decompressed payload.
