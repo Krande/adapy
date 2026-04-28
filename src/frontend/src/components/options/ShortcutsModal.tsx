@@ -17,6 +17,7 @@ const ShortcutsModal: React.FC = () => {
                     <p><kbd>Shift + F</kbd>: Center on Selection</p>
                     <p><kbd>Shift + A</kbd>: Zoom to All</p>
                     <p><kbd>Shift + Q</kbd>: Toggle Options Menu</p>
+                    <p><kbd>Shift + T</kbd>: Toggle Selection Tree</p>
                     <p><kbd>Shift + C</kbd>: Copy Selection to Clipboard</p>
                 </div>
             )}

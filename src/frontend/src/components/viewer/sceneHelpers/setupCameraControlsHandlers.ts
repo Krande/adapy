@@ -4,6 +4,7 @@ import {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
 import {centerViewOnSelection} from "@/utils/scene/centerViewOnSelection";
 import {OrbitControls} from "three/examples/jsm/controls/OrbitControls";
 import {useOptionsStore} from "@/state/optionsStore";
+import {useTreeViewStore} from "@/state/treeViewStore";
 import CameraControls from "camera-controls";
 import {queryNameFromRangeId} from "@/utils/mesh_select/queryMeshDrawRange";
 
@@ -45,6 +46,9 @@ export function setupCameraControlsHandlers(
         } else if (shift && key === "q") {
             const {isOptionsVisible, setIsOptionsVisible} = useOptionsStore.getState();
             setIsOptionsVisible(!isOptionsVisible);
+        } else if (shift && key === "t") {
+            const {isTreeCollapsed, setIsTreeCollapsed} = useTreeViewStore.getState();
+            setIsTreeCollapsed(!isTreeCollapsed);
         } else if (shift && key === "c") {
             // Copy the name of each object in the selection to the clipboard, one per line
             void (async () => {

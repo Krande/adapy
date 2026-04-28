@@ -19,6 +19,7 @@ import InfoIcon from "./icons/InfoIcon";
 import ReloadIcon from "./icons/ReloadIcon";
 import ServerIcon from "./icons/ServerIcon";
 import ToggleControlsIcon from "./icons/AnimationControlToggle";
+import TreeViewIcon from "./icons/TreeViewIcon";
 import {useGroupInfoStore} from "../state/groupInfoStore";
 import GroupIcon from "./icons/GroupIcon";
 import GroupInfoBox from "./info_box_groups/GroupInfoBox";
@@ -53,7 +54,7 @@ const Menu = () => {
     const {showServerInfoBox, setShowServerInfoBox} = useServerInfoStore();
     const {hasAnimation, isControlsVisible, setIsControlsVisible} = useAnimationStore();
     const {showInfoBox: showWebsocketInfoBox} = useWebsocketStatusStore();
-    const {isTreeCollapsed, treeViewWidth} = useTreeViewStore();
+    const {isTreeCollapsed, setIsTreeCollapsed, treeViewWidth} = useTreeViewStore();
     const isDesktop = useIsDesktop();
 
     // On desktop the tree panel pushes the menu bar to its right so
@@ -84,6 +85,17 @@ const Menu = () => {
                         hidden={use_node_editor_only}
                         onClick={() => setIsOptionsVisible(!isOptionsVisible)}
                     >☰
+                    </button>
+
+                    <button
+                        className={`bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded ${!isTreeCollapsed ? "ring-2 ring-white/40" : ""}`}
+                        hidden={use_node_editor_only}
+                        onClick={() => setIsTreeCollapsed(!isTreeCollapsed)}
+                        title={isTreeCollapsed ? "Show selection tree (Shift+T)" : "Hide selection tree (Shift+T)"}
+                        aria-label={isTreeCollapsed ? "Show selection tree" : "Hide selection tree"}
+                        aria-pressed={!isTreeCollapsed}
+                    >
+                        <TreeViewIcon/>
                     </button>
 
                     <button
