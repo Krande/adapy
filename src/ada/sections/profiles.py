@@ -45,7 +45,13 @@ def build_section_profile(sec: Section, is_solid) -> SectionProfile:
     if section_builder is not None:
         section_profile = section_builder(sec, is_solid)
     else:
-        section_profile = SectionProfile(sec, outer_curve=sec.poly_outer, is_solid=is_solid, disconnected=False)
+        section_profile = SectionProfile(
+            sec,
+            outer_curve=sec.poly_outer,
+            inner_curve=sec.poly_inner,
+            is_solid=is_solid,
+            disconnected=False,
+        )
 
     return section_profile
 
