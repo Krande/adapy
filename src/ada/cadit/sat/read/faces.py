@@ -85,6 +85,13 @@ class PlateFactory:
         return periphery_loop if periphery_loop is not None else loops[0]
 
     def get_points(self, edges: list[AcisRecord]) -> list[tuple[float]]:
+        if not edges:
+            # Loops that consist entirely of whisker coedge pairs are
+            # stripped to nothing by `_drop_whisker_coedges`. Treat that
+            # as the existing "not enough points" condition so the
+            # caller's skip-and-warn path runs instead of an IndexError.
+            raise ACISInsufficientPointsError("Plates cannot have 0 edges")
+
         p1, p2 = self.get_points_from_edge(edges[0])
 
         points = [p1, p2]
