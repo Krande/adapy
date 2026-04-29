@@ -4,6 +4,39 @@ import {runtime} from "@/runtime/config";
 import {viewerApi, ScopeUrl} from "@/services/viewerApi";
 import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
 
+// Mirror the server's _DIRECT_UPLOAD_THRESHOLD_BYTES. The server is
+// authoritative — it 413s above this — but knowing it client-side lets
+// us avoid one wasted round-trip and pick the right code path up front.
+const DIRECT_UPLOAD_THRESHOLD_BYTES = 200 * 1024 * 1024;
+
+/** Upload via a presigned URL straight to the object store. Bypasses
+ * the API process so multi-hundred-MB files don't buffer through
+ * Python. Caller must ensure the server side has already vended the
+ * URL — we just PUT and watch progress. */
+async function putToPresignedUrl(
+    url: string,
+    file: File,
+    onProgress?: (loaded: number, total: number) => void,
+): Promise<void> {
+    await new Promise<void>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open("PUT", url);
+        // S3-style presigned URLs sign a known set of headers; sending
+        // an unsigned one (e.g. Authorization) makes the request fail
+        // with SignatureDoesNotMatch. Stick to body only.
+        xhr.upload.addEventListener("progress", (e) => {
+            if (e.lengthComputable && onProgress) onProgress(e.loaded, e.total);
+        });
+        xhr.addEventListener("load", () => {
+            if (xhr.status >= 200 && xhr.status < 300) resolve();
+            else reject(new Error(`presigned PUT failed: ${xhr.status} ${xhr.responseText || ""}`));
+        });
+        xhr.addEventListener("error", () => reject(new Error("presigned PUT network error")));
+        xhr.addEventListener("abort", () => reject(new Error("presigned PUT aborted")));
+        xhr.send(file);
+    });
+}
+
 const SUPPORTED_EXTS = [
     ".glb", ".gltf",
     ".ifc", ".step", ".stp",
@@ -61,7 +94,18 @@ export async function uploadFile(
     }
 
     const scope = opts?.scope ?? scopeUrlPart(useScopeStore.getState().current);
-    await viewerApi.putBlob(scope, key, file, {onProgress: opts?.onProgress});
+    if (file.size > DIRECT_UPLOAD_THRESHOLD_BYTES) {
+        // Hand the bytes straight to the object store via a presigned
+        // URL. If the server side can't presign (LocalStore), it 503s
+        // and the error bubbles to the caller — we don't transparently
+        // fall back to the buffered path because that would silently
+        // 413 on this same request anyway.
+        const presigned = await viewerApi.requestUploadUrl(scope, key);
+        await putToPresignedUrl(presigned.url, file, opts?.onProgress);
+        await viewerApi.completeUpload(scope, key);
+    } else {
+        await viewerApi.putBlob(scope, key, file, {onProgress: opts?.onProgress});
+    }
     await request_list_of_files_from_server();
 
     const autoConvert = opts?.autoConvert !== false;

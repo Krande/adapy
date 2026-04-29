@@ -40,6 +40,13 @@ _GZIP_UPLOAD_EXTS: frozenset[str] = frozenset(
     {".ifc", ".step", ".stp", ".xml", ".inp", ".fem", ".sat", ".acis", ".sif"}
 )
 
+# Hard cap on the regular API-buffered upload path. Above this we make
+# the client request a presigned URL and PUT directly at the object
+# store, so the API process never sees the bytes. 200 MB is high enough
+# for typical IFC/Genie XML/STEP work and low enough that buffering it
+# in Python doesn't blow the worker's RAM budget.
+_DIRECT_UPLOAD_THRESHOLD_BYTES: int = 200 * 1024 * 1024
+
 
 def _content_encoding_for(key: str) -> str | None:
     return "gzip" if pathlib.PurePosixPath(key).suffix.lower() in _GZIP_UPLOAD_EXTS else None
@@ -350,6 +357,33 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=403, detail="cannot write to _derived/")
         if not is_supported_source(clean):
             raise HTTPException(status_code=415, detail=f"unsupported file type: {clean}")
+
+        # Reject before reading the body so a multi-GB upload doesn't
+        # buffer through Python first. Browsers always send
+        # Content-Length on form/file uploads; if it's missing we still
+        # fall through and the body read will succeed only for small
+        # payloads.
+        cl = request.headers.get("content-length")
+        if cl is not None:
+            try:
+                announced = int(cl)
+            except ValueError:
+                announced = -1
+            if announced > _DIRECT_UPLOAD_THRESHOLD_BYTES:
+                if storage.supports_presigned_uploads:
+                    detail = (
+                        f"upload exceeds {_DIRECT_UPLOAD_THRESHOLD_BYTES} bytes; "
+                        "request a presigned URL via POST /api/scopes/{scope}/upload-url "
+                        "and PUT directly at the object store"
+                    )
+                else:
+                    detail = (
+                        f"upload exceeds {_DIRECT_UPLOAD_THRESHOLD_BYTES} bytes and "
+                        "the local-storage backend cannot accept direct uploads; "
+                        "deploy with an S3-compatible backend to use larger files"
+                    )
+                raise HTTPException(status_code=413, detail=detail)
+
         data = await request.body()
         if not data:
             raise HTTPException(status_code=400, detail="empty body")
@@ -366,6 +400,83 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=500, detail=str(exc)) from exc
         await _audit(request, user, scope_obj, "upload", key=clean, status="ok")
         return JSONResponse({"key": clean, "size": len(data)}, status_code=201)
+
+    @api.post("/scopes/{scope}/upload-url")
+    async def api_scope_upload_url(
+        request: Request,
+        scope_obj: Scope = Depends(_scope_from_path),
+        user: User = Depends(auth_module.current_user),
+    ) -> JSONResponse:
+        """Mint a presigned PUT URL for a too-large-to-buffer upload.
+
+        The browser PUTs the raw file directly to the object store
+        and then calls /upload-complete. We don't compress on the way
+        in (the URL is opaque to us once issued), so the file lands
+        uncompressed; the read path still works because get_bytes /
+        stream_to_path sniff the gzip magic, not the metadata.
+
+        Returns 503 on local-backed deployments — operator must provide
+        an S3-compatible backend with CORS configured for browser PUTs.
+        """
+        from .converter import is_derived_key, is_supported_source
+
+        if not storage.supports_presigned_uploads:
+            raise HTTPException(
+                status_code=503,
+                detail="presigned uploads require an S3-compatible backend",
+            )
+        body = await request.json()
+        key = (body.get("key") or "").strip().lstrip("/")
+        if not key:
+            raise HTTPException(status_code=400, detail="key required")
+        if is_derived_key(key):
+            raise HTTPException(status_code=403, detail="cannot write to _derived/")
+        if not is_supported_source(key):
+            raise HTTPException(status_code=415, detail=f"unsupported file type: {key}")
+        try:
+            url = await storage.presigned_put_url(scope_obj, key, expires_in_seconds=3600)
+        except Exception as exc:
+            logger.exception("presign failed for %s", key)
+            raise HTTPException(status_code=500, detail=f"presign failed: {exc}") from exc
+        return JSONResponse(
+            {
+                "url": url,
+                "key": key,
+                "method": "PUT",
+                "expires_in_seconds": 3600,
+            }
+        )
+
+    @api.post("/scopes/{scope}/upload-complete")
+    async def api_scope_upload_complete(
+        request: Request,
+        scope_obj: Scope = Depends(_scope_from_path),
+        user: User = Depends(auth_module.current_user),
+    ) -> JSONResponse:
+        """Finalise a presigned-URL upload: confirm the object exists,
+        write the audit row, and (best-effort) enqueue auto-conversion.
+
+        Mirrors the post-upload behavior of the regular PUT endpoint —
+        if you change one, change the other. The browser is responsible
+        for calling this once the direct PUT to the object store
+        succeeds; if it doesn't, the file lands but no audit / convert
+        happens (storage list still surfaces it).
+        """
+        from .converter import is_derived_key, is_supported_source
+
+        body = await request.json()
+        key = (body.get("key") or "").strip().lstrip("/")
+        if not key:
+            raise HTTPException(status_code=400, detail="key required")
+        if is_derived_key(key):
+            raise HTTPException(status_code=403, detail="cannot write to _derived/")
+        if not is_supported_source(key):
+            raise HTTPException(status_code=415, detail=f"unsupported file type: {key}")
+        meta = await storage.head(scope_obj, key)
+        if meta is None:
+            raise HTTPException(status_code=404, detail=f"object not found at {key}; was the PUT successful?")
+        await _audit(request, user, scope_obj, "upload", key=key, status="ok")
+        return JSONResponse({"key": key, "size": meta["size"]}, status_code=201)
 
     @api.post("/scopes/{scope}/convert")
     async def api_scope_convert(

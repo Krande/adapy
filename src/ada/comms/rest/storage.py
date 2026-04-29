@@ -30,6 +30,7 @@ import gzip
 import pathlib
 import zlib
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import AsyncIterator
 
 import obstore as obs
@@ -215,6 +216,55 @@ class Storage:
                 return
 
         await obs.put_async(self._store, full, data)
+
+    @property
+    def supports_presigned_uploads(self) -> bool:
+        """True for object-store backends that can vend a presigned PUT
+        URL the browser can hit directly. False for LocalStore — the
+        local backend has no HTTP surface, so very large uploads must
+        either be rejected or chunked through the API process."""
+        return isinstance(self._store, S3Store)
+
+    async def presigned_put_url(
+        self, scope: Scope, key: str, expires_in_seconds: int = 3600
+    ) -> str:
+        """Mint a presigned PUT URL the browser can use to upload bytes
+        directly to the object store, bypassing the API's request body
+        path. Used for files past the regular-upload size cap so we
+        don't ferry hundreds of MB through Python.
+
+        Caller is responsible for the post-upload step that records the
+        audit row and triggers conversion — the object store has no
+        notion of either.
+
+        Raises ``NotImplementedError`` for backends without HTTP-level
+        signing (LocalStore). Callers should gate on
+        ``supports_presigned_uploads`` first.
+        """
+        if not self.supports_presigned_uploads:
+            raise NotImplementedError(
+                "presigned uploads require an HTTP object store; "
+                "LocalStore is not supported"
+            )
+        return await obs.sign_async(
+            self._store,
+            "PUT",
+            self._full_key(scope, key),
+            timedelta(seconds=expires_in_seconds),
+        )
+
+    async def head(self, scope: Scope, key: str) -> dict | None:
+        """Return ``{size, last_modified}`` for a key, or None if missing.
+        Used after a direct upload to confirm the object actually
+        landed before we audit a "ok" row."""
+        try:
+            meta = await self._store.head_async(self._full_key(scope, key))
+        except FileNotFoundError:
+            return None
+        size = int(meta["size"]) if isinstance(meta, dict) else int(getattr(meta, "size", 0))
+        lm = meta.get("last_modified") if isinstance(meta, dict) else getattr(meta, "last_modified", None)
+        lm_iso = lm.isoformat() if hasattr(lm, "isoformat") else (str(lm) if lm else None)
+        return {"size": size, "last_modified": lm_iso}
 
     async def exists(self, scope: Scope, key: str) -> bool:
         try:

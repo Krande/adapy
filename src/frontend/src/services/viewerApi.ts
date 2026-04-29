@@ -284,6 +284,42 @@ export const viewerApi = {
         });
     },
 
+    /** Request a presigned PUT URL for a too-large-to-buffer upload.
+     *
+     * Used by uploadFile when the file exceeds the server's regular
+     * upload cap (~200 MB). Server returns a one-shot URL the browser
+     * PUTs the raw bytes to directly. Local-backed deployments 503
+     * here — operator must run with an S3-compatible backend. */
+    async requestUploadUrl(
+        scope: ScopeUrl,
+        key: string,
+    ): Promise<{url: string; key: string; method: string; expires_in_seconds: number}> {
+        const r = await authedFetch(
+            `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/upload-url`,
+            {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({key}),
+            },
+        );
+        return jsonOrThrow(r, `requestUploadUrl(${key})`);
+    },
+
+    /** Finalise a presigned-URL upload: server confirms the object
+     * landed and writes the audit row. Caller should run this only
+     * after a successful direct PUT — otherwise it 404s. */
+    async completeUpload(scope: ScopeUrl, key: string): Promise<{key: string; size: number}> {
+        const r = await authedFetch(
+            `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/upload-complete`,
+            {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({key}),
+            },
+        );
+        return jsonOrThrow(r, `completeUpload(${key})`);
+    },
+
     /** Enqueue a server-side conversion. Returns either a fresh queued
      * job, a synthesised "cached" response (derived already present),
      * or rejects with ApiError. */
