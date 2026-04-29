@@ -108,13 +108,36 @@ class Shape(BackendGeom):
         return shape_to_tri_mesh(self.solid_occ())
 
     def solid_occ(self) -> TopoDS_Shape:
+        from OCC.Core.TopoDS import TopoDS_Shape as _TopoDS_Shape
+
         from ada.occ.geom import geom_to_occ_geom
+
+        # STEP/SAT-imported shapes carry the raw OCC TopoDS_Shape directly
+        # (read_step_file → extract_occ_shapes → Shape(name, occ_shape)),
+        # without the ada.geom.Geometry wrapper that the rest of the
+        # pipeline normally builds on. There's no parametric primitive
+        # to round-trip through here — the OCC body is the source of
+        # truth — so hand it back unchanged.
+        if isinstance(self._geom, _TopoDS_Shape):
+            return self._geom
 
         return geom_to_occ_geom(self.solid_geom())
 
     def solid_geom(self) -> Geometry:
+        from OCC.Core.TopoDS import TopoDS_Shape as _TopoDS_Shape
+
         if self.geom is None:
             raise NotImplementedError(f"solid_geom() not implemented for {self.__class__.__name__}")
+
+        if isinstance(self.geom, _TopoDS_Shape):
+            # Raw OCC body with no parametric description (STEP/SAT
+            # import path). Callers that need geometry-of-data should
+            # check ``solid_occ()`` instead — it short-circuits and
+            # returns the OCC shape directly.
+            raise NotImplementedError(
+                f"Shape {self.name!r} carries a raw OCC body (no ada.geom.Geometry wrapper); "
+                "use solid_occ() to access the OCC shape directly"
+            )
 
         import ada.geom.solids as geo_so
         import ada.geom.surfaces as geo_su

@@ -187,6 +187,8 @@ class BatchTessellator:
         render_override: dict[str, GeomRepr] = None,
         graph_store: GraphStore = None,
     ) -> Iterable[MeshStore]:
+        from OCC.Core.TopoDS import TopoDS_Shape as _TopoDS_Shape
+
         if render_override is None:
             render_override = dict()
 
@@ -194,6 +196,22 @@ class BatchTessellator:
             if isinstance(obj, BackendGeom):
                 ada_obj = obj
                 geom_repr = render_override.get(obj.guid, GeomRepr.SOLID)
+                # Raw-OCC fast path: STEP/SAT-imported shapes hold a
+                # TopoDS_* directly on `_geom` and have no ada.geom
+                # wrapper for the Geometry → OCC step to consume. Skip
+                # straight to OCC tessellation.
+                raw = getattr(obj, "_geom", None)
+                if geom_repr == GeomRepr.SOLID and isinstance(raw, _TopoDS_Shape):
+                    node_ref = (
+                        graph_store.hash_map.get(obj.guid)
+                        if graph_store is not None
+                        else getattr(obj, "guid", None)
+                    )
+                    try:
+                        yield self.tessellate_occ_geom(raw, node_ref, obj.color)
+                    except UnableToCreateTesselationFromSolidOCCGeom as e:
+                        logger.error(e)
+                    continue
                 if geom_repr == GeomRepr.SOLID:
                     geom = obj.solid_geom()
                 elif geom_repr == GeomRepr.SHELL:
