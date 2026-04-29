@@ -55,6 +55,13 @@ class Job:
     # at the moment of upgrade.
     scope_kind: str = "shared"
     scope_id: str | None = None
+    # FEA result selection. None means "let the converter pick a
+    # default" — the auto-convert path leaves these unset so the
+    # default-rendered GLB lives at the bare derived_key. A picker
+    # request sets both, and derived_key is computed off the pair so
+    # picked combos cache distinct from the default.
+    step: int | None = None
+    field: str | None = None
 
     def to_json(self) -> bytes:
         return json.dumps(asdict(self)).encode("utf-8")
@@ -128,12 +135,14 @@ class JobQueue:
         *,
         scope_kind: str = "shared",
         scope_id: str | None = None,
+        step: int | None = None,
+        field: str | None = None,
     ) -> Job:
         now = time.time()
         job = Job(
             job_id=uuid.uuid4().hex,
             source_key=source_key,
-            derived_key=derived_key_for(source_key, target_format),
+            derived_key=derived_key_for(source_key, target_format, step=step, field=field),
             status=JOB_STATUS_QUEUED,
             target_format=target_format,
             progress=0.0,
@@ -142,6 +151,8 @@ class JobQueue:
             updated_at=now,
             scope_kind=scope_kind,
             scope_id=scope_id,
+            step=step,
+            field=field,
         )
         await self._put(job)
         await self._js.publish(self._cfg.subject, job.job_id.encode("utf-8"))

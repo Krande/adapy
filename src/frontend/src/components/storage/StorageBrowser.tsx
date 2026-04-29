@@ -2,6 +2,7 @@ import React, {useRef, useState} from "react";
 import {useServerInfoStore, ServerFileEntry} from "@/state/serverInfoStore";
 import {useConversionStore} from "@/state/conversionStore";
 import {useModelState} from "@/state/modelState";
+import {runtime} from "@/runtime/config";
 import {request_list_of_files_from_server} from "@/utils/server_info/handlers/request_list_of_files_from_server";
 import {view_file_object_from_server} from "@/utils/scene/handlers/view_file_object_from_server";
 import {clear_loaded_model} from "@/utils/scene/handlers/clear_loaded_model";
@@ -11,6 +12,14 @@ import * as flatbuffers from "flatbuffers";
 import ReloadIcon from "../icons/ReloadIcon";
 import UploadIcon from "../icons/UploadIcon";
 import ViewIcon from "../icons/ViewIcon";
+import FieldPickerModal from "./FieldPickerModal";
+
+// Files that carry per-(step, field) result data and benefit from the
+// picker UI. SIF is the only one in REST mode today; new formats land
+// here when their converter learns to honor (step, field).
+function isFEAResult(name: string): boolean {
+    return name.toLowerCase().endsWith(".sif");
+}
 
 // Small inline CSS spinner. Uses border tricks rather than an SVG so
 // it scales with text size and stays crisp at 16px tall icons.
@@ -49,6 +58,9 @@ const StorageBrowser: React.FC = () => {
     const [uploadTotal, setUploadTotal] = useState(0);
     const [expandedName, setExpandedName] = useState<string | null>(null);
     const [viewingName, setViewingName] = useState<string | null>(null);
+    // Source name of the FEA picker modal, or null if closed. Only one
+    // picker open at a time matches the file-list interaction model.
+    const [pickerName, setPickerName] = useState<string | null>(null);
     // Owned input — clicking it must happen synchronously inside the
     // button's onClick to preserve the user-activation gesture (iOS Safari
     // refuses the file picker otherwise). The previous implementation
@@ -224,6 +236,22 @@ const StorageBrowser: React.FC = () => {
                                         >
                                             {isViewing ? <Spinner/> : <ViewIcon/>}
                                         </button>
+                                        {/* Field picker for FEA result files. Lets the
+                                            user pick a non-default (step, field) and
+                                            re-render. Only meaningful in REST mode with
+                                            convert enabled. */}
+                                        {isFEAResult(f.name) && runtime.isRestMode() && runtime.convertEnabled() && (
+                                            <button
+                                                className="p-1 rounded text-white hover:bg-gray-300/40 disabled:opacity-50 disabled:cursor-not-allowed"
+                                                onClick={() => setPickerName(f.name)}
+                                                disabled={otherViewing || isViewing}
+                                                title="Pick step / field"
+                                                aria-label="Pick step / field"
+                                            >
+                                                {/* Sliders glyph — discoverable as "tunable" */}
+                                                <span className="leading-none text-sm font-mono">⇅</span>
+                                            </button>
+                                        )}
                                         {isLoaded && (
                                             <button
                                                 className="p-1 rounded text-white hover:bg-gray-300/40"
@@ -256,6 +284,12 @@ const StorageBrowser: React.FC = () => {
                         );
                     })}
                 </ul>
+            )}
+            {pickerName && (
+                <FieldPickerModal
+                    sourceName={pickerName}
+                    onClose={() => setPickerName(null)}
+                />
             )}
         </div>
     );

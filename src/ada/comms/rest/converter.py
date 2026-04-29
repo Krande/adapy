@@ -77,19 +77,46 @@ def _ext(key: str) -> str:
     return pathlib.PurePosixPath(key).suffix.lower()
 
 
-def derived_key_for(source_key: str, target_format: str = "glb") -> str:
+def derived_key_for(
+    source_key: str,
+    target_format: str = "glb",
+    *,
+    step: int | None = None,
+    field: str | None = None,
+) -> str:
     """Map a source key to its derived blob key.
 
     Convention: derived path mirrors the source path under `_derived/`,
     with `.{target_format}` appended so multiple targets coexist for
     the same source (`_derived/wall.ifc.glb`, `_derived/wall.ifc.xml`,
     ...).
+
+    For FEA result sources (.sif), an explicit (step, field) selection
+    produces a distinct key so picked combos cache independently from
+    the auto-convert default. Leaving both unset (or the source not
+    being a SIF) keeps the bare ``_derived/<src>.<fmt>`` shape.
     """
     fmt = target_format.lstrip(".").lower()
     if fmt not in TARGET_FORMATS:
         raise UnsupportedFormat(f"unknown target format: {target_format!r}")
     src = source_key.strip("/")
+    if step is not None and field is not None and is_fea_result_key(source_key):
+        # Sanitize field for path-safety: strip / and whitespace,
+        # replace anything else weird with _.
+        sanitized = "".join(c if c.isalnum() or c in "-_." else "_" for c in field)
+        return f"_derived/{src}.s{int(step)}.{sanitized}.{fmt}"
     return f"_derived/{src}.{fmt}"
+
+
+# Suffix appended to derived keys for cached result-meta JSON. Lives in
+# the same _derived/ namespace, so it's hidden from the user file list
+# but still scoped to the source.
+_FEA_META_SUFFIX = ".meta.json"
+
+
+def fea_meta_key_for(source_key: str) -> str:
+    src = source_key.strip("/")
+    return f"_derived/{src}{_FEA_META_SUFFIX}"
 
 
 def is_derived_key(key: str) -> bool:
@@ -258,13 +285,67 @@ def _pick_default_step_field(result: "FEAResult") -> tuple[int, str]:
     return int(steps[0]), next(iter(fields.keys()))
 
 
-def _via_fea_result(src_path: pathlib.Path, target_format: str, on_progress: ProgressFn) -> bytes:
+def is_fea_result_key(key: str) -> bool:
+    return _ext(key) in _FEA_RESULT_EXTS
+
+
+def compute_fea_meta(src_path: pathlib.Path) -> dict:
+    """Inspect a result deck and return a JSON-serializable description.
+
+    Shape::
+        {
+            "steps": [int, ...],
+            "fields": [{"name": str, "steps": [int, ...]}, ...],
+            "default_step": int,
+            "default_field": str,
+        }
+
+    Each field carries the list of steps it has data for, so the picker
+    can disable invalid combinations. Sesam SIF typically reports every
+    field at every step, but we don't assume.
+
+    Caller is expected to run this in a threadpool — read_sif_file is
+    synchronous and CPU-heavy on large decks.
+    """
+    from ada.fem.formats.sesam.results.read_sif import read_sif_file
+
+    result = read_sif_file(str(src_path))
+    grouped = result.get_results_grouped_by_field_value()
+    steps_global = [int(s) for s in result.get_steps()]
+    if not steps_global:
+        raise UnsupportedFormat("SIF contains no result steps to render")
+    if not grouped:
+        raise UnsupportedFormat("SIF contains no nodal/element fields to render")
+
+    fields_payload = []
+    for name, datas in grouped.items():
+        per_field_steps = sorted({int(d.step) for d in datas})
+        fields_payload.append({"name": name, "steps": per_field_steps})
+
+    default_step, default_field = _pick_default_step_field(result)
+    return {
+        "steps": steps_global,
+        "fields": fields_payload,
+        "default_step": int(default_step),
+        "default_field": default_field,
+    }
+
+
+def _via_fea_result(
+    src_path: pathlib.Path,
+    target_format: str,
+    on_progress: ProgressFn,
+    *,
+    step: int | None = None,
+    field: str | None = None,
+) -> bytes:
     """Sesam SIF (text result deck) → GLB tessellated visualisation.
 
     Uses ``read_sif_file`` to parse the deck into a ``FEAResult`` and
-    ``FEAResult.to_gltf`` to write a coloured/warped GLB. The first
-    available (step, field) pair is the default — a future picker UI
-    will let the caller override.
+    ``FEAResult.to_gltf`` to write a coloured/warped GLB. When the
+    caller leaves step/field unset we fall back to the first available
+    pair so an auto-convert at upload time still produces something
+    viewable.
     """
     if target_format != "glb":
         raise UnsupportedFormat(
@@ -276,12 +357,27 @@ def _via_fea_result(src_path: pathlib.Path, target_format: str, on_progress: Pro
     result = read_sif_file(str(src_path))
 
     on_progress("selecting-field", 0.50)
-    step, field = _pick_default_step_field(result)
+    if step is None or field is None:
+        step, field = _pick_default_step_field(result)
+    else:
+        # Guard against a stale picker selection — the user may have
+        # uploaded a new SIF under the same name. Bail with an error
+        # the worker will surface to the queued job's audit row.
+        available = result.get_results_grouped_by_field_value()
+        if field not in available:
+            raise UnsupportedFormat(
+                f"field {field!r} not in SIF; available: {sorted(available)}"
+            )
+        if int(step) not in {int(d.step) for d in available[field]}:
+            avail_steps = sorted({int(d.step) for d in available[field]})
+            raise UnsupportedFormat(
+                f"field {field!r} has no data at step {step}; available: {avail_steps}"
+            )
 
     on_progress("tessellating", 0.65)
     out_path = pathlib.Path(tempfile.mkstemp(suffix=".glb")[1])
     try:
-        result.to_gltf(out_path, step=step, field=field)
+        result.to_gltf(out_path, step=int(step), field=field)
         on_progress("ready", 1.0)
         return out_path.read_bytes()
     finally:
@@ -296,6 +392,9 @@ def convert(
     source_key: str,
     target_format: str = "glb",
     on_progress: ProgressFn | None = None,
+    *,
+    step: int | None = None,
+    field: str | None = None,
 ) -> bytes:
     """Convert a local source file to the requested target format.
 
@@ -303,6 +402,10 @@ def convert(
     and passes its path here, so we never round-trip the full payload
     through a `bytes` buffer in memory. Output is still returned as
     bytes — the worker uploads it via `Storage.put_bytes`.
+
+    ``step`` / ``field`` only apply to FEA result sources (.sif). When
+    unset the converter picks the first available pair, matching the
+    behavior of the auto-convert at upload time.
     """
     progress = on_progress or (lambda _stage, _frac: None)
     progress("starting", 0.0)
@@ -319,7 +422,7 @@ def convert(
         return _via_bundle(src_path, fmt, progress)
 
     if src_ext in _FEA_RESULT_EXTS:
-        return _via_fea_result(src_path, fmt, progress)
+        return _via_fea_result(src_path, fmt, progress, step=step, field=field)
 
     if fmt == "glb":
         if src_ext in _PASSTHROUGH_EXTS:

@@ -48,6 +48,18 @@ export interface ConvertTargetsResponse {
     targets: TargetFormat[];
 }
 
+export interface ResultMetaField {
+    name: string;
+    steps: number[];
+}
+
+export interface ResultMeta {
+    steps: number[];
+    fields: ResultMetaField[];
+    default_step: number;
+    default_field: string;
+}
+
 class ApiError extends Error {
     constructor(message: string, public status: number, public detail?: string) {
         super(message);
@@ -320,20 +332,43 @@ export const viewerApi = {
         return jsonOrThrow(r, `completeUpload(${key})`);
     },
 
+    /** Inventory of (steps, fields) for a FEA result file. Result is
+     * cached server-side after the first parse — calling repeatedly is
+     * cheap. 415 if the source isn't a result file; 422 if it is but
+     * has no usable result data. */
+    async resultMeta(scope: ScopeUrl, sourceKey: string): Promise<ResultMeta> {
+        const r = await authedFetch(
+            `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}` +
+                `/result-meta?key=${encodeURIComponent(sourceKey)}`,
+        );
+        return jsonOrThrow<ResultMeta>(r, `resultMeta(${sourceKey})`);
+    },
+
     /** Enqueue a server-side conversion. Returns either a fresh queued
      * job, a synthesised "cached" response (derived already present),
-     * or rejects with ApiError. */
+     * or rejects with ApiError. ``step`` and ``field`` only apply to
+     * FEA result sources (.sif) — set both to override the default
+     * field selection, or leave both undefined for the auto pick. */
     async convert(
         scope: ScopeUrl,
         sourceKey: string,
         targetFormat: TargetFormat = "glb",
+        opts?: {step?: number; field?: string},
     ): Promise<ConvertResponse> {
+        const body: Record<string, unknown> = {
+            source_key: sourceKey,
+            target_format: targetFormat,
+        };
+        if (opts?.step !== undefined && opts?.field !== undefined) {
+            body.step = opts.step;
+            body.field = opts.field;
+        }
         const r = await authedFetch(
             `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/convert`,
             {
                 method: "POST",
                 headers: {"Content-Type": "application/json"},
-                body: JSON.stringify({source_key: sourceKey, target_format: targetFormat}),
+                body: JSON.stringify(body),
             },
         );
         return jsonOrThrow<ConvertResponse>(r, `convert(${sourceKey} -> ${targetFormat})`);

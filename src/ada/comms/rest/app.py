@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import asyncio
+import json
+import os
 import pathlib
+import tempfile
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 
@@ -23,6 +27,8 @@ from .converter import (
     TARGET_FORMATS,
     UnsupportedFormat,
     derived_key_for,
+    fea_meta_key_for,
+    is_fea_result_key,
     is_supported_source,
     supported_targets_for,
 )
@@ -487,6 +493,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         body = await request.json()
         source_key = (body.get("source_key") or "").strip()
         target_format = (body.get("target_format") or "glb").strip().lower()
+        # Optional FEA result selection: present only for SIF picks. We
+        # don't 400 if these arrive on a non-SIF source — the
+        # derived_key helper just ignores them.
+        raw_step = body.get("step")
+        raw_field = body.get("field")
+        step: int | None = None
+        field: str | None = None
+        if raw_step is not None and raw_field is not None:
+            try:
+                step = int(raw_step)
+            except (TypeError, ValueError) as exc:
+                raise HTTPException(status_code=400, detail="step must be an integer") from exc
+            field = str(raw_field).strip() or None
+            if not field:
+                raise HTTPException(status_code=400, detail="field must be non-empty")
         if not source_key:
             raise HTTPException(status_code=400, detail="source_key required")
         if not is_supported_source(source_key):
@@ -508,7 +529,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=503, detail="conversion disabled (no NATS configured)")
 
         try:
-            derived_key = derived_key_for(source_key, target_format)
+            derived_key = derived_key_for(source_key, target_format, step=step, field=field)
         except UnsupportedFormat as exc:
             raise HTTPException(status_code=415, detail=str(exc)) from exc
         if await storage.exists(scope_obj, derived_key):
@@ -537,6 +558,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 target_format,
                 scope_kind=scope_obj.kind,
                 scope_id=scope_obj.id,
+                step=step,
+                field=field,
             )
         except Exception as exc:
             logger.exception("enqueue failed")
@@ -564,6 +587,89 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return JSONResponse(
             {"source_key": source_key, "targets": supported_targets_for(source_key)}
         )
+
+    @api.get("/scopes/{scope}/result-meta")
+    async def api_scope_result_meta(
+        key: str,
+        scope_obj: Scope = Depends(_scope_from_path),
+    ) -> JSONResponse:
+        """Return the (steps, fields) inventory for a FEA result file.
+
+        Cached as ``_derived/<src>.meta.json`` after the first parse —
+        SIF parsing on multi-hundred-MB decks takes 30s+ and the picker
+        UI is interactive, so we do not want to recompute on every
+        modal open.
+
+        404 if the source is missing; 415 if the source isn't a FEA
+        result file (the picker shouldn't ask in the first place, but
+        guarding here lets the frontend treat the endpoint as the
+        source of truth).
+        """
+        from .converter import compute_fea_meta
+
+        source_key = (key or "").strip().lstrip("/")
+        if not source_key:
+            raise HTTPException(status_code=400, detail="key required")
+        if not is_fea_result_key(source_key):
+            raise HTTPException(
+                status_code=415,
+                detail=f"result-meta only applies to FEA result files; got {source_key!r}",
+            )
+        if not await storage.exists(scope_obj, source_key):
+            raise HTTPException(status_code=404, detail=f"source not found: {source_key}")
+
+        meta_key = fea_meta_key_for(source_key)
+        try:
+            cached = await storage.get_bytes(scope_obj, meta_key)
+        except FileNotFoundError:
+            cached = None
+        except Exception:
+            # Treat any cache-read hiccup as a miss; recompute is the
+            # safer path than handing the user a 500 because of a stale
+            # half-written meta blob.
+            logger.exception("result-meta: cache read failed for %s", meta_key)
+            cached = None
+        if cached:
+            try:
+                return JSONResponse(json.loads(cached.decode("utf-8")))
+            except Exception:
+                logger.exception("result-meta: cache parse failed for %s; recomputing", meta_key)
+
+        # Cache miss — pull source to a tempfile and parse on a thread.
+        src_suffix = pathlib.PurePosixPath(source_key).suffix or ""
+        src_fd, src_name = tempfile.mkstemp(suffix=src_suffix)
+        os.close(src_fd)
+        src_path = pathlib.Path(src_name)
+        try:
+            try:
+                await storage.stream_to_path(scope_obj, source_key, src_path)
+            except FileNotFoundError as exc:
+                raise HTTPException(status_code=404, detail=str(exc)) from exc
+            loop = asyncio.get_running_loop()
+            try:
+                meta = await loop.run_in_executor(None, compute_fea_meta, src_path)
+            except UnsupportedFormat as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+            except Exception as exc:
+                logger.exception("result-meta: parse failed for %s", source_key)
+                raise HTTPException(status_code=500, detail=f"parse failed: {exc}") from exc
+        finally:
+            try:
+                src_path.unlink()
+            except OSError:
+                pass
+
+        try:
+            await storage.put_bytes(
+                scope_obj,
+                meta_key,
+                json.dumps(meta).encode("utf-8"),
+            )
+        except Exception:
+            # Cache write is best-effort — we still return the meta we
+            # just computed, just at the cost of recomputing next time.
+            logger.exception("result-meta: cache write failed for %s", meta_key)
+        return JSONResponse(meta)
 
     @api.get("/convert/{job_id}")
     async def api_convert_status(

@@ -159,8 +159,19 @@ async def _process_one(
                 pass
 
         try:
+            # Capture step/field by closure — run_in_executor's positional
+            # args don't accept kwargs, so wrap in a lambda. None for both
+            # is the "auto-pick" path matching the auto-convert default.
             out_bytes = await loop.run_in_executor(
-                pool, convert, src_path, job.source_key, job.target_format, _on_progress
+                pool,
+                lambda: convert(
+                    src_path,
+                    job.source_key,
+                    job.target_format,
+                    _on_progress,
+                    step=job.step,
+                    field=job.field,
+                ),
             )
         except BundleError as exc:
             # User-visible bundle problem (missing include, mixed formats,

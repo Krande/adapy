@@ -25,13 +25,20 @@ export async function convertViaServer(
     scope: ScopeUrl,
     sourceKey: string,
     targetFormat: TargetFormat,
+    opts?: {step?: number; field?: string},
 ): Promise<string> {
     // Track jobs per (source, format) so a parallel ifc + xml conversion
-    // for the same source doesn't clobber each other in the UI.
-    const storeKey = `${sourceKey}::${targetFormat}`;
+    // for the same source doesn't clobber each other in the UI. For FEA
+    // picks we further key on (step, field) so two simultaneous picks
+    // for the same SIF show distinct progress bars.
+    const pickSuffix =
+        opts?.step !== undefined && opts?.field !== undefined
+            ? `::s${opts.step}.${opts.field}`
+            : "";
+    const storeKey = `${sourceKey}::${targetFormat}${pickSuffix}`;
     const store = useConversionStore.getState();
 
-    const initial = await viewerApi.convert(scope, sourceKey, targetFormat);
+    const initial = await viewerApi.convert(scope, sourceKey, targetFormat, opts);
     let job = buildJob(storeKey, initial);
     store.setJob(storeKey, job);
 

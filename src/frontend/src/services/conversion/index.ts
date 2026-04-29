@@ -23,11 +23,16 @@ function shouldUsePyodide(sourceKey: string, targetFormat: TargetFormat): boolea
  * toggle is on AND the source/target combination is supported there;
  * otherwise hits the server-side NATS pipeline. Throws on API
  * rejection, job error, or poll-timeout.
+ *
+ * ``opts.step``/``opts.field`` are forwarded to the server for FEA
+ * result picks. The Pyodide path doesn't support FEA results, so they
+ * route to the server pipeline regardless of the experimental toggle.
  */
 export async function ensureConverted(
     scope: ScopeUrl,
     sourceKey: string,
     targetFormat: TargetFormat = "glb",
+    opts?: {step?: number; field?: string},
 ): Promise<string> {
     if (shouldUsePyodide(sourceKey, targetFormat)) {
         return convertViaPyodideAndUpload(scope, sourceKey);
@@ -35,7 +40,7 @@ export async function ensureConverted(
     if (!runtime.convertEnabled()) {
         throw new Error("conversion not enabled on this deployment");
     }
-    return convertViaServer(scope, sourceKey, targetFormat);
+    return convertViaServer(scope, sourceKey, targetFormat, opts);
 }
 
 // Backwards-compatible wrapper for the GLB-for-viewing flow.
