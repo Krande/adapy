@@ -5,6 +5,7 @@
   "scripts": {
     "prebuild": "node clean.cjs",
     "build": "vite build --emptyOutDir && node embed-script.cjs",
+    "build:serve": "vite build --config vite.config.serve.ts --emptyOutDir",
     "dev": "vite --force"
   },
   "devDependencies": {

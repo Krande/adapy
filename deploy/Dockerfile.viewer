@@ -6,7 +6,10 @@ WORKDIR /build
 COPY src/frontend/package.json src/frontend/package-lock.json ./
 RUN npm ci
 COPY src/frontend/ ./
-RUN npm run build
+# `build:serve` uses vite.config.serve.ts — split chunks (three/react/flow)
+# without the embed-script inlining step (that's reserved for `build`,
+# which produces the singlefile bundle baked into the Python package).
+RUN npm run build:serve
 
 # Stage 2: runtime — slim Python with the API and the static SPA.
 # We avoid pixi here because the viewer-api has a small dep set; pip is
