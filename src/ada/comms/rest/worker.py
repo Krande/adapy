@@ -15,7 +15,10 @@ worker reconverts (deterministic output, so this is safe).
 from __future__ import annotations
 
 import asyncio
+import os
+import pathlib
 import signal
+import tempfile
 import time
 import traceback as tb_module
 from concurrent.futures import ThreadPoolExecutor
@@ -114,83 +117,96 @@ async def _process_one(
 
     await queue.update(job_id, status=JOB_STATUS_RUNNING, stage="loading", progress=0.05)
 
+    # Stream source to a worker-local tempfile rather than buffering
+    # the whole payload in RAM. Big result decks (Sesam SIF can be
+    # 950 MB+) blow up the worker pod otherwise; smaller sources still
+    # benefit from skipping the bytes/path round-trip.
+    src_suffix = pathlib.PurePosixPath(job.source_key).suffix or ""
+    src_fd, src_name = tempfile.mkstemp(suffix=src_suffix)
+    os.close(src_fd)
+    src_path = pathlib.Path(src_name)
     try:
-        source_bytes = await storage.get_bytes(scope, job.source_key)
-    except FileNotFoundError as exc:
-        logger.warning("worker: source %s missing for job %s", job.source_key, job_id)
-        await queue.update(
-            job_id, status=JOB_STATUS_ERROR, stage="loading", error=str(exc)
-        )
-        await _audit_done(db_pool, job_id, "error", str(exc), started_at)
-        return
-
-    # Hop into a thread for the conversion — ada-py / trimesh are
-    # synchronous and CPU-heavy. The progress callback re-enters the
-    # asyncio loop via run_coroutine_threadsafe.
-    loop = asyncio.get_running_loop()
-
-    last_kv_write = 0.0
-
-    def _on_progress(stage: str, frac: float) -> None:
-        # Throttle KV writes; conversion may emit many updates.
-        nonlocal last_kv_write
-        now = time.monotonic()
-        if now - last_kv_write < 0.25 and frac < 1.0:
-            return
-        last_kv_write = now
         try:
-            asyncio.run_coroutine_threadsafe(
-                queue.update(job_id, stage=stage, progress=frac),
-                loop,
+            await storage.stream_to_path(scope, job.source_key, src_path)
+        except FileNotFoundError as exc:
+            logger.warning("worker: source %s missing for job %s", job.source_key, job_id)
+            await queue.update(
+                job_id, status=JOB_STATUS_ERROR, stage="loading", error=str(exc)
             )
-        except RuntimeError:
-            # Loop closed during shutdown — drop the update.
+            await _audit_done(db_pool, job_id, "error", str(exc), started_at)
+            return
+
+        # Hop into a thread for the conversion — ada-py / trimesh are
+        # synchronous and CPU-heavy. The progress callback re-enters the
+        # asyncio loop via run_coroutine_threadsafe.
+        loop = asyncio.get_running_loop()
+        last_kv_write = 0.0
+
+        def _on_progress(stage: str, frac: float) -> None:
+            # Throttle KV writes; conversion may emit many updates.
+            nonlocal last_kv_write
+            now = time.monotonic()
+            if now - last_kv_write < 0.25 and frac < 1.0:
+                return
+            last_kv_write = now
+            try:
+                asyncio.run_coroutine_threadsafe(
+                    queue.update(job_id, stage=stage, progress=frac),
+                    loop,
+                )
+            except RuntimeError:
+                # Loop closed during shutdown — drop the update.
+                pass
+
+        try:
+            out_bytes = await loop.run_in_executor(
+                pool, convert, src_path, job.source_key, job.target_format, _on_progress
+            )
+        except BundleError as exc:
+            # User-visible bundle problem (missing include, mixed formats,
+            # ambiguous entry, ...). The message is already operator-
+            # friendly — log at info, not exception, so the worker's stderr
+            # doesn't fill with stack traces for what is really user input.
+            logger.info("worker: bundle rejected for %s: %s", job.source_key, exc)
+            await queue.update(
+                job_id, status=JOB_STATUS_ERROR, stage="convert", error=str(exc)
+            )
+            await _audit_done(db_pool, job_id, "error", str(exc), started_at)
+            return
+        except Exception as exc:
+            logger.exception("worker: conversion failed for %s -> %s", job.source_key, job.target_format)
+            trace = tb_module.format_exc()
+            await queue.update(
+                job_id, status=JOB_STATUS_ERROR, stage="convert", error=str(exc)
+            )
+            await _audit_done(db_pool, job_id, "error", str(exc), started_at, traceback=trace)
+            return
+
+        await queue.update(job_id, stage="uploading", progress=0.95)
+        # Gzip text-format outputs (IFC, Genie XML); GLB is binary geometry
+        # that doesn't compress meaningfully and is what the in-browser
+        # viewer fetches on the hot path.
+        derived_encoding = "gzip" if job.target_format in {"ifc", "xml"} else None
+        try:
+            await storage.put_bytes(scope, job.derived_key, out_bytes, content_encoding=derived_encoding)
+        except Exception as exc:
+            logger.exception("worker: upload failed for %s", job.derived_key)
+            trace = tb_module.format_exc()
+            await queue.update(
+                job_id, status=JOB_STATUS_ERROR, stage="upload", error=str(exc)
+            )
+            await _audit_done(db_pool, job_id, "error", str(exc), started_at, traceback=trace)
+            return
+
+        await queue.update(
+            job_id, status=JOB_STATUS_DONE, stage="ready", progress=1.0, error=None
+        )
+        await _audit_done(db_pool, job_id, "done", None, started_at)
+    finally:
+        try:
+            src_path.unlink()
+        except OSError:
             pass
-
-    try:
-        out_bytes = await loop.run_in_executor(
-            pool, convert, source_bytes, job.source_key, job.target_format, _on_progress
-        )
-    except BundleError as exc:
-        # User-visible bundle problem (missing include, mixed formats,
-        # ambiguous entry, ...). The message is already operator-
-        # friendly — log at info, not exception, so the worker's stderr
-        # doesn't fill with stack traces for what is really user input.
-        logger.info("worker: bundle rejected for %s: %s", job.source_key, exc)
-        await queue.update(
-            job_id, status=JOB_STATUS_ERROR, stage="convert", error=str(exc)
-        )
-        await _audit_done(db_pool, job_id, "error", str(exc), started_at)
-        return
-    except Exception as exc:
-        logger.exception("worker: conversion failed for %s -> %s", job.source_key, job.target_format)
-        trace = tb_module.format_exc()
-        await queue.update(
-            job_id, status=JOB_STATUS_ERROR, stage="convert", error=str(exc)
-        )
-        await _audit_done(db_pool, job_id, "error", str(exc), started_at, traceback=trace)
-        return
-
-    await queue.update(job_id, stage="uploading", progress=0.95)
-    # Gzip text-format outputs (IFC, Genie XML); GLB is binary geometry
-    # that doesn't compress meaningfully and is what the in-browser
-    # viewer fetches on the hot path.
-    derived_encoding = "gzip" if job.target_format in {"ifc", "xml"} else None
-    try:
-        await storage.put_bytes(scope, job.derived_key, out_bytes, content_encoding=derived_encoding)
-    except Exception as exc:
-        logger.exception("worker: upload failed for %s", job.derived_key)
-        trace = tb_module.format_exc()
-        await queue.update(
-            job_id, status=JOB_STATUS_ERROR, stage="upload", error=str(exc)
-        )
-        await _audit_done(db_pool, job_id, "error", str(exc), started_at, traceback=trace)
-        return
-
-    await queue.update(
-        job_id, status=JOB_STATUS_DONE, stage="ready", progress=1.0, error=None
-    )
-    await _audit_done(db_pool, job_id, "done", None, started_at)
 
 
 async def _run() -> None:

@@ -27,6 +27,8 @@ stream plus a `content_encoding` hint, and lets the HTTP layer forward
 from __future__ import annotations
 
 import gzip
+import pathlib
+import zlib
 from dataclasses import dataclass
 from typing import AsyncIterator
 
@@ -220,6 +222,44 @@ class Storage:
         except FileNotFoundError:
             return False
         return True
+
+    async def stream_to_path(
+        self, scope: Scope, key: str, dest_path: pathlib.Path
+    ) -> None:
+        """Stream an object to a local file, decompressing gzip on the fly.
+
+        Used by the worker for sources where loading the whole payload
+        into RAM is wasteful or impossible (multi-GB SIF result decks,
+        for example). The destination is overwritten — caller supplies a
+        fresh tempfile path.
+
+        Decompression is wired through ``zlib.decompressobj`` with a
+        gzip-aware window so we never hold the full decompressed payload
+        in memory; chunks come off the network, get expanded, and go
+        straight to disk.
+        """
+        result = await self._store.get_async(self._full_key(scope, key))
+        chunk_iter = result.stream().__aiter__()
+
+        try:
+            first_chunk = bytes(await chunk_iter.__anext__())
+        except StopAsyncIteration:
+            dest_path.write_bytes(b"")
+            return
+
+        is_gzip = first_chunk[:2] == _GZIP_MAGIC
+        if is_gzip:
+            decomp = zlib.decompressobj(zlib.MAX_WBITS | 16)
+            with open(dest_path, "wb") as fh:
+                fh.write(decomp.decompress(first_chunk))
+                async for chunk in chunk_iter:
+                    fh.write(decomp.decompress(bytes(chunk)))
+                fh.write(decomp.flush())
+        else:
+            with open(dest_path, "wb") as fh:
+                fh.write(first_chunk)
+                async for chunk in chunk_iter:
+                    fh.write(bytes(chunk))
 
     async def open_stream(self, scope: Scope, key: str) -> StreamResult:
         """Open a byte stream eagerly: raises FileNotFoundError immediately

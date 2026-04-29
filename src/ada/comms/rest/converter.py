@@ -1,15 +1,21 @@
 """Source-to-target format converter for the hosted viewer.
 
-Synchronous, stateless function: takes the raw bytes of a source file
-(IFC, STEP, FEM input deck, etc.) and returns the bytes of the
-requested target format. The worker process runs this in a threadpool
-so it doesn't block the asyncio loop.
+Synchronous, stateless function: takes a path to a local source file
+(the worker has streamed it from object storage to a tempfile already)
+and returns the bytes of the requested target format. The worker runs
+this in a threadpool so it doesn't block the asyncio loop.
 
-Two flavors of target:
+Source-on-disk rather than source-as-bytes is deliberate — Sesam SIF
+result decks routinely run 500 MB-1 GB and we don't want the byte
+buffer in worker RAM.
+
+Three flavors of target:
 
 * GLB / glTF — for the in-browser viewer. Direct GLB pass-through;
-  trimesh handles OBJ / STL / PLY / DAE / OFF / glTF; everything else
-  goes through ada.from_<format> -> Assembly -> to_gltf.
+  trimesh handles OBJ / STL / PLY / DAE / OFF / glTF; ada-loadable
+  formats go through ada.from_<format> -> Assembly -> to_gltf; SIF
+  goes through read_sif_file -> FEAResult -> to_gltf with one chosen
+  (step, field) pair as the default.
 
 * Non-GLB (IFC, Genie XML) — for user download only. Source must be
   ada-loadable so we can build an Assembly first, then export via the
@@ -25,7 +31,10 @@ from __future__ import annotations
 import io
 import pathlib
 import tempfile
-from typing import Callable, Iterable
+from typing import Callable, Iterable, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ada.fem.results.common import FEAResult
 
 # Progress contract: stage name (str), fraction (0..1).
 ProgressFn = Callable[[str, float], None]
@@ -51,6 +60,13 @@ _ADA_LOADABLE_EXTS: frozenset[str] = frozenset(
 # (`.inp` with `*INCLUDE` chains) is supported; bundle.py rejects other
 # families with a clear error.
 _BUNDLE_EXTS: frozenset[str] = frozenset({".zip"})
+
+# FEA result files. Sesam SIF is text-based; gets parsed into a
+# `FEAResult` and rendered as a tessellated GLB with one chosen
+# (step, field) pair. Distinct from `_ADA_LOADABLE_EXTS` because the
+# producer is `read_sif_file` → `FEAResult`, not a `Part/Assembly`,
+# and the export call signature is different (see `_via_fea_result`).
+_FEA_RESULT_EXTS: frozenset[str] = frozenset({".sif"})
 
 # Allowed target formats. Each value is the file extension (with dot)
 # of the produced bytes.
@@ -88,6 +104,7 @@ def is_supported_source(key: str) -> bool:
         or ext in {".gltf"}
         or ext in _ADA_LOADABLE_EXTS
         or ext in _BUNDLE_EXTS
+        or ext in _FEA_RESULT_EXTS
     )
 
 
@@ -107,19 +124,23 @@ def supported_targets_for(source_key: str) -> list[str]:
         # same ada-py path as a single .inp — so all three targets are
         # available. Validation runs at convert time, not here.
         targets = ["glb", "ifc", "xml"]
+    if ext in _FEA_RESULT_EXTS:
+        # SIF carries result fields, not geometry an IFC/XML writer can
+        # consume. Visual GLB only for now.
+        targets = ["glb"]
     return targets
 
 
-def _passthrough(data: bytes, on_progress: ProgressFn) -> bytes:
+def _passthrough(src_path: pathlib.Path, on_progress: ProgressFn) -> bytes:
     on_progress("ready", 1.0)
-    return data
+    return src_path.read_bytes()
 
 
-def _via_trimesh(data: bytes, ext: str, on_progress: ProgressFn) -> bytes:
+def _via_trimesh(src_path: pathlib.Path, ext: str, on_progress: ProgressFn) -> bytes:
     import trimesh
 
     on_progress("loading", 0.2)
-    scene = trimesh.load(io.BytesIO(data), file_type=ext.lstrip("."))
+    scene = trimesh.load(str(src_path), file_type=ext.lstrip("."))
     on_progress("exporting", 0.8)
     out = io.BytesIO()
     scene.export(file_obj=out, file_type="glb")
@@ -127,9 +148,9 @@ def _via_trimesh(data: bytes, ext: str, on_progress: ProgressFn) -> bytes:
     return out.getvalue()
 
 
-def _via_gltf_to_glb(data: bytes, on_progress: ProgressFn) -> bytes:
+def _via_gltf_to_glb(src_path: pathlib.Path, on_progress: ProgressFn) -> bytes:
     """glTF (text JSON) → GLB (binary). trimesh handles this round-trip."""
-    return _via_trimesh(data, ".gltf", on_progress)
+    return _via_trimesh(src_path, ".gltf", on_progress)
 
 
 def _load_with_ada(src_path: pathlib.Path, ext: str):
@@ -168,30 +189,24 @@ def _export_with_ada(model, target_format: str, out_path: pathlib.Path, on_progr
     return out_path.read_bytes()
 
 
-def _via_ada(data: bytes, source_ext: str, target_format: str, on_progress: ProgressFn) -> bytes:
-    """Heavy path: write source bytes to a temp file, load with ada,
-    export to target format. Used for any non-trivial source/target
-    combination that needs the full ada-py stack."""
-    on_progress("staging", 0.05)
+def _via_ada(src_path: pathlib.Path, source_ext: str, target_format: str, on_progress: ProgressFn) -> bytes:
+    """Heavy path: load with ada, export to target format. Used for any
+    non-trivial source/target combination that needs the full ada-py
+    stack. Source already lives on disk (worker streamed it there)."""
+    on_progress("parsing", 0.15)
     suffix = ".glb" if target_format == "glb" else f".{target_format}"
-    with tempfile.NamedTemporaryFile(delete=False, suffix=source_ext) as src_tmp:
-        src_tmp.write(data)
-        src_path = pathlib.Path(src_tmp.name)
     out_path = pathlib.Path(tempfile.mkstemp(suffix=suffix)[1])
-
     try:
-        on_progress("parsing", 0.15)
         model = _load_with_ada(src_path, source_ext)
         return _export_with_ada(model, target_format, out_path, on_progress)
     finally:
-        for p in (src_path, out_path):
-            try:
-                p.unlink()
-            except OSError:
-                pass
+        try:
+            out_path.unlink()
+        except OSError:
+            pass
 
 
-def _via_bundle(data: bytes, target_format: str, on_progress: ProgressFn) -> bytes:
+def _via_bundle(src_path: pathlib.Path, target_format: str, on_progress: ProgressFn) -> bytes:
     """Unpack a zip, validate the include chain, then run ada-py on the
     entry-point with the bundle's tempdir as cwd so relative INCLUDEs
     resolve.
@@ -204,6 +219,10 @@ def _via_bundle(data: bytes, target_format: str, on_progress: ProgressFn) -> byt
     from . import bundle as bundle_mod
 
     on_progress("unpacking", 0.05)
+    # The bundle module currently inspects from a bytes blob; reading
+    # the zip from disk is fine — bundles are bounded (validation
+    # rejects pathological archives before we'd OOM).
+    data = src_path.read_bytes()
     tmp, info = bundle_mod.unpack_and_inspect(data)
     try:
         on_progress("parsing", 0.20)
@@ -224,13 +243,67 @@ def _via_bundle(data: bytes, target_format: str, on_progress: ProgressFn) -> byt
         tmp.cleanup()
 
 
+def _pick_default_step_field(result: "FEAResult") -> tuple[int, str]:
+    """Choose a reasonable default (step, field) for a fresh SIF render.
+
+    First step from the result's step list, first field name from the
+    grouping. Caller surfaces a clean error when either list is empty
+    (no result data → nothing to colorize)."""
+    steps = result.get_steps()
+    fields = result.get_results_grouped_by_field_value()
+    if not steps:
+        raise UnsupportedFormat("SIF contains no result steps to render")
+    if not fields:
+        raise UnsupportedFormat("SIF contains no nodal/element fields to render")
+    return int(steps[0]), next(iter(fields.keys()))
+
+
+def _via_fea_result(src_path: pathlib.Path, target_format: str, on_progress: ProgressFn) -> bytes:
+    """Sesam SIF (text result deck) → GLB tessellated visualisation.
+
+    Uses ``read_sif_file`` to parse the deck into a ``FEAResult`` and
+    ``FEAResult.to_gltf`` to write a coloured/warped GLB. The first
+    available (step, field) pair is the default — a future picker UI
+    will let the caller override.
+    """
+    if target_format != "glb":
+        raise UnsupportedFormat(
+            f"SIF can only target glb, got {target_format!r}"
+        )
+    from ada.fem.formats.sesam.results.read_sif import read_sif_file
+
+    on_progress("parsing", 0.10)
+    result = read_sif_file(str(src_path))
+
+    on_progress("selecting-field", 0.50)
+    step, field = _pick_default_step_field(result)
+
+    on_progress("tessellating", 0.65)
+    out_path = pathlib.Path(tempfile.mkstemp(suffix=".glb")[1])
+    try:
+        result.to_gltf(out_path, step=step, field=field)
+        on_progress("ready", 1.0)
+        return out_path.read_bytes()
+    finally:
+        try:
+            out_path.unlink()
+        except OSError:
+            pass
+
+
 def convert(
-    data: bytes,
+    src_path: pathlib.Path,
     source_key: str,
     target_format: str = "glb",
     on_progress: ProgressFn | None = None,
 ) -> bytes:
-    """Convert raw source bytes to the requested target format. See module docstring."""
+    """Convert a local source file to the requested target format.
+
+    The worker streams the source from object storage into a tempfile
+    and passes its path here, so we never round-trip the full payload
+    through a `bytes` buffer in memory. Output is still returned as
+    bytes — the worker uploads it via `Storage.put_bytes`.
+    """
     progress = on_progress or (lambda _stage, _frac: None)
     progress("starting", 0.0)
 
@@ -243,32 +316,26 @@ def convert(
         raise UnsupportedFormat(f"missing extension on key {source_key!r}")
 
     if src_ext in _BUNDLE_EXTS:
-        return _via_bundle(data, fmt, progress)
+        return _via_bundle(src_path, fmt, progress)
+
+    if src_ext in _FEA_RESULT_EXTS:
+        return _via_fea_result(src_path, fmt, progress)
 
     if fmt == "glb":
         if src_ext in _PASSTHROUGH_EXTS:
-            return _passthrough(data, progress)
+            return _passthrough(src_path, progress)
         if src_ext == ".gltf":
-            return _via_gltf_to_glb(data, progress)
+            return _via_gltf_to_glb(src_path, progress)
         if src_ext in _TRIMESH_EXTS:
-            return _via_trimesh(data, src_ext, progress)
-        return _via_ada(data, src_ext, "glb", progress)
+            return _via_trimesh(src_path, src_ext, progress)
+        return _via_ada(src_path, src_ext, "glb", progress)
 
     # Non-GLB targets require an ada-loadable source.
     if src_ext not in _ADA_LOADABLE_EXTS:
         raise UnsupportedFormat(
             f"target {fmt!r} requires an ada-loadable source; got {src_ext!r}"
         )
-    return _via_ada(data, src_ext, fmt, progress)
-
-
-# Backwards-compat shim: existing callers import convert_to_glb.
-def convert_to_glb(
-    data: bytes,
-    source_key: str,
-    on_progress: ProgressFn | None = None,
-) -> bytes:
-    return convert(data, source_key, "glb", on_progress)
+    return _via_ada(src_path, src_ext, fmt, progress)
 
 
 def supported_extensions() -> Iterable[str]:
@@ -277,5 +344,6 @@ def supported_extensions() -> Iterable[str]:
         | _TRIMESH_EXTS
         | {".gltf"}
         | _ADA_LOADABLE_EXTS
+        | _FEA_RESULT_EXTS
         | _BUNDLE_EXTS
     )

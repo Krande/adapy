@@ -37,7 +37,7 @@ from .storage import Storage
 # the user's machine. ada.from_<format> in the worker sees the original
 # bytes via Storage.get_bytes.
 _GZIP_UPLOAD_EXTS: frozenset[str] = frozenset(
-    {".ifc", ".step", ".stp", ".xml", ".inp", ".fem", ".sat", ".acis"}
+    {".ifc", ".step", ".stp", ".xml", ".inp", ".fem", ".sat", ".acis", ".sif"}
 )
 
 
@@ -649,6 +649,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         ".sat": "ACIS",
         ".acis": "ACIS",
         ".zip": "Bundle (zip)",
+        ".sif": "Sesam Result (sif)",
     }
 
     def _format_label(key: str) -> str:

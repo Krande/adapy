@@ -14,6 +14,10 @@ const SUPPORTED_EXTS = [
     // include chain at convert time; rejects mixed-format / ambiguous
     // entry / missing includes with a clear error.
     ".zip",
+    // Sesam result database (text-based). Renders as a tessellated GLB
+    // showing the first available (step, field) by default; large files
+    // (>~200 MB) may need the direct-to-storage upload path.
+    ".sif",
 ];
 
 // Custom event the upload picker listens for; lets UI surfaces (menu
