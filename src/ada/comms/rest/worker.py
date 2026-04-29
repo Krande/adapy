@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import signal
 import time
+import traceback as tb_module
 from concurrent.futures import ThreadPoolExecutor
 from typing import Awaitable, Callable
 
@@ -64,6 +65,7 @@ async def _audit_done(
     status: str,
     error: str | None,
     started_at: float,
+    traceback: str | None = None,
 ) -> None:
     """Patch the audit_log row for this job with its final outcome.
     Best-effort: a DB hiccup must never break job processing."""
@@ -76,6 +78,7 @@ async def _audit_done(
             status=status,
             error=error,
             duration_ms=int((time.monotonic() - started_at) * 1000),
+            traceback=traceback,
         )
     except Exception:
         logger.exception("worker: audit update failed for job %s", job_id)
@@ -161,10 +164,11 @@ async def _process_one(
         return
     except Exception as exc:
         logger.exception("worker: conversion failed for %s -> %s", job.source_key, job.target_format)
+        trace = tb_module.format_exc()
         await queue.update(
             job_id, status=JOB_STATUS_ERROR, stage="convert", error=str(exc)
         )
-        await _audit_done(db_pool, job_id, "error", str(exc), started_at)
+        await _audit_done(db_pool, job_id, "error", str(exc), started_at, traceback=trace)
         return
 
     await queue.update(job_id, stage="uploading", progress=0.95)
@@ -176,10 +180,11 @@ async def _process_one(
         await storage.put_bytes(scope, job.derived_key, out_bytes, content_encoding=derived_encoding)
     except Exception as exc:
         logger.exception("worker: upload failed for %s", job.derived_key)
+        trace = tb_module.format_exc()
         await queue.update(
             job_id, status=JOB_STATUS_ERROR, stage="upload", error=str(exc)
         )
-        await _audit_done(db_pool, job_id, "error", str(exc), started_at)
+        await _audit_done(db_pool, job_id, "error", str(exc), started_at, traceback=trace)
         return
 
     await queue.update(

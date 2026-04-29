@@ -182,13 +182,14 @@ async def insert_audit(
     error: str | None = None,
     duration_ms: int | None = None,
     job_id: str | None = None,
+    traceback: str | None = None,
 ) -> None:
     await pool.execute(
         """
         INSERT INTO audit_log
             (user_sub, scope_kind, scope_id, action, key,
-             target_format, status, error, duration_ms, job_id)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+             target_format, status, error, duration_ms, job_id, traceback)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
         """,
         user_sub,
         scope_kind,
@@ -200,6 +201,7 @@ async def insert_audit(
         error,
         duration_ms,
         job_id,
+        traceback,
     )
 
 
@@ -210,25 +212,28 @@ async def update_audit_by_job(
     status: str,
     error: str | None = None,
     duration_ms: int | None = None,
+    traceback: str | None = None,
 ) -> None:
     """Patch the audit row tied to a queue job with its final outcome.
 
     No-op when the row is missing (job predates the migration, or the
     enqueue-time audit insert failed). COALESCE preserves any existing
-    error / duration_ms when the caller passes None.
+    error / duration_ms / traceback when the caller passes None.
     """
     await pool.execute(
         """
         UPDATE audit_log
         SET status = $2,
             error = COALESCE($3, error),
-            duration_ms = COALESCE($4, duration_ms)
+            duration_ms = COALESCE($4, duration_ms),
+            traceback = COALESCE($5, traceback)
         WHERE job_id = $1
         """,
         job_id,
         status,
         error,
         duration_ms,
+        traceback,
     )
 
 
@@ -272,7 +277,7 @@ async def list_audit(
     args.append(min(max(limit, 1), 500))
     sql = (
         "SELECT id, ts, user_sub, scope_kind, scope_id, action, key,"
-        " target_format, status, error, duration_ms FROM audit_log"
+        " target_format, status, error, duration_ms, traceback FROM audit_log"
     )
     if where:
         sql += " WHERE " + " AND ".join(where)
@@ -291,6 +296,7 @@ async def list_audit(
             "status": r["status"],
             "error": r["error"],
             "duration_ms": r["duration_ms"],
+            "traceback": r["traceback"],
         }
         for r in rows
     ]

@@ -120,6 +120,7 @@ export interface AuditEntry {
     status: string | null;
     error: string | null;
     duration_ms: number | null;
+    traceback: string | null;
 }
 
 export interface AdminProject {

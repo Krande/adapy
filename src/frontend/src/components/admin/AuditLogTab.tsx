@@ -20,6 +20,7 @@ const AuditLogTab: React.FC = () => {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [filtersOpen, setFiltersOpen] = useState(false);
+    const [tracedEntry, setTracedEntry] = useState<AuditEntry | null>(null);
     const activeFilterCount = countActive(filters);
 
     const reload = async (f: AuditFilters) => {
@@ -163,6 +164,17 @@ const AuditLogTab: React.FC = () => {
                             <Td>{e.target_format || ""}</Td>
                             <Td title={e.error || ""}>
                                 <span className={statusClass(e.status)}>{e.status || ""}</span>
+                                {e.error && (
+                                    <button
+                                        type="button"
+                                        className="ml-1 inline-flex items-center justify-center w-4 h-4 rounded-full border border-gray-500 text-gray-300 hover:text-white hover:border-white text-[10px] font-bold leading-none align-middle no-drag"
+                                        onClick={() => setTracedEntry(e)}
+                                        title="Show error details"
+                                        aria-label="Show error details"
+                                    >
+                                        i
+                                    </button>
+                                )}
                             </Td>
                         </tr>
                     ))}
@@ -196,8 +208,16 @@ const AuditLogTab: React.FC = () => {
                                 </div>
                             )}
                             {e.error && (
-                                <div className="text-red-300 mt-1 break-all" title={e.error}>
-                                    {e.error}
+                                <div className="text-red-300 mt-1 break-all flex items-start gap-1" title={e.error}>
+                                    <span className="flex-1">{e.error}</span>
+                                    <button
+                                        type="button"
+                                        className="shrink-0 inline-flex items-center justify-center w-4 h-4 rounded-full border border-gray-500 text-gray-300 hover:text-white hover:border-white text-[10px] font-bold leading-none mt-0.5 no-drag"
+                                        onClick={() => setTracedEntry(e)}
+                                        aria-label="Show error details"
+                                    >
+                                        i
+                                    </button>
                                 </div>
                             )}
                         </li>
@@ -219,6 +239,99 @@ const AuditLogTab: React.FC = () => {
                     Load more
                 </button>
                 {loading && <span className="text-gray-500">loading…</span>}
+            </div>
+            {tracedEntry && (
+                <ErrorDetailsModal entry={tracedEntry} onClose={() => setTracedEntry(null)}/>
+            )}
+        </div>
+    );
+};
+
+// Modal sits above the admin window's backdrop. Sized for a dense
+// stack trace; mono font, no wrap so indentation reads correctly, but
+// container scrolls in both axes for the inevitable long pointer-paths.
+const ErrorDetailsModal: React.FC<{entry: AuditEntry; onClose: () => void}> = ({entry, onClose}) => {
+    const [copied, setCopied] = useState(false);
+
+    useEffect(() => {
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key === "Escape") onClose();
+        };
+        window.addEventListener("keydown", onKey);
+        return () => window.removeEventListener("keydown", onKey);
+    }, [onClose]);
+
+    const traceText = entry.traceback || entry.error || "";
+    const copyPayload =
+        (entry.error ? `${entry.error}\n\n` : "") +
+        (entry.traceback || "");
+
+    const onCopy = async () => {
+        try {
+            await navigator.clipboard.writeText(copyPayload || traceText);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 1500);
+        } catch {
+            /* clipboard blocked — user can still select-and-copy by hand */
+        }
+    };
+
+    return (
+        <div
+            className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-4"
+            onClick={onClose}
+        >
+            <div
+                className="bg-gray-900 border border-gray-700 rounded shadow-xl flex flex-col max-w-3xl w-full max-h-[85vh]"
+                onClick={(e) => e.stopPropagation()}
+                role="dialog"
+                aria-label="Error details"
+            >
+                <div className="flex items-start gap-3 border-b border-gray-700 px-4 py-2">
+                    <div className="flex-1 min-w-0">
+                        <div className="text-sm font-semibold">Error details</div>
+                        <div className="text-xs text-gray-400 truncate" title={entry.key || ""}>
+                            {entry.action}
+                            {entry.key ? ` · ${entry.key}` : ""}
+                            {entry.target_format ? ` → ${entry.target_format}` : ""}
+                        </div>
+                    </div>
+                    <button
+                        type="button"
+                        className="shrink-0 bg-gray-800 hover:bg-gray-700 text-gray-100 px-2 py-1 rounded text-xs"
+                        onClick={onCopy}
+                        title="Copy traceback to clipboard"
+                    >
+                        {copied ? "Copied" : "Copy"}
+                    </button>
+                    <button
+                        type="button"
+                        className="shrink-0 text-gray-300 hover:text-white text-xl leading-none px-2"
+                        onClick={onClose}
+                        aria-label="Close"
+                        title="Close (Esc)"
+                    >
+                        ×
+                    </button>
+                </div>
+                {entry.error && (
+                    <div className="px-4 py-2 text-sm text-red-300 border-b border-gray-800 break-words">
+                        {entry.error}
+                    </div>
+                )}
+                <div className="flex-1 overflow-auto">
+                    {entry.traceback ? (
+                        <pre className="px-4 py-2 text-xs text-gray-200 whitespace-pre font-mono">
+{entry.traceback}
+                        </pre>
+                    ) : (
+                        <div className="px-4 py-3 text-xs text-gray-400">
+                            No traceback recorded for this entry. Re-run the failing
+                            action to capture a fresh trace — older rows pre-date the
+                            traceback column.
+                        </div>
+                    )}
+                </div>
             </div>
         </div>
     );
