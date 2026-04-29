@@ -6,6 +6,7 @@
     "prebuild": "node clean.cjs",
     "build": "vite build --emptyOutDir && node embed-script.cjs",
     "build:serve": "vite build --config vite.config.serve.ts --emptyOutDir",
+    "build:embed": "vite build --config vite.config.embed.ts && tsc --project tsconfig.embed.json",
     "dev": "vite --force"
   },
   "devDependencies": {

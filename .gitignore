@@ -3,6 +3,7 @@
 # Packaging
 build/
 dist/
+dist-embed/
 *.pyc
 docs/_build/
 output/
