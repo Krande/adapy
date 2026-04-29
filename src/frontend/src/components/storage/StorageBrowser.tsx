@@ -1,8 +1,10 @@
 import React, {useRef, useState} from "react";
 import {useServerInfoStore, ServerFileEntry} from "@/state/serverInfoStore";
 import {useConversionStore} from "@/state/conversionStore";
+import {useModelState} from "@/state/modelState";
 import {request_list_of_files_from_server} from "@/utils/server_info/handlers/request_list_of_files_from_server";
 import {view_file_object_from_server} from "@/utils/scene/handlers/view_file_object_from_server";
+import {clear_loaded_model} from "@/utils/scene/handlers/clear_loaded_model";
 import {uploadAcceptAttr, uploadFile} from "@/utils/scene/handlers/upload_source_file";
 import {FileObjectT, FileObject} from "@/flatbuffers/base/file-object";
 import * as flatbuffers from "flatbuffers";
@@ -37,6 +39,7 @@ function buildFlatbufferFileObject(entry: ServerFileEntry): FileObject {
 const StorageBrowser: React.FC = () => {
     const files = useServerInfoStore((s) => s.serverFileObjects);
     const conversionJobs = useConversionStore((s) => s.jobs);
+    const loadedSourceName = useModelState((s) => s.loadedSourceName);
     const [uploading, setUploading] = useState(false);
     // Upload progress: name = current file (or null), loaded/total in
     // bytes. Total may stay 0 if the browser can't determine it (rare
@@ -168,6 +171,7 @@ const StorageBrowser: React.FC = () => {
                     {files.map((f) => {
                         const isViewing = viewingName === f.name;
                         const otherViewing = viewingName !== null && !isViewing;
+                        const isLoaded = loadedSourceName === f.name;
                         // Progress for the implicit "view" conversion job
                         // (`<name>::glb`) — only shown while we're actively
                         // viewing this file so a stale done/error from a
@@ -190,21 +194,46 @@ const StorageBrowser: React.FC = () => {
                                     <button
                                         type="button"
                                         onClick={() => setExpandedName(expandedName === f.name ? null : f.name)}
-                                        className={`flex-1 min-w-0 text-left ${expandedName === f.name ? 'whitespace-normal break-all' : 'truncate'}`}
+                                        className={`flex-1 min-w-0 text-left ${expandedName === f.name ? 'whitespace-normal break-all' : 'truncate'} ${isLoaded ? 'text-blue-200 font-medium' : ''}`}
                                         title={f.name}
                                     >
                                         {f.name}
                                     </button>
                                     <div className="flex items-center gap-1 shrink-0">
+                                        {/* Eye icon. White when not loaded, blue when
+                                            this file is the one rendered in the scene
+                                            so the row reads as "active" at a glance. */}
                                         <button
-                                            className="p-1 rounded hover:bg-gray-300/40 disabled:opacity-50 disabled:cursor-not-allowed"
+                                            className={
+                                                "p-1 rounded hover:bg-gray-300/40 disabled:opacity-50 disabled:cursor-not-allowed " +
+                                                (isLoaded ? "text-blue-300" : "text-white")
+                                            }
                                             onClick={() => onView(f)}
                                             disabled={isViewing || otherViewing}
-                                            title={isViewing ? "Loading…" : otherViewing ? "Another file is loading" : "View"}
+                                            title={
+                                                isViewing
+                                                    ? "Loading…"
+                                                    : otherViewing
+                                                        ? "Another file is loading"
+                                                        : isLoaded
+                                                            ? "Currently loaded — click to reload"
+                                                            : "View"
+                                            }
+                                            aria-pressed={isLoaded}
                                             aria-busy={isViewing || undefined}
                                         >
                                             {isViewing ? <Spinner/> : <ViewIcon/>}
                                         </button>
+                                        {isLoaded && (
+                                            <button
+                                                className="p-1 rounded text-white hover:bg-gray-300/40"
+                                                onClick={() => clear_loaded_model()}
+                                                title="Remove from scene"
+                                                aria-label="Remove from scene"
+                                            >
+                                                <span className="leading-none text-base">×</span>
+                                            </button>
+                                        )}
                                     </div>
                                 </div>
                                 {isViewing && (

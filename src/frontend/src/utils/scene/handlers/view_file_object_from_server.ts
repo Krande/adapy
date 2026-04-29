@@ -6,6 +6,7 @@ import {CommandType} from "@/flatbuffers/commands";
 import {TargetType} from "@/flatbuffers/commands/target-type";
 import {Server} from "@/flatbuffers/server/server";
 import {runtime} from "@/runtime/config";
+import {useModelState} from "@/state/modelState";
 // NOTE: the conversion service and the conversionStore are imported
 // lazily inside the REST branch below. In WS / desktop mode (the
 // embedded zip shipped with the Python package) they're never
@@ -70,6 +71,7 @@ export async function view_file_object_from_server(fileobject: FileObject) {
         const isGlb = sourceName.toLowerCase().endsWith(".glb");
         if (isGlb) {
             await send_view_request(sourceName);
+            useModelState.getState().setLoadedSourceName(sourceName);
             return;
         }
         if (!runtime.convertEnabled()) {
@@ -82,6 +84,7 @@ export async function view_file_object_from_server(fileobject: FileObject) {
             const scope = scopeUrlPart(useScopeStore.getState().current);
             await ensureConvertedGlb(scope, sourceName);
             await send_view_request(sourceName);
+            useModelState.getState().setLoadedSourceName(sourceName);
         } catch (err) {
             console.error("conversion failed", err);
             const {useConversionStore} = await import("../../../state/conversionStore");

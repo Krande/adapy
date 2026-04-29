@@ -13,6 +13,11 @@ export interface ModelState {
     boundingBox: THREE.Box3 | null;
     zIsUp: boolean;
     defaultOrbitController: boolean;
+    // Source key (storage filename) currently rendered in the viewer.
+    // Tracked separately from `modelUrl` because that one's a transient
+    // blob: URL and the storage browser needs the durable name to
+    // render its "loaded" marker.
+    loadedSourceName: string | null;
 
     // Functions to set the state
     setModelUrl: (
@@ -24,6 +29,7 @@ export interface ModelState {
     setUserData: (userdata: any) => void;
     setZIsUp: (zIsUp: boolean) => void;
     setDefaultOrbitController: (OrbitController: boolean) => void;
+    setLoadedSourceName: (name: string | null) => void;
 }
 
 export const useModelState = create<ModelState>((set) => ({
@@ -35,6 +41,7 @@ export const useModelState = create<ModelState>((set) => ({
     zIsUp: true, // default to Z being up
     defaultOrbitController: true,
     model_type: null,
+    loadedSourceName: null,
 
     setModelUrl: (url, scene_action) =>
         set({
@@ -46,4 +53,5 @@ export const useModelState = create<ModelState>((set) => ({
     setUserData: (userdata) => set({userdata}),
     setZIsUp: (zIsUp) => set({zIsUp}),
     setDefaultOrbitController: (OrbitController) => set({defaultOrbitController: OrbitController}),
+    setLoadedSourceName: (name) => set({loadedSourceName: name}),
 }));
