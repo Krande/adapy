@@ -2,6 +2,7 @@ import React, {useEffect, useState} from "react";
 import {Rnd} from "react-rnd";
 import {useMeStore} from "@/state/meStore";
 import AuditLogTab from "./AuditLogTab";
+import CliTokenButton from "./CliTokenButton";
 import ProjectsTab from "./ProjectsTab";
 import StorageTab from "./StorageTab";
 
@@ -115,14 +116,17 @@ const AdminPanel: React.FC<{onClose: () => void}> = ({onClose}) => {
                         Storage
                     </TabButton>
                 </div>
-                <button
-                    className="text-gray-300 hover:text-white text-2xl leading-none px-3 py-1 -my-1 no-drag"
-                    onClick={onClose}
-                    aria-label="close"
-                    title="Close (Esc)"
-                >
-                    ×
-                </button>
+                <div className="flex items-center gap-2">
+                    <CliTokenButton/>
+                    <button
+                        className="text-gray-300 hover:text-white text-2xl leading-none px-3 py-1 -my-1 no-drag"
+                        onClick={onClose}
+                        aria-label="close"
+                        title="Close (Esc)"
+                    >
+                        ×
+                    </button>
+                </div>
             </div>
             <div className="flex-1 overflow-hidden">
                 {tab === "audit" && <AuditLogTab/>}

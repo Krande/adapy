@@ -64,7 +64,12 @@ def _settings(tmp_path, *, db_url: str = "") -> Settings:
             durable="ada-viewer-worker",
         ),
         auth=AuthConfig(
-            enabled=False, issuer="", client_id="", audience="", admin_group=""
+            enabled=False,
+            issuer="",
+            client_id="",
+            audience="",
+            admin_group="",
+            cli_token_secret="",
         ),
         database_url=db_url,
     )

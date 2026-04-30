@@ -26,3 +26,4 @@ pyproject_test.toml
 node_modules/
 *.html
 .pixi/
+audit_repro/

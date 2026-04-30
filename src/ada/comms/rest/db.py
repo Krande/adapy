@@ -331,10 +331,14 @@ async def list_audit(
 
 async def get_audit_by_id(pool: asyncpg.Pool, audit_id: int) -> dict | None:
     """Fetch a single audit row by id. Used by the profile-download
-    endpoint to look up the blob key + scope without re-listing."""
+    endpoint to look up the blob key + scope without re-listing, and
+    by the local repro tooling to recover ``target_format`` + the
+    error context for a failed conversion."""
     row = await pool.fetchrow(
         """
-        SELECT id, scope_kind, scope_id, profile_key, key, action, status
+        SELECT id, ts, user_sub, scope_kind, scope_id, profile_key, key,
+               action, target_format, status, error, traceback,
+               duration_ms, job_id
         FROM audit_log WHERE id = $1
         """,
         audit_id,
@@ -343,12 +347,19 @@ async def get_audit_by_id(pool: asyncpg.Pool, audit_id: int) -> dict | None:
         return None
     return {
         "id": row["id"],
+        "ts": row["ts"].isoformat() if row["ts"] is not None else None,
+        "user_sub": row["user_sub"],
         "scope_kind": row["scope_kind"],
         "scope_id": row["scope_id"],
         "profile_key": row["profile_key"],
         "key": row["key"],
         "action": row["action"],
+        "target_format": row["target_format"],
         "status": row["status"],
+        "error": row["error"],
+        "traceback": row["traceback"],
+        "duration_ms": row["duration_ms"],
+        "job_id": row["job_id"],
     }
 
 

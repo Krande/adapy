@@ -208,6 +208,13 @@ psutil = "*"
 [feature.viewer-api.tasks]
 viewer-api = { cmd = "python -m ada.comms.rest", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 viewer-worker = { cmd = "python -m ada.comms.rest.worker", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+# Pull a failed conversion's source blob to ./audit_repro/<id>/. Needs
+# ADAPY_API_TOKEN (mint via admin panel) + ADAPY_API_BASE.
+audit-fetch = { cmd = "python scripts/audit_fetch.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+# Run the converter directly on a previously-fetched (or just-fetched)
+# audit source. Bypasses REST/queue — fastest loop for debugging a
+# specific failure.
+audit-repro = { cmd = "python scripts/audit_repro.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 # Static server for the Pyodide IFC->GLB experiment. Web Workers refuse
 # to run from file:// URLs, so this hands the directory at port 8088.
 pyodide-experiment = { cmd = "python -m http.server 8088", cwd = "experiments/pyodide-converter" }

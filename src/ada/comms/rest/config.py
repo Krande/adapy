@@ -60,6 +60,10 @@ class AuthConfig:
     client_id: str
     audience: str
     admin_group: str
+    # Shared secret used to sign long-lived CLI tokens (HS256). Empty
+    # disables the mint endpoint so deployments without it don't
+    # accidentally hand out 30-day bearers signed with a default key.
+    cli_token_secret: str
 
 
 @dataclass(frozen=True)
@@ -115,6 +119,7 @@ def load_settings() -> Settings:
         client_id=auth_client_id,
         audience=auth_audience,
         admin_group=os.environ.get("ADA_VIEWER_AUTH_ADMIN_GROUP", "").strip(),
+        cli_token_secret=os.environ.get("ADA_VIEWER_CLI_TOKEN_SECRET", "").strip(),
     )
     if auth.enabled and (not auth.issuer or not auth.client_id):
         raise ValueError(

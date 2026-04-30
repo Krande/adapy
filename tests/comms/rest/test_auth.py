@@ -147,6 +147,7 @@ def _make_app(enabled: bool) -> FastAPI:
         client_id=CLIENT_ID,
         audience=CLIENT_ID,
         admin_group=ADMIN_GROUP,
+        cli_token_secret="",
     )
     auth_module.install(app, cfg)
 

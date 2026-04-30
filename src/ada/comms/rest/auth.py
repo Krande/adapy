@@ -47,6 +47,18 @@ _JWKS_TTL = 600
 # unit tests simple — we only need to fabricate these fields.
 _CLAIM_GROUPS = "groups"
 
+# Self-issued CLI bearer tokens use a fixed `iss` so the verify path
+# can route them to HS256 verification with our local secret instead of
+# the IdP's JWKS. 30-day TTL — long enough for a debugging session
+# without a browser round-trip, short enough that a leaked token isn't
+# forever.
+_CLI_TOKEN_ISS = "ada-viewer-cli"
+_CLI_TOKEN_TTL_SECONDS = 30 * 86400
+
+
+def _revoke_setting_key(sub: str) -> str:
+    return f"cli_token_revoke_at:{sub}"
+
 
 @dataclass(frozen=True)
 class User:
@@ -253,14 +265,121 @@ async def current_user(request: Request) -> User:
     Bypasses validation entirely when auth is disabled — the synthetic
     ``local-dev`` user keeps every endpoint reachable in dev without
     ceremony.
+
+    Two token shapes are accepted: short-lived OIDC access tokens
+    (verified via the IdP's JWKS) and long-lived CLI tokens we issue
+    ourselves (HS256 with the configured secret). The `iss` claim
+    routes between them — peeking at it unverified is safe because
+    every shape is then signature-checked.
     """
     config: AuthConfig = request.app.state.auth_config
     if not config.enabled:
         return User.local_dev()
-    verifier: _JWKSVerifier = request.app.state.auth_verifier
     token = _bearer_token(request)
+    try:
+        unverified = jwt.decode(token, options={"verify_signature": False})
+    except jwt.InvalidTokenError as exc:
+        raise TokenError(f"malformed token: {exc}") from exc
+    if unverified.get("iss") == _CLI_TOKEN_ISS:
+        return await _verify_cli_token(request, token, config)
+    verifier: _JWKSVerifier = request.app.state.auth_verifier
     claims = await verifier.verify(token)
     return _claims_to_user(claims, config.admin_group)
+
+
+async def _verify_cli_token(request: Request, token: str, config: AuthConfig) -> User:
+    if not config.cli_token_secret:
+        raise TokenError("CLI tokens disabled on this server")
+    try:
+        claims = jwt.decode(
+            token,
+            config.cli_token_secret,
+            algorithms=["HS256"],
+            issuer=_CLI_TOKEN_ISS,
+            options={"require": ["exp", "iat", "iss", "sub"]},
+        )
+    except jwt.ExpiredSignatureError:
+        raise TokenError("token expired")
+    except jwt.InvalidIssuerError:
+        raise TokenError("issuer mismatch")
+    except jwt.InvalidTokenError as exc:
+        raise TokenError(f"invalid token: {exc}") from exc
+
+    # Per-user "revoke all" cutoff lives in app_settings; tokens minted
+    # before the cutoff are rejected. Pool may be absent in shared-only
+    # mode — without a DB there's nowhere to store the cutoff, so we
+    # fall through (the secret rotation is the operator's escape hatch).
+    pool = getattr(request.app.state, "db_pool", None)
+    if pool is not None:
+        from . import db as db_module
+
+        raw = await db_module.get_setting(pool, _revoke_setting_key(str(claims["sub"])))
+        if raw:
+            try:
+                revoke_at = int(raw)
+            except ValueError:
+                revoke_at = 0
+            if int(claims["iat"]) < revoke_at:
+                raise TokenError("token revoked")
+
+    raw_groups = claims.get(_CLAIM_GROUPS) or []
+    if not isinstance(raw_groups, (list, tuple, set, frozenset)):
+        raw_groups = [raw_groups]
+    return User(
+        sub=str(claims["sub"]),
+        email=str(claims.get("email") or ""),
+        display_name=str(
+            claims.get("name") or claims.get("email") or claims["sub"]
+        ),
+        groups=frozenset(str(g) for g in raw_groups),
+        is_admin=bool(claims.get("is_admin")),
+    )
+
+
+def mint_cli_token(user: User, config: AuthConfig) -> tuple[str, int]:
+    """Issue a self-signed bearer for CLI / pixi-task use.
+
+    Returns ``(token, exp_unix)``. The caller is expected to display
+    the token once and not persist it server-side — this is a
+    stateless JWT, not a row in a PAT table. Revocation runs through
+    :func:`_revoke_setting_key` and the per-user cutoff in
+    ``app_settings``.
+    """
+    if not config.cli_token_secret:
+        raise HTTPException(
+            status_code=503,
+            detail="CLI tokens disabled (ADA_VIEWER_CLI_TOKEN_SECRET unset)",
+        )
+    now = int(time.time())
+    exp = now + _CLI_TOKEN_TTL_SECONDS
+    payload = {
+        "iss": _CLI_TOKEN_ISS,
+        "sub": user.sub,
+        "email": user.email,
+        "name": user.display_name,
+        _CLAIM_GROUPS: sorted(user.groups),
+        "is_admin": user.is_admin,
+        "iat": now,
+        "exp": exp,
+    }
+    token = jwt.encode(payload, config.cli_token_secret, algorithm="HS256")
+    return token, exp
+
+
+async def revoke_cli_tokens(pool, user: User) -> int:
+    """Bump the per-user revoke cutoff so all previously-minted CLI
+    tokens for ``user`` start failing verification on the next use.
+
+    Returns the cutoff unix timestamp. Idempotent — calling twice in
+    quick succession just moves the bar a little higher.
+    """
+    from . import db as db_module
+
+    now = int(time.time())
+    await db_module.set_setting(
+        pool, _revoke_setting_key(user.sub), str(now), updated_by=user.sub
+    )
+    return now
 
 
 async def require_admin(user: User = Depends(current_user)) -> User:

@@ -765,6 +765,82 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         await db_module.set_setting(pool, key, value, updated_by=user.sub)
         return JSONResponse({"key": key, "value": value})
 
+    @admin.post("/auth/cli-token")
+    async def admin_mint_cli_token(
+        request: Request,
+        user: User = Depends(auth_module.current_user),
+    ) -> JSONResponse:
+        """Mint a 30-day bearer token bound to the current OIDC
+        identity. Returned once, never stored server-side. Use it as
+        ``Authorization: Bearer <token>`` from CLI / pixi tasks."""
+        config = request.app.state.auth_config
+        token, exp = auth_module.mint_cli_token(user, config)
+        return JSONResponse({"token": token, "expires_at": exp})
+
+    @admin.post("/auth/cli-token/revoke")
+    async def admin_revoke_cli_tokens(
+        request: Request,
+        user: User = Depends(auth_module.current_user),
+    ) -> JSONResponse:
+        """Revoke every CLI token previously minted for the current
+        user by bumping the per-user cutoff. The OIDC bearer used for
+        this request stays valid — only self-issued CLI tokens are
+        affected."""
+        pool = _require_pool(request)
+        revoked_at = await auth_module.revoke_cli_tokens(pool, user)
+        return JSONResponse({"revoked_at": revoked_at})
+
+    @admin.get("/audit/{audit_id}")
+    async def admin_audit_get(
+        audit_id: int,
+        request: Request,
+    ) -> JSONResponse:
+        """Return a single audit row's metadata. The local repro
+        tooling reads ``target_format`` + ``key`` from here so it can
+        invoke the converter without re-listing the whole audit log."""
+        pool = _require_pool(request)
+        row = await db_module.get_audit_by_id(pool, audit_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail=f"audit row {audit_id} not found")
+        return JSONResponse(row)
+
+    @admin.get("/audit/{audit_id}/source")
+    async def admin_audit_source(
+        audit_id: int,
+        request: Request,
+    ) -> StreamingResponse:
+        """Download the original source blob referenced by an audit
+        row. Mirrors the profile-download pattern but resolves
+        ``scope_kind/scope_id + key`` instead of ``profile_key`` —
+        useful for reproducing a failed conversion locally without
+        having to know the storage scope. 404 when the row is missing
+        or the blob is gone (e.g. expired ephemeral storage)."""
+        pool = _require_pool(request)
+        row = await db_module.get_audit_by_id(pool, audit_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail=f"audit row {audit_id} not found")
+        key = row.get("key")
+        if not key:
+            raise HTTPException(status_code=404, detail="audit row has no source key")
+        scope = (
+            Scope.shared()
+            if row["scope_kind"] == "shared"
+            else Scope(kind=row["scope_kind"], id=row["scope_id"])  # type: ignore[arg-type]
+        )
+        try:
+            result = await storage.open_stream(scope, key)
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        filename = key.rsplit("/", 1)[-1]
+        headers = {
+            "Content-Disposition": f'attachment; filename="{filename}"',
+        }
+        if result.content_encoding:
+            headers["Content-Encoding"] = result.content_encoding
+        return StreamingResponse(
+            result.stream, media_type="application/octet-stream", headers=headers
+        )
+
     @admin.get("/audit/{audit_id}/profile")
     async def admin_audit_profile(
         audit_id: int,

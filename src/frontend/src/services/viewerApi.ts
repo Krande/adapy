@@ -449,6 +449,51 @@ export const viewerApi = {
         return `${runtime.apiBase()}/admin/audit/${auditId}/profile`;
     },
 
+    /** Mint a 30-day bearer for CLI / pixi-task use. Returned once;
+     * the server does not persist it. */
+    async adminMintCliToken(): Promise<{token: string; expires_at: number}> {
+        const r = await authedFetch(`${runtime.apiBase()}/admin/auth/cli-token`, {
+            method: "POST",
+        });
+        return jsonOrThrow(r, "adminMintCliToken");
+    },
+
+    /** Revoke every previously-minted CLI token for the current user
+     * by bumping the per-user cutoff. The OIDC bearer used for this
+     * request stays valid. */
+    async adminRevokeCliTokens(): Promise<{revoked_at: number}> {
+        const r = await authedFetch(
+            `${runtime.apiBase()}/admin/auth/cli-token/revoke`,
+            {method: "POST"},
+        );
+        return jsonOrThrow(r, "adminRevokeCliTokens");
+    },
+
+    /** Trigger the original-source download for an audit row. Used by
+     * the local repro pixi tasks but also handy for one-off debugging
+     * straight from the admin panel. */
+    async adminDownloadAuditSource(auditId: number, suggestedName: string): Promise<void> {
+        const r = await authedFetch(
+            `${runtime.apiBase()}/admin/audit/${auditId}/source`,
+        );
+        if (!r.ok) {
+            throw new ApiError(`adminDownloadAuditSource(${auditId})`, r.status, await readDetail(r));
+        }
+        const blob = await r.blob();
+        const url = URL.createObjectURL(blob);
+        try {
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = suggestedName;
+            a.style.display = "none";
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+        } finally {
+            URL.revokeObjectURL(url);
+        }
+    },
+
     /** Trigger the .prof download with the bearer token attached. */
     async adminDownloadProfile(auditId: number, suggestedName: string): Promise<void> {
         const r = await authedFetch(this.adminProfileUrl(auditId));
