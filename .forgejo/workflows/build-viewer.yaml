@@ -10,9 +10,11 @@ on:
   push:
     branches: [chore/fea-report-v2]
     paths:
-      - 'src/ada/__init__.py'
-      - 'src/ada/config.py'
-      - 'src/ada/comms/**'
+      # Any change under src/ada can affect the viewer/worker runtime —
+      # the converter pulls in parsers across cadit/**, fem/**, etc.
+      # The previous narrow filter (just comms/**) silently skipped
+      # rebuilds for upstream parser fixes.
+      - 'src/ada/**'
       - 'src/frontend/**'
       - 'deploy/Dockerfile.viewer'
       - 'deploy/Dockerfile.worker'
