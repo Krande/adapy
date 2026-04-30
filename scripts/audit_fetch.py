@@ -10,6 +10,7 @@ Base URL: ``ADAPY_API_BASE`` (e.g. ``https://viewer.example.com``).
 from __future__ import annotations
 
 import argparse
+import gzip
 import json
 import os
 import pathlib
@@ -48,8 +49,18 @@ def _filename_from_disposition(value: str | None) -> str | None:
     return m.group(1) if m else None
 
 
+def _normalize_base(raw: str) -> str:
+    raw = raw.rstrip("/")
+    if "://" not in raw:
+        # Default to https:// — the viewer is virtually always behind
+        # TLS termination and copy-pasting just the hostname is the
+        # common ergonomic mistake.
+        raw = f"https://{raw}"
+    return raw
+
+
 def fetch(audit_id: int, dest_root: pathlib.Path) -> pathlib.Path:
-    base = _env("ADAPY_API_BASE").rstrip("/")
+    base = _normalize_base(_env("ADAPY_API_BASE"))
     token = _env("ADAPY_API_TOKEN")
     dest = dest_root / str(audit_id)
     dest.mkdir(parents=True, exist_ok=True)
@@ -60,10 +71,16 @@ def fetch(audit_id: int, dest_root: pathlib.Path) -> pathlib.Path:
     meta = json.loads(meta_bytes)
     (dest / "audit.json").write_text(json.dumps(meta, indent=2))
 
-    # Source blob.
+    # Source blob. The endpoint passes through any storage-layer
+    # Content-Encoding (e.g. files stored gzipped land here with
+    # `Content-Encoding: gzip`). Browsers decompress transparently;
+    # urllib doesn't, so do it here so the on-disk file is always
+    # the real source the converter will see — not a gzip wrapper.
     source_bytes, headers = _api_get(
         f"{base}/api/admin/audit/{audit_id}/source", token
     )
+    if (headers.get("content-encoding") or "").lower() == "gzip":
+        source_bytes = gzip.decompress(source_bytes)
     name = (
         _filename_from_disposition(headers.get("content-disposition"))
         or (meta.get("key") or "").rsplit("/", 1)[-1]
