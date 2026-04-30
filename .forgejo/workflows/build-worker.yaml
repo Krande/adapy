@@ -1,9 +1,10 @@
-name: Build viewer image
+name: Build worker image
 
-# Builds and pushes the viewer (API + SPA) image, then bumps its tag
-# in the gitops manifest. Triggered only by changes that can affect
-# the API service or the bundled SPA — anything strictly worker-only
-# (FEM/CAD parsers, conversion stack) is handled by build-worker.yaml.
+# Builds and pushes the conversion worker image (fat pixi env with the
+# full ada-py stack — ifcopenshell, pythonocc, trimesh, gmsh) and bumps
+# its tag in the gitops manifest. Triggered by any change that lands
+# in the worker's import graph: ada.* parsers, the comms surface it
+# shares with the viewer, and the pixi env lockfiles.
 #
 # Runs only on the self-hosted runner labelled `docker-build`. GitHub
 # Actions does not have that label, so this workflow is a no-op when
@@ -16,17 +17,17 @@ on:
   push:
     branches: [chore/fea-report-v2]
     paths:
-      # The viewer image is the FastAPI app + the built SPA. ada-py
-      # itself is replaced with a slim init at image-build time
-      # (deploy/viewer-ada-init.py) — only comms/** and config.py are
-      # actually copied in. CAD/FEM parser changes don't affect this
-      # image, so they don't trigger a viewer rebuild.
-      - 'src/ada/comms/**'
-      - 'src/ada/config.py'
-      - 'src/frontend/**'
-      - 'deploy/Dockerfile.viewer'
-      - 'deploy/viewer-ada-init.py'
-      - '.forgejo/workflows/build-viewer.yaml'
+      # The worker COPY src/ in wholesale, so any change under src/ada
+      # potentially affects it. The single previous workflow's narrow
+      # filter (just src/ada/comms/**) silently skipped rebuilds for
+      # upstream parser fixes — see the SAT whisker / OCC unpack fixes
+      # in chore/fea-report-v2 for the regression class this guards.
+      - 'src/ada/**'
+      - 'pixi.toml'
+      - 'pixi.lock'
+      - 'pyproject.toml'
+      - 'deploy/Dockerfile.worker'
+      - '.forgejo/workflows/build-worker.yaml'
 
 jobs:
   build:
@@ -39,18 +40,18 @@ jobs:
           mkdir -p ~/.docker
           printf '%s' '${{ secrets.REGISTRY_DOCKER_CONFIG }}' > ~/.docker/config.json
 
-      - name: Build and push viewer image
+      - name: Build and push worker image
         env:
-          REGISTRY_IMAGE: ${{ secrets.VIEWER_REGISTRY_IMAGE }}
+          REGISTRY_IMAGE: ${{ secrets.WORKER_REGISTRY_IMAGE }}
         run: |
           if [ -z "$REGISTRY_IMAGE" ]; then
-            echo "::error::VIEWER_REGISTRY_IMAGE secret is not set on this repo. Configure it (and REGISTRY_DOCKER_CONFIG) under Settings → Actions → Secrets before re-running."
+            echo "::error::WORKER_REGISTRY_IMAGE secret is not set on this repo. Configure it (and REGISTRY_DOCKER_CONFIG) under Settings → Actions → Secrets before re-running."
             exit 1
           fi
           TAG="sha-${GITHUB_SHA::7}"
           BRANCH_TAG="branch-$(printf '%s' "$GITHUB_REF_NAME" | tr '/' '-')"
           docker build \
-            -f deploy/Dockerfile.viewer \
+            -f deploy/Dockerfile.worker \
             -t "${REGISTRY_IMAGE}:${TAG}" \
             -t "${REGISTRY_IMAGE}:${BRANCH_TAG}" \
             .
@@ -63,7 +64,7 @@ jobs:
           GITOPS_TOKEN: ${{ secrets.GITOPS_TOKEN }}
           GITOPS_BRANCH: ${{ secrets.GITOPS_BRANCH }}
           GITOPS_MANIFEST: ${{ secrets.VIEWER_GITOPS_MANIFEST }}
-          IMAGE: ${{ secrets.VIEWER_REGISTRY_IMAGE }}
+          IMAGE: ${{ secrets.WORKER_REGISTRY_IMAGE }}
         run: |
           # Skip cleanly if the gitops core isn't configured. POSIX-only
           # — runner default shell is sh.
@@ -90,10 +91,10 @@ jobs:
             exit 0
           fi
 
-          # Bump only the viewer image:tag line. The split workflow
-          # intentionally does NOT touch tag: lines without an
-          # adjacent image: ref — that would risk clobbering the
-          # worker's tag from a viewer-only build.
+          # Bump only the worker image:tag line. Mirrors the viewer
+          # workflow's behaviour — image-targeted bump only, never
+          # rewrite anonymous tag: lines that might belong to the
+          # other image.
           if ! grep -qF "image: ${IMAGE}:" "$GITOPS_MANIFEST"; then
             echo "No image: ${IMAGE} line in $GITOPS_MANIFEST — nothing to bump."
             exit 0
@@ -105,10 +106,10 @@ jobs:
             sed -i "s|image: ${IMAGE}:.*|image: ${IMAGE}:${TAG}|" "$GITOPS_MANIFEST"
             git add "$GITOPS_MANIFEST"
             if git diff --cached --quiet; then
-              echo "No viewer image change to commit."
+              echo "No worker image change to commit."
               exit 0
             fi
-            git commit -m "[skip ci] ci: update adapy-viewer to ${TAG}"
+            git commit -m "[skip ci] ci: update adapy-worker to ${TAG}"
             if git push origin "HEAD:$GITOPS_BRANCH"; then
               exit 0
             fi
