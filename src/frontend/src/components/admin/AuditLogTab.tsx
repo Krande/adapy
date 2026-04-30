@@ -194,14 +194,21 @@ const AuditLogTab: React.FC = () => {
                 </div>
                 {/* Per-deployment knobs that affect future runs.
                     Profile toggle persists in app_settings; Clear
-                    metrics nulls out columns + deletes blobs. */}
-                <div className="flex flex-wrap items-center gap-3 px-3 sm:px-4 pb-2 text-xs">
+                    metrics nulls out columns + deletes blobs.
+                    Visually separated so the controls are obvious on
+                    mobile (where they otherwise sit flush with the
+                    Filters / Refresh row). */}
+                <div className="flex flex-wrap items-center gap-3 px-3 sm:px-4 py-2 text-xs border-t border-gray-800 bg-gray-900/40">
+                    <span className="font-semibold text-gray-300 uppercase tracking-wide text-[10px]">
+                        Metrics
+                    </span>
                     <label className="flex items-center gap-2 cursor-pointer">
                         <input
                             type="checkbox"
                             checked={profileEnabled}
                             onChange={(e) => onProfileToggle(e.target.checked)}
                             disabled={profileSaving}
+                            className="h-4 w-4"
                         />
                         <span>
                             Profile conversions
@@ -209,7 +216,7 @@ const AuditLogTab: React.FC = () => {
                         </span>
                     </label>
                     <button
-                        className="bg-gray-700 hover:bg-gray-600 px-2 py-1 rounded disabled:opacity-50"
+                        className="ml-auto bg-gray-700 hover:bg-gray-600 px-2 py-1 rounded disabled:opacity-50"
                         onClick={onClearMetrics}
                         disabled={clearing}
                         title="Null out all metrics columns and delete profile blobs"
