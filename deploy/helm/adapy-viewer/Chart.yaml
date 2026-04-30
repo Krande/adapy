@@ -6,7 +6,7 @@ description: |
   Garage/MinIO/S3 endpoint, or enable the bundled Garage deployment
   for self-contained dev/demo setups.
 type: application
-version: 0.1.0
+version: 0.2.0
 appVersion: "0.7.12"
 keywords:
   - ada-py

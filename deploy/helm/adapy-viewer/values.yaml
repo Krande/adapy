@@ -163,6 +163,13 @@ auth:
   ## a group name (e.g. "ada-viewer-admins"); for Azure AD it's the
   ## group's object id. Match is exact-string. Blank disables admin.
   adminGroup: ""
+  ## HS256 signing secret for the /admin/auth/cli-token mint endpoint.
+  ## Reference an existing Secret containing ≥32 bytes of entropy. Leave
+  ## existingSecret blank to disable CLI tokens — the mint endpoint will
+  ## return 503 but interactive auth is unaffected.
+  cliTokenSecret:
+    existingSecret: ""
+    existingSecretKey: cli_token_secret
 
 ## Optional Postgres. When DATABASE_URL is set the viewer enables
 ## per-project storage tiers, the admin panel, and the audit log.

@@ -104,6 +104,13 @@ open and untouched from phase-1-and-earlier behavior.
 - name: ADA_VIEWER_AUTH_ADMIN_GROUP
   value: {{ .Values.auth.adminGroup | quote }}
 {{- end }}
+{{- if and .Values.auth.cliTokenSecret .Values.auth.cliTokenSecret.existingSecret }}
+- name: ADA_VIEWER_CLI_TOKEN_SECRET
+  valueFrom:
+    secretKeyRef:
+      name: {{ .Values.auth.cliTokenSecret.existingSecret }}
+      key: {{ .Values.auth.cliTokenSecret.existingSecretKey | default "cli_token_secret" }}
+{{- end }}
 {{- end }}
 {{- end -}}
 
