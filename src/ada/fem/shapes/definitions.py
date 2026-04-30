@@ -65,6 +65,7 @@ class ConnectorTypes(BaseShapeEnum):
 class MassTypes(BaseShapeEnum):
     MASS = "MASS"
     ROTARYI = "ROTARYI"
+    NONSTRUCTURAL = "NONSTRUCTURAL"
 
 
 class SpringTypes(BaseShapeEnum):

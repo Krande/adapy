@@ -31,7 +31,11 @@ def get_mass_from_bulk(bulk_str, parent: "FEM") -> FemElements:
     return FemElements((get_mass(m, parent, mass_ids) for m in re_masses.finditer(bulk_str)), fem_obj=parent)
 
 
-aba_to_ada_mass_map = {"ROTARY INERTIA": shape_def.MassTypes.ROTARYI, "MASS": shape_def.MassTypes.MASS}
+aba_to_ada_mass_map = {
+    "ROTARY INERTIA": shape_def.MassTypes.ROTARYI,
+    "MASS": shape_def.MassTypes.MASS,
+    "NONSTRUCTURAL MASS": shape_def.MassTypes.NONSTRUCTURAL,
+}
 ada_to_aba_mass_map = {val: key for key, val in aba_to_ada_mass_map.items()}
 
 

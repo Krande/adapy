@@ -31,6 +31,7 @@ ada_to_abaqus_format = {
     li.LINE3: ("B32",),
     MassTypes.MASS: ("MASS",),
     MassTypes.ROTARYI: ("ROTARYI",),
+    MassTypes.NONSTRUCTURAL: ("NONSTRUCTURAL MASS",),
     ConnectorTypes.CONNECTOR: ("CONN3D2",),
 }
 
