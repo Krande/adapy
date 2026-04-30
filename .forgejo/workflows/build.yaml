@@ -1,0 +1,286 @@
+name: Build viewer + worker images
+
+# Single workflow that builds the viewer (slim API + SPA) and worker
+# (fat pixi env) images in parallel, then writes a single gitops
+# commit covering whichever image(s) actually built.
+#
+# Runs only on the self-hosted runner labelled `docker-build`. GitHub
+# Actions does not have that label, so this workflow is a no-op when
+# the branch is pushed to GitHub. All registry/gitops endpoints come
+# from secrets so the workflow file itself reveals no infrastructure
+# details.
+#
+# Why one workflow with three jobs instead of two workflows + a
+# cross-workflow trigger:
+# * gitops bump becomes one commit per push (not two), and there's no
+#   clone/push race between two jobs hitting the same manifest;
+# * `needs:` cleanly handles "wait for both builds before committing,
+#   but bump whichever subset succeeded";
+# * each image still skips its own build when its paths weren't
+#   touched — the per-job `if:` gates on the detect job's outputs.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [chore/fea-report-v2]
+    paths:
+      # Union of viewer and worker rebuild scopes. The detect job
+      # below splits per-image so a parser-only change rebuilds only
+      # the worker, a frontend-only change rebuilds only the viewer,
+      # etc.
+      - 'src/ada/**'
+      - 'src/frontend/**'
+      - 'pixi.toml'
+      - 'pixi.lock'
+      - 'pyproject.toml'
+      - 'deploy/Dockerfile.viewer'
+      - 'deploy/Dockerfile.worker'
+      - 'deploy/viewer-ada-init.py'
+      - '.forgejo/workflows/build.yaml'
+
+jobs:
+  detect:
+    runs-on: docker-build
+    outputs:
+      viewer: ${{ steps.filter.outputs.viewer }}
+      worker: ${{ steps.filter.outputs.worker }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # We diff against github.event.before; checkout depth must
+          # cover that commit. fetch-depth: 0 fetches the full history
+          # — heavier than necessary but the repo is small enough that
+          # it doesn't matter, and it covers force-push / first-push
+          # edge cases without per-event tuning.
+          fetch-depth: 0
+
+      - id: filter
+        run: |
+          # Compare against the previous tip. workflow_dispatch and
+          # the initial branch push (before=000…) both lack a parent
+          # — fall back to "build everything" so the manual trigger
+          # is always useful and a fresh branch ships both images.
+          BEFORE="${{ github.event.before }}"
+          if [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+            CHANGED=""
+          else
+            CHANGED=$(git diff --name-only "$BEFORE" "$GITHUB_SHA")
+          fi
+
+          match() {
+            # Empty diff → "no info, build everything" (manual + first push)
+            [ -z "$CHANGED" ] && return 0
+            echo "$CHANGED" | grep -qE "$1"
+          }
+
+          # Viewer image is the slim API + bundled SPA. ada.* under
+          # the runtime is only comms/** + config.py (see
+          # deploy/Dockerfile.viewer); CAD/FEM parsers are unused
+          # here, so a cadit-only change should not rebuild it.
+          viewer=false
+          if match '^src/ada/comms/' || \
+             match '^src/ada/config\.py$' || \
+             match '^src/frontend/' || \
+             match '^deploy/Dockerfile\.viewer$' || \
+             match '^deploy/viewer-ada-init\.py$' || \
+             match '^\.forgejo/workflows/build\.yaml$'; then
+            viewer=true
+          fi
+
+          # Worker COPY src/ in wholesale via pixi, so any change
+          # under src/ada is potentially runtime-affecting.
+          worker=false
+          if match '^src/ada/' || \
+             match '^pixi\.(toml|lock)$' || \
+             match '^pyproject\.toml$' || \
+             match '^deploy/Dockerfile\.worker$' || \
+             match '^\.forgejo/workflows/build\.yaml$'; then
+            worker=true
+          fi
+
+          {
+            echo "viewer=$viewer"
+            echo "worker=$worker"
+          } >> "$GITHUB_OUTPUT"
+          echo "Detected — viewer: $viewer, worker: $worker"
+
+  viewer-build:
+    needs: detect
+    if: needs.detect.outputs.viewer == 'true'
+    runs-on: docker-build
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Login to registry
+        run: |
+          mkdir -p ~/.docker
+          printf '%s' '${{ secrets.REGISTRY_DOCKER_CONFIG }}' > ~/.docker/config.json
+
+      - name: Build and push viewer image
+        env:
+          REGISTRY_IMAGE: ${{ secrets.VIEWER_REGISTRY_IMAGE }}
+        run: |
+          if [ -z "$REGISTRY_IMAGE" ]; then
+            echo "::error::VIEWER_REGISTRY_IMAGE secret is not set on this repo. Configure it (and REGISTRY_DOCKER_CONFIG) under Settings → Actions → Secrets before re-running."
+            exit 1
+          fi
+          TAG="sha-${GITHUB_SHA::7}"
+          BRANCH_TAG="branch-$(printf '%s' "$GITHUB_REF_NAME" | tr '/' '-')"
+          docker build \
+            -f deploy/Dockerfile.viewer \
+            --build-arg "IMAGE_TAG=${TAG}" \
+            -t "${REGISTRY_IMAGE}:${TAG}" \
+            -t "${REGISTRY_IMAGE}:${BRANCH_TAG}" \
+            .
+          docker push "${REGISTRY_IMAGE}:${TAG}"
+          docker push "${REGISTRY_IMAGE}:${BRANCH_TAG}"
+
+  worker-build:
+    needs: detect
+    if: needs.detect.outputs.worker == 'true'
+    runs-on: docker-build
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Login to registry
+        run: |
+          mkdir -p ~/.docker
+          printf '%s' '${{ secrets.REGISTRY_DOCKER_CONFIG }}' > ~/.docker/config.json
+
+      - name: Build and push worker image
+        env:
+          REGISTRY_IMAGE: ${{ secrets.WORKER_REGISTRY_IMAGE }}
+        run: |
+          if [ -z "$REGISTRY_IMAGE" ]; then
+            echo "::error::WORKER_REGISTRY_IMAGE secret is not set on this repo. Configure it (and REGISTRY_DOCKER_CONFIG) under Settings → Actions → Secrets before re-running."
+            exit 1
+          fi
+          TAG="sha-${GITHUB_SHA::7}"
+          BRANCH_TAG="branch-$(printf '%s' "$GITHUB_REF_NAME" | tr '/' '-')"
+          docker build \
+            -f deploy/Dockerfile.worker \
+            --build-arg "IMAGE_TAG=${TAG}" \
+            -t "${REGISTRY_IMAGE}:${TAG}" \
+            -t "${REGISTRY_IMAGE}:${BRANCH_TAG}" \
+            .
+          docker push "${REGISTRY_IMAGE}:${TAG}"
+          docker push "${REGISTRY_IMAGE}:${BRANCH_TAG}"
+
+  gitops:
+    needs: [viewer-build, worker-build]
+    # Run when at least one build succeeded; tolerate the other being
+    # skipped (paths didn't match) or failed (we still want to roll
+    # whatever did build).
+    if: |
+      always() &&
+      (needs.viewer-build.result == 'success' || needs.worker-build.result == 'success')
+    runs-on: docker-build
+    steps:
+      - name: Update gitops manifest
+        env:
+          GITOPS_REMOTE: ${{ secrets.GITOPS_REMOTE }}
+          GITOPS_TOKEN: ${{ secrets.GITOPS_TOKEN }}
+          GITOPS_BRANCH: ${{ secrets.GITOPS_BRANCH }}
+          GITOPS_MANIFEST: ${{ secrets.VIEWER_GITOPS_MANIFEST }}
+          VIEWER_IMAGE: ${{ secrets.VIEWER_REGISTRY_IMAGE }}
+          WORKER_IMAGE: ${{ secrets.WORKER_REGISTRY_IMAGE }}
+          VIEWER_RESULT: ${{ needs.viewer-build.result }}
+          WORKER_RESULT: ${{ needs.worker-build.result }}
+        run: |
+          # Skip cleanly if the gitops core isn't configured. POSIX-only
+          # — runner default shell is sh.
+          MISSING=""
+          for v in GITOPS_REMOTE GITOPS_TOKEN GITOPS_BRANCH GITOPS_MANIFEST; do
+            eval "val=\$$v"
+            [ -z "$val" ] && MISSING="$MISSING $v"
+          done
+          if [ -n "$MISSING" ]; then
+            echo "Missing gitops secrets:$MISSING — skipping write-back."
+            exit 0
+          fi
+
+          TAG="sha-${GITHUB_SHA::7}"
+          WORK=$(mktemp -d)
+          cd "$WORK"
+          git clone --branch "$GITOPS_BRANCH" \
+            "https://x-access-token:${GITOPS_TOKEN}@${GITOPS_REMOTE}" .
+          git config user.name "Forgejo CI"
+          git config user.email "ci@local"
+
+          if [ ! -f "$GITOPS_MANIFEST" ]; then
+            echo "$GITOPS_MANIFEST not present yet; skipping."
+            exit 0
+          fi
+
+          # Helm-shape bump: find an exact `repository: <IMAGE>` line,
+          # rewrite the next `tag:` line. Indentation preserved; later
+          # repository: blocks (e.g. the other image) untouched.
+          bump_tag() {
+            awk -v img="$1" -v tag="$2" '
+              BEGIN { found=0 }
+              {
+                s = $0
+                sub(/^[[:space:]]*/, "", s); sub(/[[:space:]]*$/, "", s)
+                if (!found && s == "repository: " img) { found=1; print; next }
+                if (found && $0 ~ /^[[:space:]]*tag:[[:space:]]/) {
+                  sub(/tag:[[:space:]]*[^[:space:]]+/, "tag: " tag)
+                  found=0
+                }
+                print
+              }
+            ' "$3" > "$3.tmp" && mv "$3.tmp" "$3"
+          }
+
+          # apply_bump prefers inline `image: repo:tag`, falls back to
+          # the helm-values `repository:`/`tag:` shape.
+          apply_bump() {
+            image="$1"
+            label="$2"
+            if [ -z "$image" ]; then
+              echo "$label: registry image secret unset; skipping"
+              return
+            fi
+            if grep -qF "image: ${image}:" "$GITOPS_MANIFEST"; then
+              sed -i "s|image: ${image}:.*|image: ${image}:${TAG}|" "$GITOPS_MANIFEST"
+            elif grep -qE "^[[:space:]]*repository:[[:space:]]+${image}[[:space:]]*$" "$GITOPS_MANIFEST"; then
+              bump_tag "$image" "$TAG" "$GITOPS_MANIFEST"
+            else
+              echo "$label: no inline image: nor helm-shape repository: line for $image — skipping"
+            fi
+          }
+
+          summary=""
+          i=1
+          while [ "$i" -le 3 ]; do
+            git pull --rebase origin "$GITOPS_BRANCH"
+
+            # Re-run apply_bump on each retry against the freshly
+            # rebased file; preserves correctness when concurrent
+            # gitops commits land between attempts.
+            summary=""
+            if [ "$VIEWER_RESULT" = "success" ]; then
+              apply_bump "$VIEWER_IMAGE" viewer
+              summary="${summary}viewer "
+            fi
+            if [ "$WORKER_RESULT" = "success" ]; then
+              apply_bump "$WORKER_IMAGE" worker
+              summary="${summary}worker "
+            fi
+            summary="${summary% }"
+
+            git add "$GITOPS_MANIFEST"
+            if git diff --cached --quiet; then
+              echo "No image change to commit."
+              exit 0
+            fi
+            git commit -m "[skip ci] ci: bump ${summary} image(s) to ${TAG}"
+            if git push origin "HEAD:$GITOPS_BRANCH"; then
+              exit 0
+            fi
+            echo "Push failed (attempt $i), retrying..."
+            git reset --hard "origin/$GITOPS_BRANCH"
+            sleep 2
+            i=$((i+1))
+          done
+          echo "Failed to push after 3 attempts" >&2
+          exit 1
