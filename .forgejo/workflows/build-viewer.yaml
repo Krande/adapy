@@ -91,25 +91,54 @@ jobs:
             exit 0
           fi
 
-          # Bump only the viewer image:tag line. The split workflow
-          # intentionally does NOT touch tag: lines without an
-          # adjacent image: ref — that would risk clobbering the
-          # worker's tag from a viewer-only build.
-          if ! grep -qF "image: ${IMAGE}:" "$GITOPS_MANIFEST"; then
-            echo "No image: ${IMAGE} line in $GITOPS_MANIFEST — nothing to bump."
+          # Bump strategy. Two manifest shapes are supported:
+          #   1. inline:  image: <repo>:<tag>
+          #   2. helm:    image:
+          #                 repository: <repo>
+          #                 tag: <tag>
+          # The split workflow only ever touches its own image's tag,
+          # so we never use an anonymous "rewrite every tag: line"
+          # fallback that would clobber the other image's pin.
+          bump_tag() {
+            # Awk-based: find an exact "repository: <IMAGE>" line, then
+            # rewrite the next tag: line. Indentation preserved; later
+            # repository: blocks (e.g. the worker) untouched.
+            awk -v img="$1" -v tag="$2" '
+              BEGIN { found=0 }
+              {
+                s = $0
+                sub(/^[[:space:]]*/, "", s); sub(/[[:space:]]*$/, "", s)
+                if (!found && s == "repository: " img) { found=1; print; next }
+                if (found && $0 ~ /^[[:space:]]*tag:[[:space:]]/) {
+                  sub(/tag:[[:space:]]*[^[:space:]]+/, "tag: " tag)
+                  found=0
+                }
+                print
+              }
+            ' "$3" > "$3.tmp" && mv "$3.tmp" "$3"
+          }
+
+          if grep -qF "image: ${IMAGE}:" "$GITOPS_MANIFEST"; then
+            : "$(echo "Detected inline image: form")"
+          elif ! grep -qE "^[[:space:]]*repository:[[:space:]]+${IMAGE}[[:space:]]*$" "$GITOPS_MANIFEST"; then
+            echo "Manifest carries neither inline image: nor helm-shape repository: for the viewer image — nothing to bump."
             exit 0
           fi
 
           i=1
           while [ "$i" -le 3 ]; do
             git pull --rebase origin "$GITOPS_BRANCH"
-            sed -i "s|image: ${IMAGE}:.*|image: ${IMAGE}:${TAG}|" "$GITOPS_MANIFEST"
+            if grep -qF "image: ${IMAGE}:" "$GITOPS_MANIFEST"; then
+              sed -i "s|image: ${IMAGE}:.*|image: ${IMAGE}:${TAG}|" "$GITOPS_MANIFEST"
+            else
+              bump_tag "$IMAGE" "$TAG" "$GITOPS_MANIFEST"
+            fi
             git add "$GITOPS_MANIFEST"
             if git diff --cached --quiet; then
               echo "No viewer image change to commit."
               exit 0
             fi
-            git commit -m "[skip ci] ci: update adapy-viewer to ${TAG}"
+            git commit -m "[skip ci] ci: update viewer image to ${TAG}"
             if git push origin "HEAD:$GITOPS_BRANCH"; then
               exit 0
             fi

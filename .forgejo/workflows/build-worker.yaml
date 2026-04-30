@@ -92,25 +92,47 @@ jobs:
             exit 0
           fi
 
-          # Bump only the worker image:tag line. Mirrors the viewer
-          # workflow's behaviour — image-targeted bump only, never
-          # rewrite anonymous tag: lines that might belong to the
-          # other image.
-          if ! grep -qF "image: ${IMAGE}:" "$GITOPS_MANIFEST"; then
-            echo "No image: ${IMAGE} line in $GITOPS_MANIFEST — nothing to bump."
+          # See build-viewer.yaml for the rationale; the bump logic is
+          # identical, just scoped to this workflow's IMAGE secret.
+          # Helm-values shape (repository: + tag:) is the common case;
+          # inline (image: repo:tag) is supported as a fallback.
+          bump_tag() {
+            awk -v img="$1" -v tag="$2" '
+              BEGIN { found=0 }
+              {
+                s = $0
+                sub(/^[[:space:]]*/, "", s); sub(/[[:space:]]*$/, "", s)
+                if (!found && s == "repository: " img) { found=1; print; next }
+                if (found && $0 ~ /^[[:space:]]*tag:[[:space:]]/) {
+                  sub(/tag:[[:space:]]*[^[:space:]]+/, "tag: " tag)
+                  found=0
+                }
+                print
+              }
+            ' "$3" > "$3.tmp" && mv "$3.tmp" "$3"
+          }
+
+          if grep -qF "image: ${IMAGE}:" "$GITOPS_MANIFEST"; then
+            :
+          elif ! grep -qE "^[[:space:]]*repository:[[:space:]]+${IMAGE}[[:space:]]*$" "$GITOPS_MANIFEST"; then
+            echo "Manifest carries neither inline image: nor helm-shape repository: for the worker image — nothing to bump."
             exit 0
           fi
 
           i=1
           while [ "$i" -le 3 ]; do
             git pull --rebase origin "$GITOPS_BRANCH"
-            sed -i "s|image: ${IMAGE}:.*|image: ${IMAGE}:${TAG}|" "$GITOPS_MANIFEST"
+            if grep -qF "image: ${IMAGE}:" "$GITOPS_MANIFEST"; then
+              sed -i "s|image: ${IMAGE}:.*|image: ${IMAGE}:${TAG}|" "$GITOPS_MANIFEST"
+            else
+              bump_tag "$IMAGE" "$TAG" "$GITOPS_MANIFEST"
+            fi
             git add "$GITOPS_MANIFEST"
             if git diff --cached --quiet; then
               echo "No worker image change to commit."
               exit 0
             fi
-            git commit -m "[skip ci] ci: update adapy-worker to ${TAG}"
+            git commit -m "[skip ci] ci: update worker image to ${TAG}"
             if git push origin "HEAD:$GITOPS_BRANCH"; then
               exit 0
             fi
