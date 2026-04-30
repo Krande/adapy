@@ -275,6 +275,32 @@ def update_edges_uv_gen(edges, builder, face_surface):
             logger.warning(f"Error updating edge p-curve: {ex}")
 
 
+def _curve_on_surface(edge, face_surface):
+    """Wrap BRep_Tool.CurveOnSurface so we tolerate both pythonocc return
+    shapes seen in the wild: ``[curve, first, last]`` (3-tuple, common)
+    and ``[first, last]`` (2-tuple, where the curve handle is omitted on
+    NULL — observed on the prod worker's pythonocc build). Returns
+    ``(curve_or_None, first, last)`` and never raises ValueError on
+    unpack."""
+    result = BRep_Tool.CurveOnSurface(edge, face_surface, TopLoc_Location())
+    if not isinstance(result, (list, tuple)):
+        return None, 0.0, 0.0
+    if len(result) >= 3:
+        # Standard shape; ignore any trailing optional fields.
+        return result[0], float(result[1]), float(result[2])
+    if len(result) == 2:
+        a, b = result
+        # Some pythonocc builds collapse the NULL curve handle and
+        # return just the parameter range. Recognise that as "no
+        # p-curve here" and let the caller skip the edge.
+        if isinstance(a, (int, float)) and isinstance(b, (int, float)):
+            return None, float(a), float(b)
+        # Other rarer shape: (curve, (first, last)).
+        if isinstance(b, (list, tuple)) and len(b) == 2:
+            return a, float(b[0]), float(b[1])
+    return None, 0.0, 0.0
+
+
 def is_wire_cw(wire, face_surface):
     # Calculate signed area of the polygon formed by edge endpoints in UV space
     area = 0.0
@@ -287,7 +313,7 @@ def is_wire_cw(wire, face_surface):
     while exp.More():
         edge = exp.Current()
         # Get p-curve
-        curve, first, last = BRep_Tool.CurveOnSurface(edge, face_surface, TopLoc_Location())
+        curve, first, last = _curve_on_surface(edge, face_surface)
         if curve:
             # Note: WireExplorer handles orientation. If edge is REVERSED in wire,
             # it still returns the edge with REVERSED orientation.
