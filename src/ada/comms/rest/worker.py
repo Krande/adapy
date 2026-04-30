@@ -60,6 +60,13 @@ FETCH_TIMEOUT = 5.0
 # Workers fetch one message at a time — conversions are heavy and we
 # don't want to hold a batch of acks open during a long-running job.
 FETCH_BATCH = 1
+# Maximum delivery attempts per job before we permanently mark it
+# error and ack. Catches "poison pill" jobs whose conversion crashes
+# the worker process (OS-level malloc / segfault) — the message gets
+# redelivered each time without ever being acked, infinite-looping.
+# After this many tries the worker stops attempting and acks so the
+# message leaves the stream.
+MAX_DELIVERIES = 3
 
 
 async def _audit_done(
@@ -165,6 +172,7 @@ async def _process_one(
     storage: Storage,
     pool: ThreadPoolExecutor,
     db_pool: asyncpg.Pool | None,
+    delivery_count: int = 1,
 ) -> None:
     started_at = time.monotonic()
     job = await queue.get(job_id)
@@ -173,6 +181,22 @@ async def _process_one(
         return
 
     scope = _scope_of(job)
+
+    # Poison-pill guard: if NATS has redelivered this message past
+    # the cap, the previous attempts crashed the worker before they
+    # could ack. Stop trying — record the error, ack the message,
+    # and let the queue drain so legitimate jobs aren't blocked.
+    if delivery_count > MAX_DELIVERIES:
+        msg = (
+            f"worker exceeded {MAX_DELIVERIES} delivery attempts on this job "
+            f"(prior runs likely crashed the worker process)."
+        )
+        logger.warning("worker: job %s gave up after %d attempts", job_id, delivery_count)
+        await queue.update(
+            job_id, status=JOB_STATUS_ERROR, stage="aborted", progress=0.0, error=msg,
+        )
+        await _audit_done(db_pool, job_id, "error", msg, started_at)
+        return
 
     # Skip if a previous run already produced the derived blob. This is
     # the cheap safety net for redelivered messages.
@@ -416,9 +440,24 @@ async def _run() -> None:
                 continue
             for msg in msgs:
                 job_id = msg.data.decode("utf-8")
-                logger.info("worker: picked up job %s", job_id)
+                # NATS message metadata carries the delivery counter.
+                # We only get here if the previous attempt didn't ack
+                # (typically: the worker died mid-conversion). Pass
+                # the counter into _process_one so it can refuse to
+                # retry past MAX_DELIVERIES.
                 try:
-                    await _process_one(job_id, queue, storage, pool, db_pool)
+                    delivery_count = int(msg.metadata.num_delivered)
+                except Exception:
+                    delivery_count = 1
+                logger.info(
+                    "worker: picked up job %s (delivery %d/%d)",
+                    job_id, delivery_count, MAX_DELIVERIES,
+                )
+                try:
+                    await _process_one(
+                        job_id, queue, storage, pool, db_pool,
+                        delivery_count=delivery_count,
+                    )
                 finally:
                     await msg.ack()
     finally:
