@@ -200,6 +200,10 @@ httpx = "*"
 # deployment opts into it via DATABASE_URL. Without DATABASE_URL the
 # REST viewer runs in shared-only mode and asyncpg goes unused.
 asyncpg = "*"
+# psutil powers the worker's per-job CPU / RSS / IO sampling that
+# feeds the admin panel's metrics view. Cross-platform; Linux gives
+# the full picture (incl. io_counters), macOS skips IO.
+psutil = "*"
 
 [feature.viewer-api.tasks]
 viewer-api = { cmd = "python -m ada.comms.rest", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }

@@ -738,6 +738,102 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except (ValueError, AttributeError, TypeError) as exc:
             raise HTTPException(status_code=400, detail=f"invalid {what}") from exc
 
+    @admin.get("/settings/{key}")
+    async def admin_get_setting(
+        key: str,
+        request: Request,
+    ) -> JSONResponse:
+        """Generic key/value get from app_settings. Returns
+        ``{"key": k, "value": v}`` with v=null when unset."""
+        pool = _require_pool(request)
+        value = await db_module.get_setting(pool, key)
+        return JSONResponse({"key": key, "value": value})
+
+    @admin.post("/settings/{key}")
+    async def admin_set_setting(
+        key: str,
+        request: Request,
+        user: User = Depends(auth_module.current_user),
+    ) -> JSONResponse:
+        """Upsert a setting. Body: ``{"value": "..."}``. The audit trail
+        for who-flipped-what lives on the row's ``updated_by`` column."""
+        pool = _require_pool(request)
+        body = await request.json()
+        if "value" not in body:
+            raise HTTPException(status_code=400, detail="value required")
+        value = "" if body["value"] is None else str(body["value"])
+        await db_module.set_setting(pool, key, value, updated_by=user.sub)
+        return JSONResponse({"key": key, "value": value})
+
+    @admin.get("/audit/{audit_id}/profile")
+    async def admin_audit_profile(
+        audit_id: int,
+        request: Request,
+    ) -> StreamingResponse:
+        """Download the cProfile dump attached to an audit row, if
+        any. 404 when the row or its profile_key is missing."""
+        pool = _require_pool(request)
+        row = await db_module.get_audit_by_id(pool, audit_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail=f"audit row {audit_id} not found")
+        profile_key = row.get("profile_key")
+        if not profile_key:
+            raise HTTPException(status_code=404, detail="no profile attached to this row")
+        scope = (
+            Scope.shared()
+            if row["scope_kind"] == "shared"
+            else Scope(kind=row["scope_kind"], id=row["scope_id"])  # type: ignore[arg-type]
+        )
+        try:
+            result = await storage.open_stream(scope, profile_key)
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        # .prof is binary cProfile output (marshal-formatted). Browsers
+        # download it as-is — snakeviz / speedscope load directly.
+        filename = profile_key.rsplit("/", 1)[-1]
+        headers = {
+            "Content-Disposition": f'attachment; filename="{filename}"',
+        }
+        if result.content_encoding:
+            headers["Content-Encoding"] = result.content_encoding
+        return StreamingResponse(
+            result.stream, media_type="application/octet-stream", headers=headers
+        )
+
+    @admin.delete("/audit/metrics")
+    async def admin_clear_metrics(request: Request) -> JSONResponse:
+        """Wipe all metrics + profile blobs. Audit rows themselves
+        stay; only the metrics columns are nulled and the .prof blobs
+        deleted from storage. Used to reclaim DB / object-store space
+        after a profiling session."""
+        pool = _require_pool(request)
+        result = await db_module.clear_audit_metrics(pool)
+        deleted_blobs = 0
+        blob_errors: list[str] = []
+        for entry in result["profile_keys"]:
+            try:
+                scope = (
+                    Scope.shared()
+                    if entry["scope_kind"] == "shared"
+                    else Scope(kind=entry["scope_kind"], id=entry["scope_id"])  # type: ignore[arg-type]
+                )
+                await storage.delete(scope, entry["profile_key"])
+                deleted_blobs += 1
+            except FileNotFoundError:
+                # Already gone — fine.
+                deleted_blobs += 1
+            except Exception as exc:
+                logger.warning(
+                    "clear_metrics: failed to delete %s: %s",
+                    entry["profile_key"], exc,
+                )
+                blob_errors.append(f"{entry['profile_key']}: {exc}")
+        return JSONResponse({
+            "rows_cleared": result["rows_cleared"],
+            "profiles_deleted": deleted_blobs,
+            "errors": blob_errors,
+        })
+
     @admin.get("/audit")
     async def admin_audit(
         request: Request,

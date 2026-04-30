@@ -213,12 +213,18 @@ async def update_audit_by_job(
     error: str | None = None,
     duration_ms: int | None = None,
     traceback: str | None = None,
+    cpu_user_ms: int | None = None,
+    cpu_sys_ms: int | None = None,
+    peak_rss_kb: int | None = None,
+    read_bytes: int | None = None,
+    write_bytes: int | None = None,
+    profile_key: str | None = None,
 ) -> None:
     """Patch the audit row tied to a queue job with its final outcome.
 
     No-op when the row is missing (job predates the migration, or the
     enqueue-time audit insert failed). COALESCE preserves any existing
-    error / duration_ms / traceback when the caller passes None.
+    column when the caller passes None.
     """
     await pool.execute(
         """
@@ -226,7 +232,13 @@ async def update_audit_by_job(
         SET status = $2,
             error = COALESCE($3, error),
             duration_ms = COALESCE($4, duration_ms),
-            traceback = COALESCE($5, traceback)
+            traceback = COALESCE($5, traceback),
+            cpu_user_ms = COALESCE($6, cpu_user_ms),
+            cpu_sys_ms = COALESCE($7, cpu_sys_ms),
+            peak_rss_kb = COALESCE($8, peak_rss_kb),
+            read_bytes = COALESCE($9, read_bytes),
+            write_bytes = COALESCE($10, write_bytes),
+            profile_key = COALESCE($11, profile_key)
         WHERE job_id = $1
         """,
         job_id,
@@ -234,6 +246,12 @@ async def update_audit_by_job(
         error,
         duration_ms,
         traceback,
+        cpu_user_ms,
+        cpu_sys_ms,
+        peak_rss_kb,
+        read_bytes,
+        write_bytes,
+        profile_key,
     )
 
 
@@ -277,7 +295,9 @@ async def list_audit(
     args.append(min(max(limit, 1), 500))
     sql = (
         "SELECT id, ts, user_sub, scope_kind, scope_id, action, key,"
-        " target_format, status, error, duration_ms, traceback FROM audit_log"
+        " target_format, status, error, duration_ms, traceback,"
+        " cpu_user_ms, cpu_sys_ms, peak_rss_kb, read_bytes, write_bytes,"
+        " profile_key, job_id FROM audit_log"
     )
     if where:
         sql += " WHERE " + " AND ".join(where)
@@ -297,9 +317,121 @@ async def list_audit(
             "error": r["error"],
             "duration_ms": r["duration_ms"],
             "traceback": r["traceback"],
+            "cpu_user_ms": r["cpu_user_ms"],
+            "cpu_sys_ms": r["cpu_sys_ms"],
+            "peak_rss_kb": r["peak_rss_kb"],
+            "read_bytes": r["read_bytes"],
+            "write_bytes": r["write_bytes"],
+            "profile_key": r["profile_key"],
+            "job_id": r["job_id"],
         }
         for r in rows
     ]
+
+
+async def get_audit_by_id(pool: asyncpg.Pool, audit_id: int) -> dict | None:
+    """Fetch a single audit row by id. Used by the profile-download
+    endpoint to look up the blob key + scope without re-listing."""
+    row = await pool.fetchrow(
+        """
+        SELECT id, scope_kind, scope_id, profile_key, key, action, status
+        FROM audit_log WHERE id = $1
+        """,
+        audit_id,
+    )
+    if row is None:
+        return None
+    return {
+        "id": row["id"],
+        "scope_kind": row["scope_kind"],
+        "scope_id": row["scope_id"],
+        "profile_key": row["profile_key"],
+        "key": row["key"],
+        "action": row["action"],
+        "status": row["status"],
+    }
+
+
+# ── App settings ─────────────────────────────────────────────────────
+
+
+async def get_setting(pool: asyncpg.Pool, key: str) -> str | None:
+    row = await pool.fetchrow(
+        "SELECT value FROM app_settings WHERE key = $1", key
+    )
+    return row["value"] if row else None
+
+
+async def set_setting(
+    pool: asyncpg.Pool, key: str, value: str, *, updated_by: str | None
+) -> None:
+    """Upsert a setting. ``value`` is a string — caller serializes
+    booleans / numbers as appropriate (we keep this small and avoid
+    type-tagging columns)."""
+    await pool.execute(
+        """
+        INSERT INTO app_settings (key, value, updated_by)
+        VALUES ($1, $2, $3)
+        ON CONFLICT (key) DO UPDATE SET
+            value = EXCLUDED.value,
+            updated_at = NOW(),
+            updated_by = EXCLUDED.updated_by
+        """,
+        key,
+        value,
+        updated_by,
+    )
+
+
+async def clear_audit_metrics(pool: asyncpg.Pool) -> dict:
+    """Null out the metrics columns on every audit row, returning
+    counts of rows touched and profile_keys that need blob cleanup.
+
+    The audit rows themselves are left intact — only the metrics
+    payload is wiped. Caller is responsible for deleting the actual
+    profile blobs from storage (we return the keys to make that
+    feasible without a second pass over the table).
+    """
+    profile_rows = await pool.fetch(
+        """
+        SELECT scope_kind, scope_id, profile_key
+        FROM audit_log
+        WHERE profile_key IS NOT NULL
+        """
+    )
+    profile_keys = [
+        {
+            "scope_kind": r["scope_kind"],
+            "scope_id": r["scope_id"],
+            "profile_key": r["profile_key"],
+        }
+        for r in profile_rows
+    ]
+    result = await pool.execute(
+        """
+        UPDATE audit_log
+        SET cpu_user_ms = NULL,
+            cpu_sys_ms = NULL,
+            peak_rss_kb = NULL,
+            read_bytes = NULL,
+            write_bytes = NULL,
+            profile_key = NULL
+        WHERE cpu_user_ms IS NOT NULL
+           OR cpu_sys_ms IS NOT NULL
+           OR peak_rss_kb IS NOT NULL
+           OR read_bytes IS NOT NULL
+           OR write_bytes IS NOT NULL
+           OR profile_key IS NOT NULL
+        """
+    )
+    # asyncpg returns "UPDATE N" — pull out the integer.
+    rows_cleared = 0
+    if isinstance(result, str) and result.startswith("UPDATE "):
+        try:
+            rows_cleared = int(result.split()[1])
+        except (IndexError, ValueError):
+            pass
+    return {"rows_cleared": rows_cleared, "profile_keys": profile_keys}
 
 
 async def list_all_projects(pool: asyncpg.Pool) -> list[dict]:

@@ -69,11 +69,13 @@ async def _audit_done(
     error: str | None,
     started_at: float,
     traceback: str | None = None,
+    metrics: dict | None = None,
 ) -> None:
     """Patch the audit_log row for this job with its final outcome.
     Best-effort: a DB hiccup must never break job processing."""
     if db_pool is None:
         return
+    metrics = metrics or {}
     try:
         await db_module.update_audit_by_job(
             db_pool,
@@ -82,9 +84,79 @@ async def _audit_done(
             error=error,
             duration_ms=int((time.monotonic() - started_at) * 1000),
             traceback=traceback,
+            cpu_user_ms=metrics.get("cpu_user_ms"),
+            cpu_sys_ms=metrics.get("cpu_sys_ms"),
+            peak_rss_kb=metrics.get("peak_rss_kb"),
+            read_bytes=metrics.get("read_bytes"),
+            write_bytes=metrics.get("write_bytes"),
+            profile_key=metrics.get("profile_key"),
         )
     except Exception:
         logger.exception("worker: audit update failed for job %s", job_id)
+
+
+# Lazy psutil import — keep the worker tolerant if it's missing on
+# some platform. The metrics dict is None in that case and the audit
+# update simply passes None for every metric.
+try:
+    import psutil as _psutil  # type: ignore[import-not-found]
+except Exception:  # pragma: no cover — psutil pinned in pixi env
+    _psutil = None  # type: ignore[assignment]
+
+
+def _capture_metrics_start():
+    """Snapshot CPU / IO counters at job start. Returns an opaque
+    object that ``_capture_metrics_end`` consumes; ``None`` when
+    psutil isn't available so callers can fall through cleanly."""
+    if _psutil is None:
+        return None
+    proc = _psutil.Process()
+    cpu = proc.cpu_times()
+    io = None
+    try:
+        # io_counters is unavailable on macOS; metrics still produce
+        # CPU + RSS in that case.
+        io = proc.io_counters()
+    except Exception:
+        io = None
+    return {"proc": proc, "cpu_start": cpu, "io_start": io}
+
+
+def _capture_metrics_end(start) -> dict:
+    """Build the audit-row metrics dict from the start snapshot. Any
+    counter we can't sample is omitted (None) so the column stays NULL
+    rather than zero — which would falsely signal "ran but did
+    nothing"."""
+    if start is None or _psutil is None:
+        return {}
+    proc = start["proc"]
+    out: dict = {}
+    try:
+        cpu_now = proc.cpu_times()
+        out["cpu_user_ms"] = int(max(0.0, cpu_now.user - start["cpu_start"].user) * 1000)
+        out["cpu_sys_ms"] = int(max(0.0, cpu_now.system - start["cpu_start"].system) * 1000)
+    except Exception:
+        pass
+    try:
+        # memory_info().rss is current RSS; use memory_info_ex / peak
+        # when available, otherwise fall back to current. The job is
+        # synchronous and short, so current ≈ peak in practice.
+        mem = proc.memory_info()
+        out["peak_rss_kb"] = int(getattr(mem, "rss", 0)) // 1024
+    except Exception:
+        pass
+    if start["io_start"] is not None:
+        try:
+            io_now = proc.io_counters()
+            out["read_bytes"] = int(
+                max(0, io_now.read_bytes - start["io_start"].read_bytes)
+            )
+            out["write_bytes"] = int(
+                max(0, io_now.write_bytes - start["io_start"].write_bytes)
+            )
+        except Exception:
+            pass
+    return out
 
 
 async def _process_one(
@@ -136,6 +208,28 @@ async def _process_one(
             await _audit_done(db_pool, job_id, "error", str(exc), started_at)
             return
 
+        # Capture resource counters around the convert call. psutil
+        # samples CPU times, RSS, and (Linux) per-process IO bytes; the
+        # delta lands on the audit row regardless of success or error
+        # so admins can see where time/memory went on a failed job.
+        metrics_start = _capture_metrics_start()
+
+        # Profile setting flips via the admin panel and is read fresh
+        # per job — admins can flip it on, send a representative job,
+        # and flip it off without a worker restart. No cache: one
+        # extra DB round-trip per job is negligible next to a
+        # tessellation pass.
+        profile_enabled = False
+        if db_pool is not None:
+            try:
+                v = await db_module.get_setting(db_pool, "profile_conversions")
+                profile_enabled = (v or "").strip().lower() in {"1", "true", "yes", "on"}
+            except Exception:
+                logger.exception("worker: failed to read profile_conversions setting")
+
+        import cProfile
+        profiler = cProfile.Profile() if profile_enabled else None
+
         # Hop into a thread for the conversion — ada-py / trimesh are
         # synchronous and CPU-heavy. The progress callback re-enters the
         # asyncio loop via run_coroutine_threadsafe.
@@ -158,21 +252,28 @@ async def _process_one(
                 # Loop closed during shutdown — drop the update.
                 pass
 
-        try:
-            # Capture step/field by closure — run_in_executor's positional
-            # args don't accept kwargs, so wrap in a lambda. None for both
-            # is the "auto-pick" path matching the auto-convert default.
-            out_bytes = await loop.run_in_executor(
-                pool,
-                lambda: convert(
+        def _convert_call():
+            # Wrap the synchronous conversion in cProfile when enabled.
+            # The profiler is enabled inside the worker thread so its
+            # samples capture the conversion stack and not the
+            # asyncio scheduler.
+            if profiler is not None:
+                profiler.enable()
+            try:
+                return convert(
                     src_path,
                     job.source_key,
                     job.target_format,
                     _on_progress,
                     step=job.step,
                     field=job.field,
-                ),
-            )
+                )
+            finally:
+                if profiler is not None:
+                    profiler.disable()
+
+        try:
+            out_bytes = await loop.run_in_executor(pool, _convert_call)
         except BundleError as exc:
             # User-visible bundle problem (missing include, mixed formats,
             # ambiguous entry, ...). The message is already operator-
@@ -182,7 +283,8 @@ async def _process_one(
             await queue.update(
                 job_id, status=JOB_STATUS_ERROR, stage="convert", error=str(exc)
             )
-            await _audit_done(db_pool, job_id, "error", str(exc), started_at)
+            metrics = _capture_metrics_end(metrics_start)
+            await _audit_done(db_pool, job_id, "error", str(exc), started_at, metrics=metrics)
             return
         except Exception as exc:
             logger.exception("worker: conversion failed for %s -> %s", job.source_key, job.target_format)
@@ -190,7 +292,11 @@ async def _process_one(
             await queue.update(
                 job_id, status=JOB_STATUS_ERROR, stage="convert", error=str(exc)
             )
-            await _audit_done(db_pool, job_id, "error", str(exc), started_at, traceback=trace)
+            metrics = _capture_metrics_end(metrics_start)
+            await _audit_done(
+                db_pool, job_id, "error", str(exc), started_at,
+                traceback=trace, metrics=metrics,
+            )
             return
 
         await queue.update(job_id, stage="uploading", progress=0.95)
@@ -206,13 +312,38 @@ async def _process_one(
             await queue.update(
                 job_id, status=JOB_STATUS_ERROR, stage="upload", error=str(exc)
             )
-            await _audit_done(db_pool, job_id, "error", str(exc), started_at, traceback=trace)
+            metrics = _capture_metrics_end(metrics_start)
+            await _audit_done(
+                db_pool, job_id, "error", str(exc), started_at,
+                traceback=trace, metrics=metrics,
+            )
             return
+
+        # Conversion + upload succeeded — collect metrics + (optionally)
+        # serialize and upload the cProfile dump. Profile upload errors
+        # don't fail the job; they just leave profile_key NULL.
+        metrics = _capture_metrics_end(metrics_start)
+        if profiler is not None:
+            try:
+                prof_path = pathlib.Path(tempfile.mkstemp(suffix=".prof")[1])
+                try:
+                    profiler.dump_stats(str(prof_path))
+                    prof_bytes = prof_path.read_bytes()
+                finally:
+                    try:
+                        prof_path.unlink()
+                    except OSError:
+                        pass
+                profile_key = f"_derived/{job.source_key}.{job_id}.prof"
+                await storage.put_bytes(scope, profile_key, prof_bytes)
+                metrics["profile_key"] = profile_key
+            except Exception:
+                logger.exception("worker: profile upload failed for job %s", job_id)
 
         await queue.update(
             job_id, status=JOB_STATUS_DONE, stage="ready", progress=1.0, error=None
         )
-        await _audit_done(db_pool, job_id, "done", None, started_at)
+        await _audit_done(db_pool, job_id, "done", None, started_at, metrics=metrics)
     finally:
         try:
             src_path.unlink()

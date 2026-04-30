@@ -13,6 +13,30 @@ import {ApiError, AuditEntry, AuditFilters, viewerApi} from "@/services/viewerAp
 const ACTIONS = ["", "upload", "download", "convert", "view"];
 const KINDS = ["", "shared", "project", "user"];
 
+const PROFILE_SETTING_KEY = "profile_conversions";
+
+// Whether a row is a candidate for the (i) details modal. Convert
+// rows always qualify (they may have metrics, traceback, or both);
+// other rows only show the icon when they actually have an error or
+// traceback to surface, so the column doesn't fill with no-op
+// buttons.
+function hasDetails(e: AuditEntry): boolean {
+    if (e.action === "convert") return true;
+    return Boolean(e.error || e.traceback);
+}
+
+function hasMetrics(e: AuditEntry): boolean {
+    return (
+        e.cpu_user_ms != null ||
+        e.cpu_sys_ms != null ||
+        e.peak_rss_kb != null ||
+        e.read_bytes != null ||
+        e.write_bytes != null ||
+        e.profile_key != null ||
+        e.duration_ms != null
+    );
+}
+
 const AuditLogTab: React.FC = () => {
     const [filters, setFilters] = useState<AuditFilters>({limit: 100});
     const [entries, setEntries] = useState<AuditEntry[]>([]);
@@ -20,8 +44,60 @@ const AuditLogTab: React.FC = () => {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [filtersOpen, setFiltersOpen] = useState(false);
-    const [tracedEntry, setTracedEntry] = useState<AuditEntry | null>(null);
+    const [detailsEntry, setDetailsEntry] = useState<AuditEntry | null>(null);
+    const [profileEnabled, setProfileEnabled] = useState(false);
+    const [profileSaving, setProfileSaving] = useState(false);
+    const [clearing, setClearing] = useState(false);
     const activeFilterCount = countActive(filters);
+
+    // Initial fetch of the profile-conversions toggle. Failures are
+    // non-fatal — the row still renders, the toggle just stays off.
+    useEffect(() => {
+        let cancelled = false;
+        (async () => {
+            try {
+                const v = await viewerApi.adminGetSetting(PROFILE_SETTING_KEY);
+                if (!cancelled) setProfileEnabled((v || "").toLowerCase() === "true");
+            } catch {
+                /* ignore */
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, []);
+
+    const onProfileToggle = async (next: boolean) => {
+        setProfileSaving(true);
+        try {
+            await viewerApi.adminSetSetting(PROFILE_SETTING_KEY, next ? "true" : "false");
+            setProfileEnabled(next);
+        } catch (e) {
+            setError(e instanceof ApiError ? e.detail || e.message : String(e));
+        } finally {
+            setProfileSaving(false);
+        }
+    };
+
+    const onClearMetrics = async () => {
+        if (!window.confirm(
+            "Clear all conversion metrics and delete profile blobs? Audit rows themselves stay; only the metrics columns are nulled."
+        )) return;
+        setClearing(true);
+        try {
+            const r = await viewerApi.adminClearMetrics();
+            await reload(filters);
+            window.alert(
+                `Cleared ${r.rows_cleared} row(s); deleted ${r.profiles_deleted} profile blob(s).` +
+                (r.errors.length ? `\n${r.errors.length} error(s) — see browser console.` : "")
+            );
+            if (r.errors.length) console.warn("clear metrics errors", r.errors);
+        } catch (e) {
+            setError(e instanceof ApiError ? e.detail || e.message : String(e));
+        } finally {
+            setClearing(false);
+        }
+    };
 
     const reload = async (f: AuditFilters) => {
         setLoading(true);
@@ -116,6 +192,31 @@ const AuditLogTab: React.FC = () => {
                         Refresh
                     </button>
                 </div>
+                {/* Per-deployment knobs that affect future runs.
+                    Profile toggle persists in app_settings; Clear
+                    metrics nulls out columns + deletes blobs. */}
+                <div className="flex flex-wrap items-center gap-3 px-3 sm:px-4 pb-2 text-xs">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                            type="checkbox"
+                            checked={profileEnabled}
+                            onChange={(e) => onProfileToggle(e.target.checked)}
+                            disabled={profileSaving}
+                        />
+                        <span>
+                            Profile conversions
+                            {profileSaving ? <span className="text-gray-400"> (saving…)</span> : null}
+                        </span>
+                    </label>
+                    <button
+                        className="bg-gray-700 hover:bg-gray-600 px-2 py-1 rounded disabled:opacity-50"
+                        onClick={onClearMetrics}
+                        disabled={clearing}
+                        title="Null out all metrics columns and delete profile blobs"
+                    >
+                        {clearing ? "Clearing…" : "Clear metrics"}
+                    </button>
+                </div>
             </div>
             {error && (
                 <div className="px-3 sm:px-4 py-2 text-red-300 text-xs border-b border-gray-700">
@@ -164,13 +265,13 @@ const AuditLogTab: React.FC = () => {
                             <Td>{e.target_format || ""}</Td>
                             <Td title={e.error || ""}>
                                 <span className={statusClass(e.status)}>{e.status || ""}</span>
-                                {e.error && (
+                                {hasDetails(e) && (
                                     <button
                                         type="button"
                                         className="ml-1 inline-flex items-center justify-center w-4 h-4 rounded-full border border-gray-500 text-gray-300 hover:text-white hover:border-white text-[10px] font-bold leading-none align-middle no-drag"
-                                        onClick={() => setTracedEntry(e)}
-                                        title="Show error details"
-                                        aria-label="Show error details"
+                                        onClick={() => setDetailsEntry(e)}
+                                        title={e.error ? "Show error / metrics" : "Show metrics"}
+                                        aria-label="Show details"
                                     >
                                         i
                                     </button>
@@ -213,10 +314,21 @@ const AuditLogTab: React.FC = () => {
                                     <button
                                         type="button"
                                         className="shrink-0 inline-flex items-center justify-center w-4 h-4 rounded-full border border-gray-500 text-gray-300 hover:text-white hover:border-white text-[10px] font-bold leading-none mt-0.5 no-drag"
-                                        onClick={() => setTracedEntry(e)}
-                                        aria-label="Show error details"
+                                        onClick={() => setDetailsEntry(e)}
+                                        aria-label="Show details"
                                     >
                                         i
+                                    </button>
+                                </div>
+                            )}
+                            {!e.error && hasDetails(e) && (
+                                <div className="mt-1">
+                                    <button
+                                        type="button"
+                                        className="text-[10px] text-gray-400 hover:text-white underline no-drag"
+                                        onClick={() => setDetailsEntry(e)}
+                                    >
+                                        details
                                     </button>
                                 </div>
                             )}
@@ -240,18 +352,24 @@ const AuditLogTab: React.FC = () => {
                 </button>
                 {loading && <span className="text-gray-500">loading…</span>}
             </div>
-            {tracedEntry && (
-                <ErrorDetailsModal entry={tracedEntry} onClose={() => setTracedEntry(null)}/>
+            {detailsEntry && (
+                <DetailsModal entry={detailsEntry} onClose={() => setDetailsEntry(null)}/>
             )}
         </div>
     );
 };
 
-// Modal sits above the admin window's backdrop. Sized for a dense
-// stack trace; mono font, no wrap so indentation reads correctly, but
-// container scrolls in both axes for the inevitable long pointer-paths.
-const ErrorDetailsModal: React.FC<{entry: AuditEntry; onClose: () => void}> = ({entry, onClose}) => {
+// Tabbed details view: Error (or 'OK' summary) on one tab, Metrics
+// on the other. Both tabs render even when their data is partial so
+// the user gets a consistent layout regardless of job outcome — a
+// timed-out conversion and a clean success share the same shape.
+const DetailsModal: React.FC<{entry: AuditEntry; onClose: () => void}> = ({entry, onClose}) => {
+    const [tab, setTab] = useState<"error" | "metrics">(
+        entry.error || entry.traceback ? "error" : "metrics",
+    );
     const [copied, setCopied] = useState(false);
+    const [downloading, setDownloading] = useState(false);
+    const [downloadErr, setDownloadErr] = useState<string | null>(null);
 
     useEffect(() => {
         const onKey = (e: KeyboardEvent) => {
@@ -263,8 +381,7 @@ const ErrorDetailsModal: React.FC<{entry: AuditEntry; onClose: () => void}> = ({
 
     const traceText = entry.traceback || entry.error || "";
     const copyPayload =
-        (entry.error ? `${entry.error}\n\n` : "") +
-        (entry.traceback || "");
+        (entry.error ? `${entry.error}\n\n` : "") + (entry.traceback || "");
 
     const onCopy = async () => {
         try {
@@ -273,6 +390,22 @@ const ErrorDetailsModal: React.FC<{entry: AuditEntry; onClose: () => void}> = ({
             setTimeout(() => setCopied(false), 1500);
         } catch {
             /* clipboard blocked — user can still select-and-copy by hand */
+        }
+    };
+
+    const onDownloadProfile = async () => {
+        if (!entry.profile_key) return;
+        setDownloading(true);
+        setDownloadErr(null);
+        try {
+            // Suggest the storage filename so the user gets a stable
+            // name on disk; tail of the key after the last slash.
+            const suggested = entry.profile_key.split("/").pop() || `audit-${entry.id}.prof`;
+            await viewerApi.adminDownloadProfile(entry.id, suggested);
+        } catch (e) {
+            setDownloadErr(e instanceof ApiError ? e.detail || e.message : String(e));
+        } finally {
+            setDownloading(false);
         }
     };
 
@@ -285,25 +418,27 @@ const ErrorDetailsModal: React.FC<{entry: AuditEntry; onClose: () => void}> = ({
                 className="bg-gray-900 border border-gray-700 rounded shadow-xl flex flex-col max-w-3xl w-full max-h-[85vh]"
                 onClick={(e) => e.stopPropagation()}
                 role="dialog"
-                aria-label="Error details"
+                aria-label="Audit row details"
             >
                 <div className="flex items-start gap-3 border-b border-gray-700 px-4 py-2">
                     <div className="flex-1 min-w-0">
-                        <div className="text-sm font-semibold">Error details</div>
+                        <div className="text-sm font-semibold">Audit details</div>
                         <div className="text-xs text-gray-400 truncate" title={entry.key || ""}>
                             {entry.action}
                             {entry.key ? ` · ${entry.key}` : ""}
                             {entry.target_format ? ` → ${entry.target_format}` : ""}
                         </div>
                     </div>
-                    <button
-                        type="button"
-                        className="shrink-0 bg-gray-800 hover:bg-gray-700 text-gray-100 px-2 py-1 rounded text-xs"
-                        onClick={onCopy}
-                        title="Copy traceback to clipboard"
-                    >
-                        {copied ? "Copied" : "Copy"}
-                    </button>
+                    {tab === "error" && entry.traceback && (
+                        <button
+                            type="button"
+                            className="shrink-0 bg-gray-800 hover:bg-gray-700 text-gray-100 px-2 py-1 rounded text-xs"
+                            onClick={onCopy}
+                            title="Copy traceback to clipboard"
+                        >
+                            {copied ? "Copied" : "Copy"}
+                        </button>
+                    )}
                     <button
                         type="button"
                         className="shrink-0 text-gray-300 hover:text-white text-xl leading-none px-2"
@@ -314,28 +449,168 @@ const ErrorDetailsModal: React.FC<{entry: AuditEntry; onClose: () => void}> = ({
                         ×
                     </button>
                 </div>
-                {entry.error && (
-                    <div className="px-4 py-2 text-sm text-red-300 border-b border-gray-800 break-words">
-                        {entry.error}
-                    </div>
-                )}
+                <div className="flex border-b border-gray-700 text-xs">
+                    <TabButton active={tab === "error"} onClick={() => setTab("error")}>
+                        {entry.error ? "Error" : "Outcome"}
+                    </TabButton>
+                    <TabButton active={tab === "metrics"} onClick={() => setTab("metrics")}>
+                        Metrics
+                        {hasMetrics(entry) ? null : (
+                            <span className="text-gray-500"> (none)</span>
+                        )}
+                    </TabButton>
+                </div>
                 <div className="flex-1 overflow-auto">
-                    {entry.traceback ? (
-                        <pre className="px-4 py-2 text-xs text-gray-200 whitespace-pre font-mono">
-{entry.traceback}
-                        </pre>
-                    ) : (
-                        <div className="px-4 py-3 text-xs text-gray-400">
-                            No traceback recorded for this entry. Re-run the failing
-                            action to capture a fresh trace — older rows pre-date the
-                            traceback column.
-                        </div>
+                    {tab === "error" && (
+                        <ErrorTab entry={entry}/>
+                    )}
+                    {tab === "metrics" && (
+                        <MetricsTab
+                            entry={entry}
+                            onDownloadProfile={onDownloadProfile}
+                            downloading={downloading}
+                            downloadErr={downloadErr}
+                        />
                     )}
                 </div>
             </div>
         </div>
     );
 };
+
+const TabButton: React.FC<{active: boolean; onClick: () => void; children: React.ReactNode}> = ({
+    active, onClick, children,
+}) => (
+    <button
+        type="button"
+        onClick={onClick}
+        className={
+            "px-3 py-1.5 border-b-2 " +
+            (active
+                ? "border-blue-500 text-white"
+                : "border-transparent text-gray-400 hover:text-gray-200")
+        }
+    >
+        {children}
+    </button>
+);
+
+const ErrorTab: React.FC<{entry: AuditEntry}> = ({entry}) => {
+    if (entry.error || entry.traceback) {
+        return (
+            <>
+                {entry.error && (
+                    <div className="px-4 py-2 text-sm text-red-300 border-b border-gray-800 break-words">
+                        {entry.error}
+                    </div>
+                )}
+                {entry.traceback ? (
+                    <pre className="px-4 py-2 text-xs text-gray-200 whitespace-pre font-mono">
+{entry.traceback}
+                    </pre>
+                ) : (
+                    <div className="px-4 py-3 text-xs text-gray-400">
+                        No traceback recorded for this entry.
+                    </div>
+                )}
+            </>
+        );
+    }
+    return (
+        <div className="px-4 py-3 text-xs text-gray-300 space-y-1">
+            <div>Status: <span className="font-mono">{entry.status || "n/a"}</span></div>
+            {entry.duration_ms != null && (
+                <div>Duration: <span className="font-mono">{formatDuration(entry.duration_ms)}</span></div>
+            )}
+            {entry.job_id && (
+                <div className="break-all">Job: <span className="font-mono">{entry.job_id}</span></div>
+            )}
+            <div className="text-gray-500 mt-2">
+                No error reported for this entry. Switch to the Metrics tab for
+                CPU / memory / IO data.
+            </div>
+        </div>
+    );
+};
+
+const MetricsTab: React.FC<{
+    entry: AuditEntry;
+    onDownloadProfile: () => void;
+    downloading: boolean;
+    downloadErr: string | null;
+}> = ({entry, onDownloadProfile, downloading, downloadErr}) => {
+    if (!hasMetrics(entry)) {
+        return (
+            <div className="px-4 py-3 text-xs text-gray-400">
+                No metrics captured for this entry.
+                {entry.action !== "convert" ? (
+                    <span> Only conversion runs collect resource metrics.</span>
+                ) : (
+                    <span> The worker that processed this job pre-dates the metrics column.</span>
+                )}
+            </div>
+        );
+    }
+    return (
+        <div className="px-4 py-3 text-xs text-gray-200 space-y-3">
+            <dl className="grid grid-cols-[max-content_1fr] gap-x-4 gap-y-1 font-mono">
+                <MetricRow label="Wall" value={formatDuration(entry.duration_ms)}/>
+                <MetricRow label="CPU user" value={formatDuration(entry.cpu_user_ms)}/>
+                <MetricRow label="CPU sys"  value={formatDuration(entry.cpu_sys_ms)}/>
+                <MetricRow label="Peak RSS" value={formatBytes((entry.peak_rss_kb ?? null) != null ? (entry.peak_rss_kb as number) * 1024 : null)}/>
+                <MetricRow label="Read"     value={formatBytes(entry.read_bytes)}/>
+                <MetricRow label="Write"    value={formatBytes(entry.write_bytes)}/>
+            </dl>
+            {entry.profile_key ? (
+                <div className="pt-2 border-t border-gray-800">
+                    <button
+                        type="button"
+                        className="bg-blue-700 hover:bg-blue-600 px-3 py-1 rounded text-xs disabled:opacity-50"
+                        onClick={onDownloadProfile}
+                        disabled={downloading}
+                    >
+                        {downloading ? "Downloading…" : "Download profile (.prof)"}
+                    </button>
+                    <div className="text-[10px] text-gray-500 mt-1">
+                        Loadable in snakeviz / speedscope / pstats.
+                    </div>
+                    {downloadErr && (
+                        <div className="text-red-300 text-[10px] mt-1 break-all">{downloadErr}</div>
+                    )}
+                </div>
+            ) : (
+                <div className="text-[10px] text-gray-500 pt-2 border-t border-gray-800">
+                    No profile attached. Toggle "Profile conversions" above and re-run.
+                </div>
+            )}
+        </div>
+    );
+};
+
+const MetricRow: React.FC<{label: string; value: string}> = ({label, value}) => (
+    <>
+        <dt className="text-gray-400">{label}</dt>
+        <dd>{value}</dd>
+    </>
+);
+
+function formatDuration(ms: number | null): string {
+    if (ms == null) return "–";
+    if (ms < 1000) return `${ms} ms`;
+    const s = ms / 1000;
+    if (s < 60) return `${s.toFixed(2)} s`;
+    const m = Math.floor(s / 60);
+    const rem = (s - m * 60).toFixed(1);
+    return `${m}m ${rem}s`;
+}
+
+function formatBytes(n: number | null): string {
+    if (n == null) return "–";
+    if (n < 1024) return `${n} B`;
+    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KiB`;
+    if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MiB`;
+    return `${(n / 1024 / 1024 / 1024).toFixed(2)} GiB`;
+}
 
 const FilterInput: React.FC<{
     placeholder: string;

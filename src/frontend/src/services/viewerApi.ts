@@ -133,6 +133,13 @@ export interface AuditEntry {
     error: string | null;
     duration_ms: number | null;
     traceback: string | null;
+    cpu_user_ms: number | null;
+    cpu_sys_ms: number | null;
+    peak_rss_kb: number | null;
+    read_bytes: number | null;
+    write_bytes: number | null;
+    profile_key: string | null;
+    job_id: string | null;
 }
 
 export interface AdminProject {
@@ -408,6 +415,69 @@ export const viewerApi = {
         const url = `${runtime.apiBase()}/admin/audit${qs ? `?${qs}` : ""}`;
         const r = await authedFetch(url);
         return jsonOrThrow(r, "adminAudit");
+    },
+
+    /** Admin: read a key from app_settings. Value is null when unset. */
+    async adminGetSetting(key: string): Promise<string | null> {
+        const r = await authedFetch(
+            `${runtime.apiBase()}/admin/settings/${encodeURIComponent(key)}`,
+        );
+        const body = await jsonOrThrow<{key: string; value: string | null}>(r, `adminGetSetting(${key})`);
+        return body.value;
+    },
+
+    /** Admin: set a key in app_settings. Stringified server-side; the
+     * caller is responsible for the encoding (e.g. "true"/"false"). */
+    async adminSetSetting(key: string, value: string): Promise<void> {
+        const r = await authedFetch(
+            `${runtime.apiBase()}/admin/settings/${encodeURIComponent(key)}`,
+            {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({value}),
+            },
+        );
+        if (!r.ok) {
+            throw new ApiError(`adminSetSetting(${key})`, r.status, await readDetail(r));
+        }
+    },
+
+    /** Direct URL for a profile-dump download. Auth-aware caller
+     * should fetch via authedFetch + blob — exposing the URL here
+     * keeps it composable with the table's <a download>. */
+    adminProfileUrl(auditId: number): string {
+        return `${runtime.apiBase()}/admin/audit/${auditId}/profile`;
+    },
+
+    /** Trigger the .prof download with the bearer token attached. */
+    async adminDownloadProfile(auditId: number, suggestedName: string): Promise<void> {
+        const r = await authedFetch(this.adminProfileUrl(auditId));
+        if (!r.ok) {
+            throw new ApiError(`adminDownloadProfile(${auditId})`, r.status, await readDetail(r));
+        }
+        const blob = await r.blob();
+        const url = URL.createObjectURL(blob);
+        try {
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = suggestedName;
+            a.style.display = "none";
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+        } finally {
+            URL.revokeObjectURL(url);
+        }
+    },
+
+    /** Admin: clear all conversion metrics + delete profile blobs.
+     * Returns counts so the UI can confirm what was wiped. */
+    async adminClearMetrics(): Promise<{rows_cleared: number; profiles_deleted: number; errors: string[]}> {
+        const r = await authedFetch(
+            `${runtime.apiBase()}/admin/audit/metrics`,
+            {method: "DELETE"},
+        );
+        return jsonOrThrow(r, "adminClearMetrics");
     },
 
     async adminListProjects(): Promise<AdminProject[]> {
