@@ -180,6 +180,33 @@ class JobQueue:
     async def _put(self, job: Job) -> None:
         await self._kv.put(job.job_id, job.to_json())
 
+    # --- meta-state helpers ------------------------------------------
+    #
+    # The shared KV bucket also holds small operational metadata under
+    # an ``__meta:`` prefix that can't collide with uuid.hex-shaped job
+    # IDs. Used today for the worker pod self-reporting its image tag
+    # so the viewer's /api/config can surface it.
+
+    _META_KEY_PREFIX = "__meta_"
+
+    async def set_meta(self, key: str, value: str) -> None:
+        if self._kv is None:
+            return
+        await self._kv.put(f"{self._META_KEY_PREFIX}{key}", value.encode("utf-8"))
+
+    async def get_meta(self, key: str) -> str | None:
+        if self._kv is None:
+            return None
+        try:
+            entry = await self._kv.get(f"{self._META_KEY_PREFIX}{key}")
+        except KeyNotFoundError:
+            return None
+        except BucketNotFoundError:
+            return None
+        if entry.value is None:
+            return None
+        return entry.value.decode("utf-8", errors="replace")
+
     # --- consumer side (called from worker) --------------------------
 
     async def pull_subscribe(self):

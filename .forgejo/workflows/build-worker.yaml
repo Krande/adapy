@@ -52,6 +52,7 @@ jobs:
           BRANCH_TAG="branch-$(printf '%s' "$GITHUB_REF_NAME" | tr '/' '-')"
           docker build \
             -f deploy/Dockerfile.worker \
+            --build-arg "IMAGE_TAG=${TAG}" \
             -t "${REGISTRY_IMAGE}:${TAG}" \
             -t "${REGISTRY_IMAGE}:${BRANCH_TAG}" \
             .

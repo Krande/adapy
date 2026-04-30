@@ -115,6 +115,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # — but it never leaks user data, so we serve it unauthenticated.
     @app.get("/api/config")
     async def api_config() -> JSONResponse:
+        # Image tags. Viewer's tag is baked in at image-build time
+        # (deploy/Dockerfile.viewer ARG IMAGE_TAG) and read from env.
+        # Worker's tag comes from the shared NATS KV — the worker
+        # publishes its tag on startup. Either may be missing in dev /
+        # local runs; the SPA hides the row when both are empty.
+        viewer_tag = os.environ.get("ADA_IMAGE_TAG", "").strip() or None
+        worker_tag: str | None = None
+        if queue.enabled:
+            try:
+                worker_tag = await queue.get_meta("worker_image_tag")
+            except Exception:
+                logger.exception("config: failed to read worker image tag")
         return JSONResponse({
             "transport": "rest",
             "apiBase": "/api",
@@ -127,6 +139,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 # request the right token from Azure-style providers.
                 "audience": settings.auth.audience,
             },
+            "viewerImageTag": viewer_tag,
+            "workerImageTag": worker_tag,
         })
 
     # Every /api/* below this line requires a verified user. The dep is
@@ -1018,6 +1032,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # encoded so any embedded quotes can't break out of the literal.
         import json as _json
 
+        viewer_tag = os.environ.get("ADA_IMAGE_TAG", "").strip() or None
+        worker_tag: str | None = None
+        if queue.enabled:
+            try:
+                worker_tag = await queue.get_meta("worker_image_tag")
+            except Exception:
+                logger.exception("config.js: failed to read worker image tag")
+
         a = settings.auth
         body = (
             'window.COMMS_MODE = "rest";\n'
@@ -1027,6 +1049,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             f"window.AUTH_ISSUER = {_json.dumps(a.issuer)};\n"
             f"window.AUTH_CLIENT_ID = {_json.dumps(a.client_id)};\n"
             f"window.AUTH_AUDIENCE = {_json.dumps(a.audience)};\n"
+            f"window.VIEWER_IMAGE_TAG = {_json.dumps(viewer_tag)};\n"
+            f"window.WORKER_IMAGE_TAG = {_json.dumps(worker_tag)};\n"
         )
         return PlainTextResponse(body, media_type="application/javascript")
 

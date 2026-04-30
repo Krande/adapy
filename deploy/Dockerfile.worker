@@ -8,8 +8,14 @@
 # meaningfully shrink things.
 
 ARG PIXI_VERSION=0.67.0
+# CI passes --build-arg IMAGE_TAG=sha-XXXXXXX so the worker can publish
+# its image identity to the shared NATS KV bucket on startup; the
+# viewer reads that to show the running worker tag in /api/config.
+# Defaults to "dev" for local builds.
+ARG IMAGE_TAG=dev
 
 FROM ghcr.io/prefix-dev/pixi:${PIXI_VERSION}
+ARG IMAGE_TAG
 WORKDIR /app
 
 # Solve and materialize the env first — keeps the heavy layer cached
@@ -23,7 +29,8 @@ COPY src/ ./src/
 ENV PYTHONUNBUFFERED=1 \
     PYTHONPATH=/app/src \
     ADA_VIEWER_STORAGE_KIND=local \
-    ADA_VIEWER_LOCAL_PATH=/data
+    ADA_VIEWER_LOCAL_PATH=/data \
+    ADA_IMAGE_TAG=${IMAGE_TAG}
 
 # `pixi run` activates the env and exec's the task. Python's asyncio
 # signal handlers in the worker handle SIGTERM/SIGINT cleanly as PID 1.

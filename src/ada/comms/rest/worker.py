@@ -229,6 +229,17 @@ async def _run() -> None:
     queue = JobQueue(settings.queue)
     await queue.connect()
 
+    # Self-identify so the viewer's /api/config can surface the
+    # currently-running worker image tag. Best-effort: a KV write
+    # failure shouldn't keep the worker from accepting jobs.
+    image_tag = os.environ.get("ADA_IMAGE_TAG", "").strip()
+    if image_tag:
+        try:
+            await queue.set_meta("worker_image_tag", image_tag)
+            logger.info("worker: published image tag %s", image_tag)
+        except Exception:
+            logger.exception("worker: failed to publish image tag (non-fatal)")
+
     # Optional DB pool — only used to flip audit_log rows from 'queued'
     # to 'done'/'error' when a job finishes. Without it the worker still
     # functions; admin panel rows just stay at 'queued'. Migrations are

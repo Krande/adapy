@@ -53,6 +53,9 @@ function OptionsComponent() {
     const setIsOptionsVisible = useOptionsStore((s) => s.setIsOptionsVisible);
 
     const unique_version_id = runtime.uniqueVersionId();
+    const viewer_image_tag = runtime.viewerImageTag();
+    const worker_image_tag = runtime.workerImageTag();
+    const show_image_tags = runtime.isRestMode() && (viewer_image_tag || worker_image_tag);
 
     useEffect(() => {
         const mq = window.matchMedia(MOBILE_QUERY);
@@ -112,6 +115,16 @@ function OptionsComponent() {
                 </div>
                 <div className="flex-1 overflow-y-auto p-4 flex flex-col space-y-4">
                     <div className="text-xs text-gray-300">Version: {unique_version_id}</div>
+                    {show_image_tags && (
+                        <div className="text-xs text-gray-300 space-y-0.5">
+                            {viewer_image_tag && (
+                                <div>Viewer: <span className="font-mono">{viewer_image_tag}</span></div>
+                            )}
+                            {worker_image_tag && (
+                                <div>Worker: <span className="font-mono">{worker_image_tag}</span></div>
+                            )}
+                        </div>
+                    )}
                     {sections}
                 </div>
             </div>

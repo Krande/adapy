@@ -21,6 +21,13 @@ declare global {
         AUTH_ISSUER?: string;
         AUTH_CLIENT_ID?: string;
         AUTH_AUDIENCE?: string;
+        // Image tags reported by the viewer pod (env-baked at image
+        // build) and the worker pod (published to NATS KV on
+        // startup, surfaced here via /config.js). Either may be null
+        // for dev builds — Options panel hides the row when both are
+        // empty so the offline / desktop bundle stays clean.
+        VIEWER_IMAGE_TAG?: string | null;
+        WORKER_IMAGE_TAG?: string | null;
         WEBSOCKET_ID?: number | string;
         WEBSOCKET_PORT?: number | string;
         TARGET_INSTANCE_ID?: number | string;
@@ -42,6 +49,11 @@ export const runtime = {
 
     // REST conversion pipeline
     convertEnabled: (): boolean => Boolean(w().CONVERT_ENABLED),
+
+    // Image identity (REST mode only). Either may be empty in dev or
+    // when the worker hasn't reported in yet.
+    viewerImageTag: (): string => (w().VIEWER_IMAGE_TAG || "").trim(),
+    workerImageTag: (): string => (w().WORKER_IMAGE_TAG || "").trim(),
 
     // OIDC bootstrap. authEnabled() drives whether the SPA puts up an
     // auth gate at all; in dev / desktop it's false and the rest of

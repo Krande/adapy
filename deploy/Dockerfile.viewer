@@ -16,10 +16,15 @@ RUN npm run build:serve
 # faster and produces a smaller image. ada-py itself is needed only for
 # the flatbuffer wrappers, so we install it without optional extras.
 FROM python:3.12-slim AS runtime
+# CI passes --build-arg IMAGE_TAG=sha-XXXXXXX so the running container
+# can self-report its image identity via /api/config. Falls back to
+# "dev" for local builds; the SPA hides the field for that value.
+ARG IMAGE_TAG=dev
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    PIP_NO_CACHE_DIR=1
+    PIP_NO_CACHE_DIR=1 \
+    ADA_IMAGE_TAG=${IMAGE_TAG}
 
 WORKDIR /app
 
