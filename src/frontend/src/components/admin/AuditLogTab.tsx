@@ -237,8 +237,9 @@ const AuditLogTab: React.FC = () => {
                     rest of the row. Removes the postage-stamp truncation
                     that kicked in even when the modal had room to show
                     the full path. */}
-                <table className="hidden sm:table w-full text-sm table-fixed min-w-[1200px]">
+                <table className="hidden sm:table w-full text-sm table-fixed min-w-[1260px]">
                     <colgroup>
+                        <col className="w-[4rem]"/>
                         <col className="w-[10rem]"/>
                         <col className="w-[8rem]"/>
                         <col className="w-[12rem]"/>
@@ -249,6 +250,7 @@ const AuditLogTab: React.FC = () => {
                     </colgroup>
                     <thead className="sticky top-0 bg-gray-800">
                     <tr className="text-left">
+                        <Th>ID</Th>
                         <Th>Time</Th>
                         <Th>User</Th>
                         <Th>Scope</Th>
@@ -261,6 +263,9 @@ const AuditLogTab: React.FC = () => {
                     <tbody>
                     {entries.map((e) => (
                         <tr key={e.id} className="border-t border-gray-800 hover:bg-gray-800/40">
+                            <Td>
+                                <span className="font-mono text-gray-300">#{e.id}</span>
+                            </Td>
                             <Td title={e.ts || ""}>{formatTs(e.ts)}</Td>
                             <Td title={e.user_sub || ""}>{shortSub(e.user_sub)}</Td>
                             <Td title={e.scope_id || ""}>
@@ -293,7 +298,10 @@ const AuditLogTab: React.FC = () => {
                     {entries.map((e) => (
                         <li key={e.id} className="px-3 py-2 text-xs">
                             <div className="flex items-baseline justify-between gap-2">
-                                <span className="font-medium">{e.action}</span>
+                                <span className="font-medium">
+                                    <span className="font-mono text-gray-400 mr-1">#{e.id}</span>
+                                    {e.action}
+                                </span>
                                 <span className={statusClass(e.status) + " text-[11px]"}>
                                     {e.status || ""}
                                 </span>
