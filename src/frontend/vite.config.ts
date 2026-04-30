@@ -25,7 +25,16 @@ export default defineConfig({
         rollupOptions: {
             input: path.resolve(__dirname, 'src/index.html'), // Normal Frontend Entry
             output: {
-                manualChunks: undefined
+                // Single-chunk output for the offline / embedded bundle. The
+                // Python package serves this as one inlined HTML (see
+                // embed-script.cjs); any dynamic-import chunk that rollup
+                // emits would land at /assets/foo-XXX.js, which is *not*
+                // inlined — runtime imports then 404 and the SPA never
+                // boots. `manualChunks: undefined` alone only suppresses
+                // manual splits; `inlineDynamicImports` is what folds
+                // every `await import(...)` back into the entry.
+                manualChunks: undefined,
+                inlineDynamicImports: true,
             }
         }
     },
