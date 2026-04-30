@@ -13,7 +13,7 @@ from ada.config import logger
 from ada.core.guid import create_guid
 from ada.fem.formats.general import FEATypes
 from ada.fem.results.field_data import ElementFieldData, NodalFieldData, NodalFieldType
-from ada.fem.shapes.definitions import LineShapes, MassTypes, ShellShapes, SolidShapes
+from ada.fem.shapes.definitions import LineShapes, ShellShapes, SolidShapes
 from ada.visit.gltf.graph import GraphNode, GraphStore
 from ada.visit.gltf.meshes import GroupReference, MergedMesh, MeshType
 from ada.visit.render_params import FEARenderParams, RenderParams
@@ -152,14 +152,18 @@ class Mesh:
         faces = []
         for cell_block in self.elements:
             el_type = cell_block.elem_info.type
+            # Mass elements (point + nonstructural) don't contribute to
+            # vis. Skip at the block level so ElemShape construction
+            # never sees node-ref arrays bundled by an elset (e.g.
+            # *Nonstructural Mass) which would fail the 1-node check.
+            if isinstance(el_type, shape_def.MassTypes):
+                continue
 
             nodes_copy = cell_block.node_refs.copy()
             nodes_copy[np.isin(nodes_copy, keys)] = np.vectorize(nmap.get)(nodes_copy[np.isin(nodes_copy, keys)])
 
             for elem in nodes_copy:
                 elem_shape = ElemShape(el_type, elem)
-                if elem_shape.type in (MassTypes.MASS,):
-                    continue
                 try:
                     edges += elem_shape.edges
                 except IndexError as e:
@@ -223,6 +227,9 @@ class Mesh:
 
         for cell_block in self.elements:
             el_type = cell_block.elem_info.type
+            # Mass elements don't contribute to vis — see note above.
+            if isinstance(el_type, shape_def.MassTypes):
+                continue
 
             nodes_copy = cell_block.node_refs.copy()
             nodes_copy[np.isin(nodes_copy, keys)] = np.vectorize(nmap.get)(nodes_copy[np.isin(nodes_copy, keys)])
@@ -234,8 +241,6 @@ class Mesh:
             for elem_ref, elem in enumerate(nodes_copy, start=0):
                 elem_id = el_idmap[elem_ref]
                 elem_shape = ElemShape(el_type, elem)
-                if elem_shape.type in (MassTypes.MASS,):
-                    continue
 
                 new_edges = elem_shape.edges
                 edges += new_edges
