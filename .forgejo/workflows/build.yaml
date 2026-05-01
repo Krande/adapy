@@ -119,6 +119,11 @@ jobs:
       - name: Build and push viewer image
         env:
           REGISTRY_IMAGE: ${{ secrets.VIEWER_REGISTRY_IMAGE }}
+          # Optional secret pinning which adacpp git ref the in-browser
+          # pyodide worker links against. If unset the Dockerfile
+          # default (feat/cad-handler) applies — flip to `main` once
+          # the OCCT-wasm changes have landed there.
+          ADACPP_REF: ${{ secrets.ADACPP_REF }}
         run: |
           if [ -z "$REGISTRY_IMAGE" ]; then
             echo "::error::VIEWER_REGISTRY_IMAGE secret is not set on this repo. Configure it (and REGISTRY_DOCKER_CONFIG) under Settings → Actions → Secrets before re-running."
@@ -126,9 +131,14 @@ jobs:
           fi
           TAG="sha-${GITHUB_SHA::7}"
           BRANCH_TAG="branch-$(printf '%s' "$GITHUB_REF_NAME" | tr '/' '-')"
+          ADACPP_BUILD_ARG=""
+          if [ -n "$ADACPP_REF" ]; then
+            ADACPP_BUILD_ARG="--build-arg ADACPP_REF=${ADACPP_REF}"
+          fi
           docker build \
             -f deploy/Dockerfile.viewer \
             --build-arg "IMAGE_TAG=${TAG}" \
+            ${ADACPP_BUILD_ARG} \
             -t "${REGISTRY_IMAGE}:${TAG}" \
             -t "${REGISTRY_IMAGE}:${BRANCH_TAG}" \
             .

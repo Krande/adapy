@@ -11,7 +11,14 @@ export type {TargetFormat} from "@/services/viewerApi";
 
 function shouldUsePyodide(sourceKey: string, targetFormat: TargetFormat): boolean {
     if (targetFormat !== "glb") return false;
-    if (!sourceKey.toLowerCase().endsWith(".ifc")) return false;
+    const lower = sourceKey.toLowerCase();
+    // .ifc → ifcopenshell wasm wheel + trimesh; .step/.stp → adacpp wasm
+    // wheel + adapy.cad. Both share one Pyodide worker, lazy-initialised
+    // per stack so the unused format never pays its install cost.
+    const supported = lower.endsWith(".ifc")
+        || lower.endsWith(".step")
+        || lower.endsWith(".stp");
+    if (!supported) return false;
     return useExperimentalStore.getState().pyodideConverter;
 }
 

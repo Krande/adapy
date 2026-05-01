@@ -1,5 +1,31 @@
 # syntax=docker/dockerfile:1.7
 
+# Stage 0: build the adacpp pyodide wheel from a configurable git ref.
+# Produces /out/adacpp.whl which the SPA serves as a static asset for
+# the in-browser pyodide worker to micropip.install. Heavy stage (clones
+# OCCT 7.9, cross-compiles to wasm via emscripten — first run ~30 min)
+# but cached by docker layer hash; only re-runs when ADACPP_REF changes.
+#
+# To rebuild against a different adacpp commit/branch, override at build
+# time:  docker build --build-arg ADACPP_REF=<sha-or-branch> ...
+FROM ghcr.io/prefix-dev/pixi:0.45.0 AS adacpp-wheel
+ARG ADACPP_REPO=https://github.com/Krande/adacpp.git
+ARG ADACPP_REF=feat/cad-handler
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends git ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+WORKDIR /src
+RUN git clone --depth=1 --branch "${ADACPP_REF}" "${ADACPP_REPO}" adacpp \
+ || (git clone "${ADACPP_REPO}" adacpp \
+     && cd adacpp \
+     && git fetch --depth=1 origin "${ADACPP_REF}" \
+     && git checkout "${ADACPP_REF}")
+WORKDIR /src/adacpp
+# pack-wheel-pyodide depends-on=wbuild-pyodide; one invocation does
+# clone-OCCT, build, install, package wheel.
+RUN pixi run --environment wasm pack-wheel-pyodide
+RUN mkdir -p /out && cp dist/ada_cpp-*.whl /out/adacpp.whl
+
 # Stage 1: build the SPA bundle.
 FROM node:20-slim AS frontend-build
 WORKDIR /build
@@ -10,6 +36,14 @@ COPY src/frontend/ ./
 # without the embed-script inlining step (that's reserved for `build`,
 # which produces the singlefile bundle baked into the Python package).
 RUN npm run build:serve
+
+# After Vite produces dist/, layer in the static assets the pyodide
+# worker fetches at runtime: the adacpp wheel and the minimal adapy
+# source closure (just ada/__init__.py + ada/cad/__init__.py — these
+# are the only files imported in the pyodide branch of __init__.py).
+COPY --from=adacpp-wheel /out/adacpp.whl /build/dist/wheels/adacpp.whl
+COPY src/ada/__init__.py        /build/dist/adapy_src/ada/__init__.py
+COPY src/ada/cad/__init__.py    /build/dist/adapy_src/ada/cad/__init__.py
 
 # Stage 2: runtime — slim Python with the API and the static SPA.
 # We avoid pixi here because the viewer-api has a small dep set; pip is

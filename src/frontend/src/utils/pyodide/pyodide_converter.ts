@@ -59,8 +59,13 @@ export async function ensurePyodideWorker(onLog?: (msg: string) => void): Promis
     return workerPromise;
 }
 
-/** Run a single conversion via the Pyodide worker. */
-export async function convertIfcViaPyodide(
+export type PyodideSourceFormat = "ifc" | "step";
+
+/** Run a single conversion via the Pyodide worker. Format selects which
+ * pyodide stack handles the bytes — ifc → ifcopenshell+trimesh; step →
+ * adacpp.cad (OCCT-cross-compiled wasm). */
+export async function convertViaPyodide(
+    format: PyodideSourceFormat,
     bytes: ArrayBuffer,
     opts?: {onLog?: (msg: string) => void},
 ): Promise<Uint8Array> {
@@ -84,8 +89,16 @@ export async function convertIfcViaPyodide(
             }
         };
         worker.addEventListener("message", onMessage);
-        worker.postMessage({type: "convert", reqId, bytes}, [bytes]);
+        worker.postMessage({type: "convert", reqId, format, bytes}, [bytes]);
     });
+}
+
+/** Backwards-compatible IFC entry point — keeps existing callers working. */
+export async function convertIfcViaPyodide(
+    bytes: ArrayBuffer,
+    opts?: {onLog?: (msg: string) => void},
+): Promise<Uint8Array> {
+    return convertViaPyodide("ifc", bytes, opts);
 }
 
 /** Tear down the worker. Useful for hot-reload during development. */

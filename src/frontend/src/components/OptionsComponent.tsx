@@ -141,6 +141,16 @@ function OptionsComponent() {
         >
             <h2 className="font-bold">Options</h2>
             <div className="text-xs text-gray-300">Version: {unique_version_id}</div>
+            {show_image_tags && (
+                <div className="text-xs text-gray-300 space-y-0.5">
+                    {viewer_image_tag && (
+                        <div>Viewer: <span className="font-mono">{viewer_image_tag}</span></div>
+                    )}
+                    {worker_image_tag && (
+                        <div>Worker: <span className="font-mono">{worker_image_tag}</span></div>
+                    )}
+                </div>
+            )}
             {sections}
         </div>
     );
