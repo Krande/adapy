@@ -67,6 +67,11 @@ frontend = { features = ["frontend"], no-default-feature = true }
 jupyterlite = { features = ["jupyterlite"], no-default-feature = true }
 
 tests-core = { features = ["tests-core"], no-default-feature = true }
+# Local smoke loop for the cad backend abstraction against the adacpp
+# wasm wheel. No pythonocc-core in this env — the whole point is to
+# prove the pyodide path stays clean. ADACPP_WHEEL points at a built
+# wheel; defaults to ../adacpp/dist/ada_cpp-*.whl.
+test-pyodide = { features = ["test-pyodide"], no-default-feature = true }
 tests = { features = ["tests", "tests-core", "prod"], solve-group = "prod", no-default-feature = true }
 fem-deps = { features = ["fem-deps", "prod", "tests-core"], no-default-feature = true }
 fem = { features = ["fem", "prod", "tests-core", "fem-deps"], no-default-feature = true }
@@ -222,6 +227,13 @@ pyodide-experiment = { cmd = "python -m http.server 8088", cwd = "experiments/py
 [feature.frontend.dependencies]
 nodejs = "*"
 flatbuffers = "==25.2.10"
+
+[feature.test-pyodide.dependencies]
+nodejs = "*"
+
+[feature.test-pyodide.tasks]
+install-pyodide = { cmd = "npm install", cwd = "tools/pyodide-test", outputs = ["tools/pyodide-test/node_modules"] }
+test-pyodide-cad = { cmd = "node test_pyodide_cad.js", cwd = "tools/pyodide-test", depends-on = ["install-pyodide"] }
 
 [dependencies]
 pixi-pycharm = ">=0.0.8,<0.0.9"
