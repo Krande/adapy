@@ -8,12 +8,20 @@
 #
 # To rebuild against a different adacpp commit/branch, override at build
 # time:  docker build --build-arg ADACPP_REF=<sha-or-branch> ...
-FROM ghcr.io/prefix-dev/pixi:0.45.0 AS adacpp-wheel
+#
+# python:3.12-slim base (instead of ghcr.io/prefix-dev/pixi which is
+# distroless and has no apt/shell tooling) so we can apt-install git +
+# curl-install pixi cleanly. The pixi we install drives the OCCT cross
+# compile via the wasm env in adacpp's pixi.toml.
+FROM python:3.12-slim AS adacpp-wheel
 ARG ADACPP_REPO=https://github.com/Krande/adacpp.git
 ARG ADACPP_REF=feat/cad-handler
+ARG PIXI_VERSION=0.45.0
 RUN apt-get update \
- && apt-get install -y --no-install-recommends git ca-certificates \
- && rm -rf /var/lib/apt/lists/*
+ && apt-get install -y --no-install-recommends git curl ca-certificates \
+ && rm -rf /var/lib/apt/lists/* \
+ && curl -fsSL https://pixi.sh/install.sh | PIXI_VERSION=v${PIXI_VERSION} bash \
+ && ln -s /root/.pixi/bin/pixi /usr/local/bin/pixi
 WORKDIR /src
 RUN git clone --depth=1 --branch "${ADACPP_REF}" "${ADACPP_REPO}" adacpp \
  || (git clone "${ADACPP_REPO}" adacpp \
