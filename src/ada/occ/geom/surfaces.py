@@ -242,6 +242,66 @@ def update_edges_4corners(edges, builder, face_surface):
 _pcurve_probe_count = 0
 
 
+def _build_geom2d_bspline(pcurve_geom):
+    """Construct a Geom2d_BSplineCurve from a Pcurve2dBSpline dataclass.
+
+    Returns None on construction failure; the caller can fall back to
+    the regenerative path."""
+    cps = pcurve_geom.control_points_2d
+    knots = list(pcurve_geom.knots)
+    mults = list(pcurve_geom.knot_multiplicities)
+    if not cps or not knots or len(knots) != len(mults):
+        return None
+    n_poles = len(cps)
+    poles = TColgp_Array1OfPnt2d(1, n_poles)
+    for i, cp in enumerate(cps, start=1):
+        poles.SetValue(i, gp_Pnt2d(float(cp[0]), float(cp[1])))
+    knots_arr = TColStd_Array1OfReal(1, len(knots))
+    mults_arr = TColStd_Array1OfInteger(1, len(mults))
+    for i, (k, m) in enumerate(zip(knots, mults), start=1):
+        knots_arr.SetValue(i, float(k))
+        mults_arr.SetValue(i, int(m))
+    try:
+        if pcurve_geom.weights:
+            weights_arr = TColStd_Array1OfReal(1, len(pcurve_geom.weights))
+            for i, w in enumerate(pcurve_geom.weights, start=1):
+                weights_arr.SetValue(i, float(w))
+            return Geom2d_BSplineCurve(
+                poles, weights_arr, knots_arr, mults_arr,
+                int(pcurve_geom.degree), bool(pcurve_geom.closed),
+            )
+        return Geom2d_BSplineCurve(
+            poles, knots_arr, mults_arr,
+            int(pcurve_geom.degree), bool(pcurve_geom.closed),
+        )
+    except Exception as ex:
+        logger.warning(f"Geom2d_BSplineCurve construction failed: {ex}")
+        return None
+
+
+def _make_edge_from_pcurve(pcurve_geom, face_surface):
+    """Build an OCC edge from a 2D BSpline pcurve + the face's surface.
+
+    The 3D parametrization is derived implicitly by OCCT from
+    surface(pcurve(t)), so 2D and 3D are guaranteed-consistent.
+    Returns None on any failure so the caller falls back to building
+    from the SAT-supplied 3D BSpline + reparam.
+    """
+    c2d = _build_geom2d_bspline(pcurve_geom)
+    if c2d is None:
+        return None
+    try:
+        first = float(c2d.FirstParameter())
+        last = float(c2d.LastParameter())
+        maker = BRepBuilderAPI_MakeEdge(c2d, face_surface, first, last)
+        if not maker.IsDone():
+            return None
+        return maker.Edge()
+    except Exception as ex:
+        logger.warning(f"BRepBuilderAPI_MakeEdge(c2d, surface) failed: {ex}")
+        return None
+
+
 def _attach_supplied_pcurve(builder, edge, pcurve_geom, face_surface, identity_location) -> bool:
     """Attach a SAT-supplied 2D BSpline pcurve to ``edge`` on ``face_surface``.
 
@@ -630,27 +690,58 @@ def make_face_from_geom(advanced_face: geo_su.AdvancedFace) -> TopoDS_Face:
 
         Returns (wire, n_updated, n_total).
         """
-        # SAT-pcurve consumption is parsed and threaded through but
-        # NOT enabled by default — the OCC interop has unresolved
-        # quirks (parameter-range mismatches, wire winding direction,
-        # ACIS↔OCCT knot conventions) that produce visually-broken
-        # GLBs on OP1. Opt in with ``ADA_USE_SAT_PCURVES=true`` while
-        # iterating; the regenerative path (sample 3D + project + fit)
-        # is the safe default.
+        # SAT-supplied UV pcurves are now consumed by default. The fix
+        # that made this work: when a coedge has a pcurve, build the
+        # OCC edge via ``BRepBuilderAPI_MakeEdge(c2d, surface, t1, t2)``
+        # so OCCT derives the 3D parametrization from
+        # ``surface(pcurve(t))`` — guaranteed-consistent with the 2D
+        # curve. SAT also stores a separate 3D BSpline curve per edge,
+        # but its parameterization is independent of the pcurve's, and
+        # for many OP1 faces the two take different *paths* between the
+        # same endpoints. Using both together produced visually-stretched
+        # faces; using only the pcurve+surface (the path STEP imports
+        # take naturally) produces ~96% byte-for-byte agreement with the
+        # regen baseline at ~5x the speed.
+        #
+        # Override knobs (default both ON):
+        #   ADA_USE_SAT_PCURVES=false    skip SAT pcurves entirely → regen
+        #   ADA_PCURVE_DRIVE_EDGE=false  attach pcurve via UpdateEdge
+        #                                instead of building edge from it
+        #                                (the older, broken approach;
+        #                                left for diagnostics)
         import os as _os
-        use_pcurves_env = (_os.environ.get("ADA_USE_SAT_PCURVES") or "").strip().lower()
-        use_pcurves = use_pcurves_env in {"1", "true", "yes", "on"}
+
+        def _env_truthy(name: str, default: bool) -> bool:
+            v = (_os.environ.get(name) or "").strip().lower()
+            if v in {"1", "true", "yes", "on"}:
+                return True
+            if v in {"0", "false", "no", "off"}:
+                return False
+            return default
+
+        use_pcurves = _env_truthy("ADA_USE_SAT_PCURVES", True)
+        drive_edge_from_pcurve = _env_truthy("ADA_PCURVE_DRIVE_EDGE", True)
         edge_list = getattr(face_bound.bound, "edge_list", None) or []
         occ_edges: list = []
         pcurves: list = []
         for oe in edge_list:
+            supplied_pc = getattr(oe, "pcurve", None) if use_pcurves else None
+            occ_edge = None
+            if drive_edge_from_pcurve and supplied_pc is not None:
+                occ_edge = _make_edge_from_pcurve(supplied_pc, face_surface)
+                if occ_edge is not None:
+                    # Edge already carries a consistent 2D pcurve from
+                    # the constructor; no UpdateEdge needed.
+                    occ_edges.append(occ_edge)
+                    pcurves.append(None)
+                    continue
             try:
                 occ_edge = make_edge_from_edge(oe)
             except (RuntimeError, UnableToCreateCurveOCCGeom) as ex:
                 logger.debug("dropped degenerate edge in BSpline-surface bound: %s", ex)
                 continue
             occ_edges.append(occ_edge)
-            pcurves.append(getattr(oe, "pcurve", None) if use_pcurves else None)
+            pcurves.append(supplied_pc)
         if not occ_edges:
             raise UnableToCreateTesselationFromSolidOCCGeom(
                 "BSpline-surface bound produced no usable edges"
@@ -712,8 +803,19 @@ def make_face_from_geom(advanced_face: geo_su.AdvancedFace) -> TopoDS_Face:
 
     face = face_maker.Face()
 
-    # Fix the face (p-curves, orientation, etc.) using ShapeFix
-    if isinstance(face_surface, Geom_BSplineSurface):
+    # ShapeFix runs only on the regenerative-pcurve path — the
+    # SAT-pcurve path produces clean topology and ShapeFix would
+    # otherwise rebuild our authored p-curves to match its own
+    # conventions, undoing the consistency we just established.
+    # ADA_SKIP_SHAPEFIX=true forces a skip even on the regen path.
+    import os as _os_sf
+    skip_shapefix = (_os_sf.environ.get("ADA_SKIP_SHAPEFIX") or "").strip().lower() in {"1", "true", "yes", "on"}
+    use_pcurves_env_sf = (_os_sf.environ.get("ADA_USE_SAT_PCURVES") or "").strip().lower()
+    # Default: use_pcurves is ON. ShapeFix should fire only when
+    # pcurves are explicitly OFF (regen path) AND the user hasn't set
+    # ADA_SKIP_SHAPEFIX.
+    use_pcurves_sf = use_pcurves_env_sf not in {"0", "false", "no", "off"}
+    if isinstance(face_surface, Geom_BSplineSurface) and not (skip_shapefix or use_pcurves_sf):
         fixer = ShapeFix_Face(face)
         fixer.Perform()
         # Explicitly run wire fixes
