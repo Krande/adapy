@@ -111,17 +111,24 @@ async function ensureStepStack() {
 
             log("Installing adacpp + verifying adapy.cad…");
             pyodide.globals.set("_adacpp_wheel_emfs", `emfs:${wheelFsPath}`);
-            await pyodide.runPythonAsync(`
-                import sys
-                import micropip
-                await micropip.install(_adacpp_wheel_emfs)
-                if "/adapy_src" not in sys.path:
-                    sys.path.insert(0, "/adapy_src")
-                import ada.cad
-                backend = ada.cad.select_backend(prefer="adacpp")
-                print(f"step stack ready: backend={backend.name}")
-            `);
-            pyodide.globals.delete("_adacpp_wheel_emfs");
+            try {
+                await pyodide.runPythonAsync(`
+                    import sys
+                    import micropip
+                    await micropip.install(_adacpp_wheel_emfs)
+                    if "/adapy_src" not in sys.path:
+                        sys.path.insert(0, "/adapy_src")
+                    import ada.cad
+                    backend = ada.cad.select_backend(prefer="adacpp")
+                    print(f"step stack ready: backend={backend.name}")
+                `);
+            } finally {
+                try {
+                    pyodide.globals.delete("_adacpp_wheel_emfs");
+                } catch (_) {
+                    /* already gone — fine */
+                }
+            }
         })();
     }
     return stepStackPromise;
@@ -197,20 +204,30 @@ async function convertStep(bytes) {
     pyodide.globals.set("_step_input_bytes", u8);
     log(`Forwarded ${u8.byteLength} bytes of STEP into Python`);
 
-    const result = await pyodide.runPythonAsync(`
+    try {
+        const result = await pyodide.runPythonAsync(`
 import ada.cad
 
 backend = ada.cad.select_backend(prefer="adacpp")
 shape = backend.read_step_bytes(bytes(_step_input_bytes))
 glb = backend.write_glb_bytes(shape)
-del _step_input_bytes
 glb
-    `);
-
-    const arr = result.toJs({create_proxies: false});
-    result.destroy();
-    pyodide.globals.delete("_step_input_bytes");
-    return arr;
+        `);
+        const arr = result.toJs({create_proxies: false});
+        result.destroy();
+        return arr;
+    } finally {
+        // Single point of cleanup. The Python snippet used to also
+        // ``del _step_input_bytes``, but that left the JS-side
+        // ``globals.delete`` to throw KeyError on the success path
+        // ("KeyError: '_step_input_bytes'"). Owning cleanup on the JS
+        // side keeps both success and exception paths symmetrical.
+        try {
+            pyodide.globals.delete("_step_input_bytes");
+        } catch (_) {
+            /* already gone — fine */
+        }
+    }
 }
 
 self.onmessage = async (e) => {
