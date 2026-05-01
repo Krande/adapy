@@ -1,0 +1,407 @@
+"""Run the synchronous ``convert()`` call in a forked child process.
+
+Two motivations layered into one component:
+
+* **Crash isolation (B)** — adapy's CAD/FEM stack is OCCT-bound, and
+  upstream OCCT bugs occasionally surface as glibc heap corruption
+  (``double free`` / SIGABRT) or segfault. A crash inside a thread of
+  the asyncio worker takes the whole pod down; doing the convert in a
+  child means the worker survives and acks the message as failed.
+  Captured rusage on ``os.wait4`` gives us peak RSS / CPU even for
+  jobs killed by signal — exactly the data that disappeared from the
+  audit row before this change.
+
+* **Time-series resource samples (A)** — while the child runs, the
+  parent reads ``/proc/<pid>/{status,stat,io}`` on a fixed cadence
+  (~2 s) and emits one snapshot per heartbeat. Persisted as JSONB on
+  the audit row, the SPA can plot RSS/CPU/IO against wall time so an
+  operator sees *where* in the conversion the resource pressure built
+  up — not just the post-mortem peak.
+
+Implementation notes:
+
+* ``os.fork()`` (not ``multiprocessing``) so we can call
+  ``os.wait4(pid, 0)`` and harvest ``rusage`` directly — the
+  multiprocessing helper reaps children with plain ``waitpid`` and
+  drops the rusage struct.
+* Child inherits the asyncio loop / asyncpg pool / NATS sockets but
+  never touches them. We exit via ``os._exit`` so no cleanup runs
+  that might double-close inherited file descriptors.
+* Progress callbacks come back as newline-delimited JSON over a pipe;
+  the parent forwards them to the existing queue-update flow.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import dataclasses
+import fcntl
+import json
+import logging
+import os
+import pathlib
+import resource as _resource_mod  # noqa: F401 — imported for posterity
+import signal
+import sys
+import tempfile
+import time
+import traceback
+from typing import Any, Awaitable, Callable, Optional
+
+logger = logging.getLogger("ada")
+
+
+@dataclasses.dataclass
+class ConvertSample:
+    ts: float           # epoch seconds (sample wall-clock time)
+    elapsed_s: float    # seconds since job start (parent's monotonic clock)
+    cpu_user_ms: int
+    cpu_sys_ms: int
+    rss_kb: int         # current resident set size
+    peak_rss_kb: int    # high-water mark (VmHWM)
+    read_bytes: int
+    write_bytes: int
+
+
+@dataclasses.dataclass
+class IsolatedConvertResult:
+    out_bytes: Optional[bytes]
+    error: Optional[str]            # exception message from child, when present
+    traceback: Optional[str]        # python traceback string from child
+    exit_code: int                  # 0 success; >0 clean error; <0 = -signal
+    signal_name: Optional[str]      # e.g. "SIGABRT" when killed by signal
+    samples: list[ConvertSample]
+    final_metrics: dict             # {cpu_user_ms, cpu_sys_ms, peak_rss_kb, read_bytes, write_bytes}
+    profile_bytes: Optional[bytes] = None  # cProfile dump from child, when enabled
+
+
+def _proc_stats(pid: int, started_at: float) -> Optional[ConvertSample]:
+    """Read ``/proc/<pid>/{status,stat,io}`` and return one snapshot.
+
+    Returns None when the pid disappears (child exited between the
+    last alive-check and the open() — common at the end of the loop)."""
+    try:
+        status = pathlib.Path(f"/proc/{pid}/status").read_text()
+        stat = pathlib.Path(f"/proc/{pid}/stat").read_text()
+    except (FileNotFoundError, ProcessLookupError):
+        return None
+    rss_kb = 0
+    peak_rss_kb = 0
+    for line in status.splitlines():
+        if line.startswith("VmRSS:"):
+            rss_kb = int(line.split()[1])
+        elif line.startswith("VmHWM:"):
+            peak_rss_kb = int(line.split()[1])
+    # The comm field can contain spaces and parens. Split fields after the
+    # last ')' to dodge that.
+    rparen = stat.rfind(")")
+    rest = stat[rparen + 1:].split()
+    # Fields after comm in /proc/PID/stat (man 5 proc):
+    #   state(0) ppid(1) ... utime(11) stime(12) ...
+    try:
+        utime_ticks = int(rest[11])
+        stime_ticks = int(rest[12])
+    except (IndexError, ValueError):
+        return None
+    clock_ticks = os.sysconf(os.sysconf_names["SC_CLK_TCK"])
+    cpu_user_ms = int(utime_ticks * 1000 / clock_ticks)
+    cpu_sys_ms = int(stime_ticks * 1000 / clock_ticks)
+    read_bytes = 0
+    write_bytes = 0
+    try:
+        io = pathlib.Path(f"/proc/{pid}/io").read_text()
+        for line in io.splitlines():
+            if line.startswith("read_bytes:"):
+                read_bytes = int(line.split()[1])
+            elif line.startswith("write_bytes:"):
+                write_bytes = int(line.split()[1])
+    except (FileNotFoundError, PermissionError):
+        # /proc/PID/io requires the same uid/gid; should always work for our own children.
+        pass
+    return ConvertSample(
+        ts=time.time(),
+        elapsed_s=max(0.0, time.monotonic() - started_at),
+        cpu_user_ms=cpu_user_ms,
+        cpu_sys_ms=cpu_sys_ms,
+        rss_kb=rss_kb,
+        peak_rss_kb=peak_rss_kb,
+        read_bytes=read_bytes,
+        write_bytes=write_bytes,
+    )
+
+
+def _set_nonblocking(fd: int) -> None:
+    fl = fcntl.fcntl(fd, fcntl.F_GETFL)
+    fcntl.fcntl(fd, fcntl.F_SETFL, fl | os.O_NONBLOCK)
+
+
+async def run_isolated_convert(
+    convert_fn: Callable[..., bytes],
+    src_path: pathlib.Path,
+    source_key: str,
+    target_format: str,
+    convert_kwargs: Optional[dict] = None,
+    on_progress: Optional[Callable[[str, float], Awaitable[None]]] = None,
+    on_sample: Optional[Callable[[ConvertSample], Awaitable[None]]] = None,
+    sample_interval_s: float = 2.0,
+    profile_in_child: bool = False,
+) -> IsolatedConvertResult:
+    """Fork, run ``convert_fn`` in the child, sample resource usage in
+    the parent, and join with full rusage on exit.
+
+    ``on_progress`` is invoked with ``(stage, frac)`` for each progress
+    line the child emits. ``on_sample`` is invoked once per heartbeat
+    sample so the caller can stream them to the database without
+    waiting for the child to exit (important for crash cases where the
+    in-memory list is the only record of partial progress).
+
+    ``profile_in_child`` enables cProfile inside the child process; the
+    profiler can't meaningfully cross a fork boundary so we attach
+    it to the child's interpreter and ship the dump back via a
+    sidecar tempfile read after exit. The dump survives clean errors
+    too (the child writes it in a finally), which is what makes
+    "profile a job that fails after 6 minutes" actually useful.
+    """
+    convert_kwargs = convert_kwargs or {}
+
+    work_dir = pathlib.Path(tempfile.mkdtemp(prefix="adapy-convert-"))
+    result_path = work_dir / "out.bin"
+    err_path = work_dir / "error.json"
+    profile_path = work_dir / "profile.prof"
+    progr_r, progr_w = os.pipe()
+
+    started_at = time.monotonic()
+    samples: list[ConvertSample] = []
+
+    pid = os.fork()
+    if pid == 0:
+        # ── child ──
+        try:
+            os.close(progr_r)
+            # Default signal handlers in the child so a SIGTERM from
+            # the orchestrator hits us cleanly rather than being
+            # swallowed by the parent's asyncio handlers.
+            for sig in (signal.SIGINT, signal.SIGTERM):
+                try:
+                    signal.signal(sig, signal.SIG_DFL)
+                except (OSError, ValueError):
+                    pass
+
+            def _child_progress(stage: str, frac: float) -> None:
+                try:
+                    line = json.dumps({"stage": stage, "frac": float(frac)}) + "\n"
+                    os.write(progr_w, line.encode("utf-8"))
+                except (BrokenPipeError, OSError):
+                    pass
+
+            profiler = None
+            if profile_in_child:
+                import cProfile
+                profiler = cProfile.Profile()
+
+            try:
+                if profiler is not None:
+                    profiler.enable()
+                try:
+                    out = convert_fn(
+                        src_path,
+                        source_key,
+                        target_format,
+                        _child_progress,
+                        **convert_kwargs,
+                    )
+                finally:
+                    if profiler is not None:
+                        profiler.disable()
+                        try:
+                            profiler.dump_stats(str(profile_path))
+                        except Exception:
+                            pass
+                if out is None:
+                    out = b""
+                if not isinstance(out, (bytes, bytearray, memoryview)):
+                    raise TypeError(
+                        f"convert returned {type(out).__name__}, expected bytes"
+                    )
+                result_path.write_bytes(bytes(out))
+                os._exit(0)
+            except BaseException as exc:  # noqa: BLE001 — propagate verbatim
+                # Even on failure, dump whatever profile data was
+                # collected up to the exception — that's exactly the
+                # data an operator needs to see *where* in the run we
+                # crashed.
+                if profiler is not None:
+                    try:
+                        profiler.disable()
+                        profiler.dump_stats(str(profile_path))
+                    except Exception:
+                        pass
+                err_path.write_text(
+                    json.dumps(
+                        {
+                            "error": f"{type(exc).__name__}: {exc}",
+                            "tb": traceback.format_exc(),
+                        }
+                    )
+                )
+                os._exit(2)
+        finally:
+            try:
+                os.close(progr_w)
+            except OSError:
+                pass
+            os._exit(3)
+
+    # ── parent ──
+    os.close(progr_w)
+    _set_nonblocking(progr_r)
+
+    pending_progress = b""
+
+    def _drain_progress_lines() -> list[tuple[str, float]]:
+        nonlocal pending_progress
+        out: list[tuple[str, float]] = []
+        while True:
+            try:
+                chunk = os.read(progr_r, 4096)
+            except BlockingIOError:
+                break
+            except OSError:
+                break
+            if not chunk:
+                break
+            pending_progress += chunk
+        while b"\n" in pending_progress:
+            line, _, pending_progress = pending_progress.partition(b"\n")
+            try:
+                msg = json.loads(line.decode("utf-8"))
+                stage = str(msg.get("stage", ""))
+                frac = float(msg.get("frac", 0.0))
+                out.append((stage, frac))
+            except (ValueError, TypeError):
+                continue
+        return out
+
+    last_sample_time = 0.0
+    final_status = 0
+    final_rusage = None
+
+    while True:
+        try:
+            wpid, status, rusage = os.wait4(pid, os.WNOHANG)
+        except ChildProcessError:
+            wpid, status, rusage = pid, 0, None  # already reaped
+        if wpid == pid:
+            final_status = status
+            final_rusage = rusage
+            break
+
+        now = time.monotonic()
+        if now - last_sample_time >= sample_interval_s:
+            sample = _proc_stats(pid, started_at)
+            if sample is not None:
+                samples.append(sample)
+                if on_sample is not None:
+                    try:
+                        await on_sample(sample)
+                    except Exception:
+                        logger.exception("on_sample callback raised; continuing")
+            last_sample_time = now
+
+        for stage, frac in _drain_progress_lines():
+            if on_progress is not None:
+                try:
+                    await on_progress(stage, frac)
+                except Exception:
+                    logger.exception("on_progress callback raised; continuing")
+
+        await asyncio.sleep(0.1)
+
+    # Drain any final progress lines the child wrote just before exit.
+    for stage, frac in _drain_progress_lines():
+        if on_progress is not None:
+            try:
+                await on_progress(stage, frac)
+            except Exception:
+                logger.exception("on_progress callback raised; continuing")
+    try:
+        os.close(progr_r)
+    except OSError:
+        pass
+
+    exit_code = 0
+    sig_name: Optional[str] = None
+    if os.WIFEXITED(final_status):
+        exit_code = os.WEXITSTATUS(final_status)
+    elif os.WIFSIGNALED(final_status):
+        signum = os.WTERMSIG(final_status)
+        exit_code = -signum
+        try:
+            sig_name = signal.Signals(signum).name
+        except (ValueError, KeyError):
+            sig_name = f"signal {signum}"
+
+    out_bytes: Optional[bytes] = None
+    error_msg: Optional[str] = None
+    error_tb: Optional[str] = None
+    profile_bytes: Optional[bytes] = None
+    try:
+        if exit_code == 0 and result_path.exists():
+            out_bytes = result_path.read_bytes()
+        if exit_code != 0 and err_path.exists():
+            try:
+                d = json.loads(err_path.read_text())
+                error_msg = d.get("error") or None
+                error_tb = d.get("tb") or None
+            except (ValueError, TypeError, OSError):
+                pass
+        if profile_in_child and profile_path.exists():
+            try:
+                profile_bytes = profile_path.read_bytes()
+            except OSError:
+                pass
+    finally:
+        for p in (result_path, err_path, profile_path):
+            try:
+                if p.exists():
+                    p.unlink()
+            except OSError:
+                pass
+        try:
+            work_dir.rmdir()
+        except OSError:
+            pass
+
+    if exit_code < 0 and error_msg is None:
+        error_msg = (
+            f"convert subprocess killed by {sig_name or f'signal {-exit_code}'} "
+            f"(SIGSEGV/SIGABRT typically means a C++ heap fault inside the CAD/FEM stack)."
+        )
+
+    final_metrics: dict[str, Any] = {}
+    if final_rusage is not None:
+        final_metrics["cpu_user_ms"] = int(final_rusage.ru_utime * 1000)
+        final_metrics["cpu_sys_ms"] = int(final_rusage.ru_stime * 1000)
+        # Linux: ru_maxrss is in KB. macOS: bytes — we run on Linux in
+        # the cluster, so KB. Document the assumption with a sys check
+        # so we notice if this code ever ships on macOS workers.
+        if sys.platform == "darwin":
+            final_metrics["peak_rss_kb"] = int(final_rusage.ru_maxrss / 1024)
+        else:
+            final_metrics["peak_rss_kb"] = int(final_rusage.ru_maxrss)
+    if samples:
+        final_metrics.setdefault("read_bytes", samples[-1].read_bytes)
+        final_metrics.setdefault("write_bytes", samples[-1].write_bytes)
+        # If wait4 missed (non-Linux fallback) take peak RSS from samples.
+        final_metrics.setdefault("peak_rss_kb", max(s.peak_rss_kb for s in samples))
+
+    return IsolatedConvertResult(
+        out_bytes=out_bytes,
+        error=error_msg,
+        traceback=error_tb,
+        exit_code=exit_code,
+        signal_name=sig_name,
+        samples=samples,
+        final_metrics=final_metrics,
+        profile_bytes=profile_bytes,
+    )

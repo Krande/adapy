@@ -20,7 +20,12 @@ const IFC_WASM_WHEEL =
 // SPA dist by deploy/Dockerfile.viewer (stage `adacpp-wheel` + the
 // COPY lines after `npm run build:serve`). Vite serves them from the
 // SPA root, so relative-to-origin URLs work in production and in dev.
-const ADACPP_WHEEL_URL = "/wheels/adacpp.whl";
+//
+// The wheel keeps its PEP 427 filename (ada_cpp-<ver>-<pytag>-<abi>-<plat>.whl)
+// because micropip parses it to validate name/version/platform tags
+// before it will install. The Dockerfile drops a manifest.json next to
+// the wheel so we don't have to hardcode the version here.
+const ADACPP_MANIFEST_URL = "/wheels/manifest.json";
 const ADAPY_SRC_FILES = [
     "ada/__init__.py",
     "ada/cad/__init__.py",
@@ -73,14 +78,26 @@ async function ensureIfcStack() {
 async function ensureStepStack() {
     if (!stepStackPromise) {
         stepStackPromise = (async () => {
-            log("Fetching adacpp wheel…");
-            const wheelResp = await fetch(ADACPP_WHEEL_URL);
+            log("Reading adacpp wheel manifest…");
+            const manifestResp = await fetch(ADACPP_MANIFEST_URL);
+            if (!manifestResp.ok) {
+                throw new Error(`adacpp manifest fetch failed: ${manifestResp.status} ${manifestResp.statusText} (${ADACPP_MANIFEST_URL})`);
+            }
+            const manifest = await manifestResp.json();
+            const wheelFilename = manifest.adacpp;
+            if (!wheelFilename) {
+                throw new Error(`adacpp manifest missing "adacpp" key: ${JSON.stringify(manifest)}`);
+            }
+            const wheelUrl = `/wheels/${wheelFilename}`;
+            log(`Fetching adacpp wheel (${wheelFilename})…`);
+            const wheelResp = await fetch(wheelUrl);
             if (!wheelResp.ok) {
-                throw new Error(`adacpp wheel fetch failed: ${wheelResp.status} ${wheelResp.statusText} (${ADACPP_WHEEL_URL})`);
+                throw new Error(`adacpp wheel fetch failed: ${wheelResp.status} ${wheelResp.statusText} (${wheelUrl})`);
             }
             const wheelBytes = new Uint8Array(await wheelResp.arrayBuffer());
             pyodide.FS.mkdirTree("/wheels");
-            pyodide.FS.writeFile("/wheels/adacpp.whl", wheelBytes);
+            const wheelFsPath = `/wheels/${wheelFilename}`;
+            pyodide.FS.writeFile(wheelFsPath, wheelBytes);
 
             log("Mounting adapy source closure…");
             pyodide.FS.mkdirTree("/adapy_src/ada/cad");
@@ -93,16 +110,18 @@ async function ensureStepStack() {
             }
 
             log("Installing adacpp + verifying adapy.cad…");
+            pyodide.globals.set("_adacpp_wheel_emfs", `emfs:${wheelFsPath}`);
             await pyodide.runPythonAsync(`
                 import sys
                 import micropip
-                await micropip.install("emfs:/wheels/adacpp.whl")
+                await micropip.install(_adacpp_wheel_emfs)
                 if "/adapy_src" not in sys.path:
                     sys.path.insert(0, "/adapy_src")
                 import ada.cad
                 backend = ada.cad.select_backend(prefer="adacpp")
                 print(f"step stack ready: backend={backend.name}")
             `);
+            pyodide.globals.delete("_adacpp_wheel_emfs");
         })();
     }
     return stepStackPromise;

@@ -1,5 +1,12 @@
-import React, {useEffect, useState} from "react";
-import {ApiError, AuditEntry, AuditFilters, viewerApi} from "@/services/viewerApi";
+import React, {useEffect, useMemo, useState} from "react";
+import {
+    ApiError,
+    AuditEntry,
+    AuditFilters,
+    MetricsSample,
+    ProfileStatsRow,
+    viewerApi,
+} from "@/services/viewerApi";
 
 // Filterable audit log view. Two layouts:
 // * sm:↑ desktop — table with sticky header, fits everything in columns.
@@ -576,22 +583,30 @@ const MetricsTab: React.FC<{
                 <MetricRow label="Read"     value={formatBytes(entry.read_bytes)}/>
                 <MetricRow label="Write"    value={formatBytes(entry.write_bytes)}/>
             </dl>
+            <MetricsHistoryChart auditId={entry.id}/>
             {entry.profile_key ? (
-                <div className="pt-2 border-t border-gray-800">
-                    <button
-                        type="button"
-                        className="bg-blue-700 hover:bg-blue-600 px-3 py-1 rounded text-xs disabled:opacity-50"
-                        onClick={onDownloadProfile}
-                        disabled={downloading}
-                    >
-                        {downloading ? "Downloading…" : "Download profile (.prof)"}
-                    </button>
-                    <div className="text-[10px] text-gray-500 mt-1">
-                        Loadable in snakeviz / speedscope / pstats.
+                <div className="pt-2 border-t border-gray-800 space-y-3">
+                    <div>
+                        <button
+                            type="button"
+                            className="bg-blue-700 hover:bg-blue-600 px-3 py-1 rounded text-xs disabled:opacity-50"
+                            onClick={onDownloadProfile}
+                            disabled={downloading}
+                        >
+                            {downloading ? "Downloading…" : "Download profile (.prof)"}
+                        </button>
+                        <span className="text-[10px] text-gray-500 ml-2">
+                            Loadable in snakeviz / speedscope / pstats.
+                        </span>
+                        {downloadErr && (
+                            <div className="text-red-300 text-[10px] mt-1 break-all">{downloadErr}</div>
+                        )}
                     </div>
-                    {downloadErr && (
-                        <div className="text-red-300 text-[10px] mt-1 break-all">{downloadErr}</div>
-                    )}
+                    {/* Inline per-function stats — sortable and searchable so
+                        the operator can find hot frames without leaving the
+                        UI. Server-side pstats parse keeps the SPA bundle
+                        free of marshal/pickle parsers. */}
+                    <ProfileStatsTable auditId={entry.id} totalWallMs={entry.duration_ms}/>
                 </div>
             ) : (
                 <div className="text-[10px] text-gray-500 pt-2 border-t border-gray-800">
@@ -601,6 +616,316 @@ const MetricsTab: React.FC<{
         </div>
     );
 };
+
+const MetricsHistoryChart: React.FC<{auditId: number}> = ({auditId}) => {
+    const [samples, setSamples] = useState<MetricsSample[] | null>(null);
+    const [err, setErr] = useState<string | null>(null);
+    const [loading, setLoading] = useState(false);
+
+    useEffect(() => {
+        let cancelled = false;
+        setLoading(true);
+        setErr(null);
+        viewerApi.adminMetricsHistory(auditId)
+            .then((r) => {
+                if (!cancelled) setSamples(r.samples);
+            })
+            .catch((e) => {
+                if (!cancelled) setErr(e instanceof ApiError ? e.detail || e.message : String(e));
+            })
+            .finally(() => {
+                if (!cancelled) setLoading(false);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [auditId]);
+
+    if (loading) {
+        return <div className="text-[10px] text-gray-400">Loading resource timeline…</div>;
+    }
+    if (err) {
+        return <div className="text-[10px] text-red-300 break-all">timeline: {err}</div>;
+    }
+    if (!samples || samples.length === 0) {
+        return (
+            <div className="text-[10px] text-gray-500 pt-1 border-t border-gray-800">
+                No per-heartbeat samples for this run. Older jobs predate the
+                subprocess wrapper, or the worker died before any sample landed.
+            </div>
+        );
+    }
+
+    const maxElapsed = Math.max(...samples.map((s) => s.elapsed_s), 1);
+    const maxRss = Math.max(...samples.map((s) => Math.max(s.rss_kb, s.peak_rss_kb)), 1);
+    const maxCpuMs = Math.max(...samples.map((s) => s.cpu_user_ms + s.cpu_sys_ms), 1);
+    const maxIo = Math.max(...samples.map((s) => Math.max(s.read_bytes, s.write_bytes)), 1);
+
+    return (
+        <div className="space-y-2 pt-2 border-t border-gray-800">
+            <div className="text-[10px] uppercase tracking-wide text-gray-500">
+                Resource timeline ({samples.length} samples · {maxElapsed.toFixed(0)}s)
+            </div>
+            <ChartPanel
+                title="RSS"
+                yLabel={formatBytes(maxRss * 1024)}
+                series={[
+                    {color: "#60a5fa", points: samples.map((s) => [s.elapsed_s / maxElapsed, s.rss_kb / maxRss]), label: "rss"},
+                    {color: "#f87171", points: samples.map((s) => [s.elapsed_s / maxElapsed, s.peak_rss_kb / maxRss]), label: "peak"},
+                ]}
+            />
+            <ChartPanel
+                title="CPU (user+sys)"
+                yLabel={formatDuration(maxCpuMs)}
+                series={[
+                    {
+                        color: "#34d399",
+                        points: samples.map((s) => [s.elapsed_s / maxElapsed, (s.cpu_user_ms + s.cpu_sys_ms) / maxCpuMs]),
+                        label: "cpu",
+                    },
+                ]}
+            />
+            <ChartPanel
+                title="IO bytes"
+                yLabel={formatBytes(maxIo)}
+                series={[
+                    {color: "#a78bfa", points: samples.map((s) => [s.elapsed_s / maxElapsed, s.read_bytes / maxIo]), label: "read"},
+                    {color: "#fbbf24", points: samples.map((s) => [s.elapsed_s / maxElapsed, s.write_bytes / maxIo]), label: "write"},
+                ]}
+            />
+        </div>
+    );
+};
+
+const ChartPanel: React.FC<{
+    title: string;
+    yLabel: string;
+    series: {color: string; points: [number, number][]; label: string}[];
+}> = ({title, yLabel, series}) => {
+    const W = 320;
+    const H = 56;
+    return (
+        <div>
+            <div className="flex items-baseline justify-between gap-2 mb-0.5">
+                <div className="text-[10px] text-gray-400 font-mono">{title}</div>
+                <div className="text-[10px] text-gray-500 font-mono">max ≈ {yLabel}</div>
+            </div>
+            <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-14 bg-gray-900/60 border border-gray-800 rounded">
+                {series.map((s, i) => {
+                    if (s.points.length === 0) return null;
+                    const d = s.points
+                        .map(([x, y], idx) =>
+                            `${idx === 0 ? "M" : "L"}${(x * W).toFixed(2)},${(H - y * H).toFixed(2)}`,
+                        )
+                        .join(" ");
+                    return (
+                        <g key={i}>
+                            <path d={d} stroke={s.color} strokeWidth={1.2} fill="none"/>
+                        </g>
+                    );
+                })}
+            </svg>
+            <div className="flex gap-3 mt-0.5 text-[10px] text-gray-500 font-mono">
+                {series.map((s, i) => (
+                    <span key={i} style={{color: s.color}}>● <span className="text-gray-400">{s.label}</span></span>
+                ))}
+            </div>
+        </div>
+    );
+};
+
+
+type StatsSortKey = "func" | "ncalls" | "primitive_calls" | "tottime" | "percall_tot" | "cumtime" | "percall_cum";
+
+const ProfileStatsTable: React.FC<{auditId: number; totalWallMs: number | null}> = ({auditId, totalWallMs}) => {
+    const [resp, setResp] = useState<{rows: ProfileStatsRow[]; total_tottime: number} | null>(null);
+    const [loading, setLoading] = useState(false);
+    const [err, setErr] = useState<string | null>(null);
+    const [filter, setFilter] = useState("");
+    const [sortKey, setSortKey] = useState<StatsSortKey>("cumtime");
+    const [sortDesc, setSortDesc] = useState(true);
+
+    useEffect(() => {
+        let cancelled = false;
+        setLoading(true);
+        setErr(null);
+        viewerApi.adminProfileStats(auditId, 1000)
+            .then((r) => {
+                if (cancelled) return;
+                setResp({rows: r.rows, total_tottime: r.total_tottime});
+            })
+            .catch((e) => {
+                if (cancelled) return;
+                setErr(e instanceof ApiError ? e.detail || e.message : String(e));
+            })
+            .finally(() => {
+                if (cancelled) return;
+                setLoading(false);
+            });
+        return () => {
+            cancelled = true;
+        };
+    }, [auditId]);
+
+    const filtered = useMemo(() => {
+        if (!resp) return [];
+        const q = filter.trim().toLowerCase();
+        const rows = q
+            ? resp.rows.filter(
+                  (r) =>
+                      r.func.toLowerCase().includes(q) ||
+                      r.file.toLowerCase().includes(q),
+              )
+            : resp.rows;
+        const sorted = [...rows];
+        sorted.sort((a, b) => {
+            const av = a[sortKey];
+            const bv = b[sortKey];
+            if (typeof av === "number" && typeof bv === "number") return sortDesc ? bv - av : av - bv;
+            return sortDesc ? String(bv).localeCompare(String(av)) : String(av).localeCompare(String(bv));
+        });
+        return sorted;
+    }, [resp, filter, sortKey, sortDesc]);
+
+    if (loading) {
+        return (
+            <div className="text-[10px] text-gray-400">Loading profile stats…</div>
+        );
+    }
+    if (err) {
+        return (
+            <div className="text-[10px] text-red-300 break-all">profile stats: {err}</div>
+        );
+    }
+    if (!resp || resp.rows.length === 0) {
+        return <div className="text-[10px] text-gray-400">No frames recorded.</div>;
+    }
+
+    const onHeader = (k: StatsSortKey) => {
+        if (k === sortKey) {
+            setSortDesc((v) => !v);
+        } else {
+            setSortKey(k);
+            setSortDesc(k !== "func");
+        }
+    };
+
+    // Top-N visual: a single horizontal bar per function (cumtime as % of
+    // total tottime) gives a "where did the time go" cue alongside the
+    // table — same Pareto graph snakeviz draws, just inline.
+    const topByCum = [...resp.rows].sort((a, b) => b.cumtime - a.cumtime).slice(0, 10);
+    const maxCum = topByCum.length > 0 ? topByCum[0].cumtime : 1;
+
+    return (
+        <div className="text-[11px] space-y-2">
+            <div className="text-gray-400">
+                <span className="font-mono">{resp.rows.length}</span> functions ·{" "}
+                <span className="font-mono">{resp.total_tottime.toFixed(2)}s</span> total self-time
+                {totalWallMs != null ? (
+                    <span> · wall <span className="font-mono">{(totalWallMs / 1000).toFixed(2)}s</span></span>
+                ) : null}
+            </div>
+            {/* Top-10 cumulative-time bar chart */}
+            <div className="space-y-0.5 bg-gray-900/60 border border-gray-800 rounded p-2">
+                <div className="text-[10px] uppercase tracking-wide text-gray-500 mb-1">
+                    Top 10 by cumulative time
+                </div>
+                {topByCum.map((r, i) => (
+                    <div key={`${r.file}:${r.line}:${r.func}:${i}`} className="flex items-center gap-2">
+                        <div className="flex-1 min-w-0">
+                            <div className="font-mono text-gray-200 truncate" title={`${r.file}:${r.line}`}>
+                                {r.func}
+                            </div>
+                            <div className="h-1 bg-gray-800 rounded overflow-hidden">
+                                <div
+                                    className="h-full bg-blue-500"
+                                    style={{width: `${maxCum > 0 ? (r.cumtime / maxCum) * 100 : 0}%`}}
+                                />
+                            </div>
+                        </div>
+                        <div className="font-mono text-gray-300 w-16 text-right shrink-0">
+                            {r.cumtime.toFixed(3)}s
+                        </div>
+                    </div>
+                ))}
+            </div>
+            <input
+                type="text"
+                value={filter}
+                onChange={(e) => setFilter(e.target.value)}
+                placeholder="Filter by function or file…"
+                className="bg-gray-800 border border-gray-700 rounded px-2 py-1 w-full text-white"
+            />
+            <div className="overflow-auto max-h-[24rem] border border-gray-800 rounded">
+                <table className="w-full font-mono">
+                    <thead className="sticky top-0 bg-gray-800 text-gray-300">
+                        <tr className="text-right">
+                            <StatsTh active={sortKey === "func"} desc={sortDesc} onClick={() => onHeader("func")} align="left">function</StatsTh>
+                            <StatsTh active={sortKey === "ncalls"} desc={sortDesc} onClick={() => onHeader("ncalls")}>ncalls</StatsTh>
+                            <StatsTh active={sortKey === "primitive_calls"} desc={sortDesc} onClick={() => onHeader("primitive_calls")}>prim</StatsTh>
+                            <StatsTh active={sortKey === "tottime"} desc={sortDesc} onClick={() => onHeader("tottime")}>tottime</StatsTh>
+                            <StatsTh active={sortKey === "percall_tot"} desc={sortDesc} onClick={() => onHeader("percall_tot")}>percall</StatsTh>
+                            <StatsTh active={sortKey === "cumtime"} desc={sortDesc} onClick={() => onHeader("cumtime")}>cumtime</StatsTh>
+                            <StatsTh active={sortKey === "percall_cum"} desc={sortDesc} onClick={() => onHeader("percall_cum")}>percum</StatsTh>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {filtered.map((r, i) => (
+                            <tr key={`${r.file}:${r.line}:${r.func}:${i}`} className="border-t border-gray-800 text-right">
+                                <td className="px-2 py-0.5 text-left text-gray-200 truncate max-w-[20rem]" title={`${r.file}:${r.line}`}>
+                                    <span className="text-gray-500">{shortFile(r.file)}:{r.line} </span>
+                                    {r.func}
+                                </td>
+                                <td className="px-2 py-0.5 text-gray-300">{r.ncalls.toLocaleString()}</td>
+                                <td className="px-2 py-0.5 text-gray-400">{r.primitive_calls.toLocaleString()}</td>
+                                <td className="px-2 py-0.5 text-gray-200">{r.tottime.toFixed(3)}</td>
+                                <td className="px-2 py-0.5 text-gray-400">{formatPercall(r.percall_tot)}</td>
+                                <td className="px-2 py-0.5 text-gray-200">{r.cumtime.toFixed(3)}</td>
+                                <td className="px-2 py-0.5 text-gray-400">{formatPercall(r.percall_cum)}</td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+                {filtered.length === 0 && (
+                    <div className="text-center text-gray-500 py-3">No frames match the filter.</div>
+                )}
+            </div>
+        </div>
+    );
+};
+
+const StatsTh: React.FC<{
+    active: boolean;
+    desc: boolean;
+    onClick: () => void;
+    align?: "left" | "right";
+    children: React.ReactNode;
+}> = ({active, desc, onClick, align = "right", children}) => (
+    <th
+        className={
+            "px-2 py-1 select-none cursor-pointer hover:text-white whitespace-nowrap " +
+            (align === "left" ? "text-left" : "text-right")
+        }
+        onClick={onClick}
+    >
+        {children}
+        {active ? <span className="text-blue-400">{desc ? " ▾" : " ▴"}</span> : null}
+    </th>
+);
+
+function shortFile(p: string): string {
+    if (!p) return "";
+    const parts = p.split("/");
+    if (parts.length <= 2) return p;
+    return ".../" + parts.slice(-2).join("/");
+}
+
+function formatPercall(v: number): string {
+    if (!isFinite(v) || v === 0) return "0";
+    if (v >= 1) return v.toFixed(3);
+    if (v >= 1e-3) return (v * 1000).toFixed(2) + "ms";
+    return (v * 1e6).toFixed(1) + "µs";
+}
 
 const MetricRow: React.FC<{label: string; value: string}> = ({label, value}) => (
     <>

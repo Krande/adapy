@@ -19,6 +19,7 @@ via the :func:`get_pool` accessor.
 from __future__ import annotations
 
 import importlib.resources
+import json
 from dataclasses import dataclass
 from typing import Optional
 
@@ -255,6 +256,31 @@ async def update_audit_by_job(
     )
 
 
+async def append_metrics_sample_by_job(
+    pool: asyncpg.Pool,
+    *,
+    job_id: str,
+    sample: dict,
+) -> None:
+    """Append one heartbeat sample to ``audit_log.metrics_samples``.
+
+    The column is JSONB initialised to NULL when the row is created;
+    we coalesce to ``[]`` before appending so the first heartbeat
+    on a fresh row still produces a valid array. Best-effort —
+    callers swallow exceptions because losing one heartbeat shouldn't
+    fail the conversion.
+    """
+    await pool.execute(
+        """
+        UPDATE audit_log
+        SET metrics_samples = COALESCE(metrics_samples, '[]'::jsonb) || $2::jsonb
+        WHERE job_id = $1
+        """,
+        job_id,
+        json.dumps(sample),
+    )
+
+
 # ── Admin queries ────────────────────────────────────────────────────
 
 
@@ -338,13 +364,22 @@ async def get_audit_by_id(pool: asyncpg.Pool, audit_id: int) -> dict | None:
         """
         SELECT id, ts, user_sub, scope_kind, scope_id, profile_key, key,
                action, target_format, status, error, traceback,
-               duration_ms, job_id
+               duration_ms, job_id, metrics_samples
         FROM audit_log WHERE id = $1
         """,
         audit_id,
     )
     if row is None:
         return None
+    samples_raw = row["metrics_samples"]
+    # asyncpg returns JSONB as a Python str by default; parse defensively.
+    if isinstance(samples_raw, str):
+        try:
+            samples = json.loads(samples_raw)
+        except (ValueError, TypeError):
+            samples = None
+    else:
+        samples = samples_raw
     return {
         "id": row["id"],
         "ts": row["ts"].isoformat() if row["ts"] is not None else None,
@@ -360,6 +395,7 @@ async def get_audit_by_id(pool: asyncpg.Pool, audit_id: int) -> dict | None:
         "traceback": row["traceback"],
         "duration_ms": row["duration_ms"],
         "job_id": row["job_id"],
+        "metrics_samples": samples,
     }
 
 

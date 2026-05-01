@@ -876,6 +876,105 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             result.stream, media_type="application/octet-stream", headers=headers
         )
 
+    @admin.get("/audit/{audit_id}/metrics-history")
+    async def admin_audit_metrics_history(
+        audit_id: int,
+        request: Request,
+    ) -> JSONResponse:
+        """Return the per-heartbeat resource samples captured by the
+        worker subprocess wrapper. One sample per ~2 s while the
+        convert child was alive — RSS, CPU user/sys, IO bytes, all
+        time-aligned by ``elapsed_s``. The SPA renders these as a
+        time-series chart in the audit details modal so an operator
+        sees memory growth + CPU pressure as the run progresses.
+
+        Empty array when the row pre-dates the subprocess wrapper or
+        the worker pod was killed before it could append. ``None``
+        from the DB collapses to ``[]`` here so the chart renders an
+        explicit "no data" state rather than crashing on null."""
+        pool = _require_pool(request)
+        row = await db_module.get_audit_by_id(pool, audit_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail=f"audit row {audit_id} not found")
+        samples = row.get("metrics_samples") or []
+        return JSONResponse({"audit_id": audit_id, "samples": samples})
+
+    @admin.get("/audit/{audit_id}/profile/stats")
+    async def admin_audit_profile_stats(
+        audit_id: int,
+        request: Request,
+        limit: int = 500,
+    ) -> JSONResponse:
+        """Server-side parse of the .prof for the SPA dashboard. Returns
+        a JSON list of per-function rows the table can sort/filter
+        without dragging pstats / snakeviz / a marshal parser into the
+        browser. ``.prof`` download stays available alongside.
+
+        Each row carries: function name, file:line, ncalls, primitive
+        ncalls, total time (excluding sub-calls), per-call total,
+        cumulative time (including sub-calls), per-call cumulative.
+        """
+        pool = _require_pool(request)
+        row = await db_module.get_audit_by_id(pool, audit_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail=f"audit row {audit_id} not found")
+        profile_key = row.get("profile_key")
+        if not profile_key:
+            raise HTTPException(status_code=404, detail="no profile attached to this row")
+        scope = (
+            Scope.shared()
+            if row["scope_kind"] == "shared"
+            else Scope(kind=row["scope_kind"], id=row["scope_id"])  # type: ignore[arg-type]
+        )
+        # pstats only reads from disk, so stash the bytes in a tempfile.
+        try:
+            data = await storage.get_bytes(scope, profile_key)
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        import pstats
+        import tempfile
+        import pathlib as _pl
+        tmp = _pl.Path(tempfile.mkstemp(suffix=".prof")[1])
+        try:
+            tmp.write_bytes(data)
+            try:
+                stats = pstats.Stats(str(tmp))
+            except Exception as exc:
+                raise HTTPException(
+                    status_code=500, detail=f"failed to parse profile: {exc}"
+                ) from exc
+        finally:
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
+        # stats.stats: dict[(filename, lineno, funcname), (cc, nc, tt, ct, callers)].
+        rows = []
+        total_tt = 0.0
+        for (fn, line, name), (cc, nc, tt, ct, _callers) in stats.stats.items():
+            total_tt += tt
+            rows.append({
+                "func": name,
+                "file": fn,
+                "line": line,
+                "ncalls": nc,
+                "primitive_calls": cc,
+                "tottime": tt,
+                "percall_tot": (tt / nc) if nc else 0.0,
+                "cumtime": ct,
+                "percall_cum": (ct / cc) if cc else 0.0,
+            })
+        # Default presentation sort: cumtime desc — same as pstats default.
+        rows.sort(key=lambda r: r["cumtime"], reverse=True)
+        if limit and len(rows) > limit:
+            rows = rows[:limit]
+        return JSONResponse({
+            "audit_id": audit_id,
+            "total_tottime": total_tt,
+            "row_count": len(rows),
+            "rows": rows,
+        })
+
     @admin.delete("/audit/metrics")
     async def admin_clear_metrics(request: Request) -> JSONResponse:
         """Wipe all metrics + profile blobs. Audit rows themselves

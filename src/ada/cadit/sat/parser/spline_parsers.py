@@ -85,20 +85,60 @@ def parse_spline_curve_data(spline_str: str) -> Optional[AcisSplineCurveData]:
             elif val == "closed":
                 closure = ClosureType.CLOSED
 
-        # Knots usually on the following line(s) as alternating value/multiplicity pairs
+        # Knots line(s) hold alternating (knot, multiplicity) pairs. The
+        # number of pairs equals the second integer after the closure
+        # keyword (e.g. ``exppc nubs 1 open 2`` → 2 pairs).
+        n_knot_pairs = None
+        if clos_idx != -1:
+            nk_val = _next_number(header_tokens, clos_idx + 1)
+            if nk_val is not None:
+                n_knot_pairs = int(nk_val)
+
         knots: List[float] = []
         mults: List[int] = []
+        knot_end_idx = 1
         if len(lines) > 1:
-            nums = _to_floats_safe(lines[1].split())
-            # Some exporters continue knot list further
-            if len(lines) > 2:
-                extra_nums = _to_floats_safe(lines[2].split())
-                # Heuristic: if the next line does not look like a 3-value CP row, extend
-                if not (_looks_like_cp_row(lines[2])):
-                    nums.extend(extra_nums)
-            for i in range(0, len(nums) - 1, 2):
-                knots.append(nums[i])
-                mults.append(int(round(nums[i + 1])))
+            nums: List[float] = []
+            i = 1
+            while i < len(lines):
+                # Stop the moment we have the expected number of knot
+                # entries — the next lines are 2D control points (which
+                # also pass _to_floats_safe but mustn't be greedily
+                # collected as knots).
+                if n_knot_pairs is not None and len(nums) >= 2 * n_knot_pairs:
+                    break
+                if n_knot_pairs is None and _looks_like_2d_cp_row(lines[i]):
+                    break
+                nums.extend(_to_floats_safe(lines[i].split()))
+                i += 1
+            knot_end_idx = i
+            for j in range(0, len(nums) - 1, 2):
+                knots.append(nums[j])
+                mults.append(int(round(nums[j + 1])))
+
+        # 2D control points — for exppc the rows are ``u v`` (or
+        # ``u v w`` when rational). Collect ``n_poles`` rows, then stop
+        # at the trailing ``0`` / ``-1`` / 3D-curve-ref padding lines.
+        current_sum_mults = sum(mults) if mults else 0
+        if closure == ClosureType.OPEN and mults:
+            if mults[0] == degree:
+                current_sum_mults += 1
+            if mults[-1] == degree:
+                current_sum_mults += 1
+        n_poles = (current_sum_mults - degree - 1) if mults else 0
+
+        cps: List[List[float]] = []
+        for i in range(knot_end_idx, len(lines)):
+            if n_poles > 0 and len(cps) >= n_poles:
+                break
+            row_vals = _to_floats_safe(lines[i].split())
+            # exppc 2D rows have 2 (nubs) or 3 (nurbs with weight) floats.
+            if len(row_vals) == 2 or len(row_vals) == 3:
+                cps.append(row_vals)
+            else:
+                # Hit a non-CP line (e.g. trailing ``0``/``-1``/spline ref);
+                # stop before it confuses downstream consumers.
+                break
 
         return AcisSplineCurveData(
             subtype=subtype,
@@ -108,7 +148,7 @@ def parse_spline_curve_data(spline_str: str) -> Optional[AcisSplineCurveData]:
             closure_u=closure,
             knots=knots,
             knot_multiplicities=mults,
-            control_points=[],  # exppc in pcurves often doesn't include 3D points we need here
+            control_points=cps,
         )
 
     if subtype == "lawintcur":
@@ -269,3 +309,22 @@ def _looks_like_cp_row(line: str) -> bool:
         except Exception:
             break
     return cnt >= 3
+
+
+def _looks_like_2d_cp_row(line: str) -> bool:
+    """Detect ``u v`` (or ``u v w``) rows from an exppc block.
+
+    Used to stop knot-line collection without greedily eating the 2D
+    control-point rows that follow. We require *exactly* 2 or 3 numeric
+    tokens — knot pair lines have an even number of tokens (2, 4, 6...);
+    2D CP rows are 2 tokens for nubs or 3 for nurbs.
+    """
+    toks = line.split()
+    if len(toks) not in (2, 3):
+        return False
+    for t in toks:
+        try:
+            float(t)
+        except Exception:
+            return False
+    return True

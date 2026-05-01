@@ -201,7 +201,14 @@ def _export_with_ada(model, target_format: str, out_path: pathlib.Path, on_progr
     if target_format == "glb":
         on_progress("tessellating", 0.55)
         buf = io.BytesIO()
-        model.to_gltf(buf)
+        # Debug knob: ``ADA_GLB_MERGE_MESHES=false`` (or 0/no) yields one
+        # glTF node per source object, naming each by its plate/face id.
+        # Useful when triaging tessellation issues — you can compare
+        # exporter output by name in any glTF viewer.
+        import os as _os
+        merge_env = (_os.environ.get("ADA_GLB_MERGE_MESHES") or "").strip().lower()
+        merge_meshes = not (merge_env in {"0", "false", "no", "off"})
+        model.to_gltf(buf, merge_meshes=merge_meshes)
         on_progress("ready", 1.0)
         return buf.getvalue()
     if target_format == "ifc":

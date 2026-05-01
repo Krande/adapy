@@ -142,6 +142,41 @@ export interface AuditEntry {
     job_id: string | null;
 }
 
+export interface ProfileStatsRow {
+    func: string;
+    file: string;
+    line: number;
+    ncalls: number;
+    primitive_calls: number;
+    tottime: number;
+    percall_tot: number;
+    cumtime: number;
+    percall_cum: number;
+}
+
+export interface ProfileStatsResp {
+    audit_id: number;
+    total_tottime: number;
+    row_count: number;
+    rows: ProfileStatsRow[];
+}
+
+export interface MetricsSample {
+    ts: number;            // epoch seconds
+    elapsed_s: number;     // seconds since job start
+    cpu_user_ms: number;
+    cpu_sys_ms: number;
+    rss_kb: number;
+    peak_rss_kb: number;
+    read_bytes: number;
+    write_bytes: number;
+}
+
+export interface MetricsHistoryResp {
+    audit_id: number;
+    samples: MetricsSample[];
+}
+
 export interface AdminProject {
     id: string;
     slug: string;
@@ -266,41 +301,58 @@ export const viewerApi = {
             return;
         }
 
-        // Progress-tracked path uses XHR. We don't get authedFetch's
-        // refresh-then-retry, but the access token's 30s skew window
-        // makes mid-upload expiry vanishingly unlikely.
-        await new Promise<void>((resolve, reject) => {
-            const xhr = new XMLHttpRequest();
-            xhr.open("PUT", this.blobUrl(scope, key));
-            xhr.setRequestHeader("Content-Type", "application/octet-stream");
-            const t = getAccessToken();
-            if (t) xhr.setRequestHeader("Authorization", `Bearer ${t}`);
-            xhr.upload.addEventListener("progress", (e) => {
-                if (e.lengthComputable) {
-                    opts.onProgress!(e.loaded, e.total);
-                }
+        // Progress-tracked path uses XHR. authedFetch's refresh-then-
+        // retry pattern is open-coded here so the upload survives a
+        // token expiring just before the PUT lands — observed when a
+        // user picks a large file after a long idle.
+        const fireUpload = (): Promise<void> =>
+            new Promise<void>((resolve, reject) => {
+                const xhr = new XMLHttpRequest();
+                xhr.open("PUT", this.blobUrl(scope, key));
+                xhr.setRequestHeader("Content-Type", "application/octet-stream");
+                const t = getAccessToken();
+                if (t) xhr.setRequestHeader("Authorization", `Bearer ${t}`);
+                xhr.upload.addEventListener("progress", (e) => {
+                    if (e.lengthComputable) {
+                        opts.onProgress!(e.loaded, e.total);
+                    }
+                });
+                xhr.addEventListener("load", () => {
+                    if (xhr.status >= 200 && xhr.status < 300) {
+                        resolve();
+                    } else {
+                        reject(
+                            new ApiError(
+                                `putBlob(${key}) failed: ${xhr.status}`,
+                                xhr.status,
+                                xhr.responseText || "",
+                            ),
+                        );
+                    }
+                });
+                xhr.addEventListener("error", () =>
+                    reject(new ApiError(`putBlob(${key}) network error`, 0, "")),
+                );
+                xhr.addEventListener("abort", () =>
+                    reject(new ApiError(`putBlob(${key}) aborted`, 0, "")),
+                );
+                xhr.send(body as XMLHttpRequestBodyInit);
             });
-            xhr.addEventListener("load", () => {
-                if (xhr.status >= 200 && xhr.status < 300) {
-                    resolve();
-                } else {
-                    reject(
-                        new ApiError(
-                            `putBlob(${key}) failed: ${xhr.status}`,
-                            xhr.status,
-                            xhr.responseText || "",
-                        ),
-                    );
-                }
-            });
-            xhr.addEventListener("error", () =>
-                reject(new ApiError(`putBlob(${key}) network error`, 0, "")),
-            );
-            xhr.addEventListener("abort", () =>
-                reject(new ApiError(`putBlob(${key}) aborted`, 0, "")),
-            );
-            xhr.send(body as XMLHttpRequestBodyInit);
-        });
+
+        // Pre-flight: if our cached token has fallen out of the 30s
+        // skew window, refresh before we start the (potentially slow)
+        // upload so the body isn't sent with no Authorization header.
+        if (!getAccessToken()) {
+            await refreshAccessToken();
+        }
+        try {
+            await fireUpload();
+        } catch (e) {
+            if (!(e instanceof ApiError) || e.status !== 401) throw e;
+            const refreshed = await refreshAccessToken();
+            if (!refreshed) throw e;
+            await fireUpload();
+        }
     },
 
     /** Request a presigned PUT URL for a too-large-to-buffer upload.
@@ -513,6 +565,25 @@ export const viewerApi = {
         } finally {
             URL.revokeObjectURL(url);
         }
+    },
+
+    /** Server-parsed profile stats for the dashboard table.
+     * Returns one row per function with cumtime / tottime / call counts;
+     * the SPA sorts client-side so the user can pivot freely. */
+    async adminProfileStats(auditId: number, limit = 500): Promise<ProfileStatsResp> {
+        const r = await authedFetch(
+            `${runtime.apiBase()}/admin/audit/${auditId}/profile/stats?limit=${limit}`,
+        );
+        return jsonOrThrow(r, `adminProfileStats(${auditId})`);
+    },
+
+    /** Per-heartbeat resource samples (RSS / CPU / IO) captured by the
+     * worker subprocess wrapper while the convert child was alive. */
+    async adminMetricsHistory(auditId: number): Promise<MetricsHistoryResp> {
+        const r = await authedFetch(
+            `${runtime.apiBase()}/admin/audit/${auditId}/metrics-history`,
+        );
+        return jsonOrThrow(r, `adminMetricsHistory(${auditId})`);
     },
 
     /** Admin: clear all conversion metrics + delete profile blobs.

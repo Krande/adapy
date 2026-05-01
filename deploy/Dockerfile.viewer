@@ -1,8 +1,10 @@
 # syntax=docker/dockerfile:1.7
 
 # Stage 0: build the adacpp pyodide wheel from a configurable git ref.
-# Produces /out/adacpp.whl which the SPA serves as a static asset for
-# the in-browser pyodide worker to micropip.install. Heavy stage (clones
+# Produces /out/ada_cpp-<ver>-cp312-cp312-emscripten_3_1_58_wasm32.whl
+# (the PEP 427 filename micropip parses for name/version/tags) plus a
+# /out/manifest.json so the SPA's pyodide worker can discover the exact
+# wheel name without hardcoding a version. Heavy stage (clones
 # OCCT 7.9, cross-compiles to wasm via emscripten — first run ~30 min)
 # but cached by docker layer hash; only re-runs when ADACPP_REF changes.
 #
@@ -35,7 +37,14 @@ RUN pixi run --environment wasm xbuildenv-install
 # pack-wheel-pyodide depends-on=wbuild-pyodide; one invocation does
 # OCCT cross-compile, link nanobind module, install, package wheel.
 RUN pixi run --environment wasm pack-wheel-pyodide
-RUN mkdir -p /out && cp dist/ada_cpp-*.whl /out/adacpp.whl
+# Keep the PEP 427 filename intact — micropip parses it for name/version
+# and rejects anything that doesn't have the {dist}-{ver}-{py}-{abi}-{plat}
+# shape. Emit a manifest so the worker doesn't need to know the version.
+RUN mkdir -p /out \
+ && cp dist/ada_cpp-*.whl /out/ \
+ && cd /out \
+ && wheel=$(ls ada_cpp-*.whl) \
+ && printf '{"adacpp":"%s"}\n' "$wheel" > manifest.json
 
 # Stage 1: build the SPA bundle.
 FROM node:20-slim AS frontend-build
@@ -52,7 +61,7 @@ RUN npm run build:serve
 # worker fetches at runtime: the adacpp wheel and the minimal adapy
 # source closure (just ada/__init__.py + ada/cad/__init__.py — these
 # are the only files imported in the pyodide branch of __init__.py).
-COPY --from=adacpp-wheel /out/adacpp.whl /build/dist/wheels/adacpp.whl
+COPY --from=adacpp-wheel /out/ /build/dist/wheels/
 COPY src/ada/__init__.py        /build/dist/adapy_src/ada/__init__.py
 COPY src/ada/cad/__init__.py    /build/dist/adapy_src/ada/cad/__init__.py
 

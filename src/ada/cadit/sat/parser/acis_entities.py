@@ -173,6 +173,11 @@ class AcisCoedge(AcisEntity):
     loop_ref: Optional[int] = None
     edge_ref: Optional[int] = None
     sense: SenseType = SenseType.FORWARD
+    # Per-coedge UV-space curve on the parent face's surface — the
+    # 2D p-curve. Stored alongside the coedge (not the underlying edge)
+    # because two coedges of the same shared edge can have different
+    # pcurves for their respective faces.
+    pcurve_ref: Optional[int] = None
 
 
 class AcisEdge(AcisEntity):

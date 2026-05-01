@@ -22,6 +22,7 @@ from ada.cadit.sat.parser.acis_entities import (
     AcisIntcurveCurve,
     AcisLoop,
     AcisLump,
+    AcisPCurve,
     AcisPlaneSurface,
     AcisPoint,
     AcisShell,
@@ -32,6 +33,7 @@ from ada.cadit.sat.parser.acis_entities import (
     AcisVertex,
 )
 from ada.cadit.sat.parser.parser import AcisSatParser
+from ada.cadit.sat.read.bsplinecurves import create_2d_pcurve_from_acis_pcurve
 from ada.config import logger
 from ada.geom.curves import KnotType
 from ada.geom.placement import Axis2Placement3D
@@ -320,7 +322,26 @@ class AcisToAdaConverter:
 
         orientation = same_sense
 
-        return geo_cu.OrientedEdge(start=p1, end=p2, edge_element=edge_curve, orientation=orientation)
+        # Resolve the per-coedge UV-space p-curve when the SAT file
+        # provides one. Carrying it through avoids the lossy reproject-
+        # and-fit step that crashes on near-singular surface points.
+        pcurve = self._resolve_coedge_pcurve(coedge)
+
+        return geo_cu.OrientedEdge(
+            start=p1, end=p2, edge_element=edge_curve, orientation=orientation, pcurve=pcurve,
+        )
+
+    def _resolve_coedge_pcurve(self, coedge: AcisCoedge) -> Optional[geo_cu.Pcurve2dBSpline]:
+        if not coedge.pcurve_ref:
+            return None
+        ent = self.entities.get(coedge.pcurve_ref)
+        if not isinstance(ent, AcisPCurve):
+            return None
+        try:
+            return create_2d_pcurve_from_acis_pcurve(ent)
+        except Exception as ex:
+            logger.debug("pcurve %s not usable: %s", coedge.pcurve_ref, ex)
+            return None
 
     def convert_vertex(self, vertex: AcisVertex) -> Optional[Point]:
         """

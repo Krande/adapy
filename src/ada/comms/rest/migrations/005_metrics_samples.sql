@@ -1,0 +1,23 @@
+-- 005_metrics_samples.sql — time-series resource samples per conversion.
+--
+-- The worker forks a child for each convert() call (B in the worker
+-- isolation work) so a SIGSEGV / double-free in the conversion stack
+-- can't take down the worker pod. While the child runs, the parent
+-- samples /proc/<pid>/{status,stat,io} on a fixed cadence and appends
+-- one row per sample to ``metrics_samples`` here as JSONB.
+--
+-- Sample shape (one entry per heartbeat):
+--   {"ts": <epoch>, "cpu_user_ms": ..., "cpu_sys_ms": ...,
+--    "rss_kb": ..., "peak_rss_kb": ..., "read_bytes": ...,
+--    "write_bytes": ...}
+--
+-- A single column rather than a separate table because:
+--   * Read pattern is "fetch this audit's full timeline" — always
+--     scoped to one row, no cross-job aggregation.
+--   * Write pattern is per-heartbeat append; jsonb_insert keeps it a
+--     single SQL statement with no FK setup.
+--   * Audit rows live behind the admin clear-metrics flow which
+--     already nulls metrics columns; one column to wipe is simpler
+--     than a child table to truncate.
+
+ALTER TABLE audit_log ADD COLUMN metrics_samples JSONB;

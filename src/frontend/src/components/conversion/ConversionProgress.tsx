@@ -1,4 +1,4 @@
-import React from "react";
+import React, {useState} from "react";
 import {useConversionStore} from "@/state/conversionStore";
 
 const STATUS_LABEL: Record<string, string> = {
@@ -6,6 +6,53 @@ const STATUS_LABEL: Record<string, string> = {
     running: "Converting",
     done: "Ready",
     error: "Failed",
+};
+
+const ErrorRow: React.FC<{
+    sourceKey: string;
+    message: string;
+    onClear: () => void;
+}> = ({sourceKey, message, onClear}) => {
+    const [copied, setCopied] = useState(false);
+
+    const onCopy = async () => {
+        const payload = `${sourceKey}\n${message}`;
+        try {
+            await navigator.clipboard.writeText(payload);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 1500);
+        } catch {
+            /* clipboard blocked — user can still select-and-copy */
+        }
+    };
+
+    return (
+        <div className="flex flex-col gap-1">
+            <div className="flex justify-between items-start gap-2">
+                <pre className="text-red-400 break-all whitespace-pre-wrap font-mono text-[11px] leading-snug max-h-64 overflow-auto m-0">
+                    {message}
+                </pre>
+                <button
+                    className="shrink-0 text-gray-400 hover:text-gray-200"
+                    onClick={onClear}
+                    aria-label="Dismiss"
+                    title="Dismiss"
+                >
+                    ×
+                </button>
+            </div>
+            <div className="flex justify-end">
+                <button
+                    type="button"
+                    onClick={onCopy}
+                    className="bg-gray-700 hover:bg-gray-600 text-gray-100 px-2 py-0.5 rounded text-[11px]"
+                    title="Copy traceback to clipboard"
+                >
+                    {copied ? "Copied" : "Copy"}
+                </button>
+            </div>
+        </div>
+    );
 };
 
 const ConversionProgress = () => {
@@ -46,15 +93,11 @@ const ConversionProgress = () => {
                             </div>
                         )}
                         {isError && (
-                            <div className="flex justify-between items-start gap-2">
-                                <div className="text-red-400 break-all">{job.error}</div>
-                                <button
-                                    className="shrink-0 text-gray-400 hover:text-gray-200"
-                                    onClick={() => clearJob(job.sourceKey)}
-                                >
-                                    ×
-                                </button>
-                            </div>
+                            <ErrorRow
+                                sourceKey={job.sourceKey}
+                                message={job.error || "(no error message)"}
+                                onClear={() => clearJob(job.sourceKey)}
+                            />
                         )}
                     </div>
                 );
