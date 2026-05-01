@@ -9,18 +9,16 @@
 # To rebuild against a different adacpp commit/branch, override at build
 # time:  docker build --build-arg ADACPP_REF=<sha-or-branch> ...
 #
-# python:3.12-slim base (instead of ghcr.io/prefix-dev/pixi which is
-# distroless and has no apt/shell tooling) so we can apt-install git +
-# curl-install pixi cleanly. The pixi we install drives the OCCT cross
+# python:3.12 (full Debian, not -slim) ships git + curl + ca-certs in
+# the base image, so we don't need apt at all — important because the
+# self-hosted runner only allows HTTPS outbound and the default Debian
+# apt sources are http://. Curl-install pixi to drive the OCCT cross
 # compile via the wasm env in adacpp's pixi.toml.
-FROM python:3.12-slim AS adacpp-wheel
+FROM python:3.12 AS adacpp-wheel
 ARG ADACPP_REPO=https://github.com/Krande/adacpp.git
 ARG ADACPP_REF=feat/cad-handler
 ARG PIXI_VERSION=0.45.0
-RUN apt-get update \
- && apt-get install -y --no-install-recommends git curl ca-certificates \
- && rm -rf /var/lib/apt/lists/* \
- && curl -fsSL https://pixi.sh/install.sh | PIXI_VERSION=v${PIXI_VERSION} bash \
+RUN curl -fsSL https://pixi.sh/install.sh | PIXI_VERSION=v${PIXI_VERSION} bash \
  && ln -s /root/.pixi/bin/pixi /usr/local/bin/pixi
 WORKDIR /src
 RUN git clone --depth=1 --branch "${ADACPP_REF}" "${ADACPP_REPO}" adacpp \
@@ -29,8 +27,13 @@ RUN git clone --depth=1 --branch "${ADACPP_REF}" "${ADACPP_REPO}" adacpp \
      && git fetch --depth=1 origin "${ADACPP_REF}" \
      && git checkout "${ADACPP_REF}")
 WORKDIR /src/adacpp
+# Install the pyodide cross-build env (Python 3.12.7 headers + emscripten
+# 3.1.58 sysroot) into the location adacpp's CMakePresets.json expects
+# ($HOME/.cache/.pyodide-xbuildenv-0.34.3/0.27.7). Required for the
+# nanobind / OCCT compiles that need <Python.h>.
+RUN pixi run --environment wasm xbuildenv-install
 # pack-wheel-pyodide depends-on=wbuild-pyodide; one invocation does
-# clone-OCCT, build, install, package wheel.
+# OCCT cross-compile, link nanobind module, install, package wheel.
 RUN pixi run --environment wasm pack-wheel-pyodide
 RUN mkdir -p /out && cp dist/ada_cpp-*.whl /out/adacpp.whl
 
