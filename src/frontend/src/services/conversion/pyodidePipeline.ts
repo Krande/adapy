@@ -56,12 +56,12 @@ export async function convertViaPyodideAndUpload(
         stage: "uploading derived",
     });
 
-    const derivedKey = `_derived/${sourceKey}.glb`;
-    // NOTE: the API layer rejects writes to _derived/* (it's the
-    // server-managed cache). The pyodide-experiment toggle will get a
-    // dedicated upload route in a follow-up; for now this branch is
-    // expected to fail with 403 when actually used.
-    await viewerApi.putBlob(scope, derivedKey, glb);
+    // putBlob to ``_derived/*`` is rejected by the API (that namespace
+    // is server-worker territory). The pyodide-derived blob goes via a
+    // dedicated route that takes (source, target) and computes the
+    // canonical derived key server-side, matching whatever the worker
+    // would have written.
+    const derivedKey = await viewerApi.putDerivedBlob(scope, sourceKey, "glb", glb);
 
     store.setJob(storeKey, {
         ...store.jobs[storeKey] || job,

@@ -355,6 +355,32 @@ export const viewerApi = {
         }
     },
 
+    /** Upload a pyodide-derived blob (e.g. an in-browser GLB conversion
+     * of a STEP/IFC source) and return the canonical derived key the
+     * server stored it under. Wraps PUT /api/scopes/{scope}/derived,
+     * which computes the key from (source, target) so the SPA doesn't
+     * need to mirror the server's naming convention. */
+    async putDerivedBlob(
+        scope: ScopeUrl,
+        sourceKey: string,
+        target: TargetFormat,
+        body: BodyInit,
+    ): Promise<string> {
+        const url =
+            `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/derived` +
+            `?source=${encodeURIComponent(sourceKey)}&target=${encodeURIComponent(target)}`;
+        const r = await authedFetch(url, {
+            method: "PUT",
+            body,
+            headers: {"Content-Type": "application/octet-stream"},
+        });
+        if (!r.ok) {
+            throw new ApiError(`putDerivedBlob(${sourceKey})`, r.status, await readDetail(r));
+        }
+        const j: {key: string; size: number} = await r.json();
+        return j.key;
+    },
+
     /** Request a presigned PUT URL for a too-large-to-buffer upload.
      *
      * Used by uploadFile when the file exceeds the server's regular

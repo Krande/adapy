@@ -421,6 +421,87 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         await _audit(request, user, scope_obj, "upload", key=clean, status="ok")
         return JSONResponse({"key": clean, "size": len(data)}, status_code=201)
 
+    @api.put("/scopes/{scope}/derived")
+    async def api_scope_derived_put(
+        request: Request,
+        scope_obj: Scope = Depends(_scope_from_path),
+        user: User = Depends(auth_module.current_user),
+    ) -> JSONResponse:
+        """Upload a derived blob produced by the in-browser pyodide
+        converter.
+
+        Why a dedicated endpoint: the regular ``PUT /scopes/{scope}/blobs/{key}``
+        rejects writes to ``_derived/`` because that namespace is the
+        server worker's domain. The pyodide pipeline produces the same
+        kind of derived GLB though, just in the browser, and needs to
+        land at the same key the rest of the viewer reads from
+        (``_derived/<source>.<target>``). This route takes the
+        (source, target) pair, derives the canonical key via the same
+        ``derived_key_for`` helper the worker uses, and writes the body
+        bytes there.
+
+        Body: raw bytes of the derived blob.
+        Query: ``source`` (existing source key in the scope), ``target``
+        (default ``glb``).
+        """
+        from .converter import derived_key_for, is_supported_source
+
+        source = (request.query_params.get("source") or "").strip().lstrip("/")
+        target = (request.query_params.get("target") or "glb").strip().lstrip(".").lower()
+        if not source:
+            raise HTTPException(status_code=400, detail="source query param required")
+        if not is_supported_source(source):
+            raise HTTPException(status_code=415, detail=f"unsupported source: {source}")
+        # Confirm the source exists in this scope before writing the
+        # derived — otherwise the SPA could pollute the cache for a
+        # source that isn't visible to the user.
+        try:
+            source_exists = await storage.exists(scope_obj, source)
+        except Exception:
+            source_exists = False
+        if not source_exists:
+            raise HTTPException(
+                status_code=404,
+                detail=f"source not found in scope: {source}",
+            )
+
+        # Same direct-upload guardrail as the source PUT path.
+        cl = request.headers.get("content-length")
+        if cl is not None:
+            try:
+                announced = int(cl)
+            except ValueError:
+                announced = -1
+            if announced > _DIRECT_UPLOAD_THRESHOLD_BYTES:
+                raise HTTPException(
+                    status_code=413,
+                    detail=f"derived upload exceeds {_DIRECT_UPLOAD_THRESHOLD_BYTES} bytes",
+                )
+
+        data = await request.body()
+        if not data:
+            raise HTTPException(status_code=400, detail="empty body")
+
+        try:
+            derived_key = derived_key_for(source, target)
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        try:
+            await storage.put_bytes(scope_obj, derived_key, data)
+        except Exception as exc:
+            logger.exception("derived upload failed for %s", derived_key)
+            await _audit(
+                request, user, scope_obj, "convert",
+                key=source, target_format=target, status="error", error=str(exc),
+            )
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+        await _audit(
+            request, user, scope_obj, "convert",
+            key=source, target_format=target, status="done",
+        )
+        return JSONResponse({"key": derived_key, "size": len(data)}, status_code=201)
+
     @api.post("/scopes/{scope}/upload-url")
     async def api_scope_upload_url(
         request: Request,
