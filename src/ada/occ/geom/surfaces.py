@@ -763,10 +763,30 @@ def make_face_from_geom(advanced_face: geo_su.AdvancedFace) -> TopoDS_Face:
         n_updated, n_total = update_edges_uv_gen(
             occ_edges, builder, face_surface, supplied_pcurves=pcurves,
         )
+        # First attempt: default OCC vertex-snap tolerance.
         wire_maker = BRepBuilderAPI_MakeWire()
         for e in occ_edges:
             wire_maker.Add(e)
         wire_maker.Build()
+        if not wire_maker.IsDone():
+            # Relaxed pass. The default tolerance is a few microns,
+            # which fails when SAT-derived edge endpoints land on
+            # subtly-different vertex hash bins (drive_edge picks
+            # endpoints from the surface's pcurve evaluation;
+            # make_edge_from_edge picks them from the 3D-curve
+            # endpoint snap — the two can differ by 0.1-1 mm). 1 mm
+            # is well below structural feature size on hullskin
+            # plates and matches OCC's own tolerance bumps in
+            # ShapeFix_Wire when it sees gaps below that.
+            from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_MakeWire as _MW
+            wire_maker = _MW()
+            try:
+                wire_maker.SetTolerance(1.0e-3)
+            except Exception:
+                pass
+            for e in occ_edges:
+                wire_maker.Add(e)
+            wire_maker.Build()
         if not wire_maker.IsDone():
             raise UnableToCreateTesselationFromSolidOCCGeom(
                 "BRepBuilderAPI_MakeWire failed for BSpline-surface bound"

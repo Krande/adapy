@@ -109,6 +109,63 @@ def yield_plate_elems_to_plate(plate_elem, parent, sat_ref_d, thick_map, flat_fa
             sat_data = sat_ref_d.get(face_ref, None)
 
             if isinstance(sat_data, Geometry) and Config().gxml_import_advanced_faces is True:
+                fallback_pts = flat_fallback_d.get(face_ref)
+                # World-space sanity: the recent exppc surface-peel
+                # can land on an exactsur record that's the
+                # parameter basis for a different geometric region
+                # of the model. The resulting AdvancedFace is a
+                # valid BSpline patch but tens of metres off from
+                # where the wire actually lives. The peel-derived
+                # surface and its wire are *both* in the wrong
+                # place (consistent with each other), so a
+                # surface-vs-wire check downstream wouldn't catch
+                # it. The flat-plate corner points come from a
+                # separate SAT path (``iter_flat_plates`` walks the
+                # face's coedge endpoints), so they're an
+                # independent reference for "where this plate
+                # actually lives".
+                #
+                # If the BSpline surface centre is far from the
+                # flat perimeter centroid, skip the PlateCurved
+                # path entirely and yield a Plate.from_3d_points
+                # at the correct world location instead.
+                if fallback_pts is not None and len(fallback_pts) >= 3:
+                    try:
+                        import numpy as _np
+                        flat_arr = _np.array([list(p)[:3] for p in fallback_pts])
+                        flat_centre = flat_arr.mean(axis=0)
+                        flat_diag = float(_np.linalg.norm(flat_arr.max(axis=0) - flat_arr.min(axis=0)))
+                        # Sample the AdvancedFace surface centre in
+                        # 3D. Different surface types expose
+                        # different centre-evaluation APIs; we only
+                        # care about a coarse 3D point.
+                        surf = getattr(sat_data.geometry, "face_surface", None)
+                        cps = getattr(surf, "control_points_list", None)
+                        if cps:
+                            xs, ys, zs = [], [], []
+                            for row in cps:
+                                for cp in row:
+                                    xs.append(cp[0]); ys.append(cp[1]); zs.append(cp[2])
+                            surf_centre = _np.array([
+                                sum(xs) / len(xs), sum(ys) / len(ys), sum(zs) / len(zs),
+                            ])
+                            offset = float(_np.linalg.norm(surf_centre - flat_centre))
+                            tol = max(2.0 * flat_diag, 5.0)
+                            if offset > tol:
+                                logger.warning(
+                                    "PlateCurved %r: BSpline surface centre %.1f m from "
+                                    "flat-fallback centroid (tol %.1f m, flat diag %.1f m); "
+                                    "exppc surface-peel mismatch — using flat representation",
+                                    name, offset, tol, flat_diag,
+                                )
+                                yield Plate.from_3d_points(
+                                    name, fallback_pts, t, mat=mat,
+                                    metadata=dict(props=dict(gxml_face_ref=face_ref)),
+                                    parent=parent,
+                                )
+                                continue
+                    except Exception:
+                        pass
                 pc = PlateCurved(
                     name,
                     sat_data,
@@ -126,7 +183,6 @@ def yield_plate_elems_to_plate(plate_elem, parent, sat_ref_d, thick_map, flat_fa
                 # behaviour for plates whose advanced-face succeeds
                 # but downstream OCC face construction fails the
                 # strict pcurve guard.
-                fallback_pts = flat_fallback_d.get(face_ref)
                 if fallback_pts is not None:
                     pc._flat_fallback_pts = fallback_pts
                 yield pc
