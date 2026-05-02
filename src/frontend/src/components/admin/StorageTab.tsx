@@ -1,4 +1,4 @@
-import React, {useEffect, useState} from "react";
+import React, {useEffect, useRef, useState} from "react";
 import {AdminFileEntry, ApiError, TargetFormat, viewerApi} from "@/services/viewerApi";
 import {ensureConverted} from "@/services/conversion";
 import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
@@ -67,15 +67,53 @@ const StorageTab: React.FC = () => {
     );
     const activeOverrides = OVERRIDE_KEYS.filter(({key}) => overrides[key] !== "unset").length;
 
+    // Track the in-flight reload so a second tap can supersede it
+    // instead of being silently ignored. Without this, a hung
+    // request would leave the button disabled forever and the user
+    // would believe "nothing happened" — exactly the symptom we're
+    // fixing here.
+    const inflightRef = useRef<{seq: number; cancel: AbortController} | null>(null);
+    const reloadSeq = useRef(0);
+    // Min visible busy duration. The endpoint is ~30 ms; without a
+    // floor the spinner blinks too fast for the eye to register and
+    // the click feels like it did nothing.
+    const MIN_BUSY_MS = 250;
+
     const reload = async () => {
+        // Supersede any in-flight reload — a second tap means the
+        // user wants fresh data right now, not the previous attempt.
+        if (inflightRef.current) {
+            inflightRef.current.cancel.abort();
+        }
+        const seq = ++reloadSeq.current;
+        const cancel = new AbortController();
+        inflightRef.current = {seq, cancel};
         setLoading(true);
+        const startedAt = Date.now();
         try {
-            setFiles(await viewerApi.adminListStorage(scope));
-            setError(null);
-        } catch (e) {
-            setError(e instanceof ApiError ? e.detail || e.message : String(e));
+            const files = await viewerApi.adminListStorage(scope, {signal: cancel.signal});
+            // Only the latest reload commits results — race-safe.
+            if (reloadSeq.current === seq) {
+                setFiles(files);
+                setError(null);
+            }
+        } catch (e: unknown) {
+            // Aborted requests aren't errors; the superseding tap
+            // owns the UI now.
+            if ((e as {name?: string}).name === "AbortError") return;
+            if (reloadSeq.current === seq) {
+                setError(e instanceof ApiError ? e.detail || e.message : String(e));
+            }
         } finally {
-            setLoading(false);
+            // Hold the busy state long enough for a person to see
+            // the click registered, even on a 30 ms response.
+            const elapsed = Date.now() - startedAt;
+            const wait = Math.max(0, MIN_BUSY_MS - elapsed);
+            if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+            if (reloadSeq.current === seq) {
+                setLoading(false);
+                inflightRef.current = null;
+            }
         }
     };
 
@@ -158,11 +196,38 @@ const StorageTab: React.FC = () => {
                     Overrides{activeOverrides ? ` (${activeOverrides})` : ""} {overrideOpen ? "▾" : "▸"}
                 </button>
                 <button
-                    className="ml-auto bg-blue-700 hover:bg-blue-600 px-3 py-1 rounded text-xs disabled:opacity-50"
-                    onClick={() => reload()}
-                    disabled={loading}
+                    type="button"
+                    className={
+                        "ml-auto inline-flex items-center gap-1.5 bg-blue-700 active:bg-blue-800 " +
+                        "hover:bg-blue-600 rounded text-xs " +
+                        // Bigger tap target on mobile (≥40px tall);
+                        // tighter on desktop where the cursor is precise.
+                        "px-4 py-2 sm:px-3 sm:py-1 min-h-[40px] sm:min-h-0 " +
+                        // Visible "active" ring to confirm the tap
+                        // landed even before the network call returns.
+                        "focus:outline-none focus:ring-2 focus:ring-blue-400 " +
+                        (loading ? "opacity-90 cursor-wait" : "")
+                    }
+                    onClick={() => void reload()}
+                    aria-busy={loading}
+                    title={loading ? "Refreshing — tap again to retry" : "Refresh storage list"}
                 >
-                    {loading ? "Loading…" : "Refresh"}
+                    {/* Inline spinner so feedback is visual on mobile,
+                        not just a text swap. The label stays "Refresh"
+                        so the user can re-tap to abort+retry without
+                        wondering whether the button is disabled. */}
+                    <svg
+                        className={"h-3 w-3 " + (loading ? "animate-spin" : "opacity-60")}
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2.5"
+                        strokeLinecap="round"
+                    >
+                        <path d="M21 12a9 9 0 1 1-3.5-7.1"/>
+                        <polyline points="21 4 21 10 15 10"/>
+                    </svg>
+                    Refresh
                 </button>
             </div>
             {overrideOpen && (

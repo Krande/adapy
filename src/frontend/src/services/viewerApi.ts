@@ -689,9 +689,13 @@ export const viewerApi = {
     /** Admin: enriched per-scope listing (format, last_modified,
      * derived products). Same scope check as the user-facing /files
      * endpoint — admins still need scope access. */
-    async adminListStorage(scope: ScopeUrl): Promise<AdminFileEntry[]> {
+    async adminListStorage(
+        scope: ScopeUrl,
+        opts?: {signal?: AbortSignal},
+    ): Promise<AdminFileEntry[]> {
         const r = await authedFetch(
             `${runtime.apiBase()}/admin/scopes/${encodeURIComponent(scope)}/files`,
+            {signal: opts?.signal},
         );
         const body = await jsonOrThrow<{files: AdminFileEntry[]}>(r, "adminListStorage");
         return body.files;
