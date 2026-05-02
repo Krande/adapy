@@ -196,17 +196,73 @@ class BatchTessellator:
             if isinstance(obj, BackendGeom):
                 ada_obj = obj
                 geom_repr = render_override.get(obj.guid, GeomRepr.SOLID)
+                node_ref = (
+                    graph_store.hash_map.get(obj.guid)
+                    if graph_store is not None
+                    else getattr(obj, "guid", None)
+                )
+
+                # PlateCurved: prism-extrude the BSpline face by
+                # thickness so the GLB ships a solid (matching what
+                # a flat Plate produces) rather than a thin shell.
+                # Falls back to the bare face if the prism fails
+                # (handled inside extruded_solid_occ), and falls
+                # through to the generic flat-fallback path further
+                # below if the result tessellates to nothing.
+                if (
+                    geom_repr == GeomRepr.SOLID
+                    and hasattr(obj, "extruded_solid_occ")
+                    and callable(getattr(obj, "extruded_solid_occ"))
+                ):
+                    ms_curved = None
+                    try:
+                        shape = obj.extruded_solid_occ()
+                        ms_curved = self.tessellate_occ_geom(shape, node_ref, obj.color)
+                    except UnableToCreateTesselationFromSolidOCCGeom as e:
+                        logger.error(e)
+                    if ms_curved is not None:
+                        pos = getattr(ms_curved, "position", None)
+                        idx = getattr(ms_curved, "indices", None)
+                        pos_n = 0 if pos is None else (len(pos) if hasattr(pos, "__len__") else 0)
+                        idx_n = 0 if idx is None else (len(idx) if hasattr(idx, "__len__") else 0)
+                        if pos_n > 0 and idx_n > 0:
+                            yield ms_curved
+                            continue
+                    # Empty / failed — drop to the flat-fallback path
+                    # at the bottom of the loop.
+                    fallback_pts = getattr(ada_obj, "_flat_fallback_pts", None)
+                    if fallback_pts:
+                        try:
+                            from ada import Plate
+                            fb = Plate.from_3d_points(
+                                getattr(ada_obj, "name", "fallback"),
+                                fallback_pts,
+                                getattr(ada_obj, "t", None) or 0.0,
+                                mat=getattr(ada_obj, "material", None),
+                                metadata=dict(props=dict(
+                                    gxml_flat_fallback_for=getattr(ada_obj, "name", None),
+                                )),
+                                parent=getattr(ada_obj, "parent", None),
+                            )
+                            yield self.tessellate_geom(
+                                fb.solid_geom(), ada_obj, graph_store=graph_store,
+                            )
+                            logger.warning(
+                                "PlateCurved %r: BSpline tessellation failed, rendered as flat fallback",
+                                getattr(ada_obj, "name", "?"),
+                            )
+                        except Exception as fb_err:
+                            logger.error(
+                                "PlateCurved %r: flat fallback also failed (%s); plate dropped",
+                                getattr(ada_obj, "name", "?"), fb_err,
+                            )
+                    continue
+
                 # Raw-OCC fast path: STEP/SAT-imported shapes hold a
-                # TopoDS_* directly on `_geom` and have no ada.geom
-                # wrapper for the Geometry → OCC step to consume. Skip
-                # straight to OCC tessellation.
+                # TopoDS_* directly on `_geom`; skip the ada.geom
+                # round-trip.
                 raw = getattr(obj, "_geom", None)
                 if geom_repr == GeomRepr.SOLID and isinstance(raw, _TopoDS_Shape):
-                    node_ref = (
-                        graph_store.hash_map.get(obj.guid)
-                        if graph_store is not None
-                        else getattr(obj, "guid", None)
-                    )
                     try:
                         yield self.tessellate_occ_geom(raw, node_ref, obj.color)
                     except UnableToCreateTesselationFromSolidOCCGeom as e:

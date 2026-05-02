@@ -359,3 +359,65 @@ class PlateCurved(BackendGeom):
         from ada.occ.geom import geom_to_occ_geom
 
         return geom_to_occ_geom(self.solid_geom())
+
+    def extruded_solid_occ(self) -> TopoDS_Shape:
+        """Prism-extrude the curved face by ``t`` along its normal so
+        the rendered plate carries thickness like a planar
+        ``Plate.from_3d_points`` does.
+
+        Without this the GLB ships only the BSpline face (a single
+        shell), and viewers that don't draw both sides — or simply
+        compare against the flat-fallback box rendering — perceive
+        the plate as "missing" or "thinner than expected". A real
+        prism solid matches the engineering definition (a sheet of
+        steel of thickness t) and looks identical to the flat case.
+
+        Returns a ``TopoDS_Shape`` (Solid) ready for the tessellator's
+        raw-OCC fast path. Falls back to the bare face shape on any
+        prism failure so the caller still gets *something* to render.
+        """
+        from ada.occ.geom import geom_to_occ_geom
+        face = geom_to_occ_geom(self.solid_geom())
+        if not self.t:
+            return face
+        try:
+            from OCC.Core.BRepGProp import brepgprop_SurfaceProperties
+            from OCC.Core.BRepPrimAPI import BRepPrimAPI_MakePrism
+            from OCC.Core.GProp import GProp_GProps
+            from OCC.Core.gp import gp_Vec
+            # Average normal at the face's centre of mass — used for
+            # the extrusion direction. Sign agnostic: the plate
+            # rendering doesn't care which side the thickness adds
+            # to.
+            from OCC.Core.BRep import BRep_Tool
+            from OCC.Core.TopExp import TopExp_Explorer
+            from OCC.Core.TopAbs import TopAbs_FACE
+            exp = TopExp_Explorer(face, TopAbs_FACE)
+            if not exp.More():
+                return face
+            sub_face = exp.Current()
+            surf = BRep_Tool.Surface(sub_face)
+            # Sample the surface domain centre to get a normal.
+            from OCC.Core.GeomLProp import GeomLProp_SLProps
+            u_min, u_max, v_min, v_max = BRep_Tool.Parameters_s if False else (0.0, 1.0, 0.0, 1.0)
+            # Rather than parse parameter ranges by hand, evaluate
+            # via the face's BRep parameters.
+            from OCC.Core.BRepTools import breptools_UVBounds
+            try:
+                u_min, u_max, v_min, v_max = breptools_UVBounds(sub_face)
+            except Exception:
+                pass
+            uc, vc = (u_min + u_max) / 2, (v_min + v_max) / 2
+            props = GeomLProp_SLProps(surf, uc, vc, 1, 1e-7)
+            if not props.IsNormalDefined():
+                return face
+            n = props.Normal()
+            vec = gp_Vec(n.X() * float(self.t), n.Y() * float(self.t), n.Z() * float(self.t))
+            prism = BRepPrimAPI_MakePrism(face, vec)
+            if not prism.IsDone():
+                return face
+            return prism.Shape()
+        except Exception:
+            # Any failure (degenerate face, OCC mesher refusing the
+            # prism) — render the face by itself. Better than nothing.
+            return face
