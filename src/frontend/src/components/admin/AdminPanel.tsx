@@ -103,10 +103,14 @@ const AdminPanel: React.FC<{onClose: () => void}> = ({onClose}) => {
     const body = (
         <div className="flex flex-col h-full bg-gray-900 text-white shadow-xl rounded overflow-hidden">
             <div
-                className="admin-drag-handle flex items-center justify-between border-b border-gray-700 px-3 py-2 sm:px-4 cursor-move select-none"
+                className="admin-drag-handle flex items-center gap-2 border-b border-gray-700 px-3 py-2 sm:px-4 cursor-move select-none"
                 title="Drag to move"
             >
-                <div className="flex gap-1 text-sm">
+                {/* Tab row scrolls horizontally on narrow screens so the
+                    close button stays reachable; ``min-w-0`` is what
+                    actually makes flex children shrink below their
+                    intrinsic content width. */}
+                <div className="flex-1 min-w-0 overflow-x-auto flex gap-1 text-sm">
                     <TabButton active={tab === "audit"} onClick={() => setTab("audit")}>
                         Audit
                     </TabButton>
@@ -120,7 +124,7 @@ const AdminPanel: React.FC<{onClose: () => void}> = ({onClose}) => {
                         Conversion
                     </TabButton>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 shrink-0">
                     <CliTokenButton/>
                     <button
                         className="text-gray-300 hover:text-white text-2xl leading-none px-3 py-1 -my-1 no-drag"

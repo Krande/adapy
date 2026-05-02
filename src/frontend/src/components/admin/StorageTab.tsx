@@ -124,6 +124,24 @@ const StorageTab: React.FC = () => {
         }
     };
 
+    // Delete a single derived blob without touching the source.
+    // Common during conversion debugging: remove the cached GLB so
+    // the next /convert re-runs the pipeline instead of returning the
+    // cached output. The admin endpoint already routes derived keys
+    // to a one-blob delete; the source delete path is unaffected.
+    const onDeleteDerived = async (sourceKey: string, derivedKey: string, label: string) => {
+        if (!confirm(`Delete cached "${label}"? Next Convert will regenerate it.`)) return;
+        setBusyKey(`${derivedKey}::delete`);
+        try {
+            await viewerApi.adminDeleteBlob(scope, derivedKey);
+            await reload();
+        } catch (e) {
+            setError(e instanceof ApiError ? e.detail || e.message : String(e));
+        } finally {
+            setBusyKey(null);
+        }
+    };
+
     return (
         <div className="flex flex-col h-full">
             <div className="flex items-center gap-2 px-3 sm:px-4 py-2 border-b border-gray-700 text-xs">
@@ -219,6 +237,7 @@ const StorageTab: React.FC = () => {
                             onConvert={onConvert}
                             onDownload={onDownload}
                             onDelete={onDelete}
+                            onDeleteDerived={onDeleteDerived}
                         />
                     ))}
                     </tbody>
@@ -235,6 +254,7 @@ const StorageTab: React.FC = () => {
                             onConvert={onConvert}
                             onDownload={onDownload}
                             onDelete={onDelete}
+                            onDeleteDerived={onDeleteDerived}
                         />
                     ))}
                 </ul>
@@ -254,6 +274,7 @@ interface RowProps {
     onConvert: (sourceKey: string, target: TargetFormat) => void;
     onDownload: (key: string, suggestedName: string) => void;
     onDelete: (key: string, label: string) => void;
+    onDeleteDerived: (sourceKey: string, derivedKey: string, label: string) => void;
 }
 
 const SourceRow: React.FC<RowProps & {scope: string}> = ({
@@ -262,6 +283,7 @@ const SourceRow: React.FC<RowProps & {scope: string}> = ({
     onConvert,
     onDownload,
     onDelete,
+    onDeleteDerived,
 }) => {
     const downloadable = file.available_targets.filter((t) => t !== "glb");
     const busyConverting = busyKey?.startsWith(`${file.key}::`) && !busyKey.endsWith("::delete");
@@ -284,16 +306,28 @@ const SourceRow: React.FC<RowProps & {scope: string}> = ({
             <Td>
                 <div className="flex flex-wrap gap-1">
                     {file.derived.length === 0 && <span className="text-gray-500">—</span>}
-                    {file.derived.map((d) => (
-                        <button
-                            key={d.key}
-                            className="bg-gray-800 hover:bg-gray-700 px-2 py-0.5 rounded text-[11px]"
-                            onClick={() => onDownload(d.key, suggestedName(file.key, d.format))}
-                            title={`${d.key} (${formatBytes(d.size)})`}
-                        >
-                            {d.format.toUpperCase()} ↓
-                        </button>
-                    ))}
+                    {file.derived.map((d) => {
+                        const busyDerived = busyKey === `${d.key}::delete`;
+                        return (
+                            <span key={d.key} className="inline-flex rounded overflow-hidden border border-gray-700">
+                                <button
+                                    className="bg-gray-800 hover:bg-gray-700 px-2 py-0.5 text-[11px]"
+                                    onClick={() => onDownload(d.key, suggestedName(file.key, d.format))}
+                                    title={`${d.key} (${formatBytes(d.size)})`}
+                                >
+                                    {d.format.toUpperCase()} ↓
+                                </button>
+                                <button
+                                    className="bg-red-900/70 hover:bg-red-800 px-1.5 text-[11px] text-gray-100 disabled:opacity-50"
+                                    onClick={() => onDeleteDerived(file.key, d.key, `${file.key} → ${d.format}`)}
+                                    disabled={busyDerived}
+                                    title="Delete cached derived blob (next Convert will regenerate it)"
+                                >
+                                    {busyDerived ? "…" : "×"}
+                                </button>
+                            </span>
+                        );
+                    })}
                 </div>
             </Td>
             <Td>
@@ -350,6 +384,7 @@ const SourceCard: React.FC<CardProps> = ({
     onConvert,
     onDownload,
     onDelete,
+    onDeleteDerived,
 }) => {
     const downloadable = file.available_targets.filter((t) => t !== "glb");
     const busyConverting = busyKey?.startsWith(`${file.key}::`) && !busyKey.endsWith("::delete");
@@ -380,16 +415,28 @@ const SourceCard: React.FC<CardProps> = ({
                 <div className="mt-2 space-y-2">
                     {file.derived.length > 0 && (
                         <div className="flex flex-wrap gap-1">
-                            {file.derived.map((d) => (
-                                <button
-                                    key={d.key}
-                                    className="bg-gray-800 hover:bg-gray-700 px-2 py-0.5 rounded text-[11px]"
-                                    onClick={() => onDownload(d.key, suggestedName(file.key, d.format))}
-                                    title={`${d.key} (${formatBytes(d.size)})`}
-                                >
-                                    {d.format.toUpperCase()} ↓
-                                </button>
-                            ))}
+                            {file.derived.map((d) => {
+                                const busyDerived = busyKey === `${d.key}::delete`;
+                                return (
+                                    <span key={d.key} className="inline-flex rounded overflow-hidden border border-gray-700">
+                                        <button
+                                            className="bg-gray-800 hover:bg-gray-700 px-2 py-0.5 text-[11px]"
+                                            onClick={() => onDownload(d.key, suggestedName(file.key, d.format))}
+                                            title={`${d.key} (${formatBytes(d.size)})`}
+                                        >
+                                            {d.format.toUpperCase()} ↓
+                                        </button>
+                                        <button
+                                            className="bg-red-900/70 hover:bg-red-800 px-1.5 text-[11px] text-gray-100 disabled:opacity-50"
+                                            onClick={() => onDeleteDerived(file.key, d.key, `${file.key} → ${d.format}`)}
+                                            disabled={busyDerived}
+                                            title="Delete cached derived blob"
+                                        >
+                                            {busyDerived ? "…" : "×"}
+                                        </button>
+                                    </span>
+                                );
+                            })}
                         </div>
                     )}
                     <div className="flex flex-wrap gap-1">
