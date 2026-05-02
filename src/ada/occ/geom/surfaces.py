@@ -434,6 +434,20 @@ def update_edges_uv_gen(edges, builder, face_surface, supplied_pcurves=None) -> 
     n_total = 0
     n_updated = 0
     for idx, edge in enumerate(edges):
+        # Edges where ``supplied_pcurves[idx] is None`` were built by
+        # ``_make_edge_from_pcurve`` (drive_edge path) — the OCC edge
+        # already carries a consistent 2D pcurve from the
+        # ``BRepBuilderAPI_MakeEdge(c2d, surface, t1, t2)`` constructor.
+        # Don't re-process them: regen would (a) overwrite the
+        # authored pcurve with a noisier one or (b) fail one of the
+        # safety pre-screens and be counted as a failed update,
+        # falsely tripping the strict ``n_updated < n_total`` guard
+        # in ``_build_bspline_wire``. They're not in scope for this
+        # function's "make sure every edge has a pcurve" purpose, so
+        # skip them entirely (don't count toward n_total either).
+        if supplied_pcurves is not None and idx < len(supplied_pcurves):
+            if supplied_pcurves[idx] is None:
+                continue
         n_total += 1
         # Fast path: the file already gave us the UV curve for this coedge.
         if supplied_pcurves is not None and idx < len(supplied_pcurves):
