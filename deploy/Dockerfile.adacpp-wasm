@@ -58,8 +58,17 @@ RUN mkdir -p /out \
  && printf '{"adacpp":"%s"}\n' "$wheel" > manifest.json \
  && cp /src/adacpp.sha /out/adacpp.sha
 
-# Tiny final stage — just /out/. ``COPY --from=adacpp-wasm-base /out/``
-# in Dockerfile.viewer pulls everything; the rest of the build env
-# (~3 GiB of pixi/emscripten/OCCT toolchain) doesn't ride along.
-FROM scratch
+# Tiny final stage — just /out/ on top of busybox. ``COPY --from=…``
+# in Dockerfile.viewer doesn't care what the base is and pulls the
+# /out/ tree as before, so the consumer-side cost is zero.
+#
+# Why busybox and not scratch: the workflow's tag step needs to read
+# /out/adacpp.sha to derive the durable ``adacpp-<sha7>`` tag, and
+# ``docker create`` on a scratch image fails with "no command
+# specified" (scratch has no CMD). busybox supplies a default sh +
+# cat in ~5 MB so ``docker create`` + ``docker cp`` works without
+# any extraction gymnastics. The toolchain stage (~3 GiB of pixi /
+# emscripten / OCCT) still doesn't ride along — only /out/ +
+# busybox's tiny rootfs.
+FROM busybox:stable-musl
 COPY --from=build /out/ /out/
