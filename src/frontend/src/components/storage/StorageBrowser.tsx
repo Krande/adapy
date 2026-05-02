@@ -224,7 +224,7 @@ const StorageBrowser: React.FC = () => {
             )}
             {files.length === 0 ? (
                 <div className="text-xs italic">
-                    No files yet. Use the Upload button (or right-click the viewer) to add one.
+                    No files yet. Use the Upload button to add one.
                 </div>
             ) : (
                 <ul className="flex flex-col divide-y divide-gray-500/40 max-h-80 overflow-auto">

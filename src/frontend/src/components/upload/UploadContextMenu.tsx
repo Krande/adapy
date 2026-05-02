@@ -2,13 +2,21 @@ import React, {useEffect, useRef, useState} from "react";
 import {UPLOAD_TRIGGER_EVENT, uploadAcceptAttr, uploadFile} from "@/utils/scene/handlers/upload_source_file";
 import {runtime} from "@/runtime/config";
 
-interface MenuPos {
-    x: number;
-    y: number;
-}
-
+// Global upload picker + status toast. The right-click context menu
+// is intentionally *not* wired here: right-click is the camera-pan
+// gesture in the 3D viewer, and intercepting it for an upload prompt
+// fought with that on every drag.
+//
+// Upload entry points instead go through:
+//   * StorageBrowser's explicit Upload button (its own hidden input)
+//   * any UI that dispatches `UPLOAD_TRIGGER_EVENT` (none today;
+//     listener kept so future code can wire in a custom button
+//     without re-adding contextmenu plumbing)
+//
+// This component still provides the global busy/error toast so any
+// upload helper can surface progress, regardless of which entry
+// point started the upload.
 const UploadContextMenu: React.FC = () => {
-    const [pos, setPos] = useState<MenuPos | null>(null);
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -17,40 +25,13 @@ const UploadContextMenu: React.FC = () => {
         if (!runtime.isRestMode()) {
             return;
         }
-        const onContext = (e: MouseEvent) => {
-            // Whitelist: only fire on the 3D canvas area. Anywhere
-            // else — text in menus, the file tree, admin panel, the
-            // address bar — gets the native browser menu, so
-            // copy/paste/select still works on mobile and desktop.
-            // ``#canvasParent`` is the absolute-positioned wrapper
-            // around <ThreeCanvas/>; it covers the whole viewer area
-            // including HUD overlays drawn on top of the canvas.
-            const target = e.target as HTMLElement | null;
-            if (!target || !target.closest("#canvasParent")) {
-                return;
-            }
-            e.preventDefault();
-            setError(null);
-            setPos({x: e.clientX, y: e.clientY});
-        };
-        const onClickAway = () => setPos(null);
-        const onEsc = (e: KeyboardEvent) => {
-            if (e.key === "Escape") setPos(null);
-        };
         const onTrigger = () => {
-            // Mobile/menu-button entry point — open the picker without
-            // showing the right-click menu. Same upload flow.
-            setPos(null);
+            // Listener for any UI that wants to ask this picker to
+            // open without owning its own hidden <input>.
             fileInputRef.current?.click();
         };
-        window.addEventListener("contextmenu", onContext);
-        window.addEventListener("click", onClickAway);
-        window.addEventListener("keydown", onEsc);
         window.addEventListener(UPLOAD_TRIGGER_EVENT, onTrigger);
         return () => {
-            window.removeEventListener("contextmenu", onContext);
-            window.removeEventListener("click", onClickAway);
-            window.removeEventListener("keydown", onEsc);
             window.removeEventListener(UPLOAD_TRIGGER_EVENT, onTrigger);
         };
     }, []);
@@ -58,11 +39,6 @@ const UploadContextMenu: React.FC = () => {
     if (!runtime.isRestMode()) {
         return null;
     }
-
-    const triggerPicker = () => {
-        setPos(null);
-        fileInputRef.current?.click();
-    };
 
     const onFilePicked = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
@@ -89,27 +65,9 @@ const UploadContextMenu: React.FC = () => {
                 accept={uploadAcceptAttr()}
                 style={{display: "none"}}
                 onChange={onFilePicked}
-                data-no-upload-menu
             />
-            {pos && (
-                <div
-                    data-no-upload-menu
-                    className="absolute z-50 bg-gray-900 border border-gray-700 rounded shadow-lg text-gray-100 text-xs min-w-40"
-                    style={{left: pos.x, top: pos.y}}
-                    onClick={(e) => e.stopPropagation()}
-                    onContextMenu={(e) => e.preventDefault()}
-                >
-                    <button
-                        className="w-full text-left px-3 py-2 hover:bg-gray-700"
-                        onClick={triggerPicker}
-                    >
-                        Upload file…
-                    </button>
-                </div>
-            )}
             {(busy || error) && (
                 <div
-                    data-no-upload-menu
                     className="absolute bottom-4 left-4 z-50 bg-gray-800 border border-gray-700 rounded px-3 py-2 text-xs text-gray-100 max-w-sm"
                 >
                     {busy && <span>Uploading…</span>}
