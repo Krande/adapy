@@ -25,7 +25,14 @@ export async function convertViaServer(
     scope: ScopeUrl,
     sourceKey: string,
     targetFormat: TargetFormat,
-    opts?: {step?: number; field?: string},
+    opts?: {
+        step?: number;
+        field?: string;
+        conversionOptions?: Partial<Record<
+            "use_sat_pcurves" | "pcurve_drive_edge" | "skip_shapefix" | "merge_meshes" | "profile_conversions",
+            boolean | null
+        >>;
+    },
 ): Promise<string> {
     // Track jobs per (source, format) so a parallel ifc + xml conversion
     // for the same source doesn't clobber each other in the UI. For FEA

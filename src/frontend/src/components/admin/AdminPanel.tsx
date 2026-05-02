@@ -3,6 +3,7 @@ import {Rnd} from "react-rnd";
 import {useMeStore} from "@/state/meStore";
 import AuditLogTab from "./AuditLogTab";
 import CliTokenButton from "./CliTokenButton";
+import ConversionSettingsTab from "./ConversionSettingsTab";
 import ProjectsTab from "./ProjectsTab";
 import StorageTab from "./StorageTab";
 
@@ -18,7 +19,7 @@ import StorageTab from "./StorageTab";
 //   projects / storage) — same min-width on every internal table —
 //   so flipping tabs doesn't reflow the modal.
 
-type Tab = "audit" | "projects" | "storage";
+type Tab = "audit" | "projects" | "storage" | "conversion";
 
 const STORAGE_KEY = "ada-admin-panel-rect";
 const DESKTOP_QUERY = "(min-width: 768px)";
@@ -115,6 +116,9 @@ const AdminPanel: React.FC<{onClose: () => void}> = ({onClose}) => {
                     <TabButton active={tab === "storage"} onClick={() => setTab("storage")}>
                         Storage
                     </TabButton>
+                    <TabButton active={tab === "conversion"} onClick={() => setTab("conversion")}>
+                        Conversion
+                    </TabButton>
                 </div>
                 <div className="flex items-center gap-2">
                     <CliTokenButton/>
@@ -132,6 +136,7 @@ const AdminPanel: React.FC<{onClose: () => void}> = ({onClose}) => {
                 {tab === "audit" && <AuditLogTab/>}
                 {tab === "projects" && <ProjectsTab/>}
                 {tab === "storage" && <StorageTab/>}
+                {tab === "conversion" && <ConversionSettingsTab/>}
             </div>
         </div>
     );

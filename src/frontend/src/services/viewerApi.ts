@@ -438,7 +438,19 @@ export const viewerApi = {
         scope: ScopeUrl,
         sourceKey: string,
         targetFormat: TargetFormat = "glb",
-        opts?: {step?: number; field?: string},
+        opts?: {
+            step?: number;
+            field?: string;
+            // Per-job overrides for the global app_settings toggles.
+            // Each value is a tri-state: true | false | null. ``null``
+            // means "drop any global override and let adapy's in-code
+            // default win for this job"; absent keys inherit the
+            // global setting.
+            conversionOptions?: Partial<Record<
+                "use_sat_pcurves" | "pcurve_drive_edge" | "skip_shapefix" | "merge_meshes" | "profile_conversions",
+                boolean | null
+            >>;
+        },
     ): Promise<ConvertResponse> {
         const body: Record<string, unknown> = {
             source_key: sourceKey,
@@ -447,6 +459,9 @@ export const viewerApi = {
         if (opts?.step !== undefined && opts?.field !== undefined) {
             body.step = opts.step;
             body.field = opts.field;
+        }
+        if (opts?.conversionOptions && Object.keys(opts.conversionOptions).length) {
+            body.conversion_options = opts.conversionOptions;
         }
         const r = await authedFetch(
             `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/convert`,

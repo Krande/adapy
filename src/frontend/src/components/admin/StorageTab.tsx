@@ -14,6 +14,42 @@ import {runtime} from "@/runtime/config";
 // audit a different scope, the admin switches scope in the options
 // drawer first; the table refetches.
 
+type OverrideKey =
+    | "use_sat_pcurves"
+    | "pcurve_drive_edge"
+    | "skip_shapefix"
+    | "merge_meshes"
+    | "profile_conversions";
+
+type OverrideTri = "unset" | "on" | "off";
+
+const OVERRIDE_KEYS: { key: OverrideKey; label: string }[] = [
+    {key: "use_sat_pcurves", label: "Use SAT pcurves"},
+    {key: "pcurve_drive_edge", label: "Drive edge from pcurve"},
+    {key: "skip_shapefix", label: "Skip ShapeFix"},
+    {key: "merge_meshes", label: "Merge GLB meshes"},
+    {key: "profile_conversions", label: "Profile this run"},
+];
+
+function buildConversionOptions(
+    o: Record<OverrideKey, OverrideTri>,
+): Partial<Record<OverrideKey, boolean | null>> | undefined {
+    const out: Partial<Record<OverrideKey, boolean | null>> = {};
+    let any = false;
+    for (const k of Object.keys(o) as OverrideKey[]) {
+        const v = o[k];
+        if (v === "on") {
+            out[k] = true;
+            any = true;
+        } else if (v === "off") {
+            out[k] = false;
+            any = true;
+        }
+        // "unset" → omit the key, so the global setting wins.
+    }
+    return any ? out : undefined;
+}
+
 const StorageTab: React.FC = () => {
     const currentScope = useScopeStore((s) => s.current);
     const scope = scopeUrlPart(currentScope);
@@ -22,6 +58,14 @@ const StorageTab: React.FC = () => {
     const [error, setError] = useState<string | null>(null);
     const [busyKey, setBusyKey] = useState<string | null>(null);
     const [expandedKey, setExpandedKey] = useState<string | null>(null);
+    const [overrideOpen, setOverrideOpen] = useState(false);
+    const [overrides, setOverrides] = useState<Record<OverrideKey, OverrideTri>>(() =>
+        OVERRIDE_KEYS.reduce(
+            (acc, {key}) => ({...acc, [key]: "unset"}),
+            {} as Record<OverrideKey, OverrideTri>,
+        ),
+    );
+    const activeOverrides = OVERRIDE_KEYS.filter(({key}) => overrides[key] !== "unset").length;
 
     const reload = async () => {
         setLoading(true);
@@ -53,7 +97,10 @@ const StorageTab: React.FC = () => {
         setBusyKey(stateKey);
         setError(null);
         try {
-            const derivedKey = await ensureConverted(scope, sourceKey, target);
+            const conversionOptions = buildConversionOptions(overrides);
+            const derivedKey = await ensureConverted(scope, sourceKey, target, {
+                conversionOptions,
+            });
             const base = sourceKey.replace(/\.[^./]+$/, "");
             await viewerApi.downloadBlob(scope, derivedKey, `${base}.${target}`);
             await reload();
@@ -86,6 +133,13 @@ const StorageTab: React.FC = () => {
                 <span className="text-gray-500">·</span>
                 <span className="text-gray-400">{files.length} source{files.length === 1 ? "" : "s"}</span>
                 <button
+                    className="ml-2 bg-gray-700 hover:bg-gray-600 px-2 py-1 rounded text-[11px]"
+                    onClick={() => setOverrideOpen((v) => !v)}
+                    title="Per-conversion overrides applied to all Convert clicks on this tab"
+                >
+                    Overrides{activeOverrides ? ` (${activeOverrides})` : ""} {overrideOpen ? "▾" : "▸"}
+                </button>
+                <button
                     className="ml-auto bg-blue-700 hover:bg-blue-600 px-3 py-1 rounded text-xs disabled:opacity-50"
                     onClick={() => reload()}
                     disabled={loading}
@@ -93,6 +147,37 @@ const StorageTab: React.FC = () => {
                     {loading ? "Loading…" : "Refresh"}
                 </button>
             </div>
+            {overrideOpen && (
+                <div className="px-3 sm:px-4 py-2 border-b border-gray-700 bg-gray-900/40 text-[11px]">
+                    <div className="text-gray-400 mb-2">
+                        Overrides apply to every Convert click on this tab. ``Unset`` →
+                        worker uses the global setting (or adapy's code default).
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                        {OVERRIDE_KEYS.map(({key, label}) => (
+                            <div key={key} className="flex items-center gap-2">
+                                <span className="flex-1 truncate" title={key}>{label}</span>
+                                <div className="inline-flex rounded overflow-hidden">
+                                    {(["unset", "on", "off"] as OverrideTri[]).map((v) => (
+                                        <button
+                                            key={v}
+                                            onClick={() => setOverrides((o) => ({...o, [key]: v}))}
+                                            className={
+                                                "px-2 py-0.5 border text-[10px] " +
+                                                (overrides[key] === v
+                                                    ? "bg-blue-700 text-white border-blue-500"
+                                                    : "bg-gray-800 text-gray-200 border-gray-700 hover:bg-gray-700")
+                                            }
+                                        >
+                                            {v === "unset" ? "—" : v === "on" ? "On" : "Off"}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
             {error && (
                 <div className="px-3 sm:px-4 py-2 text-red-300 text-xs border-b border-gray-700">
                     {error}

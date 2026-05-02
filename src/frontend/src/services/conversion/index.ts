@@ -39,7 +39,14 @@ export async function ensureConverted(
     scope: ScopeUrl,
     sourceKey: string,
     targetFormat: TargetFormat = "glb",
-    opts?: {step?: number; field?: string},
+    opts?: {
+        step?: number;
+        field?: string;
+        conversionOptions?: Partial<Record<
+            "use_sat_pcurves" | "pcurve_drive_edge" | "skip_shapefix" | "merge_meshes" | "profile_conversions",
+            boolean | null
+        >>;
+    },
 ): Promise<string> {
     if (shouldUsePyodide(sourceKey, targetFormat)) {
         return convertViaPyodideAndUpload(scope, sourceKey);

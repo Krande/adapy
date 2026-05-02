@@ -145,6 +145,7 @@ async def run_isolated_convert(
     on_sample: Optional[Callable[[ConvertSample], Awaitable[None]]] = None,
     sample_interval_s: float = 2.0,
     profile_in_child: bool = False,
+    env_overrides: Optional[dict[str, str]] = None,
 ) -> IsolatedConvertResult:
     """Fork, run ``convert_fn`` in the child, sample resource usage in
     the parent, and join with full rusage on exit.
@@ -186,6 +187,18 @@ async def run_isolated_convert(
                     signal.signal(sig, signal.SIG_DFL)
                 except (OSError, ValueError):
                     pass
+
+            # Per-job env overrides scoped to the child only — the
+            # parent (and sibling jobs) keep their pristine env. Used
+            # to flip ADA_USE_SAT_PCURVES / ADA_GLB_MERGE_MESHES /
+            # etc. from app_settings or the per-conversion request
+            # without a worker restart.
+            if env_overrides:
+                for k, v in env_overrides.items():
+                    if v is None:
+                        os.environ.pop(k, None)
+                    else:
+                        os.environ[str(k)] = str(v)
 
             def _child_progress(stage: str, frac: float) -> None:
                 try:

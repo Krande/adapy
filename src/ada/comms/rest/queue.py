@@ -62,6 +62,12 @@ class Job:
     # picked combos cache distinct from the default.
     step: int | None = None
     field: str | None = None
+    # Per-conversion overrides for the global app_settings knobs
+    # (use_sat_pcurves / pcurve_drive_edge / skip_shapefix /
+    # merge_meshes / profile_conversions). Worker merges these on
+    # top of the global settings before forking. Stored as plain
+    # str/bool/None so the JSON round-trip through KV stays stable.
+    conversion_options: dict | None = None
 
     def to_json(self) -> bytes:
         return json.dumps(asdict(self)).encode("utf-8")
@@ -137,6 +143,7 @@ class JobQueue:
         scope_id: str | None = None,
         step: int | None = None,
         field: str | None = None,
+        conversion_options: dict | None = None,
     ) -> Job:
         now = time.time()
         job = Job(
@@ -153,6 +160,7 @@ class JobQueue:
             scope_id=scope_id,
             step=step,
             field=field,
+            conversion_options=conversion_options,
         )
         await self._put(job)
         await self._js.publish(self._cfg.subject, job.job_id.encode("utf-8"))

@@ -603,6 +603,33 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             field = str(raw_field).strip() or None
             if not field:
                 raise HTTPException(status_code=400, detail="field must be non-empty")
+        # Optional per-conversion overrides for the global app_settings
+        # toggles (use_sat_pcurves / pcurve_drive_edge / skip_shapefix /
+        # merge_meshes / profile_conversions). Unknown keys are dropped
+        # rather than 400'd so a future-server-old-client mix degrades
+        # to "global setting wins".
+        _ALLOWED_OPTS = {
+            "use_sat_pcurves",
+            "pcurve_drive_edge",
+            "skip_shapefix",
+            "merge_meshes",
+            "profile_conversions",
+        }
+        raw_opts = body.get("conversion_options") or {}
+        conversion_options: dict | None = None
+        if isinstance(raw_opts, dict) and raw_opts:
+            cleaned: dict[str, str | None] = {}
+            for k, v in raw_opts.items():
+                if k not in _ALLOWED_OPTS:
+                    continue
+                if v is None:
+                    cleaned[k] = None
+                elif isinstance(v, bool):
+                    cleaned[k] = "true" if v else "false"
+                else:
+                    cleaned[k] = str(v)
+            if cleaned:
+                conversion_options = cleaned
         if not source_key:
             raise HTTPException(status_code=400, detail="source_key required")
         if not is_supported_source(source_key):
@@ -655,6 +682,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 scope_id=scope_obj.id,
                 step=step,
                 field=field,
+                conversion_options=conversion_options,
             )
         except Exception as exc:
             logger.exception("enqueue failed")

@@ -178,18 +178,70 @@ async def _process_one(
             await _audit_done(db_pool, job_id, "error", str(exc), started_at)
             return
 
-        # Profile setting flips via the admin panel and is read fresh
-        # per job — admins can flip it on, send a representative job,
-        # and flip it off without a worker restart. No cache: one
-        # extra DB round-trip per job is negligible next to a
-        # tessellation pass.
+        # Conversion settings flip via the admin panel and are read
+        # fresh per job — admins can flip one on, send a
+        # representative job, and flip it off without a worker
+        # restart. No cache: one DB round-trip per setting is
+        # negligible next to a tessellation pass.
+        #
+        # `profile_conversions` toggles cProfile inside the fork-child
+        # and is consumed directly. The other four are mapped to
+        # ADA_* env vars and applied inside the child fork only, so
+        # sibling jobs / the parent worker keep their pristine env.
         profile_enabled = False
+        env_overrides: dict[str, str] = {}
         if db_pool is not None:
-            try:
-                v = await db_module.get_setting(db_pool, "profile_conversions")
-                profile_enabled = (v or "").strip().lower() in {"1", "true", "yes", "on"}
-            except Exception:
-                logger.exception("worker: failed to read profile_conversions setting")
+            async def _read_bool_setting(key: str) -> str | None:
+                try:
+                    return await db_module.get_setting(db_pool, key)
+                except Exception:
+                    logger.exception("worker: failed to read %s setting", key)
+                    return None
+
+            v = await _read_bool_setting("profile_conversions")
+            profile_enabled = (v or "").strip().lower() in {"1", "true", "yes", "on"}
+
+            # setting key → env var name. Worker passes the raw
+            # truthy/falsy text through; surfaces.py /
+            # converter.py do the same parsing they always have, so
+            # the env-driven and admin-driven paths agree on edge
+            # cases (e.g. "yes" / "no").
+            _env_map = {
+                "use_sat_pcurves": "ADA_USE_SAT_PCURVES",
+                "pcurve_drive_edge": "ADA_PCURVE_DRIVE_EDGE",
+                "skip_shapefix": "ADA_SKIP_SHAPEFIX",
+                "merge_meshes": "ADA_GLB_MERGE_MESHES",
+            }
+            for skey, env_name in _env_map.items():
+                raw = await _read_bool_setting(skey)
+                if raw is not None and raw.strip() != "":
+                    env_overrides[env_name] = raw
+
+        # Per-job overrides win over global settings. ``None`` clears
+        # an env var, allowing a job to ask "ignore the global
+        # toggle, run with adapy's code default" without restarting.
+        per_job = getattr(job, "conversion_options", None) or {}
+        if per_job:
+            _env_map_full = {
+                "use_sat_pcurves": "ADA_USE_SAT_PCURVES",
+                "pcurve_drive_edge": "ADA_PCURVE_DRIVE_EDGE",
+                "skip_shapefix": "ADA_SKIP_SHAPEFIX",
+                "merge_meshes": "ADA_GLB_MERGE_MESHES",
+            }
+            for k, v in per_job.items():
+                env_name = _env_map_full.get(k)
+                if env_name is None:
+                    continue
+                if v is None:
+                    env_overrides.pop(env_name, None)
+                else:
+                    env_overrides[env_name] = str(v)
+            # profile is passed as a kwarg to run_isolated_convert
+            # rather than as an env var.
+            if "profile_conversions" in per_job and per_job["profile_conversions"] is not None:
+                profile_enabled = str(per_job["profile_conversions"]).strip().lower() in {
+                    "1", "true", "yes", "on"
+                }
 
         # Forward progress from the converter to the KV-backed queue,
         # throttled so a chatty stage doesn't spam writes.
@@ -258,6 +310,7 @@ async def _process_one(
                 on_progress=_on_progress,
                 on_sample=_on_sample,
                 profile_in_child=profile_enabled,
+                env_overrides=env_overrides or None,
             )
         except Exception as exc:
             # Failure in the parent-side machinery (fork, /proc reads,
