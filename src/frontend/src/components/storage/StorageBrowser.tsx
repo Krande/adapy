@@ -5,6 +5,7 @@ import {useModelState} from "@/state/modelState";
 import {runtime} from "@/runtime/config";
 import {request_list_of_files_from_server} from "@/utils/server_info/handlers/request_list_of_files_from_server";
 import {view_file_object_from_server} from "@/utils/scene/handlers/view_file_object_from_server";
+import {overlay_file_in_scene} from "@/utils/scene/handlers/overlay_file_in_scene";
 import {clear_loaded_model} from "@/utils/scene/handlers/clear_loaded_model";
 import {uploadAcceptAttr, uploadFile} from "@/utils/scene/handlers/upload_source_file";
 import {FileObjectT, FileObject} from "@/flatbuffers/base/file-object";
@@ -68,13 +69,20 @@ const StorageBrowser: React.FC = () => {
     // broke the gesture chain on mobile.
     const fileInputRef = useRef<HTMLInputElement>(null);
 
-    const onView = async (entry: ServerFileEntry) => {
+    const onView = async (entry: ServerFileEntry, additive = false) => {
         if (viewingName) return; // already busy with another file
         setViewingName(entry.name);
         try {
-            await view_file_object_from_server(buildFlatbufferFileObject(entry));
+            if (additive) {
+                // Overlay path: skip the VIEW_FILE_OBJECT roundtrip
+                // (which the server hard-codes to REPLACE) and feed
+                // the GLB straight into the scene loader.
+                await overlay_file_in_scene(entry.name);
+            } else {
+                await view_file_object_from_server(buildFlatbufferFileObject(entry));
+            }
         } catch (err) {
-            console.error("view failed", err);
+            console.error(additive ? "overlay failed" : "view failed", err);
         } finally {
             setViewingName(null);
         }
@@ -143,6 +151,16 @@ const StorageBrowser: React.FC = () => {
                     >
                         <ReloadIcon/>
                     </button>
+                    {loadedSourceName && (
+                        <button
+                            className="bg-gray-700 hover:bg-gray-600 text-white p-1 rounded text-xs"
+                            onClick={() => clear_loaded_model()}
+                            title="Clear all models from the scene"
+                            aria-label="Clear scene"
+                        >
+                            Clear
+                        </button>
+                    )}
                 </div>
             </div>
             {uploadName && (
@@ -220,7 +238,10 @@ const StorageBrowser: React.FC = () => {
                                                 "p-1 rounded hover:bg-gray-300/40 disabled:opacity-50 disabled:cursor-not-allowed " +
                                                 (isLoaded ? "text-blue-300" : "text-white")
                                             }
-                                            onClick={() => onView(f)}
+                                            // Shift+click overlays instead of replacing — desktop
+                                            // power-user shortcut. Mobile users use the explicit
+                                            // "+" button next to this one.
+                                            onClick={(e) => onView(f, e.shiftKey)}
                                             disabled={isViewing || otherViewing}
                                             title={
                                                 isViewing
@@ -228,13 +249,27 @@ const StorageBrowser: React.FC = () => {
                                                     : otherViewing
                                                         ? "Another file is loading"
                                                         : isLoaded
-                                                            ? "Currently loaded — click to reload"
-                                                            : "View"
+                                                            ? "Currently loaded — click to reload (Shift+click to overlay)"
+                                                            : "View (Shift+click to overlay)"
                                             }
                                             aria-pressed={isLoaded}
                                             aria-busy={isViewing || undefined}
                                         >
                                             {isViewing ? <Spinner/> : <ViewIcon/>}
+                                        </button>
+                                        {/* Touch-friendly overlay button. Adds the file
+                                            to the current scene without replacing what's
+                                            loaded. Useful for visual diff debugging
+                                            (overlay reference + subject GLBs to spot
+                                            missing/displaced plates). */}
+                                        <button
+                                            className="p-1 rounded text-white hover:bg-gray-300/40 disabled:opacity-50 disabled:cursor-not-allowed"
+                                            onClick={() => onView(f, true)}
+                                            disabled={isViewing || otherViewing}
+                                            title="Add to scene (overlay, doesn't replace)"
+                                            aria-label="Add to scene"
+                                        >
+                                            <span className="leading-none text-base font-bold">+</span>
                                         </button>
                                         {/* Field picker for FEA result files. Lets the
                                             user pick a non-default (step, field) and
