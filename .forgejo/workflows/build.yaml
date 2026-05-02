@@ -44,6 +44,8 @@ jobs:
     outputs:
       viewer: ${{ steps.filter.outputs.viewer }}
       worker: ${{ steps.filter.outputs.worker }}
+      base_changed: ${{ steps.filter.outputs.base_changed }}
+      run_start_epoch: ${{ steps.filter.outputs.run_start_epoch }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -56,6 +58,12 @@ jobs:
 
       - id: filter
         run: |
+          # Capture run-start epoch up front. viewer-build later
+          # compares it against Harbor's push_time on the adacpp
+          # base ``:latest`` tag to know whether the parallel
+          # base-image rebuild has caught up.
+          run_start_epoch=$(date +%s)
+
           # Compare against the previous tip. workflow_dispatch and
           # the initial branch push (before=000…) both lack a parent
           # — fall back to "build everything" so the manual trigger
@@ -98,11 +106,23 @@ jobs:
             worker=true
           fi
 
+          # Adacpp-wasm base image rebuild: triggered by the sibling
+          # build-adacpp-base workflow on these same paths. Tracking
+          # them here lets viewer-build wait for the parallel run to
+          # finish before pulling ``:latest``.
+          base_changed=false
+          if match '^deploy/Dockerfile\.adacpp-wasm$' || \
+             match '^\.forgejo/workflows/build-adacpp-base\.yaml$'; then
+            base_changed=true
+          fi
+
           {
             echo "viewer=$viewer"
             echo "worker=$worker"
+            echo "base_changed=$base_changed"
+            echo "run_start_epoch=$run_start_epoch"
           } >> "$GITHUB_OUTPUT"
-          echo "Detected — viewer: $viewer, worker: $worker"
+          echo "Detected — viewer: $viewer, worker: $worker, base_changed: $base_changed (run_start_epoch=$run_start_epoch)"
 
   viewer-build:
     needs: detect
@@ -115,6 +135,64 @@ jobs:
         run: |
           mkdir -p ~/.docker
           printf '%s' '${{ secrets.REGISTRY_DOCKER_CONFIG }}' > ~/.docker/config.json
+
+      - name: Wait for adacpp base rebuild (if any)
+        # When the same push touched ``Dockerfile.adacpp-wasm`` or its
+        # workflow, the sibling build-adacpp-base run is racing in
+        # parallel. Block here until the base ``:latest`` push_time
+        # in Harbor exceeds this run's start, so viewer-build doesn't
+        # FROM a stale base. No-op when nothing relevant changed.
+        if: needs.detect.outputs.base_changed == 'true'
+        env:
+          ADACPP_BASE_IMAGE: ${{ secrets.ADACPP_BASE_IMAGE }}
+          RUN_START_EPOCH: ${{ needs.detect.outputs.run_start_epoch }}
+        run: |
+          set -e
+          if [ -z "$ADACPP_BASE_IMAGE" ]; then
+            echo "::warning::base_changed=true but ADACPP_BASE_IMAGE secret is unset; skipping wait."
+            exit 0
+          fi
+          # Derive Harbor v2 artifact URL from the image reference
+          # without hardcoding hostnames (the secret carries the
+          # registry; we only crack it apart here).
+          path="${ADACPP_BASE_IMAGE%:*}"            # strip ``:tag``
+          host="${path%%/*}"
+          rest="${path#*/}"
+          project="${rest%%/*}"
+          repo="${rest#*/}"
+          api_url="https://${host}/api/v2.0/projects/${project}/repositories/${repo}/artifacts/latest"
+          # jq isn't preinstalled on the alpine docker runner image.
+          command -v jq >/dev/null 2>&1 || apk add --no-cache jq >/dev/null
+          # Bound the wait — a failed sibling build shouldn't hang
+          # the viewer build forever. 30 min covers the OCCT compile
+          # plus push.
+          DEADLINE=$(( RUN_START_EPOCH + 1800 ))
+          while :; do
+            now=$(date +%s)
+            # Pull the artifact metadata. Harbor returns 404 for the
+            # tag during the brief window between manifest write and
+            # tag promotion — treat as "not ready yet".
+            push_time=$(curl -sf "$api_url" 2>/dev/null \
+              | jq -r '(.tags // []) | map(select(.name=="latest")) | .[0].push_time // ""' \
+              || echo "")
+            if [ -n "$push_time" ]; then
+              # Harbor returns ISO 8601 with trailing ``.NNN``+``Z``.
+              # ``date -d`` on busybox accepts the trimmed form.
+              push_epoch=$(date -u -d "$(echo "$push_time" | cut -d. -f1 | tr T ' ')" +%s 2>/dev/null || echo 0)
+              if [ "$push_epoch" -ge "$RUN_START_EPOCH" ]; then
+                echo "Base ``:latest`` is fresh — push_time=$push_time (epoch $push_epoch >= run_start $RUN_START_EPOCH). Proceeding."
+                exit 0
+              fi
+              echo "Base ``:latest`` push_time=$push_time (epoch $push_epoch) is older than run_start $RUN_START_EPOCH; waiting…"
+            else
+              echo "Base ``:latest`` not resolvable yet (sibling build still running?); waiting…"
+            fi
+            if [ "$now" -ge "$DEADLINE" ]; then
+              echo "::error::Timed out after 30 min waiting for adacpp base rebuild. Check the build-adacpp-base workflow run."
+              exit 1
+            fi
+            sleep 30
+          done
 
       - name: Build and push viewer image
         env:
@@ -136,7 +214,9 @@ jobs:
             exit 1
           fi
           # Pull the base ahead of the viewer build so a missing tag
-          # fails loudly here, not buried in BuildKit output.
+          # fails loudly here, not buried in BuildKit output. The
+          # ``--no-cache=true`` ensures we get the fresh manifest if
+          # the prior wait step just unblocked on a new push.
           docker pull "${ADACPP_BASE_IMAGE}"
           TAG="sha-${GITHUB_SHA::7}"
           BRANCH_TAG="branch-$(printf '%s' "$GITHUB_REF_NAME" | tr '/' '-')"
