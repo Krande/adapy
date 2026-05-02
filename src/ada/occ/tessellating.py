@@ -223,13 +223,32 @@ class BatchTessellator:
                 ada_obj = None
 
             # resolve transform based on parent transforms
+            ms = None
             try:
-                yield self.tessellate_geom(geom, ada_obj, graph_store=graph_store)
-                continue
+                ms = self.tessellate_geom(geom, ada_obj, graph_store=graph_store)
             except UnableToCreateTesselationFromSolidOCCGeom as e:
                 logger.error(e)
             except UnableToCreateCurveOCCGeom as e:
                 logger.error(e)
+            if ms is not None:
+                # Treat an empty MeshStore the same as a thrown
+                # tessellation error: BRepMesh produced 0 triangles
+                # (typically a face that passed every guard but has a
+                # degenerate or self-intersecting wire OCC's mesher
+                # can't grid). Fall through to the flat-plate fallback
+                # rather than emit an orphan node with no geometry —
+                # which the user perceives as "the plate vanished".
+                pos = getattr(ms, "position", None)
+                idx = getattr(ms, "indices", None)
+                pos_n = 0 if pos is None else (len(pos) if hasattr(pos, "__len__") else 0)
+                idx_n = 0 if idx is None else (len(idx) if hasattr(idx, "__len__") else 0)
+                if pos_n > 0 and idx_n > 0:
+                    yield ms
+                    continue
+                logger.error(
+                    "PlateCurved %r: tessellation produced empty mesh (pos=%d idx=%d)",
+                    getattr(ada_obj, "name", "?"), pos_n, idx_n,
+                )
 
             # PlateCurved → flat-plate fallback. The gxml reader
             # attaches ``_flat_fallback_pts`` to PlateCurved instances
