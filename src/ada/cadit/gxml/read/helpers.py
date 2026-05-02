@@ -69,12 +69,14 @@ def _read_inline_polygon(poly_elem):
     return pts
 
 
-def yield_plate_elems_to_plate(plate_elem, parent, sat_ref_d, thick_map):
+def yield_plate_elems_to_plate(plate_elem, parent, sat_ref_d, thick_map, flat_fallback_d=None):
     from ada import Plate
 
     base_name = plate_elem.attrib["name"]
     mat = parent.materials.get_by_name(plate_elem.attrib["material_ref"])
     t = thick_map.get(plate_elem.attrib.get("thickness_ref"))
+    if flat_fallback_d is None:
+        flat_fallback_d = {}
 
     face_elems = list(plate_elem.findall(".//face"))
     if face_elems:
@@ -107,7 +109,7 @@ def yield_plate_elems_to_plate(plate_elem, parent, sat_ref_d, thick_map):
             sat_data = sat_ref_d.get(face_ref, None)
 
             if isinstance(sat_data, Geometry) and Config().gxml_import_advanced_faces is True:
-                yield PlateCurved(
+                pc = PlateCurved(
                     name,
                     sat_data,
                     t=t,
@@ -115,6 +117,19 @@ def yield_plate_elems_to_plate(plate_elem, parent, sat_ref_d, thick_map):
                     metadata=dict(props=dict(gxml_face_ref=face_ref)),
                     parent=parent,
                 )
+                # Attach the planar fallback points (the SAT face's
+                # loop-edge endpoints) if available. Tessellator
+                # checks for ``_flat_fallback_pts`` when the BSpline
+                # face fails to construct and degrades to a flat
+                # plate using these points instead of dropping the
+                # plate entirely. Restores the pre-exppc-fix
+                # behaviour for plates whose advanced-face succeeds
+                # but downstream OCC face construction fails the
+                # strict pcurve guard.
+                fallback_pts = flat_fallback_d.get(face_ref)
+                if fallback_pts is not None:
+                    pc._flat_fallback_pts = fallback_pts
+                yield pc
                 continue
 
             if sat_data is None:

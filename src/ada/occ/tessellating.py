@@ -225,12 +225,50 @@ class BatchTessellator:
             # resolve transform based on parent transforms
             try:
                 yield self.tessellate_geom(geom, ada_obj, graph_store=graph_store)
+                continue
             except UnableToCreateTesselationFromSolidOCCGeom as e:
                 logger.error(e)
-                continue
             except UnableToCreateCurveOCCGeom as e:
                 logger.error(e)
+
+            # PlateCurved → flat-plate fallback. The gxml reader
+            # attaches ``_flat_fallback_pts`` to PlateCurved instances
+            # whenever the SAT face also has a planar perimeter loop
+            # available (which is essentially all of them). When the
+            # BSpline OCC face construction fails — typically the
+            # strict ``p-curve update incomplete`` guard in
+            # surfaces.py — we degrade to a flat plate using those
+            # corner points so the plate at least appears flat
+            # instead of vanishing entirely. Restores pre-exppc-fix
+            # behaviour where these faces fell back via
+            # ``Plate.from_3d_points`` automatically because
+            # advanced-face conversion failed earlier.
+            fallback_pts = getattr(ada_obj, "_flat_fallback_pts", None)
+            if not fallback_pts:
                 continue
+            try:
+                from ada import Plate
+                fallback = Plate.from_3d_points(
+                    getattr(ada_obj, "name", "fallback"),
+                    fallback_pts,
+                    getattr(ada_obj, "t", None) or 0.0,
+                    mat=getattr(ada_obj, "material", None),
+                    metadata=dict(props=dict(
+                        gxml_flat_fallback_for=getattr(ada_obj, "name", None),
+                    )),
+                    parent=getattr(ada_obj, "parent", None),
+                )
+                fallback_geom = fallback.solid_geom()
+                yield self.tessellate_geom(fallback_geom, ada_obj, graph_store=graph_store)
+                logger.warning(
+                    "PlateCurved %r: BSpline tessellation failed, rendered as flat fallback",
+                    getattr(ada_obj, "name", "?"),
+                )
+            except Exception as fb_err:
+                logger.error(
+                    "PlateCurved %r: flat fallback also failed (%s); plate dropped",
+                    getattr(ada_obj, "name", "?"), fb_err,
+                )
 
     def meshes_to_trimesh(
         self, shapes_tess_iter: Iterable[MeshStore], graph=None, merge_meshes: bool = True, apply_transform=False

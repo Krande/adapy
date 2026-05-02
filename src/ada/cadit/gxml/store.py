@@ -62,7 +62,19 @@ class GxmlStore:
             yield fp
 
     def iter_plates_from_xml(self):
-        sat_d = {name: points for name, points in self.sat_factory.iter_flat_plates()}
+        # Always-build flat-polygon dict (planar fallback). This is
+        # what gets attached to a PlateCurved as ``_flat_fallback_pts``
+        # so a downstream OCC tessellation failure can degrade
+        # gracefully to a flat plate instead of dropping the plate
+        # entirely. Without this, the recent SAT exppc surface/curve
+        # peel work caused a regression: faces that previously failed
+        # advanced-face conversion (and therefore rendered flat via
+        # ``Plate.from_3d_points``) now succeed advanced-face but
+        # then fail the strict ``p-curve update incomplete`` guard
+        # in surfaces.py — vanishing from output instead of falling
+        # back.
+        flat_d = {name: points for name, points in self.sat_factory.iter_flat_plates()}
+        sat_d = dict(flat_d)
         if Config().gxml_import_advanced_faces is True:
             sat_faces = {name: geom for name, geom in self.sat_factory.iter_curved_face()}
             sat_d.update(sat_faces)
@@ -73,10 +85,10 @@ class GxmlStore:
             thick_map[thickn.attrib["name"]] = float(res.attrib["th"])
 
         for fp in self.xml_root.iterfind(".//flat_plate"):
-            yield from yield_plate_elems_to_plate(fp, self.p, sat_d, thick_map)
+            yield from yield_plate_elems_to_plate(fp, self.p, sat_d, thick_map, flat_fallback_d=flat_d)
 
         for fp in self.xml_root.iterfind(".//curved_shell"):
-            yield from yield_plate_elems_to_plate(fp, self.p, sat_d, thick_map)
+            yield from yield_plate_elems_to_plate(fp, self.p, sat_d, thick_map, flat_fallback_d=flat_d)
 
     def to_part(self, extract_joints=False) -> Part:
         from ada.api.containers import Beams, Plates
