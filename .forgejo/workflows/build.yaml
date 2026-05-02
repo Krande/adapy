@@ -119,26 +119,31 @@ jobs:
       - name: Build and push viewer image
         env:
           REGISTRY_IMAGE: ${{ secrets.VIEWER_REGISTRY_IMAGE }}
-          # Optional secret pinning which adacpp git ref the in-browser
-          # pyodide worker links against. If unset the Dockerfile
-          # default (feat/cad-handler) applies — flip to `main` once
-          # the OCCT-wasm changes have landed there.
-          ADACPP_REF: ${{ secrets.ADACPP_REF }}
+          # Full reference to the prebuilt adacpp-wasm base image
+          # (e.g. ``<registry>/<repo>/adacpp-wasm-base:adacpp-<sha7>``
+          # or ``…:latest``). Built by the build-adacpp-base workflow
+          # whenever the OCCT-wasm cross-compile needs to refresh —
+          # NOT rebuilt by this viewer-build job, so cache evictions
+          # don't trigger a 30-minute OCCT recompile every push.
+          ADACPP_BASE_IMAGE: ${{ secrets.ADACPP_BASE_IMAGE }}
         run: |
           if [ -z "$REGISTRY_IMAGE" ]; then
             echo "::error::VIEWER_REGISTRY_IMAGE secret is not set on this repo. Configure it (and REGISTRY_DOCKER_CONFIG) under Settings → Actions → Secrets before re-running."
             exit 1
           fi
+          if [ -z "$ADACPP_BASE_IMAGE" ]; then
+            echo "::error::ADACPP_BASE_IMAGE secret is not set. Run the build-adacpp-base workflow first and set this secret to the resulting image reference (e.g. ``<registry>/<repo>/adacpp-wasm-base:adacpp-<sha7>`` or ``…:latest``)."
+            exit 1
+          fi
+          # Pull the base ahead of the viewer build so a missing tag
+          # fails loudly here, not buried in BuildKit output.
+          docker pull "${ADACPP_BASE_IMAGE}"
           TAG="sha-${GITHUB_SHA::7}"
           BRANCH_TAG="branch-$(printf '%s' "$GITHUB_REF_NAME" | tr '/' '-')"
-          ADACPP_BUILD_ARG=""
-          if [ -n "$ADACPP_REF" ]; then
-            ADACPP_BUILD_ARG="--build-arg ADACPP_REF=${ADACPP_REF}"
-          fi
           docker build \
             -f deploy/Dockerfile.viewer \
             --build-arg "IMAGE_TAG=${TAG}" \
-            ${ADACPP_BUILD_ARG} \
+            --build-arg "ADACPP_BASE_IMAGE=${ADACPP_BASE_IMAGE}" \
             -t "${REGISTRY_IMAGE}:${TAG}" \
             -t "${REGISTRY_IMAGE}:${BRANCH_TAG}" \
             .
