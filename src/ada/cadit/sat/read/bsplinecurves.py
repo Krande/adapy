@@ -211,16 +211,106 @@ def create_bspline_curve_from_exactcur(data_lines: list[str]) -> geo_cu.BSplineC
     return curve
 
 
-def create_pcurve_from_exppc(exppc_sub_type: AcisSubType) -> geo_cu.PCurve:
-    """Defines a pcurve from explicit parameter-space curve data."""
-    basis_surface = None
-    reference_curve = None
-    if basis_surface is None or reference_curve is None:
-        raise ACISUnsupportedCurveType("PCurve is not yet supported from SAT data")
+def _peel_exppc_curve_to_inner(data_lines: list[str]) -> tuple[list[str] | None, str | None]:
+    """Same idea as the surface-side peel, but for curves. ``exppc`` curve
+    records carry 2D pcurve data on lines 0-3, then a wrapped 3D space
+    curve on a later line as either:
 
-    return geo_cu.PCurve(
-        basis_surface=basis_surface,
-        reference_curve=reference_curve,
+      * ``spline <sense> { exactcur ... }``  / ``{ lawintcur ... }`` inline,
+      * ``spline <sense> { ref N }`` — another level of indirection.
+
+    Returns ``(inner_data_lines, ref_id)`` — exactly one is non-None on
+    success. The inner data starts at the inline curve type token
+    (``exactcur`` / ``lawintcur``) so the existing
+    ``create_bspline_curve_from_exactcur`` / ``…_lawintcur`` parsers
+    can consume it directly.
+    """
+    for i, line in enumerate(data_lines):
+        s = line.strip()
+        if not s.startswith("spline ") or "{" not in s:
+            continue
+        inner = s[s.index("{") + 1:].strip()
+        inner = inner.rstrip("}").strip()
+        parts = inner.split()
+        if len(parts) >= 2 and parts[0] == "ref":
+            return None, parts[1]
+        # Curves: only exactcur / lawintcur are downstream-parseable.
+        if not (inner.startswith("exactcur") or inner.startswith("lawintcur")):
+            return None, None
+        new_lines = [inner] + [l.strip() for l in data_lines[i + 1:]]
+        # Trim trailing brace block.
+        for j, l in enumerate(new_lines):
+            if "}" in l:
+                head = l[: l.index("}")].strip()
+                new_lines = new_lines[:j] + ([head] if head else [])
+                break
+        return (new_lines or None), None
+    return None, None
+
+
+def _resolve_exppc_curve_chain(
+    sub_type: AcisSubType, max_steps: int = 8
+) -> list[str]:
+    """Walk an ``exppc`` curve chain to its terminal inline 3D curve block.
+
+    Mirrors ``_resolve_exppc_chain`` on the surface side. Accepts inline
+    ``exactcur`` / ``lawintcur``; raises ``ACISUnsupportedCurveType`` for
+    chains that terminate on something else (typically a curve type we
+    haven't taught the parser yet).
+    """
+    for step in range(max_steps):
+        if sub_type.type == "exppc":
+            data_lines = sub_type.get_as_string().splitlines()
+            inner_lines, ref_id = _peel_exppc_curve_to_inner(data_lines)
+            if inner_lines is not None:
+                return inner_lines
+            if ref_id is None:
+                raise ACISUnsupportedCurveType(
+                    "exppc curve subtype with no inner exactcur/lawintcur or ref N"
+                )
+            try:
+                sub_type = sub_type.parent_record.sat_store.get_ref(ref_id)
+            except (KeyError, AttributeError) as exc:
+                raise ACISReferenceDataError(
+                    f"exppc curve ref {ref_id} did not resolve"
+                ) from exc
+            continue
+        if sub_type.type in ("exactcur", "lawintcur"):
+            return sub_type.get_as_string().splitlines()
+        raise ACISUnsupportedCurveType(
+            f"exppc curve chain terminates at {sub_type.type!r}, "
+            f"expected exactcur or lawintcur"
+        )
+    raise ACISUnsupportedCurveType(
+        f"exppc curve chain did not terminate within {max_steps} hops"
+    )
+
+
+def create_pcurve_from_exppc(exppc_sub_type: AcisSubType):
+    """Resolve an ``exppc`` edge-curve to its underlying 3D BSpline curve.
+
+    The ``exppc`` subtype on an ``intcurve-curve`` is a parameter-space
+    wrapper around a 3D space curve (typically ``exactcur`` — exact 3D
+    BSpline — or ``lawintcur`` — law-defined intersection curve). The 2D
+    parameter-space data on lines 0-3 of the record is used elsewhere
+    (per-coedge UV-curve attach via ``create_pcurve_2d_from_sat_record``);
+    here we want the 3D space curve so the caller can build an OCC edge
+    geometry from it.
+
+    Was a stub until now: every exppc-typed edge curve raised
+    ``PCurve is not yet supported`` and the face fell back to a flat
+    polygon. Counted 886 such failures on OP1_v1007_hullskin (16% of all
+    spline-surface faces).
+    """
+    inner_lines = _resolve_exppc_curve_chain(exppc_sub_type)
+    head = inner_lines[0].split()
+    spl_type = head[0] if head else ""
+    if spl_type == "exactcur":
+        return create_bspline_curve_from_exactcur(inner_lines)
+    if spl_type == "lawintcur":
+        return create_bspline_curve_from_lawintcur(inner_lines)
+    raise ACISUnsupportedCurveType(
+        f"exppc curve resolved to unsupported inner type: {spl_type!r}"
     )
 
 
