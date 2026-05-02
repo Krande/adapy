@@ -129,6 +129,39 @@ export async function prepareLoadedModel({gltf_scene, hash}: PrepareLoadedModelP
             if (indexCount > 0) {
                 const rangeId = meshName || `node_${node_id ?? "anon"}`;
                 drawRanges.set(rangeId, [0, indexCount]);
+                // Also publish into gltf_scene.userData so
+                // cacheAndBuildTree (run by the caller right after
+                // this function) picks it up for the worker cache.
+                // Without this the in-memory CustomBatchedMesh has
+                // ranges but ``queryMeshDrawRange`` against the
+                // worker returns null — clicks on the model
+                // resolve to "selected mesh has no draw range".
+                //
+                // Cache filter requires the key to start with
+                // ``draw_ranges_node``. Trimesh-exported meshes are
+                // named ``node0``, ``node0_<i>``, etc., so the
+                // prefix matches. For non-conforming names we still
+                // synthesise the in-memory range (edges work) but
+                // skip the userData publish (selection won't be
+                // wired through the worker cache for those — same
+                // as the legacy "no extras" path).
+                if (meshName && meshName.startsWith("node")) {
+                    const userDataKey = `draw_ranges_${meshName}`;
+                    const ranges = (gltf_scene.userData[userDataKey] ?? {}) as Record<
+                        string, [number, number]
+                    >;
+                    ranges[rangeId] = [0, indexCount];
+                    gltf_scene.userData[userDataKey] = ranges;
+                    // id_hierarchy: rangeId → [displayName, parentId].
+                    // Caller's tree view + object-info both look up
+                    // here, so populating it (even with a flat root)
+                    // gets us name resolution after a click.
+                    const hier = (gltf_scene.userData["id_hierarchy"] ?? {}) as Record<
+                        string, [string, string | number]
+                    >;
+                    hier[rangeId] = [meshName, "0"];
+                    gltf_scene.userData["id_hierarchy"] = hier;
+                }
                 console.info(
                     `prepareLoadedModel: synthesizing draw range for "${meshName}" ` +
                     `(${indexCount} indices) — no adapy GLTF extras present`,

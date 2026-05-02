@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import collections
 import traceback
 from typing import Iterable
 
@@ -164,30 +165,80 @@ class SatReaderFactory:
 
     def iter_advanced_faces(self) -> Iterable[tuple[AcisRecord, geo_su.AdvancedFace]]:
         conf = Config()
-        for face_record in self.iter_faces():
-            face_surface = self.sat_store.get(face_record.chunks[10])
-            if face_surface.type != "spline-surface":
-                continue
-            try:
-                yield face_record, create_advanced_face_from_sat(face_record)
-            except (ACISReferenceDataError, ACISUnsupportedCurveType) as e:
-                name = face_record.get_name()
-                err_msg = f"Unable to create face record {name}. Fallback to flat Plate due to: {e}"
-                if conf.general_add_trace_to_exception:
-                    trace_msg = traceback.format_exc()
-                    err_msg += f"\n{trace_msg}"
-                logger.debug(err_msg)
-                if Config().sat_import_raise_exception_on_failed_advanced_face:
-                    raise e
-            except BaseException as e:  # Let's catch ALL other exceptions here for now
-                name = face_record.get_name()
-                err_msg = f"Unable to create face record {name}. Fallback to flat Plate due to: {e}"
-                if conf.general_add_trace_to_exception:
-                    trace_msg = traceback.format_exc()
-                    err_msg += f"\n{trace_msg}"
-                logger.debug(err_msg)
-                if Config().sat_import_raise_exception_on_failed_advanced_face:
-                    raise e
+        # Aggregate failure stats per call. Counts and a small set of
+        # example face names per (exception_type, message_head) are kept
+        # so the caller can surface a single summary log at the end of
+        # iteration instead of one debug-line per face (which gets
+        # buried — historically the user perception was "everything
+        # converted fine" while >50% of spline-surface faces silently
+        # fell back to flat polygons).
+        attempted = 0
+        succeeded = 0
+        # key: (exc_type_name, short_message) → (count, [example names])
+        fail_stats: dict[tuple[str, str], tuple[int, list[str]]] = {}
+
+        def _record_failure(name: str, e: BaseException) -> None:
+            short = str(e).split(". ")[0][:80]
+            key = (type(e).__name__, short)
+            cnt, examples = fail_stats.get(key, (0, []))
+            if len(examples) < 5:
+                examples = examples + [name]
+            fail_stats[key] = (cnt + 1, examples)
+
+        try:
+            for face_record in self.iter_faces():
+                face_surface = self.sat_store.get(face_record.chunks[10])
+                if face_surface.type != "spline-surface":
+                    continue
+                attempted += 1
+                try:
+                    advanced = create_advanced_face_from_sat(face_record)
+                except (ACISReferenceDataError, ACISUnsupportedCurveType) as e:
+                    name = face_record.get_name()
+                    _record_failure(name, e)
+                    err_msg = f"Unable to create face record {name}. Fallback to flat Plate due to: {e}"
+                    if conf.general_add_trace_to_exception:
+                        err_msg += f"\n{traceback.format_exc()}"
+                    logger.debug(err_msg)
+                    if Config().sat_import_raise_exception_on_failed_advanced_face:
+                        raise e
+                    continue
+                except BaseException as e:  # Let's catch ALL other exceptions here for now
+                    name = face_record.get_name()
+                    _record_failure(name, e)
+                    err_msg = f"Unable to create face record {name}. Fallback to flat Plate due to: {e}"
+                    if conf.general_add_trace_to_exception:
+                        err_msg += f"\n{traceback.format_exc()}"
+                    logger.debug(err_msg)
+                    if Config().sat_import_raise_exception_on_failed_advanced_face:
+                        raise e
+                    continue
+                succeeded += 1
+                yield face_record, advanced
+        finally:
+            # Persist + log even if the consumer aborts iteration early.
+            self.advanced_face_stats = {
+                "attempted": attempted,
+                "succeeded": succeeded,
+                "failed": attempted - succeeded,
+                "by_reason": {f"{etype}: {msg}": (cnt, examples)
+                              for (etype, msg), (cnt, examples) in fail_stats.items()},
+            }
+            failed = attempted - succeeded
+            if attempted > 0 and failed > 0:
+                pct = 100.0 * failed / attempted
+                top_lines = []
+                for (etype, msg), (cnt, examples) in sorted(
+                    fail_stats.items(), key=lambda kv: -kv[1][0]
+                )[:5]:
+                    sample = ", ".join(examples[:3])
+                    top_lines.append(f"    [{etype}] {msg} — {cnt} faces (e.g. {sample})")
+                top_str = "\n".join(top_lines) if top_lines else ""
+                logger.warning(
+                    "SAT advanced-face conversion: %d/%d (%.1f%%) failed and fell "
+                    "back to flat polygons. Top failure modes:\n%s",
+                    failed, attempted, pct, top_str,
+                )
 
     def iter_curved_face(self) -> Iterable[tuple[AcisRecord, Geometry]]:
         for i, (record, advanced_face) in enumerate(self.iter_advanced_faces()):
