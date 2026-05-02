@@ -52,14 +52,19 @@ export async function overlay_file_in_scene(sourceName: string): Promise<void> {
     const blob = await viewerApi.getBlob(scope, glbKey);
     const url = URL.createObjectURL(new Blob([blob], {type: "model/gltf-binary"}));
 
-    // translate=false: don't recenter the new model — keep its real
-    // coordinates so it overlays the existing scene at the correct
-    // world position. The first model loaded sets the translation;
-    // overlays inherit it.
-    await setupModelLoaderAsync(url, false);
+    // translate=true: pick up the cached modelStore.translation set
+    // by the first-loaded model so the overlay lands in the same
+    // recentered frame. With translate=false the loader treats this
+    // as a "fresh start" and re-derives translation from this
+    // model's bbox — which makes the overlay appear offset from
+    // whatever was already on screen.
+    //
+    // If no translation is cached yet (overlay is the first thing
+    // loaded), the loader's else branch computes one as usual; same
+    // outcome as a normal first load.
+    const group = await setupModelLoaderAsync(url, true);
 
-    // Track the latest overlay as "loaded" — modelState only knows
-    // about a single name today, so the most-recently-added one wins
-    // the highlight. Good enough for v1.
-    useModelState.getState().setLoadedSourceName(sourceName);
+    // Register the source → group mapping so we can later remove
+    // just this overlay without nuking the rest of the scene.
+    useModelState.getState().registerLoadedSource(sourceName, group);
 }

@@ -33,6 +33,11 @@ export async function replace_model(url: string) {
 
     useModelState.getState().translation = null;
     useTreeViewStore.getState().clearTreeData(); // Clear the tree view
+    // Drop any per-source group refs from prior overlays — the
+    // scene is about to be wiped, so those refs are no longer
+    // valid. clearLoadedSources also empties loadedSourceNames so
+    // every StorageBrowser checkbox unchecks together.
+    useModelState.getState().clearLoadedSources();
 
     const three_scene = sceneRef.current;
     if (!three_scene) {
@@ -50,7 +55,7 @@ export async function replace_model(url: string) {
 
         }
     }
-    await setupModelLoaderAsync(url, false);
+    return await setupModelLoaderAsync(url, false);
 }
 
 export async function update_scene_from_message(message: Message) {
@@ -88,7 +93,14 @@ export async function update_scene_from_message(message: Message) {
     const blob = new Blob([finalData], {type: 'model/gltf-binary'});
     const url = URL.createObjectURL(blob);
     if (operation == SceneOperations.REPLACE) {
-        await replace_model(url);
+        const group = await replace_model(url);
+        // Register this load under the source name so the
+        // StorageBrowser checkbox stays in sync and a future
+        // unload (uncheck) can find the right group to remove.
+        const sourceName = fileObject.name();
+        if (group && sourceName) {
+            useModelState.getState().registerLoadedSource(sourceName, group);
+        }
     } else if (operation == SceneOperations.REMOVE) {
         console.error("Currently unsupported operation", operation);
     } else if (operation == SceneOperations.ADD) {
@@ -96,7 +108,11 @@ export async function update_scene_from_message(message: Message) {
         if (mesh) {
             await add_mesh_to_scene(mesh)
         } else {
-            await setupModelLoaderAsync(url, true);
+            const group = await setupModelLoaderAsync(url, true);
+            const sourceName = fileObject.name();
+            if (group && sourceName) {
+                useModelState.getState().registerLoadedSource(sourceName, group);
+            }
         }
     } else {
         console.error("Unknown operation type: ", operation);

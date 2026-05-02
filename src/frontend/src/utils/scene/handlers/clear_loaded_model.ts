@@ -34,5 +34,7 @@ export async function clear_loaded_model(): Promise<void> {
 
     const ms = useModelState.getState();
     ms.setModelUrl(null, null);
-    ms.setLoadedSourceName(null);
+    // Drop both the single-name highlight and every overlay
+    // entry, so the StorageBrowser checkboxes all uncheck.
+    ms.clearLoadedSources();
 }

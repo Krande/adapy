@@ -1,18 +1,15 @@
-import React, {useRef, useState} from "react";
+import React, {useEffect, useRef, useState} from "react";
 import {useServerInfoStore, ServerFileEntry} from "@/state/serverInfoStore";
 import {useConversionStore} from "@/state/conversionStore";
 import {useModelState} from "@/state/modelState";
 import {runtime} from "@/runtime/config";
 import {request_list_of_files_from_server} from "@/utils/server_info/handlers/request_list_of_files_from_server";
-import {view_file_object_from_server} from "@/utils/scene/handlers/view_file_object_from_server";
 import {overlay_file_in_scene} from "@/utils/scene/handlers/overlay_file_in_scene";
+import {unload_source_from_scene} from "@/utils/scene/handlers/unload_source_from_scene";
 import {clear_loaded_model} from "@/utils/scene/handlers/clear_loaded_model";
 import {uploadAcceptAttr, uploadFile} from "@/utils/scene/handlers/upload_source_file";
-import {FileObjectT, FileObject} from "@/flatbuffers/base/file-object";
-import * as flatbuffers from "flatbuffers";
 import ReloadIcon from "../icons/ReloadIcon";
 import UploadIcon from "../icons/UploadIcon";
-import ViewIcon from "../icons/ViewIcon";
 import FieldPickerModal from "./FieldPickerModal";
 
 // Files that carry per-(step, field) result data and benefit from the
@@ -38,18 +35,11 @@ function formatBytes(n: number): string {
     return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`;
 }
 
-function buildFlatbufferFileObject(entry: ServerFileEntry): FileObject {
-    const builder = new flatbuffers.Builder(256);
-    const t = new FileObjectT(entry.name, entry.fileType, undefined, entry.filepath || entry.name);
-    const offset = t.pack(builder);
-    builder.finish(offset);
-    return FileObject.getRootAsFileObject(builder.dataBuffer());
-}
-
 const StorageBrowser: React.FC = () => {
     const files = useServerInfoStore((s) => s.serverFileObjects);
     const conversionJobs = useConversionStore((s) => s.jobs);
-    const loadedSourceName = useModelState((s) => s.loadedSourceName);
+    const loadedSourceNames = useModelState((s) => s.loadedSourceNames);
+    const anyLoaded = loadedSourceNames.size > 0;
     const [uploading, setUploading] = useState(false);
     // Upload progress: name = current file (or null), loaded/total in
     // bytes. Total may stay 0 if the browser can't determine it (rare
@@ -59,6 +49,31 @@ const StorageBrowser: React.FC = () => {
     const [uploadTotal, setUploadTotal] = useState(0);
     const [expandedName, setExpandedName] = useState<string | null>(null);
     const [viewingName, setViewingName] = useState<string | null>(null);
+    // Sticky 600ms spin window for the Refresh button so a tap is
+    // visually acknowledged even though the underlying list-files
+    // request is fire-and-forget over websocket. Without this the
+    // icon never changes state on mobile and the tap feels dead.
+    const [refreshing, setRefreshing] = useState(false);
+    const refreshTimerRef = useRef<number | null>(null);
+    const onRefresh = () => {
+        if (refreshTimerRef.current !== null) {
+            window.clearTimeout(refreshTimerRef.current);
+            refreshTimerRef.current = null;
+        }
+        setRefreshing(true);
+        void request_list_of_files_from_server();
+        refreshTimerRef.current = window.setTimeout(() => {
+            setRefreshing(false);
+            refreshTimerRef.current = null;
+        }, 600);
+    };
+    // Cancel a pending spin-window callback if the panel unmounts
+    // while we're still in the visible-busy hold.
+    useEffect(() => () => {
+        if (refreshTimerRef.current !== null) {
+            window.clearTimeout(refreshTimerRef.current);
+        }
+    }, []);
     // Source name of the FEA picker modal, or null if closed. Only one
     // picker open at a time matches the file-list interaction model.
     const [pickerName, setPickerName] = useState<string | null>(null);
@@ -69,20 +84,24 @@ const StorageBrowser: React.FC = () => {
     // broke the gesture chain on mobile.
     const fileInputRef = useRef<HTMLInputElement>(null);
 
-    const onView = async (entry: ServerFileEntry, additive = false) => {
+    // Toggle a file in/out of the scene. All adds go through the
+    // overlay path so multiple models can coexist; ``Clear`` in
+    // the header drops everything if you want a fresh view. The
+    // first checked file behaves identically to a normal load
+    // (the loader's else branch computes a translation from its
+    // bbox); subsequent files reuse that translation so they
+    // overlay correctly.
+    const onToggle = async (entry: ServerFileEntry, nextChecked: boolean) => {
         if (viewingName) return; // already busy with another file
         setViewingName(entry.name);
         try {
-            if (additive) {
-                // Overlay path: skip the VIEW_FILE_OBJECT roundtrip
-                // (which the server hard-codes to REPLACE) and feed
-                // the GLB straight into the scene loader.
+            if (nextChecked) {
                 await overlay_file_in_scene(entry.name);
             } else {
-                await view_file_object_from_server(buildFlatbufferFileObject(entry));
+                unload_source_from_scene(entry.name);
             }
         } catch (err) {
-            console.error(additive ? "overlay failed" : "view failed", err);
+            console.error("storage toggle failed", err);
         } finally {
             setViewingName(null);
         }
@@ -144,18 +163,29 @@ const StorageBrowser: React.FC = () => {
                         {uploading ? <Spinner/> : <UploadIcon/>}
                     </button>
                     <button
-                        className="bg-blue-700 hover:bg-blue-600 text-white p-1 rounded flex items-center justify-center"
-                        onClick={() => request_list_of_files_from_server()}
-                        title="Refresh file list"
+                        type="button"
+                        className={
+                            "bg-blue-700 hover:bg-blue-600 active:bg-blue-800 text-white rounded " +
+                            "flex items-center justify-center " +
+                            // 40px+ tap target on mobile per WCAG; tighter
+                            // on desktop where the cursor is precise.
+                            "p-2 sm:p-1 min-h-[40px] min-w-[40px] sm:min-h-0 sm:min-w-0 " +
+                            "focus:outline-none focus:ring-2 focus:ring-blue-400"
+                        }
+                        onClick={onRefresh}
+                        title={refreshing ? "Refreshing — tap again to retry" : "Refresh file list"}
                         aria-label="Refresh list"
+                        aria-busy={refreshing}
                     >
-                        <ReloadIcon/>
+                        <span className={refreshing ? "animate-spin" : ""}>
+                            <ReloadIcon/>
+                        </span>
                     </button>
-                    {loadedSourceName && (
+                    {anyLoaded && (
                         <button
                             className="bg-gray-700 hover:bg-gray-600 text-white p-1 rounded text-xs"
                             onClick={() => clear_loaded_model()}
-                            title="Clear all models from the scene"
+                            title="Clear all models from the scene (unchecks every file)"
                             aria-label="Clear scene"
                         >
                             Clear
@@ -201,13 +231,8 @@ const StorageBrowser: React.FC = () => {
                     {files.map((f) => {
                         const isViewing = viewingName === f.name;
                         const otherViewing = viewingName !== null && !isViewing;
-                        const isLoaded = loadedSourceName === f.name;
-                        // Progress for the implicit "view" conversion job
-                        // (`<name>::glb`) — only shown while we're actively
-                        // viewing this file so a stale done/error from a
-                        // previous run doesn't render a leftover bar.
+                        const isLoaded = loadedSourceNames.has(f.name);
                         const viewJob = isViewing ? conversionJobs[`${f.name}::glb`] : undefined;
-                        // progress is 0–1 in the store; clamp + percentise.
                         const viewProgressPct = viewJob
                             ? Math.max(0, Math.min(100, Math.round(viewJob.progress * 100)))
                             : 0;
@@ -217,9 +242,39 @@ const StorageBrowser: React.FC = () => {
                                 className="flex flex-col px-1 py-1 text-xs"
                             >
                                 <div className="flex items-center justify-between gap-2">
+                                    {/* Single checkbox per row drives "is this file
+                                        in the scene?" Checking adds via overlay so
+                                        multiple models coexist; unchecking removes
+                                        only this file's group. ``Clear`` in the
+                                        header unchecks all in one go. h-5/w-5 +
+                                        outer touch padding keeps the tap target
+                                        ≥40 px on mobile. */}
+                                    <label
+                                        className={
+                                            "flex items-center gap-2 cursor-pointer select-none px-1 py-1 -mx-1 -my-1 " +
+                                            (isLoaded ? "text-blue-200 font-medium" : "")
+                                        }
+                                        title={
+                                            isViewing
+                                                ? "Loading…"
+                                                : otherViewing
+                                                    ? "Another file is loading"
+                                                    : isLoaded
+                                                        ? "Loaded in scene — uncheck to remove just this file"
+                                                        : "Add to scene (overlays alongside any other loaded files)"
+                                        }
+                                    >
+                                        <input
+                                            type="checkbox"
+                                            className="h-5 w-5 shrink-0 cursor-pointer disabled:cursor-not-allowed"
+                                            checked={isLoaded}
+                                            onChange={(e) => onToggle(f, e.target.checked)}
+                                            disabled={isViewing || otherViewing}
+                                            aria-busy={isViewing || undefined}
+                                        />
+                                    </label>
                                     {/* min-w-0 lets `truncate` actually clip inside a
-                                        flex item (default min-width is auto = content).
-                                        Tap to toggle between truncated and wrapped so
+                                        flex item. Tap toggles truncated/wrapped so
                                         the full filename is reachable on touch. */}
                                     <button
                                         type="button"
@@ -230,51 +285,11 @@ const StorageBrowser: React.FC = () => {
                                         {f.name}
                                     </button>
                                     <div className="flex items-center gap-1 shrink-0">
-                                        {/* Eye icon. White when not loaded, blue when
-                                            this file is the one rendered in the scene
-                                            so the row reads as "active" at a glance. */}
-                                        <button
-                                            className={
-                                                "p-1 rounded hover:bg-gray-300/40 disabled:opacity-50 disabled:cursor-not-allowed " +
-                                                (isLoaded ? "text-blue-300" : "text-white")
-                                            }
-                                            // Shift+click overlays instead of replacing — desktop
-                                            // power-user shortcut. Mobile users use the explicit
-                                            // "+" button next to this one.
-                                            onClick={(e) => onView(f, e.shiftKey)}
-                                            disabled={isViewing || otherViewing}
-                                            title={
-                                                isViewing
-                                                    ? "Loading…"
-                                                    : otherViewing
-                                                        ? "Another file is loading"
-                                                        : isLoaded
-                                                            ? "Currently loaded — click to reload (Shift+click to overlay)"
-                                                            : "View (Shift+click to overlay)"
-                                            }
-                                            aria-pressed={isLoaded}
-                                            aria-busy={isViewing || undefined}
-                                        >
-                                            {isViewing ? <Spinner/> : <ViewIcon/>}
-                                        </button>
-                                        {/* Touch-friendly overlay button. Adds the file
-                                            to the current scene without replacing what's
-                                            loaded. Useful for visual diff debugging
-                                            (overlay reference + subject GLBs to spot
-                                            missing/displaced plates). */}
-                                        <button
-                                            className="p-1 rounded text-white hover:bg-gray-300/40 disabled:opacity-50 disabled:cursor-not-allowed"
-                                            onClick={() => onView(f, true)}
-                                            disabled={isViewing || otherViewing}
-                                            title="Add to scene (overlay, doesn't replace)"
-                                            aria-label="Add to scene"
-                                        >
-                                            <span className="leading-none text-base font-bold">+</span>
-                                        </button>
-                                        {/* Field picker for FEA result files. Lets the
-                                            user pick a non-default (step, field) and
-                                            re-render. Only meaningful in REST mode with
-                                            convert enabled. */}
+                                        {isViewing && <Spinner/>}
+                                        {/* Field picker for FEA result files. Lets
+                                            the user pick a non-default (step, field)
+                                            and re-render. Only meaningful in REST mode
+                                            with convert enabled. */}
                                         {isFEAResult(f.name) && runtime.isRestMode() && runtime.convertEnabled() && (
                                             <button
                                                 className="p-1 rounded text-white hover:bg-gray-300/40 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -283,18 +298,7 @@ const StorageBrowser: React.FC = () => {
                                                 title="Pick step / field"
                                                 aria-label="Pick step / field"
                                             >
-                                                {/* Sliders glyph — discoverable as "tunable" */}
                                                 <span className="leading-none text-sm font-mono">⇅</span>
-                                            </button>
-                                        )}
-                                        {isLoaded && (
-                                            <button
-                                                className="p-1 rounded text-white hover:bg-gray-300/40"
-                                                onClick={() => clear_loaded_model()}
-                                                title="Remove from scene"
-                                                aria-label="Remove from scene"
-                                            >
-                                                <span className="leading-none text-base">×</span>
                                             </button>
                                         )}
                                     </div>
