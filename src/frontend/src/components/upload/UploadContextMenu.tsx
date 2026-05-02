@@ -18,10 +18,15 @@ const UploadContextMenu: React.FC = () => {
             return;
         }
         const onContext = (e: MouseEvent) => {
-            // Only intercept right-clicks on the viewer/canvas area, not
-            // on form inputs, the file tree, or the menu itself.
+            // Whitelist: only fire on the 3D canvas area. Anywhere
+            // else — text in menus, the file tree, admin panel, the
+            // address bar — gets the native browser menu, so
+            // copy/paste/select still works on mobile and desktop.
+            // ``#canvasParent`` is the absolute-positioned wrapper
+            // around <ThreeCanvas/>; it covers the whole viewer area
+            // including HUD overlays drawn on top of the canvas.
             const target = e.target as HTMLElement | null;
-            if (target && target.closest("[data-no-upload-menu]")) {
+            if (!target || !target.closest("#canvasParent")) {
                 return;
             }
             e.preventDefault();

@@ -27,3 +27,4 @@ node_modules/
 *.html
 .pixi/
 audit_repro/
+audit_repro_*/
