@@ -114,12 +114,27 @@ export class RESTComms implements Comms {
 
     const ctl = new AbortController();
     this.inflight.push(ctl);
+    // 30s budget per request. Without this, a hung fetch (network
+    // blip, tab in background long enough for the connection to be
+    // collected, etc.) blocks the dispatchChain forever — every
+    // subsequent response queues behind it without ever processing,
+    // which is what users report as "refresh button does nothing
+    // until I reload the page". Aborting on timeout lets the chain
+    // drop the dead callback and move on.
+    const timeoutId = window.setTimeout(() => {
+      try { ctl.abort(); } catch (_) { /* ignore */ }
+    }, 30_000);
 
     // Fire the request eagerly (matches WS socket.send semantics: caller
     // does not block on the response). Dispatch the response through the
     // chain so handler order matches request order.
     const headers: Record<string, string> = {
       "Content-Type": "application/octet-stream",
+      // Defensive: a CDN / browser-cache should not be able to keep
+      // serving an old listing response. POSTs are not normally
+      // cached but some intermediaries treat them as cacheable when
+      // the server emits stale Cache-Control. Force fresh every time.
+      "Cache-Control": "no-store",
       // Phase 2C: scope rides on a header so the FlatBuffer envelope
       // stays untouched. The server resolves "user:me" to the caller's
       // sub before authorising.
@@ -132,6 +147,8 @@ export class RESTComms implements Comms {
       headers,
       body: payload,
       signal: ctl.signal,
+      // Belt-and-braces: tell the browser cache layer to bypass too.
+      cache: "no-store",
     });
 
     this.dispatchChain = this.dispatchChain.then(async () => {
@@ -152,6 +169,7 @@ export class RESTComms implements Comms {
           console.error("Error dispatching REST response:", err);
         }
       } finally {
+        window.clearTimeout(timeoutId);
         const i = this.inflight.indexOf(ctl);
         if (i >= 0) this.inflight.splice(i, 1);
       }

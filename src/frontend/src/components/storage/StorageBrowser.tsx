@@ -2,6 +2,7 @@ import React, {useEffect, useRef, useState} from "react";
 import {useServerInfoStore, ServerFileEntry} from "@/state/serverInfoStore";
 import {useConversionStore} from "@/state/conversionStore";
 import {useModelState} from "@/state/modelState";
+import {useScopeStore} from "@/state/scopeStore";
 import {runtime} from "@/runtime/config";
 import {request_list_of_files_from_server} from "@/utils/server_info/handlers/request_list_of_files_from_server";
 import {overlay_file_in_scene} from "@/utils/scene/handlers/overlay_file_in_scene";
@@ -40,6 +41,7 @@ const StorageBrowser: React.FC = () => {
     const conversionJobs = useConversionStore((s) => s.jobs);
     const loadedSourceNames = useModelState((s) => s.loadedSourceNames);
     const anyLoaded = loadedSourceNames.size > 0;
+    const currentScope = useScopeStore((s) => s.current);
     const [uploading, setUploading] = useState(false);
     // Upload progress: name = current file (or null), loaded/total in
     // bytes. Total may stay 0 if the browser can't determine it (rare
@@ -144,7 +146,18 @@ const StorageBrowser: React.FC = () => {
             className="bg-gray-400 bg-opacity-50 rounded p-2 w-full min-w-0 max-w-[calc(100vw-1rem)] md:max-w-md"
         >
             <div className="flex justify-between items-center gap-2 mb-2">
-                <h2 className="font-bold truncate">Storage</h2>
+                <div className="min-w-0 flex-1">
+                    <h2 className="font-bold truncate">Storage</h2>
+                    {/* Show the active scope so it's clear which space
+                        this list reflects. Files uploaded under one
+                        scope are invisible to a list query under another
+                        — surfacing the name avoids the "I uploaded but
+                        nothing shows" confusion when scope drifts. */}
+                    <div className="text-[10px] uppercase tracking-wide text-gray-200/80 truncate"
+                         title={currentScope?.kind ? `${currentScope.kind}${currentScope.id ? ":" + currentScope.id : ""}` : "shared"}>
+                        scope: {currentScope?.name ?? "Shared"}
+                    </div>
+                </div>
                 <div className="flex items-center gap-1 shrink-0">
                     <input
                         ref={fileInputRef}
