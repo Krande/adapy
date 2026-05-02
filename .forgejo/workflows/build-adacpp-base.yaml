@@ -84,10 +84,16 @@ jobs:
         env:
           REGISTRY_IMAGE: ${{ secrets.ADACPP_BASE_REGISTRY_IMAGE }}
         run: |
-          # Pull the embedded adacpp short sha back out of the
-          # final image (writes to /out/adacpp.sha during build).
-          SHA=$(docker run --rm --entrypoint cat \
-              "${REGISTRY_IMAGE}:staging" /out/adacpp.sha | cut -c1-7)
+          set -e
+          # The published image is ``FROM scratch`` (just /out/), so
+          # ``docker run --entrypoint cat`` fails — there's no /bin/cat
+          # in scratch. Use ``docker create`` + ``docker cp`` instead;
+          # neither executes anything inside the image, just extracts
+          # the file from the container layer.
+          cid=$(docker create "${REGISTRY_IMAGE}:staging")
+          trap 'docker rm "$cid" >/dev/null 2>&1 || true' EXIT
+          docker cp "${cid}:/out/adacpp.sha" /tmp/adacpp.sha
+          SHA=$(cut -c1-7 < /tmp/adacpp.sha | tr -d '[:space:]')
           if [ -z "$SHA" ]; then
             echo "::error::Couldn't extract adacpp sha from /out/adacpp.sha"
             exit 1
