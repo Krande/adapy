@@ -224,6 +224,12 @@ audit-repro = { cmd = "python scripts/audit_repro.py", env = { "PYTHONPATH" = "$
 # viewer accepts: GLB, IFC, STEP, SAT, XML, SIF). Same auth env as
 # audit-fetch (ADAPY_API_TOKEN + ADAPY_API_BASE).
 viewer-upload = { cmd = "python scripts/viewer_upload.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+# Compare two GLBs face-by-face (centroid + normal alignment) and
+# bucket subject-mesh primitives into OK / POS_OK_ROT_BAD /
+# POS_BAD_ROT_OK / WHOLLY_BAD. Optional ``--out`` writes per-bucket
+# GLBs + per_face.json so the failure modes can be inspected
+# visually + chased in code.
+glb-face-classify = { cmd = "python scripts/glb_face_classify.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 # Static server for the Pyodide IFC->GLB experiment. Web Workers refuse
 # to run from file:// URLs, so this hands the directory at port 8088.
 pyodide-experiment = { cmd = "python -m http.server 8088", cwd = "experiments/pyodide-converter" }
