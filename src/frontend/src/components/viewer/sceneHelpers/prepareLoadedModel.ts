@@ -112,15 +112,30 @@ export async function prepareLoadedModel({gltf_scene, hash}: PrepareLoadedModelP
         if (!drawRangesData && node_id) {
             drawRangesData = gltf_scene.userData[`draw_ranges_node${node_id}`] as Record<string, [number, number]>;
         }
-        if (!drawRangesData) {
-            console.warn(`No draw ranges found for mesh: ${meshName}, node_id: ${node_id}`);
-            console.warn(`Available userData keys:`, Object.keys(gltf_scene.userData));
-        }
 
         const drawRanges = new Map<string, [number, number]>();
         if (drawRangesData) {
             for (const [rangeId, [start, count]] of Object.entries(drawRangesData)) {
                 drawRanges.set(rangeId, [start, count]);
+            }
+        } else {
+            // No adapy GLTF extras — common for hand-built diff/debug
+            // GLBs (e.g. trimesh's Scene.export). Fall back to a
+            // single whole-mesh range keyed by the mesh's node name
+            // so selection + edge-overlay still work, just at
+            // mesh-primitive granularity instead of per-face.
+            const geom = original.geometry as THREE.BufferGeometry;
+            const indexCount = geom.index?.array.length ?? 0;
+            if (indexCount > 0) {
+                const rangeId = meshName || `node_${node_id ?? "anon"}`;
+                drawRanges.set(rangeId, [0, indexCount]);
+                console.info(
+                    `prepareLoadedModel: synthesizing draw range for "${meshName}" ` +
+                    `(${indexCount} indices) — no adapy GLTF extras present`,
+                );
+            } else {
+                console.warn(`No draw ranges and no indexed geometry for mesh: ${meshName}, node_id: ${node_id}`);
+                console.warn(`Available userData keys:`, Object.keys(gltf_scene.userData));
             }
         }
 
