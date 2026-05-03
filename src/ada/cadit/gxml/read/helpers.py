@@ -69,6 +69,44 @@ def _read_inline_polygon(poly_elem):
     return pts
 
 
+def _project_to_best_fit_plane(pts):
+    """Project 3D wire corners onto their SVD best-fit plane.
+
+    The default ``Plate.from_3d_points`` derives the plate normal from
+    the first three input points (a single cross product). For a curved
+    SAT face whose 4-corner wire isn't coplanar, that picks an arbitrary
+    plane through 3 of the 4 corners — the 4th corner ends up
+    significantly off-plane and the rendered plate appears rotated
+    against the rest of the model. SVD of the centred point cloud picks
+    the plane that minimises perpendicular distances, then projecting
+    all corners onto it gives a coplanar set of points whose orientation
+    matches the curved shape's average tangent plane. Geometrically
+    still a flat approximation of the curved face but no longer "tilted
+    wrong" — the failure mode the user reports for the swept-surface
+    fallbacks (exppc → exactcur / parcur / unresolvable ref chains).
+    """
+    import numpy as _np
+    arr = _np.asarray([list(p)[:3] for p in pts], dtype=float)
+    if arr.shape[0] < 3:
+        return list(pts)
+    centroid = arr.mean(axis=0)
+    centred = arr - centroid
+    # SVD: smallest singular value corresponds to the plane normal.
+    try:
+        _, _, vt = _np.linalg.svd(centred, full_matrices=False)
+    except _np.linalg.LinAlgError:
+        return list(pts)
+    normal = vt[-1]
+    n_len = float(_np.linalg.norm(normal))
+    if n_len < 1e-12:
+        return list(pts)
+    normal = normal / n_len
+    # Project: p_proj = p - dot(p - centroid, n) * n
+    offsets = (centred @ normal)[:, None] * normal
+    projected = arr - offsets
+    return [tuple(p) for p in projected]
+
+
 def yield_plate_elems_to_plate(plate_elem, parent, sat_ref_d, thick_map, flat_fallback_d=None):
     from ada import Plate
 
@@ -133,33 +171,81 @@ def yield_plate_elems_to_plate(plate_elem, parent, sat_ref_d, thick_map, flat_fa
                     try:
                         import numpy as _np
                         flat_arr = _np.array([list(p)[:3] for p in fallback_pts])
-                        flat_centre = flat_arr.mean(axis=0)
-                        flat_diag = float(_np.linalg.norm(flat_arr.max(axis=0) - flat_arr.min(axis=0)))
-                        # Sample the AdvancedFace surface centre in
-                        # 3D. Different surface types expose
-                        # different centre-evaluation APIs; we only
-                        # care about a coarse 3D point.
+                        flat_min = flat_arr.min(axis=0)
+                        flat_max = flat_arr.max(axis=0)
+                        flat_extent = flat_max - flat_min
+                        flat_centre = (flat_min + flat_max) / 2
+                        # Sample the AdvancedFace surface centre +
+                        # extent from its control-points convex
+                        # hull. Three failure modes the recent
+                        # exppc surface-peel can hit:
+                        #   * surface centroid far from the wire's
+                        #     world position (peel pointed at a
+                        #     different geometric region)
+                        #   * surface centroid roughly OK but
+                        #     parameterised over a 5-10× larger
+                        #     patch (visibly stretched / deformed)
+                        #   * surface centroid drifts outside the
+                        #     flat bbox along *one short axis* of
+                        #     a long narrow plate — the centroid-
+                        #     distance check misses this because
+                        #     the diagonal is dominated by the long
+                        #     axis (28 m) so the tolerance is huge
+                        #     even when the offset is structurally
+                        #     significant in the short direction.
+                        # Use AABB containment as the strict check
+                        # for the third case: surface centroid must
+                        # be inside the flat bbox + 25% of each
+                        # axis as slack.
                         surf = getattr(sat_data.geometry, "face_surface", None)
                         cps = getattr(surf, "control_points_list", None)
                         if cps:
-                            xs, ys, zs = [], [], []
-                            for row in cps:
-                                for cp in row:
-                                    xs.append(cp[0]); ys.append(cp[1]); zs.append(cp[2])
-                            surf_centre = _np.array([
-                                sum(xs) / len(xs), sum(ys) / len(ys), sum(zs) / len(zs),
+                            cp_arr = _np.array([
+                                [cp[0], cp[1], cp[2]]
+                                for row in cps
+                                for cp in row
                             ])
-                            offset = float(_np.linalg.norm(surf_centre - flat_centre))
-                            tol = max(2.0 * flat_diag, 5.0)
-                            if offset > tol:
+                            surf_centre = cp_arr.mean(axis=0)
+                            surf_extent = cp_arr.max(axis=0) - cp_arr.min(axis=0)
+                            # Per-axis tolerance: max(25% of flat
+                            # extent on that axis, 1 m absolute).
+                            # The 1 m floor catches very short
+                            # axes (thickness ≈ 0) where 25% would
+                            # be zero.
+                            slack = _np.maximum(0.25 * flat_extent, 1.0)
+                            outside = (surf_centre < flat_min - slack) | (surf_centre > flat_max + slack)
+                            mismatch = None
+                            if bool(outside.any()):
+                                axes = [a for a, o in enumerate(outside) if o]
+                                offsets = [
+                                    float(max(flat_min[a] - surf_centre[a], surf_centre[a] - flat_max[a]))
+                                    for a in axes
+                                ]
+                                mismatch = (
+                                    f"surface centre outside flat bbox on axis {axes} "
+                                    f"by {[round(o, 2) for o in offsets]} m "
+                                    f"(slack {[round(s, 2) for s in slack[axes]]} m)"
+                                )
+                            else:
+                                # Per-axis size ratio. ``flat_extent`` may
+                                # be 0 along the thickness axis; clamp to
+                                # a 1 mm floor so the ratio is defined.
+                                ratio = surf_extent / _np.maximum(flat_extent, 1e-3)
+                                max_ratio = float(ratio.max())
+                                if max_ratio > 5.0:
+                                    worst = int(_np.argmax(ratio))
+                                    mismatch = (
+                                        f"surface extent {surf_extent[worst]:.1f} m "
+                                        f"on axis {worst} vs flat {flat_extent[worst]:.1f} m "
+                                        f"({max_ratio:.1f}× larger — likely stretched / deformed)"
+                                    )
+                            if mismatch:
                                 logger.warning(
-                                    "PlateCurved %r: BSpline surface centre %.1f m from "
-                                    "flat-fallback centroid (tol %.1f m, flat diag %.1f m); "
-                                    "exppc surface-peel mismatch — using flat representation",
-                                    name, offset, tol, flat_diag,
+                                    "PlateCurved %r: %s — using flat representation",
+                                    name, mismatch,
                                 )
                                 yield Plate.from_3d_points(
-                                    name, fallback_pts, t, mat=mat,
+                                    name, _project_to_best_fit_plane(fallback_pts), t, mat=mat,
                                     metadata=dict(props=dict(gxml_face_ref=face_ref)),
                                     parent=parent,
                                 )
@@ -189,6 +275,30 @@ def yield_plate_elems_to_plate(plate_elem, parent, sat_ref_d, thick_map, flat_fa
                 continue
 
             if sat_data is None:
+                # AdvancedFace conversion was rejected upstream
+                # (typically the SAT bbox sanity check in
+                # ``get_face_surface``, or an exppc chain that
+                # terminates in a 1D curve implying a swept/ruled
+                # surface we don't synthesise yet). Fall back to the
+                # flat-plate corner points if the SAT face has them —
+                # the wire's 3D vertex chain is a reliable independent
+                # reference. Pre-project the corners onto their SVD
+                # best-fit plane so curved-shell wires (whose corners
+                # are typically non-coplanar) don't end up tilted by
+                # the naive 3-point plane fit in
+                # ``Plate.from_3d_points``.
+                fb = flat_fallback_d.get(face_ref)
+                if fb and len(fb) >= 3:
+                    try:
+                        projected = _project_to_best_fit_plane(fb)
+                        yield Plate.from_3d_points(
+                            name, projected, t, mat=mat,
+                            metadata=dict(props=dict(gxml_face_ref=face_ref)),
+                            parent=parent,
+                        )
+                    except Exception as e:
+                        logger.error(f"Failed converting flat-fallback plate {name} due to {e}")
+                    continue
                 logger.debug(f'Unable to find face_ref="{face_ref}"')
                 continue
 

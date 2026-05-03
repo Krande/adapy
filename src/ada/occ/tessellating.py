@@ -226,17 +226,59 @@ class BatchTessellator:
                         pos_n = 0 if pos is None else (len(pos) if hasattr(pos, "__len__") else 0)
                         idx_n = 0 if idx is None else (len(idx) if hasattr(idx, "__len__") else 0)
                         if pos_n > 0 and idx_n > 0:
-                            yield ms_curved
-                            continue
-                    # Empty / failed — drop to the flat-fallback path
-                    # at the bottom of the loop.
+                            # Trust-but-verify: compare the rendered
+                            # mesh bbox against the flat reference.
+                            # The exppc surface peel can land on the
+                            # right neighbourhood (centroid passes
+                            # the AABB containment check upstream)
+                            # while the wire's pcurves point at a
+                            # different UV region — OCC happily
+                            # tessellates over the wrong patch and
+                            # produces a mesh that's 5-15× the
+                            # plate's actual size. Catch those by
+                            # checking the actual mesh extent.
+                            fb_pts = getattr(ada_obj, "_flat_fallback_pts", None)
+                            mesh_ok = True
+                            if fb_pts and len(fb_pts) >= 3:
+                                try:
+                                    import numpy as _np
+                                    verts = _np.asarray(pos, dtype=float).reshape(-1, 3)
+                                    flat_arr = _np.array([list(p)[:3] for p in fb_pts])
+                                    flat_ext = flat_arr.max(axis=0) - flat_arr.min(axis=0)
+                                    mesh_ext = verts.max(axis=0) - verts.min(axis=0)
+                                    # Allow 3× per axis; thickness
+                                    # axis (flat_ext ≈ 0) gets a 1 m
+                                    # absolute floor since prism
+                                    # extrusion adds at most ``t`` on
+                                    # that axis (≪ 1 m).
+                                    floor = 1.0
+                                    limit = _np.maximum(3.0 * flat_ext, floor)
+                                    over = mesh_ext > limit
+                                    if bool(over.any()):
+                                        worst = int(_np.argmax(mesh_ext / _np.maximum(flat_ext, 1e-3)))
+                                        logger.warning(
+                                            "PlateCurved %r: mesh extent %.1f m on axis %d vs flat %.2f m"
+                                            " (limit %.2f m) — using flat representation",
+                                            getattr(ada_obj, "name", "?"),
+                                            float(mesh_ext[worst]), worst,
+                                            float(flat_ext[worst]), float(limit[worst]),
+                                        )
+                                        mesh_ok = False
+                                except Exception:
+                                    pass
+                            if mesh_ok:
+                                yield ms_curved
+                                continue
+                    # Empty / failed / oversize — drop to the flat-
+                    # fallback path at the bottom of the loop.
                     fallback_pts = getattr(ada_obj, "_flat_fallback_pts", None)
                     if fallback_pts:
                         try:
                             from ada import Plate
+                            from ada.cadit.gxml.read.helpers import _project_to_best_fit_plane
                             fb = Plate.from_3d_points(
                                 getattr(ada_obj, "name", "fallback"),
-                                fallback_pts,
+                                _project_to_best_fit_plane(fallback_pts),
                                 getattr(ada_obj, "t", None) or 0.0,
                                 mat=getattr(ada_obj, "material", None),
                                 metadata=dict(props=dict(
@@ -323,9 +365,10 @@ class BatchTessellator:
                 continue
             try:
                 from ada import Plate
+                from ada.cadit.gxml.read.helpers import _project_to_best_fit_plane
                 fallback = Plate.from_3d_points(
                     getattr(ada_obj, "name", "fallback"),
-                    fallback_pts,
+                    _project_to_best_fit_plane(fallback_pts),
                     getattr(ada_obj, "t", None) or 0.0,
                     mat=getattr(ada_obj, "material", None),
                     metadata=dict(props=dict(

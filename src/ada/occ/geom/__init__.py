@@ -36,6 +36,8 @@ def geom_to_occ_geom(geom: Geometry) -> TopoDS_Shape | TopoDS_Solid:
         occ_geom = geo_su.make_shell_from_curve_bounded_plane_geom(geometry)
     elif isinstance(geometry, su.AdvancedFace):
         occ_geom = geo_su.make_face_from_geom(geometry)
+    elif isinstance(geometry, su.WireFilledFace):
+        occ_geom = geo_su.make_face_from_wire_filled(geometry)
     elif isinstance(geometry, su.ClosedShell):
         occ_geom = geo_su.make_closed_shell_from_geom(geometry)
     else:

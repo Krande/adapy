@@ -113,6 +113,17 @@ class Config:
             "gxml",
             [
                 ConfigEntry("import_advanced_faces", bool, True),
+                # When the SAT spline-surface peel can't reconstruct
+                # the face's surface (~60% of curved faces in the
+                # Genie-emitted SAT format we see in practice — the
+                # outer "spline-surface { ref → exppc → ... }" wrapper
+                # encodes a procedural sweep we don't synthesise), build
+                # a smooth filled face from the wire boundary using
+                # OCC's BRepOffsetAPI_MakeFilling. Boundary is exact
+                # (from SAT 3D edge curves), filling is G2-smooth.
+                # Eliminates the rotated-flat fallback for these faces;
+                # sacrifices the original ACIS surface parameterisation.
+                ConfigEntry("curved_fallback_via_fill", bool, True),
             ],
         ),
         ConfigSection(

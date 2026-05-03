@@ -350,6 +350,22 @@ class AdvancedFace:
 
 
 @dataclass
+class WireFilledFace:
+    """A face defined only by its boundary wire — filled by OCC.
+
+    Used when the underlying ACIS surface is unrecoverable (typically a
+    procedural exppc-wrapped surface the SAT reader can't synthesise),
+    but the wire's 3D edge curves are exact. Downstream OCC translation
+    uses ``BRepOffsetAPI_MakeFilling`` to interpolate a smooth surface
+    through the boundary edges. Boundary is faithful to the original
+    SAT data; the filling is a G1/G2-smooth approximation of whatever
+    surface the wire was originally trimmed from.
+    """
+
+    bounds: list[FaceBound]
+
+
+@dataclass
 class ShellBasedSurfaceModel:
     """
     IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcShellBasedSurfaceModel.htm)
