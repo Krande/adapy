@@ -203,7 +203,31 @@ def get_edge(coedge: AcisRecord) -> geo_cu.OrientedEdge:
                     logger.debug("pcurve %s not usable: %s", pcurve_chunk, ex)
                     pcurve_geom = None
 
-    return geo_cu.OrientedEdge(p1, p2, edge_element, ori, pcurve=pcurve_geom)
+    # SAT edge stores the underlying curve's parameters at the start
+    # and end vertices (chunks[7]=t1, chunks[9]=t2). Carrying them
+    # forward lets the OCC builder use parameter-trim instead of 3D-
+    # point trim — which is critical for closed curves like circles
+    # where two arcs connect the same two points (the point-trim
+    # overload picks one of them and gets it wrong on the long-arc
+    # half of the time).
+    t_start: float | None = None
+    t_end: float | None = None
+    try:
+        t_start = float(edge.chunks[7])
+        t_end = float(edge.chunks[9])
+    except (ValueError, IndexError, TypeError):
+        pass
+    # Coedge orientation: when the coedge runs the edge backwards we
+    # already swapped p1/p2 above — also swap t_start/t_end so the OCC
+    # edge runs from p1 (at t_start) to p2 (at t_end) along the
+    # curve's natural direction.
+    if not coedge_dir_bool and t_start is not None and t_end is not None:
+        t_start, t_end = t_end, t_start
+
+    return geo_cu.OrientedEdge(
+        p1, p2, edge_element, ori,
+        pcurve=pcurve_geom, t_start=t_start, t_end=t_end,
+    )
 
 
 def iter_loop_coedges(loop_record: AcisRecord) -> Iterable[geo_cu.OrientedEdge]:

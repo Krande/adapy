@@ -310,11 +310,23 @@ class OrientedEdge(Edge):
     surface (one per coedge in ACIS). When present, downstream OCCT
     construction skips reprojection and attaches the curve directly via
     ``BRep_Builder.UpdateEdge``.
+
+    ``t_start`` / ``t_end`` are the underlying curve's parameter values
+    at the edge's start and end vertices. SAT records them explicitly
+    on every edge. Without them, ``BRepBuilderAPI_MakeEdge(curve, p1,
+    p2)`` recovers parameters from 3D points — ambiguous for closed
+    curves (a circle has two arcs between any two non-coincident
+    points) and for self-intersecting BSplines, so OCC may pick the
+    *long* arc instead of the SAT-intended short one. Threading the
+    parameters lets the OCC builder use the explicit-parameter
+    overload and trim correctly.
     """
 
     edge_element: Edge | EdgeCurve
     orientation: bool
     pcurve: Pcurve2dBSpline | None = None
+    t_start: float | None = None
+    t_end: float | None = None
 
 
 @dataclass

@@ -76,7 +76,20 @@ def make_edge_from_edge(edge: geo_cu.Edge) -> TopoDS_Edge:
                 if _points_equal(edge.start, edge.end):
                     edge_maker = BRepBuilderAPI_MakeEdge(circle)
                 else:
-                    edge_maker = BRepBuilderAPI_MakeEdge(circle, point3d(edge.start), point3d(edge.end))
+                    # Prefer the SAT-recorded parametric trim values
+                    # over OCC's 3D-point recovery: a circle has *two*
+                    # arcs between any two non-coincident points, and
+                    # the point-trim overload picks based on the
+                    # circle's natural parametric direction — wrong
+                    # half the time on long thin face boundaries
+                    # (manifests as a "hole" in the BRepMesh
+                    # tessellation when the long arc is selected).
+                    t_start = getattr(edge, "t_start", None)
+                    t_end = getattr(edge, "t_end", None)
+                    if t_start is not None and t_end is not None:
+                        edge_maker = BRepBuilderAPI_MakeEdge(circle, float(t_start), float(t_end))
+                    else:
+                        edge_maker = BRepBuilderAPI_MakeEdge(circle, point3d(edge.start), point3d(edge.end))
             elif isinstance(curve_geom, (geo_cu.BSplineCurveWithKnots, geo_cu.RationalBSplineCurveWithKnots)):
                 # Build an OCC BSpline curve from the adapy representation
                 try:
@@ -109,6 +122,20 @@ def make_edge_from_edge(edge: geo_cu.Edge) -> TopoDS_Edge:
                     # If start and end are identical, create a full-curve edge (closed loop)
                     if _points_equal(edge.start, edge.end):
                         edge_maker = BRepBuilderAPI_MakeEdge(occ_bs)
+                    elif (
+                        getattr(edge, "t_start", None) is not None
+                        and getattr(edge, "t_end", None) is not None
+                        and abs(float(edge.t_end) - float(edge.t_start)) > 1e-12
+                    ):
+                        # Prefer the SAT-recorded parametric trim
+                        # values over the project-from-3D-points path
+                        # below: the projection is unreliable on
+                        # self-intersecting BSplines (multiple
+                        # parameters can map to the same point) and
+                        # has accumulated numerical error in the
+                        # projector. SAT stores the canonical
+                        # parameters at edge.chunks[7]/[9].
+                        edge_maker = BRepBuilderAPI_MakeEdge(occ_bs, float(edge.t_start), float(edge.t_end))
                     else:
                         # Project the points onto the curve to obtain parameters
                         proj1 = GeomAPI_ProjectPointOnCurve(p1, occ_bs)
