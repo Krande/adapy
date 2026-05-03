@@ -307,6 +307,57 @@ def _attach_supplied_pcurve(builder, edge, pcurve_geom, face_surface, identity_l
 
     Returns True on success, False on any structural problem (in which
     case the caller should fall back to the regenerative path).
+
+    KNOWN BUG — pcurve trim, not affine remap (2026-05-03):
+    The current code AFFINELY REMAPS the pcurve's knot range onto the
+    OCC edge's 3D parameter range. That's wrong when the SAT pcurve
+    covers more of its 2D curve than the edge actually uses (which is
+    common — multi-edge wires on a single UV side share the underlying
+    UV trajectory, with each edge picking a sub-range).
+
+    Symptom: face has 0 m² area, BRepMesh produces 2-3 degenerate
+    triangles, plate appears as a hole. Reproduced on
+    ``col1mainskin_elev13plate2_ct1_0`` and neighbours in OP1_v1007:
+    a 6-edge wire with two short (0.4 m) and two long (2.7 m) vertical
+    segments along the plate's right and left UV sides. The vertical
+    pcurves all carry CPs at the surface's full v-extent (-3.1, 0)
+    even when their edge only spans 0.4 m or 2.7 m of it. Affine remap
+    stretches the FULL pcurve onto each edge's parameter range, so all
+    four vertical edges trace the entire UV side — the resulting wire
+    self-intersects in UV and encloses zero area.
+
+    Per ACIS SAT v4.0 spec (Chapter 6 "pcurve type", page 6-61):
+    "a parameter-space curve must always have the same parameter range
+    as its associated object-space curve, and its internal
+    parameterization must be similar". The fix is to TRIM the pcurve to
+    the edge's t-range (not remap), with the trim points found by
+    mapping the SAT edge's parameters into the pcurve's parameter
+    space. ``OrientedEdge.t_start`` / ``t_end`` (threaded in 57b9ad48)
+    carry the SAT-recorded edge parameters; the pcurve's knot range is
+    its native [s_min, s_max]. Some pcurves additionally run in the
+    OPPOSITE direction to the 3D curve — detectable by evaluating each
+    pcurve endpoint through the surface and comparing to the 3D curve's
+    endpoints, then reversing the trim if they disagree.
+
+    Implementation outline for the next session:
+      1. Compute t→s mapping (forward or reversed) by checking which
+         pcurve endpoint matches which 3D-curve endpoint (via
+         surface(pcurve(s_first)) ≈ 3D-curve(t_first)).
+      2. Map [edge.t_start, edge.t_end] → [s_a, s_b] in pcurve space.
+      3. Build ``Geom2d_TrimmedCurve(c2d, min(s_a, s_b), max(s_a, s_b),
+         sense=...)`` and use that as the attached pcurve, OR
+         re-knot/re-CP a fresh ``Geom2d_BSplineCurve`` covering exactly
+         that sub-range.
+      4. Optionally use ``BRepBuilderAPI_MakeEdge(c2d, surface, t1, t2)``
+         to build the OCC edge directly from the trimmed pcurve so the
+         3D parameterisation is derived as ``surface(c2d(t))`` and is
+         guaranteed-consistent.
+
+    Affected env knobs: ``ADA_USE_SAT_PCURVES`` (skip pcurves entirely
+    — falls back to OCC's reproject-and-fit, which on this dataset
+    produces NEGATIVE surface area, so the issue isn't purely the
+    affine remap — the wire 3D-projection itself has a direction
+    problem that ``ADA_PCURVE_REVERSE`` may also need to address).
     """
     # Debug: print UV bounds for the first few attaches so we can spot
     # ACIS↔OCCT domain mismatches. Toggle via ADA_PCURVE_PROBE=N.
