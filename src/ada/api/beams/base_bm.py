@@ -332,6 +332,11 @@ class Beam(BackendGeom):
         geom = geo_conv.straight_beam_to_geom(self, is_solid=False)
         return geom
 
+    def get_cut_surfaces(self, deflection: float = 1e-3, tol: float = 1e-4):
+        from ada.api.beams.cut_surfaces import extract_cut_surfaces
+
+        return extract_cut_surfaces(self, deflection=deflection, tol=tol)
+
     def _add_beam_to_node_refs(self) -> None:
         """Add beam to refs on nodes"""
         for beam_node in self.nodes:

@@ -135,6 +135,8 @@ def create_local_placement(f: ifcopenshell.file, origin=ifco.O, loc_z=ifco.Z, lo
 
 
 def assembly_to_ifc_file(a: "Assembly"):
+    import types
+
     schema = a.metadata["schema"]
     f = ifcopenshell.api.run("project.create_file", version=schema)
     project = ifcopenshell.api.run("root.create_entity", f, ifc_class="IfcProject", name=a.metadata["project"])
@@ -159,8 +161,15 @@ def assembly_to_ifc_file(a: "Assembly"):
     ifcopenshell.api.run(
         "context.add_context", f, context_type="Model", context_identifier="Body", target_view="MODEL_VIEW"
     )
-    f.wrapped_data.header.file_name.author = ("AdaUser",)
-    f.wrapped_data.header.file_name.organization = ("AdaOrg",)
+    header = f.wrapped_data.header
+    if isinstance(header, types.MethodType):
+        # ifcopenshell >= 0.8.4 made header a method; wrap it with file_header
+        from ifcopenshell.file import file_header
+
+        header = file_header(f, f.wrapped_data.header())
+
+    header.file_name.author = ("AdaUser",)
+
     return f
 
 
