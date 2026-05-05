@@ -22,7 +22,7 @@ name: Build viewer + worker images
 on:
   workflow_dispatch:
   push:
-    branches: [chore/fea-report-v2]
+    branches: [feat/v0_8]
     paths:
       # Union of viewer and worker rebuild scopes. The detect job
       # below splits per-image so a parser-only change rebuilds only

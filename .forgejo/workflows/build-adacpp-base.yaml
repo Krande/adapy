@@ -29,7 +29,7 @@ on:
         required: false
         default: "feat/cad-handler"
   push:
-    branches: [chore/fea-report-v2, main]
+    branches: [feat/v0_8, main]
     paths:
       - 'deploy/Dockerfile.adacpp-wasm'
       - '.forgejo/workflows/build-adacpp-base.yaml'
