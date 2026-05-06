@@ -13,10 +13,10 @@ from ada.config import logger
 from ada.fem.formats.general import FEATypes
 from ada.visit.rendering.femviz import get_edges_and_faces_from_meshio, magnitude
 
-from ..formats.abaqus.results import read_abaqus_results
-from ..formats.calculix.results import read_calculix_results
-from ..formats.code_aster.results import read_code_aster_results
-from ..formats.sesam.results import read_sesam_results
+# Per-format result readers are imported lazily inside
+# `_get_results_from_result_file` so callers that only need FEAResult
+# (e.g. an isinstance check during GLB export) don't drag in heavy
+# native deps like h5py through the code_aster import chain.
 from .eigenvalue import EigenDataSummary
 
 if TYPE_CHECKING:
@@ -24,12 +24,42 @@ if TYPE_CHECKING:
 
 
 class Results:
-    res_map = {
-        ".rmed": (read_code_aster_results, FEATypes.CODE_ASTER),
-        ".frd": (read_calculix_results, FEATypes.CALCULIX),
-        ".odb": (read_abaqus_results, FEATypes.ABAQUS),
-        ".sin": (read_sesam_results, FEATypes.SESAM),
-    }
+    # Map of suffix → (reader_callable, FEATypes). Built-in readers
+    # (rmed/frd/odb/sin) are loaded lazily on first use so importing
+    # this module doesn't pull in heavy native deps like h5py.
+    # Downstream users can register additional formats via
+    # `Results.register_reader(".foo", my_reader_fn, my_fem_type)`;
+    # registrations take precedence over built-ins for the same suffix.
+    res_map: dict = {}
+
+    @classmethod
+    def register_reader(cls, suffix: str, reader, fem_format) -> None:
+        """Register a result-file reader for files ending in ``suffix``.
+
+        ``reader(path)`` should return a meshio.Mesh-compatible object.
+        ``fem_format`` is the FEATypes value associated with the source
+        format. Registering the same suffix twice replaces the prior
+        entry.
+        """
+        cls.res_map[suffix] = (reader, fem_format)
+
+    @classmethod
+    def _ensure_builtin_readers(cls) -> None:
+        if getattr(cls, "_builtins_loaded", False):
+            return
+        from ..formats.abaqus.results import read_abaqus_results
+        from ..formats.calculix.results import read_calculix_results
+        from ..formats.code_aster.results import read_code_aster_results
+        from ..formats.sesam.results import read_sesam_results
+
+        # setdefault: a downstream registration for the same suffix
+        # wins. The built-ins only fill in suffixes the user hasn't
+        # already claimed.
+        cls.res_map.setdefault(".rmed", (read_code_aster_results, FEATypes.CODE_ASTER))
+        cls.res_map.setdefault(".frd", (read_calculix_results, FEATypes.CALCULIX))
+        cls.res_map.setdefault(".odb", (read_abaqus_results, FEATypes.ABAQUS))
+        cls.res_map.setdefault(".sin", (read_sesam_results, FEATypes.SESAM))
+        cls._builtins_loaded = True
 
     def __init__(
         self,
@@ -86,6 +116,8 @@ class Results:
         self.result_mesh.add_results(mesh)
 
     def _get_results_from_result_file(self, file_ref, overwrite=False):
+        Results._ensure_builtin_readers()
+
         file_ref = pathlib.Path(file_ref)
         suffix = file_ref.suffix.lower()
 
