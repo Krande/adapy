@@ -1,7 +1,7 @@
 # Pycharm
 .idea
 # Packaging
-build/
+/build/
 dist/
 dist-embed/
 *.pyc
