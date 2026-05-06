@@ -97,6 +97,7 @@ def test_admin_endpoint_requires_admin(monkeypatch, tmp_path):
             ("/api/admin/projects", "GET"),
             ("/api/admin/projects", "POST"),
             (f"/api/admin/projects/{uuid.uuid4()}/members", "GET"),
+            (f"/api/admin/projects/{uuid.uuid4()}/ci-bot", "POST"),
         ):
             r = client.request(method, path, json={})
             assert r.status_code == 403, f"{method} {path}: {r.status_code}"
@@ -109,6 +110,8 @@ def test_admin_endpoints_503_without_db(tmp_path):
         r = client.get("/api/admin/audit")
         assert r.status_code == 503
         r = client.get("/api/admin/projects")
+        assert r.status_code == 503
+        r = client.post(f"/api/admin/projects/{uuid.uuid4()}/ci-bot")
         assert r.status_code == 503
 
 
@@ -180,6 +183,88 @@ async def test_admin_project_lifecycle(tmp_path):
         assert await dbm.archive_project(pool, proj["id"]) is False  # already archived
     finally:
         await dbm.close_pool(pool)
+
+
+@needs_postgres
+@pytest.mark.asyncio
+async def test_project_id_from_slug_resolves_and_skips_archived():
+    """Slug → UUID resolver feeds the scope URL parser. Archived
+    projects must not resolve, so a stale slug doesn't quietly
+    re-target a recreated project."""
+    pool = await dbm.init_pool(POSTGRES_URL)
+    assert pool is not None
+    try:
+        slug = f"slug-{uuid.uuid4().hex[:12]}"
+        proj = await dbm.create_project(pool, slug, "Slug Test")
+        assert await dbm.project_id_from_slug(pool, slug) == proj["id"]
+        assert await dbm.project_id_from_slug(pool, "definitely-no-such-slug") is None
+        await dbm.archive_project(pool, proj["id"])
+        assert await dbm.project_id_from_slug(pool, slug) is None
+    finally:
+        await dbm.close_pool(pool)
+
+
+@needs_postgres
+def test_admin_ci_bot_provision_lifecycle(tmp_path):
+    """End-to-end: POST /ci-bot creates the bot user, adds membership,
+    mints a token; re-calling rotates."""
+    import time
+
+    settings = _settings(tmp_path, db_url=POSTGRES_URL)
+    # Need cli_token_secret set for mint_cli_token to work; auth stays
+    # disabled so the local-dev synthetic user is admin and the admin
+    # router lets us through.
+    settings.auth = AuthConfig(
+        enabled=False,
+        issuer="",
+        client_id="",
+        audience="",
+        admin_group="",
+        cli_token_secret="ci-bot-test-secret",
+    )
+    app = create_app(settings)
+    with TestClient(app) as client:
+        slug = f"ci-{uuid.uuid4().hex[:12]}"
+        r = client.post(
+            "/api/admin/projects", json={"slug": slug, "name": "CI Test"}
+        )
+        assert r.status_code == 201, r.text
+        pid = r.json()["id"]
+
+        # First provision.
+        r = client.post(f"/api/admin/projects/{pid}/ci-bot")
+        assert r.status_code == 201, r.text
+        first = r.json()
+        assert first["user_sub"] == f"ci:{slug}"
+        assert first["token"]
+        assert first["expires_at"] > int(time.time())
+
+        # Bot is a member with role 'ci'.
+        r = client.get(f"/api/admin/projects/{pid}/members")
+        assert r.status_code == 200
+        members = r.json()["members"]
+        assert any(
+            m["user_sub"] == f"ci:{slug}" and m["role"] == "ci" for m in members
+        )
+
+        # Re-provisioning rotates the token.
+        # Sleep 1s so the new token's iat strictly exceeds the revoke
+        # cutoff; without this the integer-second iat may equal the
+        # cutoff and the < check would land on the boundary case (still
+        # valid, but the test asserts a *new* token, not the same one).
+        time.sleep(1)
+        r = client.post(f"/api/admin/projects/{pid}/ci-bot")
+        assert r.status_code == 201, r.text
+        second = r.json()
+        assert second["token"] != first["token"]
+        assert second["expires_at"] >= first["expires_at"]
+
+        # 404 for an unknown project (after archiving the one we made
+        # — same UUID, but archived_at non-null).
+        r = client.delete(f"/api/admin/projects/{pid}")
+        assert r.status_code == 204
+        r = client.post(f"/api/admin/projects/{pid}/ci-bot")
+        assert r.status_code == 404
 
 
 @needs_postgres
