@@ -123,6 +123,15 @@ def is_derived_key(key: str) -> bool:
     return key.lstrip("/").startswith("_derived/")
 
 
+def is_versions_artefact_key(key: str) -> bool:
+    """``versions/<branch>/<commit>/<file>`` blobs are pre-built outputs
+    pushed by CI rather than conversion sources, so the supported-source
+    extension whitelist doesn't apply to them. The ``_derived/`` guard
+    still does.
+    """
+    return key.lstrip("/").startswith("versions/")
+
+
 def is_supported_source(key: str) -> bool:
     ext = _ext(key)
     return (

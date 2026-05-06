@@ -400,14 +400,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         scope_obj: Scope = Depends(_scope_from_path),
         user: User = Depends(auth_module.current_user),
     ) -> JSONResponse:
-        from .converter import is_derived_key, is_supported_source
+        from .converter import is_derived_key, is_supported_source, is_versions_artefact_key
 
         clean = key.lstrip("/")
         if not clean:
             raise HTTPException(status_code=400, detail="empty key")
         if is_derived_key(clean):
             raise HTTPException(status_code=403, detail="cannot write to _derived/")
-        if not is_supported_source(clean):
+        if not is_versions_artefact_key(clean) and not is_supported_source(clean):
             raise HTTPException(status_code=415, detail=f"unsupported file type: {clean}")
 
         # Reject before reading the body so a multi-GB upload doesn't
@@ -551,7 +551,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         Returns 503 on local-backed deployments — operator must provide
         an S3-compatible backend with CORS configured for browser PUTs.
         """
-        from .converter import is_derived_key, is_supported_source
+        from .converter import is_derived_key, is_supported_source, is_versions_artefact_key
 
         if not storage.supports_presigned_uploads:
             raise HTTPException(
@@ -564,7 +564,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail="key required")
         if is_derived_key(key):
             raise HTTPException(status_code=403, detail="cannot write to _derived/")
-        if not is_supported_source(key):
+        if not is_versions_artefact_key(key) and not is_supported_source(key):
             raise HTTPException(status_code=415, detail=f"unsupported file type: {key}")
         try:
             url = await storage.presigned_put_url(scope_obj, key, expires_in_seconds=3600)

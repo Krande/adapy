@@ -2,6 +2,12 @@
 
 ``ada-build run`` reads ada_config.toml, runs each declared entrypoint,
 writes per-artefact build.json sidecars, and prints a summary.
+
+``ada-build upload`` walks the output dir for produced artefacts and
+PUTs each ``(artefact, build.json)`` pair to adapy-viewer's REST API
+under ``project:<slug>`` scope, keyed by ``versions/<branch>/<commit>``.
+
+``ada-build run-and-upload`` chains the two for CI use.
 """
 from __future__ import annotations
 
@@ -11,7 +17,7 @@ import logging
 import pathlib
 import sys
 
-from ada.build import _git, _runner
+from ada.build import _git, _runner, _upload
 
 logger = logging.getLogger(__name__)
 
@@ -74,29 +80,79 @@ def cmd_run(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_upload(args: argparse.Namespace) -> int:
+    config_path = pathlib.Path(args.config).resolve()
+    if not config_path.exists():
+        print(f"config not found: {config_path}", file=sys.stderr)
+        return 2
+    project = _runner.load(config_path)
+
+    cfg = _upload.UploadConfig.from_env()
+    if cfg is None:
+        print(
+            "ADAPY_VIEWER_URL or ADAPY_VIEWER_TOKEN not set — skipping upload.",
+            file=sys.stderr,
+        )
+        return 0
+
+    output_root = pathlib.Path(args.output_dir).resolve()
+    if not output_root.exists():
+        print(f"output dir not found: {output_root}", file=sys.stderr)
+        return 2
+
+    count = _upload.upload_output_dir(output_root, project.project_id, cfg)
+    print(f"\n{count} artefact(s) uploaded.")
+    return 0
+
+
+def cmd_run_and_upload(args: argparse.Namespace) -> int:
+    rc = cmd_run(args)
+    if rc != 0:
+        return rc
+    return cmd_upload(args)
+
+
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
     parser = argparse.ArgumentParser(prog="ada-build")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
+    def _add_common(p: argparse.ArgumentParser) -> None:
+        p.add_argument(
+            "--config",
+            default="ada_config.toml",
+            help="Path to ada_config.toml (default: ./ada_config.toml).",
+        )
+        p.add_argument(
+            "--entrypoint",
+            default=None,
+            help="Run only the named entrypoint (default: all).",
+        )
+        p.add_argument(
+            "--output-dir",
+            default=".ada-build",
+            help="Where to stage produced artefacts (default: .ada-build).",
+        )
+
     run = sub.add_parser("run", help="Run entrypoints declared in ada_config.toml")
-    run.add_argument(
-        "--config",
-        default="ada_config.toml",
-        help="Path to ada_config.toml (default: ./ada_config.toml).",
-    )
-    run.add_argument(
-        "--entrypoint",
-        default=None,
-        help="Run only the named entrypoint (default: all).",
-    )
-    run.add_argument(
-        "--output-dir",
-        default=".ada-build",
-        help="Where to stage produced artefacts (default: .ada-build).",
-    )
+    _add_common(run)
     run.set_defaults(func=cmd_run)
+
+    upload = sub.add_parser(
+        "upload",
+        help="Upload artefacts under the output dir to adapy-viewer "
+        "(needs ADAPY_VIEWER_URL + ADAPY_VIEWER_TOKEN).",
+    )
+    _add_common(upload)
+    upload.set_defaults(func=cmd_upload)
+
+    run_and_upload = sub.add_parser(
+        "run-and-upload",
+        help="Chain `run` and `upload` — the CI default.",
+    )
+    _add_common(run_and_upload)
+    run_and_upload.set_defaults(func=cmd_run_and_upload)
 
     args = parser.parse_args(argv)
     return args.func(args)
