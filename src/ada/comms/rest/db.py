@@ -644,3 +644,18 @@ async def remove_project_member(
 async def project_exists(pool: asyncpg.Pool, project_id: str) -> bool:
     row = await pool.fetchrow("SELECT 1 FROM projects WHERE id = $1", project_id)
     return row is not None
+
+
+async def project_id_from_slug(pool: asyncpg.Pool, slug: str) -> str | None:
+    """Resolve a project slug to its UUID. Returns None if no match.
+
+    Slugs are URL-safe and stable across renames of the human-readable
+    name; UUIDs are the FK-stable id. The scope URL parser uses this to
+    accept ``project:<slug>`` as a friendlier alternative to
+    ``project:<uuid>``.
+    """
+    row = await pool.fetchrow(
+        "SELECT id FROM projects WHERE slug = $1 AND archived_at IS NULL",
+        slug,
+    )
+    return str(row["id"]) if row else None

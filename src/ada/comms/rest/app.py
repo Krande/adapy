@@ -180,13 +180,43 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             return Scope.project(pid)
         raise HTTPException(status_code=400, detail=f"invalid scope {s!r}")
 
+    async def _resolve_project_scope(pool, scope: Scope) -> Scope:
+        """Resolve ``project:<slug>`` to ``project:<uuid>`` against the DB.
+
+        ``_parse_scope`` doesn't know whether the id segment is a UUID or
+        a slug — it just hands the raw string through. UUID-shaped ids
+        pass through unchanged; non-UUID strings get looked up against
+        ``projects.slug`` so callers can use the friendlier form in
+        URLs and config files. Without a DB, slug lookup is impossible
+        and ``can_access`` will reject regardless, so we leave the scope
+        as-is.
+        """
+        if scope.kind != "project" or scope.id is None or pool is None:
+            return scope
+        import uuid as _uuid
+
+        try:
+            _uuid.UUID(scope.id)
+            return scope
+        except (ValueError, AttributeError, TypeError):
+            pass
+        resolved = await db_module.project_id_from_slug(pool, scope.id)
+        if resolved is None:
+            # Don't leak existence: same status as the membership check
+            # below would have produced for a non-member of an unknown
+            # project.
+            raise HTTPException(status_code=403, detail="forbidden")
+        return Scope.project(resolved)
+
     async def _scope_from_path(
         scope: str,
         request: Request,
         user: User = Depends(auth_module.current_user),
     ) -> Scope:
         s = _parse_scope(scope, user)
-        if not await scope_can_access(user, s, getattr(request.app.state, "db_pool", None)):
+        pool = getattr(request.app.state, "db_pool", None)
+        s = await _resolve_project_scope(pool, s)
+        if not await scope_can_access(user, s, pool):
             raise HTTPException(status_code=403, detail="forbidden")
         return s
 
@@ -195,7 +225,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         user: User = Depends(auth_module.current_user),
     ) -> Scope:
         s = _parse_scope(request.headers.get("X-Scope", "shared"), user)
-        if not await scope_can_access(user, s, getattr(request.app.state, "db_pool", None)):
+        pool = getattr(request.app.state, "db_pool", None)
+        s = await _resolve_project_scope(pool, s)
+        if not await scope_can_access(user, s, pool):
             raise HTTPException(status_code=403, detail="forbidden")
         return s
 
@@ -1227,6 +1259,62 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if not ok:
             raise HTTPException(status_code=404, detail="not a member")
         return Response(status_code=204)
+
+    @admin.post("/projects/{project_id}/ci-bot")
+    async def admin_provision_ci_bot(
+        project_id: str,
+        request: Request,
+    ) -> JSONResponse:
+        """Provision (or rotate the token of) a CI bot user for a project.
+
+        One-shot: creates the bot user row if missing, ensures it's a
+        project member, revokes any prior tokens, and mints a fresh
+        30-day CLI bearer. The bot's ``sub`` is derived from the
+        project's slug (``ci:<slug>``) so a project rename is the only
+        way to change it.
+
+        The token is returned exactly once. Re-calling rotates: prior
+        tokens for this bot are immediately invalidated via the per-user
+        revoke cutoff. Always admin-gated.
+        """
+        pool = _require_pool(request)
+        pid = _validate_uuid(project_id, "project_id")
+
+        row = await pool.fetchrow(
+            "SELECT slug FROM projects WHERE id = $1 AND archived_at IS NULL",
+            pid,
+        )
+        if row is None:
+            raise HTTPException(status_code=404, detail="project not found")
+        slug = row["slug"]
+        bot_sub = f"ci:{slug}"
+        bot_email = f"ci+{slug}@bot.local"
+        bot_display = f"CI Bot: {slug}"
+
+        await db_module.upsert_user(pool, bot_sub, bot_email, bot_display)
+        await db_module.add_project_member(pool, pid, bot_sub, role="ci")
+
+        bot_user = User(
+            sub=bot_sub,
+            email=bot_email,
+            display_name=bot_display,
+            groups=frozenset(),
+            is_admin=False,
+        )
+        # Rotate: invalidate any tokens minted before now for this bot,
+        # then mint a fresh one. The cutoff is iat-based so the token
+        # we're about to mint (with a fresh iat) survives.
+        await auth_module.revoke_cli_tokens(pool, bot_user)
+        config = request.app.state.auth_config
+        token, exp = auth_module.mint_cli_token(bot_user, config)
+        return JSONResponse(
+            {
+                "user_sub": bot_sub,
+                "token": token,
+                "expires_at": exp,
+            },
+            status_code=201,
+        )
 
     # ── Admin storage view ──────────────────────────────────────────
     #
