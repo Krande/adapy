@@ -12,6 +12,7 @@ import {uploadAcceptAttr, uploadFile} from "@/utils/scene/handlers/upload_source
 import ReloadIcon from "../icons/ReloadIcon";
 import UploadIcon from "../icons/UploadIcon";
 import FieldPickerModal from "./FieldPickerModal";
+import GitHistoryPanel from "./GitHistoryPanel";
 
 // Files that carry per-(step, field) result data and benefit from the
 // picker UI. SIF is the only one in REST mode today; new formats land
@@ -151,6 +152,23 @@ const StorageBrowser: React.FC = () => {
     // overlaying every file in sequence, so the user can't kick off a
     // second batch on top of the first.
     const [bulkBusy, setBulkBusy] = useState<"show" | "hide" | null>(null);
+    const [gitHistoryOpen, setGitHistoryOpen] = useState(false);
+    // Multi-select mode: a Set of file names. Empty set = mode off.
+    // Entered by long-press on any FileRow (or via the "Select" button
+    // in the header on desktop where long-press is unergonomic). Tap
+    // toggles set membership while in mode; the existing per-row
+    // checkbox is hidden so the row itself is the tap target.
+    const [selection, setSelection] = useState<Set<string>>(() => new Set());
+    const inSelectionMode = selection.size > 0;
+    const toggleSelection = (name: string) => {
+        setSelection((prev) => {
+            const next = new Set(prev);
+            if (next.has(name)) next.delete(name);
+            else next.add(name);
+            return next;
+        });
+    };
+    const clearSelection = () => setSelection(new Set());
     // Upload progress: name = current file (or null), loaded/total in
     // bytes. Total may stay 0 if the browser can't determine it (rare
     // for File uploads); we treat that as indeterminate.
@@ -237,6 +255,52 @@ const StorageBrowser: React.FC = () => {
         } finally {
             setViewingName(null);
             setBulkBusy(null);
+        }
+    };
+
+    // Apply show/hide to the multi-selection set. Same sequential
+    // pattern as the bulk-show, just over a smaller set; we DO want
+    // to show even already-loaded items (no-op overlay) and hide
+    // already-hidden items (no-op unload) so the user gets a
+    // predictable result regardless of the per-row state mix.
+    const onShowSelected = async () => {
+        if (bulkBusy !== null) return;
+        const targets = files.filter((f) => selection.has(f.name) && !loadedSourceNames.has(f.name));
+        if (targets.length === 0) {
+            clearSelection();
+            return;
+        }
+        setBulkBusy("show");
+        try {
+            for (const f of targets) {
+                setViewingName(f.name);
+                try {
+                    await overlay_file_in_scene(f.name);
+                } catch (err) {
+                    console.error("show-selected overlay failed", f.name, err);
+                }
+            }
+        } finally {
+            setViewingName(null);
+            setBulkBusy(null);
+            clearSelection();
+        }
+    };
+    const onHideSelected = () => {
+        if (bulkBusy !== null) return;
+        const targets = files.filter((f) => selection.has(f.name) && loadedSourceNames.has(f.name));
+        setBulkBusy("hide");
+        try {
+            for (const f of targets) {
+                try {
+                    unload_source_from_scene(f.name);
+                } catch (err) {
+                    console.error("hide-selected unload failed", f.name, err);
+                }
+            }
+        } finally {
+            setBulkBusy(null);
+            clearSelection();
         }
     };
 
@@ -435,6 +499,10 @@ const StorageBrowser: React.FC = () => {
                                             setExpandedName={setExpandedName}
                                             onToggle={onToggle}
                                             setPickerName={setPickerName}
+                                            selectionMode={inSelectionMode}
+                                            isSelected={selection.has(f.name)}
+                                            onLongPress={toggleSelection}
+                                            onSelectToggle={toggleSelection}
                                         />
                                     ))}
                                 </ul>
@@ -449,6 +517,11 @@ const StorageBrowser: React.FC = () => {
                                     setExpandedName={setExpandedName}
                                     onToggle={onToggle}
                                     setPickerName={setPickerName}
+                                    onOpenGitHistory={() => setGitHistoryOpen(true)}
+                                    selectionMode={inSelectionMode}
+                                    selection={selection}
+                                    onLongPress={toggleSelection}
+                                    onSelectToggle={toggleSelection}
                                 />
                             )}
                         </div>
@@ -460,6 +533,56 @@ const StorageBrowser: React.FC = () => {
                     sourceName={pickerName}
                     onClose={() => setPickerName(null)}
                 />
+            )}
+            {gitHistoryOpen && (
+                <GitHistoryPanel
+                    files={files}
+                    loadedSourceNames={loadedSourceNames}
+                    busyName={viewingName}
+                    onToggle={onToggle}
+                    onClose={() => setGitHistoryOpen(false)}
+                />
+            )}
+            {inSelectionMode && (
+                <div
+                    className={
+                        // Sticky inside the panel rather than fixed to
+                        // viewport — keeps the action bar bound to the
+                        // storage panel's footprint on desktop while
+                        // still pinning to the bottom on mobile where
+                        // the panel takes the full screen anyway.
+                        "mt-2 -mx-2 -mb-2 px-2 py-2 border-t border-gray-500/40 bg-gray-700/95 " +
+                        "rounded-b flex items-center gap-2 sticky bottom-0"
+                    }
+                >
+                    <span className="text-xs text-white whitespace-nowrap">
+                        {selection.size} selected
+                    </span>
+                    <button
+                        type="button"
+                        onClick={() => void onShowSelected()}
+                        disabled={bulkBusy !== null}
+                        className="bg-emerald-700 hover:bg-emerald-600 disabled:opacity-60 text-white text-xs px-2 py-1 rounded min-h-[36px]"
+                    >
+                        Show
+                    </button>
+                    <button
+                        type="button"
+                        onClick={onHideSelected}
+                        disabled={bulkBusy !== null}
+                        className="bg-rose-700 hover:bg-rose-600 disabled:opacity-60 text-white text-xs px-2 py-1 rounded min-h-[36px]"
+                    >
+                        Hide
+                    </button>
+                    <button
+                        type="button"
+                        onClick={clearSelection}
+                        disabled={bulkBusy !== null}
+                        className="ml-auto bg-gray-600 hover:bg-gray-500 disabled:opacity-60 text-white text-xs px-2 py-1 rounded min-h-[36px]"
+                    >
+                        Cancel
+                    </button>
+                </div>
             )}
         </div>
     );
@@ -483,6 +606,10 @@ interface FileRowProps {
     setExpandedName: (n: string | null) => void;
     onToggle: (entry: ServerFileEntry, nextChecked: boolean) => Promise<void>;
     setPickerName: (n: string | null) => void;
+    selectionMode: boolean;
+    isSelected: boolean;
+    onLongPress: (name: string) => void;
+    onSelectToggle: (name: string) => void;
 }
 
 const FileRow: React.FC<FileRowProps> = ({
@@ -496,6 +623,10 @@ const FileRow: React.FC<FileRowProps> = ({
     setExpandedName,
     onToggle,
     setPickerName,
+    selectionMode,
+    isSelected,
+    onLongPress,
+    onSelectToggle,
 }) => {
     const isViewing = viewingName === f.name;
     const otherViewing = viewingName !== null && !isViewing;
@@ -505,39 +636,129 @@ const FileRow: React.FC<FileRowProps> = ({
         ? Math.max(0, Math.min(100, Math.round(viewJob.progress * 100)))
         : 0;
     const indentPx = indentLevel * 12;
+
+    // Long-press to enter selection mode. 500 ms hold, cancelled by
+    // pointer move > 8 px (treats it as a scroll, not a hold). Once
+    // we're in selection mode, taps toggle membership instead — see
+    // the row's onClick below.
+    const longPressTimer = useRef<number | null>(null);
+    const longPressStart = useRef<{x: number; y: number} | null>(null);
+    const longPressFired = useRef(false);
+    const cancelLongPress = () => {
+        if (longPressTimer.current !== null) {
+            window.clearTimeout(longPressTimer.current);
+            longPressTimer.current = null;
+        }
+    };
+    const onPointerDown: React.PointerEventHandler = (e) => {
+        if (selectionMode) return; // already in mode; rely on click
+        longPressStart.current = {x: e.clientX, y: e.clientY};
+        longPressFired.current = false;
+        cancelLongPress();
+        longPressTimer.current = window.setTimeout(() => {
+            longPressFired.current = true;
+            onLongPress(f.name);
+        }, 500);
+    };
+    const onPointerMove: React.PointerEventHandler = (e) => {
+        if (!longPressStart.current) return;
+        const dx = e.clientX - longPressStart.current.x;
+        const dy = e.clientY - longPressStart.current.y;
+        if (dx * dx + dy * dy > 64) cancelLongPress();
+    };
+    const onPointerUp: React.PointerEventHandler = () => {
+        cancelLongPress();
+        longPressStart.current = null;
+    };
+    useEffect(() => () => cancelLongPress(), []);
+
     return (
         <li
-            className="flex flex-col px-1 py-1 text-xs"
+            className={
+                "flex flex-col px-1 py-1 text-xs " +
+                (selectionMode
+                    ? "cursor-pointer " + (isSelected ? "bg-amber-700/30" : "hover:bg-amber-700/10")
+                    : "")
+            }
             style={indentPx ? {paddingLeft: `${4 + indentPx}px`} : undefined}
+            onPointerDown={onPointerDown}
+            onPointerMove={onPointerMove}
+            onPointerUp={onPointerUp}
+            onPointerCancel={() => {
+                cancelLongPress();
+                longPressStart.current = null;
+            }}
+            onClick={(e) => {
+                if (longPressFired.current) {
+                    // The long-press already toggled selection on; the
+                    // synthetic click fires after pointerup and would
+                    // double-toggle if we let it through.
+                    longPressFired.current = false;
+                    e.stopPropagation();
+                    return;
+                }
+                if (selectionMode) {
+                    onSelectToggle(f.name);
+                }
+            }}
         >
             <div className="flex items-center justify-between gap-2">
-                <label
-                    className={
-                        "flex items-center gap-2 cursor-pointer select-none px-1 py-1 -mx-1 -my-1 " +
-                        (isLoaded ? "text-blue-200 font-medium" : "")
-                    }
-                    title={
-                        isViewing
-                            ? "Loading…"
-                            : otherViewing
-                                ? "Another file is loading"
-                                : isLoaded
-                                    ? "Loaded in scene — uncheck to remove just this file"
-                                    : "Add to scene (overlays alongside any other loaded files)"
-                    }
-                >
-                    <input
-                        type="checkbox"
-                        className="h-5 w-5 shrink-0 cursor-pointer disabled:cursor-not-allowed"
-                        checked={isLoaded}
-                        onChange={(e) => onToggle(f, e.target.checked)}
-                        disabled={isViewing || otherViewing}
-                        aria-busy={isViewing || undefined}
-                    />
-                </label>
+                {selectionMode ? (
+                    <span
+                        className={
+                            "h-5 w-5 shrink-0 rounded-full border-2 inline-flex items-center justify-center " +
+                            (isSelected
+                                ? "bg-amber-600 border-amber-400"
+                                : "border-gray-400")
+                        }
+                        aria-checked={isSelected}
+                        role="checkbox"
+                    >
+                        {isSelected && (
+                            <svg viewBox="0 0 16 16" className="w-3 h-3 fill-white" aria-hidden>
+                                <path d="M6 11.2 2.4 7.6l1.4-1.4L6 8.4l6.2-6.2 1.4 1.4z"/>
+                            </svg>
+                        )}
+                    </span>
+                ) : (
+                    <label
+                        className={
+                            "flex items-center gap-2 cursor-pointer select-none px-1 py-1 -mx-1 -my-1 " +
+                            (isLoaded ? "text-blue-200 font-medium" : "")
+                        }
+                        title={
+                            isViewing
+                                ? "Loading…"
+                                : otherViewing
+                                    ? "Another file is loading"
+                                    : isLoaded
+                                        ? "Loaded in scene — uncheck to remove just this file"
+                                        : "Add to scene (overlays alongside any other loaded files)"
+                        }
+                    >
+                        <input
+                            type="checkbox"
+                            className="h-5 w-5 shrink-0 cursor-pointer disabled:cursor-not-allowed"
+                            checked={isLoaded}
+                            onChange={(e) => onToggle(f, e.target.checked)}
+                            disabled={isViewing || otherViewing}
+                            aria-busy={isViewing || undefined}
+                        />
+                    </label>
+                )}
                 <button
                     type="button"
-                    onClick={() => setExpandedName(expandedName === f.name ? null : f.name)}
+                    onClick={(e) => {
+                        if (selectionMode) {
+                            // Selection mode: row click already handles
+                            // it; the inner button is just here for
+                            // truncation toggling normally. Bail.
+                            e.stopPropagation();
+                            onSelectToggle(f.name);
+                            return;
+                        }
+                        setExpandedName(expandedName === f.name ? null : f.name);
+                    }}
                     className={`flex-1 min-w-0 text-left ${expandedName === f.name ? 'whitespace-normal break-all' : 'truncate'} ${isLoaded ? 'text-blue-200 font-medium' : ''}`}
                     title={f.name}
                 >
@@ -545,10 +766,13 @@ const FileRow: React.FC<FileRowProps> = ({
                 </button>
                 <div className="flex items-center gap-1 shrink-0">
                     {isViewing && <Spinner/>}
-                    {isFEAResult(f.name) && runtime.isRestMode() && runtime.convertEnabled() && (
+                    {!selectionMode && isFEAResult(f.name) && runtime.isRestMode() && runtime.convertEnabled() && (
                         <button
                             className="p-1 rounded text-white hover:bg-gray-300/40 disabled:opacity-50 disabled:cursor-not-allowed"
-                            onClick={() => setPickerName(f.name)}
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                setPickerName(f.name);
+                            }}
                             disabled={otherViewing || isViewing}
                             title="Pick step / field"
                             aria-label="Pick step / field"
@@ -600,6 +824,11 @@ interface VersionsTreeProps {
     setExpandedName: (n: string | null) => void;
     onToggle: (entry: ServerFileEntry, nextChecked: boolean) => Promise<void>;
     setPickerName: (n: string | null) => void;
+    onOpenGitHistory: () => void;
+    selectionMode: boolean;
+    selection: Set<string>;
+    onLongPress: (name: string) => void;
+    onSelectToggle: (name: string) => void;
 }
 
 const VersionsTree: React.FC<VersionsTreeProps> = (props) => {
@@ -636,8 +865,18 @@ const VersionsTree: React.FC<VersionsTreeProps> = (props) => {
 
     return (
         <div className="border-t border-gray-500/40 pt-1 mt-1">
-            <div className="text-[10px] uppercase tracking-wide text-gray-200/70 px-1 pb-1">
-                Versions
+            <div className="flex items-center justify-between px-1 pb-1">
+                <div className="text-[10px] uppercase tracking-wide text-gray-200/70">
+                    Versions
+                </div>
+                <button
+                    type="button"
+                    onClick={props.onOpenGitHistory}
+                    className="text-[10px] px-1.5 py-0.5 rounded bg-gray-700 hover:bg-gray-600 text-white"
+                    title="Open chronological commit timeline with author + parent links"
+                >
+                    Git history
+                </button>
             </div>
             <ul className="flex flex-col divide-y divide-gray-500/30">
                 {branches.map((b, bIdx) => {
@@ -711,6 +950,10 @@ const VersionsTree: React.FC<VersionsTreeProps> = (props) => {
                                                                 setExpandedName={props.setExpandedName}
                                                                 onToggle={props.onToggle}
                                                                 setPickerName={props.setPickerName}
+                                                                selectionMode={props.selectionMode}
+                                                                isSelected={props.selection.has(leaf.file.name)}
+                                                                onLongPress={props.onLongPress}
+                                                                onSelectToggle={props.onSelectToggle}
                                                             />
                                                         ))}
                                                     </ul>
