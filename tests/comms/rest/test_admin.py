@@ -14,6 +14,7 @@ Same split as test_db.py:
 
 from __future__ import annotations
 
+import dataclasses
 import os
 import tempfile
 import uuid
@@ -210,17 +211,20 @@ def test_admin_ci_bot_provision_lifecycle(tmp_path):
     mints a token; re-calling rotates."""
     import time
 
-    settings = _settings(tmp_path, db_url=POSTGRES_URL)
+    base = _settings(tmp_path, db_url=POSTGRES_URL)
     # Need cli_token_secret set for mint_cli_token to work; auth stays
     # disabled so the local-dev synthetic user is admin and the admin
-    # router lets us through.
-    settings.auth = AuthConfig(
-        enabled=False,
-        issuer="",
-        client_id="",
-        audience="",
-        admin_group="",
-        cli_token_secret="ci-bot-test-secret",
+    # router lets us through. Settings is frozen, so we copy-replace.
+    settings = dataclasses.replace(
+        base,
+        auth=AuthConfig(
+            enabled=False,
+            issuer="",
+            client_id="",
+            audience="",
+            admin_group="",
+            cli_token_secret="ci-bot-test-secret",
+        ),
     )
     app = create_app(settings)
     with TestClient(app) as client:
@@ -229,7 +233,19 @@ def test_admin_ci_bot_provision_lifecycle(tmp_path):
             "/api/admin/projects", json={"slug": slug, "name": "CI Test"}
         )
         assert r.status_code == 201, r.text
-        pid = r.json()["id"]
+        body = r.json()
+        pid = body["id"]
+        # Creator (synthetic ``local-dev`` user in auth-disabled mode)
+        # is auto-added as owner so the project shows up in their
+        # /api/me.scopes immediately.
+        assert body["member_count"] == 1, body
+        r = client.get(f"/api/admin/projects/{pid}/members")
+        assert r.status_code == 200
+        creator_members = r.json()["members"]
+        assert any(
+            m["user_sub"] == "local-dev" and m["role"] == "owner"
+            for m in creator_members
+        ), creator_members
 
         # First provision.
         r = client.post(f"/api/admin/projects/{pid}/ci-bot")
@@ -239,12 +255,15 @@ def test_admin_ci_bot_provision_lifecycle(tmp_path):
         assert first["token"]
         assert first["expires_at"] > int(time.time())
 
-        # Bot is a member with role 'ci'.
+        # Bot is a member with role 'ci' alongside the creator.
         r = client.get(f"/api/admin/projects/{pid}/members")
         assert r.status_code == 200
         members = r.json()["members"]
         assert any(
             m["user_sub"] == f"ci:{slug}" and m["role"] == "ci" for m in members
+        )
+        assert any(
+            m["user_sub"] == "local-dev" and m["role"] == "owner" for m in members
         )
 
         # Re-provisioning rotates the token.

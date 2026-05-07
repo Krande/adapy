@@ -1181,7 +1181,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return JSONResponse({"projects": await db_module.list_all_projects(pool)})
 
     @admin.post("/projects")
-    async def admin_projects_create(request: Request) -> JSONResponse:
+    async def admin_projects_create(
+        request: Request,
+        user: User = Depends(auth_module.current_user),
+    ) -> JSONResponse:
         pool = _require_pool(request)
         body = await request.json()
         slug = (body.get("slug") or "").strip()
@@ -1200,6 +1203,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             project = await db_module.create_project(pool, slug, name)
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
+        # Auto-add the creator as owner so the new project shows up in
+        # their /api/me.scopes immediately. Without this the project is
+        # orphaned until an admin manually adds someone — easy to forget,
+        # and it leaves the creator unable to push artefacts to the
+        # project they just made.
+        await db_module.add_project_member(pool, project["id"], user.sub, role="owner")
+        project["member_count"] = 1
         return JSONResponse(project, status_code=201)
 
     @admin.delete("/projects/{project_id}")
