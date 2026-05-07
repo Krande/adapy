@@ -29,11 +29,37 @@ const SignedInRow: React.FC = () => {
     if (!isAuthEnabled()) return null;
     const user = getUser();
     const label = user.email || user.name || user.sub || "signed in";
+    const sub = user.sub;
+    const [copied, setCopied] = useState(false);
+    const onCopy = async () => {
+        if (!sub) return;
+        try {
+            await navigator.clipboard.writeText(sub);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 1500);
+        } catch {
+            /* clipboard blocked — the title attr still lets users select+copy */
+        }
+    };
     return (
         <div className="flex items-center gap-2">
             <div className="flex-1 min-w-0 text-xs">
                 <div className="text-gray-400">Signed in as</div>
                 <div className="truncate" title={label}>{label}</div>
+                {sub && (
+                    <div className="flex items-center gap-1 mt-0.5 text-gray-400">
+                        <span className="shrink-0">ID:</span>
+                        <span className="truncate font-mono" title={sub}>{sub}</span>
+                        <button
+                            type="button"
+                            onClick={() => void onCopy()}
+                            className="shrink-0 bg-gray-700 hover:bg-gray-600 text-gray-100 px-1.5 py-0.5 rounded text-[10px]"
+                            title="Copy your OIDC sub — paste into the admin Add member form"
+                        >
+                            {copied ? "Copied" : "Copy"}
+                        </button>
+                    </div>
+                )}
             </div>
             <button
                 className="bg-gray-700 hover:bg-gray-600 text-white text-xs px-2 py-1 rounded"
