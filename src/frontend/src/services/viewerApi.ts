@@ -652,6 +652,21 @@ export const viewerApi = {
         return jsonOrThrow<AdminProject>(r, "adminCreateProject");
     },
 
+    /** Provision (or rotate the token of) a synthetic ``ci:<slug>``
+     * bot user for a project. Returns the bearer exactly once — the
+     * server does not persist it. Re-calling rotates: the per-user
+     * revoke cutoff is bumped before the new token is minted, so any
+     * tokens issued previously to this bot stop validating. */
+    async adminProvisionCiBot(
+        projectId: string,
+    ): Promise<{user_sub: string; token: string; expires_at: number}> {
+        const r = await authedFetch(
+            `${runtime.apiBase()}/admin/projects/${encodeURIComponent(projectId)}/ci-bot`,
+            {method: "POST"},
+        );
+        return jsonOrThrow(r, "adminProvisionCiBot");
+    },
+
     async adminArchiveProject(projectId: string): Promise<void> {
         const r = await authedFetch(
             `${runtime.apiBase()}/admin/projects/${encodeURIComponent(projectId)}`,

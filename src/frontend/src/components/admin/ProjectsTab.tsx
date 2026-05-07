@@ -181,6 +181,11 @@ const MemberPane: React.FC<{
     const [adding, setAdding] = useState(false);
     const [newSub, setNewSub] = useState("");
     const [newRole, setNewRole] = useState("member");
+    const [ciBot, setCiBot] = useState<{token: string; expires_at: number; user_sub: string} | null>(
+        null,
+    );
+    const [ciBotBusy, setCiBotBusy] = useState(false);
+    const [ciBotErr, setCiBotErr] = useState<string | null>(null);
 
     const reload = async () => {
         try {
@@ -220,6 +225,30 @@ const MemberPane: React.FC<{
         }
     };
 
+    const onMintCiBot = async () => {
+        const existing = members.find((m) => m.role === "ci");
+        const verb = existing ? "Rotate" : "Mint";
+        if (
+            !confirm(
+                `${verb} CI bot token for "${project.name}"? Any token previously issued to the bot stops working.`,
+            )
+        ) {
+            return;
+        }
+        setCiBotBusy(true);
+        setCiBotErr(null);
+        try {
+            const r = await viewerApi.adminProvisionCiBot(project.id);
+            setCiBot(r);
+            // refresh members so the freshly-added ci:<slug> row shows up
+            await reload();
+        } catch (e) {
+            setCiBotErr(e instanceof ApiError ? e.detail || e.message : String(e));
+        } finally {
+            setCiBotBusy(false);
+        }
+    };
+
     return (
         <div className="flex flex-col h-full">
             <div className="px-3 sm:px-4 py-3 border-b border-gray-700">
@@ -239,14 +268,33 @@ const MemberPane: React.FC<{
                         </div>
                     </div>
                     {!project.archived_at && (
-                        <button
-                            className="text-xs bg-red-800 hover:bg-red-700 px-2 py-1 rounded"
-                            onClick={onArchive}
-                        >
-                            Archive
-                        </button>
+                        <div className="flex shrink-0 gap-1">
+                            <button
+                                className="text-xs bg-gray-800 hover:bg-gray-700 px-2 py-1 rounded disabled:opacity-50 whitespace-nowrap"
+                                onClick={() => void onMintCiBot()}
+                                disabled={ciBotBusy}
+                                title="Mint or rotate the CI bot bearer for this project"
+                            >
+                                {ciBotBusy
+                                    ? "…"
+                                    : members.some((m) => m.role === "ci")
+                                        ? "Rotate CI bot"
+                                        : "Mint CI bot"}
+                            </button>
+                            <button
+                                className="text-xs bg-red-800 hover:bg-red-700 px-2 py-1 rounded"
+                                onClick={onArchive}
+                            >
+                                Archive
+                            </button>
+                        </div>
                     )}
                 </div>
+                {ciBotErr && (
+                    <div className="mt-2 text-red-300 text-xs bg-red-900/40 border border-red-700 rounded px-2 py-1">
+                        {ciBotErr}
+                    </div>
+                )}
             </div>
             {!project.archived_at && (
                 <div className="flex flex-col sm:flex-row gap-2 px-3 sm:px-4 py-2 border-b border-gray-700">
@@ -361,6 +409,106 @@ const MemberPane: React.FC<{
                         No members yet.
                     </div>
                 )}
+            </div>
+            {ciBot && (
+                <CiBotTokenModal
+                    projectSlug={project.slug}
+                    userSub={ciBot.user_sub}
+                    token={ciBot.token}
+                    expiresAt={ciBot.expires_at}
+                    onClose={() => setCiBot(null)}
+                />
+            )}
+        </div>
+    );
+};
+
+// One-shot reveal of a freshly-minted CI bot token. Mirrors
+// CliTokenButton's modal chrome (dvh height clamp + clipboard copy)
+// so it stays usable on phones, where the token textarea would
+// otherwise push the buttons off-screen.
+const CiBotTokenModal: React.FC<{
+    projectSlug: string;
+    userSub: string;
+    token: string;
+    expiresAt: number;
+    onClose: () => void;
+}> = ({projectSlug, userSub, token, expiresAt, onClose}) => {
+    const [copied, setCopied] = useState(false);
+
+    useEffect(() => {
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key === "Escape") onClose();
+        };
+        window.addEventListener("keydown", onKey);
+        return () => window.removeEventListener("keydown", onKey);
+    }, [onClose]);
+
+    const onCopy = async () => {
+        try {
+            await navigator.clipboard.writeText(token);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 1500);
+        } catch {
+            /* clipboard blocked — user can still select-and-copy */
+        }
+    };
+
+    return (
+        <div
+            className="fixed inset-0 z-[60] flex items-start sm:items-center justify-center bg-black/70 p-4 overflow-y-auto"
+            onClick={onClose}
+        >
+            <div
+                className="bg-gray-900 border border-gray-700 rounded shadow-xl flex flex-col max-w-2xl w-full max-h-[calc(100dvh-2rem)] sm:max-h-[85dvh] my-auto"
+                onClick={(e) => e.stopPropagation()}
+                role="dialog"
+                aria-label="CI bot token"
+            >
+                <div className="flex items-start gap-3 border-b border-gray-700 px-4 py-2">
+                    <div className="flex-1 min-w-0">
+                        <div className="text-sm font-semibold">CI bot token</div>
+                        <div className="text-xs text-gray-400 truncate" title={userSub}>
+                            {userSub} · expires {new Date(expiresAt * 1000).toLocaleString()}
+                        </div>
+                    </div>
+                    <button
+                        type="button"
+                        className="shrink-0 text-gray-300 hover:text-white text-xl leading-none px-2"
+                        onClick={onClose}
+                        aria-label="Close"
+                        title="Close (Esc)"
+                    >
+                        ×
+                    </button>
+                </div>
+                <div className="flex-1 overflow-auto p-4 space-y-4 text-sm">
+                    <div className="text-xs text-gray-300">
+                        Copy now — the server does not store this token. Re-mint to rotate;
+                        previous tokens for this bot stop validating immediately.
+                    </div>
+                    <div className="flex items-center justify-end">
+                        <button
+                            type="button"
+                            onClick={onCopy}
+                            className="shrink-0 bg-gray-800 hover:bg-gray-700 text-gray-100 px-2 py-1 rounded text-xs"
+                        >
+                            {copied ? "Copied" : "Copy"}
+                        </button>
+                    </div>
+                    <textarea
+                        readOnly
+                        value={token}
+                        className="w-full h-32 bg-gray-950 border border-gray-700 rounded p-2 font-mono text-xs break-all"
+                        onFocus={(e) => e.currentTarget.select()}
+                    />
+                    <pre className="text-[11px] text-gray-400 whitespace-pre-wrap">
+{`# pixi / Forgejo secret
+export ADAPY_VIEWER_TOKEN=<paste>
+export ADAPY_VIEWER_URL=<viewer URL>
+# scope: project:${projectSlug}`}
+                    </pre>
+                </div>
             </div>
         </div>
     );
