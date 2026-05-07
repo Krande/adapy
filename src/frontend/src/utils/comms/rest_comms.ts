@@ -37,8 +37,6 @@ export class RESTComms implements Comms {
 
   private handlers: CommsMessageHandler[] = [];
   private connectHandlers: CommsConnectHandler[] = [];
-  // Serialize response dispatch so handler ordering matches request ordering.
-  private dispatchChain: Promise<void> = Promise.resolve();
 
   isConnected(): boolean {
     return this.connected;
@@ -114,20 +112,12 @@ export class RESTComms implements Comms {
 
     const ctl = new AbortController();
     this.inflight.push(ctl);
-    // 30s budget per request. Without this, a hung fetch (network
-    // blip, tab in background long enough for the connection to be
-    // collected, etc.) blocks the dispatchChain forever — every
-    // subsequent response queues behind it without ever processing,
-    // which is what users report as "refresh button does nothing
-    // until I reload the page". Aborting on timeout lets the chain
-    // drop the dead callback and move on.
+    // 30s budget per request. Aborts a hung fetch so its inflight
+    // entry doesn't accumulate forever.
     const timeoutId = window.setTimeout(() => {
       try { ctl.abort(); } catch (_) { /* ignore */ }
     }, 30_000);
 
-    // Fire the request eagerly (matches WS socket.send semantics: caller
-    // does not block on the response). Dispatch the response through the
-    // chain so handler order matches request order.
     const headers: Record<string, string> = {
       "Content-Type": "application/octet-stream",
       // Defensive: a CDN / browser-cache should not be able to keep
@@ -151,7 +141,16 @@ export class RESTComms implements Comms {
       cache: "no-store",
     });
 
-    this.dispatchChain = this.dispatchChain.then(async () => {
+    // Each response dispatches independently. We previously serialised
+    // dispatch through a Promise chain so handler order matched request
+    // order — but each handler is already routed by ``serverReply.replyTo``
+    // (or its own typed dispatch), so cross-request ordering doesn't
+    // matter. The chain meant any slow handler (e.g. a big GLB load via
+    // VIEW_FILE_OBJECT taking 10+ seconds in three.js) would block every
+    // later response, including the LIST_FILE_OBJECTS reply behind it.
+    // Symptom: "refresh button never updates files until I reload the
+    // page". Removing the chain decouples them.
+    void (async () => {
       try {
         const resp = await respPromise;
         if (!resp.ok) {
@@ -173,7 +172,7 @@ export class RESTComms implements Comms {
         const i = this.inflight.indexOf(ctl);
         if (i >= 0) this.inflight.splice(i, 1);
       }
-    });
+    })();
   }
 
   async setInstanceId(newId: number, _reconnect: boolean = true): Promise<void> {
