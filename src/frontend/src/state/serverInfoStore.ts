@@ -5,6 +5,7 @@ export interface ServerFileEntry {
     name: string;
     fileType: FileType;
     filepath: string;
+    lastModified: string;  // ISO-8601, "" when unavailable
 }
 
 type ServerInfoState = {

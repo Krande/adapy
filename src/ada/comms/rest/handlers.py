@@ -87,9 +87,7 @@ def _error_reply(message: MessageDC, msg: str) -> bytes:
     return serialize_root_message(reply)
 
 
-async def _handle_list_file_objects(
-    message: MessageDC, storage: Storage, scope: Scope
-) -> bytes:
+async def _handle_list_file_objects(message: MessageDC, storage: Storage, scope: Scope) -> bytes:
     files = await storage.list(scope)
     file_objects: list[FileObjectDC] = []
     for entry in files:
@@ -105,6 +103,7 @@ async def _handle_list_file_objects(
                 file_type=ftype,
                 purpose=FilePurposeDC.DESIGN,
                 filepath=entry.key,
+                last_modified=entry.last_modified or "",
             )
         )
 
@@ -118,9 +117,7 @@ async def _handle_list_file_objects(
     return serialize_root_message(reply)
 
 
-async def _handle_view_file_object(
-    message: MessageDC, storage: Storage, scope: Scope
-) -> bytes:
+async def _handle_view_file_object(message: MessageDC, storage: Storage, scope: Scope) -> bytes:
     key = ""
     if message.server is not None:
         key = (message.server.get_file_object_by_name or "").strip()
@@ -171,9 +168,7 @@ async def _handle_view_file_object(
     return serialize_root_message(reply)
 
 
-async def _handle_get_server_info(
-    message: MessageDC, _storage: Storage, _scope: Scope
-) -> bytes:
+async def _handle_get_server_info(message: MessageDC, _storage: Storage, _scope: Scope) -> bytes:
     log_path = ""
     for handler in logger.handlers:
         if hasattr(handler, "baseFilename"):
@@ -208,9 +203,7 @@ _HANDLERS = {
 }
 
 
-async def dispatch(
-    payload: bytes, storage: Storage, scope: Scope
-) -> bytes | None:
+async def dispatch(payload: bytes, storage: Storage, scope: Scope) -> bytes | None:
     """Deserialize, dispatch (passing the request's scope to handlers),
     return serialized response (or None for no-reply)."""
     message = deserialize_root_message(payload)

@@ -14,6 +14,7 @@ export async function receive_list_of_files_from_server(message: Message) {
                 name: fo.name() || "",
                 fileType: fo.fileType() ?? FileType.IFC,
                 filepath: fo.filepath() || "",
+                lastModified: fo.lastModified() || "",
             });
         }
     }

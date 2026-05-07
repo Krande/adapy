@@ -36,13 +36,121 @@ function formatBytes(n: number): string {
     return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`;
 }
 
+// CI uploads land at ``versions/<branch>/<commit>/<filename>``; the
+// helpers below split the storage list into "regular" files (treated
+// as before) and a tree grouped by branch + commit so the storage
+// browser can show a collapsible per-branch history with the latest
+// commit pinned.
+
+interface VersionLeaf {
+    file: ServerFileEntry;
+    artefactName: string;       // basename — last segment of the key
+}
+
+interface CommitGroup {
+    sha: string;                // <commit> path segment (full SHA, usually 40 chars)
+    leaves: VersionLeaf[];
+    latestModified: number;     // ms since epoch — max of all leaves' lastModified
+}
+
+interface BranchGroup {
+    encodedBranch: string;      // path-safe form (slashes replaced with __)
+    displayBranch: string;      // human-friendly (slashes restored)
+    commits: CommitGroup[];     // sorted newest-first by latestModified
+    latestModified: number;     // max across commits
+}
+
+function parseLastModifiedMs(iso: string): number {
+    if (!iso) return 0;
+    const t = Date.parse(iso);
+    return Number.isFinite(t) ? t : 0;
+}
+
+function classifyFiles(files: ServerFileEntry[]): {
+    regular: ServerFileEntry[];
+    branches: BranchGroup[];
+} {
+    const regular: ServerFileEntry[] = [];
+    // branch → sha → leaves
+    const tree = new Map<string, Map<string, VersionLeaf[]>>();
+    for (const f of files) {
+        const trimmed = f.name.replace(/^\/+/, "");
+        const parts = trimmed.split("/");
+        if (parts.length >= 4 && parts[0] === "versions") {
+            const [, encodedBranch, sha, ...rest] = parts;
+            const artefactName = rest.join("/");
+            // Hide the .build.json sidecars from the visible tree —
+            // they're metadata for the GLB artefact, not separately
+            // user-loadable. Clicking the GLB row will load the GLB;
+            // the sidecar comes along under the same prefix when we
+            // need it (e.g. for git-history view).
+            if (artefactName.endsWith(".build.json")) continue;
+            let perBranch = tree.get(encodedBranch);
+            if (!perBranch) {
+                perBranch = new Map();
+                tree.set(encodedBranch, perBranch);
+            }
+            let leaves = perBranch.get(sha);
+            if (!leaves) {
+                leaves = [];
+                perBranch.set(sha, leaves);
+            }
+            leaves.push({file: f, artefactName});
+        } else {
+            regular.push(f);
+        }
+    }
+
+    const branches: BranchGroup[] = [];
+    for (const [encodedBranch, perBranchMap] of tree) {
+        const commits: CommitGroup[] = [];
+        for (const [sha, leaves] of perBranchMap) {
+            const latest = leaves.reduce(
+                (acc, l) => Math.max(acc, parseLastModifiedMs(l.file.lastModified)),
+                0,
+            );
+            commits.push({sha, leaves, latestModified: latest});
+        }
+        commits.sort((a, b) => b.latestModified - a.latestModified);
+        const branchLatest = commits.length > 0 ? commits[0].latestModified : 0;
+        branches.push({
+            encodedBranch,
+            displayBranch: encodedBranch.replace(/__/g, "/"),
+            commits,
+            latestModified: branchLatest,
+        });
+    }
+    branches.sort((a, b) => b.latestModified - a.latestModified);
+    return {regular, branches};
+}
+
+function shortSha(sha: string): string {
+    return sha.length > 8 ? sha.slice(0, 8) : sha;
+}
+
+function formatRelative(iso: string): string {
+    const t = parseLastModifiedMs(iso);
+    if (t === 0) return "";
+    const dt = (Date.now() - t) / 1000;
+    if (dt < 60) return "just now";
+    if (dt < 3600) return `${Math.round(dt / 60)} min ago`;
+    if (dt < 86400) return `${Math.round(dt / 3600)} h ago`;
+    if (dt < 7 * 86400) return `${Math.round(dt / 86400)} d ago`;
+    return new Date(t).toISOString().slice(0, 10);
+}
+
 const StorageBrowser: React.FC = () => {
     const files = useServerInfoStore((s) => s.serverFileObjects);
     const conversionJobs = useConversionStore((s) => s.jobs);
     const loadedSourceNames = useModelState((s) => s.loadedSourceNames);
     const anyLoaded = loadedSourceNames.size > 0;
+    const allLoaded = files.length > 0 && files.every((f) => loadedSourceNames.has(f.name));
     const currentScope = useScopeStore((s) => s.current);
     const [uploading, setUploading] = useState(false);
+    // Active "Show all" run — disables the per-row toggles while we're
+    // overlaying every file in sequence, so the user can't kick off a
+    // second batch on top of the first.
+    const [bulkBusy, setBulkBusy] = useState<"show" | "hide" | null>(null);
     // Upload progress: name = current file (or null), loaded/total in
     // bytes. Total may stay 0 if the browser can't determine it (rare
     // for File uploads); we treat that as indeterminate.
@@ -106,6 +214,47 @@ const StorageBrowser: React.FC = () => {
             console.error("storage toggle failed", err);
         } finally {
             setViewingName(null);
+        }
+    };
+
+    // Bulk "show all" — overlay every file currently absent from the
+    // scene. Sequential (not parallel) because overlay_file_in_scene
+    // shares loader state and races corrupt the scene; the per-row
+    // viewingName indicator follows along so the user sees progress.
+    const onShowAll = async () => {
+        if (bulkBusy !== null || viewingName) return;
+        setBulkBusy("show");
+        try {
+            for (const f of files) {
+                if (loadedSourceNames.has(f.name)) continue;
+                setViewingName(f.name);
+                try {
+                    await overlay_file_in_scene(f.name);
+                } catch (err) {
+                    console.error("show-all overlay failed", f.name, err);
+                }
+            }
+        } finally {
+            setViewingName(null);
+            setBulkBusy(null);
+        }
+    };
+
+    // Bulk "hide all" — drop every loaded source via the canonical
+    // teardown. clear_loaded_model resets animation state, tree-view,
+    // model-key map, and scene groups in one shot; iterating
+    // unload_source_from_scene per file would leave that bookkeeping
+    // stale. The button is therefore identical to the prior "Clear"
+    // affordance, just renamed for the hide/show pair.
+    const onHideAll = async () => {
+        if (bulkBusy !== null) return;
+        setBulkBusy("hide");
+        try {
+            await clear_loaded_model();
+        } catch (err) {
+            console.error("hide-all clear failed", err);
+        } finally {
+            setBulkBusy(null);
         }
     };
 
@@ -194,14 +343,41 @@ const StorageBrowser: React.FC = () => {
                             <ReloadIcon/>
                         </span>
                     </button>
+                    {/* Bulk show — visible whenever at least one file
+                        is not yet in the scene. The 40 px tap target
+                        matches Refresh's mobile sizing; on desktop it
+                        collapses to compact text. */}
+                    {files.length > 0 && !allLoaded && (
+                        <button
+                            type="button"
+                            className={
+                                "bg-gray-700 hover:bg-gray-600 active:bg-gray-800 disabled:opacity-60 " +
+                                "text-white rounded text-xs whitespace-nowrap " +
+                                "px-2 sm:px-2 py-1 min-h-[40px] sm:min-h-0"
+                            }
+                            onClick={() => void onShowAll()}
+                            disabled={bulkBusy !== null || viewingName !== null}
+                            title="Add every file in this list to the scene"
+                            aria-busy={bulkBusy === "show"}
+                        >
+                            {bulkBusy === "show" ? "Showing…" : "Show all"}
+                        </button>
+                    )}
                     {anyLoaded && (
                         <button
-                            className="bg-gray-700 hover:bg-gray-600 text-white p-1 rounded text-xs"
-                            onClick={() => clear_loaded_model()}
-                            title="Clear all models from the scene (unchecks every file)"
-                            aria-label="Clear scene"
+                            type="button"
+                            className={
+                                "bg-gray-700 hover:bg-gray-600 active:bg-gray-800 disabled:opacity-60 " +
+                                "text-white rounded text-xs whitespace-nowrap " +
+                                "px-2 sm:px-2 py-1 min-h-[40px] sm:min-h-0"
+                            }
+                            onClick={() => void onHideAll()}
+                            disabled={bulkBusy !== null}
+                            title="Remove every model currently in the scene"
+                            aria-label="Hide all models"
+                            aria-busy={bulkBusy === "hide"}
                         >
-                            Clear
+                            {bulkBusy === "hide" ? "Hiding…" : "Hide all"}
                         </button>
                     )}
                 </div>
@@ -240,102 +416,44 @@ const StorageBrowser: React.FC = () => {
                     No files yet. Use the Upload button to add one.
                 </div>
             ) : (
-                <ul className="flex flex-col divide-y divide-gray-500/40 max-h-80 overflow-auto">
-                    {files.map((f) => {
-                        const isViewing = viewingName === f.name;
-                        const otherViewing = viewingName !== null && !isViewing;
-                        const isLoaded = loadedSourceNames.has(f.name);
-                        const viewJob = isViewing ? conversionJobs[`${f.name}::glb`] : undefined;
-                        const viewProgressPct = viewJob
-                            ? Math.max(0, Math.min(100, Math.round(viewJob.progress * 100)))
-                            : 0;
-                        return (
-                            <li
-                                key={f.name}
-                                className="flex flex-col px-1 py-1 text-xs"
-                            >
-                                <div className="flex items-center justify-between gap-2">
-                                    {/* Single checkbox per row drives "is this file
-                                        in the scene?" Checking adds via overlay so
-                                        multiple models coexist; unchecking removes
-                                        only this file's group. ``Clear`` in the
-                                        header unchecks all in one go. h-5/w-5 +
-                                        outer touch padding keeps the tap target
-                                        ≥40 px on mobile. */}
-                                    <label
-                                        className={
-                                            "flex items-center gap-2 cursor-pointer select-none px-1 py-1 -mx-1 -my-1 " +
-                                            (isLoaded ? "text-blue-200 font-medium" : "")
-                                        }
-                                        title={
-                                            isViewing
-                                                ? "Loading…"
-                                                : otherViewing
-                                                    ? "Another file is loading"
-                                                    : isLoaded
-                                                        ? "Loaded in scene — uncheck to remove just this file"
-                                                        : "Add to scene (overlays alongside any other loaded files)"
-                                        }
-                                    >
-                                        <input
-                                            type="checkbox"
-                                            className="h-5 w-5 shrink-0 cursor-pointer disabled:cursor-not-allowed"
-                                            checked={isLoaded}
-                                            onChange={(e) => onToggle(f, e.target.checked)}
-                                            disabled={isViewing || otherViewing}
-                                            aria-busy={isViewing || undefined}
+                (() => {
+                    const {regular, branches} = classifyFiles(files);
+                    return (
+                        <div className="flex flex-col max-h-80 overflow-auto">
+                            {regular.length > 0 && (
+                                <ul className="flex flex-col divide-y divide-gray-500/40">
+                                    {regular.map((f) => (
+                                        <FileRow
+                                            key={f.name}
+                                            file={f}
+                                            displayName={f.name}
+                                            indentLevel={0}
+                                            viewingName={viewingName}
+                                            loadedSourceNames={loadedSourceNames}
+                                            conversionJobs={conversionJobs}
+                                            expandedName={expandedName}
+                                            setExpandedName={setExpandedName}
+                                            onToggle={onToggle}
+                                            setPickerName={setPickerName}
                                         />
-                                    </label>
-                                    {/* min-w-0 lets `truncate` actually clip inside a
-                                        flex item. Tap toggles truncated/wrapped so
-                                        the full filename is reachable on touch. */}
-                                    <button
-                                        type="button"
-                                        onClick={() => setExpandedName(expandedName === f.name ? null : f.name)}
-                                        className={`flex-1 min-w-0 text-left ${expandedName === f.name ? 'whitespace-normal break-all' : 'truncate'} ${isLoaded ? 'text-blue-200 font-medium' : ''}`}
-                                        title={f.name}
-                                    >
-                                        {f.name}
-                                    </button>
-                                    <div className="flex items-center gap-1 shrink-0">
-                                        {isViewing && <Spinner/>}
-                                        {/* Field picker for FEA result files. Lets
-                                            the user pick a non-default (step, field)
-                                            and re-render. Only meaningful in REST mode
-                                            with convert enabled. */}
-                                        {isFEAResult(f.name) && runtime.isRestMode() && runtime.convertEnabled() && (
-                                            <button
-                                                className="p-1 rounded text-white hover:bg-gray-300/40 disabled:opacity-50 disabled:cursor-not-allowed"
-                                                onClick={() => setPickerName(f.name)}
-                                                disabled={otherViewing || isViewing}
-                                                title="Pick step / field"
-                                                aria-label="Pick step / field"
-                                            >
-                                                <span className="leading-none text-sm font-mono">⇅</span>
-                                            </button>
-                                        )}
-                                    </div>
-                                </div>
-                                {isViewing && (
-                                    <div className="mt-1 h-1 w-full bg-gray-300/50 rounded overflow-hidden">
-                                        {viewJob && viewJob.status !== 'queued' ? (
-                                            <div
-                                                className="h-full bg-blue-600 transition-[width] duration-200"
-                                                style={{width: `${viewProgressPct}%`}}
-                                            />
-                                        ) : (
-                                            // Indeterminate slider: a 1/3-width
-                                            // bar that pings back and forth so
-                                            // the user knows something is
-                                            // happening before any % comes back.
-                                            <div className="h-full w-1/3 bg-blue-600 animate-[indeterminate_1.4s_ease-in-out_infinite]"/>
-                                        )}
-                                    </div>
-                                )}
-                            </li>
-                        );
-                    })}
-                </ul>
+                                    ))}
+                                </ul>
+                            )}
+                            {branches.length > 0 && (
+                                <VersionsTree
+                                    branches={branches}
+                                    viewingName={viewingName}
+                                    loadedSourceNames={loadedSourceNames}
+                                    conversionJobs={conversionJobs}
+                                    expandedName={expandedName}
+                                    setExpandedName={setExpandedName}
+                                    onToggle={onToggle}
+                                    setPickerName={setPickerName}
+                                />
+                            )}
+                        </div>
+                    );
+                })()
             )}
             {pickerName && (
                 <FieldPickerModal
@@ -343,6 +461,269 @@ const StorageBrowser: React.FC = () => {
                     onClose={() => setPickerName(null)}
                 />
             )}
+        </div>
+    );
+};
+
+// ──────────────────────────────────────────────────────────────────
+// FileRow: one storage entry, optionally indented (for use inside
+// the per-commit subtree). Pulled out of the main component so the
+// versions tree can render the same row at indent 2 without
+// re-implementing the toggle/expand/spinner machinery.
+// ──────────────────────────────────────────────────────────────────
+
+interface FileRowProps {
+    file: ServerFileEntry;
+    displayName: string;
+    indentLevel: number;
+    viewingName: string | null;
+    loadedSourceNames: ReadonlySet<string>;
+    conversionJobs: Record<string, {progress: number; status?: string}>;
+    expandedName: string | null;
+    setExpandedName: (n: string | null) => void;
+    onToggle: (entry: ServerFileEntry, nextChecked: boolean) => Promise<void>;
+    setPickerName: (n: string | null) => void;
+}
+
+const FileRow: React.FC<FileRowProps> = ({
+    file: f,
+    displayName,
+    indentLevel,
+    viewingName,
+    loadedSourceNames,
+    conversionJobs,
+    expandedName,
+    setExpandedName,
+    onToggle,
+    setPickerName,
+}) => {
+    const isViewing = viewingName === f.name;
+    const otherViewing = viewingName !== null && !isViewing;
+    const isLoaded = loadedSourceNames.has(f.name);
+    const viewJob = isViewing ? conversionJobs[`${f.name}::glb`] : undefined;
+    const viewProgressPct = viewJob
+        ? Math.max(0, Math.min(100, Math.round(viewJob.progress * 100)))
+        : 0;
+    const indentPx = indentLevel * 12;
+    return (
+        <li
+            className="flex flex-col px-1 py-1 text-xs"
+            style={indentPx ? {paddingLeft: `${4 + indentPx}px`} : undefined}
+        >
+            <div className="flex items-center justify-between gap-2">
+                <label
+                    className={
+                        "flex items-center gap-2 cursor-pointer select-none px-1 py-1 -mx-1 -my-1 " +
+                        (isLoaded ? "text-blue-200 font-medium" : "")
+                    }
+                    title={
+                        isViewing
+                            ? "Loading…"
+                            : otherViewing
+                                ? "Another file is loading"
+                                : isLoaded
+                                    ? "Loaded in scene — uncheck to remove just this file"
+                                    : "Add to scene (overlays alongside any other loaded files)"
+                    }
+                >
+                    <input
+                        type="checkbox"
+                        className="h-5 w-5 shrink-0 cursor-pointer disabled:cursor-not-allowed"
+                        checked={isLoaded}
+                        onChange={(e) => onToggle(f, e.target.checked)}
+                        disabled={isViewing || otherViewing}
+                        aria-busy={isViewing || undefined}
+                    />
+                </label>
+                <button
+                    type="button"
+                    onClick={() => setExpandedName(expandedName === f.name ? null : f.name)}
+                    className={`flex-1 min-w-0 text-left ${expandedName === f.name ? 'whitespace-normal break-all' : 'truncate'} ${isLoaded ? 'text-blue-200 font-medium' : ''}`}
+                    title={f.name}
+                >
+                    {displayName}
+                </button>
+                <div className="flex items-center gap-1 shrink-0">
+                    {isViewing && <Spinner/>}
+                    {isFEAResult(f.name) && runtime.isRestMode() && runtime.convertEnabled() && (
+                        <button
+                            className="p-1 rounded text-white hover:bg-gray-300/40 disabled:opacity-50 disabled:cursor-not-allowed"
+                            onClick={() => setPickerName(f.name)}
+                            disabled={otherViewing || isViewing}
+                            title="Pick step / field"
+                            aria-label="Pick step / field"
+                        >
+                            <span className="leading-none text-sm font-mono">⇅</span>
+                        </button>
+                    )}
+                </div>
+            </div>
+            {isViewing && (
+                <div className="mt-1 h-1 w-full bg-gray-300/50 rounded overflow-hidden">
+                    {viewJob && viewJob.status !== 'queued' ? (
+                        <div
+                            className="h-full bg-blue-600 transition-[width] duration-200"
+                            style={{width: `${viewProgressPct}%`}}
+                        />
+                    ) : (
+                        <div className="h-full w-1/3 bg-blue-600 animate-[indeterminate_1.4s_ease-in-out_infinite]"/>
+                    )}
+                </div>
+            )}
+        </li>
+    );
+};
+
+// ──────────────────────────────────────────────────────────────────
+// VersionsTree: renders the CI-uploaded ``versions/<branch>/<sha>/…``
+// blobs as a 3-level collapsible list:
+//
+//   Versions
+//   ├ <branch>                   ← collapsible. Sorted newest-tip first.
+//   │  ├ <commit (relative t)>   ← Latest of branch is auto-expanded
+//   │  │  ├ welds_model.glb      ← <FileRow indentLevel=2/>
+//   │  │  └ welds_model.ifc
+//   │  └ <older commit>          ← collapsed by default
+//   └ <other branch>
+//
+// All branches collapse-by-default except the most recently active
+// one, whose latest commit is also auto-expanded. State is local to
+// the panel; refresh resets it.
+// ──────────────────────────────────────────────────────────────────
+
+interface VersionsTreeProps {
+    branches: BranchGroup[];
+    viewingName: string | null;
+    loadedSourceNames: ReadonlySet<string>;
+    conversionJobs: Record<string, {progress: number; status?: string}>;
+    expandedName: string | null;
+    setExpandedName: (n: string | null) => void;
+    onToggle: (entry: ServerFileEntry, nextChecked: boolean) => Promise<void>;
+    setPickerName: (n: string | null) => void;
+}
+
+const VersionsTree: React.FC<VersionsTreeProps> = (props) => {
+    const {branches} = props;
+    // Auto-expand: the freshest branch + its freshest commit.
+    const initialBranch = branches.length > 0 ? branches[0].encodedBranch : null;
+    const initialCommitKey =
+        branches.length > 0 && branches[0].commits.length > 0
+            ? `${branches[0].encodedBranch}/${branches[0].commits[0].sha}`
+            : null;
+    const [openBranches, setOpenBranches] = useState<Set<string>>(
+        () => new Set(initialBranch ? [initialBranch] : []),
+    );
+    const [openCommits, setOpenCommits] = useState<Set<string>>(
+        () => new Set(initialCommitKey ? [initialCommitKey] : []),
+    );
+
+    const toggleBranch = (b: string) => {
+        setOpenBranches((prev) => {
+            const next = new Set(prev);
+            if (next.has(b)) next.delete(b);
+            else next.add(b);
+            return next;
+        });
+    };
+    const toggleCommit = (key: string) => {
+        setOpenCommits((prev) => {
+            const next = new Set(prev);
+            if (next.has(key)) next.delete(key);
+            else next.add(key);
+            return next;
+        });
+    };
+
+    return (
+        <div className="border-t border-gray-500/40 pt-1 mt-1">
+            <div className="text-[10px] uppercase tracking-wide text-gray-200/70 px-1 pb-1">
+                Versions
+            </div>
+            <ul className="flex flex-col divide-y divide-gray-500/30">
+                {branches.map((b, bIdx) => {
+                    const branchOpen = openBranches.has(b.encodedBranch);
+                    return (
+                        <li key={b.encodedBranch} className="flex flex-col">
+                            <button
+                                type="button"
+                                onClick={() => toggleBranch(b.encodedBranch)}
+                                className="flex items-center gap-1 px-1 py-1 text-xs text-left w-full hover:bg-gray-300/10"
+                                aria-expanded={branchOpen}
+                                title={b.displayBranch}
+                            >
+                                <span className="w-3 inline-block text-gray-300">
+                                    {branchOpen ? "▾" : "▸"}
+                                </span>
+                                <span className="font-mono text-[11px] truncate flex-1 min-w-0">
+                                    {b.displayBranch}
+                                </span>
+                                <span className="text-[10px] text-gray-300/80 shrink-0">
+                                    {b.commits.length} commit{b.commits.length === 1 ? "" : "s"}
+                                </span>
+                            </button>
+                            {branchOpen && (
+                                <ul className="flex flex-col">
+                                    {b.commits.map((c, cIdx) => {
+                                        const commitKey = `${b.encodedBranch}/${c.sha}`;
+                                        const commitOpen = openCommits.has(commitKey);
+                                        const isLatest = bIdx === 0 && cIdx === 0;
+                                        return (
+                                            <li key={c.sha} className="flex flex-col">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => toggleCommit(commitKey)}
+                                                    className="flex items-center gap-1 px-1 py-1 text-xs text-left w-full hover:bg-gray-300/10"
+                                                    style={{paddingLeft: "16px"}}
+                                                    aria-expanded={commitOpen}
+                                                >
+                                                    <span className="w-3 inline-block text-gray-300">
+                                                        {commitOpen ? "▾" : "▸"}
+                                                    </span>
+                                                    <span className="font-mono text-[11px] shrink-0">
+                                                        {shortSha(c.sha)}
+                                                    </span>
+                                                    {isLatest && (
+                                                        <span
+                                                            className="ml-1 px-1 rounded text-[9px] uppercase tracking-wide bg-emerald-700 text-white shrink-0"
+                                                            title="Most recent commit on this branch"
+                                                        >
+                                                            latest
+                                                        </span>
+                                                    )}
+                                                    <span className="ml-auto text-[10px] text-gray-300/80 shrink-0">
+                                                        {formatRelative(
+                                                            c.leaves[0]?.file.lastModified ?? "",
+                                                        )}
+                                                    </span>
+                                                </button>
+                                                {commitOpen && (
+                                                    <ul className="flex flex-col divide-y divide-gray-500/20">
+                                                        {c.leaves.map((leaf) => (
+                                                            <FileRow
+                                                                key={leaf.file.name}
+                                                                file={leaf.file}
+                                                                displayName={leaf.artefactName}
+                                                                indentLevel={2}
+                                                                viewingName={props.viewingName}
+                                                                loadedSourceNames={props.loadedSourceNames}
+                                                                conversionJobs={props.conversionJobs}
+                                                                expandedName={props.expandedName}
+                                                                setExpandedName={props.setExpandedName}
+                                                                onToggle={props.onToggle}
+                                                                setPickerName={props.setPickerName}
+                                                            />
+                                                        ))}
+                                                    </ul>
+                                                )}
+                                            </li>
+                                        );
+                                    })}
+                                </ul>
+                            )}
+                        </li>
+                    );
+                })}
+            </ul>
         </div>
     );
 };
