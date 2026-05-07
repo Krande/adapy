@@ -55,38 +55,49 @@ const ObjectInfoBox = () => {
             <h2 className="font-bold">Selected Object Info</h2>
             <div className="table-row">
                 <div className="table-cell w-24">Name:</div>
-                <div className="table-cell w-48 break-all">{name}</div>
-            </div>
-            {/* Mobile-only copy buttons. Desktop has Shift+C as the
-                canonical multi-name copy and a normal text-select on
-                the name cell for single — no need to clutter the
-                desktop UI. ``sm:hidden`` hides at ≥ 640 px. The
-                multi-select button only appears once more than one
-                element is selected so the desktop user who happens
-                to be on a narrow window doesn't see two redundant
-                buttons. */}
-            {name && (
-                <div className="sm:hidden flex flex-wrap gap-2 mt-2">
-                    <button
-                        type="button"
-                        onClick={() => void onCopySingle()}
-                        className="bg-blue-700 hover:bg-blue-600 text-white text-xs rounded px-3 py-2 min-h-[40px]"
-                        aria-label="Copy name to clipboard"
-                    >
-                        {copied === "single" ? "Copied ✓" : "Copy name"}
-                    </button>
-                    {isMultiSelect && (
+                <div className="table-cell w-48 break-all">
+                    {/* On mobile the entire name acts as a copy
+                        button — tap-on-text matches the platform
+                        idiom (iOS/Android long-press on labels) and
+                        keeps the panel compact instead of carrying
+                        a separate ``Copy name`` chrome button. On
+                        desktop (``sm:`` breakpoint) the wrapper
+                        ``button`` falls back to displaying the name
+                        as plain text via cursor-text + select-text;
+                        Shift+C remains the canonical kbd path. */}
+                    {name ? (
                         <button
                             type="button"
-                            onClick={() => void onCopyAll()}
-                            className="bg-blue-700 hover:bg-blue-600 text-white text-xs rounded px-3 py-2 min-h-[40px]"
-                            aria-label={`Copy all ${multiSelectCount} selected names to clipboard`}
+                            onClick={() => void onCopySingle()}
+                            className={
+                                "text-left break-all w-full sm:cursor-text " +
+                                "sm:select-text sm:bg-transparent sm:hover:bg-transparent " +
+                                "rounded px-1 py-0.5 -mx-1 -my-0.5 hover:bg-blue-700/40 active:bg-blue-700/60"
+                            }
+                            aria-label="Copy name to clipboard"
+                            title="Tap to copy"
                         >
-                            {copied === "multi"
-                                ? `Copied ${multiSelectCount} ✓`
-                                : `Copy all (${multiSelectCount})`}
+                            {copied === "single" ? `${name} ✓` : name}
                         </button>
-                    )}
+                    ) : null}
+                </div>
+            </div>
+            {/* Multi-select copy: a small inline pill, mobile-only.
+                Desktop uses Shift+C — adding a pill there would be
+                redundant. Only renders when > 1 element is selected
+                so single-tap selections aren't cluttered. */}
+            {name && isMultiSelect && (
+                <div className="sm:hidden mt-1 ml-24">
+                    <button
+                        type="button"
+                        onClick={() => void onCopyAll()}
+                        className="bg-blue-700/80 hover:bg-blue-600 active:bg-blue-800 text-white text-[11px] rounded-full px-2 py-0.5"
+                        aria-label={`Copy all ${multiSelectCount} selected names to clipboard`}
+                    >
+                        {copied === "multi"
+                            ? `Copied ${multiSelectCount} ✓`
+                            : `Copy all (${multiSelectCount})`}
+                    </button>
                 </div>
             )}
             <div className="table-row hidden">

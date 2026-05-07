@@ -1,6 +1,7 @@
 import {useModelState} from "@/state/modelState";
 import {useAnimationStore} from "@/state/animationStore";
 import {useTreeViewStore} from "@/state/treeViewStore";
+import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
 import {animationControllerRef, modelKeyMapRef, sceneRef} from "@/state/refs";
 
 // Tear the currently-loaded model out of the scene without loading a
@@ -37,4 +38,13 @@ export async function clear_loaded_model(): Promise<void> {
     // Drop both the single-name highlight and every overlay
     // entry, so the StorageBrowser checkboxes all uncheck.
     ms.clearLoadedSources();
+    // Drop selection state too — without this the
+    // useSelectedObjectStore map keeps references to the meshes we
+    // just removed from the scene. Subsequent reloads (Show all
+    // after Hide all, or a different file picked) end up with the
+    // old refs as orphans: the count says "N selected" but no
+    // CustomBatchedMesh in the live scene shows the highlight,
+    // and any handler that walks selectedObjects (clipboard copy,
+    // selection re-paint) operates on dead instances.
+    useSelectedObjectStore.getState().clearSelectedObjects();
 }
