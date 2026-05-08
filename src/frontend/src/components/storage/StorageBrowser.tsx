@@ -145,13 +145,12 @@ const StorageBrowser: React.FC = () => {
     const conversionJobs = useConversionStore((s) => s.jobs);
     const loadedSourceNames = useModelState((s) => s.loadedSourceNames);
     const anyLoaded = loadedSourceNames.size > 0;
-    const allLoaded = files.length > 0 && files.every((f) => loadedSourceNames.has(f.name));
     const currentScope = useScopeStore((s) => s.current);
     const [uploading, setUploading] = useState(false);
     // Active "Show all" run — disables the per-row toggles while we're
     // overlaying every file in sequence, so the user can't kick off a
     // second batch on top of the first.
-    const [bulkBusy, setBulkBusy] = useState<"show" | "hide" | null>(null);
+    const [bulkBusy, setBulkBusy] = useState<"load" | "unload" | "clear" | null>(null);
     const [gitHistoryOpen, setGitHistoryOpen] = useState(false);
     // Multi-select mode: a Set of file names. Empty set = mode off.
     // Entered by long-press on any FileRow (or via the "Select" button
@@ -239,45 +238,27 @@ const StorageBrowser: React.FC = () => {
     // scene. Sequential (not parallel) because overlay_file_in_scene
     // shares loader state and races corrupt the scene; the per-row
     // viewingName indicator follows along so the user sees progress.
-    const onShowAll = async () => {
-        if (bulkBusy !== null || viewingName) return;
-        setBulkBusy("show");
-        try {
-            for (const f of files) {
-                if (loadedSourceNames.has(f.name)) continue;
-                setViewingName(f.name);
-                try {
-                    await overlay_file_in_scene(f.name);
-                } catch (err) {
-                    console.error("show-all overlay failed", f.name, err);
-                }
-            }
-        } finally {
-            setViewingName(null);
-            setBulkBusy(null);
-        }
-    };
-
-    // Apply show/hide to the multi-selection set. Same sequential
-    // pattern as the bulk-show, just over a smaller set; we DO want
-    // to show even already-loaded items (no-op overlay) and hide
-    // already-hidden items (no-op unload) so the user gets a
-    // predictable result regardless of the per-row state mix.
-    const onShowSelected = async () => {
+    // Apply load/unload to the multi-selection set. Sequential
+    // because overlay_file_in_scene shares loader state and races
+    // would corrupt the scene; we do want to load even
+    // already-loaded items (no-op overlay) and unload already-hidden
+    // items (no-op unload) so the user gets a predictable result
+    // regardless of the per-row state mix.
+    const onLoadSelected = async () => {
         if (bulkBusy !== null) return;
         const targets = files.filter((f) => selection.has(f.name) && !loadedSourceNames.has(f.name));
         if (targets.length === 0) {
             clearSelection();
             return;
         }
-        setBulkBusy("show");
+        setBulkBusy("load");
         try {
             for (const f of targets) {
                 setViewingName(f.name);
                 try {
                     await overlay_file_in_scene(f.name);
                 } catch (err) {
-                    console.error("show-selected overlay failed", f.name, err);
+                    console.error("load-selected overlay failed", f.name, err);
                 }
             }
         } finally {
@@ -286,16 +267,16 @@ const StorageBrowser: React.FC = () => {
             clearSelection();
         }
     };
-    const onHideSelected = () => {
+    const onUnloadSelected = () => {
         if (bulkBusy !== null) return;
         const targets = files.filter((f) => selection.has(f.name) && loadedSourceNames.has(f.name));
-        setBulkBusy("hide");
+        setBulkBusy("unload");
         try {
             for (const f of targets) {
                 try {
                     unload_source_from_scene(f.name);
                 } catch (err) {
-                    console.error("hide-selected unload failed", f.name, err);
+                    console.error("unload-selected failed", f.name, err);
                 }
             }
         } finally {
@@ -304,19 +285,18 @@ const StorageBrowser: React.FC = () => {
         }
     };
 
-    // Bulk "hide all" — drop every loaded source via the canonical
-    // teardown. clear_loaded_model resets animation state, tree-view,
-    // model-key map, and scene groups in one shot; iterating
-    // unload_source_from_scene per file would leave that bookkeeping
-    // stale. The button is therefore identical to the prior "Clear"
-    // affordance, just renamed for the hide/show pair.
+    // Drop every loaded source via the canonical teardown.
+    // clear_loaded_model resets animation state, tree-view,
+    // model-key map, scene groups, and selection in one shot;
+    // iterating unload_source_from_scene per file would leave that
+    // bookkeeping stale.
     const onHideAll = async () => {
         if (bulkBusy !== null) return;
-        setBulkBusy("hide");
+        setBulkBusy("clear");
         try {
             await clear_loaded_model();
         } catch (err) {
-            console.error("hide-all clear failed", err);
+            console.error("clear scene failed", err);
         } finally {
             setBulkBusy(null);
         }
@@ -407,26 +387,14 @@ const StorageBrowser: React.FC = () => {
                             <ReloadIcon/>
                         </span>
                     </button>
-                    {/* Bulk show — visible whenever at least one file
-                        is not yet in the scene. The 40 px tap target
-                        matches Refresh's mobile sizing; on desktop it
-                        collapses to compact text. */}
-                    {files.length > 0 && !allLoaded && (
-                        <button
-                            type="button"
-                            className={
-                                "bg-gray-700 hover:bg-gray-600 active:bg-gray-800 disabled:opacity-60 " +
-                                "text-white rounded text-xs whitespace-nowrap " +
-                                "px-2 sm:px-2 py-1 min-h-[40px] sm:min-h-0"
-                            }
-                            onClick={() => void onShowAll()}
-                            disabled={bulkBusy !== null || viewingName !== null}
-                            title="Add every file in this list to the scene"
-                            aria-busy={bulkBusy === "show"}
-                        >
-                            {bulkBusy === "show" ? "Showing…" : "Show all"}
-                        </button>
-                    )}
+                    {/* Clear: unload every loaded source. This is a
+                        teardown action (drops the meshes from the
+                        scene), distinct from per-element visibility
+                        which lives in the Selected Object Info
+                        panel. There's no symmetric "Load all" — the
+                        user picks the files they want via per-row
+                        checkboxes; loading every file at once would
+                        rarely be the right thing. */}
                     {anyLoaded && (
                         <button
                             type="button"
@@ -437,11 +405,11 @@ const StorageBrowser: React.FC = () => {
                             }
                             onClick={() => void onHideAll()}
                             disabled={bulkBusy !== null}
-                            title="Remove every model currently in the scene"
-                            aria-label="Hide all models"
-                            aria-busy={bulkBusy === "hide"}
+                            title="Unload every model currently in the scene"
+                            aria-label="Clear scene"
+                            aria-busy={bulkBusy === "clear"}
                         >
-                            {bulkBusy === "hide" ? "Hiding…" : "Hide all"}
+                            {bulkBusy === "clear" ? "Clearing…" : "Clear"}
                         </button>
                     )}
                 </div>
@@ -560,19 +528,19 @@ const StorageBrowser: React.FC = () => {
                     </span>
                     <button
                         type="button"
-                        onClick={() => void onShowSelected()}
+                        onClick={() => void onLoadSelected()}
                         disabled={bulkBusy !== null}
                         className="bg-emerald-700 hover:bg-emerald-600 disabled:opacity-60 text-white text-xs px-2 py-1 rounded min-h-[36px]"
                     >
-                        Show
+                        {bulkBusy === "load" ? "Loading…" : "Load"}
                     </button>
                     <button
                         type="button"
-                        onClick={onHideSelected}
+                        onClick={onUnloadSelected}
                         disabled={bulkBusy !== null}
                         className="bg-rose-700 hover:bg-rose-600 disabled:opacity-60 text-white text-xs px-2 py-1 rounded min-h-[36px]"
                     >
-                        Hide
+                        {bulkBusy === "unload" ? "Unloading…" : "Unload"}
                     </button>
                     <button
                         type="button"

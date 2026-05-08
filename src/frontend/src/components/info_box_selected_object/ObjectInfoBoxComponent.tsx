@@ -2,6 +2,7 @@ import React, {useState} from 'react';
 import {useObjectInfoStore} from '@/state/objectInfoStore';
 import {useSelectedObjectStore} from '@/state/useSelectedObjectStore';
 import {copySelectionNames, writeToClipboard} from '@/utils/clipboard/copySelectionNames';
+import {hideSelectedRanges, unhideAllRanges} from '@/utils/scene/visibility';
 import JsonViewerComponent from './JsonViewerComponent';
 import CoordinateDisplay from "./CoordinateDisplay";
 
@@ -97,6 +98,43 @@ const ObjectInfoBox = () => {
                         {copied === "multi"
                             ? `Copied ${multiSelectCount} ✓`
                             : `Copy all (${multiSelectCount})`}
+                    </button>
+                </div>
+            )}
+            {/* Visibility actions. Hide is the canonical "make this
+                disappear" operation for already-loaded geometry —
+                distinct from the storage browser's "Clear" which
+                unloads the file entirely. The two live in
+                different panels because they act on different
+                things (selection vs scope). Visible on mobile and
+                desktop both: Shift+H/U exists but is undiscoverable;
+                buttons make the operation findable without
+                cluttering desktop unnecessarily (single row, small
+                pills). */}
+            {name && (
+                <div className="mt-2 flex flex-wrap gap-2 items-center">
+                    <button
+                        type="button"
+                        onClick={() => hideSelectedRanges()}
+                        className="bg-gray-700 hover:bg-gray-600 active:bg-gray-800 text-white text-[11px] rounded px-2 py-1"
+                        title={
+                            isMultiSelect
+                                ? `Hide ${multiSelectCount} selected (Shift+H)`
+                                : "Hide selected (Shift+H)"
+                        }
+                        aria-label="Hide selected geometry"
+                    >
+                        🚫 Hide
+                        {isMultiSelect ? ` (${multiSelectCount})` : ""}
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => unhideAllRanges()}
+                        className="bg-gray-700 hover:bg-gray-600 active:bg-gray-800 text-white text-[11px] rounded px-2 py-1"
+                        title="Unhide every hidden draw range across the scene (Shift+U)"
+                        aria-label="Unhide all geometry"
+                    >
+                        👁 Unhide all
                     </button>
                 </div>
             )}

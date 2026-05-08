@@ -7,6 +7,7 @@ import {useOptionsStore} from "@/state/optionsStore";
 import {useTreeViewStore} from "@/state/treeViewStore";
 import CameraControls from "camera-controls";
 import {copySelectionNames} from "@/utils/clipboard/copySelectionNames";
+import {hideSelectedRanges, unhideAllRanges} from "@/utils/scene/visibility";
 
 export function setupCameraControlsHandlers(
     scene: THREE.Scene,
@@ -21,24 +22,9 @@ export function setupCameraControlsHandlers(
         const selectedObjects = useSelectedObjectStore.getState().selectedObjects;
 
         if (shift && key === "h") {
-            selectedObjects.forEach((drawRangeIds, mesh) => {
-                if (!(mesh instanceof CustomBatchedMesh)) {
-                    // loop recursively through the children of the mesh
-                    (mesh as THREE.Object3D).traverse((child: THREE.Object3D) => {
-                        if (child instanceof CustomBatchedMesh) {
-                            child.hideBatchDrawRange(drawRangeIds);
-                        }
-                    });
-                } else {
-                    mesh.hideBatchDrawRange(drawRangeIds);
-                }
-            });
+            hideSelectedRanges();
         } else if (shift && key === "u") {
-            scene.traverse((obj) => {
-                if (obj instanceof CustomBatchedMesh) {
-                    obj.unhideAllDrawRanges();
-                }
-            });
+            unhideAllRanges();
         } else if (shift && key === "f") {
             centerViewOnSelection(controls, camera);
         } else if (shift && key === "a") {
