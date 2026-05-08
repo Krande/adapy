@@ -14,7 +14,12 @@ export async function perform_selection(
     ? selectedRanges.has(rangeId)
     : false;
 
-  if (shiftKey) {
+  // ``additiveMode`` lets mobile users get the same behaviour
+  // shiftKey unlocks on desktop, without needing a Shift key. The
+  // toggle that flips it lives in the Object Info panel and is
+  // mobile-only, so on desktop the OR-clause stays harmless.
+  const additive = shiftKey || selectedObjectStore.additiveMode;
+  if (additive) {
     if (isAlreadySelected) {
       // If Shift is held and the draw range is already selected, deselect it
       selectedObjectStore.removeSelectedObject(obj, rangeId);

@@ -22,6 +22,8 @@ const ObjectInfoBox = () => {
         setIsJsonViewVisible,
     } = useObjectInfoStore();
     const selectedObjects = useSelectedObjectStore((s) => s.selectedObjects);
+    const additiveMode = useSelectedObjectStore((s) => s.additiveMode);
+    const toggleAdditiveMode = useSelectedObjectStore((s) => s.toggleAdditiveMode);
     // Total drawRangeIds across all selected meshes — that's the
     // count of "things selected" the user thinks of (one per
     // clicked element, regardless of how many meshes back them).
@@ -149,6 +151,31 @@ const ObjectInfoBox = () => {
                         aria-label="Unhide all geometry"
                     >
                         👁 Unhide all
+                    </button>
+                    {/* Additive selection toggle. Mobile-only: desktop
+                        users have Shift+click for the same effect, and
+                        adding a chrome button there would be redundant.
+                        Sticky — stays on across taps and even across
+                        deselects, so a multi-pick session is uninterrupted
+                        once enabled. Tap again to turn off. */}
+                    <button
+                        type="button"
+                        onClick={toggleAdditiveMode}
+                        className={
+                            "sm:hidden text-[11px] rounded px-2 py-1 text-white " +
+                            (additiveMode
+                                ? "bg-amber-600 hover:bg-amber-500 active:bg-amber-700"
+                                : "bg-gray-700 hover:bg-gray-600 active:bg-gray-800")
+                        }
+                        title={
+                            additiveMode
+                                ? "Tapping objects adds to selection. Tap to switch back to single-select."
+                                : "Switch to multi-select: subsequent taps will add to the selection instead of replacing it."
+                        }
+                        aria-pressed={additiveMode}
+                        aria-label={additiveMode ? "Disable add-to-selection" : "Enable add-to-selection"}
+                    >
+                        {additiveMode ? "✓ Add mode on" : "+ Add mode"}
                     </button>
                 </div>
             )}

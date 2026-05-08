@@ -10,10 +10,23 @@ type SelectedObjectState = {
     removeSelectedObject: (mesh: CustomBatchedMesh, drawRangeId: string) => void;
     clearSelectedObjects: () => void;
     addBatchofMeshes: (batch: [CustomBatchedMesh, string][]) => void;
+    // Sticky additive-select mode. When true, every scene tap behaves
+    // like a shift+click (toggles membership instead of replacing the
+    // selection). Lets mobile users build a multi-selection without a
+    // Shift key. Tapping the toggle in the Object Info panel flips
+    // this; the kbd Shift modifier still works independently and
+    // produces the same effect ad-hoc.
+    additiveMode: boolean;
+    setAdditiveMode: (v: boolean) => void;
+    toggleAdditiveMode: () => void;
 };
 
 export const useSelectedObjectStore = create<SelectedObjectState>((set) => ({
     selectedObjects: new Map(),
+
+    additiveMode: false,
+    setAdditiveMode: (v) => set({additiveMode: v}),
+    toggleAdditiveMode: () => set((state) => ({additiveMode: !state.additiveMode})),
 
     addSelectedObject: (mesh, drawRangeId) =>
         set((state) => {
