@@ -526,11 +526,18 @@ const StorageBrowser: React.FC = () => {
                     <span className="text-xs text-white whitespace-nowrap">
                         {selection.size} selected
                     </span>
+                    {/* Load is the primary action in this bar
+                        (affirmative — adds models to the scene), so
+                        it gets the same blue as Upload / Refresh.
+                        Unload + Cancel are neutral gray; the
+                        amber row highlight already conveys "these
+                        rows are armed for an action", no need for
+                        red to scream "destructive". */}
                     <button
                         type="button"
                         onClick={() => void onLoadSelected()}
                         disabled={bulkBusy !== null}
-                        className="bg-emerald-700 hover:bg-emerald-600 disabled:opacity-60 text-white text-xs px-2 py-1 rounded min-h-[36px]"
+                        className="bg-blue-700 hover:bg-blue-600 active:bg-blue-800 disabled:opacity-60 text-white text-xs px-2 py-1 rounded min-h-[36px]"
                     >
                         {bulkBusy === "load" ? "Loading…" : "Load"}
                     </button>
@@ -538,7 +545,7 @@ const StorageBrowser: React.FC = () => {
                         type="button"
                         onClick={onUnloadSelected}
                         disabled={bulkBusy !== null}
-                        className="bg-rose-700 hover:bg-rose-600 disabled:opacity-60 text-white text-xs px-2 py-1 rounded min-h-[36px]"
+                        className="bg-gray-700 hover:bg-gray-600 active:bg-gray-800 disabled:opacity-60 text-white text-xs px-2 py-1 rounded min-h-[36px]"
                     >
                         {bulkBusy === "unload" ? "Unloading…" : "Unload"}
                     </button>

@@ -108,7 +108,7 @@ const ObjectInfoBox = () => {
                     <button
                         type="button"
                         onClick={() => void onCopyAll()}
-                        className="bg-blue-700/80 hover:bg-blue-600 active:bg-blue-800 text-white text-[11px] rounded-full px-2 py-0.5"
+                        className="bg-blue-700 hover:bg-blue-600 active:bg-blue-800 text-white text-[11px] rounded-full px-2 py-0.5"
                         aria-label={`Copy all ${multiSelectCount} selected names to clipboard`}
                     >
                         {copied === "multi"
@@ -220,7 +220,8 @@ const ObjectInfoBox = () => {
                     <div className="table-cell w-24">JSON Data:</div>
                     <div className="table-cell w-48">
                         <button
-                            className="bg-blue-500 text-white px-2 py-1 rounded"
+                            type="button"
+                            className="bg-blue-700 hover:bg-blue-600 active:bg-blue-800 text-white text-[11px] rounded px-2 py-1"
                             onClick={toggleJsonView}
                         >
                             {isJsonViewVisible ? 'Hide JSON' : 'Show JSON'}
