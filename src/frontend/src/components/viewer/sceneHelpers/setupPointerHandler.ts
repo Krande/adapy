@@ -8,10 +8,11 @@ import {gpuPointPicker} from "@/utils/mesh_select/GpuPointPicker";
 import {OrbitControls} from "three/examples/jsm/controls/OrbitControls";
 import CameraControls from "camera-controls";
 
-// A second tap inside this window + radius counts as a double-tap.
-// 350ms matches the OS-level double-tap threshold on iOS / Android; we
-// stay generous on the radius (24px) because finger taps are imprecise
-// and we'd rather catch real double-taps than reject borderline ones.
+// A second click/tap inside this window + radius counts as a double.
+// 350ms matches the OS-level double-tap threshold on iOS / Android and
+// is well within typical mouse double-click intervals; the 24px radius
+// is generous on touch (finger taps are imprecise) and inert for mouse
+// (real mouse double-clicks land within a few pixels).
 const DOUBLE_TAP_MS = 350;
 const DOUBLE_TAP_PX = 24;
 
@@ -23,7 +24,6 @@ export function setupPointerHandler(
     controls?: CameraControls | OrbitControls,
 ) {
     let pointerDownPos: { x: number; y: number } | null = null;
-    let pointerDownType: string | null = null;
     const clickThreshold = 5;
 
     let lastTapTime = 0;
@@ -31,7 +31,6 @@ export function setupPointerHandler(
 
     container.addEventListener("pointerdown", (e) => {
         pointerDownPos = {x: e.clientX, y: e.clientY};
-        pointerDownType = e.pointerType;
     });
 
     container.addEventListener("click", async (e: MouseEvent) => {
@@ -40,19 +39,18 @@ export function setupPointerHandler(
         const dy = e.clientY - pointerDownPos.y;
         if (dx * dx + dy * dy > clickThreshold * clickThreshold) return;
 
-        // Double-tap → set the camera's rotation pivot to the world
-        // point under the finger. Touch only by design: desktop users
-        // have middle-click-drag and other ways to orbit, so we don't
-        // want to silently change what double-click does on mouse.
-        // Mobile has no equivalent gesture, so it earns its keep there.
+        // Double-click / double-tap → set the camera's rotation pivot
+        // to the world point under the cursor. Same gesture for mouse
+        // and touch: the first click already set selection state; the
+        // second one is dedicated to repositioning the orbit center.
         //
         // We check timing against the previous tap here rather than
         // relying on the browser's `dblclick` event, which fires
-        // inconsistently on mobile browsers (Safari iOS in particular).
-        const isTouch = pointerDownType === "touch";
+        // inconsistently on mobile browsers (Safari iOS in particular)
+        // and would arrive AFTER the second `click` had already
+        // re-toggled selection on desktop.
         const now = performance.now();
         if (
-            isTouch &&
             controls &&
             lastTapPos &&
             now - lastTapTime <= DOUBLE_TAP_MS &&
