@@ -595,7 +595,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         succeeds; if it doesn't, the file lands but no audit / convert
         happens (storage list still surfaces it).
         """
-        from .converter import is_derived_key, is_supported_source
+        from .converter import is_derived_key, is_supported_source, is_versions_artefact_key
 
         body = await request.json()
         key = (body.get("key") or "").strip().lstrip("/")
@@ -603,7 +603,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail="key required")
         if is_derived_key(key):
             raise HTTPException(status_code=403, detail="cannot write to _derived/")
-        if not is_supported_source(key):
+        if not is_versions_artefact_key(key) and not is_supported_source(key):
             raise HTTPException(status_code=415, detail=f"unsupported file type: {key}")
         meta = await storage.head(scope_obj, key)
         if meta is None:

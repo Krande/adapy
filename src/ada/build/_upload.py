@@ -25,9 +25,15 @@ logger = logging.getLogger(__name__)
 
 # Direct PUT works up to the API server's buffered-upload cap (200 MB
 # at the time of writing). Stay below it with margin; above the
-# threshold use the presigned-URL flow that already exists in the API.
-# TODO: implement presigned-URL fallback when an artefact exceeds this.
+# threshold the API rejects the request with 413 and we fall back to
+# the presigned-URL flow that talks directly to the object store.
 _DIRECT_PUT_THRESHOLD_BYTES = 150 * 1024 * 1024
+
+# Generous ceiling for the direct-PUT path and for the S3 PUT in the
+# presigned flow. CI runners often have modest upload bandwidth and a
+# multi-hundred-MB blob can take a few minutes; the default httpx
+# timeout (5 s) and the previous 120 s value are both too tight.
+_UPLOAD_TIMEOUT_SECONDS = 30 * 60
 
 
 @dataclass
@@ -56,7 +62,7 @@ def _relative_key(branch: str, commit: str, filename: str) -> str:
     return f"versions/{_encode_branch(branch)}/{commit}/{filename}"
 
 
-def _put_blob(
+def _put_blob_direct(
     client: httpx.Client,
     cfg: UploadConfig,
     project_slug: str,
@@ -66,11 +72,6 @@ def _put_blob(
 ) -> None:
     url = f"{cfg.base_url}/api/scopes/project:{project_slug}/blobs/{rel_key}"
     size = file_path.stat().st_size
-    if size > _DIRECT_PUT_THRESHOLD_BYTES:
-        raise NotImplementedError(
-            f"{file_path} is {size} bytes, above the {_DIRECT_PUT_THRESHOLD_BYTES} "
-            "direct-PUT threshold; presigned-URL fallback not yet implemented"
-        )
     with file_path.open("rb") as fh:
         resp = client.put(
             url,
@@ -84,6 +85,89 @@ def _put_blob(
     if resp.status_code >= 400:
         raise RuntimeError(
             f"upload failed for {rel_key}: {resp.status_code} {resp.text}"
+        )
+
+
+def _put_blob_presigned(
+    client: httpx.Client,
+    cfg: UploadConfig,
+    project_slug: str,
+    rel_key: str,
+    file_path: pathlib.Path,
+) -> None:
+    # Three-step flow that mirrors the frontend's large-file path
+    # (`uploadFile` in upload_source_file.ts):
+    #   1. POST /upload-url to mint a one-shot signed URL.
+    #   2. PUT the bytes straight at the object store. Critically, no
+    #      auth or extra headers — S3 SigV4 signs a fixed header set,
+    #      and any unsigned header (e.g. Authorization) breaks the
+    #      signature with SignatureDoesNotMatch.
+    #   3. POST /upload-complete so the server can audit-log the write
+    #      and trigger any downstream conversion. Without this the
+    #      object lands but the server never notices.
+    scope_path = f"/api/scopes/project:{project_slug}"
+    presign_resp = client.post(
+        f"{cfg.base_url}{scope_path}/upload-url",
+        headers={
+            "Authorization": f"Bearer {cfg.token}",
+            "Content-Type": "application/json",
+        },
+        json={"key": rel_key},
+    )
+    if presign_resp.status_code >= 400:
+        raise RuntimeError(
+            f"presign failed for {rel_key}: "
+            f"{presign_resp.status_code} {presign_resp.text}"
+        )
+    presigned_url = presign_resp.json()["url"]
+
+    size = file_path.stat().st_size
+    with file_path.open("rb") as fh:
+        # Read into memory once. Streaming would be tidier, but httpx
+        # over a file handle uses chunked transfer encoding which S3
+        # rejects in this signed-PUT mode; an explicit Content-Length
+        # is required. CI runners have enough RAM for the artefact
+        # sizes we ship (sub-GB GLBs).
+        put_resp = client.put(
+            presigned_url,
+            content=fh.read(),
+            headers={"Content-Length": str(size)},
+        )
+    if put_resp.status_code >= 400:
+        raise RuntimeError(
+            f"presigned PUT failed for {rel_key}: "
+            f"{put_resp.status_code} {put_resp.text}"
+        )
+
+    complete_resp = client.post(
+        f"{cfg.base_url}{scope_path}/upload-complete",
+        headers={
+            "Authorization": f"Bearer {cfg.token}",
+            "Content-Type": "application/json",
+        },
+        json={"key": rel_key},
+    )
+    if complete_resp.status_code >= 400:
+        raise RuntimeError(
+            f"upload-complete failed for {rel_key}: "
+            f"{complete_resp.status_code} {complete_resp.text}"
+        )
+
+
+def _put_blob(
+    client: httpx.Client,
+    cfg: UploadConfig,
+    project_slug: str,
+    rel_key: str,
+    file_path: pathlib.Path,
+    content_type: str,
+) -> None:
+    size = file_path.stat().st_size
+    if size > _DIRECT_PUT_THRESHOLD_BYTES:
+        _put_blob_presigned(client, cfg, project_slug, rel_key, file_path)
+    else:
+        _put_blob_direct(
+            client, cfg, project_slug, rel_key, file_path, content_type
         )
 
 
@@ -113,7 +197,7 @@ def upload_output_dir(
         return 0
 
     count = 0
-    with httpx.Client(timeout=120.0) as client:
+    with httpx.Client(timeout=_UPLOAD_TIMEOUT_SECONDS) as client:
         for artefact, sidecar, meta in pairs:
             artefact_name = meta["artefact"]
             branch = meta["git"]["branch"]
