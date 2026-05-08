@@ -32,6 +32,11 @@ const ObjectInfoBox = () => {
     const isMultiSelect = multiSelectCount > 1;
 
     const [copied, setCopied] = useState<"single" | "multi" | null>(null);
+    // Mobile-only collapse state for the "Clicked @" coords. Default
+    // closed because they take a noticeable chunk of screen real
+    // estate and the user rarely needs the literal click point — the
+    // selection name is what matters most after a tap.
+    const [showCoords, setShowCoords] = useState(false);
     const flashCopied = (which: "single" | "multi") => {
         setCopied(which);
         window.setTimeout(() => setCopied((c) => (c === which ? null : c)), COPIED_FEEDBACK_MS);
@@ -54,41 +59,50 @@ const ObjectInfoBox = () => {
     return (
         <div className="bg-gray-400 bg-opacity-50 rounded p-2 min-w-80">
             <h2 className="font-bold">Selected Object Info</h2>
-            <div className="table-row">
-                <div className="table-cell w-24">Name:</div>
-                <div className="table-cell w-48 break-all">
-                    {/* On mobile the entire name acts as a copy
-                        button — tap-on-text matches the platform
-                        idiom (iOS/Android long-press on labels) and
-                        keeps the panel compact instead of carrying
-                        a separate ``Copy name`` chrome button. On
-                        desktop (``sm:`` breakpoint) the wrapper
-                        ``button`` falls back to displaying the name
-                        as plain text via cursor-text + select-text;
-                        Shift+C remains the canonical kbd path. */}
-                    {name ? (
-                        <button
-                            type="button"
-                            onClick={() => void onCopySingle()}
-                            className={
-                                "text-left break-all w-full sm:cursor-text " +
-                                "sm:select-text sm:bg-transparent sm:hover:bg-transparent " +
-                                "rounded px-1 py-0.5 -mx-1 -my-0.5 hover:bg-blue-700/40 active:bg-blue-700/60"
-                            }
-                            aria-label="Copy name to clipboard"
-                            title="Tap to copy"
-                        >
-                            {copied === "single" ? `${name} ✓` : name}
-                        </button>
-                    ) : null}
-                </div>
-            </div>
+            {/* Name. Two layouts because mobile and desktop have very
+                different real-estate constraints:
+
+                * Mobile (< 640 px): the "Name:" label is implicit
+                  — the panel header already says "Selected Object
+                  Info" and the very next line being the name reads
+                  fine without it. The name button gets the full
+                  panel width so long element names have room to
+                  wrap without truncating off-screen.
+                * Desktop (≥ 640 px): keep the ``Name:`` label in a
+                  fixed-width column for symmetry with the other
+                  rows. Nothing wins from dropping it — the screen
+                  has the space.
+                On both, the name acts as a tap-to-copy target on
+                mobile (iOS/Android long-press idiom) and falls back
+                to plain selectable text on desktop where Shift+C
+                covers the multi-name copy. */}
+            {name && (
+                <>
+                    <div className="hidden sm:table-row">
+                        <div className="table-cell w-24">Name:</div>
+                        <div className="table-cell w-48 break-all">
+                            <NameCopyButton
+                                name={name}
+                                copied={copied === "single"}
+                                onCopy={onCopySingle}
+                            />
+                        </div>
+                    </div>
+                    <div className="sm:hidden break-all">
+                        <NameCopyButton
+                            name={name}
+                            copied={copied === "single"}
+                            onCopy={onCopySingle}
+                        />
+                    </div>
+                </>
+            )}
             {/* Multi-select copy: a small inline pill, mobile-only.
                 Desktop uses Shift+C — adding a pill there would be
                 redundant. Only renders when > 1 element is selected
                 so single-tap selections aren't cluttered. */}
             {name && isMultiSelect && (
-                <div className="sm:hidden mt-1 ml-24">
+                <div className="sm:hidden mt-1">
                     <button
                         type="button"
                         onClick={() => void onCopyAll()}
@@ -142,9 +156,37 @@ const ObjectInfoBox = () => {
                 <div className="table-cell w-24">Face Index:</div>
                 <div className="table-cell w-48">{faceIndex}</div>
             </div>
-            <div className="table-row">
+            {/* Click coordinate. Same mobile/desktop split as the
+                Name row: desktop keeps the fixed-width label
+                column; mobile collapses behind a chevron because
+                the literal click XYZ is rarely the thing the user
+                came to the panel for, and the three numbers cost
+                more vertical space than the name itself. */}
+            <div className="hidden sm:table-row">
                 <div className="table-cell w-24 min-w-24">Clicked @:</div>
                 <CoordinateDisplay clickCoordinate={clickCoordinate} prec={prec} />
+            </div>
+            <div className="sm:hidden mt-2">
+                <button
+                    type="button"
+                    onClick={() => setShowCoords((v) => !v)}
+                    className="flex items-center gap-1 text-[11px] text-gray-200 hover:text-white"
+                    aria-expanded={showCoords}
+                    aria-controls="object-info-click-coord"
+                >
+                    <span className="inline-block w-3">{showCoords ? "▾" : "▸"}</span>
+                    <span>Clicked at</span>
+                </button>
+                {showCoords && (
+                    <div id="object-info-click-coord" className="mt-1 ml-4 table">
+                        <div className="table-row">
+                            <CoordinateDisplay
+                                clickCoordinate={clickCoordinate}
+                                prec={prec}
+                            />
+                        </div>
+                    </div>
+                )}
             </div>
             {jsonData && (
                 <div className="table-row">
@@ -167,5 +209,31 @@ const ObjectInfoBox = () => {
         </div>
     );
 };
+
+// Tap-to-copy name button. Used twice — once inside the desktop
+// table-row layout, once standalone on mobile — so the styling +
+// copied-feedback wiring lives in one place. On mobile the press
+// state is interactive (visible hover/active highlight); on desktop
+// it falls back to plain selectable text (cursor-text + select-text)
+// so users can still click into the cell to highlight + Cmd-C copy.
+const NameCopyButton: React.FC<{
+    name: string;
+    copied: boolean;
+    onCopy: () => Promise<void>;
+}> = ({name, copied, onCopy}) => (
+    <button
+        type="button"
+        onClick={() => void onCopy()}
+        className={
+            "text-left break-all w-full font-medium " +
+            "sm:cursor-text sm:select-text sm:font-normal sm:bg-transparent sm:hover:bg-transparent " +
+            "rounded px-1 py-0.5 -mx-1 -my-0.5 hover:bg-blue-700/40 active:bg-blue-700/60"
+        }
+        aria-label="Copy name to clipboard"
+        title="Tap to copy"
+    >
+        {copied ? `${name} ✓` : name}
+    </button>
+);
 
 export default ObjectInfoBox;
