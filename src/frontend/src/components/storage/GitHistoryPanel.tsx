@@ -1,7 +1,6 @@
-import React, {useEffect, useMemo, useState} from "react";
+import React, {useEffect, useMemo} from "react";
 import {ServerFileEntry} from "@/state/serverInfoStore";
-import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
-import {viewerApi} from "@/services/viewerApi";
+import {BuildSidecar, useBuildSidecars} from "@/hooks/useBuildSidecars";
 
 // Modal-style panel showing CI uploads as a chronological commit
 // timeline, fetched from the per-artefact ``.build.json`` sidecars
@@ -12,24 +11,6 @@ import {viewerApi} from "@/services/viewerApi";
 // Lane-style rendering with parent edges is a follow-up; the data
 // model below already carries ``parents`` so layering it on top is
 // straightforward.
-
-export interface GitProvenance {
-    commit: string;
-    parents: string[];
-    branch: string;
-    author: string;
-    timestamp: string;     // ISO-8601
-    remote_url: string;
-    is_dirty: boolean;
-}
-
-export interface BuildSidecar {
-    schema_version: number;
-    project_id: string;
-    entrypoint: string;
-    artefact: string;      // basename of the GLB
-    git: GitProvenance;
-}
 
 // One row in the rendered timeline. Aggregated across artefacts when
 // a single commit produced multiple files (one row per commit, with
@@ -99,10 +80,13 @@ function branchChipClass(branch: string): string {
     return BRANCH_PALETTE[Math.abs(h) % BRANCH_PALETTE.length];
 }
 
-// Group files into per-commit buckets and synthesise stub rows. The
-// sidecar fetch fills in branch/parents/timestamp/author after the
-// fact.
-function buildSkeleton(files: ServerFileEntry[]): TimelineRow[] {
+// Group files into per-commit buckets and merge in sidecar fields.
+// Rows render immediately from path data; branch/parents/timestamp/
+// author are filled in as the shared sidecar hook resolves them.
+function buildRows(
+    files: ServerFileEntry[],
+    sidecars: ReadonlyMap<string, BuildSidecar | null>,
+): TimelineRow[] {
     const groups = new Map<string, TimelineRow>();
     for (const f of files) {
         const trimmed = f.name.replace(/^\/+/, "");
@@ -114,23 +98,29 @@ function buildSkeleton(files: ServerFileEntry[]): TimelineRow[] {
         const key = `${encodedBranch}/${sha}`;
         let row = groups.get(key);
         if (!row) {
+            const sidecar = sidecars.get(key) ?? null;
             row = {
                 commitKey: key,
                 encodedBranch,
-                branch: encodedBranch.replace(/__/g, "/"),
+                branch: sidecar?.git.branch || encodedBranch.replace(/__/g, "/"),
                 commit: sha,
-                parents: [],
-                author: "",
-                timestamp: "",
-                timestampMs: 0,
+                parents: sidecar?.git.parents ?? [],
+                author: sidecar?.git.author ?? "",
+                timestamp: sidecar?.git.timestamp ?? "",
+                timestampMs: sidecar?.git.timestamp
+                    ? Date.parse(sidecar.git.timestamp) || 0
+                    : 0,
                 artefacts: [],
-                sidecar: null,
+                sidecar,
             };
             groups.set(key, row);
         }
         row.artefacts.push(f);
     }
-    return Array.from(groups.values());
+    // Sort newest-first by sidecar timestamp; rows with missing
+    // sidecars sink to the bottom but keep their SHA for manual
+    // identification.
+    return Array.from(groups.values()).sort((a, b) => b.timestampMs - a.timestampMs);
 }
 
 const GitHistoryPanel: React.FC<Props> = ({
@@ -140,11 +130,13 @@ const GitHistoryPanel: React.FC<Props> = ({
     onToggle,
     onClose,
 }) => {
-    const skeleton = useMemo(() => buildSkeleton(files), [files]);
-    const [rows, setRows] = useState<TimelineRow[]>(skeleton);
-    const [pending, setPending] = useState<number>(skeleton.length);
-    const [errors, setErrors] = useState<number>(0);
-    const scope = scopeUrlPart(useScopeStore.getState().current);
+    const {sidecars, loading} = useBuildSidecars(files);
+    const rows = useMemo(() => buildRows(files, sidecars), [files, sidecars]);
+    const errors = useMemo(
+        () => rows.filter((r) => r.sidecar === null && sidecars.has(r.commitKey)).length,
+        [rows, sidecars],
+    );
+    const pending = loading ? rows.filter((r) => !sidecars.has(r.commitKey)).length : 0;
 
     // Esc to close.
     useEffect(() => {
@@ -154,66 +146,6 @@ const GitHistoryPanel: React.FC<Props> = ({
         window.addEventListener("keydown", onKey);
         return () => window.removeEventListener("keydown", onKey);
     }, [onClose]);
-
-    // Fetch sidecars on mount. Skeleton rows already render
-    // immediately (you can still see commit SHAs) and get filled
-    // in as fetches resolve. Each commit picks the first artefact's
-    // sidecar (they all carry the same git provenance).
-    useEffect(() => {
-        let cancelled = false;
-        const next: TimelineRow[] = skeleton.map((r) => ({...r}));
-        let remaining = next.length;
-        if (remaining === 0) {
-            setPending(0);
-            return;
-        }
-        let errCount = 0;
-        const finalize = (i: number, sidecar: BuildSidecar | null) => {
-            if (cancelled) return;
-            if (sidecar) {
-                next[i].sidecar = sidecar;
-                next[i].branch = sidecar.git.branch || next[i].branch;
-                next[i].parents = sidecar.git.parents ?? [];
-                next[i].author = sidecar.git.author ?? "";
-                next[i].timestamp = sidecar.git.timestamp ?? "";
-                next[i].timestampMs = sidecar.git.timestamp
-                    ? Date.parse(sidecar.git.timestamp) || 0
-                    : 0;
-            } else {
-                errCount += 1;
-            }
-            remaining -= 1;
-            if (remaining === 0) {
-                // Sort newest-first by sidecar timestamp; rows with
-                // missing sidecars sink to the bottom but keep their
-                // SHA for manual identification.
-                next.sort((a, b) => b.timestampMs - a.timestampMs);
-                setRows(next);
-                setPending(0);
-                setErrors(errCount);
-            }
-        };
-        for (let i = 0; i < next.length; i++) {
-            const row = next[i];
-            const sidecarKey = `versions/${row.encodedBranch}/${row.commit}/${row.artefacts[0]?.name.split("/").pop() ?? ""}.build.json`;
-            // The artefact name itself already contains the
-            // ``.glb`` suffix; concatenating ``.build.json`` matches
-            // the upload convention in ada-build's _upload.py.
-            (async () => {
-                try {
-                    const buf = await viewerApi.getBlob(scope, sidecarKey);
-                    const text = new TextDecoder().decode(buf);
-                    finalize(i, JSON.parse(text) as BuildSidecar);
-                } catch (err) {
-                    console.warn(`sidecar fetch failed for ${sidecarKey}:`, err);
-                    finalize(i, null);
-                }
-            })();
-        }
-        return () => {
-            cancelled = true;
-        };
-    }, [skeleton, scope]);
 
     return (
         <div

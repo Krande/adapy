@@ -13,6 +13,7 @@ import ReloadIcon from "../icons/ReloadIcon";
 import UploadIcon from "../icons/UploadIcon";
 import FieldPickerModal from "./FieldPickerModal";
 import GitHistoryPanel from "./GitHistoryPanel";
+import {BuildSidecar, useBuildSidecars} from "@/hooks/useBuildSidecars";
 
 // Files that carry per-(step, field) result data and benefit from the
 // picker UI. SIF is the only one in REST mode today; new formats land
@@ -51,14 +52,21 @@ interface VersionLeaf {
 interface CommitGroup {
     sha: string;                // <commit> path segment (full SHA, usually 40 chars)
     leaves: VersionLeaf[];
-    latestModified: number;     // ms since epoch — max of all leaves' lastModified
+    /** Sort key. Prefers ``git.timestamp`` from the build.json sidecar;
+     *  falls back to S3 ``lastModified`` until the sidecar resolves.
+     *  Mtime is wrong for "latest" because re-running CI on an older
+     *  commit refreshes the mtime — the git timestamp is what actually
+     *  reflects commit order. */
+    sortKey: number;            // ms since epoch
+    /** True when ``sortKey`` came from the sidecar (authoritative). */
+    sortFromSidecar: boolean;
 }
 
 interface BranchGroup {
     encodedBranch: string;      // path-safe form (slashes replaced with __)
     displayBranch: string;      // human-friendly (slashes restored)
-    commits: CommitGroup[];     // sorted newest-first by latestModified
-    latestModified: number;     // max across commits
+    commits: CommitGroup[];     // sorted newest-first by sortKey
+    sortKey: number;            // max across commits
 }
 
 function parseLastModifiedMs(iso: string): number {
@@ -67,7 +75,10 @@ function parseLastModifiedMs(iso: string): number {
     return Number.isFinite(t) ? t : 0;
 }
 
-function classifyFiles(files: ServerFileEntry[]): {
+function classifyFiles(
+    files: ServerFileEntry[],
+    sidecars: ReadonlyMap<string, BuildSidecar | null>,
+): {
     regular: ServerFileEntry[];
     branches: BranchGroup[];
 } {
@@ -106,22 +117,32 @@ function classifyFiles(files: ServerFileEntry[]): {
     for (const [encodedBranch, perBranchMap] of tree) {
         const commits: CommitGroup[] = [];
         for (const [sha, leaves] of perBranchMap) {
-            const latest = leaves.reduce(
+            const sidecar = sidecars.get(`${encodedBranch}/${sha}`);
+            const sidecarTs = sidecar?.git.timestamp
+                ? parseLastModifiedMs(sidecar.git.timestamp)
+                : 0;
+            const mtime = leaves.reduce(
                 (acc, l) => Math.max(acc, parseLastModifiedMs(l.file.lastModified)),
                 0,
             );
-            commits.push({sha, leaves, latestModified: latest});
+            const sortFromSidecar = sidecarTs > 0;
+            commits.push({
+                sha,
+                leaves,
+                sortKey: sortFromSidecar ? sidecarTs : mtime,
+                sortFromSidecar,
+            });
         }
-        commits.sort((a, b) => b.latestModified - a.latestModified);
-        const branchLatest = commits.length > 0 ? commits[0].latestModified : 0;
+        commits.sort((a, b) => b.sortKey - a.sortKey);
+        const branchLatest = commits.length > 0 ? commits[0].sortKey : 0;
         branches.push({
             encodedBranch,
             displayBranch: encodedBranch.replace(/__/g, "/"),
             commits,
-            latestModified: branchLatest,
+            sortKey: branchLatest,
         });
     }
-    branches.sort((a, b) => b.latestModified - a.latestModified);
+    branches.sort((a, b) => b.sortKey - a.sortKey);
     return {regular, branches};
 }
 
@@ -142,6 +163,7 @@ function formatRelative(iso: string): string {
 
 const StorageBrowser: React.FC = () => {
     const files = useServerInfoStore((s) => s.serverFileObjects);
+    const {sidecars} = useBuildSidecars(files);
     const conversionJobs = useConversionStore((s) => s.jobs);
     const loadedSourceNames = useModelState((s) => s.loadedSourceNames);
     const anyLoaded = loadedSourceNames.size > 0;
@@ -449,7 +471,7 @@ const StorageBrowser: React.FC = () => {
                 </div>
             ) : (
                 (() => {
-                    const {regular, branches} = classifyFiles(files);
+                    const {regular, branches} = classifyFiles(files, sidecars);
                     return (
                         <div className="flex flex-col max-h-80 overflow-auto">
                             {regular.length > 0 && (
@@ -478,6 +500,7 @@ const StorageBrowser: React.FC = () => {
                             {branches.length > 0 && (
                                 <VersionsTree
                                     branches={branches}
+                                    sidecars={sidecars}
                                     viewingName={viewingName}
                                     loadedSourceNames={loadedSourceNames}
                                     conversionJobs={conversionJobs}
@@ -792,6 +815,7 @@ const FileRow: React.FC<FileRowProps> = ({
 
 interface VersionsTreeProps {
     branches: BranchGroup[];
+    sidecars: ReadonlyMap<string, BuildSidecar | null>;
     viewingName: string | null;
     loadedSourceNames: ReadonlySet<string>;
     conversionJobs: Record<string, {progress: number; status?: string}>;
@@ -906,7 +930,13 @@ const VersionsTree: React.FC<VersionsTreeProps> = (props) => {
                                                     )}
                                                     <span className="ml-auto text-[10px] text-gray-300/80 shrink-0">
                                                         {formatRelative(
-                                                            c.leaves[0]?.file.lastModified ?? "",
+                                                            // Prefer git timestamp from the sidecar
+                                                            // (commit time); fall back to the blob
+                                                            // mtime while sidecar is loading or
+                                                            // missing. Matches the sort key.
+                                                            props.sidecars.get(`${b.encodedBranch}/${c.sha}`)?.git.timestamp
+                                                            || c.leaves[0]?.file.lastModified
+                                                            || "",
                                                         )}
                                                     </span>
                                                 </button>
