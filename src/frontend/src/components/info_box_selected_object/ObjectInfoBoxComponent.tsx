@@ -132,7 +132,7 @@ const ObjectInfoBox = () => {
                     <button
                         type="button"
                         onClick={() => hideSelectedRanges()}
-                        className="bg-gray-700 hover:bg-gray-600 active:bg-gray-800 text-white text-[11px] rounded px-2 py-1"
+                        className="bg-gray-700 hover:bg-gray-600 active:bg-gray-800 text-white text-[11px] rounded px-2 py-1 inline-flex items-center gap-1"
                         title={
                             isMultiSelect
                                 ? `Hide ${multiSelectCount} selected (Shift+H)`
@@ -140,17 +140,19 @@ const ObjectInfoBox = () => {
                         }
                         aria-label="Hide selected geometry"
                     >
-                        🚫 Hide
+                        <EyeOffIcon/>
+                        Hide
                         {isMultiSelect ? ` (${multiSelectCount})` : ""}
                     </button>
                     <button
                         type="button"
                         onClick={() => unhideAllRanges()}
-                        className="bg-gray-700 hover:bg-gray-600 active:bg-gray-800 text-white text-[11px] rounded px-2 py-1"
+                        className="bg-gray-700 hover:bg-gray-600 active:bg-gray-800 text-white text-[11px] rounded px-2 py-1 inline-flex items-center gap-1"
                         title="Unhide every hidden draw range across the scene (Shift+U)"
                         aria-label="Unhide all geometry"
                     >
-                        👁 Unhide all
+                        <EyeIcon/>
+                        Unhide all
                     </button>
                     {/* Additive selection toggle. Mobile-only: desktop
                         users have Shift+click for the same effect, and
@@ -262,6 +264,25 @@ const NameCopyButton: React.FC<{
     >
         {copied ? `${name} ✓` : name}
     </button>
+);
+
+// Inline SVG icons. Inherit ``currentColor`` so they pick up the
+// button text colour rather than rendering platform-specific emoji
+// colours (the previous 🚫 rendered red on every OS, breaking the
+// neutral grey button palette).
+const EyeIcon: React.FC = () => (
+    <svg viewBox="0 0 16 16" className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
+        <path d="M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z"/>
+        <circle cx="8" cy="8" r="2"/>
+    </svg>
+);
+
+const EyeOffIcon: React.FC = () => (
+    <svg viewBox="0 0 16 16" className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
+        <path d="M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z"/>
+        <circle cx="8" cy="8" r="2"/>
+        <path d="M2 14 14 2"/>
+    </svg>
 );
 
 export default ObjectInfoBox;
