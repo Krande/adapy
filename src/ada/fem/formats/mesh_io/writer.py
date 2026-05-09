@@ -1,18 +1,26 @@
 import os
-from typing import Union
+from typing import TYPE_CHECKING, Union
 
-import meshio
 import numpy as np
 
 from ada.api.spatial import Assembly
 from ada.config import Config, logger
 from ada.fem import FEM
+from ada.fem.exceptions import MeshioNotAvailable
 from ada.fem.formats.general import FEATypes
 from ada.fem.shapes.definitions import MassTypes, SpringTypes
+
+if TYPE_CHECKING:
+    import meshio
 
 
 def meshio_to_fem(assembly: Assembly, name: str, scratch_dir=None, metadata=None, model_data_only=False) -> None:
     """Convert Assembly information to FEM using Meshio"""
+    try:
+        import meshio
+    except ImportError as e:
+        raise MeshioNotAvailable("meshio_to_fem") from e
+
     if scratch_dir is None:
         scratch_dir = Config().fea_scratch_dir
 
@@ -46,7 +54,12 @@ def meshio_to_fem(assembly: Assembly, name: str, scratch_dir=None, metadata=None
         print(f'Exported "{mesh_format}" using meshio to "{analysis_dir}"')
 
 
-def fem_to_meshio(fem: FEM) -> Union[meshio.Mesh, None]:
+def fem_to_meshio(fem: FEM) -> Union["meshio.Mesh", None]:
+    try:
+        import meshio
+    except ImportError as e:
+        raise MeshioNotAvailable("fem_to_meshio") from e
+
     from .common import ada_to_meshio
 
     if len(fem.nodes) == 0:

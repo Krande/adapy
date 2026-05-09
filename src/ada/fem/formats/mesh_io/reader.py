@@ -1,17 +1,20 @@
 from itertools import chain
 
-import meshio
-
 from ada.api.containers import Nodes
 from ada.api.nodes import Node
 from ada.api.spatial import Assembly, Part
 from ada.core.utils import Counter
 from ada.fem import FEM, Elem
 from ada.fem.containers import FemElements
+from ada.fem.exceptions import MeshioNotAvailable
 
 
 def meshio_read_fem(fem_file, fem_name=None):
     """Import a FEM file using the meshio package"""
+    try:
+        import meshio
+    except ImportError as e:
+        raise MeshioNotAvailable("meshio_read_fem") from e
 
     mesh = meshio.read(fem_file)
     name = fem_name if fem_name is not None else "Part-1"

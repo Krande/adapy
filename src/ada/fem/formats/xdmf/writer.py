@@ -4,7 +4,8 @@ from io import BytesIO
 from xml.etree import ElementTree as ET
 
 import numpy
-from meshio.xdmf.common import meshio_to_xdmf_type, meshio_type_to_xdmf_index
+
+from ada.fem.exceptions import MeshioNotAvailable
 
 from .common import (
     attribute_type,
@@ -12,6 +13,15 @@ from .common import (
     numpy_to_xdmf_dtype,
     raw_from_cell_data,
 )
+
+
+def _import_meshio_xdmf():
+    """Lazy import of meshio.xdmf.common — XDMF I/O is a meshio-bridge feature."""
+    try:
+        from meshio.xdmf.common import meshio_to_xdmf_type, meshio_type_to_xdmf_index
+    except ImportError as e:
+        raise MeshioNotAvailable("XDMF writer") from e
+    return meshio_to_xdmf_type, meshio_type_to_xdmf_index
 
 
 class XdmfWriter:
@@ -77,6 +87,8 @@ class XdmfWriter:
 
     def add_cells(self, cells):
         import collections
+
+        meshio_to_xdmf_type, meshio_type_to_xdmf_index = _import_meshio_xdmf()
 
         CellBlock = collections.namedtuple("CellBlock", ["type", "data"])
         if isinstance(cells, dict):

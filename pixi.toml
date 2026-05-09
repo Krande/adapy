@@ -80,9 +80,20 @@ viewer-api = { features = ["viewer-api", "prod"], solve-group = "prod", no-defau
 # Separate test env for the REST viewer module: layers pytest on top
 # of the runtime deps so the production `viewer-api` image stays slim.
 viewer-api-tests = { features = ["viewer-api", "tests-core", "prod"], solve-group = "prod", no-default-feature = true }
+# Test env for the meshio-bridge format adapters (XDMF + .mesh / .vtu /
+# etc. via meshio.write). Layers pytest on top of prod + the optional
+# meshio-bridge feature so the parity test against meshio's reader
+# can run in CI without putting meshio back into prod itself.
+meshio-bridge = { features = ["meshio-bridge", "prod"], solve-group = "prod", no-default-feature = true }
+meshio-bridge-tests = { features = ["meshio-bridge", "tests-core", "prod"], solve-group = "prod", no-default-feature = true }
 
 [feature.jupyterlite.dependencies]
 jupyterlite-core = "*"
+
+[feature.meshio-bridge.dependencies]
+# meshio is unmaintained but still useful as an optional bridge for
+# XDMF / mesh / vtu / etc. — opt in by depending on this feature.
+meshio = "*"
 
 [feature.prod.dependencies]
 python = "3.12.*"
@@ -98,7 +109,6 @@ pyquaternion = "*"
 trimesh = "*"
 occt = "*"
 send2trash = "*"
-meshio = "*"
 websockets = ">=14"
 plotly = "*"
 python-kaleido = ">=1.0.0"
