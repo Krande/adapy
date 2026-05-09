@@ -47,11 +47,15 @@ async function get_ada_ext_design_data(mesh: THREE.Mesh): Promise<DesignDataExte
 
     if (ada_ext.design_objects) {
         for (const design_obj of ada_ext.design_objects) {
-            const design_face_node_ref = design_obj.node_references?.faces;
-            if (mesh.name == design_face_node_ref) {
+            // DesignNodeReference.faces is string[] (vs the single
+            // string on SimNodeReference) — match by membership.
+            const design_face_node_refs = design_obj.node_references?.faces;
+            if (!design_face_node_refs || design_face_node_refs.length === 0) continue;
+            if (design_face_node_refs.includes(mesh.name)) {
                 return design_obj;
             }
-            if (mesh.userData?.name == design_face_node_ref) {
+            const userName = mesh.userData?.name;
+            if (typeof userName === "string" && design_face_node_refs.includes(userName)) {
                 return design_obj;
             }
         }

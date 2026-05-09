@@ -55,7 +55,10 @@ export function loadRobot() {
             })
             .catch((err) => {
                 console.error(`Failed to load STL at ${path}`, err);
-                onComplete(null, err);
+                // urdf-loader's onComplete signature requires a non-null
+                // Object3D; pass an empty placeholder so the loader can
+                // continue handling the rest of the URDF graph.
+                onComplete(new THREE.Group(), err);
             });
     };
     urdfLoader.load(

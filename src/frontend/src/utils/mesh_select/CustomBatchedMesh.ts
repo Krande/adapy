@@ -400,10 +400,11 @@ export class CustomBatchedMesh extends THREE.Mesh {
         // 3) Update the edge-overlay texture in one shot
         if (this.edgeMaterial && this.rangeIdToIndex) {
             const tex = this.edgeMaterial.uniforms.uVisibleTex.value as THREE.DataTexture;
+            const data = tex.image.data as Uint8Array;
             for (const id of rangeIds) {
                 const idx = this.rangeIdToIndex.get(id);
                 if (idx !== undefined) {
-                    tex.image.data[idx] = 0;
+                    data[idx] = 0;
                 }
             }
             tex.needsUpdate = true;
@@ -415,7 +416,7 @@ export class CustomBatchedMesh extends THREE.Mesh {
         this.updateGroups();
         if (this.edgeMaterial) {
             const tex = this.edgeMaterial.uniforms.uVisibleTex.value as THREE.DataTexture;
-            tex.image.data.fill(255);
+            (tex.image.data as Uint8Array).fill(255);
             this.edgeMaterial.uniforms.uHighlighted.value = -1;
             tex.needsUpdate = true;
         }
@@ -470,7 +471,7 @@ export class CustomBatchedMesh extends THREE.Mesh {
     private raycastGroup(
         localRay: THREE.Ray,
         raycaster: THREE.Raycaster,
-        group: { start: number; count: number; materialIndex: number },
+        group: { start: number; count: number; materialIndex?: number },
         material: THREE.Material,
         intersects: THREE.Intersection[]
     ): void {
@@ -604,7 +605,7 @@ export class CustomBatchedMesh extends THREE.Mesh {
         a: number,
         b: number,
         c: number,
-        materialIndex: number
+        materialIndex: number | undefined
     ): THREE.Intersection | null {
         const _vA = vA; // use provided morphed vertices
         const _vB = vB;
@@ -637,9 +638,15 @@ export class CustomBatchedMesh extends THREE.Mesh {
         let uv: THREE.Vector2 | undefined;
 
         if (uvAttribute) {
-            const uvA = this._raycast_uvA.fromBufferAttribute(uvAttribute, a);
-            const uvB = this._raycast_uvB.fromBufferAttribute(uvAttribute, b);
-            const uvC = this._raycast_uvC.fromBufferAttribute(uvAttribute, c);
+            // ``geometry.attributes.uv`` is typed as
+            // ``BufferAttribute | InterleavedBufferAttribute``; both have
+            // identical fromBufferAttribute behaviour at runtime, but
+            // Vector2.fromBufferAttribute's signature only declares
+            // ``BufferAttribute``. Cast through to satisfy the typing.
+            const uvAttr = uvAttribute as THREE.BufferAttribute;
+            const uvA = this._raycast_uvA.fromBufferAttribute(uvAttr, a);
+            const uvB = this._raycast_uvB.fromBufferAttribute(uvAttr, b);
+            const uvC = this._raycast_uvC.fromBufferAttribute(uvAttr, c);
 
             // Compute the UV coordinates at the intersection point
             uv = this._uvIntersection(_vA, _vB, _vC, uvA, uvB, uvC, intersectionPoint);
@@ -675,6 +682,10 @@ export class CustomBatchedMesh extends THREE.Mesh {
             this._raycast_barycoord
         );
         const uv = new THREE.Vector2();
+        // getBarycoord returns null when the point is degenerate (zero-
+        // area triangle); fall back to an empty UV in that case rather
+        // than throwing.
+        if (barycoord === null) return uv;
         uvA.multiplyScalar(barycoord.x);
         uvB.multiplyScalar(barycoord.y);
         uvC.multiplyScalar(barycoord.z);

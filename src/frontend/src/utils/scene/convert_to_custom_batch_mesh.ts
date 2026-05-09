@@ -3,9 +3,15 @@ import * as THREE from "three";
 import {DesignDataExtension, SimulationDataExtensionMetadata} from "@/extensions/design_and_analysis_extension";
 
 export function convert_to_custom_batch_mesh(original: THREE.Mesh, drawRanges: Map<string, [number, number]>, unique_key: string, is_design: boolean = true, ada_ext_data: SimulationDataExtensionMetadata | DesignDataExtension | null = null) {
+    // CustomBatchedMesh holds a single base material; if the source was
+    // a multi-material mesh, take the first one. Multi-material support
+    // would need a wider refactor (per-group materials).
+    const baseMaterial = Array.isArray(original.material)
+        ? original.material[0]
+        : original.material;
     const customMesh = new CustomBatchedMesh(
         original.geometry,
-        original.material,
+        baseMaterial,
         drawRanges,
         unique_key,
         is_design,
