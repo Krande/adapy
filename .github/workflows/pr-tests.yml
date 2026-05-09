@@ -21,7 +21,7 @@ jobs:
 
           - uses: prefix-dev/setup-pixi@v0.9.5 # https://github.com/prefix-dev/setup-pixi
             with:
-              pixi-version: v0.67.0
+              pixi-version: v0.68.0
               cache: true
               environments: lint
 
@@ -43,7 +43,7 @@ jobs:
 
         - uses: prefix-dev/setup-pixi@v0.9.5
           with:
-            pixi-version: v0.67.0
+            pixi-version: v0.68.0
             environments: tests
             cache: true
 

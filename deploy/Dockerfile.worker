@@ -7,7 +7,7 @@
 # itself dominates final image size, so a multi-stage trim wouldn't
 # meaningfully shrink things.
 
-ARG PIXI_VERSION=0.67.0
+ARG PIXI_VERSION=0.68.0
 # CI passes --build-arg IMAGE_TAG=sha-XXXXXXX so the worker can publish
 # its image identity to the shared NATS KV bucket on startup; the
 # viewer reads that to show the running worker tag in /api/config.
