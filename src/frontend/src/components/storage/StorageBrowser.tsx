@@ -833,19 +833,39 @@ interface VersionsTreeProps {
 const VersionsTree: React.FC<VersionsTreeProps> = (props) => {
     const {branches} = props;
     // Auto-expand: the freshest branch + its freshest commit.
-    const initialBranch = branches.length > 0 ? branches[0].encodedBranch : null;
-    const initialCommitKey =
+    //
+    // Why an effect instead of just useState's lazy initializer: on the
+    // first render sidecars haven't loaded yet, so classifyFiles sorts
+    // by S3 mtime and ``branches[0].commits[0]`` is the mtime-freshest
+    // commit, not the git-freshest one. Once sidecars arrive the
+    // sort flips and the "latest" pill moves — but a snapshot taken
+    // at construction time would leave the *wrong* commit auto-
+    // expanded, with the GLB-toggle row sitting under the previous
+    // mtime-freshest commit. Re-sync until the user has interacted;
+    // freeze after any manual toggle so we don't yank an opened
+    // panel shut on the next sidecar update.
+    const freshestBranch = branches.length > 0 ? branches[0].encodedBranch : null;
+    const freshestKey =
         branches.length > 0 && branches[0].commits.length > 0
-            ? `${branches[0].encodedBranch}/${branches[0].commits[0].sha}`
+            ? `${freshestBranch}/${branches[0].commits[0].sha}`
             : null;
+    const userTouchedRef = useRef(false);
     const [openBranches, setOpenBranches] = useState<Set<string>>(
-        () => new Set(initialBranch ? [initialBranch] : []),
+        () => new Set(freshestBranch ? [freshestBranch] : []),
     );
     const [openCommits, setOpenCommits] = useState<Set<string>>(
-        () => new Set(initialCommitKey ? [initialCommitKey] : []),
+        () => new Set(freshestKey ? [freshestKey] : []),
     );
 
+    useEffect(() => {
+        if (userTouchedRef.current) return;
+        if (freshestBranch === null) return;
+        setOpenBranches(new Set([freshestBranch]));
+        setOpenCommits(freshestKey ? new Set([freshestKey]) : new Set());
+    }, [freshestBranch, freshestKey]);
+
     const toggleBranch = (b: string) => {
+        userTouchedRef.current = true;
         setOpenBranches((prev) => {
             const next = new Set(prev);
             if (next.has(b)) next.delete(b);
@@ -854,6 +874,7 @@ const VersionsTree: React.FC<VersionsTreeProps> = (props) => {
         });
     };
     const toggleCommit = (key: string) => {
+        userTouchedRef.current = true;
         setOpenCommits((prev) => {
             const next = new Set(prev);
             if (next.has(key)) next.delete(key);
