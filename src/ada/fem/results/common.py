@@ -2,10 +2,9 @@ from __future__ import annotations
 
 import os
 import pathlib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Callable, Iterable, Literal
 
-import meshio
 import numpy as np
 
 from ada.comms.fb_wrap_model_gen import FilePurposeDC
@@ -25,6 +24,40 @@ if TYPE_CHECKING:
     from ada.fem import Elem, FemSet
     from ada.fem.results.concepts import EigenDataSummary
     from ada.visit.colors import Color
+
+
+@dataclass
+class CellBlockData:
+    """A block of cells (elements) of one type. Native equivalent of meshio.CellBlock.
+
+    ``cell_type`` carries the canonical meshio-style type name
+    ('hexahedron', 'tetra10', 'triangle', etc.) so existing
+    consumers of cell-type strings keep working.
+    """
+
+    cell_type: str
+    data: np.ndarray  # (n_cells, n_nodes_per_cell), node indices
+
+    # Match meshio.CellBlock's older positional-attr name so that
+    # sites using `cell_block.type` keep reading without churn.
+    @property
+    def type(self) -> str:
+        return self.cell_type
+
+
+@dataclass
+class MeshData:
+    """A FEA result mesh in canonical form. Native equivalent of meshio.Mesh.
+
+    Holds vertex coords, cell connectivity in per-type blocks, and
+    per-step result fields keyed by name. Per meshio convention,
+    ``cell_data`` values are lists with one entry per cell block.
+    """
+
+    points: np.ndarray  # (n_points, 3)
+    cells: list[CellBlockData] = field(default_factory=list)
+    point_data: dict[str, np.ndarray] = field(default_factory=dict)
+    cell_data: dict[str, list[np.ndarray]] = field(default_factory=dict)
 
 
 @dataclass
@@ -424,16 +457,6 @@ class FEAResult:
 
         return field_data.get_all_values()
 
-    def _get_cell_blocks(self):
-        cells = []
-        for cb in self.mesh.elements:
-            cell_type = cb.elem_info.type.value.lower()
-            ncopy = cb.node_refs.copy()
-            for i, v in enumerate(self.mesh.nodes.identifiers):
-                ncopy[np.where(ncopy == v)] = i
-            cells += [meshio.CellBlock(cell_type=cell_type, data=ncopy)]
-        return cells
-
     def _get_point_and_cell_data(self) -> tuple[dict, dict]:
         from .field_data import ElementFieldData, NodalFieldData
 
@@ -471,38 +494,12 @@ class FEAResult:
         result = vertices + data[:, :3] * scale
         return result
 
-    def to_meshio_mesh(self, make_3xn_dofs=True) -> meshio.Mesh:
-        cells = self._get_cell_blocks()
-        cell_data, point_data = self._get_point_and_cell_data()
-
-        mesh = meshio.Mesh(points=self.mesh.nodes.coords, cells=cells, cell_data=cell_data, point_data=point_data)
-
-        # RMED has 6xN DOF's vertex vectors, but VTU has 3xN DOF's vectors
-        if make_3xn_dofs:
-            new_fields = {}
-            for key, field in mesh.point_data.items():
-                if field.shape[1] == 6:
-                    new_fields[key] = np.array_split(field, 2, axis=1)[0]
-                else:
-                    new_fields[key] = field
-
-            mesh.point_data = new_fields
-
-        return mesh
-
     def to_vtu(self, filepath, make_3xn_dofs=True):
         from ada.fem.formats.vtu.write import write_to_vtu_file
 
         cell_data, point_data = self._get_point_and_cell_data()
 
         write_to_vtu_file(self.mesh.nodes, self.mesh.elements, point_data, cell_data, filepath)
-
-    def to_fem_file(self, fem_file: str | pathlib.Path):
-        if isinstance(fem_file, str):
-            fem_file = pathlib.Path(fem_file)
-
-        mesh = self.to_meshio_mesh()
-        mesh.write(fem_file)
 
     def to_trimesh(
         self, step: int, field: str, warp_field: str = None, warp_step: int = None, warp_scale: float = None, cfunc=None

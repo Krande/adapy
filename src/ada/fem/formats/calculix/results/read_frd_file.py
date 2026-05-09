@@ -6,14 +6,21 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Iterator
 
-import meshio
 import numpy as np
 
 from ada.base.types import BaseEnum
 from ada.fem.formats.calculix.results.get_version_from_frd import (
     extract_calculix_version,
 )
-from ada.fem.results.common import ElementBlock, ElementInfo, FEAResult, FemNodes, Mesh
+from ada.fem.results.common import (
+    CellBlockData,
+    ElementBlock,
+    ElementInfo,
+    FEAResult,
+    FemNodes,
+    Mesh,
+    MeshData,
+)
 from ada.fem.results.field_data import (
     ElementFieldData,
     FieldData,
@@ -244,12 +251,12 @@ class CcxResultModel:
         return list(results.values())
 
 
-def read_from_frd_file(frd_file) -> meshio.Mesh:
+def read_from_frd_file(frd_file) -> MeshData:
     with open(frd_file, "r") as f:
         ccx_res_model = CcxResultModel(f)
         ccx_res_model.load()
 
-    mesh = to_meshio_mesh(ccx_res_model)
+    mesh = to_mesh_data(ccx_res_model)
     return mesh
 
 
@@ -296,7 +303,7 @@ def to_fea_result_obj(ccx_results: CcxResultModel, frd_file) -> FEAResult:
     )
 
 
-def to_meshio_mesh(ccx_results: CcxResultModel) -> meshio.Mesh:
+def to_mesh_data(ccx_results: CcxResultModel) -> MeshData:
     # Points
     nodes = ccx_results.nodes
     if nodes is None:
@@ -314,23 +321,22 @@ def to_meshio_mesh(ccx_results: CcxResultModel) -> meshio.Mesh:
         cells[cells == original_num] = new_num
 
     shape = ElemShape.get_type_from_elem_array_shape(elements)
-    cell_block = meshio.CellBlock(str(shape.value), cells)
+    cell_block = CellBlockData(cell_type=str(shape.value), data=cells)
 
-    # Point Data
-    # Multiple steps are AFAIK not supported in the meshio Mesh object. So only the last step is used
-    point_data = dict()
+    # Point Data — only the last step is exposed via the mesh-data
+    # interface (matches the prior meshio.Mesh behaviour).
+    point_data: dict[str, np.ndarray] = dict()
     for res in ccx_results.get_last_step_results(CcxPointData):
         values = np.asarray(res.values)[:, 1:]
         point_data[res.name] = values
 
-    # Field Data
-    cell_data = dict()
+    # Field (cell) data — list of one entry per cell block.
+    cell_data: dict[str, list[np.ndarray]] = dict()
     for res in ccx_results.get_last_step_results(CcxFieldData):
         values = np.asarray(res.values)[:, 1:]
         cell_data[res.name] = [values]
 
-    mesh = meshio.Mesh(points=points, cells=[cell_block], cell_data=cell_data, point_data=point_data)
-    return mesh
+    return MeshData(points=points, cells=[cell_block], cell_data=cell_data, point_data=point_data)
 
 
 def safesplit(stripped):

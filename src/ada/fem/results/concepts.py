@@ -6,12 +6,12 @@ import subprocess
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Dict, List
 
-import meshio
 import numpy as np
 
 from ada.config import logger
 from ada.fem.formats.general import FEATypes
-from ada.visit.rendering.femviz import get_edges_and_faces_from_meshio, magnitude
+from ada.fem.results.common import MeshData
+from ada.visit.rendering.femviz import get_edges_and_faces_from_mesh_data, magnitude
 
 # Per-format result readers are imported lazily inside
 # `_get_results_from_result_file` so callers that only need FEAResult
@@ -36,7 +36,7 @@ class Results:
     def register_reader(cls, suffix: str, reader, fem_format) -> None:
         """Register a result-file reader for files ending in ``suffix``.
 
-        ``reader(path)`` should return a meshio.Mesh-compatible object.
+        ``reader(path)`` should return a MeshData object.
         ``fem_format`` is the FEATypes value associated with the source
         format. Registering the same suffix twice replaces the prior
         entry.
@@ -112,7 +112,7 @@ class Results:
         if self._import_mesh is False:
             return None
 
-        print(f'Importing meshio.Mesh from result file "{file_ref}"')
+        print(f'Importing mesh data from result file "{file_ref}"')
         self.result_mesh.add_results(mesh)
 
     def _get_results_from_result_file(self, file_ref, overwrite=False):
@@ -293,7 +293,7 @@ class ResultsMesh:
     fem_format: str
     renderer: object = None
     render_sets: object = None
-    mesh: meshio.Mesh = None
+    mesh: MeshData = None
     undeformed_mesh: None | object = None
     deformed_mesh: tuple[object, object, object] = None
     point_data: list = field(default_factory=list)
@@ -306,11 +306,11 @@ class ResultsMesh:
     def __post_init__(self):
         self.palette = [(0, 149 / 255, 239 / 255), (1, 0, 0)] if self.palette is None else self.palette
 
-    def add_results(self, mesh: meshio.Mesh):
+    def add_results(self, mesh: MeshData):
         self.mesh = mesh
         self.vertices = np.asarray(mesh.points, dtype="float32")
 
-        edges, faces = get_edges_and_faces_from_meshio(mesh)
+        edges, faces = get_edges_and_faces_from_mesh_data(mesh)
         self.edges = np.asarray(edges, dtype="uint16").ravel()
         self.faces = np.asarray(faces, dtype="uint16").ravel()
 
