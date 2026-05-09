@@ -1,7 +1,6 @@
 import pytest
 
 import ada
-from ada.core.hdf_utils import traverse_hdf_datasets
 from ada.fem.formats.code_aster.results import get_eigen_data
 from ada.fem.results import EigenDataSummary
 from ada.visit.gltf.graph import GraphNode, GraphStore
@@ -28,11 +27,6 @@ def test_double_ses_elem_res(fem_files):
     elem_block1 = elem_blocks[0]
     assert len(elem_block1.identifiers) == 2
     # fea_res.show()
-
-
-def test_hdf5_file_structure(code_aster_files):
-    rmed_bm_eig = code_aster_files / "Cantilever_CA_EIG_bm.rmed"
-    traverse_hdf_datasets(rmed_bm_eig)
 
 
 def test_ca_bm_eig(code_aster_files):

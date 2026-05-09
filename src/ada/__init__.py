@@ -212,7 +212,6 @@ if not _PYODIDE:
         fem_file: str | list | pathlib.Path,
         fem_format: str | list = None,
         name: str | list = None,
-        enable_cache=False,
         source_units=Units.M,
         fem_converter="default",
         create_concept_objects=False,
@@ -220,7 +219,7 @@ if not _PYODIDE:
         convert_skip_beams=False,
     ) -> Assembly:
         """Create an Assembly object from a FEM file."""
-        a = Assembly(enable_cache=enable_cache, units=source_units)
+        a = Assembly(units=source_units)
         if isinstance(fem_file, str) or issubclass(type(fem_file), pathlib.Path):
             a.read_fem(fem_file, fem_format, name, fem_converter=fem_converter)
         elif isinstance(fem_file, list):
