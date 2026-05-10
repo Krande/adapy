@@ -3,6 +3,7 @@ import * as THREE from "three";
 import {SceneOperations} from "@/flatbuffers/scene/scene-operations";
 import {runtime} from "@/runtime/config";
 import {fetchFieldBlob} from "@/services/feaFieldBlob";
+import {fetchMeshEdges} from "@/services/feaMeshEdges";
 import {FeaManifest, FeaManifestField, viewerApi} from "@/services/viewerApi";
 import {sceneRef} from "@/state/refs";
 import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
@@ -114,6 +115,39 @@ export async function load_fea_streaming(args: {
         if (mat && "vertexColors" in mat) {
             mat.vertexColors = true;
             mat.needsUpdate = true;
+        }
+
+        // Element-edge wireframe overlay. The bake emits an explicit
+        // edge sidecar (deduped uint32 pairs from each cell's
+        // ElemShape.edges) so the wireframe shows real element
+        // boundaries — not the diagonals from quad-face triangulation.
+        // Sharing the mesh's position attribute means deformation
+        // updates both face and line rendering from a single buffer.
+        if (manifest.mesh.edges_url) {
+            try {
+                const edgeIndices = await fetchMeshEdges(
+                    scope,
+                    sourceName,
+                    manifest.mesh.edges_url,
+                );
+                if (edgeIndices.length > 0) {
+                    const lineGeom = new THREE.BufferGeometry();
+                    lineGeom.setAttribute("position", mesh.geometry.attributes.position);
+                    lineGeom.setIndex(new THREE.BufferAttribute(edgeIndices, 1));
+                    const lineMat = new THREE.LineBasicMaterial({
+                        color: 0x111111,
+                        depthTest: true,
+                    });
+                    const segments = new THREE.LineSegments(lineGeom, lineMat);
+                    segments.name = "fea-element-edges";
+                    mesh.add(segments);
+                }
+            } catch (err) {
+                // Wireframe overlay is decorative — log and continue
+                // so a missing/corrupt sidecar doesn't block rendering.
+                // eslint-disable-next-line no-console
+                console.warn("[fea-streaming] failed to load mesh edges:", err);
+            }
         }
     }
 

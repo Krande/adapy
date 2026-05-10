@@ -39,6 +39,16 @@ BLOB_VERSION = 1
 BLOB_HEADER_BYTES = 1024
 MANIFEST_VERSION = 1
 
+# Mesh-edge sidecar format. Distinct from AFBL: edges are static
+# per source (one-shot, no step stack) and small (~10s of KB), so
+# the header is just magic + version + count, no JSON metadata.
+# Frontend renders these as THREE.LineSegments sharing the mesh's
+# position attribute, so deformation drives both face and line
+# rendering from the same buffer.
+EDGE_MAGIC = b"AFEG"
+EDGE_VERSION = 1
+EDGE_HEADER_BYTES = 16  # magic + version + n_edges + 4-byte pad
+
 
 @dataclass
 class MeshGeometry:
@@ -314,6 +324,51 @@ def write_mesh_glb(geom: MeshGeometry, out_path: os.PathLike) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Mesh-edge sidecar writer
+# ---------------------------------------------------------------------------
+
+
+def write_mesh_edges(geom: MeshGeometry, out_path: os.PathLike) -> int:
+    """Write the per-element edges as a deduped uint32 pair list.
+
+    Edges come from each cell's :class:`ElemShape` directly — they
+    reflect the *element* boundaries, not the artefact diagonals
+    introduced by triangulating quad faces. The frontend renders
+    these as a wireframe overlay so users see actual element
+    topology, which matters for higher-order or quad-faced cells
+    where the visual triangulation would draw misleading edges.
+
+    Adjacent solid elements share edges; we sort each pair and
+    np.unique-dedupe so a typical hex mesh ends up with roughly half
+    the line count.
+    """
+
+    from ada.fem.results.common import MeshData
+    from ada.visit.rendering.femviz import get_edges_and_faces_from_mesh_data
+
+    mesh_data = MeshData(points=geom.points, cells=geom.cell_blocks)
+    edges, _faces = get_edges_and_faces_from_mesh_data(mesh_data)
+
+    if edges:
+        edge_pairs = np.asarray(edges, dtype=np.uint32).reshape(-1, 2)
+        sorted_pairs = np.sort(edge_pairs, axis=1)
+        unique = np.unique(sorted_pairs, axis=0)
+        n_edges = int(unique.shape[0])
+        payload = unique.astype(np.uint32).tobytes(order="C")
+    else:
+        n_edges = 0
+        payload = b""
+
+    out_path = pathlib.Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(out_path, "wb") as f:
+        prefix = EDGE_MAGIC + struct.pack("<II", EDGE_VERSION, n_edges)
+        f.write(prefix + b"\x00" * (EDGE_HEADER_BYTES - len(prefix)))
+        f.write(payload)
+    return n_edges
+
+
+# ---------------------------------------------------------------------------
 # Field blob writer (streaming)
 # ---------------------------------------------------------------------------
 
@@ -447,6 +502,9 @@ def build_manifest(
     mesh_geom: MeshGeometry,
     mesh_glb_filename: str,
     field_metas: list[FieldArtefactMeta],
+    *,
+    mesh_edges_filename: str | None = None,
+    n_edges: int = 0,
     legacy_glb_url_template: str | None = None,
 ) -> dict:
     """Compose the manifest dict from the bake outputs."""
@@ -487,14 +545,19 @@ def build_manifest(
             }
         )
 
+    mesh_meta: dict = {
+        "url": mesh_glb_filename,
+        "n_points": int(mesh_geom.points.shape[0]),
+        "n_cells": n_cells,
+    }
+    if mesh_edges_filename is not None:
+        mesh_meta["edges_url"] = mesh_edges_filename
+        mesh_meta["n_edges"] = int(n_edges)
+
     manifest: dict = {
         "version": MANIFEST_VERSION,
         "src": src,
-        "mesh": {
-            "url": mesh_glb_filename,
-            "n_points": int(mesh_geom.points.shape[0]),
-            "n_cells": n_cells,
-        },
+        "mesh": mesh_meta,
         "fields": fields_payload,
     }
     if legacy_glb_url_template is not None:
@@ -616,6 +679,14 @@ def bake_artefacts(
     mesh_glb_path = out_dir / "fea.mesh.glb"
     write_mesh_glb(geom, mesh_glb_path)
 
+    # Element edges (deduped) — frontend renders them as a
+    # LineSegments overlay sharing the mesh's position attribute,
+    # so the wireframe shows actual element boundaries (not the
+    # arbitrary diagonals from quad-face triangulation) and follows
+    # the deformation automatically.
+    mesh_edges_path = out_dir / "fea.mesh.edges.bin"
+    n_edges = write_mesh_edges(geom, mesh_edges_path)
+
     field_metas: list[FieldArtefactMeta] = []
     blob_paths: list[pathlib.Path] = []
     for spec in reader.field_specs():
@@ -631,6 +702,8 @@ def bake_artefacts(
         mesh_geom=geom,
         mesh_glb_filename=mesh_glb_path.name,
         field_metas=field_metas,
+        mesh_edges_filename=mesh_edges_path.name,
+        n_edges=n_edges,
         legacy_glb_url_template=legacy_glb_url_template,
     )
     manifest_path = out_dir / "fea.manifest.json"

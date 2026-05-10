@@ -271,6 +271,37 @@ def _assert_picker_contract(manifest: dict, *, fixture_label: str) -> None:
         ), f"{fixture_label}: bad default reduction {default_view.get('reduction')!r}"
 
 
+def test_bake_emits_mesh_edges_sidecar(fem_files, tmp_path):
+    """write_mesh_edges produces a deduped uint32 pair list with the
+    AFEG header. The frontend renders these as a wireframe overlay
+    sharing the mesh's position attribute so deformation drives both
+    surface and edges from a single buffer."""
+
+    import struct
+    from ada.fem.results.artefacts import EDGE_HEADER_BYTES, EDGE_MAGIC
+
+    rmed = fem_files / "cantilever/code_aster/eigen_solid_cantilever_code_aster.rmed"
+    if not rmed.exists():
+        pytest.skip("fixture not present")
+
+    bake = bake_fea_artefacts_from_source(rmed, tmp_path / "out", src_key=rmed.stem)
+    manifest = json.loads(bake.manifest_path.read_text())
+
+    assert manifest["mesh"]["edges_url"] == "fea.mesh.edges.bin"
+    assert manifest["mesh"]["n_edges"] > 0
+
+    edges_path = bake.out_dir / "fea.mesh.edges.bin"
+    assert edges_path.exists()
+
+    data = edges_path.read_bytes()
+    assert data[:4] == EDGE_MAGIC
+    version, n_edges = struct.unpack("<II", data[4:12])
+    assert version == 1
+    assert n_edges == manifest["mesh"]["n_edges"]
+    # Payload = n_edges × 2 uint32 indices.
+    assert len(data) == EDGE_HEADER_BYTES + n_edges * 2 * 4
+
+
 @pytest.mark.parametrize("kind,rel", ALL_FEA_FIXTURES)
 def test_bake_satisfies_picker_contract_for_every_fixture(
     fem_files, tmp_path, kind, rel,

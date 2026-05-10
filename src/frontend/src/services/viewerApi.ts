@@ -114,6 +114,12 @@ export interface FeaManifest {
         url: string;
         n_points: number;
         n_cells: number;
+        /** Optional sidecar carrying deduped per-element edge index
+         * pairs. When present, the frontend overlays them as a
+         * THREE.LineSegments sharing the mesh's position attribute
+         * so deformation drives both surface and edges. */
+        edges_url?: string;
+        n_edges?: number;
     };
     fields: FeaManifestField[];
     legacy_glb?: {url_template: string};
