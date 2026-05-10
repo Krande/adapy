@@ -1008,7 +1008,18 @@ const FileRow: React.FC<FileRowProps> = ({
                 </button>
                 <div className="flex items-center gap-1 shrink-0">
                     {isViewing && <Spinner/>}
-                    {!selectionMode && isFEAResult(f.name) && runtime.isRestMode() && runtime.convertEnabled() && (
+                    {/* Legacy single-shot (step, field) picker — kept
+                        only for hypothetical future non-streaming FEA
+                        formats. SIF goes through the streaming bake
+                        now (toggle the checkbox; refine field /
+                        reduction / step in SimulationControls), so
+                        the picker entry point would just confuse the
+                        user with two parallel ways to load the same
+                        file. Gated on ``!isStreamingFEAResult`` so
+                        the moment a new isFEAResult format that is
+                        NOT in the streaming set ships, the picker
+                        re-appears for it without code changes here. */}
+                    {!selectionMode && isFEAResult(f.name) && !isStreamingFEAResult(f.name) && runtime.isRestMode() && runtime.convertEnabled() && (
                         <button
                             className="p-1 rounded text-white hover:bg-gray-300/40 disabled:opacity-50 disabled:cursor-not-allowed"
                             onClick={(e) => {
