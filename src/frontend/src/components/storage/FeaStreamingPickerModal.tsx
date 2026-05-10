@@ -7,6 +7,7 @@ import {
     viewerApi,
 } from "@/services/viewerApi";
 import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
+import {load_fea_mesh_into_scene} from "@/utils/scene/handlers/load_fea_mesh";
 
 interface FeaStreamingPickerModalProps {
     sourceName: string;
@@ -36,6 +37,8 @@ const FeaStreamingPickerModal: React.FC<FeaStreamingPickerModalProps> = ({
     const [loading, setLoading] = useState<boolean>(true);
     const [loadError, setLoadError] = useState<string | null>(null);
     const [copied, setCopied] = useState<boolean>(false);
+    const [applying, setApplying] = useState<boolean>(false);
+    const [applyError, setApplyError] = useState<string | null>(null);
 
     const [fieldName, setFieldName] = useState<string | null>(null);
     const [stepIndex, setStepIndex] = useState<number>(0);
@@ -117,11 +120,13 @@ const FeaStreamingPickerModal: React.FC<FeaStreamingPickerModalProps> = ({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [activeField, reductionOptions]);
 
-    const onApply = () => {
-        if (!activeField || !activeStep) return;
-        // Step 4 wires this into the shader / step scrubber. For now,
-        // log so the picker is exerciseable end-to-end against a real
-        // backend without rendering plumbing.
+    const onApply = async () => {
+        if (!activeField || !activeStep || !manifest) return;
+        // Step 4 will swap this for the deformed-mesh shader path.
+        // For now we log the selection (so the bake-side picker
+        // contract is exerciseable) and load the geometry-only
+        // mesh GLB into the scene so the user gets a visible
+        // confirmation that the bake produced something.
         // eslint-disable-next-line no-console
         console.log("[fea-streaming-picker] selection", {
             source: sourceName,
@@ -132,7 +137,16 @@ const FeaStreamingPickerModal: React.FC<FeaStreamingPickerModalProps> = ({
             reduction,
             colormap: activeField.default_view.colormap,
         });
-        onClose();
+        setApplying(true);
+        setApplyError(null);
+        try {
+            await load_fea_mesh_into_scene(sourceName, manifest);
+            onClose();
+        } catch (err) {
+            setApplyError(err instanceof Error ? err.message : String(err));
+        } finally {
+            setApplying(false);
+        }
     };
 
     return (
@@ -274,19 +288,27 @@ const FeaStreamingPickerModal: React.FC<FeaStreamingPickerModalProps> = ({
                             </label>
                         )}
 
+                        {applyError && (
+                            <div className="flex flex-col gap-1">
+                                <pre className="text-red-400 break-all whitespace-pre-wrap font-mono text-[11px] leading-snug max-h-40 overflow-auto m-0">
+                                    {applyError}
+                                </pre>
+                            </div>
+                        )}
                         <div className="flex justify-end gap-2 pt-1">
                             <button
                                 onClick={onClose}
                                 className="px-3 py-1 text-xs rounded bg-gray-600 hover:bg-gray-500"
+                                disabled={applying}
                             >
                                 Cancel
                             </button>
                             <button
-                                onClick={onApply}
+                                onClick={() => void onApply()}
                                 className="px-3 py-1 text-xs rounded bg-blue-600 hover:bg-blue-500 disabled:opacity-60"
-                                disabled={!activeField || !activeStep}
+                                disabled={!activeField || !activeStep || applying}
                             >
-                                Apply
+                                {applying ? "Loading…" : "Apply"}
                             </button>
                         </div>
                     </div>
