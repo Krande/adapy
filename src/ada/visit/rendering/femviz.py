@@ -22,7 +22,13 @@ def get_edges_and_faces_from_mesh_data(mesh: MeshData):
             edges += elem_shape.edges
             if isinstance(elem_shape.type, shape_def.LineShapes):
                 continue
-            faces += elem_shape.faces
+            # ``get_faces()`` (method) splits quad faces of HEX8/HEX20
+            # into triangle pairs via hex_face_to_tris before flattening.
+            # ``elem_shape.faces`` (property) does *not* — for a HEX mesh
+            # it returns 24 indices per cell (6 quads × 4 indices) and
+            # reshaping into (-1, 3) produces garbage triangulation
+            # crossing quad diagonals incorrectly. Use the method.
+            faces += elem_shape.get_faces()
     return edges, faces
 
 
