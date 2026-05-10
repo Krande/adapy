@@ -1,10 +1,11 @@
-import React, { useEffect } from 'react';
-import { useGroupInfoStore, GroupInfo } from '@/state/groupInfoStore';
-import { adaExtensionRef, sceneRef } from '@/state/refs';
-import { useObjectInfoStore } from '@/state/objectInfoStore';
+import React, {useEffect, useMemo, useRef, useState} from 'react';
+import {useVirtualizer} from "@tanstack/react-virtual";
+
+import {useGroupInfoStore, GroupInfo} from '@/state/groupInfoStore';
+import {adaExtensionRef, sceneRef} from '@/state/refs';
+import {useObjectInfoStore} from '@/state/objectInfoStore';
 import {selectGroupMembers} from "@/utils/selectGroupMembers";
 import {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
-
 
 
 const GroupInfoBox = () => {
@@ -15,14 +16,19 @@ const GroupInfoBox = () => {
         setAvailableGroups,
     } = useGroupInfoStore();
 
-    // Collect groups from ADA extension on component mount
+    // Collect groups from ADA extension on component mount. Some
+    // fixtures (e.g. ship1t1.fem via the legacy convert path) bake
+    // thousands of element / node sets into ADA_EXT_data — building
+    // the array is cheap, but the previous render path expanded the
+    // whole list as <option> children of a native <select>, which
+    // froze the main thread on mount. The combobox below virtualizes
+    // the list so the render stays bounded.
     useEffect(() => {
         const collectGroups = () => {
             const groups: GroupInfo[] = [];
             const adaExtension = adaExtensionRef.current;
-            
+
             if (adaExtension) {
-                // Collect design groups
                 if (adaExtension.design_objects) {
                     adaExtension.design_objects.forEach(designObj => {
                         if (designObj.groups) {
@@ -39,7 +45,6 @@ const GroupInfoBox = () => {
                     });
                 }
 
-                // Collect simulation groups
                 if (adaExtension.simulation_objects) {
                     adaExtension.simulation_objects.forEach(simObj => {
                         if (simObj.groups) {
@@ -57,43 +62,37 @@ const GroupInfoBox = () => {
                     });
                 }
             }
-            
+
             setAvailableGroups(groups);
         };
 
         collectGroups();
     }, [setAvailableGroups]);
 
-    const handleGroupSelection = async (event: React.ChangeEvent<HTMLSelectElement>) => {
-        const selectedGroupName = event.target.value;
-        if (selectedGroupName === '') {
+    const applyGroupSelection = async (group: GroupInfo | null) => {
+        if (!group) {
             setSelectedGroup(null);
             useObjectInfoStore.getState().setName('');
-            // Clear selection will be handled by selectGroupMembers with empty array
             await selectGroupMembers("", [], undefined);
             return;
-        } 
+        }
 
-        const group = availableGroups.find(g => g.name === selectedGroupName);
-        setSelectedGroup(group || null);
+        setSelectedGroup(group);
 
-        if (group && group.members && group.members.length > 0) {
-            // Update object info with group name
+        if (group.members && group.members.length > 0) {
             useObjectInfoStore.getState().setName(`Group: ${group.name}`);
 
-            // Select group members in 3D scene
-            // find CustomBatchedMeshes in scene
             const customBatchedMeshes: CustomBatchedMesh[] = [];
             sceneRef.current?.traverse(obj => {
                 if (obj instanceof CustomBatchedMesh) {
                     customBatchedMeshes.push(obj);
                 }
             });
-            let mesh_obj = null;
+            let mesh_obj: CustomBatchedMesh | null = null;
             for (const cbm of customBatchedMeshes) {
-                if (cbm.ada_ext_data?.name == group.parent_name){
+                if (cbm.ada_ext_data?.name == group.parent_name) {
                     mesh_obj = cbm;
-                    break
+                    break;
                 }
             }
 
@@ -109,23 +108,16 @@ const GroupInfoBox = () => {
         <div className="bg-gray-400 bg-opacity-50 rounded p-2 min-w-80">
             <h2 className="font-bold">Group Information</h2>
             <div className="table-row">
-                <div className="table-cell w-24">Group:</div>
+                <div className="table-cell w-24 align-top pt-1">Group:</div>
                 <div className="table-cell w-48">
-                    <select 
-                        className="w-full p-1 rounded bg-white border"
-                        value={selectedGroup?.name || ''}
-                        onChange={handleGroupSelection}
-                    >
-                        <option value="">Select a group...</option>
-                        {availableGroups.map((group, index) => (
-                            <option key={`${group.name}-${index}`} value={group.name}>
-                                {group.name} ({group.type})
-                            </option>
-                        ))}
-                    </select>
+                    <GroupCombobox
+                        groups={availableGroups}
+                        selected={selectedGroup}
+                        onSelect={(g) => void applyGroupSelection(g)}
+                    />
                 </div>
             </div>
-            
+
             {selectedGroup && (
                 <>
                     <div className="table-row">
@@ -134,14 +126,14 @@ const GroupInfoBox = () => {
                             {selectedGroup.type} Object
                         </div>
                     </div>
-                    
+
                     <div className="table-row">
                         <div className="table-cell w-24">Description:</div>
                         <div className="table-cell w-48">
                             {selectedGroup.description || 'No description available'}
                         </div>
                     </div>
-                    
+
                     <div className="table-row">
                         <div className="table-cell w-24">Members:</div>
                         <div className="table-cell w-48">
@@ -149,6 +141,179 @@ const GroupInfoBox = () => {
                         </div>
                     </div>
                 </>
+            )}
+        </div>
+    );
+};
+
+// ── Combobox ─────────────────────────────────────────────────────────
+//
+// Native <select> can't be virtualized — its <option> children must be
+// in the DOM. For multi-thousand-group fixtures that's a few seconds of
+// main-thread freeze on mount. This trigger-button-plus-popover
+// rendering pattern lets us:
+//
+//   * mount nothing until the user opens it (the trigger only stores
+//     the current selection + group count);
+//   * window-render the option list via @tanstack/react-virtual so
+//     only the ~10 visible rows hit the DOM;
+//   * add a search filter, which is the real ergonomics fix — scrolling
+//     5k groups to find one is unworkable even if the list is fast.
+//
+// Keyboard support is deliberately minimal (Esc closes). Adding full
+// arrow-key navigation is straightforward but felt out of scope for
+// the freeze fix.
+
+const ROW_HEIGHT_PX = 28;
+
+interface GroupComboboxProps {
+    groups: GroupInfo[];
+    selected: GroupInfo | null;
+    onSelect: (group: GroupInfo | null) => void;
+}
+
+const GroupCombobox: React.FC<GroupComboboxProps> = ({groups, selected, onSelect}) => {
+    const [open, setOpen] = useState(false);
+    const [query, setQuery] = useState("");
+    const triggerRef = useRef<HTMLButtonElement | null>(null);
+    const popoverRef = useRef<HTMLDivElement | null>(null);
+    const listRef = useRef<HTMLDivElement | null>(null);
+    const searchRef = useRef<HTMLInputElement | null>(null);
+
+    const filteredGroups = useMemo(() => {
+        if (!query) return groups;
+        const q = query.toLowerCase();
+        return groups.filter((g) => g.name.toLowerCase().includes(q));
+    }, [groups, query]);
+
+    const rowVirtualizer = useVirtualizer({
+        count: filteredGroups.length,
+        getScrollElement: () => listRef.current,
+        estimateSize: () => ROW_HEIGHT_PX,
+        overscan: 8,
+    });
+
+    // Close on outside click + Esc.
+    useEffect(() => {
+        if (!open) return;
+        const onMouseDown = (e: MouseEvent) => {
+            const t = e.target as Node;
+            if (triggerRef.current?.contains(t)) return;
+            if (popoverRef.current?.contains(t)) return;
+            setOpen(false);
+        };
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key === "Escape") setOpen(false);
+        };
+        document.addEventListener("mousedown", onMouseDown);
+        document.addEventListener("keydown", onKey);
+        return () => {
+            document.removeEventListener("mousedown", onMouseDown);
+            document.removeEventListener("keydown", onKey);
+        };
+    }, [open]);
+
+    // Autofocus the filter when the popover opens — typing is the
+    // primary navigation for long lists.
+    useEffect(() => {
+        if (open) searchRef.current?.focus();
+    }, [open]);
+
+    const triggerLabel = selected
+        ? `${selected.name} (${selected.type})`
+        : groups.length === 0
+            ? "No groups available"
+            : `Select a group… (${groups.length})`;
+
+    return (
+        <div className="relative">
+            <div className="flex">
+                <button
+                    ref={triggerRef}
+                    type="button"
+                    onClick={() => setOpen((v) => !v)}
+                    className="flex-1 p-1 rounded bg-white border text-left text-xs truncate"
+                    disabled={groups.length === 0}
+                    title={triggerLabel}
+                >
+                    {triggerLabel}
+                </button>
+                {selected && (
+                    <button
+                        type="button"
+                        onClick={() => onSelect(null)}
+                        className="ml-1 px-1.5 bg-white border rounded text-xs text-gray-700 hover:bg-gray-100"
+                        title="Clear selection"
+                        aria-label="Clear selection"
+                    >
+                        ×
+                    </button>
+                )}
+            </div>
+            {open && (
+                <div
+                    ref={popoverRef}
+                    className="absolute z-50 mt-1 w-full bg-white border rounded shadow-lg"
+                >
+                    <input
+                        ref={searchRef}
+                        type="text"
+                        className="w-full p-1 border-b text-xs"
+                        placeholder={`Filter ${groups.length} group${groups.length === 1 ? "" : "s"}…`}
+                        value={query}
+                        onChange={(e) => setQuery(e.target.value)}
+                    />
+                    <div
+                        ref={listRef}
+                        className="overflow-auto"
+                        style={{maxHeight: 240}}
+                    >
+                        {filteredGroups.length === 0 ? (
+                            <div className="px-2 py-2 text-xs text-gray-500 italic">
+                                No matches
+                            </div>
+                        ) : (
+                            <div
+                                style={{
+                                    height: rowVirtualizer.getTotalSize(),
+                                    position: "relative",
+                                    width: "100%",
+                                }}
+                            >
+                                {rowVirtualizer.getVirtualItems().map((vRow) => {
+                                    const g = filteredGroups[vRow.index];
+                                    const isSelected = selected?.name === g.name;
+                                    return (
+                                        <button
+                                            key={`${g.name}-${vRow.index}`}
+                                            type="button"
+                                            onClick={() => {
+                                                onSelect(g);
+                                                setOpen(false);
+                                                setQuery("");
+                                            }}
+                                            className={
+                                                "absolute left-0 right-0 px-2 text-left text-xs truncate " +
+                                                (isSelected
+                                                    ? "bg-blue-100"
+                                                    : "hover:bg-gray-100")
+                                            }
+                                            style={{
+                                                top: vRow.start,
+                                                height: vRow.size,
+                                                lineHeight: `${vRow.size}px`,
+                                            }}
+                                            title={`${g.name} (${g.type})`}
+                                        >
+                                            {g.name}{" "}
+                                            <span className="text-gray-500">({g.type})</span>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        )}
+                    </div>
+                </div>
             )}
         </div>
     );
