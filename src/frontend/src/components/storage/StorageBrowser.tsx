@@ -13,6 +13,7 @@ import ReloadIcon from "../icons/ReloadIcon";
 import UploadIcon from "../icons/UploadIcon";
 import FieldPickerModal from "./FieldPickerModal";
 import GitHistoryPanel from "./GitHistoryPanel";
+import FeaStreamingPickerModal from "./FeaStreamingPickerModal";
 import {BuildSidecar, useBuildSidecars} from "@/hooks/useBuildSidecars";
 
 // Files that carry per-(step, field) result data and benefit from the
@@ -20,6 +21,14 @@ import {BuildSidecar, useBuildSidecars} from "@/hooks/useBuildSidecars";
 // here when their converter learns to honor (step, field).
 function isFEAResult(name: string): boolean {
     return name.toLowerCase().endsWith(".sif");
+}
+
+// Files that flow through the streaming-viewer artefact bake (mesh
+// GLB + per-field blobs + manifest). Covers SIF and RMED today;
+// FRD lands here in Phase 2.
+function isStreamingFEAResult(name: string): boolean {
+    const lower = name.toLowerCase();
+    return lower.endsWith(".sif") || lower.endsWith(".rmed");
 }
 
 // Small inline CSS spinner. Uses border tricks rather than an SVG so
@@ -226,6 +235,10 @@ const StorageBrowser: React.FC = () => {
     // Source name of the FEA picker modal, or null if closed. Only one
     // picker open at a time matches the file-list interaction model.
     const [pickerName, setPickerName] = useState<string | null>(null);
+    // Source name of the streaming-viewer picker modal (Phase 1
+    // step 3). Parallel to ``pickerName`` so legacy GLB picker and
+    // streaming picker can coexist during build-out.
+    const [streamingPickerName, setStreamingPickerName] = useState<string | null>(null);
     // Owned input — clicking it must happen synchronously inside the
     // button's onClick to preserve the user-activation gesture (iOS Safari
     // refuses the file picker otherwise). The previous implementation
@@ -489,6 +502,7 @@ const StorageBrowser: React.FC = () => {
                                             setExpandedName={setExpandedName}
                                             onToggle={onToggle}
                                             setPickerName={setPickerName}
+                                            setStreamingPickerName={setStreamingPickerName}
                                             selectionMode={inSelectionMode}
                                             isSelected={selection.has(f.name)}
                                             onLongPress={toggleSelection}
@@ -508,6 +522,7 @@ const StorageBrowser: React.FC = () => {
                                     setExpandedName={setExpandedName}
                                     onToggle={onToggle}
                                     setPickerName={setPickerName}
+                                    setStreamingPickerName={setStreamingPickerName}
                                     onOpenGitHistory={() => setGitHistoryOpen(true)}
                                     selectionMode={inSelectionMode}
                                     selection={selection}
@@ -523,6 +538,12 @@ const StorageBrowser: React.FC = () => {
                 <FieldPickerModal
                     sourceName={pickerName}
                     onClose={() => setPickerName(null)}
+                />
+            )}
+            {streamingPickerName && (
+                <FeaStreamingPickerModal
+                    sourceName={streamingPickerName}
+                    onClose={() => setStreamingPickerName(null)}
                 />
             )}
             {gitHistoryOpen && (
@@ -604,6 +625,7 @@ interface FileRowProps {
     setExpandedName: (n: string | null) => void;
     onToggle: (entry: ServerFileEntry, nextChecked: boolean) => Promise<void>;
     setPickerName: (n: string | null) => void;
+    setStreamingPickerName: (n: string | null) => void;
     selectionMode: boolean;
     isSelected: boolean;
     onLongPress: (name: string) => void;
@@ -621,6 +643,7 @@ const FileRow: React.FC<FileRowProps> = ({
     setExpandedName,
     onToggle,
     setPickerName,
+    setStreamingPickerName,
     selectionMode,
     isSelected,
     onLongPress,
@@ -778,6 +801,20 @@ const FileRow: React.FC<FileRowProps> = ({
                             <span className="leading-none text-sm font-mono">⇅</span>
                         </button>
                     )}
+                    {!selectionMode && isStreamingFEAResult(f.name) && runtime.isRestMode() && runtime.convertEnabled() && (
+                        <button
+                            className="p-1 rounded text-white hover:bg-gray-300/40 disabled:opacity-50 disabled:cursor-not-allowed"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                setStreamingPickerName(f.name);
+                            }}
+                            disabled={otherViewing || isViewing}
+                            title="FEA streaming viewer"
+                            aria-label="FEA streaming viewer"
+                        >
+                            <span className="leading-none text-sm font-mono">≋</span>
+                        </button>
+                    )}
                 </div>
             </div>
             {isViewing && (
@@ -823,6 +860,7 @@ interface VersionsTreeProps {
     setExpandedName: (n: string | null) => void;
     onToggle: (entry: ServerFileEntry, nextChecked: boolean) => Promise<void>;
     setPickerName: (n: string | null) => void;
+    setStreamingPickerName: (n: string | null) => void;
     onOpenGitHistory: () => void;
     selectionMode: boolean;
     selection: Set<string>;
@@ -976,6 +1014,7 @@ const VersionsTree: React.FC<VersionsTreeProps> = (props) => {
                                                                 setExpandedName={props.setExpandedName}
                                                                 onToggle={props.onToggle}
                                                                 setPickerName={props.setPickerName}
+                                                                setStreamingPickerName={props.setStreamingPickerName}
                                                                 selectionMode={props.selectionMode}
                                                                 isSelected={props.selection.has(leaf.file.name)}
                                                                 onLongPress={props.onLongPress}

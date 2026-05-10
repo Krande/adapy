@@ -60,6 +60,64 @@ export interface ResultMeta {
     default_field: string;
 }
 
+// ── Streaming-viewer manifest ────────────────────────────────────────
+//
+// Backend mirror: ada.fem.results.artefacts.build_manifest. Wire
+// shape is locked at version 1 — schema changes bump the version
+// field and the client picks a code path off it.
+
+export interface FeaManifestStep {
+    /** 0-based index into the field's step stack. */
+    i: number;
+    /** Time, eigen-frequency, or other monotonic step value. */
+    value: number;
+    /** Picker display label. */
+    label: string;
+}
+
+export type FeaScalarRange = {[component: string]: [number, number]};
+
+export interface FeaManifestField {
+    /** Picker display name; canonicalised across solvers. */
+    name_canonical: string;
+    /** Solver-native name (e.g. "DEPL", "DISP", "U"). */
+    name_native: string;
+    /** scalar | vector3 | vector6 | tensor6 | tensor9 | vectorN. */
+    kind: string;
+    support: "nodal" | "element_nodal" | "gauss";
+    components: string[];
+    blob: {
+        /** Filename relative to the manifest's directory. */
+        url: string;
+        header_bytes: number;
+        stride_bytes: number;
+        dtype: string;
+        byte_order: "little" | "big";
+    };
+    n_steps: number;
+    steps: FeaManifestStep[];
+    /** Per-component min/max baked at write time so the colormap
+     * stays fixed across all steps. Vector fields also carry a
+     * "magnitude" entry. */
+    scalar_range: FeaScalarRange;
+    default_view: {
+        reduction: "magnitude" | "scalar" | string;
+        colormap: string;
+    };
+}
+
+export interface FeaManifest {
+    version: number;
+    src: string;
+    mesh: {
+        url: string;
+        n_points: number;
+        n_cells: number;
+    };
+    fields: FeaManifestField[];
+    legacy_glb?: {url_template: string};
+}
+
 class ApiError extends Error {
     constructor(message: string, public status: number, public detail?: string) {
         super(message);
@@ -427,6 +485,41 @@ export const viewerApi = {
                 `/result-meta?key=${encodeURIComponent(sourceKey)}`,
         );
         return jsonOrThrow<ResultMeta>(r, `resultMeta(${sourceKey})`);
+    },
+
+    /** Streaming-viewer manifest for a FEA source (.rmed or .sif).
+     *
+     * First call for a source bakes the artefact tree (mesh GLB +
+     * per-field blobs + manifest) server-side and uploads it; later
+     * calls hit the cached manifest. Frontend resolves blob URLs as
+     * siblings of the manifest's storage key under the regular blobs
+     * endpoint — see `feaArtefactBlobUrl`.
+     *
+     * 415 on unsupported source extensions, 404 on missing source. */
+    async feaManifest(scope: ScopeUrl, sourceKey: string): Promise<FeaManifest> {
+        const r = await authedFetch(
+            `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}` +
+                `/fea/manifest?key=${encodeURIComponent(sourceKey)}`,
+        );
+        return jsonOrThrow<FeaManifest>(r, `feaManifest(${sourceKey})`);
+    },
+
+    /** Compose the full URL of a FEA artefact blob (mesh GLB or
+     * field blob) under the existing /blobs/{key} route. The
+     * manifest carries plain filenames; this helper makes them
+     * absolute with the right scope + source-prefix shape so callers
+     * don't have to re-encode the convention. */
+    feaArtefactBlobUrl(
+        scope: ScopeUrl,
+        sourceKey: string,
+        filename: string,
+    ): string {
+        const cleanSrc = sourceKey.replace(/^\/+/, "");
+        const cleanFile = filename.replace(/^\/+/, "");
+        return (
+            `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/blobs/` +
+            `_derived/${cleanSrc}.fea/${cleanFile}`
+        );
     },
 
     /** Enqueue a server-side conversion. Returns either a fresh queued

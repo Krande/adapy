@@ -924,13 +924,28 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             # The mesh GLB and field blobs go up alongside the manifest;
             # the existing /blobs/{key:path} endpoint then serves them
             # to the frontend without any new plumbing.
+            #
+            # Compression policy: gzip the manifest JSON (small text,
+            # ~5-10x wins) and the field blobs (~1.3-2x on float32
+            # numeric data). Skip the mesh GLB — it's already binary-
+            # packed, gzip ratio is ~1.05x. Range fetches on .bin will
+            # need a revisit when step 6 lands; today everything is a
+            # whole-file fetch so gzipped .bin files round-trip
+            # transparently via the browser's Accept-Encoding handling.
             uploads = []
             for produced in sorted(bake.out_dir.iterdir()):
                 if not produced.is_file():
                     continue
                 target_key = prefix + produced.name
+                suffix = produced.suffix.lower()
+                content_encoding = "gzip" if suffix in {".json", ".bin"} else None
                 uploads.append(
-                    storage.put_bytes(scope_obj, target_key, produced.read_bytes())
+                    storage.put_bytes(
+                        scope_obj,
+                        target_key,
+                        produced.read_bytes(),
+                        content_encoding=content_encoding,
+                    )
                 )
             try:
                 await asyncio.gather(*uploads)
