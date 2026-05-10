@@ -237,6 +237,89 @@ const StorageTab: React.FC = () => {
         }
     };
 
+    // Bulk-delete the derived blobs for a single source. The backend
+    // /admin DELETE endpoint is one-blob-per-call, so we fan out the
+    // per-derived deletes in parallel — keys are independent and the
+    // browser caps concurrency at ~6 per origin anyway. Errors are
+    // collected and surfaced as a summary so a partial failure
+    // doesn't leave the user guessing which blobs survived.
+    const onDeleteAllDerived = async (file: AdminFileEntry) => {
+        if (file.derived.length === 0) return;
+        const n = file.derived.length;
+        if (!confirm(
+            `Delete all ${n} cached derived product${n === 1 ? "" : "s"} for "${file.key}"? ` +
+            `Sources are not touched; next Convert will regenerate them.`,
+        )) return;
+        setBusyKey(`${file.key}::delete-all-derived`);
+        const failures: string[] = [];
+        try {
+            const results = await Promise.allSettled(
+                file.derived.map((d) => viewerApi.adminDeleteBlob(scope, d.key)),
+            );
+            results.forEach((r, i) => {
+                if (r.status === "rejected") {
+                    const reason = r.reason instanceof ApiError
+                        ? r.reason.detail || r.reason.message
+                        : String(r.reason);
+                    failures.push(`${file.derived[i].key}: ${reason}`);
+                }
+            });
+            if (failures.length) {
+                setError(
+                    `Deleted ${n - failures.length} of ${n}; failures:\n${failures.join("\n")}`,
+                );
+            } else {
+                setError(null);
+            }
+            await reload();
+        } finally {
+            setBusyKey(null);
+        }
+    };
+
+    // Wipe every cached derived product across every source in the
+    // current scope. Costs nothing irrecoverable — sources stay put,
+    // Convert regenerates on demand. Useful after a conversion-
+    // pipeline change when every cached blob is potentially stale.
+    const onClearAllDerived = async () => {
+        const allDerived = files.flatMap((f) =>
+            f.derived.map((d) => ({source: f.key, derivedKey: d.key})),
+        );
+        const total = allDerived.length;
+        if (total === 0) return;
+        if (!confirm(
+            `Clear ALL ${total} cached derived product${total === 1 ? "" : "s"} ` +
+            `in scope "${currentScope?.name ?? "Shared"}"? ` +
+            `Sources are preserved; next Convert regenerates them.`,
+        )) return;
+        setBusyKey("__clear_all_derived__");
+        const failures: string[] = [];
+        try {
+            const results = await Promise.allSettled(
+                allDerived.map((d) => viewerApi.adminDeleteBlob(scope, d.derivedKey)),
+            );
+            results.forEach((r, i) => {
+                if (r.status === "rejected") {
+                    const reason = r.reason instanceof ApiError
+                        ? r.reason.detail || r.reason.message
+                        : String(r.reason);
+                    failures.push(`${allDerived[i].derivedKey}: ${reason}`);
+                }
+            });
+            if (failures.length) {
+                setError(
+                    `Cleared ${total - failures.length} of ${total}; failures:\n${failures.join("\n")}`,
+                );
+            } else {
+                setError(null);
+            }
+            await reload();
+        } finally {
+            setBusyKey(null);
+        }
+    };
+    const totalDerivedAcrossScope = files.reduce((acc, f) => acc + f.derived.length, 0);
+
     return (
         <div className="flex flex-col h-full">
             <div className="flex items-center gap-2 px-3 sm:px-4 py-2 border-b border-gray-700 text-xs">
@@ -275,6 +358,22 @@ const StorageTab: React.FC = () => {
                             Clear
                         </button>
                     </>
+                )}
+                {totalDerivedAcrossScope > 0 && (
+                    <button
+                        type="button"
+                        className="bg-red-900/70 hover:bg-red-800 px-2 py-1 rounded text-[11px] text-gray-100 disabled:opacity-50"
+                        onClick={() => void onClearAllDerived()}
+                        disabled={busyKey === "__clear_all_derived__"}
+                        title={
+                            "Delete every cached derived product (GLB / FEA blob set) " +
+                            "in this scope. Sources are preserved."
+                        }
+                    >
+                        {busyKey === "__clear_all_derived__"
+                            ? `Clearing… (${totalDerivedAcrossScope})`
+                            : `Clear all derived (${totalDerivedAcrossScope})`}
+                    </button>
                 )}
                 <button
                     type="button"
@@ -388,6 +487,7 @@ const StorageTab: React.FC = () => {
                             onDownload={onDownload}
                             onDelete={onDelete}
                             onDeleteDerived={onDeleteDerived}
+                            onDeleteAllDerived={onDeleteAllDerived}
                         />
                     ))}
                     </tbody>
@@ -407,6 +507,7 @@ const StorageTab: React.FC = () => {
                             onDownload={onDownload}
                             onDelete={onDelete}
                             onDeleteDerived={onDeleteDerived}
+                            onDeleteAllDerived={onDeleteAllDerived}
                         />
                     ))}
                 </ul>
@@ -429,6 +530,7 @@ interface RowProps {
     onDownload: (key: string, suggestedName: string) => void;
     onDelete: (key: string, label: string) => void;
     onDeleteDerived: (sourceKey: string, derivedKey: string, label: string) => void;
+    onDeleteAllDerived: (file: AdminFileEntry) => void;
 }
 
 const SourceRow: React.FC<RowProps & {scope: string}> = ({
@@ -440,10 +542,19 @@ const SourceRow: React.FC<RowProps & {scope: string}> = ({
     onDownload,
     onDelete,
     onDeleteDerived,
+    onDeleteAllDerived,
 }) => {
     const downloadable = file.available_targets.filter((t) => t !== "glb");
-    const busyConverting = busyKey?.startsWith(`${file.key}::`) && !busyKey.endsWith("::delete");
+    // Convert / per-blob-derived-delete keys both start with file.key:: ;
+    // we need to also exclude the row-level "delete-all-derived" key from
+    // the converting busy match, otherwise the Convert select shows a
+    // spinner while a derived bulk-delete is in flight.
+    const busyConverting =
+        busyKey?.startsWith(`${file.key}::`) &&
+        !busyKey.endsWith("::delete") &&
+        busyKey !== `${file.key}::delete-all-derived`;
     const busyDeleting = busyKey === `${file.key}::delete`;
+    const busyDeletingAllDerived = busyKey === `${file.key}::delete-all-derived`;
     return (
         <tr className="border-t border-gray-800 align-top">
             <Td>
@@ -470,7 +581,7 @@ const SourceRow: React.FC<RowProps & {scope: string}> = ({
                 {file.last_modified ? file.last_modified.replace("T", " ").slice(0, 19) : "—"}
             </Td>
             <Td>
-                <div className="flex flex-wrap gap-1">
+                <div className="flex flex-wrap gap-1 items-center">
                     {file.derived.length === 0 && <span className="text-gray-500">—</span>}
                     {file.derived.map((d) => {
                         const busyDerived = busyKey === `${d.key}::delete`;
@@ -494,6 +605,18 @@ const SourceRow: React.FC<RowProps & {scope: string}> = ({
                             </span>
                         );
                     })}
+                    {file.derived.length > 1 && (
+                        <button
+                            className="bg-red-900/70 hover:bg-red-800 px-2 py-0.5 rounded text-[11px] text-gray-100 disabled:opacity-50"
+                            onClick={() => onDeleteAllDerived(file)}
+                            disabled={busyDeletingAllDerived}
+                            title="Delete every cached derived blob for this source"
+                        >
+                            {busyDeletingAllDerived
+                                ? `Deleting… (${file.derived.length})`
+                                : `Delete all (${file.derived.length})`}
+                        </button>
+                    )}
                 </div>
             </Td>
             <Td>
@@ -553,10 +676,15 @@ const SourceCard: React.FC<CardProps> = ({
     onDownload,
     onDelete,
     onDeleteDerived,
+    onDeleteAllDerived,
 }) => {
     const downloadable = file.available_targets.filter((t) => t !== "glb");
-    const busyConverting = busyKey?.startsWith(`${file.key}::`) && !busyKey.endsWith("::delete");
+    const busyConverting =
+        busyKey?.startsWith(`${file.key}::`) &&
+        !busyKey.endsWith("::delete") &&
+        busyKey !== `${file.key}::delete-all-derived`;
     const busyDeleting = busyKey === `${file.key}::delete`;
+    const busyDeletingAllDerived = busyKey === `${file.key}::delete-all-derived`;
     return (
         <li className="px-3 py-3 text-xs">
             <div className="flex items-start gap-2">
@@ -594,7 +722,7 @@ const SourceCard: React.FC<CardProps> = ({
             {expanded && (
                 <div className="mt-2 space-y-2">
                     {file.derived.length > 0 && (
-                        <div className="flex flex-wrap gap-1">
+                        <div className="flex flex-wrap gap-1 items-center">
                             {file.derived.map((d) => {
                                 const busyDerived = busyKey === `${d.key}::delete`;
                                 return (
@@ -617,6 +745,18 @@ const SourceCard: React.FC<CardProps> = ({
                                     </span>
                                 );
                             })}
+                            {file.derived.length > 1 && (
+                                <button
+                                    className="bg-red-900/70 hover:bg-red-800 px-2 py-0.5 rounded text-[11px] text-gray-100 disabled:opacity-50"
+                                    onClick={() => onDeleteAllDerived(file)}
+                                    disabled={busyDeletingAllDerived}
+                                    title="Delete every cached derived blob for this source"
+                                >
+                                    {busyDeletingAllDerived
+                                        ? `Deleting… (${file.derived.length})`
+                                        : `Delete all (${file.derived.length})`}
+                                </button>
+                            )}
                         </div>
                     )}
                     <div className="flex flex-wrap gap-1">
