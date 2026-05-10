@@ -1749,8 +1749,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 failed.append({"key": old_src, "reason": "source not found"})
                 continue
 
+            # We've already pre-checked `new_src in live_keys`, so the
+            # collision guard is at the application layer. Pass
+            # overwrite=True because S3-compatible backends raise
+            # ``copy-if-not-exists not supported`` for the safer
+            # default. The narrow remaining race (two admins moving
+            # to the same folder concurrently) would clobber, but
+            # this is an admin-only operation and the audit log
+            # records every move.
             try:
-                await storage.rename(scope_obj, old_src, new_src)
+                await storage.rename(scope_obj, old_src, new_src, overwrite=True)
             except Exception as exc:
                 logger.exception("admin: move failed for %s -> %s", old_src, new_src)
                 failed.append({"key": old_src, "reason": str(exc)})
@@ -1782,8 +1790,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
             sibling_errors: list[str] = []
             for sk_old, sk_new in sibling_pairs:
+                # overwrite=True for the same S3 reason as the source
+                # rename above. Sibling collisions are rare in practice
+                # because the destination derived prefix is always new
+                # (we just renamed the source to a new key).
                 try:
-                    await storage.rename(scope_obj, sk_old, sk_new)
+                    await storage.rename(scope_obj, sk_old, sk_new, overwrite=True)
                     live_keys.discard(sk_old)
                     live_keys.add(sk_new)
                 except Exception as exc:
