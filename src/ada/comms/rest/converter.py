@@ -75,6 +75,26 @@ _FEA_RESULT_EXTS: frozenset[str] = frozenset({".sif"})
 # legacy `_via_fea_result` SIF-only handler to grow an RMED branch.
 _STREAMING_FEA_EXTS: frozenset[str] = frozenset({".rmed"})
 
+# Source extensions accepted by the streaming-viewer bake (manifest
+# endpoint). Mirror of ``ada.fem.results.artefacts.FEA_ARTEFACT_EXTENSIONS``,
+# duplicated here because the slim API container can't import that
+# module — it transitively pulls ada.fem.results.common which the
+# image doesn't carry. Keep both in sync; there's no shared parent
+# module both can import.
+FEA_ARTEFACT_SOURCE_EXTS: frozenset[str] = frozenset({".rmed", ".sif"})
+
+
+def is_fea_artefact_source(src_key_or_path) -> bool:
+    """True if the source extension is in scope for the streaming bake.
+
+    Phase 1 covers .rmed and .sif. The bake itself runs in the worker
+    (see ada.fem.results.artefacts.make_stream_reader for the
+    extension dispatch); this predicate is the API-side gate.
+    """
+
+    suffix = pathlib.PurePosixPath(str(src_key_or_path)).suffix.lower()
+    return suffix in FEA_ARTEFACT_SOURCE_EXTS
+
 # Allowed target formats. Each value is the file extension (with dot)
 # of the produced bytes.
 TARGET_FORMATS: frozenset[str] = frozenset({"glb", "ifc", "xml"})

@@ -35,6 +35,7 @@ const FeaStreamingPickerModal: React.FC<FeaStreamingPickerModalProps> = ({
     const [manifest, setManifest] = useState<FeaManifest | null>(null);
     const [loading, setLoading] = useState<boolean>(true);
     const [loadError, setLoadError] = useState<string | null>(null);
+    const [copied, setCopied] = useState<boolean>(false);
 
     const [fieldName, setFieldName] = useState<string | null>(null);
     const [stepIndex, setStepIndex] = useState<number>(0);
@@ -168,8 +169,33 @@ const FeaStreamingPickerModal: React.FC<FeaStreamingPickerModalProps> = ({
                 )}
 
                 {loadError && (
-                    <div className="text-sm text-red-300 py-2 break-words">
-                        Couldn't load this file: {loadError}
+                    <div className="flex flex-col gap-1 py-2">
+                        <div className="text-sm text-red-300 break-words">
+                            Couldn't load this file:
+                        </div>
+                        <pre className="text-red-400 break-all whitespace-pre-wrap font-mono text-[11px] leading-snug max-h-64 overflow-auto m-0">
+                            {loadError}
+                        </pre>
+                        <div className="flex justify-end">
+                            <button
+                                type="button"
+                                onClick={async () => {
+                                    try {
+                                        await navigator.clipboard.writeText(
+                                            `${sourceName}\n${loadError}`,
+                                        );
+                                        setCopied(true);
+                                        setTimeout(() => setCopied(false), 1500);
+                                    } catch {
+                                        /* clipboard blocked — user can still select-and-copy */
+                                    }
+                                }}
+                                className="bg-gray-700 hover:bg-gray-600 text-gray-100 px-2 py-0.5 rounded text-[11px]"
+                                title="Copy error to clipboard"
+                            >
+                                {copied ? "Copied" : "Copy"}
+                            </button>
+                        </div>
                     </div>
                 )}
 

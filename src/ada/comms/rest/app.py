@@ -32,6 +32,7 @@ from .converter import (
     fea_artefact_manifest_key_for,
     fea_artefact_prefix_for,
     fea_meta_key_for,
+    is_fea_artefact_source,
     is_fea_result_key,
     is_supported_source,
     supported_targets_for,
@@ -856,8 +857,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         full ada.fem stack); the API container is intentionally slim
         and can't import ada.fem at all.
         """
-
-        from ada.fem.results.artefacts import is_fea_artefact_source
 
         source_key = (key or "").strip().lstrip("/")
         if not source_key:

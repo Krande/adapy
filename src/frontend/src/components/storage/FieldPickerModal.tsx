@@ -29,6 +29,17 @@ const FieldPickerModal: React.FC<FieldPickerModalProps> = ({sourceName, onClose}
 
     const [submitting, setSubmitting] = useState<boolean>(false);
     const [submitError, setSubmitError] = useState<string | null>(null);
+    const [copied, setCopied] = useState<boolean>(false);
+
+    const onCopyError = async (text: string) => {
+        try {
+            await navigator.clipboard.writeText(`${sourceName}\n${text}`);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 1500);
+        } catch {
+            /* clipboard blocked — user can still select-and-copy */
+        }
+    };
 
     useEffect(() => {
         let cancelled = false;
@@ -114,8 +125,23 @@ const FieldPickerModal: React.FC<FieldPickerModalProps> = ({sourceName, onClose}
                 )}
 
                 {metaError && (
-                    <div className="text-sm text-red-300 py-2 break-words">
-                        Couldn't read this file: {metaError}
+                    <div className="flex flex-col gap-1 py-2">
+                        <div className="text-sm text-red-300 break-words">
+                            Couldn't read this file:
+                        </div>
+                        <pre className="text-red-400 break-all whitespace-pre-wrap font-mono text-[11px] leading-snug max-h-64 overflow-auto m-0">
+                            {metaError}
+                        </pre>
+                        <div className="flex justify-end">
+                            <button
+                                type="button"
+                                onClick={() => void onCopyError(metaError)}
+                                className="bg-gray-700 hover:bg-gray-600 text-gray-100 px-2 py-0.5 rounded text-[11px]"
+                                title="Copy error to clipboard"
+                            >
+                                {copied ? "Copied" : "Copy"}
+                            </button>
+                        </div>
                     </div>
                 )}
 
@@ -150,8 +176,20 @@ const FieldPickerModal: React.FC<FieldPickerModalProps> = ({sourceName, onClose}
                             </select>
                         </label>
                         {submitError && (
-                            <div className="text-xs text-red-300 break-words">
-                                {submitError}
+                            <div className="flex flex-col gap-1">
+                                <pre className="text-red-400 break-all whitespace-pre-wrap font-mono text-[11px] leading-snug max-h-40 overflow-auto m-0">
+                                    {submitError}
+                                </pre>
+                                <div className="flex justify-end">
+                                    <button
+                                        type="button"
+                                        onClick={() => void onCopyError(submitError)}
+                                        className="bg-gray-700 hover:bg-gray-600 text-gray-100 px-2 py-0.5 rounded text-[11px]"
+                                        title="Copy error to clipboard"
+                                    >
+                                        {copied ? "Copied" : "Copy"}
+                                    </button>
+                                </div>
                             </div>
                         )}
                         <div className="flex justify-end gap-2 pt-1">
