@@ -31,6 +31,17 @@ function isStreamingFEAResult(name: string): boolean {
     return lower.endsWith(".sif") || lower.endsWith(".rmed");
 }
 
+// Files the legacy "load into scene" checkbox can handle — those
+// that have a usable GLB target via the legacy convert pipeline.
+// Mirror of ada.comms.rest.converter.supported_targets_for: anything
+// in _STREAMING_FEA_EXTS (currently .rmed) has no legacy GLB target,
+// only the streaming bake. Until the deformed-mesh shader (Phase 1
+// step 4) wires the streaming path through the checkbox, we just
+// disable the checkbox for .rmed so toggling it doesn't 415.
+function canLoadIntoSceneLegacy(name: string): boolean {
+    return !name.toLowerCase().endsWith(".rmed");
+}
+
 // Small inline CSS spinner. Uses border tricks rather than an SVG so
 // it scales with text size and stays crisp at 16px tall icons.
 const Spinner: React.FC<{className?: string}> = ({className = ""}) => (
@@ -949,9 +960,11 @@ const FileRow: React.FC<FileRowProps> = ({
                                 ? "Loading…"
                                 : otherViewing
                                     ? "Another file is loading"
-                                    : isLoaded
-                                        ? "Loaded in scene — uncheck to remove just this file"
-                                        : "Add to scene (overlays alongside any other loaded files)"
+                                    : !canLoadIntoSceneLegacy(f.name)
+                                        ? "Use the ≋ button to open the streaming viewer"
+                                        : isLoaded
+                                            ? "Loaded in scene — uncheck to remove just this file"
+                                            : "Add to scene (overlays alongside any other loaded files)"
                         }
                     >
                         <input
@@ -959,7 +972,10 @@ const FileRow: React.FC<FileRowProps> = ({
                             className="h-5 w-5 shrink-0 cursor-pointer disabled:cursor-not-allowed"
                             checked={isLoaded}
                             onChange={(e) => onToggle(f, e.target.checked)}
-                            disabled={isViewing || otherViewing}
+                            disabled={
+                                isViewing || otherViewing ||
+                                !canLoadIntoSceneLegacy(f.name)
+                            }
                             aria-busy={isViewing || undefined}
                         />
                     </label>
