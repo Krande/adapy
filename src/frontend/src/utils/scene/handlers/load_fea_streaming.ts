@@ -255,6 +255,18 @@ export async function load_fea_streaming(args: {
                     });
                     const segments = new THREE.LineSegments(lineGeom, lineMat);
                     segments.name = "fea-element-edges";
+                    // Layer 1: rendered (camera enables layers 0+1) but
+                    // not pickable (setupPointerHandler's raycaster
+                    // explicitly disables layer 1). prepareLoadedModel
+                    // does the same to the GLB's own LineSegments, but
+                    // it runs before this block — our streaming wireframe
+                    // is added afterwards, so we have to set the layer
+                    // ourselves. Without it, shell elements (where line
+                    // and triangle are coplanar) let the line win the
+                    // raycaster's distance race; the click resolves to
+                    // a LineSegments with no unique_key and selection
+                    // fails with "No drawRanges found for key: undefined".
+                    segments.layers.set(1);
                     // Share the mesh's morph attribute + influences
                     // array so the line wireframe morphs in lockstep
                     // with the face mesh. We set this *after* the
