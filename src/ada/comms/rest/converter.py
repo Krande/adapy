@@ -68,6 +68,13 @@ _BUNDLE_EXTS: frozenset[str] = frozenset({".zip"})
 # and the export call signature is different (see `_via_fea_result`).
 _FEA_RESULT_EXTS: frozenset[str] = frozenset({".sif"})
 
+# FEA result files supported by the streaming-viewer bake endpoint
+# (`/api/scopes/{scope}/fea/manifest`) but NOT by the legacy
+# `convert` GLB pipeline. RMED lands here so uploads validate and
+# the manifest endpoint accepts the source, without forcing the
+# legacy `_via_fea_result` SIF-only handler to grow an RMED branch.
+_STREAMING_FEA_EXTS: frozenset[str] = frozenset({".rmed"})
+
 # Allowed target formats. Each value is the file extension (with dot)
 # of the produced bytes.
 TARGET_FORMATS: frozenset[str] = frozenset({"glb", "ifc", "xml"})
@@ -113,6 +120,29 @@ def derived_key_for(
 # but still scoped to the source.
 _FEA_META_SUFFIX = ".meta.json"
 
+# Per-source prefix for the streaming-viewer artefact tree. Holds the
+# manifest, the geometry-only mesh GLB, and one binary blob per field.
+# Distinct from `_FEA_META_SUFFIX` (the legacy steps/fields inventory)
+# so the two can coexist during the streaming-viewer rollout.
+_FEA_ARTEFACT_SUFFIX = ".fea/"
+
+
+def fea_artefact_prefix_for(source_key: str) -> str:
+    """Per-source storage prefix for streaming-viewer FEA artefacts.
+
+    For source ``models/wall.rmed`` the manifest lives at
+    ``_derived/models/wall.rmed.fea/fea.manifest.json``; field blobs
+    at ``_derived/models/wall.rmed.fea/fea.<field>.bin``; mesh GLB at
+    ``_derived/models/wall.rmed.fea/fea.mesh.glb``.
+    """
+
+    src = source_key.strip("/")
+    return f"_derived/{src}{_FEA_ARTEFACT_SUFFIX}"
+
+
+def fea_artefact_manifest_key_for(source_key: str) -> str:
+    return fea_artefact_prefix_for(source_key) + "fea.manifest.json"
+
 
 def fea_meta_key_for(source_key: str) -> str:
     src = source_key.strip("/")
@@ -141,6 +171,7 @@ def is_supported_source(key: str) -> bool:
         or ext in _ADA_LOADABLE_EXTS
         or ext in _BUNDLE_EXTS
         or ext in _FEA_RESULT_EXTS
+        or ext in _STREAMING_FEA_EXTS
     )
 
 

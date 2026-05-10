@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import functools
 import json
 import os
 import pathlib
+import shutil
 import tempfile
 from contextlib import asynccontextmanager
 from dataclasses import asdict
@@ -27,6 +29,8 @@ from .converter import (
     TARGET_FORMATS,
     UnsupportedFormat,
     derived_key_for,
+    fea_artefact_manifest_key_for,
+    fea_artefact_prefix_for,
     fea_meta_key_for,
     is_fea_result_key,
     is_supported_source,
@@ -825,6 +829,136 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             # just computed, just at the cost of recomputing next time.
             logger.exception("result-meta: cache write failed for %s", meta_key)
         return JSONResponse(meta)
+
+    @api.get("/scopes/{scope}/fea/manifest")
+    async def api_scope_fea_manifest(
+        key: str,
+        scope_obj: Scope = Depends(_scope_from_path),
+    ) -> JSONResponse:
+        """Return the streaming-viewer manifest for a FEA source.
+
+        On first call for a source the manifest doesn't yet exist —
+        the endpoint bakes the artefact tree (mesh GLB + per-field
+        blobs + manifest) under
+        ``_derived/<src>.fea/`` and uploads each artefact to storage.
+        Subsequent calls serve the cached manifest directly.
+
+        Frontend resolves blob URLs in the manifest as siblings of the
+        manifest key under the regular blobs endpoint:
+        ``GET /api/scopes/{scope}/blobs/_derived/<src>.fea/<filename>``.
+
+        Phase 1 runs the bake synchronously (matches the result-meta
+        pattern). For very big sources where the bake exceeds request-
+        timeout limits we'll move to a 202 + poll job, but the picker
+        UX hasn't yet been shown to need it.
+        """
+
+        from ada.fem.results.artefacts import (
+            bake_fea_artefacts_from_source,
+            is_fea_artefact_source,
+        )
+
+        source_key = (key or "").strip().lstrip("/")
+        if not source_key:
+            raise HTTPException(status_code=400, detail="key required")
+        if not is_fea_artefact_source(source_key):
+            raise HTTPException(
+                status_code=415,
+                detail=(
+                    f"streaming FEA viewer only supports .rmed and .sif sources; "
+                    f"got {source_key!r}"
+                ),
+            )
+        if not await storage.exists(scope_obj, source_key):
+            raise HTTPException(status_code=404, detail=f"source not found: {source_key}")
+
+        manifest_key = fea_artefact_manifest_key_for(source_key)
+        try:
+            cached = await storage.get_bytes(scope_obj, manifest_key)
+        except FileNotFoundError:
+            cached = None
+        except Exception:
+            logger.exception("fea-manifest: cache read failed for %s", manifest_key)
+            cached = None
+        if cached:
+            try:
+                return JSONResponse(json.loads(cached.decode("utf-8")))
+            except Exception:
+                logger.exception(
+                    "fea-manifest: cache parse failed for %s; rebuilding", manifest_key
+                )
+
+        # Cache miss — pull source to a tempfile and bake on a thread.
+        src_suffix = pathlib.PurePosixPath(source_key).suffix or ""
+        src_fd, src_name = tempfile.mkstemp(suffix=src_suffix)
+        os.close(src_fd)
+        src_path = pathlib.Path(src_name)
+        bake_dir = pathlib.Path(tempfile.mkdtemp(prefix="fea-bake-"))
+        try:
+            try:
+                await storage.stream_to_path(scope_obj, source_key, src_path)
+            except FileNotFoundError as exc:
+                raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+            loop = asyncio.get_running_loop()
+            try:
+                bake = await loop.run_in_executor(
+                    None,
+                    functools.partial(
+                        bake_fea_artefacts_from_source,
+                        src_path,
+                        bake_dir,
+                        src_key=source_key,
+                    ),
+                )
+            except UnsupportedFormat as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from exc
+            except Exception as exc:
+                logger.exception("fea-manifest: bake failed for %s", source_key)
+                raise HTTPException(status_code=500, detail=f"bake failed: {exc}") from exc
+
+            prefix = fea_artefact_prefix_for(source_key)
+            manifest_bytes = bake.manifest_path.read_bytes()
+
+            # Upload every produced artefact under the per-source prefix.
+            # The mesh GLB and field blobs go up alongside the manifest;
+            # the existing /blobs/{key:path} endpoint then serves them
+            # to the frontend without any new plumbing.
+            uploads = []
+            for produced in sorted(bake.out_dir.iterdir()):
+                if not produced.is_file():
+                    continue
+                target_key = prefix + produced.name
+                uploads.append(
+                    storage.put_bytes(scope_obj, target_key, produced.read_bytes())
+                )
+            try:
+                await asyncio.gather(*uploads)
+            except Exception as exc:
+                logger.exception(
+                    "fea-manifest: artefact upload failed for %s", source_key
+                )
+                raise HTTPException(
+                    status_code=500, detail=f"artefact upload failed: {exc}"
+                ) from exc
+        finally:
+            try:
+                src_path.unlink()
+            except OSError:
+                pass
+            try:
+                shutil.rmtree(bake_dir, ignore_errors=True)
+            except Exception:
+                pass
+
+        try:
+            return JSONResponse(json.loads(manifest_bytes.decode("utf-8")))
+        except Exception:
+            # Bake produced a manifest we can't parse — surface as 500;
+            # we already uploaded so the cached copy will hit the same
+            # error on next request, but the user gets a clean failure.
+            logger.exception("fea-manifest: produced manifest unparseable for %s", source_key)
+            raise HTTPException(status_code=500, detail="manifest produced is unparseable")
 
     @api.get("/convert/{job_id}")
     async def api_convert_status(
