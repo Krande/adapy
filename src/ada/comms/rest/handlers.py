@@ -60,8 +60,18 @@ _EXT_TO_TYPE: dict[str, FileTypeDC] = {
 # We flag them as IFC on the wire so the frontend's "non-GLB → needs
 # conversion" branch fires; the actual format is recoverable from the
 # filename extension if needed.
+#
+# .sif and .rmed land here so the FEA picker buttons in the storage
+# browser are reachable. FileTypeDC has no FEA-specific value, so
+# they ride on IFC like the other convertable sources; the frontend
+# discriminates off the extension (isFEAResult / isStreamingFEAResult)
+# rather than the wire type.
 _CONVERTABLE_AS_IFC: frozenset[str] = frozenset(
-    {".step", ".stp", ".xml", ".inp", ".fem", ".sat", ".acis", ".obj", ".stl", ".ply", ".dae", ".off"}
+    {
+        ".step", ".stp", ".xml", ".inp", ".fem", ".sat", ".acis",
+        ".obj", ".stl", ".ply", ".dae", ".off",
+        ".sif", ".rmed",
+    }
 )
 
 
