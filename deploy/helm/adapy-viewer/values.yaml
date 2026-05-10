@@ -123,6 +123,14 @@ storage:
   s3:
     bucket: viewer
     endpoint: ""    # e.g. http://garage:3900 — required for non-AWS
+    ## Optional public-facing endpoint used ONLY for presigned URL minting
+    ## (large-file browser uploads). Set this when the API talks to the
+    ## object store over an in-cluster hostname (e.g. http://garage.garage.
+    ## svc.cluster.local:3900) but the browser must reach the same store
+    ## over a public HTTPS URL — leaving it empty signs URLs against the
+    ## internal endpoint, which the browser then can't resolve and which
+    ## triggers Mixed Content blocks under HTTPS pages.
+    endpointPublic: ""
     region: garage
     prefix: ""
     virtualHostedStyle: false

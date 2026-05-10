@@ -48,6 +48,10 @@ spec:
               value: {{ .Values.storage.s3.bucket | quote }}
             - name: ADA_VIEWER_S3_ENDPOINT
               value: {{ include "adapy-viewer.s3Endpoint" . | quote }}
+            {{- with .Values.storage.s3.endpointPublic }}
+            - name: ADA_VIEWER_S3_ENDPOINT_PUBLIC
+              value: {{ . | quote }}
+            {{- end }}
             - name: ADA_VIEWER_S3_REGION
               value: {{ .Values.storage.s3.region | quote }}
             - name: ADA_VIEWER_S3_PREFIX

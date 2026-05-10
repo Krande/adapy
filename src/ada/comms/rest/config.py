@@ -8,6 +8,16 @@ from dataclasses import dataclass
 class S3Config:
     bucket: str
     endpoint: str | None
+    # Optional public-facing endpoint used ONLY for presigned URL minting.
+    # When the API process talks to the object store over an in-cluster
+    # hostname (e.g. ``http://garage.garage.svc.cluster.local:3900``) but
+    # the browser must reach the same store over a public HTTPS URL,
+    # the presigned URL needs the public hostname or two things break:
+    # (1) Mixed Content blocks the HTTPS page from PUTting to http://;
+    # (2) the cluster-local DNS name doesn't resolve from the browser.
+    # Leave None (or equal to ``endpoint``) for deployments where the
+    # same endpoint reaches both sides.
+    endpoint_public: str | None
     region: str
     access_key_id: str | None
     secret_access_key: str | None
@@ -136,6 +146,7 @@ def load_settings() -> Settings:
         s3 = S3Config(
             bucket=os.environ["ADA_VIEWER_S3_BUCKET"],
             endpoint=os.environ.get("ADA_VIEWER_S3_ENDPOINT"),
+            endpoint_public=os.environ.get("ADA_VIEWER_S3_ENDPOINT_PUBLIC", "").strip() or None,
             region=os.environ.get("ADA_VIEWER_S3_REGION", "us-east-1"),
             access_key_id=os.environ.get("ADA_VIEWER_S3_ACCESS_KEY_ID"),
             secret_access_key=os.environ.get("ADA_VIEWER_S3_SECRET_ACCESS_KEY"),

@@ -76,11 +76,20 @@ class StreamResult:
 
 
 class Storage:
-    def __init__(self, store, prefix: str) -> None:
+    def __init__(self, store, prefix: str, presign_store=None) -> None:
         # `store` is whichever obstore backend implementation we built.
         # LocalStore and S3Store don't share a public Protocol but expose
         # the same get_async / list / stream surface.
         self._store = store
+        # Used only by ``presigned_put_url``. Defaults to ``store`` so the
+        # single-endpoint case stays a no-op. When the deployment hands
+        # the browser a different (public HTTPS) hostname than the one
+        # the API uses internally, this is a separate S3Store pointed at
+        # the public endpoint so the URL it signs resolves + obeys
+        # Mixed-Content rules. Same bucket + same credentials, just a
+        # different endpoint — signatures stay valid because object_store
+        # signs against the host header derived from the endpoint URL.
+        self._presign_store = presign_store if presign_store is not None else store
         # Trim trailing slashes so callers can treat it as a directory.
         self._prefix = prefix.strip("/")
 
@@ -105,7 +114,27 @@ class Storage:
             if cfg.secret_access_key:
                 kwargs["secret_access_key"] = cfg.secret_access_key
             store = S3Store(cfg.bucket, **kwargs)
-            return cls(store, prefix=cfg.prefix)
+
+            # Build a separate S3Store for presign-time URL minting only
+            # when the operator has set a different public endpoint.
+            # Skipping this when the two endpoints are equal avoids
+            # holding two stores against the same target.
+            presign_store = None
+            if cfg.endpoint_public and cfg.endpoint_public != cfg.endpoint:
+                presign_kwargs = dict(kwargs)
+                presign_kwargs["endpoint"] = cfg.endpoint_public
+                # Public endpoints should be HTTPS in practice; recompute
+                # the allow_http flag against the public URL so we don't
+                # leak the cluster-local relaxation to a public host (or
+                # incorrectly require allow_http when the public URL is
+                # https while the internal one is http).
+                if cfg.endpoint_public.lower().startswith("http://"):
+                    presign_kwargs["allow_http"] = True
+                else:
+                    presign_kwargs.pop("allow_http", None)
+                presign_store = S3Store(cfg.bucket, **presign_kwargs)
+
+            return cls(store, prefix=cfg.prefix, presign_store=presign_store)
 
         assert settings.local is not None
         return cls(LocalStore(settings.local.path), prefix=settings.local.prefix)
@@ -246,7 +275,11 @@ class Storage:
         URL the browser can hit directly. False for LocalStore — the
         local backend has no HTTP surface, so very large uploads must
         either be rejected or chunked through the API process."""
-        return isinstance(self._store, S3Store)
+        # Check the presign store specifically: if the operator set a
+        # public endpoint, that's the store actually doing the signing.
+        # In the default single-endpoint case _presign_store is _store
+        # so this collapses to the original check.
+        return isinstance(self._presign_store, S3Store)
 
     async def presigned_put_url(
         self, scope: Scope, key: str, expires_in_seconds: int = 3600
@@ -270,7 +303,7 @@ class Storage:
                 "LocalStore is not supported"
             )
         return await obs.sign_async(
-            self._store,
+            self._presign_store,
             "PUT",
             self._full_key(scope, key),
             timedelta(seconds=expires_in_seconds),
