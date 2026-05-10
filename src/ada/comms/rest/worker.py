@@ -206,6 +206,72 @@ async def _run_fea_artefact_bake(
             pass
 
 
+async def _run_fea_meta_compute(
+    *,
+    job: Job,
+    src_path: pathlib.Path,
+    scope,
+    storage: "Storage",
+    queue: "JobQueue",
+    db_pool: "asyncpg.Pool | None",
+    started_at: float,
+    _on_progress: Callable[[str, float], Awaitable[None]],
+) -> None:
+    """Compute the legacy FieldPickerModal step/field inventory.
+
+    Sibling to the convert path; produces a small JSON that gets
+    cached under ``_derived/<src>.meta.json`` (`fea_meta_key_for`).
+    Source has already been streamed to ``src_path``. compute_fea_meta
+    parses the SIF deck on a thread (the parse can be 30 s+ on a
+    multi-hundred-MB deck).
+    """
+
+    job_id = job.job_id
+
+    from .converter import compute_fea_meta
+
+    await _on_progress("parsing", 0.20)
+    loop = asyncio.get_running_loop()
+    try:
+        meta = await loop.run_in_executor(None, compute_fea_meta, src_path)
+    except Exception as exc:
+        logger.exception("worker: fea_meta compute failed for %s", job.source_key)
+        trace = tb_module.format_exc()
+        await queue.update(
+            job_id, status=JOB_STATUS_ERROR, stage="convert", error=str(exc)
+        )
+        await _audit_done(
+            db_pool, job_id, "error", str(exc), started_at, traceback=trace,
+        )
+        return
+
+    await _on_progress("uploading", 0.90)
+    import json as _json
+
+    try:
+        await storage.put_bytes(
+            scope,
+            job.derived_key,
+            _json.dumps(meta).encode("utf-8"),
+            content_encoding="gzip",
+        )
+    except Exception as exc:
+        logger.exception("worker: fea_meta upload failed for %s", job.source_key)
+        trace = tb_module.format_exc()
+        await queue.update(
+            job_id, status=JOB_STATUS_ERROR, stage="upload", error=str(exc),
+        )
+        await _audit_done(
+            db_pool, job_id, "error", str(exc), started_at, traceback=trace,
+        )
+        return
+
+    await queue.update(
+        job_id, status=JOB_STATUS_DONE, stage="ready", progress=1.0, error=None,
+    )
+    await _audit_done(db_pool, job_id, "done", None, started_at)
+
+
 async def _process_one(
     job_id: str,
     queue: JobQueue,
@@ -406,6 +472,24 @@ async def _process_one(
         # isolation for the convert path.
         if job.target_format == "fea_artefacts":
             await _run_fea_artefact_bake(
+                job=job,
+                src_path=src_path,
+                scope=scope,
+                storage=storage,
+                queue=queue,
+                db_pool=db_pool,
+                started_at=started_at,
+                _on_progress=_on_progress,
+            )
+            return
+
+        # FEA legacy-picker meta cache (steps/fields inventory used by
+        # FieldPickerModal). compute_fea_meta imports
+        # ada.fem.formats.sesam.results.read_sif which the slim API
+        # container can't import — this branch is the worker-side
+        # half so the legacy picker actually works in deployed envs.
+        if job.target_format == "fea_meta":
+            await _run_fea_meta_compute(
                 job=job,
                 src_path=src_path,
                 scope=scope,

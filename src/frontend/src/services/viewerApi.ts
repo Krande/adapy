@@ -475,16 +475,56 @@ export const viewerApi = {
         return jsonOrThrow(r, `completeUpload(${key})`);
     },
 
-    /** Inventory of (steps, fields) for a FEA result file. Result is
-     * cached server-side after the first parse — calling repeatedly is
-     * cheap. 415 if the source isn't a result file; 422 if it is but
-     * has no usable result data. */
+    /** Inventory of (steps, fields) for a FEA result file.
+     *
+     * Cache hit: returns the parsed inventory immediately.
+     * Cache miss: server enqueues a worker SIF parse and returns 202.
+     * This client polls /api/convert/{job_id} until done, then
+     * re-fetches the endpoint and returns the parsed body.
+     *
+     * The parse runs in the worker container — the slim API container
+     * lacks ada.fem and SIF decks can take 30 s+ to parse anyway.
+     *
+     * 415 if the source isn't a result file; 422 if it is but has
+     * no usable result data. */
     async resultMeta(scope: ScopeUrl, sourceKey: string): Promise<ResultMeta> {
-        const r = await authedFetch(
+        const url =
             `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}` +
-                `/result-meta?key=${encodeURIComponent(sourceKey)}`,
-        );
-        return jsonOrThrow<ResultMeta>(r, `resultMeta(${sourceKey})`);
+            `/result-meta?key=${encodeURIComponent(sourceKey)}`;
+        const r = await authedFetch(url);
+        if (r.ok) {
+            return jsonOrThrow<ResultMeta>(r, `resultMeta(${sourceKey})`);
+        }
+        if (r.status !== 202) {
+            throw new ApiError(
+                `resultMeta(${sourceKey}) failed: ${r.status} ${r.statusText}`,
+                r.status,
+                await readDetail(r),
+            );
+        }
+        const queued = (await r.json()) as {job_id: string};
+        const startedAt = Date.now();
+        const TIMEOUT_MS = 5 * 60 * 1000;
+        while (true) {
+            await new Promise((res) => setTimeout(res, 600));
+            if (Date.now() - startedAt > TIMEOUT_MS) {
+                throw new ApiError(
+                    `resultMeta(${sourceKey}) timed out after 5 min`,
+                    504,
+                );
+            }
+            const status = await this.convertStatus(queued.job_id);
+            if (status.status === "error") {
+                throw new ApiError(
+                    `resultMeta(${sourceKey}) parse failed: ${status.error ?? "unknown"}`,
+                    500,
+                    status.error ?? undefined,
+                );
+            }
+            if (status.status === "done") break;
+        }
+        const r2 = await authedFetch(url);
+        return jsonOrThrow<ResultMeta>(r2, `resultMeta(${sourceKey}) refetch`);
     },
 
     /** Streaming-viewer manifest for a FEA source (.rmed or .sif).

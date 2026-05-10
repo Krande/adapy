@@ -749,22 +749,26 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @api.get("/scopes/{scope}/result-meta")
     async def api_scope_result_meta(
+        request: Request,
         key: str,
         scope_obj: Scope = Depends(_scope_from_path),
+        user: User = Depends(auth_module.current_user),
     ) -> JSONResponse:
         """Return the (steps, fields) inventory for a FEA result file.
 
-        Cached as ``_derived/<src>.meta.json`` after the first parse —
-        SIF parsing on multi-hundred-MB decks takes 30s+ and the picker
-        UI is interactive, so we do not want to recompute on every
-        modal open.
+        Cache hit: 200 with the parsed JSON.
+        Cache miss: 202 with ``{"job_id": ..., "status": "queued"}``;
+        frontend polls ``/api/convert/{job_id}`` until done, then
+        re-fetches this endpoint to get the body.
+
+        SIF parsing on multi-hundred-MB decks takes 30 s+ and the
+        slim API container doesn't carry ada.fem at all — both
+        reasons push the work into the worker queue. Same shape as
+        the streaming-viewer manifest endpoint.
 
         404 if the source is missing; 415 if the source isn't a FEA
-        result file (the picker shouldn't ask in the first place, but
-        guarding here lets the frontend treat the endpoint as the
-        source of truth).
+        result file.
         """
-        from .converter import compute_fea_meta
 
         source_key = (key or "").strip().lstrip("/")
         if not source_key:
@@ -783,7 +787,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except FileNotFoundError:
             cached = None
         except Exception:
-            # Treat any cache-read hiccup as a miss; recompute is the
+            # Treat any cache-read hiccup as a miss; rebuild is the
             # safer path than handing the user a 500 because of a stale
             # half-written meta blob.
             logger.exception("result-meta: cache read failed for %s", meta_key)
@@ -792,43 +796,47 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             try:
                 return JSONResponse(json.loads(cached.decode("utf-8")))
             except Exception:
-                logger.exception("result-meta: cache parse failed for %s; recomputing", meta_key)
+                logger.exception("result-meta: cache parse failed for %s; rebuilding", meta_key)
 
-        # Cache miss — pull source to a tempfile and parse on a thread.
-        src_suffix = pathlib.PurePosixPath(source_key).suffix or ""
-        src_fd, src_name = tempfile.mkstemp(suffix=src_suffix)
-        os.close(src_fd)
-        src_path = pathlib.Path(src_name)
-        try:
-            try:
-                await storage.stream_to_path(scope_obj, source_key, src_path)
-            except FileNotFoundError as exc:
-                raise HTTPException(status_code=404, detail=str(exc)) from exc
-            loop = asyncio.get_running_loop()
-            try:
-                meta = await loop.run_in_executor(None, compute_fea_meta, src_path)
-            except UnsupportedFormat as exc:
-                raise HTTPException(status_code=422, detail=str(exc)) from exc
-            except Exception as exc:
-                logger.exception("result-meta: parse failed for %s", source_key)
-                raise HTTPException(status_code=500, detail=f"parse failed: {exc}") from exc
-        finally:
-            try:
-                src_path.unlink()
-            except OSError:
-                pass
-
-        try:
-            await storage.put_bytes(
-                scope_obj,
-                meta_key,
-                json.dumps(meta).encode("utf-8"),
+        # Cache miss — enqueue a worker job and return 202. Frontend
+        # polls /convert/{job_id} until done, then re-fetches this
+        # endpoint.
+        if not queue.enabled:
+            raise HTTPException(
+                status_code=503,
+                detail="result-meta disabled (no NATS configured)",
             )
-        except Exception:
-            # Cache write is best-effort — we still return the meta we
-            # just computed, just at the cost of recomputing next time.
-            logger.exception("result-meta: cache write failed for %s", meta_key)
-        return JSONResponse(meta)
+        try:
+            job = await queue.enqueue(
+                source_key,
+                "fea_meta",
+                scope_kind=scope_obj.kind,
+                scope_id=scope_obj.id,
+                derived_key=meta_key,
+            )
+        except Exception as exc:
+            logger.exception("result-meta: enqueue failed for %s", source_key)
+            await _audit(
+                request, user, scope_obj, "fea_meta",
+                key=source_key, status="error", error=str(exc),
+            )
+            raise HTTPException(status_code=503, detail=f"enqueue failed: {exc}") from exc
+
+        await _audit(
+            request, user, scope_obj, "fea_meta",
+            key=source_key, status="queued", job_id=job.job_id,
+        )
+        return JSONResponse(
+            {
+                "job_id": job.job_id,
+                "source_key": source_key,
+                "meta_key": meta_key,
+                "status": job.status,
+                "progress": job.progress,
+                "stage": job.stage,
+            },
+            status_code=202,
+        )
 
     @api.get("/scopes/{scope}/fea/manifest")
     async def api_scope_fea_manifest(
