@@ -75,6 +75,13 @@ export interface FeaAnimationState {
      * Drives the colour LUT in ``applyFieldToMesh``. */
     reduction: string;
 
+    /** Active colormap ID — one of the keys in ``COLORMAPS``
+     * (utils/scene/fea/colormaps.ts). Drives the per-vertex colour
+     * sampling in ``applyFieldToMesh``. Changing this re-applies the
+     * active step via ``applyStep`` so the displayed colours update
+     * without a re-fetch. */
+    colormap: string;
+
     /** Step-change callback registered by ``load_fea_streaming``.
      * SimulationControls calls this when the user drags the step
      * slider; the closure runs another ``load_fea_streaming`` with
@@ -93,6 +100,7 @@ export interface FeaAnimationState {
     setManifest: (m: FeaManifest | null) => void;
     setFieldName: (n: string | null) => void;
     setReduction: (r: string) => void;
+    setColormap: (c: string) => void;
     setApplyStep: (cb: ((stepIndex: number) => Promise<void>) | null) => void;
     /** Reset to inactive — called when the scene is replaced. */
     reset: () => void;
@@ -114,6 +122,7 @@ export const useFeaAnimationStore = create<FeaAnimationState>((set) => ({
     manifest: null,
     fieldName: null,
     reduction: "magnitude",
+    colormap: "viridis",
     applyStep: null,
 
     setSessionActive: (active) => set({sessionActive: active}),
@@ -128,6 +137,7 @@ export const useFeaAnimationStore = create<FeaAnimationState>((set) => ({
     setManifest: (manifest) => set({manifest}),
     setFieldName: (fieldName) => set({fieldName}),
     setReduction: (reduction) => set({reduction}),
+    setColormap: (colormap) => set({colormap}),
     setApplyStep: (cb) => set({applyStep: cb}),
     reset: () =>
         set({
@@ -142,6 +152,9 @@ export const useFeaAnimationStore = create<FeaAnimationState>((set) => ({
             manifest: null,
             fieldName: null,
             reduction: "magnitude",
+            // Don't reset ``colormap`` on scene clear — it's a per-user
+            // preference, not per-session. Users who picked Abaqus
+            // rainbow once want it to stick across model swaps.
             applyStep: null,
         }),
 }));

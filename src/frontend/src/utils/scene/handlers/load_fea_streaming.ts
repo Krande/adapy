@@ -151,12 +151,18 @@ export async function load_fea_streaming(args: {
     stepIndex: number;
     reduction: string;
     displacementScale?: number;
+    /** Colormap ID — one of the keys in ``COLORMAPS``. Optional so
+     * existing call-sites that don't care still work; we fall back to
+     * the active store value (and from there to viridis if unset). */
+    colormap?: string;
 }): Promise<void> {
     if (!runtime.isRestMode()) {
         throw new Error("FEA streaming viewer is only available in REST mode");
     }
     const {sourceName, manifest, fieldName, stepIndex, reduction} = args;
     const displacementScale = args.displacementScale ?? 1;
+    const colormap =
+        args.colormap ?? useFeaAnimationStore.getState().colormap;
 
     if (!manifest || !Array.isArray(manifest.fields)) {
         throw new Error(
@@ -293,6 +299,7 @@ export async function load_fea_streaming(args: {
         field,
         reduction,
         displacementScale,
+        colormap,
     });
 
     // Link the edge overlay's morph state to the mesh's so the
@@ -319,6 +326,7 @@ export async function load_fea_streaming(args: {
     animStore.setManifest(manifest);
     animStore.setFieldName(fieldName);
     animStore.setReduction(reduction);
+    animStore.setColormap(colormap);
 
     // applyStep closure captures the *current* (sourceName, manifest,
     // fieldName, reduction). SimulationControls calls this when the
@@ -326,6 +334,11 @@ export async function load_fea_streaming(args: {
     // load_fea_streaming with the updated stepIndex. Re-registering
     // on every apply keeps the closure fresh even when the user
     // changes field / reduction via the SimulationControls dropdowns.
+    // Colormap intentionally reads from the store at call time
+    // (load_fea_streaming pulls it from useFeaAnimationStore when the
+    // arg is omitted) so a colormap change between apply and the next
+    // step drag still picks up the latest selection without needing
+    // to re-register the callback here.
     animStore.setApplyStep(async (newStepIndex: number) => {
         await load_fea_streaming({
             sourceName,

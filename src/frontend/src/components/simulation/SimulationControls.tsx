@@ -21,6 +21,7 @@ import React, {useEffect, useMemo, useState} from "react";
 import {useAnimationStore} from "@/state/animationStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {animationControllerRef} from "@/state/refs";
+import {COLORMAP_NAMES} from "@/utils/scene/fea/colormaps";
 import {resetFeaAnimationPhase} from "@/utils/scene/fea/feaAnimationDriver";
 import {load_fea_streaming} from "@/utils/scene/handlers/load_fea_streaming";
 import PlayPauseIcon from "../icons/PlayPauseIcon";
@@ -72,12 +73,21 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
         manifest,
         fieldName,
         reduction,
+        colormap,
         applyStep,
         setFactor,
         setPeriod,
         setIsPlaying,
         setStepIndex,
+        setColormap,
     } = useFeaAnimationStore();
+
+    // Options panel toggle — currently houses just the colormap
+    // picker. Kept folded by default so the controls row stays
+    // single-line; new per-session preferences (background tone,
+    // scalar-bar tick density, etc.) land in here without adding
+    // top-level buttons.
+    const [showOptions, setShowOptions] = useState(false);
 
     const [lo, hi] = range;
     // Step granularity for the factor slider — 200 stops over the
@@ -166,6 +176,26 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
         }
     };
 
+    const onColormapChange = (next: string) => {
+        // Update the store first so the applyStep closure (which
+        // reads colormap off the store at call time) sees the new
+        // value, then re-run load_fea_streaming on the current
+        // (field, step, reduction) so the mesh re-colours without
+        // re-fetching the blob. Cheap — applyFieldToMesh is the only
+        // work that runs since active.sourceName matches.
+        setColormap(next);
+        if (!sourceName || !manifest || !fieldName) return;
+        void load_fea_streaming({
+            sourceName,
+            manifest,
+            fieldName,
+            stepIndex,
+            reduction,
+            displacementScale: factor,
+            colormap: next,
+        });
+    };
+
     return (
         <div className="flex flex-col gap-2 min-w-0">
             {/* Field + reduction selectors — moved here from the
@@ -249,6 +279,17 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                 >
                     <FEMDataPanelIcon/>
                 </button>
+                <button
+                    className={
+                        "bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded " +
+                        (showOptions ? "ring-2 ring-blue-300" : "")
+                    }
+                    onClick={() => setShowOptions((v) => !v)}
+                    title="Visualisation options"
+                    aria-pressed={showOptions}
+                >
+                    <GearIcon/>
+                </button>
                 <div className="flex items-center gap-2 min-w-[100px] max-w-sm w-full">
                     <input
                         type="range"
@@ -277,9 +318,47 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                     s
                 </div>
             </div>
+
+            {showOptions && (
+                <div className="flex flex-row items-center gap-x-3 px-2 py-1 rounded bg-gray-900/40 text-xs text-white">
+                    <label className="flex items-center gap-1">
+                        <span className="text-gray-300">Colormap</span>
+                        <select
+                            className="text-black bg-white rounded px-1 py-0.5"
+                            value={colormap}
+                            onChange={(e) => onColormapChange(e.target.value)}
+                        >
+                            {COLORMAP_NAMES.map((name) => (
+                                <option key={name} value={name}>
+                                    {name}
+                                </option>
+                            ))}
+                        </select>
+                    </label>
+                </div>
+            )}
         </div>
     );
 };
+
+// Inline icon — same look as the other transport buttons. Defined
+// here rather than as a sibling file because it's the only consumer.
+const GearIcon: React.FC = () => (
+    <svg
+        xmlns="http://www.w3.org/2000/svg"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className="w-4 h-4"
+        aria-hidden="true"
+    >
+        <circle cx="12" cy="12" r="3"/>
+        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.01a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+    </svg>
+);
 
 const GltfClipControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
     const {selectedAnimation, currentKey, setCurrentKey} = useAnimationStore();

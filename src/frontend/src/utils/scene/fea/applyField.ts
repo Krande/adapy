@@ -17,7 +17,7 @@
 import * as THREE from "three";
 
 import type {FeaManifestField, FeaScalarRange} from "@/services/viewerApi";
-import {viridis} from "./viridis";
+import {getColormap} from "./colormaps";
 
 export interface ApplyFieldArgs {
     /** The mesh whose geometry we deform. We need the mesh (not just
@@ -38,6 +38,11 @@ export interface ApplyFieldArgs {
      * ``mesh.morphTargetInfluences[0]`` directly afterwards; this is
      * just the value the slider was at when the user pressed apply. */
     displacementScale?: number;
+    /** Colormap ID — one of the keys in
+     * ``utils/scene/fea/colormaps.COLORMAPS``. Falls back to viridis
+     * when missing/unknown so a typo in state doesn't render the mesh
+     * black. */
+    colormap?: string;
 }
 
 function pickRange(field: FeaManifestField, reduction: string): [number, number] {
@@ -68,7 +73,9 @@ export function applyFieldToMesh(args: ApplyFieldArgs): void {
         field,
         reduction,
         displacementScale = 1,
+        colormap: colormapName,
     } = args;
+    const colormap = getColormap(colormapName);
 
     const geometry = mesh.geometry;
     const n_points = basePositions.length / 3;
@@ -119,7 +126,7 @@ export function applyFieldToMesh(args: ApplyFieldArgs): void {
             scalar = stepValues[stride] || 0;
         }
         const t = isFinite(scalar) ? (scalar - rangeMin) * scaleColor : 0;
-        viridis(t, out_colors, base);
+        colormap(t, out_colors, base);
     }
 
     // 1. Reset the position attribute to the un-deformed base. The
