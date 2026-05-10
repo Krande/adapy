@@ -386,7 +386,12 @@ class SifReader:
         return {int(x[1]): x for x in res}
 
 
-def read_sif_file(sif_file) -> FEAResult:
+def read_sif_file(sif_file: str | pathlib.Path) -> FEAResult:
+    # Sif2Mesh.convert() calls sif_file.parent to find sibling
+    # SESTRA.MLG / SESTRA.LIS files; coerce here so callers passing a
+    # plain string (e.g. the legacy converter pipeline's
+    # `read_sif_file(str(src_path))`) don't trip an AttributeError.
+    sif_file = pathlib.Path(sif_file)
     with open(sif_file, "r") as f:
         sif = SifReader(f)
         sif.load()
