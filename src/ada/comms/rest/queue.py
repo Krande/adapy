@@ -144,12 +144,21 @@ class JobQueue:
         step: int | None = None,
         field: str | None = None,
         conversion_options: dict | None = None,
+        derived_key: str | None = None,
     ) -> Job:
+        # ``derived_key`` lets callers pin an explicit produced-blob
+        # path. The convert flow leaves it None and lets
+        # ``derived_key_for`` derive ``_derived/<src>.<fmt>``; the
+        # fea_artefacts flow passes the manifest key explicitly because
+        # the bake's TARGET_FORMATS has no entry for it (the bake
+        # produces a tree of files, not one bytes blob).
+        if derived_key is None:
+            derived_key = derived_key_for(source_key, target_format, step=step, field=field)
         now = time.time()
         job = Job(
             job_id=uuid.uuid4().hex,
             source_key=source_key,
-            derived_key=derived_key_for(source_key, target_format, step=step, field=field),
+            derived_key=derived_key,
             status=JOB_STATUS_QUEUED,
             target_format=target_format,
             progress=0.0,

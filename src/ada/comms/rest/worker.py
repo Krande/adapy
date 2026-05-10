@@ -15,8 +15,10 @@ worker reconverts (deterministic output, so this is safe).
 from __future__ import annotations
 
 import asyncio
+import functools
 import os
 import pathlib
+import shutil
 import signal
 import tempfile
 import time
@@ -105,6 +107,103 @@ async def _audit_done(
         )
     except Exception:
         logger.exception("worker: audit update failed for job %s", job_id)
+
+
+async def _run_fea_artefact_bake(
+    *,
+    job: Job,
+    src_path: pathlib.Path,
+    scope,
+    storage: "Storage",
+    queue: "JobQueue",
+    db_pool: "asyncpg.Pool | None",
+    started_at: float,
+    _on_progress: Callable[[str, float], Awaitable[None]],
+) -> None:
+    """Bake the streaming-viewer artefact tree for ``job.source_key``.
+
+    Source has already been streamed to ``src_path``. Produces:
+
+    * ``_derived/<src>.fea/fea.mesh.glb``
+    * ``_derived/<src>.fea/fea.manifest.json`` (gzip)
+    * ``_derived/<src>.fea/fea.<field>.bin`` × N (gzip)
+
+    Updates the queue + audit row to mirror the convert flow's
+    end-of-job semantics so the existing ``/convert/{job_id}`` poll
+    loop works unchanged.
+    """
+
+    job_id = job.job_id
+
+    # Defer the heavy imports until we actually have a job to bake —
+    # the worker boots faster and a pure-convert worker doesn't pay
+    # the import-time cost.
+    from ada.fem.results.artefacts import bake_fea_artefacts_from_source
+
+    await _on_progress("parsing", 0.10)
+    bake_dir = pathlib.Path(tempfile.mkdtemp(prefix="fea-bake-"))
+    try:
+        loop = asyncio.get_running_loop()
+        try:
+            bake = await loop.run_in_executor(
+                None,
+                functools.partial(
+                    bake_fea_artefacts_from_source,
+                    src_path,
+                    bake_dir,
+                    src_key=job.source_key,
+                ),
+            )
+        except Exception as exc:
+            logger.exception("worker: fea bake failed for %s", job.source_key)
+            trace = tb_module.format_exc()
+            await queue.update(
+                job_id, status=JOB_STATUS_ERROR, stage="convert", error=str(exc)
+            )
+            await _audit_done(
+                db_pool, job_id, "error", str(exc), started_at, traceback=trace,
+            )
+            return
+
+        await _on_progress("uploading", 0.85)
+        prefix = f"_derived/{job.source_key}.fea/"
+        try:
+            for produced in sorted(bake.out_dir.iterdir()):
+                if not produced.is_file():
+                    continue
+                target_key = prefix + produced.name
+                # Compression policy mirrors the API-side endpoint:
+                # gzip the manifest JSON and field blobs (compress
+                # well), skip the mesh GLB (already binary-packed).
+                content_encoding = (
+                    "gzip" if produced.suffix.lower() in {".json", ".bin"} else None
+                )
+                await storage.put_bytes(
+                    scope,
+                    target_key,
+                    produced.read_bytes(),
+                    content_encoding=content_encoding,
+                )
+        except Exception as exc:
+            logger.exception("worker: fea artefact upload failed for %s", job.source_key)
+            trace = tb_module.format_exc()
+            await queue.update(
+                job_id, status=JOB_STATUS_ERROR, stage="upload", error=str(exc),
+            )
+            await _audit_done(
+                db_pool, job_id, "error", str(exc), started_at, traceback=trace,
+            )
+            return
+
+        await queue.update(
+            job_id, status=JOB_STATUS_DONE, stage="ready", progress=1.0, error=None,
+        )
+        await _audit_done(db_pool, job_id, "done", None, started_at)
+    finally:
+        try:
+            shutil.rmtree(bake_dir, ignore_errors=True)
+        except Exception:
+            pass
 
 
 async def _process_one(
@@ -296,6 +395,27 @@ async def _process_one(
             except Exception:
                 logger.exception("worker: profile upload failed for job %s", job_id)
                 return None
+
+        # FEA streaming-viewer artefact bake — sibling code path to
+        # the convert pipeline. The bake produces multiple files (mesh
+        # GLB + manifest + per-field blobs) under
+        # `_derived/<src>.fea/`, which doesn't fit the convert
+        # contract of "one bytes blob per derived_key". Runs in-process
+        # in a thread executor; the bake is pure Python (h5py + trimesh)
+        # without the native-crash exposure that justifies fork
+        # isolation for the convert path.
+        if job.target_format == "fea_artefacts":
+            await _run_fea_artefact_bake(
+                job=job,
+                src_path=src_path,
+                scope=scope,
+                storage=storage,
+                queue=queue,
+                db_pool=db_pool,
+                started_at=started_at,
+                _on_progress=_on_progress,
+            )
+            return
 
         # Run convert() in a forked child. Crash isolation + rusage on
         # exit + per-/proc heartbeat sampling all in one. See

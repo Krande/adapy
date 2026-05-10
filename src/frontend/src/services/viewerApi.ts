@@ -489,19 +489,84 @@ export const viewerApi = {
 
     /** Streaming-viewer manifest for a FEA source (.rmed or .sif).
      *
-     * First call for a source bakes the artefact tree (mesh GLB +
-     * per-field blobs + manifest) server-side and uploads it; later
-     * calls hit the cached manifest. Frontend resolves blob URLs as
-     * siblings of the manifest's storage key under the regular blobs
-     * endpoint — see `feaArtefactBlobUrl`.
+     * Cache hit: returns the manifest immediately.
+     * Cache miss: server enqueues a worker bake job and returns 202.
+     * This client polls /api/convert/{job_id} until the job hits
+     * status=done (or error), then re-fetches the manifest endpoint
+     * and returns the body.
      *
-     * 415 on unsupported source extensions, 404 on missing source. */
-    async feaManifest(scope: ScopeUrl, sourceKey: string): Promise<FeaManifest> {
-        const r = await authedFetch(
+     * The bake runs in the worker container — the slim API container
+     * doesn't carry the ada.fem deps that h5py / trimesh / RMED parse
+     * need. Frontend doesn't see that detail; it just polls.
+     *
+     * 415 on unsupported source extensions, 404 on missing source.
+     * Throws on bake error. */
+    async feaManifest(
+        scope: ScopeUrl,
+        sourceKey: string,
+        opts?: {
+            onProgress?: (stage: string, progress: number) => void;
+            signal?: AbortSignal;
+        },
+    ): Promise<FeaManifest> {
+        const url =
             `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}` +
-                `/fea/manifest?key=${encodeURIComponent(sourceKey)}`,
-        );
-        return jsonOrThrow<FeaManifest>(r, `feaManifest(${sourceKey})`);
+            `/fea/manifest?key=${encodeURIComponent(sourceKey)}`;
+        const r = await authedFetch(url, {signal: opts?.signal});
+        if (r.ok) {
+            return jsonOrThrow<FeaManifest>(r, `feaManifest(${sourceKey})`);
+        }
+        if (r.status !== 202) {
+            throw new ApiError(
+                `feaManifest(${sourceKey}) failed: ${r.status} ${r.statusText}`,
+                r.status,
+                await readDetail(r),
+            );
+        }
+        const queued = (await r.json()) as {
+            job_id: string;
+            stage?: string;
+            progress?: number;
+        };
+        // Poll the existing convert-job-status endpoint. Same contract
+        // as the legacy GLB convert flow — the job's terminal states
+        // are "done" and "error".
+        let stage = queued.stage ?? "queued";
+        let progress = queued.progress ?? 0;
+        if (opts?.onProgress) opts.onProgress(stage, progress);
+
+        const startedAt = Date.now();
+        const TIMEOUT_MS = 5 * 60 * 1000; // 5 min hard cap
+        while (true) {
+            if (opts?.signal?.aborted) {
+                throw new DOMException("aborted", "AbortError");
+            }
+            await new Promise((res) => setTimeout(res, 600));
+            if (Date.now() - startedAt > TIMEOUT_MS) {
+                throw new ApiError(
+                    `feaManifest(${sourceKey}) timed out after 5 min`,
+                    504,
+                );
+            }
+            const status = await this.convertStatus(queued.job_id);
+            if (status.stage !== stage || status.progress !== progress) {
+                stage = status.stage;
+                progress = status.progress;
+                if (opts?.onProgress) opts.onProgress(stage, progress);
+            }
+            if (status.status === "error") {
+                throw new ApiError(
+                    `feaManifest(${sourceKey}) bake failed: ${status.error ?? "unknown"}`,
+                    500,
+                    status.error ?? undefined,
+                );
+            }
+            if (status.status === "done") break;
+        }
+        // Re-fetch — the manifest is now in storage. This call hits
+        // the cache path on the server.
+        const r2 = await authedFetch(url, {signal: opts?.signal});
+        return jsonOrThrow<FeaManifest>(r2, `feaManifest(${sourceKey}) refetch`);
     },
 
     /** Compose the full URL of a FEA artefact blob (mesh GLB or
