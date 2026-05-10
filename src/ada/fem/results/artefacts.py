@@ -524,6 +524,68 @@ def write_manifest(manifest: dict, out_path: os.PathLike) -> None:
 # ---------------------------------------------------------------------------
 
 
+FEA_ARTEFACT_EXTENSIONS: frozenset[str] = frozenset({".rmed", ".sif"})
+
+
+def is_fea_artefact_source(src_key_or_path) -> bool:
+    """True if the source extension is in scope for the streaming bake.
+    Phase 1 covers .rmed (native streaming reader) and .sif (FEAResult
+    adapter); .frd is Phase 2."""
+
+    suffix = pathlib.PurePosixPath(str(src_key_or_path)).suffix.lower()
+    return suffix in FEA_ARTEFACT_EXTENSIONS
+
+
+def make_stream_reader(src_path: os.PathLike) -> FEAStreamReader:
+    """Open the right streaming reader for a source file's extension.
+
+    Native streaming on RMED (h5py-lazy); SIF flows through the
+    FEAResult adapter since the SIF reader is eager today. Caller is
+    responsible for closing the returned reader (use as a context
+    manager)."""
+
+    src_path = pathlib.Path(src_path)
+    ext = src_path.suffix.lower()
+
+    if ext == ".rmed":
+        from ada.fem.formats.code_aster.read.med_stream_reader import RmedStreamReader
+
+        return RmedStreamReader(src_path)
+    if ext == ".sif":
+        from ada.fem.formats.sesam.results.read_sif import read_sif_file
+
+        result = read_sif_file(src_path)
+        return FEAResultStreamAdapter(result)
+    raise ValueError(
+        f"no streaming reader for FEA source extension {ext!r}; "
+        f"supported: {sorted(FEA_ARTEFACT_EXTENSIONS)}"
+    )
+
+
+def bake_fea_artefacts_from_source(
+    src_path: os.PathLike,
+    out_dir: os.PathLike,
+    *,
+    src_key: str = "",
+    legacy_glb_url_template: str | None = None,
+) -> "BakeResult":
+    """End-to-end bake from a source file path. Picks the right
+    reader for the extension and drives the streaming bake. Raises
+    ``ValueError`` for unsupported extensions; the caller (REST
+    endpoint, CLI, tests) is responsible for the policy decision of
+    when to surface that vs route to a different code path."""
+
+    src_path = pathlib.Path(src_path)
+    src = src_key or src_path.stem
+    with make_stream_reader(src_path) as reader:
+        return bake_artefacts(
+            reader,
+            out_dir,
+            src=src,
+            legacy_glb_url_template=legacy_glb_url_template,
+        )
+
+
 @dataclass
 class BakeResult:
     out_dir: pathlib.Path

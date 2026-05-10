@@ -24,6 +24,9 @@ from ada.fem.results.artefacts import (
     BLOB_VERSION,
     FEAResultStreamAdapter,
     bake_artefacts,
+    bake_fea_artefacts_from_source,
+    is_fea_artefact_source,
+    make_stream_reader,
     read_blob_header,
     read_blob_step,
 )
@@ -195,6 +198,64 @@ def test_bake_via_fearesult_adapter_against_sif(fem_files, tmp_path, sif_rel):
         for i, step_entry in enumerate(field_entry["steps"]):
             arr = read_blob_step(blob_path, i)
             assert arr.shape == (header["n_points"], header["n_components"])
+
+
+def test_is_fea_artefact_source_classification():
+    assert is_fea_artefact_source("models/wall.rmed")
+    assert is_fea_artefact_source("models/wall.RMED")
+    assert is_fea_artefact_source("models/wall.sif")
+    assert is_fea_artefact_source("models/wall.SIF")
+    assert not is_fea_artefact_source("models/wall.frd")  # Phase 2
+    assert not is_fea_artefact_source("models/wall.glb")
+    assert not is_fea_artefact_source("models/wall.ifc")
+
+
+def test_make_stream_reader_dispatches_by_extension(fem_files, tmp_path):
+    """Source-extension dispatch produces the right reader subclass.
+    Concrete bake correctness already covered by upstream parametrized
+    tests; this test just locks the dispatch contract."""
+
+    from ada.fem.formats.code_aster.read.med_stream_reader import RmedStreamReader
+
+    rmed = fem_files / "code_aster/Cantilever_CA_EIG_bm.rmed"
+    if rmed.exists():
+        with make_stream_reader(rmed) as r:
+            assert isinstance(r, RmedStreamReader)
+
+    sif = fem_files / "sesam/1EL_SHELL_R1.SIF"
+    if sif.exists():
+        with make_stream_reader(sif) as r:
+            assert isinstance(r, FEAResultStreamAdapter)
+
+    with pytest.raises(ValueError, match="no streaming reader"):
+        make_stream_reader(tmp_path / "nope.frd")
+
+
+def test_bake_from_source_end_to_end_rmed(fem_files, tmp_path):
+    rmed = fem_files / "code_aster/Cantilever_CA_EIG_bm.rmed"
+    if not rmed.exists():
+        pytest.skip("fixture not present")
+
+    bake = bake_fea_artefacts_from_source(rmed, tmp_path / "out", src_key="rmed-stem")
+    manifest = json.loads(bake.manifest_path.read_text())
+    assert manifest["src"] == "rmed-stem"
+    assert manifest["fields"]
+
+
+def test_bake_from_source_end_to_end_sif(fem_files, tmp_path):
+    sif = fem_files / "sesam/1EL_SHELL_R1.SIF"
+    if not sif.exists():
+        pytest.skip("fixture not present")
+
+    bake = bake_fea_artefacts_from_source(
+        sif,
+        tmp_path / "out",
+        src_key="sif-stem",
+        legacy_glb_url_template="legacy/{step}.{field}.glb",
+    )
+    manifest = json.loads(bake.manifest_path.read_text())
+    assert manifest["src"] == "sif-stem"
+    assert manifest["legacy_glb"]["url_template"] == "legacy/{step}.{field}.glb"
 
 
 def test_blob_header_fits_in_fixed_prefix():
