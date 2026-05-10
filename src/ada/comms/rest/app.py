@@ -1471,16 +1471,66 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return _SOURCE_FORMAT_NAMES.get(ext, ext.lstrip(".").upper() or "—")
 
     def _derived_source_of(derived_key: str) -> tuple[str, str] | None:
-        """Recover (source_key, target_format) from a `_derived/<src>.<fmt>`
-        key. Returns None when the key doesn't match the convention."""
+        """Recover (source_key, target_label) from a derived key.
+
+        Handles the full derived-key zoo so the admin storage list
+        attributes every derived artefact to its real source instead
+        of dropping it (silently) or surfacing a fake source as an
+        orphan:
+
+        * ``<src>.fea/<file>`` — streaming-viewer artefact tree
+          (mesh GLB, manifest, mesh-edges sidecar, per-field blobs).
+        * ``<src>.meta.json`` — legacy result-meta cache.
+        * ``<src>.<job_id>.prof`` — per-job cProfile dump.
+        * ``<src>.s<N>.<field>.<fmt>`` — legacy SIF step/field pick.
+        * ``<src>.<fmt>`` — plain legacy convert output.
+        """
+
+        import re as _re
+
         from .converter import TARGET_FORMATS, is_derived_key
+
         if not is_derived_key(derived_key):
             return None
         stripped = derived_key[len("_derived/"):]
+
+        # Streaming-FEA artefact tree: `<src>.fea/<filename>`. The
+        # ".fea/" infix is anchored to the source's extension; finding
+        # it splits the key cleanly into source + artefact filename.
+        fea_idx = stripped.find(".fea/")
+        if fea_idx >= 0:
+            src_key = stripped[:fea_idx]
+            filename = stripped[fea_idx + len(".fea/"):]
+            return src_key, f"fea/{filename}"
+
+        # Legacy result-meta cache.
+        if stripped.endswith(".meta.json"):
+            return stripped[: -len(".meta.json")], "meta.json"
+
+        # Per-job profile blob: `<src>.<job_id>.prof`. job_id is
+        # uuid-hex (no dots) so the last dot before .prof bounds it.
+        if stripped.endswith(".prof"):
+            without_prof = stripped[: -len(".prof")]
+            last_dot = without_prof.rfind(".")
+            if last_dot > 0:
+                return without_prof[:last_dot], "prof"
+
+        # Legacy SIF step/field pick OR bare `<src>.<fmt>`. Try the
+        # step/field shape first when the candidate source ends in
+        # `.sif`; fall back to the bare match otherwise (avoids
+        # mis-attributing a non-SIF source whose name happens to
+        # contain `.s<digits>.`).
         for tgt in TARGET_FORMATS:
             suffix = "." + tgt
             if stripped.endswith(suffix):
-                return stripped[: -len(suffix)], tgt
+                without_tgt = stripped[: -len(suffix)]
+                m = _re.search(r"\.s\d+\.", without_tgt)
+                if m:
+                    candidate_src = without_tgt[: m.start()]
+                    if candidate_src.lower().endswith(".sif"):
+                        return candidate_src, tgt
+                return without_tgt, tgt
+
         return None
 
     @admin.get("/scopes/{scope}/files")
@@ -1558,6 +1608,44 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # If the admin pointed at a derived blob, only that blob goes;
         # don't fan out and delete the source under their feet.
         if is_derived_key(clean):
+            # Streaming-FEA artefacts (mesh GLB + manifest +
+            # mesh-edges sidecar + per-field blobs) form an
+            # interlocking tree: the manifest references every other
+            # file by name, so deleting just one blob leaves the
+            # picker rendering against a stale manifest pointing at
+            # missing data. Reap the whole `<src>.fea/` tree as a
+            # unit instead.
+            parsed = _derived_source_of(clean)
+            if parsed is not None and parsed[1].startswith("fea/"):
+                prefix = f"_derived/{parsed[0]}.fea/"
+                scope_keys = [f.key for f in await storage.list(scope_obj)]
+                tree_keys = [k for k in scope_keys if k.startswith(prefix)]
+                deleted_tree: list[str] = []
+                tree_errors: list[str] = []
+                for k in tree_keys:
+                    try:
+                        await storage.delete(scope_obj, k)
+                        deleted_tree.append(k)
+                    except FileNotFoundError:
+                        continue
+                    except Exception as exc:
+                        msg = str(exc).lower()
+                        if "not found" in msg or "no such" in msg:
+                            continue
+                        logger.warning(
+                            "admin: failed to delete %s in fea-tree reap: %s",
+                            k, exc,
+                        )
+                        tree_errors.append(f"{k}: {exc}")
+                await _audit(
+                    request, user, scope_obj, "delete",
+                    key=clean, status="ok",
+                    error="; ".join(tree_errors) or None,
+                )
+                return JSONResponse({"deleted": deleted_tree, "errors": tree_errors})
+
+            # Plain single-blob derived (legacy GLB, meta cache,
+            # profile, etc.) — drop just the one file.
             try:
                 await storage.delete(scope_obj, clean)
             except Exception as exc:
@@ -1567,14 +1655,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             return JSONResponse({"deleted": [clean]})
 
         # Source delete: also reap every derived blob keyed off this
-        # source. Build the candidate set up front so a partial failure
-        # mid-loop doesn't leave inconsistent metadata.
+        # source. List the scope and filter via _derived_source_of so
+        # the full derived zoo (FEA artefact tree, result-meta cache,
+        # SIF step/field picks, profile blobs, plain converts) lands
+        # in the candidate set — the previous hardcoded enumeration
+        # only covered ``<src>.<fmt>`` and silently left the new
+        # streaming-bake artefacts behind.
         candidates = [clean]
-        for tgt in TARGET_FORMATS:
-            try:
-                candidates.append(derived_key_for(clean, tgt))
-            except Exception:
+        scope_keys = [f.key for f in await storage.list(scope_obj)]
+        for k in scope_keys:
+            if not is_derived_key(k):
                 continue
+            parsed = _derived_source_of(k)
+            if parsed is None:
+                continue
+            derived_src, _label = parsed
+            if derived_src == clean:
+                candidates.append(k)
 
         deleted: list[str] = []
         errors: list[str] = []
