@@ -25,7 +25,13 @@ function pickConnectUrl(): string {
  * resolves). */
 export function loadInitialServerState(): void {
     requestServerInfo();
-    requestConnectedClients();
+    // LIST_WEB_CLIENTS is a websocket-era concept (per-connection
+    // client tracking). The REST backend rejects the command with a
+    // "not supported in REST mode" error message — annoying log
+    // noise for no value. Skip it under REST.
+    if (!runtime.isRestMode()) {
+        requestConnectedClients();
+    }
     request_list_of_files_from_server();
 }
 

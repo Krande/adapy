@@ -397,5 +397,16 @@ function linkLineMorphToMesh(mesh: THREE.Mesh): void {
             (mat as any).morphTargets = true;
             mat.needsUpdate = true;
         }
+        // Mirror the morph-texture rebuild that applyFieldToMesh does
+        // for the parent mesh. lineGeom shares the parent's position
+        // BufferAttribute, so when applyField dispatched 'dispose' on
+        // mesh.geometry, three.js's WebGLAttributes deleted the GPU
+        // buffer for that shared position. lineGeom's VAO still
+        // references the (now-orphaned) buffer ID, which is why the
+        // wireframe vanishes after a step change. Dispatching dispose
+        // here rebuilds lineGeom's VAO + morph texture against the
+        // freshly-uploaded position buffer on the next render. No-op
+        // on the first call (no renderer state yet).
+        lineGeom.dispatchEvent({type: "dispose"});
     }
 }
