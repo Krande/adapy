@@ -7,12 +7,26 @@ import {requestServerInfo} from "./requestServerInfo";
 import {requestConnectedClients} from "./requestConnectedClients";
 import {request_list_of_files_from_server} from "../server_info/handlers/request_list_of_files_from_server";
 import {bindTransportToOptions} from "@/services/transport";
+import {isAuthEnabled, isSignedIn} from "@/services/auth/oidc";
 
 function pickConnectUrl(): string {
     if (runtime.isRestMode()) {
         return runtime.apiBase();
     }
     return useWebSocketStore.getState().webSocketAddress;
+}
+
+/** Fan-out of the legacy server-state RPCs that ship on connect:
+ * server info, connected-client list, file listing. Pulled out so
+ * AuthGate can re-fire them once auth completes — the on-connect
+ * handler below skips them when no bearer token is in hand yet,
+ * since REST is connectionless and onConnect fires synchronously
+ * during ``initWebSocket`` (well before AuthGate's bootstrap
+ * resolves). */
+export function loadInitialServerState(): void {
+    requestServerInfo();
+    requestConnectedClients();
+    request_list_of_files_from_server();
 }
 
 export async function initWebSocket() {
@@ -22,9 +36,12 @@ export async function initWebSocket() {
     // does not have to re-register (would double-fire handlers).
     comms.onMessage(handleFlatbufferMessage);
     comms.onConnect(() => {
-        requestServerInfo();
-        requestConnectedClients();
-        request_list_of_files_from_server();
+        // Auth-enabled, no token yet → /api/rpc would 401 three times
+        // and the user gets a console-error spew on every page load.
+        // Defer; AuthGate fires loadInitialServerState() once
+        // bootstrap puts a token in place.
+        if (isAuthEnabled() && !isSignedIn()) return;
+        loadInitialServerState();
     });
 
     // Reflect enableWebsocket toggles onto the transport. Subscription

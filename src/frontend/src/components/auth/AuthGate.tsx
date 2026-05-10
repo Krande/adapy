@@ -3,6 +3,7 @@ import {bootstrap, isAuthEnabled, isSignedIn, signIn} from "@/services/auth/oidc
 import {viewerApi} from "@/services/viewerApi";
 import {useScopeStore} from "@/state/scopeStore";
 import {useMeStore} from "@/state/meStore";
+import {loadInitialServerState} from "@/utils/websocket/initWebSocket";
 
 // Gates the REST-mode app behind a verified bearer token. When auth
 // is disabled (default in dev / desktop) it's a transparent
@@ -44,7 +45,16 @@ const AuthGate: React.FC<{children: React.ReactNode}> = ({children}) => {
             // Load /api/me whenever we have something to talk to: either
             // a valid token (auth on) or the synthetic local-dev user
             // (auth off). Skip when the sign-in prompt is being shown.
-            if (live) await loadMe();
+            if (live) {
+                await loadMe();
+                // initWebSocket's onConnect skipped the legacy RPCs
+                // when auth is enabled and no token was in hand yet
+                // (REST onConnect fires during initWebSocket, before
+                // bootstrap resolves). Now that we have a token,
+                // ship them once. Auth-disabled mode already fired
+                // them from initWebSocket — don't double-fire.
+                if (enabled) loadInitialServerState();
+            }
         };
         if (!enabled) {
             void finish();

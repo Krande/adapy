@@ -226,14 +226,10 @@ export async function load_fea_streaming(args: {
         const basePositions = snapshotBasePositions(mesh.geometry);
 
         active = {sourceName, manifest, mesh, basePositions};
-
-        // Make sure the material renders vertex colours. The mesh
-        // GLB doesn't ship colours; we install them below.
-        const mat = mesh.material as THREE.MeshStandardMaterial;
-        if (mat && "vertexColors" in mat) {
-            mat.vertexColors = true;
-            mat.needsUpdate = true;
-        }
+        // Material flags (vertexColors + morphTargets) are flipped on
+        // inside applyFieldToMesh so they cover both the array-typed
+        // material that prepareLoadedModel installs on
+        // CustomBatchedMesh and the plain-material fallback.
 
         // Element-edge wireframe overlay. The bake emits an explicit
         // edge sidecar (deduped uint32 pairs from each cell's

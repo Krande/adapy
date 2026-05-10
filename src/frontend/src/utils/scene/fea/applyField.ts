@@ -131,22 +131,22 @@ export function applyFieldToMesh(args: ApplyFieldArgs): void {
         posAttr.needsUpdate = true;
     }
 
-    // 2. Install / update the displacement morph attribute. Reuse
-    //    the underlying buffer when possible so step scrubs avoid
-    //    re-allocating one Float32Array per vertex per frame.
-    if (!geometry.morphAttributes.position) {
-        geometry.morphAttributes.position = [];
-    }
-    const existingMorph = geometry.morphAttributes.position[0];
-    if (
-        existingMorph &&
-        (existingMorph.array as Float32Array).length === displacement.length
-    ) {
-        (existingMorph.array as Float32Array).set(displacement);
-        existingMorph.needsUpdate = true;
-    } else {
-        geometry.morphAttributes.position[0] = new THREE.BufferAttribute(displacement, 3);
-    }
+    // 2. Install the displacement morph attribute. Always replace with
+    //    a fresh BufferAttribute — three.js's WebGLMorphtargets bakes
+    //    morph data into a DataArrayTexture once at allocation and
+    //    only rebuilds the texture when the morph target *count*
+    //    changes (see WebGLMorphtargets.js: `entry.count !==
+    //    morphTargetsCount`). Mutating the existing BufferAttribute's
+    //    array in place is invisible to the GPU. So on step changes
+    //    we additionally fire the geometry's "dispose" event below to
+    //    invalidate the cached morph texture entry; combined with
+    //    fresh BufferAttribute references that triggers a full
+    //    texture rebuild on the next render. Cost on a ~50k-vert FEA
+    //    mesh is one re-upload of position/index/color attributes —
+    //    negligible at human-scale step-change rates.
+    geometry.morphAttributes.position = [
+        new THREE.BufferAttribute(displacement, 3),
+    ];
     // Additive morphing: position = base + influence * morphAttr.
     // Without this THREE blends with (1 - influence) on the base.
     geometry.morphTargetsRelative = true;
@@ -171,19 +171,31 @@ export function applyFieldToMesh(args: ApplyFieldArgs): void {
         mesh.morphTargetDictionary = {displacement: 0};
     }
 
-    // 5. Material flags. vertexColors flipped on by the orchestrator;
-    //    morphTargets must be on for the renderer to consume the
-    //    morph attribute.
-    const enableMorphFlag = (mat: THREE.Material) => {
-        if ("morphTargets" in mat) {
-            (mat as any).morphTargets = true;
-            mat.needsUpdate = true;
+    // 5. Material flags. CustomBatchedMesh holds material as an Array
+    //    of three slots (original / selected-overlay / invisible);
+    //    every slot that ends up rendering vertices needs
+    //    `vertexColors` so the per-vertex colour attribute we just
+    //    installed is actually used by the shader, and `morphTargets`
+    //    so the morph attribute drives geometry. Setting these on the
+    //    array as a whole (a previous bug) is silent — the
+    //    "vertexColors" in (Array) check is false, so the flag never
+    //    landed and the colormap never appeared on the deformed mesh.
+    const enableShaderFlags = (mat: THREE.Material) => {
+        let dirty = false;
+        if ("vertexColors" in mat && (mat as any).vertexColors !== true) {
+            (mat as any).vertexColors = true;
+            dirty = true;
         }
+        if ("morphTargets" in mat && (mat as any).morphTargets !== true) {
+            (mat as any).morphTargets = true;
+            dirty = true;
+        }
+        if (dirty) mat.needsUpdate = true;
     };
     if (Array.isArray(mesh.material)) {
-        mesh.material.forEach(enableMorphFlag);
+        mesh.material.forEach(enableShaderFlags);
     } else if (mesh.material) {
-        enableMorphFlag(mesh.material as THREE.Material);
+        enableShaderFlags(mesh.material as THREE.Material);
     }
 
     // Normals depend on the deformed shape; recompute against the
@@ -193,4 +205,15 @@ export function applyFieldToMesh(args: ApplyFieldArgs): void {
     // morphed shape uses base normals, which is consistent with how
     // GLTF morph clips behave by default.
     geometry.computeVertexNormals();
+
+    // 6. Force the renderer to rebuild the cached morph DataArrayTexture.
+    //    See the long-form comment on the morphAttributes assignment
+    //    above: the texture is keyed by geometry+count, and step
+    //    changes don't change the count, so we drop the cache by
+    //    dispatching the geometry's 'dispose' event. Three.js's
+    //    WebGLMorphtargets and WebGLGeometries listen for this event
+    //    to clear morph textures + GPU attribute bindings; the next
+    //    render rebuilds them from the fresh BufferAttribute we just
+    //    installed.
+    geometry.dispatchEvent({type: "dispose"});
 }
