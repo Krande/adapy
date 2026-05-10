@@ -6,6 +6,7 @@
 
 import {runtime} from "@/runtime/config";
 import {getAccessToken, isAuthEnabled, refreshAccessToken, signIn} from "@/services/auth/oidc";
+import {fetchFeaManifest, fetchResultMeta} from "@/services/feaManifestPoll";
 
 export type TargetFormat = "glb" | "ifc" | "xml";
 export type ConvertStatus = "queued" | "running" | "done" | "error";
@@ -478,55 +479,23 @@ export const viewerApi = {
     /** Inventory of (steps, fields) for a FEA result file.
      *
      * Cache hit: returns the parsed inventory immediately.
-     * Cache miss: server enqueues a worker SIF parse and returns 202.
-     * This client polls /api/convert/{job_id} until done, then
+     * Cache miss: server enqueues a worker SIF parse and returns 202;
+     * this client polls /api/convert/{job_id} until done, then
      * re-fetches the endpoint and returns the parsed body.
      *
-     * The parse runs in the worker container — the slim API container
-     * lacks ada.fem and SIF decks can take 30 s+ to parse anyway.
+     * Orchestration lives in feaManifestPoll.ts so tests can drive
+     * mock fetchers + clocks without spinning up React.
      *
      * 415 if the source isn't a result file; 422 if it is but has
      * no usable result data. */
     async resultMeta(scope: ScopeUrl, sourceKey: string): Promise<ResultMeta> {
-        const url =
-            `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}` +
-            `/result-meta?key=${encodeURIComponent(sourceKey)}`;
-        const r = await authedFetch(url);
-        // Same 200-vs-202 distinction as feaManifest — Response.ok is
-        // true for both, so we can't use it as the cache-hit shortcut.
-        if (r.status === 200) {
-            return jsonOrThrow<ResultMeta>(r, `resultMeta(${sourceKey})`);
-        }
-        if (r.status !== 202) {
-            throw new ApiError(
-                `resultMeta(${sourceKey}) failed: ${r.status} ${r.statusText}`,
-                r.status,
-                await readDetail(r),
-            );
-        }
-        const queued = (await r.json()) as {job_id: string};
-        const startedAt = Date.now();
-        const TIMEOUT_MS = 5 * 60 * 1000;
-        while (true) {
-            await new Promise((res) => setTimeout(res, 600));
-            if (Date.now() - startedAt > TIMEOUT_MS) {
-                throw new ApiError(
-                    `resultMeta(${sourceKey}) timed out after 5 min`,
-                    504,
-                );
-            }
-            const status = await this.convertStatus(queued.job_id);
-            if (status.status === "error") {
-                throw new ApiError(
-                    `resultMeta(${sourceKey}) parse failed: ${status.error ?? "unknown"}`,
-                    500,
-                    status.error ?? undefined,
-                );
-            }
-            if (status.status === "done") break;
-        }
-        const r2 = await authedFetch(url);
-        return jsonOrThrow<ResultMeta>(r2, `resultMeta(${sourceKey}) refetch`);
+        return fetchResultMeta({
+            fetcher: authedFetch,
+            convertStatus: (jobId) => this.convertStatus(jobId),
+            apiBase: runtime.apiBase(),
+            scope,
+            sourceKey,
+        });
     },
 
     /** Streaming-viewer manifest for a FEA source (.rmed or .sif).
@@ -551,69 +520,15 @@ export const viewerApi = {
             signal?: AbortSignal;
         },
     ): Promise<FeaManifest> {
-        const url =
-            `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}` +
-            `/fea/manifest?key=${encodeURIComponent(sourceKey)}`;
-        const r = await authedFetch(url, {signal: opts?.signal});
-        // 200 = cached manifest body; 202 = bake enqueued, must poll;
-        // anything else is an error. ``Response.ok`` is true for both
-        // 200 and 202 — checking it as the cache-hit shortcut would
-        // try to parse the queued-job payload as a FeaManifest and
-        // blow up on the missing ``fields`` array.
-        if (r.status === 200) {
-            return jsonOrThrow<FeaManifest>(r, `feaManifest(${sourceKey})`);
-        }
-        if (r.status !== 202) {
-            throw new ApiError(
-                `feaManifest(${sourceKey}) failed: ${r.status} ${r.statusText}`,
-                r.status,
-                await readDetail(r),
-            );
-        }
-        const queued = (await r.json()) as {
-            job_id: string;
-            stage?: string;
-            progress?: number;
-        };
-        // Poll the existing convert-job-status endpoint. Same contract
-        // as the legacy GLB convert flow — the job's terminal states
-        // are "done" and "error".
-        let stage = queued.stage ?? "queued";
-        let progress = queued.progress ?? 0;
-        if (opts?.onProgress) opts.onProgress(stage, progress);
-
-        const startedAt = Date.now();
-        const TIMEOUT_MS = 5 * 60 * 1000; // 5 min hard cap
-        while (true) {
-            if (opts?.signal?.aborted) {
-                throw new DOMException("aborted", "AbortError");
-            }
-            await new Promise((res) => setTimeout(res, 600));
-            if (Date.now() - startedAt > TIMEOUT_MS) {
-                throw new ApiError(
-                    `feaManifest(${sourceKey}) timed out after 5 min`,
-                    504,
-                );
-            }
-            const status = await this.convertStatus(queued.job_id);
-            if (status.stage !== stage || status.progress !== progress) {
-                stage = status.stage;
-                progress = status.progress;
-                if (opts?.onProgress) opts.onProgress(stage, progress);
-            }
-            if (status.status === "error") {
-                throw new ApiError(
-                    `feaManifest(${sourceKey}) bake failed: ${status.error ?? "unknown"}`,
-                    500,
-                    status.error ?? undefined,
-                );
-            }
-            if (status.status === "done") break;
-        }
-        // Re-fetch — the manifest is now in storage. This call hits
-        // the cache path on the server.
-        const r2 = await authedFetch(url, {signal: opts?.signal});
-        return jsonOrThrow<FeaManifest>(r2, `feaManifest(${sourceKey}) refetch`);
+        return fetchFeaManifest({
+            fetcher: authedFetch,
+            convertStatus: (jobId) => this.convertStatus(jobId),
+            apiBase: runtime.apiBase(),
+            scope,
+            sourceKey,
+            signal: opts?.signal,
+            onProgress: opts?.onProgress,
+        });
     },
 
     /** Compose the full URL of a FEA artefact blob (mesh GLB or

@@ -39,6 +39,8 @@ RMED_FIXTURES = [
     "cantilever/code_aster/static_solid_cantilever_code_aster.rmed",
     "cantilever/code_aster/static_line_cantilever_code_aster.rmed",
     "cantilever/code_aster/eigen_shell_cantilever_code_aster.rmed",
+    "cantilever/code_aster/eigen_solid_cantilever_code_aster.rmed",
+    "cantilever/code_aster/eigen_line_cantilever_code_aster.rmed",
 ]
 
 
@@ -156,8 +158,148 @@ SIF_FIXTURES = [
     "sesam/1EL_SHELL_R1.SIF",
     "sesam/2EL_SHELL_R1.SIF",
     "cantilever/sesam/static/shell/STATIC_SHELL_CANTILEVER_SESAMR1.SIF",
+    "cantilever/sesam/static/line/STATIC_LINE_CANTILEVER_SESAMR1.SIF",
     "cantilever/sesam/eigen/shell/EIGEN_SHELL_CANTILEVER_SESAMR1.SIF",
+    "cantilever/sesam/eigen/line/EIGEN_LINE_CANTILEVER_SESAMR1.SIF",
 ]
+
+
+# Full corpus of FEA fixtures the streaming-viewer bake covers in
+# Phase 1 (RMED native streaming + SIF via the FEAResult adapter).
+# Each manifest produced from these must satisfy the picker UI's
+# strict contract; assert_picker_contract() locks that contract so
+# silent schema drift surfaces before it breaks the frontend.
+ALL_FEA_FIXTURES = [
+    *[("rmed", rel) for rel in RMED_FIXTURES],
+    *[("sif", rel) for rel in SIF_FIXTURES],
+]
+
+
+def _assert_picker_contract(manifest: dict, *, fixture_label: str) -> None:
+    """Strict schema check for everything the FeaStreamingPickerModal
+    reads from a manifest. Drift here causes runtime
+    "Cannot read properties of undefined" errors in the picker that
+    are hard to attribute back to the bake — this test catches them
+    where the bake actually runs."""
+
+    assert manifest.get("version") == 1, fixture_label
+    assert isinstance(manifest.get("src"), str) and manifest["src"], fixture_label
+
+    mesh = manifest.get("mesh")
+    assert isinstance(mesh, dict), fixture_label
+    assert isinstance(mesh.get("url"), str) and mesh["url"], fixture_label
+    assert isinstance(mesh.get("n_points"), int) and mesh["n_points"] > 0, fixture_label
+    assert isinstance(mesh.get("n_cells"), int) and mesh["n_cells"] >= 0, fixture_label
+
+    fields = manifest.get("fields")
+    assert isinstance(fields, list) and fields, f"{fixture_label}: no fields"
+
+    for field in fields:
+        # The picker calls field.kind.startsWith("vector"), reads
+        # field.components for the reduction selector, and walks
+        # field.steps for the slider. All three must be present and
+        # of the right shape.
+        for required in (
+            "name_canonical",
+            "name_native",
+            "kind",
+            "support",
+            "components",
+            "blob",
+            "n_steps",
+            "steps",
+            "scalar_range",
+            "default_view",
+        ):
+            assert required in field, f"{fixture_label}: field missing {required}"
+
+        assert isinstance(field["name_canonical"], str) and field["name_canonical"], (
+            f"{fixture_label}: empty name_canonical"
+        )
+        assert isinstance(field["kind"], str) and field["kind"], fixture_label
+        assert field["support"] in {"nodal", "element_nodal", "gauss"}, (
+            f"{fixture_label}: bad support={field['support']!r}"
+        )
+        assert isinstance(field["components"], list), fixture_label
+        assert all(isinstance(c, str) and c for c in field["components"]), fixture_label
+        assert isinstance(field["n_steps"], int) and field["n_steps"] >= 1, (
+            f"{fixture_label}: n_steps={field['n_steps']}"
+        )
+        assert isinstance(field["steps"], list), fixture_label
+        assert len(field["steps"]) == field["n_steps"], (
+            f"{fixture_label}: steps len {len(field['steps'])} != n_steps {field['n_steps']}"
+        )
+        for i, step in enumerate(field["steps"]):
+            assert step.get("i") == i, f"{fixture_label}: step[{i}].i mismatch"
+            assert "value" in step and isinstance(step["value"], (int, float)), (
+                f"{fixture_label}: step[{i}].value missing or wrong type"
+            )
+            assert isinstance(step.get("label"), str) and step["label"], (
+                f"{fixture_label}: step[{i}].label missing"
+            )
+
+        blob = field["blob"]
+        assert isinstance(blob.get("url"), str) and blob["url"], fixture_label
+        assert isinstance(blob.get("header_bytes"), int) and blob["header_bytes"] > 0, (
+            fixture_label
+        )
+        assert isinstance(blob.get("stride_bytes"), int) and blob["stride_bytes"] > 0, (
+            fixture_label
+        )
+        assert isinstance(blob.get("dtype"), str) and blob["dtype"], fixture_label
+        assert blob.get("byte_order") in {"little", "big"}, fixture_label
+
+        scalar_range = field["scalar_range"]
+        assert isinstance(scalar_range, dict) and scalar_range, (
+            f"{fixture_label}: scalar_range empty"
+        )
+        for comp in field["components"]:
+            assert comp in scalar_range, (
+                f"{fixture_label}: missing scalar_range for component {comp!r}"
+            )
+            lo, hi = scalar_range[comp]
+            assert lo <= hi, f"{fixture_label}: bad range for {comp}"
+        if field["kind"].startswith("vector"):
+            assert "magnitude" in scalar_range, (
+                f"{fixture_label}: vector field missing magnitude range"
+            )
+
+        default_view = field["default_view"]
+        assert default_view.get("colormap"), fixture_label
+        assert default_view.get("reduction") in {"magnitude", "scalar"} or (
+            default_view.get("reduction") in field["components"]
+        ), f"{fixture_label}: bad default reduction {default_view.get('reduction')!r}"
+
+
+@pytest.mark.parametrize("kind,rel", ALL_FEA_FIXTURES)
+def test_bake_satisfies_picker_contract_for_every_fixture(
+    fem_files, tmp_path, kind, rel,
+):
+    """End-to-end: every RMED + SIF fixture in the test corpus produces
+    a manifest the picker UI can render without a "Cannot read
+    properties of undefined" error. Locks the schema; future bake
+    changes that drop a required field land as test failures here
+    instead of silent runtime errors in the browser."""
+
+    src = fem_files / rel
+    if not src.exists():
+        pytest.skip(f"fixture not present: {rel}")
+
+    bake = bake_fea_artefacts_from_source(src, tmp_path / "out", src_key=src.stem)
+    manifest = json.loads(bake.manifest_path.read_text())
+    _assert_picker_contract(manifest, fixture_label=f"{kind}:{rel}")
+
+    # Cross-check: every blob URL in the manifest exists on disk.
+    for field in manifest["fields"]:
+        blob_path = bake.out_dir / field["blob"]["url"]
+        assert blob_path.exists(), f"{rel}: missing blob {field['blob']['url']}"
+        assert blob_path.stat().st_size > field["blob"]["header_bytes"], (
+            f"{rel}: blob {blob_path.name} smaller than declared header"
+        )
+    mesh_path = bake.out_dir / manifest["mesh"]["url"]
+    assert mesh_path.exists() and mesh_path.stat().st_size > 0, (
+        f"{rel}: mesh GLB missing or empty"
+    )
 
 
 @pytest.mark.parametrize("sif_rel", SIF_FIXTURES)
