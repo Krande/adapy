@@ -12,6 +12,9 @@ import {clear_loaded_model} from "@/utils/scene/handlers/clear_loaded_model";
 import {uploadAcceptAttr, uploadFile} from "@/utils/scene/handlers/upload_source_file";
 import ReloadIcon from "../icons/ReloadIcon";
 import UploadIcon from "../icons/UploadIcon";
+import FolderClosedIcon from "../icons/FolderClosedIcon";
+import FolderOpenIcon from "../icons/FolderOpenIcon";
+import ChevronRightIcon from "../icons/ChevronRightIcon";
 import FieldPickerModal from "./FieldPickerModal";
 import GitHistoryPanel from "./GitHistoryPanel";
 import {BuildSidecar, useBuildSidecars} from "@/hooks/useBuildSidecars";
@@ -810,16 +813,32 @@ const FolderRow: React.FC<FolderRowProps> = ({
     const indentPx = depth * 12;
     return (
         <li
-            className="flex items-center gap-2 px-2 py-1 cursor-pointer hover:bg-gray-300/10 select-none"
+            className="flex items-center gap-1.5 px-2 py-1 cursor-pointer hover:bg-gray-300/10 select-none"
             style={{paddingLeft: 8 + indentPx}}
             onClick={onToggle}
             role="button"
             aria-expanded={expanded}
             aria-label={`${expanded ? "Collapse" : "Expand"} folder ${folder.name}`}
         >
-            <span className="leading-none text-xs text-gray-300 w-3 inline-block">
-                {expanded ? "▾" : "▸"}
-            </span>
+            {/* Chevron — single right-pointing icon rotated 90° on
+                expand. text-blue-300 picks up the same accent the
+                row's loaded-state and progress bar use, so the
+                affordance reads as part of the toolbar palette
+                rather than a stray gray triangle. */}
+            <ChevronRightIcon
+                className={
+                    "shrink-0 text-blue-300 transition-transform duration-150 " +
+                    (expanded ? "rotate-90" : "")
+                }
+            />
+            {/* Folder glyph swaps closed↔open with the expand state.
+                Same blue tone so eye + chevron read as one
+                composite control. */}
+            {expanded ? (
+                <FolderOpenIcon className="shrink-0 text-blue-300"/>
+            ) : (
+                <FolderClosedIcon className="shrink-0 text-blue-300"/>
+            )}
             <span className="text-xs flex-1 min-w-0 truncate font-semibold">
                 {folder.name}/
             </span>

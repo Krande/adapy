@@ -122,7 +122,10 @@ export const useFeaAnimationStore = create<FeaAnimationState>((set) => ({
     manifest: null,
     fieldName: null,
     reduction: "magnitude",
-    colormap: "viridis",
+    // Abaqus rainbow as the default — matches what most CAE users
+    // expect from a stress / displacement plot. Viridis lives one
+    // dropdown away in the SimulationControls options panel.
+    colormap: "abaqus",
     applyStep: null,
 
     setSessionActive: (active) => set({sessionActive: active}),

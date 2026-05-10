@@ -198,11 +198,15 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
 
     return (
         <div className="flex flex-col gap-2 min-w-0">
-            {/* Field + reduction selectors — moved here from the
-                retired FeaStreamingPickerModal. Field changes snap
-                stepIndex to 0 + reduction to the field's default
-                view (different fields can have different step counts
-                and component sets). */}
+            {/* Field / Comp / Step selectors + the gear options
+                toggle. All on one row so the bottom transport row
+                stays focused on play controls. The step slider was
+                replaced by a dropdown — for transient analyses with
+                many steps, scrubbing 1-by-1 with a slider was
+                tedious and large jumps weren't possible. The native
+                <select> hits its render-cost limit somewhere north
+                of a few thousand options; if that becomes an issue
+                we'd virtualize the same way GroupInfoBox does. */}
             {manifest && (
                 <div className="flex flex-row items-center gap-x-2 min-w-0 text-xs text-white">
                     <label className="flex items-center gap-1">
@@ -235,26 +239,37 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                             </select>
                         </label>
                     )}
+                    {activeField && nSteps > 0 && (
+                        <label className="flex items-center gap-1 min-w-0">
+                            <span className="text-gray-300">Step</span>
+                            <select
+                                className="text-black bg-white rounded px-1 py-0.5 max-w-[10rem] truncate"
+                                value={stepIndex}
+                                disabled={nSteps <= 1}
+                                onChange={(e) => onStepChange(parseInt(e.target.value, 10))}
+                                title={`Step ${stepIndex + 1} of ${nSteps}`}
+                            >
+                                {activeField.steps.map((s) => (
+                                    <option key={s.i} value={s.i}>
+                                        {s.i + 1}/{nSteps} · {s.label}
+                                    </option>
+                                ))}
+                            </select>
+                        </label>
+                    )}
+                    <button
+                        className={
+                            "ml-auto bg-blue-700 hover:bg-blue-700/50 text-white rounded px-2 py-1 " +
+                            (showOptions ? "ring-2 ring-blue-300" : "")
+                        }
+                        onClick={() => setShowOptions((v) => !v)}
+                        title="Visualisation options"
+                        aria-pressed={showOptions}
+                    >
+                        <GearIcon/>
+                    </button>
                 </div>
             )}
-
-            {/* Step / mode slider. Discrete; updates trigger applyStep
-                which re-runs load_fea_streaming with the new step. */}
-            <div className="flex flex-row items-center gap-x-2 min-w-0">
-                <div className="text-white text-xs w-24 shrink-0">
-                    Step {stepIndex + 1} / {nSteps}
-                </div>
-                <input
-                    type="range"
-                    min={0}
-                    max={Math.max(nSteps - 1, 0)}
-                    step={1}
-                    value={stepIndex}
-                    disabled={nSteps <= 1}
-                    onChange={(e) => onStepChange(parseInt(e.target.value, 10))}
-                    className="w-full h-2 rounded-lg appearance-none cursor-pointer accent-blue-700 bg-blue-700/30"
-                />
-            </div>
 
             {/* Deformation-scale slider + transport buttons. */}
             <div className="flex flex-row items-center gap-x-2 min-w-0">
@@ -278,17 +293,6 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                     title="Toggle simulation data panel"
                 >
                     <FEMDataPanelIcon/>
-                </button>
-                <button
-                    className={
-                        "bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded " +
-                        (showOptions ? "ring-2 ring-blue-300" : "")
-                    }
-                    onClick={() => setShowOptions((v) => !v)}
-                    title="Visualisation options"
-                    aria-pressed={showOptions}
-                >
-                    <GearIcon/>
                 </button>
                 <div className="flex items-center gap-2 min-w-[100px] max-w-sm w-full">
                     <input
