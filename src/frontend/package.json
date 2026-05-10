@@ -11,6 +11,7 @@
     "test": "node --import tsx --test src/__tests__/services/feaManifestPoll.test.ts src/__tests__/services/feaFieldBlob.test.ts src/__tests__/services/feaMeshEdges.test.ts src/__tests__/services/feaMeshElements.test.ts"
   },
   "devDependencies": {
+    "@tanstack/react-virtual": "^3.13.24",
     "@types/node": "22.13.10",
     "@types/pako": "2.0.3",
     "@types/react": "19.1.6",
