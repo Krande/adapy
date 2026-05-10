@@ -822,6 +822,34 @@ export const viewerApi = {
         return jsonOrThrow(r, "adminDeleteBlob");
     },
 
+    /** Admin: batch-move source keys into a destination folder
+     * (key prefix). Each source is renamed to ``<folder>/<basename>``;
+     * derived blobs under ``_derived/<src>.*`` follow so the convert
+     * cache is preserved. Returns per-key outcomes. */
+    async adminMoveKeysToFolder(
+        scope: ScopeUrl,
+        keys: string[],
+        folder: string,
+    ): Promise<{
+        moved: Array<{
+            old: string;
+            new: string;
+            siblings_moved: number;
+            siblings_failed: string[];
+        }>;
+        failed: Array<{key: string; reason: string}>;
+    }> {
+        const r = await authedFetch(
+            `${runtime.apiBase()}/admin/scopes/${encodeURIComponent(scope)}/keys/move-to-folder`,
+            {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({keys, folder}),
+            },
+        );
+        return jsonOrThrow(r, "adminMoveKeysToFolder");
+    },
+
     async adminRemoveMember(projectId: string, userSub: string): Promise<void> {
         const r = await authedFetch(
             `${runtime.apiBase()}/admin/projects/${encodeURIComponent(projectId)}` +

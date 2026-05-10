@@ -58,6 +58,24 @@ const StorageTab: React.FC = () => {
     const [error, setError] = useState<string | null>(null);
     const [busyKey, setBusyKey] = useState<string | null>(null);
     const [expandedKey, setExpandedKey] = useState<string | null>(null);
+    // Multi-select for batch operations (currently just move-to-folder).
+    // Tracks source keys; derived-blob rows aren't selectable since
+    // moving a derived blob directly is rejected by the backend.
+    const [selectedKeys, setSelectedKeys] = useState<Set<string>>(() => new Set());
+    const toggleKeySelection = (key: string) => {
+        setSelectedKeys((prev) => {
+            const next = new Set(prev);
+            if (next.has(key)) next.delete(key);
+            else next.add(key);
+            return next;
+        });
+    };
+    const clearSelection = () => setSelectedKeys(new Set());
+    // Drop the selection when the scope changes — selecting in scope A
+    // and moving in scope B would silently no-op (keys live per scope).
+    useEffect(() => {
+        clearSelection();
+    }, [scope]);
     const [overrideOpen, setOverrideOpen] = useState(false);
     const [overrides, setOverrides] = useState<Record<OverrideKey, OverrideTri>>(() =>
         OVERRIDE_KEYS.reduce(
@@ -162,6 +180,45 @@ const StorageTab: React.FC = () => {
         }
     };
 
+    const onMoveSelectedToFolder = async () => {
+        if (selectedKeys.size === 0) return;
+        const folder = window.prompt(
+            `Move ${selectedKeys.size} file${selectedKeys.size === 1 ? "" : "s"} to folder:`,
+            "",
+        );
+        if (folder === null) return; // cancelled
+        const trimmed = folder.trim().replace(/^\/+|\/+$/g, "");
+        if (!trimmed) {
+            setError("Folder name required");
+            return;
+        }
+        setBusyKey("__bulk_move__");
+        setError(null);
+        try {
+            const result = await viewerApi.adminMoveKeysToFolder(
+                scope,
+                Array.from(selectedKeys),
+                trimmed,
+            );
+            if (result.failed.length > 0) {
+                const summary = result.failed
+                    .map((f) => `${f.key}: ${f.reason}`)
+                    .join("\n");
+                setError(
+                    `Moved ${result.moved.length} of ${
+                        result.moved.length + result.failed.length
+                    }; failures:\n${summary}`,
+                );
+            }
+            clearSelection();
+            await reload();
+        } catch (e) {
+            setError(e instanceof ApiError ? e.detail || e.message : String(e));
+        } finally {
+            setBusyKey(null);
+        }
+    };
+
     // Delete a single derived blob without touching the source.
     // Common during conversion debugging: remove the cached GLB so
     // the next /convert re-runs the pipeline instead of returning the
@@ -195,6 +252,30 @@ const StorageTab: React.FC = () => {
                 >
                     Overrides{activeOverrides ? ` (${activeOverrides})` : ""} {overrideOpen ? "▾" : "▸"}
                 </button>
+                {selectedKeys.size > 0 && (
+                    <>
+                        <span className="ml-2 text-gray-300">
+                            {selectedKeys.size} selected
+                        </span>
+                        <button
+                            type="button"
+                            className="bg-gray-700 hover:bg-gray-600 px-2 py-1 rounded text-[11px] disabled:opacity-50"
+                            onClick={() => void onMoveSelectedToFolder()}
+                            disabled={busyKey === "__bulk_move__"}
+                            title="Rename selected sources under a folder prefix"
+                        >
+                            {busyKey === "__bulk_move__" ? "Moving…" : "Move to folder…"}
+                        </button>
+                        <button
+                            type="button"
+                            className="bg-gray-700 hover:bg-gray-600 px-2 py-1 rounded text-[11px]"
+                            onClick={clearSelection}
+                            title="Clear selection"
+                        >
+                            Clear
+                        </button>
+                    </>
+                )}
                 <button
                     type="button"
                     className={
@@ -275,6 +356,7 @@ const StorageTab: React.FC = () => {
                     into unreadable mush. */}
                 <table className="hidden sm:table w-full text-sm table-fixed min-w-[1200px]">
                     <colgroup>
+                        <col className="w-[2.5rem]"/>
                         <col className="w-[24rem]"/>
                         <col className="w-[10rem]"/>
                         <col className="w-[7rem]"/>
@@ -284,6 +366,7 @@ const StorageTab: React.FC = () => {
                     </colgroup>
                     <thead className="sticky top-0 bg-gray-800 text-left">
                     <tr>
+                        <Th>{""}</Th>
                         <Th>Name</Th>
                         <Th>Format</Th>
                         <Th>Size</Th>
@@ -299,6 +382,8 @@ const StorageTab: React.FC = () => {
                             file={f}
                             busyKey={busyKey}
                             scope={scope}
+                            selected={selectedKeys.has(f.key)}
+                            onToggleSelected={() => toggleKeySelection(f.key)}
                             onConvert={onConvert}
                             onDownload={onDownload}
                             onDelete={onDelete}
@@ -315,6 +400,8 @@ const StorageTab: React.FC = () => {
                             file={f}
                             busyKey={busyKey}
                             expanded={expandedKey === f.key}
+                            selected={selectedKeys.has(f.key)}
+                            onToggleSelected={() => toggleKeySelection(f.key)}
                             onToggleExpand={() => setExpandedKey(expandedKey === f.key ? null : f.key)}
                             onConvert={onConvert}
                             onDownload={onDownload}
@@ -336,6 +423,8 @@ const StorageTab: React.FC = () => {
 interface RowProps {
     file: AdminFileEntry;
     busyKey: string | null;
+    selected: boolean;
+    onToggleSelected: () => void;
     onConvert: (sourceKey: string, target: TargetFormat) => void;
     onDownload: (key: string, suggestedName: string) => void;
     onDelete: (key: string, label: string) => void;
@@ -345,6 +434,8 @@ interface RowProps {
 const SourceRow: React.FC<RowProps & {scope: string}> = ({
     file,
     busyKey,
+    selected,
+    onToggleSelected,
     onConvert,
     onDownload,
     onDelete,
@@ -355,6 +446,16 @@ const SourceRow: React.FC<RowProps & {scope: string}> = ({
     const busyDeleting = busyKey === `${file.key}::delete`;
     return (
         <tr className="border-t border-gray-800 align-top">
+            <Td>
+                <input
+                    type="checkbox"
+                    checked={selected}
+                    onChange={onToggleSelected}
+                    aria-label={`Select ${file.key}`}
+                    disabled={file.orphan === true}
+                    title={file.orphan ? "Orphans can't be moved" : "Select for batch operations"}
+                />
+            </Td>
             <Td title={file.key}>
                 {file.orphan && (
                     <span className="text-[10px] uppercase text-yellow-400 mr-1" title="Source missing">
@@ -445,6 +546,8 @@ const SourceCard: React.FC<CardProps> = ({
     file,
     busyKey,
     expanded,
+    selected,
+    onToggleSelected,
     onToggleExpand,
     onConvert,
     onDownload,
@@ -456,26 +559,38 @@ const SourceCard: React.FC<CardProps> = ({
     const busyDeleting = busyKey === `${file.key}::delete`;
     return (
         <li className="px-3 py-3 text-xs">
-            <button
-                type="button"
-                className="w-full text-left"
-                onClick={onToggleExpand}
-            >
-                <div className="flex items-center justify-between gap-2">
-                    <span className="font-medium text-sm truncate" title={file.key}>
-                        {file.orphan && (
-                            <span className="text-[10px] uppercase text-yellow-400 mr-1">orphan</span>
-                        )}
-                        {file.key}
-                    </span>
-                    <span className="text-[11px] text-gray-400 shrink-0">{formatBytes(file.size)}</span>
-                </div>
-                <div className="text-gray-400 mt-0.5">
-                    {file.format}
-                    {file.last_modified ? ` · ${file.last_modified.slice(0, 10)}` : ""}
-                    {file.derived.length > 0 ? ` · ${file.derived.length} derived` : ""}
-                </div>
-            </button>
+            <div className="flex items-start gap-2">
+                <input
+                    type="checkbox"
+                    checked={selected}
+                    onChange={onToggleSelected}
+                    onClick={(e) => e.stopPropagation()}
+                    className="mt-1 shrink-0"
+                    aria-label={`Select ${file.key}`}
+                    disabled={file.orphan === true}
+                    title={file.orphan ? "Orphans can't be moved" : "Select for batch operations"}
+                />
+                <button
+                    type="button"
+                    className="flex-1 min-w-0 text-left"
+                    onClick={onToggleExpand}
+                >
+                    <div className="flex items-center justify-between gap-2">
+                        <span className="font-medium text-sm truncate" title={file.key}>
+                            {file.orphan && (
+                                <span className="text-[10px] uppercase text-yellow-400 mr-1">orphan</span>
+                            )}
+                            {file.key}
+                        </span>
+                        <span className="text-[11px] text-gray-400 shrink-0">{formatBytes(file.size)}</span>
+                    </div>
+                    <div className="text-gray-400 mt-0.5">
+                        {file.format}
+                        {file.last_modified ? ` · ${file.last_modified.slice(0, 10)}` : ""}
+                        {file.derived.length > 0 ? ` · ${file.derived.length} derived` : ""}
+                    </div>
+                </button>
+            </div>
             {expanded && (
                 <div className="mt-2 space-y-2">
                     {file.derived.length > 0 && (
