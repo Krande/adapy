@@ -217,6 +217,29 @@ class Storage:
 
         await obs.put_async(self._store, full, data)
 
+    async def rename(
+        self,
+        scope: Scope,
+        src_key: str,
+        dst_key: str,
+        *,
+        overwrite: bool = False,
+    ) -> None:
+        """Atomically rename a stored key within the same scope.
+
+        Server-side rename on object stores that support it (S3 family,
+        Azure); copy + delete fallback on stores that don't.
+        ``overwrite=False`` (the default) makes the operation safe-by-
+        default: a target that already exists raises rather than
+        silently clobbering the file at that key.
+        """
+
+        full_src = self._full_key(scope, src_key)
+        full_dst = self._full_key(scope, dst_key)
+        if full_src == full_dst:
+            return
+        await obs.rename_async(self._store, full_src, full_dst, overwrite=overwrite)
+
     @property
     def supports_presigned_uploads(self) -> bool:
         """True for object-store backends that can vend a presigned PUT

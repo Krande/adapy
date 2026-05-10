@@ -1648,6 +1648,173 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         return JSONResponse({"deleted": deleted, "errors": errors})
 
+    @admin.post("/scopes/{scope}/keys/move-to-folder")
+    async def admin_keys_move_to_folder(
+        request: Request,
+        scope_obj: Scope = Depends(_scope_from_path),
+        user: User = Depends(auth_module.current_user),
+    ) -> JSONResponse:
+        """Batch-move source keys to a destination folder prefix.
+
+        Body: ``{"keys": [...], "folder": "..."}``. Each source key
+        is renamed to ``<folder>/<basename(src_key)>`` within the
+        same scope. Derived siblings under ``_derived/<src_key>.*``
+        are renamed to follow so the bake cache survives the move
+        (re-baking a big SIF / RMED is expensive — losing the cache
+        on every reorganise would hurt).
+
+        Per-key outcome reporting: failures (target exists, rename
+        backend error, etc.) don't abort the batch — the caller
+        gets ``{moved, failed}`` and can re-attempt the failures.
+        """
+
+        from .converter import is_derived_key
+
+        body = await request.json()
+        raw_keys = body.get("keys")
+        folder_raw = body.get("folder")
+
+        if not isinstance(raw_keys, list) or not raw_keys:
+            raise HTTPException(status_code=400, detail="keys must be a non-empty list")
+        if not isinstance(folder_raw, str) or not folder_raw.strip():
+            raise HTTPException(status_code=400, detail="folder required")
+        folder = folder_raw.strip().strip("/")
+        if not folder:
+            raise HTTPException(status_code=400, detail="folder required")
+        if any(not isinstance(k, str) or not k.strip() for k in raw_keys):
+            raise HTTPException(
+                status_code=400, detail="every key must be a non-empty string"
+            )
+
+        # Dedup while preserving order.
+        seen: set[str] = set()
+        keys: list[str] = []
+        for raw in raw_keys:
+            cleaned = raw.strip().lstrip("/")
+            if cleaned and cleaned not in seen:
+                seen.add(cleaned)
+                keys.append(cleaned)
+
+        # Snapshot the scope's keyset so we can detect target collisions
+        # and find derived siblings without re-listing per file. We mutate
+        # the local set as renames happen so multiple moves into the same
+        # folder agree on what already exists.
+        live_keys = {f.key for f in await storage.list(scope_obj)}
+
+        # Source keys (non-derived) — used as the candidate set when
+        # disambiguating which source a derived blob belongs to. Refreshed
+        # implicitly via live_keys mutations during the loop.
+        def _source_keys() -> list[str]:
+            return [k for k in live_keys if not is_derived_key(k)]
+
+        def _owning_source(derived_key: str, candidates: list[str]) -> str | None:
+            """Return the longest source key whose derived prefix matches.
+
+            Derived blobs follow `_derived/<src>.<suffix>` (legacy GLB,
+            FEA artefacts, result-meta, etc.). When two source keys share
+            a string prefix (e.g. ``wall.rmed`` and ``wall.rmed.bak``),
+            naively matching the shorter prefix would steal the longer
+            source's derived blobs on rename. Pick the longest source-key
+            prefix followed by ``.`` or ``/`` and trust *that*.
+            """
+            if not derived_key.startswith("_derived/"):
+                return None
+            inner = derived_key[len("_derived/"):]
+            best: str | None = None
+            for src in candidates:
+                if inner.startswith(src + ".") or inner.startswith(src + "/"):
+                    if best is None or len(src) > len(best):
+                        best = src
+            return best
+
+        moved: list[dict] = []
+        failed: list[dict] = []
+        for old_src in keys:
+            if is_derived_key(old_src):
+                failed.append(
+                    {"key": old_src, "reason": "cannot move derived blobs directly"}
+                )
+                continue
+            basename = old_src.rsplit("/", 1)[-1]
+            new_src = f"{folder}/{basename}"
+            if new_src == old_src:
+                failed.append({"key": old_src, "reason": "destination matches source"})
+                continue
+            if new_src in live_keys:
+                failed.append(
+                    {"key": old_src, "reason": f"target already exists: {new_src}"}
+                )
+                continue
+            if old_src not in live_keys:
+                failed.append({"key": old_src, "reason": "source not found"})
+                continue
+
+            try:
+                await storage.rename(scope_obj, old_src, new_src)
+            except Exception as exc:
+                logger.exception("admin: move failed for %s -> %s", old_src, new_src)
+                failed.append({"key": old_src, "reason": str(exc)})
+                continue
+
+            live_keys.discard(old_src)
+            live_keys.add(new_src)
+
+            # Derived siblings: keys under `_derived/<old_src>.*` get
+            # the prefix swapped to `_derived/<new_src>.*` so the
+            # convert / bake cache stays warm. Candidate set must
+            # include old_src — it was just removed from live_keys by
+            # the source rename above, but the derived blobs we're
+            # looking up still reference its name.
+            old_prefix = f"_derived/{old_src}"
+            new_prefix = f"_derived/{new_src}"
+            candidates = _source_keys() + [old_src]
+            sibling_pairs: list[tuple[str, str]] = []
+            for k in list(live_keys):
+                if not k.startswith(old_prefix):
+                    continue
+                # Pin each derived blob to its longest matching source
+                # key — without this, `wall.rmed.bak.glb` would be
+                # stolen as a sibling of `wall.rmed`.
+                if _owning_source(k, candidates) != old_src:
+                    continue
+                rest = k[len(old_prefix):]
+                sibling_pairs.append((k, new_prefix + rest))
+
+            sibling_errors: list[str] = []
+            for sk_old, sk_new in sibling_pairs:
+                try:
+                    await storage.rename(scope_obj, sk_old, sk_new)
+                    live_keys.discard(sk_old)
+                    live_keys.add(sk_new)
+                except Exception as exc:
+                    logger.warning(
+                        "admin: sibling rename %s -> %s failed: %s",
+                        sk_old,
+                        sk_new,
+                        exc,
+                    )
+                    sibling_errors.append(f"{sk_old}: {exc}")
+
+            moved.append(
+                {
+                    "old": old_src,
+                    "new": new_src,
+                    "siblings_moved": len(sibling_pairs) - len(sibling_errors),
+                    "siblings_failed": sibling_errors,
+                }
+            )
+            await _audit(
+                request,
+                user,
+                scope_obj,
+                "move",
+                key=old_src,
+                status="ok",
+                error="; ".join(sibling_errors) or None,
+            )
+
+        return JSONResponse({"moved": moved, "failed": failed})
+
     app.include_router(admin)
 
     @app.get("/config.js")
