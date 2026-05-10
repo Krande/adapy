@@ -9,7 +9,10 @@ import {FeaManifest, FeaManifestField, viewerApi} from "@/services/viewerApi";
 import {sceneRef} from "@/state/refs";
 import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
 import {useModelState} from "@/state/modelState";
+import {useAnimationStore} from "@/state/animationStore";
+import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {applyFieldToMesh} from "../fea/applyField";
+import {resetFeaAnimationPhase} from "../fea/feaAnimationDriver";
 import {replace_model} from "./update_scene_from_message";
 
 // Cached state for the currently-rendered FEA streaming source.
@@ -31,9 +34,13 @@ let active: ActiveFeaStreaming | null = null;
 
 /** Drop the cached state on next call (e.g. when the user replaces
  * the scene with a different file). The blob cache lives separately
- * in feaFieldBlob.ts. */
+ * in feaFieldBlob.ts. Also resets the deformation-animation store
+ * so the SimulationControls UI doesn't keep showing FEA-mode
+ * controls for a mesh that's no longer in the scene. */
 export function clearActiveFeaStreaming(): void {
     active = null;
+    useFeaAnimationStore.getState().reset();
+    resetFeaAnimationPhase();
 }
 
 function findFirstMesh(root: THREE.Object3D): THREE.Mesh | null {
@@ -195,8 +202,9 @@ export async function load_fea_streaming(args: {
         // edge sidecar (deduped uint32 pairs from each cell's
         // ElemShape.edges) so the wireframe shows real element
         // boundaries — not the diagonals from quad-face triangulation.
-        // Sharing the mesh's position attribute means deformation
-        // updates both face and line rendering from a single buffer.
+        // Sharing the mesh's position attribute + morph attribute +
+        // influences array means deformation drives both face and
+        // line rendering from a single buffer / single uniform.
         if (manifest.mesh.edges_url) {
             try {
                 const edgeIndices = await fetchMeshEdges(
@@ -214,6 +222,11 @@ export async function load_fea_streaming(args: {
                     });
                     const segments = new THREE.LineSegments(lineGeom, lineMat);
                     segments.name = "fea-element-edges";
+                    // Share the mesh's morph attribute + influences
+                    // array so the line wireframe morphs in lockstep
+                    // with the face mesh. We set this *after* the
+                    // first applyFieldToMesh call below seeds the
+                    // morph attribute — see linkLineMorphToMesh.
                     mesh.add(segments);
                 }
             } catch (err) {
@@ -229,11 +242,70 @@ export async function load_fea_streaming(args: {
     const stepValues = parsed.steps[stepIndex];
 
     applyFieldToMesh({
-        geometry: active.mesh.geometry,
+        mesh: active.mesh,
         basePositions: active.basePositions,
         stepValues,
         field,
         reduction,
         displacementScale,
     });
+
+    // Link the edge overlay's morph state to the mesh's so the
+    // wireframe tracks deformation. Idempotent: re-running just
+    // re-links, which is fine — the references are stable across
+    // step changes.
+    linkLineMorphToMesh(active.mesh);
+
+    // Register the session with the animation store so
+    // SimulationControls renders the deformation-scale slider /
+    // play / stop instead of the GLTF-clip controls. Range follows
+    // the field's analysis_kind: static = [0, 1] (one-directional),
+    // eigen = [-1, +1] (mode shape has no inherent sign).
+    const animStore = useFeaAnimationStore.getState();
+    const range: [number, number] =
+        field.analysis_kind === "eigen" ? [-1, 1] : [0, 1];
+    animStore.setSessionActive(true);
+    animStore.setMesh(active.mesh);
+    animStore.setRange(range);
+    animStore.setFactor(displacementScale);
+    animStore.setStepIndex(stepIndex);
+    animStore.setNSteps(field.n_steps);
+
+    // Auto-show the SimulationControls panel on first apply so the
+    // user doesn't need to find a hidden toggle for a deformation
+    // session they just kicked off. Idempotent — re-applying with a
+    // panel already open is a no-op.
+    const generalAnimStore = useAnimationStore.getState();
+    if (!generalAnimStore.isControlsVisible) {
+        generalAnimStore.setIsControlsVisible(true);
+    }
+}
+
+/** Wire the LineSegments wireframe child to share morph attributes
+ * + influences with the parent mesh, so changing
+ * mesh.morphTargetInfluences[0] morphs both. */
+function linkLineMorphToMesh(mesh: THREE.Mesh): void {
+    for (const child of mesh.children) {
+        if (!(child instanceof THREE.LineSegments)) continue;
+        const lineGeom = child.geometry as THREE.BufferGeometry;
+        // morphAttributes is per-geometry; sharing the same array of
+        // BufferAttributes makes both geometries reference the same
+        // morph delta data on the GPU.
+        if (mesh.geometry.morphAttributes.position) {
+            lineGeom.morphAttributes.position = mesh.geometry.morphAttributes.position;
+            lineGeom.morphTargetsRelative = mesh.geometry.morphTargetsRelative;
+        }
+        // morphTargetInfluences is per-Object3D; sharing the same
+        // array reference means writes through mesh.morphTargetInfluences
+        // are visible to the line too.
+        if (mesh.morphTargetInfluences) {
+            child.morphTargetInfluences = mesh.morphTargetInfluences;
+            child.morphTargetDictionary = mesh.morphTargetDictionary ?? undefined;
+        }
+        const mat = child.material as THREE.LineBasicMaterial;
+        if (mat && "morphTargets" in mat) {
+            (mat as any).morphTargets = true;
+            mat.needsUpdate = true;
+        }
+    }
 }

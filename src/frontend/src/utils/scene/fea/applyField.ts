@@ -1,12 +1,18 @@
 // Apply a single (field, component, step) selection to a baked
-// FEA mesh: deforms positions in-place by the displacement values
-// (first 3 components of vector fields) and writes per-vertex
-// colours from the chosen scalar reduction → viridis LUT.
+// FEA mesh: installs the displacement as a morph target on the
+// geometry so the deformation factor lives in
+// ``mesh.morphTargetInfluences[0]`` instead of being baked into
+// the position attribute. Vertex colours are still CPU-computed
+// per step + reduction since they don't depend on the factor.
 //
-// CPU-side, no custom shader. THREE's MeshStandardMaterial with
-// vertexColors handles the rendering. Step changes invoke this
-// helper again with a new step's Float32Array; the per-frame cost
-// is one full vertex iteration which is fine up to ~1M points.
+// The morph-target route is the right primitive here because:
+//   * the deformation animation just sweeps the influence uniform —
+//     zero CPU per frame regardless of vertex count;
+//   * CustomBatchedMesh's selection overlay already syncs with
+//     morph deformation via its onBeforeRender hook, so highlighted
+//     elements track the deformed shape automatically;
+//   * raycasting on morphed geometry is supported by THREE out of
+//     the box (CustomBatchedMesh's custom raycast respects it too).
 
 import * as THREE from "three";
 
@@ -14,19 +20,23 @@ import type {FeaManifestField, FeaScalarRange} from "@/services/viewerApi";
 import {viridis} from "./viridis";
 
 export interface ApplyFieldArgs {
-    geometry: THREE.BufferGeometry;
+    /** The mesh whose geometry we deform. We need the mesh (not just
+     * the geometry) so we can update ``morphTargetInfluences``. */
+    mesh: THREE.Mesh;
     /** Original (un-deformed) vertex positions, length 3*n_points.
      * Cached on the mesh so step scrubs don't accumulate displacement
-     * onto already-displaced positions. */
+     * onto already-displaced positions. The geometry's position
+     * attribute is reset to this snapshot on every apply, so the
+     * morph attribute can hold the un-scaled displacement. */
     basePositions: Float32Array;
     /** This step's per-node values, length n_points * n_components. */
     stepValues: Float32Array;
     field: FeaManifestField;
     /** "magnitude" or one of the field's component names. */
     reduction: string;
-    /** Multiplier applied to the displacement vector before adding to
-     * basePositions. Use 1 for true-scale; bigger values exaggerate
-     * deformation for visualisation. */
+    /** Initial deformation factor. Animation drivers update
+     * ``mesh.morphTargetInfluences[0]`` directly afterwards; this is
+     * just the value the slider was at when the user pressed apply. */
     displacementScale?: number;
 }
 
@@ -34,7 +44,6 @@ function pickRange(field: FeaManifestField, reduction: string): [number, number]
     const range: FeaScalarRange = field.scalar_range;
     const r = range[reduction];
     if (r) return [r[0], r[1]];
-    // Fall back to first component's range or [0, 1].
     if (field.components.length > 0) {
         const fallback = range[field.components[0]];
         if (fallback) return [fallback[0], fallback[1]];
@@ -46,12 +55,14 @@ function componentIndex(field: FeaManifestField, reduction: string): number {
     return field.components.indexOf(reduction);
 }
 
-/** Update geometry's position + colour attributes for the chosen
- * step. Idempotent: always derives positions from basePositions, so
- * repeated calls just replace. */
+/** Update the geometry's morph target + colour attribute for the
+ * chosen step, and seed the mesh's morphTargetInfluences[0] with
+ * the requested factor. Idempotent: always derives from
+ * basePositions and the step's raw values, so repeated calls just
+ * replace the morph delta and colours. */
 export function applyFieldToMesh(args: ApplyFieldArgs): void {
     const {
-        geometry,
+        mesh,
         basePositions,
         stepValues,
         field,
@@ -59,6 +70,7 @@ export function applyFieldToMesh(args: ApplyFieldArgs): void {
         displacementScale = 1,
     } = args;
 
+    const geometry = mesh.geometry;
     const n_points = basePositions.length / 3;
     const n_components = field.components.length;
     if (stepValues.length !== n_points * n_components) {
@@ -68,23 +80,24 @@ export function applyFieldToMesh(args: ApplyFieldArgs): void {
         );
     }
 
-    const out_positions = new Float32Array(basePositions.length);
+    const isVector = field.kind.startsWith("vector");
+    const isMagnitude = reduction === "magnitude";
+    const compIdx = isMagnitude ? -1 : componentIndex(field, reduction);
+
+    // Displacement vector per vertex (un-scaled). Lives as the morph
+    // delta — THREE adds ``influence * morphAttr`` to the base
+    // position when morphTargetsRelative is true.
+    const displacement = new Float32Array(basePositions.length);
     const out_colors = new Float32Array(n_points * 3);
 
     const [rangeMin, rangeMax] = pickRange(field, reduction);
     const range = rangeMax - rangeMin;
     const scaleColor = range > 0 ? 1 / range : 0;
 
-    const isVector = field.kind.startsWith("vector");
-    const isMagnitude = reduction === "magnitude";
-    const compIdx = isMagnitude ? -1 : componentIndex(field, reduction);
-
     for (let v = 0; v < n_points; v++) {
         const base = v * 3;
         const stride = v * n_components;
 
-        // Displacement: first 3 components for vector fields. Scalar
-        // fields skip the deformation step.
         let dx = 0;
         let dy = 0;
         let dz = 0;
@@ -93,35 +106,52 @@ export function applyFieldToMesh(args: ApplyFieldArgs): void {
             dy = n_components >= 2 ? stepValues[stride + 1] || 0 : 0;
             dz = n_components >= 3 ? stepValues[stride + 2] || 0 : 0;
         }
-        out_positions[base + 0] = basePositions[base + 0] + dx * displacementScale;
-        out_positions[base + 1] = basePositions[base + 1] + dy * displacementScale;
-        out_positions[base + 2] = basePositions[base + 2] + dz * displacementScale;
+        displacement[base + 0] = dx;
+        displacement[base + 1] = dy;
+        displacement[base + 2] = dz;
 
-        // Scalar value used by the colormap. Magnitude for vectors;
-        // direct read for component or scalar fields.
         let scalar: number;
         if (isMagnitude) {
             scalar = Math.sqrt(dx * dx + dy * dy + dz * dz);
         } else if (compIdx >= 0) {
             scalar = stepValues[stride + compIdx] || 0;
         } else {
-            // Scalar field, n_components=1.
             scalar = stepValues[stride] || 0;
         }
         const t = isFinite(scalar) ? (scalar - rangeMin) * scaleColor : 0;
         viridis(t, out_colors, base);
     }
 
-    // Replace the buffers; THREE re-uploads on next render frame.
+    // 1. Reset the position attribute to the un-deformed base. The
+    //    morph delta is what carries the deformation; the base must
+    //    stay static or repeated applies stack onto each other.
     const posAttr = geometry.getAttribute("position");
     if (posAttr) {
-        (posAttr.array as Float32Array).set(out_positions);
+        (posAttr.array as Float32Array).set(basePositions);
         posAttr.needsUpdate = true;
     }
 
-    // Vertex colours land on a fresh attribute since the GLB doesn't
-    // carry one. The material's ``vertexColors`` flag is flipped by
-    // the streaming load orchestrator before the first apply.
+    // 2. Install / update the displacement morph attribute. Reuse
+    //    the underlying buffer when possible so step scrubs avoid
+    //    re-allocating one Float32Array per vertex per frame.
+    if (!geometry.morphAttributes.position) {
+        geometry.morphAttributes.position = [];
+    }
+    const existingMorph = geometry.morphAttributes.position[0];
+    if (
+        existingMorph &&
+        (existingMorph.array as Float32Array).length === displacement.length
+    ) {
+        (existingMorph.array as Float32Array).set(displacement);
+        existingMorph.needsUpdate = true;
+    } else {
+        geometry.morphAttributes.position[0] = new THREE.BufferAttribute(displacement, 3);
+    }
+    // Additive morphing: position = base + influence * morphAttr.
+    // Without this THREE blends with (1 - influence) on the base.
+    geometry.morphTargetsRelative = true;
+
+    // 3. Vertex colours — independent of the morph factor.
     const existingColor = geometry.getAttribute("color");
     if (existingColor && existingColor.itemSize === 3) {
         (existingColor.array as Float32Array).set(out_colors);
@@ -130,5 +160,37 @@ export function applyFieldToMesh(args: ApplyFieldArgs): void {
         geometry.setAttribute("color", new THREE.BufferAttribute(out_colors, 3));
     }
 
+    // 4. Seed the influence. Animation drivers (RAF) update this
+    //    directly afterwards.
+    if (!mesh.morphTargetInfluences) {
+        mesh.morphTargetInfluences = [displacementScale];
+    } else {
+        mesh.morphTargetInfluences[0] = displacementScale;
+    }
+    if (!mesh.morphTargetDictionary) {
+        mesh.morphTargetDictionary = {displacement: 0};
+    }
+
+    // 5. Material flags. vertexColors flipped on by the orchestrator;
+    //    morphTargets must be on for the renderer to consume the
+    //    morph attribute.
+    const enableMorphFlag = (mat: THREE.Material) => {
+        if ("morphTargets" in mat) {
+            (mat as any).morphTargets = true;
+            mat.needsUpdate = true;
+        }
+    };
+    if (Array.isArray(mesh.material)) {
+        mesh.material.forEach(enableMorphFlag);
+    } else if (mesh.material) {
+        enableMorphFlag(mesh.material as THREE.Material);
+    }
+
+    // Normals depend on the deformed shape; recompute against the
+    // base positions only — the morph delta blends per-vertex on the
+    // GPU and we don't have a cheap way to reflect that in the CPU
+    // normals array. For viz that's acceptable: lighting on the
+    // morphed shape uses base normals, which is consistent with how
+    // GLTF morph clips behave by default.
     geometry.computeVertexNormals();
 }

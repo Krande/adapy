@@ -5,6 +5,7 @@ import {add_mesh_to_scene} from "./append_to_scene_from_message";
 
 import {ungzip} from 'pako';
 import {SetupModelPrepareHook, setupModelLoaderAsync} from "@/components/viewer/sceneHelpers/setupModelLoader";
+import {clearActiveFeaStreaming} from "./load_fea_streaming";
 import {animationControllerRef, modelKeyMapRef, sceneRef} from "@/state/refs";
 import {useTreeViewStore} from "@/state/treeViewStore";
 import {loadGLTFfrombase64} from "../loadGLTFfrombase64";
@@ -38,6 +39,11 @@ export async function replace_model(url: string, prepareHook?: SetupModelPrepare
     // valid. clearLoadedSources also empties loadedSourceNames so
     // every StorageBrowser checkbox unchecks together.
     useModelState.getState().clearLoadedSources();
+    // FEA streaming session is tied to the mesh that's about to be
+    // ripped out — clear it before the new scene comes in so the
+    // SimulationControls UI flips back from FEA-mode to the GLTF
+    // clip path.
+    clearActiveFeaStreaming();
 
     const three_scene = sceneRef.current;
     if (!three_scene) {

@@ -18,6 +18,7 @@ import {animationControllerRef, cameraRef, controlsRef, rendererRef, sceneRef, u
 import {OrbitControls} from "three/examples/jsm/controls/OrbitControls";
 import {AnimationController} from "@/utils/scene/animations/AnimationController";
 import {replace_model} from "@/utils/scene/handlers/update_scene_from_message";
+import {tickFeaAnimation} from "@/utils/scene/fea/feaAnimationDriver";
 
 
 const ThreeCanvas: React.FC = () => {
@@ -137,18 +138,25 @@ const ThreeCanvas: React.FC = () => {
             // 1) start all stats timers
             statsArray.forEach((s) => s.begin());
 
+            // ``clock.getDelta`` is destructive — calling it more
+            // than once per frame eats time from later consumers.
+            // Snapshot it here and let everything below share.
+            const frameDelta = clock.getDelta();
+
             // Fix: Always use the current reference, not the captured one
             if (animationControllerRef.current && animationControllerRef.current.currentAction) {
-                const deltaTime = clock.getDelta();
-                animationControllerRef.current.update(deltaTime);
+                animationControllerRef.current.update(frameDelta);
             }
+
+            // Streaming-FEA mode-shape oscillation. No-op when no
+            // session is active or play isn't pressed.
+            tickFeaAnimation(frameDelta);
 
             if (controls instanceof OrbitControls) {
                 controls.update();
             } else {
                 // snip
-                const frame_delta = clock.getDelta();
-                controls.update(frame_delta);
+                controls.update(frameDelta);
             }
             updateCameraLight?.(); // ← Keep the light tracking the camera
             gizmo?.update(); // <-- keep the gizmo synced with the camera

@@ -4,6 +4,7 @@ import {useObjectInfoStore} from "../state/objectInfoStore";
 import SimulationControls from "./simulation/SimulationControls";
 import {useNodeEditorStore} from "../state/useNodeEditorStore";
 import {useAnimationStore} from "../state/animationStore";
+import {useFeaAnimationStore} from "../state/feaAnimationStore";
 import {useOptionsStore} from "../state/optionsStore";
 import {request_list_of_nodes} from "../utils/node_editor/handlers/request_list_of_nodes";
 import {useServerInfoStore} from "../state/serverInfoStore";
@@ -68,6 +69,7 @@ const Menu = () => {
     const {isOptionsVisible, setIsOptionsVisible, enableNodeEditor} = useOptionsStore(); // use the useNavBarStore function
     const {showServerInfoBox, setShowServerInfoBox} = useServerInfoStore();
     const {hasAnimation, isControlsVisible, setIsControlsVisible} = useAnimationStore();
+    const feaSessionActive = useFeaAnimationStore((s) => s.sessionActive);
     const {showInfoBox: showWebsocketInfoBox} = useWebsocketStatusStore();
     const {isTreeCollapsed, setIsTreeCollapsed, treeViewWidth} = useTreeViewStore();
     const isDesktop = useIsDesktop();
@@ -152,7 +154,7 @@ const Menu = () => {
 
                     <button
                         className={navBtnClass(isControlsVisible)}
-                        hidden={!hasAnimation}
+                        hidden={!hasAnimation && !feaSessionActive}
                         onClick={() => setIsControlsVisible(!isControlsVisible)}
                         title="Toggle animation controls"
                         aria-pressed={isControlsVisible}
