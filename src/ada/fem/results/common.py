@@ -33,10 +33,17 @@ class CellBlockData:
     ``cell_type`` carries the canonical meshio-style type name
     ('hexahedron', 'tetra10', 'triangle', etc.) so existing
     consumers of cell-type strings keep working.
+
+    ``identifiers`` is the per-element label array as it appears in
+    the source FEA file (RMED ``MAI/<type>/NUM``, SIF/FRD element
+    ids, etc.). ``None`` means the source didn't carry labels —
+    consumers fall back to a 0-based positional index. Length must
+    equal ``data.shape[0]`` when not ``None``.
     """
 
     cell_type: str
     data: np.ndarray  # (n_cells, n_nodes_per_cell), node indices
+    identifiers: np.ndarray | None = None  # (n_cells,) source-file element labels
 
     # Match meshio.CellBlock's older positional-attr name so that
     # sites using `cell_block.type` keep reading without churn.

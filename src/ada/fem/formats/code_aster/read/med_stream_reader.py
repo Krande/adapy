@@ -62,7 +62,19 @@ class RmedStreamReader:
                 nod = med_group["NOD"]
                 n_cells = int(nod.attrs["NBR"])
                 conn = np.asarray(nod[()]).reshape((n_cells, -1), order="F") - 1
-                cell_blocks.append(CellBlockData(cell_type=cell_type, data=conn))
+                # Element labels live under MAI/<type>/NUM. Some MED
+                # writers omit it (purely geometric meshes); fall back
+                # to a 1-based positional index so downstream consumers
+                # always see something label-shaped.
+                if "NUM" in med_group:
+                    identifiers = np.asarray(med_group["NUM"][()], dtype=np.int64)
+                else:
+                    identifiers = np.arange(1, n_cells + 1, dtype=np.int64)
+                cell_blocks.append(
+                    CellBlockData(
+                        cell_type=cell_type, data=conn, identifiers=identifiers
+                    )
+                )
 
         self._geom = MeshGeometry(points=points, cell_blocks=cell_blocks)
         return self._geom

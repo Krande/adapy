@@ -49,6 +49,17 @@ EDGE_MAGIC = b"AFEG"
 EDGE_VERSION = 1
 EDGE_HEADER_BYTES = 16  # magic + version + n_edges + 4-byte pad
 
+# Mesh-element sidecar format (AFEM). One entry per element: the
+# source-file label and the element's range into the flat triangle
+# buffer of fea.mesh.glb. Frontend hydrates these into
+# ``userdata.id_hierarchy`` + ``userdata.draw_ranges_<meshName>`` so
+# CustomBatchedMesh's existing pick → highlight pipeline picks up
+# the FEA mesh without a parallel selection path.
+ELEM_MAGIC = b"AFEM"
+ELEM_VERSION = 1
+ELEM_HEADER_BYTES = 16  # magic + version + n_elements + 4-byte pad
+ELEM_ENTRY_BYTES = 12   # uint32 label, uint32 tri_start, uint32 tri_count
+
 
 @dataclass
 class MeshGeometry:
@@ -180,7 +191,27 @@ class FEAResultStreamAdapter:
                     f"Element block of type {cell_type_str!r} references "
                     f"unknown node id {e.args[0]}."
                 ) from None
-            cell_blocks.append(CellBlockData(cell_type=cell_type_str, data=data_0))
+            # ElementBlock.identifiers is the per-element label as it
+            # appeared in the source FEA file. Forward verbatim so the
+            # selection sidecar can carry real labels back to the
+            # picker, not just iteration-order indices.
+            block_ids = getattr(block, "identifiers", None)
+            if block_ids is not None:
+                identifiers = np.asarray(block_ids, dtype=np.int64).reshape(-1)
+                if identifiers.shape[0] != data_0.shape[0]:
+                    # Defensive: if a reader produces a length mismatch
+                    # we'd silently misattribute labels; surface it.
+                    raise ValueError(
+                        f"ElementBlock.identifiers length {identifiers.shape[0]} "
+                        f"!= n_cells {data_0.shape[0]} for {cell_type_str!r}."
+                    )
+            else:
+                identifiers = None
+            cell_blocks.append(
+                CellBlockData(
+                    cell_type=cell_type_str, data=data_0, identifiers=identifiers
+                )
+            )
 
         self._geom = MeshGeometry(points=points, cell_blocks=cell_blocks)
         return self._geom
@@ -285,21 +316,38 @@ class FieldArtefactMeta:
 # ---------------------------------------------------------------------------
 
 
-def write_mesh_glb(geom: MeshGeometry, out_path: os.PathLike) -> None:
+def _compute_topology(geom: MeshGeometry):
+    """Compute edges/faces/element-ranges from the geometry.
+
+    Wraps :func:`get_mesh_topology` so the bake walks the per-element
+    ``ElemShape`` machinery exactly once per source instead of once
+    per writer.
+    """
+
+    from ada.fem.results.common import MeshData
+    from ada.visit.rendering.femviz import get_mesh_topology
+
+    mesh_data = MeshData(points=geom.points, cells=geom.cell_blocks)
+    return get_mesh_topology(mesh_data)
+
+
+def write_mesh_glb(geom: MeshGeometry, out_path: os.PathLike, *, faces=None) -> None:
     """Write a geometry-only GLB (vertices + face indices, no per-step
     or per-vertex data baked in). The frontend renders edges from the
     face topology via a wireframe pass; the legacy GLB pipeline still
     emits explicit edge geometry, but the streaming path doesn't need
-    to."""
+    to.
+
+    ``faces`` may be supplied by callers that have already computed
+    the topology; when omitted, the function recomputes from
+    ``geom``. Standalone-test callers leave it unset; the bake passes
+    the precomputed list to avoid re-walking the mesh."""
 
     import trimesh
     from trimesh.visual.material import PBRMaterial
 
-    from ada.fem.results.common import MeshData
-    from ada.visit.rendering.femviz import get_edges_and_faces_from_mesh_data
-
-    mesh_data = MeshData(points=geom.points, cells=geom.cell_blocks)
-    _edges, faces = get_edges_and_faces_from_mesh_data(mesh_data)
+    if faces is None:
+        faces = _compute_topology(geom).faces
 
     out_path = pathlib.Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -328,7 +376,7 @@ def write_mesh_glb(geom: MeshGeometry, out_path: os.PathLike) -> None:
 # ---------------------------------------------------------------------------
 
 
-def write_mesh_edges(geom: MeshGeometry, out_path: os.PathLike) -> int:
+def write_mesh_edges(geom: MeshGeometry, out_path: os.PathLike, *, edges=None) -> int:
     """Write the per-element edges as a deduped uint32 pair list.
 
     Edges come from each cell's :class:`ElemShape` directly — they
@@ -341,13 +389,13 @@ def write_mesh_edges(geom: MeshGeometry, out_path: os.PathLike) -> int:
     Adjacent solid elements share edges; we sort each pair and
     np.unique-dedupe so a typical hex mesh ends up with roughly half
     the line count.
+
+    ``edges`` may be passed by callers that have already computed the
+    topology; otherwise the function recomputes.
     """
 
-    from ada.fem.results.common import MeshData
-    from ada.visit.rendering.femviz import get_edges_and_faces_from_mesh_data
-
-    mesh_data = MeshData(points=geom.points, cells=geom.cell_blocks)
-    edges, _faces = get_edges_and_faces_from_mesh_data(mesh_data)
+    if edges is None:
+        edges = _compute_topology(geom).edges
 
     if edges:
         edge_pairs = np.asarray(edges, dtype=np.uint32).reshape(-1, 2)
@@ -366,6 +414,57 @@ def write_mesh_edges(geom: MeshGeometry, out_path: os.PathLike) -> int:
         f.write(prefix + b"\x00" * (EDGE_HEADER_BYTES - len(prefix)))
         f.write(payload)
     return n_edges
+
+
+# ---------------------------------------------------------------------------
+# Mesh-element sidecar writer
+# ---------------------------------------------------------------------------
+
+
+def write_mesh_elements(
+    geom: MeshGeometry,
+    out_path: os.PathLike,
+    *,
+    element_ranges=None,
+) -> int:
+    """Write per-element ``(label, tri_start, tri_count)`` ranges into
+    the AFEM sidecar.
+
+    Frontend turns these into ``userdata.id_hierarchy`` and
+    ``userdata.draw_ranges_<meshName>`` so the FEA mesh slots into
+    the existing CustomBatchedMesh pick + highlight pipeline. Labels
+    are uint32; an element id larger than ``2**32 - 1`` would be
+    truncated, so the writer raises rather than silently aliasing.
+
+    ``element_ranges`` may be passed by callers that have already
+    computed the topology; otherwise the function recomputes.
+    """
+
+    if element_ranges is None:
+        element_ranges = _compute_topology(geom).element_ranges
+
+    n_elements = len(element_ranges)
+    out_path = pathlib.Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with open(out_path, "wb") as f:
+        prefix = ELEM_MAGIC + struct.pack("<II", ELEM_VERSION, n_elements)
+        f.write(prefix + b"\x00" * (ELEM_HEADER_BYTES - len(prefix)))
+
+        if n_elements:
+            arr = np.empty((n_elements, 3), dtype=np.uint32)
+            for i, er in enumerate(element_ranges):
+                if er.label < 0 or er.label >= 2**32:
+                    raise ValueError(
+                        f"AFEM label {er.label} for element index {i} doesn't "
+                        f"fit in uint32; widen the format or normalise labels."
+                    )
+                arr[i, 0] = er.label
+                arr[i, 1] = er.tri_start
+                arr[i, 2] = er.tri_count
+            f.write(arr.tobytes(order="C"))
+
+    return n_elements
 
 
 # ---------------------------------------------------------------------------
@@ -497,6 +596,47 @@ def _default_view_for(spec: FieldSpec) -> dict:
     }
 
 
+def _infer_analysis_kind(spec: FieldSpec) -> str:
+    """Infer 'static' vs 'eigen' from a field's step value sequence.
+
+    The bake doesn't carry the original analysis-type flag, but the
+    streaming readers populate ``step_values`` with eigen frequencies
+    for modal output (monotonically increasing positives) and time
+    values for transient/static (typically starts at zero, may be a
+    single step). One eigen tell: a typical mode shape produces a
+    single field with multiple steps where the first value is
+    strictly positive and unique. A static analysis with multiple
+    steps starts at t=0. Single-step + zero-time → static.
+
+    Picker drives the deformation-scale slider range from this:
+    static = [0, 1] (displacement is one-directional, signed sweep
+    isn't physical), eigen = [-1, +1] (mode shape has no inherent
+    sign).
+    """
+
+    if spec.n_steps == 0:
+        return "static"
+    first = float(spec.step_values[0])
+    # Eigen analyses produce strictly positive frequencies starting
+    # from a non-zero value; static/transient runs almost always
+    # start at t=0.
+    if first > 0.0 and spec.n_steps >= 1:
+        # Single-step at non-zero might still be static at a finite
+        # time, but the conservative call is "treat as eigen" only
+        # when we have a clear modal signature: multi-step ascending
+        # positives.
+        if spec.n_steps >= 2:
+            ascending = all(
+                spec.step_values[i + 1] > spec.step_values[i]
+                for i in range(spec.n_steps - 1)
+            )
+            if ascending:
+                return "eigen"
+        else:
+            return "eigen"
+    return "static"
+
+
 def build_manifest(
     src: str,
     mesh_geom: MeshGeometry,
@@ -505,6 +645,8 @@ def build_manifest(
     *,
     mesh_edges_filename: str | None = None,
     n_edges: int = 0,
+    mesh_elements_filename: str | None = None,
+    n_elements: int = 0,
     legacy_glb_url_template: str | None = None,
 ) -> dict:
     """Compose the manifest dict from the bake outputs."""
@@ -530,6 +672,7 @@ def build_manifest(
                 "name_native": spec.name,
                 "kind": spec.kind,
                 "support": spec.support,
+                "analysis_kind": _infer_analysis_kind(spec),
                 "components": spec.components,
                 "blob": {
                     "url": fm.blob_filename,
@@ -553,6 +696,9 @@ def build_manifest(
     if mesh_edges_filename is not None:
         mesh_meta["edges_url"] = mesh_edges_filename
         mesh_meta["n_edges"] = int(n_edges)
+    if mesh_elements_filename is not None:
+        mesh_meta["elements_url"] = mesh_elements_filename
+        mesh_meta["n_elements"] = int(n_elements)
 
     manifest: dict = {
         "version": MANIFEST_VERSION,
@@ -676,8 +822,17 @@ def bake_artefacts(
     out_dir.mkdir(parents=True, exist_ok=True)
 
     geom = reader.read_mesh_geometry()
+
+    # One topology walk feeds three writers (GLB faces, edge sidecar,
+    # element sidecar). Each writer used to walk per-element shapes
+    # independently — for a 100k-element mesh the savings from a
+    # single pass are non-trivial and the AFEM ranges have to come
+    # out of the same iteration order as the GLB faces or selection
+    # would target the wrong triangles.
+    topology = _compute_topology(geom)
+
     mesh_glb_path = out_dir / "fea.mesh.glb"
-    write_mesh_glb(geom, mesh_glb_path)
+    write_mesh_glb(geom, mesh_glb_path, faces=topology.faces)
 
     # Element edges (deduped) — frontend renders them as a
     # LineSegments overlay sharing the mesh's position attribute,
@@ -685,7 +840,16 @@ def bake_artefacts(
     # arbitrary diagonals from quad-face triangulation) and follows
     # the deformation automatically.
     mesh_edges_path = out_dir / "fea.mesh.edges.bin"
-    n_edges = write_mesh_edges(geom, mesh_edges_path)
+    n_edges = write_mesh_edges(geom, mesh_edges_path, edges=topology.edges)
+
+    # Per-element draw ranges — frontend hydrates these into
+    # userdata.id_hierarchy + userdata.draw_ranges_<meshName> so the
+    # FEA mesh enters the existing CustomBatchedMesh pick + highlight
+    # pipeline without a parallel selection path.
+    mesh_elements_path = out_dir / "fea.mesh.elements.bin"
+    n_elements = write_mesh_elements(
+        geom, mesh_elements_path, element_ranges=topology.element_ranges
+    )
 
     field_metas: list[FieldArtefactMeta] = []
     blob_paths: list[pathlib.Path] = []
@@ -704,6 +868,8 @@ def bake_artefacts(
         field_metas=field_metas,
         mesh_edges_filename=mesh_edges_path.name,
         n_edges=n_edges,
+        mesh_elements_filename=mesh_elements_path.name,
+        n_elements=n_elements,
         legacy_glb_url_template=legacy_glb_url_template,
     )
     manifest_path = out_dir / "fea.manifest.json"

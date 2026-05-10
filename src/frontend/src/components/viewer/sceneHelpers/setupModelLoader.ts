@@ -12,8 +12,19 @@ import {loadGLTF} from "./asyncModelLoader";
 import {AnimationController} from "@/utils/scene/animations/AnimationController";
 import {updateAllPointsSize} from "@/utils/scene/updatePointSizes";
 
+/** Optional hook to mutate the freshly-loaded gltf scene (typically
+ * to inject ``userData["draw_ranges_<meshName>"]`` and
+ * ``userData["id_hierarchy"]``) before ``prepareLoadedModel`` walks
+ * it. Used by the FEA streaming loader to hydrate per-element draw
+ * ranges from the AFEM sidecar — without this hook the FEA mesh
+ * would land in the scene as a single-range CustomBatchedMesh and
+ * miss the per-element pick + highlight pipeline. */
+export type SetupModelPrepareHook = (gltf_scene: THREE.Group) => Promise<void>;
+
 export async function setupModelLoaderAsync(
-    modelUrl: string | null, translate: boolean = true
+    modelUrl: string | null,
+    translate: boolean = true,
+    prepareHook?: SetupModelPrepareHook,
 ): Promise<THREE.Group> {
     if (sceneRef.current == null) {
         console.error("Scene reference is null");
@@ -70,6 +81,10 @@ export async function setupModelLoaderAsync(
 
     // create a unique hash string
     const model_hash = gltf_scene.name + "_" + gltf_scene.uuid;
+
+    if (prepareHook) {
+        await prepareHook(gltf_scene);
+    }
 
     await prepareLoadedModel({gltf_scene: gltf_scene, hash: model_hash});
     // once userData is on the scene:

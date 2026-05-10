@@ -86,6 +86,11 @@ export interface FeaManifestField {
     /** scalar | vector3 | vector6 | tensor6 | tensor9 | vectorN. */
     kind: string;
     support: "nodal" | "element_nodal" | "gauss";
+    /** Drives the deformation-scale slider range in the picker:
+     * 'static' = [0, 1] (one-directional displacement, signed sweep
+     * isn't physical), 'eigen' = [-1, +1] (mode shape has no
+     * inherent sign). */
+    analysis_kind: "static" | "eigen";
     components: string[];
     blob: {
         /** Filename relative to the manifest's directory. */
@@ -120,6 +125,13 @@ export interface FeaManifest {
          * so deformation drives both surface and edges. */
         edges_url?: string;
         n_edges?: number;
+        /** Optional AFEM sidecar — per-element (label, tri_start,
+         * tri_count). Frontend hydrates these into
+         * userdata.id_hierarchy + userdata.draw_ranges_<meshName> so
+         * the FEA mesh enters the existing CustomBatchedMesh pick +
+         * highlight pipeline. */
+        elements_url?: string;
+        n_elements?: number;
     };
     fields: FeaManifestField[];
     legacy_glb?: {url_template: string};

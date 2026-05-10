@@ -190,6 +190,14 @@ def _assert_picker_contract(manifest: dict, *, fixture_label: str) -> None:
     assert isinstance(mesh.get("url"), str) and mesh["url"], fixture_label
     assert isinstance(mesh.get("n_points"), int) and mesh["n_points"] > 0, fixture_label
     assert isinstance(mesh.get("n_cells"), int) and mesh["n_cells"] >= 0, fixture_label
+    # Selection sidecar — drives userdata.id_hierarchy +
+    # userdata.draw_ranges_<meshName> on the frontend.
+    assert isinstance(mesh.get("elements_url"), str) and mesh["elements_url"], (
+        f"{fixture_label}: missing elements_url"
+    )
+    assert isinstance(mesh.get("n_elements"), int) and mesh["n_elements"] >= 0, (
+        f"{fixture_label}: bad n_elements"
+    )
 
     fields = manifest.get("fields")
     assert isinstance(fields, list) and fields, f"{fixture_label}: no fields"
@@ -219,6 +227,11 @@ def _assert_picker_contract(manifest: dict, *, fixture_label: str) -> None:
         assert isinstance(field["kind"], str) and field["kind"], fixture_label
         assert field["support"] in {"nodal", "element_nodal", "gauss"}, (
             f"{fixture_label}: bad support={field['support']!r}"
+        )
+        # Drives the deformation-scale slider range in the picker:
+        # static = [0, 1], eigen = [-1, +1].
+        assert field.get("analysis_kind") in {"static", "eigen"}, (
+            f"{fixture_label}: bad analysis_kind={field.get('analysis_kind')!r}"
         )
         assert isinstance(field["components"], list), fixture_label
         assert all(isinstance(c, str) and c for c in field["components"]), fixture_label
@@ -300,6 +313,135 @@ def test_bake_emits_mesh_edges_sidecar(fem_files, tmp_path):
     assert n_edges == manifest["mesh"]["n_edges"]
     # Payload = n_edges × 2 uint32 indices.
     assert len(data) == EDGE_HEADER_BYTES + n_edges * 2 * 4
+
+
+@pytest.mark.parametrize("kind,rel", ALL_FEA_FIXTURES)
+def test_bake_emits_mesh_elements_sidecar(fem_files, tmp_path, kind, rel):
+    """Per-element draw ranges (AFEM) drive selection on the FEA mesh.
+
+    Asserts the binary layout (header + uint32 triplets), and that the
+    triangle ranges tile the GLB index buffer exactly: tri_starts +
+    tri_counts must cover every triangle exactly once when summed in
+    iteration order. Labels are stored as uint32 from the source-file
+    identifiers (RMED MAI/<type>/NUM, SIF element ids).
+    """
+
+    from ada.fem.results.artefacts import (
+        ELEM_ENTRY_BYTES,
+        ELEM_HEADER_BYTES,
+        ELEM_MAGIC,
+    )
+
+    src = fem_files / rel
+    if not src.exists():
+        pytest.skip(f"fixture not present: {rel}")
+
+    bake = bake_fea_artefacts_from_source(src, tmp_path / "out", src_key=src.stem)
+    manifest = json.loads(bake.manifest_path.read_text())
+
+    assert manifest["mesh"]["elements_url"] == "fea.mesh.elements.bin"
+    n_elements_manifest = manifest["mesh"]["n_elements"]
+    assert n_elements_manifest >= 0
+
+    elements_path = bake.out_dir / "fea.mesh.elements.bin"
+    assert elements_path.exists()
+
+    data = elements_path.read_bytes()
+    assert data[:4] == ELEM_MAGIC, f"{rel}: bad AFEM magic"
+    version, n_elements = struct.unpack("<II", data[4:12])
+    assert version == 1, f"{rel}: AFEM version={version}"
+    assert n_elements == n_elements_manifest, (
+        f"{rel}: header n_elements {n_elements} vs manifest {n_elements_manifest}"
+    )
+    assert len(data) == ELEM_HEADER_BYTES + n_elements * ELEM_ENTRY_BYTES, (
+        f"{rel}: AFEM payload size mismatch (n_elements={n_elements})"
+    )
+
+    if n_elements == 0:
+        return
+
+    # Decode entries; check ranges are non-overlapping, monotone, and
+    # cover the full triangle space starting at 0.
+    raw = np.frombuffer(
+        data[ELEM_HEADER_BYTES:],
+        dtype=np.uint32,
+    ).reshape(n_elements, 3)
+    labels = raw[:, 0]
+    starts = raw[:, 1]
+    counts = raw[:, 2]
+
+    cursor = 0
+    for i in range(n_elements):
+        assert int(starts[i]) == cursor, (
+            f"{rel}: element[{i}] tri_start={starts[i]} expected {cursor}"
+        )
+        cursor += int(counts[i])
+
+    # Labels must be non-zero (real labels are 1-based in RMED/SIF; the
+    # fallback positional counter starts at 1 too).
+    assert int(labels.min()) >= 1, (
+        f"{rel}: AFEM labels include 0 ({labels[labels == 0].size} zero labels)"
+    )
+
+
+@pytest.mark.parametrize("rmed_rel", RMED_FIXTURES)
+def test_afem_labels_round_trip_against_source_rmed(fem_files, tmp_path, rmed_rel):
+    """The AFEM labels for an RMED fixture must equal the source file's
+    ``MAI/<type>/NUM`` arrays read directly with h5py (or the 1-based
+    positional fallback when NUM is absent). Locks element-label
+    plumbing through CellBlockData.identifiers."""
+
+    import h5py
+
+    rmed = fem_files / rmed_rel
+    if not rmed.exists():
+        pytest.skip(f"fixture not present: {rmed_rel}")
+
+    bake = bake_fea_artefacts_from_source(rmed, tmp_path / "out", src_key=rmed.stem)
+    elements_path = bake.out_dir / "fea.mesh.elements.bin"
+    data = elements_path.read_bytes()
+    n_elements = struct.unpack("<I", data[8:12])[0]
+
+    if n_elements == 0:
+        pytest.skip(f"{rmed_rel}: no elements emitted")
+
+    afem_labels = np.frombuffer(
+        data[16:], dtype=np.uint32
+    ).reshape(n_elements, 3)[:, 0]
+
+    # Pull labels from the source RMED. The bake's iteration order is:
+    # cell-block iteration order × per-block element order. Solid
+    # elements with line elements interleaved: line elements emit a
+    # zero-tri entry but still consume an AFEM slot, so the order
+    # matches the *full* per-block element walk.
+    #
+    # The streaming reader uses ``MAI/<type>`` block iteration —
+    # h5py.Group iteration is insertion order, which is the bake's
+    # order too.
+    with h5py.File(rmed, "r") as f:
+        mesh_ensemble = f["ENS_MAA"]
+        mesh_keys = list(mesh_ensemble.keys())
+        mesh = mesh_ensemble[mesh_keys[0]]
+        if "NOE" not in mesh:
+            ts_keys = list(mesh.keys())
+            mesh = mesh[ts_keys[0]]
+
+        expected: list[int] = []
+        if "MAI" in mesh:
+            for med_short, med_group in mesh["MAI"].items():
+                n_cells = int(med_group["NOD"].attrs["NBR"])
+                if "NUM" in med_group:
+                    nums = np.asarray(med_group["NUM"][()], dtype=np.int64)
+                else:
+                    nums = np.arange(1, n_cells + 1, dtype=np.int64)
+                expected.extend(int(x) for x in nums)
+
+    assert len(expected) == n_elements, (
+        f"{rmed_rel}: expected {len(expected)} labels but got {n_elements}"
+    )
+    assert list(afem_labels.astype(np.int64)) == expected, (
+        f"{rmed_rel}: AFEM labels diverge from RMED MAI/<type>/NUM"
+    )
 
 
 @pytest.mark.parametrize("kind,rel", ALL_FEA_FIXTURES)

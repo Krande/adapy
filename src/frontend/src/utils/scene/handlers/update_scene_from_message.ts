@@ -4,7 +4,7 @@ import {SceneOperations} from "@/flatbuffers/scene/scene-operations";
 import {add_mesh_to_scene} from "./append_to_scene_from_message";
 
 import {ungzip} from 'pako';
-import {setupModelLoaderAsync} from "@/components/viewer/sceneHelpers/setupModelLoader";
+import {SetupModelPrepareHook, setupModelLoaderAsync} from "@/components/viewer/sceneHelpers/setupModelLoader";
 import {animationControllerRef, modelKeyMapRef, sceneRef} from "@/state/refs";
 import {useTreeViewStore} from "@/state/treeViewStore";
 import {loadGLTFfrombase64} from "../loadGLTFfrombase64";
@@ -21,7 +21,7 @@ export function load_base64_model(){
 
 }
 
-export async function replace_model(url: string) {
+export async function replace_model(url: string, prepareHook?: SetupModelPrepareHook) {
         // Clear animation state first
     const animationStore = useAnimationStore.getState();
     animationStore.setHasAnimation(false);
@@ -55,7 +55,7 @@ export async function replace_model(url: string) {
 
         }
     }
-    return await setupModelLoaderAsync(url, false);
+    return await setupModelLoaderAsync(url, false, prepareHook);
 }
 
 export async function update_scene_from_message(message: Message) {

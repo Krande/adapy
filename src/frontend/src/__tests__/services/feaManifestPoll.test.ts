@@ -18,6 +18,7 @@ const FAKE_MANIFEST: FeaManifest = {
             name_native: "DEPL",
             kind: "vector3",
             support: "nodal",
+            analysis_kind: "static",
             components: ["DX", "DY", "DZ"],
             blob: {
                 url: "fea.DEPL.bin",

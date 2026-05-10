@@ -4,6 +4,7 @@ import {SceneOperations} from "@/flatbuffers/scene/scene-operations";
 import {runtime} from "@/runtime/config";
 import {fetchFieldBlob} from "@/services/feaFieldBlob";
 import {fetchMeshEdges} from "@/services/feaMeshEdges";
+import {fetchMeshElements, MeshElementEntry} from "@/services/feaMeshElements";
 import {FeaManifest, FeaManifestField, viewerApi} from "@/services/viewerApi";
 import {sceneRef} from "@/state/refs";
 import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
@@ -44,6 +45,53 @@ function findFirstMesh(root: THREE.Object3D): THREE.Mesh | null {
         }
     });
     return found;
+}
+
+/** Build the draw-ranges + id-hierarchy userData entries that
+ * prepareLoadedModel reads to wire CustomBatchedMesh selection.
+ *
+ * AFEM stores triangles per element; the index buffer counts vertex
+ * indices, so we multiply ``tri_start`` and ``tri_count`` by 3 here.
+ * Line elements (``triCount === 0``) are dropped from the draw-range
+ * map but kept in id_hierarchy so name resolution still works for
+ * them (selection won't fire on them via the triangle picker yet —
+ * Phase 1.A doesn't wire line-element selection).
+ */
+function installAfemUserData(
+    gltf_scene: THREE.Group,
+    entries: MeshElementEntry[],
+): void {
+    const mesh = findFirstMesh(gltf_scene);
+    if (!mesh) {
+        // Could be a line-only mesh exported as a PointCloud — no
+        // selection to wire.
+        return;
+    }
+    const meshName = mesh.name;
+    if (!meshName) {
+        // Without a stable name, prepareLoadedModel can't key the
+        // draw_ranges record. Fall back: stamp one so the lookup
+        // succeeds.
+        mesh.name = "fea-mesh";
+    }
+    const finalName = mesh.name;
+
+    const drawRanges: Record<string, [number, number]> = {};
+    const idHierarchy: Record<string, [string, string | number]> = {};
+
+    for (const entry of entries) {
+        const rangeId = `E${entry.label}`;
+        // id_hierarchy entry — covers line elements too so name
+        // resolution doesn't return null when a future selection
+        // path picks them up.
+        idHierarchy[rangeId] = [rangeId, "fea-elements"];
+        if (entry.triCount > 0) {
+            drawRanges[rangeId] = [entry.triStart * 3, entry.triCount * 3];
+        }
+    }
+
+    gltf_scene.userData[`draw_ranges_${finalName}`] = drawRanges;
+    gltf_scene.userData["id_hierarchy"] = idHierarchy;
 }
 
 function snapshotBasePositions(geometry: THREE.BufferGeometry): Float32Array {
@@ -91,8 +139,34 @@ export async function load_fea_streaming(args: {
         const buf = await viewerApi.getBlob(scope, meshKey);
         const blob = new Blob([buf], {type: "model/gltf-binary"});
         const url = URL.createObjectURL(blob);
+
+        // Fetch the AFEM sidecar (per-element draw ranges) up-front.
+        // The prepareHook installs userData entries before
+        // prepareLoadedModel runs, so the FEA mesh enters the scene
+        // as a per-element CustomBatchedMesh — same pick + highlight
+        // pipeline as CAD models, no parallel selection path.
+        let afemEntries: MeshElementEntry[] = [];
+        if (manifest.mesh.elements_url) {
+            try {
+                afemEntries = await fetchMeshElements(
+                    scope,
+                    sourceName,
+                    manifest.mesh.elements_url,
+                );
+            } catch (err) {
+                // Selection wiring is best-effort: the picker still
+                // renders without it, just at whole-mesh granularity.
+                // eslint-disable-next-line no-console
+                console.warn("[fea-streaming] failed to load mesh elements:", err);
+            }
+        }
+
         try {
-            await replace_model(url);
+            await replace_model(url, async (gltf_scene) => {
+                if (afemEntries.length > 0) {
+                    installAfemUserData(gltf_scene, afemEntries);
+                }
+            });
             const ms = useModelState.getState();
             ms.setModelUrl(url, SceneOperations.REPLACE);
             ms.setLoadedSourceName(sourceName);
