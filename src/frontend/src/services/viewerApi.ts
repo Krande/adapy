@@ -492,7 +492,9 @@ export const viewerApi = {
             `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}` +
             `/result-meta?key=${encodeURIComponent(sourceKey)}`;
         const r = await authedFetch(url);
-        if (r.ok) {
+        // Same 200-vs-202 distinction as feaManifest — Response.ok is
+        // true for both, so we can't use it as the cache-hit shortcut.
+        if (r.status === 200) {
             return jsonOrThrow<ResultMeta>(r, `resultMeta(${sourceKey})`);
         }
         if (r.status !== 202) {
@@ -553,7 +555,12 @@ export const viewerApi = {
             `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}` +
             `/fea/manifest?key=${encodeURIComponent(sourceKey)}`;
         const r = await authedFetch(url, {signal: opts?.signal});
-        if (r.ok) {
+        // 200 = cached manifest body; 202 = bake enqueued, must poll;
+        // anything else is an error. ``Response.ok`` is true for both
+        // 200 and 202 — checking it as the cache-hit shortcut would
+        // try to parse the queued-job payload as a FeaManifest and
+        // blow up on the missing ``fields`` array.
+        if (r.status === 200) {
             return jsonOrThrow<FeaManifest>(r, `feaManifest(${sourceKey})`);
         }
         if (r.status !== 202) {
