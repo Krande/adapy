@@ -7,7 +7,7 @@ import {
     viewerApi,
 } from "@/services/viewerApi";
 import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
-import {load_fea_mesh_into_scene} from "@/utils/scene/handlers/load_fea_mesh";
+import {load_fea_streaming} from "@/utils/scene/handlers/load_fea_streaming";
 
 interface FeaStreamingPickerModalProps {
     sourceName: string;
@@ -122,32 +122,56 @@ const FeaStreamingPickerModal: React.FC<FeaStreamingPickerModalProps> = ({
 
     const onApply = async () => {
         if (!activeField || !activeStep || !manifest) return;
-        // Step 4 will swap this for the deformed-mesh shader path.
-        // For now we log the selection (so the bake-side picker
-        // contract is exerciseable) and load the geometry-only
-        // mesh GLB into the scene so the user gets a visible
-        // confirmation that the bake produced something.
-        // eslint-disable-next-line no-console
-        console.log("[fea-streaming-picker] selection", {
-            source: sourceName,
-            field: activeField.name_canonical,
-            field_native: activeField.name_native,
-            step_index: stepIndex,
-            step_value: activeStep.value,
-            reduction,
-            colormap: activeField.default_view.colormap,
-        });
         setApplying(true);
         setApplyError(null);
         try {
-            await load_fea_mesh_into_scene(sourceName, manifest);
-            onClose();
+            await load_fea_streaming({
+                sourceName,
+                manifest,
+                fieldName: activeField.name_canonical,
+                stepIndex,
+                reduction,
+            });
         } catch (err) {
             setApplyError(err instanceof Error ? err.message : String(err));
         } finally {
             setApplying(false);
         }
     };
+
+    // Once the mesh is in the scene (Apply ran successfully), live-
+    // update on slider drag / component change. The first step
+    // requires a network round-trip (mesh GLB + field blob); after
+    // that, switching steps within the same field is purely an
+    // in-memory swap. ``load_fea_streaming`` handles the caching.
+    const [hasApplied, setHasApplied] = useState<boolean>(false);
+    const onApplyOnce = async () => {
+        await onApply();
+        setHasApplied(true);
+    };
+    useEffect(() => {
+        if (!hasApplied || !activeField || !activeStep || !manifest) return;
+        let cancelled = false;
+        (async () => {
+            try {
+                await load_fea_streaming({
+                    sourceName,
+                    manifest,
+                    fieldName: activeField.name_canonical,
+                    stepIndex,
+                    reduction,
+                });
+            } catch (err) {
+                if (!cancelled) {
+                    setApplyError(err instanceof Error ? err.message : String(err));
+                }
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [hasApplied, fieldName, stepIndex, reduction]);
 
     return (
         <div
@@ -304,11 +328,11 @@ const FeaStreamingPickerModal: React.FC<FeaStreamingPickerModalProps> = ({
                                 Cancel
                             </button>
                             <button
-                                onClick={() => void onApply()}
+                                onClick={() => void onApplyOnce()}
                                 className="px-3 py-1 text-xs rounded bg-blue-600 hover:bg-blue-500 disabled:opacity-60"
                                 disabled={!activeField || !activeStep || applying}
                             >
-                                {applying ? "Loading…" : "Apply"}
+                                {applying ? "Loading…" : hasApplied ? "Re-apply" : "Apply"}
                             </button>
                         </div>
                     </div>
