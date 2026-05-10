@@ -196,7 +196,7 @@ class SifReader:
 
     def get_materials(self) -> dict[int, Material]:
         from ada import Material
-        from ada.materials.metals import CarbonSteel
+        from ada.materials.metals import CarbonSteel, Metal
 
         mat_map = {int(x[1]): x[-1] for x in self._other.get("TDMATER", [])}
         isotrop_mats = {int(x[0]): x for x in self._other.get("MISOSEL", [])}
@@ -213,8 +213,19 @@ class SifReader:
             res = cards.MISOSEL.get_data_map_from_names(isotropic_keys, mat_data)
             mat_name = mat_map[mat_id]
             prop_map = {ada_n: res[ses_n] for ses_n, ada_n in sm_isotropic}
+            # MISOSEL is generic linear-elastic isotropic — Sesam doesn't
+            # tell us the material is steel. Bucket sig_y against the two
+            # canonical steel grades; if it matches, emit a CarbonSteel
+            # so downstream EC3 / steel-specific helpers light up.
+            # Otherwise (S275 / S460 / S690 / aluminium / anything else),
+            # emit a plain Metal so we don't fabricate a steel grade we
+            # don't know is correct — and so CarbonSteel.GRADES["NA"]
+            # doesn't crash mid-conversion.
             grade = get_grade(prop_map["sig_y"])
-            model = CarbonSteel(grade=grade, **prop_map)
+            if grade in CarbonSteel.GRADES:
+                model = CarbonSteel(grade=grade, **prop_map)
+            else:
+                model = _build_metal(prop_map)
             mat = Material(name=mat_name, mat_id=mat_id, mat_model=model)
             materials[mat_id] = mat
 
@@ -222,8 +233,11 @@ class SifReader:
             res = cards.MORSMEL.get_data_map_from_names(anisotropic_keys, mat_data)
             mat_name = mat_map[mat_id]
             prop_map = {ada_n: res[ses_n] for ses_n, ada_n in sm_anisotropic}
-            grade = get_grade(prop_map["sig_y"])
-            model = CarbonSteel(grade=grade, **prop_map)
+            # MORSMEL is the orthotropic counterpart and carries no
+            # yield stress at all. Calling get_grade() here used to
+            # KeyError on the missing "sig_y" key — emit a plain Metal
+            # with zero sig_y/sig_u (sentinel "unknown yield") instead.
+            model = _build_metal(prop_map)
             mat = Material(name=mat_name, mat_id=mat_id, mat_model=model)
             materials[mat_id] = mat
 
@@ -743,3 +757,29 @@ def get_grade(sig_y, tol=1):
         grade = "NA"
 
     return grade
+
+
+def _build_metal(prop_map: dict) -> "Metal":
+    """Build a plain ``Metal`` from a MISOSEL / MORSMEL prop dict.
+
+    Used when the SIF material doesn't match a canonical steel grade
+    (where we'd promote it to ``CarbonSteel``) or when the source card
+    is orthotropic and carries no yield info at all. ``Metal``
+    requires sig_y / sig_u positionally; for the orthotropic case
+    those aren't on the card, so we fall back to 0.0 — a sentinel
+    meaning "yield unknown" rather than a real value the downstream
+    code should believe.
+    """
+    from ada.materials.metals import Metal
+
+    sig_y = prop_map.get("sig_y", 0.0)
+    sig_u = prop_map.get("sig_u", sig_y)
+    return Metal(
+        E=prop_map["E"],
+        rho=prop_map["rho"],
+        sig_y=sig_y,
+        sig_u=sig_u,
+        v=prop_map["v"],
+        zeta=prop_map["zeta"],
+        alpha=prop_map["alpha"],
+    )
