@@ -109,6 +109,156 @@ class FEAStreamReader(Protocol):
     def close(self) -> None: ...
 
 
+class FEAResultStreamAdapter:
+    """Wrap an in-memory :class:`FEAResult` so the bake can consume it
+    through the streaming reader interface.
+
+    No real streaming benefit — the adapter already has the full
+    FEAResult — but it lets formats that haven't been rewritten as
+    native streamers (SIF, FRD) flow through the same artefact
+    pipeline. When a big-model SIF or FRD case actually OOMs the
+    bake, the answer is to write a native streaming reader for that
+    format and replace the adapter for that format only; the
+    artefact code on top doesn't change.
+    """
+
+    def __init__(self, result):
+        self._result = result
+        self._geom: MeshGeometry | None = None
+        self._field_specs: list[FieldSpec] | None = None
+
+        # Remap real node IDs → 0-based point indices. ElementBlock
+        # stores arbitrary-id node references (1-based for RMED,
+        # arbitrary for SIF/FRD); the artefact pipeline expects
+        # 0-based indices into the points array.
+        ids = result.mesh.nodes.identifiers
+        self._nmap = {int(x): i for i, x in enumerate(ids)}
+
+    # ----- protocol -------------------------------------------------------
+
+    def read_mesh_geometry(self) -> MeshGeometry:
+        if self._geom is not None:
+            return self._geom
+
+        from ada.fem.shapes.mesh_types import ada_to_str_type
+
+        points = np.asarray(self._result.mesh.nodes.coords, dtype=np.float64)
+        if points.ndim == 2 and points.shape[1] == 2:
+            points = np.column_stack([points, np.zeros(points.shape[0])])
+
+        cell_blocks: list[CellBlockData] = []
+        for block in self._result.mesh.elements:
+            cell_type_str = ada_to_str_type.get(block.elem_info.type)
+            if cell_type_str is None:
+                # Unsupported element type for visualisation — skip
+                # rather than crash, matching the legacy GLB pipeline's
+                # posture. Mesh GLB just gets fewer faces.
+                continue
+
+            flat = np.asarray(block.node_refs).reshape(-1)
+            try:
+                data_0 = np.fromiter(
+                    (self._nmap[int(x)] for x in flat),
+                    dtype=np.int64,
+                    count=flat.size,
+                ).reshape(block.node_refs.shape)
+            except KeyError as e:
+                # Element references a node that isn't in the mesh;
+                # surface explicitly so the source data error is
+                # obvious.
+                raise ValueError(
+                    f"Element block of type {cell_type_str!r} references "
+                    f"unknown node id {e.args[0]}."
+                ) from None
+            cell_blocks.append(CellBlockData(cell_type=cell_type_str, data=data_0))
+
+        self._geom = MeshGeometry(points=points, cell_blocks=cell_blocks)
+        return self._geom
+
+    def field_specs(self) -> list[FieldSpec]:
+        if self._field_specs is not None:
+            return self._field_specs
+
+        from ada.fem.results.field_data import (
+            ElementFieldData,
+            FieldPosition,
+            NodalFieldData,
+        )
+
+        n_points = int(self._result.mesh.nodes.coords.shape[0])
+        specs: list[FieldSpec] = []
+
+        for name, results in self._result.get_results_grouped_by_field_value().items():
+            if not results:
+                continue
+            sorted_results = sorted(results, key=lambda r: r.step)
+            first = sorted_results[0]
+
+            if isinstance(first, NodalFieldData):
+                support = "nodal"
+            elif isinstance(first, ElementFieldData):
+                if first.field_pos == FieldPosition.NODAL:
+                    support = "element_nodal"
+                else:
+                    support = "gauss"
+            else:
+                continue
+
+            # Step value semantics: eigen analysis stores the
+            # frequency in eigen_freq and uses .step as a 1-based
+            # index. Static analysis stores the time directly in
+            # .step. The picker just wants a monotonic label per
+            # step, so either works.
+            step_values = [
+                float(r.eigen_freq if r.eigen_freq is not None else r.step)
+                for r in sorted_results
+            ]
+            components = list(first.components) or [first.name]
+
+            specs.append(
+                FieldSpec(
+                    name=name,
+                    components=components,
+                    n_steps=len(sorted_results),
+                    n_points=n_points,
+                    support=support,
+                    step_values=step_values,
+                )
+            )
+
+        self._field_specs = specs
+        return specs
+
+    def iter_field_steps(self, field_name: str):
+        spec = next((s for s in self.field_specs() if s.name == field_name), None)
+        if spec is None:
+            raise KeyError(field_name)
+        if spec.support != "nodal":
+            raise NotImplementedError(
+                f"streaming non-nodal field {field_name!r} (support={spec.support}) "
+                f"not implemented in Phase 1"
+            )
+
+        results = self._result.get_results_grouped_by_field_value().get(field_name, [])
+        sorted_results = sorted(results, key=lambda r: r.step)
+        for i, r in enumerate(sorted_results):
+            arr = np.asarray(r.get_all_values())
+            yield StepValues(
+                step_index=i,
+                step_value=spec.step_values[i],
+                values=arr,
+            )
+
+    def close(self) -> None:
+        pass
+
+    def __enter__(self) -> "FEAResultStreamAdapter":
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self.close()
+
+
 @dataclass
 class FieldArtefactMeta:
     """Bake output per field — used to compose the manifest entry."""

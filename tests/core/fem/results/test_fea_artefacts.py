@@ -22,6 +22,7 @@ from ada.fem.results.artefacts import (
     BLOB_HEADER_BYTES,
     BLOB_MAGIC,
     BLOB_VERSION,
+    FEAResultStreamAdapter,
     bake_artefacts,
     read_blob_header,
     read_blob_step,
@@ -146,6 +147,54 @@ def test_manifest_locks_picker_defaults(fem_files, tmp_path, rmed_rel):
             assert lo <= hi
         if field_entry["kind"].startswith("vector"):
             assert "magnitude" in scalar_range
+
+
+SIF_FIXTURES = [
+    "sesam/1EL_SHELL_R1.SIF",
+    "sesam/2EL_SHELL_R1.SIF",
+    "cantilever/sesam/static/shell/STATIC_SHELL_CANTILEVER_SESAMR1.SIF",
+    "cantilever/sesam/eigen/shell/EIGEN_SHELL_CANTILEVER_SESAMR1.SIF",
+]
+
+
+@pytest.mark.parametrize("sif_rel", SIF_FIXTURES)
+def test_bake_via_fearesult_adapter_against_sif(fem_files, tmp_path, sif_rel):
+    """The FEAResult adapter lets formats whose readers haven't been
+    rewritten as native streamers (SIF, FRD) flow through the same
+    bake. This is the throwaway path that still produces correct
+    artefacts; replaced per-format when a real streaming reader for
+    that format exists."""
+
+    from ada.fem.formats.sesam.results.read_sif import read_sif_file
+
+    sif = fem_files / sif_rel
+    if not sif.exists():
+        pytest.skip(f"fixture not present: {sif_rel}")
+
+    result = read_sif_file(sif)
+
+    with FEAResultStreamAdapter(result) as reader:
+        bake = bake_artefacts(reader, tmp_path / "out", src=sif.stem)
+
+    manifest = json.loads(bake.manifest_path.read_text())
+    assert manifest["src"] == sif.stem
+    assert manifest["mesh"]["n_points"] > 0
+
+    assert manifest["fields"], f"no fields baked for {sif_rel}"
+    for field_entry in manifest["fields"]:
+        assert field_entry["support"] == "nodal"
+        blob_path = bake.out_dir / field_entry["blob"]["url"]
+        assert blob_path.exists()
+
+        header = read_blob_header(blob_path)
+        assert header["n_steps"] == field_entry["n_steps"]
+        assert header["n_points"] == manifest["mesh"]["n_points"]
+
+        # Sanity: each step round-trips against the FEAResult itself,
+        # since the adapter is just a different lens on the same data.
+        for i, step_entry in enumerate(field_entry["steps"]):
+            arr = read_blob_step(blob_path, i)
+            assert arr.shape == (header["n_points"], header["n_components"])
 
 
 def test_blob_header_fits_in_fixed_prefix():
