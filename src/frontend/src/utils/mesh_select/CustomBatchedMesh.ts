@@ -85,20 +85,67 @@ export class CustomBatchedMesh extends THREE.Mesh {
             this._matSelected!,
             this._matInvisible!
         ];
+
+        // THREE renders one draw call PER geometry.group, regardless of
+        // material count. The previous implementation added one group per
+        // drawRange unconditionally — for a Ship1T1.FEM-style mesh with
+        // ~48k selectable elements that's 48k draw calls and ~10 FPS,
+        // even with nothing selected. Coalesce consecutive same-material
+        // ranges into one group: in the common case (nothing selected,
+        // no vertex-colour selection mode) the whole index buffer
+        // collapses to a single draw call. Picking still works because
+        // the ``drawRanges`` Map is the identity-of-element source of
+        // truth (raycast hit → faceIndex → range lookup); THREE's
+        // groups only carry material assignment.
+
+        // Fast path: nothing diverges from the default material. One
+        // group, one draw call. Vertex-colour selection is visualised
+        // via the selection overlay, so it doesn't need per-range
+        // groups either.
+        const hasOverrides =
+            this.hiddenRanges.size > 0 ||
+            (!this._usesVertexColorsFlag && this.selectedRanges.size > 0);
+        if (!hasOverrides) {
+            this.geometry.addGroup(0, idxCount, 0);
+            return;
+        }
+
         const segs = Array.from(this.drawRanges.entries())
             .map(([id, [s, c]]) => ({id, s, c}))
             .sort((a, b) => a.s - b.s);
 
+        // Walk segments, merging default-material runs (including any
+        // gaps between segments) into a single addGroup at flush time.
+        // Only selected/hidden ranges produce their own groups.
         let cur = 0;
+        let runStart: number | null = null;
+        const flushRun = (end: number) => {
+            if (runStart !== null && end > runStart) {
+                this.geometry.addGroup(runStart, end - runStart, 0);
+            }
+            runStart = null;
+        };
+
         for (const {id, s, c} of segs) {
-            if (s > cur) this.geometry.addGroup(cur, s - cur, 0);
-            let mi: 0 | 1 | 2 = 0;
-            if (this.hiddenRanges.has(id)) mi = 2;
-            else if (this.selectedRanges.has(id)) mi = (this._usesVertexColorsFlag ? 0 : 1);
-            this.geometry.addGroup(s, c, mi);
+            if (s > cur && runStart === null) {
+                runStart = cur;
+            }
+            const mi: 0 | 1 | 2 = this.hiddenRanges.has(id)
+                ? 2
+                : this.selectedRanges.has(id)
+                    ? (this._usesVertexColorsFlag ? 0 : 1)
+                    : 0;
+            if (mi === 0) {
+                if (runStart === null) runStart = s;
+            } else {
+                flushRun(s);
+                this.geometry.addGroup(s, c, mi);
+            }
             cur = s + c;
         }
-        if (cur < idxCount) this.geometry.addGroup(cur, idxCount - cur, 0);
+        // Trailing default region or open run extends to idxCount.
+        if (cur < idxCount && runStart === null) runStart = cur;
+        flushRun(idxCount);
     }
 
     /** call this when you have a renderer and want the overlay in the scene */
