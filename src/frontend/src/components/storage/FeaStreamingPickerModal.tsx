@@ -176,17 +176,16 @@ const FeaStreamingPickerModal: React.FC<FeaStreamingPickerModalProps> = ({
 
     // Register a step-apply callback in the FEA animation store so
     // SimulationControls (the live driver UI) can scrub steps without
-    // knowing about manifest / field / reduction. Cleared when the
-    // picker unmounts so a stale closure doesn't keep capturing the
-    // old session. The dependency list is the closure's inputs:
-    // SimulationControls calls back into the *current* values, not
-    // a snapshot from when applyOnce ran.
+    // knowing about manifest / field / reduction. Only set when we
+    // have a real callback to register — clearing is the job of
+    // clearActiveFeaStreaming (replace_model path) so reopening the
+    // picker for the same source doesn't transiently null-out a
+    // working callback before re-applying.
     useEffect(() => {
-        const animStore = useFeaAnimationStore.getState();
         if (!hasApplied || !activeField || !manifest) {
-            animStore.setApplyStep(null);
             return;
         }
+        const animStore = useFeaAnimationStore.getState();
         animStore.setApplyStep(async (newStepIndex: number) => {
             setStepIndex(newStepIndex);
             await load_fea_streaming({
@@ -197,12 +196,7 @@ const FeaStreamingPickerModal: React.FC<FeaStreamingPickerModalProps> = ({
                 reduction,
             });
         });
-        return () => {
-            // Don't blanket-clear on every re-render; the next
-            // effect run will install a fresh closure. Only clear
-            // when the picker actually closes (handled via reset()
-            // in clearActiveFeaStreaming).
-        };
+        return () => {};
     }, [hasApplied, activeField, manifest, reduction, sourceName]);
 
     return (

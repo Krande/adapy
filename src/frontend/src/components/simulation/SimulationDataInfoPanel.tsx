@@ -27,9 +27,31 @@ export default function SimulationDataInfoPanel() {
   }
 
   const steps = simData.steps;
-  const currentStep = steps[selectedStep];
-  const fields = currentStep.fields;
-  const currentField = fields[selectedField] as FieldObject;
+  // Bounds-check: stale ``selectedStep`` / ``selectedField`` from a
+  // prior model can outrun the current ``steps`` / ``fields`` arrays
+  // when the panel stays mounted across a model swap. Without this
+  // ``currentStep.fields`` crashes with "Cannot read properties of
+  // undefined (reading 'fields')" the moment the user clears the
+  // scene with the panel open.
+  if (!steps || steps.length === 0) {
+    return (
+      <div className="max-w-md mx-auto mt-6 p-4 border rounded-lg shadow-sm">
+        <h2 className="text-lg font-semibold text-gray-800">No Simulation Steps</h2>
+      </div>
+    );
+  }
+  const safeStep = Math.min(Math.max(selectedStep, 0), steps.length - 1);
+  const currentStep = steps[safeStep];
+  const fields = currentStep?.fields ?? [];
+  if (fields.length === 0) {
+    return (
+      <div className="max-w-md mx-auto mt-6 p-4 border rounded-lg shadow-sm">
+        <h2 className="text-lg font-semibold text-gray-800">No Fields in Step</h2>
+      </div>
+    );
+  }
+  const safeField = Math.min(Math.max(selectedField, 0), fields.length - 1);
+  const currentField = fields[safeField] as FieldObject;
 
   return (
     <div className="p-6 border rounded-lg shadow-sm bg-white bg-opacity-50 max-h-96 overflow-auto">

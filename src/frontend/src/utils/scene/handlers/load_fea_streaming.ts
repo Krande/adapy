@@ -36,11 +36,20 @@ let active: ActiveFeaStreaming | null = null;
  * the scene with a different file). The blob cache lives separately
  * in feaFieldBlob.ts. Also resets the deformation-animation store
  * so the SimulationControls UI doesn't keep showing FEA-mode
- * controls for a mesh that's no longer in the scene. */
+ * controls for a mesh that's no longer in the scene, and hides the
+ * controls panel entirely when no GLTF clips are around to show in
+ * the fallback path. */
 export function clearActiveFeaStreaming(): void {
     active = null;
     useFeaAnimationStore.getState().reset();
     resetFeaAnimationPhase();
+    // Hide the panel — without this, the toggle button stays
+    // pressed-state on a panel that has nothing useful to show.
+    // Re-applying an FEA session sets it back to true.
+    const generalAnimStore = useAnimationStore.getState();
+    if (!generalAnimStore.hasAnimation) {
+        generalAnimStore.setIsControlsVisible(false);
+    }
 }
 
 function findFirstMesh(root: THREE.Object3D): THREE.Mesh | null {
@@ -63,6 +72,16 @@ function findFirstMesh(root: THREE.Object3D): THREE.Mesh | null {
  * map but kept in id_hierarchy so name resolution still works for
  * them (selection won't fire on them via the triangle picker yet —
  * Phase 1.A doesn't wire line-element selection).
+ *
+ * The mesh is renamed to ``node0`` because the worker cache filter
+ * (``cacheModelUtils.ts``) only consumes userData keys prefixed
+ * ``draw_ranges_node`` — a quirk of how the CAD GLB pipeline names
+ * primitives (``node0``, ``node0_1``, etc.). Without the rename,
+ * the worker has no draw-range cache → ``queryMeshDrawRange``
+ * returns null → click selection silently does nothing. The
+ * id_hierarchy uses a synthetic root entry ``fea-root`` (parent
+ * ``"*"``, the worker's root sentinel) so every element has a
+ * resolvable parent.
  */
 function installAfemUserData(
     gltf_scene: THREE.Group,
@@ -74,24 +93,27 @@ function installAfemUserData(
         // selection to wire.
         return;
     }
-    const meshName = mesh.name;
-    if (!meshName) {
-        // Without a stable name, prepareLoadedModel can't key the
-        // draw_ranges record. Fall back: stamp one so the lookup
-        // succeeds.
-        mesh.name = "fea-mesh";
-    }
+
+    // Rename to a name the worker filter accepts. The filter is
+    // hard-coded for "draw_ranges_node*" prefixes; renaming here is
+    // less invasive than relaxing the filter.
+    mesh.name = "node0";
     const finalName = mesh.name;
 
     const drawRanges: Record<string, [number, number]> = {};
     const idHierarchy: Record<string, [string, string | number]> = {};
 
+    // Synthetic root: every element points to this as its parent.
+    // The worker's root sentinel is "*" — without a concrete root
+    // node referenced by parent="*", the tree would have multiple
+    // roots and only the last element processed would survive as
+    // the visible tree.
+    const ROOT_RANGE_ID = "fea-root";
+    idHierarchy[ROOT_RANGE_ID] = ["FEA elements", "*"];
+
     for (const entry of entries) {
         const rangeId = `E${entry.label}`;
-        // id_hierarchy entry — covers line elements too so name
-        // resolution doesn't return null when a future selection
-        // path picks them up.
-        idHierarchy[rangeId] = [rangeId, "fea-elements"];
+        idHierarchy[rangeId] = [rangeId, ROOT_RANGE_ID];
         if (entry.triCount > 0) {
             drawRanges[rangeId] = [entry.triStart * 3, entry.triCount * 3];
         }
@@ -126,6 +148,11 @@ export async function load_fea_streaming(args: {
     const {sourceName, manifest, fieldName, stepIndex, reduction} = args;
     const displacementScale = args.displacementScale ?? 1;
 
+    if (!manifest || !Array.isArray(manifest.fields)) {
+        throw new Error(
+            "load_fea_streaming: manifest is missing or has no fields array",
+        );
+    }
     const field = manifest.fields.find((f) => f.name_canonical === fieldName);
     if (!field) {
         throw new Error(`field ${fieldName!} not found in manifest`);

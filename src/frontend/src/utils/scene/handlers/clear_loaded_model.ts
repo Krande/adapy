@@ -2,7 +2,8 @@ import {useModelState} from "@/state/modelState";
 import {useAnimationStore} from "@/state/animationStore";
 import {useTreeViewStore} from "@/state/treeViewStore";
 import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
-import {animationControllerRef, modelKeyMapRef, sceneRef} from "@/state/refs";
+import {animationControllerRef, modelKeyMapRef, sceneRef, simulationDataRef} from "@/state/refs";
+import {clearActiveFeaStreaming} from "./load_fea_streaming";
 
 // Tear the currently-loaded model out of the scene without loading a
 // replacement. Mirrors what `replace_model` does up to the point of
@@ -47,4 +48,17 @@ export async function clear_loaded_model(): Promise<void> {
     // and any handler that walks selectedObjects (clipboard copy,
     // selection re-paint) operates on dead instances.
     useSelectedObjectStore.getState().clearSelectedObjects();
+
+    // FEA streaming session — drop the cached active state, reset
+    // the deformation animation store, and hide the controls panel.
+    // Without this the SimulationControls UI keeps showing the
+    // FEA-mode sliders and play button on a mesh that's no longer
+    // in the scene, and the next file load can crash on stale
+    // morph-influences references.
+    clearActiveFeaStreaming();
+
+    // The GLTF SimulationDataExtension panel reads from this ref;
+    // leaving it dangling crashes SimulationDataInfoPanel when the
+    // panel happens to be open across a model swap.
+    simulationDataRef.current = null;
 }
