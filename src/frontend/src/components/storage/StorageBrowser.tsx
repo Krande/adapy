@@ -6,6 +6,7 @@ import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
 import {runtime} from "@/runtime/config";
 import {request_list_of_files_from_server} from "@/utils/server_info/handlers/request_list_of_files_from_server";
 import {overlay_file_in_scene} from "@/utils/scene/handlers/overlay_file_in_scene";
+import {load_fea_with_defaults} from "@/utils/scene/handlers/load_fea_streaming";
 import {unload_source_from_scene} from "@/utils/scene/handlers/unload_source_from_scene";
 import {clear_loaded_model} from "@/utils/scene/handlers/clear_loaded_model";
 import {uploadAcceptAttr, uploadFile} from "@/utils/scene/handlers/upload_source_file";
@@ -13,7 +14,6 @@ import ReloadIcon from "../icons/ReloadIcon";
 import UploadIcon from "../icons/UploadIcon";
 import FieldPickerModal from "./FieldPickerModal";
 import GitHistoryPanel from "./GitHistoryPanel";
-import FeaStreamingPickerModal from "./FeaStreamingPickerModal";
 import {BuildSidecar, useBuildSidecars} from "@/hooks/useBuildSidecars";
 
 // Files that carry per-(step, field) result data and benefit from the
@@ -34,10 +34,9 @@ function isStreamingFEAResult(name: string): boolean {
 // Files the legacy "load into scene" checkbox can handle — those
 // that have a usable GLB target via the legacy convert pipeline.
 // Mirror of ada.comms.rest.converter.supported_targets_for: anything
-// in _STREAMING_FEA_EXTS (currently .rmed) has no legacy GLB target,
-// only the streaming bake. Until the deformed-mesh shader (Phase 1
-// step 4) wires the streaming path through the checkbox, we just
-// disable the checkbox for .rmed so toggling it doesn't 415.
+// in _STREAMING_FEA_EXTS has no legacy GLB target, only the streaming
+// bake. The toggle path now routes streaming-FEA sources through
+// ``load_fea_with_defaults`` instead of disabling the checkbox.
 function canLoadIntoSceneLegacy(name: string): boolean {
     return !name.toLowerCase().endsWith(".rmed");
 }
@@ -353,10 +352,6 @@ const StorageBrowser: React.FC = () => {
     // Source name of the FEA picker modal, or null if closed. Only one
     // picker open at a time matches the file-list interaction model.
     const [pickerName, setPickerName] = useState<string | null>(null);
-    // Source name of the streaming-viewer picker modal (Phase 1
-    // step 3). Parallel to ``pickerName`` so legacy GLB picker and
-    // streaming picker can coexist during build-out.
-    const [streamingPickerName, setStreamingPickerName] = useState<string | null>(null);
     // Folder expand state for the regular-files tree, keyed by folder
     // path ("a/b/c"). Default: empty Set = everything collapsed,
     // matching the user-requested behaviour. Persisted per-scope so
@@ -400,9 +395,27 @@ const StorageBrowser: React.FC = () => {
         setViewingName(entry.name);
         try {
             if (nextChecked) {
-                await overlay_file_in_scene(entry.name);
+                if (isStreamingFEAResult(entry.name)) {
+                    // Streaming-FEA toggle: fetch manifest, load with
+                    // defaults (first field, default reduction, step 0),
+                    // and let SimulationControls take it from there.
+                    // No more picker modal in the way.
+                    await load_fea_with_defaults(entry.name);
+                } else {
+                    await overlay_file_in_scene(entry.name);
+                }
             } else {
-                unload_source_from_scene(entry.name);
+                if (isStreamingFEAResult(entry.name)) {
+                    // FEA streaming meshes were loaded via replace_model
+                    // (scene-wide replace, no per-source group registered).
+                    // unload_source_from_scene would no-op because there's
+                    // no group ref to look up. Clear the whole scene
+                    // instead — that also tears down the FEA session
+                    // store + animation driver.
+                    await clear_loaded_model();
+                } else {
+                    unload_source_from_scene(entry.name);
+                }
             }
         } catch (err) {
             console.error("storage toggle failed", err);
@@ -649,7 +662,6 @@ const StorageBrowser: React.FC = () => {
                                                 setExpandedName={setExpandedName}
                                                 onToggle={onToggle}
                                                 setPickerName={setPickerName}
-                                                setStreamingPickerName={setStreamingPickerName}
                                                 selectionMode={inSelectionMode}
                                                 isSelected={selection.has(node.file.name)}
                                                 onLongPress={toggleSelection}
@@ -692,7 +704,6 @@ const StorageBrowser: React.FC = () => {
                                     setExpandedName={setExpandedName}
                                     onToggle={onToggle}
                                     setPickerName={setPickerName}
-                                    setStreamingPickerName={setStreamingPickerName}
                                     onOpenGitHistory={() => setGitHistoryOpen(true)}
                                     selectionMode={inSelectionMode}
                                     selection={selection}
@@ -710,12 +721,9 @@ const StorageBrowser: React.FC = () => {
                     onClose={() => setPickerName(null)}
                 />
             )}
-            {streamingPickerName && (
-                <FeaStreamingPickerModal
-                    sourceName={streamingPickerName}
-                    onClose={() => setStreamingPickerName(null)}
-                />
-            )}
+            {/* FeaStreamingPickerModal retired — streaming sessions
+                load with defaults via the toggle and refine via
+                SimulationControls. */}
             {gitHistoryOpen && (
                 <GitHistoryPanel
                     files={files}
@@ -833,7 +841,6 @@ interface FileRowProps {
     setExpandedName: (n: string | null) => void;
     onToggle: (entry: ServerFileEntry, nextChecked: boolean) => Promise<void>;
     setPickerName: (n: string | null) => void;
-    setStreamingPickerName: (n: string | null) => void;
     selectionMode: boolean;
     isSelected: boolean;
     onLongPress: (name: string) => void;
@@ -851,7 +858,6 @@ const FileRow: React.FC<FileRowProps> = ({
     setExpandedName,
     onToggle,
     setPickerName,
-    setStreamingPickerName,
     selectionMode,
     isSelected,
     onLongPress,
@@ -960,10 +966,10 @@ const FileRow: React.FC<FileRowProps> = ({
                                 ? "Loading…"
                                 : otherViewing
                                     ? "Another file is loading"
-                                    : !canLoadIntoSceneLegacy(f.name)
-                                        ? "Use the ≋ button to open the streaming viewer"
-                                        : isLoaded
-                                            ? "Loaded in scene — uncheck to remove just this file"
+                                    : isLoaded
+                                        ? "Loaded in scene — uncheck to remove"
+                                        : isStreamingFEAResult(f.name)
+                                            ? "Open in streaming FEA viewer (default field, configure in Simulation controls)"
                                             : "Add to scene (overlays alongside any other loaded files)"
                         }
                     >
@@ -974,7 +980,9 @@ const FileRow: React.FC<FileRowProps> = ({
                             onChange={(e) => onToggle(f, e.target.checked)}
                             disabled={
                                 isViewing || otherViewing ||
-                                !canLoadIntoSceneLegacy(f.name)
+                                // The legacy GLB toggle still gates non-streaming
+                                // sources without a usable convert target.
+                                (!isStreamingFEAResult(f.name) && !canLoadIntoSceneLegacy(f.name))
                             }
                             aria-busy={isViewing || undefined}
                         />
@@ -1014,20 +1022,10 @@ const FileRow: React.FC<FileRowProps> = ({
                             <span className="leading-none text-sm font-mono">⇅</span>
                         </button>
                     )}
-                    {!selectionMode && isStreamingFEAResult(f.name) && runtime.isRestMode() && runtime.convertEnabled() && (
-                        <button
-                            className="p-1 rounded text-white hover:bg-gray-300/40 disabled:opacity-50 disabled:cursor-not-allowed"
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                setStreamingPickerName(f.name);
-                            }}
-                            disabled={otherViewing || isViewing}
-                            title="FEA streaming viewer"
-                            aria-label="FEA streaming viewer"
-                        >
-                            <span className="leading-none text-sm font-mono">≋</span>
-                        </button>
-                    )}
+                    {/* Streaming-FEA picker button removed — the
+                        toggle checkbox now opens the streaming session
+                        with defaults, and field / reduction / step
+                        live in SimulationControls. */}
                 </div>
             </div>
             {isViewing && (
@@ -1073,7 +1071,6 @@ interface VersionsTreeProps {
     setExpandedName: (n: string | null) => void;
     onToggle: (entry: ServerFileEntry, nextChecked: boolean) => Promise<void>;
     setPickerName: (n: string | null) => void;
-    setStreamingPickerName: (n: string | null) => void;
     onOpenGitHistory: () => void;
     selectionMode: boolean;
     selection: Set<string>;
@@ -1227,7 +1224,6 @@ const VersionsTree: React.FC<VersionsTreeProps> = (props) => {
                                                                 setExpandedName={props.setExpandedName}
                                                                 onToggle={props.onToggle}
                                                                 setPickerName={props.setPickerName}
-                                                                setStreamingPickerName={props.setStreamingPickerName}
                                                                 selectionMode={props.selectionMode}
                                                                 isSelected={props.selection.has(leaf.file.name)}
                                                                 onLongPress={props.onLongPress}

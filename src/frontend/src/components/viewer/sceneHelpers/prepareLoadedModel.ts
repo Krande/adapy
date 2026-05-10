@@ -191,7 +191,14 @@ export async function prepareLoadedModel({gltf_scene, hash}: PrepareLoadedModelP
 
         const customMesh = convert_to_custom_batch_mesh(original, drawRanges, hash, is_design, ada_ext_data);
 
-        if (optionsStore.showEdges && drawRanges.size && is_design) {
+        // Skip the design-side edge overlay for FEA streaming meshes:
+        // it bakes a static applyMatrix4 from the un-deformed geometry
+        // and doesn't share morph attribute / influences, so it'd be
+        // pinned to the base shape while the mesh + AFEM-derived
+        // wireframe morph. The streaming loader installs its own
+        // morph-aware LineSegments overlay separately.
+        const isFeaStreaming = !!original.userData?.feaStreaming;
+        if (optionsStore.showEdges && drawRanges.size && is_design && !isFeaStreaming) {
             if (rendererRef.current)
                 parent.add(customMesh.getEdgeOverlay(rendererRef.current));
         }

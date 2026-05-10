@@ -17,11 +17,12 @@
 // cycle anyway (per the FEA workflow); the GLTF-clip path stays
 // as a fallback for non-FEA models.
 
-import React, {useEffect, useState} from "react";
+import React, {useEffect, useMemo, useState} from "react";
 import {useAnimationStore} from "@/state/animationStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {animationControllerRef} from "@/state/refs";
 import {resetFeaAnimationPhase} from "@/utils/scene/fea/feaAnimationDriver";
+import {load_fea_streaming} from "@/utils/scene/handlers/load_fea_streaming";
 import PlayPauseIcon from "../icons/PlayPauseIcon";
 import StopIcon from "../icons/StopIcon";
 import SimulationDataInfoPanel from "./SimulationDataInfoPanel";
@@ -67,6 +68,10 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
         isPlaying,
         stepIndex,
         nSteps,
+        sourceName,
+        manifest,
+        fieldName,
+        reduction,
         applyStep,
         setFactor,
         setPeriod,
@@ -78,6 +83,57 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
     // Step granularity for the factor slider — 200 stops over the
     // active range is well below human-visible jumps.
     const factorStep = Math.max((hi - lo) / 200, 0.001);
+
+    // Active field metadata. Drives the reduction dropdown options
+    // (magnitude only available for vector fields) and the step
+    // slider's max.
+    const activeField = useMemo(() => {
+        if (!manifest || !fieldName) return null;
+        return manifest.fields.find((f) => f.name_canonical === fieldName) ?? null;
+    }, [manifest, fieldName]);
+
+    const reductionOptions = useMemo<string[]>(() => {
+        if (!activeField) return [];
+        const out: string[] = [];
+        if (activeField.kind.startsWith("vector")) out.push("magnitude");
+        for (const c of activeField.components) out.push(c);
+        return out;
+    }, [activeField]);
+
+    const onFieldChange = (newFieldName: string) => {
+        if (!sourceName || !manifest) return;
+        const newField = manifest.fields.find(
+            (f) => f.name_canonical === newFieldName,
+        );
+        if (!newField) return;
+        // Snap reduction to the new field's default — the prior
+        // reduction (e.g. "DZ") may not exist on a different field
+        // and would silently break colouring.
+        const newReduction = newField.default_view?.reduction ?? "magnitude";
+        // Step 0 too — step counts differ between fields, and a
+        // stepIndex from the prior field would leave the slider out
+        // of bounds on the new one.
+        void load_fea_streaming({
+            sourceName,
+            manifest,
+            fieldName: newFieldName,
+            stepIndex: 0,
+            reduction: newReduction,
+            displacementScale: factor,
+        });
+    };
+
+    const onReductionChange = (newReduction: string) => {
+        if (!sourceName || !manifest || !fieldName) return;
+        void load_fea_streaming({
+            sourceName,
+            manifest,
+            fieldName,
+            stepIndex,
+            reduction: newReduction,
+            displacementScale: factor,
+        });
+    };
 
     const onPlay = () => setIsPlaying(true);
     const onPause = () => setIsPlaying(false);
@@ -112,6 +168,46 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
 
     return (
         <div className="flex flex-col gap-2 min-w-0">
+            {/* Field + reduction selectors — moved here from the
+                retired FeaStreamingPickerModal. Field changes snap
+                stepIndex to 0 + reduction to the field's default
+                view (different fields can have different step counts
+                and component sets). */}
+            {manifest && (
+                <div className="flex flex-row items-center gap-x-2 min-w-0 text-xs text-white">
+                    <label className="flex items-center gap-1">
+                        <span className="text-gray-300">Field</span>
+                        <select
+                            className="text-black bg-white rounded px-1 py-0.5"
+                            value={fieldName ?? ""}
+                            onChange={(e) => onFieldChange(e.target.value)}
+                        >
+                            {manifest.fields.map((f) => (
+                                <option key={f.name_canonical} value={f.name_canonical}>
+                                    {f.name_canonical}
+                                </option>
+                            ))}
+                        </select>
+                    </label>
+                    {reductionOptions.length > 0 && (
+                        <label className="flex items-center gap-1">
+                            <span className="text-gray-300">Comp</span>
+                            <select
+                                className="text-black bg-white rounded px-1 py-0.5"
+                                value={reduction}
+                                onChange={(e) => onReductionChange(e.target.value)}
+                            >
+                                {reductionOptions.map((opt) => (
+                                    <option key={opt} value={opt}>
+                                        {opt}
+                                    </option>
+                                ))}
+                            </select>
+                        </label>
+                    )}
+                </div>
+            )}
+
             {/* Step / mode slider. Discrete; updates trigger applyStep
                 which re-runs load_fea_streaming with the new step. */}
             <div className="flex flex-row items-center gap-x-2 min-w-0">

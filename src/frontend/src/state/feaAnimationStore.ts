@@ -1,6 +1,7 @@
 import {create} from "zustand";
 
 import type * as THREE from "three";
+import type {FeaManifest} from "@/services/viewerApi";
 
 /** State for the streaming-FEA viewer's two-slider control surface:
  *
@@ -55,11 +56,29 @@ export interface FeaAnimationState {
      * truth; SimulationControls uses it as the slider's max. */
     nSteps: number;
 
-    /** Step-change callback registered by the picker. SimulationControls
-     * calls this when its step slider drags so the right (field,
-     * reduction, stepIndex) triplet flows through ``load_fea_streaming``
-     * — the picker owns those values so this is the cleanest way to
-     * decouple the consumer (UI) from the producer (picker). */
+    /** Source key (storage-relative path) of the active session.
+     * SimulationControls' field / reduction selectors need this to
+     * re-call ``load_fea_streaming`` when the user changes the
+     * field. */
+    sourceName: string | null;
+
+    /** Manifest of the active source. The viewer fetches this once
+     * on toggle (via ``load_fea_with_defaults``) and keeps it here
+     * so SimulationControls can read field metadata + step values
+     * without re-hitting the server. */
+    manifest: FeaManifest | null;
+
+    /** Currently-displayed field's canonical name. */
+    fieldName: string | null;
+
+    /** Reduction within the field — "magnitude" or a component name.
+     * Drives the colour LUT in ``applyFieldToMesh``. */
+    reduction: string;
+
+    /** Step-change callback registered by ``load_fea_streaming``.
+     * SimulationControls calls this when the user drags the step
+     * slider; the closure runs another ``load_fea_streaming`` with
+     * the updated stepIndex. */
     applyStep: ((stepIndex: number) => Promise<void>) | null;
 
     setSessionActive: (active: boolean) => void;
@@ -70,6 +89,10 @@ export interface FeaAnimationState {
     setIsPlaying: (playing: boolean) => void;
     setStepIndex: (i: number) => void;
     setNSteps: (n: number) => void;
+    setSourceName: (s: string | null) => void;
+    setManifest: (m: FeaManifest | null) => void;
+    setFieldName: (n: string | null) => void;
+    setReduction: (r: string) => void;
     setApplyStep: (cb: ((stepIndex: number) => Promise<void>) | null) => void;
     /** Reset to inactive — called when the scene is replaced. */
     reset: () => void;
@@ -87,6 +110,10 @@ export const useFeaAnimationStore = create<FeaAnimationState>((set) => ({
     isPlaying: false,
     stepIndex: 0,
     nSteps: 0,
+    sourceName: null,
+    manifest: null,
+    fieldName: null,
+    reduction: "magnitude",
     applyStep: null,
 
     setSessionActive: (active) => set({sessionActive: active}),
@@ -97,6 +124,10 @@ export const useFeaAnimationStore = create<FeaAnimationState>((set) => ({
     setIsPlaying: (isPlaying) => set({isPlaying}),
     setStepIndex: (stepIndex) => set({stepIndex}),
     setNSteps: (nSteps) => set({nSteps}),
+    setSourceName: (sourceName) => set({sourceName}),
+    setManifest: (manifest) => set({manifest}),
+    setFieldName: (fieldName) => set({fieldName}),
+    setReduction: (reduction) => set({reduction}),
     setApplyStep: (cb) => set({applyStep: cb}),
     reset: () =>
         set({
@@ -107,6 +138,10 @@ export const useFeaAnimationStore = create<FeaAnimationState>((set) => ({
             isPlaying: false,
             stepIndex: 0,
             nSteps: 0,
+            sourceName: null,
+            manifest: null,
+            fieldName: null,
+            reduction: "magnitude",
             applyStep: null,
         }),
 }));

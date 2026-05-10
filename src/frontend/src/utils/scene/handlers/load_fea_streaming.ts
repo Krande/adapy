@@ -100,6 +100,16 @@ function installAfemUserData(
     mesh.name = "node0";
     const finalName = mesh.name;
 
+    // Tag the mesh so prepareLoadedModel skips the design-side edge
+    // overlay (CustomBatchedMesh.getEdgeOverlay). That overlay is
+    // built from originalGeometry with a static applyMatrix4 and
+    // doesn't share morph attribute / influences, so it'd stay at
+    // the un-deformed position while the face mesh + our AFEM-derived
+    // wireframe morph. The AFEM wireframe already shows element
+    // boundaries; per-edge selection highlight via the design-edge
+    // shader isn't wired up for the streaming mesh anyway.
+    mesh.userData.feaStreaming = true;
+
     const drawRanges: Record<string, [number, number]> = {};
     const idHierarchy: Record<string, [string, string | number]> = {};
 
@@ -297,6 +307,26 @@ export async function load_fea_streaming(args: {
     animStore.setFactor(displacementScale);
     animStore.setStepIndex(stepIndex);
     animStore.setNSteps(field.n_steps);
+    animStore.setSourceName(sourceName);
+    animStore.setManifest(manifest);
+    animStore.setFieldName(fieldName);
+    animStore.setReduction(reduction);
+
+    // applyStep closure captures the *current* (sourceName, manifest,
+    // fieldName, reduction). SimulationControls calls this when the
+    // user drags the step slider — the callback re-runs
+    // load_fea_streaming with the updated stepIndex. Re-registering
+    // on every apply keeps the closure fresh even when the user
+    // changes field / reduction via the SimulationControls dropdowns.
+    animStore.setApplyStep(async (newStepIndex: number) => {
+        await load_fea_streaming({
+            sourceName,
+            manifest,
+            fieldName,
+            stepIndex: newStepIndex,
+            reduction,
+        });
+    });
 
     // Auto-show the SimulationControls panel on first apply so the
     // user doesn't need to find a hidden toggle for a deformation
@@ -306,6 +336,43 @@ export async function load_fea_streaming(args: {
     if (!generalAnimStore.isControlsVisible) {
         generalAnimStore.setIsControlsVisible(true);
     }
+}
+
+/** Toggle entry point: fetch the manifest, pick sensible defaults
+ * (first field, default reduction, step 0, factor 1), and run
+ * ``load_fea_streaming``. The user then refines via SimulationControls
+ * — they no longer have to step through a modal picker.
+ *
+ * Returns silently on a manifest with no fields; the storage row
+ * stays unchecked-but-toggled which the user can interpret as
+ * "nothing renderable in this file". */
+export async function load_fea_with_defaults(sourceName: string): Promise<void> {
+    if (!runtime.isRestMode()) {
+        throw new Error("FEA streaming viewer is only available in REST mode");
+    }
+    const scope = scopeUrlPart(useScopeStore.getState().current);
+    const manifest = await viewerApi.feaManifest(scope, sourceName);
+    if (!manifest || !Array.isArray(manifest.fields) || manifest.fields.length === 0) {
+        // Bake produced a manifest but no fields — usually means the
+        // source has only non-nodal data and nodal_only=true filtered
+        // it all out. Surface as a console warning rather than a
+        // throw so the toggle doesn't get stuck in an error state.
+        // eslint-disable-next-line no-console
+        console.warn(
+            `[fea-streaming] manifest for ${sourceName} has no nodal fields; nothing to load`,
+        );
+        return;
+    }
+    const field = manifest.fields[0];
+    const reduction = field.default_view?.reduction ?? "magnitude";
+    await load_fea_streaming({
+        sourceName,
+        manifest,
+        fieldName: field.name_canonical,
+        stepIndex: 0,
+        reduction,
+        displacementScale: 1,
+    });
 }
 
 /** Wire the LineSegments wireframe child to share morph attributes
