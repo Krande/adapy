@@ -2,7 +2,7 @@ import React, {useEffect, useRef, useState} from "react";
 import {useServerInfoStore, ServerFileEntry} from "@/state/serverInfoStore";
 import {useConversionStore} from "@/state/conversionStore";
 import {useModelState} from "@/state/modelState";
-import {useScopeStore} from "@/state/scopeStore";
+import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
 import {runtime} from "@/runtime/config";
 import {request_list_of_files_from_server} from "@/utils/server_info/handlers/request_list_of_files_from_server";
 import {overlay_file_in_scene} from "@/utils/scene/handlers/overlay_file_in_scene";
@@ -159,6 +159,113 @@ function shortSha(sha: string): string {
     return sha.length > 8 ? sha.slice(0, 8) : sha;
 }
 
+// File-tree shape used by the regular-file area of the browser.
+// Folders are derived from "/"-split keys (option 1 from the design
+// discussion: storage stays flat, folders are presentational only).
+// A key's last segment is the filename; everything before is the
+// folder path.
+type FolderNode = {
+    kind: "folder";
+    name: string; // single segment, e.g. "fea-examples"
+    path: string; // full path from root, e.g. "a/b/c"
+    children: FileTreeNode[];
+};
+type FileNode = {
+    kind: "file";
+    file: ServerFileEntry;
+    /** Filename only, with parent prefix stripped. */
+    displayName: string;
+};
+type FileTreeNode = FolderNode | FileNode;
+
+function buildFileTree(files: ServerFileEntry[]): FileTreeNode[] {
+    // Synthesise folder nodes lazily as we walk each key.
+    const root: FolderNode = {
+        kind: "folder",
+        name: "",
+        path: "",
+        children: [],
+    };
+
+    // path → folder node, for O(1) lookup as we descend.
+    const folderIndex = new Map<string, FolderNode>();
+    folderIndex.set("", root);
+
+    for (const f of files) {
+        const trimmed = f.name.replace(/^\/+/, "");
+        const parts = trimmed.split("/");
+        const filename = parts.pop() ?? trimmed;
+        let parent = root;
+        let acc = "";
+        for (const seg of parts) {
+            acc = acc ? `${acc}/${seg}` : seg;
+            let next = folderIndex.get(acc);
+            if (!next) {
+                next = {kind: "folder", name: seg, path: acc, children: []};
+                folderIndex.set(acc, next);
+                parent.children.push(next);
+            }
+            parent = next;
+        }
+        parent.children.push({
+            kind: "file",
+            file: f,
+            displayName: filename,
+        });
+    }
+
+    // Sort each folder's children: folders first (alpha), then files
+    // (alpha by display name). Stable order is preferable to
+    // mtime-order at this layer; files within a folder are usually a
+    // small set the user wants to scan visually.
+    const sortNode = (n: FolderNode) => {
+        n.children.sort((a, b) => {
+            if (a.kind !== b.kind) return a.kind === "folder" ? -1 : 1;
+            const an = a.kind === "folder" ? a.name : a.displayName;
+            const bn = b.kind === "folder" ? b.name : b.displayName;
+            return an.localeCompare(bn);
+        });
+        for (const c of n.children) {
+            if (c.kind === "folder") sortNode(c);
+        }
+    };
+    sortNode(root);
+
+    return root.children;
+}
+
+function expandedFoldersStorageKey(scope: string): string {
+    return `ada.storage.expandedFolders.${scope}`;
+}
+
+function loadExpandedFolders(scope: string): Set<string> {
+    try {
+        const raw = window.localStorage.getItem(expandedFoldersStorageKey(scope));
+        if (!raw) return new Set();
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) return new Set(parsed.filter((x) => typeof x === "string"));
+    } catch {
+        // ignore — corrupt entry, fall back to collapsed.
+    }
+    return new Set();
+}
+
+function saveExpandedFolders(scope: string, expanded: ReadonlySet<string>): void {
+    try {
+        window.localStorage.setItem(
+            expandedFoldersStorageKey(scope),
+            JSON.stringify(Array.from(expanded)),
+        );
+    } catch {
+        // localStorage full / disabled — silently lose the state.
+    }
+}
+
+function countFiles(node: FileTreeNode): number {
+    if (node.kind === "file") return 1;
+    return node.children.reduce((acc, c) => acc + countFiles(c), 0);
+}
+
 function formatRelative(iso: string): string {
     const t = parseLastModifiedMs(iso);
     if (t === 0) return "";
@@ -239,6 +346,30 @@ const StorageBrowser: React.FC = () => {
     // step 3). Parallel to ``pickerName`` so legacy GLB picker and
     // streaming picker can coexist during build-out.
     const [streamingPickerName, setStreamingPickerName] = useState<string | null>(null);
+    // Folder expand state for the regular-files tree, keyed by folder
+    // path ("a/b/c"). Default: empty Set = everything collapsed,
+    // matching the user-requested behaviour. Persisted per-scope so
+    // expand state survives reloads but doesn't leak across scopes.
+    const scopeKey = scopeUrlPart(currentScope);
+    const [expandedFolders, setExpandedFolders] = useState<Set<string>>(
+        () => loadExpandedFolders(scopeKey),
+    );
+    // Reset to the per-scope set whenever the active scope changes.
+    useEffect(() => {
+        setExpandedFolders(loadExpandedFolders(scopeKey));
+    }, [scopeKey]);
+    // Persist on every change. Cheap — Set is small.
+    useEffect(() => {
+        saveExpandedFolders(scopeKey, expandedFolders);
+    }, [scopeKey, expandedFolders]);
+    const toggleFolder = (path: string) => {
+        setExpandedFolders((prev) => {
+            const next = new Set(prev);
+            if (next.has(path)) next.delete(path);
+            else next.add(path);
+            return next;
+        });
+    };
     // Owned input — clicking it must happen synchronously inside the
     // button's onClick to preserve the user-activation gesture (iOS Safari
     // refuses the file picker otherwise). The previous implementation
@@ -487,30 +618,58 @@ const StorageBrowser: React.FC = () => {
                     const {regular, branches} = classifyFiles(files, sidecars);
                     return (
                         <div className="flex flex-col max-h-80 overflow-auto">
-                            {regular.length > 0 && (
-                                <ul className="flex flex-col divide-y divide-gray-500/40">
-                                    {regular.map((f) => (
-                                        <FileRow
-                                            key={f.name}
-                                            file={f}
-                                            displayName={f.name}
-                                            indentLevel={0}
-                                            viewingName={viewingName}
-                                            loadedSourceNames={loadedSourceNames}
-                                            conversionJobs={conversionJobs}
-                                            expandedName={expandedName}
-                                            setExpandedName={setExpandedName}
-                                            onToggle={onToggle}
-                                            setPickerName={setPickerName}
-                                            setStreamingPickerName={setStreamingPickerName}
-                                            selectionMode={inSelectionMode}
-                                            isSelected={selection.has(f.name)}
-                                            onLongPress={toggleSelection}
-                                            onSelectToggle={toggleSelection}
-                                        />
-                                    ))}
-                                </ul>
-                            )}
+                            {regular.length > 0 && (() => {
+                                const tree = buildFileTree(regular);
+                                const renderNode = (
+                                    node: FileTreeNode,
+                                    depth: number,
+                                ): React.ReactNode => {
+                                    if (node.kind === "file") {
+                                        return (
+                                            <FileRow
+                                                key={node.file.name}
+                                                file={node.file}
+                                                displayName={node.displayName}
+                                                indentLevel={depth}
+                                                viewingName={viewingName}
+                                                loadedSourceNames={loadedSourceNames}
+                                                conversionJobs={conversionJobs}
+                                                expandedName={expandedName}
+                                                setExpandedName={setExpandedName}
+                                                onToggle={onToggle}
+                                                setPickerName={setPickerName}
+                                                setStreamingPickerName={setStreamingPickerName}
+                                                selectionMode={inSelectionMode}
+                                                isSelected={selection.has(node.file.name)}
+                                                onLongPress={toggleSelection}
+                                                onSelectToggle={toggleSelection}
+                                            />
+                                        );
+                                    }
+                                    const expanded = expandedFolders.has(node.path);
+                                    const total = countFiles(node);
+                                    return (
+                                        <React.Fragment key={`folder:${node.path}`}>
+                                            <FolderRow
+                                                folder={node}
+                                                depth={depth}
+                                                expanded={expanded}
+                                                fileCount={total}
+                                                onToggle={() => toggleFolder(node.path)}
+                                            />
+                                            {expanded &&
+                                                node.children.map((c) =>
+                                                    renderNode(c, depth + 1),
+                                                )}
+                                        </React.Fragment>
+                                    );
+                                };
+                                return (
+                                    <ul className="flex flex-col divide-y divide-gray-500/40">
+                                        {tree.map((n) => renderNode(n, 0))}
+                                    </ul>
+                                );
+                            })()}
                             {branches.length > 0 && (
                                 <VersionsTree
                                     branches={branches}
@@ -613,6 +772,44 @@ const StorageBrowser: React.FC = () => {
 // versions tree can render the same row at indent 2 without
 // re-implementing the toggle/expand/spinner machinery.
 // ──────────────────────────────────────────────────────────────────
+
+interface FolderRowProps {
+    folder: FolderNode;
+    depth: number;
+    expanded: boolean;
+    fileCount: number;
+    onToggle: () => void;
+}
+
+const FolderRow: React.FC<FolderRowProps> = ({
+    folder,
+    depth,
+    expanded,
+    fileCount,
+    onToggle,
+}) => {
+    const indentPx = depth * 12;
+    return (
+        <li
+            className="flex items-center gap-2 px-2 py-1 cursor-pointer hover:bg-gray-300/10 select-none"
+            style={{paddingLeft: 8 + indentPx}}
+            onClick={onToggle}
+            role="button"
+            aria-expanded={expanded}
+            aria-label={`${expanded ? "Collapse" : "Expand"} folder ${folder.name}`}
+        >
+            <span className="leading-none text-xs text-gray-300 w-3 inline-block">
+                {expanded ? "▾" : "▸"}
+            </span>
+            <span className="text-xs flex-1 min-w-0 truncate font-semibold">
+                {folder.name}/
+            </span>
+            <span className="text-[10px] text-gray-400 shrink-0">
+                {fileCount}
+            </span>
+        </li>
+    );
+};
 
 interface FileRowProps {
     file: ServerFileEntry;
