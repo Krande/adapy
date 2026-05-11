@@ -58,6 +58,48 @@ const FeaNodalDataPanel: React.FC = () => {
         );
     }
 
+    // Element fields don't have per-node values — they live on
+    // integration points inside each element. The nodal table can't
+    // show them; surface a hint so the user knows to switch to a
+    // nodal field rather than wonder why the table is empty.
+    if (activeField.per_type && activeField.per_type.length > 0) {
+        const totalElements = activeField.per_type.reduce(
+            (sum, bk) => sum + bk.n_elements,
+            0,
+        );
+        return (
+            <PanelShell>
+                <FeaTableHeader
+                    manifest={manifest}
+                    sourceName={sourceName}
+                    field={activeField}
+                    stepIndex={stepIndex}
+                    reduction={reduction}
+                />
+                <div className="text-sm text-gray-700 mt-3 space-y-2">
+                    <p>
+                        <span className="font-semibold">{activeField.name_canonical}</span>{" "}
+                        is an element field — its values live on integration
+                        points inside elements, not on nodes. The mesh is
+                        coloured using the active layer + IP reduction shown
+                        in the Sim Controls options panel.
+                    </p>
+                    <p className="text-gray-500">
+                        {totalElements.toLocaleString()} elements across{" "}
+                        {activeField.per_type.length} type
+                        {activeField.per_type.length === 1 ? "" : "s"}
+                        {": "}
+                        {activeField.per_type.map((bk) => `${bk.elem_type} (${bk.n_elements})`).join(", ")}.
+                    </p>
+                    <p className="text-gray-500">
+                        Pick a nodal field (e.g. displacement, reaction) above
+                        to inspect raw per-node values here.
+                    </p>
+                </div>
+            </PanelShell>
+        );
+    }
+
     return (
         <PanelShell>
             <FeaTableHeader

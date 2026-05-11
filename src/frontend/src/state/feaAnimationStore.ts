@@ -100,6 +100,24 @@ export interface FeaAnimationState {
      *  changing the underlying field values. */
     scaleFactor: number;
 
+    /** Layer filter for element fields with multi-IP shell stacks.
+     *  ``top``/``bottom``/``mid`` pick the matching IPs out of the
+     *  bucket's ``ip_layout``; ``all`` keeps every IP. Unused for
+     *  single-IP solid elements (every IP carries the same ``layer``
+     *  marker so the picker collapses to ``all``). Persisted across
+     *  ``reset()`` — engineers picking "bottom layer for SIF" once
+     *  want it sticky across model swaps. */
+    layer: string;
+
+    /** Reduction applied across the IPs inside the picked layer to
+     *  collapse each element's (n_ips × n_components) block down to
+     *  one scalar per element per component. ``max_abs`` matches the
+     *  Sesam / Abaqus stress-output convention for "outer fibre value
+     *  of interest"; ``mean`` is the engineering average; ``max`` /
+     *  ``min`` are useful when the user knows the field's sign
+     *  convention. Persisted across ``reset()``. */
+    ipReduction: string;
+
     /** Step-change callback registered by ``load_fea_streaming``.
      * SimulationControls calls this when the user drags the step
      * slider; the closure runs another ``load_fea_streaming`` with
@@ -121,6 +139,8 @@ export interface FeaAnimationState {
     setColormap: (c: string) => void;
     setWarpEnabled: (enabled: boolean) => void;
     setScaleFactor: (s: number) => void;
+    setLayer: (layer: string) => void;
+    setIpReduction: (r: string) => void;
     setApplyStep: (cb: ((stepIndex: number) => Promise<void>) | null) => void;
     /** Reset to inactive — called when the scene is replaced. */
     reset: () => void;
@@ -151,6 +171,14 @@ export const useFeaAnimationStore = create<FeaAnimationState>((set) => ({
     warpEnabled: true,
     // Identity scale by default — exaggeration is an explicit opt-in.
     scaleFactor: 1.0,
+    // Default layer / IP reduction mirror the bake's
+    // ``default_view.layer`` / ``ip_reduction`` keys (artefacts.py
+    // build_manifest). When a nodal field is active these are
+    // ignored, but keeping non-null defaults means a switch from
+    // nodal → element doesn't briefly render the mesh with an
+    // undefined reduction.
+    layer: "top",
+    ipReduction: "max_abs",
     applyStep: null,
 
     setSessionActive: (active) => set({sessionActive: active}),
@@ -168,6 +196,8 @@ export const useFeaAnimationStore = create<FeaAnimationState>((set) => ({
     setColormap: (colormap) => set({colormap}),
     setWarpEnabled: (warpEnabled) => set({warpEnabled}),
     setScaleFactor: (scaleFactor) => set({scaleFactor}),
+    setLayer: (layer) => set({layer}),
+    setIpReduction: (ipReduction) => set({ipReduction}),
     setApplyStep: (cb) => set({applyStep: cb}),
     reset: () =>
         set({
@@ -182,10 +212,11 @@ export const useFeaAnimationStore = create<FeaAnimationState>((set) => ({
             manifest: null,
             fieldName: null,
             reduction: "magnitude",
-            // Don't reset ``colormap`` or ``warpEnabled`` on scene
-            // clear — both are per-user preferences, not per-session.
-            // Users who picked Abaqus rainbow + warp-off once want
-            // them to stick across model swaps.
+            // Don't reset ``colormap``, ``warpEnabled``, ``layer``, or
+            // ``ipReduction`` on scene clear — all four are per-user
+            // preferences, not per-session. Users who picked Abaqus
+            // rainbow + warp-off + bottom-layer-max-abs once want them
+            // to stick across model swaps.
             applyStep: null,
         }),
 }));

@@ -2,6 +2,7 @@ import * as THREE from "three";
 
 import {SceneOperations} from "@/flatbuffers/scene/scene-operations";
 import {runtime} from "@/runtime/config";
+import {fetchElemFieldBlob} from "@/services/feaElemFieldBlob";
 import {fetchFieldBlob} from "@/services/feaFieldBlob";
 import {fetchMeshEdges} from "@/services/feaMeshEdges";
 import {fetchMeshElements, MeshElementEntry} from "@/services/feaMeshElements";
@@ -13,6 +14,7 @@ import {useAnimationStore} from "@/state/animationStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {useConversionStore} from "@/state/conversionStore";
 import {applyFieldToMesh} from "../fea/applyField";
+import {applyElemFieldToMesh} from "../fea/applyElemField";
 import {resetFeaAnimationPhase} from "../fea/feaAnimationDriver";
 import {clearGoToNode} from "../fea/goToNode";
 import {useTableNavStore} from "@/state/tableNavStore";
@@ -358,9 +360,6 @@ export async function load_fea_streaming(args: {
         }
     }
 
-    const parsed = await fetchFieldBlob(scope, sourceName, field);
-    const colorStepValues = parsed.steps[stepIndex];
-
     // Resolve the warp source. The picked field drives colour
     // regardless; warp depends on category:
     //   * displacement → warp by self (legacy behaviour).
@@ -382,17 +381,57 @@ export async function load_fea_streaming(args: {
         warpEnabled,
     );
 
-    applyFieldToMesh({
-        mesh: active.mesh,
-        basePositions: active.basePositions,
-        colorField: field,
-        colorStepValues,
-        reduction,
-        warpField: warpInfo?.field,
-        warpStepValues: warpInfo?.stepValues,
-        displacementScale,
-        colormap,
-    });
+    if (field.per_type && field.per_type.length > 0) {
+        // Element-field render path (AFEL). Fetch one bucket blob per
+        // element type in parallel; the bake guarantees parallel step
+        // counts across buckets within a logical field, so the same
+        // ``stepIndex`` indexes every bucket. The reduction kernel
+        // collapses (n_ips × n_components) → 1 scalar per element and
+        // writes vertex colours via AFEM draw ranges.
+        const buckets = field.per_type;
+        const parsedBuckets = await Promise.all(
+            buckets.map((bk) => fetchElemFieldBlob(scope, sourceName, bk)),
+        );
+        const perTypeStepValues = parsedBuckets.map((pb, i) => {
+            const step = pb.steps[stepIndex];
+            if (!step) {
+                throw new Error(
+                    `element field ${field.name_canonical} bucket ${buckets[i].elem_type} ` +
+                    `has no step ${stepIndex}`,
+                );
+            }
+            return step;
+        });
+        const {layer, ipReduction} = useFeaAnimationStore.getState();
+        applyElemFieldToMesh({
+            mesh: active.mesh,
+            basePositions: active.basePositions,
+            colorField: field,
+            perTypeStepValues,
+            layer,
+            ipReduction,
+            reduction,
+            warpField: warpInfo?.field,
+            warpStepValues: warpInfo?.stepValues,
+            displacementScale,
+            colormap,
+        });
+    } else {
+        const parsed = await fetchFieldBlob(scope, sourceName, field);
+        const colorStepValues = parsed.steps[stepIndex];
+
+        applyFieldToMesh({
+            mesh: active.mesh,
+            basePositions: active.basePositions,
+            colorField: field,
+            colorStepValues,
+            reduction,
+            warpField: warpInfo?.field,
+            warpStepValues: warpInfo?.stepValues,
+            displacementScale,
+            colormap,
+        });
+    }
 
     // Link the edge overlay's morph state to the mesh's so the
     // wireframe tracks deformation. Idempotent: re-running just
@@ -546,23 +585,14 @@ export async function load_fea_with_defaults(sourceName: string): Promise<void> 
         );
         return;
     }
-    // Pick the first *nodal* field as the default. Element fields
-    // (per_type populated, no top-level blob) need the AFEL render
-    // path that doesn't exist yet; landing on one would crash
-    // ``fetchFieldBlob`` because ``field.blob`` is undefined.
-    // Prefer ``category === "displacement"`` so a fresh load opens
-    // on the deformation field that the warp source wants anyway.
-    const renderable = manifest.fields.filter((f) => f.blob);
-    if (renderable.length === 0) {
-        // eslint-disable-next-line no-console
-        console.warn(
-            `[fea-streaming] manifest for ${sourceName} has only element ` +
-            `fields; the viewer hasn't wired up element-field rendering yet`,
-        );
-        return;
-    }
+    // Prefer ``category === "displacement"`` so a fresh load opens on
+    // the deformation field — that's the field most users want to
+    // see first, and it's also the warp source for everything else.
+    // Falls back to the first renderable field (nodal or element)
+    // when the manifest has no displacement (e.g. stress-only output).
     const field =
-        renderable.find((f) => f.category === "displacement") ?? renderable[0];
+        manifest.fields.find((f) => f.category === "displacement") ??
+        manifest.fields[0];
     const reduction = field.default_view?.reduction ?? "magnitude";
     await load_fea_streaming({
         sourceName,
