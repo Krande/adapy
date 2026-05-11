@@ -75,6 +75,15 @@ ELEM_VERSION = 1
 ELEM_HEADER_BYTES = 16  # magic + version + n_elements + 4-byte pad
 ELEM_ENTRY_BYTES = 12   # uint32 label, uint32 tri_start, uint32 tri_count
 
+# Beam-solid mesh — optional parallel mesh emitted by readers that
+# have section + axis info per beam element (currently SIF only via
+# the FEAResultStreamAdapter). The bake tessellates each beam's
+# extruded cross-section into triangles, concatenates them into one
+# vertex + index pair, and records per-beam draw ranges keyed by the
+# line-element label. Frontend renders this as a second mesh
+# alongside ``fea.mesh.glb`` and can paint it with the same AFEL
+# element-field pipeline since the labels match.
+
 
 @dataclass
 class MeshGeometry:
@@ -83,6 +92,36 @@ class MeshGeometry:
 
     points: np.ndarray  # (n_points, 3) float
     cell_blocks: list[CellBlockData]
+
+
+@dataclass
+class SolidBeamMesh:
+    """Beam elements tessellated as 3D extruded solids. Optional bake
+    output — only emitted when the reader has section + axis info per
+    beam element. The data shape mirrors the main mesh:
+
+    * ``points``: (n_verts, 3) float64 — merged vertex buffer across
+      all beams.
+    * ``triangles``: (n_tris, 3) uint32 — indices into ``points``.
+    * ``element_ranges``: one :class:`ElementRange` per beam, keyed by
+      the line-element label so the frontend can paint AFEL element
+      fields onto the solid faces with the same draw-range lookup as
+      the main mesh.
+
+    No per-vertex displacement morph today: a beam's extruded vertex
+    isn't a node in the underlying FEA mesh, so the standard nodal
+    warp doesn't extend to it without per-segment lerp. Solid beams
+    render at the un-deformed positions for v1.
+    """
+
+    points: np.ndarray
+    triangles: np.ndarray
+    # Forward reference — ``ElementRange`` lives in
+    # ``ada.visit.rendering.femviz`` to avoid circular imports between
+    # the bake and the topology helper. Typed as ``list`` to keep this
+    # module import-light; ``write_beam_solids_elements`` does the
+    # structural validation at write time.
+    element_ranges: list = dc_field(default_factory=list)
 
 
 # Field category — coarse semantic label used by the viewer to decide
@@ -210,6 +249,17 @@ class FEAStreamReader(Protocol):
     def iter_element_field_steps(
         self, spec: ElementFieldSpec
     ) -> Iterator[ElementStepValues]: ...
+
+    def try_solid_beams(self) -> "SolidBeamMesh | None":
+        """Optional: tessellate beam elements as 3D extruded solids.
+
+        Readers that have section + axis info per beam element (SIF
+        via the FEAResult adapter, future readers that carry similar
+        metadata) return a :class:`SolidBeamMesh`. Readers without it
+        (native RMED, FRD) return ``None`` — the bake then skips beam-
+        solid emission and the manifest carries no ``beam_solids_url``.
+        """
+        ...
 
     def close(self) -> None: ...
 
@@ -609,6 +659,95 @@ class FEAResultStreamAdapter:
                 values=np.ascontiguousarray(comp_vals, dtype=np.float32),
             )
 
+    def try_solid_beams(self) -> "SolidBeamMesh | None":
+        """Tessellate each beam (line) element as a 3D extruded section
+        via OCC and merge into a single vertex+index buffer with
+        per-beam draw ranges.
+
+        Requires the wrapped FEAResult.mesh to carry sections +
+        materials + vectors + elem_data (the SIF reader populates all
+        four; RMED native does not). Returns ``None`` when any of
+        those is missing — the bake then skips solid-beam emission.
+
+        Individual beam tessellation failures (bad section, OCC blow-
+        up) are logged and the offending beam is omitted from the
+        output rather than failing the whole bake. Empty result →
+        return ``None`` so the manifest doesn't carry a zero-element
+        sidecar.
+        """
+
+        mesh = self._result.mesh
+        if not getattr(mesh, "sections", None):
+            return None
+        if not getattr(mesh, "elem_data", None) is not None:
+            return None
+        if mesh.elem_data is None:
+            return None
+
+        from ada import Part
+        from ada.fem.formats.utils import line_elem_to_beam
+        from ada.occ.tessellating import BatchTessellator
+        from ada.visit.rendering.femviz import ElementRange
+
+        line_elems = mesh.get_line_elems()
+        if not line_elems:
+            return None
+
+        dummy_part = Part(self._result.name or "solid_beams")
+        bt = BatchTessellator()
+
+        all_positions: list[np.ndarray] = []
+        all_indices: list[np.ndarray] = []
+        ranges: list[ElementRange] = []
+        vertex_offset = 0
+        tri_cursor = 0
+
+        for elem in line_elems:
+            try:
+                beam = line_elem_to_beam(elem, dummy_part, "BM")
+                geom = beam.solid_geom()
+                ms = bt.tessellate_geom(geom, beam)
+            except Exception as e:  # noqa: BLE001 — defensive
+                # Log and skip; partial output is better than failing
+                # the whole bake when one beam has a degenerate
+                # section or a missing local_z.
+                from ada.config import get_logger
+
+                get_logger().warning(
+                    "beam-solid tessellation failed for elem %s: %s",
+                    elem.id,
+                    e,
+                )
+                continue
+
+            pos = getattr(ms, "position", None)
+            idx = getattr(ms, "indices", None)
+            if pos is None or idx is None or pos.size == 0 or idx.size == 0:
+                continue
+
+            verts = np.asarray(pos, dtype=np.float64).reshape(-1, 3)
+            tris = np.asarray(idx, dtype=np.uint32).reshape(-1, 3) + vertex_offset
+            all_positions.append(verts)
+            all_indices.append(tris.astype(np.uint32, copy=False))
+
+            tri_count = int(tris.shape[0])
+            ranges.append(
+                ElementRange(
+                    label=int(elem.id),
+                    tri_start=tri_cursor,
+                    tri_count=tri_count,
+                )
+            )
+            vertex_offset += int(verts.shape[0])
+            tri_cursor += tri_count
+
+        if not all_positions:
+            return None
+
+        points = np.concatenate(all_positions, axis=0)
+        triangles = np.concatenate(all_indices, axis=0)
+        return SolidBeamMesh(points=points, triangles=triangles, element_ranges=ranges)
+
     def close(self) -> None:
         pass
 
@@ -784,6 +923,54 @@ def write_mesh_elements(
             f.write(arr.tobytes(order="C"))
 
     return n_elements
+
+
+# ---------------------------------------------------------------------------
+# Beam-solid mesh + sidecar writers
+# ---------------------------------------------------------------------------
+
+
+def write_beam_solids_glb(mesh: SolidBeamMesh, out_path: os.PathLike) -> None:
+    """Write the concatenated beam-solid mesh as a geometry-only GLB.
+
+    Same shape as :func:`write_mesh_glb` but takes an explicit
+    ``(points, triangles)`` rather than going through
+    :func:`_compute_topology`. ``trimesh.Trimesh(process=False)`` —
+    skipping process is critical, otherwise trimesh merges duplicate
+    vertices and the per-beam draw ranges go stale.
+    """
+
+    import trimesh
+    from trimesh.visual.material import PBRMaterial
+
+    out_path = pathlib.Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    face_arr = np.asarray(mesh.triangles, dtype=np.uint32).reshape(-1, 3)
+    tm = trimesh.Trimesh(vertices=mesh.points, faces=face_arr, process=False)
+    tm.visual.material = PBRMaterial(doubleSided=True)
+    scene = trimesh.Scene()
+    scene.add_geometry(tm, node_name="beam_solids", geom_name="faces")
+    with open(out_path, "wb") as f:
+        scene.export(file_obj=f, file_type="glb")
+
+
+def write_beam_solids_elements(mesh: SolidBeamMesh, out_path: os.PathLike) -> int:
+    """Write the per-beam ``(label, tri_start, tri_count)`` sidecar in
+    the AFEM format. Same magic + version as the main-mesh elements
+    sidecar so the frontend's existing :func:`parseMeshElements`
+    parser reads it without modification.
+    """
+
+    return write_mesh_elements(
+        # Geometry-only wrapper just so we satisfy the existing
+        # write_mesh_elements signature; element_ranges is the
+        # actually-used field. The geom argument is ignored when
+        # element_ranges is passed in directly.
+        MeshGeometry(points=mesh.points, cell_blocks=[]),
+        out_path,
+        element_ranges=mesh.element_ranges,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1096,6 +1283,9 @@ def build_manifest(
     elem_field_metas: list[ElementFieldArtefactMeta] | None = None,
     mesh_edges_filename: str | None = None,
     n_edges: int = 0,
+    beam_solids_glb_filename: str | None = None,
+    beam_solids_elements_filename: str | None = None,
+    n_beam_solids: int = 0,
     mesh_elements_filename: str | None = None,
     n_elements: int = 0,
     legacy_glb_url_template: str | None = None,
@@ -1273,6 +1463,16 @@ def build_manifest(
     if mesh_elements_filename is not None:
         mesh_meta["elements_url"] = mesh_elements_filename
         mesh_meta["n_elements"] = int(n_elements)
+    if beam_solids_glb_filename is not None:
+        # Parallel beam-solid mesh emitted when the reader carried
+        # section + axis info per beam (SIF today). Frontend renders
+        # it alongside the main mesh and can toggle between line and
+        # solid display. Per-element draw ranges are keyed by the
+        # line-element label so AFEL element-field colours follow.
+        mesh_meta["beam_solids_url"] = beam_solids_glb_filename
+        if beam_solids_elements_filename is not None:
+            mesh_meta["beam_solids_elements_url"] = beam_solids_elements_filename
+        mesh_meta["n_beam_solids"] = int(n_beam_solids)
 
     manifest: dict = {
         "version": MANIFEST_VERSION,
@@ -1442,6 +1642,24 @@ def bake_artefacts(
         geom, mesh_elements_path, element_ranges=topology.element_ranges
     )
 
+    # Beam-solid mesh — optional, depends on whether the reader has
+    # section + axis info per beam (SIF via FEAResultStreamAdapter
+    # today). Skipped silently when the reader returns None: the
+    # frontend reads the manifest and falls back to line-only beam
+    # rendering when ``beam_solids_url`` is absent.
+    beam_solids_glb_path: pathlib.Path | None = None
+    beam_solids_elements_path: pathlib.Path | None = None
+    n_beam_solids = 0
+    try:
+        solid_beams = reader.try_solid_beams()
+    except (AttributeError, NotImplementedError):
+        solid_beams = None
+    if solid_beams is not None and solid_beams.triangles.size:
+        beam_solids_glb_path = out_dir / "fea.beam_solids.glb"
+        write_beam_solids_glb(solid_beams, beam_solids_glb_path)
+        beam_solids_elements_path = out_dir / "fea.beam_solids.elements.bin"
+        n_beam_solids = write_beam_solids_elements(solid_beams, beam_solids_elements_path)
+
     field_metas: list[FieldArtefactMeta] = []
     blob_paths: list[pathlib.Path] = []
     for spec in reader.field_specs():
@@ -1483,6 +1701,13 @@ def bake_artefacts(
         n_edges=n_edges,
         mesh_elements_filename=mesh_elements_path.name,
         n_elements=n_elements,
+        beam_solids_glb_filename=(
+            beam_solids_glb_path.name if beam_solids_glb_path else None
+        ),
+        beam_solids_elements_filename=(
+            beam_solids_elements_path.name if beam_solids_elements_path else None
+        ),
+        n_beam_solids=n_beam_solids,
         legacy_glb_url_template=legacy_glb_url_template,
     )
     manifest_path = out_dir / "fea.manifest.json"

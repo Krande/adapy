@@ -186,6 +186,17 @@ export interface FeaManifest {
          * highlight pipeline. */
         elements_url?: string;
         n_elements?: number;
+        /** Optional beam-solid mesh: a parallel GLB carrying every
+         *  beam (line) element tessellated as an extruded 3D solid
+         *  via OCC. Emitted only when the reader has section + axis
+         *  info per beam (SIF today). The companion
+         *  ``beam_solids_elements_url`` is an AFEM-format sidecar
+         *  keyed by the line-element label, so the frontend can
+         *  paint AFEL element fields onto the solid faces with the
+         *  same draw-range lookup as the main mesh. */
+        beam_solids_url?: string;
+        beam_solids_elements_url?: string;
+        n_beam_solids?: number;
     };
     fields: FeaManifestField[];
     legacy_glb?: {url_template: string};

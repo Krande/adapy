@@ -128,6 +128,14 @@ export interface FeaAnimationState {
      *  nodal fields (they're already smooth by construction). */
     nodalAverage: boolean;
 
+    /** Show beam (line) elements as extruded 3D solids instead of
+     *  just LineSegments. Only meaningful when the manifest carries
+     *  a ``beam_solids_url`` (SIF bakes with section info). ``false``
+     *  (default) preserves the existing line-only beam render — the
+     *  solid mesh stays loaded but invisible. Persisted across
+     *  ``reset()`` so user pref sticks across scene swaps. */
+    beamSolidsVisible: boolean;
+
     /** Step-change callback registered by ``load_fea_streaming``.
      * SimulationControls calls this when the user drags the step
      * slider; the closure runs another ``load_fea_streaming`` with
@@ -152,6 +160,7 @@ export interface FeaAnimationState {
     setLayer: (layer: string) => void;
     setIpReduction: (r: string) => void;
     setNodalAverage: (smooth: boolean) => void;
+    setBeamSolidsVisible: (visible: boolean) => void;
     setApplyStep: (cb: ((stepIndex: number) => Promise<void>) | null) => void;
     /** Reset to inactive — called when the scene is replaced. */
     reset: () => void;
@@ -194,6 +203,9 @@ export const useFeaAnimationStore = create<FeaAnimationState>((set) => ({
     // Smooth averaging is an explicit opt-in because it can hide
     // inter-element discontinuities that some users want to see.
     nodalAverage: false,
+    // Line-only beam render by default — matches the pre-Phase-5
+    // behaviour. Users opt into the solid render via the gear panel.
+    beamSolidsVisible: false,
     applyStep: null,
 
     setSessionActive: (active) => set({sessionActive: active}),
@@ -214,6 +226,7 @@ export const useFeaAnimationStore = create<FeaAnimationState>((set) => ({
     setLayer: (layer) => set({layer}),
     setIpReduction: (ipReduction) => set({ipReduction}),
     setNodalAverage: (nodalAverage) => set({nodalAverage}),
+    setBeamSolidsVisible: (beamSolidsVisible) => set({beamSolidsVisible}),
     setApplyStep: (cb) => set({applyStep: cb}),
     reset: () =>
         set({
@@ -229,11 +242,12 @@ export const useFeaAnimationStore = create<FeaAnimationState>((set) => ({
             fieldName: null,
             reduction: "magnitude",
             // Don't reset ``colormap``, ``warpEnabled``, ``layer``,
-            // ``ipReduction``, or ``nodalAverage`` on scene clear —
-            // all five are per-user preferences, not per-session.
-            // Users who picked Abaqus rainbow + warp-off +
-            // bottom-layer-max-abs + smooth once want them to stick
-            // across model swaps.
+            // ``ipReduction``, ``nodalAverage``, or
+            // ``beamSolidsVisible`` on scene clear — all six are
+            // per-user preferences, not per-session. Users who picked
+            // Abaqus rainbow + warp-off + bottom-layer-max-abs +
+            // smooth + solid-beams once want them to stick across
+            // model swaps.
             applyStep: null,
         }),
 }));

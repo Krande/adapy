@@ -2,6 +2,8 @@ import * as THREE from "three";
 
 import {SceneOperations} from "@/flatbuffers/scene/scene-operations";
 import {runtime} from "@/runtime/config";
+import {GLTFLoader} from "three/examples/jsm/loaders/GLTFLoader";
+
 import {fetchElemFieldBlob} from "@/services/feaElemFieldBlob";
 import {fetchFieldBlob} from "@/services/feaFieldBlob";
 import {fetchMeshEdges} from "@/services/feaMeshEdges";
@@ -33,6 +35,18 @@ interface ActiveFeaStreaming {
     /** Snapshot of the mesh's original positions, used to compute
      * displacement-from-base on every step change. */
     basePositions: Float32Array;
+    /** Optional beam-solid mesh — present when the manifest carries
+     *  ``beam_solids_url``. Hosts beam (line) elements tessellated as
+     *  3D extruded sections. Shares the FEA root group with the main
+     *  mesh; the AFEL element-field path paints both meshes since
+     *  beam labels live in both ``drawRanges`` maps (with a zero-
+     *  triangle range on the main mesh and a real range here).
+     *  No warp on this mesh in v1 — vertices aren't nodal. */
+    beamSolidMesh?: THREE.Mesh;
+    /** Base positions for the beam-solid mesh, snapshot at load. The
+     *  AFEL kernel resets the position attribute to this snapshot
+     *  before re-painting, mirroring the main-mesh path. */
+    beamSolidBasePositions?: Float32Array;
 }
 
 let active: ActiveFeaStreaming | null = null;
@@ -44,6 +58,16 @@ let active: ActiveFeaStreaming | null = null;
  * controls for a mesh that's no longer in the scene, and hides the
  * controls panel entirely when no GLTF clips are around to show in
  * the fallback path. */
+/** Flip beam-solid mesh visibility on the active session, if any.
+ *  Cheap — just toggles ``mesh.visible``; no re-fetch, no re-paint.
+ *  No-op when no session is active or the manifest didn't ship a
+ *  beam-solid mesh. */
+export function setBeamSolidsVisible(visible: boolean): void {
+    if (active?.beamSolidMesh) {
+        active.beamSolidMesh.visible = visible;
+    }
+}
+
 export function clearActiveFeaStreaming(): void {
     active = null;
     useFeaAnimationStore.getState().reset();
@@ -204,6 +228,78 @@ async function resolveWarpSource(
     return {field: dispField, stepValues: parsed.steps[warpStep]};
 }
 
+/** Fetch + parse the beam-solid GLB and its AFEM sidecar, returning a
+ *  THREE.Mesh ready to attach to the scene with per-beam drawRanges
+ *  already installed. Returns ``null`` if the manifest carries no
+ *  beam-solid URL or the fetch failed (logged + non-fatal). */
+async function tryLoadBeamSolids(
+    scope: string,
+    sourceName: string,
+    manifest: FeaManifest,
+    initialVisible: boolean,
+): Promise<{mesh: THREE.Mesh; basePositions: Float32Array} | null> {
+    const beamGlbUrl = manifest.mesh.beam_solids_url;
+    if (!beamGlbUrl) return null;
+
+    try {
+        const glbKey = `_derived/${sourceName.replace(/^\/+/, "")}.fea/${beamGlbUrl}`;
+        const [buf, afemEntries] = await Promise.all([
+            viewerApi.getBlob(scope, glbKey),
+            manifest.mesh.beam_solids_elements_url
+                ? fetchMeshElements(scope, sourceName, manifest.mesh.beam_solids_elements_url)
+                : Promise.resolve<MeshElementEntry[]>([]),
+        ]);
+        const blob = new Blob([buf], {type: "model/gltf-binary"});
+        const url = URL.createObjectURL(blob);
+        let gltfMesh: THREE.Mesh | null = null;
+        try {
+            const loader = new GLTFLoader();
+            const gltf = await new Promise<{scene: THREE.Group}>((resolve, reject) => {
+                loader.load(url, resolve as never, undefined, reject);
+            });
+            gltfMesh = findFirstMesh(gltf.scene);
+        } finally {
+            URL.revokeObjectURL(url);
+        }
+        if (!gltfMesh) return null;
+
+        // Wire the AFEM-style draw ranges directly onto the mesh as a
+        // ``drawRanges`` Map — same shape CustomBatchedMesh exposes,
+        // so the AFEL apply kernel's drawRanges.get(\`E${label}\`)
+        // lookup works without further branching.
+        const drawRanges = new Map<string, [number, number]>();
+        for (const entry of afemEntries) {
+            if (entry.triCount > 0) {
+                drawRanges.set(`E${entry.label}`, [
+                    entry.triStart * 3,
+                    entry.triCount * 3,
+                ]);
+            }
+        }
+        (gltfMesh as unknown as {drawRanges: Map<string, [number, number]>})
+            .drawRanges = drawRanges;
+        gltfMesh.name = "fea-beam-solids";
+        gltfMesh.userData.feaBeamSolids = true;
+        gltfMesh.visible = initialVisible;
+
+        // Don't flip vertexColors on here — without a color attribute,
+        // three.js renders vertexColors=true geometry as black. The
+        // AFEL apply kernel turns vertexColors on at the same time it
+        // writes the color attribute, so the first paint lands both
+        // together. Until then the GLB's base PBR material colour
+        // shows, which is the right "no data" state for solid beams.
+
+        const basePositions = snapshotBasePositions(gltfMesh.geometry);
+        return {mesh: gltfMesh, basePositions};
+    } catch (err) {
+        // Beam-solid rendering is decorative — log and continue so a
+        // missing/corrupt GLB doesn't block rendering of the main mesh.
+        // eslint-disable-next-line no-console
+        console.warn("[fea-streaming] failed to load beam-solid mesh:", err);
+        return null;
+    }
+}
+
 function snapshotBasePositions(geometry: THREE.BufferGeometry): Float32Array {
     const attr = geometry.getAttribute("position");
     if (!attr || attr.itemSize !== 3) {
@@ -307,6 +403,24 @@ export async function load_fea_streaming(args: {
         // inside applyFieldToMesh so they cover both the array-typed
         // material that prepareLoadedModel installs on
         // CustomBatchedMesh and the plain-material fallback.
+
+        // Beam-solid mesh — optional, only present in manifests baked
+        // from SIF sources with section info. Attached as a child of
+        // the main mesh so it inherits the FEA root parent and gets
+        // disposed alongside the main mesh on scene swap. Visibility
+        // is driven by ``beamSolidsVisible`` in feaAnimationStore —
+        // default false so the existing line-only render stays the
+        // default and a fresh bake doesn't surprise users with the
+        // new solid mesh.
+        const beamSolidsVisible = useFeaAnimationStore.getState().beamSolidsVisible;
+        const beamSolid = await tryLoadBeamSolids(
+            scope, sourceName, manifest, beamSolidsVisible,
+        );
+        if (beamSolid) {
+            mesh.add(beamSolid.mesh);
+            active.beamSolidMesh = beamSolid.mesh;
+            active.beamSolidBasePositions = beamSolid.basePositions;
+        }
 
         // Element-edge wireframe overlay. The bake emits an explicit
         // edge sidecar (deduped uint32 pairs from each cell's
@@ -417,6 +531,29 @@ export async function load_fea_streaming(args: {
             colormap,
             nodalAverage,
         });
+        // Beam-solid mesh — paint with the same AFEL data. Beam
+        // labels appear in both drawRanges maps, but the main-mesh
+        // entries have zero triangles (line elements) so the kernel
+        // is a no-op there for beams, and the beam-solid mesh has no
+        // entries for shells. Net effect: each label paints exactly
+        // the mesh that owns its triangles. No warp here — beam-
+        // solid vertices aren't nodal so the nodal displacement field
+        // doesn't map cleanly. Smooth shading also skipped: each
+        // beam has at most one IP along its length so per-element
+        // colour and nodal-averaged colour coincide.
+        if (active.beamSolidMesh && active.beamSolidBasePositions) {
+            applyElemFieldToMesh({
+                mesh: active.beamSolidMesh,
+                basePositions: active.beamSolidBasePositions,
+                colorField: field,
+                perTypeStepValues,
+                layer,
+                ipReduction,
+                reduction,
+                colormap,
+                nodalAverage: false,
+            });
+        }
     } else {
         const parsed = await fetchFieldBlob(scope, sourceName, field);
         const colorStepValues = parsed.steps[stepIndex];
@@ -432,6 +569,23 @@ export async function load_fea_streaming(args: {
             displacementScale,
             colormap,
         });
+
+        // Beam-solid mesh: nodal fields don't have a sensible
+        // per-vertex value here (the beam-solid vertices aren't FEA
+        // nodes). Turn vertexColors off so any stale element-field
+        // colouring stops contributing and the GLB's base material
+        // shows. Cheap toggle — no buffer rewrite needed.
+        if (active.beamSolidMesh) {
+            const disableVc = (mat: THREE.Material) => {
+                if ("vertexColors" in mat) {
+                    (mat as unknown as {vertexColors: boolean}).vertexColors = false;
+                    mat.needsUpdate = true;
+                }
+            };
+            const m = active.beamSolidMesh.material;
+            if (Array.isArray(m)) m.forEach(disableVc);
+            else if (m) disableVc(m as THREE.Material);
+        }
     }
 
     // Link the edge overlay's morph state to the mesh's so the

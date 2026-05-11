@@ -706,6 +706,88 @@ def test_bake_writes_element_field_blob_per_type(fem_files, tmp_path):
             assert len(pt["element_labels"]) == pt["n_elements"]
 
 
+def test_bake_emits_beam_solid_mesh_for_sif_line(fem_files, tmp_path):
+    """SIF fixtures with beam (line) elements + section info trigger
+    the optional beam-solid mesh emission: a parallel GLB plus an
+    AFEM-format per-beam draw-range sidecar. The manifest mesh meta
+    must point at both files and every line element should appear in
+    the elements sidecar.
+    """
+
+    from ada.fem.results.artefacts import ELEM_HEADER_BYTES, ELEM_MAGIC
+
+    sif = fem_files / "cantilever/sesam/static/line/STATIC_LINE_CANTILEVER_SESAMR1.SIF"
+    if not sif.exists():
+        pytest.skip(f"fixture not present: {sif}")
+
+    bake = bake_fea_artefacts_from_source(sif, tmp_path / "out", src_key=sif.stem)
+    manifest = json.loads(bake.manifest_path.read_text())
+
+    mesh_meta = manifest["mesh"]
+    assert mesh_meta.get("beam_solids_url") == "fea.beam_solids.glb"
+    assert mesh_meta.get("beam_solids_elements_url") == "fea.beam_solids.elements.bin"
+    n_beam_solids = mesh_meta["n_beam_solids"]
+    assert n_beam_solids > 0, "expected at least one beam tessellated as solid"
+
+    # GLB exists and parses as a trimesh scene with non-zero geometry.
+    glb_path = bake.out_dir / "fea.beam_solids.glb"
+    assert glb_path.exists()
+    assert glb_path.stat().st_size > 0
+
+    # Elements sidecar shares the AFEM format with the main mesh's
+    # so the frontend reuses parseMeshElements for it.
+    elements_path = bake.out_dir / "fea.beam_solids.elements.bin"
+    data = elements_path.read_bytes()
+    assert data[:4] == ELEM_MAGIC
+    version, n_elements = struct.unpack("<II", data[4:12])
+    assert version == 1
+    assert n_elements == n_beam_solids
+
+    # Per-beam ranges tile the triangle buffer with no overlaps and
+    # all tri_counts must be positive (solid beams always have faces).
+    raw = np.frombuffer(data[ELEM_HEADER_BYTES:], dtype=np.uint32).reshape(n_elements, 3)
+    labels, starts, counts = raw[:, 0], raw[:, 1], raw[:, 2]
+    cursor = 0
+    for i in range(n_elements):
+        assert int(starts[i]) == cursor
+        assert int(counts[i]) > 0, f"beam {labels[i]} produced zero triangles"
+        cursor += int(counts[i])
+    # Labels are the source-file line-element ids — non-zero, distinct.
+    assert int(labels.min()) >= 1
+    assert len(set(labels.tolist())) == n_elements
+
+
+def test_bake_skips_beam_solid_mesh_for_shell_only_sif(fem_files, tmp_path):
+    """Shell-only fixtures have no line elements; the bake must skip
+    the optional beam-solid emission entirely (no manifest key, no
+    GLB / sidecar files left behind)."""
+
+    sif = fem_files / "sesam/1EL_SHELL_R1.SIF"
+    if not sif.exists():
+        pytest.skip("fixture not present")
+
+    bake = bake_fea_artefacts_from_source(sif, tmp_path / "out", src_key=sif.stem)
+    manifest = json.loads(bake.manifest_path.read_text())
+
+    assert "beam_solids_url" not in manifest["mesh"]
+    assert "beam_solids_elements_url" not in manifest["mesh"]
+    assert not (bake.out_dir / "fea.beam_solids.glb").exists()
+    assert not (bake.out_dir / "fea.beam_solids.elements.bin").exists()
+
+
+def test_bake_skips_beam_solid_mesh_for_rmed(fem_files, tmp_path):
+    """RMED native streaming has no section info — try_solid_beams
+    returns None and the bake omits the beam-solid artefacts."""
+
+    rmed = fem_files / "code_aster/Cantilever_CA_EIG_bm.rmed"
+    if not rmed.exists():
+        pytest.skip("fixture not present")
+
+    bake = bake_fea_artefacts_from_source(rmed, tmp_path / "out", src_key=rmed.stem)
+    manifest = json.loads(bake.manifest_path.read_text())
+    assert "beam_solids_url" not in manifest["mesh"]
+
+
 def test_classify_field_by_field_type_overrides_name():
     """An explicit NodalFieldType.DISP on the sample wins even if the
     name doesn't look like a displacement field — readers know

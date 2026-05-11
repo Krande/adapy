@@ -195,6 +195,12 @@ class RmedStreamReader:
             "element_field_specs() returns empty so the bake skips this path."
         )
 
+    def try_solid_beams(self):
+        # RMED carries no section / axis / orientation info — that
+        # lives in Code Aster's affe_cara_elem command, not in the
+        # .rmed result file. Beams render as line elements only.
+        return None
+
     def close(self) -> None:
         self._f.close()
 
