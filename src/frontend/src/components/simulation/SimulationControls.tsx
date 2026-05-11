@@ -248,9 +248,12 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
         <div className="flex flex-col gap-2 min-w-0">
             {/* Row 1 — Field / Comp / Step selectors only. Gear
                 moved down to the transport row so this stays a
-                focused "what are you looking at" line. */}
+                focused "what are you looking at" line.
+                ``justify-between`` on a full-width container so the
+                three dropdowns spread to match row 2's natural
+                width, instead of clumping at the left. */}
             {manifest && (
-                <div className="flex flex-row items-center gap-x-2 min-w-0 text-xs text-white">
+                <div className="flex flex-row items-center justify-between gap-x-2 w-full min-w-0 text-xs text-white">
                     <label className="flex items-center gap-1">
                         <span className="text-gray-300">Field</span>
                         <select
@@ -312,9 +315,13 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
             {/* Row 2 — Scrub slider + period + scale-factor knobs.
                 Visually grouped because they all shape the
                 deformation amplitude / animation; transport
-                buttons on the next row act *on* this group. */}
-            <div className="flex flex-row items-center gap-x-2 min-w-0">
-                <div className="flex items-center gap-2 min-w-[100px] max-w-sm w-full">
+                buttons on the next row act *on* this group.
+                ``w-full`` + ``flex-1`` on the slider so the row
+                fills the same total width as row 1 — the slider
+                absorbs whatever space is left after the fixed-width
+                period + scale inputs. */}
+            <div className="flex flex-row items-center gap-x-2 w-full min-w-0">
+                <div className="flex items-center gap-2 flex-1 min-w-[100px]">
                     <input
                         type="range"
                         min={lo}
@@ -359,8 +366,9 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
             </div>
 
             {/* Row 3 — Transport: play / stop / data-panel toggle +
-                gear (moved from row 1 so it sits next to the other
-                action buttons it visually belongs with). */}
+                gear, all sized + placed identically so they read as
+                one group of action buttons. Gear lives right after
+                the data-panel button (no ``ml-auto`` push-to-right). */}
             <div className="flex flex-row items-center gap-x-2 min-w-0">
                 <button
                     className="bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded"
@@ -385,7 +393,7 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                 </button>
                 <button
                     className={
-                        "ml-auto bg-blue-700 hover:bg-blue-700/50 text-white rounded px-2 py-1 " +
+                        "bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded " +
                         (showOptions ? "ring-2 ring-blue-300" : "")
                     }
                     onClick={() => setShowOptions((v) => !v)}
@@ -452,6 +460,8 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
 
 // Inline icon — same look as the other transport buttons. Defined
 // here rather than as a sibling file because it's the only consumer.
+// ``w-6 h-6`` matches PlayPauseIcon / StopIcon so the gear button
+// reads at the same visual weight as the rest of the transport row.
 const GearIcon: React.FC = () => (
     <svg
         xmlns="http://www.w3.org/2000/svg"
@@ -461,7 +471,7 @@ const GearIcon: React.FC = () => (
         strokeWidth="2"
         strokeLinecap="round"
         strokeLinejoin="round"
-        className="w-4 h-4"
+        className="w-6 h-6"
         aria-hidden="true"
     >
         <circle cx="12" cy="12" r="3"/>
