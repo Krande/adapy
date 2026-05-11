@@ -135,7 +135,7 @@ const FeaNodalTable: React.FC<{
         return () => {
             cancelled = true;
         };
-    }, [scopeUrl, sourceName, field.name_canonical, field.blob.url]);
+    }, [scopeUrl, sourceName, field.name_canonical, field.blob?.url]);
 
     const isVector = field.kind.startsWith("vector");
     const components = field.components;

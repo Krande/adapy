@@ -97,6 +97,17 @@ export async function fetchFieldBlob(
     sourceKey: string,
     field: FeaManifestField,
 ): Promise<ParsedFeaFieldBlob> {
+    if (!field.blob) {
+        // Element fields use per_type instead of a top-level blob and
+        // have their own loader (Phase 4B). Calling this helper on an
+        // element field is a bug — surface it explicitly rather than
+        // constructing an undefined URL.
+        throw new Error(
+            `fetchFieldBlob: field ${field.name_canonical} has no blob ` +
+            `(category=${field.category}, support=${field.support}); ` +
+            `element fields use the AFEL loader, not the nodal AFBL one.`,
+        );
+    }
     const cleanSrc = sourceKey.replace(/^\/+/, "");
     const blobKey = `_derived/${cleanSrc}.fea/${field.blob.url}`;
     const cacheKey = `${scope}::${blobKey}`;

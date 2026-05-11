@@ -182,6 +182,19 @@ class RmedStreamReader:
                 values=values,
             )
 
+    # Element fields aren't streamed by the RMED reader yet — Phase 1
+    # only covers nodal output through this path. Returning an empty
+    # list lets the bake's element-field loop run as a no-op without
+    # the bake needing a per-reader feature flag.
+    def element_field_specs(self):
+        return []
+
+    def iter_element_field_steps(self, spec):
+        raise NotImplementedError(
+            "RmedStreamReader does not yet stream element fields; "
+            "element_field_specs() returns empty so the bake skips this path."
+        )
+
     def close(self) -> None:
         self._f.close()
 

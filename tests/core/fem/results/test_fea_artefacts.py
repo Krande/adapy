@@ -206,20 +206,25 @@ def _assert_picker_contract(manifest: dict, *, fixture_label: str) -> None:
         # The picker calls field.kind.startsWith("vector"), reads
         # field.components for the reduction selector, and walks
         # field.steps for the slider. All three must be present and
-        # of the right shape.
-        for required in (
+        # of the right shape. ``blob`` is required on nodal-style
+        # fields; element fields use ``per_type`` instead, checked
+        # separately below.
+        is_element_field = "per_type" in field
+        common_required = [
             "name_canonical",
             "name_native",
             "kind",
             "category",
             "support",
             "components",
-            "blob",
             "n_steps",
             "steps",
             "scalar_range",
             "default_view",
-        ):
+        ]
+        if not is_element_field:
+            common_required.append("blob")
+        for required in common_required:
             assert required in field, f"{fixture_label}: field missing {required}"
 
         assert field["category"] in {
@@ -256,16 +261,32 @@ def _assert_picker_contract(manifest: dict, *, fixture_label: str) -> None:
                 f"{fixture_label}: step[{i}].label missing"
             )
 
-        blob = field["blob"]
-        assert isinstance(blob.get("url"), str) and blob["url"], fixture_label
-        assert isinstance(blob.get("header_bytes"), int) and blob["header_bytes"] > 0, (
-            fixture_label
-        )
-        assert isinstance(blob.get("stride_bytes"), int) and blob["stride_bytes"] > 0, (
-            fixture_label
-        )
-        assert isinstance(blob.get("dtype"), str) and blob["dtype"], fixture_label
-        assert blob.get("byte_order") in {"little", "big"}, fixture_label
+        if is_element_field:
+            per_type = field["per_type"]
+            assert isinstance(per_type, list) and per_type, (
+                f"{fixture_label}: empty per_type on element field {field['name_canonical']}"
+            )
+            for pt in per_type:
+                assert isinstance(pt.get("elem_type"), str) and pt["elem_type"], fixture_label
+                assert isinstance(pt.get("n_elements"), int) and pt["n_elements"] >= 0, fixture_label
+                assert isinstance(pt.get("n_ips"), int) and pt["n_ips"] >= 1, fixture_label
+                blob = pt["blob"]
+                assert isinstance(blob.get("url"), str) and blob["url"], fixture_label
+                assert isinstance(blob.get("header_bytes"), int) and blob["header_bytes"] > 0, fixture_label
+                assert isinstance(blob.get("stride_bytes"), int) and blob["stride_bytes"] > 0, fixture_label
+                assert isinstance(blob.get("dtype"), str) and blob["dtype"], fixture_label
+                assert blob.get("byte_order") in {"little", "big"}, fixture_label
+        else:
+            blob = field["blob"]
+            assert isinstance(blob.get("url"), str) and blob["url"], fixture_label
+            assert isinstance(blob.get("header_bytes"), int) and blob["header_bytes"] > 0, (
+                fixture_label
+            )
+            assert isinstance(blob.get("stride_bytes"), int) and blob["stride_bytes"] > 0, (
+                fixture_label
+            )
+            assert isinstance(blob.get("dtype"), str) and blob["dtype"], fixture_label
+            assert blob.get("byte_order") in {"little", "big"}, fixture_label
 
         scalar_range = field["scalar_range"]
         assert isinstance(scalar_range, dict) and scalar_range, (
@@ -468,12 +489,22 @@ def test_bake_satisfies_picker_contract_for_every_fixture(
     _assert_picker_contract(manifest, fixture_label=f"{kind}:{rel}")
 
     # Cross-check: every blob URL in the manifest exists on disk.
+    # Nodal fields carry a top-level ``blob``; element fields use a
+    # ``per_type`` list with one blob per element-type bucket.
     for field in manifest["fields"]:
-        blob_path = bake.out_dir / field["blob"]["url"]
-        assert blob_path.exists(), f"{rel}: missing blob {field['blob']['url']}"
-        assert blob_path.stat().st_size > field["blob"]["header_bytes"], (
-            f"{rel}: blob {blob_path.name} smaller than declared header"
-        )
+        if "per_type" in field:
+            for pt in field["per_type"]:
+                bp = bake.out_dir / pt["blob"]["url"]
+                assert bp.exists(), f"{rel}: missing element blob {pt['blob']['url']}"
+                assert bp.stat().st_size > pt["blob"]["header_bytes"], (
+                    f"{rel}: element blob {bp.name} smaller than declared header"
+                )
+        else:
+            blob_path = bake.out_dir / field["blob"]["url"]
+            assert blob_path.exists(), f"{rel}: missing blob {field['blob']['url']}"
+            assert blob_path.stat().st_size > field["blob"]["header_bytes"], (
+                f"{rel}: blob {blob_path.name} smaller than declared header"
+            )
     mesh_path = bake.out_dir / manifest["mesh"]["url"]
     assert mesh_path.exists() and mesh_path.stat().st_size > 0, (
         f"{rel}: mesh GLB missing or empty"
@@ -505,6 +536,14 @@ def test_bake_via_fearesult_adapter_against_sif(fem_files, tmp_path, sif_rel):
 
     assert manifest["fields"], f"no fields baked for {sif_rel}"
     for field_entry in manifest["fields"]:
+        # Element fields use ``per_type`` instead of a top-level
+        # ``blob`` + ``support: "nodal"``. The blob layout differs
+        # so we only round-trip the nodal entries here; element
+        # blobs have their own coverage in
+        # test_bake_writes_element_field_blob_per_type.
+        if "per_type" in field_entry:
+            assert field_entry["support"] in {"element_nodal", "gauss"}
+            continue
         assert field_entry["support"] == "nodal"
         blob_path = bake.out_dir / field_entry["blob"]["url"]
         assert blob_path.exists()
@@ -619,6 +658,52 @@ def test_classify_field_by_name():
     assert _classify_field("SIEF_NOEU", s) == "stress"
     assert _classify_field("EPSI_NOEU", s) == "strain"
     assert _classify_field("MY_CUSTOM_FIELD", s) == "other"
+
+
+def test_bake_writes_element_field_blob_per_type(fem_files, tmp_path):
+    """SIF shell-stress fixtures exercise the AFEL bake. The bake
+    produces one ``fea.<field>.<elem_type>.elements.bin`` per
+    (field, element-type) bucket; the manifest groups them under one
+    ``per_type`` array per logical field. Header + payload round-trip
+    via the AFEL readers."""
+
+    from ada.fem.formats.sesam.results.read_sif import read_sif_file
+    from ada.fem.results.artefacts import (
+        FEAResultStreamAdapter,
+        bake_artefacts,
+        read_elem_field_blob_header,
+        read_elem_field_blob_step,
+    )
+
+    sif = fem_files / "sesam/1EL_SHELL_R1.SIF"
+    if not sif.exists():
+        pytest.skip("fixture not present")
+
+    result = read_sif_file(sif)
+    with FEAResultStreamAdapter(result) as reader:
+        bake = bake_artefacts(reader, tmp_path / "out", src=sif.stem)
+    manifest = json.loads(bake.manifest_path.read_text())
+
+    elem_fields = [f for f in manifest["fields"] if "per_type" in f]
+    assert elem_fields, "expected at least one element field from the shell SIF"
+
+    for field in elem_fields:
+        assert field["support"] in {"element_nodal", "gauss"}
+        assert field["category"] in {"stress", "strain", "reaction", "other"}
+        for pt in field["per_type"]:
+            blob_path = bake.out_dir / pt["blob"]["url"]
+            assert blob_path.exists(), f"missing {pt['blob']['url']}"
+            header = read_elem_field_blob_header(blob_path)
+            assert header["n_elements"] == pt["n_elements"]
+            assert header["n_ips"] == pt["n_ips"]
+            assert header["n_components"] == len(field["components"])
+            # First-step round-trip — shape must match the header.
+            arr = read_elem_field_blob_step(blob_path, 0)
+            assert arr.shape == (
+                pt["n_elements"], pt["n_ips"], len(field["components"])
+            )
+            # Element labels list aligns with the bucket's row order.
+            assert len(pt["element_labels"]) == pt["n_elements"]
 
 
 def test_classify_field_by_field_type_overrides_name():

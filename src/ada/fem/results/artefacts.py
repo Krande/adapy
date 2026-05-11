@@ -39,6 +39,21 @@ BLOB_VERSION = 1
 BLOB_HEADER_BYTES = 1024
 MANIFEST_VERSION = 1
 
+# Element-field blob format (AFEL). Same fixed-header pattern as
+# AFBL, distinct magic so the frontend can fail fast if it loads the
+# wrong sidecar. Payload shape per blob is
+# ``[n_steps, n_elements, n_ips, n_components]`` float32. One blob
+# per ``(field_name, elem_type)`` — different element types in the
+# same field don't share IP counts, so one blob per type keeps the
+# layout uniform.
+ELEM_FIELD_MAGIC = b"AFEL"
+ELEM_FIELD_VERSION = 1
+# Same 1 KB prefix as AFBL — header carries only O(1) binary shape
+# metadata. ``element_labels`` and ``ip_layout`` live in the
+# manifest's ``per_type`` entry where they can grow with the model
+# size without bloating the binary header.
+ELEM_FIELD_HEADER_BYTES = 1024
+
 # Mesh-edge sidecar format. Distinct from AFBL: edges are static
 # per source (one-shot, no step stack) and small (~10s of KB), so
 # the header is just magic + version + count, no JSON metadata.
@@ -124,6 +139,52 @@ class StepValues:
     values: np.ndarray  # (n_points, n_components)
 
 
+@dataclass
+class ElementFieldSpec:
+    """Per-element-type element-field metadata. Element fields differ
+    from nodal in two ways: values live at integration points inside
+    the element (not at nodes), and the IP layout depends on the
+    element type. We emit one blob per ``(field_name, elem_type)``
+    so the frontend can fetch only the buckets it draws and the
+    payload shape is uniform within each blob.
+
+    ``element_labels`` is the topology-walk-order list of element
+    labels for this type; downstream artefacts (AFEM, picking)
+    reference labels by value, so this alignment is load-bearing.
+
+    ``ip_layout`` carries enough metadata for the frontend's layer +
+    IP pickers (e.g., ``{"layer": "top", "in_plane": "corner_2"}``).
+    Optional — readers that don't know the layout can leave it empty
+    and the frontend falls back to numeric IP indices."""
+
+    name: str
+    components: list[str]
+    n_steps: int
+    elem_type: str
+    n_elements: int
+    n_ips: int
+    element_labels: list[int]
+    step_values: list[float]
+    ip_layout: list[dict] = dc_field(default_factory=list)
+    category: FieldCategory = "other"
+    support: Literal["element_nodal", "gauss"] = "gauss"
+    dtype: np.dtype = np.dtype(np.float32)
+
+    @property
+    def n_components(self) -> int:
+        return len(self.components)
+
+
+@dataclass
+class ElementStepValues:
+    """One step of one element-field, as the streaming reader yields it."""
+
+    step_index: int
+    step_value: float
+    # (n_elements, n_ips, n_components), ordered by ``ElementFieldSpec.element_labels``.
+    values: np.ndarray
+
+
 class FEAStreamReader(Protocol):
     """Per-format streaming reader interface.
 
@@ -131,6 +192,11 @@ class FEAStreamReader(Protocol):
     ``field_specs`` calls ``iter_field_steps``. The reader is
     responsible for keeping any underlying file handle open across
     those calls.
+
+    Element-field methods (``element_field_specs`` /
+    ``iter_element_field_steps``) are optional: a reader that yields
+    no element fields can return an empty list. The bake skips the
+    element-field emission loop entirely when no specs come back.
     """
 
     def read_mesh_geometry(self) -> MeshGeometry: ...
@@ -139,7 +205,66 @@ class FEAStreamReader(Protocol):
 
     def iter_field_steps(self, field_name: str) -> Iterator[StepValues]: ...
 
+    def element_field_specs(self) -> list[ElementFieldSpec]: ...
+
+    def iter_element_field_steps(
+        self, spec: ElementFieldSpec
+    ) -> Iterator[ElementStepValues]: ...
+
     def close(self) -> None: ...
+
+
+def _ip_layout_from_int_positions(int_positions) -> list[dict]:
+    """Best-effort IP-layout metadata for the frontend's layer + IP
+    pickers. The Sesam reader populates ``int_positions`` from its
+    ``INT_LOCATIONS`` table — a list of ``(ip_id, in_plane, layer)``
+    tuples where ``layer`` is -0.5 for the bottom fibre, +0.5 for
+    the top, 0 for mid. ``in_plane`` is either a corner-node index
+    or a centroid-ish tuple. Other readers leave it as ``None``;
+    return an empty list and let the frontend fall back to numeric
+    IP indices.
+
+    Output: one dict per integration point, in the original list
+    order. Keys: ``ip`` (0-based), ``layer`` ("top" | "bottom" |
+    "mid" | numeric string), ``in_plane`` (free-form string).
+    """
+
+    if not int_positions:
+        return []
+
+    layout: list[dict] = []
+    for entry in int_positions:
+        # Tolerate any reasonable tuple shape from the readers; keep
+        # the metadata advisory rather than load-bearing.
+        ip_id = None
+        in_plane = None
+        layer_val = None
+        if isinstance(entry, (list, tuple)):
+            if len(entry) >= 1:
+                ip_id = entry[0]
+            if len(entry) >= 2:
+                in_plane = entry[1]
+            if len(entry) >= 3:
+                layer_val = entry[2]
+        layer_label: str
+        if isinstance(layer_val, (int, float)):
+            lv = float(layer_val)
+            if lv > 0:
+                layer_label = "top"
+            elif lv < 0:
+                layer_label = "bottom"
+            else:
+                layer_label = "mid"
+        else:
+            layer_label = "mid"
+        layout.append(
+            {
+                "ip": ip_id if isinstance(ip_id, int) else len(layout),
+                "layer": layer_label,
+                "in_plane": str(in_plane) if in_plane is not None else "",
+            }
+        )
+    return layout
 
 
 def _classify_field(name: str, sample) -> FieldCategory:
@@ -202,6 +327,7 @@ class FEAResultStreamAdapter:
         self._result = result
         self._geom: MeshGeometry | None = None
         self._field_specs: list[FieldSpec] | None = None
+        self._elem_field_specs: list[ElementFieldSpec] | None = None
 
         # Remap real node IDs → 0-based point indices. ElementBlock
         # stores arbitrary-id node references (1-based for RMED,
@@ -333,7 +459,7 @@ class FEAResultStreamAdapter:
         if spec.support != "nodal":
             raise NotImplementedError(
                 f"streaming non-nodal field {field_name!r} (support={spec.support}) "
-                f"not implemented in Phase 1"
+                f"not implemented via iter_field_steps; use iter_element_field_steps"
             )
 
         results = self._result.get_results_grouped_by_field_value().get(field_name, [])
@@ -344,6 +470,143 @@ class FEAResultStreamAdapter:
                 step_index=i,
                 step_value=spec.step_values[i],
                 values=arr,
+            )
+
+    def _grouped_element_fields(self):
+        """Group ``ElementFieldData`` rows by ``(name, elem_type)``.
+
+        Cached as ``self._elem_field_groups`` so callers (specs +
+        iterators) walk the FEAResult.results list once. Skip
+        ElementFieldData with an unknown elem_type — the GLB has no
+        geometry for it so colouring it would have nowhere to land."""
+
+        from collections import defaultdict
+        from ada.fem.results.field_data import ElementFieldData
+        from ada.fem.shapes.mesh_types import ada_to_str_type
+
+        cached = getattr(self, "_elem_field_groups", None)
+        if cached is not None:
+            return cached
+
+        grouped: dict[tuple[str, str], list] = defaultdict(list)
+        for r in self._result.results:
+            if not isinstance(r, ElementFieldData):
+                continue
+            if r.elem_type is None:
+                continue
+            elem_type_str = ada_to_str_type.get(r.elem_type)
+            if elem_type_str is None:
+                continue
+            grouped[(r.name, elem_type_str)].append(r)
+
+        self._elem_field_groups = grouped
+        return grouped
+
+    def element_field_specs(self) -> list[ElementFieldSpec]:
+        if self._elem_field_specs is not None:
+            return self._elem_field_specs
+
+        specs: list[ElementFieldSpec] = []
+        for (name, elem_type_str), items in self._grouped_element_fields().items():
+            sorted_items = sorted(items, key=lambda r: r.step)
+            first = sorted_items[0]
+            vals = np.asarray(first.values)
+            if vals.ndim != 2 or vals.shape[1] < 2 + len(first.components):
+                # Row layout is (elem_label, ip_index, *component_values);
+                # surface the shape mismatch rather than silently mis-baking.
+                raise ValueError(
+                    f"element field {name!r} ({elem_type_str}) has unexpected "
+                    f"values shape {vals.shape}; expected (n_rows, "
+                    f">= 2 + {len(first.components)})."
+                )
+
+            ip_indices = vals[:, 1].astype(int)
+            if ip_indices.size == 0:
+                continue
+            n_ips = int(ip_indices.max())
+            if n_ips <= 0:
+                # IP indices are 1-based in the SIF reader; a non-positive
+                # max means the source data is malformed for this field.
+                raise ValueError(
+                    f"element field {name!r} ({elem_type_str}) has non-positive "
+                    f"IP indices; cannot determine n_ips."
+                )
+            if vals.shape[0] % n_ips != 0:
+                raise ValueError(
+                    f"element field {name!r} ({elem_type_str}) row count "
+                    f"{vals.shape[0]} is not a multiple of n_ips={n_ips}; "
+                    f"likely a ragged IP layout the bake doesn't yet handle."
+                )
+            n_elements = vals.shape[0] // n_ips
+            # Element labels appear once per element (we stride by n_ips
+            # through col 0). Row order from the reader becomes the
+            # spec's canonical order — manifest carries it so the
+            # frontend can map ``label → bucket index``.
+            labels = vals[::n_ips, 0].astype(int).tolist()
+
+            step_values = [
+                float(r.eigen_freq if r.eigen_freq is not None else r.step)
+                for r in sorted_items
+            ]
+            ip_layout = _ip_layout_from_int_positions(getattr(first, "int_positions", None))
+
+            specs.append(
+                ElementFieldSpec(
+                    name=name,
+                    components=list(first.components),
+                    n_steps=len(sorted_items),
+                    elem_type=elem_type_str,
+                    n_elements=n_elements,
+                    n_ips=n_ips,
+                    element_labels=labels,
+                    step_values=step_values,
+                    ip_layout=ip_layout,
+                    category=_classify_field(name, first),
+                    support="gauss",
+                )
+            )
+
+        self._elem_field_specs = specs
+        return specs
+
+    def iter_element_field_steps(self, spec: ElementFieldSpec):
+        from ada.fem.results.field_data import ElementFieldData  # noqa: F401
+
+        items = self._grouped_element_fields().get((spec.name, spec.elem_type))
+        if not items:
+            raise KeyError((spec.name, spec.elem_type))
+        sorted_items = sorted(items, key=lambda r: r.step)
+        if len(sorted_items) != spec.n_steps:
+            raise ValueError(
+                f"element field {spec.name!r} step-count drift: spec says "
+                f"{spec.n_steps}, found {len(sorted_items)}."
+            )
+
+        n_components = len(spec.components)
+        for i, r in enumerate(sorted_items):
+            vals = np.asarray(r.values, dtype=np.float32)
+            if vals.shape != (spec.n_elements * spec.n_ips, vals.shape[1]):
+                raise ValueError(
+                    f"element field {spec.name!r} step {r.step} has shape "
+                    f"{vals.shape}; expected ({spec.n_elements * spec.n_ips}, ...)."
+                )
+            per_elem = vals.reshape(spec.n_elements, spec.n_ips, -1)
+            # First 2 columns are (elem_label, ip_index); strip them.
+            comp_vals = per_elem[:, :, 2 : 2 + n_components]
+            # Verify label alignment with the spec's canonical order —
+            # readers that emit rows in different orders between steps
+            # would silently mis-correlate.
+            step_labels = per_elem[:, 0, 0].astype(int).tolist()
+            if step_labels != spec.element_labels:
+                raise ValueError(
+                    f"element field {spec.name!r} step {r.step} label order "
+                    f"differs from spec; reader yielded different element "
+                    f"order between steps."
+                )
+            yield ElementStepValues(
+                step_index=i,
+                step_value=spec.step_values[i],
+                values=np.ascontiguousarray(comp_vals, dtype=np.float32),
             )
 
     def close(self) -> None:
@@ -637,6 +900,137 @@ def write_field_blob_streaming(
 
 
 # ---------------------------------------------------------------------------
+# Element-field blob writer (streaming)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class ElementFieldArtefactMeta:
+    """Bake output per (field, elem_type) — composes one per_type
+    entry in the field's manifest record."""
+
+    spec: ElementFieldSpec
+    blob_filename: str
+    stride_bytes: int
+    scalar_range_per_component: dict[str, tuple[float, float]]
+    scalar_range_magnitude: tuple[float, float]
+
+
+def _encode_elem_field_blob_header(
+    spec: ElementFieldSpec, stride_bytes: int
+) -> bytes:
+    """Binary header for the AFEL blob — same 12-byte (magic + version
+    + json_len) prefix shape as AFBL, zero-padded to 1 KB. JSON
+    payload carries only O(1) shape metadata; ``element_labels`` and
+    ``ip_layout`` live in the manifest so the binary header stays
+    well below the 1 KB budget even for very large element counts."""
+
+    header_obj = {
+        "name": spec.name,
+        "elem_type": spec.elem_type,
+        "n_steps": spec.n_steps,
+        "n_elements": spec.n_elements,
+        "n_ips": spec.n_ips,
+        "n_components": spec.n_components,
+        "dtype": spec.dtype.name,
+        "stride_bytes": stride_bytes,
+    }
+    json_bytes = json.dumps(header_obj, separators=(",", ":")).encode("utf-8")
+    if 12 + len(json_bytes) > ELEM_FIELD_HEADER_BYTES:
+        raise ValueError(
+            f"AFEL header for {spec.name!r}/{spec.elem_type} doesn't fit in "
+            f"{ELEM_FIELD_HEADER_BYTES} bytes (needs {12 + len(json_bytes)})."
+        )
+    prefix = (
+        ELEM_FIELD_MAGIC
+        + struct.pack("<II", ELEM_FIELD_VERSION, len(json_bytes))
+        + json_bytes
+    )
+    return prefix + b"\x00" * (ELEM_FIELD_HEADER_BYTES - len(prefix))
+
+
+def write_element_field_blob_streaming(
+    reader: FEAStreamReader,
+    spec: ElementFieldSpec,
+    out_path: os.PathLike,
+) -> ElementFieldArtefactMeta:
+    """Stream one (field, elem_type) bucket's step-stack to disk.
+
+    Per-step payload shape is ``(n_elements, n_ips, n_components)``
+    float32. Scalar ranges (per-component + magnitude over the first
+    3 components when the field has at least 3) are computed inline
+    so the manifest can pin the colour LUT across all steps.
+    """
+
+    out_path = pathlib.Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    n_components = spec.n_components
+    stride = spec.n_elements * spec.n_ips * n_components * spec.dtype.itemsize
+
+    comp_min = np.full(n_components, np.inf, dtype=np.float64)
+    comp_max = np.full(n_components, -np.inf, dtype=np.float64)
+    mag_min = np.inf
+    mag_max = -np.inf
+
+    with open(out_path, "wb") as f:
+        f.write(_encode_elem_field_blob_header(spec, stride))
+        seen = 0
+        for sv in reader.iter_element_field_steps(spec):
+            arr = np.asarray(sv.values, dtype=spec.dtype)
+            if arr.shape != (spec.n_elements, spec.n_ips, n_components):
+                raise ValueError(
+                    f"Element field {spec.name!r}/{spec.elem_type} step "
+                    f"{sv.step_index} produced shape {arr.shape}, expected "
+                    f"{(spec.n_elements, spec.n_ips, n_components)}."
+                )
+            f.write(np.ascontiguousarray(arr).tobytes(order="C"))
+
+            finite = np.isfinite(arr)
+            for c in range(n_components):
+                col = arr[..., c][finite[..., c]]
+                if col.size:
+                    comp_min[c] = min(comp_min[c], float(col.min()))
+                    comp_max[c] = max(comp_max[c], float(col.max()))
+
+            if n_components >= 3:
+                # Magnitude over the first 3 components — for stress
+                # tensors this isn't the von Mises invariant but still
+                # gives a sensible default colour range; the von-Mises
+                # reduction is a frontend-side option.
+                first3 = arr[..., :3]
+                mag = np.linalg.norm(first3, axis=-1)
+                mag = mag[np.isfinite(mag)]
+                if mag.size:
+                    mag_min = min(mag_min, float(mag.min()))
+                    mag_max = max(mag_max, float(mag.max()))
+            seen += 1
+
+    if seen != spec.n_steps:
+        raise ValueError(
+            f"Element field {spec.name!r}/{spec.elem_type} streamed {seen} "
+            f"steps but spec says {spec.n_steps}."
+        )
+
+    range_per_comp: dict[str, tuple[float, float]] = {}
+    for c, name in enumerate(spec.components):
+        if np.isfinite(comp_min[c]) and np.isfinite(comp_max[c]):
+            range_per_comp[name] = (float(comp_min[c]), float(comp_max[c]))
+        else:
+            range_per_comp[name] = (0.0, 0.0)
+    if not (np.isfinite(mag_min) and np.isfinite(mag_max)):
+        mag_min, mag_max = 0.0, 0.0
+
+    return ElementFieldArtefactMeta(
+        spec=spec,
+        blob_filename=out_path.name,
+        stride_bytes=stride,
+        scalar_range_per_component=range_per_comp,
+        scalar_range_magnitude=(float(mag_min), float(mag_max)),
+    )
+
+
+# ---------------------------------------------------------------------------
 # Manifest writer
 # ---------------------------------------------------------------------------
 
@@ -699,13 +1093,18 @@ def build_manifest(
     mesh_glb_filename: str,
     field_metas: list[FieldArtefactMeta],
     *,
+    elem_field_metas: list[ElementFieldArtefactMeta] | None = None,
     mesh_edges_filename: str | None = None,
     n_edges: int = 0,
     mesh_elements_filename: str | None = None,
     n_elements: int = 0,
     legacy_glb_url_template: str | None = None,
 ) -> dict:
-    """Compose the manifest dict from the bake outputs."""
+    """Compose the manifest dict from the bake outputs.
+
+    Element-field metas are grouped by ``spec.name`` so a single
+    logical field (e.g. ``STRESS``) carries multiple ``per_type``
+    buckets — one per element type the source ships with."""
 
     n_cells = sum(int(cb.data.shape[0]) for cb in mesh_geom.cell_blocks)
     fields_payload = []
@@ -745,6 +1144,124 @@ def build_manifest(
             }
         )
 
+    # Element fields. Group by field name so STRESS on QUAD + TRI lands
+    # under one manifest entry with two per_type buckets. Within a
+    # logical field the bake assumes step counts + canonical step
+    # values match across element types (Sesam emits parallel step
+    # sets for all element types) — surface a hard error otherwise so
+    # the frontend doesn't silently de-sync per-type animation.
+    from collections import defaultdict
+    elem_by_name: dict[str, list[ElementFieldArtefactMeta]] = defaultdict(list)
+    for em in elem_field_metas or []:
+        elem_by_name[em.spec.name].append(em)
+    for name, metas in elem_by_name.items():
+        primary = metas[0].spec
+        for em in metas[1:]:
+            if em.spec.step_values != primary.step_values:
+                raise ValueError(
+                    f"Element field {name!r}: step_values differ between "
+                    f"types ({primary.elem_type} vs {em.spec.elem_type}); "
+                    f"the bake currently requires aligned step sets."
+                )
+            if em.spec.components != primary.components:
+                raise ValueError(
+                    f"Element field {name!r}: components differ between "
+                    f"types ({primary.elem_type} vs {em.spec.elem_type})."
+                )
+
+        # Roll up per-component range across all per_type buckets so
+        # the colour LUT stays fixed when the user switches IP / layer
+        # / reduction without re-fetching.
+        roll_comp: dict[str, tuple[float, float]] = {}
+        roll_mag = (float("inf"), float("-inf"))
+        for em in metas:
+            for cname, (lo, hi) in em.scalar_range_per_component.items():
+                if cname in roll_comp:
+                    rlo, rhi = roll_comp[cname]
+                    roll_comp[cname] = (min(rlo, lo), max(rhi, hi))
+                else:
+                    roll_comp[cname] = (lo, hi)
+            mlo, mhi = em.scalar_range_magnitude
+            roll_mag = (min(roll_mag[0], mlo), max(roll_mag[1], mhi))
+        if not (
+            roll_mag[0] != float("inf") and roll_mag[1] != float("-inf")
+        ):
+            roll_mag = (0.0, 0.0)
+
+        scalar_range_payload = {k: list(v) for k, v in roll_comp.items()}
+        if primary.n_components >= 3:
+            scalar_range_payload["magnitude"] = list(roll_mag)
+
+        steps = [
+            {"i": i, "value": float(v), "label": _format_step_label_simple(primary.n_steps, primary.name, v)}
+            for i, v in enumerate(primary.step_values)
+        ]
+
+        per_type = []
+        for em in metas:
+            es = em.spec
+            per_type.append(
+                {
+                    "elem_type": es.elem_type,
+                    "n_elements": es.n_elements,
+                    "n_ips": es.n_ips,
+                    "ip_layout": es.ip_layout,
+                    "element_labels": es.element_labels,
+                    "blob": {
+                        "url": em.blob_filename,
+                        "header_bytes": ELEM_FIELD_HEADER_BYTES,
+                        "stride_bytes": em.stride_bytes,
+                        "dtype": es.dtype.name,
+                        "byte_order": "little",
+                    },
+                    "scalar_range": {
+                        k: list(v) for k, v in em.scalar_range_per_component.items()
+                    },
+                }
+            )
+
+        # Synthesise a kind so the frontend's existing
+        # ``kind.startsWith("vector")`` checks treat 3-component
+        # element fields the same as 3-component nodal vectors. Element
+        # fields don't have a "displacement / mode shape" axis, so the
+        # analysis_kind tracker just falls back to "static".
+        n_comp = len(primary.components)
+        if n_comp == 1:
+            kind = "scalar"
+        elif n_comp == 3:
+            kind = "vector3"
+        elif n_comp == 6:
+            kind = "tensor6"
+        else:
+            kind = f"vector{n_comp}"
+
+        fields_payload.append(
+            {
+                "name_canonical": primary.name,
+                "name_native": primary.name,
+                "kind": kind,
+                "category": primary.category,
+                "support": primary.support,
+                "analysis_kind": "static",
+                "components": primary.components,
+                "n_steps": primary.n_steps,
+                "steps": steps,
+                "scalar_range": scalar_range_payload,
+                "default_view": {
+                    "reduction": "magnitude" if n_comp >= 3 else "scalar",
+                    "colormap": "viridis",
+                    # Default layer/IP for element fields — the frontend's
+                    # picker uses these as the initial dropdown values.
+                    "layer": "top",
+                    "ip_reduction": "max_abs",
+                },
+                # ``per_type`` distinguishes element fields from nodal in
+                # the manifest — when present, the frontend takes the
+                # AFEL render path; when absent, the legacy nodal path.
+                "per_type": per_type,
+            }
+        )
+
     mesh_meta: dict = {
         "url": mesh_glb_filename,
         "n_points": int(mesh_geom.points.shape[0]),
@@ -773,8 +1290,16 @@ def _format_step_label(spec: FieldSpec, i: int, v: float) -> str:
     name; multi-step fields show the step value with `:g` formatting,
     matching meshio's convention so existing fixtures keep their look."""
 
-    if spec.n_steps == 1:
-        return spec.name
+    return _format_step_label_simple(spec.n_steps, spec.name, v)
+
+
+def _format_step_label_simple(n_steps: int, name: str, v: float) -> str:
+    """FieldSpec-free variant for the element-field manifest path —
+    those fields use :class:`ElementFieldSpec` which doesn't share a
+    base class with :class:`FieldSpec`. Same label semantics."""
+
+    if n_steps == 1:
+        return name
     return f"{v:g}"
 
 
@@ -867,12 +1392,21 @@ def bake_artefacts(
     src: str = "",
     legacy_glb_url_template: str | None = None,
     nodal_only: bool = True,
+    include_element_fields: bool = True,
 ) -> BakeResult:
     """Drive the streaming bake end-to-end.
 
-    Phase 1 emits nodal fields only (``nodal_only=True``). Element-nodal
-    and Gauss-point fields are skipped — they show up in the manifest
-    later, when the viewer learns to render them.
+    Nodal fields produce one AFBL blob each. Element fields (gauss /
+    element_nodal) produce one AFEL blob per (field, element-type);
+    these are grouped under one manifest record per logical field
+    with ``per_type`` buckets. Set ``include_element_fields=False``
+    to skip the element-field emission entirely — useful for tests
+    that only exercise the nodal path.
+
+    ``nodal_only`` is kept as a backwards-compat alias: when True,
+    ``iter_field_steps`` callers still drop non-nodal specs (the
+    nodal blob writer can't handle them). Element fields flow
+    through the new ``iter_element_field_steps`` path instead.
     """
 
     out_dir = pathlib.Path(out_dir)
@@ -918,11 +1452,33 @@ def bake_artefacts(
         field_metas.append(meta)
         blob_paths.append(blob_path)
 
+    elem_field_metas: list[ElementFieldArtefactMeta] = []
+    if include_element_fields:
+        # Best-effort: a reader that hasn't implemented the
+        # element-field protocol yet (returns from a Protocol stub or
+        # raises NotImplementedError) just contributes no element
+        # buckets. Surface AttributeError as the explicit signal so
+        # other failures still bubble up.
+        try:
+            elem_specs = reader.element_field_specs()
+        except (AttributeError, NotImplementedError):
+            elem_specs = []
+        for es in elem_specs:
+            # Filename includes elem_type so each (field, type) bucket
+            # gets a distinct file the frontend can range-fetch.
+            blob_path = (
+                out_dir / f"fea.{es.name}.{es.elem_type}.elements.bin"
+            )
+            em = write_element_field_blob_streaming(reader, es, blob_path)
+            elem_field_metas.append(em)
+            blob_paths.append(blob_path)
+
     manifest = build_manifest(
         src=src,
         mesh_geom=geom,
         mesh_glb_filename=mesh_glb_path.name,
         field_metas=field_metas,
+        elem_field_metas=elem_field_metas,
         mesh_edges_filename=mesh_edges_path.name,
         n_edges=n_edges,
         mesh_elements_filename=mesh_elements_path.name,
@@ -977,3 +1533,39 @@ def read_blob_step(path: os.PathLike, step_index: int) -> np.ndarray:
         buf = f.read(stride)
     arr = np.frombuffer(buf, dtype=dtype).reshape(n_points, n_components)
     return arr
+
+
+def read_elem_field_blob_header(path: os.PathLike) -> dict:
+    """JSON header from an AFEL element-field blob. Mirrors
+    :func:`read_blob_header` for the nodal AFBL format."""
+
+    path = pathlib.Path(path)
+    with open(path, "rb") as f:
+        prefix = f.read(ELEM_FIELD_HEADER_BYTES)
+    if prefix[:4] != ELEM_FIELD_MAGIC:
+        raise ValueError(f"{path}: not an AFEL blob (magic {prefix[:4]!r}).")
+    version, json_len = struct.unpack("<II", prefix[4:12])
+    if version != ELEM_FIELD_VERSION:
+        raise ValueError(
+            f"{path}: AFEL version {version}, expected {ELEM_FIELD_VERSION}."
+        )
+    return json.loads(prefix[12 : 12 + json_len].decode("utf-8"))
+
+
+def read_elem_field_blob_step(path: os.PathLike, step_index: int) -> np.ndarray:
+    """One step's payload from an AFEL blob, shape
+    ``(n_elements, n_ips, n_components)``."""
+
+    header = read_elem_field_blob_header(path)
+    if step_index < 0 or step_index >= header["n_steps"]:
+        raise IndexError(step_index)
+    n_elements = header["n_elements"]
+    n_ips = header["n_ips"]
+    n_components = header["n_components"]
+    dtype = np.dtype(header["dtype"])
+    stride = header["stride_bytes"]
+    offset = ELEM_FIELD_HEADER_BYTES + step_index * stride
+    with open(path, "rb") as f:
+        f.seek(offset)
+        buf = f.read(stride)
+    return np.frombuffer(buf, dtype=dtype).reshape(n_elements, n_ips, n_components)

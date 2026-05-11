@@ -90,6 +90,36 @@ export type FeaFieldCategory =
     | "strain"
     | "other";
 
+/** One per (logical-field, element-type) bucket for element fields.
+ *  Element fields have an extra axis (integration points) and may
+ *  have multiple buckets within a single field — one per element
+ *  type the source shipped with. */
+export interface FeaManifestFieldPerType {
+    /** Adapy-canonical element type ("quad", "triangle", "tetra10", …). */
+    elem_type: string;
+    n_elements: number;
+    n_ips: number;
+    /** Optional metadata for the layer / IP pickers. One dict per
+     *  integration point, in payload order. Sesam shell fixtures
+     *  populate ``layer`` ("top"|"bottom"|"mid") and ``in_plane``
+     *  (free-form). Empty when the reader couldn't infer the layout. */
+    ip_layout: Array<{ip: number; layer: string; in_plane: string}>;
+    /** Element labels in payload order — frontend maps draw-range
+     *  labels back to ``element_labels.indexOf(label)`` to find the
+     *  row in the AFEL blob. */
+    element_labels: number[];
+    blob: {
+        url: string;
+        header_bytes: number;
+        stride_bytes: number;
+        dtype: string;
+        byte_order: "little" | "big";
+    };
+    /** Per-component min/max within this bucket. The field-level
+     *  ``scalar_range`` rolls these up across all buckets. */
+    scalar_range: FeaScalarRange;
+}
+
 export interface FeaManifestField {
     /** Picker display name; canonicalised across solvers. */
     name_canonical: string;
@@ -107,7 +137,8 @@ export interface FeaManifestField {
      * inherent sign). */
     analysis_kind: "static" | "eigen";
     components: string[];
-    blob: {
+    /** Nodal fields only — element fields use ``per_type`` instead. */
+    blob?: {
         /** Filename relative to the manifest's directory. */
         url: string;
         header_bytes: number;
@@ -115,6 +146,10 @@ export interface FeaManifestField {
         dtype: string;
         byte_order: "little" | "big";
     };
+    /** Element fields only — present iff this field's values live on
+     *  integration points (support === "gauss" or "element_nodal").
+     *  Nodal fields carry ``blob`` instead. */
+    per_type?: FeaManifestFieldPerType[];
     n_steps: number;
     steps: FeaManifestStep[];
     /** Per-component min/max baked at write time so the colormap
@@ -124,6 +159,10 @@ export interface FeaManifestField {
     default_view: {
         reduction: "magnitude" | "scalar" | string;
         colormap: string;
+        /** Element fields default to the top layer and ``max_abs``
+         *  reduction across IPs. Unused for nodal fields. */
+        layer?: string;
+        ip_reduction?: string;
     };
 }
 
