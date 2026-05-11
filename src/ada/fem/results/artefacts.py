@@ -150,6 +150,14 @@ class SolidBeamMesh:
     vertex_t: np.ndarray = dc_field(
         default_factory=lambda: np.empty(0, dtype=np.float32)
     )
+    # Coverage telemetry — populated by ``try_solid_beams`` so the
+    # caller (and tests) can see how complete the solid-beam render
+    # is without parsing worker logs. ``total_beams`` is the count
+    # of line elements the reader saw; ``skip_reasons`` buckets the
+    # failures by category ("no-section", "genbeam-no-profile",
+    # "occ-error[StdFail_NotDone]", ...).
+    total_beams: int = 0
+    skip_reasons: dict = dc_field(default_factory=dict)
 
 
 # Field category — coarse semantic label used by the viewer to decide
@@ -733,6 +741,20 @@ class FEAResultStreamAdapter:
         vertex_offset = 0
         tri_cursor = 0
 
+        # Skip counters so the bake can summarise coverage at the end.
+        # Tessellation can fail per-beam in many ways (degenerate
+        # section profile, missing local_z, GENBEAM with no real
+        # geometry, OCC blow-up on tapered sections). Without a tally
+        # we can't tell whether the gaps in the rendered solid mesh
+        # are 1% or 50% of the model — and the per-beam warnings end
+        # up swamping the worker log on big models.
+        from collections import defaultdict
+        from ada.config import get_logger
+
+        skip_reasons: dict[str, int] = defaultdict(int)
+        total_beams = len(line_elems)
+        success_count = 0
+
         for elem in line_elems:
             n0_node = elem.nodes[0]
             n1_node = elem.nodes[-1]
@@ -740,36 +762,47 @@ class FEAResultStreamAdapter:
                 n0_idx = self._nmap[int(n0_node.id)]
                 n1_idx = self._nmap[int(n1_node.id)]
             except KeyError:
-                # Beam endpoint isn't in the streaming point buffer —
-                # skip the beam rather than crash. Surfaces as a
-                # warning so source-data weirdness is visible.
-                from ada.config import get_logger
+                skip_reasons["endpoint-not-in-mesh"] += 1
+                continue
 
-                get_logger().warning(
-                    "beam-solid skip elem %s: endpoint node not in mesh",
-                    elem.id,
-                )
+            # Pre-check the inputs that ``line_elem_to_beam`` needs.
+            # These were silent skips before; counting them by reason
+            # surfaces the most common gap in beam-solid coverage so
+            # we can fix the source-side reader rather than play
+            # whack-a-mole with OCC errors.
+            sec = elem.fem_sec.section if elem.fem_sec is not None else None
+            if sec is None:
+                skip_reasons["no-section"] += 1
+                continue
+            sec_type = getattr(sec, "type", None)
+            if sec_type == "GENBEAM":
+                # Generic-cross-section beams carry property numbers
+                # only (A, Iy, Iz, …) — no geometric profile to
+                # extrude. Reported as its own category because it's
+                # by far the most common gap in Sesam models.
+                skip_reasons["genbeam-no-profile"] += 1
+                continue
+            if elem.fem_sec.local_z is None:
+                skip_reasons["missing-local-z"] += 1
                 continue
             try:
                 beam = line_elem_to_beam(elem, dummy_part, "BM")
                 geom = beam.solid_geom()
                 ms = bt.tessellate_geom(geom, beam)
             except Exception as e:  # noqa: BLE001 — defensive
-                # Log and skip; partial output is better than failing
-                # the whole bake when one beam has a degenerate
-                # section or a missing local_z.
-                from ada.config import get_logger
-
-                get_logger().warning(
-                    "beam-solid tessellation failed for elem %s: %s",
-                    elem.id,
-                    e,
+                # OCC failures: bucket by the exception class name
+                # so a hundred identical errors land in one row of
+                # the summary instead of a hundred warning lines.
+                skip_reasons[f"occ-error[{type(e).__name__}]"] += 1
+                get_logger().debug(
+                    "beam-solid OCC failure elem %s: %s", elem.id, e,
                 )
                 continue
 
             pos = getattr(ms, "position", None)
             idx = getattr(ms, "indices", None)
             if pos is None or idx is None or pos.size == 0 or idx.size == 0:
+                skip_reasons["empty-tessellation"] += 1
                 continue
 
             verts = np.asarray(pos, dtype=np.float64).reshape(-1, 3)
@@ -809,6 +842,24 @@ class FEAResultStreamAdapter:
             )
             vertex_offset += int(verts.shape[0])
             tri_cursor += tri_count
+            success_count += 1
+
+        # Coverage summary. Logged at info-level so it lands in the
+        # worker logs regardless of debug verbosity. Single line per
+        # bake keeps the signal-to-noise high while still showing
+        # which failure mode dominates ("genbeam-no-profile" vs
+        # "occ-error[StdFail_NotDone]" etc.).
+        if total_beams:
+            skip_summary = (
+                ", ".join(f"{k}={v}" for k, v in sorted(skip_reasons.items()))
+                or "none"
+            )
+            get_logger().info(
+                "beam-solid coverage: %d of %d beams tessellated (skip: %s)",
+                success_count,
+                total_beams,
+                skip_summary,
+            )
 
         if not all_positions:
             return None
@@ -825,6 +876,8 @@ class FEAResultStreamAdapter:
             vertex_node0=vertex_node0,
             vertex_node1=vertex_node1,
             vertex_t=vertex_t,
+            total_beams=total_beams,
+            skip_reasons=dict(skip_reasons),
         )
 
     def close(self) -> None:
@@ -1407,6 +1460,8 @@ def build_manifest(
     beam_solids_warp_filename: str | None = None,
     n_beam_solids: int = 0,
     n_beam_solid_verts: int = 0,
+    n_beam_total: int = 0,
+    beam_solids_skip_reasons: dict | None = None,
     mesh_elements_filename: str | None = None,
     n_elements: int = 0,
     legacy_glb_url_template: str | None = None,
@@ -1601,6 +1656,16 @@ def build_manifest(
             mesh_meta["beam_solids_warp_url"] = beam_solids_warp_filename
             mesh_meta["n_beam_solid_verts"] = int(n_beam_solid_verts)
         mesh_meta["n_beam_solids"] = int(n_beam_solids)
+        # Coverage telemetry: total source-side beams + skip reasons
+        # by category. Frontend can render "X of Y beams shown as
+        # solids" with a tooltip listing the skipped categories so
+        # users know what's missing without parsing logs.
+        if n_beam_total:
+            mesh_meta["n_beam_total"] = int(n_beam_total)
+        if beam_solids_skip_reasons:
+            mesh_meta["beam_solids_skip_reasons"] = {
+                str(k): int(v) for k, v in beam_solids_skip_reasons.items()
+            }
 
     manifest: dict = {
         "version": MANIFEST_VERSION,
@@ -1851,6 +1916,10 @@ def bake_artefacts(
         ),
         n_beam_solids=n_beam_solids,
         n_beam_solid_verts=n_beam_solid_verts,
+        n_beam_total=(solid_beams.total_beams if solid_beams is not None else 0),
+        beam_solids_skip_reasons=(
+            solid_beams.skip_reasons if solid_beams is not None else None
+        ),
         legacy_glb_url_template=legacy_glb_url_template,
     )
     manifest_path = out_dir / "fea.manifest.json"

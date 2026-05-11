@@ -4,11 +4,13 @@ import {SceneOperations} from "@/flatbuffers/scene/scene-operations";
 import {runtime} from "@/runtime/config";
 import {GLTFLoader} from "three/examples/jsm/loaders/GLTFLoader";
 
+import {cacheAndBuildTree} from "@/state/model_worker/cacheModelUtils";
 import {fetchElemFieldBlob} from "@/services/feaElemFieldBlob";
 import {fetchFieldBlob} from "@/services/feaFieldBlob";
 import {fetchBeamSolidsWarp, ParsedBeamSolidsWarp} from "@/services/feaBeamSolidsWarp";
 import {fetchMeshEdges} from "@/services/feaMeshEdges";
 import {fetchMeshElements, MeshElementEntry} from "@/services/feaMeshElements";
+import {convert_to_custom_batch_mesh} from "@/utils/scene/convert_to_custom_batch_mesh";
 import {FeaManifest, FeaManifestField, viewerApi} from "@/services/viewerApi";
 import {sceneRef} from "@/state/refs";
 import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
@@ -269,10 +271,9 @@ async function tryLoadBeamSolids(
         }
         if (!gltfMesh) return null;
 
-        // Wire the AFEM-style draw ranges directly onto the mesh as a
-        // ``drawRanges`` Map — same shape CustomBatchedMesh exposes,
-        // so the AFEL apply kernel's drawRanges.get(\`E${label}\`)
-        // lookup works without further branching.
+        // Build the draw-range Map keyed by ``E${label}`` so the AFEL
+        // apply kernel and the click-resolver both find ranges with
+        // the same lookup as the main mesh.
         const drawRanges = new Map<string, [number, number]>();
         for (const entry of afemEntries) {
             if (entry.triCount > 0) {
@@ -282,11 +283,58 @@ async function tryLoadBeamSolids(
                 ]);
             }
         }
-        (gltfMesh as unknown as {drawRanges: Map<string, [number, number]>})
-            .drawRanges = drawRanges;
-        gltfMesh.name = "fea-beam-solids";
+        // Rename to ``node1`` so the worker-cache filter accepts the
+        // companion userData key. The main mesh is ``node0`` —
+        // distinct names keep the two meshes' draw-range tables
+        // separate in the worker cache.
+        gltfMesh.name = "node1";
         gltfMesh.userData.feaBeamSolids = true;
+        gltfMesh.userData.feaStreaming = true;
         gltfMesh.visible = initialVisible;
+
+        // Upgrade to a CustomBatchedMesh so clicks resolve through
+        // the existing picker pipeline (handleClickMesh → drawRanges
+        // → range_id). Without this, raycasts hit a plain Mesh that
+        // has no ``unique_key`` and the selection silently no-ops.
+        const uniqueKey = `fea-beam-solids::${sourceName}`;
+        const custom = convert_to_custom_batch_mesh(
+            gltfMesh,
+            drawRanges,
+            uniqueKey,
+            /* is_design */ false,
+            /* ada_ext_data */ null,
+        );
+        // Preserve the userData tags + visibility flags the plain
+        // mesh carried; convert_to_custom_batch_mesh copies userData
+        // but it's worth being explicit so future tags don't get
+        // lost to a helper refactor.
+        custom.userData.feaBeamSolids = true;
+        custom.userData.feaStreaming = true;
+        custom.visible = initialVisible;
+
+        // Register with the off-thread worker cache so the picker's
+        // ``queryMeshDrawRange(unique_key, "node1", faceIndex)`` finds
+        // the range and ``queryNameFromRangeId(unique_key, rangeId)``
+        // returns the element label. Synthetic id_hierarchy with a
+        // single FEA-beam root keeps name resolution flat — every
+        // beam shows up as ``E${label}`` in the info box.
+        const hierarchy: Record<string, [string, string | number]> = {};
+        const rangesPlain: Record<string, [number, number]> = {};
+        const ROOT_KEY = "fea-beam-solids-root";
+        hierarchy[ROOT_KEY] = ["Beam solids", "*"];
+        for (const entry of afemEntries) {
+            if (entry.triCount > 0) {
+                const rid = `E${entry.label}`;
+                hierarchy[rid] = [rid, ROOT_KEY];
+                rangesPlain[rid] = [entry.triStart * 3, entry.triCount * 3];
+            }
+        }
+        // Best-effort cache install — if it fails, the mesh still
+        // renders, the click just won't resolve.
+        void cacheAndBuildTree(uniqueKey, {
+            id_hierarchy: hierarchy,
+            draw_ranges_node1: rangesPlain,
+        });
 
         // Don't flip vertexColors on here — without a color attribute,
         // three.js renders vertexColors=true geometry as black. The
@@ -295,8 +343,8 @@ async function tryLoadBeamSolids(
         // together. Until then the GLB's base PBR material colour
         // shows, which is the right "no data" state for solid beams.
 
-        const basePositions = snapshotBasePositions(gltfMesh.geometry);
-        return {mesh: gltfMesh, basePositions};
+        const basePositions = snapshotBasePositions(custom.geometry);
+        return {mesh: custom, basePositions};
     } catch (err) {
         // Beam-solid rendering is decorative — log and continue so a
         // missing/corrupt GLB doesn't block rendering of the main mesh.
