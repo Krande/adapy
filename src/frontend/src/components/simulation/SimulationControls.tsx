@@ -235,11 +235,18 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                             value={fieldName ?? ""}
                             onChange={(e) => onFieldChange(e.target.value)}
                         >
-                            {manifest.fields.map((f) => (
-                                <option key={f.name_canonical} value={f.name_canonical}>
-                                    {f.name_canonical}
-                                </option>
-                            ))}
+                            {/* Element fields (per_type populated, no
+                                top-level blob) are baked but not yet
+                                rendered; hide them from the picker so
+                                a click doesn't crash fetchFieldBlob.
+                                The AFEL render path lands in Phase 4B. */}
+                            {manifest.fields
+                                .filter((f) => f.blob)
+                                .map((f) => (
+                                    <option key={f.name_canonical} value={f.name_canonical}>
+                                        {f.name_canonical}
+                                    </option>
+                                ))}
                         </select>
                     </label>
                     {reductionOptions.length > 0 && (

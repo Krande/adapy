@@ -467,7 +467,23 @@ export async function load_fea_with_defaults(sourceName: string): Promise<void> 
         );
         return;
     }
-    const field = manifest.fields[0];
+    // Pick the first *nodal* field as the default. Element fields
+    // (per_type populated, no top-level blob) need the AFEL render
+    // path that doesn't exist yet; landing on one would crash
+    // ``fetchFieldBlob`` because ``field.blob`` is undefined.
+    // Prefer ``category === "displacement"`` so a fresh load opens
+    // on the deformation field that the warp source wants anyway.
+    const renderable = manifest.fields.filter((f) => f.blob);
+    if (renderable.length === 0) {
+        // eslint-disable-next-line no-console
+        console.warn(
+            `[fea-streaming] manifest for ${sourceName} has only element ` +
+            `fields; the viewer hasn't wired up element-field rendering yet`,
+        );
+        return;
+    }
+    const field =
+        renderable.find((f) => f.category === "displacement") ?? renderable[0];
     const reduction = field.default_view?.reduction ?? "magnitude";
     await load_fea_streaming({
         sourceName,
