@@ -259,6 +259,15 @@ const FeaNodalTable: React.FC<{
         );
     }
 
+    // Header + body share one scroll container so vertical AND
+    // horizontal scroll move them together — without this the header
+    // misaligns on narrow viewports where the body overflows
+    // horizontally (mobile). Header is ``sticky top-0`` so vertical
+    // scroll keeps it pinned; the inner div carries ``minWidth`` so
+    // the body grid overflows the viewport rather than crushing
+    // columns to unreadable width.
+    const minTableWidth = gridMinWidth(headerCols.length);
+
     return (
         <div className="flex flex-col flex-1 min-h-0">
             <TableToolbar
@@ -268,38 +277,40 @@ const FeaNodalTable: React.FC<{
                 resultCount={visibleRowIndices.length}
                 totalCount={n_points}
             />
-            <FeaTableHead
-                headerCols={headerCols}
-                sort={sort}
-                onHeaderClick={onHeaderClick}
-            />
             <div
                 ref={parentRef}
-                className="flex-1 overflow-auto border border-gray-200 rounded-b bg-white"
+                className="flex-1 overflow-auto border border-gray-200 rounded bg-white"
                 style={{maxHeight: 320}}
             >
-                <div
-                    style={{
-                        height: rowVirtualizer.getTotalSize(),
-                        position: "relative",
-                    }}
-                >
-                    {rowVirtualizer.getVirtualItems().map((vRow) => {
-                        const row = visibleRowIndices[vRow.index];
-                        const off = row * n_components;
-                        return (
-                            <FeaTableRow
-                                key={row}
-                                top={vRow.start}
-                                height={vRow.size}
-                                nodeId={row + 1}
-                                values={stepValues}
-                                offset={off}
-                                n_components={n_components}
-                                isVector={isVector}
-                            />
-                        );
-                    })}
+                <div style={{minWidth: minTableWidth, position: "relative"}}>
+                    <FeaTableHead
+                        headerCols={headerCols}
+                        sort={sort}
+                        onHeaderClick={onHeaderClick}
+                    />
+                    <div
+                        style={{
+                            height: rowVirtualizer.getTotalSize(),
+                            position: "relative",
+                        }}
+                    >
+                        {rowVirtualizer.getVirtualItems().map((vRow) => {
+                            const row = visibleRowIndices[vRow.index];
+                            const off = row * n_components;
+                            return (
+                                <FeaTableRow
+                                    key={row}
+                                    top={vRow.start}
+                                    height={vRow.size}
+                                    nodeId={row + 1}
+                                    values={stepValues}
+                                    offset={off}
+                                    n_components={n_components}
+                                    isVector={isVector}
+                                />
+                            );
+                        })}
+                    </div>
                 </div>
             </div>
         </div>
@@ -344,8 +355,11 @@ const FeaTableHead: React.FC<{
     sort: {col: number; dir: "asc" | "desc"} | null;
     onHeaderClick: (col: number) => void;
 }> = ({headerCols, sort, onHeaderClick}) => (
+    // ``sticky top-0 z-10`` keeps the header visible while the body
+    // virtualizer scrolls; combined with the parent's horizontal
+    // overflow it also moves left/right in lockstep with the rows.
     <div
-        className="grid border border-b-0 border-gray-300 bg-gray-100 text-xs font-semibold text-gray-700"
+        className="grid border-b border-gray-300 bg-gray-100 text-xs font-semibold text-gray-700 sticky top-0 z-10"
         style={{gridTemplateColumns: gridCols(headerCols.length)}}
     >
         {headerCols.map((c, i) => {
@@ -416,9 +430,27 @@ const FeaTableRow: React.FC<{
     );
 };
 
+// Sticky-header table layout constants. Pulled out so the scroll
+// container's ``minWidth`` and the grid template stay in sync;
+// without that, the header and body grids would lay out
+// independently and drift on horizontal scroll.
+const NODE_ID_COL_PX = 70;
+const VALUE_COL_MIN_PX = 88;  // ~7 chars of float scientific notation
+
 function gridCols(n: number): string {
-    // 70px node-id column, then equal flex for value columns.
-    return `70px repeat(${n - 1}, minmax(0, 1fr))`;
+    // ``minmax(VALUE_COL_MIN_PX, 1fr)`` is the load-bearing piece:
+    // 1fr alone lets columns crush to zero on narrow viewports,
+    // making float values unreadable on mobile. Setting a sensible
+    // minimum makes the grid overflow its parent instead — combined
+    // with the parent's ``overflow-x-auto`` the user gets horizontal
+    // scroll rather than truncated values.
+    return `${NODE_ID_COL_PX}px repeat(${n - 1}, minmax(${VALUE_COL_MIN_PX}px, 1fr))`;
+}
+
+function gridMinWidth(nCols: number): number {
+    // Mirror of the gridCols template so the scroll container can
+    // pre-reserve the right width and trigger horizontal overflow.
+    return NODE_ID_COL_PX + (nCols - 1) * VALUE_COL_MIN_PX;
 }
 
 function fmt(v: number | undefined): string {
