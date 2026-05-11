@@ -63,6 +63,10 @@ export interface ApplyElemFieldArgs {
     warpStepValues?: Float32Array;
     displacementScale?: number;
     colormap?: string;
+    /** Smooth-shade by averaging each vertex's element scalars across
+     *  the elements that touch it. ``false`` (default) paints the same
+     *  colour onto every vertex of an element (piecewise-constant). */
+    nodalAverage?: boolean;
 }
 
 function pickRange(field: FeaManifestField, reduction: string): [number, number] {
@@ -185,6 +189,7 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
         warpStepValues,
         displacementScale = 1,
         colormap: colormapName,
+        nodalAverage = false,
     } = args;
 
     if (!colorField.per_type) {
@@ -240,6 +245,49 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
 
     const tmpRgb = new Float32Array(3);
 
+    // Compute one scalar per element from the (n_ips × n_components)
+    // block. Same logic for both flat and smooth render paths — only
+    // the downstream "where does the scalar land" step differs.
+    const computeElementScalar = (
+        stepView: Float32Array,
+        elemBase: number,
+        ipIndices: number[],
+    ): number => {
+        if (isMagnitude) {
+            // Magnitude across the first 3 components, computed
+            // *after* per-component IP reduction. Sequence matches
+            // the bake's scalar_range_magnitude (||u||-of-reduced-IPs,
+            // not reduced-IP-of-||u||) — important so the colour LUT
+            // range matches the rendered values.
+            const dx = n_components >= 1
+                ? reduceIps(stepView, elemBase, ipIndices, n_components, 0, ipReduction)
+                : 0;
+            const dy = n_components >= 2
+                ? reduceIps(stepView, elemBase, ipIndices, n_components, 1, ipReduction)
+                : 0;
+            const dz = n_components >= 3
+                ? reduceIps(stepView, elemBase, ipIndices, n_components, 2, ipReduction)
+                : 0;
+            return Math.sqrt(dx * dx + dy * dy + dz * dz);
+        }
+        if (compIdx >= 0) {
+            return reduceIps(stepView, elemBase, ipIndices, n_components, compIdx, ipReduction);
+        }
+        // Fallback when reduction is neither magnitude nor a known
+        // component — keep the element grey instead of crashing.
+        // Same shape as the nodal path's silent fallback.
+        return 0;
+    };
+
+    // Smooth path: accumulate per-vertex sum + count, then colormap
+    // once per vertex at the end. Reused Set dedupes each element's
+    // vertices so a quad's 4 unique verts don't get the same scalar
+    // counted 6 times (6 = 2 triangles × 3 slots). Allocated once
+    // outside the per-bucket loop to keep GC noise down.
+    const sumValues = nodalAverage ? new Float32Array(n_points) : null;
+    const countValues = nodalAverage ? new Uint32Array(n_points) : null;
+    const elemVertSet = nodalAverage ? new Set<number>() : null;
+
     // Per-bucket loop. Each bucket is one element type; the AFEM map
     // collapses across types so a single ``drawRanges.get(...)`` works
     // regardless of which bucket the label came from.
@@ -258,50 +306,57 @@ export function applyElemFieldToMesh(args: ApplyElemFieldArgs): void {
 
         for (let e = 0; e < bucket.n_elements; e++) {
             const elemBase = e * elemStride;
-
-            let scalar: number;
-            if (isMagnitude) {
-                // Magnitude across the first 3 components, computed
-                // *after* per-component IP reduction. Sequence
-                // matches the bake's scalar_range_magnitude
-                // (||u||-of-reduced-IPs, not reduced-IP-of-||u||) —
-                // important so the colour LUT range matches the
-                // rendered values.
-                const dx = n_components >= 1
-                    ? reduceIps(stepView, elemBase, ipIndices, n_components, 0, ipReduction)
-                    : 0;
-                const dy = n_components >= 2
-                    ? reduceIps(stepView, elemBase, ipIndices, n_components, 1, ipReduction)
-                    : 0;
-                const dz = n_components >= 3
-                    ? reduceIps(stepView, elemBase, ipIndices, n_components, 2, ipReduction)
-                    : 0;
-                scalar = Math.sqrt(dx * dx + dy * dy + dz * dz);
-            } else if (compIdx >= 0) {
-                scalar = reduceIps(stepView, elemBase, ipIndices, n_components, compIdx, ipReduction);
-            } else {
-                // Fallback when reduction is neither magnitude nor a
-                // known component — keep the element grey instead of
-                // crashing. Same shape as the nodal path's silent
-                // fallback in applyFieldToMesh.
-                scalar = 0;
-            }
-
-            const t = isFinite(scalar) ? (scalar - rangeMin) * scaleColor : 0;
-            colormap(t, tmpRgb, 0);
-            const r = tmpRgb[0], g = tmpRgb[1], bch = tmpRgb[2];
+            const scalar = computeElementScalar(stepView, elemBase, ipIndices);
 
             const label = bucket.element_labels[e];
             const dr = drawRanges.get(`E${label}`);
             if (!dr) continue;
             const [vStart, vCount] = dr;
-            for (let i = vStart; i < vStart + vCount; i++) {
-                const vIdx = indexArr[i];
-                const off = vIdx * 3;
-                out_colors[off + 0] = r;
-                out_colors[off + 1] = g;
-                out_colors[off + 2] = bch;
+
+            if (nodalAverage && isFinite(scalar)) {
+                // Accumulate the same scalar once per unique vertex
+                // of this element. Dedupe via the reused Set: clear,
+                // walk, contribute. Each draw range is in vertex-index
+                // units (3 entries per triangle), so the same vertex
+                // appears multiple times for shared edges within an
+                // element's triangle fan.
+                elemVertSet!.clear();
+                for (let i = vStart; i < vStart + vCount; i++) {
+                    const vIdx = indexArr[i];
+                    if (elemVertSet!.has(vIdx)) continue;
+                    elemVertSet!.add(vIdx);
+                    sumValues![vIdx] += scalar;
+                    countValues![vIdx] += 1;
+                }
+            } else if (!nodalAverage) {
+                const t = isFinite(scalar) ? (scalar - rangeMin) * scaleColor : 0;
+                colormap(t, tmpRgb, 0);
+                const r = tmpRgb[0], g = tmpRgb[1], bch = tmpRgb[2];
+                for (let i = vStart; i < vStart + vCount; i++) {
+                    const vIdx = indexArr[i];
+                    const off = vIdx * 3;
+                    out_colors[off + 0] = r;
+                    out_colors[off + 1] = g;
+                    out_colors[off + 2] = bch;
+                }
             }
+        }
+    }
+
+    if (nodalAverage) {
+        // Vertices with count===0 stay at the grey seed (no element
+        // touched them — line-only verts or AFEM gaps). For
+        // touched vertices, divide and colormap.
+        for (let v = 0; v < n_points; v++) {
+            const c = countValues![v];
+            if (c === 0) continue;
+            const avg = sumValues![v] / c;
+            const t = isFinite(avg) ? (avg - rangeMin) * scaleColor : 0;
+            colormap(t, tmpRgb, 0);
+            const off = v * 3;
+            out_colors[off + 0] = tmpRgb[0];
+            out_colors[off + 1] = tmpRgb[1];
+            out_colors[off + 2] = tmpRgb[2];
         }
     }
 

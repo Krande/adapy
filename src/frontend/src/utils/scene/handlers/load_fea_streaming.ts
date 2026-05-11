@@ -402,7 +402,7 @@ export async function load_fea_streaming(args: {
             }
             return step;
         });
-        const {layer, ipReduction} = useFeaAnimationStore.getState();
+        const {layer, ipReduction, nodalAverage} = useFeaAnimationStore.getState();
         applyElemFieldToMesh({
             mesh: active.mesh,
             basePositions: active.basePositions,
@@ -415,6 +415,7 @@ export async function load_fea_streaming(args: {
             warpStepValues: warpInfo?.stepValues,
             displacementScale,
             colormap,
+            nodalAverage,
         });
     } else {
         const parsed = await fetchFieldBlob(scope, sourceName, field);

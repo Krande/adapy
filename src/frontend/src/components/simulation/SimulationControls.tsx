@@ -85,6 +85,7 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
         scaleFactor,
         layer,
         ipReduction,
+        nodalAverage,
         applyStep,
         setFactor,
         setPeriod,
@@ -95,6 +96,7 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
         setScaleFactor,
         setLayer,
         setIpReduction,
+        setNodalAverage,
     } = useFeaAnimationStore();
 
     // Options panel toggle — currently houses just the colormap
@@ -279,6 +281,20 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
 
     const onIpReductionChange = (next: string) => {
         setIpReduction(next);
+        if (!sourceName || !manifest || !fieldName) return;
+        void load_fea_streaming({
+            sourceName,
+            manifest,
+            fieldName,
+            stepIndex,
+            reduction,
+            displacementScale: morphInfluence,
+            colormap,
+        });
+    };
+
+    const onNodalAverageToggle = (next: boolean) => {
+        setNodalAverage(next);
         if (!sourceName || !manifest || !fieldName) return;
         void load_fea_streaming({
             sourceName,
@@ -519,6 +535,19 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                                     <option key={opt} value={opt}>{opt}</option>
                                 ))}
                             </select>
+                        </label>
+                    )}
+                    {isElemField && (
+                        <label
+                            className="flex items-center gap-1"
+                            title="Average each vertex's element scalars across the elements that touch it. Hides per-element discontinuities."
+                        >
+                            <input
+                                type="checkbox"
+                                checked={nodalAverage}
+                                onChange={(e) => onNodalAverageToggle(e.target.checked)}
+                            />
+                            <span className="text-gray-300">Smooth (nodal avg)</span>
                         </label>
                     )}
                     {/* Warp toggle. Disabled (and forced visually off)

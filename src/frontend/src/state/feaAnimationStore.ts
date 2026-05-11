@@ -118,6 +118,16 @@ export interface FeaAnimationState {
      *  convention. Persisted across ``reset()``. */
     ipReduction: string;
 
+    /** Smooth-shade element fields by averaging each vertex's element
+     *  scalars across the elements that touch it. ``false`` (default)
+     *  paints the same colour onto every vertex of an element — the
+     *  raw piecewise-constant field. ``true`` gives the
+     *  Abaqus/Paraview "averaged at nodes" look at the cost of
+     *  hiding inter-element discontinuities. Persisted across
+     *  ``reset()`` like the other per-user preferences. Unused for
+     *  nodal fields (they're already smooth by construction). */
+    nodalAverage: boolean;
+
     /** Step-change callback registered by ``load_fea_streaming``.
      * SimulationControls calls this when the user drags the step
      * slider; the closure runs another ``load_fea_streaming`` with
@@ -141,6 +151,7 @@ export interface FeaAnimationState {
     setScaleFactor: (s: number) => void;
     setLayer: (layer: string) => void;
     setIpReduction: (r: string) => void;
+    setNodalAverage: (smooth: boolean) => void;
     setApplyStep: (cb: ((stepIndex: number) => Promise<void>) | null) => void;
     /** Reset to inactive — called when the scene is replaced. */
     reset: () => void;
@@ -179,6 +190,10 @@ export const useFeaAnimationStore = create<FeaAnimationState>((set) => ({
     // undefined reduction.
     layer: "top",
     ipReduction: "max_abs",
+    // Flat per-element shading by default — that's the raw signal.
+    // Smooth averaging is an explicit opt-in because it can hide
+    // inter-element discontinuities that some users want to see.
+    nodalAverage: false,
     applyStep: null,
 
     setSessionActive: (active) => set({sessionActive: active}),
@@ -198,6 +213,7 @@ export const useFeaAnimationStore = create<FeaAnimationState>((set) => ({
     setScaleFactor: (scaleFactor) => set({scaleFactor}),
     setLayer: (layer) => set({layer}),
     setIpReduction: (ipReduction) => set({ipReduction}),
+    setNodalAverage: (nodalAverage) => set({nodalAverage}),
     setApplyStep: (cb) => set({applyStep: cb}),
     reset: () =>
         set({
@@ -212,11 +228,12 @@ export const useFeaAnimationStore = create<FeaAnimationState>((set) => ({
             manifest: null,
             fieldName: null,
             reduction: "magnitude",
-            // Don't reset ``colormap``, ``warpEnabled``, ``layer``, or
-            // ``ipReduction`` on scene clear — all four are per-user
-            // preferences, not per-session. Users who picked Abaqus
-            // rainbow + warp-off + bottom-layer-max-abs once want them
-            // to stick across model swaps.
+            // Don't reset ``colormap``, ``warpEnabled``, ``layer``,
+            // ``ipReduction``, or ``nodalAverage`` on scene clear —
+            // all five are per-user preferences, not per-session.
+            // Users who picked Abaqus rainbow + warp-off +
+            // bottom-layer-max-abs + smooth once want them to stick
+            // across model swaps.
             applyStep: null,
         }),
 }));
