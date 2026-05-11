@@ -238,6 +238,35 @@ async def insert_audit(
     )
 
 
+async def cancel_audit_by_job(
+    pool: asyncpg.Pool,
+    *,
+    job_id: str,
+    user_sub: str,
+) -> bool:
+    """Mark a queued or running job as cancelled. Caller must own it.
+
+    Returns ``True`` if a row was updated, ``False`` otherwise (row
+    missing, status already terminal, or owned by someone else).
+    Filtering on ``status`` lets the SQL itself enforce the "only
+    cancel queued/running" rule so a race between two cancel clicks
+    can't mark a done job cancelled retroactively.
+    """
+    result = await pool.execute(
+        """
+        UPDATE audit_log
+        SET status = 'cancelled',
+            error = COALESCE(error, 'cancelled by user')
+        WHERE job_id = $1
+          AND user_sub = $2
+          AND status IN ('queued', 'running')
+        """,
+        job_id,
+        user_sub,
+    )
+    return result.endswith(" 1")
+
+
 async def update_audit_by_job(
     pool: asyncpg.Pool,
     *,

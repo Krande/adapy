@@ -9,7 +9,7 @@ import {getAccessToken, isAuthEnabled, refreshAccessToken, signIn} from "@/servi
 import {fetchFeaManifest, fetchResultMeta} from "@/services/feaManifestPoll";
 
 export type TargetFormat = "glb" | "ifc" | "xml";
-export type ConvertStatus = "queued" | "running" | "done" | "error";
+export type ConvertStatus = "queued" | "running" | "done" | "error" | "cancelled";
 
 /** Wire-format scope identifier, one of: "shared", "user:me",
  *  "project:<id>". `user:me` is resolved server-side to the caller's
@@ -692,6 +692,24 @@ export const viewerApi = {
         );
         const body = await jsonOrThrow<{jobs: AuditEntry[]}>(r, `myJobs(${scope})`);
         return body.jobs;
+    },
+
+    /** Cancel an in-flight conversion the current user owns. Returns
+     *  true on success, false if the row was missing / not owned /
+     *  already terminal. Worker isn't notified — the bake will keep
+     *  going to completion in the background but its audit row is
+     *  marked cancelled and disappears from the toast. */
+    async cancelMyJob(scope: ScopeUrl, jobId: string): Promise<boolean> {
+        const r = await authedFetch(
+            `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}` +
+            `/my-jobs/${encodeURIComponent(jobId)}/cancel`,
+            {method: "POST"},
+        );
+        if (r.status === 404) return false;
+        await jsonOrThrow<{job_id: string; cancelled: boolean}>(
+            r, `cancelMyJob(${jobId})`,
+        );
+        return true;
     },
 
     /** Server-side viable-target listing. The frontend mirrors this

@@ -49,7 +49,11 @@ async function pollUntilTerminal(
                 error: status.error,
                 derivedKey: status.derived_key || prev.derivedKey,
             });
-            if (status.status === "done" || status.status === "error") return;
+            if (
+                status.status === "done" ||
+                status.status === "error" ||
+                status.status === "cancelled"
+            ) return;
         } catch (err) {
             // Network blip — log and keep polling; the next tick
             // typically succeeds. Don't poison the toast with a

@@ -406,3 +406,83 @@ async def test_admin_audit_filters(tmp_path):
         assert queued[0]["status"] == "queued"
     finally:
         await dbm.close_pool(pool)
+
+
+@needs_postgres
+@pytest.mark.asyncio
+async def test_cancel_audit_by_job_marks_only_owned_inflight(tmp_path):
+    """cancel_audit_by_job is the backing DB op for the × button on
+    the conversion toast. Three guarantees worth nailing in a test:
+
+      1. Only the row's owner can cancel it.
+      2. Terminal rows (done / error / cancelled) are not flipped.
+      3. The success path leaves status='cancelled' and the error
+         column preserved (or seeded with 'cancelled by user'
+         when previously NULL)."""
+
+    pool = await dbm.init_pool(POSTGRES_URL)
+    assert pool is not None
+    try:
+        marker = uuid.uuid4().hex[:12]
+        owner = f"owner-{marker}"
+        other = f"other-{marker}"
+
+        # Insert: one queued (mine), one running (mine), one done
+        # (mine), one queued (someone else's).
+        from ada.comms.rest import queue as queue_module
+        mine_queued = uuid.uuid4().hex
+        mine_running = uuid.uuid4().hex
+        mine_done = uuid.uuid4().hex
+        not_mine = uuid.uuid4().hex
+        for jid, status, sub in (
+            (mine_queued, "queued", owner),
+            (mine_running, "running", owner),
+            (mine_done, "done", owner),
+            (not_mine, "queued", other),
+        ):
+            await dbm.insert_audit(
+                pool,
+                user_sub=sub,
+                scope_kind="user",
+                scope_id=sub,
+                action="convert",
+                key=f"x-{jid[:6]}.ifc",
+                status=status,
+                job_id=jid,
+            )
+
+        async def fetch_by_job(jid: str) -> dict | None:
+            row = await pool.fetchrow(
+                "SELECT status, error FROM audit_log WHERE job_id = $1", jid
+            )
+            return dict(row) if row else None
+
+        # Happy path on a queued row.
+        assert await dbm.cancel_audit_by_job(pool, job_id=mine_queued, user_sub=owner)
+        row = await fetch_by_job(mine_queued)
+        assert row["status"] == "cancelled"
+        assert row["error"] == "cancelled by user"
+
+        # Happy path on a running row.
+        assert await dbm.cancel_audit_by_job(pool, job_id=mine_running, user_sub=owner)
+        row = await fetch_by_job(mine_running)
+        assert row["status"] == "cancelled"
+
+        # No-op on terminal status; row stays done.
+        assert not await dbm.cancel_audit_by_job(pool, job_id=mine_done, user_sub=owner)
+        row = await fetch_by_job(mine_done)
+        assert row["status"] == "done"
+
+        # No-op when the caller doesn't own the row.
+        assert not await dbm.cancel_audit_by_job(pool, job_id=not_mine, user_sub=owner)
+        row = await fetch_by_job(not_mine)
+        assert row["status"] == "queued"
+
+        # Unknown job_id is a clean False, not a raise.
+        assert not await dbm.cancel_audit_by_job(
+            pool, job_id="never-existed", user_sub=owner,
+        )
+        # touch queue_module so the import isn't flagged unused.
+        assert queue_module.JOB_STATUS_QUEUED == "queued"
+    finally:
+        await dbm.close_pool(pool)

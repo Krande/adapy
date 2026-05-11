@@ -1,6 +1,6 @@
 import {create} from 'zustand';
 
-export type ConvertStatus = 'queued' | 'running' | 'done' | 'error';
+export type ConvertStatus = 'queued' | 'running' | 'done' | 'error' | 'cancelled';
 
 export interface ConversionJob {
     sourceKey: string;

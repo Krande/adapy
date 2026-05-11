@@ -748,6 +748,57 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             {"source_key": source_key, "targets": supported_targets_for(source_key)}
         )
 
+    @api.post("/scopes/{scope}/my-jobs/{job_id}/cancel")
+    async def api_scope_cancel_my_job(
+        request: Request,
+        job_id: str,
+        scope_obj: Scope = Depends(_scope_from_path),
+        user: User = Depends(auth_module.current_user),
+    ) -> JSONResponse:
+        """Mark a queued/running conversion as cancelled.
+
+        Caller must own the job (audit_log.user_sub matches). Side
+        effects:
+          * audit_log row flipped to ``status='cancelled'`` (only if
+            it was still queued or running — terminal rows are left
+            alone);
+          * the KV bucket entry is updated best-effort so any active
+            poll loop sees the new status on its next tick.
+
+        Limitation: the worker process isn't notified, so a bake that
+        was actively mid-run will continue to completion. The
+        resulting derived blob lands on storage as orphaned data; a
+        future iteration could add a worker-side cancel-flag poll to
+        bail mid-stage. For the toast UX this is enough — the user
+        sees the row disappear and is unblocked.
+        """
+        pool = _require_pool(request)
+        cancelled = await db_module.cancel_audit_by_job(
+            pool, job_id=job_id, user_sub=user.sub,
+        )
+        if not cancelled:
+            return JSONResponse(
+                {"job_id": job_id, "cancelled": False,
+                 "reason": "not owned, missing, or already terminal"},
+                status_code=404,
+            )
+        # Best-effort: nudge the KV bucket so /api/convert/{job_id}
+        # polls immediately reflect the new status. Worker writes will
+        # subsequently overwrite this back to 'running' on its next
+        # progress tick — that's expected; the audit_log row is the
+        # source of truth for the user-visible state.
+        queue = getattr(request.app.state, "queue", None)
+        if queue is not None:
+            try:
+                await queue.update(
+                    job_id, status="cancelled", error="cancelled by user",
+                )
+            except Exception:
+                # Queue update is decorative; the audit row is what
+                # the toast restore reads.
+                pass
+        return JSONResponse({"job_id": job_id, "cancelled": True})
+
     @api.get("/scopes/{scope}/my-jobs")
     async def api_scope_my_jobs(
         request: Request,
