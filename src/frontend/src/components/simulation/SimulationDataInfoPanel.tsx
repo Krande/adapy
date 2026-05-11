@@ -22,7 +22,9 @@ import {useVirtualizer} from "@tanstack/react-virtual";
 import {simulationDataRef} from "@/state/refs";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {useScopeStore, scopeUrlPart} from "@/state/scopeStore";
+import {useTableNavStore} from "@/state/tableNavStore";
 import {fetchFieldBlob, ParsedFeaFieldBlob} from "@/services/feaFieldBlob";
+import {goToNode, clearGoToNode} from "@/utils/scene/fea/goToNode";
 import type {SimulationDataExtensionMetadata, FieldObject} from "@/extensions/design_and_analysis_extension";
 import type {FeaManifest, FeaManifestField} from "@/services/viewerApi";
 
@@ -115,6 +117,26 @@ const FeaNodalTable: React.FC<{
     const [error, setError] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
 
+    // Row-level "go to in 3D" state. Clicking the eye icon on a row
+    // both marks that row's node in the 3D scene (sphere marker +
+    // camera frame) and highlights the row visually so the user can
+    // keep track of which one's currently scoped.
+    const activeNodeId = useTableNavStore((s) => s.activeNodeId);
+    const setActiveNodeId = useTableNavStore((s) => s.setActiveNodeId);
+    const onGoToNode = (nodeId: number) => {
+        if (activeNodeId === nodeId) {
+            // Toggle off: second click on the same row clears the
+            // spotlight (marker disappears, row de-highlights). The
+            // camera frame stays where it is — un-framing back to
+            // the prior view would be surprising.
+            clearGoToNode();
+            setActiveNodeId(null);
+            return;
+        }
+        goToNode(nodeId);
+        setActiveNodeId(nodeId);
+    };
+
     // Fetch (or hit the cache) on mount + whenever the field changes.
     // Step changes don't refetch — all steps live in one blob.
     useEffect(() => {
@@ -140,9 +162,14 @@ const FeaNodalTable: React.FC<{
     const isVector = field.kind.startsWith("vector");
     const components = field.components;
     const n_components = components.length;
+    // Last column is the "Go" affordance — empty header label, the
+    // row renders an eye-icon button there. Sort handler ignores it
+    // (no data to sort on). Kept in headerCols so the grid count
+    // matches between header and rows.
     const headerCols = useMemo(() => {
         const cols = ["Node", ...components];
         if (isVector) cols.push("|·|");
+        cols.push("");
         return cols;
     }, [components, isVector]);
 
@@ -297,16 +324,19 @@ const FeaNodalTable: React.FC<{
                         {rowVirtualizer.getVirtualItems().map((vRow) => {
                             const row = visibleRowIndices[vRow.index];
                             const off = row * n_components;
+                            const nodeId = row + 1;
                             return (
                                 <FeaTableRow
                                     key={row}
                                     top={vRow.start}
                                     height={vRow.size}
-                                    nodeId={row + 1}
+                                    nodeId={nodeId}
                                     values={stepValues}
                                     offset={off}
                                     n_components={n_components}
                                     isVector={isVector}
+                                    active={activeNodeId === nodeId}
+                                    onGoTo={onGoToNode}
                                 />
                             );
                         })}
@@ -363,6 +393,19 @@ const FeaTableHead: React.FC<{
         style={{gridTemplateColumns: gridCols(headerCols.length)}}
     >
         {headerCols.map((c, i) => {
+            // Empty trailing label is the "Go" affordance column —
+            // no data, so no sort. Render a static cell instead of
+            // a button so it doesn't accept clicks. ``key`` falls
+            // back to index since the empty string would collide.
+            if (c === "") {
+                return (
+                    <div
+                        key={`go-${i}`}
+                        className="px-2 py-1 border-gray-300"
+                        aria-hidden="true"
+                    />
+                );
+            }
             const active = sort && sort.col === i;
             const arrow = active ? (sort!.dir === "asc" ? "▲" : "▼") : "";
             return (
@@ -392,7 +435,9 @@ const FeaTableRow: React.FC<{
     offset: number;
     n_components: number;
     isVector: boolean;
-}> = ({top, height, nodeId, values, offset, n_components, isVector}) => {
+    active: boolean;
+    onGoTo: (nodeId: number) => void;
+}> = ({top, height, nodeId, values, offset, n_components, isVector, active, onGoTo}) => {
     let mag = 0;
     if (isVector) {
         for (let c = 0; c < Math.min(n_components, 3); c++) {
@@ -401,13 +446,27 @@ const FeaTableRow: React.FC<{
         }
         mag = Math.sqrt(mag);
     }
+    // Active row: light-blue background and a subtle left border so
+    // it stands out even in the dense alternating-stripe table.
+    // ``!important`` not needed because the active class comes after
+    // ``odd:`` / ``even:`` in the className string and Tailwind's
+    // generated stylesheet keeps them at the same specificity —
+    // last-write-wins via source order.
+    const rowBg = active
+        ? "bg-blue-100 ring-1 ring-inset ring-blue-400"
+        : "odd:bg-white even:bg-gray-50";
+    // Trailing data-col count for the gridCols template: 1 (id) +
+    // n_components + (magnitude?) + 1 (go) — match FeaTableHead.
+    const totalCols = 1 + n_components + (isVector ? 1 : 0) + 1;
     return (
         <div
-            className="absolute left-0 right-0 grid text-xs font-mono text-gray-800 odd:bg-white even:bg-gray-50"
+            className={
+                "absolute left-0 right-0 grid text-xs font-mono text-gray-800 " + rowBg
+            }
             style={{
                 top,
                 height,
-                gridTemplateColumns: gridCols(1 + n_components + (isVector ? 1 : 0)),
+                gridTemplateColumns: gridCols(totalCols),
             }}
         >
             <div className="px-2 py-0.5 border-b border-r border-gray-200 truncate">
@@ -422,13 +481,47 @@ const FeaTableRow: React.FC<{
                 </div>
             ))}
             {isVector && (
-                <div className="px-2 py-0.5 border-b border-gray-200 truncate">
+                <div className="px-2 py-0.5 border-b border-r border-gray-200 truncate">
                     {fmt(mag)}
                 </div>
             )}
+            <button
+                className={
+                    "px-1 border-b border-gray-200 flex items-center justify-center " +
+                    (active
+                        ? "text-blue-700 hover:text-blue-900"
+                        : "text-gray-400 hover:text-blue-600")
+                }
+                onClick={() => onGoTo(nodeId)}
+                title={
+                    active
+                        ? `Clear marker for node ${nodeId}`
+                        : `Show node ${nodeId} in the 3D scene`
+                }
+                aria-pressed={active}
+            >
+                <EyeIcon/>
+            </button>
         </div>
     );
 };
+
+const EyeIcon: React.FC = () => (
+    <svg
+        xmlns="http://www.w3.org/2000/svg"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className="w-3.5 h-3.5"
+        aria-hidden="true"
+    >
+        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+        <circle cx="12" cy="12" r="3"/>
+    </svg>
+);
 
 // Sticky-header table layout constants. Pulled out so the scroll
 // container's ``minWidth`` and the grid template stay in sync;
@@ -436,6 +529,7 @@ const FeaTableRow: React.FC<{
 // independently and drift on horizontal scroll.
 const NODE_ID_COL_PX = 70;
 const VALUE_COL_MIN_PX = 88;  // ~7 chars of float scientific notation
+const GO_COL_PX = 36;         // square button at row end
 
 function gridCols(n: number): string {
     // ``minmax(VALUE_COL_MIN_PX, 1fr)`` is the load-bearing piece:
@@ -443,14 +537,20 @@ function gridCols(n: number): string {
     // making float values unreadable on mobile. Setting a sensible
     // minimum makes the grid overflow its parent instead — combined
     // with the parent's ``overflow-x-auto`` the user gets horizontal
-    // scroll rather than truncated values.
-    return `${NODE_ID_COL_PX}px repeat(${n - 1}, minmax(${VALUE_COL_MIN_PX}px, 1fr))`;
+    // scroll rather than truncated values. Trailing ``GO_COL_PX``
+    // hosts the eye-icon "go to in 3D" button per row; in the
+    // header it's a static label slot.
+    return (
+        `${NODE_ID_COL_PX}px ` +
+        `repeat(${n - 2}, minmax(${VALUE_COL_MIN_PX}px, 1fr)) ` +
+        `${GO_COL_PX}px`
+    );
 }
 
 function gridMinWidth(nCols: number): number {
     // Mirror of the gridCols template so the scroll container can
     // pre-reserve the right width and trigger horizontal overflow.
-    return NODE_ID_COL_PX + (nCols - 1) * VALUE_COL_MIN_PX;
+    return NODE_ID_COL_PX + (nCols - 2) * VALUE_COL_MIN_PX + GO_COL_PX;
 }
 
 function fmt(v: number | undefined): string {

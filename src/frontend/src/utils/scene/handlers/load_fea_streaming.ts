@@ -14,6 +14,8 @@ import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {useConversionStore} from "@/state/conversionStore";
 import {applyFieldToMesh} from "../fea/applyField";
 import {resetFeaAnimationPhase} from "../fea/feaAnimationDriver";
+import {clearGoToNode} from "../fea/goToNode";
+import {useTableNavStore} from "@/state/tableNavStore";
 import {replace_model} from "./update_scene_from_message";
 
 // Cached state for the currently-rendered FEA streaming source.
@@ -44,6 +46,12 @@ export function clearActiveFeaStreaming(): void {
     active = null;
     useFeaAnimationStore.getState().reset();
     resetFeaAnimationPhase();
+    // Drop any "go to node" marker + active-row state. The marker
+    // mesh would otherwise survive into the next loaded model and
+    // point at a vertex that no longer exists.
+    clearGoToNode();
+    useTableNavStore.getState().setActiveNodeId(null);
+    useTableNavStore.getState().setGoToTarget(null);
     // Hide the panel — without this, the toggle button stays
     // pressed-state on a panel that has nothing useful to show.
     // Re-applying an FEA session sets it back to true.
