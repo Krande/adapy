@@ -21,6 +21,27 @@ if TYPE_CHECKING:
 
 FEM_SEC_NAME = Counter(prefix="FS")
 
+# Short, lossy mapping from Sesam GELMNT1 eltyp codes to their
+# canonical Sesam names. Used purely for the eltype-histogram info
+# log emitted from ``get_sif_mesh`` — gives an unfamiliar SIF an
+# at-a-glance breakdown ("oh, the model is 50% BTSS curved beams,
+# that explains the spiderweb"). Mirror of ``sesam_el_map`` in
+# ``formats/sesam/common.py`` plus the source-software names; kept
+# local so the log doesn't drag a dependency on the writer side.
+_SESAM_ELTYPE_LABELS = {
+    2: "BEAS",
+    11: "BMASS",
+    15: "BEPS",
+    18: "BSPRNGC",
+    23: "BTSS",
+    24: "FQUS",
+    25: "FTRS",
+    26: "FTRS6",
+    28: "FQUS8",
+    31: "ITET10",
+    40: "GSPRNGC",
+}
+
 STRESS_MAP = {
     1: ("SIGXX", "Normal Stress x-direction"),
     2: ("SIGYY", "Normal Stress y-direction"),
@@ -478,13 +499,19 @@ class Sif2Mesh:
             FemNodes,
             Mesh,
         )
-        from ada.fem.shapes.definitions import ShapeResolver
+        from ada.fem.shapes.definitions import LineShapes, ShapeResolver
+        from ada.fem.shapes.mesh_types import gmsh_to_meshio_ordering
 
         sif = self.sif
 
         nodes = FemNodes(coords=sif.nodes[:, 1:], identifiers=np.asarray(sif.node_ids[:, 0], dtype=int))
         sorted_elem_data = sorted(sif.elements, key=lambda x: x[0])
         elem_blocks = []
+        # Per-element-type histogram, logged below. Helps diagnose
+        # vis bugs (spiderweb / floating segments) without the source
+        # file — the user can grep the conversion log for the line and
+        # tell us what their model actually contains.
+        eltype_counts: dict[int, int] = {}
         for eltype, elements in groupby(sorted_elem_data, key=lambda x: x[0]):
             elem_type = int(eltype)
             elem_data = list(elements)
@@ -493,10 +520,39 @@ class Sif2Mesh:
             elem_identifiers = np.array([x[1] for x in elem_data], dtype=int)
             elem_node_refs = np.array([x[2][:num_nodes] for x in elem_data], dtype=int)
 
+            # Node-ordering reconciliation. Sesam's BTSS (eltyp 23 →
+            # LINE3) writes the three nodes as (end1, end2, mid) —
+            # the GMSH convention. adapy's ElemShape machinery and
+            # the line_edges table both assume Abaqus ordering
+            # (end1, mid, end2): without the permutation,
+            # ``line_edges[LINE3] = [[0, 2]]`` resolves to "end1 →
+            # mid" and every curved beam visualises as half a
+            # segment, producing the spiderweb effect on ship-FE
+            # models. The same gmsh→meshio permutation is already
+            # codified in mesh_types.gmsh_to_meshio_ordering — reuse
+            # it here rather than hardcoding the indices a second
+            # time.
+            if general_elem_type is LineShapes.LINE3:
+                perm = gmsh_to_meshio_ordering.get(LineShapes.LINE3)
+                if perm is not None:
+                    elem_node_refs = elem_node_refs[:, perm]
+
             elem_info = ElementInfo(type=general_elem_type, source_software=FEATypes.SESAM, source_type=elem_type)
             elem_blocks.append(
                 ElementBlock(elem_info=elem_info, node_refs=elem_node_refs, identifiers=elem_identifiers)
             )
+            eltype_counts[elem_type] = elem_identifiers.size
+
+        if eltype_counts:
+            # INFO so it shows up in the worker logs without needing a
+            # debug-level switch — diagnosing a "spiderweb" vis bug is
+            # part of normal triage for unfamiliar SIF files. Format
+            # tries to be greppable: "sesam-eltype histogram: {...}".
+            summary = ", ".join(
+                f"{etyp}({_SESAM_ELTYPE_LABELS.get(etyp, '?')})={n}"
+                for etyp, n in sorted(eltype_counts.items())
+            )
+            logger.info("sesam-eltype histogram: %s", summary)
 
         sets = self.sif.get_sets()
         sections = self.sif.get_sections()

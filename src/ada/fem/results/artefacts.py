@@ -355,7 +355,7 @@ def write_mesh_glb(geom: MeshGeometry, out_path: os.PathLike, *, faces=None) -> 
     scene = trimesh.Scene()
     if faces:
         face_arr = np.asarray(faces, dtype=np.uint32).reshape(-1, 3)
-        face_mesh = trimesh.Trimesh(vertices=geom.points, faces=face_arr)
+        face_mesh = trimesh.Trimesh(vertices=geom.points, faces=face_arr, process=False)
         face_mesh.visual.material = PBRMaterial(doubleSided=True)
         scene.add_geometry(face_mesh, node_name="mesh", geom_name="faces")
     else:
