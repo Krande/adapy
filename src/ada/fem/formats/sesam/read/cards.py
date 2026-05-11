@@ -57,6 +57,15 @@ SEC_MAP = {
         BaseTypes.BOX,
         (("hz", "h"), ("ty", "t_w"), ("by", "w_top"), ("tt", "t_ftop"), ("by", "w_btn"), ("tb", "t_fbtn")),
     ),
+    # GPIPE writes ``dy`` = outer diameter and ``t`` = wall thickness.
+    # ada Section's TUBULAR uses ``r`` (outer radius) + ``wt``, so the
+    # reader halves ``dy`` after the field map is built. The ``di``
+    # field (inner diameter) is redundant given ``dy - 2*t`` and is
+    # ignored on the read side.
+    "GPIPE": (
+        BaseTypes.TUBULAR,
+        (("dy", "r"), ("t", "wt")),
+    ),
 }
 MAT_MAP = {
     "MISOSEL": (
@@ -136,6 +145,21 @@ re_gbeamg = get_ff_regex(
 )
 GIORH = DataCard("GIORH", ("geono", "hz", "ty", "bt", "tt", "bb", "tb", "sfy", "sfz", "NLOBYT|", "NLOBYB|", "NLOBZ|"))
 GBOX = DataCard("GBOX", ("geono", "hz", "ty", "tb", "tt", "by", "sfy", "sfz"))
+GPIPE = DataCard("GPIPE", ("geono", "di", "dy", "t", "sfy", "sfz"))
+# Generic beam properties — area + moments of inertia only, no
+# profile geometry. The streaming bake uses these to synthesise a
+# tubular approximation for elements that reference a sec_id with
+# no matching profile card (GIORH/GBOX/GPIPE/etc.), so beam-as-
+# solid render fills in those gaps instead of leaving the elements
+# invisible.
+GBEAMG = DataCard(
+    "GBEAMG",
+    (
+        "geono", "comp", "area", "ix", "iy", "iz", "iyz",
+        "wxmin", "wymin", "wzmin", "shary", "sharz",
+        "shceny", "shcenz", "sy", "sz", "wy|", "wz|", "fabr|",
+    ),
+)
 re_gbox = GBOX.to_ff_re()
 re_gpipe = get_ff_regex("GPIPE", "geono", "di", "dy", "t", "sfy", "sfz")
 re_gbarm = get_ff_regex("GBARM", "geono", "hz", "bt", "bb", "sfy", "sfz")

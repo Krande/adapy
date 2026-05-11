@@ -862,6 +862,109 @@ def test_bake_skips_beam_solid_mesh_for_rmed(fem_files, tmp_path):
     assert "beam_solids_url" not in manifest["mesh"]
 
 
+def test_sif_section_parser_accumulates_non_contiguous_blocks():
+    """The SIF reader's section-card parser used to overwrite
+    ``self._sections[card_name]`` on every encounter — so a real-
+    world SIF with two non-contiguous GIORH blocks would silently
+    drop everything except the last block. This test fakes a tiny
+    SIF with two GIORH blocks separated by a TDSECT block and
+    asserts both sections survive into get_sections().
+    """
+
+    from io import StringIO
+
+    from ada.fem.formats.sesam.results.read_sif import SifReader
+
+    raw = (
+        # Two TDSECT entries naming sec_ids 10 and 20.
+        "TDSECT    4.00000000E+00  1.00000000E+01  4.00000000E+00  8.00000000E+00\n"
+        "    Sec10\n"
+        # First GIORH block: sec_id 10.
+        "GIORH     1.00000000E+01  4.00000000E-01  1.00000000E-02  2.00000000E-01\n"
+        "          1.50000000E-02  2.00000000E-01  1.50000000E-02  1.00000000E+00\n"
+        "          1.00000000E+00\n"
+        # Interrupt with a TDSECT for sec_id 20.
+        "TDSECT    4.00000000E+00  2.00000000E+01  4.00000000E+00  8.00000000E+00\n"
+        "    Sec20\n"
+        # Second GIORH block: sec_id 20. Pre-fix this would clobber the
+        # first block in ``_sections["GIORH"]``.
+        "GIORH     2.00000000E+01  5.00000000E-01  1.20000000E-02  2.50000000E-01\n"
+        "          1.80000000E-02  2.50000000E-01  1.80000000E-02  1.00000000E+00\n"
+        "          1.00000000E+00\n"
+        # Trailing sentinel — iter_card reads forward until it hits a
+        # non-numeric line, so the synthetic SIF needs at least one
+        # to avoid StopIteration mid-record.
+        "END\n"
+    )
+    reader = SifReader(file=iter(StringIO(raw)))
+    try:
+        while True:
+            line = next(reader.file)
+            reader.eval_flags(line)
+    except StopIteration:
+        pass
+
+    sections = reader.get_sections()
+    assert 10 in sections, "first GIORH block dropped — accumulator bug regressed"
+    assert 20 in sections, "second GIORH block missing"
+
+
+def test_sif_gpipe_section_synthesises_circular_radius():
+    """GPIPE writes outer diameter ``dy``; ada Section TUBULAR stores
+    outer radius ``r``. The reader must halve ``dy`` so the rendered
+    pipe has the right size. Also verifies the GBEAMG fallback
+    doesn't override a real profile card on the same sec_id.
+    """
+
+    from io import StringIO
+
+    from ada.fem.formats.sesam.results.read_sif import SifReader
+    from ada.sections.categories import BaseTypes
+
+    raw = (
+        "TDSECT    4.00000000E+00  5.00000000E+00  4.00000000E+00  8.00000000E+00\n"
+        "    P200x10\n"
+        # GPIPE sec_id 5: di=0.18 (inner dia), dy=0.20 (outer dia), t=0.01.
+        "GPIPE     5.00000000E+00  1.80000000E-01  2.00000000E-01  1.00000000E-02\n"
+        "          1.00000000E+00  1.00000000E+00\n"
+        # GBEAMG for the same sec_id — should NOT overwrite the GPIPE
+        # synthesis since the profile card already produced a section.
+        "GBEAMG    5.00000000E+00  0.00000000E+00  6.00000000E-03  1.00000000E-04\n"
+        "          5.00000000E-05  5.00000000E-05  0.00000000E+00  0.00000000E+00\n"
+        "          0.00000000E+00  0.00000000E+00  0.00000000E+00  0.00000000E+00\n"
+        "          0.00000000E+00  0.00000000E+00  0.00000000E+00  0.00000000E+00\n"
+        # And a GBEAMG-only entry, sec_id 99 — should synthesise CIRCULAR.
+        "GBEAMG    9.90000000E+01  0.00000000E+00  3.14159265E-02  1.00000000E-04\n"
+        "          5.00000000E-05  5.00000000E-05  0.00000000E+00  0.00000000E+00\n"
+        "          0.00000000E+00  0.00000000E+00  0.00000000E+00  0.00000000E+00\n"
+        "          0.00000000E+00  0.00000000E+00  0.00000000E+00  0.00000000E+00\n"
+        "END\n"
+    )
+    reader = SifReader(file=iter(StringIO(raw)))
+    try:
+        while True:
+            line = next(reader.file)
+            reader.eval_flags(line)
+    except StopIteration:
+        pass
+
+    sections = reader.get_sections()
+
+    # GPIPE-derived TUBULAR with r = 0.10 (= dy / 2).
+    pipe = sections.get(5)
+    assert pipe is not None
+    assert pipe.type == BaseTypes.TUBULAR
+    assert abs(pipe.r - 0.10) < 1e-9, f"expected r=0.10, got r={pipe.r}"
+    assert abs(pipe.wt - 0.01) < 1e-9, f"expected wt=0.01, got wt={pipe.wt}"
+
+    # GBEAMG-only fallback: CIRCULAR with r = sqrt(area / pi).
+    # area = π × (0.1)² = 0.03141592… → r = 0.1.
+    fb = sections.get(99)
+    assert fb is not None
+    assert fb.type == BaseTypes.CIRCULAR
+    assert abs(fb.r - 0.1) < 1e-3
+
+
 def test_classify_field_by_field_type_overrides_name():
     """An explicit NodalFieldType.DISP on the sample wins even if the
     name doesn't look like a displacement field — readers know

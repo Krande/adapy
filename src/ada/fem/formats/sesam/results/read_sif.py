@@ -95,8 +95,15 @@ OTHER_CARDS = [
     cards.TDSETNAM,
     cards.GSETMEMB,
     cards.TDRESREF,
+    # Generic beam properties. Parsed alongside the named-section
+    # cards so ``get_sections`` can synthesise a CIRCULAR fallback
+    # for elements whose sec_id has only GBEAMG data and no real
+    # profile geometry. SESAM's Genie writes these for every beam
+    # in a model, so without the fallback ~30% of solid-beam render
+    # coverage was being silently dropped.
+    cards.GBEAMG,
 ]
-SECTION_CARDS = [cards.GIORH, cards.GBOX]
+SECTION_CARDS = [cards.GIORH, cards.GBOX, cards.GPIPE]
 RESULT_CARDS = [
     cards.RVNODDIS,
     cards.RVSTRESS,
@@ -174,7 +181,10 @@ class SifReader:
             yield data
 
     def get_sections(self) -> dict[int, Section]:
+        import math
+
         from ada import Section
+        from ada.sections.categories import BaseTypes
 
         sec_map: dict[str, cards.DataCard] = {s.name: s for s in SECTION_CARDS}
         td_sect_map = self.get_tdsect_map()
@@ -189,12 +199,61 @@ class SifReader:
                 res = sec_card.get_data_map_from_names(["geono", *keys], s)
                 sec_id = int(float(res["geono"]))
                 prop_map = {ada_n: res[ses_n] for ses_n, ada_n in sm[1]}
+                # GPIPE field 'dy' is the outer DIAMETER; ada Section
+                # TUBULAR stores the outer RADIUS in ``r``. Halve here
+                # rather than wedging arithmetic into SEC_MAP.
+                if sec_name == "GPIPE" and "r" in prop_map:
+                    prop_map["r"] = float(prop_map["r"]) / 2.0
                 sec_tdsect = td_sect_map.get(sec_id)
+                # TDSECT is the named-section card; not every profile
+                # card has one in the wild (observed: GPIPE entries
+                # written by SESAM Genie without a paired TDSECT).
+                # Treat the missing-name case as "anonymous section"
+                # rather than failing the whole bake — the geometry
+                # is still extractable from the profile card.
                 if sec_tdsect is None:
-                    raise ValueError(f"TDSECT is not set for section ID {sec_id}")
-                sec_name = sec_tdsect[-1]
-                sec = Section(name=sec_name, sec_id=sec_id, sec_type=sec_type, **prop_map)
+                    sec_name_str = f"S{sec_id}"
+                else:
+                    sec_name_str = sec_tdsect[-1]
+                sec = Section(name=sec_name_str, sec_id=sec_id, sec_type=sec_type, **prop_map)
                 sections[sec_id] = sec
+
+        # GBEAMG fallback. For sec_ids that only have generic beam
+        # properties (area + Iy/Iz/...) and no profile card, synthesise
+        # a CIRCULAR section with radius matching the area so beam-
+        # as-solid render fills these in instead of dropping them.
+        # The visual is a round bar of the right cross-sectional
+        # area — accurate at-a-glance but doesn't reflect the real
+        # profile shape. Marked as such in ``name`` so users browsing
+        # the tree see it isn't a real profile.
+        gbeamg_rows = self._other.get("GBEAMG", []) or []
+        for s in gbeamg_rows:
+            res = cards.GBEAMG.get_data_map_from_names(
+                ["geono", "area"], s,
+            )
+            try:
+                sec_id = int(float(res["geono"]))
+                area = float(res["area"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if sec_id in sections:
+                continue
+            if not (area > 0):
+                # Zero / negative / NaN — can't back out a radius.
+                # Skip; the beam falls into ``no-section`` and we
+                # surface it in the bake's skip-reasons tally.
+                continue
+            r = math.sqrt(area / math.pi)
+            sec_tdsect = td_sect_map.get(sec_id)
+            sec_name_str = (
+                sec_tdsect[-1] if sec_tdsect is not None else f"GBEAMG{sec_id}"
+            )
+            sections[sec_id] = Section(
+                name=sec_name_str,
+                sec_id=sec_id,
+                sec_type=BaseTypes.CIRCULAR,
+                r=r,
+            )
 
         return sections
 
@@ -303,7 +362,21 @@ class SifReader:
 
         for sec_card in SECTION_CARDS:
             if stripped.startswith(sec_card.name):
-                self._sections[sec_card.name] = list(self.iter_card(sec_card, self.file, stripped))
+                # SIF files emit section cards in non-contiguous
+                # blocks — GIORH records can appear, then a GBEAMG /
+                # TDSECT block, then more GIORH later in the file.
+                # Each ``iter_card`` call only consumes the *current*
+                # contiguous block, so we have to accumulate across
+                # encounters rather than overwrite. Pre-fix: a model
+                # with three GIORH blocks would land with only the
+                # last block in ``self._sections["GIORH"]`` — silently
+                # dropping the rest and starving every line element
+                # referencing a sec_id from an earlier block.
+                new_rows = list(self.iter_card(sec_card, self.file, stripped))
+                if sec_card.name in self._sections:
+                    self._sections[sec_card.name] += new_rows
+                else:
+                    self._sections[sec_card.name] = new_rows
 
         # if len(self._other) > 0 and self._gelref1 is not None and len(self._sections) > 0:
         #     self.read_fem_sections()
