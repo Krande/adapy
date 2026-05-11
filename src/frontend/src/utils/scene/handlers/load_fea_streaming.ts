@@ -11,6 +11,7 @@ import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
 import {useModelState} from "@/state/modelState";
 import {useAnimationStore} from "@/state/animationStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
+import {useConversionStore} from "@/state/conversionStore";
 import {applyFieldToMesh} from "../fea/applyField";
 import {resetFeaAnimationPhase} from "../fea/feaAnimationDriver";
 import {replace_model} from "./update_scene_from_message";
@@ -455,7 +456,77 @@ export async function load_fea_with_defaults(sourceName: string): Promise<void> 
         throw new Error("FEA streaming viewer is only available in REST mode");
     }
     const scope = scopeUrlPart(useScopeStore.getState().current);
-    const manifest = await viewerApi.feaManifest(scope, sourceName);
+
+    // Mirror the FEA bake's queue lifecycle into the global
+    // conversion store so the bottom-right ConversionProgress toast
+    // shows queue + bake progress for SIF / RMED files the same way
+    // it does for CAD-GLB conversions. Without this hook the SIF
+    // path is silent: feaManifestPoll only fires its onProgress
+    // callback, which by default has no consumer. Store key follows
+    // serverPipeline.ts's ``${sourceKey}::${target}`` convention so
+    // duplicate keys can't collide with a CAD conversion of the same
+    // source (different target).
+    const convStore = useConversionStore.getState();
+    const storeKey = `${sourceName}::fea`;
+    const startedAt = Date.now();
+    // Seed the entry as ``queued`` immediately so the toast appears
+    // for the gap between click and the first server progress event.
+    // The 202 response from feaManifest fills in the real jobId on
+    // the next tick.
+    convStore.setJob(storeKey, {
+        sourceKey: sourceName,
+        jobId: "",
+        derivedKey: "",
+        status: "queued",
+        progress: 0,
+        stage: "queuing fea bake",
+        error: null,
+        startedAt,
+    });
+
+    let manifest: FeaManifest;
+    try {
+        manifest = await viewerApi.feaManifest(scope, sourceName, {
+            onProgress: ({jobId, stage, progress, status}) => {
+                convStore.setJob(storeKey, {
+                    sourceKey: sourceName,
+                    jobId,
+                    derivedKey: "",
+                    status,
+                    progress,
+                    stage,
+                    error: null,
+                    startedAt,
+                });
+            },
+        });
+        // Mark done so the toast self-removes (ConversionProgress
+        // filters out done jobs). Manifest fetch succeeded; the
+        // render path below shouldn't keep the toast on screen.
+        convStore.setJob(storeKey, {
+            sourceKey: sourceName,
+            jobId: "",
+            derivedKey: "",
+            status: "done",
+            progress: 1,
+            stage: "ready",
+            error: null,
+            startedAt,
+        });
+    } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        convStore.setJob(storeKey, {
+            sourceKey: sourceName,
+            jobId: "",
+            derivedKey: "",
+            status: "error",
+            progress: 0,
+            stage: "failed",
+            error: msg,
+            startedAt,
+        });
+        throw err;
+    }
     if (!manifest || !Array.isArray(manifest.fields) || manifest.fields.length === 0) {
         // Bake produced a manifest but no fields — usually means the
         // source has only non-nodal data and nodal_only=true filtered

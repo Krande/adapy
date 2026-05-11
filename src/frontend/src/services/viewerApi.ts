@@ -588,7 +588,12 @@ export const viewerApi = {
         scope: ScopeUrl,
         sourceKey: string,
         opts?: {
-            onProgress?: (stage: string, progress: number) => void;
+            onProgress?: (info: {
+                jobId: string;
+                stage: string;
+                progress: number;
+                status: "queued" | "running" | "done";
+            }) => void;
             signal?: AbortSignal;
         },
     ): Promise<FeaManifest> {

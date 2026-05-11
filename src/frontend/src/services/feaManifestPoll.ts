@@ -36,8 +36,21 @@ interface PollDeps {
     scope: ScopeUrl;
     sourceKey: string;
     signal?: AbortSignal;
-    /** Fired on stage / progress changes during the poll loop. */
-    onProgress?: (stage: string, progress: number) => void;
+    /** Fired on stage / progress changes during the poll loop.
+     *
+     * Receives the live ``status`` and ``jobId`` alongside the stage
+     * label / fractional progress so the call site can synchronise
+     * external state (e.g. the global conversion-progress toast)
+     * with the bake's queue lifecycle without scraping the URL
+     * structure for itself. Status is one of the backend's queue
+     * states: 'queued' → 'running' → 'done'. Errors bubble out via
+     * the promise rejection, not this callback. */
+    onProgress?: (info: {
+        jobId: string;
+        stage: string;
+        progress: number;
+        status: "queued" | "running" | "done";
+    }) => void;
     /** Polling interval (ms). Tests pass small values; production
      * defaults to 600 ms. */
     pollMs?: number;
@@ -92,7 +105,8 @@ async function pollEnqueueGet<T>(
     const queued = (await r.json()) as {job_id: string; stage?: string; progress?: number};
     let stage = queued.stage ?? "queued";
     let progress = queued.progress ?? 0;
-    deps.onProgress?.(stage, progress);
+    let status: "queued" | "running" | "done" = "queued";
+    deps.onProgress?.({jobId: queued.job_id, stage, progress, status});
 
     const pollMs = deps.pollMs ?? 600;
     const timeoutMs = deps.timeoutMs ?? 5 * 60 * 1000;
@@ -108,20 +122,25 @@ async function pollEnqueueGet<T>(
         if (now() - startedAt > timeoutMs) {
             throw new ApiError(`${label} timed out`, 504);
         }
-        const status = await deps.convertStatus(queued.job_id);
-        if (status.stage !== stage || status.progress !== progress) {
-            stage = status.stage;
-            progress = status.progress;
-            deps.onProgress?.(stage, progress);
+        const next = await deps.convertStatus(queued.job_id);
+        let nextStatus: "queued" | "running" | "done" = status;
+        if (next.status === "queued" || next.status === "running" || next.status === "done") {
+            nextStatus = next.status;
         }
-        if (status.status === "error") {
+        if (next.stage !== stage || next.progress !== progress || nextStatus !== status) {
+            stage = next.stage;
+            progress = next.progress;
+            status = nextStatus;
+            deps.onProgress?.({jobId: queued.job_id, stage, progress, status});
+        }
+        if (next.status === "error") {
             throw new ApiError(
-                `${label} failed: ${status.error ?? "unknown"}`,
+                `${label} failed: ${next.error ?? "unknown"}`,
                 500,
-                status.error ?? undefined,
+                next.error ?? undefined,
             );
         }
-        if (status.status === "done") break;
+        if (next.status === "done") break;
     }
 
     const r2 = await deps.fetcher(url, {signal: deps.signal});

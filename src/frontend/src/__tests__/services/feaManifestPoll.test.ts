@@ -136,7 +136,7 @@ describe("fetchFeaManifest", () => {
             ...baseDeps(),
             fetcher,
             convertStatus,
-            onProgress: (stage) => stages.push(stage),
+            onProgress: ({stage}) => stages.push(stage),
         });
         assert.equal(m.fields.length, 1);
         // Initial "queued" from the 202 payload (queued.stage falls
