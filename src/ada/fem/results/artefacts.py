@@ -25,7 +25,7 @@ import os
 import pathlib
 import struct
 from dataclasses import dataclass, field as dc_field
-from typing import Iterator, Literal, Protocol
+from typing import Callable, Iterator, Literal, Protocol
 
 import numpy as np
 
@@ -1708,42 +1708,73 @@ def write_manifest(manifest: dict, out_path: os.PathLike) -> None:
 # ---------------------------------------------------------------------------
 
 
-FEA_ARTEFACT_EXTENSIONS: frozenset[str] = frozenset({".rmed", ".sif"})
+_StreamReaderFactory = Callable[[pathlib.Path], "FEAStreamReader"]
+_STREAM_READERS: dict[str, _StreamReaderFactory] = {}
+
+
+def register_stream_reader(suffix: str, factory: _StreamReaderFactory) -> None:
+    """Register a streaming-reader factory for files ending in ``suffix``.
+
+    ``factory(path)`` must return an object satisfying ``FEAStreamReader``.
+    Registrations override built-ins for the same suffix — downstream
+    packages (e.g. an Abaqus-aware worker registering ``.odb``) should
+    call this at startup before any bake call."""
+
+    _STREAM_READERS[suffix] = factory
+
+
+def _make_rmed_reader(path: pathlib.Path) -> "FEAStreamReader":
+    from ada.fem.formats.code_aster.read.med_stream_reader import RmedStreamReader
+
+    return RmedStreamReader(path)
+
+
+def _make_sif_reader(path: pathlib.Path) -> "FEAStreamReader":
+    from ada.fem.formats.sesam.results.read_sif import read_sif_file
+
+    return FEAResultStreamAdapter(read_sif_file(path))
+
+
+def _ensure_builtin_stream_readers() -> None:
+    if getattr(_ensure_builtin_stream_readers, "_done", False):
+        return
+    # setdefault: a downstream registration for the same suffix wins.
+    _STREAM_READERS.setdefault(".rmed", _make_rmed_reader)
+    _STREAM_READERS.setdefault(".sif", _make_sif_reader)
+    _ensure_builtin_stream_readers._done = True  # type: ignore[attr-defined]
+
+
+def fea_artefact_extensions() -> frozenset[str]:
+    """Set of source-file suffixes the streaming bake can open."""
+
+    _ensure_builtin_stream_readers()
+    return frozenset(_STREAM_READERS)
 
 
 def is_fea_artefact_source(src_key_or_path) -> bool:
-    """True if the source extension is in scope for the streaming bake.
-    Phase 1 covers .rmed (native streaming reader) and .sif (FEAResult
-    adapter); .frd is Phase 2."""
+    """True if the source extension is in scope for the streaming bake."""
 
     suffix = pathlib.PurePosixPath(str(src_key_or_path)).suffix.lower()
-    return suffix in FEA_ARTEFACT_EXTENSIONS
+    return suffix in fea_artefact_extensions()
 
 
 def make_stream_reader(src_path: os.PathLike) -> FEAStreamReader:
     """Open the right streaming reader for a source file's extension.
 
-    Native streaming on RMED (h5py-lazy); SIF flows through the
-    FEAResult adapter since the SIF reader is eager today. Caller is
-    responsible for closing the returned reader (use as a context
-    manager)."""
+    Dispatch goes through ``_STREAM_READERS``; built-ins (``.rmed`` /
+    ``.sif``) self-register on first call. Caller is responsible for
+    closing the returned reader (use as a context manager)."""
 
+    _ensure_builtin_stream_readers()
     src_path = pathlib.Path(src_path)
     ext = src_path.suffix.lower()
-
-    if ext == ".rmed":
-        from ada.fem.formats.code_aster.read.med_stream_reader import RmedStreamReader
-
-        return RmedStreamReader(src_path)
-    if ext == ".sif":
-        from ada.fem.formats.sesam.results.read_sif import read_sif_file
-
-        result = read_sif_file(src_path)
-        return FEAResultStreamAdapter(result)
-    raise ValueError(
-        f"no streaming reader for FEA source extension {ext!r}; "
-        f"supported: {sorted(FEA_ARTEFACT_EXTENSIONS)}"
-    )
+    factory = _STREAM_READERS.get(ext)
+    if factory is None:
+        raise ValueError(
+            f"no streaming reader for FEA source extension {ext!r}; "
+            f"registered: {sorted(_STREAM_READERS)}"
+        )
+    return factory(src_path)
 
 
 def bake_fea_artefacts_from_source(

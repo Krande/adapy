@@ -590,6 +590,44 @@ def test_make_stream_reader_dispatches_by_extension(fem_files, tmp_path):
         make_stream_reader(tmp_path / "nope.frd")
 
 
+def test_stream_reader_registry_dispatch_and_override(tmp_path):
+    """Registering a factory makes that suffix dispatchable, and a
+    registration overrides a built-in for the same suffix."""
+
+    from ada.fem.results.artefacts import (
+        fea_artefact_extensions,
+        register_stream_reader,
+    )
+
+    class _Stub:
+        def __init__(self, path):
+            self.path = path
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    # New suffix: dispatch picks up the registered factory.
+    register_stream_reader(".stub", _Stub)
+    try:
+        assert ".stub" in fea_artefact_extensions()
+        assert is_fea_artefact_source("foo.stub")
+        with make_stream_reader(tmp_path / "any.stub") as r:
+            assert isinstance(r, _Stub)
+
+        # Override path: a fresh registration wins over the built-in.
+        register_stream_reader(".rmed", _Stub)
+        with make_stream_reader(tmp_path / "any.rmed") as r:
+            assert isinstance(r, _Stub)
+    finally:
+        from ada.fem.results.artefacts import _STREAM_READERS, _make_rmed_reader
+
+        _STREAM_READERS.pop(".stub", None)
+        _STREAM_READERS[".rmed"] = _make_rmed_reader
+
+
 def test_bake_from_source_end_to_end_rmed(fem_files, tmp_path):
     rmed = fem_files / "code_aster/Cantilever_CA_EIG_bm.rmed"
     if not rmed.exists():
