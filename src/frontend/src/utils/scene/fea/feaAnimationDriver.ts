@@ -47,8 +47,13 @@ export function tickFeaAnimation(deltaSeconds: number): void {
     // Drive the mesh directly — bypassing the store keeps the RAF
     // path GPU-only on the hot path. The store still gets the
     // current value so the UI slider follows the sweep.
+    //
+    // ``scaleFactor`` exaggerates the morph delta on top of the
+    // [-1..1] / [0..1] sweep range without touching the slider's
+    // visible value. Default 1 leaves the behaviour identical to
+    // before this knob landed.
     if (state.mesh.morphTargetInfluences) {
-        state.mesh.morphTargetInfluences[0] = factor;
+        state.mesh.morphTargetInfluences[0] = factor * state.scaleFactor;
     }
 
     // Throttle store updates: only push a new value when the slider

@@ -91,6 +91,15 @@ export interface FeaAnimationState {
      * preference, not per-session. */
     warpEnabled: boolean;
 
+    /** Multiplier applied on top of ``factor`` before it lands on the
+     *  morph influence. Default 1 (no amplification). Drives the
+     *  "warp scale" knob in the transport bar — analogous to
+     *  Abaqus/Paraview's deformation-scale factor. Useful when the
+     *  raw displacement field is tiny (sub-mm on a 100 m structure)
+     *  and the user wants to exaggerate the deformed shape without
+     *  changing the underlying field values. */
+    scaleFactor: number;
+
     /** Step-change callback registered by ``load_fea_streaming``.
      * SimulationControls calls this when the user drags the step
      * slider; the closure runs another ``load_fea_streaming`` with
@@ -111,6 +120,7 @@ export interface FeaAnimationState {
     setReduction: (r: string) => void;
     setColormap: (c: string) => void;
     setWarpEnabled: (enabled: boolean) => void;
+    setScaleFactor: (s: number) => void;
     setApplyStep: (cb: ((stepIndex: number) => Promise<void>) | null) => void;
     /** Reset to inactive — called when the scene is replaced. */
     reset: () => void;
@@ -139,6 +149,8 @@ export const useFeaAnimationStore = create<FeaAnimationState>((set) => ({
     // Warp on by default — most users picking a stress field want it
     // shown on the deformed shape (Abaqus / Paraview default).
     warpEnabled: true,
+    // Identity scale by default — exaggeration is an explicit opt-in.
+    scaleFactor: 1.0,
     applyStep: null,
 
     setSessionActive: (active) => set({sessionActive: active}),
@@ -155,6 +167,7 @@ export const useFeaAnimationStore = create<FeaAnimationState>((set) => ({
     setReduction: (reduction) => set({reduction}),
     setColormap: (colormap) => set({colormap}),
     setWarpEnabled: (warpEnabled) => set({warpEnabled}),
+    setScaleFactor: (scaleFactor) => set({scaleFactor}),
     setApplyStep: (cb) => set({applyStep: cb}),
     reset: () =>
         set({

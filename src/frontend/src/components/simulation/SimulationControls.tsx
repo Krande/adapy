@@ -82,6 +82,7 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
         reduction,
         colormap,
         warpEnabled,
+        scaleFactor,
         applyStep,
         setFactor,
         setPeriod,
@@ -89,6 +90,7 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
         setStepIndex,
         setColormap,
         setWarpEnabled,
+        setScaleFactor,
     } = useFeaAnimationStore();
 
     // Options panel toggle — currently houses just the colormap
@@ -119,6 +121,12 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
         return out;
     }, [activeField]);
 
+    // Composite morph influence = slider factor × user-set scale.
+    // Captured in a helper so every load_fea_streaming call site
+    // computes it the same way; missing one would leave a stale
+    // unscaled morph after a field / reduction / step change.
+    const morphInfluence = factor * scaleFactor;
+
     const onFieldChange = (newFieldName: string) => {
         if (!sourceName || !manifest) return;
         const newField = manifest.fields.find(
@@ -138,7 +146,7 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
             fieldName: newFieldName,
             stepIndex: 0,
             reduction: newReduction,
-            displacementScale: factor,
+            displacementScale: morphInfluence,
         });
     };
 
@@ -150,7 +158,7 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
             fieldName,
             stepIndex,
             reduction: newReduction,
-            displacementScale: factor,
+            displacementScale: morphInfluence,
         });
     };
 
@@ -167,11 +175,25 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
 
     // Manual factor drag: write through to the morph influence
     // immediately. The RAF driver only runs while playing, so a
-    // direct write here is the right hook for paused scrubs.
+    // direct write here is the right hook for paused scrubs. Morph
+    // value carries both the slider's factor and the scaleFactor
+    // amplifier; the RAF driver multiplies the same way on each
+    // tick.
     const onFactorChange = (newFactor: number) => {
         setFactor(newFactor);
         if (mesh && mesh.morphTargetInfluences) {
-            mesh.morphTargetInfluences[0] = newFactor;
+            mesh.morphTargetInfluences[0] = newFactor * scaleFactor;
+        }
+    };
+
+    const onScaleFactorChange = (raw: number) => {
+        // Guard NaN from an in-progress edit (user clearing the
+        // input field). The store keeps the last valid value until
+        // they finish typing.
+        if (!isFinite(raw)) return;
+        setScaleFactor(raw);
+        if (mesh && mesh.morphTargetInfluences) {
+            mesh.morphTargetInfluences[0] = factor * raw;
         }
     };
 
@@ -198,7 +220,7 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
             fieldName,
             stepIndex,
             reduction,
-            displacementScale: factor,
+            displacementScale: morphInfluence,
         });
     };
 
@@ -217,22 +239,16 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
             fieldName,
             stepIndex,
             reduction,
-            displacementScale: factor,
+            displacementScale: morphInfluence,
             colormap: next,
         });
     };
 
     return (
         <div className="flex flex-col gap-2 min-w-0">
-            {/* Field / Comp / Step selectors + the gear options
-                toggle. All on one row so the bottom transport row
-                stays focused on play controls. The step slider was
-                replaced by a dropdown — for transient analyses with
-                many steps, scrubbing 1-by-1 with a slider was
-                tedious and large jumps weren't possible. The native
-                <select> hits its render-cost limit somewhere north
-                of a few thousand options; if that becomes an issue
-                we'd virtualize the same way GroupInfoBox does. */}
+            {/* Row 1 — Field / Comp / Step selectors only. Gear
+                moved down to the transport row so this stays a
+                focused "what are you looking at" line. */}
             {manifest && (
                 <div className="flex flex-row items-center gap-x-2 min-w-0 text-xs text-white">
                     <label className="flex items-center gap-1">
@@ -290,43 +306,14 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                             </select>
                         </label>
                     )}
-                    <button
-                        className={
-                            "ml-auto bg-blue-700 hover:bg-blue-700/50 text-white rounded px-2 py-1 " +
-                            (showOptions ? "ring-2 ring-blue-300" : "")
-                        }
-                        onClick={() => setShowOptions((v) => !v)}
-                        title="Visualisation options"
-                        aria-pressed={showOptions}
-                    >
-                        <GearIcon/>
-                    </button>
                 </div>
             )}
 
-            {/* Deformation-scale slider + transport buttons. */}
+            {/* Row 2 — Scrub slider + period + scale-factor knobs.
+                Visually grouped because they all shape the
+                deformation amplitude / animation; transport
+                buttons on the next row act *on* this group. */}
             <div className="flex flex-row items-center gap-x-2 min-w-0">
-                <button
-                    className="bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded"
-                    onClick={isPlaying ? onPause : onPlay}
-                    title={isPlaying ? "Pause oscillation" : "Play oscillation"}
-                >
-                    <PlayPauseIcon/>
-                </button>
-                <button
-                    className="bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded"
-                    onClick={onStop}
-                    title="Stop and reset deformation to 0"
-                >
-                    <StopIcon/>
-                </button>
-                <button
-                    className="bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded"
-                    onClick={onToggleData}
-                    title="Toggle simulation data panel"
-                >
-                    <FEMDataPanelIcon/>
-                </button>
                 <div className="flex items-center gap-2 min-w-[100px] max-w-sm w-full">
                     <input
                         type="range"
@@ -354,6 +341,59 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                     />
                     s
                 </div>
+                {/* Warp-scale knob: multiplier on top of the
+                    [-1..1] / [0..1] sweep, exaggerates the
+                    morph delta. Default 1. */}
+                <div className="text-white text-xs flex items-center gap-1">
+                    ×
+                    <input
+                        type="number"
+                        min={0}
+                        step={0.1}
+                        value={scaleFactor}
+                        onChange={(e) => onScaleFactorChange(parseFloat(e.target.value))}
+                        className="text-black w-16 px-1 rounded"
+                        title="Warp scale factor — multiplier on top of the slider value (default 1)"
+                    />
+                </div>
+            </div>
+
+            {/* Row 3 — Transport: play / stop / data-panel toggle +
+                gear (moved from row 1 so it sits next to the other
+                action buttons it visually belongs with). */}
+            <div className="flex flex-row items-center gap-x-2 min-w-0">
+                <button
+                    className="bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded"
+                    onClick={isPlaying ? onPause : onPlay}
+                    title={isPlaying ? "Pause oscillation" : "Play oscillation"}
+                >
+                    <PlayPauseIcon/>
+                </button>
+                <button
+                    className="bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded"
+                    onClick={onStop}
+                    title="Stop and reset deformation to 0"
+                >
+                    <StopIcon/>
+                </button>
+                <button
+                    className="bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded"
+                    onClick={onToggleData}
+                    title="Toggle simulation data panel"
+                >
+                    <FEMDataPanelIcon/>
+                </button>
+                <button
+                    className={
+                        "ml-auto bg-blue-700 hover:bg-blue-700/50 text-white rounded px-2 py-1 " +
+                        (showOptions ? "ring-2 ring-blue-300" : "")
+                    }
+                    onClick={() => setShowOptions((v) => !v)}
+                    title="Visualisation options"
+                    aria-pressed={showOptions}
+                >
+                    <GearIcon/>
+                </button>
             </div>
 
             {showOptions && (
