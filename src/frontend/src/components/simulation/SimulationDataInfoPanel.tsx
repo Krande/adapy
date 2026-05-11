@@ -154,13 +154,97 @@ const FeaNodalTable: React.FC<{
 
     const n_points = blob?.header.n_points ?? 0;
 
+    // Filter + sort state. Both live as table-local state (not in
+    // the store) since they don't affect the scene — just the table
+    // view. ``sort`` is tri-state: null = natural (insertion) order,
+    // {col, dir} = sorted. Header clicks cycle null → asc → desc →
+    // null on the same column; clicking a different column resets
+    // to asc on that column. Filter is a substring match on the
+    // 1-based node id rendered as a decimal string.
+    const [filter, setFilter] = useState("");
+    const [sort, setSort] = useState<{col: number; dir: "asc" | "desc"} | null>(null);
+
+    // Sort/filter pipeline. Both produce a list of source-row
+    // indices the virtualizer iterates over; the table row reads
+    // ``stepValues`` at that index. Memoised on the input arrays so
+    // a step change (which swaps stepValues) re-sorts but a filter
+    // keystroke doesn't re-fetch.
+    const visibleRowIndices = useMemo<Int32Array>(() => {
+        if (n_points === 0) return new Int32Array(0);
+        // Filter pass — substring match on the node id ("12" matches
+        // 12, 120, 1234, …). Empty filter keeps everything.
+        let indices: Int32Array;
+        const f = filter.trim();
+        if (!f) {
+            indices = new Int32Array(n_points);
+            for (let i = 0; i < n_points; i++) indices[i] = i;
+        } else {
+            const buf: number[] = [];
+            for (let i = 0; i < n_points; i++) {
+                if (String(i + 1).includes(f)) buf.push(i);
+            }
+            indices = Int32Array.from(buf);
+        }
+
+        if (!sort || !stepValues) return indices;
+
+        // Sort pass. Sort key per row:
+        //   * col 0 → node id (the index + 1).
+        //   * col 1..n_components → component value at that column.
+        //   * col n_components + 1 (only for vectors) → magnitude.
+        // Magnitude is recomputed inline rather than cached — the
+        // CPU cost of one sqrt per row is negligible next to the
+        // sort and saves us a per-step magnitude buffer.
+        const {col, dir} = sort;
+        const sign = dir === "asc" ? 1 : -1;
+        const isMagCol = isVector && col === n_components + 1;
+        const compIdx = col - 1; // -1 for node-id col, 0..n_components-1 for comp cols
+        // Materialise sort keys once, then sort an index Array — this
+        // avoids closure overhead inside Array.sort's comparator.
+        const keys = new Float64Array(indices.length);
+        for (let k = 0; k < indices.length; k++) {
+            const row = indices[k];
+            if (col === 0) {
+                keys[k] = row + 1;
+            } else if (isMagCol) {
+                const off = row * n_components;
+                let m = 0;
+                for (let c = 0; c < Math.min(n_components, 3); c++) {
+                    const v = stepValues[off + c] || 0;
+                    m += v * v;
+                }
+                keys[k] = Math.sqrt(m);
+            } else {
+                const v = stepValues[row * n_components + compIdx];
+                keys[k] = isFinite(v) ? v : 0;
+            }
+        }
+        const sortedOrder = Array.from(indices)
+            .map((row, k) => ({row, key: keys[k]}))
+            .sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0) * sign)
+            .map((x) => x.row);
+        return Int32Array.from(sortedOrder);
+    }, [n_points, filter, sort, stepValues, n_components, isVector]);
+
     const parentRef = useRef<HTMLDivElement | null>(null);
     const rowVirtualizer = useVirtualizer({
-        count: n_points,
+        count: visibleRowIndices.length,
         getScrollElement: () => parentRef.current,
         estimateSize: () => ROW_HEIGHT_PX,
         overscan: 16,
     });
+
+    const onHeaderClick = (col: number) => {
+        // Tri-state cycle on the same column; reset to asc on a
+        // different column. Node-id (col 0) participates in the
+        // cycle — useful for jumping to high/low node IDs after a
+        // filter narrows the table.
+        setSort((prev) => {
+            if (!prev || prev.col !== col) return {col, dir: "asc"};
+            if (prev.dir === "asc") return {col, dir: "desc"};
+            return null;
+        });
+    };
 
     if (error) {
         return (
@@ -177,7 +261,18 @@ const FeaNodalTable: React.FC<{
 
     return (
         <div className="flex flex-col flex-1 min-h-0">
-            <FeaTableHead headerCols={headerCols}/>
+            <TableToolbar
+                filter={filter}
+                onFilter={setFilter}
+                idLabel="Node"
+                resultCount={visibleRowIndices.length}
+                totalCount={n_points}
+            />
+            <FeaTableHead
+                headerCols={headerCols}
+                sort={sort}
+                onHeaderClick={onHeaderClick}
+            />
             <div
                 ref={parentRef}
                 className="flex-1 overflow-auto border border-gray-200 rounded-b bg-white"
@@ -190,14 +285,14 @@ const FeaNodalTable: React.FC<{
                     }}
                 >
                     {rowVirtualizer.getVirtualItems().map((vRow) => {
-                        const i = vRow.index;
-                        const off = i * n_components;
+                        const row = visibleRowIndices[vRow.index];
+                        const off = row * n_components;
                         return (
                             <FeaTableRow
-                                key={i}
+                                key={row}
                                 top={vRow.start}
                                 height={vRow.size}
-                                nodeId={i + 1}
+                                nodeId={row + 1}
                                 values={stepValues}
                                 offset={off}
                                 n_components={n_components}
@@ -211,19 +306,67 @@ const FeaNodalTable: React.FC<{
     );
 };
 
-const FeaTableHead: React.FC<{headerCols: string[]}> = ({headerCols}) => (
+const TableToolbar: React.FC<{
+    filter: string;
+    onFilter: (v: string) => void;
+    idLabel: string;
+    resultCount: number;
+    totalCount: number;
+}> = ({filter, onFilter, idLabel, resultCount, totalCount}) => (
+    <div className="flex flex-row items-center gap-2 mb-1 text-xs text-gray-700">
+        <span className="text-gray-500">{idLabel}:</span>
+        <input
+            type="text"
+            inputMode="numeric"
+            placeholder="filter…"
+            value={filter}
+            onChange={(e) => onFilter(e.target.value)}
+            className="border border-gray-300 rounded px-1 py-0.5 w-24 font-mono"
+        />
+        {filter && (
+            <button
+                className="text-gray-500 hover:text-gray-800 underline"
+                onClick={() => onFilter("")}
+            >
+                clear
+            </button>
+        )}
+        <span className="ml-auto text-gray-400">
+            {resultCount === totalCount
+                ? `${totalCount} rows`
+                : `${resultCount} / ${totalCount}`}
+        </span>
+    </div>
+);
+
+const FeaTableHead: React.FC<{
+    headerCols: string[];
+    sort: {col: number; dir: "asc" | "desc"} | null;
+    onHeaderClick: (col: number) => void;
+}> = ({headerCols, sort, onHeaderClick}) => (
     <div
         className="grid border border-b-0 border-gray-300 bg-gray-100 text-xs font-semibold text-gray-700"
         style={{gridTemplateColumns: gridCols(headerCols.length)}}
     >
-        {headerCols.map((c) => (
-            <div
-                key={c}
-                className="px-2 py-1 border-r border-gray-300 last:border-r-0 truncate"
-            >
-                {c}
-            </div>
-        ))}
+        {headerCols.map((c, i) => {
+            const active = sort && sort.col === i;
+            const arrow = active ? (sort!.dir === "asc" ? "▲" : "▼") : "";
+            return (
+                <button
+                    key={c}
+                    onClick={() => onHeaderClick(i)}
+                    className={
+                        "px-2 py-1 border-r border-gray-300 last:border-r-0 truncate " +
+                        "text-left hover:bg-gray-200 cursor-pointer flex items-center justify-between gap-1 " +
+                        (active ? "bg-blue-50 text-blue-800" : "")
+                    }
+                    title="Click to sort (asc → desc → off)"
+                >
+                    <span className="truncate">{c}</span>
+                    {arrow && <span className="text-[10px]">{arrow}</span>}
+                </button>
+            );
+        })}
     </div>
 );
 
