@@ -74,12 +74,14 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
         fieldName,
         reduction,
         colormap,
+        warpEnabled,
         applyStep,
         setFactor,
         setPeriod,
         setIsPlaying,
         setStepIndex,
         setColormap,
+        setWarpEnabled,
     } = useFeaAnimationStore();
 
     // Options panel toggle — currently houses just the colormap
@@ -174,6 +176,23 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
             // slider doesn't have an error display of its own.
             void applyStep(newStep);
         }
+    };
+
+    // Warp toggle re-runs load_fea_streaming so the warp-source
+    // resolution (in load_fea_streaming.resolveWarpSource) re-fires
+    // and the morph attribute updates without a re-fetch of the
+    // color field. Cheap — the field blob is cached.
+    const onWarpToggle = (next: boolean) => {
+        setWarpEnabled(next);
+        if (!sourceName || !manifest || !fieldName) return;
+        void load_fea_streaming({
+            sourceName,
+            manifest,
+            fieldName,
+            stepIndex,
+            reduction,
+            displacementScale: factor,
+        });
     };
 
     const onColormapChange = (next: string) => {
@@ -339,6 +358,38 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                             ))}
                         </select>
                     </label>
+                    {/* Warp toggle. Disabled (and forced visually off)
+                        for reaction-force fields — applying a force
+                        vector as a morph would visualise force as
+                        displacement, which is semantically wrong.
+                        For displacement / stress / strain / other the
+                        toggle controls whether the active field
+                        (displacement) or the manifest's displacement
+                        field (everything else) drives the morph. */}
+                    {(() => {
+                        const isReaction = activeField?.category === "reaction";
+                        return (
+                            <label
+                                className={
+                                    "flex items-center gap-1 " +
+                                    (isReaction ? "opacity-50 cursor-not-allowed" : "")
+                                }
+                                title={
+                                    isReaction
+                                        ? "Reaction-force fields are never warped"
+                                        : "Show the deformed shape using the displacement field"
+                                }
+                            >
+                                <input
+                                    type="checkbox"
+                                    checked={!isReaction && warpEnabled}
+                                    disabled={isReaction}
+                                    onChange={(e) => onWarpToggle(e.target.checked)}
+                                />
+                                <span className="text-gray-300">Warp by displacement</span>
+                            </label>
+                        );
+                    })()}
                 </div>
             )}
         </div>

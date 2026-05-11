@@ -82,6 +82,15 @@ export interface FeaAnimationState {
      * without a re-fetch. */
     colormap: string;
 
+    /** Whether to drive mesh deformation from the displacement field.
+     * Default true (Abaqus CAE behaviour — stresses on the deformed
+     * shape). For reaction-force fields the warp is force-off
+     * regardless of this flag; for displacement the flag controls
+     * whether the user sees the deformed shape at all. Persisted
+     * across scene swaps like ``colormap`` — it's a per-user
+     * preference, not per-session. */
+    warpEnabled: boolean;
+
     /** Step-change callback registered by ``load_fea_streaming``.
      * SimulationControls calls this when the user drags the step
      * slider; the closure runs another ``load_fea_streaming`` with
@@ -101,6 +110,7 @@ export interface FeaAnimationState {
     setFieldName: (n: string | null) => void;
     setReduction: (r: string) => void;
     setColormap: (c: string) => void;
+    setWarpEnabled: (enabled: boolean) => void;
     setApplyStep: (cb: ((stepIndex: number) => Promise<void>) | null) => void;
     /** Reset to inactive — called when the scene is replaced. */
     reset: () => void;
@@ -126,6 +136,9 @@ export const useFeaAnimationStore = create<FeaAnimationState>((set) => ({
     // expect from a stress / displacement plot. Viridis lives one
     // dropdown away in the SimulationControls options panel.
     colormap: "abaqus",
+    // Warp on by default — most users picking a stress field want it
+    // shown on the deformed shape (Abaqus / Paraview default).
+    warpEnabled: true,
     applyStep: null,
 
     setSessionActive: (active) => set({sessionActive: active}),
@@ -141,6 +154,7 @@ export const useFeaAnimationStore = create<FeaAnimationState>((set) => ({
     setFieldName: (fieldName) => set({fieldName}),
     setReduction: (reduction) => set({reduction}),
     setColormap: (colormap) => set({colormap}),
+    setWarpEnabled: (warpEnabled) => set({warpEnabled}),
     setApplyStep: (cb) => set({applyStep: cb}),
     reset: () =>
         set({
@@ -155,9 +169,10 @@ export const useFeaAnimationStore = create<FeaAnimationState>((set) => ({
             manifest: null,
             fieldName: null,
             reduction: "magnitude",
-            // Don't reset ``colormap`` on scene clear — it's a per-user
-            // preference, not per-session. Users who picked Abaqus
-            // rainbow once want it to stick across model swaps.
+            // Don't reset ``colormap`` or ``warpEnabled`` on scene
+            // clear — both are per-user preferences, not per-session.
+            // Users who picked Abaqus rainbow + warp-off once want
+            // them to stick across model swaps.
             applyStep: null,
         }),
 }));

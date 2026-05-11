@@ -133,6 +133,66 @@ function installAfemUserData(
     gltf_scene.userData["id_hierarchy"] = idHierarchy;
 }
 
+/** Pick the displacement field from the manifest. Frontend reads
+ *  ``category`` set by the bake to find it without re-string-matching
+ *  solver-specific names. Returns the first match or null. */
+function findDisplacementField(manifest: FeaManifest): FeaManifestField | null {
+    for (const f of manifest.fields) {
+        if (f.category === "displacement") return f;
+    }
+    return null;
+}
+
+/** Resolve which field (and which step-values) drives the morph
+ *  delta for this apply. The colour field is always the user's pick;
+ *  warp is decoupled so stress / strain visualisations can still show
+ *  the deformed shape. Returns ``null`` when the geometry should stay
+ *  static (reaction fields, warp toggle off + no displacement field
+ *  available, or the user picked displacement but warpEnabled is off). */
+async function resolveWarpSource(
+    scope: string,
+    sourceName: string,
+    manifest: FeaManifest,
+    colorField: FeaManifestField,
+    stepIndex: number,
+    warpEnabled: boolean,
+): Promise<{field: FeaManifestField; stepValues: Float32Array} | null> {
+    // Reaction force fields never drive a deformation — applying them
+    // as a morph delta would visualise a force vector as a
+    // displacement, which is semantically wrong. Lock off regardless
+    // of the toggle.
+    if (colorField.category === "reaction") return null;
+
+    // For the displacement field itself, the warp toggle still
+    // controls whether the user sees the deformed shape — a user
+    // inspecting raw DX values may want them on the un-deformed mesh.
+    if (colorField.category === "displacement") {
+        if (!warpEnabled) return null;
+        const parsed = await fetchFieldBlob(scope, sourceName, colorField);
+        return {field: colorField, stepValues: parsed.steps[stepIndex]};
+    }
+
+    // Stress / strain / other — warp by the manifest's displacement
+    // field when the user has the toggle on.
+    if (!warpEnabled) return null;
+    const dispField = findDisplacementField(manifest);
+    if (!dispField) return null;
+
+    // Step alignment: prefer the same index. If the displacement
+    // field has fewer steps (rare — sub-step output), clamp to last.
+    let warpStep = stepIndex;
+    if (warpStep >= dispField.n_steps) {
+        warpStep = dispField.n_steps - 1;
+        // eslint-disable-next-line no-console
+        console.warn(
+            `[fea-streaming] colour-field step ${stepIndex} exceeds displacement-field ` +
+            `n_steps=${dispField.n_steps}; clamping warp source to step ${warpStep}`,
+        );
+    }
+    const parsed = await fetchFieldBlob(scope, sourceName, dispField);
+    return {field: dispField, stepValues: parsed.steps[warpStep]};
+}
+
 function snapshotBasePositions(geometry: THREE.BufferGeometry): Float32Array {
     const attr = geometry.getAttribute("position");
     if (!attr || attr.itemSize !== 3) {
@@ -290,14 +350,37 @@ export async function load_fea_streaming(args: {
     }
 
     const parsed = await fetchFieldBlob(scope, sourceName, field);
-    const stepValues = parsed.steps[stepIndex];
+    const colorStepValues = parsed.steps[stepIndex];
+
+    // Resolve the warp source. The picked field drives colour
+    // regardless; warp depends on category:
+    //   * displacement → warp by self (legacy behaviour).
+    //   * reaction → never warp (force vectors aren't a deformation).
+    //   * stress / strain / other → warp by the manifest's displacement
+    //     field when ``warpEnabled`` is on, else stay undeformed.
+    // Step index is shared across fields — almost all analyses use a
+    // parallel step structure, so step 3 of the stress field aligns
+    // with step 3 of the displacement field. If the displacement field
+    // has fewer steps (unusual; happens when a user runs a sub-step
+    // displacement output), we clamp to its last step and warn.
+    const warpEnabled = useFeaAnimationStore.getState().warpEnabled;
+    const warpInfo = await resolveWarpSource(
+        scope,
+        sourceName,
+        manifest,
+        field,
+        stepIndex,
+        warpEnabled,
+    );
 
     applyFieldToMesh({
         mesh: active.mesh,
         basePositions: active.basePositions,
-        stepValues,
-        field,
+        colorField: field,
+        colorStepValues,
         reduction,
+        warpField: warpInfo?.field,
+        warpStepValues: warpInfo?.stepValues,
         displacementScale,
         colormap,
     });
