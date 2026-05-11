@@ -1,8 +1,11 @@
 import React, {useState} from 'react';
 import {useObjectInfoStore} from '@/state/objectInfoStore';
 import {useSelectedObjectStore} from '@/state/useSelectedObjectStore';
+import {useTableNavStore} from '@/state/tableNavStore';
+import {useFeaAnimationStore} from '@/state/feaAnimationStore';
 import {copySelectionNames, writeToClipboard} from '@/utils/clipboard/copySelectionNames';
 import {hideSelectedRanges, unhideAllRanges} from '@/utils/scene/visibility';
+import {elementFirstNodeId} from '@/utils/scene/fea/goToNode';
 import JsonViewerComponent from './JsonViewerComponent';
 import CoordinateDisplay from "./CoordinateDisplay";
 
@@ -57,6 +60,21 @@ const ObjectInfoBox = () => {
     const toggleJsonView = () => {
         setIsJsonViewVisible(!isJsonViewVisible);
     };
+
+    // "Show in data" — visible only when the picked element resolves
+    // to a vertex on the active FEA mesh (so the button doesn't
+    // appear on unrelated CAD picks). Click opens the data table
+    // panel and scrolls to the element's first node.
+    const feaSessionActive = useFeaAnimationStore((s) => s.sessionActive);
+    const setPanelOpen = useTableNavStore((s) => s.setPanelOpen);
+    const setGoToTarget = useTableNavStore((s) => s.setGoToTarget);
+    const firstNodeId = name && feaSessionActive ? elementFirstNodeId(name) : null;
+    const onShowInData = () => {
+        if (firstNodeId == null) return;
+        setPanelOpen(true);
+        setGoToTarget({kind: "node", id: firstNodeId});
+    };
+
     const prec = 3;
     return (
         <div className="bg-gray-400 bg-opacity-50 rounded p-2 min-w-80">
@@ -154,6 +172,18 @@ const ObjectInfoBox = () => {
                         <EyeIcon/>
                         Unhide all
                     </button>
+                    {firstNodeId != null && (
+                        <button
+                            type="button"
+                            onClick={onShowInData}
+                            className="bg-blue-700 hover:bg-blue-600 active:bg-blue-800 text-white text-[11px] rounded px-2 py-1 inline-flex items-center gap-1"
+                            title={`Open the FEA data table and scroll to node ${firstNodeId} (this element's first node)`}
+                            aria-label="Show this element in the FEA data table"
+                        >
+                            <TableIcon/>
+                            Show in data
+                        </button>
+                    )}
                     {/* Additive selection toggle. Mobile-only: desktop
                         users have Shift+click for the same effect, and
                         adding a chrome button there would be redundant.
@@ -282,6 +312,13 @@ const EyeOffIcon: React.FC = () => (
         <path d="M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z"/>
         <circle cx="8" cy="8" r="2"/>
         <path d="M2 14 14 2"/>
+    </svg>
+);
+
+const TableIcon: React.FC = () => (
+    <svg viewBox="0 0 16 16" className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden>
+        <rect x="2" y="3" width="12" height="10" rx="1"/>
+        <path d="M2 7h12M6 3v10"/>
     </svg>
 );
 

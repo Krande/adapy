@@ -20,6 +20,7 @@
 import React, {useEffect, useMemo, useState} from "react";
 import {useAnimationStore} from "@/state/animationStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
+import {useTableNavStore} from "@/state/tableNavStore";
 import {animationControllerRef} from "@/state/refs";
 import {COLORMAP_NAMES} from "@/utils/scene/fea/colormaps";
 import {resetFeaAnimationPhase} from "@/utils/scene/fea/feaAnimationDriver";
@@ -31,19 +32,25 @@ import FEMDataPanelIcon from "../icons/FEMDataPanelIcon";
 
 const SimulationControls = () => {
     const sessionActive = useFeaAnimationStore((s) => s.sessionActive);
-    const [showSimData, setShowSimData] = useState(false);
+    // Panel-visibility now lives in tableNavStore so external
+    // triggers (ObjectInfoBoxComponent's "Show in data" button) can
+    // open the panel without prop-drilling. Local state would still
+    // work for the button-toggle case but breaks the cross-component
+    // open-from-info-panel flow.
+    const showSimData = useTableNavStore((s) => s.isPanelOpen);
+    const togglePanel = useTableNavStore((s) => s.togglePanel);
 
     return (
         <div className="flex flex-col gap-2">
             {sessionActive ? (
                 <FeaModeControls
                     showSimData={showSimData}
-                    onToggleData={() => setShowSimData((v) => !v)}
+                    onToggleData={togglePanel}
                 />
             ) : (
                 <GltfClipControls
                     showSimData={showSimData}
-                    onToggleData={() => setShowSimData((v) => !v)}
+                    onToggleData={togglePanel}
                 />
             )}
             {showSimData && (

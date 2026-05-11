@@ -136,6 +136,44 @@ function frameCamera(worldPos: THREE.Vector3, radius: number): void {
     }
 }
 
+/** Look up the first vertex (node) of an FEA element by its AFEM
+ *  draw-range label. ``E12345`` style — same name shown in the
+ *  selected-object info panel after a 3D pick. Returns the 1-based
+ *  node id ready for the data-table virtualizer, or null when the
+ *  active mesh isn't an FEA mesh / the label isn't in its draw
+ *  ranges / the element is a face-less line element.
+ *
+ *  Drives the reverse-direction nav (info panel → data table): the
+ *  user clicks an element in the scene, hits "Show in data", and
+ *  the table scrolls to the element's first node. First-node
+ *  semantics are arbitrary but stable — same row every time, and
+ *  matches what a user inspecting "what does this element look
+ *  like" would reach for. */
+export function elementFirstNodeId(elementLabel: string): number | null {
+    const mesh = useFeaAnimationStore.getState().mesh;
+    if (!mesh) return null;
+    const drawRanges = (mesh as any).drawRanges as
+        | Map<string, [number, number]>
+        | undefined;
+    if (!drawRanges) return null;
+    const range = drawRanges.get(elementLabel);
+    if (!range) return null;
+    const [start, count] = range;
+    if (count === 0) return null;
+    const indexAttr = mesh.geometry.getIndex();
+    if (!indexAttr) return null;
+    const arr = indexAttr.array as Uint16Array | Uint32Array;
+    if (start < 0 || start >= arr.length) return null;
+    return arr[start] + 1; // 1-based node id
+}
+
+/** True when ``label`` resolves to a vertex on the active FEA mesh —
+ *  used to gate the "Show in data" button so it doesn't show up on
+ *  picks of unrelated CAD geometry. */
+export function isFeaElementLabel(label: string): boolean {
+    return elementFirstNodeId(label) !== null;
+}
+
 /** Highlight the node + frame the camera on it. ``nodeId`` is the
  *  1-based label the table renders; the internal vertex index is
  *  ``nodeId - 1``. No-op when the FEA session isn't active or the

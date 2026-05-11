@@ -123,6 +123,8 @@ const FeaNodalTable: React.FC<{
     // keep track of which one's currently scoped.
     const activeNodeId = useTableNavStore((s) => s.activeNodeId);
     const setActiveNodeId = useTableNavStore((s) => s.setActiveNodeId);
+    const goToTarget = useTableNavStore((s) => s.goToTarget);
+    const setGoToTarget = useTableNavStore((s) => s.setGoToTarget);
     const onGoToNode = (nodeId: number) => {
         if (activeNodeId === nodeId) {
             // Toggle off: second click on the same row clears the
@@ -260,6 +262,45 @@ const FeaNodalTable: React.FC<{
         estimateSize: () => ROW_HEIGHT_PX,
         overscan: 16,
     });
+
+    // External nav requests (Phase 1b: ObjectInfoBoxComponent's
+    // "Show in data" button). When ``goToTarget`` becomes non-null,
+    // find the row, scroll it into view, mark it active, and clear
+    // the target so the same trigger can fire twice in a row.
+    //
+    // Filter clear: if the user's current filter would hide the
+    // target node, the scroll would land nowhere. Auto-clear the
+    // filter so the requested node is always visible — the user
+    // clicked "Show in data" expecting to see it.
+    useEffect(() => {
+        if (!goToTarget) return;
+        if (goToTarget.kind !== "node") return;
+        const targetRow = goToTarget.id - 1; // 1-based id → 0-based row
+        if (targetRow < 0 || targetRow >= n_points) {
+            setGoToTarget(null);
+            return;
+        }
+
+        let pos = -1;
+        for (let k = 0; k < visibleRowIndices.length; k++) {
+            if (visibleRowIndices[k] === targetRow) {
+                pos = k;
+                break;
+            }
+        }
+        if (pos < 0) {
+            // Filter hides the target. Drop it and re-run on the
+            // next render — the cleared filter will produce a fresh
+            // visibleRowIndices that contains the row.
+            if (filter) setFilter("");
+            return;
+        }
+
+        rowVirtualizer.scrollToIndex(pos, {align: "center"});
+        setActiveNodeId(goToTarget.id);
+        setGoToTarget(null);
+    }, [goToTarget, visibleRowIndices, n_points, filter,
+        rowVirtualizer, setActiveNodeId, setGoToTarget]);
 
     const onHeaderClick = (col: number) => {
         // Tri-state cycle on the same column; reset to asc on a

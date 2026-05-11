@@ -20,11 +20,22 @@ export interface TableNavState {
 
     goToTarget: TableNavTarget | null;
     setGoToTarget: (t: TableNavTarget | null) => void;
+
+    /** Whether the data-table panel is open. Lifted out of
+     * SimulationControls' local state so external triggers
+     * (ObjectInfoBoxComponent's "Show in data" button, future
+     * keyboard shortcuts) can open the panel without prop-drilling. */
+    isPanelOpen: boolean;
+    setPanelOpen: (open: boolean) => void;
+    togglePanel: () => void;
 }
 
-export const useTableNavStore = create<TableNavState>((set) => ({
+export const useTableNavStore = create<TableNavState>((set, get) => ({
     activeNodeId: null,
     setActiveNodeId: (activeNodeId) => set({activeNodeId}),
     goToTarget: null,
     setGoToTarget: (goToTarget) => set({goToTarget}),
+    isPanelOpen: false,
+    setPanelOpen: (isPanelOpen) => set({isPanelOpen}),
+    togglePanel: () => set({isPanelOpen: !get().isPanelOpen}),
 }));
