@@ -748,6 +748,39 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             {"source_key": source_key, "targets": supported_targets_for(source_key)}
         )
 
+    @api.get("/scopes/{scope}/my-jobs")
+    async def api_scope_my_jobs(
+        request: Request,
+        scope_obj: Scope = Depends(_scope_from_path),
+        user: User = Depends(auth_module.current_user),
+        limit: int = 20,
+    ) -> JSONResponse:
+        """Conversions the calling user kicked off in this scope that
+        are still in flight (``queued`` or ``running``).
+
+        Frontend hits this on app load to repopulate the
+        bottom-right ConversionProgress toast for jobs that survived
+        a page reload. Scoped to (current user, current scope) so a
+        user can't see anyone else's jobs and so cross-scope jobs
+        don't clutter the toast when the active scope is unrelated.
+
+        ``error`` rows are intentionally excluded — they're terminal
+        and the toast's error-row UX expects manual dismissal, not a
+        silent restore. Errors that happened while the user was away
+        can be discovered via the (admin) audit log or a future
+        per-user history view.
+        """
+        pool = _require_pool(request)
+        rows = await db_module.list_audit(
+            pool,
+            user_sub=user.sub,
+            scope_kind=scope_obj.kind,
+            scope_id=scope_obj.id,
+            statuses=["queued", "running"],
+            limit=min(max(int(limit), 1), 100),
+        )
+        return JSONResponse({"jobs": rows})
+
     @api.get("/scopes/{scope}/result-meta")
     async def api_scope_result_meta(
         request: Request,

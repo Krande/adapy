@@ -392,5 +392,17 @@ async def test_admin_audit_filters(tmp_path):
         )
         assert len(page2) == 1
         assert page2[0]["id"] < page1[0]["id"]
+
+        # ``statuses`` filter — the ``/my-jobs`` user-facing endpoint
+        # asks for ``[queued, running]`` only, hiding completed +
+        # errored rows so the bottom-right toast restore-on-login
+        # doesn't re-pop already-finished work.
+        running = await dbm.list_audit(pool, statuses=["running"], user_sub=sub_b)
+        assert len(running) == 0  # sub_b's row was inserted as 'queued'
+        queued = await dbm.list_audit(
+            pool, statuses=["queued", "running"], user_sub=sub_b
+        )
+        assert len(queued) == 1
+        assert queued[0]["status"] == "queued"
     finally:
         await dbm.close_pool(pool)

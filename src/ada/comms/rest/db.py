@@ -323,6 +323,7 @@ async def list_audit(
     scope_kind: str | None = None,
     scope_id: str | None = None,
     action: str | None = None,
+    statuses: list[str] | None = None,
     limit: int = 100,
     before_id: int | None = None,
 ) -> list[dict]:
@@ -332,6 +333,10 @@ async def list_audit(
     pass the smallest id from the previous page as ``before_id``. id
     monotonicity matches ``ts`` ordering and avoids the offset-based
     "page drift" surprise when new rows arrive between requests.
+
+    ``statuses`` filters by the job's terminal/transient state (e.g.
+    ``["queued", "running"]`` for the user-facing "my in-flight jobs"
+    view). Empty list / None disables the filter.
     """
     where: list[str] = []
     args: list = []
@@ -347,6 +352,9 @@ async def list_audit(
     if action:
         args.append(action)
         where.append(f"action = ${len(args)}")
+    if statuses:
+        args.append(statuses)
+        where.append(f"status = ANY(${len(args)})")
     if before_id is not None:
         args.append(before_id)
         where.append(f"id < ${len(args)}")

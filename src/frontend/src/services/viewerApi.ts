@@ -679,6 +679,21 @@ export const viewerApi = {
         return jsonOrThrow<ConvertResponse>(r, `convertStatus(${jobId})`);
     },
 
+    /** In-flight conversions the current user started in this scope.
+     *  Used by the bottom-right toast to repopulate on page reload so
+     *  a long bake the user kicked off and walked away from still
+     *  shows up when they come back. Errors are intentionally
+     *  excluded — they're terminal and the toast's error row expects
+     *  manual dismissal, not silent restore. */
+    async myJobs(scope: ScopeUrl, limit = 20): Promise<AuditEntry[]> {
+        const r = await authedFetch(
+            `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/my-jobs` +
+            `?limit=${encodeURIComponent(String(limit))}`,
+        );
+        const body = await jsonOrThrow<{jobs: AuditEntry[]}>(r, `myJobs(${scope})`);
+        return body.jobs;
+    },
+
     /** Server-side viable-target listing. The frontend mirrors this
      * mapping client-side too, but this lets us cross-check. */
     async convertTargets(scope: ScopeUrl, sourceKey: string): Promise<TargetFormat[]> {
