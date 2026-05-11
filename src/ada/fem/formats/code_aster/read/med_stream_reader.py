@@ -21,8 +21,30 @@ from typing import Iterator
 import numpy as np
 
 from ada.fem.formats.code_aster.read.med_reader import _MED_SHORT_TO_STR
-from ada.fem.results.artefacts import FieldSpec, MeshGeometry, StepValues
+from ada.fem.results.artefacts import FieldCategory, FieldSpec, MeshGeometry, StepValues
 from ada.fem.results.common import CellBlockData
+
+
+def _classify_med_field(name: str) -> FieldCategory:
+    """RMED-specific field-name → category mapping.
+
+    Code Aster's MED files use solver-specific field names: ``DEPL``
+    for displacement, ``SIEF_NOEU`` / ``SIGM_NOEU`` for stress,
+    ``EPSI_NOEU`` for strain, ``REAC_NODA`` for reactions. The match
+    is conservative (any-token-contains) so post-fixed forms like
+    ``DEPL_ELGA`` still get tagged.
+    """
+
+    upper = name.upper()
+    if "DEPL" in upper:
+        return "displacement"
+    if "REAC" in upper:
+        return "reaction"
+    if "SIEF" in upper or "SIGM" in upper or "SIG" in upper:
+        return "stress"
+    if "EPSI" in upper or "EPS" in upper:
+        return "strain"
+    return "other"
 
 
 class RmedStreamReader:
@@ -125,6 +147,7 @@ class RmedStreamReader:
                     n_points=n_points_mesh,
                     support=support,
                     step_values=step_values,
+                    category=_classify_med_field(field_name),
                 )
             )
 

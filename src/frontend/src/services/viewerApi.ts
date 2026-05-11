@@ -78,6 +78,18 @@ export interface FeaManifestStep {
 
 export type FeaScalarRange = {[component: string]: [number, number]};
 
+/** Coarse semantic tag from the bake. Frontend uses this to decide
+ *  whether a field drives mesh deformation (only "displacement"
+ *  does) and whether the deformation toggle should default on
+ *  (everything except "reaction"). Mirrors the backend
+ *  FieldCategory Literal type — keep in sync. */
+export type FeaFieldCategory =
+    | "displacement"
+    | "reaction"
+    | "stress"
+    | "strain"
+    | "other";
+
 export interface FeaManifestField {
     /** Picker display name; canonicalised across solvers. */
     name_canonical: string;
@@ -85,6 +97,9 @@ export interface FeaManifestField {
     name_native: string;
     /** scalar | vector3 | vector6 | tensor6 | tensor9 | vectorN. */
     kind: string;
+    /** Semantic tag set by the reader. Drives the warp-source choice
+     *  in the simulation controls. */
+    category: FeaFieldCategory;
     support: "nodal" | "element_nodal" | "gauss";
     /** Drives the deformation-scale slider range in the picker:
      * 'static' = [0, 1] (one-directional displacement, signed sweep

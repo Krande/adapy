@@ -70,6 +70,17 @@ class MeshGeometry:
     cell_blocks: list[CellBlockData]
 
 
+# Field category — coarse semantic label used by the viewer to decide
+# whether a field should drive mesh deformation (only ``displacement``
+# does), whether the deformation toggle should default ON (everything
+# except ``reaction``), and how to label the field in pickers. The
+# readers tag each FieldSpec explicitly; ``other`` is the fallback
+# when the reader can't classify (a third-party field, an unknown RV
+# card). Adding a new category should be deliberate — the frontend
+# switch on this is exhaustive.
+FieldCategory = Literal["displacement", "reaction", "stress", "strain", "other"]
+
+
 @dataclass
 class FieldSpec:
     """Per-field metadata needed to plan a blob write before the first
@@ -83,6 +94,7 @@ class FieldSpec:
     n_points: int
     support: Literal["nodal", "element_nodal", "gauss"]
     step_values: list[float]
+    category: FieldCategory = "other"
     dtype: np.dtype = np.dtype(np.float32)
 
     @property
@@ -128,6 +140,49 @@ class FEAStreamReader(Protocol):
     def iter_field_steps(self, field_name: str) -> Iterator[StepValues]: ...
 
     def close(self) -> None: ...
+
+
+def _classify_field(name: str, sample) -> FieldCategory:
+    """Best-effort field-category tag from the field name + the
+    sample :class:`FieldData` payload.
+
+    Two signals: an explicit ``field_type`` enum on the sample (only
+    ``NodalFieldData`` carries one today — ``DISP`` / ``FORCE`` /
+    ``VEL`` / ``UNKNOWN``) and the field name (e.g. Sesam RVNODDIS,
+    RVSTRESS, RVFORCES). The frontend uses the category to decide
+    whether to drive mesh deformation off a field; misclassification
+    just means the user gets the warp toggle defaulted wrong, which
+    they can fix in the UI. So the fallback is ``other``, not a hard
+    failure.
+    """
+
+    from ada.fem.results.field_data import NodalFieldType
+
+    field_type = getattr(sample, "field_type", None)
+    if field_type is not None:
+        if field_type == NodalFieldType.DISP:
+            return "displacement"
+        # NodalFieldType.FORCE on a nodal output is a reaction force
+        # in every solver we currently read; if that ever stops being
+        # true, the reader can override by passing category=... on
+        # the spec construction directly.
+        if field_type == NodalFieldType.FORCE:
+            return "reaction"
+
+    upper = name.upper()
+    # Sesam RVNODDIS = nodal displacements; RVFORCES = beam-element
+    # section forces (not nodal reactions); RVSTRESS = element
+    # stresses. Code Aster: DEPL / SIEF / EPSI. Generic Abaqus /
+    # MED: U / S / E.
+    if any(token in upper for token in ("DISP", "DEPL", "RVNODDIS")):
+        return "displacement"
+    if any(token in upper for token in ("REAC", "RF", "RVFORCES")):
+        return "reaction"
+    if any(token in upper for token in ("STRESS", "SIGMA", "SIEF", "RVSTRESS")):
+        return "stress"
+    if any(token in upper for token in ("STRAIN", "EPSI", "EPS")):
+        return "strain"
+    return "other"
 
 
 class FEAResultStreamAdapter:
@@ -264,6 +319,7 @@ class FEAResultStreamAdapter:
                     n_points=n_points,
                     support=support,
                     step_values=step_values,
+                    category=_classify_field(name, first),
                 )
             )
 
@@ -671,6 +727,7 @@ def build_manifest(
                 "name_canonical": spec.name,
                 "name_native": spec.name,
                 "kind": spec.kind,
+                "category": spec.category,
                 "support": spec.support,
                 "analysis_kind": _infer_analysis_kind(spec),
                 "components": spec.components,

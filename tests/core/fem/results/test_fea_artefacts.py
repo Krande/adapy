@@ -211,6 +211,7 @@ def _assert_picker_contract(manifest: dict, *, fixture_label: str) -> None:
             "name_canonical",
             "name_native",
             "kind",
+            "category",
             "support",
             "components",
             "blob",
@@ -220,6 +221,10 @@ def _assert_picker_contract(manifest: dict, *, fixture_label: str) -> None:
             "default_view",
         ):
             assert required in field, f"{fixture_label}: field missing {required}"
+
+        assert field["category"] in {
+            "displacement", "reaction", "stress", "strain", "other"
+        }, f"{fixture_label}: bad category={field['category']!r}"
 
         assert isinstance(field["name_canonical"], str) and field["name_canonical"], (
             f"{fixture_label}: empty name_canonical"
@@ -594,3 +599,41 @@ def test_blob_header_fits_in_fixed_prefix():
     stride = spec.n_points * spec.n_components * spec.dtype.itemsize
     header = _encode_blob_header(spec, stride)
     assert len(header) == BLOB_HEADER_BYTES
+
+
+def test_classify_field_by_name():
+    """Spot-check the name-based fallback so unfamiliar solvers get a
+    sensible category. The bake-level test asserts the manifest
+    carries a valid value; this asserts the actual classification."""
+
+    from ada.fem.results.artefacts import _classify_field
+
+    class _Sample:
+        field_type = None
+
+    s = _Sample()
+    assert _classify_field("RVNODDIS", s) == "displacement"
+    assert _classify_field("DEPL", s) == "displacement"
+    assert _classify_field("RVFORCES", s) == "reaction"
+    assert _classify_field("RVSTRESS", s) == "stress"
+    assert _classify_field("SIEF_NOEU", s) == "stress"
+    assert _classify_field("EPSI_NOEU", s) == "strain"
+    assert _classify_field("MY_CUSTOM_FIELD", s) == "other"
+
+
+def test_classify_field_by_field_type_overrides_name():
+    """An explicit NodalFieldType.DISP on the sample wins even if the
+    name doesn't look like a displacement field — readers know
+    their solver semantics better than the name heuristic."""
+
+    from ada.fem.results.artefacts import _classify_field
+    from ada.fem.results.field_data import NodalFieldType
+
+    class _Sample:
+        def __init__(self, ft):
+            self.field_type = ft
+
+    assert _classify_field("WEIRD_FIELD", _Sample(NodalFieldType.DISP)) == "displacement"
+    assert _classify_field("WEIRD_FIELD", _Sample(NodalFieldType.FORCE)) == "reaction"
+    # UNKNOWN falls through to the name heuristic.
+    assert _classify_field("STRESS_X", _Sample(NodalFieldType.UNKNOWN)) == "stress"

@@ -17,6 +17,7 @@ const FAKE_MANIFEST: FeaManifest = {
             name_canonical: "DEPL",
             name_native: "DEPL",
             kind: "vector3",
+            category: "displacement",
             support: "nodal",
             analysis_kind: "static",
             components: ["DX", "DY", "DZ"],
