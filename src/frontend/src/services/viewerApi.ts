@@ -197,6 +197,14 @@ export interface FeaManifest {
         beam_solids_url?: string;
         beam_solids_elements_url?: string;
         n_beam_solids?: number;
+        /** Optional AFBV sidecar — per-beam-solid-vertex
+         *  ``(node0_idx, node1_idx, t)``. The frontend lerps nodal
+         *  displacements onto the solid vertices so the solid mesh
+         *  deforms in lockstep with its parent beam's endpoints —
+         *  without this, large morph-scale factors visually detach
+         *  the rigid solid beams from the flexing shells. */
+        beam_solids_warp_url?: string;
+        n_beam_solid_verts?: number;
     };
     fields: FeaManifestField[];
     legacy_glb?: {url_template: string};

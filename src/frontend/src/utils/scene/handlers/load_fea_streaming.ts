@@ -6,6 +6,7 @@ import {GLTFLoader} from "three/examples/jsm/loaders/GLTFLoader";
 
 import {fetchElemFieldBlob} from "@/services/feaElemFieldBlob";
 import {fetchFieldBlob} from "@/services/feaFieldBlob";
+import {fetchBeamSolidsWarp, ParsedBeamSolidsWarp} from "@/services/feaBeamSolidsWarp";
 import {fetchMeshEdges} from "@/services/feaMeshEdges";
 import {fetchMeshElements, MeshElementEntry} from "@/services/feaMeshElements";
 import {FeaManifest, FeaManifestField, viewerApi} from "@/services/viewerApi";
@@ -47,6 +48,11 @@ interface ActiveFeaStreaming {
      *  AFEL kernel resets the position attribute to this snapshot
      *  before re-painting, mirroring the main-mesh path. */
     beamSolidBasePositions?: Float32Array;
+    /** AFBV warp mapping — per-vertex (node0_idx, node1_idx, t). Used
+     *  to lerp nodal displacements onto the solid mesh's vertices so
+     *  the solid beams stay connected to the rest of the structure
+     *  under any morph-scale factor. */
+    beamSolidWarp?: ParsedBeamSolidsWarp;
 }
 
 let active: ActiveFeaStreaming | null = null;
@@ -300,6 +306,92 @@ async function tryLoadBeamSolids(
     }
 }
 
+/** Install the beam-solid mesh's morph delta from a nodal
+ *  displacement field. Per vertex:
+ *
+ *    delta_v = lerp(disp[node0], disp[node1], t) × (only first 3 components)
+ *
+ *  Linked to the main mesh's ``morphTargetInfluences`` so the slider
+ *  drives both meshes in lockstep. No-op when the active session
+ *  has no beam-solid mesh or no AFBV mapping. */
+function installBeamSolidWarp(
+    main: THREE.Mesh,
+    beamSolid: THREE.Mesh,
+    basePositions: Float32Array,
+    warp: ParsedBeamSolidsWarp,
+    warpField: FeaManifestField | undefined,
+    warpStepValues: Float32Array | undefined,
+): void {
+    const nVerts = warp.n_verts;
+    const displacement = new Float32Array(nVerts * 3);
+
+    if (warpField && warpStepValues) {
+        const nc = warpField.components.length;
+        const n0 = warp.node0;
+        const n1 = warp.node1;
+        const ts = warp.t;
+        for (let v = 0; v < nVerts; v++) {
+            const t = ts[v];
+            const a = n0[v] * nc;
+            const b = n1[v] * nc;
+            const out = v * 3;
+            // Pre-fetch up to first 3 components per endpoint; treat
+            // missing components as zero (1D / 2D displacement fields
+            // shouldn't appear today, but defensive).
+            const ax = warpStepValues[a] || 0;
+            const ay = nc >= 2 ? warpStepValues[a + 1] || 0 : 0;
+            const az = nc >= 3 ? warpStepValues[a + 2] || 0 : 0;
+            const bx = warpStepValues[b] || 0;
+            const by = nc >= 2 ? warpStepValues[b + 1] || 0 : 0;
+            const bz = nc >= 3 ? warpStepValues[b + 2] || 0 : 0;
+            const omt = 1 - t;
+            displacement[out + 0] = omt * ax + t * bx;
+            displacement[out + 1] = omt * ay + t * by;
+            displacement[out + 2] = omt * az + t * bz;
+        }
+    }
+    // Else: leave displacement at zero — no warp source means no
+    // deformation, which is what the user gets when they pick a
+    // reaction field or turn warp off.
+
+    const geom = beamSolid.geometry;
+    const posAttr = geom.getAttribute("position");
+    if (posAttr) {
+        (posAttr.array as Float32Array).set(basePositions);
+        posAttr.needsUpdate = true;
+    }
+    geom.morphAttributes.position = [new THREE.BufferAttribute(displacement, 3)];
+    geom.morphTargetsRelative = true;
+
+    // Share the main mesh's influences array so a single write to
+    // mesh.morphTargetInfluences[0] (manual drag or RAF sweep)
+    // moves both meshes. Same trick the line wireframe overlay uses.
+    if (main.morphTargetInfluences) {
+        beamSolid.morphTargetInfluences = main.morphTargetInfluences;
+        beamSolid.morphTargetDictionary = main.morphTargetDictionary ?? undefined;
+    } else if (!beamSolid.morphTargetInfluences) {
+        beamSolid.morphTargetInfluences = [0];
+        beamSolid.morphTargetDictionary = {displacement: 0};
+    }
+
+    // Enable morph targets on every material slot so the GPU
+    // actually applies the delta. The PBR material from the GLB
+    // defaults to morphTargets=false.
+    const enableMorph = (mat: THREE.Material) => {
+        if ("morphTargets" in mat && (mat as unknown as {morphTargets: unknown}).morphTargets !== true) {
+            (mat as unknown as {morphTargets: boolean}).morphTargets = true;
+            mat.needsUpdate = true;
+        }
+    };
+    if (Array.isArray(beamSolid.material)) beamSolid.material.forEach(enableMorph);
+    else if (beamSolid.material) enableMorph(beamSolid.material as THREE.Material);
+
+    // Same dispose dance as applyField: drop the cached morph texture
+    // so three.js rebuilds it from the fresh BufferAttribute on the
+    // next render.
+    geom.dispatchEvent({type: "dispose"});
+}
+
 function snapshotBasePositions(geometry: THREE.BufferGeometry): Float32Array {
     const attr = geometry.getAttribute("position");
     if (!attr || attr.itemSize !== 3) {
@@ -420,6 +512,32 @@ export async function load_fea_streaming(args: {
             mesh.add(beamSolid.mesh);
             active.beamSolidMesh = beamSolid.mesh;
             active.beamSolidBasePositions = beamSolid.basePositions;
+
+            // AFBV: per-vertex (node0, node1, t). Required so the
+            // solid mesh deforms with the rest of the structure
+            // when warp is applied. Best-effort fetch — without it
+            // the solid mesh still renders but stays at base
+            // positions under any morph scale (the old behaviour).
+            if (manifest.mesh.beam_solids_warp_url) {
+                try {
+                    const warp = await fetchBeamSolidsWarp(
+                        scope, sourceName, manifest.mesh.beam_solids_warp_url,
+                    );
+                    if (warp.n_verts === beamSolid.basePositions.length / 3) {
+                        active.beamSolidWarp = warp;
+                    } else {
+                        // eslint-disable-next-line no-console
+                        console.warn(
+                            `[fea-streaming] AFBV vertex count ${warp.n_verts} ` +
+                            `!= solid mesh vertices ${beamSolid.basePositions.length / 3}; ` +
+                            `solid beams won't follow deformation.`,
+                        );
+                    }
+                } catch (err) {
+                    // eslint-disable-next-line no-console
+                    console.warn("[fea-streaming] failed to load AFBV warp sidecar:", err);
+                }
+            }
         }
 
         // Element-edge wireframe overlay. The bake emits an explicit
@@ -536,11 +654,15 @@ export async function load_fea_streaming(args: {
         // entries have zero triangles (line elements) so the kernel
         // is a no-op there for beams, and the beam-solid mesh has no
         // entries for shells. Net effect: each label paints exactly
-        // the mesh that owns its triangles. No warp here — beam-
-        // solid vertices aren't nodal so the nodal displacement field
-        // doesn't map cleanly. Smooth shading also skipped: each
-        // beam has at most one IP along its length so per-element
-        // colour and nodal-averaged colour coincide.
+        // the mesh that owns its triangles. Smooth shading skipped:
+        // each beam has at most one IP along its length so per-
+        // element colour and nodal-averaged colour coincide.
+        //
+        // Note: applyElemFieldToMesh installs a zero-magnitude morph
+        // delta (no warp arg here). ``installBeamSolidWarp`` below
+        // overwrites that with the lerped nodal warp so the solid
+        // beams stay connected to the deformed structure under any
+        // morph-scale factor.
         if (active.beamSolidMesh && active.beamSolidBasePositions) {
             applyElemFieldToMesh({
                 mesh: active.beamSolidMesh,
@@ -553,6 +675,16 @@ export async function load_fea_streaming(args: {
                 colormap,
                 nodalAverage: false,
             });
+            if (active.beamSolidWarp) {
+                installBeamSolidWarp(
+                    active.mesh,
+                    active.beamSolidMesh,
+                    active.beamSolidBasePositions,
+                    active.beamSolidWarp,
+                    warpInfo?.field,
+                    warpInfo?.stepValues,
+                );
+            }
         }
     } else {
         const parsed = await fetchFieldBlob(scope, sourceName, field);
@@ -575,6 +707,13 @@ export async function load_fea_streaming(args: {
         // nodes). Turn vertexColors off so any stale element-field
         // colouring stops contributing and the GLB's base material
         // shows. Cheap toggle — no buffer rewrite needed.
+        //
+        // Warp is independent of colour: install the lerped nodal
+        // warp on the beam-solid mesh so a displacement field flexes
+        // the solid beams in lockstep with the rest of the structure.
+        // Without this, scaling the morph influence ×100 would leave
+        // rigid solid beams sitting at undeformed positions while the
+        // shells fly off.
         if (active.beamSolidMesh) {
             const disableVc = (mat: THREE.Material) => {
                 if ("vertexColors" in mat) {
@@ -585,6 +724,17 @@ export async function load_fea_streaming(args: {
             const m = active.beamSolidMesh.material;
             if (Array.isArray(m)) m.forEach(disableVc);
             else if (m) disableVc(m as THREE.Material);
+
+            if (active.beamSolidWarp && active.beamSolidBasePositions) {
+                installBeamSolidWarp(
+                    active.mesh,
+                    active.beamSolidMesh,
+                    active.beamSolidBasePositions,
+                    active.beamSolidWarp,
+                    warpInfo?.field,
+                    warpInfo?.stepValues,
+                );
+            }
         }
     }
 

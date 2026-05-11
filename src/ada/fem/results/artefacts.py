@@ -84,6 +84,18 @@ ELEM_ENTRY_BYTES = 12   # uint32 label, uint32 tri_start, uint32 tri_count
 # alongside ``fea.mesh.glb`` and can paint it with the same AFEL
 # element-field pipeline since the labels match.
 
+# Beam-solid warp sidecar (AFBV). Per-vertex mapping back to the
+# nodal displacement field: (node0_idx, node1_idx, t). The frontend
+# lerps disp[node0]<-->disp[node1] by ``t`` per vertex so the solid
+# mesh deforms in lockstep with its parent beam's two endpoints —
+# without this, a large scaleFactor on a static load would make the
+# shells flex while the rigid beam solids stayed put, visually
+# disconnecting the structure.
+BEAM_WARP_MAGIC = b"AFBV"
+BEAM_WARP_VERSION = 1
+BEAM_WARP_HEADER_BYTES = 16  # magic + version + n_verts + 4-byte pad
+BEAM_WARP_ENTRY_BYTES = 12   # uint32 n0, uint32 n1, float32 t
+
 
 @dataclass
 class MeshGeometry:
@@ -98,7 +110,9 @@ class MeshGeometry:
 class SolidBeamMesh:
     """Beam elements tessellated as 3D extruded solids. Optional bake
     output — only emitted when the reader has section + axis info per
-    beam element. The data shape mirrors the main mesh:
+    beam element. The data shape mirrors the main mesh plus a per-
+    vertex warp mapping so the solid mesh can deform in lockstep with
+    its parent beam's nodal displacements:
 
     * ``points``: (n_verts, 3) float64 — merged vertex buffer across
       all beams.
@@ -107,11 +121,16 @@ class SolidBeamMesh:
       the line-element label so the frontend can paint AFEL element
       fields onto the solid faces with the same draw-range lookup as
       the main mesh.
-
-    No per-vertex displacement morph today: a beam's extruded vertex
-    isn't a node in the underlying FEA mesh, so the standard nodal
-    warp doesn't extend to it without per-segment lerp. Solid beams
-    render at the un-deformed positions for v1.
+    * ``vertex_node0`` / ``vertex_node1``: (n_verts,) uint32 — the
+      0-based indices of the parent beam's two endpoint nodes in the
+      main mesh's point buffer. Same value across all vertices owned
+      by one beam.
+    * ``vertex_t``: (n_verts,) float32 — axial parameter ∈ [0, 1] of
+      each vertex along its parent beam: the projection of
+      (v - p_n0) onto the (p_n1 - p_n0) direction. The frontend warp
+      path computes per-vertex displacement as
+      ``lerp(disp[node0], disp[node1], t)`` so a scaled deformation
+      keeps the solid beam connected at both ends.
     """
 
     points: np.ndarray
@@ -122,6 +141,15 @@ class SolidBeamMesh:
     # module import-light; ``write_beam_solids_elements`` does the
     # structural validation at write time.
     element_ranges: list = dc_field(default_factory=list)
+    vertex_node0: np.ndarray = dc_field(
+        default_factory=lambda: np.empty(0, dtype=np.uint32)
+    )
+    vertex_node1: np.ndarray = dc_field(
+        default_factory=lambda: np.empty(0, dtype=np.uint32)
+    )
+    vertex_t: np.ndarray = dc_field(
+        default_factory=lambda: np.empty(0, dtype=np.float32)
+    )
 
 
 # Field category — coarse semantic label used by the viewer to decide
@@ -698,11 +726,30 @@ class FEAResultStreamAdapter:
 
         all_positions: list[np.ndarray] = []
         all_indices: list[np.ndarray] = []
+        all_n0: list[np.ndarray] = []
+        all_n1: list[np.ndarray] = []
+        all_t: list[np.ndarray] = []
         ranges: list[ElementRange] = []
         vertex_offset = 0
         tri_cursor = 0
 
         for elem in line_elems:
+            n0_node = elem.nodes[0]
+            n1_node = elem.nodes[-1]
+            try:
+                n0_idx = self._nmap[int(n0_node.id)]
+                n1_idx = self._nmap[int(n1_node.id)]
+            except KeyError:
+                # Beam endpoint isn't in the streaming point buffer —
+                # skip the beam rather than crash. Surfaces as a
+                # warning so source-data weirdness is visible.
+                from ada.config import get_logger
+
+                get_logger().warning(
+                    "beam-solid skip elem %s: endpoint node not in mesh",
+                    elem.id,
+                )
+                continue
             try:
                 beam = line_elem_to_beam(elem, dummy_part, "BM")
                 geom = beam.solid_geom()
@@ -730,6 +777,28 @@ class FEAResultStreamAdapter:
             all_positions.append(verts)
             all_indices.append(tris.astype(np.uint32, copy=False))
 
+            # Axial parameter t for each vertex: project (v - p0) onto
+            # (p1 - p0) and divide by |p1 - p0|^2. Clamped to [0, 1]
+            # so OCC tessellation jitter at the endpoints doesn't
+            # produce values like 1.0001 that would over-shoot the
+            # lerp range on the frontend.
+            p0 = np.asarray(n0_node.p, dtype=np.float64)
+            p1 = np.asarray(n1_node.p, dtype=np.float64)
+            axis = p1 - p0
+            axis_sq = float(np.dot(axis, axis))
+            if axis_sq <= 0:
+                # Zero-length beam (degenerate input): every vertex
+                # gets t=0, displacement collapses to disp[n0]. Better
+                # than NaN.
+                t_vals = np.zeros(verts.shape[0], dtype=np.float32)
+            else:
+                rel = verts - p0
+                t_vals = np.clip(rel @ axis / axis_sq, 0.0, 1.0).astype(np.float32)
+
+            all_n0.append(np.full(verts.shape[0], n0_idx, dtype=np.uint32))
+            all_n1.append(np.full(verts.shape[0], n1_idx, dtype=np.uint32))
+            all_t.append(t_vals)
+
             tri_count = int(tris.shape[0])
             ranges.append(
                 ElementRange(
@@ -746,7 +815,17 @@ class FEAResultStreamAdapter:
 
         points = np.concatenate(all_positions, axis=0)
         triangles = np.concatenate(all_indices, axis=0)
-        return SolidBeamMesh(points=points, triangles=triangles, element_ranges=ranges)
+        vertex_node0 = np.concatenate(all_n0, axis=0)
+        vertex_node1 = np.concatenate(all_n1, axis=0)
+        vertex_t = np.concatenate(all_t, axis=0)
+        return SolidBeamMesh(
+            points=points,
+            triangles=triangles,
+            element_ranges=ranges,
+            vertex_node0=vertex_node0,
+            vertex_node1=vertex_node1,
+            vertex_t=vertex_t,
+        )
 
     def close(self) -> None:
         pass
@@ -953,6 +1032,46 @@ def write_beam_solids_glb(mesh: SolidBeamMesh, out_path: os.PathLike) -> None:
     scene.add_geometry(tm, node_name="beam_solids", geom_name="faces")
     with open(out_path, "wb") as f:
         scene.export(file_obj=f, file_type="glb")
+
+
+def write_beam_solids_warp(mesh: SolidBeamMesh, out_path: os.PathLike) -> int:
+    """Write the AFBV sidecar: per-vertex (node0_idx, node1_idx, t).
+
+    Frontend reads these once at load and computes the beam-solid
+    mesh's morph delta on every apply as
+    ``lerp(disp[node0], disp[node1], t)`` per vertex. Result is the
+    parent beam's two endpoints driving every vertex along the beam,
+    so a scaled deformation keeps the solid mesh connected to the
+    rest of the structure at the endpoints.
+    """
+
+    out_path = pathlib.Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    n0 = np.asarray(mesh.vertex_node0, dtype=np.uint32)
+    n1 = np.asarray(mesh.vertex_node1, dtype=np.uint32)
+    t = np.asarray(mesh.vertex_t, dtype=np.float32)
+    n_verts = int(n0.shape[0])
+    if not (n0.shape == n1.shape == t.shape):
+        raise ValueError(
+            f"AFBV shape mismatch: n0={n0.shape}, n1={n1.shape}, t={t.shape}"
+        )
+
+    with open(out_path, "wb") as f:
+        prefix = BEAM_WARP_MAGIC + struct.pack("<II", BEAM_WARP_VERSION, n_verts)
+        f.write(prefix + b"\x00" * (BEAM_WARP_HEADER_BYTES - len(prefix)))
+        if n_verts:
+            # Interleaved layout: one (n0, n1, t) record per vertex —
+            # frontend reads three typed arrays from one fetch by
+            # striding into the same ArrayBuffer at the right offsets.
+            payload = np.empty(n_verts * 3, dtype=np.uint32)
+            payload[0::3] = n0
+            payload[1::3] = n1
+            # ``t`` is float32 but the underlying bits land in the
+            # uint32 slot — view-cast keeps the float bit pattern.
+            payload[2::3] = t.view(np.uint32)
+            f.write(payload.tobytes(order="C"))
+    return n_verts
 
 
 def write_beam_solids_elements(mesh: SolidBeamMesh, out_path: os.PathLike) -> int:
@@ -1285,7 +1404,9 @@ def build_manifest(
     n_edges: int = 0,
     beam_solids_glb_filename: str | None = None,
     beam_solids_elements_filename: str | None = None,
+    beam_solids_warp_filename: str | None = None,
     n_beam_solids: int = 0,
+    n_beam_solid_verts: int = 0,
     mesh_elements_filename: str | None = None,
     n_elements: int = 0,
     legacy_glb_url_template: str | None = None,
@@ -1472,6 +1593,13 @@ def build_manifest(
         mesh_meta["beam_solids_url"] = beam_solids_glb_filename
         if beam_solids_elements_filename is not None:
             mesh_meta["beam_solids_elements_url"] = beam_solids_elements_filename
+        if beam_solids_warp_filename is not None:
+            # AFBV — per-vertex (node0_idx, node1_idx, t) mapping that
+            # lets the frontend lerp nodal displacements onto the
+            # solid mesh's vertices so the solid beam stays connected
+            # to the rest of the structure under any morph scale.
+            mesh_meta["beam_solids_warp_url"] = beam_solids_warp_filename
+            mesh_meta["n_beam_solid_verts"] = int(n_beam_solid_verts)
         mesh_meta["n_beam_solids"] = int(n_beam_solids)
 
     manifest: dict = {
@@ -1654,11 +1782,22 @@ def bake_artefacts(
         solid_beams = reader.try_solid_beams()
     except (AttributeError, NotImplementedError):
         solid_beams = None
+    beam_solids_warp_path: pathlib.Path | None = None
+    n_beam_solid_verts = 0
     if solid_beams is not None and solid_beams.triangles.size:
         beam_solids_glb_path = out_dir / "fea.beam_solids.glb"
         write_beam_solids_glb(solid_beams, beam_solids_glb_path)
         beam_solids_elements_path = out_dir / "fea.beam_solids.elements.bin"
         n_beam_solids = write_beam_solids_elements(solid_beams, beam_solids_elements_path)
+        # AFBV warp mapping — every solid vertex's parent beam
+        # endpoints + axial parameter. Skip when the reader didn't
+        # populate the vertex_* arrays (defensive: the SIF adapter
+        # always does, but a future reader might omit it).
+        if solid_beams.vertex_node0.size:
+            beam_solids_warp_path = out_dir / "fea.beam_solids.warp.bin"
+            n_beam_solid_verts = write_beam_solids_warp(
+                solid_beams, beam_solids_warp_path
+            )
 
     field_metas: list[FieldArtefactMeta] = []
     blob_paths: list[pathlib.Path] = []
@@ -1707,7 +1846,11 @@ def bake_artefacts(
         beam_solids_elements_filename=(
             beam_solids_elements_path.name if beam_solids_elements_path else None
         ),
+        beam_solids_warp_filename=(
+            beam_solids_warp_path.name if beam_solids_warp_path else None
+        ),
         n_beam_solids=n_beam_solids,
+        n_beam_solid_verts=n_beam_solid_verts,
         legacy_glb_url_template=legacy_glb_url_template,
     )
     manifest_path = out_dir / "fea.manifest.json"

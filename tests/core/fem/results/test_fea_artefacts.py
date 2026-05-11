@@ -757,6 +757,80 @@ def test_bake_emits_beam_solid_mesh_for_sif_line(fem_files, tmp_path):
     assert len(set(labels.tolist())) == n_elements
 
 
+def test_bake_emits_beam_solid_warp_sidecar(fem_files, tmp_path):
+    """AFBV sidecar — per-vertex (node0, node1, t) — must accompany
+    the beam-solid mesh so the frontend can warp solid vertices in
+    lockstep with their parent beam's nodal displacements. Verifies:
+    layout matches the spec, every t ∈ [0, 1], node indices land in
+    range, every (node0, node1) pair matches an actual line element
+    in the source.
+    """
+
+    from ada.fem.results.artefacts import (
+        BEAM_WARP_ENTRY_BYTES,
+        BEAM_WARP_HEADER_BYTES,
+        BEAM_WARP_MAGIC,
+    )
+
+    sif = fem_files / "cantilever/sesam/static/line/STATIC_LINE_CANTILEVER_SESAMR1.SIF"
+    if not sif.exists():
+        pytest.skip(f"fixture not present: {sif}")
+
+    bake = bake_fea_artefacts_from_source(sif, tmp_path / "out", src_key=sif.stem)
+    manifest = json.loads(bake.manifest_path.read_text())
+
+    mesh_meta = manifest["mesh"]
+    assert mesh_meta.get("beam_solids_warp_url") == "fea.beam_solids.warp.bin"
+    n_verts = mesh_meta["n_beam_solid_verts"]
+    assert n_verts > 0
+
+    warp_path = bake.out_dir / "fea.beam_solids.warp.bin"
+    data = warp_path.read_bytes()
+    assert data[:4] == BEAM_WARP_MAGIC
+    version, header_n = struct.unpack("<II", data[4:12])
+    assert version == 1
+    assert header_n == n_verts
+    assert len(data) == BEAM_WARP_HEADER_BYTES + n_verts * BEAM_WARP_ENTRY_BYTES
+
+    # Decode the interleaved (n0, n1, t) records.
+    raw_u32 = np.frombuffer(data[BEAM_WARP_HEADER_BYTES:], dtype=np.uint32).reshape(
+        n_verts, 3
+    )
+    n0 = raw_u32[:, 0]
+    n1 = raw_u32[:, 1]
+    t = raw_u32[:, 2].view(np.float32)
+
+    n_points = mesh_meta["n_points"]
+    assert int(n0.max()) < n_points
+    assert int(n1.max()) < n_points
+    # Endpoints must be distinct per vertex — zero-length beams would
+    # produce equal indices, but the bake would have skipped them.
+    assert (n0 != n1).all()
+
+    # t ∈ [0, 1] — clamped on the bake side.
+    assert float(t.min()) >= 0.0
+    assert float(t.max()) <= 1.0
+
+    # Every (n0, n1) pair must show up as the endpoints of an actual
+    # line element in the source.
+    from ada.fem.formats.sesam.results.read_sif import read_sif_file
+
+    result = read_sif_file(sif)
+    nmap = {int(x): i for i, x in enumerate(result.mesh.nodes.identifiers)}
+    line_pairs = set()
+    from ada.fem.shapes.definitions import LineShapes
+
+    for block in result.mesh.elements:
+        if not isinstance(block.elem_info.type, LineShapes):
+            continue
+        for nrefs in block.node_refs:
+            a, b = int(nrefs[0]), int(nrefs[-1])
+            line_pairs.add((nmap[a], nmap[b]))
+            line_pairs.add((nmap[b], nmap[a]))
+    seen_pairs = set(zip(n0.tolist(), n1.tolist()))
+    assert seen_pairs <= line_pairs, "AFBV pair not found among source line elements"
+
+
 def test_bake_skips_beam_solid_mesh_for_shell_only_sif(fem_files, tmp_path):
     """Shell-only fixtures have no line elements; the bake must skip
     the optional beam-solid emission entirely (no manifest key, no
