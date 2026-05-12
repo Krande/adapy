@@ -474,6 +474,61 @@ def test_write_beam_solids_edges_buckets_coincident_vertices(tmp_path):
     )
 
 
+def test_dedup_beam_tessellation_collapses_coincident_vertices():
+    """OCC tessellates each beam's BRep face independently, leaving
+    duplicate vertices at face boundaries. Inside one beam every
+    duplicate carries the same ``(n0, n1, t)``, so position-based
+    merging is lossless. The helper should:
+
+    * collapse the duplicates to a smaller vertex array,
+    * remap triangle indices to the merged pool,
+    * carry the axial parameter ``t`` along correctly.
+    """
+
+    from ada.fem.results.artefacts import _dedup_beam_tessellation
+
+    # Two triangles sharing a geometric edge but written with
+    # distinct vertex indices — mimics OCC's per-face emission.
+    verts = np.array(
+        [
+            [0.0, 0.0, 0.0],   # 0
+            [1.0, 0.0, 0.0],   # 1 → bucket-mate of 3
+            [0.5, 1.0, 0.0],   # 2 → bucket-mate of 4
+            [1.0, 0.0, 0.0],   # 3
+            [0.5, 1.0, 0.0],   # 4
+            [1.5, 0.0, 0.0],   # 5
+        ],
+        dtype=np.float64,
+    )
+    tris = np.array([[0, 1, 2], [3, 5, 4]], dtype=np.uint32)
+    # Axial t — coincident vertices share the same axial position so
+    # they share t. The helper must not error or pick the "wrong" t.
+    t_vals = np.array([0.0, 0.25, 0.5, 0.25, 0.5, 0.75], dtype=np.float32)
+
+    out_verts, out_tris, out_t = _dedup_beam_tessellation(verts, tris, t_vals)
+
+    # Four unique positions.
+    assert out_verts.shape == (4, 3)
+    # All triangle indices land inside the dedup'd vertex range.
+    assert int(out_tris.max()) < out_verts.shape[0]
+    # Position lookup via the new indices must reproduce the original
+    # triangle geometry exactly — no triangle has been "moved".
+    for ti in range(tris.shape[0]):
+        for vi in range(3):
+            np.testing.assert_array_almost_equal(
+                out_verts[out_tris[ti, vi]], verts[tris[ti, vi]],
+            )
+    # Bucket-mates of (1.0, 0.0, 0.0) and (0.5, 1.0, 0.0) must share
+    # one t value each — verifies the lossless merge claim.
+    assert out_t.shape == (4,)
+    # Find the unique vertex at (1.0, 0.0, 0.0); its t should be 0.25.
+    for i, p in enumerate(out_verts):
+        if np.allclose(p, [1.0, 0.0, 0.0]):
+            assert out_t[i] == 0.25
+        elif np.allclose(p, [0.5, 1.0, 0.0]):
+            assert out_t[i] == 0.5
+
+
 def test_write_beam_solids_edges_empty_mesh(tmp_path):
     """An empty SolidBeamMesh produces a valid AFEG header with
     n_edges=0. Downstream parseMeshEdges handles this as a zero-edge
@@ -982,6 +1037,23 @@ def test_bake_emits_beam_solid_mesh_for_sif_line(fem_files, tmp_path):
     # Labels are the source-file line-element ids — non-zero, distinct.
     assert int(labels.min()) >= 1
     assert len(set(labels.tolist())) == n_elements
+
+    # Per-beam vertex dedup: total beam-solid vertex count should
+    # land well below ``n_tris × 3`` thanks to within-beam coincident-
+    # vertex merging in ``_dedup_beam_tessellation``. Without the
+    # dedup pass OCC's per-face tessellation emits enough duplicates
+    # that the ratio hits ~3; with dedup it usually lands near or
+    # below ~1.5 even for fine I-beam / cylinder profiles. The
+    # threshold is loose so the assertion catches regressions
+    # (someone disabling dedup) without false-failing on
+    # tessellation-density tweaks.
+    n_tris = int(counts.sum())
+    n_verts = mesh_meta["n_beam_solid_verts"]
+    assert n_verts > 0, "AFBV must accompany the beam-solid mesh"
+    assert n_verts <= n_tris * 2, (
+        f"beam-solid vertex count {n_verts} suggests dedup didn't fire "
+        f"(n_tris × 3 = {n_tris * 3})"
+    )
 
 
 def test_bake_emits_beam_solid_edges_sidecar(fem_files, tmp_path):

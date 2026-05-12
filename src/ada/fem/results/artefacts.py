@@ -396,6 +396,53 @@ def _classify_field(name: str, sample) -> FieldCategory:
     return "other"
 
 
+def _dedup_beam_tessellation(
+    verts: np.ndarray,
+    tris: np.ndarray,
+    t_vals: np.ndarray,
+    *,
+    position_tolerance: float = 1e-6,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Collapse coincident-position vertices within a single beam's
+    OCC tessellation.
+
+    OCC tessellates each BRep face independently — side panels and
+    end caps emit duplicate vertices at face boundaries. All such
+    duplicates are at the same 3D position, the same axial position
+    (so the same ``t``) and the same line element (so the same
+    ``(n0, n1)``), which makes position-based merging lossless. The
+    caller is responsible for NOT calling this across beam
+    boundaries; that would corrupt AFBV at joints.
+
+    Returns ``(unique_verts, remapped_tris, unique_t)`` where:
+
+    * ``unique_verts`` is a deduplicated (n_unique, 3) array — the
+      position from any merged buddy works since they're coincident.
+    * ``remapped_tris`` has the same shape as the input ``tris`` but
+      every vertex index now points into ``unique_verts``.
+    * ``unique_t`` is the axial parameter for each merged vertex.
+    """
+    if verts.shape[0] == 0:
+        return verts, tris.astype(np.uint32, copy=False), t_vals
+
+    # Round to a fixed grid so floating-point jitter from OCC doesn't
+    # cause coincident vertices to land in different buckets.
+    rounded = np.round(verts / position_tolerance).astype(np.int64)
+    _, inverse = np.unique(rounded, axis=0, return_inverse=True)
+    n_unique = int(inverse.max()) + 1
+
+    # Pick the first-encountered position for each bucket (or last
+    # — they're coincident so it doesn't matter). Same for t.
+    unique_verts = np.empty((n_unique, 3), dtype=verts.dtype)
+    unique_verts[inverse] = verts
+
+    unique_t = np.empty(n_unique, dtype=t_vals.dtype)
+    unique_t[inverse] = t_vals
+
+    remapped = inverse[tris].astype(np.uint32, copy=False)
+    return unique_verts, remapped, unique_t
+
+
 class FEAResultStreamAdapter:
     """Wrap an in-memory :class:`FEAResult` so the bake can consume it
     through the streaming reader interface.
@@ -805,10 +852,8 @@ class FEAResultStreamAdapter:
                 skip_reasons["empty-tessellation"] += 1
                 continue
 
-            verts = np.asarray(pos, dtype=np.float64).reshape(-1, 3)
-            tris = np.asarray(idx, dtype=np.uint32).reshape(-1, 3) + vertex_offset
-            all_positions.append(verts)
-            all_indices.append(tris.astype(np.uint32, copy=False))
+            verts_raw = np.asarray(pos, dtype=np.float64).reshape(-1, 3)
+            tris_local = np.asarray(idx, dtype=np.uint32).reshape(-1, 3)
 
             # Axial parameter t for each vertex: project (v - p0) onto
             # (p1 - p0) and divide by |p1 - p0|^2. Clamped to [0, 1]
@@ -823,10 +868,31 @@ class FEAResultStreamAdapter:
                 # Zero-length beam (degenerate input): every vertex
                 # gets t=0, displacement collapses to disp[n0]. Better
                 # than NaN.
-                t_vals = np.zeros(verts.shape[0], dtype=np.float32)
+                t_vals_raw = np.zeros(verts_raw.shape[0], dtype=np.float32)
             else:
-                rel = verts - p0
-                t_vals = np.clip(rel @ axis / axis_sq, 0.0, 1.0).astype(np.float32)
+                rel = verts_raw - p0
+                t_vals_raw = np.clip(rel @ axis / axis_sq, 0.0, 1.0).astype(np.float32)
+
+            # Per-beam vertex dedup. OCC tessellates each BRep face of
+            # the beam independently, so face boundaries (side ↔ cap,
+            # adjacent side panels) emit duplicate vertices at the
+            # same 3D position. Inside one beam every coincident-
+            # position vertex carries the same ``(n0_idx, n1_idx)``
+            # (it's the same line element) and the same ``t`` (same
+            # axial position), so collapsing them is lossless for the
+            # AFBV warp. Typically drops 30–50% of beam-solid vertex
+            # count, which propagates to a smaller GLB, smaller AFBV
+            # sidecar, and a smaller frontend picker mesh. We
+            # intentionally do NOT dedup across beams — that would
+            # break AFBV at joints where two beams share a node
+            # position but have different ``(n0, n1, t)``.
+            verts, tris_local_dedup, t_vals = _dedup_beam_tessellation(
+                verts_raw, tris_local, t_vals_raw,
+            )
+            tris = tris_local_dedup + vertex_offset
+
+            all_positions.append(verts)
+            all_indices.append(tris.astype(np.uint32, copy=False))
 
             all_n0.append(np.full(verts.shape[0], n0_idx, dtype=np.uint32))
             all_n1.append(np.full(verts.shape[0], n1_idx, dtype=np.uint32))
