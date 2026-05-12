@@ -147,7 +147,7 @@ const PerformanceOptions: React.FC = () => {
                 checked={useFlatPicker}
                 onChange={() => setUseFlatPicker(!useFlatPicker)}
                 title="Flat-varying GPU picker"
-                blurb="Indexed picker geometry with one extra provoking vertex per triangle (GLSL3 flat varying). Cuts picker memory ~30-50% on big meshes. Takes effect on next model load."
+                blurb="Indexed picker with one provoking vertex per triangle (GLSL3 flat varying). Auto-applies only on meshes with high vertex sharing (α<1.55) — CAD models gain ~30-40%; FEA bakes with per-element vertex sets fall back to non-indexed since flat would cost more there. Takes effect on next model load."
             />
             <Row
                 checked={hideElementEdges}

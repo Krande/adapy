@@ -266,7 +266,26 @@ class GpuMeshPicker {
             | THREE.BufferAttribute[]
             | undefined;
         const morphTargetCount = sourceMorphs?.length ?? 0;
-        const flat = usePerfStore.getState().useFlatPicker;
+
+        // The flat-picker toggle is a *preference*, not a force.
+        // Whether flat actually saves memory depends on the source
+        // mesh's vertex-sharing ratio α = nOrigVerts / nTris:
+        //
+        //   * Flat picker:        (27α + 39) bytes/tri + morph
+        //   * Non-indexed picker:        81  bytes/tri + morph
+        //
+        // Flat is smaller only when α < 1.556. CAD models with merged
+        // primitives often hit α≈1, where flat saves ~30-40%; FEA
+        // bakes typically emit one vertex set per element (α≈3),
+        // where flat is ~50% **bigger** because of the extra index
+        // buffer + per-source-vertex pickColor copies (and Three's
+        // morph texture amplifies both layouts by ~2×). Auto-pick the
+        // cheaper layout so a user enabling the toggle on the
+        // Performance panel never gets a regression.
+        const wantFlat = usePerfStore.getState().useFlatPicker;
+        const flat = wantFlat && this.flatIsCheaper(
+            posAttr.count, nTris, morphTargetCount,
+        );
 
         const built = flat
             ? this.buildFlatPickerGeometry(
@@ -277,6 +296,18 @@ class GpuMeshPicker {
                 indices, posArr, itemSize, nTris, triColor,
                 sourceMorphs, geom.morphTargetsRelative === true,
             );
+
+        if (wantFlat && !flat) {
+            // Make the fallback observable so users don't think the
+            // toggle is broken. One-line info per mesh, runs once
+            // per mesh per session.
+            const alpha = posAttr.count / nTris;
+            console.info(
+                `[GpuMeshPicker] flat-picker disabled for "${mesh.name}": ` +
+                `vertex-sharing α=${alpha.toFixed(2)} ≥ 1.556 — ` +
+                `non-indexed picker is cheaper for this mesh`,
+            );
+        }
 
         const pickerMesh = new THREE.Mesh(
             built.geometry,
@@ -493,6 +524,37 @@ class GpuMeshPicker {
         };
     }
 
+    /** Decide whether the flat-varying builder produces a strictly
+     *  smaller picker than the non-indexed builder, given the source
+     *  mesh's shape. Per-tri cost (in CPU bytes; GPU is similar):
+     *
+     *    non-indexed = 3·(12 + 3 + 12·morphCount)
+     *    flat        = (nOrig/nTris)·(12 + 3 + 12·morphCount)
+     *                  + 12·1 (index)
+     *                  + 1·(12 + 3 + 12·morphCount) (provoking vert)
+     *
+     *  Solving for the per-vertex bytes ``vb = 15 + 12·m``:
+     *    flat < non-indexed  ⇔  vb·(α + 1) + 12  <  3·vb
+     *                       ⇔  α  <  2 − 12/vb
+     *
+     *  For m=0: α < 2 − 12/15 = 1.2
+     *  For m=1: α < 2 − 12/27 ≈ 1.555
+     *  For m=2: α < 2 − 12/39 ≈ 1.692
+     *
+     *  Returns true when the source's vertex-sharing ratio crosses
+     *  the threshold for the current morph count. */
+    private flatIsCheaper(
+        nOrigVerts: number,
+        nTris: number,
+        morphCount: number,
+    ): boolean {
+        if (nTris === 0) return false;
+        const vb = 15 + 12 * morphCount;
+        const threshold = 2 - 12 / vb;
+        const alpha = nOrigVerts / nTris;
+        return alpha < threshold;
+    }
+
     /** Duplicate a source morph BufferAttribute into the picker's
      *  non-indexed layout. Pulled out so refreshMorphIfStale and the
      *  initial registration share the same fan-out kernel. */
@@ -603,6 +665,60 @@ class GpuMeshPicker {
         return v.applyMatrix4(mesh.matrixWorld);
     }
 
+    /** Returns true iff ``obj`` has ``ancestor`` somewhere up the
+     *  ``.parent`` chain. Used to detect picker meshes whose source
+     *  CustomBatchedMesh has been removed from the active scene
+     *  (model swap, etc.) — those are leaks we need to dispose. */
+    private hasAncestor(obj: THREE.Object3D, ancestor: THREE.Object3D): boolean {
+        let cur: THREE.Object3D | null = obj;
+        while (cur) {
+            if (cur === ancestor) return true;
+            cur = cur.parent;
+        }
+        return false;
+    }
+
+    /** Walk ``idToEntry`` and drop entries whose source mesh is no
+     *  longer rooted in the active scene. Disposes the picker mesh's
+     *  geometry + material so the GPU buffers are released.
+     *
+     *  Without this sweep, ``idToEntry`` holds strong references to
+     *  every registered CustomBatchedMesh forever. Replacing the
+     *  loaded model (a common interaction) leaves the old mesh +
+     *  its picker child stuck in GPU memory; over a few swaps the
+     *  picker memory accumulates rather than churning. */
+    private sweepOrphaned(scene: THREE.Scene): void {
+        const deadIds: number[] = [];
+        // Track which meshes we've already inspected so we don't
+        // walk the parent chain N times per mesh (idToEntry has one
+        // entry per drawRange per mesh).
+        const meshAlive = new Map<CustomBatchedMesh, boolean>();
+        for (const [id, entry] of this.idToEntry) {
+            let alive = meshAlive.get(entry.mesh);
+            if (alive === undefined) {
+                alive = this.hasAncestor(entry.mesh, scene);
+                meshAlive.set(entry.mesh, alive);
+            }
+            if (!alive) deadIds.push(id);
+        }
+        if (deadIds.length === 0) return;
+
+        for (const [mesh, alive] of meshAlive) {
+            if (alive) continue;
+            const reg = this.registered.get(mesh);
+            if (reg) {
+                const pm = reg.pickerMesh;
+                if (pm.parent) pm.parent.remove(pm);
+                (pm.geometry as THREE.BufferGeometry).dispose();
+                const m = pm.material as THREE.Material | THREE.Material[];
+                if (Array.isArray(m)) m.forEach((x) => x.dispose());
+                else m.dispose();
+            }
+            this.registered.delete(mesh);
+        }
+        for (const id of deadIds) this.idToEntry.delete(id);
+    }
+
     /** Run a GPU pick at the given client coordinates. Returns the
      *  picked mesh + rangeId, or null on miss / morph-active. */
     pickAt(clientX: number, clientY: number): GpuMeshPickResult {
@@ -610,6 +726,10 @@ class GpuMeshPicker {
         const scene = sceneRef.current;
         const camera = cameraRef.current as THREE.PerspectiveCamera | null;
         if (!renderer || !scene || !camera) return null;
+
+        // Reclaim GPU memory for any picker whose source mesh has
+        // been swapped out of the scene. Cheap when no swaps happened.
+        this.sweepOrphaned(scene);
 
         // Lazy registration: any CustomBatchedMesh in the scene that
         // isn't yet built gets its picker mesh now. First click pays
