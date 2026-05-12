@@ -1145,7 +1145,12 @@ def write_beam_solids_elements(mesh: SolidBeamMesh, out_path: os.PathLike) -> in
     )
 
 
-def write_beam_solids_edges(mesh: SolidBeamMesh, out_path: os.PathLike) -> int:
+def write_beam_solids_edges(
+    mesh: SolidBeamMesh,
+    out_path: os.PathLike,
+    *,
+    position_tolerance: float = 1e-6,
+) -> int:
     """Write the beam-solid element-boundary edges as AFEG.
 
     The triangulated beam-solid mesh has no inherent line topology —
@@ -1160,12 +1165,27 @@ def write_beam_solids_edges(mesh: SolidBeamMesh, out_path: os.PathLike) -> int:
     triangle belongs to which line-element label. So an edge is a
     boundary edge if either:
 
-    * Only one triangle uses it (true mesh perimeter — end caps).
-    * Two triangles use it but they live in different elements
-      (the seam between adjacent beam-elements along the axis).
+    * Only one triangle uses it (true mesh perimeter — open beam
+      ends or genuinely free edges).
+    * Two-or-more triangles use it but they live in different
+      elements (the seam between adjacent beam-elements along the
+      axis).
 
-    Interior edges (two triangles, same element) are dropped — those
-    are the triangulation artefacts of the extrusion side panels.
+    Interior edges (multiple triangles, all in the same element) are
+    dropped — those are the triangulation artefacts of the extrusion.
+
+    **Edges are keyed by 3D position, not vertex index.** OCC
+    tessellates each FACE of a solid independently and each beam
+    independently, so the side panel and end cap of a single beam
+    have different vertex indices at the same 3D positions. An
+    index-based comparison would treat their shared edge as a
+    one-triangle boundary edge on each side and draw the cross-
+    hatching artefacts the user sees. Position-bucketing collapses
+    coincident vertices so within-beam face seams correctly resolve
+    as same-element interior edges and get dropped. Beam-to-beam
+    joints (where two elements share node positions) still survive
+    because their bucket-edges have triangles from different
+    elements.
 
     Output is the AFEG format already used by the main mesh wireframe,
     so the frontend wires up the same :class:`THREE.LineSegments`
@@ -1196,8 +1216,21 @@ def write_beam_solids_edges(mesh: SolidBeamMesh, out_path: os.PathLike) -> int:
         e = s + int(er.tri_count)
         tri_label[s:e] = int(er.label)
 
-    # Three edges per triangle, sorted so (a,b) and (b,a) compare equal.
-    # Shape (n_tris*3, 2) of sorted (min, max) endpoint indices.
+    # Bucket vertices by rounded 3D position so coincident vertices
+    # from independent OCC face tessellations (within one beam) or
+    # from adjacent beams at a shared joint resolve to the same
+    # bucket id. ``np.unique(axis=0, return_inverse=True)`` returns a
+    # deterministic mapping from row → group id sized to the number
+    # of unique rows; we use the inverse as our bucket assignment.
+    points = np.asarray(mesh.points, dtype=np.float64).reshape(-1, 3)
+    rounded = np.round(points / position_tolerance).astype(np.int64)
+    _, bucket_id = np.unique(rounded, axis=0, return_inverse=True)
+    bucket_id = bucket_id.astype(np.uint64)
+
+    # Three edges per triangle. Original vertex indices kept for the
+    # final write so the frontend's LineSegments indexes into the
+    # beam-solid GLB's existing position attribute. Bucket pairs are
+    # used only for the grouping/dedup pass.
     e01 = np.stack([tris[:, 0], tris[:, 1]], axis=1)
     e12 = np.stack([tris[:, 1], tris[:, 2]], axis=1)
     e20 = np.stack([tris[:, 2], tris[:, 0]], axis=1)
@@ -1205,13 +1238,14 @@ def write_beam_solids_edges(mesh: SolidBeamMesh, out_path: os.PathLike) -> int:
     edges_sorted = np.sort(edges, axis=1)
     edge_labels = np.tile(tri_label, 3)
 
-    # Pack (min, max) into one uint64 so np.unique groups by edge in a
-    # single pass. Endpoint indices fit in uint32 (asserted above by
-    # the mesh.triangles dtype), so the high 32 bits hold ``min`` and
-    # the low 32 bits hold ``max``.
-    key = (edges_sorted[:, 0].astype(np.uint64) << np.uint64(32)) | edges_sorted[
-        :, 1
-    ].astype(np.uint64)
+    # Bucket-based edge key: (min_bucket, max_bucket) packed into a
+    # single uint64. Bucket ids fit in 32 bits unless the mesh has
+    # ≥ 2^32 unique vertex positions (it doesn't).
+    bucket_edges = np.empty_like(edges, dtype=np.uint64)
+    bucket_edges[:, 0] = bucket_id[edges[:, 0]]
+    bucket_edges[:, 1] = bucket_id[edges[:, 1]]
+    bucket_edges_sorted = np.sort(bucket_edges, axis=1)
+    key = (bucket_edges_sorted[:, 0] << np.uint64(32)) | bucket_edges_sorted[:, 1]
     order = np.argsort(key, kind="stable")
     key_sorted = key[order]
     labels_sorted = edge_labels[order]

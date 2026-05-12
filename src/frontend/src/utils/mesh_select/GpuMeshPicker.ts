@@ -48,6 +48,18 @@ interface RegisteredMesh {
      *  if any. Used to decide whether to refresh ``morphTargetInfluences``
      *  on the picker each pick (cheap, but skip when no morph). */
     morphTargetCount: number;
+    /** References to the source mesh's morph BufferAttributes at the
+     *  time we duplicated them into the picker. ``applyField`` swaps
+     *  these wholesale on every step/scale change (assigning a new
+     *  BufferAttribute, not mutating in place), so the references
+     *  are the cheap canary for "picker morph is stale, rebuild it"
+     *  on the next pick. */
+    sourceMorphAttrs: (THREE.BufferAttribute | null)[];
+    /** Per-picker-vertex source index — picker vertex ``i`` was
+     *  duplicated from original vertex ``sourceVertexIndex[i]``.
+     *  Lets us rebuild picker morph attrs on stale-attr detection
+     *  without re-walking the index buffer. */
+    sourceVertexIndex: Uint32Array;
 }
 
 interface IdEntry {
@@ -175,10 +187,18 @@ class GpuMeshPicker {
         // matters for million-tri models.
         const pickerPositions = new Float32Array(nTris * 9);
         const pickerColors = new Uint8Array(nTris * 9);
+        // Source-vertex map: picker vertex i was duplicated from
+        // original vertex sourceVertexIndex[i]. Used later to rebuild
+        // picker morph attrs cheaply when the source mesh's morph
+        // attribute reference changes (applyField swap).
+        const sourceVertexIndex = new Uint32Array(nTris * 3);
         for (let ti = 0; ti < nTris; ti++) {
-            const i0 = indices[ti * 3] * itemSize;
-            const i1 = indices[ti * 3 + 1] * itemSize;
-            const i2 = indices[ti * 3 + 2] * itemSize;
+            const v0 = indices[ti * 3];
+            const v1 = indices[ti * 3 + 1];
+            const v2 = indices[ti * 3 + 2];
+            const i0 = v0 * itemSize;
+            const i1 = v1 * itemSize;
+            const i2 = v2 * itemSize;
             const offP = ti * 9;
             pickerPositions[offP + 0] = posArr[i0];
             pickerPositions[offP + 1] = posArr[i0 + 1];
@@ -189,6 +209,10 @@ class GpuMeshPicker {
             pickerPositions[offP + 6] = posArr[i2];
             pickerPositions[offP + 7] = posArr[i2 + 1];
             pickerPositions[offP + 8] = posArr[i2 + 2];
+
+            sourceVertexIndex[ti * 3 + 0] = v0;
+            sourceVertexIndex[ti * 3 + 1] = v1;
+            sourceVertexIndex[ti * 3 + 2] = v2;
 
             const r = triColor[ti * 3];
             const g = triColor[ti * 3 + 1];
@@ -228,38 +252,21 @@ class GpuMeshPicker {
             | THREE.BufferAttribute[]
             | undefined;
         const morphTargetCount = sourceMorphs?.length ?? 0;
-        const morphMemBytes = (() => {
-            if (!sourceMorphs || morphTargetCount === 0) return 0;
+        const sourceMorphAttrs: (THREE.BufferAttribute | null)[] = [];
+        let morphMemBytes = 0;
+        if (sourceMorphs && morphTargetCount > 0) {
             pickerGeom.morphAttributes.position = [];
-            let total = 0;
             for (let m = 0; m < morphTargetCount; m++) {
                 const src = sourceMorphs[m];
-                const srcArr = src.array as Float32Array;
-                const srcItem = src.itemSize; // typically 3
-                const dup = new Float32Array(nTris * 9);
-                for (let ti = 0; ti < nTris; ti++) {
-                    const i0 = indices[ti * 3] * srcItem;
-                    const i1 = indices[ti * 3 + 1] * srcItem;
-                    const i2 = indices[ti * 3 + 2] * srcItem;
-                    const offM = ti * 9;
-                    dup[offM + 0] = srcArr[i0];
-                    dup[offM + 1] = srcArr[i0 + 1];
-                    dup[offM + 2] = srcArr[i0 + 2];
-                    dup[offM + 3] = srcArr[i1];
-                    dup[offM + 4] = srcArr[i1 + 1];
-                    dup[offM + 5] = srcArr[i1 + 2];
-                    dup[offM + 6] = srcArr[i2];
-                    dup[offM + 7] = srcArr[i2 + 1];
-                    dup[offM + 8] = srcArr[i2 + 2];
-                }
+                const dup = this.duplicateMorphAttr(src, sourceVertexIndex);
                 pickerGeom.morphAttributes.position.push(
                     new THREE.BufferAttribute(dup, 3),
                 );
-                total += dup.byteLength;
+                sourceMorphAttrs.push(src);
+                morphMemBytes += dup.byteLength;
             }
             pickerGeom.morphTargetsRelative = geom.morphTargetsRelative === true;
-            return total;
-        })();
+        }
 
         const pickerMesh = new THREE.Mesh(
             pickerGeom,
@@ -273,7 +280,12 @@ class GpuMeshPicker {
         // scene-graph transform update.
         mesh.add(pickerMesh);
 
-        this.registered.set(mesh, {pickerMesh, morphTargetCount});
+        this.registered.set(mesh, {
+            pickerMesh,
+            morphTargetCount,
+            sourceMorphAttrs,
+            sourceVertexIndex,
+        });
 
         const memMB =
             (pickerPositions.byteLength + pickerColors.byteLength + morphMemBytes)
@@ -283,6 +295,79 @@ class GpuMeshPicker {
             `[GpuMeshPicker] built picker for "${mesh.name}" in ${dt.toFixed(1)}ms ` +
             `(${nTris} tris, ${morphTargetCount} morph(s), ~${memMB.toFixed(1)}MB)`,
         );
+    }
+
+    /** Duplicate a source morph BufferAttribute into the picker's
+     *  non-indexed layout. Pulled out so refreshMorphIfStale and the
+     *  initial registration share the same fan-out kernel. */
+    private duplicateMorphAttr(
+        src: THREE.BufferAttribute,
+        sourceVertexIndex: Uint32Array,
+    ): Float32Array {
+        const srcArr = src.array as Float32Array;
+        const srcItem = src.itemSize; // typically 3
+        const nPickerVerts = sourceVertexIndex.length;
+        const dup = new Float32Array(nPickerVerts * 3);
+        for (let p = 0; p < nPickerVerts; p++) {
+            const s = sourceVertexIndex[p] * srcItem;
+            const o = p * 3;
+            dup[o + 0] = srcArr[s];
+            dup[o + 1] = srcArr[s + 1];
+            dup[o + 2] = srcArr[s + 2];
+        }
+        return dup;
+    }
+
+    /** Detect a source-morph attribute swap (applyField re-runs and
+     *  reassigns ``mesh.geometry.morphAttributes.position`` to a new
+     *  array of BufferAttributes on every step/scale change) and
+     *  rebuild the picker's duplicated deltas in place. The picker
+     *  morph BufferAttribute itself is reused so Three's GPU buffer
+     *  ID stays valid; we just refresh its underlying typed array
+     *  and bump ``needsUpdate``. Returns true if any rebuild happened. */
+    private refreshMorphIfStale(
+        mesh: CustomBatchedMesh,
+        reg: RegisteredMesh,
+    ): boolean {
+        if (reg.morphTargetCount === 0) return false;
+        const srcMorphs = (mesh.geometry as THREE.BufferGeometry)
+            .morphAttributes?.position as THREE.BufferAttribute[] | undefined;
+        if (!srcMorphs || srcMorphs.length === 0) return false;
+
+        const pickerMorphs = (reg.pickerMesh.geometry as THREE.BufferGeometry)
+            .morphAttributes.position as THREE.BufferAttribute[] | undefined;
+        if (!pickerMorphs || pickerMorphs.length !== srcMorphs.length) {
+            // Morph count changed (gained/lost a target). We don't
+            // support this path yet — the shader was compiled for the
+            // original count. Skip silently; next click falls through
+            // to raycast for affected meshes.
+            return false;
+        }
+
+        let changed = false;
+        for (let m = 0; m < srcMorphs.length; m++) {
+            if (reg.sourceMorphAttrs[m] === srcMorphs[m]) continue;
+            // applyField swapped this attribute — rebuild.
+            const dup = this.duplicateMorphAttr(srcMorphs[m], reg.sourceVertexIndex);
+            const pickerAttr = pickerMorphs[m];
+            // Reuse the picker BufferAttribute by swapping its array
+            // — three.js's WebGLAttributes will see needsUpdate and
+            // re-upload to the same GPU buffer.
+            (pickerAttr as any).array = dup;
+            pickerAttr.needsUpdate = true;
+            reg.sourceMorphAttrs[m] = srcMorphs[m];
+            changed = true;
+        }
+        if (changed) {
+            // morphTargetsRelative may have flipped too (unlikely but
+            // cheap to keep in sync).
+            (reg.pickerMesh.geometry as THREE.BufferGeometry).morphTargetsRelative =
+                (mesh.geometry as THREE.BufferGeometry).morphTargetsRelative === true;
+            // Force three to rebuild the morph texture against the
+            // updated picker attribute on next render.
+            (reg.pickerMesh.geometry as THREE.BufferGeometry).dispatchEvent({type: "dispose"});
+        }
+        return changed;
     }
 
     /** Compute the world-space position of the picked range's first
@@ -332,16 +417,22 @@ class GpuMeshPicker {
 
         // Lazy registration: any CustomBatchedMesh in the scene that
         // isn't yet built gets its picker mesh now. First click pays
-        // the cost; later clicks are free. While walking, also
-        // re-link each picker mesh's morphTargetInfluences to the
-        // source mesh's array (by reference, so subsequent influence
-        // mutations are reflected without a relink). Cheap — one
-        // assignment per registered mesh per pick.
+        // the cost; later clicks are free. While walking, also:
+        //   1. Re-link the picker's ``morphTargetInfluences`` to the
+        //      source array by reference, so a slider scrub that
+        //      mutates srcInfl[0] is visible to the picker without
+        //      any further work.
+        //   2. Detect a source-morph attribute swap (applyField
+        //      reassigns the position morph attrs on every step or
+        //      re-apply) and rebuild the picker's duplicated deltas
+        //      in place. Without this the picker renders an older
+        //      step's deformation and clicks land in the wrong pixel.
         scene.traverse((o) => {
             if (!(o instanceof CustomBatchedMesh)) return;
             this.registerMesh(o);
             const reg = this.registered.get(o);
             if (!reg || reg.morphTargetCount === 0) return;
+            this.refreshMorphIfStale(o, reg);
             const srcInfl = (o as any).morphTargetInfluences as number[] | undefined;
             if (srcInfl) {
                 (reg.pickerMesh as any).morphTargetInfluences = srcInfl;

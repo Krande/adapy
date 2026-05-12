@@ -383,6 +383,97 @@ def test_write_beam_solids_edges_keeps_perimeter_and_element_seams(tmp_path):
     assert frozenset({3, 4}) not in got
 
 
+def test_write_beam_solids_edges_buckets_coincident_vertices(tmp_path):
+    """OCC tessellates each face of a solid independently — a single
+    beam's side panel and end cap have different vertex indices at
+    the same 3D positions. An index-based edge dedup treats their
+    shared edge as a one-triangle boundary on each side and draws
+    cross-hatching artefacts. Position-bucketing collapses
+    coincident vertices so within-beam face seams correctly resolve
+    to same-element interior edges and get dropped.
+
+    Fixture: two triangles in the same element, sharing one
+    geometric edge but **not** sharing vertex indices. The shared
+    edge must be dropped (interior to the single element).
+    """
+
+    from ada.fem.results.artefacts import (
+        EDGE_HEADER_BYTES,
+        EDGE_MAGIC,
+        SolidBeamMesh,
+        write_beam_solids_edges,
+    )
+    from ada.visit.rendering.femviz import ElementRange
+
+    # Two triangles in element 10. Vertex (1.0, 0.0, 0.0) appears
+    # twice (indices 1 and 3); (0.5, 1.0, 0.0) twice (indices 2 and
+    # 4). Without bucketing the algorithm sees edges (1,2) and (3,4)
+    # as two separate one-triangle edges → both kept. With bucketing
+    # they collapse into one same-element group → dropped.
+    points = np.array(
+        [
+            [0.0, 0.0, 0.0],   # 0
+            [1.0, 0.0, 0.0],   # 1 — duplicate of 3
+            [0.5, 1.0, 0.0],   # 2 — duplicate of 4
+            [1.0, 0.0, 0.0],   # 3 — duplicate of 1
+            [0.5, 1.0, 0.0],   # 4 — duplicate of 2
+            [1.5, 0.0, 0.0],   # 5
+        ],
+        dtype=np.float64,
+    )
+    triangles = np.array([[0, 1, 2], [3, 5, 4]], dtype=np.uint32)
+    element_ranges = [ElementRange(label=10, tri_start=0, tri_count=2)]
+    mesh = SolidBeamMesh(
+        points=points,
+        triangles=triangles,
+        element_ranges=element_ranges,
+    )
+
+    out_path = tmp_path / "fea.beam_solids.edges.bin"
+    n_edges = write_beam_solids_edges(mesh, out_path)
+
+    # Expected boundary edges (in position space):
+    #   (0.0,0.0,0) — (1.0,0.0,0)   perimeter
+    #   (0.0,0.0,0) — (0.5,1.0,0)   perimeter
+    #   (1.0,0.0,0) — (1.5,0.0,0)   perimeter
+    #   (1.5,0.0,0) — (0.5,1.0,0)   perimeter
+    # The shared edge (1.0,0.0,0) — (0.5,1.0,0) is INTERIOR to
+    # element 10 (now that bucketing merges the duplicate vertices)
+    # and must be dropped.
+    expected_position_pairs = {
+        frozenset({(0.0, 0.0, 0.0), (1.0, 0.0, 0.0)}),
+        frozenset({(0.0, 0.0, 0.0), (0.5, 1.0, 0.0)}),
+        frozenset({(1.0, 0.0, 0.0), (1.5, 0.0, 0.0)}),
+        frozenset({(1.5, 0.0, 0.0), (0.5, 1.0, 0.0)}),
+    }
+    forbidden_position_pair = frozenset(
+        {(1.0, 0.0, 0.0), (0.5, 1.0, 0.0)},
+    )
+
+    assert n_edges == len(expected_position_pairs), (
+        f"expected {len(expected_position_pairs)} edges, got {n_edges} "
+        "— bucketing did not collapse coincident-vertex face seams"
+    )
+
+    data = out_path.read_bytes()
+    assert data[:4] == EDGE_MAGIC
+    pairs = np.frombuffer(data[EDGE_HEADER_BYTES:], dtype=np.uint32).reshape(-1, 2)
+    got_position_pairs = set()
+    for a, b in pairs:
+        pa = tuple(float(x) for x in points[a])
+        pb = tuple(float(x) for x in points[b])
+        got_position_pairs.add(frozenset({pa, pb}))
+
+    assert forbidden_position_pair not in got_position_pairs, (
+        "the within-element face seam edge was emitted — bucketing "
+        "is not collapsing duplicate-position vertices"
+    )
+    assert got_position_pairs == expected_position_pairs, (
+        f"unexpected edge set; got {got_position_pairs}, "
+        f"expected {expected_position_pairs}"
+    )
+
+
 def test_write_beam_solids_edges_empty_mesh(tmp_path):
     """An empty SolidBeamMesh produces a valid AFEG header with
     n_edges=0. Downstream parseMeshEdges handles this as a zero-edge
