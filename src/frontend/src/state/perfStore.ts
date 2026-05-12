@@ -33,6 +33,17 @@ export interface PerfState {
     hideBeamSolids: boolean;
     hideElementEdges: boolean;
 
+    // Picking ---------------------------------------------------------------
+    // Flat-varying picker: builds an INDEXED picker geometry where
+    // each triangle has its three corners' picked color taken from a
+    // single newly-duplicated "provoking" vertex (using GLSL3 flat
+    // varying). Original mesh vertices are reused for the other two
+    // corners — cuts picker memory roughly 30-50% vs the default
+    // non-indexed-per-triangle layout. Takes effect on next mesh
+    // load; existing picker meshes keep whichever mode they were
+    // built with.
+    useFlatPicker: boolean;
+
     // Setters ----------------------------------------------------------------
     setMaterialMode: (v: MaterialMode) => void;
     setSolidsBackfaceCull: (v: boolean) => void;
@@ -44,6 +55,7 @@ export interface PerfState {
     setOnDemandRender: (v: boolean) => void;
     setHideBeamSolids: (v: boolean) => void;
     setHideElementEdges: (v: boolean) => void;
+    setUseFlatPicker: (v: boolean) => void;
 }
 
 export const usePerfStore = create<PerfState>()(
@@ -62,6 +74,8 @@ export const usePerfStore = create<PerfState>()(
             hideBeamSolids: false,
             hideElementEdges: false,
 
+            useFlatPicker: false,
+
             setMaterialMode: (v) => set({materialMode: v}),
             setSolidsBackfaceCull: (v) => set({solidsBackfaceCull: v}),
             setSolidsSmoothShading: (v) => set({solidsSmoothShading: v}),
@@ -72,6 +86,7 @@ export const usePerfStore = create<PerfState>()(
             setOnDemandRender: (v) => set({onDemandRender: v}),
             setHideBeamSolids: (v) => set({hideBeamSolids: v}),
             setHideElementEdges: (v) => set({hideElementEdges: v}),
+            setUseFlatPicker: (v) => set({useFlatPicker: v}),
         }),
         {name: "ada-perf"},
     ),

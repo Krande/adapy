@@ -42,6 +42,7 @@ const PerformanceOptions: React.FC = () => {
         onDemandRender, setOnDemandRender,
         hideBeamSolids, setHideBeamSolids,
         hideElementEdges, setHideElementEdges,
+        useFlatPicker, setUseFlatPicker,
     } = usePerfStore();
 
     // Most toggles re-affect on next mesh load (material / content) or
@@ -141,6 +142,12 @@ const PerformanceOptions: React.FC = () => {
                 onChange={() => setHideBeamSolids(!hideBeamSolids)}
                 title="Skip beam-solid load"
                 blurb="Falls back to line elements for beams. The ultimate 'is this what's killing my fps' switch. Takes effect on next FEA load."
+            />
+            <Row
+                checked={useFlatPicker}
+                onChange={() => setUseFlatPicker(!useFlatPicker)}
+                title="Flat-varying GPU picker"
+                blurb="Indexed picker geometry with one extra provoking vertex per triangle (GLSL3 flat varying). Cuts picker memory ~30-50% on big meshes. Takes effect on next model load."
             />
             <Row
                 checked={hideElementEdges}
