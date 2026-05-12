@@ -13,7 +13,8 @@ import {SimulationDataExtensionMetadata} from "@/extensions/design_and_analysis_
 
 export async function handleClickMesh(
     intersect: THREE.Intersection,
-    event: MouseEvent
+    event: MouseEvent,
+    prefilledRangeId?: string,
 ): Promise<void> {
     if (event.button === 2) return;
 
@@ -31,19 +32,27 @@ export async function handleClickMesh(
         simulationDataRef.current = (mesh.ada_ext_data as SimulationDataExtensionMetadata);
     }
 
-    // ← await the worker lookup
-    const meshName = mesh.name; // e.g. "node0"
-    let drawRange = await queryMeshDrawRange(mesh.unique_key, meshName, faceIndex);
-    if (!drawRange) {
-        if (mesh.userData?.node_id) {
-            drawRange = await queryMeshDrawRange(mesh.unique_key, `node${mesh.userData?.node_id}`, faceIndex);
-        }
+    // GPU-pick path supplies the rangeId directly so we skip the
+    // faceIndex → rangeId worker round-trip entirely; the raycast
+    // fallback still uses it.
+    let rangeId: string;
+    if (prefilledRangeId !== undefined) {
+        rangeId = prefilledRangeId;
+    } else {
+        // ← await the worker lookup
+        const meshName = mesh.name; // e.g. "node0"
+        let drawRange = await queryMeshDrawRange(mesh.unique_key, meshName, faceIndex);
         if (!drawRange) {
-            console.warn("selected mesh has no draw range");
-            return;
+            if (mesh.userData?.node_id) {
+                drawRange = await queryMeshDrawRange(mesh.unique_key, `node${mesh.userData?.node_id}`, faceIndex);
+            }
+            if (!drawRange) {
+                console.warn("selected mesh has no draw range");
+                return;
+            }
         }
+        [rangeId] = drawRange;
     }
-    const [rangeId] = drawRange;
 
     await perform_selection(mesh, shiftKey, rangeId);
 
