@@ -5,6 +5,7 @@ import ActionButtons from "./options/ActionButtons";
 import PointSizeOptions from "./options/PointSizeOptions";
 import DisplayOptions from "./options/DisplayOptions";
 import ExperimentalOptions from "./options/ExperimentalOptions";
+import PerformanceOptions from "./options/PerformanceOptions";
 import ShortcutsModal from "./options/ShortcutsModal";
 
 // REST-only controls (scope picker, signed-in row, admin button) live
@@ -89,6 +90,10 @@ function OptionsComponent() {
                     <PointSizeOptions/>
                     <DisplayOptions/>
                 </div>
+            </CollapsibleSection>
+            <hr className="border-gray-600"/>
+            <CollapsibleSection title="Performance">
+                <PerformanceOptions/>
             </CollapsibleSection>
             <hr className="border-gray-600"/>
             <ExperimentalOptions/>

@@ -310,6 +310,104 @@ def _assert_picker_contract(manifest: dict, *, fixture_label: str) -> None:
         ), f"{fixture_label}: bad default reduction {default_view.get('reduction')!r}"
 
 
+def test_write_beam_solids_edges_keeps_perimeter_and_element_seams(tmp_path):
+    """write_beam_solids_edges drops edges interior to a single beam
+    element, keeps edges between two adjacent elements (the axial seam)
+    plus the mesh perimeter.
+
+    The "ladder" fixture below is two quads side by side, each
+    triangulated into two triangles and assigned to a different
+    element. The shared edge (vertex 2-3) is the element seam and must
+    survive; the two intra-quad diagonals are interior triangulation
+    artefacts and must be dropped; the remaining six perimeter edges
+    are mesh boundary and must survive."""
+
+    from ada.fem.results.artefacts import (
+        EDGE_HEADER_BYTES,
+        EDGE_MAGIC,
+        SolidBeamMesh,
+        write_beam_solids_edges,
+    )
+    from ada.visit.rendering.femviz import ElementRange
+
+    # Two quads, each one element. Element A: tris (0,1,2),(1,3,2);
+    # Element B: tris (2,3,4),(3,5,4). The diagonals are (1,2) for A
+    # and (3,4) for B — interior to their elements and dropped.
+    points = np.array(
+        [
+            [0.0, 0.0, 0.0], [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0], [1.0, 1.0, 0.0],
+            [0.0, 2.0, 0.0], [1.0, 2.0, 0.0],
+        ],
+        dtype=np.float64,
+    )
+    triangles = np.array(
+        [[0, 1, 2], [1, 3, 2], [2, 3, 4], [3, 5, 4]],
+        dtype=np.uint32,
+    )
+    element_ranges = [
+        ElementRange(label=10, tri_start=0, tri_count=2),
+        ElementRange(label=11, tri_start=2, tri_count=2),
+    ]
+    mesh = SolidBeamMesh(
+        points=points,
+        triangles=triangles,
+        element_ranges=element_ranges,
+    )
+
+    out_path = tmp_path / "fea.beam_solids.edges.bin"
+    n_edges = write_beam_solids_edges(mesh, out_path)
+
+    expected = {
+        frozenset({0, 1}),  # perimeter (A)
+        frozenset({0, 2}),  # perimeter (A)
+        frozenset({1, 3}),  # perimeter (A)
+        frozenset({2, 3}),  # element seam (A↔B)
+        frozenset({2, 4}),  # perimeter (B)
+        frozenset({3, 5}),  # perimeter (B)
+        frozenset({4, 5}),  # perimeter (B)
+    }
+    assert n_edges == len(expected), f"expected {len(expected)} edges, got {n_edges}"
+
+    data = out_path.read_bytes()
+    assert data[:4] == EDGE_MAGIC
+    version, header_n = struct.unpack("<II", data[4:12])
+    assert version == 1
+    assert header_n == n_edges
+    pairs = np.frombuffer(data[EDGE_HEADER_BYTES:], dtype=np.uint32).reshape(-1, 2)
+    got = {frozenset((int(a), int(b))) for a, b in pairs}
+    assert got == expected, f"edges differ: extra={got - expected} missing={expected - got}"
+
+    # The diagonals must NOT appear — they're inside a single element.
+    assert frozenset({1, 2}) not in got
+    assert frozenset({3, 4}) not in got
+
+
+def test_write_beam_solids_edges_empty_mesh(tmp_path):
+    """An empty SolidBeamMesh produces a valid AFEG header with
+    n_edges=0. Downstream parseMeshEdges handles this as a zero-edge
+    wireframe (no-op render)."""
+
+    from ada.fem.results.artefacts import (
+        EDGE_HEADER_BYTES,
+        EDGE_MAGIC,
+        SolidBeamMesh,
+        write_beam_solids_edges,
+    )
+
+    mesh = SolidBeamMesh(
+        points=np.empty((0, 3), dtype=np.float64),
+        triangles=np.empty((0, 3), dtype=np.uint32),
+        element_ranges=[],
+    )
+    out_path = tmp_path / "empty.edges.bin"
+    n_edges = write_beam_solids_edges(mesh, out_path)
+    assert n_edges == 0
+    data = out_path.read_bytes()
+    assert data[:4] == EDGE_MAGIC
+    assert len(data) == EDGE_HEADER_BYTES
+
+
 def test_bake_emits_mesh_edges_sidecar(fem_files, tmp_path):
     """write_mesh_edges produces a deduped uint32 pair list with the
     AFEG header. The frontend renders these as a wireframe overlay
@@ -793,6 +891,49 @@ def test_bake_emits_beam_solid_mesh_for_sif_line(fem_files, tmp_path):
     # Labels are the source-file line-element ids — non-zero, distinct.
     assert int(labels.min()) >= 1
     assert len(set(labels.tolist())) == n_elements
+
+
+def test_bake_emits_beam_solid_edges_sidecar(fem_files, tmp_path):
+    """SIF line bake emits a beam-solid AFEG edges sidecar so the
+    frontend can render the element-boundary wireframe on the beam-
+    solid mesh. Without this, adjacent beam-elements look like one
+    continuous tube.
+
+    Checks: manifest field present, file exists with valid AFEG
+    header, all edge endpoint indices land inside the beam-solid
+    vertex buffer, edge count is meaningfully > 0 for a non-trivial
+    fixture.
+    """
+
+    from ada.fem.results.artefacts import EDGE_HEADER_BYTES, EDGE_MAGIC
+
+    sif = fem_files / "cantilever/sesam/static/line/STATIC_LINE_CANTILEVER_SESAMR1.SIF"
+    if not sif.exists():
+        pytest.skip(f"fixture not present: {sif}")
+
+    bake = bake_fea_artefacts_from_source(sif, tmp_path / "out", src_key=sif.stem)
+    manifest = json.loads(bake.manifest_path.read_text())
+
+    mesh_meta = manifest["mesh"]
+    assert mesh_meta.get("beam_solids_edges_url") == "fea.beam_solids.edges.bin"
+    n_edges = mesh_meta["n_beam_solid_edges"]
+    assert n_edges > 0, "expected at least one element-boundary edge on the beam solids"
+
+    edges_path = bake.out_dir / "fea.beam_solids.edges.bin"
+    data = edges_path.read_bytes()
+    assert data[:4] == EDGE_MAGIC
+    version, header_n = struct.unpack("<II", data[4:12])
+    assert version == 1
+    assert header_n == n_edges
+    assert len(data) == EDGE_HEADER_BYTES + n_edges * 2 * 4
+
+    # Endpoint indices must land inside the beam-solid vertex buffer.
+    pairs = np.frombuffer(data[EDGE_HEADER_BYTES:], dtype=np.uint32).reshape(-1, 2)
+    n_verts = mesh_meta["n_beam_solid_verts"]
+    assert int(pairs.max()) < n_verts
+    # Sorted (min, max) pairs — sanity check that the writer obeyed the
+    # canonical-edge contract so the frontend doesn't render duplicates.
+    assert (pairs[:, 0] <= pairs[:, 1]).all()
 
 
 def test_bake_emits_beam_solid_warp_sidecar(fem_files, tmp_path):

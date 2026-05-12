@@ -205,6 +205,15 @@ export interface FeaManifest {
          *  the rigid solid beams from the flexing shells. */
         beam_solids_warp_url?: string;
         n_beam_solid_verts?: number;
+        /** Optional AFEG sidecar covering the beam-solid mesh. Same
+         *  format as ``edges_url`` but indices reference the
+         *  beam-solid vertex buffer. Frontend wires this into a
+         *  THREE.LineSegments sharing the beam-solid's position +
+         *  morph attributes so the seams between adjacent beam
+         *  elements stay visible under deformation. Without this
+         *  sidecar the solid beams render as one continuous tube. */
+        beam_solids_edges_url?: string;
+        n_beam_solid_edges?: number;
     };
     fields: FeaManifestField[];
     legacy_glb?: {url_template: string};

@@ -18,6 +18,7 @@ import {useModelState} from "@/state/modelState";
 import {useAnimationStore} from "@/state/animationStore";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {useConversionStore} from "@/state/conversionStore";
+import {usePerfStore} from "@/state/perfStore";
 import {applyFieldToMesh} from "../fea/applyField";
 import {applyElemFieldToMesh} from "../fea/applyElemField";
 import {resetFeaAnimationPhase} from "../fea/feaAnimationDriver";
@@ -55,6 +56,11 @@ interface ActiveFeaStreaming {
      *  the solid beams stay connected to the rest of the structure
      *  under any morph-scale factor. */
     beamSolidWarp?: ParsedBeamSolidsWarp;
+    /** Optional LineSegments overlay rendering the beam-solid element
+     *  boundaries (AFEG over the solid mesh). Position + morph
+     *  attributes are linked to the beam-solid mesh after the first
+     *  apply seeds the morph attribute. */
+    beamSolidEdges?: THREE.LineSegments;
 }
 
 let active: ActiveFeaStreaming | null = null;
@@ -73,6 +79,15 @@ let active: ActiveFeaStreaming | null = null;
 export function setBeamSolidsVisible(visible: boolean): void {
     if (active?.beamSolidMesh) {
         active.beamSolidMesh.visible = visible;
+    }
+    if (active?.beamSolidEdges) {
+        // The wireframe lives as a child of beamSolidMesh, so it would
+        // inherit ancestor invisibility, but ``mesh.visible = false``
+        // does not propagate through three's render walk by itself for
+        // children added to a non-Mesh group. Setting it directly is
+        // both belt-and-braces and lets future refactors detach the
+        // wireframe to a sibling without losing the link.
+        active.beamSolidEdges.visible = visible;
     }
 }
 
@@ -248,6 +263,13 @@ async function tryLoadBeamSolids(
 ): Promise<{mesh: THREE.Mesh; basePositions: Float32Array} | null> {
     const beamGlbUrl = manifest.mesh.beam_solids_url;
     if (!beamGlbUrl) return null;
+    // Perf-store opt-out: when the user wants to A/B against the
+    // line-element fallback we skip the GLB fetch + AFEM/AFBV parsing
+    // entirely. Toggled live via the Performance panel; takes effect
+    // on the next FEA stream load.
+    if (usePerfStore.getState().hideBeamSolids) {
+        return null;
+    }
 
     try {
         const glbKey = `_derived/${sourceName.replace(/^\/+/, "")}.fea/${beamGlbUrl}`;
@@ -561,6 +583,61 @@ export async function load_fea_streaming(args: {
             active.beamSolidMesh = beamSolid.mesh;
             active.beamSolidBasePositions = beamSolid.basePositions;
 
+            // AFEG over the beam-solid mesh: element-boundary edges
+            // (perimeter + axial seams between adjacent beam-elements).
+            // Without these the solid beams render as one continuous
+            // tube; with them the user can see where one beam ends and
+            // the next starts. Same wiring pattern as the main mesh's
+            // wireframe — share position + morph attributes so the
+            // wireframe deforms in lockstep. Gated by the same
+            // `hideElementEdges` perf toggle as the main wireframe.
+            if (
+                manifest.mesh.beam_solids_edges_url
+                && !usePerfStore.getState().hideElementEdges
+            ) {
+                try {
+                    const beamEdgeIndices = await fetchMeshEdges(
+                        scope,
+                        sourceName,
+                        manifest.mesh.beam_solids_edges_url,
+                    );
+                    if (beamEdgeIndices.length > 0) {
+                        const lineGeom = new THREE.BufferGeometry();
+                        lineGeom.setAttribute(
+                            "position",
+                            beamSolid.mesh.geometry.attributes.position,
+                        );
+                        lineGeom.setIndex(
+                            new THREE.BufferAttribute(beamEdgeIndices, 1),
+                        );
+                        const lineMat = new THREE.LineBasicMaterial({
+                            color: 0x111111,
+                            depthTest: true,
+                        });
+                        const segments = new THREE.LineSegments(lineGeom, lineMat);
+                        segments.name = "fea-beam-solid-element-edges";
+                        // Layer 1: rendered but not pickable — beam-solid
+                        // face picking goes through the parent
+                        // CustomBatchedMesh; the wireframe is decorative.
+                        segments.layers.set(1);
+                        // Inherit beam-solid visibility so toggling the
+                        // solid mesh on/off hides its wireframe too.
+                        segments.visible = beamSolid.mesh.visible;
+                        // Morph attribute + influences are linked after
+                        // installBeamSolidWarp seeds them — see
+                        // applyFieldToBeamSolids further below.
+                        beamSolid.mesh.add(segments);
+                        active.beamSolidEdges = segments;
+                    }
+                } catch (err) {
+                    // eslint-disable-next-line no-console
+                    console.warn(
+                        "[fea-streaming] failed to load beam-solid edges:",
+                        err,
+                    );
+                }
+            }
+
             // AFBV: per-vertex (node0, node1, t). Required so the
             // solid mesh deforms with the rest of the structure
             // when warp is applied. Best-effort fetch — without it
@@ -595,7 +672,7 @@ export async function load_fea_streaming(args: {
         // Sharing the mesh's position attribute + morph attribute +
         // influences array means deformation drives both face and
         // line rendering from a single buffer / single uniform.
-        if (manifest.mesh.edges_url) {
+        if (manifest.mesh.edges_url && !usePerfStore.getState().hideElementEdges) {
             try {
                 const edgeIndices = await fetchMeshEdges(
                     scope,
@@ -791,6 +868,12 @@ export async function load_fea_streaming(args: {
     // re-links, which is fine — the references are stable across
     // step changes.
     linkLineMorphToMesh(active.mesh);
+    // Same link for the beam-solid mesh's element-edge wireframe so
+    // the seams between adjacent beam elements stay attached to the
+    // deformed solid mesh under any morph scale.
+    if (active.beamSolidMesh) {
+        linkLineMorphToMesh(active.beamSolidMesh);
+    }
 
     // Register the session with the animation store so
     // SimulationControls renders the deformation-scale slider /

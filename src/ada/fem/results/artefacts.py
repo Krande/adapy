@@ -1145,6 +1145,114 @@ def write_beam_solids_elements(mesh: SolidBeamMesh, out_path: os.PathLike) -> in
     )
 
 
+def write_beam_solids_edges(mesh: SolidBeamMesh, out_path: os.PathLike) -> int:
+    """Write the beam-solid element-boundary edges as AFEG.
+
+    The triangulated beam-solid mesh has no inherent line topology —
+    each beam is an extruded cross-section, every triangle's three
+    edges look identical to the wireframe pass. Without separating
+    "internal triangulation diagonal" from "this is where one beam
+    element ends and the next begins" we'd either draw all 3N edges
+    (visual mush) or none (the current state — beams look like one
+    continuous tube).
+
+    The element ranges from the AFEM sidecar already tell us which
+    triangle belongs to which line-element label. So an edge is a
+    boundary edge if either:
+
+    * Only one triangle uses it (true mesh perimeter — end caps).
+    * Two triangles use it but they live in different elements
+      (the seam between adjacent beam-elements along the axis).
+
+    Interior edges (two triangles, same element) are dropped — those
+    are the triangulation artefacts of the extrusion side panels.
+
+    Output is the AFEG format already used by the main mesh wireframe,
+    so the frontend wires up the same :class:`THREE.LineSegments`
+    sharing the beam-solid's position + morph attributes.
+    """
+
+    out_path = pathlib.Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    tris = np.asarray(mesh.triangles, dtype=np.uint32).reshape(-1, 3)
+    n_tris = int(tris.shape[0])
+
+    if n_tris == 0 or not mesh.element_ranges:
+        with open(out_path, "wb") as f:
+            prefix = EDGE_MAGIC + struct.pack("<II", EDGE_VERSION, 0)
+            f.write(prefix + b"\x00" * (EDGE_HEADER_BYTES - len(prefix)))
+        return 0
+
+    # Per-triangle element label. Triangles outside any explicit range
+    # are left at a sentinel so an edge that bridges "labeled" and
+    # "unlabeled" still counts as a boundary — defensive against a
+    # reader that ships partial coverage.
+    tri_label = np.full(n_tris, np.iinfo(np.int64).max, dtype=np.int64)
+    for er in mesh.element_ranges:
+        if er.tri_count <= 0:
+            continue
+        s = int(er.tri_start)
+        e = s + int(er.tri_count)
+        tri_label[s:e] = int(er.label)
+
+    # Three edges per triangle, sorted so (a,b) and (b,a) compare equal.
+    # Shape (n_tris*3, 2) of sorted (min, max) endpoint indices.
+    e01 = np.stack([tris[:, 0], tris[:, 1]], axis=1)
+    e12 = np.stack([tris[:, 1], tris[:, 2]], axis=1)
+    e20 = np.stack([tris[:, 2], tris[:, 0]], axis=1)
+    edges = np.concatenate([e01, e12, e20], axis=0)
+    edges_sorted = np.sort(edges, axis=1)
+    edge_labels = np.tile(tri_label, 3)
+
+    # Pack (min, max) into one uint64 so np.unique groups by edge in a
+    # single pass. Endpoint indices fit in uint32 (asserted above by
+    # the mesh.triangles dtype), so the high 32 bits hold ``min`` and
+    # the low 32 bits hold ``max``.
+    key = (edges_sorted[:, 0].astype(np.uint64) << np.uint64(32)) | edges_sorted[
+        :, 1
+    ].astype(np.uint64)
+    order = np.argsort(key, kind="stable")
+    key_sorted = key[order]
+    labels_sorted = edge_labels[order]
+    edges_sorted_by_key = edges_sorted[order]
+
+    # Group boundaries: a unique edge spans key_sorted[start:next_start].
+    is_new_group = np.empty(key_sorted.shape[0], dtype=bool)
+    is_new_group[0] = True
+    is_new_group[1:] = key_sorted[1:] != key_sorted[:-1]
+    group_starts = np.flatnonzero(is_new_group)
+    # Append n so np.diff gives the size of the final group.
+    group_starts_ext = np.concatenate(
+        [group_starts, np.array([key_sorted.shape[0]], dtype=group_starts.dtype)]
+    )
+    group_sizes = np.diff(group_starts_ext)
+
+    # Vectorized "does any label in this group differ from the first?":
+    # repeat the first label across each group, compare to the per-row
+    # label, then reduce by sum per group.
+    first_label_per_row = np.repeat(labels_sorted[group_starts], group_sizes)
+    differs = labels_sorted != first_label_per_row
+    diff_per_group = np.add.reduceat(differs.astype(np.int64), group_starts)
+
+    # Keep edges that are either mesh-boundary (one triangle) or span
+    # two elements (some label in the group differs from the first).
+    keep_mask = (group_sizes == 1) | (diff_per_group > 0)
+    if not np.any(keep_mask):
+        kept_pairs = np.empty((0, 2), dtype=np.uint32)
+    else:
+        kept_pairs = edges_sorted_by_key[group_starts[keep_mask]].astype(np.uint32)
+
+    n_edges = int(kept_pairs.shape[0])
+    payload = kept_pairs.tobytes(order="C") if n_edges else b""
+
+    with open(out_path, "wb") as f:
+        prefix = EDGE_MAGIC + struct.pack("<II", EDGE_VERSION, n_edges)
+        f.write(prefix + b"\x00" * (EDGE_HEADER_BYTES - len(prefix)))
+        f.write(payload)
+    return n_edges
+
+
 # ---------------------------------------------------------------------------
 # Field blob writer (streaming)
 # ---------------------------------------------------------------------------
@@ -1458,6 +1566,8 @@ def build_manifest(
     beam_solids_glb_filename: str | None = None,
     beam_solids_elements_filename: str | None = None,
     beam_solids_warp_filename: str | None = None,
+    beam_solids_edges_filename: str | None = None,
+    n_beam_solid_edges: int = 0,
     n_beam_solids: int = 0,
     n_beam_solid_verts: int = 0,
     n_beam_total: int = 0,
@@ -1655,6 +1765,14 @@ def build_manifest(
             # to the rest of the structure under any morph scale.
             mesh_meta["beam_solids_warp_url"] = beam_solids_warp_filename
             mesh_meta["n_beam_solid_verts"] = int(n_beam_solid_verts)
+        if beam_solids_edges_filename is not None:
+            # AFEG element-boundary wireframe over the solid mesh.
+            # Frontend renders this as a LineSegments sharing the
+            # beam-solid's position + morph attributes so the seams
+            # between adjacent beam-elements stay visible even under
+            # a scaled deformation.
+            mesh_meta["beam_solids_edges_url"] = beam_solids_edges_filename
+            mesh_meta["n_beam_solid_edges"] = int(n_beam_solid_edges)
         mesh_meta["n_beam_solids"] = int(n_beam_solids)
         # Coverage telemetry: total source-side beams + skip reasons
         # by category. Frontend can render "X of Y beams shown as
@@ -1879,7 +1997,9 @@ def bake_artefacts(
     except (AttributeError, NotImplementedError):
         solid_beams = None
     beam_solids_warp_path: pathlib.Path | None = None
+    beam_solids_edges_path: pathlib.Path | None = None
     n_beam_solid_verts = 0
+    n_beam_solid_edges = 0
     if solid_beams is not None and solid_beams.triangles.size:
         beam_solids_glb_path = out_dir / "fea.beam_solids.glb"
         write_beam_solids_glb(solid_beams, beam_solids_glb_path)
@@ -1894,6 +2014,13 @@ def bake_artefacts(
             n_beam_solid_verts = write_beam_solids_warp(
                 solid_beams, beam_solids_warp_path
             )
+        # AFEG element-boundary wireframe for the solid mesh. Without
+        # this the beam solids render as one continuous tube — see the
+        # writer docstring for the boundary-edge rules.
+        beam_solids_edges_path = out_dir / "fea.beam_solids.edges.bin"
+        n_beam_solid_edges = write_beam_solids_edges(
+            solid_beams, beam_solids_edges_path
+        )
 
     field_metas: list[FieldArtefactMeta] = []
     blob_paths: list[pathlib.Path] = []
@@ -1945,6 +2072,10 @@ def bake_artefacts(
         beam_solids_warp_filename=(
             beam_solids_warp_path.name if beam_solids_warp_path else None
         ),
+        beam_solids_edges_filename=(
+            beam_solids_edges_path.name if beam_solids_edges_path else None
+        ),
+        n_beam_solid_edges=n_beam_solid_edges,
         n_beam_solids=n_beam_solids,
         n_beam_solid_verts=n_beam_solid_verts,
         n_beam_total=(solid_beams.total_beams if solid_beams is not None else 0),
