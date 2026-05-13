@@ -1,141 +1,19 @@
 {{- /*
-Renders one Deployment per enabled worker pool. Extra pools let a
-deployment add capacity (more replicas in a separate pool, with
-their own resource pins) or capabilities (a pool whose image
-extends the base worker with extra runtime deps for a specific job
-type).
+Base worker pool Deployment. Renders only when
+``.Values.worker.enabled`` is true.
 
-  .Values.worker          the base pool — always defined by the chart
-  .Values.extraWorkers    optional map of named extra pools, eg.
-                          extraWorkers:
-                            foo:
-                              enabled: true
-                              image:
-                                repository: …
-                                tag: …
-                              replicaCount: 1
-                              ...
-
-Each extra pool's deployment is named ``<base>-<key>`` where ``<key>``
-is the map key. Pools share the env block (S3, NATS, DATABASE_URL,
-optional volumes) and compete on the same NATS subject — routing
-is a worker concern, not the chart's. Body iterates over a
-constructed dict so all pools stay in lockstep when env vars or
-mounts get added.
+Extra pools (capacity / capability variants) live in worker-extras.yaml.
+The body is duplicated rather than DRY'd through a range / helper —
+both attempted shapes hit corner-case rendering bugs in helm v3 /
+argocd's renderer where one pool would silently drop out of the
+output. Explicit per-file beats clever every time on a config we
+can't comprehensively test.
 */ -}}
-{{- /*
-List of (suffix, config) pairs — built as a list, not a dict, because
-the base pool's empty-string key isn't safe in helm's dict iteration
-across all helm versions (some skip it silently, producing only the
-extra pools). List preserves order + handles empty suffix cleanly.
-*/ -}}
-{{- $pools := list -}}
 {{- if .Values.worker.enabled -}}
-{{- $pools = append $pools (dict "suffix" "" "config" .Values.worker) -}}
-{{- end -}}
-{{- range $key, $pool := (default (dict) .Values.extraWorkers) -}}
-{{- if $pool.enabled -}}
-{{- $pools = append $pools (dict "suffix" (printf "-%s" $key) "config" $pool) -}}
-{{- end -}}
-{{- end -}}
-{{- range $entry := $pools -}}
-{{- $suffix := $entry.suffix -}}
-{{- $w := $entry.config -}}
-{{- $name := printf "%s%s" (include "adapy-viewer.workerFullname" $) $suffix -}}
-{{- $component := printf "worker%s" $suffix -}}
-{{- $natsUrl := include "adapy-viewer.natsUrl" $ -}}
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: {{ $name }}
-  labels:
-    {{- include "adapy-viewer.labels" $ | nindent 4 }}
-    app.kubernetes.io/component: {{ $component }}
-spec:
-  replicas: {{ $w.replicaCount | default 1 }}
-  selector:
-    matchLabels:
-      {{- include "adapy-viewer.selectorLabels" $ | nindent 6 }}
-      app.kubernetes.io/component: {{ $component }}
-  template:
-    metadata:
-      labels:
-        {{- include "adapy-viewer.selectorLabels" $ | nindent 8 }}
-        app.kubernetes.io/component: {{ $component }}
-      {{- with $w.podAnnotations }}
-      annotations: {{- toYaml . | nindent 8 }}
-      {{- end }}
-    spec:
-      {{- with $.Values.imagePullSecrets }}
-      imagePullSecrets: {{- toYaml . | nindent 8 }}
-      {{- end }}
-      {{- with $.Values.hostAliases }}
-      hostAliases: {{- toYaml . | nindent 8 }}
-      {{- end }}
-      containers:
-        - name: worker
-          image: "{{ $w.image.repository }}:{{ $w.image.tag | default $.Chart.AppVersion }}"
-          imagePullPolicy: {{ $w.image.pullPolicy }}
-          env:
-            - name: ADA_VIEWER_STORAGE_KIND
-              value: {{ $.Values.storage.kind | quote }}
-            {{- if eq $.Values.storage.kind "s3" }}
-            - name: ADA_VIEWER_S3_BUCKET
-              value: {{ $.Values.storage.s3.bucket | quote }}
-            - name: ADA_VIEWER_S3_ENDPOINT
-              value: {{ include "adapy-viewer.s3Endpoint" $ | quote }}
-            - name: ADA_VIEWER_S3_REGION
-              value: {{ $.Values.storage.s3.region | quote }}
-            - name: ADA_VIEWER_S3_PREFIX
-              value: {{ $.Values.storage.s3.prefix | quote }}
-            - name: ADA_VIEWER_S3_VIRTUAL_HOSTED_STYLE
-              value: {{ $.Values.storage.s3.virtualHostedStyle | quote }}
-            - name: ADA_VIEWER_S3_ACCESS_KEY_ID
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "adapy-viewer.s3SecretName" $ }}
-                  key: {{ $.Values.storage.s3.existingSecretKeyId | default "AWS_ACCESS_KEY_ID" }}
-            - name: ADA_VIEWER_S3_SECRET_ACCESS_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "adapy-viewer.s3SecretName" $ }}
-                  key: {{ $.Values.storage.s3.existingSecretSecretKey | default "AWS_SECRET_ACCESS_KEY" }}
-            {{- else if eq $.Values.storage.kind "local" }}
-            - name: ADA_VIEWER_LOCAL_PATH
-              value: /data
-            {{- end }}
-            - name: ADA_VIEWER_NATS_URL
-              value: {{ $natsUrl | quote }}
-            {{- /*
-            Capability advertisement — workers publish this to the
-            registry so the admin panel can show what each pool can
-            handle. Defaults to "base" when the values entry omits it.
-            */}}
-            - name: ADA_WORKER_CAPABILITIES
-              value: {{ (default (list "base") $w.capabilities) | join "," | quote }}
-            {{- include "adapy-viewer.databaseEnv" $ | nindent 12 }}
-          {{- if eq $.Values.storage.kind "local" }}
-          volumeMounts:
-            - name: data
-              mountPath: /data
-          {{- end }}
-          resources: {{- toYaml $w.resources | nindent 12 }}
-          {{- with $w.securityContext }}
-          securityContext: {{- toYaml . | nindent 12 }}
-          {{- end }}
-      {{- if eq $.Values.storage.kind "local" }}
-      volumes:
-        - name: data
-          {{- if $.Values.storage.local.existingClaim }}
-          persistentVolumeClaim:
-            claimName: {{ $.Values.storage.local.existingClaim }}
-          {{- else if $.Values.storage.local.hostPath }}
-          hostPath:
-            path: {{ $.Values.storage.local.hostPath | quote }}
-            type: DirectoryOrCreate
-          {{- else }}
-          emptyDir: {}
-          {{- end }}
-      {{- end }}
+{{- include "adapy-viewer.workerDeployment" (dict
+    "ctx"        .
+    "w"          .Values.worker
+    "name"       (include "adapy-viewer.workerFullname" .)
+    "component"  "worker"
+) }}
 {{- end }}

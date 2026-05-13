@@ -1,0 +1,20 @@
+{{- /*
+Extra worker pools. Each enabled entry in ``.Values.extraWorkers``
+renders a separate Deployment named ``<base>-worker-<key>`` that
+shares the env block with the base worker (same NATS, S3, DB) and
+competes on the same NATS subject. Routing by capability is a worker
+concern, not the chart's.
+
+Body is delegated to ``adapy-viewer.workerDeployment`` so this file
+and worker.yaml stay in lockstep when env vars / mounts are added.
+*/ -}}
+{{- range $key, $pool := (default (dict) .Values.extraWorkers) }}
+{{- if $pool.enabled }}
+{{- include "adapy-viewer.workerDeployment" (dict
+    "ctx"        $
+    "w"          $pool
+    "name"       (printf "%s-%s" (include "adapy-viewer.workerFullname" $) $key)
+    "component"  (printf "worker-%s" $key)
+) }}
+{{- end }}
+{{- end }}
