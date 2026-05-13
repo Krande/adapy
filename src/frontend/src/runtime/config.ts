@@ -28,6 +28,12 @@ declare global {
         // empty so the offline / desktop bundle stays clean.
         VIEWER_IMAGE_TAG?: string | null;
         WORKER_IMAGE_TAG?: string | null;
+        // Union of source-file extensions every currently-registered
+        // worker advertises on top of adapy's base set. The upload
+        // picker merges this with its built-in list so capability
+        // workers' formats show up automatically without anything in
+        // adapy needing to know what those formats are.
+        EXTRA_SOURCE_EXTS?: readonly string[];
         WEBSOCKET_ID?: number | string;
         WEBSOCKET_PORT?: number | string;
         TARGET_INSTANCE_ID?: number | string;
@@ -54,6 +60,7 @@ export const runtime = {
     // when the worker hasn't reported in yet.
     viewerImageTag: (): string => (w().VIEWER_IMAGE_TAG || "").trim(),
     workerImageTag: (): string => (w().WORKER_IMAGE_TAG || "").trim(),
+    extraSourceExts: (): readonly string[] => w().EXTRA_SOURCE_EXTS ?? [],
 
     // OIDC bootstrap. authEnabled() drives whether the SPA puts up an
     // auth gate at all; in dev / desktop it's false and the rest of

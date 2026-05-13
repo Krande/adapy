@@ -116,6 +116,54 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # Public — load balancers + readiness probes hit this.
         return Response(status_code=200)
 
+    async def _is_accepted_source(key: str) -> bool:
+        """``is_supported_source`` plus a check against the workers'
+        advertised extra extensions. Use this on every upload / bake
+        endpoint that needs to gate "is this file something we can
+        actually process" — the static check alone misses extensions
+        contributed by capability workers."""
+        if is_supported_source(key):
+            return True
+        ext = pathlib.PurePosixPath(key).suffix.lower()
+        return ext in await _worker_advertised_exts()
+
+    async def _worker_advertised_exts() -> list[str]:
+        """Union of source-file extensions advertised by every
+        currently-registered worker via its registry entry's
+        ``extra_source_exts`` field.
+
+        adapy itself doesn't know what those extensions are — the
+        workers tell the API "I can take .X" when they register, and
+        the API exposes the merged set through ``/api/config`` so the
+        SPA's upload picker can include them. Workers that fall off
+        the heartbeat (online=false) still contribute their list
+        briefly; the goal is to keep the picker stable across pod
+        restarts, not to gate on liveness.
+
+        Returns a sorted, lowercased list with a leading dot on each
+        entry — ready to feed into the existing extension-check call
+        sites without further normalisation.
+        """
+        if not queue.enabled:
+            return []
+        try:
+            workers = await queue.list_workers()
+        except Exception:
+            logger.exception("config: failed to read worker registry")
+            return []
+        out: set[str] = set()
+        for w in workers:
+            for raw in (w.get("extra_source_exts") or []):
+                if not isinstance(raw, str):
+                    continue
+                ext = raw.strip().lower()
+                if not ext:
+                    continue
+                if not ext.startswith("."):
+                    ext = f".{ext}"
+                out.add(ext)
+        return sorted(out)
+
     # /api/config is *almost* public (the SPA fetches it before it has
     # a token, to learn whether auth is enabled and what the issuer is)
     # — but it never leaks user data, so we serve it unauthenticated.
@@ -133,6 +181,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 worker_tag = await queue.get_meta("worker_image_tag")
             except Exception:
                 logger.exception("config: failed to read worker image tag")
+        extra_source_exts = await _worker_advertised_exts()
         return JSONResponse({
             "transport": "rest",
             "apiBase": "/api",
@@ -147,6 +196,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             },
             "viewerImageTag": viewer_tag,
             "workerImageTag": worker_tag,
+            "extraSourceExts": extra_source_exts,
         })
 
     # Every /api/* below this line requires a verified user. The dep is
@@ -413,7 +463,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail="empty key")
         if is_derived_key(clean):
             raise HTTPException(status_code=403, detail="cannot write to _derived/")
-        if not is_versions_artefact_key(clean) and not is_supported_source(clean):
+        if not is_versions_artefact_key(clean) and not await _is_accepted_source(clean):
             raise HTTPException(status_code=415, detail=f"unsupported file type: {clean}")
 
         # Reject before reading the body so a multi-GB upload doesn't
@@ -488,7 +538,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         target = (request.query_params.get("target") or "glb").strip().lstrip(".").lower()
         if not source:
             raise HTTPException(status_code=400, detail="source query param required")
-        if not is_supported_source(source):
+        if not await _is_accepted_source(source):
             raise HTTPException(status_code=415, detail=f"unsupported source: {source}")
         # Confirm the source exists in this scope before writing the
         # derived — otherwise the SPA could pollute the cache for a
@@ -570,7 +620,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail="key required")
         if is_derived_key(key):
             raise HTTPException(status_code=403, detail="cannot write to _derived/")
-        if not is_versions_artefact_key(key) and not is_supported_source(key):
+        if not is_versions_artefact_key(key) and not await _is_accepted_source(key):
             raise HTTPException(status_code=415, detail=f"unsupported file type: {key}")
         try:
             url = await storage.presigned_put_url(scope_obj, key, expires_in_seconds=3600)
@@ -619,7 +669,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail="key required")
         if is_derived_key(key):
             raise HTTPException(status_code=403, detail="cannot write to _derived/")
-        if not is_versions_artefact_key(key) and not is_supported_source(key):
+        if not is_versions_artefact_key(key) and not await _is_accepted_source(key):
             raise HTTPException(status_code=415, detail=f"unsupported file type: {key}")
         meta = await storage.head(scope_obj, key)
         if meta is None:
@@ -680,7 +730,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 conversion_options = cleaned
         if not source_key:
             raise HTTPException(status_code=400, detail="source_key required")
-        if not is_supported_source(source_key):
+        if not await _is_accepted_source(source_key):
             raise HTTPException(status_code=415, detail=f"unsupported source format: {source_key}")
         if target_format not in TARGET_FORMATS:
             raise HTTPException(
@@ -2203,6 +2253,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 worker_tag = await queue.get_meta("worker_image_tag")
             except Exception:
                 logger.exception("config.js: failed to read worker image tag")
+        extra_source_exts = await _worker_advertised_exts()
 
         a = settings.auth
         body = (
@@ -2215,6 +2266,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             f"window.AUTH_AUDIENCE = {_json.dumps(a.audience)};\n"
             f"window.VIEWER_IMAGE_TAG = {_json.dumps(viewer_tag)};\n"
             f"window.WORKER_IMAGE_TAG = {_json.dumps(worker_tag)};\n"
+            f"window.EXTRA_SOURCE_EXTS = {_json.dumps(extra_source_exts)};\n"
         )
         return PlainTextResponse(body, media_type="application/javascript")
 

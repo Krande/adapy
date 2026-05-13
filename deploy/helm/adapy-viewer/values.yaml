@@ -79,6 +79,13 @@ worker:
 ##       podAnnotations: {}
 ##       resources: { ... }
 ##       securityContext: { ... }
+##       capabilities: [<list>]      ## reported to the Workers tab
+##       extraSourceExts: [<list>]   ## file extensions this pool can
+##                                   ## handle on top of adapy's base
+##                                   ## set; merged into /api/config
+##                                   ## so the upload picker picks them
+##                                   ## up automatically. Lower-case
+##                                   ## with leading dot, e.g. ".foo".
 ##
 ## Empty by default — only the base ``worker`` pool deploys.
 extraWorkers: {}

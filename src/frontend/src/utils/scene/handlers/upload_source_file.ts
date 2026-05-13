@@ -80,6 +80,11 @@ async function putToPresignedUrl(
     });
 }
 
+// Built-in source extensions adapy itself handles (the base worker
+// image carries all the parsers). Capability workers can announce
+// additional extensions via their registry entry; runtime() pulls
+// them from /api/config and ``acceptedSourceExts`` below merges the
+// two lists for picker / drag-drop filtering.
 const SUPPORTED_EXTS = [
     ".glb", ".gltf",
     ".ifc", ".step", ".stp",
@@ -90,11 +95,22 @@ const SUPPORTED_EXTS = [
     // include chain at convert time; rejects mixed-format / ambiguous
     // entry / missing includes with a clear error.
     ".zip",
-    // Sesam result database (text-based). Renders as a tessellated GLB
-    // showing the first available (step, field) by default; large files
-    // (>~200 MB) may need the direct-to-storage upload path.
+    // FEA result formats consumed by the streaming-viewer bake:
+    //   .sif  Sesam result database (text-based, gzip-compressible).
+    //   .rmed Code_Aster / Salome result file (HDF5).
     ".sif",
+    ".rmed",
 ];
+
+function acceptedSourceExts(): readonly string[] {
+    const extra = runtime.extraSourceExts();
+    if (extra.length === 0) return SUPPORTED_EXTS;
+    const merged = new Set<string>(SUPPORTED_EXTS);
+    for (const e of extra) {
+        merged.add(e.startsWith(".") ? e.toLowerCase() : `.${e.toLowerCase()}`);
+    }
+    return Array.from(merged);
+}
 
 // Custom event the upload picker listens for; lets UI surfaces (menu
 // button, context menu) ask the picker to open without each one
@@ -106,7 +122,7 @@ export function triggerUploadPicker(): void {
 }
 
 export function uploadAcceptAttr(): string {
-    return SUPPORTED_EXTS.join(",");
+    return acceptedSourceExts().join(",");
 }
 
 function extOf(name: string): string {
@@ -132,7 +148,7 @@ export async function uploadFile(
 ): Promise<void> {
     const key = file.name;
     const ext = extOf(key);
-    if (!SUPPORTED_EXTS.includes(ext)) {
+    if (!acceptedSourceExts().includes(ext)) {
         throw new Error(`unsupported file type: ${ext || "(no extension)"}`);
     }
 
