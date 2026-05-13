@@ -226,26 +226,42 @@ class JobQueue:
 
     # --- compression sweep state -------------------------------------
     #
-    # One entry per scope under ``__meta_compress_sweep_<label>``.
+    # One entry per scope under ``__meta_compress_sweep_<slug>``.
     # Survives a viewer pod restart so a new session can see an
     # in-flight sweep that was started elsewhere. State is a small
     # JSON blob; mutations are read-modify-write at low frequency
     # (per-file completion) so the race window is acceptable.
+    #
+    # NATS KV restricts key characters to ``[A-Za-z0-9_=./-]`` — so
+    # scope labels containing ``:`` (``user:me``, ``project:<uuid>``)
+    # need slugification before they're safe to use as the key tail.
+    # The original label is stored inside the JSON payload so reads
+    # return the same shape regardless of slugging.
 
     _COMPRESS_SWEEP_KEY_PREFIX = "__meta_compress_sweep_"
+
+    @staticmethod
+    def _slugify_scope(scope_label: str) -> str:
+        # ``:`` -> ``__`` is reversible *by convention* (no normal scope
+        # label uses double-underscores) but reverse-mapping isn't
+        # needed at read time — the canonical label lives inside the
+        # JSON payload.
+        return scope_label.replace(":", "__")
 
     async def set_compress_sweep_state(
         self, scope_label: str, state: dict
     ) -> None:
         if self._kv is None:
             return
-        key = f"{self._COMPRESS_SWEEP_KEY_PREFIX}{scope_label}"
-        await self._kv.put(key, json.dumps(state).encode("utf-8"))
+        payload = dict(state)
+        payload["scope"] = scope_label
+        key = f"{self._COMPRESS_SWEEP_KEY_PREFIX}{self._slugify_scope(scope_label)}"
+        await self._kv.put(key, json.dumps(payload).encode("utf-8"))
 
     async def get_compress_sweep_state(self, scope_label: str) -> dict | None:
         if self._kv is None:
             return None
-        key = f"{self._COMPRESS_SWEEP_KEY_PREFIX}{scope_label}"
+        key = f"{self._COMPRESS_SWEEP_KEY_PREFIX}{self._slugify_scope(scope_label)}"
         try:
             entry = await self._kv.get(key)
         except KeyNotFoundError:
@@ -258,7 +274,13 @@ class JobQueue:
             return None
 
     async def list_compress_sweep_states(self) -> dict[str, dict]:
-        """Return ``{scope_label: state}`` for every recorded sweep."""
+        """Return ``{scope_label: state}`` for every recorded sweep.
+
+        Uses the ``scope`` field inside each entry's JSON payload as
+        the dict key — the KV key is slugified (``:`` -> ``__``) but
+        the payload preserves the original label so callers see
+        ``user:me`` / ``project:<uuid>`` round-trip intact.
+        """
         if self._kv is None:
             return {}
         try:
@@ -276,11 +298,16 @@ class JobQueue:
             if entry.value is None:
                 continue
             try:
-                out[key[len(self._COMPRESS_SWEEP_KEY_PREFIX):]] = json.loads(
-                    entry.value.decode("utf-8", errors="replace")
-                )
+                payload = json.loads(entry.value.decode("utf-8", errors="replace"))
             except ValueError:
                 continue
+            if not isinstance(payload, dict):
+                continue
+            # Prefer the canonical scope from the payload; fall back to
+            # the un-slugged key tail for forward compat with entries
+            # written before this field existed.
+            label = payload.get("scope") or key[len(self._COMPRESS_SWEEP_KEY_PREFIX):]
+            out[label] = payload
         return out
 
     # --- worker registry ---------------------------------------------
