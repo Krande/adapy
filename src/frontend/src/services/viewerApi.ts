@@ -380,6 +380,16 @@ export interface AdminFileEntry {
     orphan?: boolean;
 }
 
+/** One worker pod's self-reported registration entry. */
+export interface WorkerEntry {
+    worker_id: string;
+    image_tag: string | null;
+    capabilities: string[];
+    started_at: number;
+    last_heartbeat: number;
+    online: boolean;
+}
+
 export const viewerApi = {
     /** Direct URL for the addressable blob endpoint. Includes scope.
      * Only safe to use as `<a href download>` when auth is disabled —
@@ -766,6 +776,19 @@ export const viewerApi = {
         const url = `${runtime.apiBase()}/admin/audit${qs ? `?${qs}` : ""}`;
         const r = await authedFetch(url);
         return jsonOrThrow(r, "adminAudit");
+    },
+
+    /** Admin: snapshot of every worker pod that recently checked in.
+     * The ``online`` flag is true when ``last_heartbeat`` is within
+     * ``stale_after_s`` of ``now`` (both reported by the server so the
+     * client doesn't depend on local clock skew). */
+    async adminListWorkers(): Promise<{
+        workers: WorkerEntry[];
+        now: number;
+        stale_after_s: number;
+    }> {
+        const r = await authedFetch(`${runtime.apiBase()}/admin/workers`);
+        return jsonOrThrow(r, "adminListWorkers");
     },
 
     /** Admin: read a key from app_settings. Value is null when unset. */

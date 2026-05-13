@@ -99,6 +99,13 @@ spec:
             {{- end }}
             - name: ADA_VIEWER_NATS_URL
               value: {{ $natsUrl | quote }}
+            {{- /*
+            Capability advertisement — workers publish this to the
+            registry so the admin panel can show what each pool can
+            handle. Defaults to "base" when the values entry omits it.
+            */}}
+            - name: ADA_WORKER_CAPABILITIES
+              value: {{ (default (list "base") $w.capabilities) | join "," | quote }}
             {{- include "adapy-viewer.databaseEnv" $ | nindent 12 }}
           {{- if eq $.Values.storage.kind "local" }}
           volumeMounts:

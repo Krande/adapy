@@ -7,6 +7,7 @@ import os
 import pathlib
 import shutil
 import tempfile
+import time
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 
@@ -1119,6 +1120,49 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         pool = _require_pool(request)
         revoked_at = await auth_module.revoke_cli_tokens(pool, user)
         return JSONResponse({"revoked_at": revoked_at})
+
+    @admin.get("/workers")
+    async def admin_list_workers() -> JSONResponse:
+        """Snapshot of every worker pod that recently checked in.
+
+        Each running worker re-PUTs its registry entry every 15 s; the
+        admin panel marks rows older than 60 s as offline (kept in the
+        list briefly so a flapping pod is visible while it restarts).
+        The list itself is just the KV scan — no DB hit, safe to poll
+        at the panel's refresh cadence.
+        """
+        if not queue.enabled:
+            raise HTTPException(
+                status_code=503,
+                detail="worker registry requires a NATS-backed queue",
+            )
+        try:
+            workers = await queue.list_workers()
+        except Exception as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=f"could not read worker registry: {exc}",
+            ) from exc
+        now = time.time()
+        # Annotate each row with a derived ``online`` boolean so the
+        # frontend doesn't have to recompute the staleness threshold.
+        stale_after_s = 60.0
+        for w in workers:
+            hb = w.get("last_heartbeat")
+            try:
+                w["online"] = (
+                    isinstance(hb, (int, float)) and (now - hb) <= stale_after_s
+                )
+            except TypeError:
+                w["online"] = False
+        # Newest registration first; offline rows sink to the bottom so
+        # the live fleet sits at the top of the table.
+        workers.sort(
+            key=lambda w: (not w.get("online"), -float(w.get("last_heartbeat") or 0)),
+        )
+        return JSONResponse(
+            {"workers": workers, "now": now, "stale_after_s": stale_after_s}
+        )
 
     @admin.get("/audit/{audit_id}")
     async def admin_audit_get(

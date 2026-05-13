@@ -224,6 +224,71 @@ class JobQueue:
             return None
         return entry.value.decode("utf-8", errors="replace")
 
+    # --- worker registry ---------------------------------------------
+    #
+    # Each running worker self-registers a small JSON blob under
+    # ``__meta_worker:<worker_id>`` and refreshes it on a heartbeat.
+    # The admin panel reads the whole set via ``list_workers``. Keys
+    # are flat (no slashes) since NATS KV doesn't permit ``:`` in keys
+    # — we use a hyphen-shaped worker id and rely on the meta prefix
+    # for namespacing.
+
+    _WORKER_KEY_PREFIX = "__meta_worker__"
+
+    async def register_worker(self, worker_id: str, info: dict) -> None:
+        """Write/refresh the worker entry. Idempotent — workers call
+        this on startup and again on each heartbeat tick."""
+        if self._kv is None:
+            return
+        key = f"{self._WORKER_KEY_PREFIX}{worker_id}"
+        await self._kv.put(key, json.dumps(info).encode("utf-8"))
+
+    async def unregister_worker(self, worker_id: str) -> None:
+        """Drop the worker entry. Best-effort — called from the worker's
+        shutdown path. If it fails the entry will go stale within one
+        heartbeat-staleness window, which the admin panel filters out."""
+        if self._kv is None:
+            return
+        key = f"{self._WORKER_KEY_PREFIX}{worker_id}"
+        try:
+            await self._kv.delete(key)
+        except KeyNotFoundError:
+            pass
+
+    async def list_workers(self) -> list[dict]:
+        """Return every worker entry. Each row carries whatever the
+        worker last wrote — image_tag, capabilities, started_at,
+        last_heartbeat — plus the id derived from the KV key.
+
+        Staleness filtering is the caller's concern: this method just
+        snapshots the bucket.
+        """
+        if self._kv is None:
+            return []
+        try:
+            keys = await self._kv.keys()
+        except (BucketNotFoundError, Exception):
+            return []
+        workers: list[dict] = []
+        for key in keys:
+            if not key.startswith(self._WORKER_KEY_PREFIX):
+                continue
+            try:
+                entry = await self._kv.get(key)
+            except KeyNotFoundError:
+                continue
+            if entry.value is None:
+                continue
+            try:
+                info = json.loads(entry.value.decode("utf-8", errors="replace"))
+            except (ValueError, AttributeError):
+                continue
+            if not isinstance(info, dict):
+                continue
+            info["worker_id"] = key[len(self._WORKER_KEY_PREFIX) :]
+            workers.append(info)
+        return workers
+
     # --- consumer side (called from worker) --------------------------
 
     async def pull_subscribe(self):

@@ -6,6 +6,7 @@ import CliTokenButton from "./CliTokenButton";
 import ConversionSettingsTab from "./ConversionSettingsTab";
 import ProjectsTab from "./ProjectsTab";
 import StorageTab from "./StorageTab";
+import WorkersTab from "./WorkersTab";
 
 // Modal-style admin panel. Lazy-loaded so the desktop bundle never
 // pulls it in; the opener is gated on me.isAdmin.
@@ -19,7 +20,7 @@ import StorageTab from "./StorageTab";
 //   projects / storage) — same min-width on every internal table —
 //   so flipping tabs doesn't reflow the modal.
 
-type Tab = "audit" | "projects" | "storage" | "conversion";
+type Tab = "audit" | "projects" | "storage" | "workers" | "conversion";
 
 const STORAGE_KEY = "ada-admin-panel-rect";
 const DESKTOP_QUERY = "(min-width: 768px)";
@@ -120,6 +121,9 @@ const AdminPanel: React.FC<{onClose: () => void}> = ({onClose}) => {
                     <TabButton active={tab === "storage"} onClick={() => setTab("storage")}>
                         Storage
                     </TabButton>
+                    <TabButton active={tab === "workers"} onClick={() => setTab("workers")}>
+                        Workers
+                    </TabButton>
                     <TabButton active={tab === "conversion"} onClick={() => setTab("conversion")}>
                         Conversion
                     </TabButton>
@@ -140,6 +144,7 @@ const AdminPanel: React.FC<{onClose: () => void}> = ({onClose}) => {
                 {tab === "audit" && <AuditLogTab/>}
                 {tab === "projects" && <ProjectsTab/>}
                 {tab === "storage" && <StorageTab/>}
+                {tab === "workers" && <WorkersTab/>}
                 {tab === "conversion" && <ConversionSettingsTab/>}
             </div>
         </div>

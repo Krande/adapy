@@ -605,16 +605,53 @@ async def _run() -> None:
     queue = JobQueue(settings.queue)
     await queue.connect()
 
-    # Self-identify so the viewer's /api/config can surface the
-    # currently-running worker image tag. Best-effort: a KV write
-    # failure shouldn't keep the worker from accepting jobs.
+    # Self-identify so the viewer's /api/config + /api/admin/workers
+    # can surface this worker. Two artefacts:
+    #
+    #   - ``worker_image_tag`` meta slot — single-value, last-writer-wins;
+    #     /api/config reads it to show "running image: sha-XXXXXXX" in
+    #     the viewer header. Pre-dates the per-worker registry.
+    #   - ``__meta_worker__<id>`` per-worker entry — one row per running
+    #     pod, refreshed on a heartbeat below; /api/admin/workers reads
+    #     the whole set.
+    #
+    # Best-effort: a KV write failure shouldn't keep the worker from
+    # accepting jobs.
     image_tag = os.environ.get("ADA_IMAGE_TAG", "").strip()
+    worker_id = (os.environ.get("HOSTNAME", "").strip() or f"local-{os.getpid()}")
+    capabilities = [
+        c.strip()
+        for c in os.environ.get("ADA_WORKER_CAPABILITIES", "base").split(",")
+        if c.strip()
+    ]
+    started_at = time.time()
+
     if image_tag:
         try:
             await queue.set_meta("worker_image_tag", image_tag)
             logger.info("worker: published image tag %s", image_tag)
         except Exception:
             logger.exception("worker: failed to publish image tag (non-fatal)")
+
+    async def _publish_registration() -> None:
+        try:
+            await queue.register_worker(
+                worker_id,
+                {
+                    "image_tag": image_tag or None,
+                    "capabilities": capabilities,
+                    "started_at": started_at,
+                    "last_heartbeat": time.time(),
+                },
+            )
+        except Exception:
+            logger.exception("worker: register_worker failed (non-fatal)")
+
+    await _publish_registration()
+    logger.info(
+        "worker: registered id=%s capabilities=%s",
+        worker_id, ",".join(capabilities),
+    )
 
     # Optional DB pool — only used to flip audit_log rows from 'queued'
     # to 'done'/'error' when a job finishes. Without it the worker still
@@ -650,6 +687,20 @@ async def _run() -> None:
             # Windows: skip graceful signal wiring.
             pass
 
+    # Heartbeat loop — re-publish the registration every 15 s so the
+    # admin panel can filter stale workers (a pod that crashed without
+    # graceful shutdown will fall off the list within HEARTBEAT_STALE_S).
+    async def _heartbeat_loop() -> None:
+        while not stop.is_set():
+            try:
+                await asyncio.wait_for(stop.wait(), timeout=15.0)
+            except asyncio.TimeoutError:
+                await _publish_registration()
+            else:
+                return  # stop set — exit cleanly
+
+    heartbeat_task = asyncio.create_task(_heartbeat_loop())
+
     # The previous threadpool ran convert() in-process; that's been
     # replaced by a per-job forked subprocess (see subprocess_convert).
     # Keep the parameter on _process_one for now (callers may still
@@ -684,6 +735,15 @@ async def _run() -> None:
                 finally:
                     await msg.ack()
     finally:
+        heartbeat_task.cancel()
+        try:
+            await heartbeat_task
+        except (asyncio.CancelledError, Exception):
+            pass
+        try:
+            await queue.unregister_worker(worker_id)
+        except Exception:
+            logger.exception("worker: unregister failed (non-fatal)")
         await queue.close()
         if db_pool is not None:
             try:
