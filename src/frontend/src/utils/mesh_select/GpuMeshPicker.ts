@@ -61,6 +61,15 @@ interface RegisteredMesh {
      *  Lets us rebuild picker morph attrs on stale-attr detection
      *  without re-walking the index buffer. */
     sourceVertexIndex: Uint32Array;
+    /** Total addressable count for the picker geometry's groups —
+     *  position-vertex count for non-indexed, index count for the
+     *  flat-indexed layout. Cached so the hidden-range sync doesn't
+     *  re-query the geometry every pick. */
+    pickerTotalCount: number;
+    /** Last ``CustomBatchedMesh.hiddenChangeCounter`` value the picker
+     *  was synced against. Starts at -1 so the first pick always
+     *  rebuilds the groups (covers the freshly-registered case). */
+    lastHiddenCounter: number;
 }
 
 interface IdEntry {
@@ -83,6 +92,16 @@ class GpuMeshPicker {
 
     private idToEntry = new Map<number, IdEntry>();
     private registered = new WeakMap<CustomBatchedMesh, RegisteredMesh>();
+
+    // Shared invisible material used as slot 1 in every picker mesh's
+    // material array. Hidden ranges get materialIndex=1 in their
+    // picker geometry group — three's renderer skips draws against an
+    // invisible material entirely, so the hidden triangles never
+    // rasterize and therefore never write depth. That's the only way
+    // a visible element BEHIND a hidden one can win the pick: if
+    // hidden triangles were merely tinted background-coloured they'd
+    // still occlude in the depth buffer.
+    private invisibleMaterial = new THREE.MeshBasicMaterial({visible: false});
 
     // Per-pick scratch — avoids GC churn on the click hot path.
     private _tmpVec2 = new THREE.Vector2();
@@ -309,9 +328,15 @@ class GpuMeshPicker {
             );
         }
 
+        // Material is always an array — slot 0 is the picker shader,
+        // slot 1 is the shared invisible material used to hide ranges
+        // from the pick render (see ``syncHiddenGroups``). ``pickAt``
+        // seeds a single group covering the whole geometry with
+        // materialIndex=0 on the first sync, so the unhidden case is
+        // still one draw call.
         const pickerMesh = new THREE.Mesh(
             built.geometry,
-            this.makePickingMaterial(morphTargetCount, flat),
+            [this.makePickingMaterial(morphTargetCount, flat), this.invisibleMaterial],
         );
         pickerMesh.name = `__pick__${mesh.name}`;
         pickerMesh.frustumCulled = mesh.frustumCulled;
@@ -321,11 +346,23 @@ class GpuMeshPicker {
         // scene-graph transform update.
         mesh.add(pickerMesh);
 
+        // Picker-geometry total addressable count for groups:
+        //   * non-indexed → position-vertex count (3 verts per tri)
+        //   * flat-indexed → index count
+        // Both happen to equal the original drawRange's address space,
+        // so the group sync below can use drawRanges' start/count
+        // directly without remapping.
+        const pickerTotalCount = built.geometry.index
+            ? built.geometry.index.count
+            : (built.geometry.getAttribute("position") as THREE.BufferAttribute).count;
+
         this.registered.set(mesh, {
             pickerMesh,
             morphTargetCount,
             sourceMorphAttrs: built.sourceMorphAttrs,
             sourceVertexIndex: built.sourceVertexIndex,
+            pickerTotalCount,
+            lastHiddenCounter: -1,
         });
 
         const memMB = built.byteLength / 1024 / 1024;
@@ -628,6 +665,66 @@ class GpuMeshPicker {
         return changed;
     }
 
+    /** Mirror the source mesh's hidden-range set into the picker
+     *  geometry's groups so hidden triangles render against the
+     *  invisible material (slot 1) and never reach the pick framebuffer.
+     *
+     *  Without this, shift+H would mark elements invisible on the
+     *  visible mesh but the picker would happily return them — and
+     *  worse, their depth would block clicks on visible elements behind.
+     *
+     *  Cheap: ``hiddenChangeCounter`` lets us early-out on every pick
+     *  where nothing has changed. Group rebuilds only run on the click
+     *  immediately after a hide/unhide. */
+    private syncHiddenGroups(mesh: CustomBatchedMesh, reg: RegisteredMesh): void {
+        if (mesh.hiddenChangeCounter === reg.lastHiddenCounter) return;
+        reg.lastHiddenCounter = mesh.hiddenChangeCounter;
+
+        const pickerGeom = reg.pickerMesh.geometry as THREE.BufferGeometry;
+        const total = reg.pickerTotalCount;
+        pickerGeom.clearGroups();
+
+        const hidden = mesh.getHiddenRanges();
+        if (hidden.size === 0) {
+            // Fast path: one group, one draw call, materialIndex=0.
+            pickerGeom.addGroup(0, total, 0);
+            return;
+        }
+
+        // Walk drawRanges in start order, emit groups. Coalesce runs
+        // of visible ranges (and gaps between drawRanges) into single
+        // materialIndex=0 groups; each hidden range gets its own
+        // materialIndex=1 group. Mirrors CustomBatchedMesh.updateGroups
+        // and reuses the same cached sorted-segments view so we don't
+        // re-sort drawRanges on every pick.
+        const segs = mesh.getSortedSegments();
+        const n = segs.ids.length;
+
+        let cur = 0;
+        let runStart: number | null = null;
+        const flushRun = (end: number) => {
+            if (runStart !== null && end > runStart) {
+                pickerGeom.addGroup(runStart, end - runStart, 0);
+            }
+            runStart = null;
+        };
+        for (let i = 0; i < n; i++) {
+            const id = segs.ids[i];
+            const s = segs.starts[i];
+            const c = segs.counts[i];
+            if (s > cur && runStart === null) runStart = cur;
+            if (hidden.has(id)) {
+                flushRun(s);
+                pickerGeom.addGroup(s, c, 1);
+            } else {
+                if (runStart === null) runStart = s;
+            }
+            cur = s + c;
+        }
+        if (cur < total && runStart === null) runStart = cur;
+        flushRun(total);
+    }
+
     /** Compute the world-space position of the picked range's first
      *  vertex, applying CPU morph blending if morph attrs exist on
      *  the source geometry. Single vertex — microseconds. */
@@ -747,7 +844,14 @@ class GpuMeshPicker {
             if (!(o instanceof CustomBatchedMesh)) return;
             this.registerMesh(o);
             const reg = this.registered.get(o);
-            if (!reg || reg.morphTargetCount === 0) return;
+            if (!reg) return;
+            // Re-sync picker groups against the source's hidden set
+            // before the morph branch — hidden-range mutation is
+            // independent of morph state, and a freshly-registered
+            // mesh needs its initial group emitted regardless of
+            // whether it has morphs.
+            this.syncHiddenGroups(o, reg);
+            if (reg.morphTargetCount === 0) return;
             this.refreshMorphIfStale(o, reg);
             const srcInfl = (o as any).morphTargetInfluences as number[] | undefined;
             if (srcInfl) {

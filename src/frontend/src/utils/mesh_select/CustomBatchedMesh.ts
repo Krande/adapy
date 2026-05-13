@@ -16,6 +16,25 @@ export class CustomBatchedMesh extends THREE.Mesh {
 
     private selectedRanges = new Set<string>();
     private hiddenRanges = new Set<string>();
+    /** Bumped on every hide/unhide. Lets external consumers (e.g.
+     *  GpuMeshPicker) cheaply detect that they need to re-sync the
+     *  hidden set without exposing its identity. */
+    public hiddenChangeCounter = 0;
+
+    /** Lazy cache of drawRanges sorted by start offset, stored as
+     *  parallel arrays so we walk by index (no per-entry object
+     *  allocation, fewer GC pauses).
+     *
+     *  Both ``updateGroups`` and the GPU picker's hidden-range sync
+     *  need this same sorted view, and FEA meshes can have 48k+
+     *  drawRanges — re-sorting on every hide/select used to dominate
+     *  the hide-click frame. ``drawRanges`` is only mutated at
+     *  construction by the loader, so a one-shot build is safe; the
+     *  cache is invalidated if anyone ever mutates it post-hoc by
+     *  calling ``invalidateSortedSegments``. */
+    private _sortedSegIds?: string[];
+    private _sortedSegStarts?: Uint32Array;
+    private _sortedSegCounts?: Uint32Array;
 
     private edgeMesh?: THREE.LineSegments;
     private rangeIdToIndex?: Map<string, number>;
@@ -69,6 +88,67 @@ export class CustomBatchedMesh extends THREE.Mesh {
         this.updateGroups();
     }
 
+    /** Build (or rebuild) the sorted-segments cache. O(N log N) once.
+     *  Stores parallel typed arrays + a string id array — Uint32 starts
+     *  and counts are ~12 bytes/segment vs. ~64 bytes/segment for the
+     *  object-wrapper layout, so for a 48k-range mesh this is ~600 KB
+     *  rather than ~3 MB. */
+    private buildSortedSegments(): void {
+        const n = this.drawRanges.size;
+        const order = new Array<number>(n);
+        const ids = new Array<string>(n);
+        const starts = new Uint32Array(n);
+        const counts = new Uint32Array(n);
+        let i = 0;
+        for (const [id, [s, c]] of this.drawRanges) {
+            ids[i] = id;
+            starts[i] = s;
+            counts[i] = c;
+            order[i] = i;
+            i++;
+        }
+        // Sort indices into ``order`` rather than zipped objects to
+        // avoid 48k tiny object allocations on big FEA meshes.
+        order.sort((a, b) => starts[a] - starts[b]);
+        const sortedIds = new Array<string>(n);
+        const sortedStarts = new Uint32Array(n);
+        const sortedCounts = new Uint32Array(n);
+        for (let j = 0; j < n; j++) {
+            const k = order[j];
+            sortedIds[j] = ids[k];
+            sortedStarts[j] = starts[k];
+            sortedCounts[j] = counts[k];
+        }
+        this._sortedSegIds = sortedIds;
+        this._sortedSegStarts = sortedStarts;
+        this._sortedSegCounts = sortedCounts;
+    }
+
+    /** Read-only view of drawRanges sorted by start offset. Builds
+     *  the cache on first access. Returned arrays are owned by the
+     *  mesh — do not mutate. */
+    public getSortedSegments(): {
+        ids: ReadonlyArray<string>;
+        starts: Uint32Array;
+        counts: Uint32Array;
+    } {
+        if (!this._sortedSegIds) this.buildSortedSegments();
+        return {
+            ids: this._sortedSegIds!,
+            starts: this._sortedSegStarts!,
+            counts: this._sortedSegCounts!,
+        };
+    }
+
+    /** Drop the cache. Call after any external mutation to
+     *  ``drawRanges`` — the loader currently never does this
+     *  post-construction, but defensive in case that changes. */
+    public invalidateSortedSegments(): void {
+        this._sortedSegIds = undefined;
+        this._sortedSegStarts = undefined;
+        this._sortedSegCounts = undefined;
+    }
+
     private updateGroups() {
         const idxCount = this.geometry.index!.count;
         this.geometry.clearGroups();
@@ -110,9 +190,8 @@ export class CustomBatchedMesh extends THREE.Mesh {
             return;
         }
 
-        const segs = Array.from(this.drawRanges.entries())
-            .map(([id, [s, c]]) => ({id, s, c}))
-            .sort((a, b) => a.s - b.s);
+        const segs = this.getSortedSegments();
+        const n = segs.ids.length;
 
         // Walk segments, merging default-material runs (including any
         // gaps between segments) into a single addGroup at flush time.
@@ -126,7 +205,10 @@ export class CustomBatchedMesh extends THREE.Mesh {
             runStart = null;
         };
 
-        for (const {id, s, c} of segs) {
+        for (let i = 0; i < n; i++) {
+            const id = segs.ids[i];
+            const s = segs.starts[i];
+            const c = segs.counts[i];
             if (s > cur && runStart === null) {
                 runStart = cur;
             }
@@ -440,6 +522,7 @@ export class CustomBatchedMesh extends THREE.Mesh {
         for (const id of rangeIds) {
             this.hiddenRanges.add(id);
         }
+        this.hiddenChangeCounter++;
 
         // 2) Rebuild all groups just once
         this.updateGroups();
@@ -458,8 +541,13 @@ export class CustomBatchedMesh extends THREE.Mesh {
         }
     }
 
+    public getHiddenRanges(): ReadonlySet<string> {
+        return this.hiddenRanges;
+    }
+
     public unhideAllDrawRanges() {
         this.hiddenRanges.clear();
+        this.hiddenChangeCounter++;
         this.updateGroups();
         if (this.edgeMaterial) {
             const tex = this.edgeMaterial.uniforms.uVisibleTex.value as THREE.DataTexture;
