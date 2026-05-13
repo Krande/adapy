@@ -258,11 +258,16 @@ class Storage:
         reliable than the object's ``Content-Encoding`` metadata,
         which can be missing on objects uploaded via presigned PUT
         before the client started signing it in.
+
+        ``obs`` returns its own ``builtins.Bytes`` type (Rust-bound,
+        zero-copy from the response buffer) that exposes most but
+        not all of Python's ``bytes`` protocol — ``startswith`` is
+        missing. Convert to native ``bytes`` before sniffing.
         """
         full = self._full_key(scope, key)
         result = await obs.get_async(self._store, full)
-        raw = await result.bytes_async()
-        is_gzipped = raw.startswith(b"\x1f\x8b")
+        raw = bytes(await result.bytes_async())
+        is_gzipped = raw[:2] == _GZIP_MAGIC
         return raw, is_gzipped
 
     async def rename(
