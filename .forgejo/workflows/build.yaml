@@ -277,13 +277,22 @@ jobs:
             echo "downstream dispatch not configured — skipping."
             exit 0
           fi
-          code=$(curl -s -o /tmp/resp -w "%{http_code}" -X POST \
+          # The docker-build runner image carries the docker CLI but
+          # not curl, so we run curl as a one-off container against
+          # the same daemon. -sS keeps stderr quiet on success but
+          # surfaces a real error if the request fails.
+          resp=$(docker run --rm \
+            -e URL -e TOKEN -e REF \
+            curlimages/curl:8.10.1 -sS -o - -w "\n%{http_code}" \
+            -X POST \
             -H "Authorization: token $TOKEN" \
             -H "Content-Type: application/json" \
             "$URL" -d "{\"ref\":\"$REF\"}")
+          body=$(printf '%s\n' "$resp" | head -n -1)
+          code=$(printf '%s\n' "$resp" | tail -n 1)
           if [ "$code" != "204" ] && [ "$code" != "200" ]; then
             echo "::warning::downstream dispatch returned HTTP $code; downstream rebuild not triggered"
-            head -c 500 /tmp/resp
+            printf '%s\n' "$body" | head -c 500
             exit 0
           fi
           echo "Downstream dispatch sent (HTTP $code)."
