@@ -75,11 +75,21 @@ _CONVERTABLE_AS_IFC: frozenset[str] = frozenset(
 )
 
 
-def _infer_file_type(key: str) -> FileTypeDC | None:
+def _infer_file_type(
+    key: str, extra_source_exts: frozenset[str] | None = None
+) -> FileTypeDC | None:
     ext = PurePosixPath(key).suffix.lower()
     if ext in _EXT_TO_TYPE:
         return _EXT_TO_TYPE[ext]
     if ext in _CONVERTABLE_AS_IFC:
+        return FileTypeDC.IFC
+    # Extensions advertised by capability workers' stream-reader plug-ins
+    # (e.g. .odb when an abaqus-capability worker is online). adapy core
+    # doesn't know these statically, so they'd otherwise be silently
+    # filtered out of the storage overview even though the upload
+    # succeeded. Flag them as IFC so the same convert-or-pick-step UX
+    # the other source formats use kicks in.
+    if extra_source_exts and ext in extra_source_exts:
         return FileTypeDC.IFC
     return None
 
@@ -97,14 +107,19 @@ def _error_reply(message: MessageDC, msg: str) -> bytes:
     return serialize_root_message(reply)
 
 
-async def _handle_list_file_objects(message: MessageDC, storage: Storage, scope: Scope) -> bytes:
+async def _handle_list_file_objects(
+    message: MessageDC,
+    storage: Storage,
+    scope: Scope,
+    extra_source_exts: frozenset[str] | None = None,
+) -> bytes:
     files = await storage.list(scope)
     file_objects: list[FileObjectDC] = []
     for entry in files:
         # Hide internal derived blobs from the user-facing file list.
         if is_derived_key(entry.key):
             continue
-        ftype = _infer_file_type(entry.key)
+        ftype = _infer_file_type(entry.key, extra_source_exts)
         if ftype is None:
             continue
         file_objects.append(
@@ -213,12 +228,27 @@ _HANDLERS = {
 }
 
 
-async def dispatch(payload: bytes, storage: Storage, scope: Scope) -> bytes | None:
+async def dispatch(
+    payload: bytes,
+    storage: Storage,
+    scope: Scope,
+    *,
+    extra_source_exts: frozenset[str] | None = None,
+) -> bytes | None:
     """Deserialize, dispatch (passing the request's scope to handlers),
-    return serialized response (or None for no-reply)."""
+    return serialized response (or None for no-reply).
+
+    ``extra_source_exts`` is the set of source extensions advertised by
+    online capability workers — only LIST_FILE_OBJECTS uses it today
+    (to surface plug-in formats like .odb in the storage overview).
+    Other handlers ignore the argument.
+    """
+
     message = deserialize_root_message(payload)
     handler = _HANDLERS.get(message.command_type)
     if handler is None:
         logger.info("REST: unsupported command_type %s", message.command_type)
         return _error_reply(message, f"command_type {message.command_type} not supported in REST mode")
+    if message.command_type == CommandTypeDC.LIST_FILE_OBJECTS:
+        return await handler(message, storage, scope, extra_source_exts)
     return await handler(message, storage, scope)

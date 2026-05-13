@@ -352,8 +352,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         payload = await request.body()
         if not payload:
             raise HTTPException(status_code=400, detail="empty body")
+        # Pull the worker-advertised extension set so the file lister
+        # can flag plug-in formats (e.g. .odb when an abaqus-capability
+        # worker is online) instead of silently dropping them. Cheap
+        # NATS KV read; failures degrade to the static list.
         try:
-            reply = await dispatch(payload, storage, scope)
+            extra_source_exts = frozenset(await _worker_advertised_exts())
+        except Exception:
+            logger.exception("rpc: failed to read worker-advertised exts")
+            extra_source_exts = frozenset()
+        try:
+            reply = await dispatch(
+                payload, storage, scope, extra_source_exts=extra_source_exts
+            )
         except Exception as exc:
             logger.exception("rpc dispatch failed")
             raise HTTPException(status_code=500, detail=str(exc)) from exc
