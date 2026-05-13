@@ -261,6 +261,33 @@ jobs:
           docker push "${REGISTRY_IMAGE}:${TAG}"
           docker push "${REGISTRY_IMAGE}:${BRANCH_TAG}"
 
+      - name: Trigger downstream rebuild (optional)
+        env:
+          # Optional fan-out. When all three secrets are set, this
+          # POSTs a workflow_dispatch to a downstream forgejo repo
+          # so an image that FROM's this worker can rebuild on top of
+          # the freshly-pushed base. Keep the dispatch generic — the
+          # URL / token / ref live in secrets so adapy itself doesn't
+          # reference any specific downstream by name.
+          URL: ${{ secrets.DOWNSTREAM_DISPATCH_URL }}
+          TOKEN: ${{ secrets.DOWNSTREAM_DISPATCH_TOKEN }}
+          REF: ${{ secrets.DOWNSTREAM_DISPATCH_REF }}
+        run: |
+          if [ -z "$URL" ] || [ -z "$TOKEN" ] || [ -z "$REF" ]; then
+            echo "downstream dispatch not configured — skipping."
+            exit 0
+          fi
+          code=$(curl -s -o /tmp/resp -w "%{http_code}" -X POST \
+            -H "Authorization: token $TOKEN" \
+            -H "Content-Type: application/json" \
+            "$URL" -d "{\"ref\":\"$REF\"}")
+          if [ "$code" != "204" ] && [ "$code" != "200" ]; then
+            echo "::warning::downstream dispatch returned HTTP $code; downstream rebuild not triggered"
+            head -c 500 /tmp/resp
+            exit 0
+          fi
+          echo "Downstream dispatch sent (HTTP $code)."
+
   gitops:
     needs: [viewer-build, worker-build]
     # Run when at least one build succeeded; tolerate the other being
