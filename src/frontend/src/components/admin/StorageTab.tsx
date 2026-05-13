@@ -327,69 +327,21 @@ const StorageTab: React.FC = () => {
     // Kick off a server-side sweep that gzips any source-format file
     // that's stored uncompressed (typical case: a >200 MB upload took
     // the direct presigned-PUT path before the browser-side
-    // compression bit landed). Server returns 202 immediately; we
-    // poll status every 3 s until completion. Idempotent — re-running
-    // after completion just confirms nothing's left to compress.
+    // compression bit landed). Server returns 202 immediately; the
+    // global compression-progress toast (poller in RestModeUI) picks
+    // up progress and displays it bottom-right. Idempotent.
     const onCompressUncompressed = async () => {
         setCompressionBusy(true);
-        setCompressionMsg("Starting…");
         try {
             await viewerApi.adminStartCompressionSweep(scope);
+            setCompressionMsg("Started — see progress toast (bottom-right)");
+            setTimeout(() => setCompressionMsg(null), 5000);
         } catch (e) {
             const msg = e instanceof ApiError ? (e.detail || e.message) : String(e);
             setError(`compress sweep start failed: ${msg}`);
+        } finally {
             setCompressionBusy(false);
-            setCompressionMsg(null);
-            return;
         }
-        const tick = async (): Promise<void> => {
-            try {
-                const r = await viewerApi.adminCompressionStatus();
-                const s = r.scopes[scope];
-                if (!s) {
-                    setCompressionMsg("Starting…");
-                    return;
-                }
-                if (s.completed_at !== null) {
-                    const saved = Math.max(0, s.bytes_before - 0);  // delta not tracked yet
-                    const label =
-                        s.compressed > 0
-                            ? `Compressed ${s.compressed} / ${s.total} (${(s.bytes_before / 1024 / 1024).toFixed(0)} MB scanned)`
-                            : s.already_gzipped > 0
-                                ? `All ${s.already_gzipped} candidate(s) already gzipped`
-                                : "Nothing to compress";
-                    setCompressionMsg(label);
-                    setCompressionBusy(false);
-                    if (s.errors.length) {
-                        setError(
-                            `compress sweep finished with ${s.errors.length} error(s):\n` +
-                            s.errors.map((e) => `${e.key}: ${e.error}`).join("\n"),
-                        );
-                    } else if (s.error) {
-                        setError(`compress sweep failed: ${s.error}`);
-                    }
-                    await reload();
-                    // Clear the toast text after a few seconds so the
-                    // button label snaps back to its default.
-                    setTimeout(() => setCompressionMsg(null), 8000);
-                    return;
-                }
-                setCompressionMsg(
-                    s.total === 0
-                        ? "Listing…"
-                        : `Compressing ${s.processed} / ${s.total}…`,
-                );
-                setTimeout(() => void tick(), 3000);
-            } catch (e) {
-                const msg = e instanceof ApiError ? (e.detail || e.message) : String(e);
-                setError(`compression-status poll failed: ${msg}`);
-                setCompressionBusy(false);
-                setCompressionMsg(null);
-            }
-        };
-        // Brief first delay so the server has time to record the state
-        // dict before our first poll lands.
-        setTimeout(() => void tick(), 500);
     };
 
     return (

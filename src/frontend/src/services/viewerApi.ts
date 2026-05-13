@@ -384,14 +384,22 @@ export interface AdminFileEntry {
 export interface CompressionSweepState {
     started_at: number;
     completed_at: number | null;
+    last_update: number;
     total: number;
     processed: number;
     compressed: number;
     already_gzipped: number;
     bytes_before: number;
+    bytes_after: number;
     errors: {key: string; error: string}[];
     error: string | null;
     cancelled: boolean;
+    /** Filename currently being compressed, if any. */
+    current_key: string | null;
+    /** Server marks ``true`` when ``completed_at`` is null and the
+     * ``last_update`` heartbeat is older than 90 s — most likely the
+     * viewer pod restarted mid-sweep and the BackgroundTask was lost. */
+    orphaned: boolean;
 }
 
 /** One worker pod's self-reported registration entry. */

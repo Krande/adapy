@@ -1079,10 +1079,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except (ValueError, AttributeError, TypeError) as exc:
             raise HTTPException(status_code=400, detail=f"invalid {what}") from exc
 
-    # In-memory per-scope compression-sweep state. Survives an admin
-    # reload but not an API pod restart — fine for the use case
-    # (sweep restarts itself when re-triggered; the work is idempotent).
+    # Per-scope compression-sweep state lives in NATS KV (queue.set/
+    # get_compress_sweep_state) so a new session can observe an
+    # in-flight sweep started elsewhere. We keep a small in-process
+    # cache too so per-file state updates inside the BackgroundTask
+    # don't have to re-read from KV between mutations.
     compression_state: dict[str, dict] = {}
+
+    async def _save_compression_state(scope_label: str) -> None:
+        state = compression_state.get(scope_label)
+        if state is None:
+            return
+        try:
+            await queue.set_compress_sweep_state(scope_label, state)
+        except Exception:
+            logger.exception("compression sweep: KV write failed (non-fatal)")
 
     @admin.get("/settings/{key}")
     async def admin_get_setting(
@@ -1149,15 +1160,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except Exception as exc:
             state["error"] = f"list failed: {exc}"
             state["completed_at"] = time.time()
+            state["last_update"] = time.time()
+            await _save_compression_state(scope_label)
             return
         candidates = [
             e for e in entries
             if _content_encoding_for(e.key) == "gzip" and not _is_derived_key(e.key)
         ]
         state["total"] = len(candidates)
+        state["last_update"] = time.time()
+        await _save_compression_state(scope_label)
         for entry in candidates:
             if state.get("cancelled"):
                 break
+            state["current_key"] = entry.key
+            state["last_update"] = time.time()
+            await _save_compression_state(scope_label)
             try:
                 # Stream the object to disk so the viewer pod never has
                 # to hold the whole payload in RAM — a 900 MB SIF with
@@ -1190,12 +1208,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 )
                 state["compressed"] += 1
                 state["bytes_before"] += entry.size or 0
+                state["bytes_after"] += len(gzipped)
             except Exception as exc:
                 logger.exception("compress sweep failed on %s/%s", scope_label, entry.key)
                 state["errors"].append({"key": entry.key, "error": str(exc)})
             finally:
                 state["processed"] += 1
+                state["last_update"] = time.time()
+                await _save_compression_state(scope_label)
         state["completed_at"] = time.time()
+        state["current_key"] = None
+        state["last_update"] = time.time()
+        await _save_compression_state(scope_label)
 
     @admin.post("/storage/{scope}/compress-uncompressed")
     async def admin_compress_uncompressed(
@@ -1213,25 +1237,35 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         while a sweep is running for the same scope returns 409.
         """
         scope_label = scope
-        current = compression_state.get(scope_label)
+        current = await queue.get_compress_sweep_state(scope_label)
         if current and current.get("completed_at") is None:
-            raise HTTPException(
-                status_code=409,
-                detail=f"sweep already running for {scope_label}",
-            )
+            # Treat as orphaned if last_update is older than 90 s — the
+            # most likely cause is a viewer pod restart that lost the
+            # BackgroundTask. Override the stale state with a fresh
+            # one rather than 409-blocking forever.
+            last_update = current.get("last_update") or current.get("started_at") or 0
+            if time.time() - last_update < 90:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"sweep already running for {scope_label}",
+                )
 
         compression_state[scope_label] = {
             "started_at": time.time(),
             "completed_at": None,
+            "last_update": time.time(),
             "total": 0,
             "processed": 0,
             "compressed": 0,
             "already_gzipped": 0,
             "bytes_before": 0,
+            "bytes_after": 0,
             "errors": [],
             "error": None,
             "cancelled": False,
+            "current_key": None,
         }
+        await _save_compression_state(scope_label)
         background_tasks.add_task(_compression_sweep, scope_obj, scope_label)
         return JSONResponse(
             {"scope": scope_label, "status": "started"}, status_code=202,
@@ -1239,9 +1273,30 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @admin.get("/storage/compression-status")
     async def admin_compression_status() -> JSONResponse:
-        """Snapshot of every recent compression sweep keyed by scope.
-        Entries persist in-process until the next pod restart."""
-        return JSONResponse({"scopes": compression_state})
+        """Snapshot of every recorded compression sweep keyed by scope.
+        State lives in NATS KV so a new session sees in-flight sweeps
+        that were started elsewhere; an entry with ``completed_at: null``
+        and ``last_update`` older than 90 s indicates the viewer pod
+        restarted mid-sweep (the work was lost — re-trigger to resume)."""
+        try:
+            scopes = await queue.list_compress_sweep_states()
+        except Exception:
+            logger.exception("compression status: KV read failed")
+            scopes = {}
+        # Layer in any in-process state that hasn't been flushed to KV
+        # yet (e.g. between mutations within the BackgroundTask).
+        for label, state in compression_state.items():
+            scopes[label] = state
+        # Tag each entry with an ``orphaned`` flag for the frontend's
+        # toast logic — saves the client recomputing the staleness.
+        now = time.time()
+        for state in scopes.values():
+            if state.get("completed_at") is None:
+                last = state.get("last_update") or state.get("started_at") or 0
+                state["orphaned"] = (now - last) > 90
+            else:
+                state["orphaned"] = False
+        return JSONResponse({"scopes": scopes})
 
     @admin.get("/workers")
     async def admin_list_workers() -> JSONResponse:

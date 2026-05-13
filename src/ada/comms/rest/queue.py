@@ -224,6 +224,65 @@ class JobQueue:
             return None
         return entry.value.decode("utf-8", errors="replace")
 
+    # --- compression sweep state -------------------------------------
+    #
+    # One entry per scope under ``__meta_compress_sweep_<label>``.
+    # Survives a viewer pod restart so a new session can see an
+    # in-flight sweep that was started elsewhere. State is a small
+    # JSON blob; mutations are read-modify-write at low frequency
+    # (per-file completion) so the race window is acceptable.
+
+    _COMPRESS_SWEEP_KEY_PREFIX = "__meta_compress_sweep_"
+
+    async def set_compress_sweep_state(
+        self, scope_label: str, state: dict
+    ) -> None:
+        if self._kv is None:
+            return
+        key = f"{self._COMPRESS_SWEEP_KEY_PREFIX}{scope_label}"
+        await self._kv.put(key, json.dumps(state).encode("utf-8"))
+
+    async def get_compress_sweep_state(self, scope_label: str) -> dict | None:
+        if self._kv is None:
+            return None
+        key = f"{self._COMPRESS_SWEEP_KEY_PREFIX}{scope_label}"
+        try:
+            entry = await self._kv.get(key)
+        except KeyNotFoundError:
+            return None
+        if entry.value is None:
+            return None
+        try:
+            return json.loads(entry.value.decode("utf-8", errors="replace"))
+        except ValueError:
+            return None
+
+    async def list_compress_sweep_states(self) -> dict[str, dict]:
+        """Return ``{scope_label: state}`` for every recorded sweep."""
+        if self._kv is None:
+            return {}
+        try:
+            keys = await self._kv.keys()
+        except (BucketNotFoundError, Exception):
+            return {}
+        out: dict[str, dict] = {}
+        for key in keys:
+            if not key.startswith(self._COMPRESS_SWEEP_KEY_PREFIX):
+                continue
+            try:
+                entry = await self._kv.get(key)
+            except KeyNotFoundError:
+                continue
+            if entry.value is None:
+                continue
+            try:
+                out[key[len(self._COMPRESS_SWEEP_KEY_PREFIX):]] = json.loads(
+                    entry.value.decode("utf-8", errors="replace")
+                )
+            except ValueError:
+                continue
+        return out
+
     # --- worker registry ---------------------------------------------
     #
     # Each running worker self-registers a small JSON blob under

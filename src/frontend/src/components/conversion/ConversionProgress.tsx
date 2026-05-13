@@ -1,5 +1,6 @@
 import React, {useState} from "react";
 import {useConversionStore} from "@/state/conversionStore";
+import {useCompressionStore} from "@/state/compressionStore";
 import {useScopeStore, scopeUrlPart} from "@/state/scopeStore";
 import {viewerApi} from "@/services/viewerApi";
 
@@ -132,21 +133,118 @@ const ErrorRow: React.FC<{
     );
 };
 
+// Compression-sweep toast row — same visual language as the
+// conversion toast below; rendered in the same bottom-right slot so
+// progress UX stays consistent across "convert one file" and
+// "compress all files in a scope" workflows. Stale rows (server
+// flagged ``orphaned`` because the pod restarted) get a one-line
+// note + a dismiss button so the user can clear them.
+const CompressionToast: React.FC<{
+    scopeLabel: string;
+    state: import("@/services/viewerApi").CompressionSweepState;
+    onDismiss: () => void;
+}> = ({scopeLabel, state, onDismiss}) => {
+    const pct = state.total > 0
+        ? Math.round((state.processed / state.total) * 100)
+        : 0;
+    const finished = state.completed_at !== null;
+    const failed = !!state.error || state.errors.length > 0;
+    const orphaned = state.orphaned;
+
+    let label: string;
+    if (orphaned) {
+        label = "Stalled";
+    } else if (state.error) {
+        label = "Failed";
+    } else if (finished) {
+        const savedMb = Math.max(
+            0, (state.bytes_before - state.bytes_after) / 1024 / 1024,
+        );
+        label = state.compressed > 0
+            ? `Compressed ${state.compressed} (saved ${savedMb.toFixed(0)} MB)`
+            : state.already_gzipped > 0
+                ? `All ${state.already_gzipped} already gzipped`
+                : "Nothing to compress";
+    } else {
+        label = `Compressing ${state.processed} / ${state.total}`;
+    }
+
+    const subtitle = state.current_key || `scope: ${scopeLabel}`;
+
+    return (
+        <div className="bg-gray-800 text-gray-100 rounded shadow-lg px-3 py-2 text-xs border border-gray-700">
+            <div className="flex justify-between items-center mb-1 gap-2">
+                <span className="truncate flex-1" title={subtitle}>
+                    {subtitle}
+                </span>
+                <span className={`ml-2 ${failed || orphaned ? "text-red-400" : "text-gray-400"}`}>
+                    {label}
+                    {!finished && !orphaned && state.total > 0 && ` ${pct}%`}
+                </span>
+                {(finished || failed || orphaned) && (
+                    <button
+                        className="shrink-0 text-gray-400 hover:text-gray-200 text-base leading-none ml-1"
+                        onClick={onDismiss}
+                        aria-label="Dismiss"
+                        title="Dismiss"
+                    >
+                        ×
+                    </button>
+                )}
+            </div>
+            {!finished && !orphaned && state.total > 0 && (
+                <div className="h-1 bg-gray-700 rounded overflow-hidden">
+                    <div
+                        className="h-full bg-blue-500 transition-all"
+                        style={{width: `${Math.max(pct, 4)}%`}}
+                    />
+                </div>
+            )}
+            {orphaned && (
+                <div className="text-[11px] text-gray-300 mt-1">
+                    Viewer restarted mid-sweep. Re-run from Admin → Storage to resume.
+                </div>
+            )}
+            {state.error && (
+                <div className="text-[11px] text-red-400 mt-1 break-all">
+                    {state.error}
+                </div>
+            )}
+            {state.errors.length > 0 && !state.error && (
+                <div className="text-[11px] text-red-400 mt-1">
+                    {state.errors.length} file{state.errors.length === 1 ? "" : "s"} failed
+                </div>
+            )}
+        </div>
+    );
+};
+
 const ConversionProgress = () => {
     const jobs = useConversionStore((s) => s.jobs);
     const clearJob = useConversionStore((s) => s.clearJob);
+    const sweeps = useCompressionStore((s) => s.sweeps);
+    const clearSweep = useCompressionStore((s) => s.clearSweep);
 
-    const visible = Object.values(jobs).filter(
+    const visibleJobs = Object.values(jobs).filter(
         (j) => j.status === "queued" || j.status === "running" || j.status === "error"
     );
+    const visibleSweeps = Object.entries(sweeps);
 
-    if (visible.length === 0) {
+    if (visibleJobs.length === 0 && visibleSweeps.length === 0) {
         return null;
     }
 
     return (
         <div className="absolute bottom-4 right-4 z-50 flex flex-col gap-2 max-w-sm">
-            {visible.map((job) => {
+            {visibleSweeps.map(([scopeLabel, state]) => (
+                <CompressionToast
+                    key={`compress:${scopeLabel}`}
+                    scopeLabel={scopeLabel}
+                    state={state}
+                    onDismiss={() => clearSweep(scopeLabel)}
+                />
+            ))}
+            {visibleJobs.map((job) => {
                 const pct = Math.round((job.progress || 0) * 100);
                 const isError = job.status === "error";
                 const isCancellable = job.status === "queued" || job.status === "running";
