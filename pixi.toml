@@ -103,11 +103,17 @@ numpy = "*"
 hdf5 = "*"
 h5py = "*"
 ifcopenshell = "*"
-pythonocc-core = "*"
+# Pin to the `novtk` build of the OpenCASCADE conda-forge feedstock —
+# the default `all_*` build links VTK, which drags in libxkbcommon /
+# mesa-libGL / X11 client libs we don't render through anyway. The
+# `novtk` variant strips that whole tree out. pythonocc-core has the
+# matching variant; they must agree on the build string or the solver
+# picks the vtk-enabled occt to satisfy pythonocc-core.
+pythonocc-core = { version = "*", build = "novtk_*" }
 python-gmsh = "*"
 pyquaternion = "*"
 trimesh = "*"
-occt = "*"
+occt = { version = "*", build = "novtk_*" }
 send2trash = "*"
 websockets = ">=14"
 plotly = "*"
