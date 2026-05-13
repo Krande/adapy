@@ -1,7 +1,17 @@
 import * as THREE from "three";
+import * as Comlink from "comlink";
 import {cameraRef, rendererRef, sceneRef} from "@/state/refs";
 import {CustomBatchedMesh} from "./CustomBatchedMesh";
 import {usePerfStore} from "@/state/perfStore";
+// Inline-bundled worker — Vite handles the import + URL plumbing.
+// We never instantiate this until the first ``registerMesh`` call so
+// startup cost is zero for users who haven't loaded a model yet.
+import PickerGeometryWorker from "./pickerGeometry.worker.ts?worker&inline";
+import type {
+    PickerBuildInput,
+    PickerBuildOutput,
+    PickerGeometryWorkerAPI,
+} from "./pickerGeometry.worker";
 
 // GPU face-picker for CustomBatchedMesh.
 //
@@ -92,6 +102,13 @@ class GpuMeshPicker {
 
     private idToEntry = new Map<number, IdEntry>();
     private registered = new WeakMap<CustomBatchedMesh, RegisteredMesh>();
+    // Meshes whose picker geometry is being built in the worker. Stays
+    // in this set from ``registerMesh`` kickoff until the worker's
+    // response is installed (or dropped on scene-removal). Prevents
+    // both re-registration and accidental pick-time access to a
+    // half-built picker. Using a WeakSet means a model-swap that drops
+    // the mesh mid-flight doesn't pin it in memory.
+    private pending = new WeakSet<CustomBatchedMesh>();
 
     // Shared invisible material used as slot 1 in every picker mesh's
     // material array. Hidden ranges get materialIndex=1 in their
@@ -103,9 +120,23 @@ class GpuMeshPicker {
     // still occlude in the depth buffer.
     private invisibleMaterial = new THREE.MeshBasicMaterial({visible: false});
 
+    // Lazily-spawned Comlink-wrapped worker. The worker runs the
+    // per-triangle position/colour fan-out off the main thread — the
+    // biggest single source of registration latency on big FEA meshes.
+    private workerApi: Comlink.Remote<PickerGeometryWorkerAPI> | null = null;
+    private workerInstance: Worker | null = null;
+
     // Per-pick scratch — avoids GC churn on the click hot path.
     private _tmpVec2 = new THREE.Vector2();
     private _origProj = new THREE.Matrix4();
+
+    private getWorker(): Comlink.Remote<PickerGeometryWorkerAPI> {
+        if (!this.workerApi) {
+            this.workerInstance = new PickerGeometryWorker();
+            this.workerApi = Comlink.wrap<PickerGeometryWorkerAPI>(this.workerInstance);
+        }
+        return this.workerApi;
+    }
 
     private ensureRT(_renderer: THREE.WebGLRenderer): void {
         // 1×1 fixed RT. The picker projection (see ``buildPickMatrix``)
@@ -239,12 +270,20 @@ class GpuMeshPicker {
         return sm;
     }
 
-    /** Build the picker child mesh for this CustomBatchedMesh.
-     *  Idempotent — re-registration short-circuits. Geometry mode is
-     *  decided at FIRST registration by ``usePerfStore.useFlatPicker``;
-     *  later toggle flips take effect on the next model load. */
+    /** Kick off a picker build for this CustomBatchedMesh. Synchronous
+     *  on main: allocates pick IDs, captures source-attr references,
+     *  and dispatches the per-triangle position/colour fan-out to a
+     *  worker. The picker mesh installs into the scene graph when the
+     *  worker responds — until then ``registered`` has no entry and
+     *  ``pickAt`` falls through to the raycast path for this mesh.
+     *
+     *  Idempotent: re-registration short-circuits when already built
+     *  or already pending. Geometry mode (flat vs. non-indexed) is
+     *  decided here from ``usePerfStore.useFlatPicker`` + the source's
+     *  vertex-sharing ratio; later toggle flips take effect on the
+     *  next model load. */
     registerMesh(mesh: CustomBatchedMesh): void {
-        if (this.registered.has(mesh)) return;
+        if (this.registered.has(mesh) || this.pending.has(mesh)) return;
         const geom = mesh.geometry as THREE.BufferGeometry;
         if (!geom.index || !geom.attributes.position) return;
         if (mesh.drawRanges.size === 0) return;
@@ -256,9 +295,13 @@ class GpuMeshPicker {
         const itemSize = posAttr.itemSize; // typically 3
         const nTris = (geom.index.count / 3) | 0;
 
-        // Per-triangle colour map + global id allocation. Walking the
-        // drawRanges here means both the non-indexed and flat builders
-        // get the same id mapping; only the geometry layout differs.
+        // Per-triangle colour map + global id allocation. ID assignment
+        // MUST happen on main (sequential counter shared across all
+        // registered meshes); the worker only consumes the resulting
+        // ``triColor`` array, not the counter. Adding to ``idToEntry``
+        // here is also safe — until the worker responds, the picker
+        // mesh isn't in the scene, so no GPU pixel can decode to an id
+        // we haven't yet built geometry for.
         const triColor = new Uint8Array(nTris * 3);
         for (const [rangeId, [start, count]] of mesh.drawRanges) {
             if (count <= 0) continue;
@@ -285,6 +328,7 @@ class GpuMeshPicker {
             | THREE.BufferAttribute[]
             | undefined;
         const morphTargetCount = sourceMorphs?.length ?? 0;
+        const morphItemSize = sourceMorphs?.[0]?.itemSize ?? 3;
 
         // The flat-picker toggle is a *preference*, not a force.
         // Whether flat actually saves memory depends on the source
@@ -306,26 +350,105 @@ class GpuMeshPicker {
             posAttr.count, nTris, morphTargetCount,
         );
 
-        const built = flat
-            ? this.buildFlatPickerGeometry(
-                indices, posArr, itemSize, nTris, posAttr.count, triColor,
-                sourceMorphs, geom.morphTargetsRelative === true,
-            )
-            : this.buildNonIndexedPickerGeometry(
-                indices, posArr, itemSize, nTris, triColor,
-                sourceMorphs, geom.morphTargetsRelative === true,
-            );
-
         if (wantFlat && !flat) {
-            // Make the fallback observable so users don't think the
-            // toggle is broken. One-line info per mesh, runs once
-            // per mesh per session.
             const alpha = posAttr.count / nTris;
             console.info(
                 `[GpuMeshPicker] flat-picker disabled for "${mesh.name}": ` +
                 `vertex-sharing α=${alpha.toFixed(2)} ≥ 1.556 — ` +
                 `non-indexed picker is cheaper for this mesh`,
             );
+        }
+
+        // Slice the source typed arrays so we can transfer the copies
+        // into the worker without detaching the BufferAttribute-owned
+        // buffers the visible mesh is still rendering from. Typed-array
+        // slice is a single bulk memcpy in the engine — ~2 ms for a
+        // 36 MB index buffer on commodity x86, dwarfed by the 50–200 ms
+        // of per-triangle work the worker takes off main.
+        const indicesCopy = indices.slice();
+        const posCopy = posArr.slice();
+        const morphCopies: Float32Array[] = [];
+        for (let m = 0; m < morphTargetCount; m++) {
+            morphCopies.push((sourceMorphs![m].array as Float32Array).slice());
+        }
+
+        const input: PickerBuildInput = {
+            flat,
+            indices: indicesCopy,
+            posArr: posCopy,
+            itemSize,
+            nTris,
+            nOrigVerts: posAttr.count,
+            triColor,
+            morphArrs: morphCopies,
+            morphItemSize,
+            morphTargetsRelative: geom.morphTargetsRelative === true,
+        };
+        // ``.buffer`` types as ``ArrayBufferLike`` (includes
+        // SharedArrayBuffer); we always allocate plain ArrayBuffers
+        // here so the cast is safe.
+        const transfers: ArrayBuffer[] = [
+            indicesCopy.buffer as ArrayBuffer,
+            posCopy.buffer as ArrayBuffer,
+            triColor.buffer as ArrayBuffer,
+            ...morphCopies.map((m) => m.buffer as ArrayBuffer),
+        ];
+
+        this.pending.add(mesh);
+        // Capture sourceMorphs by reference so the install handler can
+        // wire ``sourceMorphAttrs`` for staleness detection. Closing
+        // over these doesn't keep the mesh alive on its own — the
+        // CustomBatchedMesh holds the morph attrs anyway.
+        void this.runWorkerBuild(mesh, input, transfers, sourceMorphs, flat, morphTargetCount, t0);
+    }
+
+    /** Worker-side build + main-side install. Split out so
+     *  ``registerMesh`` stays synchronous for callers. */
+    private async runWorkerBuild(
+        mesh: CustomBatchedMesh,
+        input: PickerBuildInput,
+        transfers: ArrayBuffer[],
+        sourceMorphs: THREE.BufferAttribute[] | undefined,
+        flat: boolean,
+        morphTargetCount: number,
+        t0: number,
+    ): Promise<void> {
+        let out: PickerBuildOutput;
+        try {
+            const worker = this.getWorker();
+            out = await worker.build(Comlink.transfer(input, transfers));
+        } catch (err) {
+            this.pending.delete(mesh);
+            console.warn(`[GpuMeshPicker] worker build failed for "${mesh.name}":`, err);
+            return;
+        }
+
+        // The mesh may have been removed from the scene during the
+        // worker round-trip (model swap, etc.). Drop the result;
+        // ``sweepOrphaned`` will reclaim the ``idToEntry`` slots on
+        // a later pick. The transferred output buffers are GC'd
+        // naturally once ``out`` goes out of scope.
+        const scene = sceneRef.current;
+        if (!scene || !this.hasAncestor(mesh, scene)) {
+            this.pending.delete(mesh);
+            return;
+        }
+
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute("position", new THREE.BufferAttribute(out.positions, 3));
+        geometry.setAttribute("pickColor", new THREE.BufferAttribute(out.colors, 3, true));
+        if (out.indices) geometry.setIndex(new THREE.BufferAttribute(out.indices, 1));
+
+        const sourceMorphAttrs: (THREE.BufferAttribute | null)[] = [];
+        if (out.morphArrs.length > 0 && sourceMorphs) {
+            geometry.morphAttributes.position = [];
+            for (let m = 0; m < out.morphArrs.length; m++) {
+                geometry.morphAttributes.position.push(
+                    new THREE.BufferAttribute(out.morphArrs[m], 3),
+                );
+                sourceMorphAttrs.push(sourceMorphs[m] ?? null);
+            }
+            geometry.morphTargetsRelative = out.morphTargetsRelative;
         }
 
         // Material is always an array — slot 0 is the picker shader,
@@ -335,230 +458,39 @@ class GpuMeshPicker {
         // materialIndex=0 on the first sync, so the unhidden case is
         // still one draw call.
         const pickerMesh = new THREE.Mesh(
-            built.geometry,
+            geometry,
             [this.makePickingMaterial(morphTargetCount, flat), this.invisibleMaterial],
         );
         pickerMesh.name = `__pick__${mesh.name}`;
         pickerMesh.frustumCulled = mesh.frustumCulled;
         pickerMesh.layers.set(PICK_LAYER);
-        // Child of the original mesh so it inherits matrixWorld
-        // automatically — pickerMesh moves with its parent on any
-        // scene-graph transform update.
         mesh.add(pickerMesh);
 
         // Picker-geometry total addressable count for groups:
         //   * non-indexed → position-vertex count (3 verts per tri)
         //   * flat-indexed → index count
-        // Both happen to equal the original drawRange's address space,
-        // so the group sync below can use drawRanges' start/count
-        // directly without remapping.
-        const pickerTotalCount = built.geometry.index
-            ? built.geometry.index.count
-            : (built.geometry.getAttribute("position") as THREE.BufferAttribute).count;
+        const pickerTotalCount = geometry.index
+            ? geometry.index.count
+            : (geometry.getAttribute("position") as THREE.BufferAttribute).count;
 
         this.registered.set(mesh, {
             pickerMesh,
             morphTargetCount,
-            sourceMorphAttrs: built.sourceMorphAttrs,
-            sourceVertexIndex: built.sourceVertexIndex,
+            sourceMorphAttrs,
+            sourceVertexIndex: out.sourceVertexIndex,
             pickerTotalCount,
             lastHiddenCounter: -1,
         });
+        this.pending.delete(mesh);
 
-        const memMB = built.byteLength / 1024 / 1024;
+        const memMB = out.byteLength / 1024 / 1024;
         const dt = performance.now() - t0;
         console.info(
             `[GpuMeshPicker] built ${flat ? "flat" : "non-indexed"} picker for ` +
             `"${mesh.name}" in ${dt.toFixed(1)}ms ` +
-            `(${nTris} tris, ${morphTargetCount} morph(s), ~${memMB.toFixed(1)}MB)`,
+            `(${input.nTris} tris, ${morphTargetCount} morph(s), ` +
+            `~${memMB.toFixed(1)}MB, off-thread)`,
         );
-    }
-
-    /** Non-indexed: 3 unique picker vertices per triangle, all with
-     *  the same pickColor. Standard varying interpolates to that
-     *  constant. Simple and works on any WebGL version, but uses ~3×
-     *  the position memory of a shared-vertex layout. */
-    private buildNonIndexedPickerGeometry(
-        indices: Uint16Array | Uint32Array,
-        posArr: Float32Array,
-        itemSize: number,
-        nTris: number,
-        triColor: Uint8Array,
-        sourceMorphs: THREE.BufferAttribute[] | undefined,
-        morphTargetsRelative: boolean,
-    ): {
-        geometry: THREE.BufferGeometry;
-        sourceVertexIndex: Uint32Array;
-        sourceMorphAttrs: (THREE.BufferAttribute | null)[];
-        byteLength: number;
-    } {
-        const pickerPositions = new Float32Array(nTris * 9);
-        const pickerColors = new Uint8Array(nTris * 9);
-        const sourceVertexIndex = new Uint32Array(nTris * 3);
-        for (let ti = 0; ti < nTris; ti++) {
-            const v0 = indices[ti * 3];
-            const v1 = indices[ti * 3 + 1];
-            const v2 = indices[ti * 3 + 2];
-            const i0 = v0 * itemSize;
-            const i1 = v1 * itemSize;
-            const i2 = v2 * itemSize;
-            const offP = ti * 9;
-            pickerPositions[offP + 0] = posArr[i0];
-            pickerPositions[offP + 1] = posArr[i0 + 1];
-            pickerPositions[offP + 2] = posArr[i0 + 2];
-            pickerPositions[offP + 3] = posArr[i1];
-            pickerPositions[offP + 4] = posArr[i1 + 1];
-            pickerPositions[offP + 5] = posArr[i1 + 2];
-            pickerPositions[offP + 6] = posArr[i2];
-            pickerPositions[offP + 7] = posArr[i2 + 1];
-            pickerPositions[offP + 8] = posArr[i2 + 2];
-
-            sourceVertexIndex[ti * 3 + 0] = v0;
-            sourceVertexIndex[ti * 3 + 1] = v1;
-            sourceVertexIndex[ti * 3 + 2] = v2;
-
-            const r = triColor[ti * 3];
-            const g = triColor[ti * 3 + 1];
-            const b = triColor[ti * 3 + 2];
-            pickerColors[offP + 0] = r;
-            pickerColors[offP + 1] = g;
-            pickerColors[offP + 2] = b;
-            pickerColors[offP + 3] = r;
-            pickerColors[offP + 4] = g;
-            pickerColors[offP + 5] = b;
-            pickerColors[offP + 6] = r;
-            pickerColors[offP + 7] = g;
-            pickerColors[offP + 8] = b;
-        }
-
-        const geometry = new THREE.BufferGeometry();
-        geometry.setAttribute("position", new THREE.BufferAttribute(pickerPositions, 3));
-        geometry.setAttribute("pickColor", new THREE.BufferAttribute(pickerColors, 3, true));
-
-        const sourceMorphAttrs: (THREE.BufferAttribute | null)[] = [];
-        let morphMemBytes = 0;
-        if (sourceMorphs && sourceMorphs.length > 0) {
-            geometry.morphAttributes.position = [];
-            for (let m = 0; m < sourceMorphs.length; m++) {
-                const src = sourceMorphs[m];
-                const dup = this.duplicateMorphAttr(src, sourceVertexIndex);
-                geometry.morphAttributes.position.push(new THREE.BufferAttribute(dup, 3));
-                sourceMorphAttrs.push(src);
-                morphMemBytes += dup.byteLength;
-            }
-            geometry.morphTargetsRelative = morphTargetsRelative;
-        }
-
-        return {
-            geometry,
-            sourceVertexIndex,
-            sourceMorphAttrs,
-            byteLength: pickerPositions.byteLength + pickerColors.byteLength + morphMemBytes,
-        };
-    }
-
-    /** Flat-varying: indexed geometry where each triangle reuses the
-     *  ORIGINAL mesh's two leading vertex indices and only the third
-     *  (provoking) vertex is duplicated. Combined with a GLSL3 `flat`
-     *  varying, the fragment shader takes the provoking vertex's
-     *  pickColor unchanged for the whole triangle — no interpolation,
-     *  no shared-vertex colour conflict, and roughly 30–50% less
-     *  picker memory vs the non-indexed layout.
-     *
-     *  Picker vertex layout: ``[ ...orig_verts, ...extras ]`` where
-     *  ``extras[ti]`` is a duplicate of the original mesh's third
-     *  vertex of triangle ``ti``. Index buffer rewrites each
-     *  triangle (a, b, c) as (a, b, nOrigVerts + ti). The
-     *  WebGL2 provoking-vertex convention is LAST_VERTEX_CONVENTION
-     *  (the default in WebGL2 / OpenGL ES 3.0), so the duplicated
-     *  vertex is what the rasterizer takes the flat colour from. */
-    private buildFlatPickerGeometry(
-        indices: Uint16Array | Uint32Array,
-        posArr: Float32Array,
-        itemSize: number,
-        nTris: number,
-        nOrigVerts: number,
-        triColor: Uint8Array,
-        sourceMorphs: THREE.BufferAttribute[] | undefined,
-        morphTargetsRelative: boolean,
-    ): {
-        geometry: THREE.BufferGeometry;
-        sourceVertexIndex: Uint32Array;
-        sourceMorphAttrs: (THREE.BufferAttribute | null)[];
-        byteLength: number;
-    } {
-        const nPickerVerts = nOrigVerts + nTris;
-        const pickerPositions = new Float32Array(nPickerVerts * 3);
-        const pickerColors = new Uint8Array(nPickerVerts * 3);
-        const pickerIndices = new Uint32Array(nTris * 3);
-        const sourceVertexIndex = new Uint32Array(nPickerVerts);
-
-        // Copy the original vertex positions into picker slots 0..nOrigVerts-1.
-        // Their pickColor stays 0 — they are never the provoking
-        // vertex of any picker triangle, so the value is unused.
-        for (let v = 0; v < nOrigVerts; v++) {
-            const s = v * itemSize;
-            const o = v * 3;
-            pickerPositions[o + 0] = posArr[s];
-            pickerPositions[o + 1] = posArr[s + 1];
-            pickerPositions[o + 2] = posArr[s + 2];
-            sourceVertexIndex[v] = v;
-        }
-
-        // Per-triangle: duplicate the third (provoking) vertex into
-        // a new picker-vertex slot and rewrite the triangle's index.
-        for (let ti = 0; ti < nTris; ti++) {
-            const a = indices[ti * 3];
-            const b = indices[ti * 3 + 1];
-            const c = indices[ti * 3 + 2];
-            const newIdx = nOrigVerts + ti;
-
-            const cs = c * itemSize;
-            const no = newIdx * 3;
-            pickerPositions[no + 0] = posArr[cs];
-            pickerPositions[no + 1] = posArr[cs + 1];
-            pickerPositions[no + 2] = posArr[cs + 2];
-
-            pickerColors[no + 0] = triColor[ti * 3];
-            pickerColors[no + 1] = triColor[ti * 3 + 1];
-            pickerColors[no + 2] = triColor[ti * 3 + 2];
-
-            pickerIndices[ti * 3 + 0] = a;
-            pickerIndices[ti * 3 + 1] = b;
-            pickerIndices[ti * 3 + 2] = newIdx;
-
-            sourceVertexIndex[newIdx] = c;
-        }
-
-        const geometry = new THREE.BufferGeometry();
-        geometry.setAttribute("position", new THREE.BufferAttribute(pickerPositions, 3));
-        geometry.setAttribute("pickColor", new THREE.BufferAttribute(pickerColors, 3, true));
-        geometry.setIndex(new THREE.BufferAttribute(pickerIndices, 1));
-
-        const sourceMorphAttrs: (THREE.BufferAttribute | null)[] = [];
-        let morphMemBytes = 0;
-        if (sourceMorphs && sourceMorphs.length > 0) {
-            geometry.morphAttributes.position = [];
-            for (let m = 0; m < sourceMorphs.length; m++) {
-                const src = sourceMorphs[m];
-                const dup = this.duplicateMorphAttr(src, sourceVertexIndex);
-                geometry.morphAttributes.position.push(new THREE.BufferAttribute(dup, 3));
-                sourceMorphAttrs.push(src);
-                morphMemBytes += dup.byteLength;
-            }
-            geometry.morphTargetsRelative = morphTargetsRelative;
-        }
-
-        return {
-            geometry,
-            sourceVertexIndex,
-            sourceMorphAttrs,
-            byteLength:
-                pickerPositions.byteLength
-                + pickerColors.byteLength
-                + pickerIndices.byteLength
-                + morphMemBytes,
-        };
     }
 
     /** Decide whether the flat-varying builder produces a strictly
