@@ -83,6 +83,21 @@ _STREAMING_FEA_EXTS: frozenset[str] = frozenset({".rmed"})
 # module both can import.
 FEA_ARTEFACT_SOURCE_EXTS: frozenset[str] = frozenset({".rmed", ".sif"})
 
+# Union of source extensions the legacy /convert pipeline knows how
+# to handle (any target). Used by /api/config to compute the
+# streaming-only subset of worker-advertised extensions — i.e. those
+# the SPA should NOT auto-trigger /convert for after upload, because
+# the call would 415. Add new convert handlers to the relevant
+# narrow set above; this union picks them up automatically.
+LEGACY_CONVERT_EXTS: frozenset[str] = (
+    _PASSTHROUGH_EXTS
+    | _TRIMESH_EXTS
+    | frozenset({".gltf"})
+    | _ADA_LOADABLE_EXTS
+    | _BUNDLE_EXTS
+    | _FEA_RESULT_EXTS
+)
+
 
 def is_fea_artefact_source(src_key_or_path) -> bool:
     """True if the source extension is in scope for the streaming bake.

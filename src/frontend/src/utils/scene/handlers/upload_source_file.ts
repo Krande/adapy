@@ -1,5 +1,5 @@
 import {request_list_of_files_from_server} from "@/utils/server_info/handlers/request_list_of_files_from_server";
-import {ensureConvertedGlb} from "@/services/conversion";
+import {ensureBakedFeaManifest, ensureConvertedGlb} from "@/services/conversion";
 import {runtime} from "@/runtime/config";
 import {viewerApi, ScopeUrl} from "@/services/viewerApi";
 import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
@@ -112,6 +112,20 @@ function acceptedSourceExts(): readonly string[] {
     return Array.from(merged);
 }
 
+// True for source extensions whose viewing path is the streaming FEA
+// bake (`/fea/manifest`), not the legacy single-GLB pipeline
+// (`/convert`). Server-computed from the worker registry minus the
+// legacy-convertable set (so .sif, which has both paths, falls out and
+// keeps its eager GLB-preview behaviour). Auto-convert routes these to
+// the FEA bake instead of /convert; otherwise /convert would 415.
+function isStreamingOnlyExt(ext: string): boolean {
+    for (const e of runtime.streamingOnlyExts()) {
+        const norm = e.startsWith(".") ? e.toLowerCase() : `.${e.toLowerCase()}`;
+        if (norm === ext) return true;
+    }
+    return false;
+}
+
 // Custom event the upload picker listens for; lets UI surfaces (menu
 // button, context menu) ask the picker to open without each one
 // owning its own hidden <input>.
@@ -172,10 +186,16 @@ export async function uploadFile(
     const autoConvert = opts?.autoConvert !== false;
     const convertEnabled = runtime.convertEnabled();
     if (autoConvert && convertEnabled && ext !== ".glb") {
-        // Fire-and-forget: ensureConvertedGlb updates the conversion
-        // store as it polls so the UI reflects progress without
-        // blocking the upload helper.
-        ensureConvertedGlb(scope, key).catch((err) => {
+        // Two pipelines, picked by extension:
+        //   * streaming-only sources (.rmed, .odb, ...) bake via
+        //     /fea/manifest — the legacy /convert path 415s for them.
+        //   * everything else takes the legacy single-GLB pipeline.
+        // Both update the same useConversionStore so the bottom-right
+        // toast tracks progress regardless of which path ran.
+        const baker = isStreamingOnlyExt(ext)
+            ? ensureBakedFeaManifest(scope, key)
+            : ensureConvertedGlb(scope, key);
+        baker.catch((err) => {
             console.warn("auto-convert after upload failed", err);
         });
     }

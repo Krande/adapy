@@ -13,7 +13,7 @@
 // thread cancellation into the store.
 
 import {useEffect, useRef} from "react";
-import {viewerApi} from "@/services/viewerApi";
+import {ApiError, viewerApi} from "@/services/viewerApi";
 import {useCompressionStore} from "@/state/compressionStore";
 import {useMeStore} from "@/state/meStore";
 
@@ -41,7 +41,15 @@ export function useCompressionSweepPoll() {
                     (s) => s.completed_at === null && !s.orphaned,
                 );
                 lastIntervalRef.current = anyActive ? 5000 : 30000;
-            } catch {
+            } catch (err) {
+                // 401 means the bearer expired (or auth state is being
+                // refreshed). Stop polling entirely — repeating the
+                // request just floods the console with the same 401.
+                // Auth refresh / re-login remounts the hook with a
+                // fresh token, which re-arms the loop.
+                if (err instanceof ApiError && err.status === 401) {
+                    return;
+                }
                 // 503 (NATS unavailable) / network blip — back off briefly
                 // and try again; don't surface this as a user error.
                 lastIntervalRef.current = 30000;

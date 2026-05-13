@@ -1,6 +1,7 @@
 // Public surface of the conversion subsystem. Routes between the
 // in-browser Pyodide pipeline and the server-side NATS pipeline.
 
+import {useConversionStore} from "@/state/conversionStore";
 import {useExperimentalStore} from "@/state/experimentalStore";
 import {runtime} from "@/runtime/config";
 import {viewerApi, TargetFormat, ScopeUrl} from "@/services/viewerApi";
@@ -60,6 +61,77 @@ export async function ensureConverted(
 // Backwards-compatible wrapper for the GLB-for-viewing flow.
 export async function ensureConvertedGlb(scope: ScopeUrl, sourceKey: string): Promise<void> {
     await ensureConverted(scope, sourceKey, "glb");
+}
+
+/**
+ * Eagerly enqueue the streaming-FEA manifest bake for a source file.
+ *
+ * Symmetric to ``ensureConvertedGlb`` but targets the /fea/manifest
+ * pipeline used by streaming-only formats (.rmed, .odb, ...) — those
+ * don't go through the legacy single-GLB path. Wires progress into
+ * ``useConversionStore`` so the bottom-right ConversionProgress toast
+ * tracks the bake the same way it tracks GLB conversions.
+ *
+ * Store key follows the ``${sourceKey}::${target}`` convention from
+ * serverPipeline (target ``fea`` here) so a manifest bake and a GLB
+ * conversion of the same source can coexist without colliding.
+ */
+export async function ensureBakedFeaManifest(
+    scope: ScopeUrl,
+    sourceKey: string,
+): Promise<void> {
+    const convStore = useConversionStore.getState();
+    const storeKey = `${sourceKey}::fea`;
+    const startedAt = Date.now();
+    convStore.setJob(storeKey, {
+        sourceKey,
+        jobId: "",
+        derivedKey: "",
+        status: "queued",
+        progress: 0,
+        stage: "queuing fea bake",
+        error: null,
+        startedAt,
+    });
+    try {
+        await viewerApi.feaManifest(scope, sourceKey, {
+            onProgress: ({jobId, stage, progress, status}) => {
+                convStore.setJob(storeKey, {
+                    sourceKey,
+                    jobId,
+                    derivedKey: "",
+                    status,
+                    progress,
+                    stage,
+                    error: null,
+                    startedAt,
+                });
+            },
+        });
+        convStore.setJob(storeKey, {
+            sourceKey,
+            jobId: "",
+            derivedKey: "",
+            status: "done",
+            progress: 1,
+            stage: "done",
+            error: null,
+            startedAt,
+        });
+    } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        convStore.setJob(storeKey, {
+            sourceKey,
+            jobId: "",
+            derivedKey: "",
+            status: "error",
+            progress: 0,
+            stage: "error",
+            error: msg,
+            startedAt,
+        });
+        throw err;
+    }
 }
 
 export async function fetchSupportedTargets(

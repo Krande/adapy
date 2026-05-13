@@ -27,6 +27,7 @@ from .auth import User
 from .config import Settings, load_settings
 from .scope import Scope, can_access as scope_can_access
 from .converter import (
+    LEGACY_CONVERT_EXTS,
     TARGET_FORMATS,
     UnsupportedFormat,
     derived_key_for,
@@ -185,6 +186,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             except Exception:
                 logger.exception("config: failed to read worker image tag")
         extra_source_exts = await _worker_advertised_exts()
+        # Subset of stream-readable extensions that the legacy /convert
+        # pipeline does NOT handle. The SPA uses this to pick between
+        # /convert (auto-GLB preview) and /fea/manifest (streaming
+        # bake) at upload time — feeding /convert one of these would
+        # 415. .sif is stream-readable AND legacy-convertable so it
+        # falls out of this set and continues to get the eager GLB
+        # preview path.
+        streaming_only_exts = sorted(
+            e for e in extra_source_exts if e not in LEGACY_CONVERT_EXTS
+        )
         return JSONResponse({
             "transport": "rest",
             "apiBase": "/api",
@@ -200,6 +211,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "viewerImageTag": viewer_tag,
             "workerImageTag": worker_tag,
             "extraSourceExts": extra_source_exts,
+            "streamingOnlyExts": streaming_only_exts,
         })
 
     # Every /api/* below this line requires a verified user. The dep is
@@ -2257,6 +2269,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             except Exception:
                 logger.exception("config.js: failed to read worker image tag")
         extra_source_exts = await _worker_advertised_exts()
+        streaming_only_exts = sorted(
+            e for e in extra_source_exts if e not in LEGACY_CONVERT_EXTS
+        )
 
         a = settings.auth
         body = (
@@ -2270,6 +2285,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             f"window.VIEWER_IMAGE_TAG = {_json.dumps(viewer_tag)};\n"
             f"window.WORKER_IMAGE_TAG = {_json.dumps(worker_tag)};\n"
             f"window.EXTRA_SOURCE_EXTS = {_json.dumps(extra_source_exts)};\n"
+            f"window.STREAMING_ONLY_EXTS = {_json.dumps(streaming_only_exts)};\n"
         )
         return PlainTextResponse(body, media_type="application/javascript")
 
