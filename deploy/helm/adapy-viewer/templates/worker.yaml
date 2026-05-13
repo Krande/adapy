@@ -1,87 +1,123 @@
+{{- /*
+Renders one Deployment per enabled worker pool. Extra pools let a
+deployment add capacity (more replicas in a separate pool, with
+their own resource pins) or capabilities (a pool whose image
+extends the base worker with extra runtime deps for a specific job
+type).
+
+  .Values.worker          the base pool — always defined by the chart
+  .Values.extraWorkers    optional map of named extra pools, eg.
+                          extraWorkers:
+                            foo:
+                              enabled: true
+                              image:
+                                repository: …
+                                tag: …
+                              replicaCount: 1
+                              ...
+
+Each extra pool's deployment is named ``<base>-<key>`` where ``<key>``
+is the map key. Pools share the env block (S3, NATS, DATABASE_URL,
+optional volumes) and compete on the same NATS subject — routing
+is a worker concern, not the chart's. Body iterates over a
+constructed dict so all pools stay in lockstep when env vars or
+mounts get added.
+*/ -}}
+{{- $pools := dict -}}
 {{- if .Values.worker.enabled -}}
-{{- $name := include "adapy-viewer.workerFullname" . -}}
-{{- $natsUrl := include "adapy-viewer.natsUrl" . -}}
+{{- $_ := set $pools "" .Values.worker -}}
+{{- end -}}
+{{- range $key, $pool := (default (dict) .Values.extraWorkers) -}}
+{{- if $pool.enabled -}}
+{{- $_ := set $pools (printf "-%s" $key) $pool -}}
+{{- end -}}
+{{- end -}}
+{{- range $suffix, $w := $pools -}}
+{{- $name := printf "%s%s" (include "adapy-viewer.workerFullname" $) $suffix -}}
+{{- $component := printf "worker%s" $suffix -}}
+{{- $natsUrl := include "adapy-viewer.natsUrl" $ -}}
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ $name }}
   labels:
-    {{- include "adapy-viewer.labels" . | nindent 4 }}
-    app.kubernetes.io/component: worker
+    {{- include "adapy-viewer.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $component }}
 spec:
-  replicas: {{ .Values.worker.replicaCount }}
+  replicas: {{ $w.replicaCount | default 1 }}
   selector:
     matchLabels:
-      {{- include "adapy-viewer.selectorLabels" . | nindent 6 }}
-      app.kubernetes.io/component: worker
+      {{- include "adapy-viewer.selectorLabels" $ | nindent 6 }}
+      app.kubernetes.io/component: {{ $component }}
   template:
     metadata:
       labels:
-        {{- include "adapy-viewer.selectorLabels" . | nindent 8 }}
-        app.kubernetes.io/component: worker
-      {{- with .Values.worker.podAnnotations }}
+        {{- include "adapy-viewer.selectorLabels" $ | nindent 8 }}
+        app.kubernetes.io/component: {{ $component }}
+      {{- with $w.podAnnotations }}
       annotations: {{- toYaml . | nindent 8 }}
       {{- end }}
     spec:
-      {{- with .Values.imagePullSecrets }}
+      {{- with $.Values.imagePullSecrets }}
       imagePullSecrets: {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with .Values.hostAliases }}
+      {{- with $.Values.hostAliases }}
       hostAliases: {{- toYaml . | nindent 8 }}
       {{- end }}
       containers:
         - name: worker
-          image: "{{ .Values.worker.image.repository }}:{{ .Values.worker.image.tag | default .Chart.AppVersion }}"
-          imagePullPolicy: {{ .Values.worker.image.pullPolicy }}
+          image: "{{ $w.image.repository }}:{{ $w.image.tag | default $.Chart.AppVersion }}"
+          imagePullPolicy: {{ $w.image.pullPolicy }}
           env:
             - name: ADA_VIEWER_STORAGE_KIND
-              value: {{ .Values.storage.kind | quote }}
-            {{- if eq .Values.storage.kind "s3" }}
+              value: {{ $.Values.storage.kind | quote }}
+            {{- if eq $.Values.storage.kind "s3" }}
             - name: ADA_VIEWER_S3_BUCKET
-              value: {{ .Values.storage.s3.bucket | quote }}
+              value: {{ $.Values.storage.s3.bucket | quote }}
             - name: ADA_VIEWER_S3_ENDPOINT
-              value: {{ include "adapy-viewer.s3Endpoint" . | quote }}
+              value: {{ include "adapy-viewer.s3Endpoint" $ | quote }}
             - name: ADA_VIEWER_S3_REGION
-              value: {{ .Values.storage.s3.region | quote }}
+              value: {{ $.Values.storage.s3.region | quote }}
             - name: ADA_VIEWER_S3_PREFIX
-              value: {{ .Values.storage.s3.prefix | quote }}
+              value: {{ $.Values.storage.s3.prefix | quote }}
             - name: ADA_VIEWER_S3_VIRTUAL_HOSTED_STYLE
-              value: {{ .Values.storage.s3.virtualHostedStyle | quote }}
+              value: {{ $.Values.storage.s3.virtualHostedStyle | quote }}
             - name: ADA_VIEWER_S3_ACCESS_KEY_ID
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "adapy-viewer.s3SecretName" . }}
-                  key: {{ .Values.storage.s3.existingSecretKeyId | default "AWS_ACCESS_KEY_ID" }}
+                  name: {{ include "adapy-viewer.s3SecretName" $ }}
+                  key: {{ $.Values.storage.s3.existingSecretKeyId | default "AWS_ACCESS_KEY_ID" }}
             - name: ADA_VIEWER_S3_SECRET_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "adapy-viewer.s3SecretName" . }}
-                  key: {{ .Values.storage.s3.existingSecretSecretKey | default "AWS_SECRET_ACCESS_KEY" }}
-            {{- else if eq .Values.storage.kind "local" }}
+                  name: {{ include "adapy-viewer.s3SecretName" $ }}
+                  key: {{ $.Values.storage.s3.existingSecretSecretKey | default "AWS_SECRET_ACCESS_KEY" }}
+            {{- else if eq $.Values.storage.kind "local" }}
             - name: ADA_VIEWER_LOCAL_PATH
               value: /data
             {{- end }}
             - name: ADA_VIEWER_NATS_URL
               value: {{ $natsUrl | quote }}
-            {{- include "adapy-viewer.databaseEnv" . | nindent 12 }}
-          {{- if eq .Values.storage.kind "local" }}
+            {{- include "adapy-viewer.databaseEnv" $ | nindent 12 }}
+          {{- if eq $.Values.storage.kind "local" }}
           volumeMounts:
             - name: data
               mountPath: /data
           {{- end }}
-          resources: {{- toYaml .Values.worker.resources | nindent 12 }}
-          {{- with .Values.worker.securityContext }}
+          resources: {{- toYaml $w.resources | nindent 12 }}
+          {{- with $w.securityContext }}
           securityContext: {{- toYaml . | nindent 12 }}
           {{- end }}
-      {{- if eq .Values.storage.kind "local" }}
+      {{- if eq $.Values.storage.kind "local" }}
       volumes:
         - name: data
-          {{- if .Values.storage.local.existingClaim }}
+          {{- if $.Values.storage.local.existingClaim }}
           persistentVolumeClaim:
-            claimName: {{ .Values.storage.local.existingClaim }}
-          {{- else if .Values.storage.local.hostPath }}
+            claimName: {{ $.Values.storage.local.existingClaim }}
+          {{- else if $.Values.storage.local.hostPath }}
           hostPath:
-            path: {{ .Values.storage.local.hostPath | quote }}
+            path: {{ $.Values.storage.local.hostPath | quote }}
             type: DirectoryOrCreate
           {{- else }}
           emptyDir: {}

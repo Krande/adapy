@@ -61,6 +61,28 @@ worker:
     capabilities:
       drop: ["ALL"]
 
+## Extra worker pools. Each entry renders as a separate Deployment
+## (named ``<release>-worker-<key>``) that shares the env block with
+## the base worker. Useful for either capacity (e.g. a high-replica
+## pool with its own resource pins) or capability (e.g. an image
+## that extends the base worker with extra runtime deps for a
+## particular job type).
+##
+##   extraWorkers:
+##     <key>:
+##       enabled: true
+##       replicaCount: 1
+##       image:
+##         repository: ...
+##         tag: ...
+##         pullPolicy: IfNotPresent
+##       podAnnotations: {}
+##       resources: { ... }
+##       securityContext: { ... }
+##
+## Empty by default — only the base ``worker`` pool deploys.
+extraWorkers: {}
+
 ## NATS JetStream — job queue for conversion. When nats.enabled, the
 ## chart deploys a single-node NATS server with JetStream on a PVC. To
 ## point at an existing NATS, set nats.enabled=false and nats.url.
