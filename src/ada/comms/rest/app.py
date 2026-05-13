@@ -2298,7 +2298,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             f"window.EXTRA_SOURCE_EXTS = {_json.dumps(extra_source_exts)};\n"
             f"window.STREAMING_ONLY_EXTS = {_json.dumps(streaming_only_exts)};\n"
         )
-        return PlainTextResponse(body, media_type="application/javascript")
+        # config.js is the SPA's source of truth for runtime config
+        # (worker registry → extraSourceExts / streamingOnlyExts, image
+        # tags, auth) — content changes between requests as workers come
+        # and go. Without explicit no-store, Safari iOS / Chrome cache
+        # it heuristically and the SPA keeps reading stale window.* on
+        # every reload. Observed symptom: an .odb upload routes to
+        # /convert (415) instead of /fea/manifest because a cached
+        # config.js predates the worker registering its plug-in.
+        return PlainTextResponse(
+            body,
+            media_type="application/javascript",
+            headers={"Cache-Control": "no-store"},
+        )
 
     if settings.static_path:
         static_dir = pathlib.Path(settings.static_path)
