@@ -148,18 +148,6 @@ spec:
               value: {{ $natsUrl | quote }}
             - name: ADA_WORKER_CAPABILITIES
               value: {{ (default (list "base") $w.capabilities) | join "," | quote }}
-            {{- /*
-            Extra source extensions this pool's image can handle on
-            top of the base adapy set. Worker publishes the list to
-            the registry; /api/config merges every online worker's
-            list into ``extraSourceExts`` so the SPA's upload picker
-            stays current without adapy having to know what each
-            capability brings. Empty by default.
-            */}}
-            {{- with $w.extraSourceExts }}
-            - name: ADA_WORKER_EXTRA_SOURCE_EXTS
-              value: {{ (. | join ",") | quote }}
-            {{- end }}
             {{- include "adapy-viewer.databaseEnv" $ctx | nindent 12 }}
           {{- if eq $ctx.Values.storage.kind "local" }}
           volumeMounts:

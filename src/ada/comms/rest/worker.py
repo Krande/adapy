@@ -50,12 +50,6 @@ from .subprocess_convert import (
 )
 
 
-def _normalise_ext(raw: str) -> str:
-    """Lower-case + leading-dot. Tolerates ``ODB``, ``.odb``, ``odb``."""
-    s = raw.strip().lower()
-    return s if s.startswith(".") else f".{s}"
-
-
 def _scope_of(job: Job) -> Scope:
     """Reconstruct the Scope a job's source/derived blobs live under.
     Defaults to ``shared`` for jobs serialized before scope_kind existed.
@@ -630,15 +624,16 @@ async def _run() -> None:
         for c in os.environ.get("ADA_WORKER_CAPABILITIES", "base").split(",")
         if c.strip()
     ]
-    # Source extensions this worker can handle on top of the base
-    # adapy set. Comma-separated env var, normalised to lower-case +
-    # leading dot. The API merges every online worker's list into
-    # /api/config so the upload picker can include them.
-    extra_source_exts = sorted({
-        _normalise_ext(e)
-        for e in os.environ.get("ADA_WORKER_EXTRA_SOURCE_EXTS", "").split(",")
-        if e.strip()
-    })
+    # Source extensions this worker can handle. Pulled from adapy's
+    # stream-reader registry — whatever plug-ins ran before this point
+    # (e.g. a capability worker's entrypoint that registered an extra
+    # format before delegating to ``ada.comms.rest.worker``) has
+    # already populated the registry, so we just read what's there.
+    # API merges every online worker's list into /api/config so the
+    # upload picker stays in sync without anyone having to repeat the
+    # suffix list outside the plug-in that owns it.
+    from ada.fem.results.artefacts import fea_artefact_extensions
+    source_exts = sorted(fea_artefact_extensions())
     started_at = time.time()
 
     if image_tag:
@@ -655,7 +650,7 @@ async def _run() -> None:
                 {
                     "image_tag": image_tag or None,
                     "capabilities": capabilities,
-                    "extra_source_exts": extra_source_exts,
+                    "source_exts": source_exts,
                     "started_at": started_at,
                     "last_heartbeat": time.time(),
                 },

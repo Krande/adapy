@@ -80,12 +80,14 @@ worker:
 ##       resources: { ... }
 ##       securityContext: { ... }
 ##       capabilities: [<list>]      ## reported to the Workers tab
-##       extraSourceExts: [<list>]   ## file extensions this pool can
-##                                   ## handle on top of adapy's base
-##                                   ## set; merged into /api/config
-##                                   ## so the upload picker picks them
-##                                   ## up automatically. Lower-case
-##                                   ## with leading dot, e.g. ".foo".
+##
+## A pool's image is also expected to register any extra
+## stream-reader plug-ins at startup (the worker introspects
+## ``ada.fem.results.artefacts._STREAM_READERS`` after the plug-ins
+## have run and publishes the resulting suffix set to the registry).
+## The API merges every online worker's list into /api/config so the
+## SPA upload picker picks them up automatically — no per-pool value
+## key needed for the suffix list itself.
 ##
 ## Empty by default — only the base ``worker`` pool deploys.
 extraWorkers: {}

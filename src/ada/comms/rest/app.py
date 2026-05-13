@@ -130,15 +130,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def _worker_advertised_exts() -> list[str]:
         """Union of source-file extensions advertised by every
         currently-registered worker via its registry entry's
-        ``extra_source_exts`` field.
+        ``source_exts`` field.
 
-        adapy itself doesn't know what those extensions are — the
-        workers tell the API "I can take .X" when they register, and
-        the API exposes the merged set through ``/api/config`` so the
-        SPA's upload picker can include them. Workers that fall off
-        the heartbeat (online=false) still contribute their list
-        briefly; the goal is to keep the picker stable across pod
-        restarts, not to gate on liveness.
+        adapy itself doesn't know what extensions any particular
+        worker brings — the worker introspects its own
+        stream-reader registry at startup (whatever plug-ins ran
+        before ``ada.comms.rest.worker`` connected) and publishes the
+        resulting suffix set. ``/api/config`` then merges every
+        online worker's list so the upload picker can include them
+        without anything outside the plug-in repeating the list.
+        Workers that fall off the heartbeat (online=false) still
+        contribute briefly; the goal is to keep the picker stable
+        across pod restarts, not to gate on liveness.
 
         Returns a sorted, lowercased list with a leading dot on each
         entry — ready to feed into the existing extension-check call
@@ -153,7 +156,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             return []
         out: set[str] = set()
         for w in workers:
-            for raw in (w.get("extra_source_exts") or []):
+            for raw in (w.get("source_exts") or []):
                 if not isinstance(raw, str):
                     continue
                 ext = raw.strip().lower()
