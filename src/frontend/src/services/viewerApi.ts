@@ -380,6 +380,20 @@ export interface AdminFileEntry {
     orphan?: boolean;
 }
 
+/** Per-scope state of a compression-sweep background task. */
+export interface CompressionSweepState {
+    started_at: number;
+    completed_at: number | null;
+    total: number;
+    processed: number;
+    compressed: number;
+    already_gzipped: number;
+    bytes_before: number;
+    errors: {key: string; error: string}[];
+    error: string | null;
+    cancelled: boolean;
+}
+
 /** One worker pod's self-reported registration entry. */
 export interface WorkerEntry {
     worker_id: string;
@@ -559,7 +573,19 @@ export const viewerApi = {
     async requestUploadUrl(
         scope: ScopeUrl,
         key: string,
-    ): Promise<{url: string; key: string; method: string; expires_in_seconds: number}> {
+    ): Promise<{
+        url: string;
+        key: string;
+        method: string;
+        expires_in_seconds: number;
+        /** Server hint: when set, the client should compress the body
+         * with this encoding and send Content-Encoding: <value> on the
+         * PUT. The encoding header is *not* signed into the URL — sent
+         * as opaque metadata — so a client lacking CompressionStream
+         * can ignore it and PUT raw bytes; the sweep job will pick it
+         * up later. */
+        content_encoding?: string | null;
+    }> {
         const r = await authedFetch(
             `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/upload-url`,
             {
@@ -776,6 +802,32 @@ export const viewerApi = {
         const url = `${runtime.apiBase()}/admin/audit${qs ? `?${qs}` : ""}`;
         const r = await authedFetch(url);
         return jsonOrThrow(r, "adminAudit");
+    },
+
+    /** Admin: kick off a background sweep that scans the scope for
+     * gzip-compressible source files (.ifc / .step / .sif / etc.)
+     * whose stored bytes aren't gzipped, and rewrites each with
+     * Content-Encoding: gzip. Returns 202 immediately — poll
+     * ``adminCompressionStatus`` for progress. */
+    async adminStartCompressionSweep(scope: ScopeUrl): Promise<void> {
+        const r = await authedFetch(
+            `${runtime.apiBase()}/admin/storage/${encodeURIComponent(scope)}/compress-uncompressed`,
+            {method: "POST"},
+        );
+        if (!r.ok) {
+            throw new ApiError(
+                `adminStartCompressionSweep(${scope})`, r.status, await readDetail(r),
+            );
+        }
+    },
+
+    /** Admin: snapshot of the in-flight + recently-completed
+     * compression sweeps, keyed by scope. */
+    async adminCompressionStatus(): Promise<{
+        scopes: Record<string, CompressionSweepState>;
+    }> {
+        const r = await authedFetch(`${runtime.apiBase()}/admin/storage/compression-status`);
+        return jsonOrThrow(r, "adminCompressionStatus");
     },
 
     /** Admin: snapshot of every worker pod that recently checked in.

@@ -246,6 +246,25 @@ class Storage:
 
         await obs.put_async(self._store, full, data)
 
+    async def get_raw_bytes(
+        self, scope: Scope, key: str
+    ) -> tuple[bytes, bool]:
+        """Return ``(raw_bytes, is_gzipped)`` without auto-decompressing.
+
+        ``get_bytes`` transparently un-gzips when it sees the magic
+        header; the compression sweep needs to know the *stored* state
+        (so it can skip already-compressed files) without unpacking
+        the bytes first. Looks at the magic header on the body — more
+        reliable than the object's ``Content-Encoding`` metadata,
+        which can be missing on objects uploaded via presigned PUT
+        before the client started signing it in.
+        """
+        full = self._full_key(scope, key)
+        result = await obs.get_async(self._store, full)
+        raw = await result.bytes_async()
+        is_gzipped = raw.startswith(b"\x1f\x8b")
+        return raw, is_gzipped
+
     async def rename(
         self,
         scope: Scope,

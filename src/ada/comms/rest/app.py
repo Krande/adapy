@@ -11,7 +11,7 @@ import time
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, Response
+from fastapi import APIRouter, BackgroundTasks, Depends, FastAPI, HTTPException, Request, Response
 from fastapi.responses import (
     FileResponse,
     JSONResponse,
@@ -577,12 +577,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except Exception as exc:
             logger.exception("presign failed for %s", key)
             raise HTTPException(status_code=500, detail=f"presign failed: {exc}") from exc
+        # Hint that the client should gzip + send Content-Encoding=gzip
+        # when this key's extension is in the compressible list. The
+        # encoding header is *not* signed into the presigned URL —
+        # SigV4 treats unsigned request headers as opaque metadata, so
+        # the browser can attach Content-Encoding without breaking the
+        # signature. The object store records the header on the object,
+        # the read path's get_bytes/stream_to_path sniffs the gzip
+        # magic anyway, and a browser without CompressionStream falls
+        # back to raw PUT (the sweep job picks it up later).
         return JSONResponse(
             {
                 "url": url,
                 "key": key,
                 "method": "PUT",
                 "expires_in_seconds": 3600,
+                "content_encoding": _content_encoding_for(key),
             }
         )
 
@@ -1069,6 +1079,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except (ValueError, AttributeError, TypeError) as exc:
             raise HTTPException(status_code=400, detail=f"invalid {what}") from exc
 
+    # In-memory per-scope compression-sweep state. Survives an admin
+    # reload but not an API pod restart — fine for the use case
+    # (sweep restarts itself when re-triggered; the work is idempotent).
+    compression_state: dict[str, dict] = {}
+
     @admin.get("/settings/{key}")
     async def admin_get_setting(
         key: str,
@@ -1120,6 +1135,91 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         pool = _require_pool(request)
         revoked_at = await auth_module.revoke_cli_tokens(pool, user)
         return JSONResponse({"revoked_at": revoked_at})
+
+    async def _compression_sweep(scope_obj: Scope, scope_label: str) -> None:
+        from .converter import is_derived_key as _is_derived_key
+
+        state = compression_state[scope_label]
+        try:
+            entries = await storage.list(scope_obj)
+        except Exception as exc:
+            state["error"] = f"list failed: {exc}"
+            state["completed_at"] = time.time()
+            return
+        candidates = [
+            e for e in entries
+            if _content_encoding_for(e.key) == "gzip" and not _is_derived_key(e.key)
+        ]
+        state["total"] = len(candidates)
+        for entry in candidates:
+            if state.get("cancelled"):
+                break
+            try:
+                raw, is_gzipped = await storage.get_raw_bytes(scope_obj, entry.key)
+                if is_gzipped:
+                    state["already_gzipped"] += 1
+                    state["processed"] += 1
+                    continue
+                await storage.put_bytes(
+                    scope_obj, entry.key, raw, content_encoding="gzip",
+                )
+                # Best-effort delta accounting — we don't re-head the
+                # object after PUT (saves a round trip); just record the
+                # original size and let the UI display a rough estimate.
+                state["compressed"] += 1
+                state["bytes_before"] += entry.size or 0
+            except Exception as exc:
+                logger.exception("compress sweep failed on %s/%s", scope_label, entry.key)
+                state["errors"].append({"key": entry.key, "error": str(exc)})
+            finally:
+                state["processed"] += 1
+        state["completed_at"] = time.time()
+
+    @admin.post("/storage/{scope}/compress-uncompressed")
+    async def admin_compress_uncompressed(
+        scope: str,
+        background_tasks: BackgroundTasks,
+        scope_obj: Scope = Depends(_scope_from_path),
+    ) -> JSONResponse:
+        """Sweep the scope for objects whose extension is in the
+        gzip-compressible list but whose stored bytes aren't gzipped,
+        and rewrite each as ``Content-Encoding: gzip``.
+
+        Runs in a background task so the request returns immediately;
+        progress is reported via the companion
+        ``GET /storage/compression-status`` endpoint. Re-triggering
+        while a sweep is running for the same scope returns 409.
+        """
+        scope_label = scope
+        current = compression_state.get(scope_label)
+        if current and current.get("completed_at") is None:
+            raise HTTPException(
+                status_code=409,
+                detail=f"sweep already running for {scope_label}",
+            )
+
+        compression_state[scope_label] = {
+            "started_at": time.time(),
+            "completed_at": None,
+            "total": 0,
+            "processed": 0,
+            "compressed": 0,
+            "already_gzipped": 0,
+            "bytes_before": 0,
+            "errors": [],
+            "error": None,
+            "cancelled": False,
+        }
+        background_tasks.add_task(_compression_sweep, scope_obj, scope_label)
+        return JSONResponse(
+            {"scope": scope_label, "status": "started"}, status_code=202,
+        )
+
+    @admin.get("/storage/compression-status")
+    async def admin_compression_status() -> JSONResponse:
+        """Snapshot of every recent compression sweep keyed by scope.
+        Entries persist in-process until the next pod restart."""
+        return JSONResponse({"scopes": compression_state})
 
     @admin.get("/workers")
     async def admin_list_workers() -> JSONResponse:

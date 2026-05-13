@@ -12,18 +12,61 @@ const DIRECT_UPLOAD_THRESHOLD_BYTES = 200 * 1024 * 1024;
 /** Upload via a presigned URL straight to the object store. Bypasses
  * the API process so multi-hundred-MB files don't buffer through
  * Python. Caller must ensure the server side has already vended the
- * URL — we just PUT and watch progress. */
+ * URL — we just PUT and watch progress.
+ *
+ * When ``contentEncoding`` is set (typically ``"gzip"`` for text-
+ * heavy formats like ``.sif`` / ``.ifc`` / ``.step``), the body is
+ * piped through the matching ``CompressionStream`` before the PUT,
+ * and the same value goes on the request as ``Content-Encoding``.
+ * SigV4 doesn't sign that header by default — it rides as opaque
+ * metadata, so the signature stays valid and the object store
+ * records the encoding on the object's metadata.
+ *
+ * Fallback: browsers without ``CompressionStream`` (or where the
+ * fetch can't stream a body — i.e. Safari <17) skip compression
+ * silently and PUT raw bytes. The admin compression-sweep picks it
+ * up later. */
 async function putToPresignedUrl(
     url: string,
     file: File,
     onProgress?: (loaded: number, total: number) => void,
+    contentEncoding?: string | null,
 ): Promise<void> {
+    // XHR doesn't support streaming a ReadableStream body. For the
+    // compress-on-the-fly path we have to use fetch() — at the cost
+    // of losing reliable upload-progress events on the very largest
+    // files (only download-progress is exposed; upload-progress
+    // doesn't fire on streamed bodies in current browsers).
+    if (
+        contentEncoding === "gzip" &&
+        typeof (globalThis as any).CompressionStream !== "undefined"
+    ) {
+        const cs = new (globalThis as any).CompressionStream("gzip") as
+            { readable: ReadableStream<Uint8Array>; writable: WritableStream<Uint8Array> };
+        const compressedBody = file.stream().pipeThrough(cs);
+        const r = await fetch(url, {
+            method: "PUT",
+            headers: {"Content-Encoding": "gzip"},
+            body: compressedBody,
+            // duplex: "half" is required by fetch when the body is a
+            // ReadableStream; Chrome/Firefox enforce it.
+            duplex: "half",
+        } as RequestInit & {duplex: "half"});
+        if (!r.ok) {
+            throw new Error(`presigned PUT failed: ${r.status} ${await r.text()}`);
+        }
+        // Approximate progress: fetch on a streamed body doesn't fire
+        // upload events; report 100% once the PUT resolves so the UI
+        // doesn't sit at 0%. Better-than-nothing until streams get a
+        // standard progress API.
+        if (onProgress) onProgress(file.size, file.size);
+        return;
+    }
+
+    // Buffered path — XHR gives us reliable upload progress.
     await new Promise<void>((resolve, reject) => {
         const xhr = new XMLHttpRequest();
         xhr.open("PUT", url);
-        // S3-style presigned URLs sign a known set of headers; sending
-        // an unsigned one (e.g. Authorization) makes the request fail
-        // with SignatureDoesNotMatch. Stick to body only.
         xhr.upload.addEventListener("progress", (e) => {
             if (e.lengthComputable && onProgress) onProgress(e.loaded, e.total);
         });
@@ -101,7 +144,9 @@ export async function uploadFile(
         // fall back to the buffered path because that would silently
         // 413 on this same request anyway.
         const presigned = await viewerApi.requestUploadUrl(scope, key);
-        await putToPresignedUrl(presigned.url, file, opts?.onProgress);
+        await putToPresignedUrl(
+            presigned.url, file, opts?.onProgress, presigned.content_encoding,
+        );
         await viewerApi.completeUpload(scope, key);
     } else {
         await viewerApi.putBlob(scope, key, file, {onProgress: opts?.onProgress});

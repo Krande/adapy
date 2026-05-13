@@ -58,6 +58,10 @@ const StorageTab: React.FC = () => {
     const [error, setError] = useState<string | null>(null);
     const [busyKey, setBusyKey] = useState<string | null>(null);
     const [expandedKey, setExpandedKey] = useState<string | null>(null);
+    // Compression-sweep state. Server keeps the authoritative progress
+    // in-process; we just poll it every 3 s while one's running.
+    const [compressionBusy, setCompressionBusy] = useState(false);
+    const [compressionMsg, setCompressionMsg] = useState<string | null>(null);
     // Multi-select for batch operations (currently just move-to-folder).
     // Tracks source keys; derived-blob rows aren't selectable since
     // moving a derived blob directly is rejected by the backend.
@@ -320,6 +324,74 @@ const StorageTab: React.FC = () => {
     };
     const totalDerivedAcrossScope = files.reduce((acc, f) => acc + f.derived.length, 0);
 
+    // Kick off a server-side sweep that gzips any source-format file
+    // that's stored uncompressed (typical case: a >200 MB upload took
+    // the direct presigned-PUT path before the browser-side
+    // compression bit landed). Server returns 202 immediately; we
+    // poll status every 3 s until completion. Idempotent — re-running
+    // after completion just confirms nothing's left to compress.
+    const onCompressUncompressed = async () => {
+        setCompressionBusy(true);
+        setCompressionMsg("Starting…");
+        try {
+            await viewerApi.adminStartCompressionSweep(scope);
+        } catch (e) {
+            const msg = e instanceof ApiError ? (e.detail || e.message) : String(e);
+            setError(`compress sweep start failed: ${msg}`);
+            setCompressionBusy(false);
+            setCompressionMsg(null);
+            return;
+        }
+        const tick = async (): Promise<void> => {
+            try {
+                const r = await viewerApi.adminCompressionStatus();
+                const s = r.scopes[scope];
+                if (!s) {
+                    setCompressionMsg("Starting…");
+                    return;
+                }
+                if (s.completed_at !== null) {
+                    const saved = Math.max(0, s.bytes_before - 0);  // delta not tracked yet
+                    const label =
+                        s.compressed > 0
+                            ? `Compressed ${s.compressed} / ${s.total} (${(s.bytes_before / 1024 / 1024).toFixed(0)} MB scanned)`
+                            : s.already_gzipped > 0
+                                ? `All ${s.already_gzipped} candidate(s) already gzipped`
+                                : "Nothing to compress";
+                    setCompressionMsg(label);
+                    setCompressionBusy(false);
+                    if (s.errors.length) {
+                        setError(
+                            `compress sweep finished with ${s.errors.length} error(s):\n` +
+                            s.errors.map((e) => `${e.key}: ${e.error}`).join("\n"),
+                        );
+                    } else if (s.error) {
+                        setError(`compress sweep failed: ${s.error}`);
+                    }
+                    await reload();
+                    // Clear the toast text after a few seconds so the
+                    // button label snaps back to its default.
+                    setTimeout(() => setCompressionMsg(null), 8000);
+                    return;
+                }
+                setCompressionMsg(
+                    s.total === 0
+                        ? "Listing…"
+                        : `Compressing ${s.processed} / ${s.total}…`,
+                );
+                setTimeout(() => void tick(), 3000);
+            } catch (e) {
+                const msg = e instanceof ApiError ? (e.detail || e.message) : String(e);
+                setError(`compression-status poll failed: ${msg}`);
+                setCompressionBusy(false);
+                setCompressionMsg(null);
+            }
+        };
+        // Brief first delay so the server has time to record the state
+        // dict before our first poll lands.
+        setTimeout(() => void tick(), 500);
+    };
+
     return (
         <div className="flex flex-col h-full">
             <div className="flex items-center gap-2 px-3 sm:px-4 py-2 border-b border-gray-700 text-xs">
@@ -375,6 +447,20 @@ const StorageTab: React.FC = () => {
                             : `Clear all derived (${totalDerivedAcrossScope})`}
                     </button>
                 )}
+                <button
+                    type="button"
+                    className="bg-gray-700 hover:bg-gray-600 px-2 py-1 rounded text-[11px] disabled:opacity-50"
+                    onClick={() => void onCompressUncompressed()}
+                    disabled={compressionBusy}
+                    title={
+                        "Sweep this scope for source files (.ifc / .step / .sif / etc.) " +
+                        "uploaded uncompressed (via the direct presigned-PUT path for " +
+                        "files >200 MB) and rewrite each with Content-Encoding: gzip. " +
+                        "Runs in the background; safe to leave the panel."
+                    }
+                >
+                    {compressionMsg ?? "Compress uncompressed sources"}
+                </button>
                 <button
                     type="button"
                     className={
