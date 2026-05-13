@@ -215,6 +215,7 @@ class Storage:
         data: bytes,
         *,
         content_encoding: str | None = None,
+        pre_compressed: bool = False,
     ) -> None:
         """Store an object, optionally gzipping it first.
 
@@ -222,13 +223,18 @@ class Storage:
         the Content-Encoding attribute is best-effort attached to the
         object. LocalStore doesn't support attributes; the gzip magic
         bytes still let the read path recognise compressed content.
+
+        Set ``pre_compressed=True`` when ``data`` is already gzipped
+        (e.g. produced by a streaming on-disk compression) — the
+        Content-Encoding metadata still attaches but the body isn't
+        re-gzipped.
         """
         if content_encoding is not None and content_encoding != "gzip":
             raise ValueError(f"unsupported content_encoding: {content_encoding!r}")
 
         full = self._full_key(scope, key)
         if content_encoding == "gzip":
-            payload = gzip.compress(data)
+            payload = data if pre_compressed else gzip.compress(data)
             try:
                 await obs.put_async(
                     self._store,
@@ -246,29 +252,22 @@ class Storage:
 
         await obs.put_async(self._store, full, data)
 
-    async def get_raw_bytes(
-        self, scope: Scope, key: str
-    ) -> tuple[bytes, bool]:
-        """Return ``(raw_bytes, is_gzipped)`` without auto-decompressing.
+    async def stream_to_path_raw(
+        self, scope: Scope, key: str, dest_path: pathlib.Path
+    ) -> None:
+        """Stream an object to a local file *without* decompressing
+        gzipped bodies (in contrast to ``stream_to_path`` which
+        transparently un-gzips on the fly).
 
-        ``get_bytes`` transparently un-gzips when it sees the magic
-        header; the compression sweep needs to know the *stored* state
-        (so it can skip already-compressed files) without unpacking
-        the bytes first. Looks at the magic header on the body — more
-        reliable than the object's ``Content-Encoding`` metadata,
-        which can be missing on objects uploaded via presigned PUT
-        before the client started signing it in.
-
-        ``obs`` returns its own ``builtins.Bytes`` type (Rust-bound,
-        zero-copy from the response buffer) that exposes most but
-        not all of Python's ``bytes`` protocol — ``startswith`` is
-        missing. Convert to native ``bytes`` before sniffing.
+        The compression sweep peeks at the stored magic bytes to
+        decide whether to recompress; auto-decompressing would
+        defeat that check. Used together with disk-side gzip so the
+        viewer never has to hold a multi-hundred-MB payload in RAM.
         """
-        full = self._full_key(scope, key)
-        result = await obs.get_async(self._store, full)
-        raw = bytes(await result.bytes_async())
-        is_gzipped = raw[:2] == _GZIP_MAGIC
-        return raw, is_gzipped
+        result = await self._store.get_async(self._full_key(scope, key))
+        with open(dest_path, "wb") as fh:
+            async for chunk in result.stream():
+                fh.write(bytes(chunk))
 
     async def rename(
         self,

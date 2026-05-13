@@ -1137,6 +1137,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return JSONResponse({"revoked_at": revoked_at})
 
     async def _compression_sweep(scope_obj: Scope, scope_label: str) -> None:
+        import gzip as _gzip
+        import shutil as _shutil
+        import tempfile as _tempfile
+
         from .converter import is_derived_key as _is_derived_key
 
         state = compression_state[scope_label]
@@ -1155,17 +1159,35 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if state.get("cancelled"):
                 break
             try:
-                raw, is_gzipped = await storage.get_raw_bytes(scope_obj, entry.key)
-                if is_gzipped:
-                    state["already_gzipped"] += 1
-                    state["processed"] += 1
-                    continue
+                # Stream the object to disk so the viewer pod never has
+                # to hold the whole payload in RAM — a 900 MB SIF with
+                # the default 1 GiB memory limit OOM-kills the process
+                # if we try the load-into-bytes path.
+                with _tempfile.TemporaryDirectory() as tmpdir:
+                    raw_path = pathlib.Path(tmpdir) / "raw"
+                    gz_path = pathlib.Path(tmpdir) / "gz"
+                    await storage.stream_to_path_raw(
+                        scope_obj, entry.key, raw_path,
+                    )
+                    with open(raw_path, "rb") as fh:
+                        magic = fh.read(2)
+                    if magic == b"\x1f\x8b":
+                        state["already_gzipped"] += 1
+                        continue
+                    with open(raw_path, "rb") as fin, _gzip.open(
+                        gz_path, "wb", compresslevel=6
+                    ) as fout:
+                        _shutil.copyfileobj(fin, fout, length=1 << 20)
+                    # The gzipped result is typically ~5–10× smaller
+                    # than the raw payload — safely fits in memory for
+                    # the put_bytes call. If we ever hit a case where
+                    # even the compressed size exceeds the pod's RAM
+                    # limit, switch to a streaming put.
+                    gzipped = gz_path.read_bytes()
                 await storage.put_bytes(
-                    scope_obj, entry.key, raw, content_encoding="gzip",
+                    scope_obj, entry.key, gzipped,
+                    content_encoding="gzip", pre_compressed=True,
                 )
-                # Best-effort delta accounting — we don't re-head the
-                # object after PUT (saves a round trip); just record the
-                # original size and let the UI display a rough estimate.
                 state["compressed"] += 1
                 state["bytes_before"] += entry.size or 0
             except Exception as exc:
