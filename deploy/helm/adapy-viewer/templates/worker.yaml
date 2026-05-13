@@ -23,16 +23,24 @@ is a worker concern, not the chart's. Body iterates over a
 constructed dict so all pools stay in lockstep when env vars or
 mounts get added.
 */ -}}
-{{- $pools := dict -}}
+{{- /*
+List of (suffix, config) pairs — built as a list, not a dict, because
+the base pool's empty-string key isn't safe in helm's dict iteration
+across all helm versions (some skip it silently, producing only the
+extra pools). List preserves order + handles empty suffix cleanly.
+*/ -}}
+{{- $pools := list -}}
 {{- if .Values.worker.enabled -}}
-{{- $_ := set $pools "" .Values.worker -}}
+{{- $pools = append $pools (dict "suffix" "" "config" .Values.worker) -}}
 {{- end -}}
 {{- range $key, $pool := (default (dict) .Values.extraWorkers) -}}
 {{- if $pool.enabled -}}
-{{- $_ := set $pools (printf "-%s" $key) $pool -}}
+{{- $pools = append $pools (dict "suffix" (printf "-%s" $key) "config" $pool) -}}
 {{- end -}}
 {{- end -}}
-{{- range $suffix, $w := $pools -}}
+{{- range $entry := $pools -}}
+{{- $suffix := $entry.suffix -}}
+{{- $w := $entry.config -}}
 {{- $name := printf "%s%s" (include "adapy-viewer.workerFullname" $) $suffix -}}
 {{- $component := printf "worker%s" $suffix -}}
 {{- $natsUrl := include "adapy-viewer.natsUrl" $ -}}
