@@ -2,6 +2,7 @@ import {CustomBatchedMesh} from "../mesh_select/CustomBatchedMesh";
 import * as THREE from "three";
 import {DesignDataExtension, SimulationDataExtensionMetadata} from "@/extensions/design_and_analysis_extension";
 import {usePerfStore} from "@/state/perfStore";
+import {gpuMeshPicker} from "../mesh_select/GpuMeshPicker";
 
 export function convert_to_custom_batch_mesh(original: THREE.Mesh, drawRanges: Map<string, [number, number]>, unique_key: string, is_design: boolean = true, ada_ext_data: SimulationDataExtensionMetadata | DesignDataExtension | null = null) {
     // CustomBatchedMesh holds a single base material; if the source was
@@ -89,6 +90,18 @@ export function convert_to_custom_batch_mesh(original: THREE.Mesh, drawRanges: M
     } else {
         applyFlags(customMesh.material);
     }
+
+    // Eager picker registration. The worker build runs off the main
+    // thread, so kicking it off here doesn't delay the model showing
+    // up — by the time the user makes their first selection, the
+    // picker is typically already installed. For FEA streaming meshes
+    // that wire morphAttributes after construction, the picker first
+    // builds with zero morph slots; once applyWarp adds the morph,
+    // ``refreshMorphIfStale`` detects the count change on the next
+    // pick and triggers a fresh worker rebuild. That rebuild costs
+    // one extra worker round-trip per FEA mesh, but lazy registration
+    // would cost the same round-trip on every first-click anyway.
+    gpuMeshPicker.registerMesh(customMesh);
 
     return customMesh;
 }

@@ -423,16 +423,14 @@ class GpuMeshPicker {
             return;
         }
 
-        // The mesh may have been removed from the scene during the
-        // worker round-trip (model swap, etc.). Drop the result;
-        // ``sweepOrphaned`` will reclaim the ``idToEntry`` slots on
-        // a later pick. The transferred output buffers are GC'd
-        // naturally once ``out`` goes out of scope.
-        const scene = sceneRef.current;
-        if (!scene || !this.hasAncestor(mesh, scene)) {
-            this.pending.delete(mesh);
-            return;
-        }
+        // Note: we deliberately do NOT check ``hasAncestor(mesh, scene)``
+        // here. Eager registration calls ``registerMesh`` from the
+        // factory, before the mesh is attached anywhere — the guard
+        // would discard every eager build. If the mesh truly got
+        // dropped mid-flight, the picker attaches to a detached parent,
+        // never renders (picker layer only enables during pickAt, and
+        // the parent's matrixWorld never propagates), and the cleanup
+        // in ``sweepOrphaned`` collects it on the next pick.
 
         const geometry = new THREE.BufferGeometry();
         geometry.setAttribute("position", new THREE.BufferAttribute(out.positions, 3));
@@ -545,30 +543,79 @@ class GpuMeshPicker {
         return dup;
     }
 
-    /** Detect a source-morph attribute swap (applyField re-runs and
-     *  reassigns ``mesh.geometry.morphAttributes.position`` to a new
-     *  array of BufferAttributes on every step/scale change) and
-     *  rebuild the picker's duplicated deltas in place. The picker
-     *  morph BufferAttribute itself is reused so Three's GPU buffer
-     *  ID stays valid; we just refresh its underlying typed array
-     *  and bump ``needsUpdate``. Returns true if any rebuild happened. */
+    /** Tear down a registered picker mesh and reclaim its GPU buffers
+     *  + idToEntry slots. Used by sweepOrphaned and by the morph-count
+     *  rebuild path. Doesn't touch the source mesh otherwise. */
+    private disposePicker(mesh: CustomBatchedMesh, reg: RegisteredMesh): void {
+        const pm = reg.pickerMesh;
+        if (pm.parent) pm.parent.remove(pm);
+        (pm.geometry as THREE.BufferGeometry).dispose();
+        const m = pm.material as THREE.Material | THREE.Material[];
+        // The invisible material is shared across all picker meshes,
+        // never dispose it. Other materials are per-picker shader
+        // instances and ours to release.
+        if (Array.isArray(m)) {
+            for (const x of m) if (x !== this.invisibleMaterial) x.dispose();
+        } else if (m !== this.invisibleMaterial) {
+            m.dispose();
+        }
+        this.registered.delete(mesh);
+        // Drop the idToEntry rows for this mesh — a re-registration
+        // re-allocates ids from the global counter. Old ids would
+        // never decode again anyway (no picker geometry writes them).
+        for (const [id, entry] of this.idToEntry) {
+            if (entry.mesh === mesh) this.idToEntry.delete(id);
+        }
+    }
+
+    /** Detect a source-morph attribute swap or count change and
+     *  refresh the picker:
+     *
+     *   * Same morph count, swapped BufferAttributes (applyField path):
+     *     rebuild the picker's duplicated deltas in place, reusing the
+     *     picker BufferAttribute so three's WebGLAttributes re-uploads
+     *     to the same GPU buffer. Cheap.
+     *   * Count changed (FEA streaming wiring morphs after registration):
+     *     dispose the picker entirely and kick off a fresh worker build.
+     *     The shader was compiled for the original morph count, so an
+     *     in-place fix isn't possible. The first pick after this falls
+     *     through to raycast for the affected mesh; subsequent picks
+     *     hit the rebuilt picker.
+     *
+     *  Returns true if any in-place refresh happened. A count-change
+     *  rebuild also returns true (the caller's view of "needs work
+     *  this frame" is satisfied). */
     private refreshMorphIfStale(
         mesh: CustomBatchedMesh,
         reg: RegisteredMesh,
     ): boolean {
-        if (reg.morphTargetCount === 0) return false;
         const srcMorphs = (mesh.geometry as THREE.BufferGeometry)
             .morphAttributes?.position as THREE.BufferAttribute[] | undefined;
+        const srcMorphCount = srcMorphs?.length ?? 0;
+
+        if (srcMorphCount !== reg.morphTargetCount) {
+            // Morph slot count changed — usually because the mesh was
+            // eager-registered at construction (no morphs known) and
+            // a streaming load wired morphs in afterwards. Rebuild
+            // from scratch via the worker; ``registerMesh`` is
+            // idempotent and the fresh build will see the new morph
+            // attrs.
+            this.disposePicker(mesh, reg);
+            this.registerMesh(mesh);
+            return true;
+        }
+
+        if (reg.morphTargetCount === 0) return false;
         if (!srcMorphs || srcMorphs.length === 0) return false;
 
         const pickerMorphs = (reg.pickerMesh.geometry as THREE.BufferGeometry)
             .morphAttributes.position as THREE.BufferAttribute[] | undefined;
         if (!pickerMorphs || pickerMorphs.length !== srcMorphs.length) {
-            // Morph count changed (gained/lost a target). We don't
-            // support this path yet — the shader was compiled for the
-            // original count. Skip silently; next click falls through
-            // to raycast for affected meshes.
-            return false;
+            // Defensive — picker's own morph slots mis-wired. Same
+            // remedy as a source-count change.
+            this.disposePicker(mesh, reg);
+            this.registerMesh(mesh);
+            return true;
         }
 
         let changed = false;
@@ -783,8 +830,19 @@ class GpuMeshPicker {
             // mesh needs its initial group emitted regardless of
             // whether it has morphs.
             this.syncHiddenGroups(o, reg);
+            // Always call refreshMorphIfStale, even when the registered
+            // picker has zero morph slots: an eager-registered FEA mesh
+            // starts with morphTargetCount=0, gets morphs wired later
+            // by applyWarp, and this is the path that detects the
+            // count change and triggers a worker rebuild. The function
+            // is cheap when nothing changed.
+            const rebuilt = this.refreshMorphIfStale(o, reg);
+            if (rebuilt && !this.registered.has(o)) {
+                // Picker was disposed for a count-change rebuild —
+                // ``reg`` is stale, skip the influence/dict relink.
+                return;
+            }
             if (reg.morphTargetCount === 0) return;
-            this.refreshMorphIfStale(o, reg);
             const srcInfl = (o as any).morphTargetInfluences as number[] | undefined;
             if (srcInfl) {
                 (reg.pickerMesh as any).morphTargetInfluences = srcInfl;
