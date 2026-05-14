@@ -27,21 +27,37 @@ function isFEAResult(name: string): boolean {
 }
 
 // Files that flow through the streaming-viewer artefact bake (mesh
-// GLB + per-field blobs + manifest). Covers SIF and RMED today;
-// FRD lands here in Phase 2.
+// GLB + per-field blobs + manifest). Static set: .sif and .rmed are
+// adapy-native streaming sources. Capability workers (e.g. abaqus
+// .odb / .sqlite) advertise additional extensions through
+// /api/config → window.STREAMING_ONLY_EXTS; honoring that here is
+// what keeps a plug-in's stream-readable formats from accidentally
+// hitting the legacy /convert pipeline (415) on click.
 function isStreamingFEAResult(name: string): boolean {
     const lower = name.toLowerCase();
-    return lower.endsWith(".sif") || lower.endsWith(".rmed");
+    if (lower.endsWith(".sif") || lower.endsWith(".rmed")) return true;
+    for (const e of runtime.streamingOnlyExts()) {
+        const norm = e.startsWith(".") ? e.toLowerCase() : `.${e.toLowerCase()}`;
+        if (lower.endsWith(norm)) return true;
+    }
+    return false;
 }
 
 // Files the legacy "load into scene" checkbox can handle — those
 // that have a usable GLB target via the legacy convert pipeline.
 // Mirror of ada.comms.rest.converter.supported_targets_for: anything
-// in _STREAMING_FEA_EXTS has no legacy GLB target, only the streaming
-// bake. The toggle path now routes streaming-FEA sources through
-// ``load_fea_with_defaults`` instead of disabling the checkbox.
+// in _STREAMING_FEA_EXTS (or a worker-advertised streaming-only
+// extension) has no legacy GLB target, only the streaming bake. The
+// toggle path routes those through ``load_fea_with_defaults``
+// instead of disabling the checkbox.
 function canLoadIntoSceneLegacy(name: string): boolean {
-    return !name.toLowerCase().endsWith(".rmed");
+    const lower = name.toLowerCase();
+    if (lower.endsWith(".rmed")) return false;
+    for (const e of runtime.streamingOnlyExts()) {
+        const norm = e.startsWith(".") ? e.toLowerCase() : `.${e.toLowerCase()}`;
+        if (lower.endsWith(norm)) return false;
+    }
+    return true;
 }
 
 // Small inline CSS spinner. Uses border tricks rather than an SVG so
