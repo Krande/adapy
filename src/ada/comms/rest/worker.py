@@ -33,7 +33,7 @@ from ada.config import logger
 from . import db as db_module
 from .bundle import BundleError
 from .config import load_settings
-from .converter import convert
+from .converter import LEGACY_CONVERT_EXTS, convert
 from .queue import (
     JOB_STATUS_DONE,
     JOB_STATUS_ERROR,
@@ -634,6 +634,10 @@ async def _run() -> None:
     # suffix list outside the plug-in that owns it.
     from ada.fem.results.artefacts import fea_artefact_extensions
     source_exts = sorted(fea_artefact_extensions())
+    # Set form keeps the consume-loop capability check fast — every
+    # job lookup needs to hit this; sorting is only for the wire
+    # registration above.
+    source_ext_set = {e.lower() for e in source_exts}
     started_at = time.time()
 
     if image_tag:
@@ -734,6 +738,42 @@ async def _run() -> None:
                     delivery_count = int(msg.metadata.num_delivered)
                 except Exception:
                     delivery_count = 1
+
+                # Capability gate. Multi-pool deployments fan one
+                # JetStream subject across heterogeneous workers
+                # (base + capability pools that share the same queue).
+                # If this pool's stream-reader registry doesn't cover
+                # the job's source extension AND the legacy /convert
+                # pipeline can't handle it either, NAK with a small
+                # delay so a more capable worker has a chance to grab
+                # the redelivery. Cap the dance at a few rounds so a
+                # missing-capability misroute eventually surfaces as
+                # a real bake error rather than spinning forever.
+                if delivery_count <= 3:
+                    peeked = await queue.get(job_id)
+                    if peeked is not None:
+                        ext = pathlib.PurePosixPath(
+                            peeked.source_key
+                        ).suffix.lower()
+                        can_handle = (
+                            ext in source_ext_set
+                            or ext in LEGACY_CONVERT_EXTS
+                        )
+                        if not can_handle:
+                            logger.info(
+                                "worker: NAK job %s ext=%s not in registry "
+                                "(have stream=%s legacy convert) delivery=%d",
+                                job_id, ext, sorted(source_ext_set),
+                                delivery_count,
+                            )
+                            try:
+                                await msg.nak(delay=2.0)
+                            except Exception:
+                                logger.exception(
+                                    "worker: nak failed for %s", job_id,
+                                )
+                            continue
+
                 logger.info(
                     "worker: picked up job %s (delivery %d/%d)",
                     job_id, delivery_count, MAX_DELIVERIES,
