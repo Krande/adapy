@@ -164,6 +164,24 @@ describe("fetchFeaManifest", () => {
         );
     });
 
+    it("throws AbortError when convertStatus returns cancelled", async () => {
+        // Server-side kill flips the audit row to ``cancelled`` —
+        // the poll loop must terminate the same way as an explicit
+        // signal.abort() so call sites don't surface an error toast.
+        const fetcher = async () => jsonResponse(202, {job_id: "job-1"});
+        const convertStatus = async () => makeStatus({status: "cancelled"});
+        await assert.rejects(
+            () =>
+                fetchFeaManifest({
+                    ...baseDeps(),
+                    fetcher,
+                    convertStatus,
+                }),
+            (err: unknown) =>
+                err instanceof DOMException && err.name === "AbortError",
+        );
+    });
+
     it("throws on unexpected non-200/202 status (e.g. 503 no NATS)", async () => {
         const fetcher = async () =>
             new Response("bake disabled (no NATS configured)", {status: 503});

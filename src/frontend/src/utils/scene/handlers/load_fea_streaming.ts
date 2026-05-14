@@ -967,10 +967,30 @@ export async function load_fea_with_defaults(sourceName: string): Promise<void> 
         startedAt,
     });
 
+    // AbortController + store subscription so the user clicking Kill
+    // in the toast actually stops the manifest poll. ConversionProgress
+    // calls clearJob() after the cancel endpoint resolves; that drops
+    // the row from the store, our subscriber fires .abort(), and the
+    // poll loop's signal.aborted check throws AbortError on the next
+    // tick. Without this the poll keeps ticking every 600 ms and the
+    // onProgress callback re-inserts the toast row 600 ms after the
+    // user dismissed it (the "flash, comes back" UX bug).
+    const controller = new AbortController();
+    const unsubscribe = useConversionStore.subscribe((state, prev) => {
+        if (prev.jobs[storeKey] && !state.jobs[storeKey]) {
+            controller.abort();
+        }
+    });
+
     let manifest: FeaManifest;
     try {
         manifest = await viewerApi.feaManifest(scope, sourceName, {
+            signal: controller.signal,
             onProgress: ({jobId, stage, progress, status}) => {
+                // Race guard: if the user cleared the row between
+                // .abort() and AbortError actually propagating up the
+                // poll loop, don't resurrect it.
+                if (!useConversionStore.getState().jobs[storeKey]) return;
                 convStore.setJob(storeKey, {
                     sourceKey: sourceName,
                     jobId,
@@ -997,6 +1017,13 @@ export async function load_fea_with_defaults(sourceName: string): Promise<void> 
             startedAt,
         });
     } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") {
+            // User cancelled (or server-side cancel via the kill
+            // endpoint). The store row is already gone by the time
+            // we get here; don't surface an error toast for an
+            // explicitly-requested abort.
+            return;
+        }
         const msg = err instanceof Error ? err.message : String(err);
         convStore.setJob(storeKey, {
             sourceKey: sourceName,
@@ -1009,6 +1036,8 @@ export async function load_fea_with_defaults(sourceName: string): Promise<void> 
             startedAt,
         });
         throw err;
+    } finally {
+        unsubscribe();
     }
     if (!manifest || !Array.isArray(manifest.fields) || manifest.fields.length === 0) {
         // Bake produced a manifest but no fields — usually means the

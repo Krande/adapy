@@ -123,6 +123,15 @@ async function pollEnqueueGet<T>(
             throw new ApiError(`${label} timed out`, 504);
         }
         const next = await deps.convertStatus(queued.job_id);
+        if (next.status === "cancelled") {
+            // Server-side cancel (audit row flipped to cancelled by
+            // the kill endpoint). Treat as an abort so call sites
+            // handle this via the same path as an explicit
+            // signal.abort() — silently stop, don't surface an error.
+            throw new DOMException(
+                `${label} cancelled by server`, "AbortError",
+            );
+        }
         let nextStatus: "queued" | "running" | "done" = status;
         if (next.status === "queued" || next.status === "running" || next.status === "done") {
             nextStatus = next.status;
