@@ -144,6 +144,40 @@ async def _run_fea_artefact_bake(
     bake_dir = pathlib.Path(tempfile.mkdtemp(prefix="fea-bake-"))
     try:
         loop = asyncio.get_running_loop()
+        # Heartbeat task — the bake runs on an executor thread and has
+        # no progress callback of its own. Without an external ping
+        # the queue's ``updated_at`` (and ``msg.in_progress`` on the
+        # JetStream side once we plumb it) sit frozen at the last
+        # progress milestone for the duration of the bake; the SPA's
+        # "stuck at 10%" symptom is just the toast displaying the
+        # last write. Re-emit progress every ``HEARTBEAT_SECONDS``
+        # with a slow incremental tick (0.10 → 0.80, never reaching
+        # the real 0.85 "uploading" milestone) so the user can tell
+        # the worker is still alive.
+        HEARTBEAT_SECONDS = 15
+        HEARTBEAT_INC = 0.003
+        HEARTBEAT_MAX = 0.80
+        heartbeat_stop = asyncio.Event()
+        heartbeat_progress = {"value": 0.10}
+
+        async def _heartbeat() -> None:
+            while not heartbeat_stop.is_set():
+                try:
+                    await asyncio.wait_for(
+                        heartbeat_stop.wait(), timeout=HEARTBEAT_SECONDS
+                    )
+                except asyncio.TimeoutError:
+                    heartbeat_progress["value"] = min(
+                        HEARTBEAT_MAX, heartbeat_progress["value"] + HEARTBEAT_INC
+                    )
+                    try:
+                        await _on_progress("baking", heartbeat_progress["value"])
+                    except Exception:
+                        logger.exception("worker: heartbeat update failed")
+                else:
+                    return
+
+        heartbeat_task = asyncio.create_task(_heartbeat())
         try:
             bake = await loop.run_in_executor(
                 None,
@@ -157,6 +191,8 @@ async def _run_fea_artefact_bake(
         except Exception as exc:
             logger.exception("worker: fea bake failed for %s", job.source_key)
             trace = tb_module.format_exc()
+            heartbeat_stop.set()
+            await heartbeat_task
             await queue.update(
                 job_id, status=JOB_STATUS_ERROR, stage="convert", error=str(exc)
             )
@@ -164,6 +200,13 @@ async def _run_fea_artefact_bake(
                 db_pool, job_id, "error", str(exc), started_at, traceback=trace,
             )
             return
+        finally:
+            heartbeat_stop.set()
+            if not heartbeat_task.done():
+                try:
+                    await heartbeat_task
+                except Exception:
+                    pass
 
         await _on_progress("uploading", 0.85)
         prefix = f"_derived/{job.source_key}.fea/"
