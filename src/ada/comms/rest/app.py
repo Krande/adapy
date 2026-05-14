@@ -1033,13 +1033,24 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if not source_key:
             raise HTTPException(status_code=400, detail="key required")
         if not is_fea_artefact_source(source_key):
-            raise HTTPException(
-                status_code=415,
-                detail=(
-                    f"streaming FEA viewer only supports .rmed and .sif sources; "
-                    f"got {source_key!r}"
-                ),
-            )
+            # adapy ships built-in stream readers for .rmed and .sif;
+            # capability workers register additional ones at startup
+            # (e.g. abaqus → .odb / .sqlite) and publish the set into
+            # the worker registry. Honour those here so a worker plug-in
+            # doesn't have to also patch the API gate. The worker-side
+            # bake still re-validates via its own ``make_stream_reader``
+            # registry, so an extension the API accepted but no worker
+            # actually handles surfaces as a clear bake error rather
+            # than getting silently dropped.
+            ext = pathlib.PurePosixPath(source_key).suffix.lower()
+            if ext not in await _worker_advertised_exts():
+                raise HTTPException(
+                    status_code=415,
+                    detail=(
+                        f"streaming FEA viewer only supports .rmed / .sif "
+                        f"or worker-advertised stream readers; got {source_key!r}"
+                    ),
+                )
         if not await storage.exists(scope_obj, source_key):
             raise HTTPException(status_code=404, detail=f"source not found: {source_key}")
 
