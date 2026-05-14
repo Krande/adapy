@@ -60,9 +60,14 @@ pyprofile-html-all = { cmd = "pyinstrument -r html -o profile_all_tests.html -m 
 
 
 [environments]
-prod = { features = ["prod"], solve-group = "prod", no-default-feature = true }
+# ``prod`` is the all-features env most local workflows (jupyter,
+# rendering, plot export) use — it composes ``prod`` + ``desktop``.
+# Slim runtime envs that don't need Jupyter / pygfx (notably
+# ``viewer-api`` for the REST worker image) deliberately omit
+# ``desktop`` to keep the image lean.
+prod = { features = ["prod", "desktop"], solve-group = "prod", no-default-feature = true }
 lint = { features = ["lint"], no-default-feature = true }
-profile = { features = ["profile", "prod"], solve-group = "prod", no-default-feature = true }
+profile = { features = ["profile", "prod", "desktop"], solve-group = "prod", no-default-feature = true }
 frontend = { features = ["frontend"], no-default-feature = true }
 jupyterlite = { features = ["jupyterlite"], no-default-feature = true }
 
@@ -72,10 +77,13 @@ tests-core = { features = ["tests-core"], no-default-feature = true }
 # prove the pyodide path stays clean. ADACPP_WHEEL points at a built
 # wheel; defaults to ../adacpp/dist/ada_cpp-*.whl.
 test-pyodide = { features = ["test-pyodide"], no-default-feature = true }
-tests = { features = ["tests", "tests-core", "prod"], solve-group = "prod", no-default-feature = true }
+tests = { features = ["tests", "tests-core", "prod", "desktop"], solve-group = "prod", no-default-feature = true }
 fem-deps = { features = ["fem-deps", "prod", "tests-core"], no-default-feature = true }
-fem = { features = ["fem", "prod", "tests-core", "fem-deps"], no-default-feature = true }
-docs = { features = ["docs", "prod", "fem-deps", "tests-core"], no-default-feature = true }
+fem = { features = ["fem", "prod", "desktop", "tests-core", "fem-deps"], no-default-feature = true }
+docs = { features = ["docs", "prod", "desktop", "fem-deps", "tests-core"], no-default-feature = true }
+# Worker image — REST API + file converter only. No Jupyter, no pygfx,
+# no plotly. Code paths gated behind those imports are unreachable from
+# the worker entrypoint (see ``feature.desktop`` for the inventory).
 viewer-api = { features = ["viewer-api", "prod"], solve-group = "prod", no-default-feature = true }
 # Separate test env for the REST viewer module: layers pytest on top
 # of the runtime deps so the production `viewer-api` image stays slim.
@@ -84,8 +92,8 @@ viewer-api-tests = { features = ["viewer-api", "tests-core", "prod"], solve-grou
 # etc. via meshio.write). Layers pytest on top of prod + the optional
 # meshio-bridge feature so the parity test against meshio's reader
 # can run in CI without putting meshio back into prod itself.
-meshio-bridge = { features = ["meshio-bridge", "prod"], solve-group = "prod", no-default-feature = true }
-meshio-bridge-tests = { features = ["meshio-bridge", "tests-core", "prod"], solve-group = "prod", no-default-feature = true }
+meshio-bridge = { features = ["meshio-bridge", "prod", "desktop"], solve-group = "prod", no-default-feature = true }
+meshio-bridge-tests = { features = ["meshio-bridge", "tests-core", "prod", "desktop"], solve-group = "prod", no-default-feature = true }
 
 [feature.jupyterlite.dependencies]
 jupyterlite-core = "*"
@@ -97,7 +105,6 @@ meshio = "*"
 
 [feature.prod.dependencies]
 python = "3.12.*"
-notebook = "*"  # For the notebook
 bcf-client = "*"
 numpy = "*"
 hdf5 = "*"
@@ -114,21 +121,44 @@ python-gmsh = "*"
 pyquaternion = "*"
 trimesh = "*"
 occt = { version = "*", build = "novtk_*" }
-send2trash = "*"
 websockets = ">=14"
-plotly = "*"
-python-kaleido = ">=1.0.0"
-ipywidgets = "*"
-jupyterlab = "*"
 pyparsing = "*"
-glfw = "==3.4"
-pyglfw = "*"
-pygfx = ">=0.13"
 flatbuffers = "*"
 python-flatbuffers = "*"
 lark = "*"
 pillow = "*"
 pydantic = "*"
+
+# Desktop / notebook / static-export deps. Split out of `prod` so the
+# slim REST worker image (which only does file conversion) doesn't have
+# to ship the entire pygfx → wgpu-py → imgui-bundle → libopencv (qt6
+# build) → ffmpeg → libopenvino-* closure plus Jupyter — that closure
+# alone is ~260 MiB on the resolved env, and the worker doesn't import
+# any of it.
+#
+# Code paths gated behind these imports (verified with grep -r):
+#   * ada.visit.rendering.*           → pygfx / pyglfw / glfw / wgpu
+#   * ada.calc.beams (display widget) → ipywidgets   (local import)
+#   * ada.core.curve_utils plots      → plotly       (local import)
+#   * ada.visit.plots                 → plotly       (local import)
+#   * ada.fem.formats.utils safe-del  → send2trash   (local import,
+#                                                     gated on Config
+#                                                     general_safe_deletion)
+#
+# Envs that face users in notebooks / desktop pipelines (``prod``,
+# ``tests``, ``fem``, ``docs``, ``profile``, ``meshio-bridge*``) add
+# this feature back in. ``viewer-api`` / ``viewer-api-tests`` deliberately
+# don't — that's the saving.
+[feature.desktop.dependencies]
+notebook = "*"      # For the notebook
+ipywidgets = "*"
+jupyterlab = "*"
+plotly = "*"
+python-kaleido = ">=1.0.0"
+pygfx = ">=0.13"
+glfw = "==3.4"
+pyglfw = "*"
+send2trash = "*"
 
 [feature.prod.target.win-64.dependencies]
 # Needed to fix issue with running from pycharm locally (llvm-openmp only works from pixi shell).
