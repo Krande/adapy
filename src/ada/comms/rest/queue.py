@@ -25,7 +25,7 @@ import uuid
 from dataclasses import asdict, dataclass
 
 import nats
-from nats.js.api import RetentionPolicy, StreamConfig
+from nats.js.api import ConsumerConfig, RetentionPolicy, StreamConfig
 from nats.js.errors import BadRequestError, BucketNotFoundError, KeyNotFoundError
 
 from .config import QueueConfig
@@ -377,15 +377,29 @@ class JobQueue:
 
     # --- consumer side (called from worker) --------------------------
 
+    # JetStream's default ack_wait is 30 s — much shorter than a
+    # multi-GB-ODB → SQLite + bake pass can run (we've observed
+    # 4 min per step on a 4 GiB Abaqus job). Without a longer wait,
+    # NATS redelivers the same message while the worker is still
+    # working, the redelivery counter ticks past MAX_DELIVERIES, and
+    # the user sees ``worker exceeded N delivery attempts`` even
+    # though nothing has actually crashed. 30 min covers the largest
+    # bakes we've seen with margin; a real crash still surfaces
+    # within the new wait + the MAX_DELIVERIES cap.
+    _ACK_WAIT_SECONDS = 30 * 60
+
     async def pull_subscribe(self):
         """Create a durable pull-subscriber on the work-queue stream.
 
         Workers fetch in batches; the durable name (from config) lets
-        multiple worker pods share the same consumer cursor.
+        multiple worker pods share the same consumer cursor. The
+        consumer's ``ack_wait`` is bumped above JetStream's default
+        30 s — see ``_ACK_WAIT_SECONDS`` for the rationale.
         """
         return await self._js.pull_subscribe(
             subject=self._cfg.subject,
             durable=self._cfg.durable,
+            config=ConsumerConfig(ack_wait=self._ACK_WAIT_SECONDS),
         )
 
 
