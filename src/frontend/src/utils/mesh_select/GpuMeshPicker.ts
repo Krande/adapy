@@ -110,6 +110,36 @@ class GpuMeshPicker {
     // the mesh mid-flight doesn't pin it in memory.
     private pending = new WeakSet<CustomBatchedMesh>();
 
+    // On mobile-width viewports we chain eager picker builds through
+    // this promise so only one build runs at a time. Each build
+    // briefly holds ~3× the source mesh's index + position bytes
+    // (slice() copies of both buffers plus a per-triangle colour
+    // array, transferred into the worker on dispatch). For a SIF
+    // model with a 7.8M-vertex beam-solid mesh that's ~200 MiB of
+    // transient allocation; running two builds in parallel (shell +
+    // beam-solid) is enough to either OOM the page or pause it long
+    // enough on mobile that the user sees "stuck after shell" with
+    // no progress. Desktops run unserialised — they have the
+    // headroom and the parallelism wins. ``refreshMorphIfStale`` and
+    // similar lazy-rebuild paths route through here too, so a
+    // first-click rebuild on a fat mesh also stays serialised on
+    // mobile.
+    private mobileQueue: Promise<void> = Promise.resolve();
+    private mobileChecked = false;
+    private mobileCached = false;
+
+    private isMobile(): boolean {
+        if (this.mobileChecked) return this.mobileCached;
+        this.mobileChecked = true;
+        if (typeof window === "undefined") return false;
+        try {
+            this.mobileCached = window.matchMedia("(max-width: 767px)").matches;
+        } catch {
+            this.mobileCached = false;
+        }
+        return this.mobileCached;
+    }
+
     // Shared invisible material used as slot 1 in every picker mesh's
     // material array. Hidden ranges get materialIndex=1 in their
     // picker geometry group — three's renderer skips draws against an
@@ -288,6 +318,44 @@ class GpuMeshPicker {
         if (!geom.index || !geom.attributes.position) return;
         if (mesh.drawRanges.size === 0) return;
 
+        // Mark pending now so concurrent callers (e.g. a second
+        // ``registerMesh`` invocation from refreshMorphIfStale while
+        // the eager build is queued) short-circuit on the
+        // ``this.pending.has(mesh)`` check above. The actual
+        // synchronous prep work runs from ``_doRegisterMesh`` below;
+        // on mobile that work is deferred until the queue's turn so
+        // multiple meshes don't allocate hundreds of MiB at the same
+        // time. Desktops run inline as before.
+        this.pending.add(mesh);
+        if (this.isMobile()) {
+            this.mobileQueue = this.mobileQueue
+                .then(() => this._doRegisterMesh(mesh))
+                .catch((err) => {
+                    console.error("[GpuMeshPicker] mobile queue build failed:", err);
+                });
+            return;
+        }
+        // Desktop path: run inline. The body is async-fire-and-forget
+        // through ``runWorkerBuild``, so callers stay synchronous.
+        void this._doRegisterMesh(mesh);
+    }
+
+    private async _doRegisterMesh(mesh: CustomBatchedMesh): Promise<void> {
+        // ``pending`` was set in registerMesh — recheck here so a
+        // scene swap that dropped the mesh mid-queue (model unloaded
+        // before its turn) can short-circuit and free the queue slot
+        // without doing the heavy slice() work.
+        if (!this.pending.has(mesh)) return;
+        const geom = mesh.geometry as THREE.BufferGeometry;
+        if (!geom.index || !geom.attributes.position) {
+            this.pending.delete(mesh);
+            return;
+        }
+        if (mesh.drawRanges.size === 0) {
+            this.pending.delete(mesh);
+            return;
+        }
+
         const t0 = performance.now();
         const indices = geom.index.array as Uint16Array | Uint32Array;
         const posAttr = geom.attributes.position as THREE.BufferAttribute;
@@ -394,12 +462,17 @@ class GpuMeshPicker {
             ...morphCopies.map((m) => m.buffer as ArrayBuffer),
         ];
 
-        this.pending.add(mesh);
-        // Capture sourceMorphs by reference so the install handler can
+        // ``pending`` is already set by registerMesh. Capture
+        // sourceMorphs by reference so the install handler can
         // wire ``sourceMorphAttrs`` for staleness detection. Closing
         // over these doesn't keep the mesh alive on its own — the
-        // CustomBatchedMesh holds the morph attrs anyway.
-        void this.runWorkerBuild(mesh, input, transfers, sourceMorphs, flat, morphTargetCount, t0);
+        // CustomBatchedMesh holds the morph attrs anyway. Await the
+        // build here (rather than fire-and-forget) so the mobile
+        // serializer queue waits for the worker build to finish
+        // before letting the next mesh start its slice() copies.
+        await this.runWorkerBuild(
+            mesh, input, transfers, sourceMorphs, flat, morphTargetCount, t0,
+        );
     }
 
     /** Worker-side build + main-side install. Split out so
