@@ -1,5 +1,6 @@
 import React, {useEffect, useState} from "react";
 import {runtime} from "@/runtime/config";
+import {useAdminPanelStore} from "@/state/adminPanelStore";
 import {useMeStore} from "@/state/meStore";
 import {useScopeStore, ScopeOption, scopeUrlPart} from "@/state/scopeStore";
 import {useServerInfoStore} from "@/state/serverInfoStore";
@@ -116,7 +117,9 @@ const ScopeSelector: React.FC = () => {
 
 const AdminButton: React.FC = () => {
     const isAdmin = useMeStore((s) => s.isAdmin);
-    const [open, setOpen] = useState(false);
+    const open = useAdminPanelStore((s) => s.open);
+    const openAdmin = useAdminPanelStore((s) => s.openAdmin);
+    const closeAdmin = useAdminPanelStore((s) => s.closeAdmin);
     // Lock background scroll while the modal is open. Belt-and-braces
     // for mobile, where the drawer + admin modal both want the
     // document scroll.
@@ -133,13 +136,13 @@ const AdminButton: React.FC = () => {
         <>
             <button
                 className="w-full bg-purple-700 hover:bg-purple-600 text-white text-sm font-semibold py-1 px-2 rounded"
-                onClick={() => setOpen(true)}
+                onClick={() => openAdmin()}
             >
                 Admin panel
             </button>
             {open && (
                 <React.Suspense fallback={null}>
-                    <AdminPanel onClose={() => setOpen(false)}/>
+                    <AdminPanel onClose={closeAdmin}/>
                 </React.Suspense>
             )}
         </>

@@ -1,5 +1,6 @@
 import React, {useEffect, useState} from "react";
 import {Rnd} from "react-rnd";
+import {useAdminPanelStore} from "@/state/adminPanelStore";
 import {useMeStore} from "@/state/meStore";
 import AuditLogTab from "./AuditLogTab";
 import CliTokenButton from "./CliTokenButton";
@@ -74,11 +75,23 @@ function defaultRect(): PanelRect {
 
 const AdminPanel: React.FC<{onClose: () => void}> = ({onClose}) => {
     const isAdmin = useMeStore((s) => s.isAdmin);
-    const [tab, setTab] = useState<Tab>("audit");
+    const initialTab = useAdminPanelStore((s) => s.initialTab);
+    const clearInitialTab = useAdminPanelStore((s) => s.clearInitialTab);
+    const [tab, setTab] = useState<Tab>(initialTab ?? "audit");
     const [isDesktop, setIsDesktop] = useState(
         () => typeof window !== "undefined" && window.matchMedia(DESKTOP_QUERY).matches,
     );
     const [rect, setRect] = useState<PanelRect>(() => loadRect() || defaultRect());
+
+    // When the caller (e.g. the toast (i) button) requests a specific
+    // tab on open, honour it once then clear so a later manual reopen
+    // lands wherever the user left off.
+    useEffect(() => {
+        if (initialTab) {
+            setTab(initialTab);
+            clearInitialTab();
+        }
+    }, [initialTab, clearInitialTab]);
 
     useEffect(() => {
         const mq = window.matchMedia(DESKTOP_QUERY);

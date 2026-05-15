@@ -1,8 +1,71 @@
 import React, {useState} from "react";
+import {useAdminPanelStore} from "@/state/adminPanelStore";
 import {useConversionStore} from "@/state/conversionStore";
 import {useCompressionStore} from "@/state/compressionStore";
+import {useMeStore} from "@/state/meStore";
 import {useScopeStore, scopeUrlPart} from "@/state/scopeStore";
 import {viewerApi} from "@/services/viewerApi";
+
+// Shared dismiss button — 24x24 hit area, visible border, large enough
+// to tap on touch screens. Used for both queued/running cancel-confirm
+// and the error-row dismiss; the kill-confirm flow shows it before the
+// red Kill button (replaces the previous single tiny "×" character).
+const DismissButton: React.FC<{
+    onClick: () => void;
+    label?: string;
+    disabled?: boolean;
+}> = ({onClick, label = "Dismiss", disabled = false}) => (
+    <button
+        type="button"
+        onClick={onClick}
+        disabled={disabled}
+        aria-label={label}
+        title={label}
+        className={
+            "shrink-0 inline-flex items-center justify-center w-6 h-6 rounded " +
+            "border border-gray-600 bg-gray-700/60 text-gray-200 " +
+            "hover:bg-gray-600 hover:border-gray-400 hover:text-white " +
+            "disabled:opacity-50 disabled:cursor-not-allowed"
+        }
+    >
+        <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+            <path
+                d="M4 4 L12 12 M12 4 L4 12"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                fill="none"
+            />
+        </svg>
+    </button>
+);
+
+// (i) Info button — admin-only entry point that opens the Admin panel
+// on the Audit Log tab so the operator can dig into the worker-side
+// traceback for the failed job. Non-admins don't see it (they have no
+// route to that data).
+const InfoButton: React.FC<{title?: string}> = ({
+    title = "Open audit log for traceback",
+}) => {
+    const isAdmin = useMeStore((s) => s.isAdmin);
+    const openAdmin = useAdminPanelStore((s) => s.openAdmin);
+    if (!isAdmin) return null;
+    return (
+        <button
+            type="button"
+            onClick={() => openAdmin("audit")}
+            aria-label={title}
+            title={title}
+            className={
+                "shrink-0 inline-flex items-center justify-center w-6 h-6 rounded " +
+                "border border-blue-500/60 bg-blue-700/40 text-blue-200 " +
+                "hover:bg-blue-600 hover:border-blue-300 hover:text-white text-xs font-semibold"
+            }
+        >
+            i
+        </button>
+    );
+};
 
 const STATUS_LABEL: Record<string, string> = {
     queued: "Queued",
@@ -55,14 +118,12 @@ const CancelButton: React.FC<{
 
     if (!confirming) {
         return (
-            <button
-                className="shrink-0 text-gray-400 hover:text-gray-200 text-base leading-none ml-2"
-                onClick={() => setConfirming(true)}
-                aria-label={`${verb} ${sourceKey}`}
-                title={`${verb} this conversion`}
-            >
-                ×
-            </button>
+            <div className="ml-2">
+                <DismissButton
+                    onClick={() => setConfirming(true)}
+                    label={`${verb} ${sourceKey}`}
+                />
+            </div>
         );
     }
     return (
@@ -110,14 +171,10 @@ const ErrorRow: React.FC<{
                 <pre className="text-red-400 break-all whitespace-pre-wrap font-mono text-[11px] leading-snug max-h-64 overflow-auto m-0">
                     {message}
                 </pre>
-                <button
-                    className="shrink-0 text-gray-400 hover:text-gray-200"
-                    onClick={onClear}
-                    aria-label="Dismiss"
-                    title="Dismiss"
-                >
-                    ×
-                </button>
+                <div className="flex flex-col gap-1 shrink-0">
+                    <DismissButton onClick={onClear}/>
+                    <InfoButton/>
+                </div>
             </div>
             <div className="flex justify-end">
                 <button
@@ -182,14 +239,9 @@ const CompressionToast: React.FC<{
                     {!finished && !orphaned && state.total > 0 && ` ${pct}%`}
                 </span>
                 {(finished || failed || orphaned) && (
-                    <button
-                        className="shrink-0 text-gray-400 hover:text-gray-200 text-base leading-none ml-1"
-                        onClick={onDismiss}
-                        aria-label="Dismiss"
-                        title="Dismiss"
-                    >
-                        ×
-                    </button>
+                    <div className="ml-1">
+                        <DismissButton onClick={onDismiss}/>
+                    </div>
                 )}
             </div>
             {!finished && !orphaned && state.total > 0 && (
