@@ -1,17 +1,13 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
-  <rect width="32" height="32" rx="6" fill="#0C447C"/>
-  <clipPath id="l"><rect x="0" y="0" width="16" height="32"/></clipPath>
-  <clipPath id="r"><rect x="16" y="0" width="16" height="32"/></clipPath>
-  <g clip-path="url(#l)">
-    <path d="M9 26L16 6L23 26" fill="none" stroke="#85B7EB" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
-    <line x1="11" y1="20" x2="21" y2="20" stroke="#85B7EB" stroke-width="2" stroke-linecap="round"/>
-  </g>
-  <g clip-path="url(#r)">
-    <path d="M9 26L16 6L23 26" fill="none" stroke="#E24B4A" stroke-width="3" stroke-linejoin="round" stroke-linecap="round"/>
-    <line x1="11" y1="20" x2="21" y2="20" stroke="#EF9F27" stroke-width="2" stroke-linecap="round"/>
-    <g stroke="#F09595" stroke-width="0.7" opacity="0.6">
-      <line x1="16" y1="6" x2="21" y2="20"/>
-      <line x1="18.5" y1="13" x2="23" y2="26"/>
-    </g>
-  </g>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+  <style>
+    .fg { fill: #101113; }
+    @media (prefers-color-scheme: dark) {
+      .fg { fill: #e7e8ea; }
+    }
+  </style>
+  <!-- Filled I-beam (W-shape) silhouette: top flange, web, bottom flange.
+       Single path traces the outer outline; solid fill keeps the icon
+       unambiguous at 16x16 and visually distinct from the shelf favicon
+       (which is a stroked outline of a book on a shelf). -->
+  <path class="fg" d="M4 4 H20 V8 H14 V16 H20 V20 H4 V16 H10 V8 H4 Z"/>
 </svg>
