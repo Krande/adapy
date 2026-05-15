@@ -550,6 +550,143 @@ def _dedup_beam_tessellation(
     return unique_verts, remapped, unique_t
 
 
+def tessellate_beams_to_solid_mesh(
+    beams,
+    *,
+    extra_skip_reasons: dict | None = None,
+    total_beams: int | None = None,
+) -> "SolidBeamMesh | None":
+    """Run OCC tessellation over a list of beams and produce a SolidBeamMesh.
+
+    Each ``beams`` entry is a ``(beam, elem_id, n0_idx, n1_idx, n0_pos, n1_pos)``
+    tuple where ``beam`` is a fully-constructed :class:`ada.Beam` (its
+    ``section``, ``material``, ``up``, and endpoints supply everything OCC
+    needs), ``elem_id`` is the source line-element id used as the per-beam
+    label in the AFEL element-range table, ``n0_idx`` / ``n1_idx`` are the
+    0-based positions of the parent line-element's endpoint nodes in the
+    bake's main point buffer (used by the AFBV warp sidecar to lerp
+    displacement onto the solid surface), and ``n0_pos`` / ``n1_pos`` are
+    the world-space coordinates of those endpoints (used to compute the
+    axial parameter ``t`` per vertex).
+
+    Returns ``None`` when zero beams successfully tessellated — the bake
+    then omits the beam-solids artefacts from the manifest.
+
+    Per-beam failures are bucketed by reason into ``skip_reasons`` and
+    logged once as a summary; the offending beam is dropped from the
+    output rather than aborting the whole bake.
+
+    Callers that pre-filter beams (e.g. ``no-section`` or
+    ``genbeam-no-profile`` cases the reader can detect cheaply before
+    OCC sees them) can pass those counts in via ``extra_skip_reasons``
+    so the coverage summary reflects the full picture; ``total_beams``
+    overrides the auto-default of ``len(beams)`` for the same reason.
+    """
+
+    from collections import defaultdict
+    from ada.config import get_logger
+    from ada.occ.tessellating import BatchTessellator
+    from ada.visit.rendering.femviz import ElementRange
+
+    bt = BatchTessellator()
+
+    all_positions: list[np.ndarray] = []
+    all_indices: list[np.ndarray] = []
+    all_n0: list[np.ndarray] = []
+    all_n1: list[np.ndarray] = []
+    all_t: list[np.ndarray] = []
+    ranges: list[ElementRange] = []
+    vertex_offset = 0
+    tri_cursor = 0
+    skip_reasons: dict[str, int] = defaultdict(int)
+    if extra_skip_reasons:
+        for k, v in extra_skip_reasons.items():
+            skip_reasons[k] += int(v)
+    if total_beams is None:
+        total_beams = len(beams) + sum(skip_reasons.values())
+    success_count = 0
+
+    for beam, elem_id, n0_idx, n1_idx, n0_pos, n1_pos in beams:
+        try:
+            geom = beam.solid_geom()
+            ms = bt.tessellate_geom(geom, beam)
+        except Exception as e:  # noqa: BLE001 — defensive
+            skip_reasons[f"occ-error[{type(e).__name__}]"] += 1
+            get_logger().debug(
+                "beam-solid OCC failure elem %s: %s", elem_id, e,
+            )
+            continue
+
+        pos = getattr(ms, "position", None)
+        idx = getattr(ms, "indices", None)
+        if pos is None or idx is None or pos.size == 0 or idx.size == 0:
+            skip_reasons["empty-tessellation"] += 1
+            continue
+
+        verts_raw = np.asarray(pos, dtype=np.float64).reshape(-1, 3)
+        tris_local = np.asarray(idx, dtype=np.uint32).reshape(-1, 3)
+
+        p0 = np.asarray(n0_pos, dtype=np.float64)
+        p1 = np.asarray(n1_pos, dtype=np.float64)
+        axis = p1 - p0
+        axis_sq = float(np.dot(axis, axis))
+        if axis_sq <= 0:
+            # Zero-length beam: every vertex t=0 so disp collapses to disp[n0].
+            t_vals_raw = np.zeros(verts_raw.shape[0], dtype=np.float32)
+        else:
+            rel = verts_raw - p0
+            t_vals_raw = np.clip(rel @ axis / axis_sq, 0.0, 1.0).astype(np.float32)
+
+        verts, tris_local_dedup, t_vals = _dedup_beam_tessellation(
+            verts_raw, tris_local, t_vals_raw,
+        )
+        tris = tris_local_dedup + vertex_offset
+
+        all_positions.append(verts)
+        all_indices.append(tris.astype(np.uint32, copy=False))
+        all_n0.append(np.full(verts.shape[0], n0_idx, dtype=np.uint32))
+        all_n1.append(np.full(verts.shape[0], n1_idx, dtype=np.uint32))
+        all_t.append(t_vals)
+
+        tri_count = int(tris.shape[0])
+        ranges.append(
+            ElementRange(
+                label=int(elem_id),
+                tri_start=tri_cursor,
+                tri_count=tri_count,
+            )
+        )
+        vertex_offset += int(verts.shape[0])
+        tri_cursor += tri_count
+        success_count += 1
+
+    if total_beams:
+        skip_summary = (
+            ", ".join(f"{k}={v}" for k, v in sorted(skip_reasons.items()))
+            or "none"
+        )
+        get_logger().info(
+            "beam-solid coverage: %d of %d beams tessellated (skip: %s)",
+            success_count,
+            total_beams,
+            skip_summary,
+        )
+
+    if not all_positions:
+        return None
+
+    return SolidBeamMesh(
+        points=np.concatenate(all_positions, axis=0),
+        triangles=np.concatenate(all_indices, axis=0),
+        element_ranges=ranges,
+        vertex_node0=np.concatenate(all_n0, axis=0),
+        vertex_node1=np.concatenate(all_n1, axis=0),
+        vertex_t=np.concatenate(all_t, axis=0),
+        total_beams=total_beams,
+        skip_reasons=dict(skip_reasons),
+    )
+
+
 class FEAResultStreamAdapter:
     """Wrap an in-memory :class:`FEAResult` so the bake can consume it
     through the streaming reader interface.
@@ -869,46 +1006,22 @@ class FEAResultStreamAdapter:
         mesh = self._result.mesh
         if not getattr(mesh, "sections", None):
             return None
-        if not getattr(mesh, "elem_data", None) is not None:
-            return None
         if mesh.elem_data is None:
             return None
 
         from ada import Part
         from ada.fem.formats.utils import line_elem_to_beam
-        from ada.occ.tessellating import BatchTessellator
-        from ada.visit.rendering.femviz import ElementRange
 
         line_elems = mesh.get_line_elems()
         if not line_elems:
             return None
 
         dummy_part = Part(self._result.name or "solid_beams")
-        bt = BatchTessellator()
-
-        all_positions: list[np.ndarray] = []
-        all_indices: list[np.ndarray] = []
-        all_n0: list[np.ndarray] = []
-        all_n1: list[np.ndarray] = []
-        all_t: list[np.ndarray] = []
-        ranges: list[ElementRange] = []
-        vertex_offset = 0
-        tri_cursor = 0
-
-        # Skip counters so the bake can summarise coverage at the end.
-        # Tessellation can fail per-beam in many ways (degenerate
-        # section profile, missing local_z, GENBEAM with no real
-        # geometry, OCC blow-up on tapered sections). Without a tally
-        # we can't tell whether the gaps in the rendered solid mesh
-        # are 1% or 50% of the model — and the per-beam warnings end
-        # up swamping the worker log on big models.
-        from collections import defaultdict
-        from ada.config import get_logger
-
-        skip_reasons: dict[str, int] = defaultdict(int)
-        total_beams = len(line_elems)
-        success_count = 0
-
+        beams: list = []
+        # Source-side pre-filter — these reject reasons are cheap to
+        # detect before OCC sees the geometry. Bucketing them by
+        # category here keeps the bake's coverage summary informative.
+        extra_skip: dict[str, int] = {}
         for elem in line_elems:
             n0_node = elem.nodes[0]
             n1_node = elem.nodes[-1]
@@ -916,141 +1029,30 @@ class FEAResultStreamAdapter:
                 n0_idx = self._nmap[int(n0_node.id)]
                 n1_idx = self._nmap[int(n1_node.id)]
             except KeyError:
-                skip_reasons["endpoint-not-in-mesh"] += 1
+                extra_skip["endpoint-not-in-mesh"] = extra_skip.get("endpoint-not-in-mesh", 0) + 1
                 continue
 
-            # Pre-check the inputs that ``line_elem_to_beam`` needs.
-            # These were silent skips before; counting them by reason
-            # surfaces the most common gap in beam-solid coverage so
-            # we can fix the source-side reader rather than play
-            # whack-a-mole with OCC errors.
             sec = elem.fem_sec.section if elem.fem_sec is not None else None
             if sec is None:
-                skip_reasons["no-section"] += 1
+                extra_skip["no-section"] = extra_skip.get("no-section", 0) + 1
                 continue
-            sec_type = getattr(sec, "type", None)
-            if sec_type == "GENBEAM":
+            if getattr(sec, "type", None) == "GENBEAM":
                 # Generic-cross-section beams carry property numbers
                 # only (A, Iy, Iz, …) — no geometric profile to
-                # extrude. Reported as its own category because it's
-                # by far the most common gap in Sesam models.
-                skip_reasons["genbeam-no-profile"] += 1
+                # extrude. Most common gap in Sesam models.
+                extra_skip["genbeam-no-profile"] = extra_skip.get("genbeam-no-profile", 0) + 1
                 continue
             if elem.fem_sec.local_z is None:
-                skip_reasons["missing-local-z"] += 1
-                continue
-            try:
-                beam = line_elem_to_beam(elem, dummy_part, "BM")
-                geom = beam.solid_geom()
-                ms = bt.tessellate_geom(geom, beam)
-            except Exception as e:  # noqa: BLE001 — defensive
-                # OCC failures: bucket by the exception class name
-                # so a hundred identical errors land in one row of
-                # the summary instead of a hundred warning lines.
-                skip_reasons[f"occ-error[{type(e).__name__}]"] += 1
-                get_logger().debug(
-                    "beam-solid OCC failure elem %s: %s", elem.id, e,
-                )
+                extra_skip["missing-local-z"] = extra_skip.get("missing-local-z", 0) + 1
                 continue
 
-            pos = getattr(ms, "position", None)
-            idx = getattr(ms, "indices", None)
-            if pos is None or idx is None or pos.size == 0 or idx.size == 0:
-                skip_reasons["empty-tessellation"] += 1
-                continue
+            beam = line_elem_to_beam(elem, dummy_part, "BM")
+            beams.append((beam, int(elem.id), n0_idx, n1_idx, n0_node.p, n1_node.p))
 
-            verts_raw = np.asarray(pos, dtype=np.float64).reshape(-1, 3)
-            tris_local = np.asarray(idx, dtype=np.uint32).reshape(-1, 3)
-
-            # Axial parameter t for each vertex: project (v - p0) onto
-            # (p1 - p0) and divide by |p1 - p0|^2. Clamped to [0, 1]
-            # so OCC tessellation jitter at the endpoints doesn't
-            # produce values like 1.0001 that would over-shoot the
-            # lerp range on the frontend.
-            p0 = np.asarray(n0_node.p, dtype=np.float64)
-            p1 = np.asarray(n1_node.p, dtype=np.float64)
-            axis = p1 - p0
-            axis_sq = float(np.dot(axis, axis))
-            if axis_sq <= 0:
-                # Zero-length beam (degenerate input): every vertex
-                # gets t=0, displacement collapses to disp[n0]. Better
-                # than NaN.
-                t_vals_raw = np.zeros(verts_raw.shape[0], dtype=np.float32)
-            else:
-                rel = verts_raw - p0
-                t_vals_raw = np.clip(rel @ axis / axis_sq, 0.0, 1.0).astype(np.float32)
-
-            # Per-beam vertex dedup. OCC tessellates each BRep face of
-            # the beam independently, so face boundaries (side ↔ cap,
-            # adjacent side panels) emit duplicate vertices at the
-            # same 3D position. Inside one beam every coincident-
-            # position vertex carries the same ``(n0_idx, n1_idx)``
-            # (it's the same line element) and the same ``t`` (same
-            # axial position), so collapsing them is lossless for the
-            # AFBV warp. Typically drops 30–50% of beam-solid vertex
-            # count, which propagates to a smaller GLB, smaller AFBV
-            # sidecar, and a smaller frontend picker mesh. We
-            # intentionally do NOT dedup across beams — that would
-            # break AFBV at joints where two beams share a node
-            # position but have different ``(n0, n1, t)``.
-            verts, tris_local_dedup, t_vals = _dedup_beam_tessellation(
-                verts_raw, tris_local, t_vals_raw,
-            )
-            tris = tris_local_dedup + vertex_offset
-
-            all_positions.append(verts)
-            all_indices.append(tris.astype(np.uint32, copy=False))
-
-            all_n0.append(np.full(verts.shape[0], n0_idx, dtype=np.uint32))
-            all_n1.append(np.full(verts.shape[0], n1_idx, dtype=np.uint32))
-            all_t.append(t_vals)
-
-            tri_count = int(tris.shape[0])
-            ranges.append(
-                ElementRange(
-                    label=int(elem.id),
-                    tri_start=tri_cursor,
-                    tri_count=tri_count,
-                )
-            )
-            vertex_offset += int(verts.shape[0])
-            tri_cursor += tri_count
-            success_count += 1
-
-        # Coverage summary. Logged at info-level so it lands in the
-        # worker logs regardless of debug verbosity. Single line per
-        # bake keeps the signal-to-noise high while still showing
-        # which failure mode dominates ("genbeam-no-profile" vs
-        # "occ-error[StdFail_NotDone]" etc.).
-        if total_beams:
-            skip_summary = (
-                ", ".join(f"{k}={v}" for k, v in sorted(skip_reasons.items()))
-                or "none"
-            )
-            get_logger().info(
-                "beam-solid coverage: %d of %d beams tessellated (skip: %s)",
-                success_count,
-                total_beams,
-                skip_summary,
-            )
-
-        if not all_positions:
-            return None
-
-        points = np.concatenate(all_positions, axis=0)
-        triangles = np.concatenate(all_indices, axis=0)
-        vertex_node0 = np.concatenate(all_n0, axis=0)
-        vertex_node1 = np.concatenate(all_n1, axis=0)
-        vertex_t = np.concatenate(all_t, axis=0)
-        return SolidBeamMesh(
-            points=points,
-            triangles=triangles,
-            element_ranges=ranges,
-            vertex_node0=vertex_node0,
-            vertex_node1=vertex_node1,
-            vertex_t=vertex_t,
-            total_beams=total_beams,
-            skip_reasons=dict(skip_reasons),
+        return tessellate_beams_to_solid_mesh(
+            beams,
+            extra_skip_reasons=extra_skip,
+            total_beams=len(line_elems),
         )
 
     def close(self) -> None:
