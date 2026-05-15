@@ -40,8 +40,14 @@ const DESKTOP_QUERY = "(min-width: 768px)";
 // blue + inset shadow so the button reads as "pressed" — distinct from
 // hover (lighter) and from the base (mid-tone). Applied to every
 // toggle in the bar so the whole row uses one visual vocabulary.
+//
+// Fixed 40x40 box so every button takes equal horizontal space — keeps
+// the row inside a 360px mobile viewport even when the simulation-
+// controls toggle joins the line-up. The 24px SVG icons centre inside
+// via flex; the lone text glyph (☰) keeps its size with font-bold.
 const NAV_BTN_BASE =
-    "text-white font-bold py-2 px-4 rounded transition-colors";
+    "inline-flex items-center justify-center w-10 h-10 shrink-0 " +
+    "text-white font-bold rounded transition-colors";
 const NAV_BTN_INACTIVE = "bg-blue-700 hover:bg-blue-700/50";
 const NAV_BTN_ACTIVE = "bg-blue-900 hover:bg-blue-800 shadow-inner";
 
