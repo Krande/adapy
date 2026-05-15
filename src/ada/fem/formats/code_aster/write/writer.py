@@ -24,6 +24,7 @@ def to_fem(assembly: Assembly, name, analysis_dir, metadata=None, model_data_onl
     """Write Code_Aster .med and .comm file from Assembly data"""
     from ada.materials.utils import shorten_material_names
 
+    from .beams_sidecar import dump_beams_sidecar
     from .name_map import apply_name_map, build_name_map, dump_name_map
 
     check_compatibility(assembly)
@@ -52,6 +53,12 @@ def to_fem(assembly: Assembly, name, analysis_dir, metadata=None, model_data_onl
     write_to_med(name, p, filename)
 
     dump_name_map(name_map, (analysis_dir / name).with_suffix(".name_map.json"))
+
+    # Beams sidecar — viewer's RMED stream reader picks this up to
+    # tessellate line elements as 3D extruded solids. The .med format
+    # has no section / orientation info on its own, so this is the
+    # only way to feed the streaming bake without re-parsing the .comm.
+    dump_beams_sidecar(assembly, (analysis_dir / name).with_suffix(".beams.json"))
 
     if model_data_only:
         return

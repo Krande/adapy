@@ -196,10 +196,42 @@ class RmedStreamReader:
         )
 
     def try_solid_beams(self):
-        # RMED carries no section / axis / orientation info — that
-        # lives in Code Aster's affe_cara_elem command, not in the
-        # .rmed result file. Beams render as line elements only.
-        return None
+        # Code Aster's .med output has no section / orientation info
+        # of its own — that lives in the .comm deck. adapy's MED
+        # writer emits a <name>.beams.json sidecar at write time
+        # carrying exactly the per-line-element data the bake needs
+        # to tessellate. Look for it next to the .rmed; if it isn't
+        # there (third-party .rmed, manual rename, ...) the bake
+        # gracefully falls back to line-only beam rendering.
+        from ada.fem.formats.code_aster.read.beams_sidecar import (
+            try_load_beams_sidecar,
+        )
+        from ada.fem.results.artefacts import tessellate_beams_to_solid_mesh
+
+        beams, extra_skip = try_load_beams_sidecar(self._path, self._nmap_for_beams())
+        if not beams and not extra_skip:
+            return None
+        return tessellate_beams_to_solid_mesh(
+            beams,
+            extra_skip_reasons=extra_skip,
+            total_beams=len(beams) + sum(extra_skip.values()),
+        )
+
+    def _nmap_for_beams(self) -> dict[int, int]:
+        """Real node id (1-based per Code Aster MED convention) → 0-based
+        index into ``read_mesh_geometry().points``. Cached on first use
+        since the beams sidecar resolves every endpoint through it."""
+
+        cached = getattr(self, "_nmap_cache", None)
+        if cached is not None:
+            return cached
+        # MED nodes are written in the order COO presents them, so the
+        # canonical Code Aster node id is i+1 for position i (matches
+        # what adapy's MED writer emits via med_nodes).
+        n_points = int(self.read_mesh_geometry().points.shape[0])
+        cached = {i + 1: i for i in range(n_points)}
+        self._nmap_cache = cached
+        return cached
 
     def close(self) -> None:
         self._f.close()
