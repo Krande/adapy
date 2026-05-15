@@ -44,7 +44,10 @@ def split_crossing_beams(gmsh_session: GmshSession):
             # Update the entities for both objects
             bm_gmsh_obj.entities = object_entities_new
             bm_other_gmsh_obj.entities = tool_entities_new
-            gmsh_session.model.occ.synchronize()
+
+    # One synchronize at end. Subsequent OCC ops on these tags don't
+    # need an intermediate flush — see the same fix in partition_plates.
+    gmsh_session.model.occ.synchronize()
 
 
 def split_intersecting_beams(
@@ -92,8 +95,10 @@ def split_intersecting_beams(
             # Update the entities for both objects
             bm_gmsh_obj.entities = object_entities_new
 
-            gmsh_session.model.occ.synchronize()
-            gmsh_session.check_model_entities()
-
             if br_names is not None and "partition_isect_bm_loop" in br_names:
                 gmsh_session.open_gui()
+
+    # Synchronize + validate once at the end instead of after every
+    # fragment — same antipattern as partition_plates, same fix.
+    gmsh_session.model.occ.synchronize()
+    gmsh_session.check_model_entities()
