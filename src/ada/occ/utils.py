@@ -570,7 +570,7 @@ def compute_minimal_distance_between_shapes(shp1, shp2) -> BRepExtrema_DistShape
 
     assert dss.IsDone()
 
-    logger.info("Minimal distance between shapes: %s", dss.Value())
+    logger.debug("Minimal distance between shapes: %s", dss.Value())
 
     return dss
 
