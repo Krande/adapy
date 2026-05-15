@@ -484,14 +484,32 @@ export async function load_fea_streaming(args: {
      * existing call-sites that don't care still work; we fall back to
      * the active store value (and from there to viridis if unset). */
     colormap?: string;
+    /** Optional stage reporter so the toast can show mesh-load /
+     *  render progress, not just the manifest poll. ``progress`` is
+     *  a fraction in [0, 1] over the load_fea_streaming portion of
+     *  the flow; the caller is responsible for remapping that into
+     *  the wider queue+convert+load progress bar. */
+    onStage?: (stage: string, progress: number) => void;
+    /** Optional abort signal — checked between async stages so the
+     *  user clicking Kill in the toast bails out without waiting for
+     *  the in-flight fetch (which doesn't itself accept a signal). */
+    signal?: AbortSignal;
 }): Promise<void> {
     if (!runtime.isRestMode()) {
         throw new Error("FEA streaming viewer is only available in REST mode");
     }
-    const {sourceName, manifest, fieldName, stepIndex, reduction} = args;
+    const {sourceName, manifest, fieldName, stepIndex, reduction, onStage, signal} = args;
     const displacementScale = args.displacementScale ?? 1;
     const colormap =
         args.colormap ?? useFeaAnimationStore.getState().colormap;
+    const stage = (label: string, progress: number) => {
+        if (onStage) onStage(label, progress);
+    };
+    const throwIfAborted = () => {
+        if (signal?.aborted) {
+            throw new DOMException("load_fea_streaming aborted", "AbortError");
+        }
+    };
 
     if (!manifest || !Array.isArray(manifest.fields)) {
         throw new Error(
@@ -514,8 +532,12 @@ export async function load_fea_streaming(args: {
     // for this source. Switching field-within-source keeps the same
     // mesh; switching source forces a reload.
     if (!active || active.sourceName !== sourceName) {
+        stage("loading mesh", 0.05);
+        throwIfAborted();
         const meshKey = `_derived/${sourceName.replace(/^\/+/, "")}.fea/${manifest.mesh.url}`;
         const buf = await viewerApi.getBlob(scope, meshKey);
+        throwIfAborted();
+        stage("loading mesh", 0.35);
         const blob = new Blob([buf], {type: "model/gltf-binary"});
         const url = URL.createObjectURL(blob);
 
@@ -717,6 +739,9 @@ export async function load_fea_streaming(args: {
         }
     }
 
+    stage("loading field data", 0.55);
+    throwIfAborted();
+
     // Resolve the warp source. The picked field drives colour
     // regardless; warp depends on category:
     //   * displacement → warp by self (legacy behaviour).
@@ -863,6 +888,9 @@ export async function load_fea_streaming(args: {
         }
     }
 
+    stage("rendering", 0.9);
+    throwIfAborted();
+
     // Link the edge overlay's morph state to the mesh's so the
     // wireframe tracks deformation. Idempotent: re-running just
     // re-links, which is fine — the references are stable across
@@ -924,6 +952,8 @@ export async function load_fea_streaming(args: {
     if (!generalAnimStore.isControlsVisible) {
         generalAnimStore.setIsControlsVisible(true);
     }
+
+    stage("ready", 1.0);
 }
 
 /** Toggle entry point: fetch the manifest, pick sensible defaults
@@ -982,6 +1012,17 @@ export async function load_fea_with_defaults(sourceName: string): Promise<void> 
         }
     });
 
+    // The toast covers three phases: queue+convert (server-side bake,
+    // polled by feaManifest) → mesh-load (client fetches GLB + sidecars)
+    // → render (apply field, install warp). We map them into one 0..1
+    // progress bar so the user sees uninterrupted motion: the manifest
+    // poll fills 0..0.55, the load_fea_streaming stages map into
+    // 0.55..1.0. Keeping the row alive through all three is what makes
+    // the load survive the user dismissing the storage panel — the
+    // async chain itself runs to completion regardless of UI mount
+    // state, but only this toast tells the user that.
+    const MANIFEST_PROGRESS_CEILING = 0.55;
+
     let manifest: FeaManifest;
     try {
         manifest = await viewerApi.feaManifest(scope, sourceName, {
@@ -996,7 +1037,55 @@ export async function load_fea_with_defaults(sourceName: string): Promise<void> 
                     jobId,
                     derivedKey: "",
                     status,
-                    progress,
+                    progress: progress * MANIFEST_PROGRESS_CEILING,
+                    stage,
+                    error: null,
+                    startedAt,
+                });
+            },
+        });
+        if (!manifest || !Array.isArray(manifest.fields) || manifest.fields.length === 0) {
+            // Bake produced a manifest but no fields — usually means
+            // the source has only non-nodal data and nodal_only=true
+            // filtered it all out. Surface as a console warning rather
+            // than a throw so the toggle doesn't get stuck in an
+            // error state, and self-clear the toast.
+            // eslint-disable-next-line no-console
+            console.warn(
+                `[fea-streaming] manifest for ${sourceName} has no nodal fields; nothing to load`,
+            );
+            convStore.clearJob(storeKey);
+            return;
+        }
+        // Prefer ``category === "displacement"`` so a fresh load opens
+        // on the deformation field — that's the field most users want
+        // to see first, and it's also the warp source for everything
+        // else. Falls back to the first renderable field (nodal or
+        // element) when the manifest has no displacement (e.g.
+        // stress-only output).
+        const field =
+            manifest.fields.find((f) => f.category === "displacement") ??
+            manifest.fields[0];
+        const reduction = field.default_view?.reduction ?? "magnitude";
+        await load_fea_streaming({
+            sourceName,
+            manifest,
+            fieldName: field.name_canonical,
+            stepIndex: 0,
+            reduction,
+            displacementScale: 1,
+            signal: controller.signal,
+            onStage: (stage, progress) => {
+                if (!useConversionStore.getState().jobs[storeKey]) return;
+                const overall =
+                    MANIFEST_PROGRESS_CEILING
+                    + progress * (1 - MANIFEST_PROGRESS_CEILING);
+                convStore.setJob(storeKey, {
+                    sourceKey: sourceName,
+                    jobId: "",
+                    derivedKey: "",
+                    status: "running",
+                    progress: overall,
                     stage,
                     error: null,
                     startedAt,
@@ -1004,8 +1093,7 @@ export async function load_fea_with_defaults(sourceName: string): Promise<void> 
             },
         });
         // Mark done so the toast self-removes (ConversionProgress
-        // filters out done jobs). Manifest fetch succeeded; the
-        // render path below shouldn't keep the toast on screen.
+        // filters out done jobs). All three phases completed.
         convStore.setJob(storeKey, {
             sourceKey: sourceName,
             jobId: "",
@@ -1039,34 +1127,6 @@ export async function load_fea_with_defaults(sourceName: string): Promise<void> 
     } finally {
         unsubscribe();
     }
-    if (!manifest || !Array.isArray(manifest.fields) || manifest.fields.length === 0) {
-        // Bake produced a manifest but no fields — usually means the
-        // source has only non-nodal data and nodal_only=true filtered
-        // it all out. Surface as a console warning rather than a
-        // throw so the toggle doesn't get stuck in an error state.
-        // eslint-disable-next-line no-console
-        console.warn(
-            `[fea-streaming] manifest for ${sourceName} has no nodal fields; nothing to load`,
-        );
-        return;
-    }
-    // Prefer ``category === "displacement"`` so a fresh load opens on
-    // the deformation field — that's the field most users want to
-    // see first, and it's also the warp source for everything else.
-    // Falls back to the first renderable field (nodal or element)
-    // when the manifest has no displacement (e.g. stress-only output).
-    const field =
-        manifest.fields.find((f) => f.category === "displacement") ??
-        manifest.fields[0];
-    const reduction = field.default_view?.reduction ?? "magnitude";
-    await load_fea_streaming({
-        sourceName,
-        manifest,
-        fieldName: field.name_canonical,
-        stepIndex: 0,
-        reduction,
-        displacementScale: 1,
-    });
 }
 
 /** Wire the LineSegments wireframe child to share morph attributes
