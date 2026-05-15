@@ -54,7 +54,7 @@ def write_shell_section(fem_sec: FemSection) -> tuple[str, str]:
     mat_name = fem_sec.material.name
     sec_name = fem_sec.elset.name
     #
-    local_vec = str(tuple(fem_sec.local_y))
+    local_vec = str(tuple(float(c) for c in fem_sec.local_y))
     mat_ = f'		_F(MATER=({mat_name},), GROUP_MA="{sec_name}"),\n'
     sec_str = f"""            _F(
                 GROUP_MA=("{sec_name}"),
@@ -72,7 +72,7 @@ def write_beam_section(fem_sec: FemSection) -> tuple[str, str, str]:
 
     values = ",".join([str(x) for x in [p.Ax, p.Iy, p.Iz, p.Ix]])
 
-    local_vec = str(tuple(fem_sec.local_y))
+    local_vec = str(tuple(float(c) for c in fem_sec.local_y))
 
     mat_ = f'		_F(MATER=({mat_name},), GROUP_MA="{sec_name}"),\n'
     sec_str = f"""            _F(
