@@ -385,7 +385,17 @@ def run_linux(exe, run_cmd):
 
 def run_tool(exe: LocalExecute, run_cmd, platform):
     fem_tool_name = type(exe).__name__.replace("Execute", "")
-    props = dict(cwd=exe.execute_dir, env=os.environ, universal_newlines=True, encoding="utf-8")
+    # errors="replace" — Code Aster's stdout occasionally emits bytes
+    # outside UTF-8 (eg. Latin-1 fragments in mumps/scotch messages);
+    # without an error handler subprocess.run raises UnicodeDecodeError
+    # AFTER the solver has already finished, masking the actual result.
+    props = dict(
+        cwd=exe.execute_dir,
+        env=os.environ,
+        universal_newlines=True,
+        encoding="utf-8",
+        errors="replace",
+    )
     if exe.auto_execute is False:
         return None
 
