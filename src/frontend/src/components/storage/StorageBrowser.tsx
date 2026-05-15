@@ -18,6 +18,13 @@ import ChevronRightIcon from "../icons/ChevronRightIcon";
 import FieldPickerModal from "./FieldPickerModal";
 import GitHistoryPanel from "./GitHistoryPanel";
 import {BuildSidecar, useBuildSidecars} from "@/hooks/useBuildSidecars";
+import {
+    buildFileTree,
+    FileTreeNode,
+    FolderNode,
+    loadExpandedFolders,
+    saveExpandedFolders,
+} from "@/utils/storage/fileTree";
 
 // Files that carry per-(step, field) result data and benefit from the
 // picker UI. SIF is the only one in REST mode today; new formats land
@@ -188,109 +195,14 @@ function shortSha(sha: string): string {
     return sha.length > 8 ? sha.slice(0, 8) : sha;
 }
 
-// File-tree shape used by the regular-file area of the browser.
-// Folders are derived from "/"-split keys (option 1 from the design
-// discussion: storage stays flat, folders are presentational only).
-// A key's last segment is the filename; everything before is the
-// folder path.
-type FolderNode = {
-    kind: "folder";
-    name: string; // single segment, e.g. "fea-examples"
-    path: string; // full path from root, e.g. "a/b/c"
-    children: FileTreeNode[];
-};
-type FileNode = {
-    kind: "file";
-    file: ServerFileEntry;
-    /** Filename only, with parent prefix stripped. */
-    displayName: string;
-};
-type FileTreeNode = FolderNode | FileNode;
+// File-tree shape comes from ``@/utils/storage/fileTree``; here we
+// just specialise the generic to ``ServerFileEntry`` so existing call
+// sites read the same as before. The admin StorageTab uses the same
+// helpers with its own entry type.
+type ServerFileTreeNode = FileTreeNode<ServerFileEntry>;
+type ServerFolderNode = FolderNode<ServerFileEntry>;
 
-function buildFileTree(files: ServerFileEntry[]): FileTreeNode[] {
-    // Synthesise folder nodes lazily as we walk each key.
-    const root: FolderNode = {
-        kind: "folder",
-        name: "",
-        path: "",
-        children: [],
-    };
-
-    // path → folder node, for O(1) lookup as we descend.
-    const folderIndex = new Map<string, FolderNode>();
-    folderIndex.set("", root);
-
-    for (const f of files) {
-        const trimmed = f.name.replace(/^\/+/, "");
-        const parts = trimmed.split("/");
-        const filename = parts.pop() ?? trimmed;
-        let parent = root;
-        let acc = "";
-        for (const seg of parts) {
-            acc = acc ? `${acc}/${seg}` : seg;
-            let next = folderIndex.get(acc);
-            if (!next) {
-                next = {kind: "folder", name: seg, path: acc, children: []};
-                folderIndex.set(acc, next);
-                parent.children.push(next);
-            }
-            parent = next;
-        }
-        parent.children.push({
-            kind: "file",
-            file: f,
-            displayName: filename,
-        });
-    }
-
-    // Sort each folder's children: folders first (alpha), then files
-    // (alpha by display name). Stable order is preferable to
-    // mtime-order at this layer; files within a folder are usually a
-    // small set the user wants to scan visually.
-    const sortNode = (n: FolderNode) => {
-        n.children.sort((a, b) => {
-            if (a.kind !== b.kind) return a.kind === "folder" ? -1 : 1;
-            const an = a.kind === "folder" ? a.name : a.displayName;
-            const bn = b.kind === "folder" ? b.name : b.displayName;
-            return an.localeCompare(bn);
-        });
-        for (const c of n.children) {
-            if (c.kind === "folder") sortNode(c);
-        }
-    };
-    sortNode(root);
-
-    return root.children;
-}
-
-function expandedFoldersStorageKey(scope: string): string {
-    return `ada.storage.expandedFolders.${scope}`;
-}
-
-function loadExpandedFolders(scope: string): Set<string> {
-    try {
-        const raw = window.localStorage.getItem(expandedFoldersStorageKey(scope));
-        if (!raw) return new Set();
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) return new Set(parsed.filter((x) => typeof x === "string"));
-    } catch {
-        // ignore — corrupt entry, fall back to collapsed.
-    }
-    return new Set();
-}
-
-function saveExpandedFolders(scope: string, expanded: ReadonlySet<string>): void {
-    try {
-        window.localStorage.setItem(
-            expandedFoldersStorageKey(scope),
-            JSON.stringify(Array.from(expanded)),
-        );
-    } catch {
-        // localStorage full / disabled — silently lose the state.
-    }
-}
-
-function countFiles(node: FileTreeNode): number {
+function countFiles(node: ServerFileTreeNode): number {
     if (node.kind === "file") return 1;
     return node.children.reduce((acc, c) => acc + countFiles(c), 0);
 }
@@ -377,15 +289,15 @@ const StorageBrowser: React.FC = () => {
     // expand state survives reloads but doesn't leak across scopes.
     const scopeKey = scopeUrlPart(currentScope);
     const [expandedFolders, setExpandedFolders] = useState<Set<string>>(
-        () => loadExpandedFolders(scopeKey),
+        () => loadExpandedFolders("storage", scopeKey),
     );
     // Reset to the per-scope set whenever the active scope changes.
     useEffect(() => {
-        setExpandedFolders(loadExpandedFolders(scopeKey));
+        setExpandedFolders(loadExpandedFolders("storage", scopeKey));
     }, [scopeKey]);
     // Persist on every change. Cheap — Set is small.
     useEffect(() => {
-        saveExpandedFolders(scopeKey, expandedFolders);
+        saveExpandedFolders("storage", scopeKey, expandedFolders);
     }, [scopeKey, expandedFolders]);
     const toggleFolder = (path: string) => {
         setExpandedFolders((prev) => {
@@ -662,9 +574,9 @@ const StorageBrowser: React.FC = () => {
                     return (
                         <div className="flex flex-col max-h-80 overflow-auto">
                             {regular.length > 0 && (() => {
-                                const tree = buildFileTree(regular);
+                                const tree = buildFileTree(regular, (f) => f.name);
                                 const renderNode = (
-                                    node: FileTreeNode,
+                                    node: ServerFileTreeNode,
                                     depth: number,
                                 ): React.ReactNode => {
                                     if (node.kind === "file") {
@@ -812,7 +724,7 @@ const StorageBrowser: React.FC = () => {
 // ──────────────────────────────────────────────────────────────────
 
 interface FolderRowProps {
-    folder: FolderNode;
+    folder: ServerFolderNode;
     depth: number;
     expanded: boolean;
     fileCount: number;

@@ -1,8 +1,15 @@
-import React, {useEffect, useRef, useState} from "react";
+import React, {useEffect, useMemo, useRef, useState} from "react";
 import {AdminFileEntry, ApiError, TargetFormat, viewerApi} from "@/services/viewerApi";
 import {ensureConverted} from "@/services/conversion";
 import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
 import {runtime} from "@/runtime/config";
+import {
+    buildFileTree,
+    FileTreeNode,
+    FolderNode,
+    loadExpandedFolders,
+    saveExpandedFolders,
+} from "@/utils/storage/fileTree";
 
 // Admin-only enriched storage view. Shows source format, size, upload
 // time, and the derived blobs already cached for each source. Houses
@@ -80,6 +87,28 @@ const StorageTab: React.FC = () => {
     useEffect(() => {
         clearSelection();
     }, [scope]);
+    // Folder expand state for the admin storage tree, keyed by folder
+    // path. Default: empty Set = everything collapsed, mirroring the
+    // main StorageBrowser behaviour. Persisted per-scope under the
+    // ``admin-storage`` namespace so it doesn't clobber the regular
+    // panel's collapse state.
+    const [expandedFolders, setExpandedFolders] = useState<Set<string>>(
+        () => loadExpandedFolders("admin-storage", scope),
+    );
+    useEffect(() => {
+        setExpandedFolders(loadExpandedFolders("admin-storage", scope));
+    }, [scope]);
+    useEffect(() => {
+        saveExpandedFolders("admin-storage", scope, expandedFolders);
+    }, [scope, expandedFolders]);
+    const toggleFolder = (path: string) => {
+        setExpandedFolders((prev) => {
+            const next = new Set(prev);
+            if (next.has(path)) next.delete(path);
+            else next.add(path);
+            return next;
+        });
+    };
     const [overrideOpen, setOverrideOpen] = useState(false);
     const [overrides, setOverrides] = useState<Record<OverrideKey, OverrideTri>>(() =>
         OVERRIDE_KEYS.reduce(
@@ -324,6 +353,39 @@ const StorageTab: React.FC = () => {
     };
     const totalDerivedAcrossScope = files.reduce((acc, f) => acc + f.derived.length, 0);
 
+    // Flatten the folder tree into the rendering list. Folders are
+    // always emitted; their contents only when the folder is
+    // expanded. ``depth`` drives the Name-column indent so a nested
+    // tree reads cleanly across the wide admin table.
+    const visibleEntries = useMemo(() => {
+        const tree = buildFileTree(files, (f) => f.key);
+        const out: Array<
+            | {kind: "folder"; folder: FolderNode<AdminFileEntry>; depth: number; fileCount: number}
+            | {kind: "file"; file: AdminFileEntry; depth: number}
+        > = [];
+        const countFiles = (n: FileTreeNode<AdminFileEntry>): number =>
+            n.kind === "file" ? 1 : n.children.reduce((s, c) => s + countFiles(c), 0);
+        const walk = (nodes: FileTreeNode<AdminFileEntry>[], depth: number) => {
+            for (const node of nodes) {
+                if (node.kind === "folder") {
+                    out.push({
+                        kind: "folder",
+                        folder: node,
+                        depth,
+                        fileCount: countFiles(node),
+                    });
+                    if (expandedFolders.has(node.path)) {
+                        walk(node.children, depth + 1);
+                    }
+                } else {
+                    out.push({kind: "file", file: node.file, depth});
+                }
+            }
+        };
+        walk(tree, 0);
+        return out;
+    }, [files, expandedFolders]);
+
     // Kick off a server-side sweep that gzips any source-format file
     // that's stored uncompressed (typical case: a >200 MB upload took
     // the direct presigned-PUT path before the browser-side
@@ -513,41 +575,73 @@ const StorageTab: React.FC = () => {
                     </tr>
                     </thead>
                     <tbody>
-                    {files.map((f) => (
-                        <SourceRow
-                            key={f.key}
-                            file={f}
-                            busyKey={busyKey}
-                            scope={scope}
-                            selected={selectedKeys.has(f.key)}
-                            onToggleSelected={() => toggleKeySelection(f.key)}
-                            onConvert={onConvert}
-                            onDownload={onDownload}
-                            onDelete={onDelete}
-                            onDeleteDerived={onDeleteDerived}
-                            onDeleteAllDerived={onDeleteAllDerived}
-                        />
-                    ))}
+                    {visibleEntries.map((entry) => {
+                        if (entry.kind === "folder") {
+                            return (
+                                <FolderTableRow
+                                    key={`folder:${entry.folder.path}`}
+                                    folder={entry.folder}
+                                    depth={entry.depth}
+                                    fileCount={entry.fileCount}
+                                    expanded={expandedFolders.has(entry.folder.path)}
+                                    onToggle={() => toggleFolder(entry.folder.path)}
+                                />
+                            );
+                        }
+                        const f = entry.file;
+                        return (
+                            <SourceRow
+                                key={f.key}
+                                file={f}
+                                depth={entry.depth}
+                                busyKey={busyKey}
+                                scope={scope}
+                                selected={selectedKeys.has(f.key)}
+                                onToggleSelected={() => toggleKeySelection(f.key)}
+                                onConvert={onConvert}
+                                onDownload={onDownload}
+                                onDelete={onDelete}
+                                onDeleteDerived={onDeleteDerived}
+                                onDeleteAllDerived={onDeleteAllDerived}
+                            />
+                        );
+                    })}
                     </tbody>
                 </table>
                 {/* Mobile cards */}
                 <ul className="sm:hidden divide-y divide-gray-800">
-                    {files.map((f) => (
-                        <SourceCard
-                            key={f.key}
-                            file={f}
-                            busyKey={busyKey}
-                            expanded={expandedKey === f.key}
-                            selected={selectedKeys.has(f.key)}
-                            onToggleSelected={() => toggleKeySelection(f.key)}
-                            onToggleExpand={() => setExpandedKey(expandedKey === f.key ? null : f.key)}
-                            onConvert={onConvert}
-                            onDownload={onDownload}
-                            onDelete={onDelete}
-                            onDeleteDerived={onDeleteDerived}
-                            onDeleteAllDerived={onDeleteAllDerived}
-                        />
-                    ))}
+                    {visibleEntries.map((entry) => {
+                        if (entry.kind === "folder") {
+                            return (
+                                <FolderCardRow
+                                    key={`folder:${entry.folder.path}`}
+                                    folder={entry.folder}
+                                    depth={entry.depth}
+                                    fileCount={entry.fileCount}
+                                    expanded={expandedFolders.has(entry.folder.path)}
+                                    onToggle={() => toggleFolder(entry.folder.path)}
+                                />
+                            );
+                        }
+                        const f = entry.file;
+                        return (
+                            <SourceCard
+                                key={f.key}
+                                file={f}
+                                depth={entry.depth}
+                                busyKey={busyKey}
+                                expanded={expandedKey === f.key}
+                                selected={selectedKeys.has(f.key)}
+                                onToggleSelected={() => toggleKeySelection(f.key)}
+                                onToggleExpand={() => setExpandedKey(expandedKey === f.key ? null : f.key)}
+                                onConvert={onConvert}
+                                onDownload={onDownload}
+                                onDelete={onDelete}
+                                onDeleteDerived={onDeleteDerived}
+                                onDeleteAllDerived={onDeleteAllDerived}
+                            />
+                        );
+                    })}
                 </ul>
                 {!loading && files.length === 0 && (
                     <div className="px-4 py-8 text-center text-gray-500 text-sm">
@@ -561,6 +655,9 @@ const StorageTab: React.FC = () => {
 
 interface RowProps {
     file: AdminFileEntry;
+    /** Indent level for the Name column — 0 for top-level entries,
+     *  +1 per folder nesting level. */
+    depth: number;
     busyKey: string | null;
     selected: boolean;
     onToggleSelected: () => void;
@@ -573,6 +670,7 @@ interface RowProps {
 
 const SourceRow: React.FC<RowProps & {scope: string}> = ({
     file,
+    depth,
     busyKey,
     selected,
     onToggleSelected,
@@ -606,12 +704,17 @@ const SourceRow: React.FC<RowProps & {scope: string}> = ({
                 />
             </Td>
             <Td title={file.key}>
-                {file.orphan && (
-                    <span className="text-[10px] uppercase text-yellow-400 mr-1" title="Source missing">
-                        orphan
-                    </span>
-                )}
-                {file.key}
+                <span style={{paddingLeft: `${depth * 1.25}rem`}}>
+                    {file.orphan && (
+                        <span className="text-[10px] uppercase text-yellow-400 mr-1" title="Source missing">
+                            orphan
+                        </span>
+                    )}
+                    {/* Filename only; the folder prefix is already shown
+                        in the parent folder rows. Falls back to the full
+                        key when the source is at the root (no slash). */}
+                    {file.key.includes("/") ? file.key.split("/").pop() : file.key}
+                </span>
             </Td>
             <Td>{file.format}</Td>
             <Td>{formatBytes(file.size)}</Td>
@@ -705,6 +808,7 @@ interface CardProps extends RowProps {
 
 const SourceCard: React.FC<CardProps> = ({
     file,
+    depth,
     busyKey,
     expanded,
     selected,
@@ -723,8 +827,9 @@ const SourceCard: React.FC<CardProps> = ({
         busyKey !== `${file.key}::delete-all-derived`;
     const busyDeleting = busyKey === `${file.key}::delete`;
     const busyDeletingAllDerived = busyKey === `${file.key}::delete-all-derived`;
+    const displayName = file.key.includes("/") ? file.key.split("/").pop() : file.key;
     return (
-        <li className="px-3 py-3 text-xs">
+        <li className="px-3 py-3 text-xs" style={{paddingLeft: `${0.75 + depth * 1.0}rem`}}>
             <div className="flex items-start gap-2">
                 <input
                     type="checkbox"
@@ -746,7 +851,7 @@ const SourceCard: React.FC<CardProps> = ({
                             {file.orphan && (
                                 <span className="text-[10px] uppercase text-yellow-400 mr-1">orphan</span>
                             )}
-                            {file.key}
+                            {displayName}
                         </span>
                         <span className="text-[11px] text-gray-400 shrink-0">{formatBytes(file.size)}</span>
                     </div>
@@ -836,6 +941,65 @@ const SourceCard: React.FC<CardProps> = ({
         </li>
     );
 };
+
+interface FolderRowProps {
+    folder: FolderNode<AdminFileEntry>;
+    depth: number;
+    fileCount: number;
+    expanded: boolean;
+    onToggle: () => void;
+}
+
+// Desktop folder row — spans the entire table width so the folder
+// name + file count read like a section header inside the existing
+// admin grid. Click anywhere on the row to toggle.
+const FolderTableRow: React.FC<FolderRowProps> = ({
+    folder, depth, fileCount, expanded, onToggle,
+}) => (
+    <tr className="border-t border-gray-800 bg-gray-900/40 hover:bg-gray-800 cursor-pointer">
+        <td colSpan={7} className="px-3 py-1.5">
+            <button
+                type="button"
+                onClick={onToggle}
+                className="flex items-center gap-1 text-left text-gray-200 w-full"
+                style={{paddingLeft: `${depth * 1.25}rem`}}
+                aria-expanded={expanded}
+            >
+                <span className="inline-block w-3 text-gray-400 text-xs">
+                    {expanded ? "▾" : "▸"}
+                </span>
+                <span className="font-medium">{folder.name}</span>
+                <span className="ml-2 text-[11px] text-gray-500">
+                    ({fileCount} file{fileCount === 1 ? "" : "s"})
+                </span>
+            </button>
+        </td>
+    </tr>
+);
+
+// Mobile folder row — same affordance in <li> form so the SourceCard
+// list stays a single <ul>. Tap target sized for thumbs.
+const FolderCardRow: React.FC<FolderRowProps> = ({
+    folder, depth, fileCount, expanded, onToggle,
+}) => (
+    <li>
+        <button
+            type="button"
+            onClick={onToggle}
+            className="w-full text-left bg-gray-900/40 hover:bg-gray-800 px-3 py-2 text-sm flex items-center gap-1"
+            style={{paddingLeft: `${0.75 + depth * 1.0}rem`}}
+            aria-expanded={expanded}
+        >
+            <span className="inline-block w-3 text-gray-400 text-xs">
+                {expanded ? "▾" : "▸"}
+            </span>
+            <span className="font-medium text-gray-100">{folder.name}</span>
+            <span className="ml-auto text-[11px] text-gray-500">
+                {fileCount} file{fileCount === 1 ? "" : "s"}
+            </span>
+        </button>
+    </li>
+);
 
 const Th: React.FC<{children: React.ReactNode}> = ({children}) => (
     <th className="px-3 py-2 font-medium text-gray-300 whitespace-nowrap">{children}</th>
