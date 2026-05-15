@@ -24,6 +24,8 @@ def to_fem(assembly: Assembly, name, analysis_dir, metadata=None, model_data_onl
     """Write Code_Aster .med and .comm file from Assembly data"""
     from ada.materials.utils import shorten_material_names
 
+    from .name_map import apply_name_map, build_name_map, dump_name_map
+
     check_compatibility(assembly)
 
     if "info" not in metadata:
@@ -32,11 +34,25 @@ def to_fem(assembly: Assembly, name, analysis_dir, metadata=None, model_data_onl
     p = get_fem_model_from_assembly(assembly)
     # Prepare model for
     shorten_material_names(assembly)
+
+    # Code Aster's MED reader drops any GROUP_MA/GROUP_NO name >24 chars
+    # at LIRE_MAILLAGE time (MED_7 alarm — bibcxx/IOManager/MedToAsterReader.cxx).
+    # Mutate every FemSet name to a deterministic short id BEFORE we
+    # write either the .med (NOM datasets) or the .comm (GROUP_MA refs),
+    # so both sides stay in sync. The reverse map is dumped as a JSON
+    # sidecar so callers can resolve short ids back to the original
+    # FemSet names when interpreting .rmed results.
+    name_map = build_name_map(assembly)
+    apply_name_map(assembly, name_map)
+
     # TODO: Implement support for multiple parts. Need to understand how submeshes in Salome and Code Aster works.
     # for p in filter(lambda x: len(x.fem.elements) != 0, assembly.get_all_parts_in_assembly(True)):
 
     filename = (analysis_dir / name).with_suffix(".med")
     write_to_med(name, p, filename)
+
+    dump_name_map(name_map, (analysis_dir / name).with_suffix(".name_map.json"))
+
     if model_data_only:
         return
 
