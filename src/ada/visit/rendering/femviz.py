@@ -62,8 +62,20 @@ def get_mesh_topology(mesh: MeshData) -> MeshTopology:
     topo = MeshTopology()
     fallback_idx = 0  # 1-based counter for blocks that lack identifiers
     for cell_block in mesh.cells:
-        el_type = str_to_ada_type[cell_block.type]
         block_ids = getattr(cell_block, "identifiers", None)
+        if cell_block.type == "vertex":
+            # MED PO1 / discrete mass anchors: no faces, no edges, but
+            # still want per-element identity so picks resolve. Emit a
+            # zero-tri range each so the frontend's element-range list
+            # stays parallel with the source cell list.
+            for elem_i in range(cell_block.data.shape[0]):
+                fallback_idx += 1
+                label = int(block_ids[elem_i]) if block_ids is not None else fallback_idx
+                topo.element_ranges.append(
+                    ElementRange(label=label, tri_start=len(topo.faces) // 3, tri_count=0)
+                )
+            continue
+        el_type = str_to_ada_type[cell_block.type]
         for elem_i, elem in enumerate(cell_block.data):
             fallback_idx += 1
             if block_ids is not None:
