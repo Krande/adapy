@@ -216,7 +216,63 @@ export interface FeaManifest {
         n_beam_solid_edges?: number;
     };
     fields: FeaManifestField[];
+    /** Optional history-output section (manifest v2+).
+     *
+     * Field outputs paint values onto the whole mesh; history outputs
+     * are a sparse time-series at a hand-picked set of points (the
+     * Abaqus *Output, history equivalent / Sesam monitor pts /
+     * Code_Aster suivi.). The two have different axes — region ×
+     * variable × step × time — so they live in their own section. */
+    history?: FeaManifestHistory;
     legacy_glb?: {url_template: string};
+}
+
+export type FeaHistoryRegionKind = "node" | "element" | "model" | "set";
+export type FeaHistoryDomain = "time" | "frequency" | "mode";
+
+export interface FeaHistoryRegion {
+    id: string;
+    kind: FeaHistoryRegionKind;
+    instance: string;
+    label: string;
+    display_name: string;
+    /** (x, y, z) — only present for node regions where the bake could
+     *  resolve coordinates from the source mesh. Used for picker
+     *  tooltip; absent for element / model / set regions. */
+    coords?: [number, number, number];
+}
+
+export interface FeaHistoryVariable {
+    name_native: string;
+    name_canonical: string;
+    category: FeaFieldCategory;
+    component: string;
+    group: string;
+    unit: string;
+}
+
+export interface FeaHistoryStep {
+    i: number;
+    name: string;
+    procedure: string;
+    domain: FeaHistoryDomain;
+}
+
+export interface FeaHistorySeries {
+    region_id: string;
+    /** Native variable name — joins to FeaHistoryVariable.name_native. */
+    variable: string;
+    /** Index into FeaManifestHistory.steps. */
+    step_idx: number;
+    times: number[];
+    values: number[];
+}
+
+export interface FeaManifestHistory {
+    regions: FeaHistoryRegion[];
+    variables: FeaHistoryVariable[];
+    steps: FeaHistoryStep[];
+    series: FeaHistorySeries[];
 }
 
 class ApiError extends Error {

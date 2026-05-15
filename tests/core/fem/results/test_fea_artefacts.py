@@ -23,6 +23,7 @@ from ada.fem.results.artefacts import (
     BLOB_MAGIC,
     BLOB_VERSION,
     FEAResultStreamAdapter,
+    MANIFEST_VERSION,
     bake_artefacts,
     bake_fea_artefacts_from_source,
     is_fea_artefact_source,
@@ -59,7 +60,7 @@ def test_bake_produces_expected_artefact_tree(fem_files, tmp_path, rmed_rel):
     assert result.mesh_glb_path.stat().st_size > 0
 
     manifest = json.loads(result.manifest_path.read_text())
-    assert manifest["version"] == 1
+    assert manifest["version"] == MANIFEST_VERSION
     assert manifest["src"] == rmed.stem
     assert manifest["mesh"]["url"] == "fea.mesh.glb"
     assert manifest["mesh"]["n_points"] > 0
@@ -182,7 +183,7 @@ def _assert_picker_contract(manifest: dict, *, fixture_label: str) -> None:
     are hard to attribute back to the bake — this test catches them
     where the bake actually runs."""
 
-    assert manifest.get("version") == 1, fixture_label
+    assert manifest.get("version") == MANIFEST_VERSION, fixture_label
     assert isinstance(manifest.get("src"), str) and manifest["src"], fixture_label
 
     mesh = manifest.get("mesh")
@@ -920,6 +921,104 @@ def test_blob_header_fits_in_fixed_prefix():
     stride = spec.n_points * spec.n_components * spec.dtype.itemsize
     header = _encode_blob_header(spec, stride)
     assert len(header) == BLOB_HEADER_BYTES
+
+
+def test_build_history_payload_serialises_records_to_manifest_shape():
+    """``build_history_payload`` produces the manifest's ``history``
+    section: regions / variables / steps / series with plain
+    JSON-friendly types and stable ordering."""
+
+    from ada.fem.results.artefacts import (
+        HistoryRecords,
+        HistoryRegion,
+        HistorySeries,
+        HistoryStep,
+        HistoryVariable,
+        build_history_payload,
+    )
+
+    records = HistoryRecords(
+        regions=[
+            HistoryRegion(
+                id="inst1:node:2:Node PART-1.2",
+                kind="node",
+                instance="PART-1",
+                label="Node PART-1.2",
+                display_name="PART-1: Node 2",
+                coords=(1.0, 0.0, 0.0),
+            ),
+            HistoryRegion(
+                id="inst1:model:Assembly",
+                kind="model",
+                instance="ASSEMBLY",
+                label="Assembly",
+            ),
+        ],
+        variables=[
+            HistoryVariable(
+                name_native="U1",
+                name_canonical="U1",
+                category="displacement",
+                component="x",
+                group="U",
+            ),
+        ],
+        steps=[HistoryStep(i=0, name="Step-1")],
+        series=[
+            HistorySeries(
+                region_id="inst1:node:2:Node PART-1.2",
+                variable="U1",
+                step_idx=0,
+                times=[0.5, 1.0],
+                values=[0.5, 1.1],
+            ),
+        ],
+    )
+
+    payload = build_history_payload(records)
+
+    assert set(payload) == {"regions", "variables", "steps", "series"}
+    # Coords present for node region only; model region has no coords key.
+    assert payload["regions"][0]["coords"] == [1.0, 0.0, 0.0]
+    assert "coords" not in payload["regions"][1]
+    # display_name falls back to label when not set.
+    assert payload["regions"][1]["display_name"] == "Assembly"
+    assert payload["variables"][0]["name_canonical"] == "U1"
+    assert payload["steps"] == [
+        {"i": 0, "name": "Step-1", "procedure": "", "domain": "time"}
+    ]
+    ser = payload["series"][0]
+    assert ser["times"] == [0.5, 1.0]
+    assert ser["values"] == [0.5, 1.1]
+    # JSON-encodable end-to-end.
+    json.dumps(payload)
+
+
+def test_build_manifest_omits_history_when_empty(monkeypatch):
+    """An empty HistoryRecords must not produce a ``history`` key —
+    keeps v2 manifests byte-identical to v1 manifests for sources that
+    have no history output."""
+
+    from ada.fem.results.artefacts import (
+        HistoryRecords,
+        MANIFEST_VERSION,
+        MeshGeometry,
+        build_manifest,
+    )
+
+    geom = MeshGeometry(
+        points=np.zeros((1, 3), dtype=np.float64),
+        cell_blocks=[],
+    )
+    manifest = build_manifest(
+        src="dummy",
+        mesh_geom=geom,
+        mesh_glb_filename="fea.mesh.glb",
+        field_metas=[],
+        history=HistoryRecords(),
+    )
+    assert manifest["version"] == MANIFEST_VERSION
+    assert "history" not in manifest
 
 
 def test_classify_field_by_name():

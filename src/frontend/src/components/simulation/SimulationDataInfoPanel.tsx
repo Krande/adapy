@@ -26,7 +26,11 @@ import {useTableNavStore} from "@/state/tableNavStore";
 import {fetchFieldBlob, ParsedFeaFieldBlob} from "@/services/feaFieldBlob";
 import {goToNode, clearGoToNode} from "@/utils/scene/fea/goToNode";
 import type {SimulationDataExtensionMetadata, FieldObject} from "@/extensions/design_and_analysis_extension";
-import type {FeaManifest, FeaManifestField} from "@/services/viewerApi";
+import type {
+    FeaManifest,
+    FeaManifestField,
+    FeaManifestHistory,
+} from "@/services/viewerApi";
 
 const ROW_HEIGHT_PX = 24;
 
@@ -116,6 +120,9 @@ const FeaNodalDataPanel: React.FC = () => {
                 stepIndex={stepIndex}
                 reduction={reduction}
             />
+            {manifest.history && manifest.history.regions.length > 0 && (
+                <FeaHistorySection history={manifest.history}/>
+            )}
         </PanelShell>
     );
 };
@@ -644,8 +651,166 @@ function fmt(v: number | undefined): string {
     return v.toPrecision(5);
 }
 
+// History output — sparse time-series at monitored points. Field
+// output is a 3D paint; history output is a per-frame value at a
+// hand-picked node/element/model region. v1 keeps the layout flat:
+// three dropdowns (Region / Variable / Step) drive a small (time,
+// value) table. The future graph view is tracked in
+// project-data-table-graph but lands after this section is live.
+const FeaHistorySection: React.FC<{history: FeaManifestHistory}> = ({history}) => {
+    const [regionId, setRegionId] = useState<string>(
+        history.regions[0]?.id ?? "",
+    );
+    const [variable, setVariable] = useState<string>(
+        history.variables[0]?.name_native ?? "",
+    );
+    const [stepIdx, setStepIdx] = useState<number>(
+        history.steps[0]?.i ?? 0,
+    );
+
+    // Match the active series by all three keys. A missing match is
+    // expected when, e.g., a node region has only U1 recorded but the
+    // user picks ALLAE — surface that case in the table area.
+    const series = useMemo(() => {
+        return history.series.find(
+            (s) =>
+                s.region_id === regionId &&
+                s.variable === variable &&
+                s.step_idx === stepIdx,
+        ) ?? null;
+    }, [history.series, regionId, variable, stepIdx]);
+
+    const region = history.regions.find((r) => r.id === regionId) ?? null;
+    const variableMeta = history.variables.find(
+        (v) => v.name_native === variable,
+    ) ?? null;
+
+    return (
+        <div className="mt-3 pt-3 border-t border-gray-300">
+            <div className="text-xs font-semibold text-gray-700 mb-2">
+                History output
+                <span className="ml-2 font-normal text-gray-500">
+                    ({history.regions.length} region
+                    {history.regions.length === 1 ? "" : "s"}, {" "}
+                    {history.variables.length} variable
+                    {history.variables.length === 1 ? "" : "s"})
+                </span>
+            </div>
+            <div className="flex flex-wrap gap-2 mb-2 text-xs text-gray-700">
+                <label className="flex items-center gap-1 min-w-0 flex-1 sm:flex-none">
+                    <span className="text-gray-500 shrink-0">Region:</span>
+                    <select
+                        className="border border-gray-300 rounded px-1 py-0.5 font-mono min-w-0 flex-1 sm:flex-none truncate sm:max-w-[14rem]"
+                        value={regionId}
+                        onChange={(e) => setRegionId(e.target.value)}
+                    >
+                        {history.regions.map((r) => (
+                            <option key={r.id} value={r.id}>
+                                [{r.kind}] {r.display_name || r.label}
+                            </option>
+                        ))}
+                    </select>
+                </label>
+                <label className="flex items-center gap-1 min-w-0 flex-1 sm:flex-none">
+                    <span className="text-gray-500 shrink-0">Variable:</span>
+                    <select
+                        className="border border-gray-300 rounded px-1 py-0.5 font-mono min-w-0 flex-1 sm:flex-none truncate sm:max-w-[10rem]"
+                        value={variable}
+                        onChange={(e) => setVariable(e.target.value)}
+                    >
+                        {history.variables.map((v) => (
+                            <option key={v.name_native} value={v.name_native}>
+                                {v.name_native}
+                                {v.component ? ` (${v.component})` : ""}
+                            </option>
+                        ))}
+                    </select>
+                </label>
+                <label className="flex items-center gap-1 min-w-0 flex-1 sm:flex-none">
+                    <span className="text-gray-500 shrink-0">Step:</span>
+                    <select
+                        className="border border-gray-300 rounded px-1 py-0.5 font-mono min-w-0 flex-1 sm:flex-none truncate sm:max-w-[10rem]"
+                        value={stepIdx}
+                        onChange={(e) => setStepIdx(parseInt(e.target.value, 10))}
+                    >
+                        {history.steps.map((s) => (
+                            <option key={s.i} value={s.i}>
+                                {s.name}
+                            </option>
+                        ))}
+                    </select>
+                </label>
+            </div>
+
+            {region && variableMeta && (
+                <div className="text-[11px] text-gray-500 mb-1">
+                    {region.instance && (
+                        <span className="font-mono">{region.instance}</span>
+                    )}
+                    {region.coords && (
+                        <span className="ml-2 font-mono">
+                            ({region.coords.map((c) => c.toFixed(3)).join(", ")})
+                        </span>
+                    )}
+                    {variableMeta.category !== "other" && (
+                        <span className="ml-2">{variableMeta.category}</span>
+                    )}
+                    {variableMeta.unit && (
+                        <span className="ml-2">[{variableMeta.unit}]</span>
+                    )}
+                </div>
+            )}
+
+            {!series ? (
+                <div className="text-xs italic text-gray-500">
+                    No samples for this combination.
+                </div>
+            ) : (
+                <FeaHistoryTable times={series.times} values={series.values}/>
+            )}
+        </div>
+    );
+};
+
+const FeaHistoryTable: React.FC<{
+    times: number[];
+    values: number[];
+}> = ({times, values}) => {
+    // The series array is short by construction (a few hundred frames
+    // at most for typical analyses), so no virtualization — a plain
+    // overflow-y-auto with a capped height keeps it light.
+    return (
+        <div
+            className="border border-gray-200 rounded bg-white overflow-auto"
+            style={{maxHeight: 160}}
+        >
+            <div
+                className="grid border-b border-gray-300 bg-gray-100 text-xs font-semibold text-gray-700 sticky top-0 z-10"
+                style={{gridTemplateColumns: "minmax(80px, 1fr) minmax(120px, 2fr)"}}
+            >
+                <div className="px-2 py-1 border-r border-gray-300">Time</div>
+                <div className="px-2 py-1">Value</div>
+            </div>
+            {times.map((t, i) => (
+                <div
+                    key={i}
+                    className="grid text-xs font-mono text-gray-800 odd:bg-white even:bg-gray-50"
+                    style={{gridTemplateColumns: "minmax(80px, 1fr) minmax(120px, 2fr)"}}
+                >
+                    <div className="px-2 py-0.5 border-b border-r border-gray-200 truncate">
+                        {fmt(t)}
+                    </div>
+                    <div className="px-2 py-0.5 border-b border-gray-200 truncate">
+                        {fmt(values[i])}
+                    </div>
+                </div>
+            ))}
+        </div>
+    );
+};
+
 const PanelShell: React.FC<{children: React.ReactNode}> = ({children}) => (
-    <div className="p-3 border rounded-lg shadow-sm bg-white bg-opacity-90 flex flex-col min-h-0 max-h-[420px]">
+    <div className="p-3 border rounded-lg shadow-sm bg-white bg-opacity-90 flex flex-col min-h-0 max-h-[420px] overflow-auto">
         {children}
     </div>
 );
