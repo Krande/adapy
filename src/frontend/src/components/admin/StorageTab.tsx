@@ -10,7 +10,7 @@ import {
     loadExpandedFolders,
     saveExpandedFolders,
 } from "@/utils/storage/fileTree";
-import {KebabMenuItem, RowKebabMenu} from "@/components/common/RowKebabMenu";
+import {RowKebabMenu} from "@/components/common/RowKebabMenu";
 
 // Admin-only enriched storage view. Shows source format, size, upload
 // time, and the derived blobs already cached for each source. Houses
@@ -206,6 +206,98 @@ const StorageTab: React.FC = () => {
         setBusyKey(`${key}::delete`);
         try {
             await viewerApi.adminDeleteBlob(scope, key);
+            await reload();
+        } catch (e) {
+            setError(e instanceof ApiError ? e.detail || e.message : String(e));
+        } finally {
+            setBusyKey(null);
+        }
+    };
+
+    // Per-row "Move to folder…" — same prompt UX as the bulk version
+    // but operates on one source key. Source-only (orphans excluded;
+    // they don't survive the rename).
+    const onMoveSingleToFolder = async (key: string) => {
+        const folder = window.prompt(`Move "${key}" to folder:`, "");
+        if (folder === null) return;
+        const trimmed = folder.trim().replace(/^\/+|\/+$/g, "");
+        if (!trimmed) {
+            setError("Folder name required");
+            return;
+        }
+        setBusyKey(`${key}::move`);
+        setError(null);
+        try {
+            const result = await viewerApi.adminMoveKeysToFolder(scope, [key], trimmed);
+            if (result.failed.length > 0) {
+                setError(
+                    result.failed.map((f) => `${f.key}: ${f.reason}`).join("\n"),
+                );
+            }
+            await reload();
+        } catch (e) {
+            setError(e instanceof ApiError ? e.detail || e.message : String(e));
+        } finally {
+            setBusyKey(null);
+        }
+    };
+
+    // Rename or relocate a folder. ``mode`` decides whether the prompt
+    // treats input as a sibling name (rename) or a destination prefix
+    // (move-into). Walks every source key under the folder so derived
+    // blobs follow the rename.
+    const onFolderRenameOrMove = async (
+        folderPath: string,
+        mode: "rename" | "moveInto",
+    ) => {
+        const promptLabel =
+            mode === "rename"
+                ? `Rename folder "${folderPath}" to (sibling name, no slashes):`
+                : `Move folder "${folderPath}" into (destination prefix):`;
+        const input = window.prompt(promptLabel, "");
+        if (input === null) return;
+        const trimmedInput = input.trim().replace(/^\/+|\/+$/g, "");
+        if (!trimmedInput) {
+            setError("Destination required");
+            return;
+        }
+        let newPath: string;
+        if (mode === "rename") {
+            if (trimmedInput.includes("/")) {
+                setError("Rename name must not contain slashes — use Move folder into… instead");
+                return;
+            }
+            const lastSlash = folderPath.lastIndexOf("/");
+            const parent = lastSlash >= 0 ? folderPath.slice(0, lastSlash) : "";
+            newPath = parent ? `${parent}/${trimmedInput}` : trimmedInput;
+        } else {
+            const basename = folderPath.split("/").pop() ?? folderPath;
+            newPath = `${trimmedInput}/${basename}`;
+        }
+        if (newPath === folderPath) return;
+        setBusyKey(`__folder_${mode}__:${folderPath}`);
+        setError(null);
+        try {
+            const sourceKeys = files
+                .filter((f) => f.orphan !== true)
+                .map((f) => f.key);
+            const result = await viewerApi.adminRenameOrMoveFolder(
+                scope, folderPath, newPath, sourceKeys,
+            );
+            if (result.failed.length > 0) {
+                setError(
+                    result.failed.map((f) => `${f.key}: ${f.reason}`).join("\n"),
+                );
+            }
+            // Carry the expand state across the rename — collapse the
+            // old path, open the new one — so the user lands looking at
+            // their moved files instead of an unexpanded entry.
+            setExpandedFolders((prev) => {
+                const next = new Set(prev);
+                next.delete(folderPath);
+                next.add(newPath);
+                return next;
+            });
             await reload();
         } catch (e) {
             setError(e instanceof ApiError ? e.detail || e.message : String(e));
@@ -554,15 +646,15 @@ const StorageTab: React.FC = () => {
                     the surrounding overflow-auto then provides a
                     horizontal scrollbar instead of squishing everything
                     into unreadable mush. */}
-                <table className="hidden sm:table w-full text-sm table-fixed min-w-[900px]">
+                <table className="hidden sm:table w-full text-sm table-fixed min-w-[1200px]">
                     <colgroup>
                         <col className="w-[2.5rem]"/>
                         <col className="w-[24rem]"/>
-                        <col className="w-[8rem]"/>
-                        <col className="w-[6rem]"/>
                         <col className="w-[10rem]"/>
+                        <col className="w-[7rem]"/>
+                        <col className="w-[12rem]"/>
                         <col/>
-                        <col className="w-[3rem]"/>
+                        <col className="w-[18rem]"/>
                     </colgroup>
                     <thead className="sticky top-0 bg-gray-800 text-left">
                     <tr>
@@ -586,6 +678,12 @@ const StorageTab: React.FC = () => {
                                     fileCount={entry.fileCount}
                                     expanded={expandedFolders.has(entry.folder.path)}
                                     onToggle={() => toggleFolder(entry.folder.path)}
+                                    onRename={() => onFolderRenameOrMove(entry.folder.path, "rename")}
+                                    onMoveInto={() => onFolderRenameOrMove(entry.folder.path, "moveInto")}
+                                    busyMoving={
+                                        busyKey === `__folder_rename__:${entry.folder.path}` ||
+                                        busyKey === `__folder_moveInto__:${entry.folder.path}`
+                                    }
                                 />
                             );
                         }
@@ -604,6 +702,7 @@ const StorageTab: React.FC = () => {
                                 onDelete={onDelete}
                                 onDeleteDerived={onDeleteDerived}
                                 onDeleteAllDerived={onDeleteAllDerived}
+                                onMoveToFolder={onMoveSingleToFolder}
                             />
                         );
                     })}
@@ -621,6 +720,12 @@ const StorageTab: React.FC = () => {
                                     fileCount={entry.fileCount}
                                     expanded={expandedFolders.has(entry.folder.path)}
                                     onToggle={() => toggleFolder(entry.folder.path)}
+                                    onRename={() => onFolderRenameOrMove(entry.folder.path, "rename")}
+                                    onMoveInto={() => onFolderRenameOrMove(entry.folder.path, "moveInto")}
+                                    busyMoving={
+                                        busyKey === `__folder_rename__:${entry.folder.path}` ||
+                                        busyKey === `__folder_moveInto__:${entry.folder.path}`
+                                    }
                                 />
                             );
                         }
@@ -640,6 +745,7 @@ const StorageTab: React.FC = () => {
                                 onDelete={onDelete}
                                 onDeleteDerived={onDeleteDerived}
                                 onDeleteAllDerived={onDeleteAllDerived}
+                                onMoveToFolder={onMoveSingleToFolder}
                             />
                         );
                     })}
@@ -667,6 +773,7 @@ interface RowProps {
     onDelete: (key: string, label: string) => void;
     onDeleteDerived: (sourceKey: string, derivedKey: string, label: string) => void;
     onDeleteAllDerived: (file: AdminFileEntry) => void;
+    onMoveToFolder: (key: string) => void;
 }
 
 const SourceRow: React.FC<RowProps & {scope: string}> = ({
@@ -680,6 +787,7 @@ const SourceRow: React.FC<RowProps & {scope: string}> = ({
     onDelete,
     onDeleteDerived,
     onDeleteAllDerived,
+    onMoveToFolder,
 }) => {
     const downloadable = file.available_targets.filter((t) => t !== "glb");
     // Convert / per-blob-derived-delete keys both start with file.key:: ;
@@ -692,6 +800,7 @@ const SourceRow: React.FC<RowProps & {scope: string}> = ({
         busyKey !== `${file.key}::delete-all-derived`;
     const busyDeleting = busyKey === `${file.key}::delete`;
     const busyDeletingAllDerived = busyKey === `${file.key}::delete-all-derived`;
+    const busyMoving = busyKey === `${file.key}::move`;
     return (
         <tr className="border-t border-gray-800 align-top">
             <Td>
@@ -725,134 +834,94 @@ const SourceRow: React.FC<RowProps & {scope: string}> = ({
             <Td>
                 <div className="flex flex-wrap gap-1 items-center">
                     {file.derived.length === 0 && <span className="text-gray-500">—</span>}
-                    {/* Derived chips are informational + click-to-download. The
-                        per-blob delete and "delete all" actions live in the
-                        kebab now so the chips don't carry a destructive
-                        secondary button that's easy to mis-tap on mobile. */}
-                    {file.derived.map((d) => (
+                    {file.derived.map((d) => {
+                        const busyDerived = busyKey === `${d.key}::delete`;
+                        return (
+                            <span key={d.key} className="inline-flex rounded overflow-hidden border border-gray-700">
+                                <button
+                                    className="bg-gray-800 hover:bg-gray-700 px-2 py-0.5 text-[11px]"
+                                    onClick={() => onDownload(d.key, suggestedName(file.key, d.format))}
+                                    title={`${d.key} (${formatBytes(d.size)})`}
+                                >
+                                    {d.format.toUpperCase()} ↓
+                                </button>
+                                <button
+                                    className="bg-red-900/70 hover:bg-red-800 px-1.5 text-[11px] text-gray-100 disabled:opacity-50"
+                                    onClick={() => onDeleteDerived(file.key, d.key, `${file.key} → ${d.format}`)}
+                                    disabled={busyDerived}
+                                    title="Delete cached derived blob (next Convert will regenerate it)"
+                                >
+                                    {busyDerived ? "…" : "×"}
+                                </button>
+                            </span>
+                        );
+                    })}
+                    {file.derived.length > 1 && (
                         <button
-                            key={d.key}
-                            className="bg-gray-800 hover:bg-gray-700 px-2 py-0.5 rounded text-[11px] border border-gray-700"
-                            onClick={() => onDownload(d.key, suggestedName(file.key, d.format))}
-                            title={`${d.key} (${formatBytes(d.size)})`}
+                            className="bg-red-900/70 hover:bg-red-800 px-2 py-0.5 rounded text-[11px] text-gray-100 disabled:opacity-50"
+                            onClick={() => onDeleteAllDerived(file)}
+                            disabled={busyDeletingAllDerived}
+                            title="Delete every cached derived blob for this source"
                         >
-                            {d.format.toUpperCase()} ↓
+                            {busyDeletingAllDerived
+                                ? `Deleting… (${file.derived.length})`
+                                : `Delete all (${file.derived.length})`}
                         </button>
-                    ))}
+                    )}
                 </div>
             </Td>
             <Td>
-                <div className="flex justify-end">
+                <div className="flex flex-wrap gap-1 justify-end">
+                    {!file.orphan && (
+                        <button
+                            className="bg-gray-700 hover:bg-gray-600 px-2 py-0.5 rounded text-xs"
+                            onClick={() => onDownload(file.key, file.key)}
+                        >
+                            DL
+                        </button>
+                    )}
+                    {!file.orphan && runtime.convertEnabled() && downloadable.length > 0 && (
+                        <select
+                            disabled={busyConverting || false}
+                            className="bg-gray-700 hover:bg-gray-600 text-xs rounded px-1 py-0.5 disabled:opacity-50"
+                            value=""
+                            onChange={(e) => {
+                                const t = e.target.value as TargetFormat | "";
+                                e.target.value = "";
+                                if (t) onConvert(file.key, t);
+                            }}
+                        >
+                            <option value="">{busyConverting ? "…" : "Convert ▾"}</option>
+                            {downloadable.map((t) => (
+                                <option key={t} value={t}>{t.toUpperCase()}</option>
+                            ))}
+                        </select>
+                    )}
+                    <button
+                        className="bg-red-800 hover:bg-red-700 px-2 py-0.5 rounded text-xs disabled:opacity-50"
+                        onClick={() => onDelete(file.key, file.key)}
+                        disabled={busyDeleting}
+                        title="Delete source + all derived"
+                    >
+                        {busyDeleting ? "…" : "Delete"}
+                    </button>
                     <RowKebabMenu
-                        ariaLabel={`More actions for ${file.key}`}
-                        disabled={busyDeleting || busyConverting || busyDeletingAllDerived}
-                        items={buildSourceMenuItems({
-                            file,
-                            busyKey,
-                            downloadable,
-                            onConvert,
-                            onDownload,
-                            onDelete,
-                            onDeleteDerived,
-                            onDeleteAllDerived,
-                        })}
+                        ariaLabel={`Organize ${file.key}`}
+                        disabled={file.orphan === true || busyMoving}
+                        items={[
+                            {
+                                key: "move-to-folder",
+                                label: busyMoving ? "Moving…" : "Move to folder…",
+                                disabled: busyMoving,
+                                onClick: () => onMoveToFolder(file.key),
+                            },
+                        ]}
                     />
                 </div>
             </Td>
         </tr>
     );
 };
-
-// Assemble the kebab items for one source row. Pulled out so the
-// mobile SourceCard reuses the exact same list — keeps the two
-// presentations in lockstep when actions are added or reordered.
-function buildSourceMenuItems(args: {
-    file: AdminFileEntry;
-    busyKey: string | null;
-    downloadable: TargetFormat[];
-    onConvert: (sourceKey: string, target: TargetFormat) => void;
-    onDownload: (key: string, suggestedName: string) => void;
-    onDelete: (key: string, label: string) => void;
-    onDeleteDerived: (sourceKey: string, derivedKey: string, label: string) => void;
-    onDeleteAllDerived: (file: AdminFileEntry) => void;
-}): KebabMenuItem[] {
-    const {file, busyKey, downloadable, onConvert, onDownload, onDelete,
-        onDeleteDerived, onDeleteAllDerived} = args;
-    const items: KebabMenuItem[] = [];
-
-    if (!file.orphan) {
-        items.push({
-            key: "download-source",
-            label: "Download source",
-            onClick: () => onDownload(file.key, file.key),
-        });
-    }
-
-    if (!file.orphan && runtime.convertEnabled() && downloadable.length > 0) {
-        for (const t of downloadable) {
-            const busy = busyKey === `${file.key}::${t}`;
-            items.push({
-                key: `convert-${t}`,
-                label: busy ? `Converting to ${t.toUpperCase()}…` : `Convert to ${t.toUpperCase()}`,
-                disabled: busy,
-                onClick: () => onConvert(file.key, t),
-            });
-        }
-    }
-
-    if (file.derived.length > 0) {
-        items.push({
-            key: "sep-derived",
-            label: "",
-            onClick: () => {},
-            disabled: true,
-            separatorBefore: true,
-        });
-        // Skip the sentinel separator-only entry by giving the real
-        // first derived item the separator instead, then drop the
-        // sentinel. Cleaner than rendering an empty-label menu item.
-        items.pop();
-        let needSep = true;
-        for (const d of file.derived) {
-            const busy = busyKey === `${d.key}::delete`;
-            items.push({
-                key: `del-derived-${d.key}`,
-                label: busy ? `Deleting ${d.format.toUpperCase()}…` : `Delete cached ${d.format.toUpperCase()}`,
-                disabled: busy,
-                destructive: true,
-                separatorBefore: needSep,
-                title: "Next Convert will regenerate this derived blob",
-                onClick: () => onDeleteDerived(file.key, d.key, `${file.key} → ${d.format}`),
-            });
-            needSep = false;
-        }
-        if (file.derived.length > 1) {
-            const busyAll = busyKey === `${file.key}::delete-all-derived`;
-            items.push({
-                key: "del-all-derived",
-                label: busyAll
-                    ? `Deleting all (${file.derived.length})…`
-                    : `Delete all derived (${file.derived.length})`,
-                disabled: busyAll,
-                destructive: true,
-                onClick: () => onDeleteAllDerived(file),
-            });
-        }
-    }
-
-    const busyDelete = busyKey === `${file.key}::delete`;
-    items.push({
-        key: "delete-source",
-        label: busyDelete ? "Deleting…" : "Delete source + all derived",
-        disabled: busyDelete,
-        destructive: true,
-        separatorBefore: true,
-        title: "Permanently removes the source file and every cached derived blob",
-        onClick: () => onDelete(file.key, file.key),
-    });
-
-    return items;
-}
 
 interface CardProps extends RowProps {
     expanded: boolean;
@@ -872,6 +941,7 @@ const SourceCard: React.FC<CardProps> = ({
     onDelete,
     onDeleteDerived,
     onDeleteAllDerived,
+    onMoveToFolder,
 }) => {
     const downloadable = file.available_targets.filter((t) => t !== "glb");
     const busyConverting =
@@ -880,8 +950,8 @@ const SourceCard: React.FC<CardProps> = ({
         busyKey !== `${file.key}::delete-all-derived`;
     const busyDeleting = busyKey === `${file.key}::delete`;
     const busyDeletingAllDerived = busyKey === `${file.key}::delete-all-derived`;
+    const busyMoving = busyKey === `${file.key}::move`;
     const displayName = file.key.includes("/") ? file.key.split("/").pop() : file.key;
-    const kebabBusy = busyDeleting || busyConverting || busyDeletingAllDerived;
     return (
         <li className="px-3 py-3 text-xs" style={{paddingLeft: `${0.75 + depth * 1.0}rem`}}>
             <div className="flex items-start gap-2">
@@ -917,29 +987,94 @@ const SourceCard: React.FC<CardProps> = ({
                 </button>
                 <div className="shrink-0">
                     <RowKebabMenu
-                        ariaLabel={`More actions for ${file.key}`}
-                        disabled={kebabBusy}
+                        ariaLabel={`Organize ${file.key}`}
+                        disabled={file.orphan === true || busyMoving}
                         buttonClassName="h-9 w-9"
-                        items={buildSourceMenuItems({
-                            file, busyKey, downloadable,
-                            onConvert, onDownload, onDelete,
-                            onDeleteDerived, onDeleteAllDerived,
-                        })}
+                        items={[
+                            {
+                                key: "move-to-folder",
+                                label: busyMoving ? "Moving…" : "Move to folder…",
+                                disabled: busyMoving,
+                                onClick: () => onMoveToFolder(file.key),
+                            },
+                        ]}
                     />
                 </div>
             </div>
-            {expanded && file.derived.length > 0 && (
-                <div className="mt-2 flex flex-wrap gap-1 items-center">
-                    {file.derived.map((d) => (
+            {expanded && (
+                <div className="mt-2 space-y-2">
+                    {file.derived.length > 0 && (
+                        <div className="flex flex-wrap gap-1 items-center">
+                            {file.derived.map((d) => {
+                                const busyDerived = busyKey === `${d.key}::delete`;
+                                return (
+                                    <span key={d.key} className="inline-flex rounded overflow-hidden border border-gray-700">
+                                        <button
+                                            className="bg-gray-800 hover:bg-gray-700 px-2 py-0.5 text-[11px]"
+                                            onClick={() => onDownload(d.key, suggestedName(file.key, d.format))}
+                                            title={`${d.key} (${formatBytes(d.size)})`}
+                                        >
+                                            {d.format.toUpperCase()} ↓
+                                        </button>
+                                        <button
+                                            className="bg-red-900/70 hover:bg-red-800 px-1.5 text-[11px] text-gray-100 disabled:opacity-50"
+                                            onClick={() => onDeleteDerived(file.key, d.key, `${file.key} → ${d.format}`)}
+                                            disabled={busyDerived}
+                                            title="Delete cached derived blob"
+                                        >
+                                            {busyDerived ? "…" : "×"}
+                                        </button>
+                                    </span>
+                                );
+                            })}
+                            {file.derived.length > 1 && (
+                                <button
+                                    className="bg-red-900/70 hover:bg-red-800 px-2 py-0.5 rounded text-[11px] text-gray-100 disabled:opacity-50"
+                                    onClick={() => onDeleteAllDerived(file)}
+                                    disabled={busyDeletingAllDerived}
+                                    title="Delete every cached derived blob for this source"
+                                >
+                                    {busyDeletingAllDerived
+                                        ? `Deleting… (${file.derived.length})`
+                                        : `Delete all (${file.derived.length})`}
+                                </button>
+                            )}
+                        </div>
+                    )}
+                    <div className="flex flex-wrap gap-1">
+                        {!file.orphan && (
+                            <button
+                                className="bg-gray-700 hover:bg-gray-600 px-2 py-1 rounded text-xs"
+                                onClick={() => onDownload(file.key, file.key)}
+                            >
+                                Download
+                            </button>
+                        )}
+                        {!file.orphan && runtime.convertEnabled() && downloadable.length > 0 && (
+                            <select
+                                disabled={busyConverting || false}
+                                className="bg-gray-700 hover:bg-gray-600 text-xs rounded px-2 py-1 disabled:opacity-50"
+                                value=""
+                                onChange={(e) => {
+                                    const t = e.target.value as TargetFormat | "";
+                                    e.target.value = "";
+                                    if (t) onConvert(file.key, t);
+                                }}
+                            >
+                                <option value="">{busyConverting ? "…" : "Convert ▾"}</option>
+                                {downloadable.map((t) => (
+                                    <option key={t} value={t}>{t.toUpperCase()}</option>
+                                ))}
+                            </select>
+                        )}
                         <button
-                            key={d.key}
-                            className="bg-gray-800 hover:bg-gray-700 px-2 py-0.5 rounded text-[11px] border border-gray-700"
-                            onClick={() => onDownload(d.key, suggestedName(file.key, d.format))}
-                            title={`${d.key} (${formatBytes(d.size)})`}
+                            className="bg-red-800 hover:bg-red-700 px-2 py-1 rounded text-xs disabled:opacity-50"
+                            onClick={() => onDelete(file.key, file.key)}
+                            disabled={busyDeleting}
                         >
-                            {d.format.toUpperCase()} ↓
+                            {busyDeleting ? "…" : "Delete"}
                         </button>
-                    ))}
+                    </div>
                 </div>
             )}
         </li>
@@ -952,31 +1087,68 @@ interface FolderRowProps {
     fileCount: number;
     expanded: boolean;
     onToggle: () => void;
+    onRename: () => void;
+    onMoveInto: () => void;
+    busyMoving: boolean;
+}
+
+function folderMenuItems(
+    folderPath: string,
+    onRename: () => void,
+    onMoveInto: () => void,
+    busy: boolean,
+) {
+    return [
+        {
+            key: "rename",
+            label: busy ? "Renaming…" : "Rename folder…",
+            disabled: busy,
+            title: `Rename "${folderPath}" (sibling-name; no slashes). Subfolders preserved.`,
+            onClick: onRename,
+        },
+        {
+            key: "move-into",
+            label: busy ? "Moving…" : "Move folder into…",
+            disabled: busy,
+            title: `Move "${folderPath}" under a destination prefix. Subfolders preserved.`,
+            onClick: onMoveInto,
+        },
+    ];
 }
 
 // Desktop folder row — spans the entire table width so the folder
 // name + file count read like a section header inside the existing
-// admin grid. Click anywhere on the row to toggle.
+// admin grid. Click anywhere on the row to toggle. Kebab on the right
+// houses rename / move-into; portal-anchored so the menu doesn't
+// clip against the table's scroll container.
 const FolderTableRow: React.FC<FolderRowProps> = ({
     folder, depth, fileCount, expanded, onToggle,
+    onRename, onMoveInto, busyMoving,
 }) => (
-    <tr className="border-t border-gray-800 bg-gray-900/40 hover:bg-gray-800 cursor-pointer">
+    <tr className="border-t border-gray-800 bg-gray-900/40 hover:bg-gray-800">
         <td colSpan={7} className="px-3 py-1.5">
-            <button
-                type="button"
-                onClick={onToggle}
-                className="flex items-center gap-1 text-left text-gray-200 w-full"
-                style={{paddingLeft: `${depth * 1.25}rem`}}
-                aria-expanded={expanded}
-            >
-                <span className="inline-block w-3 text-gray-400 text-xs">
-                    {expanded ? "▾" : "▸"}
-                </span>
-                <span className="font-medium">{folder.name}</span>
-                <span className="ml-2 text-[11px] text-gray-500">
-                    ({fileCount} file{fileCount === 1 ? "" : "s"})
-                </span>
-            </button>
+            <div className="flex items-center gap-1">
+                <button
+                    type="button"
+                    onClick={onToggle}
+                    className="flex items-center gap-1 text-left text-gray-200 flex-1 min-w-0"
+                    style={{paddingLeft: `${depth * 1.25}rem`}}
+                    aria-expanded={expanded}
+                >
+                    <span className="inline-block w-3 text-gray-400 text-xs">
+                        {expanded ? "▾" : "▸"}
+                    </span>
+                    <span className="font-medium">{folder.name}</span>
+                    <span className="ml-2 text-[11px] text-gray-500">
+                        ({fileCount} file{fileCount === 1 ? "" : "s"})
+                    </span>
+                </button>
+                <RowKebabMenu
+                    ariaLabel={`Organize folder ${folder.path}`}
+                    disabled={busyMoving}
+                    items={folderMenuItems(folder.path, onRename, onMoveInto, busyMoving)}
+                />
+            </div>
         </td>
     </tr>
 );
@@ -985,23 +1157,30 @@ const FolderTableRow: React.FC<FolderRowProps> = ({
 // list stays a single <ul>. Tap target sized for thumbs.
 const FolderCardRow: React.FC<FolderRowProps> = ({
     folder, depth, fileCount, expanded, onToggle,
+    onRename, onMoveInto, busyMoving,
 }) => (
-    <li>
+    <li className="bg-gray-900/40 hover:bg-gray-800 px-3 py-2 flex items-center gap-1"
+        style={{paddingLeft: `${0.75 + depth * 1.0}rem`}}>
         <button
             type="button"
             onClick={onToggle}
-            className="w-full text-left bg-gray-900/40 hover:bg-gray-800 px-3 py-2 text-sm flex items-center gap-1"
-            style={{paddingLeft: `${0.75 + depth * 1.0}rem`}}
+            className="flex-1 min-w-0 text-left flex items-center gap-1"
             aria-expanded={expanded}
         >
             <span className="inline-block w-3 text-gray-400 text-xs">
                 {expanded ? "▾" : "▸"}
             </span>
-            <span className="font-medium text-gray-100">{folder.name}</span>
+            <span className="font-medium text-gray-100 text-sm">{folder.name}</span>
             <span className="ml-auto text-[11px] text-gray-500">
                 {fileCount} file{fileCount === 1 ? "" : "s"}
             </span>
         </button>
+        <RowKebabMenu
+            ariaLabel={`Organize folder ${folder.path}`}
+            disabled={busyMoving}
+            buttonClassName="h-9 w-9"
+            items={folderMenuItems(folder.path, onRename, onMoveInto, busyMoving)}
+        />
     </li>
 );
 

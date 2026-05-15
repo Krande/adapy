@@ -1154,6 +1154,60 @@ export const viewerApi = {
         return jsonOrThrow(r, "adminMoveKeysToFolder");
     },
 
+    /** Rename or relocate a folder prefix in place. Walks ``allKeys``
+     * for entries under ``oldFolder``, groups them by their parent
+     * path *relative to* ``oldFolder``, and issues one
+     * ``adminMoveKeysToFolder`` call per group with the corresponding
+     * ``<newFolder>/<relative_parent>`` destination. Result aggregates
+     * per-call ``moved`` + ``failed`` lists.
+     *
+     * Why grouped calls instead of one big batch: the move endpoint
+     * flattens every input key into a single target folder, so a
+     * naïve single call would lose the folder's internal structure
+     * (``A/sub/x.ifc`` would land at ``B/x.ifc``, not ``B/sub/x.ifc``).
+     * Grouping by relative parent preserves the tree shape.
+     */
+    async adminRenameOrMoveFolder(
+        scope: ScopeUrl,
+        oldFolder: string,
+        newFolder: string,
+        allKeys: string[],
+    ): Promise<{
+        moved: Array<{
+            old: string;
+            new: string;
+            siblings_moved: number;
+            siblings_failed: string[];
+        }>;
+        failed: Array<{key: string; reason: string}>;
+    }> {
+        const oldTrimmed = oldFolder.replace(/^\/+|\/+$/g, "");
+        const newTrimmed = newFolder.replace(/^\/+|\/+$/g, "");
+        const prefix = oldTrimmed + "/";
+        // dest folder → keys to send.
+        const groups = new Map<string, string[]>();
+        for (const k of allKeys) {
+            if (!k.startsWith(prefix)) continue;
+            const rest = k.slice(prefix.length);
+            const lastSlash = rest.lastIndexOf("/");
+            const relParent = lastSlash >= 0 ? rest.slice(0, lastSlash) : "";
+            const dest = relParent ? `${newTrimmed}/${relParent}` : newTrimmed;
+            if (!groups.has(dest)) groups.set(dest, []);
+            groups.get(dest)!.push(k);
+        }
+        const movedAll: Array<{old: string; new: string; siblings_moved: number; siblings_failed: string[]}> = [];
+        const failedAll: Array<{key: string; reason: string}> = [];
+        // Sequential not parallel: each call mutates the scope's keyset
+        // on the server; concurrent calls would race on collision
+        // detection.
+        for (const [dest, keys] of groups) {
+            const r = await this.adminMoveKeysToFolder(scope, keys, dest);
+            movedAll.push(...r.moved);
+            failedAll.push(...r.failed);
+        }
+        return {moved: movedAll, failed: failedAll};
+    },
+
     async adminRemoveMember(projectId: string, userSub: string): Promise<void> {
         const r = await authedFetch(
             `${runtime.apiBase()}/admin/projects/${encodeURIComponent(projectId)}` +

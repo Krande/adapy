@@ -25,8 +25,9 @@ import {
     loadExpandedFolders,
     saveExpandedFolders,
 } from "@/utils/storage/fileTree";
-import {KebabMenuItem, RowKebabMenu} from "@/components/common/RowKebabMenu";
+import {RowKebabMenu} from "@/components/common/RowKebabMenu";
 import {viewerApi} from "@/services/viewerApi";
+import {useMeStore} from "@/state/meStore";
 
 // Files that carry per-(step, field) result data and benefit from the
 // picker UI. SIF is the only one in REST mode today; new formats land
@@ -308,6 +309,80 @@ const StorageBrowser: React.FC = () => {
             else next.add(path);
             return next;
         });
+    };
+    // Admin-only organize actions — the underlying move endpoint is
+    // gated server-side. Non-admin users see no kebab on rows so the
+    // menu can't open into items that would 403 on click. Errors are
+    // surfaced via window.alert: this panel has no inline error
+    // banner today and the operations are explicit user actions, so a
+    // modal alert is acceptable rather than building a toast affordance
+    // for the rare failure case.
+    const isAdmin = useMeStore((s) => s.isAdmin);
+    const onMoveSingleToFolder = async (key: string) => {
+        const folder = window.prompt(`Move "${key}" to folder:`, "");
+        if (folder === null) return;
+        const trimmed = folder.trim().replace(/^\/+|\/+$/g, "");
+        if (!trimmed) {
+            window.alert("Folder name required");
+            return;
+        }
+        try {
+            const r = await viewerApi.adminMoveKeysToFolder(scopeKey, [key], trimmed);
+            if (r.failed.length > 0) {
+                window.alert(r.failed.map((f) => `${f.key}: ${f.reason}`).join("\n"));
+            }
+            void request_list_of_files_from_server();
+        } catch (e) {
+            window.alert(e instanceof Error ? e.message : String(e));
+        }
+    };
+    const onFolderRenameOrMove = async (
+        folderPath: string,
+        mode: "rename" | "moveInto",
+    ) => {
+        const promptLabel =
+            mode === "rename"
+                ? `Rename folder "${folderPath}" to (sibling name, no slashes):`
+                : `Move folder "${folderPath}" into (destination prefix):`;
+        const input = window.prompt(promptLabel, "");
+        if (input === null) return;
+        const trimmedInput = input.trim().replace(/^\/+|\/+$/g, "");
+        if (!trimmedInput) {
+            window.alert("Destination required");
+            return;
+        }
+        let newPath: string;
+        if (mode === "rename") {
+            if (trimmedInput.includes("/")) {
+                window.alert("Rename must be a single name; use Move folder into… for nested moves");
+                return;
+            }
+            const lastSlash = folderPath.lastIndexOf("/");
+            const parent = lastSlash >= 0 ? folderPath.slice(0, lastSlash) : "";
+            newPath = parent ? `${parent}/${trimmedInput}` : trimmedInput;
+        } else {
+            const basename = folderPath.split("/").pop() ?? folderPath;
+            newPath = `${trimmedInput}/${basename}`;
+        }
+        if (newPath === folderPath) return;
+        try {
+            const allKeys = files.map((f) => f.name);
+            const r = await viewerApi.adminRenameOrMoveFolder(
+                scopeKey, folderPath, newPath, allKeys,
+            );
+            if (r.failed.length > 0) {
+                window.alert(r.failed.map((f) => `${f.key}: ${f.reason}`).join("\n"));
+            }
+            setExpandedFolders((prev) => {
+                const next = new Set(prev);
+                next.delete(folderPath);
+                next.add(newPath);
+                return next;
+            });
+            void request_list_of_files_from_server();
+        } catch (e) {
+            window.alert(e instanceof Error ? e.message : String(e));
+        }
     };
     // Owned input — clicking it must happen synchronously inside the
     // button's onClick to preserve the user-activation gesture (iOS Safari
@@ -599,6 +674,7 @@ const StorageBrowser: React.FC = () => {
                                                 isSelected={selection.has(node.file.name)}
                                                 onLongPress={toggleSelection}
                                                 onSelectToggle={toggleSelection}
+                                                onMoveToFolder={isAdmin ? onMoveSingleToFolder : undefined}
                                             />
                                         );
                                     }
@@ -612,6 +688,12 @@ const StorageBrowser: React.FC = () => {
                                                 expanded={expanded}
                                                 fileCount={total}
                                                 onToggle={() => toggleFolder(node.path)}
+                                                onRename={isAdmin
+                                                    ? () => onFolderRenameOrMove(node.path, "rename")
+                                                    : undefined}
+                                                onMoveInto={isAdmin
+                                                    ? () => onFolderRenameOrMove(node.path, "moveInto")
+                                                    : undefined}
                                             />
                                             {expanded &&
                                                 node.children.map((c) =>
@@ -731,6 +813,10 @@ interface FolderRowProps {
     expanded: boolean;
     fileCount: number;
     onToggle: () => void;
+    /** Admin-only: when present, a kebab appears with rename + move-
+     * into. Non-admins get a plain folder row without the menu. */
+    onRename?: () => void;
+    onMoveInto?: () => void;
 }
 
 const FolderRow: React.FC<FolderRowProps> = ({
@@ -739,6 +825,8 @@ const FolderRow: React.FC<FolderRowProps> = ({
     expanded,
     fileCount,
     onToggle,
+    onRename,
+    onMoveInto,
 }) => {
     const indentPx = depth * 12;
     return (
@@ -775,72 +863,34 @@ const FolderRow: React.FC<FolderRowProps> = ({
             <span className="text-[10px] text-gray-400 shrink-0">
                 {fileCount}
             </span>
+            {onRename && onMoveInto && (
+                <span
+                    className="shrink-0"
+                    onClick={(e) => e.stopPropagation()}
+                >
+                    <RowKebabMenu
+                        ariaLabel={`Organize folder ${folder.path}`}
+                        buttonClassName="h-6 w-6 text-gray-300 hover:bg-gray-500/30"
+                        items={[
+                            {
+                                key: "rename",
+                                label: "Rename folder…",
+                                title: "Sibling-name rename. Subfolders preserved.",
+                                onClick: onRename,
+                            },
+                            {
+                                key: "move-into",
+                                label: "Move folder into…",
+                                title: "Move under a destination prefix. Subfolders preserved.",
+                                onClick: onMoveInto,
+                            },
+                        ]}
+                    />
+                </span>
+            )}
         </li>
     );
 };
-
-// Per-row kebab items for the main StorageBrowser. Mirrors the
-// admin tab's ``buildSourceMenuItems`` shape but covers only the
-// actions a non-admin user can take: download the source bytes,
-// copy the storage key, and (for legacy non-streaming FEA) open
-// the step / field picker. The load/unload toggle stays on the
-// checkbox — having it in the kebab too would be redundant.
-function buildFileRowMenuItems(args: {
-    fileName: string;
-    displayName: string;
-    scopeUrl: string;
-    setPickerName: (n: string | null) => void;
-}): KebabMenuItem[] {
-    const {fileName, displayName, scopeUrl, setPickerName} = args;
-    const items: KebabMenuItem[] = [];
-
-    if (runtime.isRestMode()) {
-        items.push({
-            key: "download",
-            label: "Download source",
-            onClick: () => {
-                // Suggested filename is just the last segment so the
-                // browser doesn't propose a path-shaped name.
-                const suggested = fileName.split("/").pop() || fileName;
-                void viewerApi.downloadBlob(scopeUrl, fileName, suggested);
-            },
-        });
-    }
-
-    items.push({
-        key: "copy-key",
-        label: "Copy storage key",
-        title: "Copy the full S3-style key to the clipboard",
-        onClick: () => {
-            void navigator.clipboard?.writeText(fileName);
-        },
-    });
-
-    // Legacy step/field picker — only meaningful for non-streaming
-    // FEA formats. Streaming FEA (SIF / RMED) goes through
-    // load_fea_with_defaults via the toggle, so a picker entry
-    // would just confuse the user with two parallel ways to load.
-    if (
-        isFEAResult(fileName)
-        && !isStreamingFEAResult(fileName)
-        && runtime.isRestMode()
-        && runtime.convertEnabled()
-    ) {
-        items.push({
-            key: "pick-step-field",
-            label: "Pick step / field…",
-            separatorBefore: true,
-            onClick: () => setPickerName(fileName),
-        });
-    }
-
-    // Reference displayName so callers can pass it for future
-    // surfaced labels without lint complaining about an unused
-    // arg.
-    void displayName;
-
-    return items;
-}
 
 interface FileRowProps {
     file: ServerFileEntry;
@@ -857,6 +907,9 @@ interface FileRowProps {
     isSelected: boolean;
     onLongPress: (name: string) => void;
     onSelectToggle: (name: string) => void;
+    /** Admin-only: when present, the kebab on this row offers a
+     * "Move to folder…" item. Non-admins get no kebab. */
+    onMoveToFolder?: (key: string) => void;
 }
 
 const FileRow: React.FC<FileRowProps> = ({
@@ -874,12 +927,8 @@ const FileRow: React.FC<FileRowProps> = ({
     isSelected,
     onLongPress,
     onSelectToggle,
+    onMoveToFolder,
 }) => {
-    // Read the active scope so the kebab's Download action knows
-    // which storage namespace the key lives in. Component-scoped
-    // subscription is cheap — one selector per row, no extra renders
-    // unless scope actually changes.
-    const currentScope = useScopeStore((s) => s.current);
     const isViewing = viewingName === f.name;
     const otherViewing = viewingName !== null && !isViewing;
     const isLoaded = loadedSourceNames.has(f.name);
@@ -1025,18 +1074,49 @@ const FileRow: React.FC<FileRowProps> = ({
                 </button>
                 <div className="flex items-center gap-1 shrink-0">
                     {isViewing && <Spinner/>}
-                    {!selectionMode && (
-                        <RowKebabMenu
-                            ariaLabel={`More actions for ${displayName}`}
+                    {/* Legacy single-shot (step, field) picker — kept
+                        only for hypothetical future non-streaming FEA
+                        formats. SIF goes through the streaming bake
+                        now (toggle the checkbox; refine field /
+                        reduction / step in SimulationControls), so
+                        the picker entry point would just confuse the
+                        user with two parallel ways to load the same
+                        file. Gated on ``!isStreamingFEAResult`` so
+                        the moment a new isFEAResult format that is
+                        NOT in the streaming set ships, the picker
+                        re-appears for it without code changes here. */}
+                    {!selectionMode && isFEAResult(f.name) && !isStreamingFEAResult(f.name) && runtime.isRestMode() && runtime.convertEnabled() && (
+                        <button
+                            className="p-1 rounded text-white hover:bg-gray-300/40 disabled:opacity-50 disabled:cursor-not-allowed"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                setPickerName(f.name);
+                            }}
                             disabled={otherViewing || isViewing}
-                            buttonClassName="h-7 w-7 text-white hover:bg-gray-300/40"
-                            items={buildFileRowMenuItems({
-                                fileName: f.name,
-                                displayName,
-                                scopeUrl: scopeUrlPart(currentScope),
-                                setPickerName,
-                            })}
-                        />
+                            title="Pick step / field"
+                            aria-label="Pick step / field"
+                        >
+                            <span className="leading-none text-sm font-mono">⇅</span>
+                        </button>
+                    )}
+                    {/* Streaming-FEA picker button removed — the
+                        toggle checkbox now opens the streaming session
+                        with defaults, and field / reduction / step
+                        live in SimulationControls. */}
+                    {!selectionMode && onMoveToFolder && (
+                        <span onClick={(e) => e.stopPropagation()}>
+                            <RowKebabMenu
+                                ariaLabel={`Organize ${displayName}`}
+                                buttonClassName="h-7 w-7 text-gray-200 hover:bg-gray-300/30"
+                                items={[
+                                    {
+                                        key: "move-to-folder",
+                                        label: "Move to folder…",
+                                        onClick: () => onMoveToFolder(f.name),
+                                    },
+                                ]}
+                            />
+                        </span>
                     )}
                 </div>
             </div>
