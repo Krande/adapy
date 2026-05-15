@@ -345,15 +345,20 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
             {/* Row 1 — Field / Comp / Step selectors only. Gear
                 moved down to the transport row so this stays a
                 focused "what are you looking at" line.
-                ``justify-between`` on a full-width container so the
-                three dropdowns spread to match row 2's natural
-                width, instead of clumping at the left. */}
+                Mobile width: ``flex-1`` on each label distributes
+                the available width evenly between the three
+                dropdowns, ``min-w-0 truncate`` on the selects
+                lets long field names (e.g. "Contact Normal Force
+                Vector") ellipsise instead of pushing the row past
+                the viewport. ``sm:flex-none`` reverts to natural
+                width on desktop so the dropdowns size to content
+                with ``justify-between`` spacing the groups. */}
             {manifest && (
                 <div className="flex flex-row items-center justify-between gap-x-2 w-full min-w-0 text-xs text-white">
-                    <label className="flex items-center gap-1">
-                        <span className="text-gray-300">Field</span>
+                    <label className="flex items-center gap-1 min-w-0 flex-1 sm:flex-none">
+                        <span className="text-gray-300 shrink-0">Field</span>
                         <select
-                            className="text-black bg-white rounded px-1 py-0.5"
+                            className="text-black bg-white rounded px-1 py-0.5 min-w-0 flex-1 sm:flex-none truncate"
                             value={fieldName ?? ""}
                             onChange={(e) => onFieldChange(e.target.value)}
                         >
@@ -370,10 +375,10 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                         </select>
                     </label>
                     {reductionOptions.length > 0 && (
-                        <label className="flex items-center gap-1">
-                            <span className="text-gray-300">Comp</span>
+                        <label className="flex items-center gap-1 min-w-0 flex-1 sm:flex-none">
+                            <span className="text-gray-300 shrink-0">Comp</span>
                             <select
-                                className="text-black bg-white rounded px-1 py-0.5"
+                                className="text-black bg-white rounded px-1 py-0.5 min-w-0 flex-1 sm:flex-none truncate"
                                 value={reduction}
                                 onChange={(e) => onReductionChange(e.target.value)}
                             >
@@ -386,10 +391,10 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                         </label>
                     )}
                     {activeField && nSteps > 0 && (
-                        <label className="flex items-center gap-1 min-w-0">
-                            <span className="text-gray-300">Step</span>
+                        <label className="flex items-center gap-1 min-w-0 flex-1 sm:flex-none">
+                            <span className="text-gray-300 shrink-0">Step</span>
                             <select
-                                className="text-black bg-white rounded px-1 py-0.5 max-w-[10rem] truncate"
+                                className="text-black bg-white rounded px-1 py-0.5 min-w-0 flex-1 sm:flex-none sm:max-w-[10rem] truncate"
                                 value={stepIndex}
                                 disabled={nSteps <= 1}
                                 onChange={(e) => onStepChange(parseInt(e.target.value, 10))}
