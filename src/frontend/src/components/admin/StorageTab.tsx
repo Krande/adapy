@@ -5,12 +5,14 @@ import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
 import {runtime} from "@/runtime/config";
 import {
     buildFileTree,
+    collectFolderPaths,
     FileTreeNode,
     FolderNode,
     loadExpandedFolders,
     saveExpandedFolders,
 } from "@/utils/storage/fileTree";
 import {RowKebabMenu} from "@/components/common/RowKebabMenu";
+import FolderPickerModal from "@/components/common/FolderPickerModal";
 
 // Admin-only enriched storage view. Shows source format, size, upload
 // time, and the derived blobs already cached for each source. Houses
@@ -214,135 +216,147 @@ const StorageTab: React.FC = () => {
         }
     };
 
-    // Per-row "Move to folder…" — same prompt UX as the bulk version
-    // but operates on one source key. Source-only (orphans excluded;
-    // they don't survive the rename).
-    const onMoveSingleToFolder = async (key: string) => {
-        const folder = window.prompt(`Move "${key}" to folder:`, "");
-        if (folder === null) return;
-        const trimmed = folder.trim().replace(/^\/+|\/+$/g, "");
-        if (!trimmed) {
-            setError("Folder name required");
-            return;
-        }
-        setBusyKey(`${key}::move`);
-        setError(null);
-        try {
-            const result = await viewerApi.adminMoveKeysToFolder(scope, [key], trimmed);
-            if (result.failed.length > 0) {
-                setError(
-                    result.failed.map((f) => `${f.key}: ${f.reason}`).join("\n"),
-                );
-            }
-            await reload();
-        } catch (e) {
-            setError(e instanceof ApiError ? e.detail || e.message : String(e));
-        } finally {
-            setBusyKey(null);
-        }
+    // The picker modal drives every move action — bulk, per-row,
+    // and the folder-kebab's move-into. ``onPick`` carries the chosen
+    // destination; the modal handles existing-folder dropdown vs new-
+    // folder text input. Rename keeps its plain window.prompt because
+    // it's a sibling-name (no destination dropdown to offer).
+    const [picker, setPicker] = useState<{
+        title: string;
+        initialNew?: string;
+        onPick: (folder: string) => Promise<void> | void;
+    } | null>(null);
+
+    // Per-row "Move to folder…" — operates on one source key. Source-
+    // only (orphans excluded; they don't survive the rename).
+    const onMoveSingleToFolder = (key: string) => {
+        setPicker({
+            title: `Move "${key}" to folder`,
+            onPick: async (folder) => {
+                setBusyKey(`${key}::move`);
+                setError(null);
+                try {
+                    const result = await viewerApi.adminMoveKeysToFolder(scope, [key], folder);
+                    if (result.failed.length > 0) {
+                        setError(
+                            result.failed.map((f) => `${f.key}: ${f.reason}`).join("\n"),
+                        );
+                    }
+                    await reload();
+                } catch (e) {
+                    setError(e instanceof ApiError ? e.detail || e.message : String(e));
+                } finally {
+                    setBusyKey(null);
+                }
+            },
+        });
     };
 
-    // Rename or relocate a folder. ``mode`` decides whether the prompt
-    // treats input as a sibling name (rename) or a destination prefix
-    // (move-into). Walks every source key under the folder so derived
-    // blobs follow the rename.
-    const onFolderRenameOrMove = async (
+    // Rename or relocate a folder. ``mode`` decides whether to prompt
+    // for a sibling name (window.prompt — no destination semantics
+    // to pick from) or open the folder picker (move-into). Walks
+    // every source key under the folder so derived blobs follow.
+    const onFolderRenameOrMove = (
         folderPath: string,
         mode: "rename" | "moveInto",
     ) => {
-        const promptLabel =
-            mode === "rename"
-                ? `Rename folder "${folderPath}" to (sibling name, no slashes):`
-                : `Move folder "${folderPath}" into (destination prefix):`;
-        const input = window.prompt(promptLabel, "");
-        if (input === null) return;
-        const trimmedInput = input.trim().replace(/^\/+|\/+$/g, "");
-        if (!trimmedInput) {
-            setError("Destination required");
-            return;
-        }
-        let newPath: string;
+        const runMove = async (newPath: string) => {
+            if (newPath === folderPath) return;
+            setBusyKey(`__folder_${mode}__:${folderPath}`);
+            setError(null);
+            try {
+                const sourceKeys = files
+                    .filter((f) => f.orphan !== true)
+                    .map((f) => f.key);
+                const result = await viewerApi.adminRenameOrMoveFolder(
+                    scope, folderPath, newPath, sourceKeys,
+                );
+                if (result.failed.length > 0) {
+                    setError(
+                        result.failed.map((f) => `${f.key}: ${f.reason}`).join("\n"),
+                    );
+                }
+                // Carry the expand state across the rename — collapse
+                // the old path, open the new one — so the user lands
+                // looking at their moved files instead of an
+                // unexpanded entry.
+                setExpandedFolders((prev) => {
+                    const next = new Set(prev);
+                    next.delete(folderPath);
+                    next.add(newPath);
+                    return next;
+                });
+                await reload();
+            } catch (e) {
+                setError(e instanceof ApiError ? e.detail || e.message : String(e));
+            } finally {
+                setBusyKey(null);
+            }
+        };
+
         if (mode === "rename") {
+            const input = window.prompt(
+                `Rename folder "${folderPath}" to (sibling name, no slashes):`,
+                "",
+            );
+            if (input === null) return;
+            const trimmedInput = input.trim().replace(/^\/+|\/+$/g, "");
+            if (!trimmedInput) {
+                setError("Destination required");
+                return;
+            }
             if (trimmedInput.includes("/")) {
                 setError("Rename name must not contain slashes — use Move folder into… instead");
                 return;
             }
             const lastSlash = folderPath.lastIndexOf("/");
             const parent = lastSlash >= 0 ? folderPath.slice(0, lastSlash) : "";
-            newPath = parent ? `${parent}/${trimmedInput}` : trimmedInput;
-        } else {
-            const basename = folderPath.split("/").pop() ?? folderPath;
-            newPath = `${trimmedInput}/${basename}`;
-        }
-        if (newPath === folderPath) return;
-        setBusyKey(`__folder_${mode}__:${folderPath}`);
-        setError(null);
-        try {
-            const sourceKeys = files
-                .filter((f) => f.orphan !== true)
-                .map((f) => f.key);
-            const result = await viewerApi.adminRenameOrMoveFolder(
-                scope, folderPath, newPath, sourceKeys,
-            );
-            if (result.failed.length > 0) {
-                setError(
-                    result.failed.map((f) => `${f.key}: ${f.reason}`).join("\n"),
-                );
-            }
-            // Carry the expand state across the rename — collapse the
-            // old path, open the new one — so the user lands looking at
-            // their moved files instead of an unexpanded entry.
-            setExpandedFolders((prev) => {
-                const next = new Set(prev);
-                next.delete(folderPath);
-                next.add(newPath);
-                return next;
-            });
-            await reload();
-        } catch (e) {
-            setError(e instanceof ApiError ? e.detail || e.message : String(e));
-        } finally {
-            setBusyKey(null);
-        }
-    };
-
-    const onMoveSelectedToFolder = async () => {
-        if (selectedKeys.size === 0) return;
-        const folder = window.prompt(
-            `Move ${selectedKeys.size} file${selectedKeys.size === 1 ? "" : "s"} to folder:`,
-            "",
-        );
-        if (folder === null) return; // cancelled
-        const trimmed = folder.trim().replace(/^\/+|\/+$/g, "");
-        if (!trimmed) {
-            setError("Folder name required");
+            void runMove(parent ? `${parent}/${trimmedInput}` : trimmedInput);
             return;
         }
-        setBusyKey("__bulk_move__");
-        setError(null);
-        try {
-            const result = await viewerApi.adminMoveKeysToFolder(
-                scope,
-                Array.from(selectedKeys),
-                trimmed,
-            );
-            if (result.failed.length > 0) {
-                const summary = result.failed
-                    .map((f) => `${f.key}: ${f.reason}`)
-                    .join("\n");
-                setError(
-                    `Moved ${result.moved.length} of ${
-                        result.moved.length + result.failed.length
-                    }; failures:\n${summary}`,
-                );
-            }
-            clearSelection();
-            await reload();
-        } catch (e) {
-            setError(e instanceof ApiError ? e.detail || e.message : String(e));
-        } finally {
-            setBusyKey(null);
-        }
+
+        const basename = folderPath.split("/").pop() ?? folderPath;
+        setPicker({
+            title: `Move folder "${folderPath}" into`,
+            onPick: async (dest) => {
+                await runMove(`${dest}/${basename}`);
+            },
+        });
+    };
+
+    const onMoveSelectedToFolder = () => {
+        if (selectedKeys.size === 0) return;
+        const count = selectedKeys.size;
+        setPicker({
+            title: `Move ${count} file${count === 1 ? "" : "s"} to folder`,
+            onPick: async (folder) => {
+                setBusyKey("__bulk_move__");
+                setError(null);
+                try {
+                    const result = await viewerApi.adminMoveKeysToFolder(
+                        scope,
+                        Array.from(selectedKeys),
+                        folder,
+                    );
+                    if (result.failed.length > 0) {
+                        const summary = result.failed
+                            .map((f) => `${f.key}: ${f.reason}`)
+                            .join("\n");
+                        setError(
+                            `Moved ${result.moved.length} of ${
+                                result.moved.length + result.failed.length
+                            }; failures:\n${summary}`,
+                        );
+                    }
+                    clearSelection();
+                    await reload();
+                } catch (e) {
+                    setError(e instanceof ApiError ? e.detail || e.message : String(e));
+                } finally {
+                    setBusyKey(null);
+                }
+            },
+        });
     };
 
     // Delete a single derived blob without touching the source.
@@ -756,6 +770,18 @@ const StorageTab: React.FC = () => {
                     </div>
                 )}
             </div>
+            <FolderPickerModal
+                open={picker !== null}
+                title={picker?.title ?? ""}
+                existingFolders={collectFolderPaths(files, (f) => f.key)}
+                initialNew={picker?.initialNew}
+                onCancel={() => setPicker(null)}
+                onPick={(folder) => {
+                    const action = picker?.onPick;
+                    setPicker(null);
+                    if (action) void action(folder);
+                }}
+            />
         </div>
     );
 };

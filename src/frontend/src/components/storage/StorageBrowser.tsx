@@ -20,12 +20,14 @@ import GitHistoryPanel from "./GitHistoryPanel";
 import {BuildSidecar, useBuildSidecars} from "@/hooks/useBuildSidecars";
 import {
     buildFileTree,
+    collectFolderPaths,
     FileTreeNode,
     FolderNode,
     loadExpandedFolders,
     saveExpandedFolders,
 } from "@/utils/storage/fileTree";
 import {RowKebabMenu} from "@/components/common/RowKebabMenu";
+import FolderPickerModal from "@/components/common/FolderPickerModal";
 import {viewerApi} from "@/services/viewerApi";
 import {useMeStore} from "@/state/meStore";
 
@@ -318,71 +320,80 @@ const StorageBrowser: React.FC = () => {
     // modal alert is acceptable rather than building a toast affordance
     // for the rare failure case.
     const isAdmin = useMeStore((s) => s.isAdmin);
-    const onMoveSingleToFolder = async (key: string) => {
-        const folder = window.prompt(`Move "${key}" to folder:`, "");
-        if (folder === null) return;
-        const trimmed = folder.trim().replace(/^\/+|\/+$/g, "");
-        if (!trimmed) {
-            window.alert("Folder name required");
-            return;
-        }
-        try {
-            const r = await viewerApi.adminMoveKeysToFolder(scopeKey, [key], trimmed);
-            if (r.failed.length > 0) {
-                window.alert(r.failed.map((f) => `${f.key}: ${f.reason}`).join("\n"));
-            }
-            void request_list_of_files_from_server();
-        } catch (e) {
-            window.alert(e instanceof Error ? e.message : String(e));
-        }
+    // The picker modal drives both move flows; ``onPick`` is the
+    // closure that knows what to do once a destination is chosen.
+    const [picker, setPicker] = useState<{
+        title: string;
+        onPick: (folder: string) => Promise<void> | void;
+    } | null>(null);
+    const onMoveSingleToFolder = (key: string) => {
+        setPicker({
+            title: `Move "${key}" to folder`,
+            onPick: async (folder) => {
+                try {
+                    const r = await viewerApi.adminMoveKeysToFolder(scopeKey, [key], folder);
+                    if (r.failed.length > 0) {
+                        window.alert(r.failed.map((f) => `${f.key}: ${f.reason}`).join("\n"));
+                    }
+                    void request_list_of_files_from_server();
+                } catch (e) {
+                    window.alert(e instanceof Error ? e.message : String(e));
+                }
+            },
+        });
     };
-    const onFolderRenameOrMove = async (
+    const onFolderRenameOrMove = (
         folderPath: string,
         mode: "rename" | "moveInto",
     ) => {
-        const promptLabel =
-            mode === "rename"
-                ? `Rename folder "${folderPath}" to (sibling name, no slashes):`
-                : `Move folder "${folderPath}" into (destination prefix):`;
-        const input = window.prompt(promptLabel, "");
-        if (input === null) return;
-        const trimmedInput = input.trim().replace(/^\/+|\/+$/g, "");
-        if (!trimmedInput) {
-            window.alert("Destination required");
-            return;
-        }
-        let newPath: string;
+        const runMove = async (newPath: string) => {
+            if (newPath === folderPath) return;
+            try {
+                const allKeys = files.map((f) => f.name);
+                const r = await viewerApi.adminRenameOrMoveFolder(
+                    scopeKey, folderPath, newPath, allKeys,
+                );
+                if (r.failed.length > 0) {
+                    window.alert(r.failed.map((f) => `${f.key}: ${f.reason}`).join("\n"));
+                }
+                setExpandedFolders((prev) => {
+                    const next = new Set(prev);
+                    next.delete(folderPath);
+                    next.add(newPath);
+                    return next;
+                });
+                void request_list_of_files_from_server();
+            } catch (e) {
+                window.alert(e instanceof Error ? e.message : String(e));
+            }
+        };
         if (mode === "rename") {
+            const input = window.prompt(
+                `Rename folder "${folderPath}" to (sibling name, no slashes):`,
+                "",
+            );
+            if (input === null) return;
+            const trimmedInput = input.trim().replace(/^\/+|\/+$/g, "");
+            if (!trimmedInput) {
+                window.alert("Destination required");
+                return;
+            }
             if (trimmedInput.includes("/")) {
                 window.alert("Rename must be a single name; use Move folder into… for nested moves");
                 return;
             }
             const lastSlash = folderPath.lastIndexOf("/");
             const parent = lastSlash >= 0 ? folderPath.slice(0, lastSlash) : "";
-            newPath = parent ? `${parent}/${trimmedInput}` : trimmedInput;
-        } else {
-            const basename = folderPath.split("/").pop() ?? folderPath;
-            newPath = `${trimmedInput}/${basename}`;
+            void runMove(parent ? `${parent}/${trimmedInput}` : trimmedInput);
+            return;
         }
-        if (newPath === folderPath) return;
-        try {
-            const allKeys = files.map((f) => f.name);
-            const r = await viewerApi.adminRenameOrMoveFolder(
-                scopeKey, folderPath, newPath, allKeys,
-            );
-            if (r.failed.length > 0) {
-                window.alert(r.failed.map((f) => `${f.key}: ${f.reason}`).join("\n"));
-            }
-            setExpandedFolders((prev) => {
-                const next = new Set(prev);
-                next.delete(folderPath);
-                next.add(newPath);
-                return next;
-            });
-            void request_list_of_files_from_server();
-        } catch (e) {
-            window.alert(e instanceof Error ? e.message : String(e));
-        }
+        const basename = folderPath.split("/").pop() ?? folderPath;
+        setPicker({
+            title: `Move folder "${folderPath}" into`,
+            onPick: async (dest) => {
+                await runMove(`${dest}/${basename}`);
+            },
+        });
     };
     // Owned input — clicking it must happen synchronously inside the
     // button's onClick to preserve the user-activation gesture (iOS Safari
@@ -748,6 +759,17 @@ const StorageBrowser: React.FC = () => {
                     onClose={() => setGitHistoryOpen(false)}
                 />
             )}
+            <FolderPickerModal
+                open={picker !== null}
+                title={picker?.title ?? ""}
+                existingFolders={collectFolderPaths(files, (f) => f.name)}
+                onCancel={() => setPicker(null)}
+                onPick={(folder) => {
+                    const action = picker?.onPick;
+                    setPicker(null);
+                    if (action) void action(folder);
+                }}
+            />
             {inSelectionMode && (
                 <div
                     className={

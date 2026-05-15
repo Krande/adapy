@@ -111,6 +111,30 @@ export function loadExpandedFolders(
     return new Set();
 }
 
+// Collect every folder path that appears in the keys — useful for
+// "Move to folder…" pickers that need to offer the existing folders
+// as a dropdown. Returns sorted, deduplicated paths *without* the
+// empty root (a "move" to "" is meaningless; the caller can prepend
+// a "(root)" option if they want one). Includes intermediate parents
+// (e.g. ``a`` is included even if only ``a/b/c.ifc`` exists).
+export function collectFolderPaths<T>(
+    files: T[],
+    getPath: (file: T) => string,
+): string[] {
+    const seen = new Set<string>();
+    for (const f of files) {
+        const trimmed = getPath(f).replace(/^\/+/, "");
+        const parts = trimmed.split("/");
+        parts.pop();
+        let acc = "";
+        for (const seg of parts) {
+            acc = acc ? `${acc}/${seg}` : seg;
+            seen.add(acc);
+        }
+    }
+    return Array.from(seen).sort((a, b) => a.localeCompare(b));
+}
+
 export function saveExpandedFolders(
     namespace: string,
     scope: string,
