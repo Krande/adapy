@@ -10,6 +10,7 @@ import {
     loadExpandedFolders,
     saveExpandedFolders,
 } from "@/utils/storage/fileTree";
+import {KebabMenuItem, RowKebabMenu} from "@/components/common/RowKebabMenu";
 
 // Admin-only enriched storage view. Shows source format, size, upload
 // time, and the derived blobs already cached for each source. Houses
@@ -553,15 +554,15 @@ const StorageTab: React.FC = () => {
                     the surrounding overflow-auto then provides a
                     horizontal scrollbar instead of squishing everything
                     into unreadable mush. */}
-                <table className="hidden sm:table w-full text-sm table-fixed min-w-[1200px]">
+                <table className="hidden sm:table w-full text-sm table-fixed min-w-[900px]">
                     <colgroup>
                         <col className="w-[2.5rem]"/>
                         <col className="w-[24rem]"/>
+                        <col className="w-[8rem]"/>
+                        <col className="w-[6rem]"/>
                         <col className="w-[10rem]"/>
-                        <col className="w-[7rem]"/>
-                        <col className="w-[12rem]"/>
                         <col/>
-                        <col className="w-[18rem]"/>
+                        <col className="w-[3rem]"/>
                     </colgroup>
                     <thead className="sticky top-0 bg-gray-800 text-left">
                     <tr>
@@ -724,82 +725,134 @@ const SourceRow: React.FC<RowProps & {scope: string}> = ({
             <Td>
                 <div className="flex flex-wrap gap-1 items-center">
                     {file.derived.length === 0 && <span className="text-gray-500">—</span>}
-                    {file.derived.map((d) => {
-                        const busyDerived = busyKey === `${d.key}::delete`;
-                        return (
-                            <span key={d.key} className="inline-flex rounded overflow-hidden border border-gray-700">
-                                <button
-                                    className="bg-gray-800 hover:bg-gray-700 px-2 py-0.5 text-[11px]"
-                                    onClick={() => onDownload(d.key, suggestedName(file.key, d.format))}
-                                    title={`${d.key} (${formatBytes(d.size)})`}
-                                >
-                                    {d.format.toUpperCase()} ↓
-                                </button>
-                                <button
-                                    className="bg-red-900/70 hover:bg-red-800 px-1.5 text-[11px] text-gray-100 disabled:opacity-50"
-                                    onClick={() => onDeleteDerived(file.key, d.key, `${file.key} → ${d.format}`)}
-                                    disabled={busyDerived}
-                                    title="Delete cached derived blob (next Convert will regenerate it)"
-                                >
-                                    {busyDerived ? "…" : "×"}
-                                </button>
-                            </span>
-                        );
-                    })}
-                    {file.derived.length > 1 && (
+                    {/* Derived chips are informational + click-to-download. The
+                        per-blob delete and "delete all" actions live in the
+                        kebab now so the chips don't carry a destructive
+                        secondary button that's easy to mis-tap on mobile. */}
+                    {file.derived.map((d) => (
                         <button
-                            className="bg-red-900/70 hover:bg-red-800 px-2 py-0.5 rounded text-[11px] text-gray-100 disabled:opacity-50"
-                            onClick={() => onDeleteAllDerived(file)}
-                            disabled={busyDeletingAllDerived}
-                            title="Delete every cached derived blob for this source"
+                            key={d.key}
+                            className="bg-gray-800 hover:bg-gray-700 px-2 py-0.5 rounded text-[11px] border border-gray-700"
+                            onClick={() => onDownload(d.key, suggestedName(file.key, d.format))}
+                            title={`${d.key} (${formatBytes(d.size)})`}
                         >
-                            {busyDeletingAllDerived
-                                ? `Deleting… (${file.derived.length})`
-                                : `Delete all (${file.derived.length})`}
+                            {d.format.toUpperCase()} ↓
                         </button>
-                    )}
+                    ))}
                 </div>
             </Td>
             <Td>
-                <div className="flex flex-wrap gap-1 justify-end">
-                    {!file.orphan && (
-                        <button
-                            className="bg-gray-700 hover:bg-gray-600 px-2 py-0.5 rounded text-xs"
-                            onClick={() => onDownload(file.key, file.key)}
-                        >
-                            DL
-                        </button>
-                    )}
-                    {!file.orphan && runtime.convertEnabled() && downloadable.length > 0 && (
-                        <select
-                            disabled={busyConverting || false}
-                            className="bg-gray-700 hover:bg-gray-600 text-xs rounded px-1 py-0.5 disabled:opacity-50"
-                            value=""
-                            onChange={(e) => {
-                                const t = e.target.value as TargetFormat | "";
-                                e.target.value = "";
-                                if (t) onConvert(file.key, t);
-                            }}
-                        >
-                            <option value="">{busyConverting ? "…" : "Convert ▾"}</option>
-                            {downloadable.map((t) => (
-                                <option key={t} value={t}>{t.toUpperCase()}</option>
-                            ))}
-                        </select>
-                    )}
-                    <button
-                        className="bg-red-800 hover:bg-red-700 px-2 py-0.5 rounded text-xs disabled:opacity-50"
-                        onClick={() => onDelete(file.key, file.key)}
-                        disabled={busyDeleting}
-                        title="Delete source + all derived"
-                    >
-                        {busyDeleting ? "…" : "Delete"}
-                    </button>
+                <div className="flex justify-end">
+                    <RowKebabMenu
+                        ariaLabel={`More actions for ${file.key}`}
+                        disabled={busyDeleting || busyConverting || busyDeletingAllDerived}
+                        items={buildSourceMenuItems({
+                            file,
+                            busyKey,
+                            downloadable,
+                            onConvert,
+                            onDownload,
+                            onDelete,
+                            onDeleteDerived,
+                            onDeleteAllDerived,
+                        })}
+                    />
                 </div>
             </Td>
         </tr>
     );
 };
+
+// Assemble the kebab items for one source row. Pulled out so the
+// mobile SourceCard reuses the exact same list — keeps the two
+// presentations in lockstep when actions are added or reordered.
+function buildSourceMenuItems(args: {
+    file: AdminFileEntry;
+    busyKey: string | null;
+    downloadable: TargetFormat[];
+    onConvert: (sourceKey: string, target: TargetFormat) => void;
+    onDownload: (key: string, suggestedName: string) => void;
+    onDelete: (key: string, label: string) => void;
+    onDeleteDerived: (sourceKey: string, derivedKey: string, label: string) => void;
+    onDeleteAllDerived: (file: AdminFileEntry) => void;
+}): KebabMenuItem[] {
+    const {file, busyKey, downloadable, onConvert, onDownload, onDelete,
+        onDeleteDerived, onDeleteAllDerived} = args;
+    const items: KebabMenuItem[] = [];
+
+    if (!file.orphan) {
+        items.push({
+            key: "download-source",
+            label: "Download source",
+            onClick: () => onDownload(file.key, file.key),
+        });
+    }
+
+    if (!file.orphan && runtime.convertEnabled() && downloadable.length > 0) {
+        for (const t of downloadable) {
+            const busy = busyKey === `${file.key}::${t}`;
+            items.push({
+                key: `convert-${t}`,
+                label: busy ? `Converting to ${t.toUpperCase()}…` : `Convert to ${t.toUpperCase()}`,
+                disabled: busy,
+                onClick: () => onConvert(file.key, t),
+            });
+        }
+    }
+
+    if (file.derived.length > 0) {
+        items.push({
+            key: "sep-derived",
+            label: "",
+            onClick: () => {},
+            disabled: true,
+            separatorBefore: true,
+        });
+        // Skip the sentinel separator-only entry by giving the real
+        // first derived item the separator instead, then drop the
+        // sentinel. Cleaner than rendering an empty-label menu item.
+        items.pop();
+        let needSep = true;
+        for (const d of file.derived) {
+            const busy = busyKey === `${d.key}::delete`;
+            items.push({
+                key: `del-derived-${d.key}`,
+                label: busy ? `Deleting ${d.format.toUpperCase()}…` : `Delete cached ${d.format.toUpperCase()}`,
+                disabled: busy,
+                destructive: true,
+                separatorBefore: needSep,
+                title: "Next Convert will regenerate this derived blob",
+                onClick: () => onDeleteDerived(file.key, d.key, `${file.key} → ${d.format}`),
+            });
+            needSep = false;
+        }
+        if (file.derived.length > 1) {
+            const busyAll = busyKey === `${file.key}::delete-all-derived`;
+            items.push({
+                key: "del-all-derived",
+                label: busyAll
+                    ? `Deleting all (${file.derived.length})…`
+                    : `Delete all derived (${file.derived.length})`,
+                disabled: busyAll,
+                destructive: true,
+                onClick: () => onDeleteAllDerived(file),
+            });
+        }
+    }
+
+    const busyDelete = busyKey === `${file.key}::delete`;
+    items.push({
+        key: "delete-source",
+        label: busyDelete ? "Deleting…" : "Delete source + all derived",
+        disabled: busyDelete,
+        destructive: true,
+        separatorBefore: true,
+        title: "Permanently removes the source file and every cached derived blob",
+        onClick: () => onDelete(file.key, file.key),
+    });
+
+    return items;
+}
 
 interface CardProps extends RowProps {
     expanded: boolean;
@@ -828,6 +881,7 @@ const SourceCard: React.FC<CardProps> = ({
     const busyDeleting = busyKey === `${file.key}::delete`;
     const busyDeletingAllDerived = busyKey === `${file.key}::delete-all-derived`;
     const displayName = file.key.includes("/") ? file.key.split("/").pop() : file.key;
+    const kebabBusy = busyDeleting || busyConverting || busyDeletingAllDerived;
     return (
         <li className="px-3 py-3 text-xs" style={{paddingLeft: `${0.75 + depth * 1.0}rem`}}>
             <div className="flex items-start gap-2">
@@ -861,81 +915,31 @@ const SourceCard: React.FC<CardProps> = ({
                         {file.derived.length > 0 ? ` · ${file.derived.length} derived` : ""}
                     </div>
                 </button>
+                <div className="shrink-0">
+                    <RowKebabMenu
+                        ariaLabel={`More actions for ${file.key}`}
+                        disabled={kebabBusy}
+                        buttonClassName="h-9 w-9"
+                        items={buildSourceMenuItems({
+                            file, busyKey, downloadable,
+                            onConvert, onDownload, onDelete,
+                            onDeleteDerived, onDeleteAllDerived,
+                        })}
+                    />
+                </div>
             </div>
-            {expanded && (
-                <div className="mt-2 space-y-2">
-                    {file.derived.length > 0 && (
-                        <div className="flex flex-wrap gap-1 items-center">
-                            {file.derived.map((d) => {
-                                const busyDerived = busyKey === `${d.key}::delete`;
-                                return (
-                                    <span key={d.key} className="inline-flex rounded overflow-hidden border border-gray-700">
-                                        <button
-                                            className="bg-gray-800 hover:bg-gray-700 px-2 py-0.5 text-[11px]"
-                                            onClick={() => onDownload(d.key, suggestedName(file.key, d.format))}
-                                            title={`${d.key} (${formatBytes(d.size)})`}
-                                        >
-                                            {d.format.toUpperCase()} ↓
-                                        </button>
-                                        <button
-                                            className="bg-red-900/70 hover:bg-red-800 px-1.5 text-[11px] text-gray-100 disabled:opacity-50"
-                                            onClick={() => onDeleteDerived(file.key, d.key, `${file.key} → ${d.format}`)}
-                                            disabled={busyDerived}
-                                            title="Delete cached derived blob"
-                                        >
-                                            {busyDerived ? "…" : "×"}
-                                        </button>
-                                    </span>
-                                );
-                            })}
-                            {file.derived.length > 1 && (
-                                <button
-                                    className="bg-red-900/70 hover:bg-red-800 px-2 py-0.5 rounded text-[11px] text-gray-100 disabled:opacity-50"
-                                    onClick={() => onDeleteAllDerived(file)}
-                                    disabled={busyDeletingAllDerived}
-                                    title="Delete every cached derived blob for this source"
-                                >
-                                    {busyDeletingAllDerived
-                                        ? `Deleting… (${file.derived.length})`
-                                        : `Delete all (${file.derived.length})`}
-                                </button>
-                            )}
-                        </div>
-                    )}
-                    <div className="flex flex-wrap gap-1">
-                        {!file.orphan && (
-                            <button
-                                className="bg-gray-700 hover:bg-gray-600 px-2 py-1 rounded text-xs"
-                                onClick={() => onDownload(file.key, file.key)}
-                            >
-                                Download
-                            </button>
-                        )}
-                        {!file.orphan && runtime.convertEnabled() && downloadable.length > 0 && (
-                            <select
-                                disabled={busyConverting || false}
-                                className="bg-gray-700 hover:bg-gray-600 text-xs rounded px-2 py-1 disabled:opacity-50"
-                                value=""
-                                onChange={(e) => {
-                                    const t = e.target.value as TargetFormat | "";
-                                    e.target.value = "";
-                                    if (t) onConvert(file.key, t);
-                                }}
-                            >
-                                <option value="">{busyConverting ? "…" : "Convert ▾"}</option>
-                                {downloadable.map((t) => (
-                                    <option key={t} value={t}>{t.toUpperCase()}</option>
-                                ))}
-                            </select>
-                        )}
+            {expanded && file.derived.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-1 items-center">
+                    {file.derived.map((d) => (
                         <button
-                            className="bg-red-800 hover:bg-red-700 px-2 py-1 rounded text-xs disabled:opacity-50"
-                            onClick={() => onDelete(file.key, file.key)}
-                            disabled={busyDeleting}
+                            key={d.key}
+                            className="bg-gray-800 hover:bg-gray-700 px-2 py-0.5 rounded text-[11px] border border-gray-700"
+                            onClick={() => onDownload(d.key, suggestedName(file.key, d.format))}
+                            title={`${d.key} (${formatBytes(d.size)})`}
                         >
-                            {busyDeleting ? "…" : "Delete"}
+                            {d.format.toUpperCase()} ↓
                         </button>
-                    </div>
+                    ))}
                 </div>
             )}
         </li>
