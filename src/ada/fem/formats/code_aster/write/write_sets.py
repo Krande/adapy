@@ -146,9 +146,25 @@ def _set_to_tags(sets, data, tag_start_int, tags, id_map=None):
     return tagged_data
 
 
+_MED_NAME_SIZE = 64  # libmed MED_NAME_SIZE — family group name must fit in this many bytes
+
+
 def _family_name(set_id, name):
-    """Return the FAM object name corresponding to the unique set id and a list of subset names"""
-    return "FAM" + "_" + str(set_id) + "_" + "_".join(name)
+    """Return the FAM object name corresponding to the unique set id and a list of subset names.
+
+    Defensive: dedupes the name list (preserving order) and truncates
+    the joined result so the full group name stays under libmed's
+    ``MED_NAME_SIZE`` cap. The leading ``FAM_<id>_`` already guarantees
+    uniqueness via the numeric id, so truncating the joined names
+    portion can't cause name collisions.
+    """
+    deduped = list(dict.fromkeys(name))
+    prefix = "FAM_" + str(set_id) + "_"
+    budget = _MED_NAME_SIZE - len(prefix)
+    joined = "_".join(deduped)
+    if len(joined) > budget:
+        joined = joined[:budget]
+    return prefix + joined
 
 
 def _write_families(fm_group, tags):
