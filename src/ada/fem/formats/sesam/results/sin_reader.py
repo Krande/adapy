@@ -402,14 +402,24 @@ def _decode_type_block(
     # read both halves as u32 then take every other element — for
     # huge tables (RVFORCES at 20 M entries) this is 80 MiB of
     # int64 vs 600 MiB of Python ints.
+    #
+    # The pointer table is 1-based: slot[0] is a zero sentinel and
+    # records live at slots[1..N]. dims=(N,) therefore needs N+1
+    # actual slots, otherwise the last record (id N) falls off the
+    # end. Without this, multi-SE files like EigenR100 lose one
+    # node/element per super-element — and the missing element
+    # references a node that then looks out-of-bounds to the trimesh
+    # builder.
     import numpy as np
     file_end = len(data)
-    n_words = total_records * 2  # 2 u32 per slot
+    slot_count = total_records + 1
+    n_words = slot_count * 2  # 2 u32 per slot
     max_bytes = pointer_table_offset + n_words * 4
     if max_bytes > file_end:
         n_words = max(0, (file_end - pointer_table_offset) // 4)
         n_words -= n_words & 1  # even number of u32s
-        total_records = n_words // 2
+        slot_count = n_words // 2
+    total_records = slot_count
     if n_words > 0:
         u32_pairs = np.frombuffer(
             data, dtype=np.uint32, count=n_words, offset=pointer_table_offset,
