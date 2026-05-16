@@ -421,22 +421,30 @@ def _via_fea_result(
     step: int | None = None,
     field: str | None = None,
 ) -> bytes:
-    """Sesam SIF (text result deck) → GLB tessellated visualisation.
+    """Sesam SIF / SIN result deck → GLB tessellated visualisation.
 
-    Uses ``read_sif_file`` to parse the deck into a ``FEAResult`` and
-    ``FEAResult.to_gltf`` to write a coloured/warped GLB. When the
-    caller leaves step/field unset we fall back to the first available
-    pair so an auto-convert at upload time still produces something
-    viewable.
+    Routes by extension: ``.sif`` (text) → :func:`read_sif_file`;
+    ``.sin`` (Norsam binary) → :func:`read_sin_file` (the pure-Python
+    direct path, no SIF text intermediate). Both yield the same
+    :class:`FEAResult` shape, then :meth:`FEAResult.to_gltf` writes a
+    coloured/warped GLB. When the caller leaves step/field unset we
+    fall back to the first available pair so an auto-convert at
+    upload time still produces something viewable.
     """
     if target_format != "glb":
         raise UnsupportedFormat(
-            f"SIF can only target glb, got {target_format!r}"
+            f"Sesam results can only target glb, got {target_format!r}"
         )
-    from ada.fem.formats.sesam.results.read_sif import read_sif_file
 
     on_progress("parsing", 0.10)
-    result = read_sif_file(str(src_path))
+    if src_path.suffix.lower() == ".sin":
+        from ada.fem.formats.sesam.results.read_sin import read_sin_file
+
+        result = read_sin_file(str(src_path))
+    else:
+        from ada.fem.formats.sesam.results.read_sif import read_sif_file
+
+        result = read_sif_file(str(src_path))
 
     on_progress("selecting-field", 0.50)
     if step is None or field is None:

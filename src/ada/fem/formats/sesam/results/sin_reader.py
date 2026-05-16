@@ -20,10 +20,11 @@ is random-access by design).
 """
 from __future__ import annotations
 
+import mmap
 import struct
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterator
+from typing import IO, Any, Iterator
 
 PREAMBLE = 0x803
 NAME_LEN = 8
@@ -42,13 +43,47 @@ def _read_u32_slot(data: bytes, off: int) -> int:
     return struct.unpack_from("<I", data, off + SLOT_VALUE_OFFSET)[0]
 
 
-def iter_named_blocks(data: bytes) -> Iterator[tuple[int, str]]:
+_NAME_BODY = set(b"ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
+_NAME_FIRST = set(b"ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+
+
+def _is_block_name(raw: bytes) -> bool:
+    """Return True iff ``raw`` looks like a real SIF type name.
+
+    Real names are uppercase ASCII letters + optional trailing digits,
+    space-padded to ``NAME_LEN`` (e.g. ``"GNODE   "``, ``"RVNODDIS"``,
+    ``"GELMNT1 "``). The 4-byte preamble pattern (``0x00000803``) does
+    occur inside record data; the previous "any printable ASCII"
+    filter let those false positives through (``"FILENAME"`` appeared
+    inside the NORSAM record on real-world files). This filter rules
+    them out by requiring the first byte to be an uppercase letter
+    and disallowing embedded spaces / lowercase / punctuation.
+    """
+    if not raw or raw[0] not in _NAME_FIRST:
+        return False
+    saw_space = False
+    for b in raw:
+        if b == 0x20:  # trailing-space pad — only valid after the name body
+            saw_space = True
+            continue
+        if saw_space:
+            return False
+        if b not in _NAME_BODY:
+            return False
+    return True
+
+
+def iter_named_blocks(data: Any) -> Iterator[tuple[int, str]]:
     """Yield ``(preamble_offset, name)`` for every block in ``data``.
 
     A block is a 4-byte preamble equal to :data:`PREAMBLE` followed
     by an 8-byte ASCII name (space-padded). Catches the four file-
     header records (NORSAM / ALLOCATE / RESULTS / IEND) plus every
     per-type data block.
+
+    Accepts any object that supports ``.find(needle, pos)`` and
+    ``__getitem__`` with byte slices — both ``bytes`` and
+    ``mmap.mmap`` qualify.
     """
     needle = struct.pack("<I", PREAMBLE)
     i = 0
@@ -57,10 +92,8 @@ def iter_named_blocks(data: bytes) -> Iterator[tuple[int, str]]:
         if i < 0:
             return
         if i + 4 + NAME_LEN <= len(data):
-            raw = data[i + 4 : i + 4 + NAME_LEN]
-            # ASCII-printable name → real block; rules out the same
-            # 0x803 byte sequence appearing inside numeric record data.
-            if all(32 <= b < 127 for b in raw):
+            raw = bytes(data[i + 4 : i + 4 + NAME_LEN])
+            if _is_block_name(raw):
                 yield i, raw.decode("ascii").rstrip()
         i += 1
 
@@ -209,17 +242,49 @@ def _decode_type_block(
 class SinFile:
     """Top-level handle for an opened ``.sin`` file.
 
-    The file is read fully into ``_data`` (typical SIN files are well
-    under 100 MB and random access by design). Use :meth:`types` to
-    list every data type present and :meth:`iter_records` to walk a
-    type's records as flat float32 tuples (one per record, length
-    ``nfield``).
+    Backed by an :class:`mmap.mmap` so the OS pages bytes in on demand
+    — a 5 GB SIN doesn't pin 5 GB of RSS; cold pages get reclaimed
+    under memory pressure. Use :meth:`types` to list every data type
+    present and :meth:`iter_records` to walk a type's records as flat
+    float32 tuples (one per record, length ``nfield``).
+
+    Treat ``_data`` as opaque bytes-like; it satisfies the buffer
+    protocol that ``struct.unpack_from`` and ``bytes.find`` need.
     """
 
     path: Path
-    _data: bytes = field(repr=False)
+    # mmap.mmap satisfies the buffer protocol that struct.unpack_from
+    # and bytes.find expect; we keep the type hint loose so the type
+    # checker doesn't object to .find / slicing on either bytes or mmap.
+    _data: Any = field(repr=False)
+    _fh: IO[bytes] | None = field(default=None, repr=False)
     header_blocks: list[tuple[int, str]] = field(default_factory=list)
     type_blocks: dict[str, TypeBlock] = field(default_factory=dict)
+
+    def close(self) -> None:
+        """Release the mmap + file handle.
+
+        Idempotent — safe to call multiple times. After ``close()`` the
+        :class:`SinFile` is unusable; reads will raise ``ValueError``.
+        """
+        if isinstance(self._data, mmap.mmap):
+            try:
+                self._data.close()
+            except (ValueError, BufferError):
+                pass
+        self._data = b""
+        if self._fh is not None:
+            try:
+                self._fh.close()
+            except Exception:
+                pass
+            self._fh = None
+
+    def __enter__(self) -> "SinFile":
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self.close()
 
     def __post_init__(self) -> None:
         blocks = list(iter_named_blocks(self._data))
@@ -237,9 +302,16 @@ class SinFile:
                 block = _decode_type_block(self._data, off, next_off)
             except Exception:
                 continue
-            # Drop false-positive matches: real type blocks always have
-            # a sensible NFIELD (≥ 2) and at least one dim.
-            if block.nfield < 2 or not block.dims:
+            # Drop false-positive matches: real type blocks have
+            # bounded NFIELD / type_flag values. The 0x803 preamble
+            # pattern can occur inside NORSAM's filename field (where
+            # the surrounding bytes happen to look like a printable
+            # name like "FILENAME") — sane bounds filter those out.
+            if not (2 <= block.nfield <= 64):
+                continue
+            if not (0 <= block.type_flag <= 255):
+                continue
+            if not block.dims:
                 continue
             # Last writer wins on duplicate names — shouldn't happen in
             # well-formed SIN files but guard against junk matches.
@@ -347,9 +419,21 @@ class SinFile:
 
 
 def open_sin(path: str | Path) -> SinFile:
-    """Open a ``.sin`` file and decode its block index."""
+    """Open a ``.sin`` file (memory-mapped) and decode its block index.
+
+    Uses ``mmap`` so a multi-GB SIN doesn't load resident — the OS
+    pages bytes in on access. The file handle and mapping live on the
+    returned :class:`SinFile`; call :meth:`SinFile.close` (or use it
+    as a context manager) to release them.
+    """
     p = Path(path)
-    return SinFile(path=p, _data=p.read_bytes())
+    fh = open(p, "rb")
+    try:
+        mm = mmap.mmap(fh.fileno(), 0, access=mmap.ACCESS_READ)
+    except Exception:
+        fh.close()
+        raise
+    return SinFile(path=p, _data=mm, _fh=fh)
 
 
 __all__ = [
