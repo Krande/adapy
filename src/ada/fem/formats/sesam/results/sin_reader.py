@@ -97,6 +97,52 @@ def _validate_first_record(data: Any, block: "TypeBlock") -> bool:
     return True
 
 
+def _truncate_pointer_table(data: Any, ptrs: Any) -> int:
+    """Return the index of the first non-zero invalid pointer in *ptrs*.
+
+    On multi-super-element files (e.g. EigenR100, 13 SEs, 5.4 GB),
+    huge RV* tables encode ``dims`` as a CAP (~20 M) rather than the
+    real populated count. Walking all 20 M slots reads record bytes
+    that happen to encode small floats (NFIELD=11.0 → 0x41300000 ≈
+    1.09 GB as an int → still in-file) as if they were pointers,
+    producing millions of phantom records.
+
+    The cutoff is detectable cheaply: real pointers either are 0
+    (sparse slot) or point to a byte whose float32 is a sane NFIELD
+    in [1, 1024]. The first non-zero pointer that fails this check
+    marks the end of the real table; everything after is record-data
+    being misread.
+
+    Numpy-vectorised so the 1.17 M × 200 mode RVNODDIS table on
+    EigenR100 (~150 MiB of pointer bytes) validates in well under a
+    second without per-entry Python overhead.
+    """
+    import numpy as np
+    if ptrs.size == 0:
+        return 0
+    file_end = len(data)
+    nonzero = ptrs != 0
+    nfield_bytes = (ptrs - 1) * 4
+    in_bounds = (nfield_bytes >= 0) & (nfield_bytes + 4 <= file_end)
+    # Float view over the whole mmap; gather only the bytes we need.
+    # Word index 0 is a safe placeholder for out-of-bounds rows so
+    # the fancy-index can't raise — they get masked out below.
+    as_f32 = np.frombuffer(data, dtype=np.float32)
+    word_idx = np.where(in_bounds & nonzero, nfield_bytes // 4, 0).astype(np.int64)
+    nfield_at = as_f32[word_idx]
+    # NFIELD must be a positive integer in [1, 1024]. NaN/inf compare
+    # False; casting to int32 then back catches non-integer floats.
+    # The cast warns on NaN/inf — they're expected (garbage tail of
+    # the table) and get masked out by the range check anyway.
+    with np.errstate(invalid="ignore"):
+        nfield_int = nfield_at.astype(np.int32).astype(np.float32)
+    nfield_like = (nfield_at == nfield_int) & (nfield_at >= 1.0) & (nfield_at <= 1024.0)
+    invalid = nonzero & ~(in_bounds & nfield_like)
+    if not invalid.any():
+        return int(ptrs.size)
+    return int(np.argmax(invalid))
+
+
 def _find_preamble(data: Any, start: int, stop: int) -> int:
     """Return offset of the next 0x803 preamble in ``data[start:stop]``,
     or -1 if not found. Wraps the bytes/mmap ``.find`` API."""
@@ -371,6 +417,16 @@ def _decode_type_block(
         pointer_table = u32_pairs[1::2].astype(np.int64).copy()
     else:
         pointer_table = np.empty(0, dtype=np.int64)
+
+    # Truncate the pointer table at the first non-zero invalid pointer.
+    # ``dims`` is a CAP for huge multi-SE RV* tables (EigenR100 reports
+    # ~20 M but the real count is 200 modes × N nodes/elements). Without
+    # this, walking the table yields millions of phantom records pulled
+    # from record-data bytes being misread as pointers.
+    real_count = _truncate_pointer_table(data, pointer_table)
+    if real_count < pointer_table.size:
+        pointer_table = pointer_table[:real_count].copy()
+        total_records = real_count
 
     records_start = pointer_table_offset + total_records * SLOT_STRIDE
 

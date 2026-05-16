@@ -201,6 +201,43 @@ def test_read_sin_metadata_cantilever():
     )
 
 
+def test_truncate_pointer_table_finds_cutoff():
+    """Validate the cap-vs-real-count truncation that keeps huge
+    multi-SE RV* tables (EigenR100: dims=20 M, real=1.17 M) honest.
+
+    Build a synthetic mmap with:
+      - 2 real records (NFIELD=11.0 at known byte offsets)
+      - then a "garbage" pointer that points to a non-NFIELD float
+    Confirm the truncator stops exactly at the first garbage entry.
+    """
+    from ada.fem.formats.sesam.results.sin_reader import _truncate_pointer_table
+
+    # Layout: bytes 0..7 = NFIELD prefix (float 11.0), bytes 8..15 = data,
+    # bytes 16..23 = NFIELD prefix again, bytes 24..31 = data,
+    # bytes 32..35 = garbage (float 0.0 — fails NFIELD check).
+    buf = bytearray(64)
+    nfield_bytes = np.array([11.0, 11.0], dtype=np.float32).tobytes()
+    np_buf = np.frombuffer(buf, dtype=np.uint8)
+    np_buf_writable = bytearray(buf)
+    np_buf_writable[0:4] = nfield_bytes[0:4]   # NFIELD at byte 0
+    np_buf_writable[16:20] = nfield_bytes[4:8]  # NFIELD at byte 16
+    # bytes 32..35 left zero → float 0.0, not in [1, 1024]
+    data = bytes(np_buf_writable)
+
+    # Word offsets (1-indexed, ×4 bytes): byte 0 → word_ptr=1, byte 16 → 5,
+    # byte 32 → 9 (this one points to NFIELD=0.0 = garbage).
+    pt = np.array([0, 1, 5, 9, 1, 5], dtype=np.int64)
+    cutoff = _truncate_pointer_table(data, pt)
+    assert cutoff == 3, f"expected cutoff at slot[3] (first garbage), got {cutoff}"
+
+    # All-valid case: no truncation.
+    pt_all_valid = np.array([0, 1, 5, 1, 5], dtype=np.int64)
+    assert _truncate_pointer_table(data, pt_all_valid) == 5
+
+    # Empty case.
+    assert _truncate_pointer_table(data, np.empty(0, dtype=np.int64)) == 0
+
+
 def test_sin_registered_in_stream_readers():
     """``.sin`` shows up in the streaming-reader registry and the
     factory returns a usable adapter — the viewer's bake worker
