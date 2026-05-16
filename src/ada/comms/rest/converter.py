@@ -66,7 +66,7 @@ _BUNDLE_EXTS: frozenset[str] = frozenset({".zip"})
 # (step, field) pair. Distinct from `_ADA_LOADABLE_EXTS` because the
 # producer is `read_sif_file` → `FEAResult`, not a `Part/Assembly`,
 # and the export call signature is different (see `_via_fea_result`).
-_FEA_RESULT_EXTS: frozenset[str] = frozenset({".sif"})
+_FEA_RESULT_EXTS: frozenset[str] = frozenset({".sif", ".sin"})
 
 # FEA result files supported by the streaming-viewer bake endpoint
 # (`/api/scopes/{scope}/fea/manifest`) but NOT by the legacy
@@ -81,7 +81,7 @@ _STREAMING_FEA_EXTS: frozenset[str] = frozenset({".rmed"})
 # module — it transitively pulls ada.fem.results.common which the
 # image doesn't carry. Keep both in sync; there's no shared parent
 # module both can import.
-FEA_ARTEFACT_SOURCE_EXTS: frozenset[str] = frozenset({".rmed", ".sif"})
+FEA_ARTEFACT_SOURCE_EXTS: frozenset[str] = frozenset({".rmed", ".sif", ".sin"})
 
 # Union of source extensions the legacy /convert pipeline knows how
 # to handle (any target). Used by /api/config to compute the

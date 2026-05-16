@@ -511,14 +511,37 @@ def read_sif_file(sif_file: str | pathlib.Path) -> FEAResult:
 
 
 def read_sin_file(sin_file: str | pathlib.Path, overwrite=False) -> FEAResult:
-    if isinstance(sin_file, str):
-        sin_file = pathlib.Path(sin_file)
-    sif_file = sin_file.with_suffix(".SIF")
+    """Read a Sesam SIN / SIF result file → :class:`FEAResult`.
 
-    if not sif_file.exists() or overwrite:
-        convert_sin_to_sif(sin_file)
+    Despite the name, this is the Sesam-side post-processor entry
+    point (``SesamSetup.default_post_processor``) — ``from_fem_res``
+    funnels both ``.sif`` (text) and ``.sin`` (Norsam binary) here.
 
-    return read_sif_file(sif_file)
+    Routes by extension:
+
+    * ``.sif`` → :func:`read_sif_file` (existing text-parser path).
+    * ``.sin`` → :func:`ada.fem.formats.sesam.results.read_sin.read_sin_file`
+      — pure-Python direct path: SIN bytes → :class:`SinReader` (mirrors
+      SifReader's internal state) → :class:`Sif2Mesh` → FEAResult.
+      No Prepost.exe shell-out, no SIF text intermediate, no .NET
+      dependency. A standalone SIN-to-SIF text path lives in
+      :mod:`sin_to_sif` for debugging / interop only — not on the
+      streaming-bake hot path.
+
+    ``overwrite=True`` (legacy callers) materialises a SIF file next
+    to the SIN and routes through :func:`read_sif_file` for back-compat.
+    """
+    sin_file = pathlib.Path(sin_file)
+    if sin_file.suffix.lower() == ".sif":
+        return read_sif_file(sin_file)
+    if overwrite:
+        from ada.fem.formats.sesam.results.sin_to_sif import convert_sin_to_sif_file
+
+        sif_path = convert_sin_to_sif_file(sin_file)
+        return read_sif_file(sif_path)
+    from ada.fem.formats.sesam.results.read_sin import read_sin_file as _native_read_sin
+
+    return _native_read_sin(sin_file)
 
 
 @dataclass

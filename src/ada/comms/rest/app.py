@@ -51,6 +51,9 @@ from .storage import Storage
 # bytes via Storage.get_bytes.
 _GZIP_UPLOAD_EXTS: frozenset[str] = frozenset(
     {".ifc", ".step", ".stp", ".xml", ".inp", ".fem", ".sat", ".acis", ".sif"}
+    # .sin is already binary (Norsam direct-access) so gzip rarely
+    # helps and the slim API container's allowlist gates uploads
+    # separately via FEA_ARTEFACT_SOURCE_EXTS — see converter.py.
 )
 
 # Hard cap on the regular API-buffered upload path. Above this we make
@@ -1047,7 +1050,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 raise HTTPException(
                     status_code=415,
                     detail=(
-                        f"streaming FEA viewer only supports .rmed / .sif "
+                        f"streaming FEA viewer only supports .rmed / .sif / .sin "
                         f"or worker-advertised stream readers; got {source_key!r}"
                     ),
                 )
@@ -1856,6 +1859,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         ".acis": "ACIS",
         ".zip": "Bundle (zip)",
         ".sif": "Sesam Result (sif)",
+        ".sin": "Sesam Result (sin, Norsam binary)",
     }
 
     def _format_label(key: str) -> str:

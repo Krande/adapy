@@ -32,22 +32,24 @@ import {viewerApi} from "@/services/viewerApi";
 import {useMeStore} from "@/state/meStore";
 
 // Files that carry per-(step, field) result data and benefit from the
-// picker UI. SIF is the only one in REST mode today; new formats land
+// picker UI. .sif (Sesam text) and .sin (Sesam Norsam binary) both
+// carry the same record schema and converter; new formats land
 // here when their converter learns to honor (step, field).
 function isFEAResult(name: string): boolean {
-    return name.toLowerCase().endsWith(".sif");
+    const lower = name.toLowerCase();
+    return lower.endsWith(".sif") || lower.endsWith(".sin");
 }
 
 // Files that flow through the streaming-viewer artefact bake (mesh
-// GLB + per-field blobs + manifest). Static set: .sif and .rmed are
-// adapy-native streaming sources. Capability workers (e.g. abaqus
-// .odb / .sqlite) advertise additional extensions through
+// GLB + per-field blobs + manifest). Static set: .sif, .sin, and
+// .rmed are adapy-native streaming sources. Capability workers (e.g.
+// abaqus .odb / .sqlite) advertise additional extensions through
 // /api/config → window.STREAMING_ONLY_EXTS; honoring that here is
 // what keeps a plug-in's stream-readable formats from accidentally
 // hitting the legacy /convert pipeline (415) on click.
 function isStreamingFEAResult(name: string): boolean {
     const lower = name.toLowerCase();
-    if (lower.endsWith(".sif") || lower.endsWith(".rmed")) return true;
+    if (lower.endsWith(".sif") || lower.endsWith(".sin") || lower.endsWith(".rmed")) return true;
     for (const e of runtime.streamingOnlyExts()) {
         const norm = e.startsWith(".") ? e.toLowerCase() : `.${e.toLowerCase()}`;
         if (lower.endsWith(norm)) return true;

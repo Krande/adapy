@@ -2117,12 +2117,22 @@ def _make_sif_reader(path: pathlib.Path) -> "FEAStreamReader":
     return FEAResultStreamAdapter(read_sif_file(path))
 
 
+def _make_sin_reader(path: pathlib.Path) -> "FEAStreamReader":
+    # Pure-Python Sesam Norsam-binary reader (see
+    # ada.fem.formats.sesam.results.read_sin). No Prepost.exe shell-out
+    # and no SIF text intermediate — feeds the streaming bake directly.
+    from ada.fem.formats.sesam.results.read_sin import read_sin_file
+
+    return FEAResultStreamAdapter(read_sin_file(path))
+
+
 def _ensure_builtin_stream_readers() -> None:
     if getattr(_ensure_builtin_stream_readers, "_done", False):
         return
     # setdefault: a downstream registration for the same suffix wins.
     _STREAM_READERS.setdefault(".rmed", _make_rmed_reader)
     _STREAM_READERS.setdefault(".sif", _make_sif_reader)
+    _STREAM_READERS.setdefault(".sin", _make_sin_reader)
     _ensure_builtin_stream_readers._done = True  # type: ignore[attr-defined]
 
 
