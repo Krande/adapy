@@ -701,6 +701,12 @@ class Sif2Mesh:
         nsp_i, eltyp_i = cards.RDPOINTS.get_indices_from_names(["nsp", "ieltyp"])
 
         rdpoints_map = self.sif.get_rdpoints_map()
+        # No element result-point geometry → no per-element force
+        # visualisation we can construct. EigenR100 ships RDPOINTS as
+        # an empty type-block in every super-element; the nodal field
+        # path still works and is the primary bake output.
+        if not rdpoints_map:
+            return []
 
         def keyfunc(x):
             iielno = x[ielno_i]
