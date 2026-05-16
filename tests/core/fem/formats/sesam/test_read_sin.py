@@ -98,6 +98,31 @@ def test_sin_iter_records_matches_sif_for_gnode_gcoord(sin_file):
             assert sif_r == pytest.approx(list(sin_r), rel=1e-6)
 
 
+def test_sin_header_control_fields_decoded(sin_file):
+    """slot[2] (type-flag enum) and slot[3] (ptr-table cross-check)
+    decode to the values reverse-engineered from the cantilever fixture.
+
+    ``ptr_table_word * 8`` must point exactly to the first pointer
+    slot's value field — that's the invariant the NDIM derivation
+    relies on, so guard it explicitly."""
+    expected_flags = {
+        # Norsam type-class enum (see TypeBlock.type_flag docstring).
+        "GNODE": 31, "GELMNT1": 31,
+        "GCOORD": 21, "GELREF1": 21, "GELTH": 21, "BNBCD": 21,
+        "MISOSEL": 20,
+        "RDPOINTS": 2, "RVNODDIS": 2, "RVSTRESS": 2,
+        "RDSTRESS": 1, "RDIELCOR": 1, "RDRESREF": 1,
+        "TDMATER": 41, "TDRESREF": 41,
+    }
+    for name, flag in expected_flags.items():
+        b = sin_file.type_blocks[name]
+        assert b.type_flag == flag, f"{name}: type_flag"
+        # ptr_table_word cross-check anchors the pointer table.
+        assert b.ptr_table_word * 8 == b.pointer_table_offset + 4, (
+            f"{name}: ptr_table_word inconsistent with pointer_table_offset"
+        )
+
+
 def test_sin_iter_text_records_decodes_material_name(sin_file):
     records = list(sin_file.iter_text_records("TDMATER"))
     assert len(records) == 1

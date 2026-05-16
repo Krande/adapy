@@ -87,28 +87,65 @@ offset  field           example values
 +0x0C   unknown (3 ×    0, 0, 0
         u32, zero)
 +0x18   NFIELD (u32)    5 (GNODE), 5 (GCOORD), 7 (RVNODDIS)
-+0x20   ?control (u32)  GCOORD=21, GNODE=31, RVNODDIS=2
-+0x28   ?size   (u32)   GCOORD=2652, GNODE=1032, RVNODDIS=21956
-+0x30   ?dim[0] (u32)   GCOORD=403, GNODE=403, RVNODDIS=1
-+0x38   ?dim[0] (u32)   (repeated — allocated vs used?)
-+0x40   ?dim[1] (u32)   only present for 2-D types:
-                        RVNODDIS=403; GCOORD/GNODE skip straight to pointers
-+...    pointer table   n × u64 word-offsets (low-32 used)
++0x20   type_flag (u32) Norsam type-class enum (see table below)
++0x28   ptr_table_word  64-bit-word offset of slot[6]'s value field
+        (u32)           — i.e. the first entry of the pointer table.
+                        Redundant cross-check; lets the decoder derive
+                        NDIM deterministically (see below).
++0x30   cap[0]  (u32)   allocated capacity of dim 0
++0x38   pop[0]  (u32)   populated count of dim 0 (≤ cap[0])
++0x40   cap[1]  (u32)   only present for 2-D types (RVNODDIS,
+                        RVSTRESS, RDPOINTS); 1-D types (GNODE,
+                        GCOORD …) skip straight to the pointer table.
++0x48   pop[1]  (u32)
++...    pointer table   n × u64 word-offsets (low-32 used);
+                        n = prod(pop[i])
 +...    record stream   tightly packed float32 records,
                         each NFIELD wide + 1 pad word to even count
 ```
 
-### Open questions in the header
+### NDIM derivation (from `ptr_table_word`)
 
-* Field at +0x20 (the "21 / 31 / 2") — likely a packed type-descriptor
-  bitmask, *not* a count (varies across types in a non-obvious way).
-* Field at +0x28 — looks like a section-total byte count or pointer
-  forward into the data stream (the 2D-table sizes don't divide
-  cleanly into 403 × record-stride).
-* The "repeat" of `dim[i]` twice may distinguish *allocated* capacity
-  from *populated* count — `BNBCD` was the only type with `dims =
-  [200]` despite `count = 13`, so the first slot is likely capacity
-  and the second is population.
+The pointer-table offset is `ptr_table_word * 8` (bytes). Working
+backwards through the slot layout:
+
+```
+pointer_table_offset = ptr_table_word * 8 - 4   # slot value lives at slot_off+4
+dim_slots            = (pointer_table_offset - payload) / 8 - 4
+NDIM                 = dim_slots / 2
+```
+
+Verified on the cantilever fixture (`GNODE → NDIM=1`,
+`RVNODDIS → NDIM=2`). The earlier cap-vs-pop walk is retained as a
+fallback for malformed/older files where `ptr_table_word` is zero.
+
+### `type_flag` (slot at +0x20) — empirical enum
+
+The value at +0x20 is a per-type class tag. Pattern observed across
+the cantilever fixture:
+
+| value | types                                         | rough semantics                |
+|-------|-----------------------------------------------|--------------------------------|
+|  0    | `PTAB`                                        | pointer table for the file itself |
+|  1    | `RDSTRESS`, `RDIELCOR`, `RDRESREF`            | result-definition records (1-D, NFIELD=5) |
+|  2    | `RDPOINTS`, `RVNODDIS`, `RVSTRESS`            | 2-D result-vector tables       |
+| 20    | `MISOSEL`                                     | material/section scalars       |
+| 21    | `GCOORD`, `GELREF1`, `GELTH`, `BNBCD`         | mixed-int/float tables with id header |
+| 31    | `GNODE`, `GELMNT1`                            | all-int tables (variable per-record NFIELD) |
+| 41    | `TDMATER`, `TDRESREF`                         | text-tagged records            |
+
+It's clearly a small enum, not a bitmask in any obvious sense (none
+of the bit patterns line up with NFIELD or with the int/float field
+makeup). The reader stores it on `TypeBlock.type_flag` for
+diagnostics but never *consumes* it — pointer-table walking + per-
+record NFIELD is sufficient to read every type encountered so far.
+
+### Capacity vs population
+
+The `cap[i]` / `pop[i]` pair distinguishes allocated table size from
+written rows: `BNBCD` shows `cap=200, pop=200, count=13` (the table
+was sized for 200 boundary cards but only 13 records have been
+populated — the rest of the pointer table is zeros).
 
 ### Pointer table → record decode
 

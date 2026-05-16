@@ -74,11 +74,28 @@ class TypeBlock:
     record — multiply by 4 for byte offset. Records with a zero
     pointer represent unused capacity slots (the SIF spec allows
     pre-allocated tables with ``populated < capacity``).
+
+    ``type_flag`` (slot[2], "+0x20") is a Norsam type-class enum: 31
+    for "all-int" tables (GNODE, GELMNT1), 21 for mixed-int/float
+    tables with header id (GCOORD, GELREF1, GELTH, BNBCD), 20 for
+    material/section scalars (MISOSEL), 2 for 2-D result-vector
+    tables (RVNODDIS, RVSTRESS, RDPOINTS), 1 for result-definition
+    records (RDSTRESS, RDIELCOR, RDRESREF), 41 for text-tagged
+    records (TDMATER, TDRESREF), 0 for the PTAB pointer table itself.
+    Stored for diagnostics; the reader doesn't consume it.
+
+    ``ptr_table_word`` (slot[3], "+0x28") is a redundant cross-check
+    that holds the 8-byte-word offset of slot[6] (== the first
+    pointer slot's value field). The decoder uses this to derive
+    ``ndim`` deterministically instead of relying on a cap-vs-pop
+    heuristic.
     """
 
     preamble_offset: int
     name: str
     nfield: int
+    type_flag: int
+    ptr_table_word: int
     ndim: int
     dims: tuple[int, ...]  # populated count per dimension
     capacity: tuple[int, ...]  # allocated capacity per dimension
@@ -106,45 +123,64 @@ def _decode_type_block(
     # Payload (slot stream) starts right after the 8-byte name.
     payload = preamble_off + 4 + NAME_LEN
 
-    # slot[0] is always a zero slot. NFIELD is at slot[1].
+    # Header slot layout:
+    #   slot[0]: zero pad (always 0)
+    #   slot[1]: NFIELD — base record width in 32-bit words
+    #   slot[2]: type-flag enum (see TypeBlock.type_flag)
+    #   slot[3]: ptr_table_word — 8-byte-word offset of slot[6]'s
+    #            value field == first pointer entry. Lets us derive
+    #            NDIM deterministically:
+    #              NDIM = ((ptr_table_word*8 - 4 - payload) / 8 - 4) / 2
+    #   slot[4..4+2*NDIM-1]: (capacity, populated) pairs
+    #   slot[4+2*NDIM..]:    pointer table (NDIM-flattened)
     nfield = _read_u32_slot(data, payload + 1 * SLOT_STRIDE)
-    # slot[2] is a packed type-flag bitmask (1 bit per field marking
-    # int vs float in the SIF schema); we don't decode it.
-    # slot[3] is a SIZE marker (semantics TBD — possibly total data
-    # words for this type's record stream).
-    # slot[4..] holds NDIM (capacity, populated) pairs followed by
-    # the pointer table. We detect NDIM by walking consecutive equal
-    # u32 pairs until we encounter a non-pair (which is the first
-    # pointer).
-    dim_slot = 4
-    dims: list[int] = []
+    type_flag = _read_u32_slot(data, payload + 2 * SLOT_STRIDE)
+    ptr_table_word = _read_u32_slot(data, payload + 3 * SLOT_STRIDE)
+
+    # Derive NDIM from ptr_table_word — slot[6+2*NDIM-2]'s value field
+    # sits at ptr_table_word*8 bytes; that anchors where dims stop.
+    ptr_value_off = ptr_table_word * SLOT_STRIDE
+    pointer_table_offset = ptr_value_off - SLOT_VALUE_OFFSET
+    # ((pointer_table_offset - payload) - 4*SLOT_STRIDE) / SLOT_STRIDE
+    # = number of dim slots = 2 * NDIM
+    dim_bytes = pointer_table_offset - payload - 4 * SLOT_STRIDE
+    if ptr_table_word > 0 and dim_bytes >= 0 and dim_bytes % (2 * SLOT_STRIDE) == 0:
+        ndim = dim_bytes // (2 * SLOT_STRIDE)
+        if ndim > 4:
+            # Defensive — well-formed SIF types have ndim ≤ 2.
+            ndim = 0
+    else:
+        # ptr_table_word missing or implausible — fall back to the
+        # cap/pop heuristic so malformed/older SIN files still parse.
+        ndim = 0
+
+    if ndim == 0:
+        # Fallback path: walk consecutive (cap, pop) equal-u32 pairs
+        # until we hit the first pointer (which varies record-to-
+        # record). cap == pop is the dim invariant even when
+        # capacity > population (BNBCD: cap=200, pop=200, count=13).
+        dim_slot = 4
+        while True:
+            cap = _read_u32_slot(data, payload + dim_slot * SLOT_STRIDE)
+            pop = _read_u32_slot(data, payload + (dim_slot + 1) * SLOT_STRIDE)
+            if cap == 0 or cap != pop:
+                break
+            dim_slot += 2
+            if (dim_slot - 4) // 2 >= 4:
+                break
+        ndim = (dim_slot - 4) // 2
+        pointer_table_offset = payload + dim_slot * SLOT_STRIDE
+
     caps: list[int] = []
-    while True:
-        cap = _read_u32_slot(data, payload + dim_slot * SLOT_STRIDE)
-        pop = _read_u32_slot(data, payload + (dim_slot + 1) * SLOT_STRIDE)
-        # A dim pair is two slots holding the same u32 (capacity ==
-        # populated, or rarely capacity >= populated). The first non-
-        # pair indicates we've moved into the pointer table.
-        if cap == 0 or cap != pop:
-            # Special-case: BNBCD-style allocations where capacity >
-            # population (capacity 200 with 13 populated entries) still
-            # store the pair as (capacity, capacity), so cap == pop is
-            # the dim invariant even when not all rows are written.
-            # The "first pointer" rule still fires here: pointers vary
-            # while a dim pair has cap == pop.
-            break
-        caps.append(cap)
-        dims.append(pop)
-        dim_slot += 2
-        if len(dims) >= 4:
-            # Defensive cap — any real SIF data type has ndim ≤ 2.
-            break
-    ndim = len(dims)
+    dims: list[int] = []
+    for d in range(ndim):
+        caps.append(_read_u32_slot(data, payload + (4 + 2 * d) * SLOT_STRIDE))
+        dims.append(_read_u32_slot(data, payload + (4 + 2 * d + 1) * SLOT_STRIDE))
+
     total_records = 1
     for d in dims:
         total_records *= d
 
-    pointer_table_offset = payload + dim_slot * SLOT_STRIDE
     pointer_table: list[int] = []
     for i in range(total_records):
         po = pointer_table_offset + i * SLOT_STRIDE
@@ -158,6 +194,8 @@ def _decode_type_block(
         preamble_offset=preamble_off,
         name=name,
         nfield=nfield,
+        type_flag=type_flag,
+        ptr_table_word=ptr_table_word,
         ndim=ndim,
         dims=tuple(dims),
         capacity=tuple(caps),
