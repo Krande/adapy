@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 
 from OCC.Core.BRep import BRep_Tool
 from OCC.Core.BRepPrimAPI import BRepPrimAPI_MakePrism
-from OCC.Core.BRepTools import breptools_UVBounds
+from OCC.Core.BRepTools import breptools
 from OCC.Core.GeomLProp import GeomLProp_SLProps
 from OCC.Core.TopAbs import TopAbs_FACE
 from OCC.Core.TopExp import TopExp_Explorer
@@ -76,7 +76,7 @@ def extrude_face_along_normal(
     sub_face = exp.Current()
     surf = BRep_Tool.Surface(sub_face)
     try:
-        u_min, u_max, v_min, v_max = breptools_UVBounds(sub_face)
+        u_min, u_max, v_min, v_max = breptools.UVBounds(sub_face)
     except Exception:
         u_min, u_max, v_min, v_max = 0.0, 1.0, 0.0, 1.0
     uc, vc = (u_min + u_max) / 2, (v_min + v_max) / 2

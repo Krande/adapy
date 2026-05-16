@@ -99,14 +99,14 @@ class BoundingBox:
         axis-aligned bbox of the underlying face shape.
         """
         from OCC.Core.Bnd import Bnd_Box
-        from OCC.Core.BRepBndLib import brepbndlib_Add
+        from OCC.Core.BRepBndLib import brepbndlib
 
         bbox = Bnd_Box()
         # Use the bare face (no extrusion) so the bbox isn't padded by
         # the prism thickness on whichever axis the normal points.
         # solid_occ returns the face for the raw-OCC path and the
         # AdvancedFace→OCC for the Geometry-backed path.
-        brepbndlib_Add(self.parent.solid_occ(), bbox)
+        brepbndlib.Add(self.parent.solid_occ(), bbox)
         xmin, ymin, zmin, xmax, ymax, zmax = bbox.Get()
         return (xmin, ymin, zmin), (xmax, ymax, zmax)
 

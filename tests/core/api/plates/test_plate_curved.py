@@ -118,12 +118,12 @@ def test_extruded_solid_occ_produces_volumetric_prism(curved_plate):
     """The streaming-viewer renderer prefers a prism so the plate
     carries thickness; verify the extrusion path yields a solid with
     non-zero volume."""
-    from OCC.Core.BRepGProp import brepgprop_VolumeProperties
+    from OCC.Core.BRepGProp import brepgprop
     from OCC.Core.GProp import GProp_GProps
 
     solid = curved_plate.extruded_solid_occ()
     props = GProp_GProps()
-    brepgprop_VolumeProperties(solid, props)
+    brepgprop.VolumeProperties(solid, props)
     assert props.Mass() > 0.0, "Extruded prism should have non-zero volume"
 
 
