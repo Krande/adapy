@@ -517,3 +517,85 @@ class PlateCurved(BackendGeom):
             # control-net data) — defer to ``solid_occ`` so the caller
             # at least sees the underlying face.
             return self.solid_occ()
+
+
+class Surface(Plate):
+    """Planar surface — :class:`Plate` without thickness.
+
+    Same geometry contract as Plate (planar polygon bounded by a
+    ``CurvePoly2d``) but rendered as a 2D face rather than an
+    extruded prism. Useful for visualisation-only output or for
+    pipelines that supply thickness separately (FEM shell elements
+    where the thickness lives on the section, not the geometry).
+
+    Subclasses Plate so every Plate-dispatching consumer (the GLB
+    tessellator, IFC writer, ``Part.add_plate``, BoundingBox) picks
+    it up automatically. ``solid_occ`` is overridden to return the
+    planar face shape instead of attempting a zero-thickness prism
+    extrusion (which would otherwise crash in
+    ``BRepPrimAPI_MakePrism``).
+    """
+
+    def __init__(
+        self,
+        name: str,
+        points: CurvePoly2d | CoordinateSequence,
+        mat: str | Material = "S420",
+        origin: Iterable | Point = None,
+        xdir: Iterable | Direction = None,
+        normal: Iterable | Direction = None,
+        orientation: Placement = None,
+        pl_id=None,
+        tol=None,
+        **kwargs,
+    ):
+        super().__init__(
+            name, points, t=0.0, mat=mat, origin=origin, xdir=xdir,
+            normal=normal, orientation=orientation, pl_id=pl_id, tol=tol,
+            **kwargs,
+        )
+
+    @staticmethod
+    def from_3d_points(
+        name, points, mat="S420", xdir=None, color=None, metadata=None, flip_normal=False, **kwargs
+    ) -> Surface:
+        poly = CurvePoly2d.from_3d_points(points, xdir=xdir, flip_n=flip_normal, **kwargs)
+        return Surface(name, poly, mat=mat, color=color, metadata=metadata, **kwargs)
+
+    def solid_occ(self) -> TopoDS_Shape:
+        # Override the extrusion-based path on Plate; a Surface has no
+        # thickness so the "solid" representation is simply the
+        # bounded face. Reuses the existing shell builder.
+        return self.shell_occ()
+
+    def solid_geom(self) -> Geometry:
+        # Same idea for the geometry side: emit the bounded planar
+        # face (CurveBoundedPlane) rather than an ExtrudedAreaSolid
+        # with zero depth.
+        return self.shell_geom()
+
+
+class SurfaceCurved(PlateCurved):
+    """Non-planar surface — :class:`PlateCurved` without thickness.
+
+    Same underlying B-spline / advanced face data as PlateCurved but
+    rendered as a 2D face. The PlateCurved render path already
+    short-circuits to the bare face when ``t == 0`` (in
+    ``extruded_solid_occ``), so subclassing with a forced zero
+    thickness is the entire change.
+    """
+
+    def __init__(
+        self, name: str, face_geom: Geometry,
+        mat: str | Material = "S420", **kwargs,
+    ):
+        super().__init__(name, face_geom, t=0.0, mat=mat, **kwargs)
+
+    @classmethod
+    def from_occ_face(cls, name: str, occ_face, mat: str | Material = "S420", **kwargs) -> SurfaceCurved:
+        """Construct a thickness-less curved surface from a raw OCC face.
+
+        Mirrors :meth:`PlateCurved.from_occ_face` but pins thickness to
+        zero so downstream rendering emits the bare face.
+        """
+        return super().from_occ_face(name, occ_face, t=0.0, mat=mat, **kwargs)

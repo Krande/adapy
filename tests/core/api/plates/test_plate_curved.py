@@ -171,6 +171,61 @@ def test_add_to_part_via_division(curved_plate):
     assert curved_plate.parent is part
 
 
+def test_surface_renders_as_face_not_extruded_prism():
+    """``Surface`` is the zero-thickness sibling of :class:`Plate` —
+    ``solid_occ`` must return the planar face shape rather than
+    attempting a zero-thickness prism extrusion (which raises
+    BRepSweep_Translation::Constructor in OCC).
+
+    Subclassing Plate means existing Plate-dispatching consumers
+    (Part.add_plate, IFC writer, GLB tessellator) pick it up via
+    isinstance without needing parallel branches.
+    """
+    surf = ada.Surface.from_3d_points(
+        "flat_surf", [(0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0)],
+    )
+    assert isinstance(surf, ada.Plate)  # subclass — Plate handlers catch it
+    assert surf.t == 0.0
+    occ_shape = surf.solid_occ()
+    assert occ_shape is not None
+    # The shape should be a face (or compound with a face), not a
+    # zero-volume prism. We just check it's not the placeholder None.
+    from OCC.Core.TopAbs import TopAbs_FACE
+    from OCC.Core.TopExp import TopExp_Explorer
+    assert TopExp_Explorer(occ_shape, TopAbs_FACE).More()
+
+
+def test_surface_curved_inherits_plate_curved_handling():
+    """``SurfaceCurved`` is the zero-thickness sibling of
+    :class:`PlateCurved`. Confirms ``from_occ_face`` pins t=0, the
+    extruded path short-circuits to the bare face (no prism), and
+    isinstance(PlateCurved) is True so existing tessellator /
+    IFC paths catch it."""
+    face = _bspline_loft_face()
+    s = ada.SurfaceCurved.from_occ_face("curved_surf", face)
+    assert isinstance(s, ada.PlateCurved)
+    assert s.t == 0.0
+    assert s.extruded_solid_occ() is s.solid_occ(), (
+        "t=0 short-circuit should make extruded == bare face"
+    )
+
+
+def test_surface_attaches_to_part_via_division():
+    """Mixed list of Plate / PlateCurved / Surface / SurfaceCurved
+    all flow through ``part /= [...]`` (the loft tool's primary
+    attachment path)."""
+    face = _bspline_loft_face()
+    items = [
+        ada.Plate.from_3d_points("flat", [(0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0)], 0.01),
+        ada.PlateCurved.from_occ_face("curved", face, t=0.01),
+        ada.Surface.from_3d_points("flat_s", [(0, 0, 2), (1, 0, 2), (1, 1, 2), (0, 1, 2)]),
+        ada.SurfaceCurved.from_occ_face("curved_s", face),
+    ]
+    part = ada.Part("mixed") / items
+    kinds = {type(p).__name__ for p in part.plates}
+    assert kinds == {"Plate", "PlateCurved", "Surface", "SurfaceCurved"}
+
+
 def test_add_plate_returns_same_instance(curved_plate):
     """``Part.add_plate`` returns the plate it accepted; downstream
     code (e.g. the loft helper) relies on this to keep the same

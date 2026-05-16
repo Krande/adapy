@@ -33,7 +33,7 @@ if not _PYODIDE:
     from ada.api.mass import MassPoint
     from ada.api.nodes import Node
     from ada.api.piping import Pipe, PipeSegElbow, PipeSegStraight
-    from ada.api.plates import Plate, PlateCurved
+    from ada.api.plates import Plate, PlateCurved, Surface, SurfaceCurved
     from ada.api.primitives import (
         PrimBox,
         PrimCone,
@@ -296,6 +296,8 @@ if not _PYODIDE:
         "MassPoint",
         "Plate",
         "PlateCurved",
+        "Surface",
+        "SurfaceCurved",
         "Pipe",
         "PipeSegStraight",
         "PipeSegElbow",
