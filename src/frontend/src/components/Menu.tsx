@@ -46,20 +46,26 @@ const DESKTOP_QUERY = "(min-width: 768px)";
 // controls toggle joins the line-up. The 24px SVG icons centre inside
 // via flex; the lone text glyph (☰) keeps its size with font-bold.
 //
-// The ``[&[hidden]]:!hidden`` modifier reasserts ``display: none``
-// when the ``hidden`` attribute is present — author-stylesheet
-// ``display: inline-flex`` would otherwise win the cascade against
-// the UA stylesheet's ``[hidden] { display: none }`` rule and the
-// simulation-controls / node-editor toggles would show up unconditionally.
+// The base class includes ``inline-flex``, which is what gives the
+// uniform box but also outranks the UA stylesheet's
+// ``[hidden] { display: none }`` rule in the cascade. ``navBtnClass``
+// takes an explicit ``hidden`` boolean and folds in Tailwind's
+// ``!hidden`` (display: none !important) when set — that way the
+// HTML ``hidden`` attribute doesn't have to fight ``inline-flex``
+// and the simulation-controls / node-editor toggles stay properly
+// gated on their ``hasAnimation``/``feaSessionActive``/``enableNodeEditor``
+// state.
 const NAV_BTN_BASE =
     "inline-flex items-center justify-center w-10 h-10 shrink-0 " +
-    "text-white font-bold rounded transition-colors " +
-    "[&[hidden]]:!hidden";
+    "text-white font-bold rounded transition-colors";
 const NAV_BTN_INACTIVE = "bg-blue-700 hover:bg-blue-700/50";
 const NAV_BTN_ACTIVE = "bg-blue-900 hover:bg-blue-800 shadow-inner";
 
-function navBtnClass(active: boolean, extra: string = ""): string {
-    return `${NAV_BTN_BASE} ${active ? NAV_BTN_ACTIVE : NAV_BTN_INACTIVE} ${extra}`.trim();
+function navBtnClass(active: boolean, extra: string = "", hidden: boolean = false): string {
+    const hiddenClass = hidden ? "!hidden" : "";
+    return `${NAV_BTN_BASE} ${active ? NAV_BTN_ACTIVE : NAV_BTN_INACTIVE} ${hiddenClass} ${extra}`
+        .replace(/\s+/g, " ")
+        .trim();
 }
 
 function useIsDesktop(): boolean {
@@ -112,7 +118,7 @@ const Menu = () => {
                     )}
 
                     <button
-                        className={navBtnClass(isOptionsVisible)}
+                        className={navBtnClass(isOptionsVisible, "", use_node_editor_only)}
                         hidden={use_node_editor_only}
                         onClick={() => setIsOptionsVisible(!isOptionsVisible)}
                         title="Toggle options drawer"
@@ -121,7 +127,7 @@ const Menu = () => {
                     </button>
 
                     <button
-                        className={navBtnClass(!isTreeCollapsed)}
+                        className={navBtnClass(!isTreeCollapsed, "", use_node_editor_only)}
                         hidden={use_node_editor_only}
                         onClick={() => setIsTreeCollapsed(!isTreeCollapsed)}
                         title={isTreeCollapsed ? "Show selection tree (Shift+T)" : "Hide selection tree (Shift+T)"}
@@ -132,7 +138,7 @@ const Menu = () => {
                     </button>
 
                     <button
-                        className={navBtnClass(isNodeEditorVisible)}
+                        className={navBtnClass(isNodeEditorVisible, "", use_node_editor_only || !enableNodeEditor)}
                         hidden={use_node_editor_only || !enableNodeEditor}
                         onClick={() => setIsNodeEditorVisible(!isNodeEditorVisible)}
                         title="Toggle node editor"
@@ -151,14 +157,14 @@ const Menu = () => {
                         </button>
                     )}
                     <button
-                        className={navBtnClass(show_info_box)}
+                        className={navBtnClass(show_info_box, "", use_node_editor_only)}
                         hidden={use_node_editor_only}
                         onClick={useObjectInfoStore.getState().toggle}
                         title="Toggle object info"
                         aria-pressed={show_info_box}
                     ><InfoIcon/></button>
                     <button
-                        className={navBtnClass(show_group_info_box)}
+                        className={navBtnClass(show_group_info_box, "", use_node_editor_only)}
                         hidden={use_node_editor_only}
                         onClick={useGroupInfoStore.getState().toggle}
                         title="Toggle group info"
@@ -166,7 +172,7 @@ const Menu = () => {
                     ><GroupIcon/></button>
 
                     <button
-                        className={navBtnClass(isControlsVisible)}
+                        className={navBtnClass(isControlsVisible, "", !hasAnimation && !feaSessionActive)}
                         hidden={!hasAnimation && !feaSessionActive}
                         onClick={() => setIsControlsVisible(!isControlsVisible)}
                         title="Toggle animation controls"
