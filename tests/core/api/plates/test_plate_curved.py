@@ -181,6 +181,53 @@ def test_add_plate_returns_same_instance(curved_plate):
     assert curved_plate in list(part.plates)
 
 
+def test_round_trip_advanced_face_preserves_bspline_surface():
+    """OCC face → AdvancedFace → OCC face round-trip.
+
+    Exercises the full structural path that ``occ_face_to_ada_face``
+    + ``make_face_from_geom`` advertise. With the proper
+    ``FaceBound`` → ``EdgeLoop`` → ``OrientedEdge`` chain emitted by
+    ``process_wire``, the round-trip should produce an OCC face whose
+    underlying surface is still a BSpline (the surface kind is
+    preserved by ``BRepBuilderAPI_MakeFace`` when the supplied wire
+    lies on the supplied surface).
+    """
+    from OCC.Core.BRep import BRep_Tool
+    from OCC.Core.Geom import Geom_BSplineSurface
+    from OCC.Core.TopAbs import TopAbs_FACE
+    from OCC.Core.TopExp import TopExp_Explorer
+    from OCC.Core.TopoDS import topods
+
+    from ada.cadit.step.read.geom.surfaces import occ_face_to_ada_face
+    from ada.geom import Geometry
+    from ada.occ.geom import geom_to_occ_geom
+
+    face_in = _bspline_loft_face()
+
+    advanced = occ_face_to_ada_face(face_in)
+    assert advanced is not None
+    # Bounds should be wrapped in FaceBound now — the OCC builder
+    # walks ``face_bound.bound.edge_list``, so a list of raw curves
+    # (the pre-refactor shape) would AttributeError here.
+    from ada.geom import surfaces as geo_su
+    from ada.geom import curves as geo_cu
+    assert all(isinstance(b, geo_su.FaceBound) for b in advanced.bounds)
+    assert all(isinstance(b.bound, geo_cu.EdgeLoop) for b in advanced.bounds)
+    assert all(
+        all(isinstance(oe, geo_cu.OrientedEdge) for oe in b.bound.edge_list)
+        for b in advanced.bounds
+    )
+
+    rebuilt = geom_to_occ_geom(Geometry(id="rt", geometry=advanced))
+    exp = TopExp_Explorer(rebuilt, TopAbs_FACE)
+    assert exp.More(), "Round-trip produced no faces"
+    rebuilt_face = topods.Face(exp.Current())
+    surf = BRep_Tool.Surface(rebuilt_face)
+    assert surf.IsKind(Geom_BSplineSurface.get_type_descriptor()), (
+        "Round-trip lost the BSpline surface kind"
+    )
+
+
 def test_round_trip_occ_face_preserves_face_count():
     """End-to-end exercise of the ``from_occ_face`` path:
     OCC face → PlateCurved → ``solid_occ()`` should yield an OCC

@@ -24,10 +24,19 @@ from ada.geom import surfaces as geo_su
 def occ_face_to_ada_face(face: TopoDS_Face) -> geo_su.AdvancedFace | None:
     surface = BRep_Tool.Surface(face)
     if surface.IsKind(Geom_BSplineSurface.get_type_descriptor()):
-        wires = get_wires_from_face(face, surface)
+        edge_loops = get_wires_from_face(face, surface)
         bspline_surf = get_bsplinesurface_with_knots(surface)
-        if bspline_surf and wires:
-            return geo_su.AdvancedFace(bounds=wires, face_surface=bspline_surf)
+        if bspline_surf and edge_loops:
+            # Wrap each EdgeLoop in a FaceBound so the AdvancedFace
+            # round-trips cleanly through make_face_from_geom — the
+            # BSpline-surface OCC builder walks ``face_bound.bound.edge_list``
+            # to construct OCC edges in the same order as the source
+            # wire, so an EdgeLoop-with-OrientedEdges chain is exactly
+            # what it expects.
+            bounds = [
+                geo_su.FaceBound(bound=el, orientation=True) for el in edge_loops
+            ]
+            return geo_su.AdvancedFace(bounds=bounds, face_surface=bspline_surf)
         else:
             raise NotImplementedError("Failed to retrieve B-Spline surface with knots")
     else:
