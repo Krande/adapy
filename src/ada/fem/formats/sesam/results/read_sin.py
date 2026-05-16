@@ -58,7 +58,9 @@ _RESULT_CARDS = (
 _TEXT_CARDS = {"TDSECT", "TDSETNAM", "TDMATER", "TDRESREF"}
 
 
-def _records_for(sin: SinFile, card) -> list[list]:
+def _records_for(
+    sin: SinFile, card, *, step: int | None = None
+) -> list[list]:
     """Pull every record of one type into the SifReader-compatible
     list shape.
 
@@ -70,6 +72,10 @@ def _records_for(sin: SinFile, card) -> list[list]:
     must be in the data array to keep their indices in sync. For
     non-nfield cards (GNODE, GCOORD, GELMNT1) we omit the prefix to
     match SIF reader's behaviour there too.
+
+    ``step``: when not None, only RV* records whose first data word
+    (IRES) equals ``step`` are returned. Non-RV cards ignore the
+    filter (mesh / section / material data is shared across steps).
     """
     type_name = card.name
     if type_name not in sin.type_blocks:
@@ -85,8 +91,11 @@ def _records_for(sin: SinFile, card) -> list[list]:
                 row.append(text)
             out.append(row)
         return out
+    # Only RV* records carry IRES in their first data word — apply the
+    # step filter just there.
+    rec_filter = step if (step is not None and type_name in _RV_TYPE_NAMES) else None
     out_num: list[list] = []
-    for rec in sin.iter_records(type_name):
+    for rec in sin.iter_records(type_name, where_first_word=rec_filter):
         # NFIELD is len(rec) + 1 (the count includes itself); +1 for
         # the implicit prefix word that SIN stores but iter_records
         # strips.
@@ -110,6 +119,7 @@ class SinReader(SifReader):
 
     sin: SinFile = None
     file: object = None  # unused — kept for SifReader dataclass shape
+    step: int | None = None  # when set, only this IRES is materialised
 
     def load(self) -> None:
         """Walk every SIN type block and populate the internal
@@ -168,15 +178,20 @@ class SinReader(SifReader):
         # header — so synthesise one from the block's metadata so
         # the downstream slice doesn't drop the first real record.
         for card in _RESULT_CARDS:
-            rows = _records_for(self.sin, card)
-            if not rows:
-                continue
             block = self.sin.type_blocks.get(card.name)
-            if block is not None:
-                super_header = [-float(block.ndim), float(block.ndim)] + [
-                    float(d) for d in block.dims
-                ]
-                rows = [super_header, *rows]
+            if block is None:
+                continue
+            rows = _records_for(self.sin, card, step=self.step)
+            # Always emit the super-header — Sif2Mesh's RDPOINTS map
+            # (and other shape-driven consumers) do
+            # ``self.get_result(card.name)[0]`` and crash if the card
+            # is missing from results. On EigenR100 iref=7 RDPOINTS
+            # is present as a type-block but empty (no record rows),
+            # so without this guard the whole convert fails.
+            super_header = [-float(block.ndim), float(block.ndim)] + [
+                float(d) for d in block.dims
+            ]
+            rows = [super_header, *rows]
             self.results.append((card.name, rows))
 
 
@@ -257,19 +272,28 @@ def read_sin_metadata(sin_file: str | pathlib.Path) -> SinMetadata:
         sin.close()
 
 
-def read_sin_file(sin_file: str | pathlib.Path) -> "FEAResult":
+def read_sin_file(
+    sin_file: str | pathlib.Path, *, step: int | None = None
+) -> "FEAResult":
     """Read a Sesam ``.sin`` (Norsam binary) result file → :class:`FEAResult`.
 
     Pure-Python — no Prepost.exe shell-out, no on-disk SIF
     intermediate, no .NET dependency. Reuses :class:`Sif2Mesh` for
     the record → mesh / FEAResult mapping so any SIF schema additions
     land in the SIN path for free.
+
+    ``step``: when given, only RV* records whose IRES equals this
+    value are materialised. Streaming-bake workers use this to load
+    one mode/load-case at a time, capping per-step heap at
+    ``n_nodes × n_components × 8 B`` instead of the full
+    ``n_steps × …`` materialisation that EigenR100 (200 modes, 1.17 M
+    RVNODDIS rows) won't fit under the 4 GiB worker budget.
     """
     from ada.fem.formats.sesam.results.read_sif import Sif2Mesh
 
     sin_path = pathlib.Path(sin_file)
     sin = open_sin(sin_path)
-    reader = SinReader(sin=sin)
+    reader = SinReader(sin=sin, step=step)
     reader.load()
     s2m = Sif2Mesh(reader)
     return s2m.convert(sin_path)

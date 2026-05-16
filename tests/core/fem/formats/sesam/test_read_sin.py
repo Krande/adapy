@@ -201,6 +201,38 @@ def test_read_sin_metadata_cantilever():
     )
 
 
+def test_iter_records_step_filter(sin_file):
+    """``iter_records(name, where_first_word=step)`` slices to one
+    IRES without materialising the rest. Cantilever has a single load
+    case (IRES=1), so step=1 returns every record and step=2 returns
+    none."""
+    full = list(sin_file.iter_records("RVNODDIS"))
+    step1 = list(sin_file.iter_records("RVNODDIS", where_first_word=1))
+    step2 = list(sin_file.iter_records("RVNODDIS", where_first_word=2))
+    assert len(full) == len(step1) == 403
+    assert len(step2) == 0
+    # The filtered slice is bit-identical to the un-filtered walk.
+    for a, b in zip(full, step1):
+        assert a == b
+
+
+def test_read_sin_file_step_filter():
+    """``read_sin_file(path, step=1)`` on a single-step fixture returns
+    a FEAResult bit-equivalent to the unfiltered read — every RV*
+    record on the cantilever has IRES=1, so the filter is a no-op."""
+    from ada.fem.formats.sesam.results.read_sin import read_sin_file
+
+    full = read_sin_file(SIN_PATH)
+    s1 = read_sin_file(SIN_PATH, step=1)
+
+    assert np.allclose(full.mesh.nodes.coords, s1.mesh.nodes.coords)
+    assert len(s1.results) == len(full.results)
+    for fr, sr in zip(full.results, s1.results):
+        assert fr.name == sr.name
+        assert fr.values.shape == sr.values.shape
+        assert np.allclose(fr.values, sr.values, equal_nan=True)
+
+
 def test_truncate_pointer_table_finds_cutoff():
     """Validate the cap-vs-real-count truncation that keeps huge
     multi-SE RV* tables (EigenR100: dims=20 M, real=1.17 M) honest.

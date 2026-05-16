@@ -817,7 +817,9 @@ class SinFile:
         as_f32 = np.frombuffer(self._data, dtype=np.float32)
         return as_f32[ptrs].copy()
 
-    def iter_records(self, name: str) -> Iterator[tuple[float, ...]]:
+    def iter_records(
+        self, name: str, *, where_first_word: int | None = None
+    ) -> Iterator[tuple[float, ...]]:
         """Yield one tuple of float32 values per populated record (the
         SIF "data" fields).
 
@@ -829,25 +831,41 @@ class SinFile:
         element type, all under the same type-block) — so we read
         NFIELD per record rather than trusting the type-block header.
         Records with a zero pointer are skipped silently.
+
+        ``where_first_word`` (optional): if provided, only records whose
+        first data word equals this int are yielded. For RV* result
+        types the first data word is ``IRES`` (the step / mode index),
+        so passing ``where_first_word=step`` slices to that step
+        without materialising any record outside it. On EigenR100 this
+        cuts a single-step RVNODDIS slice from ~1.17 M records to
+        ~5867 records.
         """
         block = self.type_blocks.get(name)
         if block is None:
             return
+        data = self._data
+        file_end = len(data)
         for word_ptr in block.pointer_table:
             wp = int(word_ptr)
             if wp == 0:
                 continue
             nfield_byte = (wp - 1) * 4
-            if nfield_byte < 0 or nfield_byte + 4 > len(self._data):
+            if nfield_byte < 0 or nfield_byte + 4 > file_end:
                 continue
-            nfield = int(struct.unpack_from("<f", self._data, nfield_byte)[0])
+            nfield = int(struct.unpack_from("<f", data, nfield_byte)[0])
             n_data = nfield - 1
             if n_data <= 0:
                 continue
             data_byte = wp * 4
-            if data_byte + n_data * 4 > len(self._data):
+            if data_byte + n_data * 4 > file_end:
                 continue
-            yield struct.unpack_from(f"<{n_data}f", self._data, data_byte)
+            if where_first_word is not None:
+                # Cheap pre-filter: read just the first data word and
+                # skip mismatches before paying for the full unpack.
+                first = int(struct.unpack_from("<f", data, data_byte)[0])
+                if first != where_first_word:
+                    continue
+            yield struct.unpack_from(f"<{n_data}f", data, data_byte)
 
     def iter_text_records(self, name: str) -> Iterator[tuple[tuple[float, ...], str]]:
         """Yield ``(numeric_prefix, text)`` per record for text-typed
