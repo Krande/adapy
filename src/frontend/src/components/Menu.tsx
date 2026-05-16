@@ -45,9 +45,16 @@ const DESKTOP_QUERY = "(min-width: 768px)";
 // the row inside a 360px mobile viewport even when the simulation-
 // controls toggle joins the line-up. The 24px SVG icons centre inside
 // via flex; the lone text glyph (☰) keeps its size with font-bold.
+//
+// The ``[&[hidden]]:!hidden`` modifier reasserts ``display: none``
+// when the ``hidden`` attribute is present — author-stylesheet
+// ``display: inline-flex`` would otherwise win the cascade against
+// the UA stylesheet's ``[hidden] { display: none }`` rule and the
+// simulation-controls / node-editor toggles would show up unconditionally.
 const NAV_BTN_BASE =
     "inline-flex items-center justify-center w-10 h-10 shrink-0 " +
-    "text-white font-bold rounded transition-colors";
+    "text-white font-bold rounded transition-colors " +
+    "[&[hidden]]:!hidden";
 const NAV_BTN_INACTIVE = "bg-blue-700 hover:bg-blue-700/50";
 const NAV_BTN_ACTIVE = "bg-blue-900 hover:bg-blue-800 shadow-inner";
 
