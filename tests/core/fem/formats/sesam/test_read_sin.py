@@ -161,6 +161,46 @@ def test_read_sin_file_equals_read_sif_file():
         )
 
 
+def test_read_sin_metadata_cantilever():
+    """Metadata-only read enumerates the same fields/steps as the full
+    SinReader.load path, without paying the materialisation cost.
+
+    On the cantilever the savings don't matter (file is 250 KB), but
+    this is the regression guard that the IRES extraction matches
+    what the full reader sees. EigenR100-scale assertions live in
+    the memory-bounded test below."""
+    from ada.fem.formats.sesam.results.read_sin import (
+        read_sin_file,
+        read_sin_metadata,
+    )
+
+    meta = read_sin_metadata(SIN_PATH)
+
+    # Mesh-shape cross-check against the full read.
+    full = read_sin_file(SIN_PATH)
+    assert meta.node_count == len(full.mesh.nodes.coords)
+    assert meta.element_count == sum(
+        len(b.identifiers) for b in full.mesh.elements
+    )
+
+    # Every RV* type that has values should show up in field_steps,
+    # and the union of steps should match what the picker would see
+    # from the full FEAResult.
+    grouped = full.get_results_grouped_by_field_value()
+    full_steps_per_field = {
+        name: sorted({int(d.step) for d in datas})
+        for name, datas in grouped.items()
+    }
+    # The metadata uses SIN type names (RVNODDIS, …) while FEAResult
+    # uses field display names — cross-check that the *set* of
+    # available step IDs matches in aggregate.
+    meta_step_set = set(meta.steps)
+    full_step_set = {s for steps in full_steps_per_field.values() for s in steps}
+    assert meta_step_set == full_step_set, (
+        f"metadata steps {sorted(meta_step_set)} != full {sorted(full_step_set)}"
+    )
+
+
 def test_sin_registered_in_stream_readers():
     """``.sin`` shows up in the streaming-reader registry and the
     factory returns a usable adapter — the viewer's bake worker

@@ -180,6 +180,83 @@ class SinReader(SifReader):
             self.results.append((card.name, rows))
 
 
+@dataclass
+class SinMetadata:
+    """Cheap, RSS-bounded enumeration of what a SIN contains.
+
+    Built by :func:`read_sin_metadata` in time proportional to the
+    pointer-table sizes (not the record-stream sizes) — touches just
+    the IRES word of each RV* record. Suitable for the GLB convert
+    picker and any UI that needs to list ``(step, field)`` choices
+    before the user commits to a render.
+
+    ``field_steps`` keys are SIN type names (``"RVNODDIS"``,
+    ``"RVSTRESS"``, ``"RVFORCES"``) — the GLB/picker layer maps them
+    to display names. Values are sorted unique IRES (step / result-
+    reference id) values seen in that type's records.
+    """
+
+    types: list[str]
+    node_count: int
+    element_count: int
+    field_steps: dict[str, list[int]]
+
+    @property
+    def steps(self) -> list[int]:
+        """All step IDs seen across any RV* type, sorted."""
+        seen: set[int] = set()
+        for ids in self.field_steps.values():
+            seen.update(ids)
+        return sorted(seen)
+
+    @property
+    def fields(self) -> list[str]:
+        return list(self.field_steps.keys())
+
+
+_RV_TYPE_NAMES = ("RVNODDIS", "RVSTRESS", "RVFORCES")
+
+
+def read_sin_metadata(sin_file: str | pathlib.Path) -> SinMetadata:
+    """Enumerate steps + fields in a SIN without loading any values.
+
+    Walks each RV* type's pointer table reading only the first data
+    word per record (= IRES, the step index). For EigenR100-scale
+    files (~1.5 M RV records) this touches ~6 MB of mmap pages, not
+    the multi-GB record streams. The full record materialisation
+    lives in :func:`read_sin_file` and only runs when a caller asks
+    for actual values.
+    """
+    sin = open_sin(sin_file)
+    try:
+        types = list(sin.types)
+        node_count = sin.get_count("GCOORD")
+        element_count = sin.get_count("GELMNT1")
+        field_steps: dict[str, list[int]] = {}
+        for rv_name in _RV_TYPE_NAMES:
+            if rv_name not in sin.type_blocks:
+                continue
+            # Bulk-read every record's IRES as a numpy float32 array,
+            # then np.unique → cast to int. On RVFORCES (~20 M records
+            # on EigenR100) the per-record Python yield path allocates
+            # ~600 MiB of transient float objects before GC catches
+            # up; the bulk gather caps that at ~80 MiB and runs in <1s.
+            ires_floats = sin.gather_first_words(rv_name)
+            if ires_floats.size == 0:
+                field_steps[rv_name] = []
+                continue
+            unique = np.unique(ires_floats.astype(np.int64))
+            field_steps[rv_name] = [int(x) for x in unique.tolist()]
+        return SinMetadata(
+            types=types,
+            node_count=node_count,
+            element_count=element_count,
+            field_steps=field_steps,
+        )
+    finally:
+        sin.close()
+
+
 def read_sin_file(sin_file: str | pathlib.Path) -> "FEAResult":
     """Read a Sesam ``.sin`` (Norsam binary) result file → :class:`FEAResult`.
 
@@ -198,4 +275,4 @@ def read_sin_file(sin_file: str | pathlib.Path) -> "FEAResult":
     return s2m.convert(sin_path)
 
 
-__all__ = ["SinReader", "read_sin_file"]
+__all__ = ["SinMetadata", "SinReader", "read_sin_file", "read_sin_metadata"]
