@@ -437,10 +437,32 @@ def _via_fea_result(
         )
 
     on_progress("parsing", 0.10)
-    if src_path.suffix.lower() == ".sin":
-        from ada.fem.formats.sesam.results.read_sin import read_sin_file
+    is_sin = src_path.suffix.lower() == ".sin"
+    if is_sin:
+        from ada.fem.formats.sesam.results.read_sin import (
+            read_sin_file,
+            read_sin_metadata,
+        )
 
-        result = read_sin_file(str(src_path))
+        # When the caller didn't pick a step, use the cheap metadata
+        # path to pick one — avoids materialising every step's records
+        # just to throw them away (EigenR100: 200 modes × 1.17 M
+        # records would blow the 4 GiB worker budget). Then load
+        # only that step.
+        if step is None or field is None:
+            meta = read_sin_metadata(str(src_path))
+            if not meta.fields or not meta.steps:
+                raise UnsupportedFormat(
+                    f"SIN {src_path.name} has no RV* result fields"
+                )
+            if step is None:
+                step = meta.steps[0]
+            if field is None:
+                # Map SIN type name → FEAResult field name. read_sin
+                # exposes the SIN names verbatim; the downstream
+                # display layer remaps them.
+                field = meta.fields[0]
+        result = read_sin_file(str(src_path), step=int(step))
     else:
         from ada.fem.formats.sesam.results.read_sif import read_sif_file
 
@@ -455,9 +477,15 @@ def _via_fea_result(
         # the worker will surface to the queued job's audit row.
         available = result.get_results_grouped_by_field_value()
         if field not in available:
-            raise UnsupportedFormat(
-                f"field {field!r} not in SIF; available: {sorted(available)}"
-            )
+            # On the SIN single-step path the field name may be the
+            # SIN card name (RVNODDIS, RVFORCES, RVSTRESS) — let the
+            # caller's picker remap to whatever the FEAResult emits.
+            if is_sin and available:
+                field = next(iter(available))
+            else:
+                raise UnsupportedFormat(
+                    f"field {field!r} not in SIF; available: {sorted(available)}"
+                )
         if int(step) not in {int(d.step) for d in available[field]}:
             avail_steps = sorted({int(d.step) for d in available[field]})
             raise UnsupportedFormat(
