@@ -23,7 +23,11 @@ from ada.geom import surfaces as geo_su
 
 def occ_face_to_ada_face(face: TopoDS_Face) -> geo_su.AdvancedFace | None:
     surface = BRep_Tool.Surface(face)
-    if surface.IsKind(Geom_BSplineSurface.get_type_descriptor()):
+    # pythonocc's ``IsKind(Geom_BSplineSurface.get_type_descriptor())``
+    # returns True for unrelated surface types (notably Geom_Plane),
+    # so we compare the dynamic type's name string directly — that's
+    # the reliable identity check across the pythonocc bindings.
+    if surface.DynamicType().Name() == "Geom_BSplineSurface":
         edge_loops = get_wires_from_face(face, surface)
         bspline_surf = get_bsplinesurface_with_knots(surface)
         if bspline_surf and edge_loops:

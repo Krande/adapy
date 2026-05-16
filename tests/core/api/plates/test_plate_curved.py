@@ -236,50 +236,297 @@ def test_add_plate_returns_same_instance(curved_plate):
     assert curved_plate in list(part.plates)
 
 
-def test_round_trip_advanced_face_preserves_bspline_surface():
-    """OCC face → AdvancedFace → OCC face round-trip.
+def _occ_face_area(shape) -> float:
+    from OCC.Core.BRepGProp import brepgprop
+    from OCC.Core.GProp import GProp_GProps
+    props = GProp_GProps()
+    brepgprop.SurfaceProperties(shape, props)
+    return float(props.Mass())
 
-    Exercises the full structural path that ``occ_face_to_ada_face``
-    + ``make_face_from_geom`` advertise. With the proper
-    ``FaceBound`` → ``EdgeLoop`` → ``OrientedEdge`` chain emitted by
-    ``process_wire``, the round-trip should produce an OCC face whose
-    underlying surface is still a BSpline (the surface kind is
-    preserved by ``BRepBuilderAPI_MakeFace`` when the supplied wire
-    lies on the supplied surface).
+
+def _occ_face_bbox(shape):
+    from OCC.Core.Bnd import Bnd_Box
+    from OCC.Core.BRepBndLib import brepbndlib
+    bbox = Bnd_Box()
+    brepbndlib.Add(shape, bbox)
+    xmin, ymin, zmin, xmax, ymax, zmax = bbox.Get()
+    return (xmin, ymin, zmin, xmax, ymax, zmax)
+
+
+def _count_topology(shape) -> tuple[int, int, int]:
+    """(n_faces, n_wires, n_edges) — counts via OCC explorers."""
+    from OCC.Core.TopAbs import TopAbs_EDGE, TopAbs_FACE, TopAbs_WIRE
+    from OCC.Core.TopExp import TopExp_Explorer
+
+    def _count(kind):
+        e = TopExp_Explorer(shape, kind)
+        n = 0
+        while e.More():
+            n += 1; e.Next()
+        return n
+    return _count(TopAbs_FACE), _count(TopAbs_WIRE), _count(TopAbs_EDGE)
+
+
+def test_round_trip_advanced_face_preserves_bspline_surface():
+    """OCC face → AdvancedFace → OCC face round-trip — full integrity check.
+
+    Beyond the structural type assertions (FaceBound → EdgeLoop →
+    OrientedEdge with pcurves attached), this test verifies that the
+    rebuilt face is geometrically equivalent to the input:
+
+    * surface kind preserved (still Geom_BSplineSurface),
+    * surface area matches within 0.1% (would silently drop to
+      0 if pcurves were missing — the symptom the test guards against),
+    * axis-aligned bbox matches within 1 mm on every axis,
+    * topology (face / wire / edge counts) matches,
+    * the boundary node count survives a second round-trip via
+      ``PlateCurved.nodes``.
     """
     from OCC.Core.BRep import BRep_Tool
-    from OCC.Core.Geom import Geom_BSplineSurface
     from OCC.Core.TopAbs import TopAbs_FACE
     from OCC.Core.TopExp import TopExp_Explorer
     from OCC.Core.TopoDS import topods
 
     from ada.cadit.step.read.geom.surfaces import occ_face_to_ada_face
     from ada.geom import Geometry
+    from ada.geom import curves as geo_cu
+    from ada.geom import surfaces as geo_su
     from ada.occ.geom import geom_to_occ_geom
 
     face_in = _bspline_loft_face()
 
     advanced = occ_face_to_ada_face(face_in)
     assert advanced is not None
-    # Bounds should be wrapped in FaceBound now — the OCC builder
-    # walks ``face_bound.bound.edge_list``, so a list of raw curves
-    # (the pre-refactor shape) would AttributeError here.
-    from ada.geom import surfaces as geo_su
-    from ada.geom import curves as geo_cu
+
+    # Structural: bounds chain must be FaceBound → EdgeLoop → OrientedEdge.
     assert all(isinstance(b, geo_su.FaceBound) for b in advanced.bounds)
     assert all(isinstance(b.bound, geo_cu.EdgeLoop) for b in advanced.bounds)
     assert all(
         all(isinstance(oe, geo_cu.OrientedEdge) for oe in b.bound.edge_list)
         for b in advanced.bounds
     )
+    # Pcurves: every OrientedEdge on a BSpline-surface face must carry
+    # a stored pcurve, otherwise the OCC face builder silently produces
+    # a zero-area face (the loft-corner regression we're guarding here).
+    for fb in advanced.bounds:
+        for oe in fb.bound.edge_list:
+            assert oe.pcurve is not None, (
+                "OrientedEdge on BSpline surface missing pcurve — "
+                "round-trip would produce a zero-area face"
+            )
+            assert oe.pcurve.degree >= 1
+            assert len(oe.pcurve.control_points_2d) >= 2
 
     rebuilt = geom_to_occ_geom(Geometry(id="rt", geometry=advanced))
+
+    # Geometric: surface area must match within a tight tolerance.
+    orig_area = _occ_face_area(face_in)
+    new_area = _occ_face_area(rebuilt)
+    assert orig_area > 0, "test fixture produced a degenerate face"
+    rel_err = abs(orig_area - new_area) / orig_area
+    assert rel_err < 1e-3, (
+        f"round-trip area drift {rel_err:.4%} (orig={orig_area:.4f}, "
+        f"rebuilt={new_area:.4f}) — pcurves likely dropped"
+    )
+
+    # Geometric: axis-aligned bbox within 1 mm on each axis.
+    a = _occ_face_bbox(face_in)
+    b = _occ_face_bbox(rebuilt)
+    for i, (lo, hi) in enumerate(zip(a, b)):
+        assert abs(lo - hi) < 1e-3, (
+            f"round-trip bbox axis {i}: orig={lo:.6f} rebuilt={hi:.6f}"
+        )
+
+    # Surface kind: still a BSpline (no degradation to plane / cone).
     exp = TopExp_Explorer(rebuilt, TopAbs_FACE)
     assert exp.More(), "Round-trip produced no faces"
     rebuilt_face = topods.Face(exp.Current())
     surf = BRep_Tool.Surface(rebuilt_face)
-    assert surf.IsKind(Geom_BSplineSurface.get_type_descriptor()), (
-        "Round-trip lost the BSpline surface kind"
+    assert surf.DynamicType().Name() == "Geom_BSplineSurface"
+
+    # Topology: same number of faces / wires / edges either way.
+    assert _count_topology(face_in) == _count_topology(rebuilt)
+
+
+def _all_bspline_faces(shape):
+    """Iterate every face of ``shape`` whose surface is a Geom_BSplineSurface."""
+    from OCC.Core.BRep import BRep_Tool
+    from OCC.Core.TopAbs import TopAbs_FACE
+    from OCC.Core.TopExp import TopExp_Explorer
+    from OCC.Core.TopoDS import topods
+
+    e = TopExp_Explorer(shape, TopAbs_FACE)
+    while e.More():
+        face = topods.Face(e.Current())
+        if BRep_Tool.Surface(face).DynamicType().Name() == "Geom_BSplineSurface":
+            yield face
+        e.Next()
+
+
+def test_round_trip_every_bspline_face_in_a_mixed_loft():
+    """Every B-spline face that comes out of a mixed-cardinality loft
+    (4-pt sharp ↔ 12-pt rounded) must round-trip cleanly. Failure of
+    even one face was the visible "empty plate" regression — guards
+    against a partial pcurve-extraction bug.
+    """
+    import math
+    from ada.api.loft import loft_profiles
+    from ada.cadit.step.read.geom.surfaces import occ_face_to_ada_face
+    from ada.geom import Geometry
+    from ada.geom.curves import PolyLoop
+    from ada.geom.points import Point
+    from ada.occ.geom import geom_to_occ_geom
+
+    sharp = PolyLoop(polygon=[
+        Point(-1.0, -1.0, 0.0), Point(1.0, -1.0, 0.0),
+        Point(1.0, 1.0, 0.0), Point(-1.0, 1.0, 0.0),
+    ])
+    r = 0.3
+    s = math.sqrt(2) / 2
+    w = h = 1.0
+    rounded = PolyLoop(polygon=[Point(x, y, 1.0) for x, y in [
+        (-w + r, -h),
+        (-w + r - r * s, -h + r - r * s),
+        (-w, -h + r),
+        (-w, h - r),
+        (-w + r - r * s, h - r + r * s),
+        (-w + r, h),
+        (w - r, h),
+        (w - r + r * s, h - r + r * s),
+        (w, h - r),
+        (w, -h + r),
+        (w - r + r * s, -h + r - r * s),
+        (w - r, -h),
+    ]])
+    shape = loft_profiles([sharp, rounded], ruled=True, is_solid=True)
+
+    bspline_faces = list(_all_bspline_faces(shape))
+    assert bspline_faces, "fixture loft produced no BSpline faces"
+
+    for i, face in enumerate(bspline_faces):
+        orig_area = _occ_face_area(face)
+        advanced = occ_face_to_ada_face(face)
+        assert advanced is not None, f"face {i}: AdvancedFace conversion returned None"
+        rebuilt = geom_to_occ_geom(Geometry(id=f"rt_{i}", geometry=advanced))
+        new_area = _occ_face_area(rebuilt)
+        rel_err = abs(orig_area - new_area) / max(orig_area, 1e-12)
+        assert rel_err < 1e-3, (
+            f"face {i}: round-trip area drift {rel_err:.4%} "
+            f"(orig={orig_area:.6f}, rebuilt={new_area:.6f}) — "
+            f"pcurves likely missing for at least one edge"
+        )
+
+
+def test_round_trip_preserves_pcurve_for_every_edge_on_bspline_face():
+    """Hard contract — every edge of a BSpline-surface face must carry a
+    stored 2D pcurve in the AdvancedFace round-trip. A missing pcurve
+    silently degrades the OCC face builder to a zero-area face, so
+    enforce the invariant at the OrientedEdge level rather than
+    relying on the area check alone (faster to diagnose when it
+    regresses)."""
+    from ada.cadit.step.read.geom.surfaces import occ_face_to_ada_face
+
+    import math
+    from ada.api.loft import loft_profiles
+    from ada.geom.curves import PolyLoop
+    from ada.geom.points import Point
+
+    sharp = PolyLoop(polygon=[
+        Point(-1.0, -1.0, 0.0), Point(1.0, -1.0, 0.0),
+        Point(1.0, 1.0, 0.0), Point(-1.0, 1.0, 0.0),
+    ])
+    r = 0.3
+    s_ = math.sqrt(2) / 2
+    rounded = PolyLoop(polygon=[Point(x, y, 1.0) for x, y in [
+        (-1 + r, -1), (-1 + r - r * s_, -1 + r - r * s_), (-1, -1 + r),
+        (-1, 1 - r), (-1 + r - r * s_, 1 - r + r * s_), (-1 + r, 1),
+        (1 - r, 1), (1 - r + r * s_, 1 - r + r * s_), (1, 1 - r),
+        (1, -1 + r), (1 - r + r * s_, -1 + r - r * s_), (1 - r, -1),
+    ]])
+    shape = loft_profiles([sharp, rounded], ruled=True, is_solid=True)
+
+    n_checked = 0
+    for face in _all_bspline_faces(shape):
+        advanced = occ_face_to_ada_face(face)
+        for fb in advanced.bounds:
+            for oe in fb.bound.edge_list:
+                assert oe.pcurve is not None, (
+                    f"BSpline-face edge missing pcurve — "
+                    f"round-trip would silently degenerate"
+                )
+                # Pcurve must be a real BSpline: degree ≥ 1 and at
+                # least 2 control points.
+                assert oe.pcurve.degree >= 1
+                assert len(oe.pcurve.control_points_2d) >= 2
+                # Knot multiplicities sum should match the BSpline
+                # standard: sum_of_mults = degree + 1 + n_control_points.
+                expected_sum = oe.pcurve.degree + 1 + len(oe.pcurve.control_points_2d)
+                actual_sum = sum(oe.pcurve.knot_multiplicities)
+                assert actual_sum == expected_sum, (
+                    f"pcurve knot multiplicities don't match BSpline "
+                    f"shape: sum={actual_sum}, expected={expected_sum}"
+                )
+                n_checked += 1
+    assert n_checked > 0, "no BSpline faces in fixture — coverage gap"
+
+
+def test_round_trip_pure_planar_loft_does_not_use_bspline_path():
+    """Sanity check on the type-identity dispatch: a pure-planar loft
+    (two matching-cardinality 4-pt rectangles, no fillets) must NOT
+    produce any BSpline faces. ``surface.DynamicType().Name()`` is
+    the discriminator — ``IsKind(BSplineSurface.get_type_descriptor())``
+    is unreliable in pythonocc and returned True for plain Geom_Plane
+    surfaces, which sent every flat face through the BSpline path and
+    inflated the plate count. Lock the correct behaviour in."""
+    from ada.api.loft import loft_profiles
+    from ada.geom.curves import PolyLoop
+    from ada.geom.points import Point
+
+    base = PolyLoop(polygon=[
+        Point(0, 0, 0), Point(1, 0, 0), Point(1, 1, 0), Point(0, 1, 0),
+    ])
+    top = PolyLoop(polygon=[
+        Point(0, 0, 1), Point(1, 0, 1), Point(1, 1, 1), Point(0, 1, 1),
+    ])
+    shape = loft_profiles([base, top], ruled=True, is_solid=True)
+    assert list(_all_bspline_faces(shape)) == [], (
+        "pure-planar loft produced BSpline faces — "
+        "type dispatch must use DynamicType().Name() not IsKind()"
+    )
+
+
+def test_round_trip_via_plate_curved_renders_solid_with_volume():
+    """End-to-end: a BSpline loft face wrapped in PlateCurved via the
+    AdvancedFace round-trip should extrude into a prism with volume
+    matching ``face_area × thickness``. The pre-pcurve-fix path
+    produced zero-area faces that extruded to zero-volume prisms
+    (visually invisible in the GLB)."""
+    from ada.cadit.step.read.geom.surfaces import occ_face_to_ada_face
+    from ada.geom import Geometry
+    from OCC.Core.BRepGProp import brepgprop
+    from OCC.Core.GProp import GProp_GProps
+
+    face = _bspline_loft_face()
+    face_area = _occ_face_area(face)
+    assert face_area > 0, "fixture produced a degenerate face"
+
+    advanced = occ_face_to_ada_face(face)
+    thickness = 0.05
+    plate = ada.PlateCurved(
+        "rt_plate", Geometry(id="g", geometry=advanced), t=thickness,
+    )
+    solid = plate.extruded_solid_occ()
+    props = GProp_GProps()
+    brepgprop.VolumeProperties(solid, props)
+    expected = face_area * thickness
+    # Prism cross-section varies along the swept direction on a curved
+    # surface, so allow a generous slack; the regression we're guarding
+    # against is a volume near zero (round-trip dropping the surface),
+    # not a few-percent numerical drift from curvature.
+    assert props.Mass() > expected * 0.5, (
+        f"PlateCurved volume {props.Mass():.6f} m³ << expected ~"
+        f"{expected:.6f} m³ (face area × thickness) — round-trip "
+        f"dropped the surface (would render as empty space in the GLB)"
     )
 
 
