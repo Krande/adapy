@@ -28,7 +28,7 @@ class BoundingBox:
 
     def __post_init__(self):
         from ada.api.beams import Beam
-        from ada.api.plates import Plate
+        from ada.api.plates import Plate, PlateCurved
 
         from .primitives import Shape
 
@@ -42,6 +42,12 @@ class BoundingBox:
             )
         elif isinstance(self.parent, Plate):
             self.p1, self.p2 = self._calc_bbox_of_plate()
+            self.placement = self.parent.placement
+        elif isinstance(self.parent, PlateCurved):
+            # Curved plates have no flat poly to walk — pull the bbox
+            # straight out of OCC. Works whether the plate was built
+            # via the AdvancedFace constructor or via ``from_occ_face``.
+            self.p1, self.p2 = self._calc_bbox_of_plate_curved()
             self.placement = self.parent.placement
         else:
             raise NotImplementedError(f'Bounding Box Support for object type "{type(self.parent)}" is not yet added')
@@ -87,6 +93,22 @@ class BoundingBox:
             except NoGeomPassedToShapeError as e:
                 logger.info(f'Shape "{self.parent.name}" has no attached geometry. Error "{e}"')
                 return (0, 0, 0), (1, 1, 1)
+
+    def _calc_bbox_of_plate_curved(self) -> tuple[tuple, tuple]:
+        """Curved plates have no flat polygon to walk; ask OCC for the
+        axis-aligned bbox of the underlying face shape.
+        """
+        from OCC.Core.Bnd import Bnd_Box
+        from OCC.Core.BRepBndLib import brepbndlib_Add
+
+        bbox = Bnd_Box()
+        # Use the bare face (no extrusion) so the bbox isn't padded by
+        # the prism thickness on whichever axis the normal points.
+        # solid_occ returns the face for the raw-OCC path and the
+        # AdvancedFace→OCC for the Geometry-backed path.
+        brepbndlib_Add(self.parent.solid_occ(), bbox)
+        xmin, ymin, zmin, xmax, ymax, zmax = bbox.Get()
+        return (xmin, ymin, zmin), (xmax, ymax, zmax)
 
     def _calc_bbox_of_plate(self) -> tuple[tuple, tuple]:
         """Calculate the Bounding Box of a plate"""

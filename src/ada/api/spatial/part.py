@@ -287,7 +287,12 @@ class Part(BackendGeom):
 
         if isinstance(obj, Beam):
             return self.add_beam(obj)
-        elif isinstance(obj, Plate):
+        elif isinstance(obj, (Plate, PlateCurved)):
+            # ``add_plate`` accepts both Plate and PlateCurved; this
+            # makes ``part /= [Plate(...), PlateCurved(...)]`` work
+            # for callers that build mixed plate lists (e.g. lofting
+            # corner-transition faces as curved BSpline plates while
+            # keeping flat side panels as standard Plates).
             return self.add_plate(obj)
         elif isinstance(obj, Pipe):
             return self.add_pipe(obj)
