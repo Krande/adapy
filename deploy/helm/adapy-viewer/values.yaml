@@ -80,6 +80,21 @@ worker:
 ##       resources: { ... }
 ##       securityContext: { ... }
 ##       capabilities: [<list>]      ## reported to the Workers tab
+##       extAllow: [".odb", ".sqlite"]
+##                                   ## optional: restrict the pod to
+##                                   ## these source suffixes. Routes
+##                                   ## become ``ADA_WORKER_EXT_ALLOW``
+##                                   ## and gate worker.py's NAK
+##                                   ## decision (see worker.py:683).
+##                                   ## Use it on capability pools that
+##                                   ## FROM the base worker image and
+##                                   ## inherit its full reader registry
+##                                   ## but should only handle their own
+##                                   ## formats — without this they
+##                                   ## race the base pool for shared
+##                                   ## extensions and a stale pod can
+##                                   ## fail jobs the base pod would
+##                                   ## have handled.
 ##
 ## A pool's image is also expected to register any extra
 ## stream-reader plug-ins at startup (the worker introspects

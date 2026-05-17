@@ -676,11 +676,34 @@ async def _run() -> None:
     # upload picker stays in sync without anyone having to repeat the
     # suffix list outside the plug-in that owns it.
     from ada.fem.results.artefacts import fea_artefact_extensions
-    source_exts = sorted(fea_artefact_extensions())
+    registered_exts = {e.lower() for e in fea_artefact_extensions()}
+    # Optional per-pod allowlist. Capability workers (e.g. asa-abacpp)
+    # FROM the base image and so inherit its full stream-reader
+    # registry — without this gate they'd race the base pool for
+    # extensions they don't actually need to handle (e.g. ``.rmed``)
+    # and, when running stale code, fail those jobs. The allowlist
+    # is comma-separated source suffixes (``.odb,.sqlite``); leading
+    # dots optional. Unset → handle everything in the registry, which
+    # is the right default for the base worker.
+    allow_env = os.environ.get("ADA_WORKER_EXT_ALLOW", "").strip()
+    if allow_env:
+        ext_allow_set: set[str] | None = {
+            ("." + e.strip().lstrip(".")) .lower()
+            for e in allow_env.split(",")
+            if e.strip()
+        }
+        registered_exts &= ext_allow_set
+        logger.info(
+            "worker: ADA_WORKER_EXT_ALLOW restricts handled exts to %s",
+            sorted(ext_allow_set),
+        )
+    else:
+        ext_allow_set = None
+    source_exts = sorted(registered_exts)
     # Set form keeps the consume-loop capability check fast — every
     # job lookup needs to hit this; sorting is only for the wire
     # registration above.
-    source_ext_set = {e.lower() for e in source_exts}
+    source_ext_set = registered_exts
     started_at = time.time()
 
     if image_tag:
@@ -798,10 +821,16 @@ async def _run() -> None:
                         ext = pathlib.PurePosixPath(
                             peeked.source_key
                         ).suffix.lower()
-                        can_handle = (
-                            ext in source_ext_set
-                            or ext in LEGACY_CONVERT_EXTS
+                        # Legacy /convert path also gated by the
+                        # allowlist when set — otherwise an abacpp pod
+                        # restricted to .odb would still pick up
+                        # legacy converter jobs (.ifc, .step, …) just
+                        # because LEGACY_CONVERT_EXTS doesn't go
+                        # through the registry.
+                        legacy_ok = ext in LEGACY_CONVERT_EXTS and (
+                            ext_allow_set is None or ext in ext_allow_set
                         )
+                        can_handle = ext in source_ext_set or legacy_ok
                         if not can_handle:
                             logger.info(
                                 "worker: NAK job %s ext=%s not in registry "

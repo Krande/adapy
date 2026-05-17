@@ -148,6 +148,20 @@ spec:
               value: {{ $natsUrl | quote }}
             - name: ADA_WORKER_CAPABILITIES
               value: {{ (default (list "base") $w.capabilities) | join "," | quote }}
+            {{- with $w.extAllow }}
+            # Optional per-pod source-suffix allowlist. When set,
+            # adapy's worker only picks up jobs whose source key has
+            # one of these suffixes (see worker.py:683). Useful for
+            # capability pools (e.g. abaqus) that FROM the base image
+            # and inherit its full stream-reader registry but should
+            # only handle their own formats — without this gate they
+            # race the base pool for shared extensions like ``.rmed``
+            # and a stale capability-pod can fail jobs the base pod
+            # would have handled fine. Unset → handle everything in
+            # the registry (right default for the base pool).
+            - name: ADA_WORKER_EXT_ALLOW
+              value: {{ . | join "," | quote }}
+            {{- end }}
             {{- include "adapy-viewer.databaseEnv" $ctx | nindent 12 }}
           {{- if eq $ctx.Values.storage.kind "local" }}
           volumeMounts:
