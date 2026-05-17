@@ -43,6 +43,12 @@ type FeaGroup = {
     inlineMembers?: string[];
     bufferIds?: Uint32Array;
     membersPrefix?: string;
+    // Optional pre-resolved metadata (type + section + material +
+    // thickness), built at registration from the manifest's lookup
+    // tables. When present, the Properties panel can render shell
+    // / beam properties for a clicked FEA element without going
+    // back to the server.
+    metadata?: any;
 };
 
 export type LoadedFea = {
@@ -53,6 +59,12 @@ export type LoadedFea = {
     // BufferView-backed groups are searched via ``groups`` because
     // building the inverse string map would defeat the size win.
     inlineNameToParent: Map<string, string>;
+    // Element name → resolved metadata dict. Built lazily for inline
+    // groups at register time (cheap — same walk as
+    // ``inlineNameToParent``); bufferView groups resolve on demand
+    // inside ``getMetadata`` to avoid materialising 100k JS string
+    // keys.
+    inlineNameToMetadata: Map<string, any>;
 };
 
 export type LineageEntry = {
@@ -141,10 +153,12 @@ export const useLineageStore = create<LineageState>((set, get) => ({
                 next.cad = {fileName, root: payload.root, nameToGuid, guidToName, metadataByName};
             } else {
                 const inlineNameToParent = new Map<string, string>();
+                const inlineNameToMetadata = new Map<string, any>();
                 for (const g of payload.groups) {
                     if (g.inlineMembers) {
                         for (const m of g.inlineMembers) {
                             inlineNameToParent.set(m, g.parentObjectGuid);
+                            if (g.metadata) inlineNameToMetadata.set(m, g.metadata);
                         }
                     }
                 }
@@ -153,6 +167,7 @@ export const useLineageStore = create<LineageState>((set, get) => ({
                     root: payload.root,
                     groups: payload.groups,
                     inlineNameToParent,
+                    inlineNameToMetadata,
                 });
             }
             entries.set(assemblyGuid, next);
@@ -219,8 +234,28 @@ export const useLineageStore = create<LineageState>((set, get) => ({
         const assemblyGuid = state.fileToAssembly.get(fileName);
         if (!assemblyGuid) return null;
         const entry = state.entries.get(assemblyGuid);
-        if (!entry?.cad || entry.cad.fileName !== fileName) return null;
-        return entry.cad.metadataByName.get(clickedName) ?? null;
+        if (!entry) return null;
+        // CAD path: clicked object name → per-object metadata dict
+        // stamped via ``embed_object_metadata=True`` at GLB export.
+        if (entry.cad?.fileName === fileName) {
+            return entry.cad.metadataByName.get(clickedName) ?? null;
+        }
+        // FEA path: clicked element name → the group's resolved
+        // {type, section, material, thickness} dict. Inline groups
+        // hit the fast Map; bufferView groups linear-scan their
+        // Uint32Array against the stripped element id.
+        const fea = entry.fea.find((f) => f.fileName === fileName);
+        if (!fea) return null;
+        const fromInline = fea.inlineNameToMetadata.get(clickedName);
+        if (fromInline) return fromInline;
+        for (const g of fea.groups) {
+            if (!g.bufferIds || g.membersPrefix === undefined || !g.metadata) continue;
+            if (!clickedName.startsWith(g.membersPrefix)) continue;
+            const id = Number(clickedName.slice(g.membersPrefix.length));
+            if (!Number.isFinite(id) || id < 0) continue;
+            if (g.bufferIds.includes(id)) return g.metadata;
+        }
+        return null;
     },
 
     findLink: (fileName, clickedName) => {

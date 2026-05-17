@@ -582,16 +582,47 @@ export async function load_fea_streaming(args: {
                 const meshRoot = sceneRoot ? findFirstMesh(sceneRoot) : null;
                 const root = (meshRoot ?? sceneRoot) as THREE.Object3D | null;
                 if (root) {
+                    const materials = manifest.lineage.materials ?? {};
+                    const sections = manifest.lineage.sections ?? {};
                     const {useLineageStore} = await import("@/state/lineageStore");
                     useLineageStore.getState().register({
                         kind: "fea",
                         fileName: sourceName,
                         assemblyGuid: manifest.lineage.assembly_guid,
                         root,
-                        groups: manifest.lineage.groups.map((g) => ({
-                            parentObjectGuid: g.parent_object_guid,
-                            inlineMembers: g.members,
-                        })),
+                        groups: manifest.lineage.groups.map((g) => {
+                            // Resolve material + section name refs into
+                            // a synthetic Beam/Plate metadata dict the
+                            // Properties panel can render the same way
+                            // it renders embedded CAD metadata. Cheap —
+                            // one lookup per group (not per element).
+                            const material =
+                                (g.material_name && materials[g.material_name]) ||
+                                (g.material_name ? {name: g.material_name} : null);
+                            let metadata: any = null;
+                            if (g.type === 'Beam') {
+                                const section =
+                                    (g.section_name && sections[g.section_name]) || null;
+                                metadata = {
+                                    type: 'Beam',
+                                    name: g.parent_object_name ?? undefined,
+                                    section,
+                                    material,
+                                };
+                            } else if (g.type === 'Plate') {
+                                metadata = {
+                                    type: 'Plate',
+                                    name: g.parent_object_name ?? undefined,
+                                    thickness: g.thickness ?? null,
+                                    material,
+                                };
+                            }
+                            return {
+                                parentObjectGuid: g.parent_object_guid,
+                                inlineMembers: g.members,
+                                metadata,
+                            };
+                        }),
                     });
                 }
             }

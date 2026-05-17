@@ -238,10 +238,22 @@ export interface FeaManifestLineage {
      *  ``assembly_guid`` written into a CAD GLB's ``ADA_EXT_data``
      *  extension when both were exported from the same Assembly. */
     assembly_guid?: string | null;
+    /** Dedup table — one entry per unique material referenced by
+     *  any group, keyed by material name. Groups reference by
+     *  ``material_name``. Optional: an .adapy_fem.json sidecar
+     *  predating the bump will simply lack it and the frontend
+     *  falls back to a name-only material row. */
+    materials?: Record<string, any>;
+    /** Same dedup pattern for sections (one per profile, not one
+     *  per beam). Groups reference by ``section_name``. */
+    sections?: Record<string, any>;
     groups: FeaManifestLineageGroup[];
 }
 
 export interface FeaManifestLineageGroup {
+    /** Discriminator for the panel's row layout — Beam shows
+     *  section + material; Plate shows thickness + material. */
+    type?: 'Beam' | 'Plate';
     /** adapy guid of the CAD-side Beam/Plate this group's elements
      *  were meshed from (``FemSection.refs[0].guid``). */
     parent_object_guid: string;
@@ -249,6 +261,12 @@ export interface FeaManifestLineageGroup {
      *  parent CAD isn't loaded as an overlay (so we can show the
      *  name without falling back to the guid string). */
     parent_object_name?: string | null;
+    /** Beam-only: reference into ``lineage.sections``. */
+    section_name?: string | null;
+    /** Plate-only: shell section thickness in SI metres. */
+    thickness?: number | null;
+    /** Reference into ``lineage.materials``. */
+    material_name?: string | null;
     /** FEA element labels in this group, prefixed with ``E`` to
      *  match the bake's element-range naming
      *  (load_fea_streaming.ts:183). */

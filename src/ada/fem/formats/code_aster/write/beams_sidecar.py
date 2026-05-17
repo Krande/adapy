@@ -87,7 +87,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from ada.api.spatial import Assembly
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 
 def _section_to_dict(section) -> dict | None:
@@ -217,7 +217,43 @@ def build_beams_payload(assembly: "Assembly") -> dict:
     assembly_guid = getattr(assembly, "guid", None)
     if assembly_guid:
         payload["assembly_guid"] = assembly_guid
+    # Dedup materials at the top level so the lineage reader can
+    # surface full material properties (E, ρ, σ_y, ν) per group
+    # without redundantly repeating them on every per-element entry
+    # — most large FEA models use 1-3 materials across thousands of
+    # sections. Names already appear on beam / plate entries as
+    # ``material_name``; this dict is just the lookup.
+    materials = _build_materials_dict(assembly)
+    if materials:
+        payload["materials"] = materials
     return payload
+
+
+def _build_materials_dict(assembly: "Assembly") -> dict[str, dict]:
+    """One dict entry per unique material referenced by any line or
+    shell FemSection that survived to the sidecar. ``None`` materials
+    and entries without numeric properties are skipped."""
+    from ada.comms.msg_handling.object_metadata import material_to_dict
+
+    seen: dict[str, dict] = {}
+    fems = [assembly.fem] if assembly.fem is not None else []
+    for part in assembly.get_all_parts_in_assembly(True):
+        if part.fem is None or part.fem is assembly.fem:
+            continue
+        fems.append(part.fem)
+    for fem in fems:
+        for fem_sec in fem.sections:
+            mat = getattr(fem_sec, "material", None)
+            if mat is None:
+                continue
+            name = getattr(mat, "name", None)
+            if not name or name in seen:
+                continue
+            md = material_to_dict(mat)
+            if md is None:
+                continue
+            seen[name] = md
+    return seen
 
 
 def _build_plates_lineage(assembly: "Assembly") -> list[dict]:

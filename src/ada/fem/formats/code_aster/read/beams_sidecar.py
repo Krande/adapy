@@ -179,11 +179,15 @@ def try_load_lineage_payload(rmed_path: pathlib.Path) -> dict | None:
         return None
 
     assembly_guid = payload.get("assembly_guid")
+    materials_lookup: dict[str, dict] = dict(payload.get("materials") or {})
+    sections_lookup: dict[str, dict] = {}
     by_parent: dict[str, dict] = {}
 
     # Beams: one sidecar entry per line element, group by parent
-    # guid so the frontend can list "N elements meshed from this beam"
-    # without a second pass.
+    # guid so the frontend can list "N elements meshed from this
+    # beam". Section dicts are deduped into ``sections_lookup`` —
+    # all elements in a group share the same FemSection so we just
+    # pick the section off the first entry per group.
     for entry in payload.get("beams", []) or []:
         parent_guid = entry.get("parent_object_guid")
         if not parent_guid:
@@ -194,15 +198,28 @@ def try_load_lineage_payload(rmed_path: pathlib.Path) -> dict | None:
         bucket = by_parent.setdefault(
             parent_guid,
             {
+                "type": "Beam",
                 "parent_object_guid": parent_guid,
                 "parent_object_name": entry.get("parent_object_name"),
                 "members": [],
+                "material_name": entry.get("material_name"),
+                "section_name": None,
             },
         )
         bucket["members"].append(f"E{int(elem_id)}")
+        # Capture the section on first encounter; cheap since all
+        # elements in a group share the same FemSection so subsequent
+        # encounters would yield the same dict.
+        sec = entry.get("section")
+        if sec and bucket.get("section_name") is None:
+            sec_name = sec.get("name") or f"_anon_section_{len(sections_lookup)}"
+            bucket["section_name"] = sec_name
+            sections_lookup.setdefault(sec_name, sec)
 
     # Plates: one sidecar entry per FemSection (already aggregated on
-    # the write side). Same shape, just iterate the ``elem_ids`` list.
+    # the write side). Carry ``thickness`` + ``material_name`` so the
+    # frontend can render the Properties panel for a clicked shell
+    # element the same way it does for beams.
     for entry in payload.get("plates", []) or []:
         parent_guid = entry.get("parent_object_guid")
         if not parent_guid:
@@ -213,19 +230,29 @@ def try_load_lineage_payload(rmed_path: pathlib.Path) -> dict | None:
         bucket = by_parent.setdefault(
             parent_guid,
             {
+                "type": "Plate",
                 "parent_object_guid": parent_guid,
                 "parent_object_name": entry.get("parent_object_name"),
                 "members": [],
+                "material_name": entry.get("material_name"),
+                "thickness": entry.get("thickness"),
             },
         )
         bucket["members"].extend(f"E{int(eid)}" for eid in elem_ids)
 
     if not assembly_guid and not by_parent:
         return None
-    return {
+    out: dict = {
         "assembly_guid": assembly_guid,
         "groups": list(by_parent.values()),
     }
+    # Only emit non-empty lookup tables — keeps the manifest tight
+    # when the source has no materials / sections to dedup.
+    if materials_lookup:
+        out["materials"] = materials_lookup
+    if sections_lookup:
+        out["sections"] = sections_lookup
+    return out
 
 
 __all__ = ["try_load_beams_sidecar", "try_load_lineage_payload"]
