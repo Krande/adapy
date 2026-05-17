@@ -174,11 +174,12 @@ def try_load_lineage_payload(rmed_path: pathlib.Path) -> dict | None:
         return None
 
     assembly_guid = payload.get("assembly_guid")
-    raw_beams = payload.get("beams", [])
-    # Group elements by parent guid so the frontend can list "N
-    # elements meshed from this beam" without a second pass.
     by_parent: dict[str, dict] = {}
-    for entry in raw_beams:
+
+    # Beams: one sidecar entry per line element, group by parent
+    # guid so the frontend can list "N elements meshed from this beam"
+    # without a second pass.
+    for entry in payload.get("beams", []) or []:
         parent_guid = entry.get("parent_object_guid")
         if not parent_guid:
             continue
@@ -194,6 +195,25 @@ def try_load_lineage_payload(rmed_path: pathlib.Path) -> dict | None:
             },
         )
         bucket["members"].append(f"E{int(elem_id)}")
+
+    # Plates: one sidecar entry per FemSection (already aggregated on
+    # the write side). Same shape, just iterate the ``elem_ids`` list.
+    for entry in payload.get("plates", []) or []:
+        parent_guid = entry.get("parent_object_guid")
+        if not parent_guid:
+            continue
+        elem_ids = entry.get("elem_ids") or []
+        if not elem_ids:
+            continue
+        bucket = by_parent.setdefault(
+            parent_guid,
+            {
+                "parent_object_guid": parent_guid,
+                "parent_object_name": entry.get("parent_object_name"),
+                "members": [],
+            },
+        )
+        bucket["members"].extend(f"E{int(eid)}" for eid in elem_ids)
 
     if not assembly_guid and not by_parent:
         return None

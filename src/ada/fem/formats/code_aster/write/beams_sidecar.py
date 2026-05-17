@@ -1,12 +1,23 @@
-"""Per-line-element section + orientation sidecar for the viewer's
-beam-solid bake.
+"""Per-element section + lineage sidecar emitted next to the Code Aster
+.med / .rmed.
 
-Code Aster's .med output carries the mesh and result fields, but no
-section profiles, no per-element material assignment, and no beam
-orientation (``VECT_Y`` / ``local_z``) — those live in the .comm
-deck that adapy generates alongside. The streaming-viewer bake needs
-this metadata to tessellate beams as 3D extruded solids, mirroring
-what the SIF / Abaqus paths get for free from their native formats.
+Two responsibilities, kept under the same file because they share the
+same data source (the in-memory Assembly's FEM sections + their
+``refs`` back-reference to the source Beam/Plate):
+
+* **Beam-solid tessellation data** — per-line-element section + axis
+  + endpoint coords. The MED format carries the mesh and result
+  fields but no section profiles, no per-element material assignment,
+  and no beam orientation (``VECT_Y`` / ``local_z``); those live in
+  the .comm deck. The streaming-viewer bake needs them to tessellate
+  beams as 3D extruded solids, mirroring what the SIF / Abaqus paths
+  get for free from their native formats.
+
+* **CAD↔FEA lineage** — top-level ``assembly_guid`` + per-element
+  ``parent_object_guid`` so the viewer can resolve a clicked FEA
+  element back to the source Beam or Plate without name matching.
+  Beams and plates are written under two parallel arrays so the read
+  side can aggregate them independently.
 
 This module dumps a ``<name>.beams.json`` sidecar next to the .med
 at write time. The Code Aster solver round-trips the .med to .rmed
@@ -14,14 +25,14 @@ so the sidecar ends up sitting next to the .rmed result that the
 viewer's bake worker opens; the RMED stream reader picks it up by
 basename.
 
-Schema (version 2):
+Schema (version 3):
 
 .. code-block:: json
 
     {
-      "version": 2,
+      "version": 3,
       "units": "m",
-      "assembly_guid": "<adapy Assembly.guid>",   // v2: lineage anchor
+      "assembly_guid": "<adapy Assembly.guid>",   // v2+: lineage anchor
       "beams": [
         {
           "elem_id": 17,
@@ -29,8 +40,8 @@ Schema (version 2):
           "n0": [0.0, 0.0, 0.0], "n1": [1.0, 0.0, 0.0],
           "local_z": [0.0, 0.0, 1.0],
           "material_name": "S355",
-          "parent_object_guid": "<beam.guid>",     // v2: CAD↔FEA link
-          "parent_object_name": "BM_FLOOR_01",     // v2: CAD↔FEA link
+          "parent_object_guid": "<beam.guid>",     // v2+: CAD↔FEA link
+          "parent_object_name": "BM_FLOOR_01",     // v2+: CAD↔FEA link
           "section": {
             "name": "HP220x10",
             "type": "BG",
@@ -40,12 +51,26 @@ Schema (version 2):
             "r": null, "wt": null
           }
         }
+      ],
+      "plates": [                                 // v3: plate lineage
+        {
+          "elem_ids": [201, 202, 203, ...],
+          "parent_object_guid": "<plate.guid>",
+          "parent_object_name": "PL_DECK_07",
+          "thickness": 0.012,
+          "material_name": "S355"
+        }
       ]
     }
 
-Version 1 readers see ``assembly_guid`` / ``parent_object_*`` as
-unknown keys and ignore them; v2 readers gracefully fall back when
-those fields are absent on a v1 file. So the bump is backward-
+Plates carry no per-element tessellation info (shells render
+directly from the MED mesh); the array exists only to thread the
+``parent_object_guid`` link from CAD plates to their meshed shell
+elements through to the bake's lineage manifest.
+
+Schema is additive across versions: v1/v2 readers see new keys as
+unknown and ignore them; v3 readers fall back gracefully when v1/v2
+files don't carry the new arrays. So the bump is backward-
 compatible in both directions.
 
 GENBEAM sections (Sesam-style numeric properties with no geometric
@@ -62,7 +87,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from ada.api.spatial import Assembly
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 def _section_to_dict(section) -> dict | None:
@@ -113,6 +138,26 @@ def _iter_line_elems(assembly: "Assembly"):
         yield from part.fem.elements.lines
 
 
+def _iter_shell_fem_sections(assembly: "Assembly"):
+    """Yield every FemSection whose elements meshed from a CAD Plate.
+
+    Shells (and only shells) hit the bake's plate-lineage path. We key
+    off ``FemSection.thickness`` (non-None for shells, None for line
+    sections) rather than walking elements one-by-one — every element
+    in a section shares the same parent ``Plate``, so per-section
+    aggregation matches the bake's lineage shape exactly."""
+    fems = [assembly.fem] if assembly.fem is not None else []
+    for part in assembly.get_all_parts_in_assembly(True):
+        if part.fem is None or part.fem is assembly.fem:
+            continue
+        fems.append(part.fem)
+    for fem in fems:
+        for fem_sec in fem.sections:
+            if getattr(fem_sec, "thickness", None) is None:
+                continue
+            yield fem_sec
+
+
 def build_beams_payload(assembly: "Assembly") -> dict:
     """Walk ``assembly`` and return the JSON-ready beams sidecar dict.
 
@@ -161,7 +206,10 @@ def build_beams_payload(assembly: "Assembly") -> dict:
                 "section": sec_dict,
             }
         )
+    plates = _build_plates_lineage(assembly)
     payload: dict = {"version": SCHEMA_VERSION, "units": units, "beams": beams}
+    if plates:
+        payload["plates"] = plates
     # Top-level lineage anchor. ``Assembly.guid`` is set (for IFC
     # roundtrips) to ``IfcProject.GlobalId`` in store.py, so the same
     # value lands here as in the CAD GLB's ``ADA_EXT_data.assembly_guid``
@@ -170,6 +218,44 @@ def build_beams_payload(assembly: "Assembly") -> dict:
     if assembly_guid:
         payload["assembly_guid"] = assembly_guid
     return payload
+
+
+def _build_plates_lineage(assembly: "Assembly") -> list[dict]:
+    """One entry per FemSection that came from a CAD Plate.
+
+    Skipped silently for shell sections without a CAD parent
+    (``refs`` empty — e.g. shells read back from a third-party FEM
+    that adapy never meshed). Element ids come straight from the
+    section's elset; the bake's lineage aggregator wraps them in
+    ``E{id}`` to match its element-range naming."""
+    out: list[dict] = []
+    for fem_sec in _iter_shell_fem_sections(assembly):
+        refs = getattr(fem_sec, "refs", None)
+        if not refs:
+            continue
+        parent = refs[0]
+        parent_guid = getattr(parent, "guid", None)
+        parent_name = getattr(parent, "name", None)
+        if not parent_guid:
+            continue
+        elset = getattr(fem_sec, "elset", None)
+        members = getattr(elset, "members", None) if elset is not None else None
+        if not members:
+            continue
+        elem_ids = [int(e.id) for e in members if getattr(e, "id", None) is not None]
+        if not elem_ids:
+            continue
+        material = getattr(fem_sec, "material", None)
+        out.append(
+            {
+                "elem_ids": elem_ids,
+                "parent_object_guid": parent_guid,
+                "parent_object_name": parent_name,
+                "thickness": _maybe_float(getattr(fem_sec, "thickness", None)),
+                "material_name": material.name if material is not None else None,
+            }
+        )
+    return out
 
 
 def dump_beams_sidecar(assembly: "Assembly", path: pathlib.Path) -> int:
