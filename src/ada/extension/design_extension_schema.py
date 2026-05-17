@@ -33,3 +33,11 @@ class DesignDataExtension(BaseModel):
             "matched without name lookups."
         ),
     )
+    object_metadata: Optional[Dict[str, dict]] = Field(
+        None,
+        description=(
+            "Optional per-object structured metadata (type, section, material, thickness) keyed by "
+            "object name. When present, the viewer reads it directly from the GLB and skips the "
+            "server round-trip back to the source IFC for the Properties panel."
+        ),
+    )

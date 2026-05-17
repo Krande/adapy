@@ -180,8 +180,15 @@ const ObjectMetadataPanel: React.FC<Props> = ({data}) => {
     const fileName = useObjectInfoStore((s) => s.fileName);
     const clickedName = useObjectInfoStore((s) => s.name);
     const link = useLineageStore((s) => s.findLink(fileName, clickedName));
-    if (!data) return null;
-    const meta = data as BeamMeta | PlateMeta;
+    // Prefer metadata embedded in the GLB extension (when the export
+    // used ``embed_object_metadata=True``) over what the server
+    // returned in MESH_INFO_REPLY. The embedded path works for GLB-
+    // only uploads where the server has no source IFC to walk; the
+    // server-fetched path stays as a fallback for IFC uploads.
+    const embeddedMeta = useLineageStore((s) => s.getMetadata(fileName, clickedName));
+    const effectiveData = embeddedMeta ?? data;
+    if (!effectiveData) return null;
+    const meta = effectiveData as BeamMeta | PlateMeta;
     const known = meta.type === 'Beam' || meta.type === 'Plate';
     return (
         <div className="mt-2">

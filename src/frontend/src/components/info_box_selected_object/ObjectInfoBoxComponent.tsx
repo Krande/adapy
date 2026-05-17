@@ -241,7 +241,11 @@ const ObjectInfoBox = () => {
                     </div>
                 )}
             </div>
-            {name && jsonData && <ObjectMetadataPanel data={jsonData}/>}
+            {/* Panel renders for any selection — even without a
+                server-side jsonData payload — because the panel can
+                also read metadata from the lineage store (GLB
+                extension's ``object_metadata`` field). */}
+            {name && <ObjectMetadataPanel data={jsonData}/>}
         </div>
     );
 };

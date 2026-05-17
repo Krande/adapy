@@ -31,6 +31,13 @@
       "additionalProperties": {
         "type": "string"
       }
+    },
+    "object_metadata": {
+      "type": "object",
+      "description": "Optional per-object structured metadata (type, section, material, thickness) keyed by object name. When present, the viewer reads it directly from the GLB and skips the server round-trip back to the source IFC for the Properties panel.",
+      "additionalProperties": {
+        "type": "object"
+      }
     }
   },
   "definitions": {

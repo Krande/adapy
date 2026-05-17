@@ -1071,6 +1071,7 @@ class Part(BackendGeom):
         filter_by_guids=None,
         merge_meshes=True,
         stream_from_ifc=False,
+        embed_object_metadata: bool = False,
         params: RenderParams = None,
     ):
         if params is None:
@@ -1079,6 +1080,7 @@ class Part(BackendGeom):
                 merge_meshes=merge_meshes,
                 render_override=render_override,
                 filter_by_guids=filter_by_guids,
+                embed_object_metadata=embed_object_metadata,
             )
 
         converter = SceneConverter(self, params)

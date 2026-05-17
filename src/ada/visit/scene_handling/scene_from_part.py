@@ -11,7 +11,8 @@ if TYPE_CHECKING:
 
 def scene_from_part_or_assembly(part_or_assembly: Part | Assembly, converter: SceneConverter) -> trimesh.Scene:
     import ada.extension.design_extension_schema as design_ext
-    from ada import Assembly
+    from ada import Assembly, Beam, Plate
+    from ada.comms.msg_handling.object_metadata import beam_metadata, plate_metadata
     from ada.config import logger
     from ada.occ.tessellating import BatchTessellator
 
@@ -55,9 +56,27 @@ def scene_from_part_or_assembly(part_or_assembly: Part | Assembly, converter: Sc
     # file's SimGroup.parent_object_guid points back at these values so
     # the cross-model link doesn't depend on name matching.
     object_guids: dict[str, str] = {}
+    # Per-object section/material metadata. Off by default
+    # (``params.embed_object_metadata=False``); when on, the panel
+    # reads from here instead of going back to the server with a
+    # MESH_INFO_REQUEST that would need the source IFC to be
+    # uploaded alongside the GLB. Costs roughly the typed dict size
+    # (~120-250 B / Beam, ~80-150 B / Plate) per physical object —
+    # for a 1000-object model that's ~100-250 KB of extra JSON.
+    embed_metadata = bool(getattr(params, "embed_object_metadata", False))
+    object_metadata: dict[str, dict] | None = {} if embed_metadata else None
     for obj in part_or_assembly.get_all_physical_objects():
         if obj.name and obj.guid:
             object_guids[obj.name] = obj.guid
+        if object_metadata is not None and obj.name:
+            if isinstance(obj, Beam):
+                object_metadata[obj.name] = beam_metadata(
+                    obj.name, obj.section, obj.material
+                )
+            elif isinstance(obj, Plate):
+                object_metadata[obj.name] = plate_metadata(
+                    obj.name, obj.t, obj.material
+                )
     converter.ada_ext.design_objects.append(
         design_ext.DesignDataExtension(
             name=part_or_assembly.name,
@@ -65,6 +84,7 @@ def scene_from_part_or_assembly(part_or_assembly: Part | Assembly, converter: Sc
             groups=groups,
             node_references=design_ext.DesignNodeReference(faces=list(nodes_geom)),
             object_guids=object_guids or None,
+            object_metadata=object_metadata or None,
         )
     )
 

@@ -33,9 +33,11 @@ export async function registerLineageFromExtension({gltf, extension, fileName, r
     const simulationObjects: any[] = extension.simulation_objects ?? [];
 
     // CAD-side registration: fold every design_object's object_guids
-    // map into one. Multiple design_objects on one GLB is rare but
-    // possible (sub-assemblies).
+    // (and object_metadata, when ``embed_object_metadata=True`` at
+    // export) into one map. Multiple design_objects on one GLB is
+    // rare but possible (sub-assemblies).
     const objectGuids: Record<string, string> = {};
+    const objectMetadata: Record<string, any> = {};
     for (const designObj of designObjects) {
         const og = designObj?.object_guids;
         if (og && typeof og === 'object') {
@@ -43,14 +45,21 @@ export async function registerLineageFromExtension({gltf, extension, fileName, r
                 if (typeof guid === 'string') objectGuids[name] = guid;
             }
         }
+        const om = designObj?.object_metadata;
+        if (om && typeof om === 'object') {
+            for (const [name, meta] of Object.entries(om)) {
+                if (meta && typeof meta === 'object') objectMetadata[name] = meta;
+            }
+        }
     }
-    if (Object.keys(objectGuids).length > 0) {
+    if (Object.keys(objectGuids).length > 0 || Object.keys(objectMetadata).length > 0) {
         useLineageStore.getState().register({
             kind: 'cad',
             fileName,
             assemblyGuid,
             root,
             objectGuids,
+            objectMetadata: Object.keys(objectMetadata).length > 0 ? objectMetadata : null,
         });
     }
 

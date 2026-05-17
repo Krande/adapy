@@ -30,6 +30,11 @@ export type LoadedCad = {
     nameToGuid: Map<string, string>;
     // adapy guid → Beam/Plate display name (inverse, for jump-to-CAD)
     guidToName: Map<string, string>;
+    // Optional per-object structured metadata (type/section/material/
+    // thickness) when the GLB was written with
+    // ``embed_object_metadata=True``. Lets the Properties panel skip
+    // the server round-trip back to the source IFC.
+    metadataByName: Map<string, any>;
 };
 
 type FeaGroup = {
@@ -67,6 +72,7 @@ type RegisterCadPayload = {
     assemblyGuid: string;
     root: THREE.Object3D;
     objectGuids: Record<string, string>;
+    objectMetadata?: Record<string, any> | null;
 };
 
 type RegisterFeaPayload = {
@@ -91,6 +97,7 @@ type LineageState = {
 
     findLink: (fileName: string | null, clickedName: string | null) => LinkResult;
     getAssemblyGuidForFile: (fileName: string) => string | null;
+    getMetadata: (fileName: string | null, clickedName: string | null) => any | null;
 };
 
 export const useLineageStore = create<LineageState>((set, get) => ({
@@ -125,7 +132,13 @@ export const useLineageStore = create<LineageState>((set, get) => ({
                     nameToGuid.set(name, guid);
                     guidToName.set(guid, name);
                 }
-                next.cad = {fileName, root: payload.root, nameToGuid, guidToName};
+                const metadataByName = new Map<string, any>();
+                if (payload.objectMetadata) {
+                    for (const [name, meta] of Object.entries(payload.objectMetadata)) {
+                        if (name && meta) metadataByName.set(name, meta);
+                    }
+                }
+                next.cad = {fileName, root: payload.root, nameToGuid, guidToName, metadataByName};
             } else {
                 const inlineNameToParent = new Map<string, string>();
                 for (const g of payload.groups) {
@@ -198,6 +211,16 @@ export const useLineageStore = create<LineageState>((set, get) => ({
 
     getAssemblyGuidForFile: (fileName) => {
         return get().fileToAssembly.get(fileName) ?? null;
+    },
+
+    getMetadata: (fileName, clickedName) => {
+        if (!fileName || !clickedName) return null;
+        const state = get();
+        const assemblyGuid = state.fileToAssembly.get(fileName);
+        if (!assemblyGuid) return null;
+        const entry = state.entries.get(assemblyGuid);
+        if (!entry?.cad || entry.cad.fileName !== fileName) return null;
+        return entry.cad.metadataByName.get(clickedName) ?? null;
     },
 
     findLink: (fileName, clickedName) => {
