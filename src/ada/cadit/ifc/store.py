@@ -172,9 +172,18 @@ class IfcStore:
         # Without this, every IFC read mints a fresh Assembly.guid and a
         # derived GLB would have no stable id matching a previously
         # exported sibling.
+        #
+        # Assign through ``_guid`` directly rather than the property
+        # setter: the setter assumes the assembly's current guid maps to
+        # a real IFC entity and tries to rewrite that entity's GlobalId
+        # (root.py:62-72). On a fresh read the auto-generated assembly
+        # guid isn't in the file yet, so the setter's ``by_guid()``
+        # lookup raises. We don't need that side-effect — the IFC
+        # already carries the correct IfcProject.GlobalId; we're just
+        # mirroring it onto the Assembly.
         projects = self.f.by_type("IfcProject")
         if projects and getattr(projects[0], "GlobalId", None):
-            self.assembly.guid = projects[0].GlobalId
+            self.assembly._guid = projects[0].GlobalId
 
         unit_type = get_unit_type(self.f)
 
