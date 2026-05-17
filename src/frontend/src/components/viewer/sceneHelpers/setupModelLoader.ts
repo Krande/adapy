@@ -53,6 +53,15 @@ export async function setupModelLoaderAsync(
         if (ada_ext_data.simulation_objects.length > 0){
             simulationDataRef.current = ada_ext_data.simulation_objects[0];
         }
+        // Stash the extension + gltf parser on the group so the caller
+        // (update_scene_from_message etc.) can call
+        // ``registerLineageFromExtension`` once it knows the source
+        // file name. The setLoadedSourceName / registerLoadedSource
+        // flips happen AFTER setupModelLoaderAsync returns, so we
+        // can't register lineage here without race-conditioning
+        // against the wrong (previous) file name.
+        gltf_scene.userData.__adaExt = ada_ext_data;
+        gltf_scene.userData.__adaGltf = gltf;
     }
     animationControllerRef.current = new AnimationController(main_scene);
     // Handle animations - clear previous state first

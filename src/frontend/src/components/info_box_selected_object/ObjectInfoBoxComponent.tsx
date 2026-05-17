@@ -6,7 +6,7 @@ import {useFeaAnimationStore} from '@/state/feaAnimationStore';
 import {copySelectionNames, writeToClipboard} from '@/utils/clipboard/copySelectionNames';
 import {hideSelectedRanges, unhideAllRanges} from '@/utils/scene/visibility';
 import {elementFirstNodeId} from '@/utils/scene/fea/goToNode';
-import JsonViewerComponent from './JsonViewerComponent';
+import ObjectMetadataPanel from './ObjectMetadataPanel';
 import CoordinateDisplay from "./CoordinateDisplay";
 
 // 1500 ms is the smallest hold that still feels intentional vs a
@@ -21,8 +21,6 @@ const ObjectInfoBox = () => {
         faceIndex,
         clickCoordinate,
         jsonData,
-        isJsonViewVisible,
-        setIsJsonViewVisible,
     } = useObjectInfoStore();
     const selectedObjects = useSelectedObjectStore((s) => s.selectedObjects);
     const additiveMode = useSelectedObjectStore((s) => s.additiveMode);
@@ -55,10 +53,6 @@ const ObjectInfoBox = () => {
     const onCopyAll = async () => {
         const n = await copySelectionNames(selectedObjects);
         if (n > 0) flashCopied("multi");
-    };
-
-    const toggleJsonView = () => {
-        setIsJsonViewVisible(!isJsonViewVisible);
     };
 
     // "Show in data" — visible only when the picked element resolves
@@ -247,25 +241,7 @@ const ObjectInfoBox = () => {
                     </div>
                 )}
             </div>
-            {jsonData && (
-                <div className="table-row">
-                    <div className="table-cell w-24">JSON Data:</div>
-                    <div className="table-cell w-48">
-                        <button
-                            type="button"
-                            className="bg-blue-700 hover:bg-blue-600 active:bg-blue-800 text-white text-[11px] rounded px-2 py-1"
-                            onClick={toggleJsonView}
-                        >
-                            {isJsonViewVisible ? 'Hide JSON' : 'Show JSON'}
-                        </button>
-                    </div>
-                </div>
-            )}
-            {isJsonViewVisible && jsonData && (
-                <div className="mt-2">
-                    <JsonViewerComponent data={jsonData}/>
-                </div>
-            )}
+            {name && jsonData && <ObjectMetadataPanel data={jsonData}/>}
         </div>
     );
 };

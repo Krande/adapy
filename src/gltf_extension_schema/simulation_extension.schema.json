@@ -145,10 +145,19 @@
         },
         "members": {
           "type": "array",
-          "description": "Name of group objects",
+          "description": "Inline list of element/node names. Used for small groups (default threshold <256); large groups switch to members_buffer_view to keep the JSON chunk size bounded.",
           "items": {
             "type": "string"
           }
+        },
+        "members_buffer_view": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Index of a glTF bufferView holding the packed uint32 member IDs. Mutually exclusive with `members`. Used for large element groups so the JSON chunk doesn't balloon. The IDs are reconstructed into names by prepending `members_prefix`."
+        },
+        "members_prefix": {
+          "type": "string",
+          "description": "String prepended to each uint32 ID in members_buffer_view to reconstruct the element/node name (e.g. \"EL\", \"Li\", \"P\"). Required when members_buffer_view is set."
         },
         "description": {
           "type": "string",
@@ -157,6 +166,10 @@
         "parent_name": {
           "type": "string",
           "description": "Name of the parent simulation object"
+        },
+        "parent_object_guid": {
+          "type": "string",
+          "description": "adapy guid of the CAD-side Beam/Plate this SimGroup was meshed from. Lets the viewer link FEA elements back to their CAD parent without name matching. Populated from FemSection.refs[0].guid."
         },
         "fe_object_type": {
           "type": "string",

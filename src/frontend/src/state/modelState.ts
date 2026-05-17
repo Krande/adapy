@@ -3,6 +3,7 @@ import {create} from 'zustand';
 import * as THREE from 'three';
 import {SceneOperations} from "../flatbuffers/scene/scene-operations";
 import {FilePurpose} from "../flatbuffers/base/file-purpose";
+import {useLineageStore} from './lineageStore';
 
 export interface ModelState {
     modelUrl: string | null;
@@ -86,6 +87,20 @@ export const useModelState = create<ModelState>((set) => ({
     },
     registerLoadedSource: (name, group) => {
         loadedSourceGroups.set(name, group);
+        // Trigger lineage registration if the loader stashed extension
+        // data on this group. Dynamic import avoids a require cycle
+        // (lineage helpers also reach into modelState for the active
+        // file). Fire-and-forget; the lineage map is non-critical so a
+        // failure here mustn't block the source registration.
+        const ext = (group as any)?.children?.[0]?.userData?.__adaExt
+            ?? (group as any)?.userData?.__adaExt;
+        const gltf = (group as any)?.children?.[0]?.userData?.__adaGltf
+            ?? (group as any)?.userData?.__adaGltf;
+        if (ext && gltf) {
+            void import('@/utils/lineage/registerLineageFromExtension').then(({registerLineageFromExtension}) =>
+                registerLineageFromExtension({gltf, extension: ext, fileName: name, root: group}),
+            ).catch((err) => console.warn('lineage: register failed for', name, err));
+        }
         set((s) => {
             const next = new Set(s.loadedSourceNames);
             next.add(name);
@@ -95,6 +110,10 @@ export const useModelState = create<ModelState>((set) => ({
     unregisterLoadedSource: (name) => {
         const group = loadedSourceGroups.get(name) ?? null;
         loadedSourceGroups.delete(name);
+        // Drop this file's lineage entries so a future click in another
+        // file doesn't try to jump to a model that's no longer in the
+        // scene. Symmetric to register-on-load in setupModelLoaderAsync.
+        useLineageStore.getState().unregister(name);
         set((s) => {
             if (!s.loadedSourceNames.has(name)) return {};
             const next = new Set(s.loadedSourceNames);
@@ -112,6 +131,7 @@ export const useModelState = create<ModelState>((set) => ({
     },
     clearLoadedSources: () => {
         loadedSourceGroups.clear();
+        useLineageStore.getState().clear();
         set({loadedSourceNames: new Set<string>(), loadedSourceName: null});
     },
 }));

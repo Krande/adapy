@@ -4,7 +4,7 @@
 
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -25,3 +25,11 @@ class DesignDataExtension(BaseModel):
     description: Optional[str] = Field(None, description="Optional description of the design object")
     groups: Optional[List[Group]] = Field(None, description="Named groups and their member objects")
     node_references: Optional[DesignNodeReference] = Field(None, description="References to GLTF node names")
+    object_guids: Optional[Dict[str, str]] = Field(
+        None,
+        description=(
+            "Map of physical object name (Beam/Plate/etc.) to its adapy guid. Used by the viewer to "
+            "resolve a clicked CAD object to its stable lineage id, so a derived FEA model can be "
+            "matched without name lookups."
+        ),
+    )

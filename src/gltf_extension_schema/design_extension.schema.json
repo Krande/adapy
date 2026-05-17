@@ -24,6 +24,13 @@
       "type": "object",
       "description": "References to GLTF node names",
       "$ref": "#/definitions/DesignNodeReference"
+    },
+    "object_guids": {
+      "type": "object",
+      "description": "Map of physical object name (Beam/Plate/etc.) to its adapy guid. Used by the viewer to resolve a clicked CAD object to its stable lineage id, so a derived FEA model can be matched without name lookups.",
+      "additionalProperties": {
+        "type": "string"
+      }
     }
   },
   "definitions": {

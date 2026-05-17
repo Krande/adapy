@@ -167,6 +167,15 @@ class IfcStore:
 
         self.reader = IfcReader(self)
 
+        # Rebind the Assembly's guid to the IfcProject's stable GlobalId
+        # so re-exports keep the same lineage anchor across roundtrips.
+        # Without this, every IFC read mints a fresh Assembly.guid and a
+        # derived GLB would have no stable id matching a previously
+        # exported sibling.
+        projects = self.f.by_type("IfcProject")
+        if projects and getattr(projects[0], "GlobalId", None):
+            self.assembly.guid = projects[0].GlobalId
+
         unit_type = get_unit_type(self.f)
 
         if unit_type != self.assembly.units:

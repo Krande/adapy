@@ -7,10 +7,18 @@ from ada.base.physical_objects import BackendGeom
 from ada.fem import Elem
 from ada.visit.gltf.graph import GraphNode
 
+# Element member lists at or above this length are written as a binary
+# bufferView (uint32 IDs) instead of inline string arrays. Below the
+# threshold, inline JSON keeps the GLB human-readable. Picked to keep
+# small CAD-derived meshes inline while engaging the binary path for
+# real FEA models that would otherwise inflate the JSON chunk.
+_MEMBER_BUFFER_VIEW_THRESHOLD = 256
+
 if TYPE_CHECKING:
     import trimesh
 
     from ada import FEM
+    from ada.fem import FemSection
     from ada.visit.scene_converter import SceneConverter
 
 
@@ -75,6 +83,16 @@ def scene_from_fem(fem: FEM, converter: SceneConverter) -> trimesh.Scene:
         )
         groups.append(g)
 
+    # Lineage groups: one SimGroup per FemSection whose elements were
+    # meshed from a CAD beam/plate. Sits alongside the user-defined sets
+    # above and carries `parent_object_guid` so the viewer can resolve
+    # the CAD parent without name matching. Large groups are written as
+    # a bufferView (uint32 IDs) to keep the JSON chunk bounded.
+    for fem_sec in _iter_fem_sections(fem):
+        sim_group = _build_lineage_simgroup(fem, fem_sec, converter)
+        if sim_group is not None:
+            groups.append(sim_group)
+
     sim_data = sim_meta.SimulationDataExtensionMetadata(
         name=fem.name,
         date=datetime.datetime.now(),
@@ -92,3 +110,66 @@ def scene_from_fem(fem: FEM, converter: SceneConverter) -> trimesh.Scene:
     converter.ada_ext.simulation_objects.append(sim_data)
 
     return scene
+
+
+def _iter_fem_sections(fem: FEM):
+    yield from fem.sections
+
+
+def _build_lineage_simgroup(fem: FEM, fem_sec: FemSection, converter: SceneConverter):
+    """Build a SimGroup that links a FemSection's elements back to their
+    CAD parent's guid, using inline strings for small groups and a uint32
+    bufferView for large ones."""
+    from ada.extension import simulation_extension_schema as sim_meta
+    from ada.extension.simulation_extension_schema import FeObjectType
+
+    refs = getattr(fem_sec, "refs", None)
+    if not refs:
+        return None
+    parent_obj = refs[0]
+    parent_guid = getattr(parent_obj, "guid", None)
+    if not parent_guid:
+        return None
+    elset = getattr(fem_sec, "elset", None)
+    members = getattr(elset, "members", None) if elset is not None else None
+    if not members:
+        return None
+    elem_ids = [int(e.id) for e in members if isinstance(e, Elem)]
+    if not elem_ids:
+        return None
+
+    # Element-name prefix matches what the existing per-element-name
+    # group emission uses (line 66) so a click on "EL17" resolves to
+    # the same SimGroup the lineage path provides.
+    prefix = "EL"
+
+    common: dict = dict(
+        name=f"lineage::{fem_sec.name}",
+        parent_name=fem.name,
+        description="adapy lineage group",
+        parent_object_guid=parent_guid,
+        fe_object_type=FeObjectType.element,
+    )
+
+    if len(elem_ids) < _MEMBER_BUFFER_VIEW_THRESHOLD:
+        common["members"] = [f"{prefix}{eid}" for eid in elem_ids]
+        return sim_meta.SimGroup(**common)
+
+    view_idx = _write_uint32_buffer_view(converter, elem_ids)
+    common["members_buffer_view"] = view_idx
+    common["members_prefix"] = prefix
+    return sim_meta.SimGroup(**common)
+
+
+def _write_uint32_buffer_view(converter: SceneConverter, ids) -> int:
+    """Queue a uint32 element-ID array for emission as a glTF bufferView.
+
+    The bytes are staged on the converter and emitted by
+    ``SceneConverter.buffer_postprocessor`` once trimesh has assigned
+    real bufferView indices. The returned placeholder integer goes onto
+    ``SimGroup.members_buffer_view`` and is rewritten in-place during
+    that postprocessor pass."""
+    import numpy as np
+
+    buf = np.asarray(list(ids), dtype="<u4").tobytes()
+    return converter.queue_lineage_buffer(buf)

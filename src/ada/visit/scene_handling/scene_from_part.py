@@ -50,12 +50,21 @@ def scene_from_part_or_assembly(part_or_assembly: Part | Assembly, converter: Sc
         scene = bt.tessellate_part(part_or_assembly, params=params, graph=graph)
 
     nodes_geom = set(scene.graph.nodes_geometry)
+    # Per-object guid map: lets the frontend resolve a clicked CAD
+    # object name (Beam/Plate) to its stable adapy guid. A derived FEA
+    # file's SimGroup.parent_object_guid points back at these values so
+    # the cross-model link doesn't depend on name matching.
+    object_guids: dict[str, str] = {}
+    for obj in part_or_assembly.get_all_physical_objects():
+        if obj.name and obj.guid:
+            object_guids[obj.name] = obj.guid
     converter.ada_ext.design_objects.append(
         design_ext.DesignDataExtension(
             name=part_or_assembly.name,
             description=type(part_or_assembly).__name__,
             groups=groups,
             node_references=design_ext.DesignNodeReference(faces=list(nodes_geom)),
+            object_guids=object_guids or None,
         )
     )
 

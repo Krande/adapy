@@ -21,4 +21,11 @@ class AdaDesignAndAnalysisExtension(BaseModel):
     design_objects: Optional[List[design_extension_schema.DesignDataExtension]] = Field(
         [], description="Array containing Design Data objects"
     )
-    version: Optional[str] = Field("1.0.0", description="Version of the ADA GLTF extension schema")
+    version: Optional[str] = Field("1.1.0", description="Version of the ADA GLTF extension schema")
+    assembly_guid: Optional[str] = Field(
+        None,
+        description=(
+            "Stable lineage anchor: the source Assembly's guid. CAD and FEA exports derived from the "
+            "same Assembly share this value so a viewer can match them without name lookups."
+        ),
+    )

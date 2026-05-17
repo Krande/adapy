@@ -37,9 +37,38 @@ class FeObjectType(Enum):
 
 class SimGroup(BaseModel):
     name: Optional[str] = Field(None, description="Name of group")
-    members: Optional[List[str]] = Field(None, description="Name of group objects")
+    members: Optional[List[str]] = Field(
+        None,
+        description=(
+            "Inline list of element/node names. Used for small groups (default threshold <256); large "
+            "groups switch to members_buffer_view to keep the JSON chunk size bounded."
+        ),
+    )
+    members_buffer_view: Optional[conint(ge=0)] = Field(
+        None,
+        description=(
+            "Index of a glTF bufferView holding the packed uint32 member IDs. Mutually exclusive with "
+            "`members`. Used for large element groups so the JSON chunk doesn't balloon. The IDs are "
+            "reconstructed into names by prepending `members_prefix`."
+        ),
+    )
+    members_prefix: Optional[str] = Field(
+        None,
+        description=(
+            "String prepended to each uint32 ID in members_buffer_view to reconstruct the element/node "
+            'name (e.g. "EL", "Li", "P"). Required when members_buffer_view is set.'
+        ),
+    )
     description: Optional[str] = Field(None, description="Description of Group")
     parent_name: Optional[str] = Field(None, description="Name of the parent simulation object")
+    parent_object_guid: Optional[str] = Field(
+        None,
+        description=(
+            "adapy guid of the CAD-side Beam/Plate this SimGroup was meshed from. Lets the viewer "
+            "link FEA elements back to their CAD parent without name matching. Populated from "
+            "FemSection.refs[0].guid."
+        ),
+    )
     fe_object_type: Optional[FeObjectType] = Field(
         None, description="Type of finite element model objects in this group (nodes or elements)"
     )

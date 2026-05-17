@@ -5,6 +5,7 @@ import {useModelState} from "@/state/modelState";
 import {useObjectInfoStore} from "@/state/objectInfoStore";
 import {queryMeshDrawRange, queryNameFromRangeId} from "./queryMeshDrawRange";
 import {perform_selection} from "./perform_selection";
+import {query_ws_server_mesh_info} from "./handlers/send_mesh_selected_info_callback";
 import {useTreeViewStore} from "@/state/treeViewStore";
 import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
 import {findNodeById} from "../tree_view/findNodeById";
@@ -63,6 +64,16 @@ export async function handleClickMesh(
         return;
     }
     useObjectInfoStore.getState().setName(last_selected_name);
+
+    // Fire-and-forget the metadata request so the Properties panel
+    // populates without blocking the rest of the click handler. The
+    // active file name scopes the backend's lookup so overlay loads
+    // don't collide on name; ``loadedSourceName`` carries the most
+    // recently activated source.
+    const activeFile = useModelState.getState().loadedSourceName;
+    useObjectInfoStore.getState().setFileName(activeFile);
+    useObjectInfoStore.getState().setJsonData(null);
+    void query_ws_server_mesh_info(last_selected_name, faceIndex, activeFile);
 
     // update tree selection
     const treeViewStore = useTreeViewStore.getState();

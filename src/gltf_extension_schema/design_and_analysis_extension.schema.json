@@ -23,7 +23,11 @@
     "version": {
       "type": "string",
       "description": "Version of the ADA GLTF extension schema",
-      "default": "1.0.0"
+      "default": "1.1.0"
+    },
+    "assembly_guid": {
+      "type": "string",
+      "description": "Stable lineage anchor: the source Assembly's guid. CAD and FEA exports derived from the same Assembly share this value so a viewer can match them without name lookups."
     }
   },
   "required": [],
