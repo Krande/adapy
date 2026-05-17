@@ -19,11 +19,11 @@ same data source (the in-memory Assembly's FEM sections + their
   Beams and plates are written under two parallel arrays so the read
   side can aggregate them independently.
 
-This module dumps a ``<name>.beams.json`` sidecar next to the .med
-at write time. The Code Aster solver round-trips the .med to .rmed
-so the sidecar ends up sitting next to the .rmed result that the
-viewer's bake worker opens; the RMED stream reader picks it up by
-basename.
+This module dumps a ``<name>.adapy_fem.json`` sidecar next to the
+.med at write time. The Code Aster solver round-trips the .med to
+.rmed so the sidecar ends up sitting next to the .rmed result that
+the viewer's bake worker opens; the RMED stream reader picks it up
+by basename.
 
 Schema (version 3):
 

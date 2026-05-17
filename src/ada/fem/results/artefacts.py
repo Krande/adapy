@@ -1795,7 +1795,7 @@ def build_manifest(
 
     ``lineage`` (optional) carries the CAD↔FEA back-reference that
     adapy's writers stamp into format-specific sidecars (currently
-    the code_aster ``<name>.beams.json``). Shape:
+    the code_aster ``<name>.adapy_fem.json``). Shape:
     ``{"assembly_guid": str, "groups": [{"parent_object_guid": str,
     "parent_object_name": str, "members": ["E17", ...]}]}``.
     Frontend feeds this to ``useLineageStore`` so a click in the FEA
@@ -2350,9 +2350,9 @@ def bake_artefacts(
         history = None
 
     # CAD↔FEA lineage. Pulled from a format-specific sidecar (e.g.
-    # ``<name>.beams.json`` for code_aster) that adapy's FEM writer
-    # stamps at deck-write time. Readers that don't implement the
-    # method, or sources without an adapy-written sidecar, just
+    # ``<name>.adapy_fem.json`` for code_aster) that adapy's FEM
+    # writer stamps at deck-write time. Readers that don't implement
+    # the method, or sources without an adapy-written sidecar, just
     # produce no lineage and the manifest entry is omitted.
     try:
         lineage = reader.try_lineage()

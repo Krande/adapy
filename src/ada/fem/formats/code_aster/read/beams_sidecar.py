@@ -1,9 +1,10 @@
-"""Read side of the ``<name>.beams.json`` sidecar emitted by the
+"""Read side of the ``<name>.adapy_fem.json`` sidecar emitted by the
 Code Aster MED writer.
 
 Reconstructs lightweight :class:`ada.Beam` instances from the
 serialized per-line-element metadata so the streaming bake can
-tessellate beams the same way it does for SIF / Abaqus. See
+tessellate beams the same way it does for SIF / Abaqus, and
+surfaces the per-element CAD lineage to the bake's manifest. See
 :mod:`ada.fem.formats.code_aster.write.beams_sidecar` for the schema.
 """
 from __future__ import annotations
@@ -16,15 +17,19 @@ if TYPE_CHECKING:
     pass
 
 
+_SIDECAR_SUFFIX = ".adapy_fem.json"
+
+
 def _sidecar_path_for(rmed_path: pathlib.Path) -> pathlib.Path:
-    """Sidecar lives next to the .rmed with a ``.beams.json`` extension.
+    """Sidecar lives next to the .rmed with a ``.adapy_fem.json``
+    extension.
 
     Code Aster round-trips the input ``<name>.med`` to an output
     ``<name>.rmed`` in the same directory, so the writer-side sidecar
     naturally sits next to the .rmed by the time the bake worker
     opens it.
     """
-    return rmed_path.with_suffix(".beams.json")
+    return rmed_path.with_suffix(_SIDECAR_SUFFIX)
 
 
 def _reconstruct_section(section_dict: dict):

@@ -211,11 +211,11 @@ class RmedStreamReader:
     def try_solid_beams(self):
         # Code Aster's .med output has no section / orientation info
         # of its own — that lives in the .comm deck. adapy's MED
-        # writer emits a <name>.beams.json sidecar at write time
-        # carrying exactly the per-line-element data the bake needs
-        # to tessellate. Look for it next to the .rmed; if it isn't
-        # there (third-party .rmed, manual rename, ...) the bake
-        # gracefully falls back to line-only beam rendering.
+        # writer emits a <name>.adapy_fem.json sidecar at write
+        # time carrying exactly the per-line-element data the bake
+        # needs to tessellate. Look for it next to the .rmed; if it
+        # isn't there (third-party .rmed, manual rename, ...) the
+        # bake gracefully falls back to line-only beam rendering.
         from ada.fem.formats.code_aster.read.beams_sidecar import (
             try_load_beams_sidecar,
         )

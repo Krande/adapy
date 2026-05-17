@@ -54,11 +54,12 @@ def to_fem(assembly: Assembly, name, analysis_dir, metadata=None, model_data_onl
 
     dump_name_map(name_map, (analysis_dir / name).with_suffix(".name_map.json"))
 
-    # Beams sidecar — viewer's RMED stream reader picks this up to
-    # tessellate line elements as 3D extruded solids. The .med format
-    # has no section / orientation info on its own, so this is the
-    # only way to feed the streaming bake without re-parsing the .comm.
-    dump_beams_sidecar(assembly, (analysis_dir / name).with_suffix(".beams.json"))
+    # FEM lineage + tessellation sidecar — viewer's RMED stream reader
+    # picks this up to tessellate line elements as 3D extruded solids
+    # AND to resolve CAD↔FEA linkage. The .med format has no section
+    # / orientation / lineage on its own, so this is the only way to
+    # feed the streaming bake without re-parsing the .comm.
+    dump_beams_sidecar(assembly, (analysis_dir / name).with_suffix(".adapy_fem.json"))
 
     if model_data_only:
         return
