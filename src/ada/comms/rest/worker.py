@@ -75,6 +75,16 @@ FETCH_BATCH = 1
 # message leaves the stream.
 MAX_DELIVERIES = 3
 
+# Per-source-suffix sidecar files that the worker co-downloads next to
+# the main payload so format-specific readers find them by basename.
+# Keep this conservative — a 404 on an absent sibling is silent, but
+# we still pay one S3 HEAD per attempt. Add entries here as readers
+# grow new sidecar needs; ``.adapy_fem.json`` is the code_aster
+# lineage + per-element tessellation companion.
+_SIDECAR_SIBLINGS: dict[str, tuple[str, ...]] = {
+    ".rmed": (".adapy_fem.json",),
+}
+
 
 async def _audit_done(
     db_pool: asyncpg.Pool | None,
@@ -385,6 +395,28 @@ async def _process_one(
             )
             await _audit_done(db_pool, job_id, "error", str(exc), started_at)
             return
+
+        # Co-download known sibling sidecars so format-specific
+        # readers find them next to the source in the worker's
+        # tempdir. The code_aster ``.rmed`` reader, for instance,
+        # looks for ``<basename>.adapy_fem.json`` (lineage + per-
+        # line-element section / orientation) by basename via
+        # ``rmed_path.with_suffix(...)``. Sidecars are optional —
+        # a 404 just means a third-party source without one, in
+        # which case the reader falls back to its no-sidecar path.
+        sibling_suffixes = _SIDECAR_SIBLINGS.get(src_suffix.lower(), ())
+        for sib_suffix in sibling_suffixes:
+            sib_key = job.source_key[: -len(src_suffix)] + sib_suffix
+            sib_path = src_path.with_suffix(sib_suffix)
+            try:
+                await storage.stream_to_path(scope, sib_key, sib_path)
+            except FileNotFoundError:
+                pass  # optional sibling, OK to be missing
+            except Exception:
+                logger.exception(
+                    "worker: failed fetching sibling %s for job %s (non-fatal)",
+                    sib_key, job_id,
+                )
 
         # Conversion settings flip via the admin panel and are read
         # fresh per job — admins can flip one on, send a
