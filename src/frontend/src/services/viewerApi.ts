@@ -224,7 +224,35 @@ export interface FeaManifest {
      * Code_Aster suivi.). The two have different axes — region ×
      * variable × step × time — so they live in their own section. */
     history?: FeaManifestHistory;
+    /** CAD↔FEA lineage stamped by adapy's FEM writer (currently the
+     *  code_aster ``<name>.beams.json`` sidecar carries this). The
+     *  frontend feeds it to ``useLineageStore`` on load so a click
+     *  in this baked FEA model can resolve back to the source CAD
+     *  Beam/Plate when the parent assembly's GLB is also loaded. */
+    lineage?: FeaManifestLineage;
     legacy_glb?: {url_template: string};
+}
+
+export interface FeaManifestLineage {
+    /** ``ada.Assembly.guid`` of the source. Matches the
+     *  ``assembly_guid`` written into a CAD GLB's ``ADA_EXT_data``
+     *  extension when both were exported from the same Assembly. */
+    assembly_guid?: string | null;
+    groups: FeaManifestLineageGroup[];
+}
+
+export interface FeaManifestLineageGroup {
+    /** adapy guid of the CAD-side Beam/Plate this group's elements
+     *  were meshed from (``FemSection.refs[0].guid``). */
+    parent_object_guid: string;
+    /** Human-readable CAD-side name, for the panel display when the
+     *  parent CAD isn't loaded as an overlay (so we can show the
+     *  name without falling back to the guid string). */
+    parent_object_name?: string | null;
+    /** FEA element labels in this group, prefixed with ``E`` to
+     *  match the bake's element-range naming
+     *  (load_fea_streaming.ts:183). */
+    members: string[];
 }
 
 export type FeaHistoryRegionKind = "node" | "element" | "model" | "set";

@@ -571,6 +571,30 @@ export async function load_fea_streaming(args: {
             const ms = useModelState.getState();
             ms.setModelUrl(url, SceneOperations.REPLACE);
             ms.setLoadedSourceName(sourceName);
+            // Register CAD↔FEA lineage from the manifest. Mirrors the
+            // glTF-extension registration that setupModelLoader does
+            // for CAD GLBs — once a sibling CAD overlay carrying the
+            // same ``assembly_guid`` is also loaded, the panel's link
+            // row resolves a clicked FEA element back to its parent
+            // beam without going through the server.
+            if (manifest.lineage && manifest.lineage.assembly_guid) {
+                const sceneRoot = sceneRef.current;
+                const meshRoot = sceneRoot ? findFirstMesh(sceneRoot) : null;
+                const root = (meshRoot ?? sceneRoot) as THREE.Object3D | null;
+                if (root) {
+                    const {useLineageStore} = await import("@/state/lineageStore");
+                    useLineageStore.getState().register({
+                        kind: "fea",
+                        fileName: sourceName,
+                        assemblyGuid: manifest.lineage.assembly_guid,
+                        root,
+                        groups: manifest.lineage.groups.map((g) => ({
+                            parentObjectGuid: g.parent_object_guid,
+                            inlineMembers: g.members,
+                        })),
+                    });
+                }
+            }
         } catch (err) {
             URL.revokeObjectURL(url);
             throw err;

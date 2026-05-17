@@ -195,6 +195,19 @@ class RmedStreamReader:
             "element_field_specs() returns empty so the bake skips this path."
         )
 
+    def try_lineage(self):
+        """CAD↔FEA lineage extracted from the sidecar.
+
+        Returns None when the sidecar is missing or pre-dates the v2
+        lineage schema (no ``parent_object_guid`` per beam). The bake
+        injects the return value into ``fea.manifest.json.lineage``
+        which the frontend feeds to the lineage store."""
+        from ada.fem.formats.code_aster.read.beams_sidecar import (
+            try_load_lineage_payload,
+        )
+
+        return try_load_lineage_payload(self._path)
+
     def try_solid_beams(self):
         # Code Aster's .med output has no section / orientation info
         # of its own — that lives in the .comm deck. adapy's MED

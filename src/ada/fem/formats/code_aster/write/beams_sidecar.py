@@ -14,13 +14,14 @@ so the sidecar ends up sitting next to the .rmed result that the
 viewer's bake worker opens; the RMED stream reader picks it up by
 basename.
 
-Schema (version 1):
+Schema (version 2):
 
 .. code-block:: json
 
     {
-      "version": 1,
+      "version": 2,
       "units": "m",
+      "assembly_guid": "<adapy Assembly.guid>",   // v2: lineage anchor
       "beams": [
         {
           "elem_id": 17,
@@ -28,6 +29,8 @@ Schema (version 1):
           "n0": [0.0, 0.0, 0.0], "n1": [1.0, 0.0, 0.0],
           "local_z": [0.0, 0.0, 1.0],
           "material_name": "S355",
+          "parent_object_guid": "<beam.guid>",     // v2: CAD↔FEA link
+          "parent_object_name": "BM_FLOOR_01",     // v2: CAD↔FEA link
           "section": {
             "name": "HP220x10",
             "type": "BG",
@@ -39,6 +42,11 @@ Schema (version 1):
         }
       ]
     }
+
+Version 1 readers see ``assembly_guid`` / ``parent_object_*`` as
+unknown keys and ignore them; v2 readers gracefully fall back when
+those fields are absent on a v1 file. So the bump is backward-
+compatible in both directions.
 
 GENBEAM sections (Sesam-style numeric properties with no geometric
 profile) are skipped at write time — the viewer-side reader can't
@@ -54,7 +62,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from ada.api.spatial import Assembly
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 def _section_to_dict(section) -> dict | None:
@@ -128,6 +136,17 @@ def build_beams_payload(assembly: "Assembly") -> dict:
         n0 = elem.nodes[0]
         n1 = elem.nodes[-1]
         material = fem_sec.material
+        # CAD↔FEA lineage. ``FemSection.refs`` is populated during
+        # meshing (src/ada/fem/sections.py:161 — ``refs=[beam]``); on a
+        # FEM read back from a third-party file it stays empty, in
+        # which case we just omit the lineage fields and the bake's
+        # downstream lineage manifest skips this beam.
+        parent_obj_guid: str | None = None
+        parent_obj_name: str | None = None
+        refs = getattr(fem_sec, "refs", None)
+        if refs:
+            parent_obj_guid = getattr(refs[0], "guid", None)
+            parent_obj_name = getattr(refs[0], "name", None)
         beams.append(
             {
                 "elem_id": int(elem.id),
@@ -137,10 +156,20 @@ def build_beams_payload(assembly: "Assembly") -> dict:
                 "n1": [float(n1.p[0]), float(n1.p[1]), float(n1.p[2])],
                 "local_z": [float(c) for c in fem_sec.local_z],
                 "material_name": material.name if material is not None else None,
+                "parent_object_guid": parent_obj_guid,
+                "parent_object_name": parent_obj_name,
                 "section": sec_dict,
             }
         )
-    return {"version": SCHEMA_VERSION, "units": units, "beams": beams}
+    payload: dict = {"version": SCHEMA_VERSION, "units": units, "beams": beams}
+    # Top-level lineage anchor. ``Assembly.guid`` is set (for IFC
+    # roundtrips) to ``IfcProject.GlobalId`` in store.py, so the same
+    # value lands here as in the CAD GLB's ``ADA_EXT_data.assembly_guid``
+    # — that's what the frontend matches files on.
+    assembly_guid = getattr(assembly, "guid", None)
+    if assembly_guid:
+        payload["assembly_guid"] = assembly_guid
+    return payload
 
 
 def dump_beams_sidecar(assembly: "Assembly", path: pathlib.Path) -> int:

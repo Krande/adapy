@@ -143,4 +143,64 @@ def try_load_beams_sidecar(
     return beams, extra_skip
 
 
-__all__ = ["try_load_beams_sidecar"]
+def try_load_lineage_payload(rmed_path: pathlib.Path) -> dict | None:
+    """Read the sidecar and surface just the CAD↔FEA lineage data.
+
+    Returns a dict the bake injects into ``fea.manifest.json.lineage``:
+
+    .. code-block:: json
+
+        {
+          "assembly_guid": "<adapy Assembly.guid>",
+          "groups": [
+            {"parent_object_guid": "<beam.guid>",
+             "parent_object_name": "BM_FLOOR_01",
+             "members": ["E17", "E18", ...]}
+          ]
+        }
+
+    ``None`` when the sidecar is missing, unreadable, or carries no
+    ``parent_object_guid`` entries (e.g. a v1 sidecar from before the
+    lineage schema bump). Members use the ``E{elem_id}`` naming scheme
+    the bake's element-ranges writer emits, so frontend selection
+    state ties back to the same labels.
+    """
+    sidecar = _sidecar_path_for(rmed_path)
+    if not sidecar.is_file():
+        return None
+    try:
+        payload = json.loads(sidecar.read_text())
+    except (OSError, ValueError):
+        return None
+
+    assembly_guid = payload.get("assembly_guid")
+    raw_beams = payload.get("beams", [])
+    # Group elements by parent guid so the frontend can list "N
+    # elements meshed from this beam" without a second pass.
+    by_parent: dict[str, dict] = {}
+    for entry in raw_beams:
+        parent_guid = entry.get("parent_object_guid")
+        if not parent_guid:
+            continue
+        elem_id = entry.get("elem_id")
+        if elem_id is None:
+            continue
+        bucket = by_parent.setdefault(
+            parent_guid,
+            {
+                "parent_object_guid": parent_guid,
+                "parent_object_name": entry.get("parent_object_name"),
+                "members": [],
+            },
+        )
+        bucket["members"].append(f"E{int(elem_id)}")
+
+    if not assembly_guid and not by_parent:
+        return None
+    return {
+        "assembly_guid": assembly_guid,
+        "groups": list(by_parent.values()),
+    }
+
+
+__all__ = ["try_load_beams_sidecar", "try_load_lineage_payload"]

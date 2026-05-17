@@ -1784,13 +1784,22 @@ def build_manifest(
     mesh_elements_filename: str | None = None,
     n_elements: int = 0,
     history: "HistoryRecords | None" = None,
+    lineage: dict | None = None,
     legacy_glb_url_template: str | None = None,
 ) -> dict:
     """Compose the manifest dict from the bake outputs.
 
     Element-field metas are grouped by ``spec.name`` so a single
     logical field (e.g. ``STRESS``) carries multiple ``per_type``
-    buckets — one per element type the source ships with."""
+    buckets — one per element type the source ships with.
+
+    ``lineage`` (optional) carries the CAD↔FEA back-reference that
+    adapy's writers stamp into format-specific sidecars (currently
+    the code_aster ``<name>.beams.json``). Shape:
+    ``{"assembly_guid": str, "groups": [{"parent_object_guid": str,
+    "parent_object_name": str, "members": ["E17", ...]}]}``.
+    Frontend feeds this to ``useLineageStore`` so a click in the FEA
+    viewer can jump to the parent beam in a loaded CAD overlay."""
 
     n_cells = sum(int(cb.data.shape[0]) for cb in mesh_geom.cell_blocks)
     fields_payload = []
@@ -2005,6 +2014,10 @@ def build_manifest(
         history.regions or history.variables or history.series
     ):
         manifest["history"] = build_history_payload(history)
+    if lineage is not None and (
+        lineage.get("assembly_guid") or lineage.get("groups")
+    ):
+        manifest["lineage"] = lineage
     if legacy_glb_url_template is not None:
         manifest["legacy_glb"] = {"url_template": legacy_glb_url_template}
     return manifest
@@ -2336,6 +2349,16 @@ def bake_artefacts(
     except (AttributeError, NotImplementedError):
         history = None
 
+    # CAD↔FEA lineage. Pulled from a format-specific sidecar (e.g.
+    # ``<name>.beams.json`` for code_aster) that adapy's FEM writer
+    # stamps at deck-write time. Readers that don't implement the
+    # method, or sources without an adapy-written sidecar, just
+    # produce no lineage and the manifest entry is omitted.
+    try:
+        lineage = reader.try_lineage()
+    except (AttributeError, NotImplementedError):
+        lineage = None
+
     manifest = build_manifest(
         src=src,
         mesh_geom=geom,
@@ -2366,6 +2389,7 @@ def bake_artefacts(
         beam_solids_skip_reasons=(
             solid_beams.skip_reasons if solid_beams is not None else None
         ),
+        lineage=lineage,
         legacy_glb_url_template=legacy_glb_url_template,
     )
     manifest_path = out_dir / "fea.manifest.json"
