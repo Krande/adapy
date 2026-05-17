@@ -2,6 +2,29 @@ import React, {useState} from 'react';
 import {selectInOtherModel} from '@/utils/scene/crossModelSelect';
 import {useLineageStore, LinkResult} from '@/state/lineageStore';
 import {useObjectInfoStore} from '@/state/objectInfoStore';
+import {useModelState} from '@/state/modelState';
+
+// Decimal places for the "Clicked at" coordinates, matching the
+// precision the old standalone block used before the fold-in.
+const COORD_PREC = 3;
+
+const Chevron: React.FC<{open: boolean}> = ({open}) => (
+    <svg
+        viewBox="0 0 16 16"
+        className={
+            "w-3 h-3 transition-transform duration-150 ease-out " +
+            (open ? "rotate-90" : "rotate-0")
+        }
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden
+    >
+        <path d="M6 4l4 4-4 4"/>
+    </svg>
+);
 
 // Backend ships SI everywhere (metres for length, Pa for stress, kg/m³
 // for density). The viewer's convention is mm for cross-section and
@@ -169,11 +192,26 @@ const LinkRow: React.FC<{link: NonNullable<LinkResult>}> = ({link}) => {
     );
 };
 
+const ClickedAtRow: React.FC = () => {
+    const clickCoord = useObjectInfoStore((s) => s.clickCoordinate);
+    const zIsUp = useModelState((s) => s.zIsUp);
+    if (!clickCoord) return null;
+    const x = clickCoord.x.toFixed(COORD_PREC);
+    const y = clickCoord.y.toFixed(COORD_PREC);
+    const z = clickCoord.z.toFixed(COORD_PREC);
+    // Mirror the original axis-swap convention from CoordinateDisplay:
+    // viewer scene is y-up by default, but adapy's Z-up world is what
+    // users think in — so when zIsUp is set, show the world tuple
+    // (x, y, z) directly; otherwise re-order to compensate.
+    const display = zIsUp ? `(${x}, ${y}, ${z})` : `(${x}, ${z}, ${y})`;
+    return <Row label="Clicked at:">{display}</Row>;
+};
+
 const ObjectMetadataPanel: React.FC<Props> = ({data}) => {
-    // Default expanded: the panel is the primary metadata UI and clicks
-    // are explicit user actions — collapsing by default would force a
-    // second tap on every selection.
-    const [expanded, setExpanded] = useState(true);
+    // Default collapsed: most clicks are just for selection / hide /
+    // jump, not for inspecting properties. Folding keeps the info box
+    // compact and the chevron tells the user where the data lives.
+    const [expanded, setExpanded] = useState(false);
     // The link is derived live from the lineage store and the current
     // selection (file + name) — keeps it reactive to file load/unload
     // without going back through the server.
@@ -187,9 +225,11 @@ const ObjectMetadataPanel: React.FC<Props> = ({data}) => {
     // server-fetched path stays as a fallback for IFC uploads.
     const embeddedMeta = useLineageStore((s) => s.getMetadata(fileName, clickedName));
     const effectiveData = embeddedMeta ?? data;
-    if (!effectiveData) return null;
-    const meta = effectiveData as BeamMeta | PlateMeta;
-    const known = meta.type === 'Beam' || meta.type === 'Plate';
+    // Panel always renders when there's a selection — even without
+    // any structured metadata — because it still hosts the clicked-
+    // coordinate row and the cross-model link buttons.
+    const meta = (effectiveData ?? null) as BeamMeta | PlateMeta | null;
+    const known = meta?.type === 'Beam' || meta?.type === 'Plate';
     return (
         <div className="mt-2">
             <button
@@ -199,27 +239,28 @@ const ObjectMetadataPanel: React.FC<Props> = ({data}) => {
                 aria-expanded={expanded}
                 aria-controls="object-properties"
             >
-                <span className="inline-block w-3">{expanded ? '▾' : '▸'}</span>
+                <Chevron open={expanded} />
                 <span className="font-semibold">Properties</span>
             </button>
             {expanded && (
                 <div id="object-properties" className="mt-1 ml-4 table">
-                    {!known && <Row label="Type:">{(meta as any).type ?? 'Unknown'}</Row>}
-                    {!known && <Row label="Info:">No metadata available</Row>}
-                    {meta.type === 'Beam' && (
+                    {meta && !known && <Row label="Type:">{(meta as any).type ?? 'Unknown'}</Row>}
+                    {meta && !known && <Row label="Info:">No metadata available</Row>}
+                    {meta?.type === 'Beam' && (
                         <>
                             <Row label="Type:">Beam</Row>
                             <SectionRows section={(meta as BeamMeta).section} />
                             <MaterialRows material={meta.material} />
                         </>
                     )}
-                    {meta.type === 'Plate' && (
+                    {meta?.type === 'Plate' && (
                         <>
                             <Row label="Type:">Plate</Row>
                             <Row label="Thickness:">{fmtMm((meta as PlateMeta).thickness)}</Row>
                             <MaterialRows material={meta.material} />
                         </>
                     )}
+                    <ClickedAtRow />
                     {link && <LinkRow link={link} />}
                 </div>
             )}

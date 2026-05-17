@@ -7,7 +7,6 @@ import {copySelectionNames, writeToClipboard} from '@/utils/clipboard/copySelect
 import {hideSelectedRanges, unhideAllRanges} from '@/utils/scene/visibility';
 import {elementFirstNodeId} from '@/utils/scene/fea/goToNode';
 import ObjectMetadataPanel from './ObjectMetadataPanel';
-import CoordinateDisplay from "./CoordinateDisplay";
 
 // 1500 ms is the smallest hold that still feels intentional vs a
 // reflexive tap-and-release; long enough that "Copied" lingers on
@@ -19,7 +18,6 @@ const ObjectInfoBox = () => {
     const {
         name,
         faceIndex,
-        clickCoordinate,
         jsonData,
     } = useObjectInfoStore();
     const selectedObjects = useSelectedObjectStore((s) => s.selectedObjects);
@@ -35,11 +33,6 @@ const ObjectInfoBox = () => {
     const isMultiSelect = multiSelectCount > 1;
 
     const [copied, setCopied] = useState<"single" | "multi" | null>(null);
-    // Mobile-only collapse state for the "Clicked @" coords. Default
-    // closed because they take a noticeable chunk of screen real
-    // estate and the user rarely needs the literal click point — the
-    // selection name is what matters most after a tap.
-    const [showCoords, setShowCoords] = useState(false);
     const flashCopied = (which: "single" | "multi") => {
         setCopied(which);
         window.setTimeout(() => setCopied((c) => (c === which ? null : c)), COPIED_FEEDBACK_MS);
@@ -69,7 +62,6 @@ const ObjectInfoBox = () => {
         setGoToTarget({kind: "node", id: firstNodeId});
     };
 
-    const prec = 3;
     return (
         <div className="bg-gray-400 bg-opacity-50 rounded p-2 min-w-80">
             <h2 className="font-bold">Selected Object Info</h2>
@@ -209,42 +201,11 @@ const ObjectInfoBox = () => {
                 <div className="table-cell w-24">Face Index:</div>
                 <div className="table-cell w-48">{faceIndex}</div>
             </div>
-            {/* Click coordinate. Same mobile/desktop split as the
-                Name row: desktop keeps the fixed-width label
-                column; mobile collapses behind a chevron because
-                the literal click XYZ is rarely the thing the user
-                came to the panel for, and the three numbers cost
-                more vertical space than the name itself. */}
-            <div className="hidden sm:table-row">
-                <div className="table-cell w-24 min-w-24">Clicked @:</div>
-                <CoordinateDisplay clickCoordinate={clickCoordinate} prec={prec} />
-            </div>
-            <div className="sm:hidden mt-2">
-                <button
-                    type="button"
-                    onClick={() => setShowCoords((v) => !v)}
-                    className="flex items-center gap-1 text-[11px] text-gray-200 hover:text-white"
-                    aria-expanded={showCoords}
-                    aria-controls="object-info-click-coord"
-                >
-                    <span className="inline-block w-3">{showCoords ? "▾" : "▸"}</span>
-                    <span>Clicked at</span>
-                </button>
-                {showCoords && (
-                    <div id="object-info-click-coord" className="mt-1 ml-4 table">
-                        <div className="table-row">
-                            <CoordinateDisplay
-                                clickCoordinate={clickCoordinate}
-                                prec={prec}
-                            />
-                        </div>
-                    </div>
-                )}
-            </div>
-            {/* Panel renders for any selection — even without a
-                server-side jsonData payload — because the panel can
-                also read metadata from the lineage store (GLB
-                extension's ``object_metadata`` field). */}
+            {/* The Properties panel renders for any selection — even
+                without a server-side jsonData payload — because it
+                also reads metadata from the lineage store (GLB
+                extension's ``object_metadata`` field) AND hosts the
+                clicked-coordinate row that used to live above. */}
             {name && <ObjectMetadataPanel data={jsonData}/>}
         </div>
     );
