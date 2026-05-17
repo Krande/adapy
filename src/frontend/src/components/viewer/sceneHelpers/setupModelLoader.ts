@@ -5,6 +5,7 @@ import {useOptionsStore} from "@/state/optionsStore";
 import {useAnimationStore} from "@/state/animationStore";
 import {animationControllerRef, modelKeyMapRef, sceneRef, simulationDataRef, adaExtensionRef} from "@/state/refs";
 import {SimulationDataExtensionMetadata} from "@/extensions/design_and_analysis_extension";
+import {requestRender} from "@/state/perfStore";
 import {FilePurpose} from "@/flatbuffers/base/file-purpose";
 import {cacheAndBuildTree} from "@/state/model_worker/cacheModelUtils";
 import {mapAnimationTargets} from "@/utils/scene/animations/mapAnimationTargets";
@@ -134,6 +135,11 @@ export async function setupModelLoaderAsync(
     modelGroup.add(gltf_scene);
 
     main_scene.add(modelGroup);
+    // The render loop only fires on OrbitControls 'change' events
+    // or explicit ``requestRender()`` calls (ThreeCanvas.tsx:158).
+    // Without this kick the freshly-added model only paints once the
+    // user rotates / pans the camera.
+    requestRender();
 
     // Ensure point sizes and sizing mode are applied after the model is in the scene,
     // so points are visible immediately without needing the Options panel.

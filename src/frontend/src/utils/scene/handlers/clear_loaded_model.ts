@@ -4,6 +4,7 @@ import {useTreeViewStore} from "@/state/treeViewStore";
 import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
 import {animationControllerRef, modelKeyMapRef, sceneRef, simulationDataRef} from "@/state/refs";
 import {clearActiveFeaStreaming} from "./load_fea_streaming";
+import {requestRender} from "@/state/perfStore";
 
 // Tear the currently-loaded model out of the scene without loading a
 // replacement. Mirrors what `replace_model` does up to the point of
@@ -61,4 +62,9 @@ export async function clear_loaded_model(): Promise<void> {
     // leaving it dangling crashes SimulationDataInfoPanel when the
     // panel happens to be open across a model swap.
     simulationDataRef.current = null;
+
+    // Force a paint — on-demand render loop won't fire until the
+    // user touches the camera otherwise, leaving the just-cleared
+    // models on screen as ghosts.
+    requestRender();
 }

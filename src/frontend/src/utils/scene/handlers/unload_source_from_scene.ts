@@ -7,6 +7,7 @@ import {useModelState} from "@/state/modelState";
 import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
 import {sceneRef} from "@/state/refs";
 import {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
+import {requestRender} from "@/state/perfStore";
 
 export function unload_source_from_scene(sourceName: string): void {
     const group = useModelState.getState().unregisterLoadedSource(sourceName);
@@ -36,4 +37,8 @@ export function unload_source_from_scene(sourceName: string): void {
     // free the GPU buffers on the next frame.
     group.clear();
     sceneRef.current?.remove(group);
+    // On-demand render loop won't tick until the next OrbitControls
+    // 'change' event — without this kick the just-removed group
+    // keeps rendering on the canvas until the user rotates.
+    requestRender();
 }
