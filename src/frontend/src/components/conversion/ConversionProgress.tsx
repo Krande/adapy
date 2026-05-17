@@ -6,10 +6,15 @@ import {useMeStore} from "@/state/meStore";
 import {useScopeStore, scopeUrlPart} from "@/state/scopeStore";
 import {viewerApi} from "@/services/viewerApi";
 
-// Shared dismiss button — 24x24 hit area, visible border, large enough
-// to tap on touch screens. Used for both queued/running cancel-confirm
-// and the error-row dismiss; the kill-confirm flow shows it before the
-// red Kill button (replaces the previous single tiny "×" character).
+// Shared dismiss button. Hit area is 28×28 (Apple HIG min is 44 but
+// the toast is dense; 28 still beats the 24 we shipped with and stays
+// visually compact). ``pointer-events-auto`` defensively counters any
+// ancestor that disables pointer events (the toast container is OK,
+// but the surrounding viewer chrome shifts under us so being explicit
+// avoids surprise). ``onClick`` stops propagation so a future "click
+// on background dismisses" overlay won't swallow the click and so the
+// click can't reach the 3D canvas's OrbitControls underneath if the
+// stacking ever changes.
 const DismissButton: React.FC<{
     onClick: () => void;
     label?: string;
@@ -17,14 +22,18 @@ const DismissButton: React.FC<{
 }> = ({onClick, label = "Dismiss", disabled = false}) => (
     <button
         type="button"
-        onClick={onClick}
+        onClick={(e) => {
+            e.stopPropagation();
+            onClick();
+        }}
+        onMouseDown={(e) => e.stopPropagation()}
         disabled={disabled}
         aria-label={label}
         title={label}
         className={
-            "shrink-0 inline-flex items-center justify-center w-6 h-6 rounded " +
-            "border border-gray-600 bg-gray-700/60 text-gray-200 " +
-            "hover:bg-gray-600 hover:border-gray-400 hover:text-white " +
+            "shrink-0 inline-flex items-center justify-center w-7 h-7 rounded " +
+            "border border-gray-600 bg-gray-700/60 text-gray-200 cursor-pointer " +
+            "pointer-events-auto hover:bg-gray-600 hover:border-gray-400 hover:text-white " +
             "disabled:opacity-50 disabled:cursor-not-allowed"
         }
     >
@@ -43,7 +52,8 @@ const DismissButton: React.FC<{
 // (i) Info button — admin-only entry point that opens the Admin panel
 // on the Audit Log tab so the operator can dig into the worker-side
 // traceback for the failed job. Non-admins don't see it (they have no
-// route to that data).
+// route to that data). Same hit-area + propagation guards as
+// DismissButton.
 const InfoButton: React.FC<{title?: string}> = ({
     title = "Open audit log for traceback",
 }) => {
@@ -53,13 +63,17 @@ const InfoButton: React.FC<{title?: string}> = ({
     return (
         <button
             type="button"
-            onClick={() => openAdmin("audit")}
+            onClick={(e) => {
+                e.stopPropagation();
+                openAdmin("audit");
+            }}
+            onMouseDown={(e) => e.stopPropagation()}
             aria-label={title}
             title={title}
             className={
-                "shrink-0 inline-flex items-center justify-center w-6 h-6 rounded " +
-                "border border-blue-500/60 bg-blue-700/40 text-blue-200 " +
-                "hover:bg-blue-600 hover:border-blue-300 hover:text-white text-xs font-semibold"
+                "shrink-0 inline-flex items-center justify-center w-7 h-7 rounded " +
+                "border border-blue-500/60 bg-blue-700/40 text-blue-200 cursor-pointer " +
+                "pointer-events-auto hover:bg-blue-600 hover:border-blue-300 hover:text-white text-xs font-semibold"
             }
         >
             i
@@ -287,7 +301,11 @@ const ConversionProgress = () => {
     }
 
     return (
-        <div className="absolute bottom-4 right-4 z-50 flex flex-col gap-2 max-w-sm">
+        // ``pointer-events-auto`` is explicit so the toast row always
+        // receives clicks even if a future ancestor opts into
+        // pointer-events-none for the chrome layer (some overlay
+        // shells do that to let drags reach the canvas).
+        <div className="absolute bottom-4 right-4 z-50 flex flex-col gap-2 max-w-sm pointer-events-auto">
             {visibleSweeps.map(([scopeLabel, state]) => (
                 <CompressionToast
                     key={`compress:${scopeLabel}`}

@@ -92,6 +92,15 @@ export function useRestoreInflightJobs(): void {
             const store = useConversionStore.getState();
             for (const j of jobs) {
                 if (!j.job_id) continue;
+                // Terminal-state jobs (``error`` / ``cancelled``) are
+                // useless to restore: the user already saw the toast
+                // in the originating tab, the data is final, and
+                // re-registering them undoes a dismissal the user
+                // made in another tab. The previous code coerced
+                // these to "queued" which briefly flashed a
+                // dismissable-as-Cancel toast before the next poll
+                // corrected it to "error" — confusing the buttons.
+                if (j.status !== "queued" && j.status !== "running") continue;
                 // Match serverPipeline.ts's key shape so a fresh
                 // conversion of the same source won't clobber the
                 // restored entry: ``${sourceKey}::${target_format}``.
@@ -99,15 +108,11 @@ export function useRestoreInflightJobs(): void {
                 const target = j.target_format ?? "fea";
                 const storeKey = `${j.key ?? ""}::${target}`;
                 if (store.jobs[storeKey]) continue; // already tracked
-                const status =
-                    j.status === "queued" || j.status === "running" || j.status === "done"
-                        ? j.status
-                        : "queued";
                 store.setJob(storeKey, {
                     sourceKey: j.key ?? "(unknown)",
                     jobId: j.job_id,
                     derivedKey: "",
-                    status: status as "queued" | "running" | "done" | "error",
+                    status: j.status,
                     progress: 0,
                     stage: "restoring",
                     error: j.error,
