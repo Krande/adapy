@@ -303,6 +303,10 @@ def _regenerate_results_detailed_md(results: list[ru.FeaVerificationResult]) -> 
     registry can always resolve it. Hand-edited filter names drift the
     moment a case parameter (hexquad / reduced-integration / element order)
     changes — generating the file removes that whole class of bug.
+
+    Only emits a ``mode_3d`` line when the matching GLB has been baked under
+    ``_assets/<case>/mode_01.glb`` — otherwise the bundle would carry a
+    ``MISSING_3D_IMAGE.png`` placeholder for every case.
     """
     target = report_src_dir / "01-app" / "00-results-detailed.md"
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -325,8 +329,10 @@ def _regenerate_results_detailed_md(results: list[ru.FeaVerificationResult]) -> 
             lines.append("")
             lines.append(f"${{ {r.name}.modal_table }}{{tbl:sortby:Mode:asc;index:no}}")
             lines.append("")
-            lines.append(f"${{ {r.name}.mode_3d }}")
-            lines.append("")
+            mode_glb = assets_dir / r.name / "mode_01.glb"
+            if mode_glb.exists():
+                lines.append(f"${{ {r.name}.mode_3d }}")
+                lines.append("")
     target.write_text("\n".join(lines), encoding="utf-8")
     logger.info(f"regenerated {target.name} with {len(results)} case sections")
 
