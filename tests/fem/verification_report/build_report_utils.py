@@ -200,7 +200,16 @@ def retrieve_cached_results(results: list[FeaVerificationResult], cache_dir: pat
             except json.decoder.JSONDecodeError as e:
                 logging.error((res_file, e))
                 continue
-            if res["name"] in res_names:
+            # Strip any legacy file extension (`.rmed`, `.frd`) before
+            # comparing against the live-result names so an old cache
+            # file doesn't get loaded as a duplicate of an already-
+            # present case (which would produce duplicate DataFrame
+            # columns and crash pandas downstream).
+            raw_cached_name = res["name"]
+            cached_name = (
+                pathlib.Path(raw_cached_name).stem if "." in raw_cached_name else raw_cached_name
+            )
+            if cached_name in res_names:
                 continue
         cached_results = results_from_cache(res)
         cache_elo = cached_results.metadata["elo"]
@@ -219,8 +228,16 @@ def retrieve_cached_results(results: list[FeaVerificationResult], cache_dir: pat
 
 
 def results_from_cache(results_dict: dict) -> FeaVerificationResult:
+    # Strip any legacy file extension (`.rmed`, `.frd`) from the cached
+    # name so it matches the post-fix live-run convention. Without this
+    # normalization, `retrieve_cached_results` would treat an old
+    # `cantilever_EIG_ca_solid_o1_hqFalse_riFalse.rmed` cache as a
+    # distinct case from the new clean-named live result and we'd end
+    # up with duplicate rows / duplicate DataFrame columns.
+    raw_name = results_dict["name"]
+    name = pathlib.Path(raw_name).stem if "." in raw_name else raw_name
     res = FeaVerificationResult(
-        name=results_dict["name"], fem_format=results_dict["fem_format"], metadata=results_dict["metadata"]
+        name=name, fem_format=results_dict["fem_format"], metadata=results_dict["metadata"]
     )
     eig_data = EigenDataSummary([])
     eig_data.from_dict(results_dict["eigen_mode_data"])

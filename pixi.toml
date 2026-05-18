@@ -32,6 +32,12 @@ fea-doc = { cmd = "python build_verification_report.py --overwrite --execute --r
 # Cache-only variant — no solver execution, consumes the committed
 # `.cache/*.json` and `_assets/*.glb`. Useful for hosts without solvers.
 fea-doc-cached = { cmd = "python build_verification_report.py", cwd = "./tests/fem/verification_report", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src:$PIXI_PROJECT_ROOT/../paradoc/src" } }
+# Serve the static bundle on http://localhost:8765/ for fast iteration
+# without going through the docs Docker build → harbor → ArgoCD loop.
+# Run after `fea-doc` (or `fea-doc-cached`) so the bundle exists under
+# `docs/_static/fea-report/`. `python -m http.server` is enough — the
+# bundle is plain JSON + GLBs + a single index.html.
+serve-fea = { cmd = "python -m http.server 8765 --bind 127.0.0.1 --directory docs/_static/fea-report" }
 
 [feature.tests.tasks]
 pre-install = { cmd = "playwright install --with-deps chromium", outputs = ["$PIXI_HOME/envs/tests/Scripts/playwright.exe"] }
