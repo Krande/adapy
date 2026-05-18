@@ -7,6 +7,7 @@ import {runtime} from "@/runtime/config";
 
 import ResizableTreeView from './components/tree_view/ResizableTreeView';
 import {useNodeEditorStore} from "./state/useNodeEditorStore";
+import {AdaViewerProvider} from "./state/AdaViewerContext";
 import NodeEditorComponent from "./components/node_editor/NodeEditorComponent";
 
 // REST-only UI lives in its own chunk so the embedded desktop bundle
@@ -21,6 +22,30 @@ const isAuthCallback = isRestMode && window.location.pathname === "/auth/callbac
 
 
 function App() {
+    if (isAuthCallback) {
+        // Dedicated landing for OIDC redirect_uri. Doesn't render the
+        // viewer at all — it just exchanges the code and bounces back.
+        // Stays outside the AdaViewerProvider since it never touches
+        // viewer state.
+        return (
+            <Suspense fallback={null}>
+                <AuthCallback/>
+            </Suspense>
+        );
+    }
+
+    // Everything that touches viewer state lives under the provider so
+    // Phase-2 migrations can flip consumers off the module-level
+    // singletons in state/refs.ts and state/*Store.ts without touching
+    // this file.
+    return (
+        <AdaViewerProvider>
+            <AppBody/>
+        </AdaViewerProvider>
+    );
+}
+
+function AppBody() {
     const {isNodeEditorVisible, use_node_editor_only} = useNodeEditorStore();
     useEffect(() => {
         // Check if running inside a Jupyter Notebook
@@ -39,15 +64,6 @@ function App() {
             });
         }
     }, []);
-    if (isAuthCallback) {
-        // Dedicated landing for OIDC redirect_uri. Doesn't render the
-        // viewer at all — it just exchanges the code and bounces back.
-        return (
-            <Suspense fallback={null}>
-                <AuthCallback/>
-            </Suspense>
-        );
-    }
 
     const tree = (
         <div className={"relative flex flex-row h-full w-full bg-gray-900"}>
