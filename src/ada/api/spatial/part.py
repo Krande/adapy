@@ -229,7 +229,7 @@ class Part(BackendGeom):
         try:
             part._on_import()
         except NotImplementedError:
-            logger.info(f'Part "{part}" has not defined its "on_import()" method')
+            logger.debug(f'Part "{part}" has not defined its "on_import()" method')
 
         part.change_type = part.change_type.ADDED
         if add_to_layer is not None:
