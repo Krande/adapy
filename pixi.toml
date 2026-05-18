@@ -14,7 +14,13 @@ json-code-gen-py = { cmd = [
     "--output-model-type", "pydantic_v2.BaseModel"], cwd = "./" }
 
 [feature.docs.tasks]
-docs = { cmd = "cd docs && sphinx-build -b html -v -D nbsphinx_execute=auto . _build/html", depends-on = ["fea-doc"], env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+# The fea-doc task is intentionally NOT a `depends-on` here because the
+# Dockerfile.docs build context doesn't include tests/fem/verification_report
+# (and we don't want to run FEA solvers inside the docker build anyway).
+# Run `pixi run -e docs fea-doc` separately (locally or in a dedicated
+# workflow step) to refresh `docs/_static/fea-report/` before Sphinx picks
+# it up via `docs/documents/fea/fea_verification.rst`.
+docs = { cmd = "cd docs && sphinx-build -b html -v -D nbsphinx_execute=auto . _build/html", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 serve = { cmd = "python docs/main.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" }, depends-on = ["docs"] }
 # FEA verification report → paradoc static-web bundle landing under
 # `docs/_static/fea-report/`. Runs calculix + code_aster (available in
