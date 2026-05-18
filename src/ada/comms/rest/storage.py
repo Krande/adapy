@@ -332,6 +332,30 @@ class Storage:
             timedelta(seconds=expires_in_seconds),
         )
 
+    async def presigned_get_url(
+        self, scope: Scope, key: str, expires_in_seconds: int = 900
+    ) -> str:
+        """Mint a presigned GET URL for direct download from the object
+        store. Mirrors ``presigned_put_url`` — same gating, same signing.
+
+        Streaming through the API works fine for small files but pins a
+        worker thread for the entire transfer; for multi-hundred-MB
+        artefacts the CLI/clients should hit the object store directly.
+        15-minute default TTL is enough for slow upstream links without
+        keeping the URL guessable for long.
+        """
+        if not self.supports_presigned_uploads:
+            raise NotImplementedError(
+                "presigned downloads require an HTTP object store; "
+                "LocalStore is not supported"
+            )
+        return await obs.sign_async(
+            self._presign_store,
+            "GET",
+            self._full_key(scope, key),
+            timedelta(seconds=expires_in_seconds),
+        )
+
     async def head(self, scope: Scope, key: str) -> dict | None:
         """Return ``{size, last_modified}`` for a key, or None if missing.
         Used after a direct upload to confirm the object actually

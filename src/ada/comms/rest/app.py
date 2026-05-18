@@ -706,6 +706,56 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         await _audit(request, user, scope_obj, "upload", key=key, status="ok")
         return JSONResponse({"key": key, "size": meta["size"]}, status_code=201)
 
+    @api.post("/scopes/{scope}/download-url")
+    async def api_scope_download_url(
+        request: Request,
+        scope_obj: Scope = Depends(_scope_from_path),
+        user: User = Depends(auth_module.current_user),
+    ) -> JSONResponse:
+        """Mint a presigned GET URL for direct download from the object
+        store. Mirrors /upload-url — same auth surface, same fallback
+        semantics for local-backed deployments.
+
+        Streaming via GET /blobs/{key} still works for clients that
+        prefer the API-tunneled path; this endpoint exists so the CLI
+        and other automated consumers can avoid pinning a worker
+        thread for the entire transfer of large artefacts.
+        """
+        from .converter import is_derived_key
+
+        if not storage.supports_presigned_uploads:
+            raise HTTPException(
+                status_code=503,
+                detail="presigned downloads require an S3-compatible backend",
+            )
+        body = await request.json()
+        key = (body.get("key") or "").strip().lstrip("/")
+        if not key:
+            raise HTTPException(status_code=400, detail="key required")
+        meta = await storage.head(scope_obj, key)
+        if meta is None:
+            raise HTTPException(status_code=404, detail=f"object not found at {key}")
+        ttl = 15 * 60
+        try:
+            url = await storage.presigned_get_url(scope_obj, key, expires_in_seconds=ttl)
+        except Exception as exc:
+            logger.exception("presign GET failed for %s", key)
+            raise HTTPException(status_code=500, detail=f"presign failed: {exc}") from exc
+        # Audit the URL minting, not the eventual GET — the object
+        # store does the transfer outside our request path, so this is
+        # the last hook we have on the event.
+        if not is_derived_key(key):
+            await _audit(request, user, scope_obj, "download", key=key, status="presigned")
+        return JSONResponse(
+            {
+                "url": url,
+                "key": key,
+                "method": "GET",
+                "expires_in_seconds": ttl,
+                "size": meta["size"],
+            }
+        )
+
     @api.post("/scopes/{scope}/convert")
     async def api_scope_convert(
         request: Request,

@@ -24,10 +24,7 @@ classifiers = [
     "Topic :: Utilities",
 ]
 [project.scripts]
-ada-viewer = "ada.comms.wsock_cli:ws_cli_app"
-ada-viewer-api = "ada.comms.rest.__main__:run"
-ada-viewer-worker = "ada.comms.rest.worker:run"
-ada-build = "ada.build.cli:main"
+ada = "ada_cli.main:main"
 
 [project.urls]
 "Homepage" = "https://github.com/Krande/adapy"
@@ -35,7 +32,7 @@ ada-build = "ada.build.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["ada*"]
+include = ["ada*", "ada_cli*"]
 exclude = ["frontend*", "flatbuffers*"]
 
 [tool.setuptools.package-data]
