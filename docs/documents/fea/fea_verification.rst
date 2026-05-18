@@ -124,26 +124,26 @@ For each analysis configuration, the report shows:
 Generating the Report
 ~~~~~~~~~~~~~~~~~~~~~
 
-To regenerate the verification report with your local FEA installations:
+Two pixi tasks drive the report:
 
 .. code-block:: bash
 
-    # Navigate to the verification report directory
-    cd tests/fem/verification_report
-    
-    # Run the verification tests and generate static web report
-    python build_verification_report.py --export-static-web
-    
-    # Or with specific options
-    python build_verification_report.py --overwrite --execute --export-static-web
+    # Cheap rebuild — consumes whatever's in `_assets/` (committed GLBs,
+    # cached eigenvalue JSONs). Run automatically as part of `pixi run docs`.
+    pixi run -e docs fea-doc
 
-This will:
+    # Full regen on a host with FEA solvers installed: re-runs solvers and
+    # bakes fresh per-(case, mode) deformed-mesh GLBs into `_assets/`.
+    pixi run -e docs fea-doc-regen
 
-1. Run eigenvalue analyses using all available FEA software on your system
-2. Collect and compare results across configurations
-3. Generate static web files in ``docs/_static/fea-report/``
+The bundle lands at ``docs/_static/fea-report/`` and is embedded in this
+page via the iframe above. Mode-shape and beam geometry GLBs are checked
+into ``tests/fem/verification_report/_assets/``; the frontend resolves
+them by the ``data-3d-key`` attribute on each ``ThreeDView`` substitution.
 
 .. note::
 
     The verification tests require at least one FEA solver to be installed and configured.
     Supported solvers include: Code_Aster, CalculiX, Abaqus, and Sesam.
+    The CI docs build does **not** rerun solvers; it consumes the
+    eigenvalue JSON cache and the pre-baked GLBs from the repo.

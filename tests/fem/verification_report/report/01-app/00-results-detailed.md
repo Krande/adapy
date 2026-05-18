@@ -1,38 +1,40 @@
 # Eigenvalue analysis detailed results
 
 ## Calculix
-Using Calculix v{{__ccx_version__}} the following results were obtained.
+Using Calculix v${ versions.ccx } the following results were obtained.
 
+${ cantilever_EIG_calculix_shell_o1_hqTrue.modal_table }{tbl:sortby:Mode:asc;index:no}
 
+${ cantilever_EIG_calculix_shell_o1_hqTrue.mode_3d }
 
-{{__cantilever_EIG_calculix_shell_o1_hqTrue__}}
+${ cantilever_EIG_calculix_shell_o2.modal_table }{tbl:sortby:Mode:asc;index:no}
 
+${ cantilever_EIG_calculix_shell_o2.mode_3d }
 
+${ cantilever_EIG_calculix_solid_o1.modal_table }{tbl:sortby:Mode:asc;index:no}
 
-{{__cantilever_EIG_calculix_shell_o2__}}
+${ cantilever_EIG_calculix_solid_o1.mode_3d }
 
+${ cantilever_EIG_calculix_solid_o2.modal_table }{tbl:sortby:Mode:asc;index:no}
 
-
-{{__cantilever_EIG_calculix_solid_o1__}}
-
-
-
-{{__cantilever_EIG_calculix_solid_o2__}}
-
+${ cantilever_EIG_calculix_solid_o2.mode_3d }
 
 
 ## Code Aster
-Using Code Aster v{{__ca_version__}} the following results were obtained.
+Using Code Aster v${ versions.ca } the following results were obtained.
 
+${ cantilever_EIG_code_aster_shell_o1.modal_table }{tbl:sortby:Mode:asc;index:no}
 
+${ cantilever_EIG_code_aster_shell_o1.mode_3d }
 
-{{__cantilever_EIG_code_aster_shell_o1__}}
+${ cantilever_EIG_code_aster_shell_o2.modal_table }{tbl:sortby:Mode:asc;index:no}
 
+${ cantilever_EIG_code_aster_shell_o2.mode_3d }
 
-{{__cantilever_EIG_code_aster_shell_o2__}}
+${ cantilever_EIG_code_aster_solid_o1.modal_table }{tbl:sortby:Mode:asc;index:no}
 
+${ cantilever_EIG_code_aster_solid_o1.mode_3d }
 
-{{__cantilever_EIG_code_aster_solid_o1__}}
+${ cantilever_EIG_code_aster_solid_o2.modal_table }{tbl:sortby:Mode:asc;index:no}
 
-
-{{__cantilever_EIG_code_aster_solid_o2__}}
+${ cantilever_EIG_code_aster_solid_o2.mode_3d }

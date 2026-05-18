@@ -14,12 +14,17 @@ json-code-gen-py = { cmd = [
     "--output-model-type", "pydantic_v2.BaseModel"], cwd = "./" }
 
 [feature.docs.tasks]
-docs = { cmd = "cd docs && sphinx-build -b html -v -D nbsphinx_execute=auto . _build/html", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+docs = { cmd = "cd docs && sphinx-build -b html -v -D nbsphinx_execute=auto . _build/html", depends-on = ["fea-doc"], env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 serve = { cmd = "python docs/main.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" }, depends-on = ["docs"] }
-fem-doc = { cmd = "python build_verification_report.py true true --export-format=docx", cwd = "./tests/fem/verification_report", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
-fea-web = { cmd = "python build_verification_report.py true true --export-static-web", cwd = "./tests/fem/verification_report", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src:$PIXI_PROJECT_ROOT/../paradoc/src" } }
-
-serve-fea = { cmd = "python doc_live_html.py", cwd = "./tests/fem/verification_report", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src:$PIXI_PROJECT_ROOT/../paradoc/src" } }
+# FEA verification report → paradoc static-web bundle landing under
+# `docs/_static/fea-report/`. Runs calculix + code_aster (available in
+# the `docs` env via fem-deps) for every case and bakes fresh
+# per-(case, mode) deformed-mesh GLBs into `_assets/`. The `false true`
+# args mean overwrite=False (reuse intermediate FEA outputs if present)
+# and execute=True (actually invoke the solvers).
+fea-doc = { cmd = "python build_verification_report.py false true --regen-assets", cwd = "./tests/fem/verification_report", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src:$PIXI_PROJECT_ROOT/../paradoc/src" } }
+# Force-regen with overwrite=True — rerun every case even if cached.
+fea-doc-clean = { cmd = "python build_verification_report.py true true --regen-assets", cwd = "./tests/fem/verification_report", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src:$PIXI_PROJECT_ROOT/../paradoc/src" } }
 
 [feature.tests.tasks]
 pre-install = { cmd = "playwright install --with-deps chromium", outputs = ["$PIXI_HOME/envs/tests/Scripts/playwright.exe"] }
