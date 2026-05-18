@@ -270,5 +270,6 @@ def postprocess_result(result: FEAResult | FEAResultV2, metadata: dict) -> FeaVe
         name=result.name,
         fem_format=software,
         eig_data=result.get_eig_summary(),
+        results=result,
         metadata=metadata,
     )
