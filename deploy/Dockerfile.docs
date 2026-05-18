@@ -41,7 +41,7 @@ COPY pixi.toml pixi.lock pyproject.toml ./
 RUN pixi install --environment docs --locked
 
 # Sibling paradoc checkout — the Filter / DbManager / ThreeDView /
-# StaticTransport + __VITE_PRELOAD__ patched single-file bundle used by the FEA
+# placeholder-card + lazy IntersectionObserver mount pipeline used by the FEA
 # verification report isn't in
 # the conda-forge build yet, so pixi.toml's `fea-doc` task overlays this clone via
 # PYTHONPATH=$PIXI_PROJECT_ROOT/../paradoc/src (matches the local-dev
