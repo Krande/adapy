@@ -14,7 +14,17 @@
 
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import CameraControls from 'camera-controls';
+
+// CameraControls needs the THREE namespace installed once before any
+// instance is constructed. Idempotent under the hood.
+CameraControls.install({ THREE });
+
+// adapy emits Z-up GLBs by convention (matches FEA / CAD), so the embed
+// has to orient the camera accordingly. The full adapy-viewer wires this
+// through a `zIsUp` flag; here we just default true since paradoc-hosted
+// models are all FEA results.
+const Z_IS_UP = true;
 
 export interface CameraPreset {
     name: string;
@@ -78,9 +88,16 @@ export function mountViewer(element: HTMLElement, opts: MountViewerOptions): Mou
     scene.add(sun);
 
     // --- Controls ---
-    const controls = new OrbitControls(camera, renderer.domElement);
-    controls.enableDamping = true;
-    controls.dampingFactor = 0.08;
+    // CameraControls matches the live adapy-viewer (default-true
+    // `defaultOrbitController=false` in setupControls). The clock keeps
+    // damping responsive frame-to-frame.
+    const controls = new CameraControls(camera, renderer.domElement);
+    controls.dollyToCursor = true;
+    if (Z_IS_UP) {
+        camera.up.set(0, 0, 1);
+        controls.updateCameraUp();
+    }
+    const clock = new THREE.Clock();
 
     // --- Resize handling ---
     const onResize = () => {
@@ -98,7 +115,7 @@ export function mountViewer(element: HTMLElement, opts: MountViewerOptions): Mou
     const tick = () => {
         if (disposed) return;
         frame = requestAnimationFrame(tick);
-        controls.update();
+        controls.update(clock.getDelta());
         renderer.render(scene, camera);
     };
 
@@ -156,7 +173,7 @@ export function mountViewer(element: HTMLElement, opts: MountViewerOptions): Mou
 
 function applyCameraPreset(
     camera: THREE.PerspectiveCamera,
-    controls: OrbitControls,
+    controls: CameraControls,
     root: THREE.Object3D,
     preset: CameraPreset
 ): void {
@@ -179,30 +196,34 @@ function applyCameraPreset(
 
     const az = (preset.azimuth_deg * Math.PI) / 180;
     const el = (preset.elevation_deg * Math.PI) / 180;
-    const offset = new THREE.Vector3(
-        distance * Math.cos(el) * Math.sin(az),
-        distance * Math.sin(el),
-        distance * Math.cos(el) * Math.cos(az)
-    );
-    camera.position.copy(center).add(offset);
-    camera.up.set(0, 1, 0);
-    camera.lookAt(center);
-
-    if (preset.roll_deg) {
-        const forward = new THREE.Vector3().subVectors(center, camera.position).normalize();
-        camera.up.applyAxisAngle(forward, (preset.roll_deg * Math.PI) / 180);
-        camera.lookAt(center);
-    }
+    // For a Z-up scene the offset components are (X=east, Y=north, Z=up).
+    // Azimuth rotates around Z; elevation tilts off the XY plane.
+    const offset = Z_IS_UP
+        ? new THREE.Vector3(
+              distance * Math.cos(el) * Math.sin(az),
+              distance * Math.cos(el) * Math.cos(az),
+              distance * Math.sin(el),
+          )
+        : new THREE.Vector3(
+              distance * Math.cos(el) * Math.sin(az),
+              distance * Math.sin(el),
+              distance * Math.cos(el) * Math.cos(az),
+          );
+    const position = new THREE.Vector3().copy(center).add(offset);
 
     // Tighten near/far to the model so depth precision stays usable.
     camera.near = Math.max(distance / 1000, 1e-3);
     camera.far = distance * 100;
     camera.updateProjectionMatrix();
 
-    controls.target.copy(center);
+    // setLookAt(camX, camY, camZ, targetX, targetY, targetZ, enableTransition)
+    controls.setLookAt(
+        position.x, position.y, position.z,
+        center.x, center.y, center.z,
+        false,
+    );
     controls.minDistance = distance * 0.05;
     controls.maxDistance = distance * 20;
-    controls.update();
 }
 
 function disposeObject(obj: THREE.Object3D): void {
