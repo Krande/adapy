@@ -6,90 +6,19 @@ multiple FEA software packages supported by ADA.
 
 .. raw:: html
 
-    <style>
-        .fea-report-container {
-            width: 100%;
-            min-height: 800px;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-            overflow: hidden;
-            margin: 20px 0;
-        }
-        .fea-report-container iframe {
-            width: 100%;
-            height: 900px;
-            border: none;
-        }
-        .fea-report-placeholder {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            min-height: 400px;
-            background: #f5f5f5;
-            border-radius: 4px;
-            padding: 40px;
-            text-align: center;
-        }
-        .fea-report-placeholder h3 {
-            margin-bottom: 16px;
-            color: #333;
-        }
-        .fea-report-placeholder p {
-            color: #666;
-            max-width: 600px;
-        }
-        .fea-report-placeholder code {
-            background: #e0e0e0;
-            padding: 2px 6px;
-            border-radius: 3px;
-        }
-    </style>
-
-    <div class="fea-report-container">
-        <iframe id="fea-report-frame" src="../../_static/fea-report/index.html" 
-                title="FEA Verification Report"
-                onload="this.style.display='block'"
-                onerror="showPlaceholder()">
-        </iframe>
-        <div id="fea-report-placeholder" class="fea-report-placeholder" style="display: none;">
-            <h3>📊 FEA Verification Report</h3>
-            <p>
-                The interactive report is not available. To generate it, run:
-            </p>
-            <p>
-                <code>python tests/fem/verification_report/build_verification_report.py --export-static-web</code>
-            </p>
-        </div>
-    </div>
-
-    <script>
-        // Check if iframe loaded successfully
-        const iframe = document.getElementById('fea-report-frame');
-        const placeholder = document.getElementById('fea-report-placeholder');
-        
-        iframe.onerror = function() {
-            iframe.style.display = 'none';
-            placeholder.style.display = 'flex';
-        };
-        
-        // Also check after a short delay in case the file doesn't exist
-        setTimeout(function() {
-            try {
-                // Try to access iframe content - will fail for missing files or cross-origin
-                if (!iframe.contentDocument && !iframe.contentWindow.document) {
-                    throw new Error('Cannot access iframe');
-                }
-            } catch(e) {
-                // If we get here, the iframe might not have loaded properly
-                // Show placeholder only if iframe appears empty
-                if (iframe.clientHeight < 100) {
-                    iframe.style.display = 'none';
-                    placeholder.style.display = 'flex';
-                }
-            }
-        }, 2000);
-    </script>
+    <p style="margin: 24px 0;">
+        <a href="../../_static/fea-report/index.html"
+           style="display: inline-block; padding: 12px 20px; background: #2563eb;
+                  color: #fff; text-decoration: none; border-radius: 6px;
+                  font-weight: 600;">
+            Open the interactive FEA verification report →
+        </a>
+    </p>
+    <p style="color: #555; font-size: 0.95em;">
+        The report is a standalone paradoc bundle with sortable tables,
+        interactive 3D mode-shape viewers, and a frequency-vs-mode plot.
+        Use the “← adapy docs” link in the report header to return.
+    </p>
 
 
 About This Report
@@ -136,10 +65,11 @@ Two pixi tasks drive the report:
     # bakes fresh per-(case, mode) deformed-mesh GLBs into `_assets/`.
     pixi run -e docs fea-doc-regen
 
-The bundle lands at ``docs/_static/fea-report/`` and is embedded in this
-page via the iframe above. Mode-shape and beam geometry GLBs are checked
-into ``tests/fem/verification_report/_assets/``; the frontend resolves
-them by the ``data-3d-key`` attribute on each ``ThreeDView`` substitution.
+The bundle lands at ``docs/_static/fea-report/`` and is served as a
+standalone page (linked above). Mode-shape and beam geometry GLBs are
+checked into ``tests/fem/verification_report/_assets/``; the frontend
+resolves them by the ``data-3d-key`` attribute on each ``ThreeDView``
+substitution.
 
 .. note::
 

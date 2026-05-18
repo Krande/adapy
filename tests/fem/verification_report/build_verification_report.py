@@ -376,7 +376,12 @@ def create_fea_report(overwrite: bool = False, execute: bool = False, regen_asse
     adapy_root = pathlib.Path(__file__).parent.parent.parent.parent.resolve().absolute()
     static_output_dir = adapy_root / "docs" / "_static" / "fea-report"
     logger.info(f"exporting static web bundle to {static_output_dir}")
-    one.export_static(static_output_dir)
+    # `../../` walks `_static/fea-report/index.html` → `<docs_root>/index.html`,
+    # which Sphinx serves as the adapy docs landing page.
+    one.export_static(
+        static_output_dir,
+        header_links=[{"label": "← adapy docs", "href": "../../index.html"}],
+    )
 
 
 if __name__ == "__main__":
