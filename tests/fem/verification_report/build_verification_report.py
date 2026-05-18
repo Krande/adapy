@@ -418,6 +418,16 @@ def _regenerate_results_detailed_md(results: list[ru.FeaVerificationResult]) -> 
 
 def build_fea_report(bm: ada.Beam, results: list[ru.FeaVerificationResult], eig_modes: int, regen_assets: bool) -> OneDoc:
     """Hydrate `OneDoc` with filters + DB-backed tables/plots/3D assets."""
+    # Bake the GLBs before regenerating the per-case markdown — the
+    # generator emits a `${ <case>.mode_3d }` line only when the
+    # matching GLB exists on disk, so the bake has to land first or
+    # every case section ships without its 3D viewer.
+    beam_glb = assets_dir / "beam.glb"
+    if regen_assets or not beam_glb.exists():
+        _bake_beam_glb(bm, beam_glb)
+    if regen_assets:
+        _bake_mode_glbs(results, eig_modes)
+
     _regenerate_results_detailed_md(results)
     one = OneDoc(source_dir=report_src_dir)
 
@@ -466,13 +476,9 @@ def build_fea_report(bm: ada.Beam, results: list[ru.FeaVerificationResult], eig_
         ))
 
     # ------------------------------------------------------------------
-    # 3D assets: beam geometry + per-(case, mode) mode shapes.
+    # 3D assets: register the GLBs we baked above with the OneDoc db so
+    # paradoc's static-export step copies them into the bundle.
     # ------------------------------------------------------------------
-    beam_glb = assets_dir / "beam.glb"
-    if regen_assets or not beam_glb.exists():
-        _bake_beam_glb(bm, beam_glb)
-    if regen_assets:
-        _bake_mode_glbs(results, eig_modes)
     for row in _collect_assets():
         one.db_manager.add_three_d(row)
 
