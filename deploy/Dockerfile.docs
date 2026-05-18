@@ -17,13 +17,15 @@ ARG IMAGE_TAG=dev
 
 FROM ghcr.io/prefix-dev/pixi:${PIXI_VERSION} AS builder
 
-# git + openssh-client are needed for the BuildKit-mounted SSH clone of
-# the sibling paradoc repo below. The Forgejo runner's build sandbox
-# blocks plain-HTTP egress, so rewrite the deb822 mirror URLs to https
-# before fetching (matches the parametric_models Dockerfile.build).
+# git is needed for the HTTPS clone of the sibling paradoc repo below.
+# The Forgejo runner's build sandbox blocks plain-HTTP egress, so
+# rewrite the deb822 mirror URLs to https before fetching (matches the
+# parametric_models Dockerfile.build pattern). SSH on the source-host's
+# alternate port (e.g. 2222) is also blocked by the sandbox — that's
+# why we clone over HTTPS rather than SSH.
 RUN sed -i 's|http://archive.ubuntu.com|https://archive.ubuntu.com|g; s|http://security.ubuntu.com|https://security.ubuntu.com|g' /etc/apt/sources.list.d/*.sources \
     && apt-get update \
-    && apt-get install -y --no-install-recommends git openssh-client ca-certificates \
+    && apt-get install -y --no-install-recommends git ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /work/adapy
@@ -38,12 +40,9 @@ RUN pixi install --environment docs --locked
 # used by the FEA verification report isn't in the conda-forge build
 # yet, so pixi.toml's `fea-doc` task overlays this clone via
 # PYTHONPATH=$PIXI_PROJECT_ROOT/../paradoc/src (matches the local-dev
-# sibling layout).
-#
-# Both the URL and the deploy key come from workflow secrets so neither
-# this Dockerfile nor the workflow file reveals the source host. The
-# key uses BuildKit's --mount=type=secret so it only exists for the
-# lifetime of this RUN — no layer carries it.
+# sibling layout). The URL comes from a workflow secret so the source
+# host doesn't appear here; the repo is public-readable so no token
+# is required.
 ARG PARADOC_GIT_URL
 ARG PARADOC_REF=main
 # CACHE_BUST forces a fresh clone when ``PARADOC_REF`` is a moving
@@ -51,15 +50,10 @@ ARG PARADOC_REF=main
 # first time. Workflow passes ``${{ github.run_id }}`` so every run
 # fetches the latest tip.
 ARG CACHE_BUST=""
-RUN --mount=type=secret,id=paradoc_deploy_key \
-    test -n "$PARADOC_GIT_URL" \
+RUN test -n "$PARADOC_GIT_URL" \
         || (echo "::error::PARADOC_GIT_URL build-arg is required" >&2; exit 1) \
     && echo "cache-bust: $CACHE_BUST" \
-    && mkdir -p /root/.ssh && chmod 700 /root/.ssh \
-    && install -m 600 /run/secrets/paradoc_deploy_key /root/.ssh/id_ed25519 \
-    && GIT_SSH_COMMAND="ssh -i /root/.ssh/id_ed25519 -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/root/.ssh/known_hosts" \
-       git clone --depth 1 --branch "$PARADOC_REF" "$PARADOC_GIT_URL" /work/paradoc \
-    && rm -rf /root/.ssh
+    && git clone --depth 1 --branch "$PARADOC_REF" "$PARADOC_GIT_URL" /work/paradoc
 
 # autodoc imports ``ada`` at build time, so src/ must be present. The
 # .git directory is included because docs/conf.py runs ``git describe``
