@@ -87,13 +87,22 @@ load_dotenv()
 def simulate(
     bm, el_order, geom_repr, analysis_software, use_hex_quad, use_reduced_int, eig_modes, overwrite, execute
 ) -> list[ru.FeaVerificationResult]:
-    """Run FEA cases. Returns whatever produced results (possibly empty)."""
+    """Run FEA cases. Returns whatever produced results (possibly empty).
+
+    Every per-case failure is swallowed so the build keeps going. With
+    ``--overwrite`` the live solver invocations under
+    ``eigen_test → a.to_fem(execute=True)`` can fail in many ways
+    (gmsh meshing, solver subprocess crash, post-processor unable to
+    parse partial output). We log and continue rather than letting one
+    bad case kill the docs build for everyone else.
+    """
     results = []
     for elo in el_order:
         for geo in geom_repr:
             for soft in analysis_software:
                 for hexquad in use_hex_quad:
                     for uri in use_reduced_int:
+                        case_label = f"{soft}/{geo}/order={elo}/hq={hexquad}/ri={uri}"
                         try:
                             result = eigen_test(
                                 bm,
@@ -107,18 +116,18 @@ def simulate(
                                 execute=execute,
                                 eigen_modes=eig_modes,
                             )
+                            if result is None:
+                                continue
+                            metadata = dict(
+                                geo=geo, elo=elo, hexquad=hexquad, reduced_integration=uri
+                            )
+                            fvr = ru.postprocess_result(result, metadata)
                         except FileNotFoundError as e:
-                            logger.warning(f"{soft}/{geo}/order={elo}: {e}")
+                            logger.warning(f"{case_label}: {e}")
                             continue
                         except Exception as e:
-                            logger.warning(f"{soft}/{geo}/order={elo} failed: {e}")
+                            logger.warning(f"{case_label} failed: {e}")
                             continue
-                        if result is None:
-                            continue
-                        metadata = dict(
-                            geo=geo, elo=elo, hexquad=hexquad, reduced_integration=uri
-                        )
-                        fvr = ru.postprocess_result(result, metadata)
                         results.append(fvr)
     return results
 
