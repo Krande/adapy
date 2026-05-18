@@ -114,7 +114,7 @@ class SatStore:
             one index, so every reference past the first nested case
             in the file resolved to the wrong subtype.
 
-        For the DNV/Genie hullskin model this mis-resolved thousands
+        On large DNV/Genie-style models this mis-resolved thousands
         of ``ref N`` lookups onto neighbouring or completely unrelated
         records — the source of the "exppc surface peel landed on a
         different geometric region" symptom we tried to paper over

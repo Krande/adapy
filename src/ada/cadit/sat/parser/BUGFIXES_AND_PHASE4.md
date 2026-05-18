@@ -146,6 +146,6 @@ Geometry count: 1             ✅
 
 ## Test Case
 
-**File**: `OP1_v1007_hullskin.sat` (128,332 entities, 5,470 faces)
+**File**: largest reference model (~130k entities, ~5.5k faces)
 **Result**: ✅ Successfully parsed, converted, and exported to STEP format
 

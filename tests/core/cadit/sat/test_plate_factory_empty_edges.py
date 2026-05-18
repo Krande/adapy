@@ -1,7 +1,7 @@
 """Regression: empty edge list after whisker drop must not crash.
 
-Some SAT loops in real Genie XML exports (e.g. OP1_v1007_hullskin.xml)
-consist entirely of paired "whisker" coedges. ``_drop_whisker_coedges``
+Some SAT loops in real Genie XML exports consist entirely of paired
+"whisker" coedges. ``_drop_whisker_coedges``
 removes them, leaving an empty edge list. The previous code indexed
 ``edges[0]`` on the way into ``get_points`` and exploded with a bare
 IndexError, aborting the entire conversion. The fix routes that case

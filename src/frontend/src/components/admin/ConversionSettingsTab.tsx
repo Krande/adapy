@@ -33,7 +33,7 @@ const ROWS: SettingRow[] = [
         description:
             "Build each OCC edge from the (pcurve, surface) pair instead of from the " +
             "3D BSpline curve, so the edge's 3D parametrization is forced consistent " +
-            "with the surface. Required to fix stretched-face artifacts on OP1 hullskin.",
+            "with the surface. Fixes stretched-face artifacts seen on large SAT hull models.",
         codeDefault: true,
     },
     {

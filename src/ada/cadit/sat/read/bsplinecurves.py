@@ -299,8 +299,8 @@ def create_pcurve_from_exppc(exppc_sub_type: AcisSubType):
 
     Was a stub until now: every exppc-typed edge curve raised
     ``PCurve is not yet supported`` and the face fell back to a flat
-    polygon. Counted 886 such failures on OP1_v1007_hullskin (16% of all
-    spline-surface faces).
+    polygon. On a large reference model that path failed for ~16% of
+    spline-surface faces.
     """
     inner_lines = _resolve_exppc_curve_chain(exppc_sub_type)
     head = inner_lines[0].split()

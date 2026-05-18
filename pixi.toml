@@ -196,7 +196,6 @@ code-aster = ">=17.3.16"
 #libscotch = { version = "*" , channel = "https://repo.prefix.dev/code-aster" }
 #mumps = { version = "*" , channel = "https://repo.prefix.dev/code-aster" }
 #metis = { version = "*" , channel = "https://repo.prefix.dev/code-aster" }
-#fltk = { version = "*" , channel = "C:/AibelProgs/code/condapackaging/output" }
 #calculix = { version = "==2.22", build="*_1", channel = "conda-forge" }
 
 [feature.tests-core.dependencies]

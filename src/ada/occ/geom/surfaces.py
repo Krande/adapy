@@ -316,15 +316,14 @@ def _attach_supplied_pcurve(builder, edge, pcurve_geom, face_surface, identity_l
     UV trajectory, with each edge picking a sub-range).
 
     Symptom: face has 0 m² area, BRepMesh produces 2-3 degenerate
-    triangles, plate appears as a hole. Reproduced on
-    ``col1mainskin_elev13plate2_ct1_0`` and neighbours in OP1_v1007:
-    a 6-edge wire with two short (0.4 m) and two long (2.7 m) vertical
-    segments along the plate's right and left UV sides. The vertical
-    pcurves all carry CPs at the surface's full v-extent (-3.1, 0)
-    even when their edge only spans 0.4 m or 2.7 m of it. Affine remap
-    stretches the FULL pcurve onto each edge's parameter range, so all
-    four vertical edges trace the entire UV side — the resulting wire
-    self-intersects in UV and encloses zero area.
+    triangles, plate appears as a hole. Reproduced on plate-shaped
+    faces with a 6-edge wire — two short (0.4 m) and two long (2.7 m)
+    vertical segments along the plate's right and left UV sides. The
+    vertical pcurves all carry CPs at the surface's full v-extent
+    (-3.1, 0) even when their edge only spans 0.4 m or 2.7 m of it.
+    Affine remap stretches the FULL pcurve onto each edge's parameter
+    range, so all four vertical edges trace the entire UV side — the
+    resulting wire self-intersects in UV and encloses zero area.
 
     Per ACIS SAT v4.0 spec (Chapter 6 "pcurve type", page 6-61):
     "a parameter-space curve must always have the same parameter range
@@ -826,8 +825,8 @@ def make_face_from_geom(advanced_face: geo_su.AdvancedFace) -> TopoDS_Face:
             # endpoints from the surface's pcurve evaluation;
             # make_edge_from_edge picks them from the 3D-curve
             # endpoint snap — the two can differ by 0.1-1 mm). 1 mm
-            # is well below structural feature size on hullskin
-            # plates and matches OCC's own tolerance bumps in
+            # is well below structural feature size on the SAT plate
+            # geometries we see and matches OCC's own tolerance bumps in
             # ShapeFix_Wire when it sees gaps below that.
             from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_MakeWire as _MW
             wire_maker = _MW()
