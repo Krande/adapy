@@ -38,6 +38,7 @@ on:
       - 'deploy/Dockerfile.docs'
       - 'deploy/viewer-ada-init.py'
       - 'docs/**'
+      - 'tests/fem/verification_report/**'
       - '.forgejo/workflows/build.yaml'
 
 jobs:
@@ -110,13 +111,13 @@ jobs:
           fi
 
           # Docs image is a Sphinx static site (deploy/Dockerfile.docs)
-          # served at ada-docs.krande.no. Rebuild only on docs/** + the
-          # pixi env files + the Dockerfile / workflow itself. Source-
-          # driven autodoc drift is accepted to keep CI lean; revisit
-          # if it bites.
+          # that also bundles the paradoc-backed FEA verification report.
+          # Rebuild on docs/**, the report source tree, pixi env files,
+          # the Dockerfile, or the workflow itself.
           docs=false
           if match '^docs/' || \
              match '^pixi\.(toml|lock)$' || \
+             match '^tests/fem/verification_report/' || \
              match '^deploy/Dockerfile\.docs$' || \
              match '^\.forgejo/workflows/build\.yaml$'; then
             docs=true
@@ -334,16 +335,41 @@ jobs:
       - name: Build and push docs image
         env:
           REGISTRY_IMAGE: ${{ secrets.DOCS_REGISTRY_IMAGE }}
+          # Sibling paradoc clone — URL + ref + deploy key live in
+          # secrets so this workflow file carries no host information.
+          # Read-only deploy key registered on the paradoc repo; the
+          # private key body is mounted into the docker build via
+          # BuildKit so it never lands in an image layer (mirrors the
+          # parametric_models / Dockerfile.build pattern).
+          PARADOC_GIT_URL: ${{ secrets.PARADOC_GIT_URL }}
+          PARADOC_REF: ${{ secrets.PARADOC_REF }}
+          PARADOC_DEPLOY_KEY: ${{ secrets.PARADOC_DEPLOY_KEY }}
+          DOCKER_BUILDKIT: "1"
         run: |
           if [ -z "$REGISTRY_IMAGE" ]; then
             echo "::error::DOCS_REGISTRY_IMAGE secret is not set on this repo. Configure it (and REGISTRY_DOCKER_CONFIG) under Settings → Actions → Secrets before re-running."
             exit 1
           fi
+          if [ -z "$PARADOC_GIT_URL" ] || [ -z "$PARADOC_DEPLOY_KEY" ]; then
+            echo "::error::PARADOC_GIT_URL and PARADOC_DEPLOY_KEY secrets are required. Configure them under Settings → Actions → Secrets (URL: ssh://… form to the paradoc repo; deploy key: PEM body of the read-only SSH private key whose pubkey is registered as a deploy key on that repo)."
+            exit 1
+          fi
+          KEY_FILE=$(mktemp)
+          # Trap covers the success path too — the file is short-lived.
+          trap 'shred -u "$KEY_FILE" 2>/dev/null || rm -f "$KEY_FILE"' EXIT
+          # ``%s\n`` ensures a trailing newline regardless of how
+          # Forgejo's secret store round-trips the value — OpenSSH
+          # rejects keys without one ("error in libcrypto").
+          printf '%s\n' "$PARADOC_DEPLOY_KEY" > "$KEY_FILE"
           TAG="sha-${GITHUB_SHA::7}"
           BRANCH_TAG="branch-$(printf '%s' "$GITHUB_REF_NAME" | tr '/' '-')"
           docker build \
             -f deploy/Dockerfile.docs \
+            --secret id=paradoc_deploy_key,src="$KEY_FILE" \
             --build-arg "IMAGE_TAG=${TAG}" \
+            --build-arg "PARADOC_GIT_URL=${PARADOC_GIT_URL}" \
+            --build-arg "PARADOC_REF=${PARADOC_REF:-main}" \
+            --build-arg "CACHE_BUST=${GITHUB_RUN_ID}" \
             -t "${REGISTRY_IMAGE}:${TAG}" \
             -t "${REGISTRY_IMAGE}:${BRANCH_TAG}" \
             .

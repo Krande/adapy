@@ -1,11 +1,13 @@
 # syntax=docker/dockerfile:1.7
 #
 # Sphinx docs site for adapy. Build stage runs the ``docs`` pixi env
-# (sphinx + furo + autodoc imports of ``ada``); runtime stage serves the
-# rendered HTML via nginx-unprivileged on :8080.
+# (sphinx + furo + autodoc imports of ``ada``) and the FEA verification
+# report bundle (``fea-doc`` task → ``docs/_static/fea-report/``); runtime
+# stage serves the rendered HTML via nginx-unprivileged on :8080.
 #
-# Triggered by docs/**, pixi.toml/lock, this Dockerfile, or the workflow
-# itself — see the ``docs`` filter in .forgejo/workflows/build.yaml.
+# Triggered by docs/**, tests/fem/verification_report/**, pixi.toml/lock,
+# this Dockerfile, or the workflow itself — see the ``docs`` filter in
+# .forgejo/workflows/build.yaml.
 
 ARG PIXI_VERSION=0.68.0
 # CI passes --build-arg IMAGE_TAG=sha-XXXXXXX so the rendered footer can
@@ -14,7 +16,17 @@ ARG PIXI_VERSION=0.68.0
 ARG IMAGE_TAG=dev
 
 FROM ghcr.io/prefix-dev/pixi:${PIXI_VERSION} AS builder
-WORKDIR /src
+
+# git + openssh-client are needed for the BuildKit-mounted SSH clone of
+# the sibling paradoc repo below. The Forgejo runner's build sandbox
+# blocks plain-HTTP egress, so rewrite the deb822 mirror URLs to https
+# before fetching (matches the parametric_models Dockerfile.build).
+RUN sed -i 's|http://archive.ubuntu.com|https://archive.ubuntu.com|g; s|http://security.ubuntu.com|https://security.ubuntu.com|g' /etc/apt/sources.list.d/*.sources \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends git openssh-client ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /work/adapy
 
 # Solve the docs env first — fat closure (prod + desktop + fem-deps +
 # tests-core + sphinx/furo) dominates the cold build. Cache the layer
@@ -22,22 +34,52 @@ WORKDIR /src
 COPY pixi.toml pixi.lock pyproject.toml ./
 RUN pixi install --environment docs --locked
 
+# Sibling paradoc checkout — the Filter / DbManager / ThreeDView API
+# used by the FEA verification report isn't in the conda-forge build
+# yet, so pixi.toml's `fea-doc` task overlays this clone via
+# PYTHONPATH=$PIXI_PROJECT_ROOT/../paradoc/src (matches the local-dev
+# sibling layout).
+#
+# Both the URL and the deploy key come from workflow secrets so neither
+# this Dockerfile nor the workflow file reveals the source host. The
+# key uses BuildKit's --mount=type=secret so it only exists for the
+# lifetime of this RUN — no layer carries it.
+ARG PARADOC_GIT_URL
+ARG PARADOC_REF=main
+# CACHE_BUST forces a fresh clone when ``PARADOC_REF`` is a moving
+# branch; without it Docker would reuse whatever HEAD was cloned the
+# first time. Workflow passes ``${{ github.run_id }}`` so every run
+# fetches the latest tip.
+ARG CACHE_BUST=""
+RUN --mount=type=secret,id=paradoc_deploy_key \
+    test -n "$PARADOC_GIT_URL" \
+        || (echo "::error::PARADOC_GIT_URL build-arg is required" >&2; exit 1) \
+    && echo "cache-bust: $CACHE_BUST" \
+    && mkdir -p /root/.ssh && chmod 700 /root/.ssh \
+    && install -m 600 /run/secrets/paradoc_deploy_key /root/.ssh/id_ed25519 \
+    && GIT_SSH_COMMAND="ssh -i /root/.ssh/id_ed25519 -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/root/.ssh/known_hosts" \
+       git clone --depth 1 --branch "$PARADOC_REF" "$PARADOC_GIT_URL" /work/paradoc \
+    && rm -rf /root/.ssh
+
 # autodoc imports ``ada`` at build time, so src/ must be present. The
 # .git directory is included because docs/conf.py runs ``git describe``
 # to derive the release string (it falls back gracefully if absent, but
-# we want a real version on the rendered page).
+# we want a real version on the rendered page). tests/fem/verification_report
+# is needed by the fea-doc task that the `docs` pixi task depends on.
 COPY .git/ ./.git/
 COPY src/ ./src/
 COPY docs/ ./docs/
+COPY tests/fem/verification_report/ ./tests/fem/verification_report/
 
+# Runs fea-doc (FEA verification report bundle into docs/_static/fea-report/)
+# then sphinx, via the `depends-on` chain in pixi.toml.
 RUN pixi run --environment docs docs
 
 FROM nginxinc/nginx-unprivileged:1.27-alpine
 ARG IMAGE_TAG
-LABEL org.opencontainers.image.source="https://git.krande.no/krande/adapy" \
-      org.opencontainers.image.title="ada-docs" \
+LABEL org.opencontainers.image.title="ada-docs" \
       org.opencontainers.image.version="${IMAGE_TAG}"
 
-COPY --from=builder /src/docs/_build/html/ /usr/share/nginx/html/
+COPY --from=builder /work/adapy/docs/_build/html/ /usr/share/nginx/html/
 
 EXPOSE 8080
