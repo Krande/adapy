@@ -281,8 +281,59 @@ def _solver_versions(results) -> dict[str, str]:
     return versions
 
 
+_SOLVER_DISPLAY_NAME = {
+    "calculix": "Calculix",
+    "code_aster": "Code Aster",
+    "abaqus": "Abaqus",
+    "sesam": "Sesam",
+}
+_SOLVER_VERSION_ATTR = {
+    "calculix": "ccx",
+    "code_aster": "ca",
+    "abaqus": "aba",
+    "sesam": "ses",
+}
+
+
+def _regenerate_results_detailed_md(results: list[ru.FeaVerificationResult]) -> None:
+    """Overwrite ``01-app/00-results-detailed.md`` from the live results.
+
+    Each ``${ <case>.modal_table }`` / ``${ <case>.mode_3d }`` reference uses
+    the exact ``r.name`` produced by ``simulate()`` so paradoc's filter
+    registry can always resolve it. Hand-edited filter names drift the
+    moment a case parameter (hexquad / reduced-integration / element order)
+    changes — generating the file removes that whole class of bug.
+    """
+    target = report_src_dir / "01-app" / "00-results-detailed.md"
+    target.parent.mkdir(parents=True, exist_ok=True)
+
+    by_solver: dict[str, list[ru.FeaVerificationResult]] = {}
+    for r in results:
+        by_solver.setdefault(r.fem_format, []).append(r)
+
+    lines: list[str] = ["# Eigenvalue analysis detailed results", ""]
+    for solver in sorted(by_solver):
+        rs = sorted(by_solver[solver], key=lambda r: r.name)
+        display = _SOLVER_DISPLAY_NAME.get(solver, solver)
+        ver_attr = _SOLVER_VERSION_ATTR.get(solver)
+        lines.append(f"## {display}")
+        if ver_attr:
+            lines.append(f"Using {display} v${{ versions.{ver_attr} }} the following results were obtained.")
+        lines.append("")
+        for r in rs:
+            lines.append(f"### {r.name}")
+            lines.append("")
+            lines.append(f"${{ {r.name}.modal_table }}{{tbl:sortby:Mode:asc;index:no}}")
+            lines.append("")
+            lines.append(f"${{ {r.name}.mode_3d }}")
+            lines.append("")
+    target.write_text("\n".join(lines), encoding="utf-8")
+    logger.info(f"regenerated {target.name} with {len(results)} case sections")
+
+
 def build_fea_report(bm: ada.Beam, results: list[ru.FeaVerificationResult], eig_modes: int, regen_assets: bool) -> OneDoc:
     """Hydrate `OneDoc` with filters + DB-backed tables/plots/3D assets."""
+    _regenerate_results_detailed_md(results)
     one = OneDoc(source_dir=report_src_dir)
 
     # ------------------------------------------------------------------
