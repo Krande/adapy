@@ -24,10 +24,7 @@ The beam model will be analyzed by varying the following parameters:
 | Yield stress     | ${ beam.yield_stress_pa:.3e } Pa       |
 | Density          | ${ beam.density_kgm3:.0f } kg/m³       |
 
-<!-- 3D beam viewer disabled: paradoc's static-web export does not yet
-     ship ThreeDData GLBs into the bundle (only WS/REST docstore mode
-     does), so `${ beam.geometry_3d }` falls back to MISSING_3D_IMAGE.png.
-     Re-enable once the static exporter copies assets/3d/. -->
+${ beam.geometry_3d }
 
 ### Summary
 
