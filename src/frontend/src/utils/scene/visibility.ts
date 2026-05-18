@@ -19,6 +19,7 @@ import * as THREE from "three";
 import {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
 import {sceneRef} from "@/state/refs";
 import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
+import {requestRender} from "@/state/perfStore";
 
 /** Hide every draw range currently selected. No-op when nothing is
  * selected. Walks past wrapper Object3Ds the same way the existing
@@ -26,6 +27,7 @@ import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
  * CustomBatchedMesh or a wrapper whose subtree contains one. */
 export function hideSelectedRanges(): void {
     const selected = useSelectedObjectStore.getState().selectedObjects;
+    if (selected.size === 0) return;
     selected.forEach((rangeIds, mesh) => {
         if (mesh instanceof CustomBatchedMesh) {
             mesh.hideBatchDrawRange(rangeIds);
@@ -37,6 +39,9 @@ export function hideSelectedRanges(): void {
             }
         });
     });
+    // On-demand render loop: hide mutates per-draw-range material flags
+    // which the renderer doesn't observe on its own.
+    requestRender();
 }
 
 /** Unhide every draw range across every loaded mesh. No-op when
@@ -49,4 +54,5 @@ export function unhideAllRanges(): void {
             obj.unhideAllDrawRanges();
         }
     });
+    requestRender();
 }
