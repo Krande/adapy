@@ -204,8 +204,18 @@ def retrieve_cached_results(results: list[FeaVerificationResult], cache_dir: pat
                 continue
         cached_results = results_from_cache(res)
         cache_elo = cached_results.metadata["elo"]
-        index_insert = res_elo.index(cache_elo)
-        results.insert(index_insert, cached_results)
+        # Insert next to a live result with the same el_order if we have
+        # one (keeps the original ordering); otherwise append. Falling
+        # through to append covers the empty-seed case (no solver run
+        # produced output, e.g. inside the docs Docker build where the
+        # solvers aren't wired up yet).
+        try:
+            index_insert = res_elo.index(cache_elo)
+            results.insert(index_insert, cached_results)
+        except ValueError:
+            results.append(cached_results)
+            res_elo.append(cache_elo)
+            res_names.append(cached_results.name)
 
 
 def results_from_cache(results_dict: dict) -> FeaVerificationResult:
