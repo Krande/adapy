@@ -185,6 +185,35 @@ def _bake_beam_glb(bm: ada.Beam, dest: pathlib.Path) -> bool:
         return False
 
 
+def _resolve_disp_field_per_mode(res, fem_format: str, mode_idx: int) -> str | None:
+    """Pick the FEAResult field-name that holds mode-shape displacements.
+
+    Calculix / Abaqus / Sesam keep one stable field name across all
+    modes — we just look it up in DISP_FIELD. Code Aster's MED reader
+    suffixes the field per time-step (`modes___DEPL[0] - 1`,
+    `modes___DEPL[1] - 2`, ...) so a single static name doesn't match
+    any key in `get_results_grouped_by_field_value()`. For that path
+    we scan the available keys for one containing `DEPL` and `[mode-1]`.
+    """
+    if fem_format != "code_aster":
+        return DISP_FIELD.get(fem_format)
+
+    try:
+        keys = list(res.get_results_grouped_by_field_value().keys())
+    except Exception:
+        return None
+    needle = f"[{mode_idx - 1:d}]"
+    for k in keys:
+        if "DEPL" in k and needle in k:
+            return k
+    # Last resort: any DEPL key (the result will warp to whatever step
+    # adapy considers the default for that field).
+    for k in keys:
+        if "DEPL" in k:
+            return k
+    return None
+
+
 def _bake_mode_glbs(results: Iterable[ru.FeaVerificationResult], num_modes: int) -> list[ThreeDData]:
     """Generate per-(case, mode) deformed-mesh GLBs from FEAResult objects.
 
@@ -198,21 +227,29 @@ def _bake_mode_glbs(results: Iterable[ru.FeaVerificationResult], num_modes: int)
         if res is None:
             logger.info(f"{r.name}: no FEAResult attached (cached-only), skipping mode GLBs")
             continue
-        field = DISP_FIELD.get(r.fem_format)
-        if field is None:
-            logger.warning(f"{r.name}: no displacement field for solver {r.fem_format!r}, skipping mode GLBs")
-            continue
         case_dir = assets_dir / r.name
         case_dir.mkdir(parents=True, exist_ok=True)
         for mode_idx in range(1, num_modes + 1):
+            field = _resolve_disp_field_per_mode(res, r.fem_format, mode_idx)
+            if field is None:
+                logger.warning(
+                    f"{r.name}: no displacement field for solver {r.fem_format!r} mode {mode_idx}, "
+                    f"skipping GLB"
+                )
+                continue
             glb_path = case_dir / f"mode_{mode_idx:02d}.glb"
+            # Code Aster stores each mode as its own step inside the
+            # per-mode field key; the field name already carries the
+            # mode index, so warp_step is 1 there. Other solvers keep
+            # one field across all modes and discriminate by step.
+            warp_step = 1 if r.fem_format == "code_aster" else mode_idx
             try:
                 res.to_gltf(
-                    str(glb_path), mode_idx, field,
-                    warp_field=field, warp_step=mode_idx, warp_scale=WARP_SCALE,
+                    str(glb_path), warp_step, field,
+                    warp_field=field, warp_step=warp_step, warp_scale=WARP_SCALE,
                 )
             except Exception as exc:
-                logger.warning(f"{r.name}: mode {mode_idx} GLB failed: {exc}")
+                logger.warning(f"{r.name}: mode {mode_idx} GLB failed ({field!r}): {exc}")
                 continue
             rows.append(_three_d_row(
                 key=f"{r.name}_mode_{mode_idx:02d}",
