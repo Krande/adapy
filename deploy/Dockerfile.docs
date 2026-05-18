@@ -40,9 +40,9 @@ WORKDIR /work/adapy
 COPY pixi.toml pixi.lock pyproject.toml ./
 RUN pixi install --environment docs --locked
 
-# Sibling paradoc checkout — the Filter / DbManager / ThreeDView API
-# used by the FEA verification report isn't in the conda-forge build
-# yet, so pixi.toml's `fea-doc` task overlays this clone via
+# Sibling paradoc checkout — the Filter / DbManager / ThreeDView /
+# headerLinks Topbar API used by the FEA verification report isn't in
+# the conda-forge build yet, so pixi.toml's `fea-doc` task overlays this clone via
 # PYTHONPATH=$PIXI_PROJECT_ROOT/../paradoc/src (matches the local-dev
 # sibling layout). The URL comes from a workflow secret so the source
 # host doesn't appear here; the repo is public-readable so no token
