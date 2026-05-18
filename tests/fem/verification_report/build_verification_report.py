@@ -24,6 +24,7 @@ import json
 import logging
 import os
 import pathlib
+import re
 from typing import Iterable, Optional
 
 import build_report_utils as ru
@@ -84,6 +85,25 @@ def beam() -> ada.Beam:
 load_dotenv()
 
 
+_FILTER_NAME_RE = re.compile(r"[^0-9A-Za-z_]")
+
+
+def _safe_filter_name(name: str) -> str:
+    """Return a paradoc-friendly Filter name derived from *name*.
+
+    Drops any file extension and replaces non-identifier chars with `_`.
+    Falls back to a generic identifier if the result is empty or starts
+    with a digit.
+    """
+    stem = pathlib.Path(name).stem if "." in name else name
+    cleaned = _FILTER_NAME_RE.sub("_", stem)
+    if not cleaned:
+        return "case"
+    if cleaned[0].isdigit():
+        cleaned = f"_{cleaned}"
+    return cleaned
+
+
 def simulate(
     bm, el_order, geom_repr, analysis_software, use_hex_quad, use_reduced_int, eig_modes, overwrite, execute
 ) -> list[ru.FeaVerificationResult]:
@@ -122,6 +142,15 @@ def simulate(
                                 geo=geo, elo=elo, hexquad=hexquad, reduced_integration=uri
                             )
                             fvr = ru.postprocess_result(result, metadata)
+                            # Defensive: paradoc Filter names must be valid
+                            # Python identifiers, and adapy's per-solver
+                            # FEAResult.name has historically leaked file
+                            # extensions (`.rmed`, `.frd`, ...). Strip any
+                            # extension + replace non-identifier chars so
+                            # downstream filter / table keys can't trip the
+                            # `Filter name '…' must be a valid Python
+                            # identifier` validator.
+                            fvr.name = _safe_filter_name(fvr.name)
                         except FileNotFoundError as e:
                             logger.warning(f"{case_label}: {e}")
                             continue

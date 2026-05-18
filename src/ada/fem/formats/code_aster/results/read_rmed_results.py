@@ -39,7 +39,7 @@ def read_rmed_file(rmed_file: str | pathlib.Path) -> FEAResult:
         software_version = get_code_aster_version_from_mess(mess_file)
 
     return FEAResult(
-        rmed_file.name,
+        rmed_file.stem,
         software=FEATypes.CODE_ASTER,
         results=mr.results,
         mesh=mr.mesh,
