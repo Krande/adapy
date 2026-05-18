@@ -123,6 +123,7 @@ def simulate(
                 for hexquad in use_hex_quad:
                     for uri in use_reduced_int:
                         case_label = f"{soft}/{geo}/order={elo}/hq={hexquad}/ri={uri}"
+                        logger.info(f"==> {case_label}: starting")
                         try:
                             result = eigen_test(
                                 bm,
@@ -137,6 +138,7 @@ def simulate(
                                 eigen_modes=eig_modes,
                             )
                             if result is None:
+                                logger.info(f"<== {case_label}: eigen_test returned None (likely a skip rule)")
                                 continue
                             metadata = dict(
                                 geo=geo, elo=elo, hexquad=hexquad, reduced_integration=uri
@@ -151,13 +153,15 @@ def simulate(
                             # `Filter name '…' must be a valid Python
                             # identifier` validator.
                             fvr.name = _safe_filter_name(fvr.name)
+                            logger.info(f"<== {case_label}: OK ({fvr.name})")
                         except FileNotFoundError as e:
-                            logger.warning(f"{case_label}: {e}")
+                            logger.warning(f"{case_label}: {e}", exc_info=True)
                             continue
                         except Exception as e:
-                            logger.warning(f"{case_label} failed: {e}")
+                            logger.warning(f"{case_label} failed: {type(e).__name__}: {e}", exc_info=True)
                             continue
                         results.append(fvr)
+    logger.info(f"simulate(): produced {len(results)} live result(s)")
     return results
 
 
