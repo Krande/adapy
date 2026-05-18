@@ -1,0 +1,43 @@
+# syntax=docker/dockerfile:1.7
+#
+# Sphinx docs site for adapy. Build stage runs the ``docs`` pixi env
+# (sphinx + furo + autodoc imports of ``ada``); runtime stage serves the
+# rendered HTML via nginx-unprivileged on :8080.
+#
+# Triggered by docs/**, pixi.toml/lock, this Dockerfile, or the workflow
+# itself — see the ``docs`` filter in .forgejo/workflows/build.yaml.
+
+ARG PIXI_VERSION=0.68.0
+# CI passes --build-arg IMAGE_TAG=sha-XXXXXXX so the rendered footer can
+# carry the release tag if conf.py ever wants it. Defaults to "dev" for
+# local builds.
+ARG IMAGE_TAG=dev
+
+FROM ghcr.io/prefix-dev/pixi:${PIXI_VERSION} AS builder
+WORKDIR /src
+
+# Solve the docs env first — fat closure (prod + desktop + fem-deps +
+# tests-core + sphinx/furo) dominates the cold build. Cache the layer
+# across source-only edits by COPYing manifests separately.
+COPY pixi.toml pixi.lock pyproject.toml ./
+RUN pixi install --environment docs --locked
+
+# autodoc imports ``ada`` at build time, so src/ must be present. The
+# .git directory is included because docs/conf.py runs ``git describe``
+# to derive the release string (it falls back gracefully if absent, but
+# we want a real version on the rendered page).
+COPY .git/ ./.git/
+COPY src/ ./src/
+COPY docs/ ./docs/
+
+RUN pixi run --environment docs docs
+
+FROM nginxinc/nginx-unprivileged:1.27-alpine
+ARG IMAGE_TAG
+LABEL org.opencontainers.image.source="https://git.krande.no/krande/adapy" \
+      org.opencontainers.image.title="ada-docs" \
+      org.opencontainers.image.version="${IMAGE_TAG}"
+
+COPY --from=builder /src/docs/_build/html/ /usr/share/nginx/html/
+
+EXPOSE 8080

@@ -35,7 +35,9 @@ on:
       - 'pyproject.toml'
       - 'deploy/Dockerfile.viewer'
       - 'deploy/Dockerfile.worker'
+      - 'deploy/Dockerfile.docs'
       - 'deploy/viewer-ada-init.py'
+      - 'docs/**'
       - '.forgejo/workflows/build.yaml'
 
 jobs:
@@ -44,6 +46,7 @@ jobs:
     outputs:
       viewer: ${{ steps.filter.outputs.viewer }}
       worker: ${{ steps.filter.outputs.worker }}
+      docs: ${{ steps.filter.outputs.docs }}
       base_changed: ${{ steps.filter.outputs.base_changed }}
       run_start_epoch: ${{ steps.filter.outputs.run_start_epoch }}
     steps:
@@ -106,6 +109,19 @@ jobs:
             worker=true
           fi
 
+          # Docs image is a Sphinx static site (deploy/Dockerfile.docs)
+          # served at ada-docs.krande.no. Rebuild only on docs/** + the
+          # pixi env files + the Dockerfile / workflow itself. Source-
+          # driven autodoc drift is accepted to keep CI lean; revisit
+          # if it bites.
+          docs=false
+          if match '^docs/' || \
+             match '^pixi\.(toml|lock)$' || \
+             match '^deploy/Dockerfile\.docs$' || \
+             match '^\.forgejo/workflows/build\.yaml$'; then
+            docs=true
+          fi
+
           # Adacpp-wasm base image rebuild: triggered by the sibling
           # build-adacpp-base workflow on these same paths. Tracking
           # them here lets viewer-build wait for the parallel run to
@@ -119,10 +135,11 @@ jobs:
           {
             echo "viewer=$viewer"
             echo "worker=$worker"
+            echo "docs=$docs"
             echo "base_changed=$base_changed"
             echo "run_start_epoch=$run_start_epoch"
           } >> "$GITHUB_OUTPUT"
-          echo "Detected — viewer: $viewer, worker: $worker, base_changed: $base_changed (run_start_epoch=$run_start_epoch)"
+          echo "Detected — viewer: $viewer, worker: $worker, docs: $docs, base_changed: $base_changed (run_start_epoch=$run_start_epoch)"
 
   viewer-build:
     needs: detect
@@ -297,14 +314,50 @@ jobs:
           fi
           echo "Downstream dispatch sent (HTTP $code)."
 
+  docs-build:
+    needs: detect
+    if: needs.detect.outputs.docs == 'true'
+    runs-on: docker-build
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # docs/conf.py shells out to ``git describe`` to derive the
+          # release string baked into the rendered footer. Default
+          # shallow clone has no tags, so widen the history.
+          fetch-depth: 0
+
+      - name: Login to registry
+        run: |
+          mkdir -p ~/.docker
+          printf '%s' '${{ secrets.REGISTRY_DOCKER_CONFIG }}' > ~/.docker/config.json
+
+      - name: Build and push docs image
+        env:
+          REGISTRY_IMAGE: ${{ secrets.DOCS_REGISTRY_IMAGE }}
+        run: |
+          if [ -z "$REGISTRY_IMAGE" ]; then
+            echo "::error::DOCS_REGISTRY_IMAGE secret is not set on this repo. Configure it (and REGISTRY_DOCKER_CONFIG) under Settings → Actions → Secrets before re-running."
+            exit 1
+          fi
+          TAG="sha-${GITHUB_SHA::7}"
+          BRANCH_TAG="branch-$(printf '%s' "$GITHUB_REF_NAME" | tr '/' '-')"
+          docker build \
+            -f deploy/Dockerfile.docs \
+            --build-arg "IMAGE_TAG=${TAG}" \
+            -t "${REGISTRY_IMAGE}:${TAG}" \
+            -t "${REGISTRY_IMAGE}:${BRANCH_TAG}" \
+            .
+          docker push "${REGISTRY_IMAGE}:${TAG}"
+          docker push "${REGISTRY_IMAGE}:${BRANCH_TAG}"
+
   gitops:
-    needs: [viewer-build, worker-build]
-    # Run when at least one build succeeded; tolerate the other being
+    needs: [viewer-build, worker-build, docs-build]
+    # Run when at least one build succeeded; tolerate the others being
     # skipped (paths didn't match) or failed (we still want to roll
     # whatever did build).
     if: |
       always() &&
-      (needs.viewer-build.result == 'success' || needs.worker-build.result == 'success')
+      (needs.viewer-build.result == 'success' || needs.worker-build.result == 'success' || needs.docs-build.result == 'success')
     runs-on: docker-build
     steps:
       - name: Update gitops manifest
@@ -312,16 +365,24 @@ jobs:
           GITOPS_REMOTE: ${{ secrets.GITOPS_REMOTE }}
           GITOPS_TOKEN: ${{ secrets.GITOPS_TOKEN }}
           GITOPS_BRANCH: ${{ secrets.GITOPS_BRANCH }}
-          GITOPS_MANIFEST: ${{ secrets.VIEWER_GITOPS_MANIFEST }}
+          # Per-image manifest paths. Viewer + worker share the same
+          # Helm values file (workloads/adapy-viewer/values.yaml); docs
+          # has its own deployment manifest. apply_bump operates on
+          # whichever manifest is passed in.
+          VIEWER_GITOPS_MANIFEST: ${{ secrets.VIEWER_GITOPS_MANIFEST }}
+          DOCS_GITOPS_MANIFEST: ${{ secrets.DOCS_GITOPS_MANIFEST }}
           VIEWER_IMAGE: ${{ secrets.VIEWER_REGISTRY_IMAGE }}
           WORKER_IMAGE: ${{ secrets.WORKER_REGISTRY_IMAGE }}
+          DOCS_IMAGE: ${{ secrets.DOCS_REGISTRY_IMAGE }}
           VIEWER_RESULT: ${{ needs.viewer-build.result }}
           WORKER_RESULT: ${{ needs.worker-build.result }}
+          DOCS_RESULT: ${{ needs.docs-build.result }}
         run: |
           # Skip cleanly if the gitops core isn't configured. POSIX-only
-          # — runner default shell is sh.
+          # — runner default shell is sh. Per-image manifest paths are
+          # checked alongside their build result below, not here.
           MISSING=""
-          for v in GITOPS_REMOTE GITOPS_TOKEN GITOPS_BRANCH GITOPS_MANIFEST; do
+          for v in GITOPS_REMOTE GITOPS_TOKEN GITOPS_BRANCH; do
             eval "val=\$$v"
             [ -z "$val" ] && MISSING="$MISSING $v"
           done
@@ -337,11 +398,6 @@ jobs:
             "https://x-access-token:${GITOPS_TOKEN}@${GITOPS_REMOTE}" .
           git config user.name "Forgejo CI"
           git config user.email "ci@local"
-
-          if [ ! -f "$GITOPS_MANIFEST" ]; then
-            echo "$GITOPS_MANIFEST not present yet; skipping."
-            exit 0
-          fi
 
           # Helm-shape bump: find an exact `repository: <IMAGE>` line,
           # rewrite the next `tag:` line. Indentation preserved; later
@@ -363,20 +419,31 @@ jobs:
           }
 
           # apply_bump prefers inline `image: repo:tag`, falls back to
-          # the helm-values `repository:`/`tag:` shape.
+          # the helm-values `repository:`/`tag:` shape. Operates on the
+          # manifest path passed as $3 so the same function handles the
+          # viewer/worker helm values file and the docs deployment.yaml.
           apply_bump() {
             image="$1"
             label="$2"
+            manifest="$3"
             if [ -z "$image" ]; then
               echo "$label: registry image secret unset; skipping"
               return
             fi
-            if grep -qF "image: ${image}:" "$GITOPS_MANIFEST"; then
-              sed -i "s|image: ${image}:.*|image: ${image}:${TAG}|" "$GITOPS_MANIFEST"
-            elif grep -qE "^[[:space:]]*repository:[[:space:]]+${image}[[:space:]]*$" "$GITOPS_MANIFEST"; then
-              bump_tag "$image" "$TAG" "$GITOPS_MANIFEST"
+            if [ -z "$manifest" ]; then
+              echo "$label: gitops manifest secret unset; skipping"
+              return
+            fi
+            if [ ! -f "$manifest" ]; then
+              echo "$label: $manifest not present yet; skipping"
+              return
+            fi
+            if grep -qF "image: ${image}:" "$manifest"; then
+              sed -i "s|image: ${image}:.*|image: ${image}:${TAG}|" "$manifest"
+            elif grep -qE "^[[:space:]]*repository:[[:space:]]+${image}[[:space:]]*$" "$manifest"; then
+              bump_tag "$image" "$TAG" "$manifest"
             else
-              echo "$label: no inline image: nor helm-shape repository: line for $image — skipping"
+              echo "$label: no inline image: nor helm-shape repository: line for $image in $manifest — skipping"
             fi
           }
 
@@ -386,20 +453,34 @@ jobs:
             git pull --rebase origin "$GITOPS_BRANCH"
 
             # Re-run apply_bump on each retry against the freshly
-            # rebased file; preserves correctness when concurrent
+            # rebased files; preserves correctness when concurrent
             # gitops commits land between attempts.
             summary=""
+            manifests=""
             if [ "$VIEWER_RESULT" = "success" ]; then
-              apply_bump "$VIEWER_IMAGE" viewer
+              apply_bump "$VIEWER_IMAGE" viewer "$VIEWER_GITOPS_MANIFEST"
               summary="${summary}viewer "
+              manifests="$manifests $VIEWER_GITOPS_MANIFEST"
             fi
             if [ "$WORKER_RESULT" = "success" ]; then
-              apply_bump "$WORKER_IMAGE" worker
+              # viewer + worker share the same manifest; apply_bump is
+              # idempotent so a second call is safe, but only add it to
+              # the path list once.
+              apply_bump "$WORKER_IMAGE" worker "$VIEWER_GITOPS_MANIFEST"
               summary="${summary}worker "
+              case " $manifests " in *" $VIEWER_GITOPS_MANIFEST "*) ;; *) manifests="$manifests $VIEWER_GITOPS_MANIFEST" ;; esac
+            fi
+            if [ "$DOCS_RESULT" = "success" ]; then
+              apply_bump "$DOCS_IMAGE" docs "$DOCS_GITOPS_MANIFEST"
+              summary="${summary}docs "
+              manifests="$manifests $DOCS_GITOPS_MANIFEST"
             fi
             summary="${summary% }"
 
-            git add "$GITOPS_MANIFEST"
+            # ``git add`` tolerates unchanged paths; the diff-cached
+            # check below decides whether anything is actually staged.
+            # shellcheck disable=SC2086
+            [ -n "$manifests" ] && git add $manifests
             if git diff --cached --quiet; then
               echo "No image change to commit."
               exit 0
