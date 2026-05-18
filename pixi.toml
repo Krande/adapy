@@ -23,12 +23,15 @@ serve = { cmd = "python docs/main.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROO
 # FEA verification report → paradoc static-web bundle landing under
 # `docs/_static/fea-report/`. Runs calculix + code_aster (available in
 # the `docs` env via fem-deps) for every case and bakes fresh
-# per-(case, mode) deformed-mesh GLBs into `_assets/`. Typer parses
-# bool-annotated args as --flag/--no-flag pairs; --overwrite is left
-# off so eigen_test reuses cached intermediate FEA outputs if present.
-fea-doc = { cmd = "python build_verification_report.py --execute --regen-assets", cwd = "./tests/fem/verification_report", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src:$PIXI_PROJECT_ROOT/../paradoc/src" } }
-# Force-regen with --overwrite — rerun every case even if cached.
-fea-doc-clean = { cmd = "python build_verification_report.py --overwrite --execute --regen-assets", cwd = "./tests/fem/verification_report", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src:$PIXI_PROJECT_ROOT/../paradoc/src" } }
+# per-(case, mode) deformed-mesh GLBs into `_assets/`. `--overwrite`
+# is what makes eigen_test actually invoke the solver in cases.py;
+# without it the helper only tries to load existing result files and
+# prints "Result file ... not found" for solvers (ccx/ca) whose
+# `.cache/` is gitignored. The Docker docs build runs this end-to-end.
+fea-doc = { cmd = "python build_verification_report.py --overwrite --execute --regen-assets", cwd = "./tests/fem/verification_report", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src:$PIXI_PROJECT_ROOT/../paradoc/src" } }
+# Cache-only variant — no solver execution, consumes the committed
+# `.cache/*.json` and `_assets/*.glb`. Useful for hosts without solvers.
+fea-doc-cached = { cmd = "python build_verification_report.py", cwd = "./tests/fem/verification_report", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src:$PIXI_PROJECT_ROOT/../paradoc/src" } }
 
 [feature.tests.tasks]
 pre-install = { cmd = "playwright install --with-deps chromium", outputs = ["$PIXI_HOME/envs/tests/Scripts/playwright.exe"] }

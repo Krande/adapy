@@ -79,6 +79,10 @@ ARG IMAGE_TAG
 LABEL org.opencontainers.image.title="ada-docs" \
       org.opencontainers.image.version="${IMAGE_TAG}"
 
+# Custom default.conf with gzip on for JSON / GLB so the FEA bundle's
+# multi-MB index.html and per-(case, mode) GLBs are wire-compressed.
+COPY deploy/nginx-docs.conf /etc/nginx/conf.d/default.conf
+
 COPY --from=builder /work/adapy/docs/_build/html/ /usr/share/nginx/html/
 
 EXPOSE 8080
