@@ -179,9 +179,54 @@ def _bake_beam_glb(bm: ada.Beam, dest: pathlib.Path) -> bool:
         dest.parent.mkdir(parents=True, exist_ok=True)
         asm.to_gltf(dest)
         logger.info(f"wrote beam GLB → {dest}")
+        _bake_glb_poster_png(dest)
         return True
     except Exception as exc:
         logger.warning(f"beam GLB generation failed: {exc}")
+        return False
+
+
+def _bake_glb_poster_png(glb_path: pathlib.Path) -> bool:
+    """Render a static PNG poster for ``glb_path`` via pygfx-offscreen.
+
+    Lets paradoc's frontend show a real raster preview while the
+    interactive 3D viewer is lazy-loaded. The poster sits alongside
+    the GLB at ``<glb>.png``; ``_collect_assets`` registers both and
+    the paradoc static-export step copies them into the bundle.
+
+    Failures (missing wgpu adapter on a headless host, viewer init
+    errors, etc.) are logged as warnings and don't abort the bake —
+    the frontend falls back to a generic placeholder card when no
+    poster is found.
+    """
+    try:
+        import trimesh
+        from ada.visit.rendering.camera import Camera
+        from ada.visit.rendering.pygfx_offscreen_utils import trimesh_scene_to_image
+    except Exception as exc:
+        logger.warning(f"pygfx poster deps unavailable, skipping {glb_path.name}: {exc}")
+        return False
+
+    png_path = glb_path.with_suffix(".png")
+    try:
+        scene = trimesh.load(str(glb_path), force="scene")
+        if not isinstance(scene, trimesh.Scene):
+            scene = trimesh.Scene(scene)
+        # Roughly isometric view of the cantilever; `fit_view=True`
+        # frames the bbox + padding regardless of beam dimensions.
+        cam = Camera(
+            position=(1.0, -1.0, 0.7),
+            look_at=(0.0, 0.0, 0.0),
+            up=(0.0, 0.0, 1.0),
+            fov=45.0,
+            padding=0.1,
+            fit_view=True,
+        )
+        image = trimesh_scene_to_image(scene, camera=cam)
+        image.save(str(png_path))
+        return True
+    except Exception as exc:
+        logger.warning(f"poster PNG for {glb_path.name} failed: {exc}")
         return False
 
 
@@ -251,6 +296,7 @@ def _bake_mode_glbs(results: Iterable[ru.FeaVerificationResult], num_modes: int)
             except Exception as exc:
                 logger.warning(f"{r.name}: mode {mode_idx} GLB failed ({field!r}): {exc}")
                 continue
+            _bake_glb_poster_png(glb_path)
             rows.append(_three_d_row(
                 key=f"{r.name}_mode_{mode_idx:02d}",
                 glb_path=glb_path,
@@ -263,6 +309,14 @@ def _three_d_row(key: str, glb_path: pathlib.Path, caption: str) -> ThreeDData:
     import hashlib
 
     sha = hashlib.sha256(glb_path.read_bytes()).hexdigest()
+    # A sibling poster PNG (`<glb>.png`) lets paradoc's frontend show a
+    # raster preview before mounting the interactive viewer. Encode the
+    # PNG-on-disk hint in the `metadata` dict — paradoc's static-export
+    # step looks for it there and copies the file alongside the GLB.
+    metadata: dict = {}
+    png_path = glb_path.with_suffix(".png")
+    if png_path.exists():
+        metadata["image_path"] = str(png_path.relative_to(THIS_DIR))
     return ThreeDData(
         key=key,
         glb_path=str(glb_path.relative_to(THIS_DIR)),
@@ -272,6 +326,7 @@ def _three_d_row(key: str, glb_path: pathlib.Path, caption: str) -> ThreeDData:
         sha256=sha,
         size=glb_path.stat().st_size,
         source_type="fea_mode_shape",
+        metadata=metadata,
     )
 
 
