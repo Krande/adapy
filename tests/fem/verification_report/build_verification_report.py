@@ -212,8 +212,13 @@ def _bake_glb_poster_png(glb_path: pathlib.Path) -> bool:
         scene = trimesh.load(str(glb_path), force="scene")
         if not isinstance(scene, trimesh.Scene):
             scene = trimesh.Scene(scene)
-        # Roughly isometric view of the cantilever; `fit_view=True`
-        # frames the bbox + padding regardless of beam dimensions.
+        # adapy's FEA-result GLBs ship both a Trimesh surface and a
+        # trimesh.Path3D edge overlay. `pygfx.geometry_from_trimesh()`
+        # only handles the former, so we render the surface via the
+        # built-in helper and rasterize the edges manually as pygfx
+        # line segments. Edges are the high-signal channel for mode
+        # shapes — without them the deformation reads as a featureless
+        # bent slab.
         cam = Camera(
             position=(1.0, -1.0, 0.7),
             look_at=(0.0, 0.0, 0.0),
@@ -222,12 +227,91 @@ def _bake_glb_poster_png(glb_path: pathlib.Path) -> bool:
             padding=0.1,
             fit_view=True,
         )
-        image = trimesh_scene_to_image(scene, camera=cam)
+        image = _render_scene_with_edges(scene, cam)
+        if image is None:
+            return False
         image.save(str(png_path))
         return True
     except Exception as exc:
         logger.warning(f"poster PNG for {glb_path.name} failed: {exc}")
         return False
+
+
+def _render_scene_with_edges(scene, camera):
+    """Custom pygfx offscreen render that handles Trimesh + Path3D.
+
+    Mirrors `pygfx_offscreen_utils.trimesh_scene_to_image` but loops
+    over geometries and dispatches `Trimesh` → `gfx.Mesh` and
+    `Path3D` → `gfx.LineSegments`. Returns a PIL Image or None.
+    """
+    try:
+        import numpy as np
+        import pygfx as gfx
+        import trimesh
+        from PIL import Image
+        from wgpu.gui.offscreen import WgpuCanvas
+    except Exception as exc:
+        logger.warning(f"pygfx deps unavailable: {exc}")
+        return None
+
+    canvas = WgpuCanvas(size=(640, 480), pixel_ratio=1)
+    renderer = gfx.renderers.WgpuRenderer(canvas)
+    gfx_scene = gfx.Scene()
+    group = gfx_scene.add(gfx.Group())
+
+    mesh_count = edge_count = 0
+    for geom in scene.geometry.values():
+        if isinstance(geom, trimesh.Trimesh):
+            try:
+                group.add(
+                    gfx.Mesh(gfx.geometry_from_trimesh(geom), gfx.MeshPhongMaterial())
+                )
+                mesh_count += 1
+            except Exception as exc:
+                logger.debug(f"poster mesh skip: {exc}")
+        elif isinstance(geom, trimesh.path.Path3D):
+            # Flatten each entity into a list of consecutive vertex
+            # pairs (P0,P1, P1,P2, P2,P3, ...) for `LineSegments`.
+            verts = np.asarray(geom.vertices, dtype=np.float32)
+            pairs: list[np.ndarray] = []
+            for entity in geom.entities:
+                ids = np.asarray(entity.points, dtype=np.int64)
+                if ids.size < 2:
+                    continue
+                for a, b in zip(ids[:-1], ids[1:]):
+                    pairs.append(verts[a])
+                    pairs.append(verts[b])
+            if not pairs:
+                continue
+            positions = np.stack(pairs).astype(np.float32)
+            try:
+                line_geom = gfx.Geometry(positions=positions)
+                line_mat = gfx.LineSegmentMaterial(color=(0.15, 0.15, 0.15, 1.0), thickness=1.5)
+                group.add(gfx.Line(line_geom, line_mat))
+                edge_count += 1
+            except Exception as exc:
+                logger.debug(f"poster edge skip: {exc}")
+
+    if mesh_count == 0 and edge_count == 0:
+        logger.warning("poster: no usable geometries in scene")
+        return None
+
+    gfx_scene.add(gfx.AmbientLight(intensity=0.6))
+    gfx_scene.add(gfx.DirectionalLight())
+
+    width, height = canvas.get_logical_size()
+    gfx_cam = gfx.PerspectiveCamera(camera.fov, width / height, depth_range=(camera.near, camera.far))
+    view_dir = (-1.0, -1.0, -1.0)
+    if camera.position is not None and camera.look_at is not None:
+        view_dir = tuple(np.array(camera.look_at) - np.array(camera.position))
+    gfx_cam.show_object(group, view_dir=view_dir, up=camera.up or (0, 0, 1))
+    if camera.padding > 0:
+        gfx_cam.zoom = 1 - camera.padding
+    gfx_scene.add(gfx_cam)
+
+    canvas.request_draw(lambda: renderer.render(gfx_scene, gfx_cam))
+    img_array = canvas.draw()
+    return Image.fromarray(np.asarray(img_array))
 
 
 def _resolve_disp_field_per_mode(res, fem_format: str, mode_idx: int) -> str | None:
