@@ -14,7 +14,7 @@ json-code-gen-py = { cmd = [
     "--output-model-type", "pydantic_v2.BaseModel"], cwd = "./" }
 
 [feature.docs.tasks]
-docs = { cmd = "cd docs && sphinx-build -b html -v . _build/html", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+docs = { cmd = "cd docs && sphinx-build -b html -v -D nbsphinx_execute=auto . _build/html", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 serve = { cmd = "python docs/main.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" }, depends-on = ["docs"] }
 fem-doc = { cmd = "python build_verification_report.py true true --export-format=docx", cwd = "./tests/fem/verification_report", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 fea-web = { cmd = "python build_verification_report.py true true --export-static-web", cwd = "./tests/fem/verification_report", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src:$PIXI_PROJECT_ROOT/../paradoc/src" } }
