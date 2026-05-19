@@ -1,15 +1,10 @@
 import React, {Suspense, useEffect, useState} from 'react';
 import ObjectInfoBox from "./info_box_selected_object/ObjectInfoBoxComponent";
-import {useObjectInfoStore} from "../state/objectInfoStore";
 import SimulationControls from "./simulation/SimulationControls";
-import {useNodeEditorStore} from "../state/useNodeEditorStore";
-import {useAnimationStore} from "../state/animationStore";
-import {useFeaAnimationStore} from "../state/feaAnimationStore";
-import {useOptionsStore} from "../state/optionsStore";
 import {request_list_of_nodes} from "../utils/node_editor/handlers/request_list_of_nodes";
-import {useServerInfoStore} from "../state/serverInfoStore";
 import ServerInfoBox from "./server_info/ServerInfoBox";
 import {runtime} from "@/runtime/config";
+import {useViewerStores} from "../state/AdaViewerContext";
 // REST-only — code-split so the embedded desktop zip stays slim.
 // Scope / user / admin controls now live inside the options drawer
 // (RestSection); the menu bar is kept tight so it stays usable on
@@ -22,12 +17,9 @@ import ReloadIcon from "./icons/ReloadIcon";
 import ServerIcon from "./icons/ServerIcon";
 import ToggleControlsIcon from "./icons/AnimationControlToggle";
 import TreeViewIcon from "./icons/TreeViewIcon";
-import {useGroupInfoStore} from "../state/groupInfoStore";
 import GroupIcon from "./icons/GroupIcon";
 import GroupInfoBox from "./info_box_groups/GroupInfoBox";
 import {WebsocketStatusMenu, WebsocketStatusBox} from "./WebsocketStatusMenu";
-import {useWebsocketStatusStore} from "../state/websocketStatusStore";
-import {useTreeViewStore} from "../state/treeViewStore";
 
 
 // `md:` Tailwind breakpoint. Match it with matchMedia so the menu can
@@ -82,15 +74,16 @@ function useIsDesktop(): boolean {
 }
 
 const Menu = () => {
-    const {show_info_box} = useObjectInfoStore();
-    const {show_group_info_box} = useGroupInfoStore();
-    const {isNodeEditorVisible, setIsNodeEditorVisible, use_node_editor_only} = useNodeEditorStore();
-    const {isOptionsVisible, setIsOptionsVisible, enableNodeEditor} = useOptionsStore(); // use the useNavBarStore function
-    const {showServerInfoBox, setShowServerInfoBox} = useServerInfoStore();
-    const {hasAnimation, isControlsVisible, setIsControlsVisible} = useAnimationStore();
-    const feaSessionActive = useFeaAnimationStore((s) => s.sessionActive);
-    const {showInfoBox: showWebsocketInfoBox} = useWebsocketStatusStore();
-    const {isTreeCollapsed, setIsTreeCollapsed, treeViewWidth} = useTreeViewStore();
+    const stores = useViewerStores();
+    const {show_info_box} = stores.useObjectInfoStore();
+    const {show_group_info_box} = stores.useGroupInfoStore();
+    const {isNodeEditorVisible, setIsNodeEditorVisible, use_node_editor_only} = stores.useNodeEditorStore();
+    const {isOptionsVisible, setIsOptionsVisible, enableNodeEditor} = stores.useOptionsStore(); // use the useNavBarStore function
+    const {showServerInfoBox, setShowServerInfoBox} = stores.useServerInfoStore();
+    const {hasAnimation, isControlsVisible, setIsControlsVisible} = stores.useAnimationStore();
+    const feaSessionActive = stores.useFeaAnimationStore((s) => s.sessionActive);
+    const {showInfoBox: showWebsocketInfoBox} = stores.useWebsocketStatusStore();
+    const {isTreeCollapsed, setIsTreeCollapsed, treeViewWidth} = stores.useTreeViewStore();
     const isDesktop = useIsDesktop();
 
     // On desktop the tree panel pushes the menu bar to its right so
@@ -159,14 +152,14 @@ const Menu = () => {
                     <button
                         className={navBtnClass(show_info_box, "", use_node_editor_only)}
                         hidden={use_node_editor_only}
-                        onClick={useObjectInfoStore.getState().toggle}
+                        onClick={stores.useObjectInfoStore.getState().toggle}
                         title="Toggle object info"
                         aria-pressed={show_info_box}
                     ><InfoIcon/></button>
                     <button
                         className={navBtnClass(show_group_info_box, "", use_node_editor_only)}
                         hidden={use_node_editor_only}
-                        onClick={useGroupInfoStore.getState().toggle}
+                        onClick={stores.useGroupInfoStore.getState().toggle}
                         title="Toggle group info"
                         aria-pressed={show_group_info_box}
                     ><GroupIcon/></button>

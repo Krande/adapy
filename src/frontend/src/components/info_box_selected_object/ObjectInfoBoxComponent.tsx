@@ -1,8 +1,5 @@
 import React, {useState} from 'react';
-import {useObjectInfoStore} from '@/state/objectInfoStore';
-import {useSelectedObjectStore} from '@/state/useSelectedObjectStore';
-import {useTableNavStore} from '@/state/tableNavStore';
-import {useFeaAnimationStore} from '@/state/feaAnimationStore';
+import {useViewerStores} from '@/state/AdaViewerContext';
 import {copySelectionNames, writeToClipboard} from '@/utils/clipboard/copySelectionNames';
 import {hideSelectedRanges, unhideAllRanges} from '@/utils/scene/visibility';
 import {elementFirstNodeId} from '@/utils/scene/fea/goToNode';
@@ -15,6 +12,12 @@ import ObjectMetadataPanel from './ObjectMetadataPanel';
 const COPIED_FEEDBACK_MS = 1500;
 
 const ObjectInfoBox = () => {
+    const {
+        useObjectInfoStore,
+        useSelectedObjectStore,
+        useTableNavStore,
+        useFeaAnimationStore,
+    } = useViewerStores();
     const {
         name,
         faceIndex,

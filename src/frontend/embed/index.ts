@@ -1,203 +1,328 @@
-// Embedded ada-py viewer — minimal three.js GLB renderer with the API
-// paradoc's `vendor/ada-viewer/` placeholder locked in:
+// Embedded ada-py viewer — three.js GLB renderer with paradoc-shaped
+// `mountViewer` API:
 //
-//   mountViewer(element, { modelBytes, camera, onReady?, onError? }):
+//   mountViewer(element, { modelBytes, camera, showControls?, ...}):
 //       { dispose() }
 //
-// Pure component: no globals, no fetch, no WebSocket. Receives glb bytes
-// in and renders pixels out. Deliberately not coupled to the rest of the
-// adapy frontend (zustand stores, refs, comms) — those would balloon the
-// bundle and break the embed contract.
+// Two modes:
 //
-// The full app at viewer.krande.no still uses the shared sceneHelpers/*;
-// this file is only consumed by `npm run build:embed` (vite.config.embed.ts).
+//   * showControls: false (default) — canvas + CameraControls only.
+//     Smallest possible footprint, runs the model through adapy's
+//     ingest pipeline so panels would work if turned on later.
+//
+//   * showControls: true — overlays adapy's selection tree + object
+//     info + group info panels over the canvas. Clicks on the model
+//     populate the same zustand stores the standalone app uses.
+//
+// Both modes drive everything through adapy's existing pipelines
+// (setupModelLoaderAsync, prepareLoadedModel, setupPointerHandler,
+// cacheAndBuildTree) so paradoc's embed and adapy's standalone viewer
+// share one ingest path. Phase 1 of `AdaViewerProvider` makes the
+// store / ref singletons context-routed but they're still process-
+// global; this embed assumes one mount per page, which is the
+// paradoc usage today. Phase 3 will switch to per-instance stores.
 
-import * as THREE from 'three';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import CameraControls from 'camera-controls';
+import * as THREE from "three"
+import CameraControls from "camera-controls"
+import React from "react"
+import { createRoot, type Root } from "react-dom/client"
+import { OrbitControls } from "three/examples/jsm/controls/OrbitControls"
 
-// CameraControls needs the THREE namespace installed once before any
-// instance is constructed. Idempotent under the hood.
-CameraControls.install({ THREE });
+import "../src/app.css"
 
-// adapy emits Z-up GLBs by convention (matches FEA / CAD), so the embed
-// has to orient the camera accordingly. The full adapy-viewer wires this
-// through a `zIsUp` flag; here we just default true since paradoc-hosted
-// models are all FEA results.
-const Z_IS_UP = true;
+import { AdaViewerProvider } from "../src/state/AdaViewerContext"
+import {
+    sceneRef,
+    cameraRef,
+    controlsRef,
+    rendererRef,
+    updatelightRef,
+} from "../src/state/refs"
+import { useModelState } from "../src/state/modelState"
+import { useOptionsStore } from "../src/state/optionsStore"
+import { useObjectInfoStore } from "../src/state/objectInfoStore"
+import { useGroupInfoStore } from "../src/state/groupInfoStore"
+import { useTreeViewStore } from "../src/state/treeViewStore"
+
+import { setupModelLoaderAsync } from "../src/components/viewer/sceneHelpers/setupModelLoader"
+import { setupPointerHandler } from "../src/components/viewer/sceneHelpers/setupPointerHandler"
+
+import { EmbedUI } from "./EmbedUI"
+
+// adapy emits Z-up GLBs by convention (matches FEA / CAD), so the
+// embed orients the camera accordingly. Single-instance assumption.
+CameraControls.install({ THREE })
+const Z_IS_UP = true
 
 export interface CameraPreset {
-    name: string;
-    azimuth_deg: number;
-    elevation_deg: number;
-    roll_deg?: number;
-    target?: 'bbox_center';
-    distance?: 'fit' | number;
-    fov_deg?: number;
-    margin?: number;
+    name: string
+    azimuth_deg: number
+    elevation_deg: number
+    roll_deg?: number
+    target?: "bbox_center"
+    distance?: "fit" | number
+    fov_deg?: number
+    margin?: number
 }
 
 export interface MountViewerOptions {
-    modelBytes: Uint8Array;
-    camera: CameraPreset;
-    caption?: string;
-    onReady?: () => void;
-    onError?: (err: Error) => void;
+    modelBytes: Uint8Array
+    camera: CameraPreset
+    caption?: string
+    showControls?: boolean
+    onReady?: () => void
+    onError?: (err: Error) => void
 }
 
 export interface MountedViewer {
-    dispose: () => void;
+    dispose: () => void
 }
 
-const DEFAULT_FOV = 50;
-const DEFAULT_MARGIN = 1.15;
-const DEFAULT_MIN_HEIGHT = 400;
+const DEFAULT_FOV = 50
+const DEFAULT_MARGIN = 1.15
+const DEFAULT_MIN_HEIGHT = 400
 
 export function mountViewer(element: HTMLElement, opts: MountViewerOptions): MountedViewer {
-    let disposed = false;
+    let disposed = false
+    let reactRoot: Root | null = null
+    let blobUrl: string | null = null
+    let cleanupPointer: (() => void) | null = null
 
-    // --- DOM container ---
-    element.innerHTML = '';
-    if (!element.style.minHeight) element.style.minHeight = `${DEFAULT_MIN_HEIGHT}px`;
-    element.style.position = 'relative';
-    element.style.overflow = 'hidden';
+    // --- DOM scaffolding ---
+    element.innerHTML = ""
+    if (!element.style.minHeight) element.style.minHeight = `${DEFAULT_MIN_HEIGHT}px`
+    element.style.position = "relative"
+    element.style.overflow = "hidden"
+
+    const canvasHost = document.createElement("div")
+    canvasHost.style.position = "absolute"
+    canvasHost.style.inset = "0"
+    canvasHost.style.zIndex = "0"
+    element.appendChild(canvasHost)
+
+    // Overlay host for the React UI when showControls is true. Always
+    // created (cheap) so the dispose path doesn't have to branch.
+    const overlayHost = document.createElement("div")
+    overlayHost.style.position = "absolute"
+    overlayHost.style.inset = "0"
+    overlayHost.style.zIndex = "1"
+    overlayHost.style.pointerEvents = "none"
+    element.appendChild(overlayHost)
 
     // --- Renderer / scene / camera ---
-    const fov = opts.camera.fov_deg ?? DEFAULT_FOV;
-    const initialWidth = Math.max(element.clientWidth, 320);
-    const initialHeight = Math.max(element.clientHeight, DEFAULT_MIN_HEIGHT);
+    const fov = opts.camera.fov_deg ?? DEFAULT_FOV
+    const initialWidth = Math.max(element.clientWidth, 320)
+    const initialHeight = Math.max(element.clientHeight, DEFAULT_MIN_HEIGHT)
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    renderer.setSize(initialWidth, initialHeight, false);
-    renderer.outputColorSpace = THREE.SRGBColorSpace;
-    renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.0;
-    element.appendChild(renderer.domElement);
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false })
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+    renderer.setSize(initialWidth, initialHeight, false)
+    renderer.outputColorSpace = THREE.SRGBColorSpace
+    renderer.toneMapping = THREE.ACESFilmicToneMapping
+    renderer.toneMappingExposure = 1.0
+    canvasHost.appendChild(renderer.domElement)
 
-    const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0xf8fafc); // tailwind slate-50
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color(0xf8fafc)
 
-    const camera = new THREE.PerspectiveCamera(fov, initialWidth / initialHeight, 0.01, 10000);
+    const camera = new THREE.PerspectiveCamera(
+        fov,
+        initialWidth / initialHeight,
+        0.01,
+        10000,
+    )
+    if (Z_IS_UP) camera.up.set(0, 0, 1)
 
-    // --- Lighting ---
-    // Hemisphere fakes ambient skylight; the directional light gives definition.
-    scene.add(new THREE.HemisphereLight(0xffffff, 0xb1b8c4, 0.85));
-    const sun = new THREE.DirectionalLight(0xffffff, 0.9);
-    sun.position.set(5, 10, 7.5);
-    scene.add(sun);
+    // --- Lights ---
+    scene.add(new THREE.HemisphereLight(0xffffff, 0xb1b8c4, 0.85))
+    const sun = new THREE.DirectionalLight(0xffffff, 0.9)
+    sun.position.set(5, 10, 7.5)
+    scene.add(sun)
 
     // --- Controls ---
-    // CameraControls matches the live adapy-viewer (default-true
-    // `defaultOrbitController=false` in setupControls). The clock keeps
-    // damping responsive frame-to-frame.
-    const controls = new CameraControls(camera, renderer.domElement);
-    controls.dollyToCursor = true;
-    if (Z_IS_UP) {
-        camera.up.set(0, 0, 1);
-        controls.updateCameraUp();
-    }
-    const clock = new THREE.Clock();
+    const controls = new CameraControls(camera, renderer.domElement)
+    controls.dollyToCursor = true
+    if (Z_IS_UP) controls.updateCameraUp()
+    const clock = new THREE.Clock()
+
+    // --- Populate the singleton refs ---
+    // adapy's pipeline (setupModelLoaderAsync, prepareLoadedModel,
+    // setupPointerHandler, the Menu/TreeView/InfoBox React tree)
+    // reads these via context which today delegates to the same
+    // singletons. One mount per page (phase 3 will make this safe
+    // for multi-instance via createStore factories).
+    sceneRef.current = scene
+    cameraRef.current = camera
+    controlsRef.current = controls as unknown as OrbitControls
+    rendererRef.current = renderer
+    updatelightRef.current = null
+
+    // --- Pre-configure useModelState so the adapy pipeline doesn't
+    //     fight the embed's camera preset framing. Lock translation
+    //     so prepareLoadedModel doesn't recenter the model — paradoc
+    //     hands us a baked PNG-aligned preset and we frame to that. ---
+    const modelStore = useModelState.getState()
+    modelStore.setZIsUp(Z_IS_UP)
+    const optionsStore = useOptionsStore.getState()
+    const priorLockTranslation = optionsStore.lockTranslation
+    optionsStore.setLockTranslation(true)
+
+    // --- Embed default: panels start closed, tree drawer collapsed.
+    //     The user opens what they need via the toolbar. Mirrors the
+    //     paradoc-side "first-paint stays minimal" idiom. ---
+    useObjectInfoStore.setState({ show_info_box: false })
+    useGroupInfoStore.setState({ show_group_info_box: false })
+    useTreeViewStore.getState().setIsTreeCollapsed(true)
 
     // --- Resize handling ---
     const onResize = () => {
-        const w = element.clientWidth || initialWidth;
-        const h = Math.max(element.clientHeight, DEFAULT_MIN_HEIGHT);
-        renderer.setSize(w, h, false);
-        camera.aspect = w / h;
-        camera.updateProjectionMatrix();
-    };
-    const ro = new ResizeObserver(onResize);
-    ro.observe(element);
+        const w = element.clientWidth || initialWidth
+        const h = Math.max(element.clientHeight, DEFAULT_MIN_HEIGHT)
+        renderer.setSize(w, h, false)
+        camera.aspect = w / h
+        camera.updateProjectionMatrix()
+    }
+    const ro = new ResizeObserver(onResize)
+    ro.observe(element)
 
     // --- Render loop ---
-    let frame = 0;
+    let frame = 0
     const tick = () => {
-        if (disposed) return;
-        frame = requestAnimationFrame(tick);
-        controls.update(clock.getDelta());
-        renderer.render(scene, camera);
-    };
-
-    // --- Load the GLB ---
-    let loadedRoot: THREE.Object3D | null = null;
-    try {
-        const loader = new GLTFLoader();
-        // Copy into a fresh ArrayBuffer — the input may be a view into a
-        // larger buffer (e.g. fetched WS frame) and GLTFLoader.parse trusts
-        // the whole buffer.
-        const buf = new ArrayBuffer(opts.modelBytes.byteLength);
-        new Uint8Array(buf).set(opts.modelBytes);
-
-        loader.parse(
-            buf,
-            '',
-            (gltf) => {
-                if (disposed) return;
-                loadedRoot = gltf.scene;
-                scene.add(loadedRoot);
-                applyCameraPreset(camera, controls, loadedRoot, opts.camera);
-                tick();
-                queueMicrotask(() => {
-                    if (!disposed) opts.onReady?.();
-                });
-            },
-            (err) => {
-                opts.onError?.(err instanceof Error ? err : new Error(String(err)));
-            }
-        );
-    } catch (err) {
-        opts.onError?.(err instanceof Error ? err : new Error(String(err)));
+        if (disposed) return
+        frame = requestAnimationFrame(tick)
+        controls.update(clock.getDelta())
+        renderer.render(scene, camera)
     }
+
+    // --- Load the GLB through adapy's pipeline ---
+    // Building a Blob URL lets us reuse setupModelLoaderAsync, which
+    // handles ADA_EXT_data extraction, prepareLoadedModel, and the
+    // worker-cache tree build that the TreeView panel reads. Without
+    // that pipeline the panels would render empty even with the
+    // refs populated.
+    ;(async () => {
+        try {
+            const blob = new Blob([new Uint8Array(opts.modelBytes)], {
+                type: "model/gltf-binary",
+            })
+            blobUrl = URL.createObjectURL(blob)
+
+            const modelGroup = await setupModelLoaderAsync(blobUrl, false)
+            if (disposed) return
+
+            applyCameraPreset(camera, controls, modelGroup, opts.camera)
+
+            // Pointer / raycaster selection. Updates objectInfoStore
+            // + selectedObjectStore on click — same path the standalone
+            // app uses, so the EmbedUI's info panel lights up the
+            // moment the user clicks a face.
+            cleanupPointer = setupPointerHandler(
+                canvasHost,
+                camera,
+                scene,
+                renderer,
+                controls,
+            )
+
+            // Mount the overlay UI after the model is in place so the
+            // tree-view store has been populated by cacheAndBuildTree.
+            if (opts.showControls) {
+                reactRoot = createRoot(overlayHost)
+                reactRoot.render(
+                    React.createElement(AdaViewerProvider, null, React.createElement(EmbedUI)),
+                )
+            }
+
+            tick()
+            queueMicrotask(() => {
+                if (!disposed) opts.onReady?.()
+            })
+        } catch (err) {
+            opts.onError?.(err instanceof Error ? err : new Error(String(err)))
+        }
+    })()
 
     return {
         dispose() {
-            if (disposed) return;
-            disposed = true;
-            cancelAnimationFrame(frame);
-            ro.disconnect();
-            controls.dispose();
-            if (loadedRoot) {
-                scene.remove(loadedRoot);
-                disposeObject(loadedRoot);
-            }
-            renderer.dispose();
+            if (disposed) return
+            disposed = true
+            cancelAnimationFrame(frame)
+            ro.disconnect()
             try {
-                element.removeChild(renderer.domElement);
+                cleanupPointer?.()
             } catch {
-                /* element already detached */
+                /* ignore */
+            }
+            try {
+                reactRoot?.unmount()
+            } catch {
+                /* ignore */
+            }
+            controls.dispose()
+            // Drop refs so a subsequent mount on the same page gets a
+            // clean slate. Phase 3 (per-instance stores via createStore
+            // factories) makes the explicit teardown unnecessary; for
+            // now this is the discipline that keeps a navigated-away
+            // viewer from leaking the WebGL context through stale
+            // sceneRef/rendererRef captures.
+            if (sceneRef.current === scene) sceneRef.current = null
+            if (cameraRef.current === camera) cameraRef.current = null
+            if ((controlsRef.current as unknown) === controls) controlsRef.current = null
+            if (rendererRef.current === renderer) rendererRef.current = null
+            // Restore the user's option so a re-mount doesn't inherit
+            // our forced lockTranslation=true.
+            try {
+                useOptionsStore.getState().setLockTranslation(priorLockTranslation)
+            } catch {
+                /* store may already be torn down in test envs */
+            }
+            renderer.dispose()
+            if (blobUrl) {
+                try {
+                    URL.revokeObjectURL(blobUrl)
+                } catch {
+                    /* ignore */
+                }
+                blobUrl = null
+            }
+            try {
+                element.removeChild(canvasHost)
+            } catch {
+                /* already detached */
+            }
+            try {
+                element.removeChild(overlayHost)
+            } catch {
+                /* already detached */
             }
         },
-    };
+    }
 }
 
 function applyCameraPreset(
     camera: THREE.PerspectiveCamera,
     controls: CameraControls,
     root: THREE.Object3D,
-    preset: CameraPreset
+    preset: CameraPreset,
 ): void {
-    const box = new THREE.Box3().setFromObject(root);
-    const center = box.getCenter(new THREE.Vector3());
-    const size = box.getSize(new THREE.Vector3());
-    const radius = Math.max(size.length() * 0.5, 1e-3);
+    const box = new THREE.Box3().setFromObject(root)
+    const center = box.getCenter(new THREE.Vector3())
+    const size = box.getSize(new THREE.Vector3())
+    const radius = Math.max(size.length() * 0.5, 1e-3)
 
-    const margin = preset.margin ?? DEFAULT_MARGIN;
-    const fovRad = (camera.fov * Math.PI) / 180;
-    let distance: number;
-    if (typeof preset.distance === 'number') {
-        distance = preset.distance;
+    const margin = preset.margin ?? DEFAULT_MARGIN
+    const fovRad = (camera.fov * Math.PI) / 180
+    let distance: number
+    if (typeof preset.distance === "number") {
+        distance = preset.distance
     } else {
-        // Fit the bounding sphere in the smaller of the two view dimensions.
-        const fitV = radius / Math.sin(fovRad / 2);
-        const fitH = radius / Math.sin(Math.atan(Math.tan(fovRad / 2) * camera.aspect));
-        distance = Math.max(fitV, fitH) * margin;
+        const fitV = radius / Math.sin(fovRad / 2)
+        const fitH = radius / Math.sin(Math.atan(Math.tan(fovRad / 2) * camera.aspect))
+        distance = Math.max(fitV, fitH) * margin
     }
 
-    const az = (preset.azimuth_deg * Math.PI) / 180;
-    const el = (preset.elevation_deg * Math.PI) / 180;
-    // For a Z-up scene the offset components are (X=east, Y=north, Z=up).
-    // Azimuth rotates around Z; elevation tilts off the XY plane.
+    const az = (preset.azimuth_deg * Math.PI) / 180
+    const el = (preset.elevation_deg * Math.PI) / 180
     const offset = Z_IS_UP
         ? new THREE.Vector3(
               distance * Math.cos(el) * Math.sin(az),
@@ -208,40 +333,22 @@ function applyCameraPreset(
               distance * Math.cos(el) * Math.sin(az),
               distance * Math.sin(el),
               distance * Math.cos(el) * Math.cos(az),
-          );
-    const position = new THREE.Vector3().copy(center).add(offset);
+          )
+    const position = new THREE.Vector3().copy(center).add(offset)
 
-    // Tighten near/far to the model so depth precision stays usable.
-    camera.near = Math.max(distance / 1000, 1e-3);
-    camera.far = distance * 100;
-    camera.updateProjectionMatrix();
+    camera.near = Math.max(distance / 1000, 1e-3)
+    camera.far = distance * 100
+    camera.updateProjectionMatrix()
 
-    // setLookAt(camX, camY, camZ, targetX, targetY, targetZ, enableTransition)
     controls.setLookAt(
-        position.x, position.y, position.z,
-        center.x, center.y, center.z,
+        position.x,
+        position.y,
+        position.z,
+        center.x,
+        center.y,
+        center.z,
         false,
-    );
-    controls.minDistance = distance * 0.05;
-    controls.maxDistance = distance * 20;
-}
-
-function disposeObject(obj: THREE.Object3D): void {
-    obj.traverse((node) => {
-        const mesh = node as THREE.Mesh;
-        if (mesh.isMesh) {
-            mesh.geometry?.dispose();
-            const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-            for (const m of mats) {
-                if (!m) continue;
-                for (const key of Object.keys(m) as (keyof THREE.Material)[]) {
-                    const val = (m as any)[key];
-                    if (val && (val as THREE.Texture).isTexture) {
-                        (val as THREE.Texture).dispose();
-                    }
-                }
-                m.dispose();
-            }
-        }
-    });
+    )
+    controls.minDistance = distance * 0.05
+    controls.maxDistance = distance * 20
 }

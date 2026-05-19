@@ -1,8 +1,7 @@
 import React, {useState} from 'react';
 import {selectInOtherModel} from '@/utils/scene/crossModelSelect';
-import {useLineageStore, LinkResult} from '@/state/lineageStore';
-import {useObjectInfoStore} from '@/state/objectInfoStore';
-import {useModelState} from '@/state/modelState';
+import type {LinkResult} from '@/state/lineageStore';
+import {useViewerStores} from '@/state/AdaViewerContext';
 
 // Decimal places for the "Clicked at" coordinates, matching the
 // precision the old standalone block used before the fold-in.
@@ -193,6 +192,7 @@ const LinkRow: React.FC<{link: NonNullable<LinkResult>}> = ({link}) => {
 };
 
 const ClickedAtRow: React.FC = () => {
+    const {useObjectInfoStore, useModelState} = useViewerStores();
     const clickCoord = useObjectInfoStore((s) => s.clickCoordinate);
     const zIsUp = useModelState((s) => s.zIsUp);
     if (!clickCoord) return null;
@@ -208,6 +208,7 @@ const ClickedAtRow: React.FC = () => {
 };
 
 const ObjectMetadataPanel: React.FC<Props> = ({data}) => {
+    const {useObjectInfoStore, useLineageStore} = useViewerStores();
     // Default collapsed: most clicks are just for selection / hide /
     // jump, not for inspecting properties. Folding keeps the info box
     // compact and the chevron tells the user where the data lives.

@@ -1,10 +1,11 @@
 import React, {useEffect, useRef, useState} from 'react';
-import {useTreeViewStore} from '@/state/treeViewStore';
+import {useViewerStores} from '@/state/AdaViewerContext';
 import {NodeApi, Tree} from "react-arborist";
 import {CustomNode} from './CustomNode';
 import {handleTreeSelectionChange} from "@/utils/tree_view/handleClickedNode";
 
 const TreeViewComponent: React.FC = () => {
+    const {useTreeViewStore} = useViewerStores();
     const {treeData, setTree, searchTerm} = useTreeViewStore();
     const [treeHeight, setTreeHeight] = useState<number>(800); // Default height
     const treeRef = useRef<any>(null);  // Use 'any' to allow custom properties

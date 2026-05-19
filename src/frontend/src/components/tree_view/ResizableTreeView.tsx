@@ -1,6 +1,6 @@
 import React, { useRef } from 'react';
 import TreeViewComponent from './TreeViewComponent';
-import { useTreeViewStore } from "@/state/treeViewStore";
+import { useViewerStores } from "@/state/AdaViewerContext";
 
 // Floating left drawer that holds the selection tree. Toggled from the
 // top-bar button (Menu.tsx) and Shift+T (setupCameraControlsHandlers);
@@ -8,6 +8,7 @@ import { useTreeViewStore } from "@/state/treeViewStore";
 // overlays the canvas — no canvas reflow on open/close/resize.
 const ResizableTreeView: React.FC = () => {
     const isResizing = useRef(false);
+    const { useTreeViewStore } = useViewerStores();
     const { isTreeCollapsed, setIsTreeCollapsed, treeViewWidth, setTreeViewWidth } = useTreeViewStore();
 
     if (isTreeCollapsed) return null;

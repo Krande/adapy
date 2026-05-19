@@ -1,14 +1,15 @@
 import React, {useEffect, useMemo, useRef, useState} from 'react';
 import {useVirtualizer} from "@tanstack/react-virtual";
 
-import {useGroupInfoStore, GroupInfo} from '@/state/groupInfoStore';
-import {adaExtensionRef, sceneRef} from '@/state/refs';
-import {useObjectInfoStore} from '@/state/objectInfoStore';
+import type {GroupInfo} from '@/state/groupInfoStore';
+import {useViewerStores, useViewerRefs} from '@/state/AdaViewerContext';
 import {selectGroupMembers} from "@/utils/selectGroupMembers";
 import {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
 
 
 const GroupInfoBox = () => {
+    const {useGroupInfoStore, useObjectInfoStore} = useViewerStores();
+    const {adaExtension: adaExtensionRef, scene: sceneRef} = useViewerRefs();
     const {
         selectedGroup,
         availableGroups,
