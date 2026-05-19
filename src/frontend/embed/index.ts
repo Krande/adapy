@@ -88,6 +88,18 @@ export function mountViewer(element: HTMLElement, opts: MountViewerOptions): Mou
     let blobUrl: string | null = null
     let cleanupPointer: (() => void) | null = null
 
+    // Inject the embed's CSS (Tailwind + adapy component styles) the first
+    // time mountViewer runs. The `inlineCssAtRuntime` vite plugin defines
+    // `globalThis.__adaViewerEmbedInjectCss` and idempotently appends one
+    // `<style data-ada-viewer-embed>` to the host document. Doing this at
+    // mount (not at module-load) prevents the host page's display utilities
+    // from being clobbered before any viewer is even on screen.
+    try {
+        ;(globalThis as any).__adaViewerEmbedInjectCss?.()
+    } catch {
+        /* injector missing — bundle was inlined oddly, or already injected */
+    }
+
     // --- DOM scaffolding ---
     element.innerHTML = ""
     if (!element.style.minHeight) element.style.minHeight = `${DEFAULT_MIN_HEIGHT}px`
@@ -121,6 +133,19 @@ export function mountViewer(element: HTMLElement, opts: MountViewerOptions): Mou
     renderer.toneMapping = THREE.ACESFilmicToneMapping
     renderer.toneMappingExposure = 1.0
     canvasHost.appendChild(renderer.domElement)
+    // setSize(_, _, false) leaves canvas.style untouched, so the canvas
+    // renders at its attribute width/height (CSS-pixel * devicePixelRatio).
+    // On a 320-CSS-pixel-wide viewport with DPR=2 that's a 640px canvas,
+    // overflowing the page. Pin the canvas to fill canvasHost (which is
+    // already `position: absolute; inset: 0`) so it tracks the container's
+    // layout-controlled size — the internal pixel buffer stays at full
+    // resolution × DPR for crisp rendering. `!important` because
+    // downstream pipeline (setupModelLoaderAsync, CameraControls
+    // attach) occasionally clears canvas.style.width/height during
+    // its own setup and we want our size to win.
+    renderer.domElement.style.setProperty("display", "block", "important")
+    renderer.domElement.style.setProperty("width", "100%", "important")
+    renderer.domElement.style.setProperty("height", "100%", "important")
 
     const scene = new THREE.Scene()
     scene.background = new THREE.Color(0xf8fafc)

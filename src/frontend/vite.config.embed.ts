@@ -40,15 +40,24 @@ function inlineCssAtRuntime(): Plugin {
             const css = cssFiles
                 .map((f: string) => fs.readFileSync(path.join(outDir, f), 'utf8'))
                 .join('\n');
+            // Lazy CSS injector — exposed on `globalThis` so embed/index.ts
+            // calls it the first time `mountViewer` runs. We can't IIFE-inject
+            // at module-load: when the host (paradoc) bundles the embed and
+            // configures `inlineDynamicImports: true`, the module is evaluated
+            // eagerly even though the *consumer* imports it dynamically — so
+            // an IIFE would dump 40+ KB of Tailwind utilities into the host
+            // document at app boot. Paradoc's own Tailwind classes (`.hidden`,
+            // `.md:flex`, …) then lose the cascade to our later-injected ones,
+            // breaking the desktop sidebar toggle and other display utilities.
             const injection =
-                `;(function(){` +
+                `;globalThis.__adaViewerEmbedInjectCss=function(){` +
                 `if(typeof document==='undefined')return;` +
                 `if(document.querySelector('style[data-ada-viewer-embed]'))return;` +
                 `var s=document.createElement('style');` +
                 `s.setAttribute('data-ada-viewer-embed','');` +
                 `s.textContent=${JSON.stringify(css)};` +
                 `document.head.appendChild(s);` +
-                `})();\n`;
+                `};\n`;
             const jsPath = path.join(outDir, 'index.js');
             const js = fs.readFileSync(jsPath, 'utf8');
             fs.writeFileSync(jsPath, injection + js);
