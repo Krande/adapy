@@ -43,8 +43,9 @@ RUN pixi install --environment docs --locked
 
 # Sibling paradoc checkout — the Filter / DbManager / ThreeDView /
 # vendored ada-viewer Z-up + CameraControls refresh + static-export
-# presets.json wiring + mobile-drawer translate-x fix (vendor rebuilt
-# against adapy's Tailwind v4 upgrade) used by the FEA verification
+# presets.json wiring + mobile-drawer translate-x fix + lazy CSS
+# injection + canvas-fits-container fix (vendor rebuilt against
+# adapy's Tailwind v4 upgrade) used by the FEA verification
 # report isn't in
 # the conda-forge build yet, so pixi.toml's `fea-doc` task overlays this clone via
 # PYTHONPATH=$PIXI_PROJECT_ROOT/../paradoc/src (matches the local-dev
