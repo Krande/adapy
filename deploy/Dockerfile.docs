@@ -42,8 +42,8 @@ COPY pixi.toml pixi.lock pyproject.toml ./
 RUN pixi install --environment docs --locked
 
 # Sibling paradoc checkout — the Filter / DbManager / ThreeDView /
-# vendored ada-viewer Z-up + CameraControls refresh used by the FEA
-# verification report isn't in
+# vendored ada-viewer Z-up + CameraControls refresh + static-export
+# presets.json wiring used by the FEA verification report isn't in
 # the conda-forge build yet, so pixi.toml's `fea-doc` task overlays this clone via
 # PYTHONPATH=$PIXI_PROJECT_ROOT/../paradoc/src (matches the local-dev
 # sibling layout). The URL comes from a workflow secret so the source
