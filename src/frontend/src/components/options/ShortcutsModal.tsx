@@ -5,13 +5,13 @@ const ShortcutsModal: React.FC = () => {
     return (
         <div>
             <button
-                className="bg-blue-700 hover:bg-blue-600 text-white font-semibold py-1 px-2 rounded w-full"
+                className="bg-blue-700 hover:bg-blue-600 text-white font-semibold py-1 px-2 rounded-sm w-full"
                 onClick={() => setOpen(!open)}
             >
                 Shortcut Keys
             </button>
             {open && (
-                <div className="mt-2 bg-gray-700 p-2 rounded text-xs space-y-1">
+                <div className="mt-2 bg-gray-700 p-2 rounded-sm text-xs space-y-1">
                     <p><kbd>Shift + H</kbd>: Hide</p>
                     <p><kbd>Shift + U</kbd>: Unhide All</p>
                     <p><kbd>Shift + F</kbd>: Center on Selection</p>

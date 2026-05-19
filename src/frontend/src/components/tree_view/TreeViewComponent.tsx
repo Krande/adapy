@@ -62,7 +62,7 @@ const TreeViewComponent: React.FC = () => {
         <div ref={containerRef} className="h-full w-full flex flex-col max-h-screen pl-1 pr-2">
             <div ref={headerRef} className={"w-full pr-1 pt-1"}>
                 <input
-                    className={"w-full bg-gray-600 text-white rounded pl-1"}
+                    className={"w-full bg-gray-600 text-white rounded-sm pl-1"}
                     placeholder={"Search here"}
                     onInput={
                     (event) => {

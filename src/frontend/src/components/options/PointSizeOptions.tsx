@@ -46,7 +46,7 @@ const PointSizeOptions: React.FC = () => {
                     min={min} max={max} step={step}
                     value={pointSize}
                     onChange={(e) => setPointSize(parseFloat(e.target.value) || 0)}
-                    className="w-24 bg-gray-700 text-white p-1 rounded no-drag"
+                    className="w-24 bg-gray-700 text-white p-1 rounded-sm no-drag"
                 />
             </label>
             <label className="flex items-center space-x-2">

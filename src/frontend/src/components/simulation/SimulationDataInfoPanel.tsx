@@ -396,7 +396,7 @@ const FeaNodalTable: React.FC<{
             />
             <div
                 ref={parentRef}
-                className="flex-1 overflow-auto border border-gray-200 rounded bg-white"
+                className="flex-1 overflow-auto border border-gray-200 rounded-sm bg-white"
                 style={{maxHeight: 320}}
             >
                 <div style={{minWidth: minTableWidth, position: "relative"}}>
@@ -452,7 +452,7 @@ const TableToolbar: React.FC<{
             placeholder="filter…"
             value={filter}
             onChange={(e) => onFilter(e.target.value)}
-            className="border border-gray-300 rounded px-1 py-0.5 w-24 font-mono"
+            className="border border-gray-300 rounded-sm px-1 py-0.5 w-24 font-mono"
         />
         {filter && (
             <button
@@ -700,7 +700,7 @@ const FeaHistorySection: React.FC<{history: FeaManifestHistory}> = ({history}) =
                 <label className="flex items-center gap-1 min-w-0 flex-1 sm:flex-none">
                     <span className="text-gray-500 shrink-0">Region:</span>
                     <select
-                        className="border border-gray-300 rounded px-1 py-0.5 font-mono min-w-0 flex-1 sm:flex-none truncate sm:max-w-[14rem]"
+                        className="border border-gray-300 rounded-sm px-1 py-0.5 font-mono min-w-0 flex-1 sm:flex-none truncate sm:max-w-56"
                         value={regionId}
                         onChange={(e) => setRegionId(e.target.value)}
                     >
@@ -714,7 +714,7 @@ const FeaHistorySection: React.FC<{history: FeaManifestHistory}> = ({history}) =
                 <label className="flex items-center gap-1 min-w-0 flex-1 sm:flex-none">
                     <span className="text-gray-500 shrink-0">Variable:</span>
                     <select
-                        className="border border-gray-300 rounded px-1 py-0.5 font-mono min-w-0 flex-1 sm:flex-none truncate sm:max-w-[10rem]"
+                        className="border border-gray-300 rounded-sm px-1 py-0.5 font-mono min-w-0 flex-1 sm:flex-none truncate sm:max-w-40"
                         value={variable}
                         onChange={(e) => setVariable(e.target.value)}
                     >
@@ -729,7 +729,7 @@ const FeaHistorySection: React.FC<{history: FeaManifestHistory}> = ({history}) =
                 <label className="flex items-center gap-1 min-w-0 flex-1 sm:flex-none">
                     <span className="text-gray-500 shrink-0">Step:</span>
                     <select
-                        className="border border-gray-300 rounded px-1 py-0.5 font-mono min-w-0 flex-1 sm:flex-none truncate sm:max-w-[10rem]"
+                        className="border border-gray-300 rounded-sm px-1 py-0.5 font-mono min-w-0 flex-1 sm:flex-none truncate sm:max-w-40"
                         value={stepIdx}
                         onChange={(e) => setStepIdx(parseInt(e.target.value, 10))}
                     >
@@ -781,7 +781,7 @@ const FeaHistoryTable: React.FC<{
     // overflow-y-auto with a capped height keeps it light.
     return (
         <div
-            className="border border-gray-200 rounded bg-white overflow-auto"
+            className="border border-gray-200 rounded-sm bg-white overflow-auto"
             style={{maxHeight: 160}}
         >
             <div
@@ -810,7 +810,7 @@ const FeaHistoryTable: React.FC<{
 };
 
 const PanelShell: React.FC<{children: React.ReactNode}> = ({children}) => (
-    <div className="p-3 border rounded-lg shadow-sm bg-white bg-opacity-90 flex flex-col min-h-0 max-h-[420px] overflow-auto">
+    <div className="p-3 border rounded-lg shadow-xs bg-white bg-opacity-90 flex flex-col min-h-0 max-h-[420px] overflow-auto">
         {children}
     </div>
 );
@@ -883,7 +883,7 @@ const LegacyGltfSimDataPanel: React.FC = () => {
                     <label className="flex items-center text-sm text-gray-700">
                         <span>Step:</span>
                         <select
-                            className="ml-2 p-1 border rounded"
+                            className="ml-2 p-1 border rounded-sm"
                             value={selectedStep}
                             onChange={(e) => {
                                 const idx = parseInt(e.target.value, 10);
@@ -901,7 +901,7 @@ const LegacyGltfSimDataPanel: React.FC = () => {
                     <label className="flex items-center text-sm text-gray-700">
                         <span>Field:</span>
                         <select
-                            className="ml-2 p-1 border rounded"
+                            className="ml-2 p-1 border rounded-sm"
                             value={selectedField}
                             onChange={(e) => setSelectedField(parseInt(e.target.value, 10))}
                         >
@@ -913,7 +913,7 @@ const LegacyGltfSimDataPanel: React.FC = () => {
                         </select>
                     </label>
                 </div>
-                <div className="mt-3 p-3 border rounded bg-white text-sm">
+                <div className="mt-3 p-3 border rounded-sm bg-white text-sm">
                     <div><strong>Name:</strong> {currentField.name}</div>
                     <div><strong>Type:</strong> {currentField.type}</div>
                     <div>

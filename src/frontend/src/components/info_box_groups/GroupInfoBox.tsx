@@ -106,7 +106,7 @@ const GroupInfoBox = () => {
     };
 
     return (
-        <div className="bg-gray-400 bg-opacity-50 rounded p-2 min-w-80">
+        <div className="bg-gray-400 bg-opacity-50 rounded-sm p-2 min-w-80">
             <h2 className="font-bold">Group Information</h2>
             <div className="table-row">
                 <div className="table-cell w-24 align-top pt-1">Group:</div>
@@ -233,7 +233,7 @@ const GroupCombobox: React.FC<GroupComboboxProps> = ({groups, selected, onSelect
                     ref={triggerRef}
                     type="button"
                     onClick={() => setOpen((v) => !v)}
-                    className="flex-1 p-1 rounded bg-white border text-left text-xs truncate"
+                    className="flex-1 p-1 rounded-sm bg-white border text-left text-xs truncate"
                     disabled={groups.length === 0}
                     title={triggerLabel}
                 >
@@ -243,7 +243,7 @@ const GroupCombobox: React.FC<GroupComboboxProps> = ({groups, selected, onSelect
                     <button
                         type="button"
                         onClick={() => onSelect(null)}
-                        className="ml-1 px-1.5 bg-white border rounded text-xs text-gray-700 hover:bg-gray-100"
+                        className="ml-1 px-1.5 bg-white border rounded-sm text-xs text-gray-700 hover:bg-gray-100"
                         title="Clear selection"
                         aria-label="Clear selection"
                     >
@@ -254,7 +254,7 @@ const GroupCombobox: React.FC<GroupComboboxProps> = ({groups, selected, onSelect
             {open && (
                 <div
                     ref={popoverRef}
-                    className="absolute z-50 mt-1 w-full bg-white border rounded shadow-lg"
+                    className="absolute z-50 mt-1 w-full bg-white border rounded-sm shadow-lg"
                 >
                     <input
                         ref={searchRef}

@@ -25,11 +25,11 @@ const AuthCallback: React.FC = () => {
     return (
         <div className="flex h-full w-full items-center justify-center bg-gray-900 text-white text-sm">
             {error ? (
-                <div className="max-w-md rounded bg-red-900/40 p-3 space-y-2">
+                <div className="max-w-md rounded-sm bg-red-900/40 p-3 space-y-2">
                     <div className="font-bold">Sign-in failed</div>
                     <div className="font-mono text-xs whitespace-pre-wrap">{error}</div>
                     <button
-                        className="bg-blue-700 hover:bg-blue-600 px-3 py-1 rounded text-xs"
+                        className="bg-blue-700 hover:bg-blue-600 px-3 py-1 rounded-sm text-xs"
                         onClick={() => window.location.assign("/")}
                     >
                         Back home

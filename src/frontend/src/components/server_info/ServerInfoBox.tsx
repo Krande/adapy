@@ -6,14 +6,14 @@ import {request_list_of_files_from_server} from "@/utils/server_info/handlers/re
 const ServerInfoBox = () => {
     const {} = useServerInfoStore();
     return (
-        <div className="bg-gray-400 bg-opacity-50 rounded p-2 w-full min-w-0 max-w-[calc(100vw-1rem)] md:max-w-md">
+        <div className="bg-gray-400 bg-opacity-50 rounded-sm p-2 w-full min-w-0 max-w-[calc(100vw-1rem)] md:max-w-md">
             <h2 className="font-bold">Server Info</h2>
             <div className={"flex flex-row"}>
                 <div className={"pr-1 "}>Files:</div>
                 <select
                     id="listbox"
                     name="listbox"
-                    className="bg-blue-700 hover:bg-blue-700/50 text-white font-bold p-2 rounded"
+                    className="bg-blue-700 hover:bg-blue-700/50 text-white font-bold p-2 rounded-sm"
                 >
                     <option value="item1">Item 1</option>
                     <option value="item2">Item 2</option>
@@ -21,7 +21,7 @@ const ServerInfoBox = () => {
                     <option value="item4">Item 4</option>
                 </select>
                 <button
-                    className={"flex relative bg-blue-700 hover:bg-blue-700/50 text-white p-2 ml-2 rounded"}
+                    className={"flex relative bg-blue-700 hover:bg-blue-700/50 text-white p-2 ml-2 rounded-sm"}
                     onClick={() => request_list_of_files_from_server()}
                 ><ReloadIcon/></button>
             </div>

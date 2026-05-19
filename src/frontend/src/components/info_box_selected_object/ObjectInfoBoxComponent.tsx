@@ -66,7 +66,7 @@ const ObjectInfoBox = () => {
     };
 
     return (
-        <div className="bg-gray-400 bg-opacity-50 rounded p-2 min-w-80">
+        <div className="bg-gray-400 bg-opacity-50 rounded-sm p-2 min-w-80">
             <h2 className="font-bold">Selected Object Info</h2>
             {/* Name. Two layouts because mobile and desktop have very
                 different real-estate constraints:
@@ -139,7 +139,7 @@ const ObjectInfoBox = () => {
                     <button
                         type="button"
                         onClick={() => hideSelectedRanges()}
-                        className="bg-gray-700 hover:bg-gray-600 active:bg-gray-800 text-white text-[11px] rounded px-2 py-1 inline-flex items-center gap-1"
+                        className="bg-gray-700 hover:bg-gray-600 active:bg-gray-800 text-white text-[11px] rounded-sm px-2 py-1 inline-flex items-center gap-1"
                         title={
                             isMultiSelect
                                 ? `Hide ${multiSelectCount} selected (Shift+H)`
@@ -154,7 +154,7 @@ const ObjectInfoBox = () => {
                     <button
                         type="button"
                         onClick={() => unhideAllRanges()}
-                        className="bg-gray-700 hover:bg-gray-600 active:bg-gray-800 text-white text-[11px] rounded px-2 py-1 inline-flex items-center gap-1"
+                        className="bg-gray-700 hover:bg-gray-600 active:bg-gray-800 text-white text-[11px] rounded-sm px-2 py-1 inline-flex items-center gap-1"
                         title="Unhide every hidden draw range across the scene (Shift+U)"
                         aria-label="Unhide all geometry"
                     >
@@ -165,7 +165,7 @@ const ObjectInfoBox = () => {
                         <button
                             type="button"
                             onClick={onShowInData}
-                            className="bg-blue-700 hover:bg-blue-600 active:bg-blue-800 text-white text-[11px] rounded px-2 py-1 inline-flex items-center gap-1"
+                            className="bg-blue-700 hover:bg-blue-600 active:bg-blue-800 text-white text-[11px] rounded-sm px-2 py-1 inline-flex items-center gap-1"
                             title={`Open the FEA data table and scroll to node ${firstNodeId} (this element's first node)`}
                             aria-label="Show this element in the FEA data table"
                         >
@@ -183,7 +183,7 @@ const ObjectInfoBox = () => {
                         type="button"
                         onClick={toggleAdditiveMode}
                         className={
-                            "sm:hidden text-[11px] rounded px-2 py-1 text-white " +
+                            "sm:hidden text-[11px] rounded-sm px-2 py-1 text-white " +
                             (additiveMode
                                 ? "bg-amber-600 hover:bg-amber-500 active:bg-amber-700"
                                 : "bg-gray-700 hover:bg-gray-600 active:bg-gray-800")
@@ -231,7 +231,7 @@ const NameCopyButton: React.FC<{
         className={
             "text-left break-all w-full font-medium " +
             "sm:cursor-text sm:select-text sm:font-normal sm:bg-transparent sm:hover:bg-transparent " +
-            "rounded px-1 py-0.5 -mx-1 -my-0.5 hover:bg-blue-700/40 active:bg-blue-700/60"
+            "rounded-sm px-1 py-0.5 -mx-1 -my-0.5 hover:bg-blue-700/40 active:bg-blue-700/60"
         }
         aria-label="Copy name to clipboard"
         title="Tap to copy"

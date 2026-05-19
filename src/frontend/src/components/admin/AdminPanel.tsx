@@ -115,7 +115,7 @@ const AdminPanel: React.FC<{onClose: () => void}> = ({onClose}) => {
     }
 
     const body = (
-        <div className="flex flex-col h-full bg-gray-900 text-white shadow-xl rounded overflow-hidden">
+        <div className="flex flex-col h-full bg-gray-900 text-white shadow-xl rounded-sm overflow-hidden">
             <div
                 className="admin-drag-handle flex items-center gap-2 border-b border-gray-700 px-3 py-2 sm:px-4 cursor-move select-none"
                 title="Drag to move"
@@ -219,7 +219,7 @@ const TabButton: React.FC<{
 }> = ({active, onClick, children}) => (
     <button
         className={
-            "px-3 py-2 rounded text-sm no-drag " +
+            "px-3 py-2 rounded-sm text-sm no-drag " +
             (active ? "bg-gray-700 text-white" : "text-gray-300 hover:bg-gray-800")
         }
         onClick={onClick}

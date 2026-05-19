@@ -68,18 +68,18 @@ const NodeEditorComponent: React.FC = () => {
                 <div className={"flex flex-row"}>
                     <div className={"flex p-1"}>Node Editor</div>
                     <button
-                        className={"flex relative bg-blue-700 hover:bg-blue-700/50 text-white p-1 ml-2 rounded"}
+                        className={"flex relative bg-blue-700 hover:bg-blue-700/50 text-white p-1 ml-2 rounded-sm"}
                         onClick={() => request_list_of_nodes()}
                     >
                         <ReloadIcon />
                     </button>
                     <button
-                        className={"flex relative bg-blue-700 hover:bg-blue-700/50 text-white p-1 ml-2 rounded"}
+                        className={"flex relative bg-blue-700 hover:bg-blue-700/50 text-white p-1 ml-2 rounded-sm"}
                         onClick={() => start_new_node_editor()}
                     >
                         <PopOutIcon />
                     </button>
-                    {/*<div className={"flex relative bg-blue-700 hover:bg-blue-700/50 text-white p-1 ml-2 rounded"}>*/}
+                    {/*<div className={"flex relative bg-blue-700 hover:bg-blue-700/50 text-white p-1 ml-2 rounded-sm"}>*/}
                     {/*    <input type="file" onChange={handleFileUpload}/>*/}
                     {/*</div>*/}
                 </div>

@@ -203,7 +203,7 @@ const TriSelect: React.FC<{
         </button>
     );
     return (
-        <div className="inline-flex rounded overflow-hidden">
+        <div className="inline-flex rounded-sm overflow-hidden">
             {opt("unset", "Unset")}
             {opt("on", "On")}
             {opt("off", "Off")}

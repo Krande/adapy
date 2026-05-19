@@ -14,7 +14,7 @@ const CliTokenButton: React.FC = () => {
             <button
                 type="button"
                 onClick={() => setOpen(true)}
-                className="text-xs px-2 py-1 rounded bg-gray-800 text-gray-200 hover:bg-gray-700 no-drag"
+                className="text-xs px-2 py-1 rounded-sm bg-gray-800 text-gray-200 hover:bg-gray-700 no-drag"
                 title="Mint or revoke a CLI bearer token for this account"
             >
                 CLI token
@@ -84,11 +84,11 @@ const CliTokenModal: React.FC<{onClose: () => void}> = ({onClose}) => {
 
     return (
         <div
-            className="fixed inset-0 z-[60] flex items-start sm:items-center justify-center bg-black/70 p-4 overflow-y-auto"
+            className="fixed inset-0 z-60 flex items-start sm:items-center justify-center bg-black/70 p-4 overflow-y-auto"
             onClick={onClose}
         >
             <div
-                className="bg-gray-900 border border-gray-700 rounded shadow-xl flex flex-col max-w-2xl w-full max-h-[calc(100dvh-2rem)] sm:max-h-[85dvh] my-auto"
+                className="bg-gray-900 border border-gray-700 rounded-sm shadow-xl flex flex-col max-w-2xl w-full max-h-[calc(100dvh-2rem)] sm:max-h-[85dvh] my-auto"
                 onClick={(e) => e.stopPropagation()}
                 role="dialog"
                 aria-label="CLI token"
@@ -116,7 +116,7 @@ const CliTokenModal: React.FC<{onClose: () => void}> = ({onClose}) => {
                             type="button"
                             onClick={onMint}
                             disabled={busy !== null}
-                            className="bg-blue-700 hover:bg-blue-600 disabled:opacity-50 text-white px-3 py-1.5 rounded text-xs"
+                            className="bg-blue-700 hover:bg-blue-600 disabled:opacity-50 text-white px-3 py-1.5 rounded-sm text-xs"
                         >
                             {busy === "mint" ? "Generating…" : "Generate new"}
                         </button>
@@ -124,13 +124,13 @@ const CliTokenModal: React.FC<{onClose: () => void}> = ({onClose}) => {
                             type="button"
                             onClick={onRevoke}
                             disabled={busy !== null}
-                            className="bg-red-700 hover:bg-red-600 disabled:opacity-50 text-white px-3 py-1.5 rounded text-xs"
+                            className="bg-red-700 hover:bg-red-600 disabled:opacity-50 text-white px-3 py-1.5 rounded-sm text-xs"
                         >
                             {busy === "revoke" ? "Revoking…" : "Revoke all"}
                         </button>
                     </div>
                     {err && (
-                        <div className="text-xs text-red-300 bg-red-900/40 border border-red-700 rounded px-2 py-1">
+                        <div className="text-xs text-red-300 bg-red-900/40 border border-red-700 rounded-sm px-2 py-1">
                             {err}
                         </div>
                     )}
@@ -150,7 +150,7 @@ const CliTokenModal: React.FC<{onClose: () => void}> = ({onClose}) => {
                                 <button
                                     type="button"
                                     onClick={onCopy}
-                                    className="shrink-0 bg-gray-800 hover:bg-gray-700 text-gray-100 px-2 py-1 rounded text-xs"
+                                    className="shrink-0 bg-gray-800 hover:bg-gray-700 text-gray-100 px-2 py-1 rounded-sm text-xs"
                                 >
                                     {copied ? "Copied" : "Copy"}
                                 </button>
@@ -158,7 +158,7 @@ const CliTokenModal: React.FC<{onClose: () => void}> = ({onClose}) => {
                             <textarea
                                 readOnly
                                 value={token}
-                                className="w-full h-32 bg-gray-950 border border-gray-700 rounded p-2 font-mono text-xs break-all"
+                                className="w-full h-32 bg-gray-950 border border-gray-700 rounded-sm p-2 font-mono text-xs break-all"
                                 onFocus={(e) => e.currentTarget.select()}
                             />
                             <pre className="text-[11px] text-gray-400 whitespace-pre-wrap">

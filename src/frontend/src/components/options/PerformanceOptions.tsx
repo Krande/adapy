@@ -61,7 +61,7 @@ const PerformanceOptions: React.FC = () => {
                 <select
                     value={materialMode}
                     onChange={(e) => setMaterialMode(e.target.value as any)}
-                    className="bg-gray-700 text-white text-xs rounded px-2 py-1 w-full"
+                    className="bg-gray-700 text-white text-xs rounded-sm px-2 py-1 w-full"
                 >
                     <option value="standard">MeshStandard (PBR, baseline)</option>
                     <option value="lambert">MeshLambert (cheap fragment, no PBR)</option>
@@ -89,7 +89,7 @@ const PerformanceOptions: React.FC = () => {
             <Row
                 checked={disableShadowMap}
                 onChange={() => setDisableShadowMap(!disableShadowMap)}
-                title="Disable shadow map"
+                title="Disable shadow-sm map"
                 blurb="renderer.shadowMap.enabled = false. No shadow-casting lights today, so this is mostly free anyway."
             />
             <Row

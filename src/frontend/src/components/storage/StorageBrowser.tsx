@@ -547,7 +547,7 @@ const StorageBrowser: React.FC = () => {
             // parent's width hasn't resolved. min-w-0 lets it actually
             // shrink below intrinsic content width so the header buttons
             // don't push past the right edge.
-            className="bg-gray-400 bg-opacity-50 rounded p-2 w-full min-w-0 max-w-[calc(100vw-1rem)] md:max-w-md"
+            className="bg-gray-400 bg-opacity-50 rounded-sm p-2 w-full min-w-0 max-w-[calc(100vw-1rem)] md:max-w-md"
         >
             <div className="flex justify-between items-center gap-2 mb-2">
                 <div className="min-w-0 flex-1">
@@ -571,7 +571,7 @@ const StorageBrowser: React.FC = () => {
                         onChange={onFilePicked}
                     />
                     <button
-                        className="bg-blue-700 hover:bg-blue-600 text-white p-1 rounded disabled:opacity-60 flex items-center justify-center"
+                        className="bg-blue-700 hover:bg-blue-600 text-white p-1 rounded-sm disabled:opacity-60 flex items-center justify-center"
                         onClick={() => fileInputRef.current?.click()}
                         disabled={uploading}
                         title="Upload a file to this scope"
@@ -582,12 +582,12 @@ const StorageBrowser: React.FC = () => {
                     <button
                         type="button"
                         className={
-                            "bg-blue-700 hover:bg-blue-600 active:bg-blue-800 text-white rounded " +
+                            "bg-blue-700 hover:bg-blue-600 active:bg-blue-800 text-white rounded-sm " +
                             "flex items-center justify-center " +
                             // 40px+ tap target on mobile per WCAG; tighter
                             // on desktop where the cursor is precise.
                             "p-2 sm:p-1 min-h-[40px] min-w-[40px] sm:min-h-0 sm:min-w-0 " +
-                            "focus:outline-none focus:ring-2 focus:ring-blue-400"
+                            "focus:outline-hidden focus:ring-2 focus:ring-blue-400"
                         }
                         onClick={onRefresh}
                         title={refreshing ? "Refreshing — tap again to retry" : "Refresh file list"}
@@ -611,7 +611,7 @@ const StorageBrowser: React.FC = () => {
                             type="button"
                             className={
                                 "bg-gray-700 hover:bg-gray-600 active:bg-gray-800 disabled:opacity-60 " +
-                                "text-white rounded text-xs whitespace-nowrap " +
+                                "text-white rounded-sm text-xs whitespace-nowrap " +
                                 "px-2 sm:px-2 py-1 min-h-[40px] sm:min-h-0"
                             }
                             onClick={() => void onHideAll()}
@@ -637,7 +637,7 @@ const StorageBrowser: React.FC = () => {
                                 : formatBytes(uploadLoaded)}
                         </span>
                     </div>
-                    <div className="mt-1 h-1 w-full bg-gray-300/50 rounded overflow-hidden">
+                    <div className="mt-1 h-1 w-full bg-gray-300/50 rounded-sm overflow-hidden">
                         {uploadTotal > 0 ? (
                             <div
                                 className="h-full bg-blue-600 transition-[width] duration-200"
@@ -798,7 +798,7 @@ const StorageBrowser: React.FC = () => {
                         type="button"
                         onClick={() => void onLoadSelected()}
                         disabled={bulkBusy !== null}
-                        className="bg-blue-700 hover:bg-blue-600 active:bg-blue-800 disabled:opacity-60 text-white text-xs px-2 py-1 rounded min-h-[36px]"
+                        className="bg-blue-700 hover:bg-blue-600 active:bg-blue-800 disabled:opacity-60 text-white text-xs px-2 py-1 rounded-sm min-h-[36px]"
                     >
                         {bulkBusy === "load" ? "Loading…" : "Load"}
                     </button>
@@ -806,7 +806,7 @@ const StorageBrowser: React.FC = () => {
                         type="button"
                         onClick={onUnloadSelected}
                         disabled={bulkBusy !== null}
-                        className="bg-gray-700 hover:bg-gray-600 active:bg-gray-800 disabled:opacity-60 text-white text-xs px-2 py-1 rounded min-h-[36px]"
+                        className="bg-gray-700 hover:bg-gray-600 active:bg-gray-800 disabled:opacity-60 text-white text-xs px-2 py-1 rounded-sm min-h-[36px]"
                     >
                         {bulkBusy === "unload" ? "Unloading…" : "Unload"}
                     </button>
@@ -814,7 +814,7 @@ const StorageBrowser: React.FC = () => {
                         type="button"
                         onClick={clearSelection}
                         disabled={bulkBusy !== null}
-                        className="ml-auto bg-gray-600 hover:bg-gray-500 disabled:opacity-60 text-white text-xs px-2 py-1 rounded min-h-[36px]"
+                        className="ml-auto bg-gray-600 hover:bg-gray-500 disabled:opacity-60 text-white text-xs px-2 py-1 rounded-sm min-h-[36px]"
                     >
                         Cancel
                     </button>
@@ -1111,7 +1111,7 @@ const FileRow: React.FC<FileRowProps> = ({
                         re-appears for it without code changes here. */}
                     {!selectionMode && isFEAResult(f.name) && !isStreamingFEAResult(f.name) && runtime.isRestMode() && runtime.convertEnabled() && (
                         <button
-                            className="p-1 rounded text-white hover:bg-gray-300/40 disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="p-1 rounded-sm text-white hover:bg-gray-300/40 disabled:opacity-50 disabled:cursor-not-allowed"
                             onClick={(e) => {
                                 e.stopPropagation();
                                 setPickerName(f.name);
@@ -1145,7 +1145,7 @@ const FileRow: React.FC<FileRowProps> = ({
                 </div>
             </div>
             {isViewing && (
-                <div className="mt-1 h-1 w-full bg-gray-300/50 rounded overflow-hidden">
+                <div className="mt-1 h-1 w-full bg-gray-300/50 rounded-sm overflow-hidden">
                     {viewJob && viewJob.status !== 'queued' ? (
                         <div
                             className="h-full bg-blue-600 transition-[width] duration-200"
@@ -1256,7 +1256,7 @@ const VersionsTree: React.FC<VersionsTreeProps> = (props) => {
                 <button
                     type="button"
                     onClick={props.onOpenGitHistory}
-                    className="text-[10px] px-1.5 py-0.5 rounded bg-gray-700 hover:bg-gray-600 text-white"
+                    className="text-[10px] px-1.5 py-0.5 rounded-sm bg-gray-700 hover:bg-gray-600 text-white"
                     title="Open chronological commit timeline with author + parent links"
                 >
                     Git history
@@ -1307,7 +1307,7 @@ const VersionsTree: React.FC<VersionsTreeProps> = (props) => {
                                                     </span>
                                                     {isLatest && (
                                                         <span
-                                                            className="ml-1 px-1 rounded text-[9px] uppercase tracking-wide bg-emerald-700 text-white shrink-0"
+                                                            className="ml-1 px-1 rounded-sm text-[9px] uppercase tracking-wide bg-emerald-700 text-white shrink-0"
                                                             title="Most recent commit on this branch"
                                                         >
                                                             latest

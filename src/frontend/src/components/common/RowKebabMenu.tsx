@@ -122,9 +122,9 @@ export const RowKebabMenu: React.FC<RowKebabMenuProps> = ({
                 aria-haspopup="menu"
                 aria-expanded={open}
                 className={
-                    "inline-flex items-center justify-center rounded text-gray-300 " +
+                    "inline-flex items-center justify-center rounded-sm text-gray-300 " +
                     "hover:bg-gray-700 active:bg-gray-600 disabled:opacity-40 " +
-                    "focus:outline-none focus:ring-2 focus:ring-blue-400 " +
+                    "focus:outline-hidden focus:ring-2 focus:ring-blue-400 " +
                     (buttonClassName ?? "h-7 w-7 sm:h-6 sm:w-6")
                 }
                 title={disabled ? "busy…" : ariaLabel}
@@ -135,7 +135,7 @@ export const RowKebabMenu: React.FC<RowKebabMenuProps> = ({
                 <div
                     ref={menuRef}
                     role="menu"
-                    className="fixed z-50 min-w-[180px] rounded border border-gray-700 bg-gray-800 shadow-lg text-gray-100"
+                    className="fixed z-50 min-w-[180px] rounded-sm border border-gray-700 bg-gray-800 shadow-lg text-gray-100"
                     style={{top: pos.top, right: pos.right}}
                     onClick={(e) => e.stopPropagation()}
                 >

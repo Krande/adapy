@@ -142,7 +142,7 @@ function OptionsComponent() {
     // page; scroll inside instead.
     return (
         <div
-            className="bg-gray-400 bg-opacity-50 rounded p-2 min-w-80 max-w-sm text-white text-sm space-y-3 max-h-[70vh] overflow-y-auto"
+            className="bg-gray-400 bg-opacity-50 rounded-sm p-2 min-w-80 max-w-sm text-white text-sm space-y-3 max-h-[70vh] overflow-y-auto"
         >
             <h2 className="font-bold">Options</h2>
             <div className="text-xs text-gray-300">Version: {unique_version_id}</div>

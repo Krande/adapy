@@ -56,7 +56,7 @@ const SignedInRow: React.FC = () => {
                         <button
                             type="button"
                             onClick={() => void onCopy()}
-                            className="shrink-0 bg-gray-700 hover:bg-gray-600 text-gray-100 px-1.5 py-0.5 rounded text-[10px]"
+                            className="shrink-0 bg-gray-700 hover:bg-gray-600 text-gray-100 px-1.5 py-0.5 rounded-sm text-[10px]"
                             title="Copy your OIDC sub — paste into the admin Add member form"
                         >
                             {copied ? "Copied" : "Copy"}
@@ -65,7 +65,7 @@ const SignedInRow: React.FC = () => {
                 )}
             </div>
             <button
-                className="bg-gray-700 hover:bg-gray-600 text-white text-xs px-2 py-1 rounded"
+                className="bg-gray-700 hover:bg-gray-600 text-white text-xs px-2 py-1 rounded-sm"
                 onClick={() => void signOut()}
             >
                 Sign out
@@ -101,7 +101,7 @@ const ScopeSelector: React.FC = () => {
         <label className="block text-xs">
             <div className="text-gray-400 mb-1">Active scope</div>
             <select
-                className="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1 text-white"
+                className="w-full bg-gray-700 border border-gray-600 rounded-sm px-2 py-1 text-white"
                 value={value}
                 onChange={onChange}
             >
@@ -135,7 +135,7 @@ const AdminButton: React.FC = () => {
     return (
         <>
             <button
-                className="w-full bg-purple-700 hover:bg-purple-600 text-white text-sm font-semibold py-1 px-2 rounded"
+                className="w-full bg-purple-700 hover:bg-purple-600 text-white text-sm font-semibold py-1 px-2 rounded-sm"
                 onClick={() => openAdmin()}
             >
                 Admin panel

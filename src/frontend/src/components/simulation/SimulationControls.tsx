@@ -358,7 +358,7 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                     <label className="flex items-center gap-1 min-w-0 flex-1 sm:flex-none">
                         <span className="text-gray-300 shrink-0">Field</span>
                         <select
-                            className="text-black bg-white rounded px-1 py-0.5 min-w-0 flex-1 sm:flex-none truncate"
+                            className="text-black bg-white rounded-sm px-1 py-0.5 min-w-0 flex-1 sm:flex-none truncate"
                             value={fieldName ?? ""}
                             onChange={(e) => onFieldChange(e.target.value)}
                         >
@@ -378,7 +378,7 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                         <label className="flex items-center gap-1 min-w-0 flex-1 sm:flex-none">
                             <span className="text-gray-300 shrink-0">Comp</span>
                             <select
-                                className="text-black bg-white rounded px-1 py-0.5 min-w-0 flex-1 sm:flex-none truncate"
+                                className="text-black bg-white rounded-sm px-1 py-0.5 min-w-0 flex-1 sm:flex-none truncate"
                                 value={reduction}
                                 onChange={(e) => onReductionChange(e.target.value)}
                             >
@@ -394,7 +394,7 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                         <label className="flex items-center gap-1 min-w-0 flex-1 sm:flex-none">
                             <span className="text-gray-300 shrink-0">Step</span>
                             <select
-                                className="text-black bg-white rounded px-1 py-0.5 min-w-0 flex-1 sm:flex-none sm:max-w-[10rem] truncate"
+                                className="text-black bg-white rounded-sm px-1 py-0.5 min-w-0 flex-1 sm:flex-none sm:max-w-40 truncate"
                                 value={stepIndex}
                                 disabled={nSteps <= 1}
                                 onChange={(e) => onStepChange(parseInt(e.target.value, 10))}
@@ -442,7 +442,7 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                         step={0.1}
                         value={period}
                         onChange={(e) => setPeriod(parseFloat(e.target.value))}
-                        className="text-black w-16 px-1 rounded"
+                        className="text-black w-16 px-1 rounded-sm"
                         title="Oscillation period (seconds)"
                     />
                     s
@@ -458,7 +458,7 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                         step={0.1}
                         value={scaleFactor}
                         onChange={(e) => onScaleFactorChange(parseFloat(e.target.value))}
-                        className="text-black w-16 px-1 rounded"
+                        className="text-black w-16 px-1 rounded-sm"
                         title="Warp scale factor — multiplier on top of the slider value (default 1)"
                     />
                 </div>
@@ -470,21 +470,21 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                 the data-panel button (no ``ml-auto`` push-to-right). */}
             <div className="flex flex-row items-center gap-x-2 min-w-0">
                 <button
-                    className="bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded"
+                    className="bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded-sm"
                     onClick={isPlaying ? onPause : onPlay}
                     title={isPlaying ? "Pause oscillation" : "Play oscillation"}
                 >
                     <PlayPauseIcon/>
                 </button>
                 <button
-                    className="bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded"
+                    className="bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded-sm"
                     onClick={onStop}
                     title="Stop and reset deformation to 0"
                 >
                     <StopIcon/>
                 </button>
                 <button
-                    className="bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded"
+                    className="bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded-sm"
                     onClick={onToggleData}
                     title="Toggle simulation data panel"
                 >
@@ -492,7 +492,7 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                 </button>
                 <button
                     className={
-                        "bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded " +
+                        "bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded-sm " +
                         (showOptions ? "ring-2 ring-blue-300" : "")
                     }
                     onClick={() => setShowOptions((v) => !v)}
@@ -504,11 +504,11 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
             </div>
 
             {showOptions && (
-                <div className="flex flex-row items-center gap-x-3 px-2 py-1 rounded bg-gray-900/40 text-xs text-white">
+                <div className="flex flex-row items-center gap-x-3 px-2 py-1 rounded-sm bg-gray-900/40 text-xs text-white">
                     <label className="flex items-center gap-1">
                         <span className="text-gray-300">Colormap</span>
                         <select
-                            className="text-black bg-white rounded px-1 py-0.5"
+                            className="text-black bg-white rounded-sm px-1 py-0.5"
                             value={colormap}
                             onChange={(e) => onColormapChange(e.target.value)}
                         >
@@ -529,7 +529,7 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                         <label className="flex items-center gap-1">
                             <span className="text-gray-300">Layer</span>
                             <select
-                                className="text-black bg-white rounded px-1 py-0.5"
+                                className="text-black bg-white rounded-sm px-1 py-0.5"
                                 value={layer}
                                 onChange={(e) => onLayerChange(e.target.value)}
                                 title="Which integration-point layer to read"
@@ -544,7 +544,7 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                         <label className="flex items-center gap-1">
                             <span className="text-gray-300">IP reduction</span>
                             <select
-                                className="text-black bg-white rounded px-1 py-0.5"
+                                className="text-black bg-white rounded-sm px-1 py-0.5"
                                 value={ipReduction}
                                 onChange={(e) => onIpReductionChange(e.target.value)}
                                 title="How to collapse integration-point values per element"
@@ -674,7 +674,7 @@ const GltfClipControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
     return (
         <div className="flex flex-row items-center gap-x-2 min-w-0">
             <select
-                className="text-black font-bold py-2 px-4 rounded w-60"
+                className="text-black font-bold py-2 px-4 rounded-sm w-60"
                 value={selectedAnimation}
                 onChange={handleAnimationChange}
             >
@@ -689,19 +689,19 @@ const GltfClipControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
             </select>
 
             <button
-                className="bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded"
+                className="bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded-sm"
                 onClick={togglePlayPause}
             >
                 <PlayPauseIcon/>
             </button>
             <button
-                className="bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded"
+                className="bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded-sm"
                 onClick={stopAnimation}
             >
                 <StopIcon/>
             </button>
             <button
-                className="bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded"
+                className="bg-blue-700 hover:bg-blue-700/50 text-white font-bold py-2 px-4 rounded-sm"
                 onClick={onToggleData}
             >
                 <FEMDataPanelIcon/>

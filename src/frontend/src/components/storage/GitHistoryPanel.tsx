@@ -149,11 +149,11 @@ const GitHistoryPanel: React.FC<Props> = ({
 
     return (
         <div
-            className="fixed inset-0 z-[60] flex items-start sm:items-center justify-center bg-black/70 p-4 overflow-y-auto"
+            className="fixed inset-0 z-60 flex items-start sm:items-center justify-center bg-black/70 p-4 overflow-y-auto"
             onClick={onClose}
         >
             <div
-                className="bg-gray-900 border border-gray-700 rounded shadow-xl flex flex-col max-w-3xl w-full max-h-[calc(100dvh-2rem)] sm:max-h-[85dvh] my-auto"
+                className="bg-gray-900 border border-gray-700 rounded-sm shadow-xl flex flex-col max-w-3xl w-full max-h-[calc(100dvh-2rem)] sm:max-h-[85dvh] my-auto"
                 onClick={(e) => e.stopPropagation()}
                 role="dialog"
                 aria-label="Git history"
@@ -225,10 +225,10 @@ const CommitRow: React.FC<CommitRowProps> = ({
     onToggle,
 }) => {
     return (
-        <li className="border border-gray-700/60 rounded bg-gray-800/40 hover:bg-gray-800/70 transition-colors">
+        <li className="border border-gray-700/60 rounded-sm bg-gray-800/40 hover:bg-gray-800/70 transition-colors">
             <div className="flex items-center gap-2 px-2 py-2 flex-wrap">
                 <span
-                    className={`px-2 py-0.5 rounded text-[10px] font-mono text-white ${branchChipClass(row.branch)}`}
+                    className={`px-2 py-0.5 rounded-sm text-[10px] font-mono text-white ${branchChipClass(row.branch)}`}
                     title={row.branch}
                 >
                     {row.branch}
@@ -238,7 +238,7 @@ const CommitRow: React.FC<CommitRowProps> = ({
                 </span>
                 {isFirstOnBranch && (
                     <span
-                        className="px-1 py-0 rounded text-[9px] uppercase tracking-wide bg-emerald-700 text-white"
+                        className="px-1 py-0 rounded-sm text-[9px] uppercase tracking-wide bg-emerald-700 text-white"
                         title="Most recent commit on this branch"
                     >
                         latest
@@ -275,7 +275,7 @@ const CommitRow: React.FC<CommitRowProps> = ({
                                 onClick={() => void onToggle(a, !isLoaded)}
                                 disabled={isBusy || otherBusy}
                                 className={
-                                    "px-2 py-1 rounded text-[10px] font-mono whitespace-nowrap " +
+                                    "px-2 py-1 rounded-sm text-[10px] font-mono whitespace-nowrap " +
                                     "disabled:opacity-50 disabled:cursor-not-allowed " +
                                     (isLoaded
                                         ? "bg-blue-700 hover:bg-blue-600 text-white"

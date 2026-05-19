@@ -4,7 +4,7 @@ import {loadRobot} from "@/utils/robots";
 import {debug_print} from "@/utils/debug_print";
 
 const buttonClass =
-    "bg-blue-700 hover:bg-blue-600 text-white font-semibold py-1 px-2 rounded w-full";
+    "bg-blue-700 hover:bg-blue-600 text-white font-semibold py-1 px-2 rounded-sm w-full";
 
 const ActionButtons: React.FC = () => (
     <div className="space-y-2">

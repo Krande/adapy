@@ -7,7 +7,7 @@ import {ProcedureT} from "@/flatbuffers/procedures/procedure";
 
 export function ProcedureNode({id, data}: { id: string; data: Record<string, any | ProcedureT> }) {
     return (
-        <div className="bg-bl-background text-gray-200 rounded min-w-40 h-30">
+        <div className="bg-bl-background text-gray-200 rounded-sm min-w-40 h-30">
             {/* Header Row */}
             <ProcedureHeader is_component={data.procedure.isComponent} label={data.label as string} onRun={() => run_procedure({id, data})}/>
 

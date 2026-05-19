@@ -68,7 +68,7 @@ const UploadContextMenu: React.FC = () => {
             />
             {(busy || error) && (
                 <div
-                    className="absolute bottom-4 left-4 z-50 bg-gray-800 border border-gray-700 rounded px-3 py-2 text-xs text-gray-100 max-w-sm"
+                    className="absolute bottom-4 left-4 z-50 bg-gray-800 border border-gray-700 rounded-sm px-3 py-2 text-xs text-gray-100 max-w-sm"
                 >
                     {busy && <span>Uploading…</span>}
                     {error && (

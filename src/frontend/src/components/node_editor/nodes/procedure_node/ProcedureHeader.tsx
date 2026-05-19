@@ -15,7 +15,7 @@ export function ProcedureHeader({label, onRun, is_component}: {
                 <div className="flex text-center text-xs">{label}</div>
             </div>
             <button
-                className="nodrag flex relative bg-blue-700 hover:bg-blue-700/50 text-white text-xs px-4 rounded"
+                className="nodrag flex relative bg-blue-700 hover:bg-blue-700/50 text-white text-xs px-4 rounded-sm"
                 onClick={onRun}
             >
                 Run

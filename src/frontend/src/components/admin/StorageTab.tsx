@@ -522,7 +522,7 @@ const StorageTab: React.FC = () => {
                 <span className="text-gray-500">·</span>
                 <span className="text-gray-400">{files.length} source{files.length === 1 ? "" : "s"}</span>
                 <button
-                    className="ml-2 bg-gray-700 hover:bg-gray-600 px-2 py-1 rounded text-[11px]"
+                    className="ml-2 bg-gray-700 hover:bg-gray-600 px-2 py-1 rounded-sm text-[11px]"
                     onClick={() => setOverrideOpen((v) => !v)}
                     title="Per-conversion overrides applied to all Convert clicks on this tab"
                 >
@@ -535,7 +535,7 @@ const StorageTab: React.FC = () => {
                         </span>
                         <button
                             type="button"
-                            className="bg-gray-700 hover:bg-gray-600 px-2 py-1 rounded text-[11px] disabled:opacity-50"
+                            className="bg-gray-700 hover:bg-gray-600 px-2 py-1 rounded-sm text-[11px] disabled:opacity-50"
                             onClick={() => void onMoveSelectedToFolder()}
                             disabled={busyKey === "__bulk_move__"}
                             title="Rename selected sources under a folder prefix"
@@ -544,7 +544,7 @@ const StorageTab: React.FC = () => {
                         </button>
                         <button
                             type="button"
-                            className="bg-gray-700 hover:bg-gray-600 px-2 py-1 rounded text-[11px]"
+                            className="bg-gray-700 hover:bg-gray-600 px-2 py-1 rounded-sm text-[11px]"
                             onClick={clearSelection}
                             title="Clear selection"
                         >
@@ -555,7 +555,7 @@ const StorageTab: React.FC = () => {
                 {totalDerivedAcrossScope > 0 && (
                     <button
                         type="button"
-                        className="bg-red-900/70 hover:bg-red-800 px-2 py-1 rounded text-[11px] text-gray-100 disabled:opacity-50"
+                        className="bg-red-900/70 hover:bg-red-800 px-2 py-1 rounded-sm text-[11px] text-gray-100 disabled:opacity-50"
                         onClick={() => void onClearAllDerived()}
                         disabled={busyKey === "__clear_all_derived__"}
                         title={
@@ -570,7 +570,7 @@ const StorageTab: React.FC = () => {
                 )}
                 <button
                     type="button"
-                    className="bg-gray-700 hover:bg-gray-600 px-2 py-1 rounded text-[11px] disabled:opacity-50"
+                    className="bg-gray-700 hover:bg-gray-600 px-2 py-1 rounded-sm text-[11px] disabled:opacity-50"
                     onClick={() => void onCompressUncompressed()}
                     disabled={compressionBusy}
                     title={
@@ -586,13 +586,13 @@ const StorageTab: React.FC = () => {
                     type="button"
                     className={
                         "ml-auto inline-flex items-center gap-1.5 bg-blue-700 active:bg-blue-800 " +
-                        "hover:bg-blue-600 rounded text-xs " +
+                        "hover:bg-blue-600 rounded-sm text-xs " +
                         // Bigger tap target on mobile (≥40px tall);
                         // tighter on desktop where the cursor is precise.
                         "px-4 py-2 sm:px-3 sm:py-1 min-h-[40px] sm:min-h-0 " +
                         // Visible "active" ring to confirm the tap
                         // landed even before the network call returns.
-                        "focus:outline-none focus:ring-2 focus:ring-blue-400 " +
+                        "focus:outline-hidden focus:ring-2 focus:ring-blue-400 " +
                         (loading ? "opacity-90 cursor-wait" : "")
                     }
                     onClick={() => void reload()}
@@ -627,7 +627,7 @@ const StorageTab: React.FC = () => {
                         {OVERRIDE_KEYS.map(({key, label}) => (
                             <div key={key} className="flex items-center gap-2">
                                 <span className="flex-1 truncate" title={key}>{label}</span>
-                                <div className="inline-flex rounded overflow-hidden">
+                                <div className="inline-flex rounded-sm overflow-hidden">
                                     {(["unset", "on", "off"] as OverrideTri[]).map((v) => (
                                         <button
                                             key={v}
@@ -662,11 +662,11 @@ const StorageTab: React.FC = () => {
                     into unreadable mush. */}
                 <table className="hidden sm:table w-full text-sm table-fixed min-w-[1200px]">
                     <colgroup>
-                        <col className="w-[2.5rem]"/>
+                        <col className="w-10"/>
                         <col className="w-[24rem]"/>
-                        <col className="w-[10rem]"/>
-                        <col className="w-[7rem]"/>
-                        <col className="w-[12rem]"/>
+                        <col className="w-40"/>
+                        <col className="w-28"/>
+                        <col className="w-48"/>
                         <col/>
                         <col className="w-[18rem]"/>
                     </colgroup>
@@ -863,7 +863,7 @@ const SourceRow: React.FC<RowProps & {scope: string}> = ({
                     {file.derived.map((d) => {
                         const busyDerived = busyKey === `${d.key}::delete`;
                         return (
-                            <span key={d.key} className="inline-flex rounded overflow-hidden border border-gray-700">
+                            <span key={d.key} className="inline-flex rounded-sm overflow-hidden border border-gray-700">
                                 <button
                                     className="bg-gray-800 hover:bg-gray-700 px-2 py-0.5 text-[11px]"
                                     onClick={() => onDownload(d.key, suggestedName(file.key, d.format))}
@@ -884,7 +884,7 @@ const SourceRow: React.FC<RowProps & {scope: string}> = ({
                     })}
                     {file.derived.length > 1 && (
                         <button
-                            className="bg-red-900/70 hover:bg-red-800 px-2 py-0.5 rounded text-[11px] text-gray-100 disabled:opacity-50"
+                            className="bg-red-900/70 hover:bg-red-800 px-2 py-0.5 rounded-sm text-[11px] text-gray-100 disabled:opacity-50"
                             onClick={() => onDeleteAllDerived(file)}
                             disabled={busyDeletingAllDerived}
                             title="Delete every cached derived blob for this source"
@@ -900,7 +900,7 @@ const SourceRow: React.FC<RowProps & {scope: string}> = ({
                 <div className="flex flex-wrap gap-1 justify-end">
                     {!file.orphan && (
                         <button
-                            className="bg-gray-700 hover:bg-gray-600 px-2 py-0.5 rounded text-xs"
+                            className="bg-gray-700 hover:bg-gray-600 px-2 py-0.5 rounded-sm text-xs"
                             onClick={() => onDownload(file.key, file.key)}
                         >
                             DL
@@ -909,7 +909,7 @@ const SourceRow: React.FC<RowProps & {scope: string}> = ({
                     {!file.orphan && runtime.convertEnabled() && downloadable.length > 0 && (
                         <select
                             disabled={busyConverting || false}
-                            className="bg-gray-700 hover:bg-gray-600 text-xs rounded px-1 py-0.5 disabled:opacity-50"
+                            className="bg-gray-700 hover:bg-gray-600 text-xs rounded-sm px-1 py-0.5 disabled:opacity-50"
                             value=""
                             onChange={(e) => {
                                 const t = e.target.value as TargetFormat | "";
@@ -924,7 +924,7 @@ const SourceRow: React.FC<RowProps & {scope: string}> = ({
                         </select>
                     )}
                     <button
-                        className="bg-red-800 hover:bg-red-700 px-2 py-0.5 rounded text-xs disabled:opacity-50"
+                        className="bg-red-800 hover:bg-red-700 px-2 py-0.5 rounded-sm text-xs disabled:opacity-50"
                         onClick={() => onDelete(file.key, file.key)}
                         disabled={busyDeleting}
                         title="Delete source + all derived"
@@ -1034,7 +1034,7 @@ const SourceCard: React.FC<CardProps> = ({
                             {file.derived.map((d) => {
                                 const busyDerived = busyKey === `${d.key}::delete`;
                                 return (
-                                    <span key={d.key} className="inline-flex rounded overflow-hidden border border-gray-700">
+                                    <span key={d.key} className="inline-flex rounded-sm overflow-hidden border border-gray-700">
                                         <button
                                             className="bg-gray-800 hover:bg-gray-700 px-2 py-0.5 text-[11px]"
                                             onClick={() => onDownload(d.key, suggestedName(file.key, d.format))}
@@ -1055,7 +1055,7 @@ const SourceCard: React.FC<CardProps> = ({
                             })}
                             {file.derived.length > 1 && (
                                 <button
-                                    className="bg-red-900/70 hover:bg-red-800 px-2 py-0.5 rounded text-[11px] text-gray-100 disabled:opacity-50"
+                                    className="bg-red-900/70 hover:bg-red-800 px-2 py-0.5 rounded-sm text-[11px] text-gray-100 disabled:opacity-50"
                                     onClick={() => onDeleteAllDerived(file)}
                                     disabled={busyDeletingAllDerived}
                                     title="Delete every cached derived blob for this source"
@@ -1070,7 +1070,7 @@ const SourceCard: React.FC<CardProps> = ({
                     <div className="flex flex-wrap gap-1">
                         {!file.orphan && (
                             <button
-                                className="bg-gray-700 hover:bg-gray-600 px-2 py-1 rounded text-xs"
+                                className="bg-gray-700 hover:bg-gray-600 px-2 py-1 rounded-sm text-xs"
                                 onClick={() => onDownload(file.key, file.key)}
                             >
                                 Download
@@ -1079,7 +1079,7 @@ const SourceCard: React.FC<CardProps> = ({
                         {!file.orphan && runtime.convertEnabled() && downloadable.length > 0 && (
                             <select
                                 disabled={busyConverting || false}
-                                className="bg-gray-700 hover:bg-gray-600 text-xs rounded px-2 py-1 disabled:opacity-50"
+                                className="bg-gray-700 hover:bg-gray-600 text-xs rounded-sm px-2 py-1 disabled:opacity-50"
                                 value=""
                                 onChange={(e) => {
                                     const t = e.target.value as TargetFormat | "";
@@ -1094,7 +1094,7 @@ const SourceCard: React.FC<CardProps> = ({
                             </select>
                         )}
                         <button
-                            className="bg-red-800 hover:bg-red-700 px-2 py-1 rounded text-xs disabled:opacity-50"
+                            className="bg-red-800 hover:bg-red-700 px-2 py-1 rounded-sm text-xs disabled:opacity-50"
                             onClick={() => onDelete(file.key, file.key)}
                             disabled={busyDeleting}
                         >

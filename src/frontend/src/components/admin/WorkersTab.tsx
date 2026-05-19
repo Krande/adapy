@@ -37,7 +37,7 @@ const Dot: React.FC<{online: boolean}> = ({online}) => (
 );
 
 const CapabilityChip: React.FC<{name: string}> = ({name}) => (
-    <span className="inline-block bg-gray-700 text-gray-100 text-xs px-2 py-0.5 rounded mr-1 mb-1">
+    <span className="inline-block bg-gray-700 text-gray-100 text-xs px-2 py-0.5 rounded-sm mr-1 mb-1">
         {name}
     </span>
 );
@@ -80,7 +80,7 @@ const WorkersTab: React.FC = () => {
                     </span>
                 </h2>
                 <button
-                    className="text-xs px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded"
+                    className="text-xs px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded-sm"
                     onClick={fetchWorkers}
                     disabled={loading}
                 >
@@ -89,7 +89,7 @@ const WorkersTab: React.FC = () => {
             </div>
 
             {error && (
-                <div className="mb-3 px-3 py-2 bg-red-900/50 border border-red-700 rounded text-sm">
+                <div className="mb-3 px-3 py-2 bg-red-900/50 border border-red-700 rounded-sm text-sm">
                     {error}
                 </div>
             )}
@@ -147,7 +147,7 @@ const WorkersTab: React.FC = () => {
                 {workers.map((w) => (
                     <div
                         key={w.worker_id}
-                        className={`bg-gray-800 border border-gray-700 rounded p-3 ${w.online ? "" : "opacity-60"}`}
+                        className={`bg-gray-800 border border-gray-700 rounded-sm p-3 ${w.online ? "" : "opacity-60"}`}
                     >
                         <div className="flex items-center gap-2 mb-1">
                             <Dot online={w.online}/>

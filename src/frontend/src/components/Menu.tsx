@@ -49,12 +49,12 @@ const DESKTOP_QUERY = "(min-width: 768px)";
 // state.
 const NAV_BTN_BASE =
     "inline-flex items-center justify-center w-10 h-10 shrink-0 " +
-    "text-white font-bold rounded transition-colors";
+    "text-white font-bold rounded-sm transition-colors";
 const NAV_BTN_INACTIVE = "bg-blue-700 hover:bg-blue-700/50";
 const NAV_BTN_ACTIVE = "bg-blue-900 hover:bg-blue-800 shadow-inner";
 
 function navBtnClass(active: boolean, extra: string = "", hidden: boolean = false): string {
-    const hiddenClass = hidden ? "!hidden" : "";
+    const hiddenClass = hidden ? "hidden!" : "";
     return `${NAV_BTN_BASE} ${active ? NAV_BTN_ACTIVE : NAV_BTN_INACTIVE} ${hiddenClass} ${extra}`
         .replace(/\s+/g, " ")
         .trim();
@@ -102,7 +102,7 @@ const Menu = () => {
 
                     {use_node_editor_only && (
                         <button
-                            className={"flex relative bg-blue-700 hover:bg-blue-700/50 text-white p-1 rounded transition-colors"}
+                            className={"flex relative bg-blue-700 hover:bg-blue-700/50 text-white p-1 rounded-sm transition-colors"}
                             onClick={() => request_list_of_nodes()}
                             title="Reload nodes"
                         >

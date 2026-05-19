@@ -150,13 +150,13 @@ const AuditLogTab: React.FC = () => {
             <div className="border-b border-gray-700">
                 <div className="flex items-center gap-2 px-3 py-2 sm:hidden">
                     <button
-                        className="bg-gray-800 hover:bg-gray-700 px-2 py-1 rounded text-xs"
+                        className="bg-gray-800 hover:bg-gray-700 px-2 py-1 rounded-sm text-xs"
                         onClick={() => setFiltersOpen((v) => !v)}
                     >
                         Filters{activeFilterCount > 0 ? ` (${activeFilterCount})` : ""} {filtersOpen ? "▲" : "▼"}
                     </button>
                     <button
-                        className="ml-auto bg-blue-700 hover:bg-blue-600 px-3 py-1 rounded text-xs"
+                        className="ml-auto bg-blue-700 hover:bg-blue-600 px-3 py-1 rounded-sm text-xs"
                         onClick={() => reload(filters)}
                         disabled={loading}
                     >
@@ -192,7 +192,7 @@ const AuditLogTab: React.FC = () => {
                         placeholder="any action"
                     />
                     <button
-                        className="hidden sm:inline-block ml-auto bg-blue-700 hover:bg-blue-600 px-2 py-1 rounded"
+                        className="hidden sm:inline-block ml-auto bg-blue-700 hover:bg-blue-600 px-2 py-1 rounded-sm"
                         onClick={() => reload(filters)}
                         disabled={loading}
                     >
@@ -223,7 +223,7 @@ const AuditLogTab: React.FC = () => {
                         </span>
                     </label>
                     <button
-                        className="ml-auto bg-gray-700 hover:bg-gray-600 px-2 py-1 rounded disabled:opacity-50"
+                        className="ml-auto bg-gray-700 hover:bg-gray-600 px-2 py-1 rounded-sm disabled:opacity-50"
                         onClick={onClearMetrics}
                         disabled={clearing}
                         title="Null out all metrics columns and delete profile blobs"
@@ -246,14 +246,14 @@ const AuditLogTab: React.FC = () => {
                     the full path. */}
                 <table className="hidden sm:table w-full text-sm table-fixed min-w-[1260px]">
                     <colgroup>
-                        <col className="w-[4rem]"/>
-                        <col className="w-[10rem]"/>
-                        <col className="w-[8rem]"/>
-                        <col className="w-[12rem]"/>
-                        <col className="w-[6rem]"/>
-                        <col className="min-w-[14rem]"/>
-                        <col className="w-[6rem]"/>
-                        <col className="w-[6rem]"/>
+                        <col className="w-16"/>
+                        <col className="w-40"/>
+                        <col className="w-32"/>
+                        <col className="w-48"/>
+                        <col className="w-24"/>
+                        <col className="min-w-56"/>
+                        <col className="w-24"/>
+                        <col className="w-24"/>
                     </colgroup>
                     <thead className="sticky top-0 bg-gray-800">
                     <tr className="text-left">
@@ -366,7 +366,7 @@ const AuditLogTab: React.FC = () => {
             <div className="border-t border-gray-700 px-3 sm:px-4 py-2 flex items-center gap-3 text-xs">
                 <span className="text-gray-400">{entries.length} rows</span>
                 <button
-                    className="bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded disabled:opacity-50"
+                    className="bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded-sm disabled:opacity-50"
                     onClick={loadMore}
                     disabled={loading || nextBeforeId == null}
                 >
@@ -433,11 +433,11 @@ const DetailsModal: React.FC<{entry: AuditEntry; onClose: () => void}> = ({entry
 
     return (
         <div
-            className="fixed inset-0 z-[60] flex items-start sm:items-center justify-center bg-black/70 p-4 overflow-y-auto"
+            className="fixed inset-0 z-60 flex items-start sm:items-center justify-center bg-black/70 p-4 overflow-y-auto"
             onClick={onClose}
         >
             <div
-                className="bg-gray-900 border border-gray-700 rounded shadow-xl flex flex-col max-w-3xl w-full max-h-[calc(100dvh-2rem)] sm:max-h-[85dvh] my-auto"
+                className="bg-gray-900 border border-gray-700 rounded-sm shadow-xl flex flex-col max-w-3xl w-full max-h-[calc(100dvh-2rem)] sm:max-h-[85dvh] my-auto"
                 onClick={(e) => e.stopPropagation()}
                 role="dialog"
                 aria-label="Audit row details"
@@ -454,7 +454,7 @@ const DetailsModal: React.FC<{entry: AuditEntry; onClose: () => void}> = ({entry
                     {tab === "error" && entry.traceback && (
                         <button
                             type="button"
-                            className="shrink-0 bg-gray-800 hover:bg-gray-700 text-gray-100 px-2 py-1 rounded text-xs"
+                            className="shrink-0 bg-gray-800 hover:bg-gray-700 text-gray-100 px-2 py-1 rounded-sm text-xs"
                             onClick={onCopy}
                             title="Copy traceback to clipboard"
                         >
@@ -522,7 +522,7 @@ const ErrorTab: React.FC<{entry: AuditEntry}> = ({entry}) => {
         return (
             <>
                 {entry.error && (
-                    <div className="px-4 py-2 text-sm text-red-300 border-b border-gray-800 break-words">
+                    <div className="px-4 py-2 text-sm text-red-300 border-b border-gray-800 wrap-break-word">
                         {entry.error}
                     </div>
                 )}
@@ -589,7 +589,7 @@ const MetricsTab: React.FC<{
                     <div>
                         <button
                             type="button"
-                            className="bg-blue-700 hover:bg-blue-600 px-3 py-1 rounded text-xs disabled:opacity-50"
+                            className="bg-blue-700 hover:bg-blue-600 px-3 py-1 rounded-sm text-xs disabled:opacity-50"
                             onClick={onDownloadProfile}
                             disabled={downloading}
                         >
@@ -710,7 +710,7 @@ const ChartPanel: React.FC<{
                 <div className="text-[10px] text-gray-400 font-mono">{title}</div>
                 <div className="text-[10px] text-gray-500 font-mono">max ≈ {yLabel}</div>
             </div>
-            <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-14 bg-gray-900/60 border border-gray-800 rounded">
+            <svg viewBox={`0 0 ${W} ${H}`} className="w-full h-14 bg-gray-900/60 border border-gray-800 rounded-sm">
                 {series.map((s, i) => {
                     if (s.points.length === 0) return null;
                     const d = s.points
@@ -826,7 +826,7 @@ const ProfileStatsTable: React.FC<{auditId: number; totalWallMs: number | null}>
                 ) : null}
             </div>
             {/* Top-10 cumulative-time bar chart */}
-            <div className="space-y-0.5 bg-gray-900/60 border border-gray-800 rounded p-2">
+            <div className="space-y-0.5 bg-gray-900/60 border border-gray-800 rounded-sm p-2">
                 <div className="text-[10px] uppercase tracking-wide text-gray-500 mb-1">
                     Top 10 by cumulative time
                 </div>
@@ -836,7 +836,7 @@ const ProfileStatsTable: React.FC<{auditId: number; totalWallMs: number | null}>
                             <div className="font-mono text-gray-200 truncate" title={`${r.file}:${r.line}`}>
                                 {r.func}
                             </div>
-                            <div className="h-1 bg-gray-800 rounded overflow-hidden">
+                            <div className="h-1 bg-gray-800 rounded-sm overflow-hidden">
                                 <div
                                     className="h-full bg-blue-500"
                                     style={{width: `${maxCum > 0 ? (r.cumtime / maxCum) * 100 : 0}%`}}
@@ -854,9 +854,9 @@ const ProfileStatsTable: React.FC<{auditId: number; totalWallMs: number | null}>
                 value={filter}
                 onChange={(e) => setFilter(e.target.value)}
                 placeholder="Filter by function or file…"
-                className="bg-gray-800 border border-gray-700 rounded px-2 py-1 w-full text-white"
+                className="bg-gray-800 border border-gray-700 rounded-sm px-2 py-1 w-full text-white"
             />
-            <div className="overflow-auto max-h-[24rem] border border-gray-800 rounded">
+            <div className="overflow-auto max-h-96 border border-gray-800 rounded-sm">
                 <table className="w-full font-mono">
                     <thead className="sticky top-0 bg-gray-800 text-gray-300">
                         <tr className="text-right">
@@ -961,7 +961,7 @@ const FilterInput: React.FC<{
     useEffect(() => setLocal(value), [value]);
     return (
         <input
-            className="bg-gray-800 border border-gray-700 rounded px-2 py-1 w-full sm:w-56 lg:w-72 text-white"
+            className="bg-gray-800 border border-gray-700 rounded-sm px-2 py-1 w-full sm:w-56 lg:w-72 text-white"
             placeholder={placeholder}
             value={local}
             onChange={(e) => setLocal(e.target.value)}
@@ -980,7 +980,7 @@ const FilterSelect: React.FC<{
     placeholder: string;
 }> = ({options, value, onChange, placeholder}) => (
     <select
-        className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-white w-full sm:w-auto"
+        className="bg-gray-800 border border-gray-700 rounded-sm px-2 py-1 text-white w-full sm:w-auto"
         value={value}
         onChange={(e) => onChange(e.target.value)}
     >

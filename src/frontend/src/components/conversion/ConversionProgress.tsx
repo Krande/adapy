@@ -31,7 +31,7 @@ const DismissButton: React.FC<{
         aria-label={label}
         title={label}
         className={
-            "shrink-0 inline-flex items-center justify-center w-7 h-7 rounded " +
+            "shrink-0 inline-flex items-center justify-center w-7 h-7 rounded-sm " +
             "border border-gray-600 bg-gray-700/60 text-gray-200 cursor-pointer " +
             "pointer-events-auto hover:bg-gray-600 hover:border-gray-400 hover:text-white " +
             "disabled:opacity-50 disabled:cursor-not-allowed"
@@ -71,7 +71,7 @@ const InfoButton: React.FC<{title?: string}> = ({
             aria-label={title}
             title={title}
             className={
-                "shrink-0 inline-flex items-center justify-center w-7 h-7 rounded " +
+                "shrink-0 inline-flex items-center justify-center w-7 h-7 rounded-sm " +
                 "border border-blue-500/60 bg-blue-700/40 text-blue-200 cursor-pointer " +
                 "pointer-events-auto hover:bg-blue-600 hover:border-blue-300 hover:text-white text-xs font-semibold"
             }
@@ -145,14 +145,14 @@ const CancelButton: React.FC<{
             <span className="text-gray-300">{question}</span>
             <button
                 disabled={busy}
-                className="bg-red-700 hover:bg-red-600 text-white rounded px-1.5 py-0.5 disabled:opacity-50"
+                className="bg-red-700 hover:bg-red-600 text-white rounded-sm px-1.5 py-0.5 disabled:opacity-50"
                 onClick={doCancel}
             >
                 {busy ? "…" : verb}
             </button>
             <button
                 disabled={busy}
-                className="bg-gray-700 hover:bg-gray-600 text-gray-200 rounded px-1.5 py-0.5 disabled:opacity-50"
+                className="bg-gray-700 hover:bg-gray-600 text-gray-200 rounded-sm px-1.5 py-0.5 disabled:opacity-50"
                 onClick={() => setConfirming(false)}
             >
                 No
@@ -194,7 +194,7 @@ const ErrorRow: React.FC<{
                 <button
                     type="button"
                     onClick={onCopy}
-                    className="bg-gray-700 hover:bg-gray-600 text-gray-100 px-2 py-0.5 rounded text-[11px]"
+                    className="bg-gray-700 hover:bg-gray-600 text-gray-100 px-2 py-0.5 rounded-sm text-[11px]"
                     title="Copy traceback to clipboard"
                 >
                     {copied ? "Copied" : "Copy"}
@@ -243,7 +243,7 @@ const CompressionToast: React.FC<{
     const subtitle = state.current_key || `scope: ${scopeLabel}`;
 
     return (
-        <div className="bg-gray-800 text-gray-100 rounded shadow-lg px-3 py-2 text-xs border border-gray-700">
+        <div className="bg-gray-800 text-gray-100 rounded-sm shadow-lg px-3 py-2 text-xs border border-gray-700">
             <div className="flex justify-between items-center mb-1 gap-2">
                 <span className="truncate flex-1" title={subtitle}>
                     {subtitle}
@@ -259,7 +259,7 @@ const CompressionToast: React.FC<{
                 )}
             </div>
             {!finished && !orphaned && state.total > 0 && (
-                <div className="h-1 bg-gray-700 rounded overflow-hidden">
+                <div className="h-1 bg-gray-700 rounded-sm overflow-hidden">
                     <div
                         className="h-full bg-blue-500 transition-all"
                         style={{width: `${Math.max(pct, 4)}%`}}
@@ -321,7 +321,7 @@ const ConversionProgress = () => {
                 return (
                     <div
                         key={job.sourceKey}
-                        className="bg-gray-800 text-gray-100 rounded shadow-lg px-3 py-2 text-xs border border-gray-700"
+                        className="bg-gray-800 text-gray-100 rounded-sm shadow-lg px-3 py-2 text-xs border border-gray-700"
                     >
                         <div className="flex justify-between items-center mb-1">
                             <span className="truncate flex-1">{job.sourceKey}</span>
@@ -339,7 +339,7 @@ const ConversionProgress = () => {
                             )}
                         </div>
                         {!isError && (
-                            <div className="h-1 bg-gray-700 rounded overflow-hidden">
+                            <div className="h-1 bg-gray-700 rounded-sm overflow-hidden">
                                 <div
                                     className="h-full bg-blue-500 transition-all"
                                     style={{width: `${Math.max(pct, 4)}%`}}

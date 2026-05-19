@@ -62,7 +62,7 @@ const ProjectsTab: React.FC = () => {
         <div className="flex h-full">
             <div
                 className={
-                    "flex-col border-r border-gray-700 sm:flex sm:w-80 sm:min-w-[280px] sm:flex-shrink-0 lg:w-96 " +
+                    "flex-col border-r border-gray-700 sm:flex sm:w-80 sm:min-w-[280px] sm:shrink-0 lg:w-96 " +
                     (showDetailOnly ? "hidden sm:flex" : "flex w-full")
                 }
             >
@@ -146,13 +146,13 @@ const CreateProjectForm: React.FC<{onCreate: (slug: string, name: string) => voi
             }}
         >
             <input
-                className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-2 text-sm"
+                className="w-full bg-gray-800 border border-gray-700 rounded-sm px-2 py-2 text-sm"
                 placeholder="Project name"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
             />
             <input
-                className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-2 text-xs text-gray-300"
+                className="w-full bg-gray-800 border border-gray-700 rounded-sm px-2 py-2 text-xs text-gray-300"
                 placeholder="slug"
                 value={effectiveSlug}
                 onChange={(e) => {
@@ -162,7 +162,7 @@ const CreateProjectForm: React.FC<{onCreate: (slug: string, name: string) => voi
             />
             <button
                 type="submit"
-                className="w-full bg-blue-700 hover:bg-blue-600 px-2 py-2 rounded text-sm disabled:opacity-50"
+                className="w-full bg-blue-700 hover:bg-blue-600 px-2 py-2 rounded-sm text-sm disabled:opacity-50"
                 disabled={!name.trim() || !effectiveSlug}
             >
                 Create project
@@ -254,7 +254,7 @@ const MemberPane: React.FC<{
             <div className="px-3 sm:px-4 py-3 border-b border-gray-700">
                 <div className="flex items-center gap-2 mb-1">
                     <button
-                        className="sm:hidden bg-gray-800 hover:bg-gray-700 text-xs px-2 py-1 rounded"
+                        className="sm:hidden bg-gray-800 hover:bg-gray-700 text-xs px-2 py-1 rounded-sm"
                         onClick={onBack}
                     >
                         ← Projects
@@ -270,7 +270,7 @@ const MemberPane: React.FC<{
                     {!project.archived_at && (
                         <div className="flex shrink-0 gap-1">
                             <button
-                                className="text-xs bg-gray-800 hover:bg-gray-700 px-2 py-1 rounded disabled:opacity-50 whitespace-nowrap"
+                                className="text-xs bg-gray-800 hover:bg-gray-700 px-2 py-1 rounded-sm disabled:opacity-50 whitespace-nowrap"
                                 onClick={() => void onMintCiBot()}
                                 disabled={ciBotBusy}
                                 title="Mint or rotate the CI bot bearer for this project"
@@ -282,7 +282,7 @@ const MemberPane: React.FC<{
                                         : "Mint CI bot"}
                             </button>
                             <button
-                                className="text-xs bg-red-800 hover:bg-red-700 px-2 py-1 rounded"
+                                className="text-xs bg-red-800 hover:bg-red-700 px-2 py-1 rounded-sm"
                                 onClick={onArchive}
                             >
                                 Archive
@@ -291,7 +291,7 @@ const MemberPane: React.FC<{
                     )}
                 </div>
                 {ciBotErr && (
-                    <div className="mt-2 text-red-300 text-xs bg-red-900/40 border border-red-700 rounded px-2 py-1">
+                    <div className="mt-2 text-red-300 text-xs bg-red-900/40 border border-red-700 rounded-sm px-2 py-1">
                         {ciBotErr}
                     </div>
                 )}
@@ -299,7 +299,7 @@ const MemberPane: React.FC<{
             {!project.archived_at && (
                 <div className="flex flex-col sm:flex-row gap-2 px-3 sm:px-4 py-2 border-b border-gray-700">
                     <input
-                        className="flex-1 bg-gray-800 border border-gray-700 rounded px-2 py-2 text-xs"
+                        className="flex-1 bg-gray-800 border border-gray-700 rounded-sm px-2 py-2 text-xs"
                         placeholder="user_sub (from OIDC token)"
                         value={newSub}
                         onChange={(e) => setNewSub(e.target.value)}
@@ -309,7 +309,7 @@ const MemberPane: React.FC<{
                     />
                     <div className="flex gap-2">
                         <select
-                            className="flex-1 sm:flex-initial bg-gray-800 border border-gray-700 rounded px-2 py-2 text-xs"
+                            className="flex-1 sm:flex-initial bg-gray-800 border border-gray-700 rounded-sm px-2 py-2 text-xs"
                             value={newRole}
                             onChange={(e) => setNewRole(e.target.value)}
                         >
@@ -317,7 +317,7 @@ const MemberPane: React.FC<{
                             <option value="owner">owner</option>
                         </select>
                         <button
-                            className="bg-blue-700 hover:bg-blue-600 px-3 py-2 rounded text-xs disabled:opacity-50"
+                            className="bg-blue-700 hover:bg-blue-600 px-3 py-2 rounded-sm text-xs disabled:opacity-50"
                             onClick={() => void onAdd()}
                             disabled={adding || !newSub.trim()}
                         >
@@ -335,12 +335,12 @@ const MemberPane: React.FC<{
                 {/* Desktop / tablet table */}
                 <table className="hidden sm:table w-full text-sm table-fixed min-w-[1200px]">
                     <colgroup>
-                        <col className="w-[14rem]"/>
+                        <col className="w-56"/>
                         <col className="w-[16rem]"/>
-                        <col className="w-[12rem]"/>
-                        <col className="w-[7rem]"/>
-                        <col className="w-[12rem]"/>
-                        <col className="w-[6rem]"/>
+                        <col className="w-48"/>
+                        <col className="w-28"/>
+                        <col className="w-48"/>
+                        <col className="w-24"/>
                     </colgroup>
                     <thead className="sticky top-0 bg-gray-800 text-left">
                     <tr>
@@ -394,7 +394,7 @@ const MemberPane: React.FC<{
                                 </div>
                                 {!project.archived_at && (
                                     <button
-                                        className="text-red-300 hover:text-red-200 text-xs px-2 py-1 rounded border border-red-900"
+                                        className="text-red-300 hover:text-red-200 text-xs px-2 py-1 rounded-sm border border-red-900"
                                         onClick={() => onRemove(m.user_sub)}
                                     >
                                         Remove
@@ -456,11 +456,11 @@ const CiBotTokenModal: React.FC<{
 
     return (
         <div
-            className="fixed inset-0 z-[60] flex items-start sm:items-center justify-center bg-black/70 p-4 overflow-y-auto"
+            className="fixed inset-0 z-60 flex items-start sm:items-center justify-center bg-black/70 p-4 overflow-y-auto"
             onClick={onClose}
         >
             <div
-                className="bg-gray-900 border border-gray-700 rounded shadow-xl flex flex-col max-w-2xl w-full max-h-[calc(100dvh-2rem)] sm:max-h-[85dvh] my-auto"
+                className="bg-gray-900 border border-gray-700 rounded-sm shadow-xl flex flex-col max-w-2xl w-full max-h-[calc(100dvh-2rem)] sm:max-h-[85dvh] my-auto"
                 onClick={(e) => e.stopPropagation()}
                 role="dialog"
                 aria-label="CI bot token"
@@ -491,7 +491,7 @@ const CiBotTokenModal: React.FC<{
                         <button
                             type="button"
                             onClick={onCopy}
-                            className="shrink-0 bg-gray-800 hover:bg-gray-700 text-gray-100 px-2 py-1 rounded text-xs"
+                            className="shrink-0 bg-gray-800 hover:bg-gray-700 text-gray-100 px-2 py-1 rounded-sm text-xs"
                         >
                             {copied ? "Copied" : "Copy"}
                         </button>
@@ -499,7 +499,7 @@ const CiBotTokenModal: React.FC<{
                     <textarea
                         readOnly
                         value={token}
-                        className="w-full h-32 bg-gray-950 border border-gray-700 rounded p-2 font-mono text-xs break-all"
+                        className="w-full h-32 bg-gray-950 border border-gray-700 rounded-sm p-2 font-mono text-xs break-all"
                         onFocus={(e) => e.currentTarget.select()}
                     />
                     <pre className="text-[11px] text-gray-400 whitespace-pre-wrap">
