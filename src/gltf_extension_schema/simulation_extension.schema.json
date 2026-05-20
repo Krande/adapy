@@ -39,6 +39,11 @@
         "$ref": "#/definitions/SimGroup"
       },
       "additionalProperties": false
+    },
+    "stats": {
+      "type": "object",
+      "description": "Aggregate metrics for this simulation model (centre of gravity, element counts). Computed at bake time so the viewer can show per-model info without reloading source.",
+      "$ref": "#/definitions/SimStats"
     }
   },
   "required": [
@@ -49,6 +54,56 @@
     "steps"
   ],
   "definitions": {
+    "SimStats": {
+      "type": "object",
+      "properties": {
+        "cog": {
+          "description": "Mass-weighted centre of gravity. total_mass and total_volume are zero when elements have no material assigned.",
+          "$ref": "#/definitions/COG"
+        },
+        "element_counts": {
+          "type": "object",
+          "description": "Number of finite elements per category.",
+          "properties": {
+            "beam": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Line / beam elements."
+            },
+            "shell": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Shell elements."
+            },
+            "solid": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Solid elements."
+            }
+          }
+        }
+      }
+    },
+    "COG": {
+      "type": "object",
+      "description": "Point + aggregate mass/volume. Coordinates in model units; mass and volume are summed across contributing elements/objects.",
+      "properties": {
+        "x": { "type": "number" },
+        "y": { "type": "number" },
+        "z": { "type": "number" },
+        "total_mass": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Sum of contributing masses."
+        },
+        "total_volume": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Sum of contributing volumes."
+        }
+      },
+      "required": ["x", "y", "z"]
+    },
     "StepObject": {
       "type": "object",
       "properties": {

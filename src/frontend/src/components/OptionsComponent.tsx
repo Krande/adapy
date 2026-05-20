@@ -44,7 +44,7 @@ const CollapsibleSection: React.FC<{title: string; children: React.ReactNode}> =
 //   isn't enough room on a phone for an inline box; the drawer takes
 //   over so the user can scroll through the options.
 // * Desktop: an inline panel in the menu's info-box column, styled
-//   like ObjectInfoBox / GroupInfoBox / StorageBrowser — same
+//   like ObjectInfoBox / SceneInfoBox / StorageBrowser — same
 //   semi-transparent gray, same rounded corners. The ☰ button toggles
 //   it; nothing else needs to.
 function OptionsComponent() {

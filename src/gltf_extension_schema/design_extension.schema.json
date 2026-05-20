@@ -38,9 +38,55 @@
       "additionalProperties": {
         "type": "object"
       }
+    },
+    "stats": {
+      "type": "object",
+      "description": "Aggregate metrics for this design model (centre of gravity, object counts). Computed at bake time so the viewer can show per-model info without reloading source.",
+      "$ref": "#/definitions/DesignStats"
     }
   },
   "definitions": {
+    "DesignStats": {
+      "type": "object",
+      "properties": {
+        "cog_volume": {
+          "description": "Volume-weighted centroid. Populated whenever any geometry contributes a non-zero volume.",
+          "$ref": "#/definitions/COG"
+        },
+        "cog_mass": {
+          "description": "Mass-weighted centroid. Only populated when every physical object has a material density defined.",
+          "$ref": "#/definitions/COG"
+        },
+        "object_counts": {
+          "type": "object",
+          "description": "Number of physical objects per type, keyed by lowercase class name (e.g. beam, plate, shape, pipe, wall).",
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "COG": {
+      "type": "object",
+      "description": "Point + aggregate mass/volume. Coordinates in model units; mass and volume are summed across contributing objects.",
+      "properties": {
+        "x": { "type": "number" },
+        "y": { "type": "number" },
+        "z": { "type": "number" },
+        "total_mass": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Sum of contributing masses."
+        },
+        "total_volume": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Sum of contributing volumes."
+        }
+      },
+      "required": ["x", "y", "z"]
+    },
     "DesignNodeReference": {
       "type": "object",
       "properties": {

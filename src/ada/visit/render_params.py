@@ -49,13 +49,13 @@ class RenderParams:
     # When True, emit per-Beam/Plate section + material dicts into
     # ``DesignDataExtension.object_metadata`` so the viewer's Properties
     # panel populates without a server round-trip back to the source
-    # IFC. Off by default because it inflates the JSON chunk
-    # noticeably — measured on mini-example (1100 objects): raw GLB
-    # +335 KB (+17.8 %), but gzipped only +7.7 KB (+3.1 %) since
-    # repeated material dicts compress away to ~7 B amortised. Worth
-    # flipping on for the viewer flow; wasted bytes only matter for
-    # consumers that read the raw .glb without HTTP gzip in between.
-    embed_object_metadata: bool = False
+    # IFC. On by default because the viewer is the primary consumer and
+    # the size cost is negligible over HTTP gzip — measured on
+    # mini-example (1100 objects): raw GLB +335 KB (+17.8 %), gzipped
+    # only +7.7 KB (+3.1 %) since repeated material dicts compress to
+    # ~7 B amortised. Flip off only for raw-bytes consumers that don't
+    # need the Properties panel and skip HTTP gzip.
+    embed_object_metadata: bool = True
     force_y_is_up: bool = False
 
     def __post_init__(self):

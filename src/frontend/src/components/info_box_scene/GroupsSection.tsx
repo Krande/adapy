@@ -1,21 +1,21 @@
 import React, {useEffect, useMemo, useRef, useState} from 'react';
 import {useVirtualizer} from "@tanstack/react-virtual";
 
-import type {GroupInfo} from '@/state/groupInfoStore';
+import type {GroupInfo} from '@/state/sceneInfoStore';
 import {useViewerStores, useViewerRefs} from '@/state/AdaViewerContext';
 import {selectGroupMembers} from "@/utils/selectGroupMembers";
 import {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
 
 
-const GroupInfoBox = () => {
-    const {useGroupInfoStore, useObjectInfoStore} = useViewerStores();
+const GroupsSection = () => {
+    const {useSceneInfoStore, useObjectInfoStore} = useViewerStores();
     const {adaExtension: adaExtensionRef, scene: sceneRef} = useViewerRefs();
     const {
         selectedGroup,
         availableGroups,
         setSelectedGroup,
         setAvailableGroups,
-    } = useGroupInfoStore();
+    } = useSceneInfoStore();
 
     // Collect groups from ADA extension on component mount. Some
     // fixtures (e.g. ship1t1.fem via the legacy convert path) bake
@@ -106,8 +106,7 @@ const GroupInfoBox = () => {
     };
 
     return (
-        <div className="bg-gray-400 bg-opacity-50 rounded-sm p-2 min-w-80">
-            <h2 className="font-bold">Group Information</h2>
+        <div className="table">
             <div className="table-row">
                 <div className="table-cell w-24 align-top pt-1">Group:</div>
                 <div className="table-cell w-48">
@@ -320,4 +319,4 @@ const GroupCombobox: React.FC<GroupComboboxProps> = ({groups, selected, onSelect
     );
 };
 
-export default GroupInfoBox;
+export default GroupsSection;

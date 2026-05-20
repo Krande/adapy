@@ -106,10 +106,46 @@ def scene_from_fem(fem: FEM, converter: SceneConverter) -> trimesh.Scene:
             solid_beams=ms.bm_solid_node_name,
         ),
         groups=groups,
+        stats=_build_sim_stats(fem),
     )
     converter.ada_ext.simulation_objects.append(sim_data)
 
     return scene
+
+
+def _build_sim_stats(fem: FEM):
+    """Aggregate COG + per-category element counts for the Scene > Stats panel.
+
+    COG is mass-weighted; FEMs whose elements lack assigned materials (or are
+    empty) emit only the counts. Counts always reflect what reached the bake."""
+    from ada.config import logger
+    from ada.extension import simulation_extension_schema as sim_meta
+
+    beam_count = sum(1 for _ in fem.elements.lines)
+    shell_count = sum(1 for _ in fem.elements.shell)
+    solid_count = sum(1 for _ in fem.elements.solids)
+    if beam_count + shell_count + solid_count == 0:
+        return None
+
+    counts = sim_meta.ElementCounts(beam=beam_count, shell=shell_count, solid=solid_count)
+
+    cog_block = None
+    try:
+        cog_result = fem.elements.calc_cog()
+        tot_mass = float(cog_result.tot_mass or 0.0)
+        if tot_mass > 0:
+            p = cog_result.p
+            cog_block = sim_meta.COG(
+                x=float(p[0]),
+                y=float(p[1]),
+                z=float(p[2]),
+                total_mass=tot_mass,
+                total_volume=float(cog_result.tot_vol or 0.0),
+            )
+    except Exception as e:  # materials/sections missing — stats are best-effort
+        logger.debug(f"FEM '{fem.name}' stats: COG skipped ({type(e).__name__}: {e})")
+
+    return sim_meta.SimStats(cog=cog_block, element_counts=counts)
 
 
 def _iter_fem_sections(fem: FEM):

@@ -1071,7 +1071,7 @@ class Part(BackendGeom):
         filter_by_guids=None,
         merge_meshes=True,
         stream_from_ifc=False,
-        embed_object_metadata: bool = False,
+        embed_object_metadata: bool = True,
         params: RenderParams = None,
     ):
         if params is None:

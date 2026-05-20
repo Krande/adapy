@@ -17,8 +17,8 @@ import ReloadIcon from "./icons/ReloadIcon";
 import ServerIcon from "./icons/ServerIcon";
 import ToggleControlsIcon from "./icons/AnimationControlToggle";
 import TreeViewIcon from "./icons/TreeViewIcon";
-import GroupIcon from "./icons/GroupIcon";
-import GroupInfoBox from "./info_box_groups/GroupInfoBox";
+import SceneIcon from "./icons/SceneIcon";
+import SceneInfoBox from "./info_box_scene/SceneInfoBox";
 import {WebsocketStatusMenu, WebsocketStatusBox} from "./WebsocketStatusMenu";
 
 
@@ -33,13 +33,19 @@ const DESKTOP_QUERY = "(min-width: 768px)";
 // hover (lighter) and from the base (mid-tone). Applied to every
 // toggle in the bar so the whole row uses one visual vocabulary.
 //
-// Fixed 40x40 box so every button takes equal horizontal space — keeps
-// the row inside a 360px mobile viewport even when the simulation-
-// controls toggle joins the line-up. The 24px SVG icons centre inside
-// via flex; the lone text glyph (☰) keeps its size with font-bold.
+// Mobile (<md): fixed 40x40 inline-flex box so every entry takes the
+// same horizontal slot — keeps the row inside a 360px viewport even
+// at the busiest combo (options + tree + node-editor + storage + info
+// + scene + animation + ws status). The 24px SVG icons centre via
+// flex; the lone ☰ text glyph keeps its size with font-bold.
+//
+// Desktop (md+): drop the fixed box in favour of padding-based sizing
+// (``py-2 px-4``). Icon buttons end up ~40 % wider than the narrow ☰
+// glyph, which reads as a clearer visual rhythm when the row isn't
+// space-constrained.
 //
 // The base class includes ``inline-flex``, which is what gives the
-// uniform box but also outranks the UA stylesheet's
+// uniform box on mobile but also outranks the UA stylesheet's
 // ``[hidden] { display: none }`` rule in the cascade. ``navBtnClass``
 // takes an explicit ``hidden`` boolean and folds in Tailwind's
 // ``!hidden`` (display: none !important) when set — that way the
@@ -48,8 +54,9 @@ const DESKTOP_QUERY = "(min-width: 768px)";
 // gated on their ``hasAnimation``/``feaSessionActive``/``enableNodeEditor``
 // state.
 const NAV_BTN_BASE =
-    "inline-flex items-center justify-center w-10 h-10 shrink-0 " +
-    "text-white font-bold rounded-sm transition-colors";
+    "inline-flex items-center justify-center w-10 h-10 shrink-0 rounded-sm " +
+    "md:w-auto md:h-auto md:py-2 md:px-4 md:rounded " +
+    "text-white font-bold transition-colors";
 const NAV_BTN_INACTIVE = "bg-blue-700 hover:bg-blue-700/50";
 const NAV_BTN_ACTIVE = "bg-blue-900 hover:bg-blue-800 shadow-inner";
 
@@ -76,7 +83,7 @@ function useIsDesktop(): boolean {
 const Menu = () => {
     const stores = useViewerStores();
     const {show_info_box} = stores.useObjectInfoStore();
-    const {show_group_info_box} = stores.useGroupInfoStore();
+    const {show_scene_info_box} = stores.useSceneInfoStore();
     const {isNodeEditorVisible, setIsNodeEditorVisible, use_node_editor_only} = stores.useNodeEditorStore();
     const {isOptionsVisible, setIsOptionsVisible, enableNodeEditor} = stores.useOptionsStore(); // use the useNavBarStore function
     const {showServerInfoBox, setShowServerInfoBox} = stores.useServerInfoStore();
@@ -157,12 +164,13 @@ const Menu = () => {
                         aria-pressed={show_info_box}
                     ><InfoIcon/></button>
                     <button
-                        className={navBtnClass(show_group_info_box, "", use_node_editor_only)}
+                        className={navBtnClass(show_scene_info_box, "", use_node_editor_only)}
                         hidden={use_node_editor_only}
-                        onClick={stores.useGroupInfoStore.getState().toggle}
-                        title="Toggle group info"
-                        aria-pressed={show_group_info_box}
-                    ><GroupIcon/></button>
+                        onClick={stores.useSceneInfoStore.getState().toggle}
+                        title="Toggle scene info"
+                        aria-label="Toggle scene info"
+                        aria-pressed={show_scene_info_box}
+                    ><SceneIcon/></button>
 
                     <button
                         className={navBtnClass(isControlsVisible, "", !hasAnimation && !feaSessionActive)}
@@ -186,7 +194,7 @@ const Menu = () => {
                             : <ServerInfoBox/>
                     )}
                     {show_info_box && <ObjectInfoBox/>}
-                    {show_group_info_box && <GroupInfoBox/>}
+                    {show_scene_info_box && <SceneInfoBox/>}
                     {showWebsocketInfoBox && <WebsocketStatusBox/>}
                     {isControlsVisible && <SimulationControls/>}
                 </div>

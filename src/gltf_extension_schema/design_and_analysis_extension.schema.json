@@ -23,7 +23,7 @@
     "version": {
       "type": "string",
       "description": "Version of the ADA GLTF extension schema",
-      "default": "1.1.0"
+      "default": "1.2.0"
     },
     "assembly_guid": {
       "type": "string",

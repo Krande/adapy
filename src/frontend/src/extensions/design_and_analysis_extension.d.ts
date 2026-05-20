@@ -21,6 +21,10 @@ export interface ADADesignAndAnalysisExtension {
    * Version of the ADA GLTF extension schema
    */
   version?: string;
+  /**
+   * Stable lineage anchor: the source Assembly's guid. CAD and FEA exports derived from the same Assembly share this value so a viewer can match them without name lookups.
+   */
+  assembly_guid?: string;
 }
 export interface SimulationDataExtensionMetadata {
   /**
@@ -48,6 +52,7 @@ export interface SimulationDataExtensionMetadata {
    * Named groups and their member objects
    */
   groups?: SimGroup[];
+  stats?: SimStats;
   [k: string]: unknown;
 }
 export interface StepObject {
@@ -112,9 +117,17 @@ export interface SimGroup {
    */
   name?: string;
   /**
-   * Name of group objects
+   * Inline list of element/node names. Used for small groups (default threshold <256); large groups switch to members_buffer_view to keep the JSON chunk size bounded.
    */
   members?: string[];
+  /**
+   * Index of a glTF bufferView holding the packed uint32 member IDs. Mutually exclusive with `members`. Used for large element groups so the JSON chunk doesn't balloon. The IDs are reconstructed into names by prepending `members_prefix`.
+   */
+  members_buffer_view?: number;
+  /**
+   * String prepended to each uint32 ID in members_buffer_view to reconstruct the element/node name (e.g. "EL", "Li", "P"). Required when members_buffer_view is set.
+   */
+  members_prefix?: string;
   /**
    * Description of Group
    */
@@ -124,9 +137,55 @@ export interface SimGroup {
    */
   parent_name?: string;
   /**
+   * adapy guid of the CAD-side Beam/Plate this SimGroup was meshed from. Lets the viewer link FEA elements back to their CAD parent without name matching. Populated from FemSection.refs[0].guid.
+   */
+  parent_object_guid?: string;
+  /**
    * Type of finite element model objects in this group (nodes or elements)
    */
   fe_object_type?: "node" | "element";
+  [k: string]: unknown;
+}
+/**
+ * Aggregate metrics for this simulation model (centre of gravity, element counts). Computed at bake time so the viewer can show per-model info without reloading source.
+ */
+export interface SimStats {
+  cog?: COG;
+  /**
+   * Number of finite elements per category.
+   */
+  element_counts?: {
+    /**
+     * Line / beam elements.
+     */
+    beam?: number;
+    /**
+     * Shell elements.
+     */
+    shell?: number;
+    /**
+     * Solid elements.
+     */
+    solid?: number;
+    [k: string]: unknown;
+  };
+  [k: string]: unknown;
+}
+/**
+ * Mass-weighted centre of gravity. total_mass and total_volume are zero when elements have no material assigned.
+ */
+export interface COG {
+  x: number;
+  y: number;
+  z: number;
+  /**
+   * Sum of contributing masses.
+   */
+  total_mass?: number;
+  /**
+   * Sum of contributing volumes.
+   */
+  total_volume?: number;
   [k: string]: unknown;
 }
 /**
@@ -146,6 +205,21 @@ export interface DesignDataExtension {
    */
   groups?: Group[];
   node_references?: DesignNodeReference;
+  /**
+   * Map of physical object name (Beam/Plate/etc.) to its adapy guid. Used by the viewer to resolve a clicked CAD object to its stable lineage id, so a derived FEA model can be matched without name lookups.
+   */
+  object_guids?: {
+    [k: string]: string;
+  };
+  /**
+   * Optional per-object structured metadata (type, section, material, thickness) keyed by object name. When present, the viewer reads it directly from the GLB and skips the server round-trip back to the source IFC for the Properties panel.
+   */
+  object_metadata?: {
+    [k: string]: {
+      [k: string]: unknown;
+    };
+  };
+  stats?: DesignStats;
   [k: string]: unknown;
 }
 export interface Group {
@@ -175,5 +249,53 @@ export interface DesignNodeReference {
    * node reference of Faces mesh
    */
   faces?: string[];
+  [k: string]: unknown;
+}
+/**
+ * Aggregate metrics for this design model (centre of gravity, object counts). Computed at bake time so the viewer can show per-model info without reloading source.
+ */
+export interface DesignStats {
+  cog_volume?: COG1;
+  cog_mass?: COG2;
+  /**
+   * Number of physical objects per type, keyed by lowercase class name (e.g. beam, plate, shape, pipe, wall).
+   */
+  object_counts?: {
+    [k: string]: number;
+  };
+  [k: string]: unknown;
+}
+/**
+ * Volume-weighted centroid. Populated whenever any geometry contributes a non-zero volume.
+ */
+export interface COG1 {
+  x: number;
+  y: number;
+  z: number;
+  /**
+   * Sum of contributing masses.
+   */
+  total_mass?: number;
+  /**
+   * Sum of contributing volumes.
+   */
+  total_volume?: number;
+  [k: string]: unknown;
+}
+/**
+ * Mass-weighted centroid. Only populated when every physical object has a material density defined.
+ */
+export interface COG2 {
+  x: number;
+  y: number;
+  z: number;
+  /**
+   * Sum of contributing masses.
+   */
+  total_mass?: number;
+  /**
+   * Sum of contributing volumes.
+   */
+  total_volume?: number;
   [k: string]: unknown;
 }

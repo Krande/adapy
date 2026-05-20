@@ -50,7 +50,7 @@ import { useCompressionStore as g_useCompressionStore } from "./compressionStore
 import { useConversionStore as g_useConversionStore } from "./conversionStore"
 import { useExperimentalStore as g_useExperimentalStore } from "./experimentalStore"
 import { useFeaAnimationStore as g_useFeaAnimationStore } from "./feaAnimationStore"
-import { useGroupInfoStore as g_useGroupInfoStore } from "./groupInfoStore"
+import { useSceneInfoStore as g_useSceneInfoStore } from "./sceneInfoStore"
 import { useLineageStore as g_useLineageStore } from "./lineageStore"
 import { useMeStore as g_useMeStore } from "./meStore"
 import { useModelState as g_useModelState } from "./modelState"
@@ -105,7 +105,7 @@ export interface AdaViewerStores {
     useConversionStore: typeof g_useConversionStore
     useExperimentalStore: typeof g_useExperimentalStore
     useFeaAnimationStore: typeof g_useFeaAnimationStore
-    useGroupInfoStore: typeof g_useGroupInfoStore
+    useSceneInfoStore: typeof g_useSceneInfoStore
     useLineageStore: typeof g_useLineageStore
     useMeStore: typeof g_useMeStore
     useModelState: typeof g_useModelState
@@ -193,7 +193,7 @@ export function AdaViewerProvider({ children }: { children: ReactNode }) {
                 useConversionStore: g_useConversionStore,
                 useExperimentalStore: g_useExperimentalStore,
                 useFeaAnimationStore: g_useFeaAnimationStore,
-                useGroupInfoStore: g_useGroupInfoStore,
+                useSceneInfoStore: g_useSceneInfoStore,
                 useLineageStore: g_useLineageStore,
                 useMeStore: g_useMeStore,
                 useModelState: g_useModelState,
