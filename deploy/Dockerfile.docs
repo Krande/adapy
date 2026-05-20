@@ -41,17 +41,28 @@ WORKDIR /work/adapy
 COPY pixi.toml pixi.lock pyproject.toml ./
 RUN pixi install --environment docs --locked
 
-# Sibling paradoc checkout — the Filter / DbManager / ThreeDView /
-# vendored ada-viewer Z-up + CameraControls refresh + static-export
-# presets.json wiring + mobile-drawer translate-x fix + lazy CSS
-# injection + canvas-fits-container fix (vendor rebuilt against
-# adapy's Tailwind v4 upgrade) used by the FEA verification
-# report isn't in
-# the conda-forge build yet, so pixi.toml's `fea-doc` task overlays this clone via
+# Sibling paradoc checkout — used by the FEA verification report's
+# compile-time stack. Conda-forge `paradoc` lags everything in this
+# list, so `pixi.toml`'s `fea-doc` task overlays this clone via
 # PYTHONPATH=$PIXI_PROJECT_ROOT/../paradoc/src (matches the local-dev
 # sibling layout). The URL comes from a workflow secret so the source
 # host doesn't appear here; the repo is public-readable so no token
 # is required.
+#
+# Capabilities the report depends on (current as of paradoc f419c07):
+#   * Filter / DbManager / ThreeDView API
+#   * Vendored ada-viewer (Z-up, CameraControls refresh, embed CSS now
+#     `@scope (.ada-viewer-scope)` so it no longer leaks into host
+#     pages — adapy commits 7fdb6506 + 493dd9f6)
+#   * static-export presets.json wiring, canvas-fits-container fix,
+#     mobile-drawer translate-x + h-dvh fix, single-flight signIn,
+#     `${ key }` substitution syntax (the legacy `{{__key__}}` form
+#     now emits a deprecation warning on every compile)
+#   * Bundle manifest v2 (`published_at` + `git` provenance baked in
+#     at compile time so the landing page can show `branch@short_sha`)
+#   * `/api/docs/{id}/files/{path}` route + auth-aware AsyncImage —
+#     plain `![](files/x.png)` markdown refs in the report no longer
+#     need the IndexedDB-embedding round-trip.
 ARG PARADOC_GIT_URL
 ARG PARADOC_REF=main
 # CACHE_BUST forces a fresh clone when ``PARADOC_REF`` is a moving
