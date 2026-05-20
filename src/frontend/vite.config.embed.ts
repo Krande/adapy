@@ -49,13 +49,29 @@ function inlineCssAtRuntime(): Plugin {
             // document at app boot. Paradoc's own Tailwind classes (`.hidden`,
             // `.md:flex`, …) then lose the cascade to our later-injected ones,
             // breaking the desktop sidebar toggle and other display utilities.
+            //
+            // CSS scoping: we wrap the entire injected stylesheet in
+            // `@scope (.ada-viewer-scope) { ... }`. Without this the embed's
+            // Tailwind reset (`body{...}`, `html,:host{...}`, `*,::before{...}`,
+            // `code,kbd,samp,pre{...}`) leaks into the host page on first
+            // mount and clobbers the host's own typography / dark mode
+            // (paradoc bug: inline `<code>` styles flipped after a 3D viewer
+            // was loaded because the vendor's later-declared utility classes
+            // beat paradoc's `:where()`-wrapped dark variants on cascade
+            // order). `@scope` constrains every selector inside to descendants
+            // of `.ada-viewer-scope`, which mountViewer applies to its mount
+            // element — so the embed still styles itself but the host page
+            // is unaffected. Browser support: Chrome 118+, Safari 17.4+,
+            // Firefox 128+ (all current as of 2025).
+            const scopedCss =
+                `@scope (.ada-viewer-scope) {\n${css}\n}\n`;
             const injection =
                 `;globalThis.__adaViewerEmbedInjectCss=function(){` +
                 `if(typeof document==='undefined')return;` +
                 `if(document.querySelector('style[data-ada-viewer-embed]'))return;` +
                 `var s=document.createElement('style');` +
                 `s.setAttribute('data-ada-viewer-embed','');` +
-                `s.textContent=${JSON.stringify(css)};` +
+                `s.textContent=${JSON.stringify(scopedCss)};` +
                 `document.head.appendChild(s);` +
                 `};\n`;
             const jsPath = path.join(outDir, 'index.js');

@@ -94,6 +94,14 @@ export function mountViewer(element: HTMLElement, opts: MountViewerOptions): Mou
     // `<style data-ada-viewer-embed>` to the host document. Doing this at
     // mount (not at module-load) prevents the host page's display utilities
     // from being clobbered before any viewer is even on screen.
+    //
+    // The injected stylesheet is wrapped in `@scope (.ada-viewer-scope)`
+    // by the build plugin, so EVERY selector inside only matches
+    // descendants of an element carrying the `ada-viewer-scope` class.
+    // We add that class to the host element here — without it the canvas
+    // mounts but renders unstyled. With it, the host page is fully
+    // insulated from our Tailwind reset / utility classes.
+    element.classList.add("ada-viewer-scope")
     try {
         ;(globalThis as any).__adaViewerEmbedInjectCss?.()
     } catch {
@@ -319,6 +327,13 @@ export function mountViewer(element: HTMLElement, opts: MountViewerOptions): Mou
                 element.removeChild(overlayHost)
             } catch {
                 /* already detached */
+            }
+            // Drop the scope class so the host element looks the same
+            // before and after the viewer's lifecycle.
+            try {
+                element.classList.remove("ada-viewer-scope")
+            } catch {
+                /* ignore */
             }
         },
     }
