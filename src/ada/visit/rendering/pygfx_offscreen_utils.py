@@ -4,7 +4,15 @@ import numpy as np
 import pygfx as gfx
 import trimesh
 from PIL import Image
-from wgpu.gui.offscreen import WgpuCanvas
+
+# wgpu 0.20+ split the GUI shims out into the standalone `rendercanvas`
+# package; the old `wgpu.gui.offscreen` import path was removed entirely
+# by 0.31. Prefer the new location, fall back so installations still on
+# wgpu < 0.20 keep working.
+try:
+    from rendercanvas.offscreen import OffscreenRenderCanvas as _OffscreenCanvas
+except ImportError:  # pragma: no cover - exercised only on legacy wgpu
+    from wgpu.gui.offscreen import WgpuCanvas as _OffscreenCanvas  # type: ignore[no-redef]
 
 import ada
 from ada.visit.rendering.camera import Camera
@@ -18,7 +26,7 @@ def screenshot(part: ada.Part, filename: str, camera: Optional[Camera] = None):
 
 
 def trimesh_scene_to_image(tri_scene: trimesh.Scene, camera: Optional[Camera] = None) -> Image.Image:
-    canvas = WgpuCanvas(size=(640, 480), pixel_ratio=1)
+    canvas = _OffscreenCanvas(size=(640, 480), pixel_ratio=1)
     renderer = gfx.renderers.WgpuRenderer(canvas)
 
     scene = gfx.Scene()
