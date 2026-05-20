@@ -58,8 +58,8 @@ RUN pixi install --environment docs --locked
 #     mobile-drawer translate-x + h-dvh fix, single-flight signIn,
 #     `${ key }` substitution syntax (the legacy `{{__key__}}` form
 #     now emits a deprecation warning on every compile)
-#   * Bundle manifest v2 (`published_at` + `git` provenance baked in
-#     at compile time so the landing page can show `branch@short_sha`)
+#   * Bundle manifest v2 — `published_at` + git provenance baked in at
+#     compile time so the landing page can render `branch@short_sha`
 #   * `/api/docs/{id}/files/{path}` route + auth-aware AsyncImage —
 #     plain `![](files/x.png)` markdown refs in the report no longer
 #     need the IndexedDB-embedding round-trip.
