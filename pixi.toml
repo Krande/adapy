@@ -173,7 +173,13 @@ ipywidgets = "*"
 jupyterlab = "*"
 plotly = "*"
 python-kaleido = ">=1.0.0"
-pygfx = ">=0.13"
+pygfx = ">=0.16"
+# pygfx 0.16 transitively requires wgpu ≥ 0.21 (which dropped the
+# legacy `wgpu.gui.offscreen` module) plus `rendercanvas ≥ 2.0` for
+# the offscreen canvas. Pin explicit lower bounds so the solver
+# doesn't downgrade to a wgpu where our offscreen code can't import.
+wgpu-py = ">=0.31"
+rendercanvas = ">=2.6"
 glfw = "==3.4"
 pyglfw = "*"
 send2trash = "*"
