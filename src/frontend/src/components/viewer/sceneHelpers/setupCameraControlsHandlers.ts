@@ -13,10 +13,56 @@ export function setupCameraControlsHandlers(
     scene: THREE.Scene,
     camera: THREE.PerspectiveCamera,
     controls: CameraControls | OrbitControls,
+    /**
+     * Optional scope element. When provided, the Shift+key shortcuts
+     * only fire while the pointer is over (or keyboard focus is
+     * inside) this element. Without a scope, behaves as before:
+     * window-global, fires from anywhere on the page.
+     *
+     * The standalone viewer (full-page app) passes nothing — the
+     * whole tab is the viewer, so global scope is correct. The
+     * paradoc embed passes its mount element so the shortcuts don't
+     * leak into the host page (Shift+T would otherwise toggle the
+     * adapy tree while the reader user was typing in a paradoc
+     * search box, etc.).
+     */
+    scopeEl?: HTMLElement,
 ) {
-
+    // Treat the listener as in-scope by default when no element is
+    // given (preserves the standalone's global behavior). Otherwise
+    // track pointer-over + focus-inside on the scope element.
+    let inScope = !scopeEl;
+    let onEnter: (() => void) | null = null;
+    let onLeave: (() => void) | null = null;
+    let onFocusIn: (() => void) | null = null;
+    let onFocusOut: ((e: FocusEvent) => void) | null = null;
+    if (scopeEl) {
+        onEnter = () => { inScope = true; };
+        onLeave = () => { inScope = false; };
+        onFocusIn = () => { inScope = true; };
+        onFocusOut = (e) => {
+            // Focus moved out of the scope subtree → leave scope. But
+            // related target may be null on tab-out; treat that as out.
+            const next = e.relatedTarget as Node | null;
+            if (!next || !scopeEl.contains(next)) inScope = false;
+        };
+        scopeEl.addEventListener("mouseenter", onEnter);
+        scopeEl.addEventListener("mouseleave", onLeave);
+        scopeEl.addEventListener("focusin", onFocusIn);
+        scopeEl.addEventListener("focusout", onFocusOut as EventListener);
+    }
 
     const handleKeyDown = (event: KeyboardEvent) => {
+        if (!inScope) return;
+        // Don't hijack shortcuts while the user is typing in a form
+        // field — same trap browsers use for `/` etc. The standalone
+        // never had this check either, but the embed amplifies the
+        // problem (paradoc has search boxes a click away).
+        const t = event.target as HTMLElement | null;
+        if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) {
+            return;
+        }
+
         const key = event.key.toLowerCase();
         const shift = event.shiftKey;
         const selectedObjects = useSelectedObjectStore.getState().selectedObjects;
@@ -49,6 +95,12 @@ export function setupCameraControlsHandlers(
 
     return () => {
         window.removeEventListener("keydown", handleKeyDown);
+        if (scopeEl) {
+            if (onEnter) scopeEl.removeEventListener("mouseenter", onEnter);
+            if (onLeave) scopeEl.removeEventListener("mouseleave", onLeave);
+            if (onFocusIn) scopeEl.removeEventListener("focusin", onFocusIn);
+            if (onFocusOut) scopeEl.removeEventListener("focusout", onFocusOut as EventListener);
+        }
     };
 }
 

@@ -48,6 +48,7 @@ import { useTreeViewStore } from "../src/state/treeViewStore"
 import { setupModelLoaderAsync } from "../src/components/viewer/sceneHelpers/setupModelLoader"
 import { setupPointerHandler } from "../src/components/viewer/sceneHelpers/setupPointerHandler"
 import { applyStandardLayers } from "../src/components/viewer/sceneHelpers/setupCamera"
+import { setupCameraControlsHandlers } from "../src/components/viewer/sceneHelpers/setupCameraControlsHandlers"
 
 import { EmbedUI } from "./EmbedUI"
 
@@ -89,6 +90,7 @@ export function mountViewer(element: HTMLElement, opts: MountViewerOptions): Mou
     let reactRoot: Root | null = null
     let blobUrl: string | null = null
     let cleanupPointer: (() => void) | null = null
+    let cleanupShortcuts: (() => void) | null = null
 
     // Inject the embed's CSS (Tailwind + adapy component styles) the first
     // time mountViewer runs. The `inlineCssAtRuntime` vite plugin defines
@@ -187,6 +189,20 @@ export function mountViewer(element: HTMLElement, opts: MountViewerOptions): Mou
     controls.dollyToCursor = true
     if (Z_IS_UP) controls.updateCameraUp()
     const clock = new THREE.Clock()
+
+    // Wire the standalone's Shift+key shortcuts (Shift+T tree, Shift+F
+    // fit-to-selection, Shift+A zoom-all, Shift+H hide selection,
+    // Shift+U unhide, Shift+Q options, Shift+C copy names), but
+    // scoped to the embed's mount element so they only fire while
+    // the user is interacting with the viewer. Without the scope the
+    // shortcuts would leak into paradoc — Shift+T would toggle the
+    // adapy tree while the reader user was typing in a search box.
+    cleanupShortcuts = setupCameraControlsHandlers(
+        scene,
+        camera,
+        controls as unknown as OrbitControls,
+        element,
+    )
 
     // --- Populate the singleton refs ---
     // adapy's pipeline (setupModelLoaderAsync, prepareLoadedModel,
@@ -294,6 +310,11 @@ export function mountViewer(element: HTMLElement, opts: MountViewerOptions): Mou
             ro.disconnect()
             try {
                 cleanupPointer?.()
+            } catch {
+                /* ignore */
+            }
+            try {
+                cleanupShortcuts?.()
             } catch {
                 /* ignore */
             }
