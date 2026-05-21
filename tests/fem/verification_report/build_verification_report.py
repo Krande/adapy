@@ -249,12 +249,20 @@ def _render_scene_with_edges(scene, camera):
         import pygfx as gfx
         import trimesh
         from PIL import Image
-        from wgpu.gui.offscreen import WgpuCanvas
+        # wgpu 0.20+ moved the offscreen GUI shim out into the
+        # standalone `rendercanvas` package; 0.31 dropped the legacy
+        # `wgpu.gui.offscreen` module entirely. Prefer the new path
+        # with a fallback for installs still on legacy wgpu. Same
+        # split lives in `ada.visit.rendering.pygfx_offscreen_utils`.
+        try:
+            from rendercanvas.offscreen import OffscreenRenderCanvas as _Canvas
+        except ImportError:
+            from wgpu.gui.offscreen import WgpuCanvas as _Canvas  # type: ignore[no-redef]
     except Exception as exc:
         logger.warning(f"pygfx deps unavailable: {exc}")
         return None
 
-    canvas = WgpuCanvas(size=(640, 480), pixel_ratio=1)
+    canvas = _Canvas(size=(640, 480), pixel_ratio=1)
     renderer = gfx.renderers.WgpuRenderer(canvas)
     gfx_scene = gfx.Scene()
     group = gfx_scene.add(gfx.Group())
