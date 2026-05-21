@@ -49,11 +49,13 @@ RUN pixi install --environment docs --locked
 # host doesn't appear here; the repo is public-readable so no token
 # is required.
 #
-# Capabilities the report depends on (current as of paradoc de507fc —
-# the rebuilt frontend.zip that ships the cog settings menu + dark
-# mode + landing page + scoped embed CSS + h-dvh mobile fixes, with
-# the WS pill now hidden in static mode and the "Paradoc Reader"
-# branding cleaned out of the topbar):
+# Capabilities the report depends on (current as of paradoc e32c8f0):
+# rebuilt frontend.zip with the cog menu / dark mode / landing page /
+# scoped embed CSS / h-dvh / clean static-mode topbar; pygfx 0.16 +
+# wgpu-py 0.31 + rendercanvas 2.6 pins matching adapy's own bump so
+# the FEA report's edge-aware offscreen poster renderer (now using
+# `rendercanvas.offscreen.OffscreenRenderCanvas` in both adapy
+# helpers — generic and edge-aware) actually runs at build time.
 #   * Filter / DbManager / ThreeDView API
 #   * Vendored ada-viewer (Z-up, CameraControls refresh, embed CSS now
 #     `@scope (.ada-viewer-scope)` so it no longer leaks into host
