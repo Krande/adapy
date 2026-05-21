@@ -24,13 +24,43 @@ import ada
 from ada.visit.rendering.camera import Camera
 
 
-def _read_glb_primitives(glb_path: str | Path) -> list[dict]:
-    """Parse a binary GLB and return its primitives raw.
+def _node_matrix(node: dict) -> np.ndarray:
+    """Compose a node's local 4x4 matrix from TRS or an explicit matrix.
 
-    Returns one dict per primitive across all meshes:
+    glTF lets a node carry either `matrix` (16 floats, column-major) or
+    a TRS triplet (translation, rotation as quaternion, scale). The
+    spec forbids both being present, so we pick whichever is set.
+    """
+    if "matrix" in node:
+        # glTF stores matrices column-major; numpy is row-major.
+        return np.array(node["matrix"], dtype=np.float64).reshape((4, 4), order="F")
+    t = node.get("translation", [0.0, 0.0, 0.0])
+    r = node.get("rotation", [0.0, 0.0, 0.0, 1.0])  # quaternion xyzw
+    s = node.get("scale", [1.0, 1.0, 1.0])
+    qx, qy, qz, qw = r
+    # Quaternion → rotation matrix.
+    rx = np.array([
+        [1 - 2 * (qy * qy + qz * qz), 2 * (qx * qy - qz * qw), 2 * (qx * qz + qy * qw), 0.0],
+        [2 * (qx * qy + qz * qw), 1 - 2 * (qx * qx + qz * qz), 2 * (qy * qz - qx * qw), 0.0],
+        [2 * (qx * qz - qy * qw), 2 * (qy * qz + qx * qw), 1 - 2 * (qx * qx + qy * qy), 0.0],
+        [0.0, 0.0, 0.0, 1.0],
+    ], dtype=np.float64)
+    sx, sy, sz = s
+    sm = np.diag([sx, sy, sz, 1.0])
+    tm = np.eye(4, dtype=np.float64)
+    tm[:3, 3] = t
+    return tm @ rx @ sm
+
+
+def _read_glb_primitives(glb_path: str | Path) -> list[dict]:
+    """Parse a binary GLB and return its primitives in world-space coords.
+
+    Returns one dict per primitive across the active scene, with the
+    full node-hierarchy transform already baked into the positions:
+
       {
         "mode": int,                      # 4=TRIANGLES, 1=LINES, …
-        "positions": np.ndarray (N, 3),   # float32
+        "positions": np.ndarray (N, 3),   # float32, world-space
         "indices":   np.ndarray (M,) | None,  # int32, when an index buffer exists
         "colors":    np.ndarray (N, 4) | None,  # float32, when COLOR_0 exists
       }
@@ -42,6 +72,13 @@ def _read_glb_primitives(glb_path: str | Path) -> list[dict]:
     edge-overlay "spaghetti wireframe" bug. Reading the GLB ourselves
     keeps the offscreen renderer on the same side of the contract as
     Three.js' GLTFLoader (which the embedded viewer uses).
+
+    Node-graph walk matters: adapy's `Part.to_gltf` often stores mesh
+    vertices in local coords and pushes the world placement onto a
+    node's `translation`. Skipping the walk would leave the camera
+    framing the *local* bbox while the live viewer (which honours the
+    transforms via Three.js' GLTFLoader) frames the *world* bbox, and
+    the two pictures stop agreeing on the model's position and size.
     """
     p = Path(glb_path)
     raw = p.read_bytes()
@@ -58,6 +95,10 @@ def _read_glb_primitives(glb_path: str | Path) -> list[dict]:
 
     accessors = gltf.get("accessors", [])
     buffer_views = gltf.get("bufferViews", [])
+    nodes = gltf.get("nodes", [])
+    meshes = gltf.get("meshes", [])
+    scenes = gltf.get("scenes", [])
+    scene_idx = gltf.get("scene", 0)
 
     # componentType (GLTF spec) → numpy dtype string. Multi-buffer GLBs
     # are rare and adapy never writes them, but we still resolve via
@@ -80,31 +121,89 @@ def _read_glb_primitives(glb_path: str | Path) -> list[dict]:
             arr = arr.reshape((count, elem))
         return arr
 
+    def transform_positions(pos: np.ndarray, m: np.ndarray) -> np.ndarray:
+        if np.allclose(m, np.eye(4)):
+            return pos
+        # Append homogeneous w=1, multiply, drop w.
+        homo = np.concatenate([pos, np.ones((len(pos), 1), dtype=pos.dtype)], axis=1)
+        out_homo = homo @ m.T.astype(pos.dtype)
+        return out_homo[:, :3].astype(np.float32, copy=False)
+
     out: list[dict] = []
-    for mesh in gltf.get("meshes", []):
-        for prim in mesh.get("primitives", []):
-            attrs = prim.get("attributes", {})
-            if "POSITION" not in attrs:
-                continue
-            positions = read_accessor(attrs["POSITION"]).astype(np.float32, copy=False)
-            indices = (
-                read_accessor(prim["indices"]).astype(np.int32, copy=False)
-                if "indices" in prim
-                else None
-            )
-            colors = (
-                read_accessor(attrs["COLOR_0"]).astype(np.float32, copy=False)
-                if "COLOR_0" in attrs
-                else None
-            )
-            out.append(
-                {
-                    "mode": prim.get("mode", 4),  # default = TRIANGLES per spec
-                    "positions": positions,
-                    "indices": indices,
-                    "colors": colors,
-                }
-            )
+
+    def walk(node_idx: int, parent_matrix: np.ndarray) -> None:
+        node = nodes[node_idx]
+        local = _node_matrix(node).astype(np.float64)
+        world = parent_matrix @ local
+        if "mesh" in node:
+            for prim in meshes[node["mesh"]].get("primitives", []):
+                attrs = prim.get("attributes", {})
+                if "POSITION" not in attrs:
+                    continue
+                positions = read_accessor(attrs["POSITION"]).astype(np.float32, copy=False)
+                positions = transform_positions(positions, world)
+                indices = (
+                    read_accessor(prim["indices"]).astype(np.int32, copy=False)
+                    if "indices" in prim
+                    else None
+                )
+                colors = (
+                    read_accessor(attrs["COLOR_0"]).astype(np.float32, copy=False)
+                    if "COLOR_0" in attrs
+                    else None
+                )
+                out.append(
+                    {
+                        "mode": prim.get("mode", 4),  # default = TRIANGLES per spec
+                        "positions": positions,
+                        "indices": indices,
+                        "colors": colors,
+                    }
+                )
+        for child in node.get("children", []):
+            walk(child, world)
+
+    root_nodes: list[int] = []
+    if scenes:
+        root_nodes = scenes[scene_idx].get("nodes", [])
+    if not root_nodes and nodes:
+        # No scenes (or empty default scene) — fall back to walking
+        # every node as if it were a root. Catches GLBs written
+        # without a scene definition (the loose convention some
+        # exporters emit).
+        root_nodes = list(range(len(nodes)))
+    identity = np.eye(4, dtype=np.float64)
+    for r in root_nodes:
+        walk(r, identity)
+
+    # Final safety net: if the GLB had no node graph at all, fall back
+    # to the old "iterate meshes directly" path — keeps degenerate
+    # writers working at the cost of skipping any node transforms.
+    if not out:
+        for mesh in meshes:
+            for prim in mesh.get("primitives", []):
+                attrs = prim.get("attributes", {})
+                if "POSITION" not in attrs:
+                    continue
+                positions = read_accessor(attrs["POSITION"]).astype(np.float32, copy=False)
+                indices = (
+                    read_accessor(prim["indices"]).astype(np.int32, copy=False)
+                    if "indices" in prim
+                    else None
+                )
+                colors = (
+                    read_accessor(attrs["COLOR_0"]).astype(np.float32, copy=False)
+                    if "COLOR_0" in attrs
+                    else None
+                )
+                out.append(
+                    {
+                        "mode": prim.get("mode", 4),
+                        "positions": positions,
+                        "indices": indices,
+                        "colors": colors,
+                    }
+                )
     return out
 
 
@@ -168,10 +267,47 @@ def _apply_embed_preset_camera(
     near = max(d / 1000.0, 1e-3)
     far = d * 100.0
 
-    cam = gfx.PerspectiveCamera(fov_deg, max(aspect, 1e-3), depth_range=(near, far))
-    cam.local.up = up
-    cam.local.position = tuple(position.tolist())
-    cam.look_at(tuple(center.tolist()))
+    # pygfx's `PerspectiveCamera.fov` is *not* the vertical FOV (the
+    # Three.js convention `fov_deg` follows). Inspecting pygfx
+    # `_update_projection_matrix` shows it computes
+    #     height = 2 * near * tan(fov/2) / (1 + aspect)
+    # so the actual vertical-FOV emitted by the projection is
+    #     tan(fov_v/2) = 2 * tan(fov_pygfx/2) / (1 + aspect)
+    # i.e. squashed by `2/(1+aspect)`. Invert that so a caller passing
+    # `fov_deg=45` (vertical, embed-style) actually gets a 45°
+    # vertical frustum out of pygfx.
+    safe_aspect = max(aspect, 1e-3)
+    fov_pygfx = math.degrees(
+        2 * math.atan(math.tan(math.radians(fov_deg / 2)) * (1 + safe_aspect) / 2)
+    )
+
+    # `maintain_aspect=True` (the default) makes pygfx force
+    # m[0][0] == m[1][1] regardless of aspect, which squashes the X-Y
+    # ratio of the projection. We want canonical perspective
+    # (m[1][1] = 1/tan(fov_v/2), m[0][0] = m[1][1] / aspect) so the
+    # pygfx poster comes out at the same pixel ratio as Three.js'.
+    cam = gfx.PerspectiveCamera(
+        fov_pygfx, safe_aspect, depth_range=(near, far), maintain_aspect=False,
+    )
+    # `cam.look_at(target)` recomputes the up vector to be orthogonal
+    # to the forward direction, so a Z-up scene loses its world-vertical
+    # orientation and the resulting roll diverges from Three.js'
+    # `controls.setLookAt(...)` (which keeps `camera.up` fixed at world-
+    # vertical). Build the rotation from `eye → target` with a fixed
+    # world-up reference via pylinalg and write it directly so the
+    # offscreen poster matches the embed's framing pose-for-pose.
+    import pylinalg as la
+
+    eye = np.asarray(position, dtype=np.float64)
+    look = np.asarray(center, dtype=np.float64)
+    up_ref = np.asarray(up, dtype=np.float64)
+    # `mat_look_at` aligns the local +Z axis with `target - eye`, but
+    # pygfx perspective cameras look down their -Z axis (matches
+    # OpenGL / Three.js). Swap eye/target so +Z points *away* from
+    # the model — equivalent to "the camera's forward is -Z".
+    rot_matrix = la.mat_look_at(look, eye, up_ref)
+    cam.local.position = tuple(eye.tolist())
+    cam.local.rotation = la.quat_from_mat(rot_matrix)
     return cam
 
 
