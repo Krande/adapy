@@ -49,10 +49,11 @@ RUN pixi install --environment docs --locked
 # host doesn't appear here; the repo is public-readable so no token
 # is required.
 #
-# Capabilities the report depends on (current as of paradoc 1afb374 +
-# adapy cce6ad50 — FEA edge segments rendered, embed `showControls`
-# mode now exposes SimulationControls for mode-shape mode/step
-# scrubbing + deformation scale + play/pause):
+# Capabilities the report depends on (current as of paradoc 74d6831 +
+# adapy 128ece8f — FEA edge segments rendered, embed `showControls`
+# mode exposes SimulationControls, viewer keyboard shortcuts
+# (Shift+T/F/A/H/U/Q/C) are bundled and scoped to the mount element
+# so they no longer leak into paradoc):
 # rebuilt frontend.zip with the cog menu / dark mode / landing page /
 # scoped embed CSS / h-dvh / clean static-mode topbar; pygfx 0.16 +
 # wgpu-py 0.31 + rendercanvas 2.6 pins matching adapy's own bump so
