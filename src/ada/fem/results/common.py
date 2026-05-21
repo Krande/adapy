@@ -493,7 +493,13 @@ class FEAResult:
 
         data = self.get_data(field, step)
         vertex_colors = DataColorizer.colorize_data(data, func=colorize_function)
-        return np.array([[i * 255 for i in x] + [1] for x in vertex_colors], dtype=np.int32)
+        # Append alpha = 255 (fully opaque). The earlier `+ [1]` looked
+        # like "opaque" in float space but lands as 1/255 ≈ 0 once GLB
+        # readers normalise uint8 VEC4 colours — which is what made
+        # pygfx posters render the middle of every FEA beam as white
+        # while Three.js' opaque material happened to ignore the
+        # bogus alpha and got away with it.
+        return np.array([[i * 255 for i in x] + [255] for x in vertex_colors], dtype=np.int32)
 
     def _warp_data(self, vertices: np.ndarray, field: str, step, scale: float = 1.0):
         data = self.get_data(field, step)

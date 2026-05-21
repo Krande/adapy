@@ -235,7 +235,46 @@ class PbrMetallicRoughness:
     roughnessFactor: float
 
 
+# Abaqus' default stress / displacement rainbow. Five piecewise-linear
+# stops, matched verbatim against the frontend's
+# `utils/scene/fea/colormaps.ts:abaqus` so the offscreen poster, the
+# chromium snapshot, and the live viewer all paint identical colours
+# from identical scalar fields. Used as the default colormap for the
+# FEA GLB writer; callers can still override via `cfunc=`.
+ABAQUS_COLORMAP_STOPS = (
+    (0.00, (0.0, 0.0, 1.0)),  # blue
+    (0.25, (0.0, 1.0, 1.0)),  # cyan
+    (0.50, (0.0, 1.0, 0.0)),  # green
+    (0.75, (1.0, 1.0, 0.0)),  # yellow
+    (1.00, (1.0, 0.0, 0.0)),  # red
+)
+
+
+def apply_colormap(t_values: np.ndarray, stops=ABAQUS_COLORMAP_STOPS) -> np.ndarray:
+    """Piecewise-linear colormap. `t_values` in [0, 1]; returns RGB float32."""
+    t = np.clip(np.asarray(t_values, dtype=np.float32), 0.0, 1.0)
+    out = np.zeros((t.size, 3), dtype=np.float32)
+    for (t0, c0), (t1, c1) in zip(stops[:-1], stops[1:]):
+        a = np.asarray(c0, dtype=np.float32)
+        b = np.asarray(c1, dtype=np.float32)
+        # Final segment is inclusive on the right so t == 1.0 lands on
+        # the last stop instead of falling through and staying at zero.
+        if t1 >= 1.0:
+            mask = (t >= t0) & (t <= t1)
+        else:
+            mask = (t >= t0) & (t < t1)
+        if not mask.any():
+            continue
+        local = (t[mask] - t0) / max(t1 - t0, 1e-12)
+        out[mask] = a + (b - a) * local[:, None]
+    return out
+
+
 class DataColorizer:
+    # Kept for back-compat. New code should rely on the abaqus stops
+    # via `apply_colormap`; this two-stop palette only fires when a
+    # caller explicitly passes a custom `palette=` and isn't using the
+    # default FEA-write path.
     default_palette = [(0, 149 / 255, 239 / 255), (1, 0, 0)]
 
     @staticmethod
@@ -248,21 +287,26 @@ class DataColorizer:
             elif num_cols == 1:
                 func = magnitude1d
 
-        palette = DataColorizer.default_palette if palette is None else palette
+        res = np.asarray([func(d) for d in data], dtype=np.float32)
+        min_r = float(res.min())
+        max_r = float(res.max())
+        span = max_r - min_r
+        # Normalise scalar range to [0, 1]. Zero-range (constant field)
+        # would otherwise NaN out; map everything to the colormap's
+        # midpoint so the user sees a flat "no variation" colour
+        # instead of an unrendered mesh.
+        t = (res - min_r) / span if span > 0 else np.full_like(res, 0.5)
 
-        res = [func(d) for d in data]
-        sorte = sorted(res)
-        min_r = sorte[0]
-        max_r = sorte[-1]
+        if palette is None:
+            # Default: full abaqus rainbow — matches the frontend's
+            # default colormap pick (`feaAnimationStore.colormap = "abaqus"`).
+            return apply_colormap(t)
 
-        start = np.array(palette[0])
-        end = np.array(palette[-1])
-
-        def curr_p(t):
-            return start + (end - start) * t / (max_r - min_r)
-
-        colors = np.asarray(list([curr_p(x) for x in res]), dtype="float32")
-        return colors
+        # Legacy two-stop linear interp path. Preserved so callers that
+        # opted into a custom palette keep getting their colours.
+        start = np.asarray(palette[0], dtype=np.float32)
+        end = np.asarray(palette[-1], dtype=np.float32)
+        return start + (end - start) * t[:, None]
 
 
 def magnitude(u):
