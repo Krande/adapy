@@ -12,10 +12,10 @@
 import React from "react"
 import ResizableTreeView from "@/components/tree_view/ResizableTreeView"
 import ObjectInfoBox from "@/components/info_box_selected_object/ObjectInfoBoxComponent"
-import GroupInfoBox from "@/components/info_box_groups/GroupInfoBox"
+import SceneInfoBox from "@/components/info_box_scene/SceneInfoBox"
 import TreeViewIcon from "@/components/icons/TreeViewIcon"
 import InfoIcon from "@/components/icons/InfoIcon"
-import GroupIcon from "@/components/icons/GroupIcon"
+import SceneIcon from "@/components/icons/SceneIcon"
 import { useViewerStores } from "@/state/AdaViewerContext"
 
 const BTN_BASE =
@@ -29,11 +29,11 @@ function btnClass(active: boolean): string {
 }
 
 export const EmbedUI: React.FC = () => {
-    const { useObjectInfoStore, useGroupInfoStore, useTreeViewStore } = useViewerStores()
-    const showInfo = useObjectInfoStore((s) => s.show_info_box)
+    const { useObjectInfoStore, useSceneInfoStore, useTreeViewStore } = useViewerStores()
+    const showInfo = useObjectInfoStore((s: any) => s.show_info_box)
     const toggleInfo = useObjectInfoStore.getState().toggle
-    const showGroup = useGroupInfoStore((s) => s.show_group_info_box)
-    const toggleGroup = useGroupInfoStore.getState().toggle
+    const showScene = useSceneInfoStore((s: any) => s.show_scene_info_box)
+    const toggleScene = useSceneInfoStore.getState().toggle
     const { isTreeCollapsed, setIsTreeCollapsed, treeViewWidth } = useTreeViewStore()
 
     // Push the toolbar right when the drawer is open so the buttons
@@ -70,17 +70,17 @@ export const EmbedUI: React.FC = () => {
                     </button>
                     <button
                         type="button"
-                        className={btnClass(showGroup)}
-                        onClick={toggleGroup}
-                        title="Toggle group info"
-                        aria-pressed={showGroup}
+                        className={btnClass(showScene)}
+                        onClick={toggleScene}
+                        title="Toggle scene info"
+                        aria-pressed={showScene}
                     >
-                        <GroupIcon />
+                        <SceneIcon />
                     </button>
                 </div>
                 <div className="px-2 flex flex-col gap-2 pointer-events-auto max-w-[100vw]">
                     {showInfo && <ObjectInfoBox />}
-                    {showGroup && <GroupInfoBox />}
+                    {showScene && <SceneInfoBox />}
                 </div>
             </div>
         </div>

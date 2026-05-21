@@ -41,11 +41,12 @@ import {
 import { useModelState } from "../src/state/modelState"
 import { useOptionsStore } from "../src/state/optionsStore"
 import { useObjectInfoStore } from "../src/state/objectInfoStore"
-import { useGroupInfoStore } from "../src/state/groupInfoStore"
+import { useSceneInfoStore } from "../src/state/sceneInfoStore"
 import { useTreeViewStore } from "../src/state/treeViewStore"
 
 import { setupModelLoaderAsync } from "../src/components/viewer/sceneHelpers/setupModelLoader"
 import { setupPointerHandler } from "../src/components/viewer/sceneHelpers/setupPointerHandler"
+import { applyStandardLayers } from "../src/components/viewer/sceneHelpers/setupCamera"
 
 import { EmbedUI } from "./EmbedUI"
 
@@ -165,6 +166,14 @@ export function mountViewer(element: HTMLElement, opts: MountViewerOptions): Mou
         10000,
     )
     if (Z_IS_UP) camera.up.set(0, 0, 1)
+    // Standalone `setupCamera` already does this; the embed open-codes
+    // its camera (paradoc passes the FOV from its preset) so we have
+    // to call the shared helper explicitly. Without layer 1 enabled,
+    // the GLB edge overlay LineSegments (parked on layer 1 by
+    // prepareLoadedModel for non-pickability) silently disappear,
+    // which is why FEA mesh wireframes were missing in paradoc-embed
+    // (REST + static) but visible in the standalone app.
+    applyStandardLayers(camera)
 
     // --- Lights ---
     scene.add(new THREE.HemisphereLight(0xffffff, 0xb1b8c4, 0.85))
@@ -204,7 +213,7 @@ export function mountViewer(element: HTMLElement, opts: MountViewerOptions): Mou
     //     The user opens what they need via the toolbar. Mirrors the
     //     paradoc-side "first-paint stays minimal" idiom. ---
     useObjectInfoStore.setState({ show_info_box: false })
-    useGroupInfoStore.setState({ show_group_info_box: false })
+    useSceneInfoStore.setState({ show_scene_info_box: false })
     useTreeViewStore.getState().setIsTreeCollapsed(true)
 
     // --- Resize handling ---
