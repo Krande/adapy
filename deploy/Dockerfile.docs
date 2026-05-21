@@ -49,14 +49,25 @@ RUN pixi install --environment docs --locked
 # host doesn't appear here; the repo is public-readable so no token
 # is required.
 #
-# Capabilities the report depends on (current as of paradoc 3701685 +
-# adapy 128ece8f — FEA edge segments rendered, embed `showControls`
-# exposes SimulationControls, viewer keyboard shortcuts bundled +
-# scoped to the mount, IndexedDB version bump 4→5 plus per-docId
-# auto-invalidation: DocManifest now carries `published_at` and the
-# SPA's fetchManifest wipes that doc's cached sections / images /
-# plots / tables / 3d-meta whenever it changes — so a docs rebuild
-# from now on doesn't need anyone hitting Clear-cache):
+# Capabilities the report depends on (current as of paradoc f99b6c0 +
+# adapy c6d41f43):
+#   * FEA edge segments rendered (camera layer 1 + GLB-direct reader
+#     in pygfx_offscreen_utils — `mode: 1` LINES respected the way
+#     Three.js does, no more trimesh-Path3D mis-interpretation)
+#   * Offscreen poster framing math ported verbatim from
+#     `embed/index.ts:applyCameraPreset` (azimuth/elevation/distance/
+#     margin) so the poster and live viewer line up to the pixel
+#   * Embed `showControls` exposes SimulationControls (mode slider,
+#     deformation scale, play/pause for animated GLBs)
+#   * Viewer keyboard shortcuts bundled + scoped to the mount
+#   * IndexedDB 4→5 bump + per-docId auto-invalidation:
+#     DocManifest carries `published_at` so `fetchManifest` wipes
+#     cached sections / images / plots / tables / 3d-meta whenever
+#     it changes — bundle rebuild needs no Clear-cache click.
+#   * DocManifest now also carries the full `git` block (branch,
+#     short_commit, full commit, dirty flag, remote URL); About
+#     panel surfaces it in embed/static mode where there's no
+#     /api/info to query.
 # rebuilt frontend.zip with the cog menu / dark mode / landing page /
 # scoped embed CSS / h-dvh / clean static-mode topbar; pygfx 0.16 +
 # wgpu-py 0.31 + rendercanvas 2.6 pins matching adapy's own bump so
