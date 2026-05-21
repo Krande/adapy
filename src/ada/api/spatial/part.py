@@ -1140,53 +1140,68 @@ class Part(BackendGeom):
         Parameters
         ----------
         camera
-            Pygfx camera. Only used when ``backend="pygfx"``.
+            Legacy pygfx camera. When supplied with ``backend="pygfx"``,
+            the trimesh-scene render path is used (kept for callers that
+            already pass a hand-built ``Camera``). When ``None``, both
+            backends route through the embed's ``applyCameraPreset``
+            math so pygfx, chromium, and the live 3D viewer all use
+            identical camera setup.
         backend
-            ``"pygfx"`` (default) — fast offscreen render via wgpu. The
-            existing path; ``camera`` controls framing.
-
-            ``"chromium"`` — drives the production adapy embed in
-            headless Chromium via Playwright. Output is bit-identical
-            to what the live 3D viewer renders, at the cost of ~5s/
-            invocation and a chromium dependency. ``camera`` is
-            ignored; pass ``preset`` to override the embed's
-            ``CameraPreset`` (azimuth_deg, elevation_deg, distance,
-            fov_deg, margin, …).
+            ``"pygfx"`` (default) — fast offscreen render via wgpu.
+            ``"chromium"`` drives the production adapy embed in headless
+            Chromium via Playwright. ``camera`` is ignored by chromium;
+            pass ``preset`` to override the embed's ``CameraPreset``.
         preset
-            Camera preset dict for the chromium backend (see
-            ``ada.visit.rendering.chromium_offscreen_utils``). Ignored
-            by pygfx.
+            Camera preset dict (azimuth_deg, elevation_deg, fov_deg,
+            distance, margin, …). Honored by *both* backends when
+            ``camera`` is None — same field names as
+            ``paradoc.camera.presets.CameraPreset`` so the three
+            render paths read from a single source of truth.
         size
-            Viewport size for the chromium backend (also the output
-            PNG size at DPR=1). Ignored by pygfx — that path uses
-            its hard-coded 640×480.
+            Viewport size (also the output PNG size at DPR=1).
         """
-        if backend == "chromium":
+        # Both default-path branches roundtrip via a temp GLB then call
+        # one of the two glb_to_image* helpers. That keeps the pygfx
+        # and chromium framing identical (same math, same defaults).
+        # Custom camera arg keeps the legacy trimesh path so existing
+        # callers don't have to re-rig.
+        if backend == "chromium" or (backend == "pygfx" and camera is None):
             import tempfile
-
-            from ada.visit.rendering.chromium_offscreen_utils import (
-                glb_to_image_via_browser,
-            )
 
             with tempfile.NamedTemporaryFile(suffix=".glb", delete=False) as tmp:
                 tmp_path = pathlib.Path(tmp.name)
             try:
                 self.to_gltf(tmp_path)
-                return glb_to_image_via_browser(tmp_path, preset=preset, size=size)
+                preset_kwargs: dict = dict(preset or {})
+                if backend == "chromium":
+                    from ada.visit.rendering.chromium_offscreen_utils import (
+                        glb_to_image_via_browser,
+                    )
+
+                    return glb_to_image_via_browser(
+                        tmp_path, preset=preset, size=size,
+                    )
+                # backend == "pygfx" and no Camera arg → embed-port path.
+                from ada.visit.rendering.pygfx_offscreen_utils import glb_to_image
+
+                # Translate paradoc-style preset keys into glb_to_image kwargs
+                # (it takes the same fields, no nesting). Fall through to
+                # function defaults for any key the caller didn't supply.
+                allowed = {
+                    "azimuth_deg", "elevation_deg", "fov_deg", "distance",
+                    "margin", "z_up",
+                }
+                kwargs = {k: v for k, v in preset_kwargs.items() if k in allowed}
+                return glb_to_image(tmp_path, size=size, **kwargs)
             finally:
                 tmp_path.unlink(missing_ok=True)
 
-        if backend == "pygfx":
-            from ada.visit.rendering.pygfx_offscreen_utils import trimesh_scene_to_image
+        # Legacy pygfx path: trimesh scene + hand-built Camera. Kept for
+        # callers that already supply a Camera; new code should drop the
+        # arg and use the preset-driven path above.
+        from ada.visit.rendering.pygfx_offscreen_utils import trimesh_scene_to_image
 
-            return trimesh_scene_to_image(self.to_trimesh_scene(), camera=camera)
-
-        # Defensive: with the Literal type, static checkers reject any
-        # other value, but at runtime users can still pass arbitrary
-        # strings. Surface that as a clear error.
-        raise ValueError(
-            f"unknown render_offscreen backend {backend!r}; expected 'pygfx' or 'chromium'"
-        )
+        return trimesh_scene_to_image(self.to_trimesh_scene(), camera=camera)
 
     def to_stp(
         self,

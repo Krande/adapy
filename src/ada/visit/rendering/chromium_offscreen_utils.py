@@ -80,8 +80,21 @@ _HTML_PAGE = """\
   const params = new URLSearchParams(location.search);
   const preset = JSON.parse(params.get("preset") || "{}");
   // Default to the iso_3 preset paradoc registers per ThreeDData.
+  // Field set + values match paradoc.camera.presets.CameraPreset so
+  // the chromium poster is bit-equivalent to what the live viewer
+  // renders when mountViewer loads the same GLB with the same preset
+  // pulled from the bundle's presets.json.
   const camera = Object.assign(
-    { name: "iso_3", azimuth_deg: -135, elevation_deg: 30 },
+    {
+      name: "iso_3",
+      azimuth_deg: -135,
+      elevation_deg: 30,
+      roll_deg: 0,
+      target: "bbox_center",
+      distance: "fit",
+      fov_deg: 45,
+      margin: 1.15,
+    },
     preset,
   );
   window.__poster = { ready: false, error: null };

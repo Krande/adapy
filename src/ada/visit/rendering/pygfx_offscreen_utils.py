@@ -187,7 +187,11 @@ def glb_to_image(
     elevation_deg: float = 30.0,
     fov_deg: float = 45.0,
     distance: float | str = "fit",
-    margin: float = 0.1,
+    # 1.15 = adapy embed's DEFAULT_MARGIN; paradoc's CameraPreset
+    # default agrees. The math is `distance = fit * margin`, so values
+    # < 1.0 place the camera *inside* the bbox (~ same trap the live
+    # viewer fell into before the preset was fixed).
+    margin: float = 1.15,
     z_up: bool = True,
     size: tuple[int, int] = (640, 480),
     line_color: tuple[float, float, float, float] = (0.15, 0.15, 0.15, 1.0),
