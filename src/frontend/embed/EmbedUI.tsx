@@ -13,9 +13,11 @@ import React from "react"
 import ResizableTreeView from "@/components/tree_view/ResizableTreeView"
 import ObjectInfoBox from "@/components/info_box_selected_object/ObjectInfoBoxComponent"
 import SceneInfoBox from "@/components/info_box_scene/SceneInfoBox"
+import SimulationControls from "@/components/simulation/SimulationControls"
 import TreeViewIcon from "@/components/icons/TreeViewIcon"
 import InfoIcon from "@/components/icons/InfoIcon"
 import SceneIcon from "@/components/icons/SceneIcon"
+import ToggleControlsIcon from "@/components/icons/AnimationControlToggle"
 import { useViewerStores } from "@/state/AdaViewerContext"
 
 const BTN_BASE =
@@ -29,12 +31,30 @@ function btnClass(active: boolean): string {
 }
 
 export const EmbedUI: React.FC = () => {
-    const { useObjectInfoStore, useSceneInfoStore, useTreeViewStore } = useViewerStores()
+    const {
+        useObjectInfoStore,
+        useSceneInfoStore,
+        useTreeViewStore,
+        useAnimationStore,
+        useFeaAnimationStore,
+    } = useViewerStores()
     const showInfo = useObjectInfoStore((s: any) => s.show_info_box)
     const toggleInfo = useObjectInfoStore.getState().toggle
     const showScene = useSceneInfoStore((s: any) => s.show_scene_info_box)
     const toggleScene = useSceneInfoStore.getState().toggle
     const { isTreeCollapsed, setIsTreeCollapsed, treeViewWidth } = useTreeViewStore()
+
+    // Simulation controls (mode-shape selector, deformation scale,
+    // play/pause). The button + panel only surface when there's
+    // actually animation data — for paradoc-embed that's a FEA mode
+    // shape baked into the GLB (clip animation path) or a live
+    // streaming FEA session if/when the embed grows that capability.
+    // Mirrors Menu.tsx's `!hasAnimation && !feaSessionActive` hide.
+    const hasAnimation = useAnimationStore((s: any) => s.hasAnimation)
+    const isControlsVisible = useAnimationStore((s: any) => s.isControlsVisible)
+    const setIsControlsVisible = useAnimationStore.getState().setIsControlsVisible
+    const feaSessionActive = useFeaAnimationStore((s: any) => s.sessionActive)
+    const animPanelAvailable = hasAnimation || feaSessionActive
 
     // Push the toolbar right when the drawer is open so the buttons
     // stay visible. Matches Menu.tsx's behavior on desktop; mobile
@@ -77,10 +97,22 @@ export const EmbedUI: React.FC = () => {
                     >
                         <SceneIcon />
                     </button>
+                    {animPanelAvailable && (
+                        <button
+                            type="button"
+                            className={btnClass(isControlsVisible)}
+                            onClick={() => setIsControlsVisible(!isControlsVisible)}
+                            title="Toggle simulation controls"
+                            aria-pressed={isControlsVisible}
+                        >
+                            <ToggleControlsIcon />
+                        </button>
+                    )}
                 </div>
                 <div className="px-2 flex flex-col gap-2 pointer-events-auto max-w-[100vw]">
                     {showInfo && <ObjectInfoBox />}
                     {showScene && <SceneInfoBox />}
+                    {animPanelAvailable && isControlsVisible && <SimulationControls />}
                 </div>
             </div>
         </div>

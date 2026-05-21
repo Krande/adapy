@@ -42,6 +42,7 @@ import { useModelState } from "../src/state/modelState"
 import { useOptionsStore } from "../src/state/optionsStore"
 import { useObjectInfoStore } from "../src/state/objectInfoStore"
 import { useSceneInfoStore } from "../src/state/sceneInfoStore"
+import { useAnimationStore } from "../src/state/animationStore"
 import { useTreeViewStore } from "../src/state/treeViewStore"
 
 import { setupModelLoaderAsync } from "../src/components/viewer/sceneHelpers/setupModelLoader"
@@ -214,6 +215,7 @@ export function mountViewer(element: HTMLElement, opts: MountViewerOptions): Mou
     //     paradoc-side "first-paint stays minimal" idiom. ---
     useObjectInfoStore.setState({ show_info_box: false })
     useSceneInfoStore.setState({ show_scene_info_box: false })
+    useAnimationStore.getState().setIsControlsVisible(false)
     useTreeViewStore.getState().setIsTreeCollapsed(true)
 
     // --- Resize handling ---
