@@ -179,10 +179,32 @@ export function mountViewer(element: HTMLElement, opts: MountViewerOptions): Mou
     applyStandardLayers(camera)
 
     // --- Lights ---
-    scene.add(new THREE.HemisphereLight(0xffffff, 0xb1b8c4, 0.85))
-    const sun = new THREE.DirectionalLight(0xffffff, 0.9)
-    sun.position.set(5, 10, 7.5)
-    scene.add(sun)
+    // Match the standalone adapy viewer's lighting verbatim
+    // (`sceneHelpers/setupLights.ts` + `sceneHelpers/addCameraLight.ts`):
+    // a bright ambient (`π/2 ≈ 1.57`) plus a camera-tracking key
+    // light at intensity 1.4 that re-positions every frame to follow
+    // the camera. The earlier `HemisphereLight(0.85) + static sun`
+    // setup read as "missing lighting" next to the brighter
+    // standalone — same materials, fewer photons, so faces went
+    // matte-flat once the camera moved off the sun's azimuth.
+    scene.add(new THREE.AmbientLight(0xffffff, Math.PI / 2))
+    const cameraLight = new THREE.DirectionalLight(0xffffff, 1.4)
+    cameraLight.castShadow = false
+    scene.add(cameraLight)
+    const cameraLightTarget = new THREE.Object3D()
+    scene.add(cameraLightTarget)
+    cameraLight.target = cameraLightTarget
+    cameraLight.position.copy(camera.position)
+    // Each frame the tick loop calls this; keeps the key light
+    // pinned to the camera so the user always sees lit surfaces
+    // wherever they orbit.
+    const updateCameraLight = () => {
+        cameraLight.position.copy(camera.position)
+        const direction = new THREE.Vector3()
+        camera.getWorldDirection(direction)
+        cameraLightTarget.position.copy(camera.position.clone().add(direction))
+        cameraLight.target.updateMatrixWorld()
+    }
 
     // --- Controls ---
     const controls = new CameraControls(camera, renderer.domElement)
@@ -251,6 +273,9 @@ export function mountViewer(element: HTMLElement, opts: MountViewerOptions): Mou
         if (disposed) return
         frame = requestAnimationFrame(tick)
         controls.update(clock.getDelta())
+        // Reposition the key light to track the camera each frame —
+        // matches the standalone viewer's lighting feel.
+        updateCameraLight()
         renderer.render(scene, camera)
     }
 
