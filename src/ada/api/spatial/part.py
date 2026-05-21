@@ -4,7 +4,7 @@ import io
 import os
 import pathlib
 from itertools import chain
-from typing import TYPE_CHECKING, Any, BinaryIO, Callable, Iterable
+from typing import TYPE_CHECKING, Any, BinaryIO, Callable, Iterable, Literal
 
 from ada import Node, Pipe, PrimBox, PrimCyl, PrimExtrude, PrimRevolve, Shape
 from ada.api.beams.base_bm import Beam
@@ -1127,10 +1127,66 @@ class Part(BackendGeom):
 
         return scene
 
-    def render_offscreen(self, camera: Camera | None) -> Image:
-        from ada.visit.rendering.pygfx_offscreen_utils import trimesh_scene_to_image
+    def render_offscreen(
+        self,
+        camera: Camera | None = None,
+        *,
+        backend: Literal["pygfx", "chromium"] = "pygfx",
+        preset: dict | None = None,
+        size: tuple[int, int] = (640, 480),
+    ) -> Image:
+        """Render the part to a PIL Image.
 
-        return trimesh_scene_to_image(self.to_trimesh_scene(), camera=camera)
+        Parameters
+        ----------
+        camera
+            Pygfx camera. Only used when ``backend="pygfx"``.
+        backend
+            ``"pygfx"`` (default) — fast offscreen render via wgpu. The
+            existing path; ``camera`` controls framing.
+
+            ``"chromium"`` — drives the production adapy embed in
+            headless Chromium via Playwright. Output is bit-identical
+            to what the live 3D viewer renders, at the cost of ~5s/
+            invocation and a chromium dependency. ``camera`` is
+            ignored; pass ``preset`` to override the embed's
+            ``CameraPreset`` (azimuth_deg, elevation_deg, distance,
+            fov_deg, margin, …).
+        preset
+            Camera preset dict for the chromium backend (see
+            ``ada.visit.rendering.chromium_offscreen_utils``). Ignored
+            by pygfx.
+        size
+            Viewport size for the chromium backend (also the output
+            PNG size at DPR=1). Ignored by pygfx — that path uses
+            its hard-coded 640×480.
+        """
+        if backend == "chromium":
+            import tempfile
+
+            from ada.visit.rendering.chromium_offscreen_utils import (
+                glb_to_image_via_browser,
+            )
+
+            with tempfile.NamedTemporaryFile(suffix=".glb", delete=False) as tmp:
+                tmp_path = pathlib.Path(tmp.name)
+            try:
+                self.to_gltf(tmp_path)
+                return glb_to_image_via_browser(tmp_path, preset=preset, size=size)
+            finally:
+                tmp_path.unlink(missing_ok=True)
+
+        if backend == "pygfx":
+            from ada.visit.rendering.pygfx_offscreen_utils import trimesh_scene_to_image
+
+            return trimesh_scene_to_image(self.to_trimesh_scene(), camera=camera)
+
+        # Defensive: with the Literal type, static checkers reject any
+        # other value, but at runtime users can still pass arbitrary
+        # strings. Surface that as a clear error.
+        raise ValueError(
+            f"unknown render_offscreen backend {backend!r}; expected 'pygfx' or 'chromium'"
+        )
 
     def to_stp(
         self,
