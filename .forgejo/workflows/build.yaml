@@ -127,10 +127,19 @@ jobs:
           # build-adacpp-base workflow on these same paths. Tracking
           # them here lets viewer-build wait for the parallel run to
           # finish before pulling ``:latest``.
+          #
+          # Important: the sibling workflow only fires on push events
+          # matching those paths. On `workflow_dispatch` (CHANGED is
+          # empty) or a first push (BEFORE = 000…) the generic `match`
+          # would return success and we'd wait 30 minutes for a
+          # sibling base build that never fires. Gate on a *real*
+          # diff before flipping the flag.
           base_changed=false
-          if match '^deploy/Dockerfile\.adacpp-wasm$' || \
-             match '^\.forgejo/workflows/build-adacpp-base\.yaml$'; then
-            base_changed=true
+          if [ -n "$CHANGED" ]; then
+            if echo "$CHANGED" | grep -qE '^deploy/Dockerfile\.adacpp-wasm$' || \
+               echo "$CHANGED" | grep -qE '^\.forgejo/workflows/build-adacpp-base\.yaml$'; then
+              base_changed=true
+            fi
           fi
 
           {
