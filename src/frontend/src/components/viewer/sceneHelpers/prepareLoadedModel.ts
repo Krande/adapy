@@ -266,15 +266,27 @@ export async function prepareLoadedModel({gltf_scene, hash}: PrepareLoadedModelP
             }
         }
 
-        // Transfer all children from original mesh to customMesh before removing original
-        // This is important because the original mesh may have child nodes (not just Points/LineSegments)
-        // that we need to preserve
+        // Transfer all children from original mesh to customMesh before removing original.
+        //
+        // LineSegments under the original are the FEA writer's
+        // per-element wireframe (mode-1 LINES primitive parented to
+        // the TRIANGLES mesh node, per `_assets/.../mode_*.glb`).
+        // Skipping them here used to drop the wireframe entirely as
+        // soon as `parent.remove(original)` ran below — the
+        // "coarse / sparse wireframe" symptom on FEA mode shapes
+        // came from only the *sibling* LINES sub-meshes surviving,
+        // while every LINES child rode along into the GC.
+        //
+        // Transfer them onto `customMesh` (same local transform, so
+        // positions stay correct), keep the layer 1 assignment the
+        // traverse pass set above so they remain non-pickable, and
+        // let `original` go.
         const childrenToTransfer = [...original.children];
         for (const child of childrenToTransfer) {
-            // Skip Points and LineSegments as they're already handled above
-            if (!(child instanceof THREE.Points) && !(child instanceof THREE.LineSegments)) {
-                customMesh.add(child);
-            }
+            // Skip Points (they were re-parented onto `parent` above
+            // for the streaming-loader morph path).
+            if (child instanceof THREE.Points) continue;
+            customMesh.add(child);
         }
 
         parent.remove(original);
