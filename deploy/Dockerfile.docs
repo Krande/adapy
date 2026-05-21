@@ -49,7 +49,9 @@ RUN pixi install --environment docs --locked
 # host doesn't appear here; the repo is public-readable so no token
 # is required.
 #
-# Capabilities the report depends on (current as of paradoc f419c07):
+# Capabilities the report depends on (current as of paradoc 8b58ad0 —
+# the rebuilt frontend.zip that ships the cog settings menu + dark
+# mode + landing page + scoped embed CSS + h-dvh mobile fixes):
 #   * Filter / DbManager / ThreeDView API
 #   * Vendored ada-viewer (Z-up, CameraControls refresh, embed CSS now
 #     `@scope (.ada-viewer-scope)` so it no longer leaks into host
