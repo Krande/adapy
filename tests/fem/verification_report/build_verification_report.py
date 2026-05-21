@@ -187,45 +187,56 @@ def _bake_beam_glb(bm: ada.Beam, dest: pathlib.Path) -> bool:
 
 
 def _bake_glb_poster_png(glb_path: pathlib.Path) -> bool:
-    """Render a static PNG poster for ``glb_path`` via pygfx-offscreen.
+    """Render a static PNG poster for ``glb_path``.
 
     Lets paradoc's frontend show a real raster preview while the
     interactive 3D viewer is lazy-loaded. The poster sits alongside
     the GLB at ``<glb>.png``; ``_collect_assets`` registers both and
     the paradoc static-export step copies them into the bundle.
 
-    Failures (missing wgpu adapter on a headless host, viewer init
-    errors, etc.) are logged as warnings and don't abort the bake —
-    the frontend falls back to a generic placeholder card when no
-    poster is found.
+    Backend selection (``ADA_FEA_POSTER_BACKEND`` env var):
+
+    * ``"pygfx"`` (default) — fast, no browser. Camera framing is a
+      hand-port of the embed's ``applyCameraPreset`` math; semantics
+      can drift if the embed changes.
+    * ``"chromium"`` — drives the production embed in headless
+      Chromium via Playwright (see
+      ``ada.visit.rendering.chromium_offscreen_utils``). Output is
+      bit-identical to what the live viewer renders, at the cost of
+      ~5s/GLB and a chromium dependency on the build host.
+
+    Failures are logged and don't abort the bake — the frontend
+    shows a generic placeholder card when no poster is found.
     """
-    try:
-        from ada.visit.rendering.camera import Camera
-        from ada.visit.rendering.pygfx_offscreen_utils import glb_to_image
-    except Exception as exc:
-        logger.warning(f"pygfx poster deps unavailable, skipping {glb_path.name}: {exc}")
-        return False
+    backend = os.environ.get("ADA_FEA_POSTER_BACKEND", "pygfx").lower()
+
+    if backend == "chromium":
+        try:
+            from ada.visit.rendering.chromium_offscreen_utils import (
+                glb_to_image_via_browser,
+            )
+        except Exception as exc:
+            logger.warning(
+                f"chromium poster backend unavailable, falling back to pygfx for "
+                f"{glb_path.name}: {exc}"
+            )
+            backend = "pygfx"
 
     png_path = glb_path.with_suffix(".png")
     try:
-        # Identical camera framing the previous renderer used. The
-        # heavy lifting (reading the GLB the same way Three.js does
-        # — respecting `mode: 1` LINES vs polyline) lives in
-        # `glb_to_image`, so the offscreen poster and the embedded
-        # 3D viewer now consume the bytes through the same contract.
-        cam = Camera(
-            position=(1.0, -1.0, 0.7),
-            look_at=(0.0, 0.0, 0.0),
-            up=(0.0, 0.0, 1.0),
-            fov=45.0,
-            padding=0.1,
-            fit_view=True,
-        )
-        image = glb_to_image(glb_path, cam)
+        if backend == "chromium":
+            image = glb_to_image_via_browser(glb_path)
+        else:
+            from ada.visit.rendering.pygfx_offscreen_utils import glb_to_image
+            # `glb_to_image` reads the GLB the same way Three.js does (mode 1
+            # LINES stay LINES) and frames the camera with the embed's
+            # `iso_3` preset math — defaults match `iso_3`, so the poster
+            # and the embedded 3D view line up without us specifying anything.
+            image = glb_to_image(glb_path)
         image.save(str(png_path))
         return True
     except Exception as exc:
-        logger.warning(f"poster PNG for {glb_path.name} failed: {exc}")
+        logger.warning(f"poster PNG ({backend}) for {glb_path.name} failed: {exc}")
         return False
 
 
