@@ -147,11 +147,36 @@ def _read_glb_primitives(glb_path: str | Path) -> list[dict]:
                     if "indices" in prim
                     else None
                 )
-                colors = (
-                    read_accessor(attrs["COLOR_0"]).astype(np.float32, copy=False)
-                    if "COLOR_0" in attrs
-                    else None
-                )
+                colors = None
+                if "COLOR_0" in attrs:
+                    raw_colors = read_accessor(attrs["COLOR_0"])
+                    # GLTF normalises integer COLOR_0 to [0, 1] at read
+                    # time. adapy's FEA writer fills the alpha channel
+                    # with a literal `1` per vertex (intended as "fully
+                    # opaque" but actually 1/255 ≈ 0.4 % opacity).
+                    # Three.js shrugs and uses only RGB on its opaque
+                    # MeshStandardMaterial, but pygfx's
+                    # `MeshPhongMaterial(color_mode="vertex")`
+                    # multiplies the alpha through, blowing the middle
+                    # of a coloured beam out to white. Normalise + drop
+                    # alpha so pygfx renders the same gradient Three.js
+                    # does.
+                    if raw_colors.dtype != np.float32:
+                        info = np.iinfo(raw_colors.dtype) if np.issubdtype(raw_colors.dtype, np.integer) else None
+                        if info is not None:
+                            colors_f = raw_colors.astype(np.float32) / float(info.max)
+                        else:
+                            colors_f = raw_colors.astype(np.float32, copy=False)
+                    else:
+                        colors_f = raw_colors
+                    if colors_f.ndim == 2 and colors_f.shape[1] == 4:
+                        # Keep RGB, force alpha to 1.0 — opaque is what
+                        # the writer actually meant.
+                        rgb = colors_f[:, :3]
+                        alpha = np.ones((len(rgb), 1), dtype=np.float32)
+                        colors = np.concatenate([rgb, alpha], axis=1)
+                    else:
+                        colors = colors_f
                 out.append(
                     {
                         "mode": prim.get("mode", 4),  # default = TRIANGLES per spec
