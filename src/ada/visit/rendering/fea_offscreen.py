@@ -146,7 +146,9 @@ def render_fea_mode_from_bundle(
     """
     import numpy as np
     import trimesh
+    import trimesh.visual.color as _tvc
 
+    case_dir = Path(case_dir)
     mesh_glb = case_dir / "fea.mesh.glb"
     manifest_path = case_dir / "fea.manifest.json"
     if not mesh_glb.is_file():
@@ -188,7 +190,21 @@ def render_fea_mode_from_bundle(
 
     if apply_colormap:
         mag = np.linalg.norm(delta, axis=1)
-        mesh.visual.vertex_colors = _abaqus_rgba(mag)
+        rgba = _abaqus_rgba(mag)
+        if isinstance(mesh, trimesh.PointCloud):
+            # PointCloud carries its colours on the `.colors` attribute
+            # — `colors` (not `vertex_colors`); trimesh writes them
+            # straight into COLOR_0 on export.
+            mesh.colors = rgba
+        else:
+            # Trimesh: assigning to `mesh.visual.vertex_colors` keeps
+            # the existing `TextureVisuals` (from the bake's `mat0`
+            # PBR material), which silently drops vertex colours on
+            # GLB export — the result is a colorless POSITION-only
+            # primitive. Replace the whole visual with a
+            # `ColorVisuals` so `visual.kind == "vertex"` and the
+            # exporter emits COLOR_0 alongside POSITION.
+            mesh.visual = _tvc.ColorVisuals(mesh=mesh, vertex_colors=rgba)
 
     with tempfile.TemporaryDirectory(prefix="fea_render_") as tmp:
         out_glb = Path(tmp) / "deformed.glb"

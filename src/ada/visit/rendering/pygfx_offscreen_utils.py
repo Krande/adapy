@@ -434,6 +434,39 @@ def glb_to_image(
                 # Swallow per-primitive failures so a bad mesh doesn't
                 # blank the whole poster.
                 continue
+        elif mode == 0:  # POINTS — one vertex per render primitive
+            # Emitted by `write_mesh_glb` when the bake's
+            # `_compute_topology` can't face-extract an element type
+            # (TRI6 / QUAD8 / other 2nd-order shells today). Render
+            # as a coloured point cloud rather than skipping silently
+            # so FEA cases at least show *something* on their static
+            # poster while the proper TRI6 → TRI3 decomposition lands.
+            if indices is not None:
+                point_positions = positions[indices].astype(np.float32, copy=False)
+            else:
+                point_positions = positions
+            if len(point_positions) == 0:
+                continue
+            try:
+                geom_kwargs = {"positions": point_positions.reshape(-1, 3)}
+                if colors is not None:
+                    # When indices are present we need to re-index the
+                    # color array the same way as positions; without
+                    # indices, color array is per-vertex aligned.
+                    if indices is not None:
+                        geom_kwargs["colors"] = colors[indices]
+                    else:
+                        geom_kwargs["colors"] = colors
+                geometry = gfx.Geometry(**geom_kwargs)
+                material = (
+                    gfx.PointsMaterial(color_mode="vertex", size=4.0)
+                    if colors is not None
+                    else gfx.PointsMaterial(color="#666666", size=4.0)
+                )
+                group.add(gfx.Points(geometry, material))
+                drew_any = True
+            except Exception:
+                continue
         elif mode == 1:  # LINES — stride-2 segment pairs
             if indices is not None:
                 line_positions = positions[indices].astype(np.float32, copy=False)
