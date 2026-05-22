@@ -63,8 +63,18 @@ _HTML_PAGE = """\
 <meta charset="utf-8" />
 <title>adapy embed poster</title>
 <style>
-  html, body { margin: 0; padding: 0; background: #ffffff; }
-  #host { position: absolute; inset: 0; }
+  /* `mountViewer` forces `position: relative` on the host element,
+     which silently kills `inset: 0` (only `position: absolute|fixed|
+     sticky` honour inset). The host then collapses to `minHeight:
+     400px` (mountViewer's other default), and the canvas ends up
+     640×400 inside a 640×480 viewport — wrong aspect ratio
+     (1.6 vs 1.333), projection matrix off by ~20% horizontally,
+     beam renders too small. Use explicit width/height so the host
+     stays at viewport dimensions regardless of how mountViewer
+     re-touches `position`. */
+  html, body { margin: 0; padding: 0; background: #ffffff;
+    width: 100%; height: 100%; }
+  #host { width: 100%; height: 100%; }
 </style>
 </head>
 <body>
