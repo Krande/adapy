@@ -116,7 +116,9 @@ jobs:
           # the Dockerfile, or the workflow itself.
           docs=false
           if match '^docs/' || \
+             match '^src/ada/' || \
              match '^pixi\.(toml|lock)$' || \
+             match '^pyproject\.toml$' || \
              match '^tests/fem/verification_report/' || \
              match '^deploy/Dockerfile\.docs$' || \
              match '^\.forgejo/workflows/build\.yaml$'; then
