@@ -287,12 +287,29 @@ export function mountViewer(element: HTMLElement, opts: MountViewerOptions): Mou
     useTreeViewStore.getState().setIsTreeCollapsed(true)
 
     // --- Resize handling ---
+    // `loadedModelGroup` is populated by the GLB load below; it's
+    // what `applyCameraPreset` needs to compute the model's bbox and
+    // refit the camera distance for the new aspect. Without the
+    // refit, resizing the figure's wrapper just stretches the canvas
+    // — the model stays at its original framing distance and can end
+    // up off-centre or partially out of frame in the new dimensions.
+    let loadedModelGroup: THREE.Object3D | null = null
     const onResize = () => {
         const w = element.clientWidth || initialWidth
         const h = Math.max(element.clientHeight, DEFAULT_MIN_HEIGHT)
         renderer.setSize(w, h, false)
         camera.aspect = w / h
         camera.updateProjectionMatrix()
+        if (loadedModelGroup) {
+            // Re-frame so the model stays centred + fully visible in
+            // the new viewport. This does override a user's manual
+            // orbit, but the alternative (off-centre crop after a
+            // resize) is a more common annoyance for documents where
+            // figures get resized to compare against neighbouring
+            // text. If preserving orbit on resize becomes a real
+            // ask, gate on a "user has interacted with controls" flag.
+            applyCameraPreset(camera, controls, loadedModelGroup, opts.camera)
+        }
     }
     const ro = new ResizeObserver(onResize)
     ro.observe(element)
@@ -325,6 +342,9 @@ export function mountViewer(element: HTMLElement, opts: MountViewerOptions): Mou
             const modelGroup = await setupModelLoaderAsync(blobUrl, false)
             if (disposed) return
 
+            // Hand the model to the resize handler so subsequent
+            // container resizes can re-frame against this same group.
+            loadedModelGroup = modelGroup
             applyCameraPreset(camera, controls, modelGroup, opts.camera)
 
             // Pointer / raycaster selection. Updates objectInfoStore
