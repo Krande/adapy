@@ -46,6 +46,8 @@ export interface MountFeaArtefactViewerOptions {
     camera: CameraPreset
     caption?: string
     showControls?: boolean
+    /** 0-based mode index to render (default 0). */
+    modeIndex?: number
     onReady?: () => void
     onError?: (err: Error) => void
 }

@@ -203,3 +203,33 @@ class SolverCase(Filter):
     @attr
     def mode_3d(self) -> ThreeDView:
         return self.fea_3d
+
+    # Per-mode figures (`fea_3d_mode_1`, `fea_3d_mode_2`, ...) —
+    # generated dynamically via __getattr__ so we don't have to
+    # hand-declare 20 @attr methods per case. Each returns a
+    # ThreeDView whose glb_key matches the mode-view ThreeDData row
+    # the bake registered alongside the canonical bundle row
+    # (`<case>_mode_<N>`); paradoc's exporter dedupes the on-disk
+    # files via `fea_bundle_key` so all per-mode rows share the
+    # same `assets/3d/<case>/` artefact set with only differing
+    # `fea_mode_index` metadata.
+    def __getattr__(self, name: str):  # noqa: D401 — dunder
+        import re as _re
+        m = _re.fullmatch(r"fea_3d_mode_(\d+)", name)
+        if m is None:
+            raise AttributeError(name)
+        mode_n = int(m.group(1))
+        case_name = self._r.name
+        fem_format = self._r.fem_format
+
+        def _per_mode_attr() -> ThreeDView:
+            return ThreeDView(
+                glb_key=f"{case_name}_mode_{mode_n}",
+                caption=f"{fem_format} — {case_name} mode {mode_n}.",
+                camera_preset="iso_3",
+            )
+
+        # Mark it so paradoc's filter resolver accepts it.
+        from paradoc.filters.base import _ATTR_MARKER  # type: ignore
+        setattr(_per_mode_attr, _ATTR_MARKER, True)
+        return _per_mode_attr

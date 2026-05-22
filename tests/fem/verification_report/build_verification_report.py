@@ -336,11 +336,57 @@ def _bake_fea_bundles(results: Iterable[ru.FeaVerificationResult]) -> list[Three
             manifest_rel=manifest_rel,
             caption=f"{r.fem_format} — {r.name} FEA results.",
         ))
+
+        # Per-mode "view" rows — each references the SAME bundle files
+        # but tags itself with a 0-based mode index. The paradoc
+        # exporter recognises `fea_artefact_bundle_mode_view` and
+        # registers only the metadata (no extra bundle copy), so 10
+        # modes per case = 10 manifest entries + 0 extra blobs. The
+        # filter emits one figure ref per mode and the embed renders
+        # whichever displacement step the mode_index picks.
+        n_modes = _count_displacement_steps(res)
+        for mode_idx in range(n_modes):
+            rows.append(_fea_bundle_mode_view_row(
+                bundle_key=r.name,
+                mode_index=mode_idx,
+                mesh_glb_path=bake.mesh_glb_path,
+                caption=f"{r.fem_format} — {r.name} mode {mode_idx + 1}.",
+            ))
+
         logger.info(
             f"{r.name}: baked FEA artefacts → {case_dir.name}/ "
-            f"(mesh={mesh_glb_rel}, manifest={manifest_rel})"
+            f"(mesh={mesh_glb_rel}, manifest={manifest_rel}, n_modes={n_modes})"
         )
     return rows
+
+
+def _count_displacement_steps(res) -> int:
+    """How many displacement steps does this FEAResult carry?
+
+    The bake writes one AFBL blob per (nodal) field with n_steps in
+    its header; the number of mode-view rows we register has to
+    match what the embed's assembleAnimatedFeaGlb can clamp to.
+    Probes the FEAResult's results list for a displacement entry
+    (one per step, typically) and returns the maximum step index
+    plus one. Falls back to 10 if nothing's resolvable — overshooting
+    is cheap (clamped at the embed) and undershooting would silently
+    drop modes.
+    """
+    seen_steps: set[int] = set()
+    for r in getattr(res, "results", []):
+        # Nodal field with displacement-ish name. Code Aster uses
+        # `result__DEPL...`; other solvers use `U`.
+        name = getattr(r, "name", "") or ""
+        is_disp = (
+            name == "U"
+            or "DEPL" in name.upper()
+            or "DISPLACEMENT" in name.upper()
+        )
+        if is_disp:
+            step = getattr(r, "step", None)
+            if isinstance(step, int):
+                seen_steps.add(step)
+    return max(len(seen_steps), 1)
 
 
 # Legacy alias — older builds expect this symbol; keep it pointing at
@@ -418,6 +464,45 @@ def _fea_bundle_row(
     )
 
 
+def _fea_bundle_mode_view_row(
+    bundle_key: str,
+    mode_index: int,
+    mesh_glb_path: pathlib.Path,
+    caption: str,
+) -> ThreeDData:
+    """ThreeDData row that points at an FEA artefact bundle but asks
+    the embed to render a specific mode.
+
+    Multiple mode-view rows share one set of bundle files: the
+    paradoc exporter dedupes the bundle copy via the
+    `fea_bundle_key` in metadata, so 10 modes per case = 10 manifest
+    entries + 0 extra blobs on disk.
+
+    `glb_path` still points at the bundle's `fea.mesh.glb` so the
+    canonical-row sha + size computation works the same way. The
+    legacy single-GLB consumer path never fires for these (the
+    renderer dispatches on `fea_bundle_dir`).
+    """
+    import hashlib
+
+    sha = hashlib.sha256(mesh_glb_path.read_bytes()).hexdigest()
+    metadata: dict = {
+        "fea_bundle_key": bundle_key,
+        "fea_mode_index": mode_index,
+    }
+    return ThreeDData(
+        key=f"{bundle_key}_mode_{mode_index + 1}",
+        glb_path=str(mesh_glb_path.relative_to(THIS_DIR)),
+        format="glb",
+        camera_pos="iso_3",
+        caption=caption,
+        sha256=sha,
+        size=mesh_glb_path.stat().st_size,
+        source_type="fea_artefact_bundle_mode_view",
+        metadata=metadata,
+    )
+
+
 def _collect_assets() -> list[ThreeDData]:
     """Register the standalone beam GLB + every committed FEA bundle.
 
@@ -449,8 +534,8 @@ def _collect_assets() -> list[ThreeDData]:
             )
         )
 
-    for manifest in sorted(assets_dir.rglob("fea.manifest.json")):
-        case_dir = manifest.parent
+    for manifest_path in sorted(assets_dir.rglob("fea.manifest.json")):
+        case_dir = manifest_path.parent
         case = case_dir.name
         mesh_glb = case_dir / "fea.mesh.glb"
         if not mesh_glb.is_file():
@@ -463,10 +548,35 @@ def _collect_assets() -> list[ThreeDData]:
                 key=case,
                 mesh_glb_path=mesh_glb,
                 bundle_dir_rel=str(case_dir.relative_to(THIS_DIR)),
-                manifest_rel=str(manifest.relative_to(THIS_DIR)),
+                manifest_rel=str(manifest_path.relative_to(THIS_DIR)),
                 caption=f"{case} — FEA results.",
             )
         )
+
+        # Mode-view rows: read the bundle's manifest to count
+        # displacement steps, register one row per mode. Skipped
+        # silently if the manifest is malformed; the canonical
+        # bundle row above still serves the un-deformed mesh.
+        try:
+            import json as _json
+            manifest_json = _json.loads(manifest_path.read_text(encoding="utf-8"))
+            n_modes = 0
+            for f in manifest_json.get("fields", []) or []:
+                cat = (f.get("category") or "").lower()
+                name = (f.get("name_canonical") or "").upper()
+                if cat == "displacement" or "DEPL" in name or name == "U":
+                    n_modes = max(n_modes, int(f.get("n_steps") or 0))
+            for mode_idx in range(n_modes):
+                rows.append(
+                    _fea_bundle_mode_view_row(
+                        bundle_key=case,
+                        mode_index=mode_idx,
+                        mesh_glb_path=mesh_glb,
+                        caption=f"{case} mode {mode_idx + 1}.",
+                    )
+                )
+        except Exception as exc:
+            logger.warning(f"could not parse {manifest_path} for mode views: {exc}")
     return rows
 
 
@@ -574,13 +684,41 @@ def _regenerate_results_detailed_md(results: list[ru.FeaVerificationResult]) -> 
         for r in rs:
             lines.append(f"### {r.name}")
             lines.append("")
-            lines.append(f"${{ {r.name}.modal_table }}{{tbl:sortby:Mode:asc;index:no}}")
-            lines.append("")
-            # Emit the FEA-bundle figure only when the bundle baked
-            # successfully — otherwise we'd ship a broken reference.
+            # Modal tables previously lived here, but the comparison
+            # tables earlier in the report already enumerate every
+            # mode's frequency — repeating the numbers per case in
+            # Appendix A was redundant. Per-mode figures of the
+            # deformed shape are more informative; emit one per mode
+            # when the bundle baked, else a short "not available"
+            # note (e.g. for cached-only Abaqus / Sesam runs where
+            # the source result file wasn't bundled into CI).
             bundle_manifest = assets_dir / r.name / "fea.manifest.json"
             if bundle_manifest.exists():
-                lines.append(f"${{ {r.name}.fea_3d }}")
+                try:
+                    import json as _json
+                    manifest_json = _json.loads(bundle_manifest.read_text(encoding="utf-8"))
+                    n_modes = 0
+                    for f in manifest_json.get("fields", []) or []:
+                        cat = (f.get("category") or "").lower()
+                        name = (f.get("name_canonical") or "").upper()
+                        if cat == "displacement" or "DEPL" in name or name == "U":
+                            n_modes = max(n_modes, int(f.get("n_steps") or 0))
+                except Exception:
+                    n_modes = 0
+                if n_modes <= 0:
+                    lines.append("_FEA bundle baked but no displacement modes detected; figures unavailable._")
+                    lines.append("")
+                else:
+                    for mode_idx in range(n_modes):
+                        lines.append(f"#### Mode {mode_idx + 1}")
+                        lines.append("")
+                        lines.append(f"${{ {r.name}.fea_3d_mode_{mode_idx + 1} }}")
+                        lines.append("")
+            else:
+                lines.append(
+                    "_Mode-shape figures unavailable for this case "
+                    "(solver result file not bundled into CI)._"
+                )
                 lines.append("")
     target.write_text("\n".join(lines), encoding="utf-8")
     logger.info(f"regenerated {target.name} with {len(results)} case sections")

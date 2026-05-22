@@ -103,6 +103,10 @@ export interface MountFeaArtefactViewerOptions {
     camera: CameraPreset
     caption?: string
     showControls?: boolean
+    /** 0-based mode index to render (default 0 = first mode). Lets
+     *  per-mode figures share one bundle on disk while showing
+     *  different deformations inline. */
+    modeIndex?: number
     onReady?: () => void
     onError?: (err: Error) => void
 }
@@ -529,6 +533,7 @@ export function mountFeaArtefactViewer(
             const modelBytes = await assembleAnimatedFeaGlb(
                 opts.fetcher,
                 opts.manifest as never, // typed loosely on the public API
+                opts.modeIndex ?? 0,
             )
             if (disposed) return
             inner = mountViewer(element, {

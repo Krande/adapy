@@ -98,6 +98,7 @@ function pickDisplacementField(manifest: FeaManifest): FeaManifestField | null {
 export async function assembleAnimatedFeaGlb(
     fetcher: FeaFetcher,
     manifest: FeaManifest,
+    modeIndex: number = 0,
 ): Promise<Uint8Array> {
     // 1. Base mesh -------------------------------------------------------
     const meshBuf = await fetcher(manifest.mesh.url);
@@ -164,7 +165,9 @@ export async function assembleAnimatedFeaGlb(
     // animation, no controls UI. Mode 1 is the lowest-frequency mode
     // and the most visually informative; subsequent modes can be
     // selected once the SimControls integration lands.
-    const ACTIVE_MODE = 0;
+    // Clamp the requested mode to whatever the field has — keeps
+    // a caller asking for mode 7 on a 5-mode bake from crashing.
+    const ACTIVE_MODE = Math.max(0, Math.min(parsed.steps.length - 1, modeIndex | 0));
     const modeStep = parsed.steps[ACTIVE_MODE];
 
     // Deformed positions = base + displacement vector at every node.
