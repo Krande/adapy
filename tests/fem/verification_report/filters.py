@@ -204,32 +204,37 @@ class SolverCase(Filter):
     def mode_3d(self) -> ThreeDView:
         return self.fea_3d
 
-    # Per-mode figures (`fea_3d_mode_1`, `fea_3d_mode_2`, ...) —
-    # generated dynamically via __getattr__ so we don't have to
-    # hand-declare 20 @attr methods per case. Each returns a
-    # ThreeDView whose glb_key matches the mode-view ThreeDData row
-    # the bake registered alongside the canonical bundle row
-    # (`<case>_mode_<N>`); paradoc's exporter dedupes the on-disk
-    # files via `fea_bundle_key` so all per-mode rows share the
-    # same `assets/3d/<case>/` artefact set with only differing
-    # `fea_mode_index` metadata.
-    def __getattr__(self, name: str):  # noqa: D401 — dunder
-        import re as _re
-        m = _re.fullmatch(r"fea_3d_mode_(\d+)", name)
-        if m is None:
-            raise AttributeError(name)
-        mode_n = int(m.group(1))
-        case_name = self._r.name
-        fem_format = self._r.fem_format
 
-        def _per_mode_attr() -> ThreeDView:
-            return ThreeDView(
-                glb_key=f"{case_name}_mode_{mode_n}",
-                caption=f"{fem_format} — {case_name} mode {mode_n}.",
-                camera_preset="iso_3",
-            )
+# Per-mode figure attrs (`fea_3d_mode_1` .. `fea_3d_mode_MAX_MODES`) —
+# attached at class load via setattr so each one is a real CLASS
+# attribute (not just an instance attr through __getattr__). The
+# distinction matters because paradoc's filter-cache uses
+# `inspect.getsource(getattr(filter_cls, attr_name))` to AST-hash
+# each attr's body; class-level lookup bypasses `__getattr__`, so
+# dynamic attrs raised AttributeError out of the cache pre-pass and
+# the whole report failed to compile.
+#
+# Each generated attr points at the matching mode-view ThreeDData
+# row (`<case>_mode_<N>`) that `_bake_fea_bundles` registers
+# alongside the canonical bundle row. All mode-view rows share the
+# bundle's on-disk files via `fea_bundle_key` in metadata.
+_MAX_MODE_ATTRS = 30
 
-        # Mark it so paradoc's filter resolver accepts it.
-        from paradoc.filters.base import _ATTR_MARKER  # type: ignore
-        setattr(_per_mode_attr, _ATTR_MARKER, True)
-        return _per_mode_attr
+
+def _make_mode_attr(mode_n: int):
+    @attr
+    def per_mode_3d(self) -> ThreeDView:
+        return ThreeDView(
+            glb_key=f"{self._r.name}_mode_{mode_n}",
+            caption=f"{self._r.fem_format} — {self._r.name} mode {mode_n}.",
+            camera_preset="iso_3",
+        )
+
+    per_mode_3d.__name__ = f"fea_3d_mode_{mode_n}"
+    per_mode_3d.__qualname__ = f"SolverCase.fea_3d_mode_{mode_n}"
+    return per_mode_3d
+
+
+for _mode_n in range(1, _MAX_MODE_ATTRS + 1):
+    setattr(SolverCase, f"fea_3d_mode_{_mode_n}", _make_mode_attr(_mode_n))
+
