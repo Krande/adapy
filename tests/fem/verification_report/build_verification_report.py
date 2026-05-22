@@ -319,41 +319,68 @@ def _bake_fea_bundles(results: Iterable[ru.FeaVerificationResult]) -> list[Three
             logger.warning(f"{r.name}: FEA artefact bake failed: {exc}", exc_info=True)
             continue
 
-        # Poster PNG for the static figure (before the user clicks
-        # Interactive). The bundle's `fea.mesh.glb` is un-deformed —
-        # the live viewer's assembleAnimatedFeaGlb adds displacement
-        # on the client side. For the STATIC poster we render a
-        # temp deformed mode-1 GLB via the legacy single-GLB writer,
-        # render it, then drop it. End result: the report's static
-        # poster shows the mode-1 deformed shape (matching what the
-        # user sees on click-Interactive); the bundle stays a single
-        # un-deformed mesh + per-mode displacement blobs.
-        field = _resolve_disp_field_per_mode(res, r.fem_format, 1)
-        if field is not None:
-            warp_step = 1 if r.fem_format == "code_aster" else 1
-            temp_deformed = bake.mesh_glb_path.with_name("fea.mesh.deformed.glb")
+        # Per-mode poster PNGs for the static figures (before the user
+        # clicks Interactive). The bundle's `fea.mesh.glb` is un-deformed
+        # — the live viewer's `assembleAnimatedFeaGlb` adds displacement
+        # client-side per mode_index. For the STATIC poster we render a
+        # temp deformed mode-N GLB via the legacy single-GLB writer
+        # once per mode, render to PNG, then drop. End state:
+        #
+        #   _assets/<case>/fea.mesh.glb            ← un-deformed (bundle)
+        #   _assets/<case>/fea.mesh.png            ← mode 1 deformed (canonical)
+        #   _assets/<case>/fea.mesh.mode_2.png     ← mode 2 deformed
+        #   _assets/<case>/fea.mesh.mode_3.png     ← mode 3 deformed
+        #   ...
+        #
+        # Each mode-view row's `metadata.image_path` points at its own
+        # per-mode PNG so different modes show distinct posters. Without
+        # this, the exporter falls back to the `fea.mesh.glb`'s sibling
+        # `.png` for every mode-view (canonical mode-1 image copied N
+        # times) and all the static posters look identical.
+        n_modes = _count_displacement_steps(res)
+        per_mode_posters: dict[int, pathlib.Path] = {}
+        for mode_idx in range(n_modes):
+            mode_n = mode_idx + 1
+            field = _resolve_disp_field_per_mode(res, r.fem_format, mode_n)
+            if field is None:
+                continue
+            warp_step = 1 if r.fem_format == "code_aster" else mode_n
+            if mode_n == 1:
+                # Canonical poster sits next to fea.mesh.glb so the
+                # `<glb>.png` sibling lookup in the exporter finds it
+                # for the canonical bundle row. Mode-view rows for
+                # mode 1 also use this same image_path.
+                dest_png = bake.mesh_glb_path.with_suffix(".png")
+            else:
+                dest_png = bake.mesh_glb_path.with_name(f"fea.mesh.mode_{mode_n}.png")
+            temp_deformed = bake.mesh_glb_path.with_name(
+                f"fea.mesh.deformed_mode_{mode_n}.glb"
+            )
             try:
                 res.to_gltf(
                     str(temp_deformed), warp_step, field,
                     warp_field=field, warp_step=warp_step, warp_scale=WARP_SCALE,
                 )
                 _bake_glb_poster_png(temp_deformed)
-                # The poster writer drops <stem>.png next to its
-                # input; move it next to fea.mesh.glb so the row's
-                # `image_path` resolution finds it.
                 src_png = temp_deformed.with_suffix(".png")
-                dest_png = bake.mesh_glb_path.with_suffix(".png")
                 if src_png.exists():
                     src_png.replace(dest_png)
+                if dest_png.exists():
+                    per_mode_posters[mode_idx] = dest_png
             except Exception as exc:
-                logger.warning(f"{r.name}: deformed poster bake failed ({field!r}): {exc}")
-                # Fall back to un-deformed poster so the row at least
-                # has a thumbnail.
-                _bake_glb_poster_png(bake.mesh_glb_path)
+                logger.warning(
+                    f"{r.name}: deformed poster bake mode {mode_n} failed "
+                    f"({field!r}): {exc}"
+                )
             finally:
                 if temp_deformed.exists():
                     temp_deformed.unlink(missing_ok=True)
-        else:
+
+        # Canonical poster fallback if mode-1 render failed — render
+        # the un-deformed mesh so the canonical row at least has a
+        # thumbnail.
+        canonical_png = bake.mesh_glb_path.with_suffix(".png")
+        if not canonical_png.exists():
             _bake_glb_poster_png(bake.mesh_glb_path)
 
         manifest_rel = str(bake.manifest_path.relative_to(THIS_DIR))
@@ -369,18 +396,18 @@ def _bake_fea_bundles(results: Iterable[ru.FeaVerificationResult]) -> list[Three
         ))
 
         # Per-mode "view" rows — each references the SAME bundle files
-        # but tags itself with a 0-based mode index. The paradoc
-        # exporter recognises `fea_artefact_bundle_mode_view` and
-        # registers only the metadata (no extra bundle copy), so 10
-        # modes per case = 10 manifest entries + 0 extra blobs. The
-        # filter emits one figure ref per mode and the embed renders
-        # whichever displacement step the mode_index picks.
-        n_modes = _count_displacement_steps(res)
+        # but tags itself with a 0-based mode index + its own per-mode
+        # poster PNG. The paradoc exporter recognises
+        # `fea_artefact_bundle_mode_view` and registers only the
+        # metadata (no extra bundle copy), so 10 modes per case = 10
+        # manifest entries + 0 extra blobs (just N small PNGs).
         for mode_idx in range(n_modes):
+            poster_path = per_mode_posters.get(mode_idx)
             rows.append(_fea_bundle_mode_view_row(
                 bundle_key=r.name,
                 mode_index=mode_idx,
                 mesh_glb_path=bake.mesh_glb_path,
+                poster_path=poster_path,
                 caption=f"{r.fem_format} — {r.name} mode {mode_idx + 1}.",
             ))
 
@@ -500,6 +527,7 @@ def _fea_bundle_mode_view_row(
     mode_index: int,
     mesh_glb_path: pathlib.Path,
     caption: str,
+    poster_path: pathlib.Path | None = None,
 ) -> ThreeDData:
     """ThreeDData row that points at an FEA artefact bundle but asks
     the embed to render a specific mode.
@@ -508,6 +536,13 @@ def _fea_bundle_mode_view_row(
     paradoc exporter dedupes the bundle copy via the
     `fea_bundle_key` in metadata, so 10 modes per case = 10 manifest
     entries + 0 extra blobs on disk.
+
+    `poster_path` (optional) points at a per-mode rendered PNG. When
+    set, `metadata.image_path` carries the explicit path so the
+    paradoc exporter copies it as `<key>.png` and the frontend
+    surfaces that specific image. Without it, the exporter falls
+    back to the `glb_path`'s `.png` sibling (the canonical mode-1
+    poster), which makes every mode look the same in static-view.
 
     `glb_path` still points at the bundle's `fea.mesh.glb` so the
     canonical-row sha + size computation works the same way. The
@@ -521,6 +556,8 @@ def _fea_bundle_mode_view_row(
         "fea_bundle_key": bundle_key,
         "fea_mode_index": mode_index,
     }
+    if poster_path is not None and poster_path.exists():
+        metadata["image_path"] = str(poster_path.relative_to(THIS_DIR))
     return ThreeDData(
         key=f"{bundle_key}_mode_{mode_index + 1}",
         glb_path=str(mesh_glb_path.relative_to(THIS_DIR)),
@@ -602,11 +639,23 @@ def _collect_assets() -> list[ThreeDData]:
                 if cat == "displacement" or "DEPL" in name or name == "U":
                     n_modes += int(f.get("n_steps") or 0)
             for mode_idx in range(n_modes):
+                # Look for the per-mode poster the bake wrote:
+                # mode 1 lives at `fea.mesh.png` (canonical), modes
+                # 2..N at `fea.mesh.mode_N.png`. Falls back to None
+                # when absent so the canonical-row poster shows
+                # instead (mode-1 deformed) — still wrong for modes
+                # 2+, but the cached-asset path here is rare so the
+                # degraded fallback is acceptable.
+                if mode_idx == 0:
+                    poster_candidate = case_dir / "fea.mesh.png"
+                else:
+                    poster_candidate = case_dir / f"fea.mesh.mode_{mode_idx + 1}.png"
                 rows.append(
                     _fea_bundle_mode_view_row(
                         bundle_key=case,
                         mode_index=mode_idx,
                         mesh_glb_path=mesh_glb,
+                        poster_path=poster_candidate if poster_candidate.is_file() else None,
                         caption=f"{case} mode {mode_idx + 1}.",
                     )
                 )
