@@ -269,50 +269,84 @@ def _resolve_disp_field_per_mode(res, fem_format: str, mode_idx: int) -> str | N
     return None
 
 
-def _bake_mode_glbs(results: Iterable[ru.FeaVerificationResult], num_modes: int) -> list[ThreeDData]:
-    """Generate per-(case, mode) deformed-mesh GLBs from FEAResult objects.
+def _bake_fea_bundles(results: Iterable[ru.FeaVerificationResult]) -> list[ThreeDData]:
+    """Bake one FEA artefact bundle per case via the streaming pipeline.
 
-    Skipped if the result was loaded from JSON cache (no FEAResult to
-    warp). Returns the ThreeDData rows to register with the bundle so
-    the frontend can serve them via `data-3d-key`.
+    Replaces the legacy per-mode GLB writer. Each case produces:
+
+      <case>/fea.manifest.json   — index of every blob
+      <case>/fea.mesh.glb        — un-deformed geometry (one copy, shared
+                                   across modes; no duplication)
+      <case>/fea.mesh.edges.bin  — element-edge wireframe sidecar
+      <case>/fea.mesh.elements.bin
+      <case>/fea.<field>.bin     — displacement / stress field blobs
+
+    The frontend mounts these via the same ``load_fea_streaming.ts``
+    path the standalone viewer uses for live FEA sessions — so the
+    Interactive 3D view gets:
+
+      * SimulationControls (mode slider, deformation scale, play/pause)
+        from ``hasAnimation = true``,
+      * Abaqus colormap applied client-side from raw scalar data,
+      * Mode switching via the slider (no separate per-mode GLB).
+
+    Skipped if the result was loaded from JSON cache (no FEAResult
+    object to bake). Returns one ThreeDData row per case, with
+    metadata pointing at the bundle so paradoc knows to dispatch to
+    the artefact-aware mount path instead of plain ``mountViewer``.
     """
+    from ada.fem.results.artefacts import FEAResultStreamAdapter, bake_artefacts
+
     rows: list[ThreeDData] = []
     for r in results:
         res = getattr(r, "results", None)
         if res is None:
-            logger.info(f"{r.name}: no FEAResult attached (cached-only), skipping mode GLBs")
+            logger.info(f"{r.name}: no FEAResult attached (cached-only), skipping FEA bundle bake")
             continue
         case_dir = assets_dir / r.name
+        # Wipe any legacy per-mode GLBs so the bundle starts clean and
+        # _collect_assets doesn't pick up stale `mode_NN.glb` files.
+        if case_dir.exists():
+            import shutil
+
+            shutil.rmtree(case_dir)
         case_dir.mkdir(parents=True, exist_ok=True)
-        for mode_idx in range(1, num_modes + 1):
-            field = _resolve_disp_field_per_mode(res, r.fem_format, mode_idx)
-            if field is None:
-                logger.warning(
-                    f"{r.name}: no displacement field for solver {r.fem_format!r} mode {mode_idx}, "
-                    f"skipping GLB"
-                )
-                continue
-            glb_path = case_dir / f"mode_{mode_idx:02d}.glb"
-            # Code Aster stores each mode as its own step inside the
-            # per-mode field key; the field name already carries the
-            # mode index, so warp_step is 1 there. Other solvers keep
-            # one field across all modes and discriminate by step.
-            warp_step = 1 if r.fem_format == "code_aster" else mode_idx
-            try:
-                res.to_gltf(
-                    str(glb_path), warp_step, field,
-                    warp_field=field, warp_step=warp_step, warp_scale=WARP_SCALE,
-                )
-            except Exception as exc:
-                logger.warning(f"{r.name}: mode {mode_idx} GLB failed ({field!r}): {exc}")
-                continue
-            _bake_glb_poster_png(glb_path)
-            rows.append(_three_d_row(
-                key=f"{r.name}_mode_{mode_idx:02d}",
-                glb_path=glb_path,
-                caption=f"{r.fem_format} — {r.name} mode {mode_idx}",
-            ))
+
+        try:
+            reader = FEAResultStreamAdapter(res)
+            bake = bake_artefacts(reader, case_dir, src=r.name)
+        except Exception as exc:
+            logger.warning(f"{r.name}: FEA artefact bake failed: {exc}", exc_info=True)
+            continue
+
+        # Poster PNG for the static figure (before the user clicks
+        # Interactive). The bundle's `fea.mesh.glb` is the un-deformed
+        # geometry, so the poster shows the mesh in its reference
+        # configuration. Modes are visible only inside the live viewer.
+        _bake_glb_poster_png(bake.mesh_glb_path)
+
+        manifest_rel = str(bake.manifest_path.relative_to(THIS_DIR))
+        mesh_glb_rel = str(bake.mesh_glb_path.relative_to(THIS_DIR))
+        bundle_dir_rel = str(case_dir.relative_to(THIS_DIR))
+
+        rows.append(_fea_bundle_row(
+            key=r.name,
+            mesh_glb_path=bake.mesh_glb_path,
+            bundle_dir_rel=bundle_dir_rel,
+            manifest_rel=manifest_rel,
+            caption=f"{r.fem_format} — {r.name} FEA results.",
+        ))
+        logger.info(
+            f"{r.name}: baked FEA artefacts → {case_dir.name}/ "
+            f"(mesh={mesh_glb_rel}, manifest={manifest_rel})"
+        )
     return rows
+
+
+# Legacy alias — older builds expect this symbol; keep it pointing at
+# the new implementation so cached compile scripts don't import-error
+# after a half-applied checkout.
+_bake_mode_glbs = _bake_fea_bundles
 
 
 def _three_d_row(key: str, glb_path: pathlib.Path, caption: str) -> ThreeDData:
@@ -340,25 +374,99 @@ def _three_d_row(key: str, glb_path: pathlib.Path, caption: str) -> ThreeDData:
     )
 
 
-def _collect_assets() -> list[ThreeDData]:
-    """Register every GLB already on disk under `_assets/`.
+def _fea_bundle_row(
+    key: str,
+    mesh_glb_path: pathlib.Path,
+    bundle_dir_rel: str,
+    manifest_rel: str,
+    caption: str,
+) -> ThreeDData:
+    """ThreeDData row for an FEA artefact bundle.
 
-    Used in CI where we don't regenerate; whatever's committed is what
-    gets served.
+    `glb_path` still points at the un-deformed `fea.mesh.glb` so the
+    legacy single-GLB consumer path keeps working (the figure renders
+    the reference mesh while paradoc-side artefact support is still
+    landing). `metadata` carries:
+
+      * ``fea_bundle_dir``  — bundle-relative directory the artefacts
+        live in (frontend uses this to fetch the manifest + blobs).
+      * ``fea_manifest_path`` — bundle-relative path to
+        ``fea.manifest.json`` for one-shot lookup.
+      * ``image_path``      — poster PNG (same convention as the
+        legacy per-mode rows).
+    """
+    import hashlib
+
+    sha = hashlib.sha256(mesh_glb_path.read_bytes()).hexdigest()
+    metadata: dict = {
+        "fea_bundle_dir": bundle_dir_rel,
+        "fea_manifest_path": manifest_rel,
+    }
+    png_path = mesh_glb_path.with_suffix(".png")
+    if png_path.exists():
+        metadata["image_path"] = str(png_path.relative_to(THIS_DIR))
+    return ThreeDData(
+        key=key,
+        glb_path=str(mesh_glb_path.relative_to(THIS_DIR)),
+        format="glb",
+        camera_pos="iso_3",
+        caption=caption,
+        sha256=sha,
+        size=mesh_glb_path.stat().st_size,
+        source_type="fea_artefact_bundle",
+        metadata=metadata,
+    )
+
+
+def _collect_assets() -> list[ThreeDData]:
+    """Register the standalone beam GLB + every committed FEA bundle.
+
+    Two layouts coexist under ``_assets/``:
+
+      * ``_assets/beam.glb`` — top-level un-deformed cantilever geometry.
+        Single GLB, registered with the fixed key ``beam_geom``.
+      * ``_assets/<case>/fea.manifest.json`` (+ siblings) — the FEA
+        artefact bundle this script bakes for each case via
+        ``_bake_fea_bundles``. We register one ThreeDData per bundle
+        (keyed by ``<case>``); the metadata points the frontend at
+        the manifest so it knows to dispatch to the artefact-aware
+        mount path. ``fea.mesh.glb`` is the row's ``glb_path`` so the
+        legacy single-GLB consumer path still shows the reference
+        geometry while paradoc-side artefact support is mid-flight.
+
+    Used in CI / cache-only runs where the regen path doesn't fire:
+    whatever's already on disk gets served.
     """
     rows: list[ThreeDData] = []
-    for glb in sorted(assets_dir.rglob("*.glb")):
-        rel = glb.relative_to(assets_dir)
-        # Beam geom uses fixed key `beam_geom`; case modes derive from path
-        # `_assets/<case>/mode_NN.glb` → key `<case>_mode_NN`.
-        if rel.parts == ("beam.glb",):
-            key, caption = "beam_geom", "Cantilever beam geometry."
-        else:
-            case = rel.parts[0]
-            stem = rel.stem  # mode_01
-            key = f"{case}_{stem}"
-            caption = f"{case} — {stem.replace('_', ' ')}"
-        rows.append(_three_d_row(key=key, glb_path=glb, caption=caption))
+
+    beam = assets_dir / "beam.glb"
+    if beam.is_file():
+        rows.append(
+            _three_d_row(
+                key="beam_geom",
+                glb_path=beam,
+                caption="Cantilever beam geometry.",
+            )
+        )
+
+    for manifest in sorted(assets_dir.rglob("fea.manifest.json")):
+        case_dir = manifest.parent
+        case = case_dir.name
+        mesh_glb = case_dir / "fea.mesh.glb"
+        if not mesh_glb.is_file():
+            logger.warning(
+                f"FEA bundle at {case_dir} missing fea.mesh.glb — skipping registration"
+            )
+            continue
+        rows.append(
+            _fea_bundle_row(
+                key=case,
+                mesh_glb_path=mesh_glb,
+                bundle_dir_rel=str(case_dir.relative_to(THIS_DIR)),
+                manifest_rel=str(manifest.relative_to(THIS_DIR)),
+                caption=f"{case} — FEA results.",
+            )
+        )
     return rows
 
 
@@ -442,15 +550,10 @@ _SOLVER_VERSION_ATTR = {
 def _regenerate_results_detailed_md(results: list[ru.FeaVerificationResult]) -> None:
     """Overwrite ``01-app/00-results-detailed.md`` from the live results.
 
-    Each ``${ <case>.modal_table }`` / ``${ <case>.mode_3d }`` reference uses
-    the exact ``r.name`` produced by ``simulate()`` so paradoc's filter
-    registry can always resolve it. Hand-edited filter names drift the
-    moment a case parameter (hexquad / reduced-integration / element order)
-    changes — generating the file removes that whole class of bug.
-
-    Only emits a ``mode_3d`` line when the matching GLB has been baked under
-    ``_assets/<case>/mode_01.glb`` — otherwise the bundle would carry a
-    ``MISSING_3D_IMAGE.png`` placeholder for every case.
+    Each case section now emits a single ``${ <case>.fea_3d }`` line
+    (was: one ``${ <case>.mode_3d }`` per mode). The artefact bundle
+    carries all modes inside — the live viewer's SimulationControls
+    let the reader pick the mode without scrolling past N figures.
     """
     target = report_src_dir / "01-app" / "00-results-detailed.md"
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -473,9 +576,11 @@ def _regenerate_results_detailed_md(results: list[ru.FeaVerificationResult]) -> 
             lines.append("")
             lines.append(f"${{ {r.name}.modal_table }}{{tbl:sortby:Mode:asc;index:no}}")
             lines.append("")
-            mode_glb = assets_dir / r.name / "mode_01.glb"
-            if mode_glb.exists():
-                lines.append(f"${{ {r.name}.mode_3d }}")
+            # Emit the FEA-bundle figure only when the bundle baked
+            # successfully — otherwise we'd ship a broken reference.
+            bundle_manifest = assets_dir / r.name / "fea.manifest.json"
+            if bundle_manifest.exists():
+                lines.append(f"${{ {r.name}.fea_3d }}")
                 lines.append("")
     target.write_text("\n".join(lines), encoding="utf-8")
     logger.info(f"regenerated {target.name} with {len(results)} case sections")

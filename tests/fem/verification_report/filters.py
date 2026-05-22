@@ -180,12 +180,26 @@ class SolverCase(Filter):
         return TableView(table_key=self._r.name)
 
     @attr
-    def mode_3d(self) -> ThreeDView:
-        # Defaults to the first eigenmode; per-mode embeds can use a
-        # second filter attr or extend this to accept a mode kwarg once
-        # paradoc's substitution parser supports call args here.
+    def fea_3d(self) -> ThreeDView:
+        """FEA artefact bundle figure — one figure per case, all modes inside.
+
+        The bundle's manifest + per-mode field blobs let the live
+        viewer's SimulationControls switch between modes without a
+        separate figure per mode. Keyed by ``<case>`` (no _mode_NN
+        suffix); paradoc-frontend dispatches on the
+        ``fea_artefact_bundle`` source_type to the artefact-aware
+        mount path.
+        """
         return ThreeDView(
-            glb_key=f"{self._r.name}_mode_01",
-            caption=f"{self._r.fem_format} — mode 1 deformed shape.",
+            glb_key=self._r.name,
+            caption=f"{self._r.fem_format} — {self._r.name} mode shapes.",
             camera_preset="iso_3",
         )
+
+    # Back-compat alias — old markdown still references `mode_3d`
+    # during the rebake transition. Points at the same FEA bundle so
+    # references keep resolving until the next markdown regen sweeps
+    # the document tree.
+    @attr
+    def mode_3d(self) -> ThreeDView:
+        return self.fea_3d
