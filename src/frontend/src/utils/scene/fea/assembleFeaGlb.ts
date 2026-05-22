@@ -39,8 +39,16 @@ import {GLTFExporter} from "three/examples/jsm/exporters/GLTFExporter";
 
 import {parseFieldBlob} from "@/services/feaFieldBlob";
 import {parseMeshEdges} from "@/services/feaMeshEdges";
+import {parseMeshElements} from "@/services/feaMeshElements";
 import type {FeaFetcher} from "@/services/fea/feaFetcher";
 import type {FeaManifest, FeaManifestField} from "@/services/viewerApi";
+
+// Force a known mesh name on the assembled GLB so the animation
+// track binds reliably after the GLTFExporter ↔ GLTFLoader roundtrip.
+// The bake's `write_mesh_glb` doesn't guarantee a specific name (and
+// `mesh.name` after import can be "" in some adapy bake variants —
+// glTF nodes are name-optional), so we pin it here.
+const ASSEMBLED_MESH_NAME = "node0";
 
 function findFirstMesh(root: THREE.Object3D): THREE.Mesh | null {
     let found: THREE.Mesh | null = null;
@@ -93,6 +101,11 @@ export async function assembleAnimatedFeaGlb(
     if (!mesh) {
         throw new Error(`fea bundle: no mesh in ${manifest.mesh.url}`);
     }
+    // Pin the mesh name so the AnimationClip's `<name>.morphTargetInfluences`
+    // track binds after the exporter ↔ loader roundtrip. Without this
+    // an empty / writer-derived name can mean the track silently no-ops
+    // and the user sees the un-deformed mesh under every mode.
+    mesh.name = ASSEMBLED_MESH_NAME;
 
     // 2. Displacement field --------------------------------------------
     const field = pickDisplacementField(manifest);
@@ -175,13 +188,53 @@ export async function assembleAnimatedFeaGlb(
             const env = [0, 1, 0, -1, 0][t];
             values[t * n_steps + active] = env;
         }
-        const trackName = `${mesh.name || "node0"}.morphTargetInfluences`;
+        const trackName = `${ASSEMBLED_MESH_NAME}.morphTargetInfluences`;
         const track = new THREE.NumberKeyframeTrack(trackName, Array.from(times), Array.from(values));
         const clipName = field.steps?.[active]?.label || `mode_${active + 1}`;
         clips.push(new THREE.AnimationClip(clipName, 2.0, [track]));
     }
 
-    // 5. Element-edge wireframe (optional) -----------------------------
+    // 5a. Per-element draw ranges (AFEM) ------------------------------
+    // The mesh enters the embed's `prepareLoadedModel` pipeline, which
+    // converts a Mesh into a `CustomBatchedMesh` for per-element pick +
+    // highlight. The conversion is driven by
+    // `gltf_scene.userData.draw_ranges_<meshName>` + `id_hierarchy`,
+    // which the bake-job writer normally installs via a prepareHook on
+    // `setupModelLoaderAsync`. paradoc-embed loads through
+    // `mountViewer` (no hook), so we install the same userData on the
+    // exported scene; GLTFExporter writes it as `extras` and the
+    // GLTFLoader puts it back on `userData` on import. End-to-end:
+    // FEA mesh clicks resolve to single elements, not the whole beam.
+    if (manifest.mesh.elements_url) {
+        try {
+            const entries = parseMeshElements(await fetcher(manifest.mesh.elements_url));
+            const ranges: Record<string, [number, number]> = {};
+            const hierarchy: Record<string, [string, string | number]> = {};
+            const ROOT_KEY = "fea-elements-root";
+            hierarchy[ROOT_KEY] = ["FEA elements", "*"];
+            for (const e of entries) {
+                if (e.triCount > 0) {
+                    const rid = `E${e.label}`;
+                    ranges[rid] = [e.triStart * 3, e.triCount * 3];
+                    hierarchy[rid] = [rid, ROOT_KEY];
+                }
+            }
+            // setupModelLoaderAsync reads
+            // `gltf_scene.userData.draw_ranges_<meshName>`. Match the
+            // pinned mesh name so the right key is found.
+            scene.userData[`draw_ranges_${ASSEMBLED_MESH_NAME}`] = ranges;
+            scene.userData["id_hierarchy"] = hierarchy;
+        } catch (err) {
+            // Selection wiring is best-effort — without AFEM the picker
+            // still resolves clicks to the whole-mesh level, which is
+            // what the user already sees today on bundles that don't
+            // ship an elements sidecar.
+            // eslint-disable-next-line no-console
+            console.warn("[fea-assemble] elements sidecar load failed:", err);
+        }
+    }
+
+    // 5b. Element-edge wireframe (optional) ----------------------------
     if (manifest.mesh.edges_url) {
         try {
             const edgeBuf = await fetcher(manifest.mesh.edges_url);
