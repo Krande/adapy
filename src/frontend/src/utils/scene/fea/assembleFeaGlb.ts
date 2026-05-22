@@ -144,80 +144,68 @@ export async function assembleAnimatedFeaGlb(
         );
     }
 
-    // 3. Per-step morph targets ----------------------------------------
-    // glTF morph targets are "additive" deltas by default in Three.js:
-    // `position + sum_i (influence_i * morphAttribute_i)`. The bake's
-    // AFBL blob already stores per-vertex displacement vectors, so the
-    // delta IS the step values — no subtraction needed.
+    // 3. Static mode-1 deformation + abaqus vertex colours -----------
+    // First cut: bake the first mode (or the first step) into the
+    // GLB as a STATIC deformed mesh + per-vertex abaqus colours.
     //
-    // We also build a parallel set of COLOUR morph targets so the
-    // abaqus colormap travels in sync with the deformation: at
-    // influence 0 the mesh shows the neutral base colour, at
-    // influence 1 it shows the abaqus rainbow mapped from each
-    // vertex's displacement magnitude (per-mode normalised). Three.js
-    // interpolates both morph attributes linearly from the same
-    // morphTargetInfluences[s] uniform, so position + colour stay in
-    // lockstep without a custom shader.
-    const positionMorphs: THREE.BufferAttribute[] = [];
-    const colourMorphs: THREE.BufferAttribute[] = [];
-    const rgbTmp = new Float32Array(3);
-    for (let s = 0; s < n_steps; s++) {
-        const step = parsed.steps[s];
+    // Why not glTF morph targets + animation clips: that path looked
+    // promising on paper but turned out brittle in practice — the
+    // animation track binding through GLTFExporter ↔ GLTFLoader was
+    // unreliable across the embed's CustomBatchedMesh conversion, and
+    // when clips DID register the embed lit up the legacy
+    // AnimationControls panel instead of SimulationControls (which is
+    // what FEA mode shapes should drive). Proper SimulationControls
+    // integration needs `feaAnimationStore.setMesh(...)` + scene-
+    // graph references the standalone viewer's `load_fea_streaming`
+    // owns; that's the right next step and lives in a separate piece
+    // of work.
+    //
+    // For now we show ONE deformed mode statically — same data, no
+    // animation, no controls UI. Mode 1 is the lowest-frequency mode
+    // and the most visually informative; subsequent modes can be
+    // selected once the SimControls integration lands.
+    const ACTIVE_MODE = 0;
+    const modeStep = parsed.steps[ACTIVE_MODE];
 
-        // Position delta + per-vertex displacement magnitude.
-        const posDelta = new Float32Array(n_points * 3);
-        const mag = new Float32Array(n_points);
-        let maxMag = 0;
-        for (let v = 0; v < n_points; v++) {
-            const dx = step[v * n_components + 0];
-            const dy = n_components >= 2 ? step[v * n_components + 1] : 0;
-            const dz = n_components >= 3 ? step[v * n_components + 2] : 0;
-            posDelta[v * 3 + 0] = dx;
-            posDelta[v * 3 + 1] = dy;
-            posDelta[v * 3 + 2] = dz;
-            const m = Math.sqrt(dx * dx + dy * dy + dz * dz);
-            mag[v] = m;
-            if (m > maxMag) maxMag = m;
-        }
-        positionMorphs.push(new THREE.BufferAttribute(posDelta, 3));
-
-        // Per-mode colour delta = abaqus(mag/maxMag) − BASE_VERTEX_COLOUR.
-        // Three.js applies the delta with the same influence as the
-        // position delta, so influence=0 → base, influence=1 →
-        // abaqus(mag/maxMag).
-        const colDelta = new Float32Array(n_points * 3);
-        const invMax = maxMag > 0 ? 1 / maxMag : 0;
-        for (let v = 0; v < n_points; v++) {
-            const t = mag[v] * invMax;
-            abaqus(t, rgbTmp, 0);
-            colDelta[v * 3 + 0] = rgbTmp[0] - BASE_VERTEX_COLOUR[0];
-            colDelta[v * 3 + 1] = rgbTmp[1] - BASE_VERTEX_COLOUR[1];
-            colDelta[v * 3 + 2] = rgbTmp[2] - BASE_VERTEX_COLOUR[2];
-        }
-        colourMorphs.push(new THREE.BufferAttribute(colDelta, 3));
-    }
-    mesh.geometry.morphAttributes.position = positionMorphs;
-    mesh.geometry.morphAttributes.color = colourMorphs;
-
-    // Base colour attribute the morph deltas add into. Flat grey
-    // everywhere so the un-deformed view reads as CAD-neutral.
-    const baseColours = new Float32Array(n_points * 3);
+    // Deformed positions = base + displacement vector at every node.
+    const basePositions = positionAttr.array as Float32Array;
+    const deformed = new Float32Array(basePositions.length);
+    const mag = new Float32Array(n_points);
+    let maxMag = 0;
     for (let v = 0; v < n_points; v++) {
-        baseColours[v * 3 + 0] = BASE_VERTEX_COLOUR[0];
-        baseColours[v * 3 + 1] = BASE_VERTEX_COLOUR[1];
-        baseColours[v * 3 + 2] = BASE_VERTEX_COLOUR[2];
+        const dx = modeStep[v * n_components + 0];
+        const dy = n_components >= 2 ? modeStep[v * n_components + 1] : 0;
+        const dz = n_components >= 3 ? modeStep[v * n_components + 2] : 0;
+        deformed[v * 3 + 0] = basePositions[v * 3 + 0] + dx;
+        deformed[v * 3 + 1] = basePositions[v * 3 + 1] + dy;
+        deformed[v * 3 + 2] = basePositions[v * 3 + 2] + dz;
+        const m = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        mag[v] = m;
+        if (m > maxMag) maxMag = m;
+    }
+    mesh.geometry.setAttribute(
+        "position",
+        new THREE.BufferAttribute(deformed, 3),
+    );
+
+    // Per-vertex abaqus rainbow on displacement magnitude.
+    const colours = new Float32Array(n_points * 3);
+    const rgbTmp = new Float32Array(3);
+    const invMax = maxMag > 0 ? 1 / maxMag : 0;
+    for (let v = 0; v < n_points; v++) {
+        abaqus(mag[v] * invMax, rgbTmp, 0);
+        colours[v * 3 + 0] = rgbTmp[0];
+        colours[v * 3 + 1] = rgbTmp[1];
+        colours[v * 3 + 2] = rgbTmp[2];
     }
     mesh.geometry.setAttribute(
         "color",
-        new THREE.BufferAttribute(baseColours, 3),
+        new THREE.BufferAttribute(colours, 3),
     );
 
-    // Switch the material(s) into vertexColors-aware mode so the
-    // base + morph colour attributes actually paint the surface.
+    // Switch material(s) into vertexColors-aware mode so the colour
+    // attribute actually paints the surface.
     const enableVertexColours = (m: THREE.Material) => {
-        // MeshStandardMaterial / MeshPhongMaterial / etc. all have
-        // `vertexColors: boolean`. Setting it after construction
-        // requires needsUpdate so the shader recompiles.
         (m as THREE.MeshStandardMaterial).vertexColors = true;
         m.needsUpdate = true;
     };
@@ -225,41 +213,6 @@ export async function assembleAnimatedFeaGlb(
         mesh.material.forEach(enableVertexColours);
     } else if (mesh.material) {
         enableVertexColours(mesh.material);
-    }
-    // Three.js needs explicit influences + dictionary on the Mesh so
-    // GLTFExporter writes the targets and the loader's animation
-    // controller can find them.
-    mesh.morphTargetInfluences = new Array(n_steps).fill(0);
-    const dict: Record<string, number> = {};
-    for (let s = 0; s < n_steps; s++) {
-        // Manifest may carry per-step labels; fall back to mode_NN.
-        const label = field.steps?.[s]?.label || `mode_${s + 1}`;
-        dict[label] = s;
-    }
-    mesh.morphTargetDictionary = dict;
-
-    // 4. One AnimationClip per step (oscillating mode shape) -----------
-    // Each clip ramps its own morph influence 0 → 1 → 0 over 1.5 s
-    // while pinning every other influence at 0. The same influence
-    // drives both the position morph and the colour morph (see
-    // step 3), so the abaqus rainbow strengthens and fades with the
-    // deformation — visually intuitive and avoids the colour flicker
-    // a `−1 → 0` negative-excursion phase would produce (colour
-    // morph deltas have a defined sign, the mesh's mirror would
-    // bleed into garbage RGB). Positive-only envelope is the trade-
-    // off for syncing colours through Three.js' built-in morph mix.
-    const clips: THREE.AnimationClip[] = [];
-    const times = new Float32Array([0, 0.75, 1.5]);
-    for (let active = 0; active < n_steps; active++) {
-        const values = new Float32Array(times.length * n_steps);
-        for (let t = 0; t < times.length; t++) {
-            const env = [0, 1, 0][t];
-            values[t * n_steps + active] = env;
-        }
-        const trackName = `${ASSEMBLED_MESH_NAME}.morphTargetInfluences`;
-        const track = new THREE.NumberKeyframeTrack(trackName, Array.from(times), Array.from(values));
-        const clipName = field.steps?.[active]?.label || `mode_${active + 1}`;
-        clips.push(new THREE.AnimationClip(clipName, 1.5, [track]));
     }
 
     // 5a. Per-element draw ranges (AFEM) ------------------------------
@@ -303,19 +256,18 @@ export async function assembleAnimatedFeaGlb(
     }
 
     // 5b. Element-edge wireframe (optional) ----------------------------
+    // Shares the deformed `positionAttr` we just installed, so the
+    // wireframe automatically follows the mode shape.
     if (manifest.mesh.edges_url) {
         try {
             const edgeBuf = await fetcher(manifest.mesh.edges_url);
             const idx = parseMeshEdges(edgeBuf);
             if (idx.length > 0) {
                 const lineGeom = new THREE.BufferGeometry();
-                // Share position + morph attributes with the face
-                // mesh so deformation drives both rendering paths
-                // from a single buffer (and a single set of
-                // morphTargetInfluences). Three.js morph-shader
-                // accepts this on Line materials.
-                lineGeom.setAttribute("position", positionAttr);
-                lineGeom.morphAttributes.position = positionMorphs;
+                lineGeom.setAttribute(
+                    "position",
+                    mesh.geometry.getAttribute("position"),
+                );
                 lineGeom.setIndex(new THREE.BufferAttribute(idx, 1));
                 const lineMat = new THREE.LineBasicMaterial({
                     color: 0x111111,
@@ -323,8 +275,6 @@ export async function assembleAnimatedFeaGlb(
                 });
                 const segments = new THREE.LineSegments(lineGeom, lineMat);
                 segments.name = "fea-element-edges";
-                segments.morphTargetInfluences = mesh.morphTargetInfluences;
-                segments.morphTargetDictionary = dict;
                 mesh.add(segments);
             }
         } catch (err) {
@@ -343,7 +293,7 @@ export async function assembleAnimatedFeaGlb(
                 scene,
                 (r) => resolve(r),
                 (err) => reject(err),
-                {binary: true, animations: clips},
+                {binary: true},
             );
         },
     );
