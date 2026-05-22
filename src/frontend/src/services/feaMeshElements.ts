@@ -14,7 +14,7 @@
 //   12..15 4-byte zero pad (header total = 16)
 //   16..   n_elements × (uint32 label, uint32 tri_start, uint32 tri_count)
 
-import type {ScopeUrl} from "./viewerApi";
+import type {FeaFetcher} from "./fea/feaFetcher";
 
 const ELEM_MAGIC = 0x4d454641; // "AFEM" little-endian
 const ELEM_HEADER_BYTES = 16;
@@ -69,19 +69,14 @@ export function parseMeshElements(buf: ArrayBuffer): MeshElementEntry[] {
     return out;
 }
 
-/** Fetch + parse the mesh-elements sidecar for a baked source. */
+/** Fetch + parse the mesh-elements sidecar for a baked source.
+ *
+ * `fetcher` resolves the manifest-relative `elementsUrl` to bytes.
+ * See `feaFetcher.ts` for storage-layer wrappers. */
 export async function fetchMeshElements(
-    scope: ScopeUrl,
-    sourceKey: string,
+    fetcher: FeaFetcher,
     elementsUrl: string,
 ): Promise<MeshElementEntry[]> {
-    // Lazy-import viewerApi for the same Node-test reason as
-    // feaFieldBlob: the viewerApi module pulls auth/oidc which uses
-    // sessionStorage at module-top.
-    const {viewerApi} = await import("./viewerApi");
-    const cleanSrc = sourceKey.replace(/^\/+/, "");
-    const cleanUrl = elementsUrl.replace(/^\/+/, "");
-    const key = `_derived/${cleanSrc}.fea/${cleanUrl}`;
-    const buf = await viewerApi.getBlob(scope, key);
+    const buf = await fetcher(elementsUrl);
     return parseMeshElements(buf);
 }

@@ -6,7 +6,8 @@ import {GLTFLoader} from "three/examples/jsm/loaders/GLTFLoader";
 
 import {cacheAndBuildTree} from "@/state/model_worker/cacheModelUtils";
 import {fetchElemFieldBlob} from "@/services/feaElemFieldBlob";
-import {fetchFieldBlob} from "@/services/feaFieldBlob";
+import {fetchFieldBlob, makeViewerApiFetcher} from "@/services/feaFieldBlob";
+import type {FeaFetcher} from "@/services/fea/feaFetcher";
 import {fetchBeamSolidsWarp, ParsedBeamSolidsWarp} from "@/services/feaBeamSolidsWarp";
 import {fetchMeshEdges} from "@/services/feaMeshEdges";
 import {fetchMeshElements, MeshElementEntry} from "@/services/feaMeshElements";
@@ -208,8 +209,8 @@ function findDisplacementField(manifest: FeaManifest): FeaManifestField | null {
  *  static (reaction fields, warp toggle off + no displacement field
  *  available, or the user picked displacement but warpEnabled is off). */
 async function resolveWarpSource(
-    scope: string,
-    sourceName: string,
+    fetcher: FeaFetcher,
+    cacheKey: string,
     manifest: FeaManifest,
     colorField: FeaManifestField,
     stepIndex: number,
@@ -226,7 +227,7 @@ async function resolveWarpSource(
     // inspecting raw DX values may want them on the un-deformed mesh.
     if (colorField.category === "displacement") {
         if (!warpEnabled) return null;
-        const parsed = await fetchFieldBlob(scope, sourceName, colorField);
+        const parsed = await fetchFieldBlob(fetcher, colorField, cacheKey);
         return {field: colorField, stepValues: parsed.steps[stepIndex]};
     }
 
@@ -247,7 +248,7 @@ async function resolveWarpSource(
             `n_steps=${dispField.n_steps}; clamping warp source to step ${warpStep}`,
         );
     }
-    const parsed = await fetchFieldBlob(scope, sourceName, dispField);
+    const parsed = await fetchFieldBlob(fetcher, dispField, cacheKey);
     return {field: dispField, stepValues: parsed.steps[warpStep]};
 }
 
@@ -256,7 +257,7 @@ async function resolveWarpSource(
  *  already installed. Returns ``null`` if the manifest carries no
  *  beam-solid URL or the fetch failed (logged + non-fatal). */
 async function tryLoadBeamSolids(
-    scope: string,
+    fetcher: FeaFetcher,
     sourceName: string,
     manifest: FeaManifest,
     initialVisible: boolean,
@@ -272,11 +273,10 @@ async function tryLoadBeamSolids(
     }
 
     try {
-        const glbKey = `_derived/${sourceName.replace(/^\/+/, "")}.fea/${beamGlbUrl}`;
         const [buf, afemEntries] = await Promise.all([
-            viewerApi.getBlob(scope, glbKey),
+            fetcher(beamGlbUrl),
             manifest.mesh.beam_solids_elements_url
-                ? fetchMeshElements(scope, sourceName, manifest.mesh.beam_solids_elements_url)
+                ? fetchMeshElements(fetcher, manifest.mesh.beam_solids_elements_url)
                 : Promise.resolve<MeshElementEntry[]>([]),
         ]);
         const blob = new Blob([buf], {type: "model/gltf-binary"});
@@ -527,6 +527,12 @@ export async function load_fea_streaming(args: {
     }
 
     const scope = scopeUrlPart(useScopeStore.getState().current);
+    // One fetcher + cache key for every storage-layer call below. The
+    // bake-job storage convention (`_derived/<src>.fea/<filename>`)
+    // is encoded in `makeViewerApiFetcher`; downstream helpers stay
+    // storage-agnostic so paradoc-embed can plug in its own fetcher
+    // that hits paradoc-serve's REST endpoint instead.
+    const {fetcher, cacheKey} = makeViewerApiFetcher(scope, sourceName);
 
     // (Re-)load the mesh into the scene if we don't already have it
     // for this source. Switching field-within-source keeps the same
@@ -534,8 +540,7 @@ export async function load_fea_streaming(args: {
     if (!active || active.sourceName !== sourceName) {
         stage("loading mesh", 0.05);
         throwIfAborted();
-        const meshKey = `_derived/${sourceName.replace(/^\/+/, "")}.fea/${manifest.mesh.url}`;
-        const buf = await viewerApi.getBlob(scope, meshKey);
+        const buf = await fetcher(manifest.mesh.url);
         throwIfAborted();
         stage("loading mesh", 0.35);
         const blob = new Blob([buf], {type: "model/gltf-binary"});
@@ -550,8 +555,7 @@ export async function load_fea_streaming(args: {
         if (manifest.mesh.elements_url) {
             try {
                 afemEntries = await fetchMeshElements(
-                    scope,
-                    sourceName,
+                    fetcher,
                     manifest.mesh.elements_url,
                 );
             } catch (err) {
@@ -653,7 +657,7 @@ export async function load_fea_streaming(args: {
         // new solid mesh.
         const beamSolidsVisible = useFeaAnimationStore.getState().beamSolidsVisible;
         const beamSolid = await tryLoadBeamSolids(
-            scope, sourceName, manifest, beamSolidsVisible,
+            fetcher, sourceName, manifest, beamSolidsVisible,
         );
         if (beamSolid) {
             mesh.add(beamSolid.mesh);
@@ -674,8 +678,7 @@ export async function load_fea_streaming(args: {
             ) {
                 try {
                     const beamEdgeIndices = await fetchMeshEdges(
-                        scope,
-                        sourceName,
+                        fetcher,
                         manifest.mesh.beam_solids_edges_url,
                     );
                     if (beamEdgeIndices.length > 0) {
@@ -723,7 +726,7 @@ export async function load_fea_streaming(args: {
             if (manifest.mesh.beam_solids_warp_url) {
                 try {
                     const warp = await fetchBeamSolidsWarp(
-                        scope, sourceName, manifest.mesh.beam_solids_warp_url,
+                        fetcher, manifest.mesh.beam_solids_warp_url,
                     );
                     if (warp.n_verts === beamSolid.basePositions.length / 3) {
                         active.beamSolidWarp = warp;
@@ -752,8 +755,7 @@ export async function load_fea_streaming(args: {
         if (manifest.mesh.edges_url && !usePerfStore.getState().hideElementEdges) {
             try {
                 const edgeIndices = await fetchMeshEdges(
-                    scope,
-                    sourceName,
+                    fetcher,
                     manifest.mesh.edges_url,
                 );
                 if (edgeIndices.length > 0) {
@@ -810,8 +812,8 @@ export async function load_fea_streaming(args: {
     // displacement output), we clamp to its last step and warn.
     const warpEnabled = useFeaAnimationStore.getState().warpEnabled;
     const warpInfo = await resolveWarpSource(
-        scope,
-        sourceName,
+        fetcher,
+        cacheKey,
         manifest,
         field,
         stepIndex,
@@ -827,7 +829,7 @@ export async function load_fea_streaming(args: {
         // writes vertex colours via AFEM draw ranges.
         const buckets = field.per_type;
         const parsedBuckets = await Promise.all(
-            buckets.map((bk) => fetchElemFieldBlob(scope, sourceName, bk)),
+            buckets.map((bk) => fetchElemFieldBlob(fetcher, bk, cacheKey)),
         );
         const perTypeStepValues = parsedBuckets.map((pb, i) => {
             const step = pb.steps[stepIndex];
@@ -892,7 +894,7 @@ export async function load_fea_streaming(args: {
             }
         }
     } else {
-        const parsed = await fetchFieldBlob(scope, sourceName, field);
+        const parsed = await fetchFieldBlob(fetcher, field, cacheKey);
         const colorStepValues = parsed.steps[stepIndex];
 
         applyFieldToMesh({

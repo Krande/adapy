@@ -14,7 +14,7 @@
 //   12..15 4-byte zero pad (header total = 16)
 //   16..   n_edges × (uint32 from, uint32 to)
 
-import type {ScopeUrl} from "./viewerApi";
+import type {FeaFetcher} from "./fea/feaFetcher";
 
 const EDGE_MAGIC = 0x47454641; // "AFEG" little-endian
 const EDGE_HEADER_BYTES = 16;
@@ -50,19 +50,16 @@ export function parseMeshEdges(buf: ArrayBuffer): Uint32Array {
     return new Uint32Array(buf, EDGE_HEADER_BYTES, nEdges * 2);
 }
 
-/** Fetch + parse the mesh-edges sidecar for a baked source. */
+/** Fetch + parse the mesh-edges sidecar for a baked source.
+ *
+ * `fetcher` resolves the manifest-relative `edgesUrl` (typically
+ * `fea.mesh.edges.bin`) to bytes. See `feaFetcher.ts` for the two
+ * standard implementations (`makeViewerApiFetcher` for the standalone
+ * viewer; paradoc supplies its own wrapping its REST endpoint). */
 export async function fetchMeshEdges(
-    scope: ScopeUrl,
-    sourceKey: string,
+    fetcher: FeaFetcher,
     edgesUrl: string,
 ): Promise<Uint32Array> {
-    // Lazy-import viewerApi for the same Node-test reason as
-    // feaFieldBlob: the viewerApi module pulls auth/oidc which uses
-    // sessionStorage at module-top.
-    const {viewerApi} = await import("./viewerApi");
-    const cleanSrc = sourceKey.replace(/^\/+/, "");
-    const cleanEdges = edgesUrl.replace(/^\/+/, "");
-    const key = `_derived/${cleanSrc}.fea/${cleanEdges}`;
-    const buf = await viewerApi.getBlob(scope, key);
+    const buf = await fetcher(edgesUrl);
     return parseMeshEdges(buf);
 }

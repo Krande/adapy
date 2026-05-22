@@ -17,7 +17,8 @@
 // ``ip_layout`` live in the manifest's per_type bucket, not the blob,
 // so the binary stays compact even for very large element counts.
 
-import type {FeaManifestFieldPerType, ScopeUrl} from "./viewerApi";
+import type {FeaFetcher} from "./fea/feaFetcher";
+import type {FeaManifestFieldPerType} from "./viewerApi";
 
 const ELEM_FIELD_MAGIC = 0x4c454641; // "AFEL" little-endian
 const ELEM_FIELD_HEADER_BYTES = 1024;
@@ -103,31 +104,29 @@ export function clearElemFieldBlobCache(): void {
 
 /** Fetch + parse the AFEL blob for one (source, field, elem-type
  * bucket). Cached across calls — switching steps within a bucket
- * never re-fetches. */
+ * never re-fetches.
+ *
+ * `fetcher` resolves the manifest-relative filename to bytes;
+ * `cacheKey` is an opaque per-bundle string the caller picks so
+ * different bundles served from different roots don't collide. */
 export async function fetchElemFieldBlob(
-    scope: ScopeUrl,
-    sourceKey: string,
+    fetcher: FeaFetcher,
     bucket: FeaManifestFieldPerType,
+    cacheKey: string,
 ): Promise<ParsedFeaElemFieldBlob> {
-    const cleanSrc = sourceKey.replace(/^\/+/, "");
-    const blobKey = `_derived/${cleanSrc}.fea/${bucket.blob.url}`;
-    const cacheKey = `${scope}::${blobKey}`;
-    const cached = ELEM_BLOB_CACHE.get(cacheKey);
+    const fullCacheKey = `${cacheKey}::${bucket.blob.url}`;
+    const cached = ELEM_BLOB_CACHE.get(fullCacheKey);
     if (cached) return cached;
 
     const promise = (async () => {
-        // Lazy import: viewerApi pulls auth/oidc which touches
-        // sessionStorage at module-top and breaks Node-side tests of
-        // the pure parser. Defer to the browser call site.
-        const {viewerApi} = await import("./viewerApi");
-        const buf = await viewerApi.getBlob(scope, blobKey);
+        const buf = await fetcher(bucket.blob.url);
         return parseElemFieldBlob(buf);
     })();
-    ELEM_BLOB_CACHE.set(cacheKey, promise);
+    ELEM_BLOB_CACHE.set(fullCacheKey, promise);
     try {
         return await promise;
     } catch (err) {
-        ELEM_BLOB_CACHE.delete(cacheKey);
+        ELEM_BLOB_CACHE.delete(fullCacheKey);
         throw err;
     }
 }

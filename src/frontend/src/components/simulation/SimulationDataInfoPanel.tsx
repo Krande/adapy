@@ -23,7 +23,7 @@ import {simulationDataRef} from "@/state/refs";
 import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {useScopeStore, scopeUrlPart} from "@/state/scopeStore";
 import {useTableNavStore} from "@/state/tableNavStore";
-import {fetchFieldBlob, ParsedFeaFieldBlob} from "@/services/feaFieldBlob";
+import {fetchFieldBlob, makeViewerApiFetcher, ParsedFeaFieldBlob} from "@/services/feaFieldBlob";
 import {goToNode, clearGoToNode} from "@/utils/scene/fea/goToNode";
 import type {SimulationDataExtensionMetadata, FieldObject} from "@/extensions/design_and_analysis_extension";
 import type {
@@ -194,7 +194,13 @@ const FeaNodalTable: React.FC<{
         let cancelled = false;
         setError(null);
         setLoading(true);
-        fetchFieldBlob(scopeUrl, sourceName, field)
+        // Build a fetcher for the standalone-viewer's bake-job
+        // storage convention; the helper returns both the fetcher and
+        // a stable cache key keyed off the (scope, source) tuple.
+        ((): Promise<ParsedFeaFieldBlob> => {
+            const {fetcher, cacheKey} = makeViewerApiFetcher(scopeUrl, sourceName);
+            return fetchFieldBlob(fetcher, field, cacheKey);
+        })()
             .then((b) => {
                 if (cancelled) return;
                 setBlob(b);

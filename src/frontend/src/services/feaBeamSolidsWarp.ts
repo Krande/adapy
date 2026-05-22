@@ -20,7 +20,7 @@
 //   12..15 4-byte zero pad (header total = 16)
 //   16..   n_verts × (uint32 node0_idx, uint32 node1_idx, float32 t)
 
-import type {ScopeUrl} from "./viewerApi";
+import type {FeaFetcher} from "./fea/feaFetcher";
 
 const BEAM_WARP_MAGIC = 0x56424641; // "AFBV" little-endian
 const BEAM_WARP_HEADER_BYTES = 16;
@@ -90,15 +90,12 @@ export function parseBeamSolidsWarp(buf: ArrayBuffer): ParsedBeamSolidsWarp {
     return {n_verts: nVerts, node0, node1, t};
 }
 
+/** Fetch + parse the beam-solids warp sidecar. `fetcher` resolves
+ *  the manifest-relative filename to bytes; see `feaFetcher.ts`. */
 export async function fetchBeamSolidsWarp(
-    scope: ScopeUrl,
-    sourceKey: string,
+    fetcher: FeaFetcher,
     warpUrl: string,
 ): Promise<ParsedBeamSolidsWarp> {
-    const {viewerApi} = await import("./viewerApi");
-    const cleanSrc = sourceKey.replace(/^\/+/, "");
-    const cleanUrl = warpUrl.replace(/^\/+/, "");
-    const key = `_derived/${cleanSrc}.fea/${cleanUrl}`;
-    const buf = await viewerApi.getBlob(scope, key);
+    const buf = await fetcher(warpUrl);
     return parseBeamSolidsWarp(buf);
 }

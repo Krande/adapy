@@ -14,6 +14,7 @@
 // Per-step labels and time/freq values live in the manifest, not
 // the blob.
 
+import type {FeaFetcher} from "./fea/feaFetcher";
 import type {FeaManifestField, ScopeUrl} from "./viewerApi";
 
 const BLOB_MAGIC = 0x4c424641; // "AFBL" little-endian
@@ -81,9 +82,11 @@ export function parseFieldBlob(buf: ArrayBuffer): ParsedFeaFieldBlob {
     return {header, steps};
 }
 
-// Per-(scope, source, field) cache: blobs are immutable per-bake so
-// we never re-fetch unless the user picks a different field. Keyed
-// off the stable storage URL.
+// Per-bundle-URL cache: blobs are immutable per-bake so we never
+// re-fetch unless the user navigates to a different bundle / field.
+// Keyed off the storage URL the fetcher resolves to — both the
+// standalone viewer's `_derived/<src>.fea/<filename>` keys and
+// paradoc's `/api/docs/<id>/3d/<key>/fea/<filename>` URLs are stable.
 const BLOB_CACHE = new Map<string, Promise<ParsedFeaFieldBlob>>();
 
 export function clearFieldBlobCache(): void {
@@ -91,11 +94,18 @@ export function clearFieldBlobCache(): void {
 }
 
 /** Fetch + parse the field blob for one (source, field). Cached
- * across calls — switching steps within a field never re-fetches. */
+ * across calls — switching steps within a field never re-fetches.
+ *
+ * `fetcher` resolves a manifest-relative filename to bytes. Standalone
+ * viewer wraps `viewerApi.getBlob` with the bake-job storage prefix
+ * (`makeViewerApiFetcher`); paradoc wraps `authedFetch` against
+ * paradoc-serve's `/api/docs/.../fea/` endpoint. `cacheKey` is an
+ * opaque string the caller chooses so multiple bundles served from
+ * different roots don't collide in the cache. */
 export async function fetchFieldBlob(
-    scope: ScopeUrl,
-    sourceKey: string,
+    fetcher: FeaFetcher,
     field: FeaManifestField,
+    cacheKey: string,
 ): Promise<ParsedFeaFieldBlob> {
     if (!field.blob) {
         // Element fields use per_type instead of a top-level blob and
@@ -108,28 +118,42 @@ export async function fetchFieldBlob(
             `element fields use the AFEL loader, not the nodal AFBL one.`,
         );
     }
-    const cleanSrc = sourceKey.replace(/^\/+/, "");
-    const blobKey = `_derived/${cleanSrc}.fea/${field.blob.url}`;
-    const cacheKey = `${scope}::${blobKey}`;
-    const cached = BLOB_CACHE.get(cacheKey);
+    const fullCacheKey = `${cacheKey}::${field.blob.url}`;
+    const cached = BLOB_CACHE.get(fullCacheKey);
     if (cached) return cached;
 
     const promise = (async () => {
-        // Lazy import: pulling viewerApi at module-top transitively
-        // loads services/auth/oidc which touches sessionStorage and
-        // breaks Node-side tests of the pure parser. Defer it to the
-        // call site, which only fires in the browser.
-        const {viewerApi} = await import("./viewerApi");
-        const buf = await viewerApi.getBlob(scope, blobKey);
+        const buf = await fetcher(field.blob!.url);
         return parseFieldBlob(buf);
     })();
     // Race-safe: the promise lands in the cache before the await
     // resolves so concurrent callers share the same fetch.
-    BLOB_CACHE.set(cacheKey, promise);
+    BLOB_CACHE.set(fullCacheKey, promise);
     try {
         return await promise;
     } catch (err) {
-        BLOB_CACHE.delete(cacheKey);
+        BLOB_CACHE.delete(fullCacheKey);
         throw err;
     }
+}
+
+/** Construct an `FeaFetcher` that wraps `viewerApi.getBlob` with the
+ * standalone-viewer's `_derived/<src>.fea/` prefix. Returned alongside
+ * a stable cache key the caller passes to `fetch*` helpers.
+ *
+ * Lazy-imports `viewerApi` because that module touches `sessionStorage`
+ * at module-top via the auth chain — the pure parsers (and Node-side
+ * tests of them) must not pay that import cost. */
+export function makeViewerApiFetcher(
+    scope: ScopeUrl,
+    sourceKey: string,
+): {fetcher: FeaFetcher; cacheKey: string} {
+    const cleanSrc = sourceKey.replace(/^\/+/, "");
+    const prefix = `_derived/${cleanSrc}.fea/`;
+    const cacheKey = `${scope}::${prefix}`;
+    const fetcher: FeaFetcher = async (filename: string) => {
+        const {viewerApi} = await import("./viewerApi");
+        return viewerApi.getBlob(scope, `${prefix}${filename.replace(/^\/+/, "")}`);
+    };
+    return {fetcher, cacheKey};
 }
