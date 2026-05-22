@@ -276,28 +276,27 @@ def _bake_per_mode_posters_from_bundle(
     mesh_glb_path: pathlib.Path,
     manifest_path: pathlib.Path,
 ) -> tuple[int, dict[int, pathlib.Path]]:
-    """Warp the bundle's `fea.mesh.glb` per displacement field + render
-    one poster PNG per (field × step) mode.
+    """Render one PNG per (displacement-field × step) mode from a
+    bundle on disk.
 
-    Reads the AFBL blobs the bake already wrote (one per displacement
-    field), unpacks the float32 displacement vectors, adds them to
-    the mesh's POSITION attribute via direct GLB binary surgery, and
-    renders the deformed result with the existing pygfx pipeline.
-    Same logic the embed's `assembleAnimatedFeaGlb` runs client-side
-    for the live viewer — single source of truth across both static
-    posters and interactive rendering.
+    Thin wrapper around `ada.visit.rendering.fea_offscreen
+    .render_fea_mode_from_bundle` — that helper handles the AFBL warp
+    + abaqus colourmap + pygfx render. Here we just enumerate modes,
+    write each PIL image into the bundle dir with the expected
+    filename convention, and pack the results into the
+    `{mode_idx → poster_path}` dict the caller needs.
 
-    Returns ``(n_modes, {mode_idx → poster_path})``. The canonical
-    poster ends up at ``case_dir / fea.mesh.png`` so the exporter's
-    `<glb>.png` sibling lookup finds it. Mode-view rows for modes >= 2
-    use the per-mode `fea.mesh.mode_<N>.png` siblings.
+    Returns ``(n_modes, posters_dict)``. The canonical (mode 1) PNG
+    ends up at ``case_dir / fea.mesh.png`` so the exporter's
+    `<glb>.png` sibling lookup finds it; modes >= 2 land at
+    ``fea.mesh.mode_<N>.png`` next to the mesh.
     """
     import json as _json
-    import struct
-    import shutil as _shutil
 
-    import numpy as _np
-    import pygltflib as _gltf
+    from ada.visit.rendering.fea_offscreen import (
+        _list_displacement_entries,
+        render_fea_mode_from_bundle,
+    )
 
     try:
         manifest = _json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -305,104 +304,27 @@ def _bake_per_mode_posters_from_bundle(
         logger.warning(f"{case_dir.name}: manifest parse failed: {exc}")
         return (0, {})
 
-    # Build a flat list of (field_blob_path, step_idx_in_blob) entries
-    # in the same order assembleAnimatedFeaGlb walks them — code aster
-    # ships N fields × 1 step, other solvers 1 field × N steps; either
-    # way the flat index = global mode index.
-    entries: list[tuple[pathlib.Path, int]] = []
-    for f in manifest.get("fields", []) or []:
-        cat = (f.get("category") or "").lower()
-        name = (f.get("name_canonical") or "").upper()
-        if not (cat == "displacement" or "DEPL" in name or name == "U"):
-            continue
-        blob_url = (f.get("blob") or {}).get("url")
-        if not blob_url:
-            continue
-        blob_path = case_dir / blob_url
-        if not blob_path.is_file():
-            continue
-        n_steps = int(f.get("n_steps") or 0)
-        for s in range(n_steps):
-            entries.append((blob_path, s))
+    entries = _list_displacement_entries(manifest)
     if not entries:
         return (0, {})
 
-    # Load mesh GLB once, snapshot base positions.
-    g = _gltf.GLTF2().load(str(mesh_glb_path))
-    mesh = g.meshes[0]
-    prim = mesh.primitives[0]
-    pos_acc = g.accessors[prim.attributes.POSITION]
-    bv = g.bufferViews[pos_acc.bufferView]
-    pos_off = (bv.byteOffset or 0) + (pos_acc.byteOffset or 0)
-    n_verts = pos_acc.count
-    orig_blob = g.binary_blob()
-    base_positions = _np.frombuffer(
-        bytes(orig_blob[pos_off:pos_off + n_verts * 12]), dtype=_np.float32,
-    ).reshape(n_verts, 3).copy()
-
     posters: dict[int, pathlib.Path] = {}
-    per_blob_cache: dict[pathlib.Path, _np.ndarray] = {}
-    for mode_idx, (blob_path, step_idx) in enumerate(entries):
+    for mode_idx in range(len(entries)):
         mode_n = mode_idx + 1
-        # AFBL blob parser — magic + version + json_len → header at
-        # bytes 12..12+json_len, payload from byte 1024.
-        if blob_path not in per_blob_cache:
-            buf = blob_path.read_bytes()
-            if buf[:4] != b"AFBL":
-                logger.warning(f"{case_dir.name}: bad magic in {blob_path.name}")
-                continue
-            json_len = struct.unpack("<I", buf[8:12])[0]
-            header = _json.loads(buf[12:12 + json_len])
-            arr = _np.frombuffer(
-                buf, dtype=_np.float32,
-                count=header["n_steps"] * header["n_points"] * header["n_components"],
-                offset=1024,
-            ).reshape(header["n_steps"], header["n_points"], header["n_components"]).copy()
-            per_blob_cache[blob_path] = arr
-        steps = per_blob_cache[blob_path]
-        if step_idx >= steps.shape[0]:
-            continue
-        if steps.shape[1] != n_verts:
-            logger.warning(
-                f"{case_dir.name}: vertex mismatch — mesh {n_verts}, "
-                f"field {steps.shape[1]} (mode {mode_n}); skipping"
-            )
-            continue
-
-        # Mirror assembleAnimatedFeaGlb: first 3 components, scale=1.
-        delta = steps[step_idx, :, :3].astype(_np.float32) * WARP_SCALE
-        deformed = base_positions + delta
-
-        # Write deformed GLB next to the mesh.
-        temp_glb = mesh_glb_path.with_name(f"fea.mesh.deformed_mode_{mode_n}.glb")
+        dest_png = (
+            mesh_glb_path.with_suffix(".png")
+            if mode_n == 1
+            else mesh_glb_path.with_name(f"fea.mesh.mode_{mode_n}.png")
+        )
         try:
-            new_blob = bytearray(orig_blob)
-            new_blob[pos_off:pos_off + n_verts * 12] = deformed.tobytes()
-            g.set_binary_blob(bytes(new_blob))
-            g.save(str(temp_glb))
-            if not _bake_glb_poster_png(temp_glb):
-                logger.warning(f"{case_dir.name}: poster bake mode {mode_n} returned False")
-                continue
-            src_png = temp_glb.with_suffix(".png")
-            if mode_n == 1:
-                dest_png = mesh_glb_path.with_suffix(".png")
-            else:
-                dest_png = mesh_glb_path.with_name(f"fea.mesh.mode_{mode_n}.png")
-            _shutil.move(str(src_png), str(dest_png))
+            img = render_fea_mode_from_bundle(case_dir, mode_index=mode_idx)
+            img.save(str(dest_png))
             posters[mode_idx] = dest_png
         except Exception as exc:
             logger.warning(
                 f"{case_dir.name}: per-mode poster bake mode {mode_n} failed: {exc}",
                 exc_info=True,
             )
-        finally:
-            if temp_glb.exists():
-                temp_glb.unlink(missing_ok=True)
-
-    # Reset the GLB object's internal blob to the original (defensive
-    # — we mutate orig_blob via bytearray above) to avoid carrying
-    # mutated positions over if a caller reuses ``g``. Cheap.
-    g.set_binary_blob(orig_blob)
 
     return (len(entries), posters)
 
