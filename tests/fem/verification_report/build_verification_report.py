@@ -732,12 +732,17 @@ def _regenerate_results_detailed_md(results: list[ru.FeaVerificationResult]) -> 
                 try:
                     import json as _json
                     manifest_json = _json.loads(bundle_manifest.read_text(encoding="utf-8"))
+                    # Sum across all displacement fields × their
+                    # n_steps. Code Aster ships N fields × 1 step
+                    # each; Calculix / Abaqus ship 1 field × N steps;
+                    # `max()` only worked for the latter and gave 1
+                    # for every Code Aster case.
                     n_modes = 0
                     for f in manifest_json.get("fields", []) or []:
                         cat = (f.get("category") or "").lower()
                         name = (f.get("name_canonical") or "").upper()
                         if cat == "displacement" or "DEPL" in name or name == "U":
-                            n_modes = max(n_modes, int(f.get("n_steps") or 0))
+                            n_modes += int(f.get("n_steps") or 0)
                 except Exception:
                     n_modes = 0
                 if n_modes <= 0:
