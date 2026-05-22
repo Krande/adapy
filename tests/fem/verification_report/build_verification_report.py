@@ -596,7 +596,10 @@ def build_fea_report(bm: ada.Beam, results: list[ru.FeaVerificationResult], eig_
     if regen_assets or not beam_glb.exists():
         _bake_beam_glb(bm, beam_glb)
     if regen_assets:
-        _bake_mode_glbs(results, eig_modes)
+        # New pipeline bakes one FEA artefact bundle per case (all
+        # modes inside) — no per-mode GLB loop, so `eig_modes` is
+        # no longer a parameter here.
+        _bake_fea_bundles(results)
 
     _regenerate_results_detailed_md(results)
     one = OneDoc(source_dir=report_src_dir)
