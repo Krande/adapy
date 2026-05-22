@@ -168,6 +168,23 @@ class CcxResultModel:
             else:
                 break
 
+        # Calculix declares more component names than the per-node rows
+        # actually carry. A DISP block, for instance, ships four `-5`
+        # lines (`D1 D2 D3 ALL`) but only three numeric columns in the
+        # `-1` rows — `ALL` is a magnitude aggregate the writer never
+        # serialises per node. The downstream bake (`FEAResultStreamAdapter
+        # .field_specs`) uses `len(components)` to size the AFBL blob
+        # stride, so without trimming we'd promise four columns and
+        # `write_field_blob_streaming` would assert
+        # `arr.shape != (n_points, n_components)` — which is why every
+        # `ccx_shell_*` / `ccx_solid_*` case in the verification report
+        # baked but its mode posters fell back to "figures unavailable".
+        # Truncate to the actual data width sampled from the first row.
+        if component_data and component_names:
+            n_data_cols = len(component_data[0]) - 1  # drop nid column
+            if n_data_cols < len(component_names):
+                component_names = component_names[:n_data_cols]
+
         curr_step = self._curr_step
         curr_eig_freq = None
         curr_eig_value = None
