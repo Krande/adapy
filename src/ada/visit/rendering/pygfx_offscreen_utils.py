@@ -98,7 +98,27 @@ def _read_glb_primitives(glb_path: str | Path) -> list[dict]:
     nodes = gltf.get("nodes", [])
     meshes = gltf.get("meshes", [])
     scenes = gltf.get("scenes", [])
+    materials = gltf.get("materials", [])
     scene_idx = gltf.get("scene", 0)
+
+    def resolve_pbr(material_idx: int | None) -> dict:
+        """Extract PBR factors from a glTF material so the offscreen
+        renderer can mirror Three.js' MeshStandardMaterial defaults.
+
+        Falls back to ``baseColorFactor=[1,1,1,1], metallic=1.0,
+        roughness=1.0`` — same defaults adapy's GLB writer emits when
+        no explicit material is set on a primitive.
+        """
+        if material_idx is None or material_idx >= len(materials):
+            return {}
+        mat = materials[material_idx]
+        pbr = mat.get("pbrMetallicRoughness") or {}
+        base = pbr.get("baseColorFactor", [1.0, 1.0, 1.0, 1.0])
+        return {
+            "base_color": tuple(float(c) for c in base),
+            "metallic": float(pbr.get("metallicFactor", 1.0)),
+            "roughness": float(pbr.get("roughnessFactor", 1.0)),
+        }
 
     # componentType (GLTF spec) → numpy dtype string. Multi-buffer GLBs
     # are rare and adapy never writes them, but we still resolve via
@@ -183,6 +203,7 @@ def _read_glb_primitives(glb_path: str | Path) -> list[dict]:
                         "positions": positions,
                         "indices": indices,
                         "colors": colors,
+                        "pbr": resolve_pbr(prim.get("material")),
                     }
                 )
         for child in node.get("children", []):
@@ -227,6 +248,7 @@ def _read_glb_primitives(glb_path: str | Path) -> list[dict]:
                         "positions": positions,
                         "indices": indices,
                         "colors": colors,
+                        "pbr": resolve_pbr(prim.get("material")),
                     }
                 )
     return out
@@ -387,11 +409,25 @@ def glb_to_image(
                 geom_kwargs["colors"] = colors
             try:
                 geometry = gfx.Geometry(**geom_kwargs)
-                material = (
-                    gfx.MeshPhongMaterial(color_mode="vertex")
-                    if colors is not None
-                    else gfx.MeshPhongMaterial()
-                )
+                # Match the embed's PBR look: MeshStandardMaterial,
+                # parameters mirroring what adapy's GLB writer emits
+                # (`baseColorFactor=[1,1,1,1], metallic=1.0,
+                # roughness=1.0` for `mat0`). Three.js uses
+                # MeshStandardMaterial out of the box for GLTF PBR;
+                # using the same material model + same factors keeps
+                # the pygfx poster visually close to the live viewer.
+                pbr = prim.get("pbr") or {}
+                base = pbr.get("base_color", (1.0, 1.0, 1.0, 1.0))
+                metallic = float(pbr.get("metallic", 1.0))
+                roughness = float(pbr.get("roughness", 1.0))
+                mat_kwargs = {
+                    "color": base,
+                    "metalness": metallic,
+                    "roughness": roughness,
+                }
+                if colors is not None:
+                    mat_kwargs["color_mode"] = "vertex"
+                material = gfx.MeshStandardMaterial(**mat_kwargs)
                 group.add(gfx.Mesh(geometry, material))
                 drew_any = True
             except Exception:
@@ -427,8 +463,19 @@ def glb_to_image(
         # show the resulting blank image as a fallback poster.
         pass
 
-    scene.add(gfx.AmbientLight(intensity=0.6))
-    scene.add(gfx.DirectionalLight())
+    # Lighting matches the embed's setup (see embed/index.ts):
+    #
+    #   AmbientLight(0xffffff, Math.PI / 2)
+    #   DirectionalLight(0xffffff, 1.4) ← tracks camera each frame
+    #
+    # Three.js' AmbientLight intensity is a linear multiplier; π/2 ≈
+    # 1.57 gives the bright neutral fill the live viewer uses.
+    # Camera-tracking key light is repositioned per-frame in the live
+    # viewer; offscreen renders one frame so we just place it at the
+    # camera position once `_apply_embed_preset_camera` returns.
+    scene.add(gfx.AmbientLight(color="#ffffff", intensity=math.pi / 2))
+    key_light = gfx.DirectionalLight(color="#ffffff", intensity=1.4)
+    scene.add(key_light)
 
     width, height = canvas.get_logical_size()
     aspect = (width / height) if height else 4.0 / 3.0
@@ -445,6 +492,14 @@ def glb_to_image(
         margin=margin,
         z_up=z_up,
     )
+    # Park the key light at the camera's pose. DirectionalLight uses
+    # the difference between its position and its target (default
+    # origin) as the light direction; with the camera looking at the
+    # bbox centre, target at (0,0,0) works for most centred scenes.
+    # If the scene centre is far from origin (large translations on
+    # the root node), the light would point off-axis; for the FEA
+    # bake's cantilever models that origin-rooted bbox holds.
+    key_light.local.position = tuple(gfx_cam.local.position)
 
     scene.add(gfx_cam)
     canvas.request_draw(lambda: renderer.render(scene, gfx_cam))

@@ -57,11 +57,35 @@ const BASE_VERTEX_COLOUR = [0.7, 0.7, 0.7] as const;
 // glTF nodes are name-optional), so we pin it here.
 const ASSEMBLED_MESH_NAME = "node0";
 
-function findFirstMesh(root: THREE.Object3D): THREE.Mesh | null {
-    let found: THREE.Mesh | null = null;
+/**
+ * Find the first renderable primitive (Mesh, LineSegments, Line, or
+ * Points) in a loaded glTF scene that we can hang morph targets on.
+ *
+ * The bake emits a single `fea.mesh.glb` per case, but its top-level
+ * primitive mode varies by element type:
+ *   * 2D faces (shell o1, solid o2 surface tris) → TRIANGLES → Mesh
+ *   * 1D line beams                              → LINES   → LineSegments
+ *   * Element types `write_mesh_glb` doesn't know how to face-extract
+ *     (e.g. 2nd-order shells until adapy gains that path) → POINTS
+ *     → Points
+ *
+ * All four are valid morph + vertex-colour carriers in Three.js, so we
+ * accept any of them. Strict Mesh-only worked for shell o1 / solid o2
+ * but exploded on Code Aster line o1 + shell o2 cases with
+ * `no mesh in fea.mesh.glb`.
+ */
+function findFirstRenderable(root: THREE.Object3D): (THREE.Object3D & {
+    geometry: THREE.BufferGeometry;
+    material: THREE.Material | THREE.Material[];
+    morphTargetInfluences?: number[];
+    morphTargetDictionary?: Record<string, number>;
+}) | null {
+    let found: any = null;
     root.traverse((o) => {
-        if (!found && (o as THREE.Mesh).isMesh) {
-            found = o as THREE.Mesh;
+        if (found) return;
+        const obj = o as any;
+        if (obj.isMesh || obj.isLineSegments || obj.isLine || obj.isPoints) {
+            found = obj;
         }
     });
     return found;
@@ -131,9 +155,9 @@ export async function assembleAnimatedFeaGlb(
     const loader = new GLTFLoader();
     const gltf = await loader.parseAsync(meshBuf, "");
     const scene = gltf.scene;
-    const mesh = findFirstMesh(scene);
+    const mesh = findFirstRenderable(scene);
     if (!mesh) {
-        throw new Error(`fea bundle: no mesh in ${manifest.mesh.url}`);
+        throw new Error(`fea bundle: no renderable primitive in ${manifest.mesh.url}`);
     }
     // Pin the mesh name so the AnimationClip's `<name>.morphTargetInfluences`
     // track binds after the exporter ↔ loader roundtrip. Without this
