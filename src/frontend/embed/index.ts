@@ -81,6 +81,32 @@ export interface MountedViewer {
     dispose: () => void
 }
 
+/**
+ * Storage-layer fetcher for FEA artefact bundles. Resolves a
+ * manifest-relative filename to raw bytes.
+ *
+ *   * paradoc passes a fetcher that hits paradoc-serve's
+ *     `/api/docs/{id}/3d/{key}/fea/{filename}` endpoint (REST) or a
+ *     relative URL under the SPA's asset base (static-mode bundles).
+ *   * Standalone adapy-viewer wraps `viewerApi.getBlob` with the
+ *     bake-job's `_derived/<src>.fea/` prefix.
+ */
+export type FeaArtefactFetcher = (filename: string) => Promise<ArrayBuffer>
+
+export interface MountFeaArtefactViewerOptions {
+    /** Pre-fetched `fea.manifest.json` body. Caller is responsible
+     *  for fetching the manifest (so it can be polled / cached
+     *  alongside the rest of paradoc's transport layer). */
+    manifest: unknown
+    /** Resolves manifest-relative filenames to bytes. */
+    fetcher: FeaArtefactFetcher
+    camera: CameraPreset
+    caption?: string
+    showControls?: boolean
+    onReady?: () => void
+    onError?: (err: Error) => void
+}
+
 const DEFAULT_FOV = 50
 const DEFAULT_MARGIN = 1.15
 const DEFAULT_MIN_HEIGHT = 400
@@ -448,4 +474,93 @@ function applyCameraPreset(
     )
     controls.minDistance = distance * 0.05
     controls.maxDistance = distance * 20
+}
+
+
+/**
+ * Mount a viewer fed by a pre-baked FEA artefact bundle.
+ *
+ * The standalone adapy-viewer loads bundles directly through
+ * `load_fea_streaming.ts`, mutating its singleton scene + multiple
+ * stores. paradoc-embed can't do that — it doesn't own the singleton
+ * scene and stores. Instead, this helper:
+ *
+ *   1. Calls `assembleAnimatedFeaGlb(fetcher, manifest)`, which
+ *      fetches the mesh GLB + displacement field blob + edge sidecar
+ *      and assembles a single consolidated GLB carrying one morph
+ *      target per mode + one glTF animation clip per mode + the
+ *      wireframe as a child LineSegments.
+ *   2. Routes the assembled bytes through the existing
+ *      `mountViewer({modelBytes})` flow — the embed sees a normal
+ *      animated GLB, the loader flips `hasAnimation = true`, and the
+ *      SimulationControls UI lights up under `showControls: true`.
+ *
+ * No new scene / store wiring; future work refactors `load_fea_streaming`
+ * to share its core orchestration with this path so the assembled
+ * GLB lives only in the byte stream, not in two parallel pipelines.
+ */
+export function mountFeaArtefactViewer(
+    element: HTMLElement,
+    opts: MountFeaArtefactViewerOptions,
+): MountedViewer {
+    let disposed = false
+    let inner: MountedViewer | null = null
+
+    // Show a "loading" hint so the user has feedback while the
+    // assembly runs (mesh + field-blob fetch + GLTFExporter pass can
+    // take a couple of seconds on a large model). Cleared once the
+    // inner viewer mounts.
+    element.innerHTML = ""
+    const loading = document.createElement("div")
+    loading.style.cssText =
+        "display:flex;align-items:center;justify-content:center;width:100%;height:100%;" +
+        "min-height:200px;color:#666;font:14px system-ui;"
+    loading.textContent = "Loading FEA mode shapes…"
+    element.appendChild(loading)
+
+    ;(async () => {
+        try {
+            // Lazy import so a host that never asks for FEA doesn't
+            // pay the THREE.GLTFExporter + parser bundle cost on
+            // page load.
+            const {assembleAnimatedFeaGlb} = await import(
+                "../src/utils/scene/fea/assembleFeaGlb"
+            )
+            const modelBytes = await assembleAnimatedFeaGlb(
+                opts.fetcher,
+                opts.manifest as never, // typed loosely on the public API
+            )
+            if (disposed) return
+            inner = mountViewer(element, {
+                modelBytes,
+                camera: opts.camera,
+                caption: opts.caption,
+                showControls: opts.showControls,
+                onReady: opts.onReady,
+                onError: opts.onError,
+            })
+        } catch (err) {
+            if (disposed) return
+            const message = err instanceof Error ? err.message : String(err)
+            element.innerHTML = ""
+            const errBox = document.createElement("div")
+            errBox.style.cssText =
+                "padding:1rem;color:#b91c1c;font:14px system-ui;" +
+                "background:#fef2f2;border:1px solid #fecaca;border-radius:6px;"
+            errBox.textContent = `Failed to load FEA bundle: ${message}`
+            element.appendChild(errBox)
+            opts.onError?.(err instanceof Error ? err : new Error(message))
+        }
+    })()
+
+    return {
+        dispose: () => {
+            disposed = true
+            try {
+                inner?.dispose()
+            } catch {
+                /* inner mount may not have completed yet */
+            }
+        },
+    }
 }
