@@ -61,7 +61,9 @@ DISP_FIELD = {
 # bbox is fixed and the eigenvectors come in already mass-normalized; if
 # the shapes look too small/large later, compute per-mode auto-scale
 # (max(|disp|) → 5–10% of bbox diagonal).
-WARP_SCALE = 10.0
+WARP_SCALE = 1.0  # render the solver's reported displacement
+                  # magnitudes faithfully; amplification belongs in a
+                  # user-facing control, not baked into the figures.
 
 THIS_DIR = pathlib.Path(__file__).parent.resolve().absolute()
 cache_dir = THIS_DIR / ".cache"

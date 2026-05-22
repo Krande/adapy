@@ -50,6 +50,14 @@ import {abaqus} from "./colormaps";
  *  brings the abaqus rainbow up at the deformation hotspots. */
 const BASE_VERTEX_COLOUR = [0.7, 0.7, 0.7] as const;
 
+/** Visual amplification factor applied to the eigen-mode
+ *  displacement before adding it to the base positions. Kept at
+ *  1.0 to render the solver's reported magnitudes faithfully —
+ *  amplification belongs in a user-facing "warp scale" control
+ *  rather than baked into the static figures. Mirrors the bake-
+ *  side `WARP_SCALE` in `build_verification_report.py`. */
+const WARP_SCALE = 1.0;
+
 // Force a known mesh name on the assembled GLB so the animation
 // track binds reliably after the GLTFExporter ↔ GLTFLoader roundtrip.
 // The bake's `write_mesh_glb` doesn't guarantee a specific name (and
@@ -228,12 +236,16 @@ export async function assembleAnimatedFeaGlb(
     const mag = new Float32Array(n_points);
     let maxMag = 0;
     for (let v = 0; v < n_points; v++) {
-        const dx = modeStep[v * n_components + 0];
-        const dy = n_components >= 2 ? modeStep[v * n_components + 1] : 0;
-        const dz = n_components >= 3 ? modeStep[v * n_components + 2] : 0;
+        const dx = modeStep[v * n_components + 0] * WARP_SCALE;
+        const dy = n_components >= 2 ? modeStep[v * n_components + 1] * WARP_SCALE : 0;
+        const dz = n_components >= 3 ? modeStep[v * n_components + 2] * WARP_SCALE : 0;
         deformed[v * 3 + 0] = basePositions[v * 3 + 0] + dx;
         deformed[v * 3 + 1] = basePositions[v * 3 + 1] + dy;
         deformed[v * 3 + 2] = basePositions[v * 3 + 2] + dz;
+        // Magnitude still computed on the scaled displacement so the
+        // abaqus colourmap normalises to the same per-mode max we
+        // actually rendered (otherwise the colour scale and the
+        // deformation scale would disagree).
         const m = Math.sqrt(dx * dx + dy * dy + dz * dz);
         mag[v] = m;
         if (m > maxMag) maxMag = m;
