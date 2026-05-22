@@ -320,10 +320,41 @@ def _bake_fea_bundles(results: Iterable[ru.FeaVerificationResult]) -> list[Three
             continue
 
         # Poster PNG for the static figure (before the user clicks
-        # Interactive). The bundle's `fea.mesh.glb` is the un-deformed
-        # geometry, so the poster shows the mesh in its reference
-        # configuration. Modes are visible only inside the live viewer.
-        _bake_glb_poster_png(bake.mesh_glb_path)
+        # Interactive). The bundle's `fea.mesh.glb` is un-deformed —
+        # the live viewer's assembleAnimatedFeaGlb adds displacement
+        # on the client side. For the STATIC poster we render a
+        # temp deformed mode-1 GLB via the legacy single-GLB writer,
+        # render it, then drop it. End result: the report's static
+        # poster shows the mode-1 deformed shape (matching what the
+        # user sees on click-Interactive); the bundle stays a single
+        # un-deformed mesh + per-mode displacement blobs.
+        field = _resolve_disp_field_per_mode(res, r.fem_format, 1)
+        if field is not None:
+            warp_step = 1 if r.fem_format == "code_aster" else 1
+            temp_deformed = bake.mesh_glb_path.with_name("fea.mesh.deformed.glb")
+            try:
+                res.to_gltf(
+                    str(temp_deformed), warp_step, field,
+                    warp_field=field, warp_step=warp_step, warp_scale=WARP_SCALE,
+                )
+                _bake_glb_poster_png(temp_deformed)
+                # The poster writer drops <stem>.png next to its
+                # input; move it next to fea.mesh.glb so the row's
+                # `image_path` resolution finds it.
+                src_png = temp_deformed.with_suffix(".png")
+                dest_png = bake.mesh_glb_path.with_suffix(".png")
+                if src_png.exists():
+                    src_png.replace(dest_png)
+            except Exception as exc:
+                logger.warning(f"{r.name}: deformed poster bake failed ({field!r}): {exc}")
+                # Fall back to un-deformed poster so the row at least
+                # has a thumbnail.
+                _bake_glb_poster_png(bake.mesh_glb_path)
+            finally:
+                if temp_deformed.exists():
+                    temp_deformed.unlink(missing_ok=True)
+        else:
+            _bake_glb_poster_png(bake.mesh_glb_path)
 
         manifest_rel = str(bake.manifest_path.relative_to(THIS_DIR))
         mesh_glb_rel = str(bake.mesh_glb_path.relative_to(THIS_DIR))
@@ -361,21 +392,21 @@ def _bake_fea_bundles(results: Iterable[ru.FeaVerificationResult]) -> list[Three
 
 
 def _count_displacement_steps(res) -> int:
-    """How many displacement steps does this FEAResult carry?
+    """Count modes across all displacement field entries in this FEAResult.
 
-    The bake writes one AFBL blob per (nodal) field with n_steps in
-    its header; the number of mode-view rows we register has to
-    match what the embed's assembleAnimatedFeaGlb can clamp to.
-    Probes the FEAResult's results list for a displacement entry
-    (one per step, typically) and returns the maximum step index
-    plus one. Falls back to 10 if nothing's resolvable — overshooting
-    is cheap (clamped at the embed) and undershooting would silently
-    drop modes.
+    Two solver conventions to handle:
+      * Calculix / Abaqus / Sesam: one field named ``U`` with
+        n_steps entries (one per mode). Each step is a `NodalFieldData`
+        record with name="U" and step=1, 2, ...
+      * Code Aster: one field per mode named `result__DEPL[N]`,
+        each with step=1. N records, all sharing step=1.
+
+    Counting unique (step, name) pairs covers both. Falls back to 1
+    if nothing's resolvable so the bake doesn't register zero
+    mode-view rows for a case it just successfully baked.
     """
-    seen_steps: set[int] = set()
+    seen: set[tuple[str, int]] = set()
     for r in getattr(res, "results", []):
-        # Nodal field with displacement-ish name. Code Aster uses
-        # `result__DEPL...`; other solvers use `U`.
         name = getattr(r, "name", "") or ""
         is_disp = (
             name == "U"
@@ -385,8 +416,8 @@ def _count_displacement_steps(res) -> int:
         if is_disp:
             step = getattr(r, "step", None)
             if isinstance(step, int):
-                seen_steps.add(step)
-    return max(len(seen_steps), 1)
+                seen.add((name, step))
+    return max(len(seen), 1)
 
 
 # Legacy alias — older builds expect this symbol; keep it pointing at
@@ -560,12 +591,16 @@ def _collect_assets() -> list[ThreeDData]:
         try:
             import json as _json
             manifest_json = _json.loads(manifest_path.read_text(encoding="utf-8"))
+            # Sum across all displacement fields × their n_steps —
+            # Code Aster ships N fields × 1 step each, Calculix /
+            # Abaqus ship 1 field × N steps. `max()` only worked for
+            # the latter; summing is the right unifying count.
             n_modes = 0
             for f in manifest_json.get("fields", []) or []:
                 cat = (f.get("category") or "").lower()
                 name = (f.get("name_canonical") or "").upper()
                 if cat == "displacement" or "DEPL" in name or name == "U":
-                    n_modes = max(n_modes, int(f.get("n_steps") or 0))
+                    n_modes += int(f.get("n_steps") or 0)
             for mode_idx in range(n_modes):
                 rows.append(
                     _fea_bundle_mode_view_row(

@@ -67,22 +67,48 @@ function findFirstMesh(root: THREE.Object3D): THREE.Mesh | null {
     return found;
 }
 
-function pickDisplacementField(manifest: FeaManifest): FeaManifestField | null {
-    if (!manifest || !Array.isArray(manifest.fields)) return null;
-    // Prefer the canonical "displacement" category; fall back to
-    // anything with a name starting with "U" (Abaqus convention) or
-    // "DEPL" (Code Aster) so a manifest that's mis-categorised still
-    // animates instead of silently emitting a static mesh.
-    const byCategory = manifest.fields.find(
-        (f) => f.category === "displacement" && f.blob,
-    );
-    if (byCategory) return byCategory;
-    return manifest.fields.find(
-        (f) =>
-            f.blob &&
-            (f.name_canonical?.toUpperCase().startsWith("U") ||
-                f.name_canonical?.toUpperCase().includes("DEPL")),
-    ) ?? null;
+/** All displacement-flavoured fields in the manifest, in
+ *  manifest order. Calculix / Abaqus ship one field ("U") with N
+ *  steps; Code Aster ships N fields ("result__DEPL[N]") with
+ *  1 step each. The unified "mode i" is found by walking the
+ *  flattened (field, step) list from `pickModeEntry` below. */
+function listDisplacementFields(manifest: FeaManifest): FeaManifestField[] {
+    if (!manifest || !Array.isArray(manifest.fields)) return [];
+    return manifest.fields.filter((f) => {
+        if (!f.blob) return false;
+        const name = (f.name_canonical || "").toUpperCase();
+        return (
+            f.category === "displacement" ||
+            name === "U" ||
+            name.startsWith("U[") ||
+            name.includes("DEPL") ||
+            name.includes("DISPLACEMENT")
+        );
+    });
+}
+
+/** Pick the (field, step_within_field) pair corresponding to a
+ *  caller-supplied global mode index. Walks displacement fields in
+ *  manifest order and accumulates each field's n_steps until the
+ *  index lands. Returns null if the manifest has no displacement
+ *  fields at all. */
+function pickModeEntry(
+    manifest: FeaManifest,
+    globalModeIndex: number,
+): {field: FeaManifestField; stepIndex: number} | null {
+    const fields = listDisplacementFields(manifest);
+    if (fields.length === 0) return null;
+    let totalSeen = 0;
+    for (const f of fields) {
+        const n = Math.max(1, f.n_steps | 0);
+        if (globalModeIndex < totalSeen + n) {
+            return {field: f, stepIndex: globalModeIndex - totalSeen};
+        }
+        totalSeen += n;
+    }
+    // Out of range — clamp to the last (field, last-step).
+    const last = fields[fields.length - 1];
+    return {field: last, stepIndex: Math.max(0, (last.n_steps | 0) - 1)};
 }
 
 /**
@@ -115,19 +141,24 @@ export async function assembleAnimatedFeaGlb(
     // and the user sees the un-deformed mesh under every mode.
     mesh.name = ASSEMBLED_MESH_NAME;
 
-    // 2. Displacement field --------------------------------------------
-    const field = pickDisplacementField(manifest);
-    if (!field || !field.blob) {
+    // 2. Displacement field (mode lookup) ------------------------------
+    // For a caller-supplied global modeIndex, walk the manifest's
+    // displacement fields to find which field + which step
+    // corresponds. Both Calculix (1 field × N steps) and Code Aster
+    // (N fields × 1 step each) flatten to the same global index.
+    const entry = pickModeEntry(manifest, Math.max(0, modeIndex | 0));
+    if (!entry || !entry.field.blob) {
         throw new Error(
-            "fea bundle: manifest has no displacement field (category=displacement); " +
-            "nothing to animate. Static mesh will still render but SimulationControls " +
-            "won't surface.",
+            "fea bundle: manifest has no displacement fields; nothing to deform.",
         );
     }
+    const field = entry.field;
 
     const fieldBuf = await fetcher(field.blob.url);
     const parsed = parseFieldBlob(fieldBuf);
-    const {n_steps, n_points, n_components} = parsed.header;
+    const {n_points, n_components} = parsed.header;
+    // Step index within THIS field (already clamped by pickModeEntry).
+    const stepIndexInField = Math.min(entry.stepIndex, parsed.steps.length - 1);
 
     const positionAttr = mesh.geometry.getAttribute("position") as THREE.BufferAttribute;
     if (!positionAttr) {
@@ -165,10 +196,7 @@ export async function assembleAnimatedFeaGlb(
     // animation, no controls UI. Mode 1 is the lowest-frequency mode
     // and the most visually informative; subsequent modes can be
     // selected once the SimControls integration lands.
-    // Clamp the requested mode to whatever the field has — keeps
-    // a caller asking for mode 7 on a 5-mode bake from crashing.
-    const ACTIVE_MODE = Math.max(0, Math.min(parsed.steps.length - 1, modeIndex | 0));
-    const modeStep = parsed.steps[ACTIVE_MODE];
+    const modeStep = parsed.steps[stepIndexInField];
 
     // Deformed positions = base + displacement vector at every node.
     const basePositions = positionAttr.array as Float32Array;
