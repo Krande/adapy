@@ -71,6 +71,37 @@ def _list_displacement_entries(manifest: dict) -> list[tuple[str, int]]:
     return out
 
 
+def _parse_afeg(buf: bytes):
+    """Parse an AFEG (Adapy Field EdGe) sidecar — the bake's
+    element-boundary wireframe. Format:
+
+        bytes  content
+        0..3   magic = "AFEG"
+        4..7   uint32 version (=1)
+        8..11  uint32 n_edges
+        12..15 4-byte zero pad (header total = 16)
+        16..   n_edges × (uint32 from, uint32 to)
+
+    Returns the index array as ``(n_edges, 2)`` uint32 — same shape
+    Three.js' wireframe overlay consumes via `BufferAttribute(idx, 1)`
+    + `setIndex`. Returns None on a missing-or-malformed sidecar so
+    the renderer falls back to triangle-only output.
+    """
+    import numpy as np
+
+    if buf[:4] != b"AFEG":
+        return None
+    version, n_edges = struct.unpack("<II", buf[4:12])
+    if version != 1 or n_edges == 0:
+        return None
+    expected = 16 + n_edges * 2 * 4
+    if len(buf) < expected:
+        return None
+    return np.frombuffer(
+        buf, dtype=np.uint32, count=n_edges * 2, offset=16,
+    ).reshape(n_edges, 2).copy()
+
+
 def _parse_afbl(buf: bytes):
     """Parse an AFBL blob into (json_header, array of shape
     (n_steps, n_points, n_components)). Lazy-imports numpy so a
@@ -205,6 +236,36 @@ def render_fea_mode_from_bundle(
             # `ColorVisuals` so `visual.kind == "vertex"` and the
             # exporter emits COLOR_0 alongside POSITION.
             mesh.visual = _tvc.ColorVisuals(mesh=mesh, vertex_colors=rgba)
+
+    # Element-edge wireframe overlay. The bake writes
+    # `fea.mesh.edges.bin` (AFEG) — deduped uint32 (from, to) pairs
+    # sharing the mesh's vertex layout. Add a `trimesh.PointCloud`
+    # parented separately? No — trimesh exports `Path3D` as glTF
+    # LINES which is what pygfx_offscreen_utils' mode=1 branch
+    # renders. Skipped silently when the sidecar is missing or the
+    # mesh was loaded as a PointCloud (the bake doesn't ship edges
+    # for those cases yet).
+    edges_bin = case_dir / "fea.mesh.edges.bin"
+    if edges_bin.is_file() and not isinstance(mesh, trimesh.PointCloud):
+        try:
+            edge_indices = _parse_afeg(edges_bin.read_bytes())
+            if edge_indices is not None and edge_indices.size > 0:
+                # `Path3D` consumes lists of entities + a shared vertex
+                # array. Use `Line` entities with two-point segments
+                # so the export emits one GL LINES primitive per pair.
+                from trimesh.path.entities import Line
+                from trimesh.path.path import Path3D
+
+                deformed_verts = np.asarray(mesh.vertices, dtype=np.float32)
+                line_entities = [Line(points=pair.tolist()) for pair in edge_indices]
+                edge_path = Path3D(entities=line_entities, vertices=deformed_verts)
+                scene.add_geometry(edge_path, geom_name="edges")
+        except Exception as exc:
+            # Wireframe is decorative — log + fall through to mesh-only.
+            import logging as _logging
+            _logging.getLogger(__name__).warning(
+                "fea_offscreen: edge wireframe load failed (%s); rendering mesh only", exc,
+            )
 
     with tempfile.TemporaryDirectory(prefix="fea_render_") as tmp:
         out_glb = Path(tmp) / "deformed.glb"

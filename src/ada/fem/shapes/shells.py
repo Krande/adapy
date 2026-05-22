@@ -31,5 +31,22 @@ shell_edges = {
     ShellShapes.QUAD: [[0, 1], [1, 2], [2, 3], [3, 0]],
     ShellShapes.TRI: [[0, 1], [1, 2], [2, 0]],
     ShellShapes.TRI6: [[0, 1], [1, 2], [2, 0]],
+    # 2nd-order shells: corner-to-corner edges only. Curved mid-edge
+    # rendering would need per-element shape-function sampling, which
+    # the bake doesn't do; for visualization the straight-edge wireframe
+    # matches what the underlying TRI3/QUAD4 viz mesh shows.
+    ShellShapes.QUAD8: [[0, 1], [1, 2], [2, 3], [3, 0]],
 }
-shell_faces = {ShellShapes.QUAD: [[0, 1, 2], [0, 2, 3]], ShellShapes.TRI: [[0, 1, 2]]}
+# Triangulation for rendering: 2nd-order shells share the corner-node
+# layout of their 1st-order counterparts (TRI6 → 3 corners + 3
+# mid-edge nodes, QUAD8 → 4 corners + 4 mid-edge nodes), so we
+# triangulate the corners and ignore the mid-edge nodes. Viz only —
+# the simulation uses the full higher-order DOFs. Without this entry
+# `_compute_topology` skips the cell block and `write_mesh_glb` falls
+# back to POINTS-only output, which kept ca_shell_o2 figures blank.
+shell_faces = {
+    ShellShapes.QUAD: [[0, 1, 2], [0, 2, 3]],
+    ShellShapes.TRI: [[0, 1, 2]],
+    ShellShapes.TRI6: [[0, 1, 2]],
+    ShellShapes.QUAD8: [[0, 1, 2], [0, 2, 3]],
+}
