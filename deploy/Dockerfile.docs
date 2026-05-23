@@ -97,6 +97,9 @@ RUN pixi install --environment docs --locked
 #     bundles (which display at morphTargetInfluences=[1] on load) no
 #     longer clip the cantilever tip against the viewer's bottom edge.
 #     Live framing now matches the offscreen poster's framing pose.
+#   * Camera re-fits AFTER `onReady` so FEA-session activation (which
+#     writes the [1.0] morph influence) is in scope when the bbox is
+#     computed — the previous attempt had the timing inverted.
 ARG PARADOC_GIT_URL
 ARG PARADOC_REF=main
 # CACHE_BUST forces a fresh clone when ``PARADOC_REF`` is a moving
