@@ -149,7 +149,17 @@ export function mountViewer(element: HTMLElement, opts: MountViewerOptions): Mou
 
     // --- DOM scaffolding ---
     element.innerHTML = ""
-    if (!element.style.minHeight) element.style.minHeight = `${DEFAULT_MIN_HEIGHT}px`
+    // Floor the canvas to a usable size IFF the parent hasn't given
+    // us explicit pixel dimensions. The floor matters when a caller
+    // hands us a `<div>` with no height at all (the canvas would
+    // collapse to 0); it actively hurts when the host already has a
+    // measured height (paradoc's Interactive3DFigure on mobile pins
+    // the host to ~322 px to match the poster). Forcing
+    // ``min-height: 400 px`` there made the canvas overflow its
+    // `overflow: hidden` parent and clip the beam's bottom-left.
+    if (!element.style.minHeight && !element.style.height) {
+        element.style.minHeight = `${DEFAULT_MIN_HEIGHT}px`
+    }
     element.style.position = "relative"
     element.style.overflow = "hidden"
 
