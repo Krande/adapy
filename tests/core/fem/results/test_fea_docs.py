@@ -176,3 +176,44 @@ def test_register_paradoc_block_sugar_is_callable():
 
     # No-op stub today — must not raise.
     register_paradoc_block_sugar(_Dispatcher())
+
+
+def test_paradoc_figure_sources_entry_point_registered():
+    """When adapy is installed (dist-info present) the entry-point
+    declared in ``pyproject.toml`` must surface under the
+    ``paradoc.figure_sources`` group and resolve back to
+    :func:`register_paradoc_block_sugar`.
+
+    The verification report runs adapy via PYTHONPATH rather than a
+    pip install, in which case there's no dist-info and discovery
+    returns nothing — that's a legitimate dev environment, not a
+    failure, so we skip rather than fail.
+    """
+
+    from importlib import metadata
+
+    try:
+        dist = metadata.distribution("ada-py")
+    except metadata.PackageNotFoundError:
+        pytest.skip(
+            "ada-py not installed in this env (running off PYTHONPATH); "
+            "entry-point discovery only fires for installed packages."
+        )
+
+    eps = metadata.entry_points(group="paradoc.figure_sources")
+    by_name = {ep.name: ep for ep in eps if ep.dist == dist}
+    if "fea_artefact_bundle" not in by_name:
+        # The conda-forge feedstock or pip-installed wheel pre-dates the
+        # entry-point declaration. Skip rather than fail: that's the
+        # expected steady state until a fresh build lands. See
+        # ``dap/notes/conda_forge_adapy_recipe.md`` for the rebuild
+        # checklist when entry-points change.
+        pytest.skip(
+            "fea_artefact_bundle entry-point not present in the "
+            "installed ada-py dist-info — rebuild the wheel "
+            "(`pip install -e .`) or refresh the conda-forge feedstock."
+        )
+
+    from ada.fem.results.docs import register_paradoc_block_sugar
+
+    assert by_name["fea_artefact_bundle"].load() is register_paradoc_block_sugar
