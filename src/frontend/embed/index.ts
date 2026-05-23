@@ -457,13 +457,78 @@ export function mountViewer(element: HTMLElement, opts: MountViewerOptions): Mou
     }
 }
 
+// Compute a bounding box that accounts for morph-target displacement
+// at current influences. `Box3.setFromObject` reads only rest-position
+// vertices, so an FEA mode-shape mesh whose morphTargetInfluences=[1]
+// drives the displayed beam below its rest-bbox bottom would frame
+// to a too-small box and clip on the bottom edge. The poster pipeline
+// (fea_offscreen.py) sidesteps this by baking deformed positions into
+// the GLB before render; the live viewer assembles + morphs at
+// runtime, so it needs to do the same work here.
+function computeRenderableBox(root: THREE.Object3D): THREE.Box3 {
+    const box = new THREE.Box3()
+    const vert = new THREE.Vector3()
+    const baseV = new THREE.Vector3()
+    const morphV = new THREE.Vector3()
+
+    root.traverseVisible((obj) => {
+        const m = obj as THREE.Mesh
+        if (!(m as any).isMesh || !m.geometry) return
+        const geom = m.geometry
+        const posAttr = geom.attributes.position as THREE.BufferAttribute | undefined
+        if (!posAttr) return
+        m.updateWorldMatrix(true, false)
+
+        const morphAttrs = geom.morphAttributes?.position as
+            | THREE.BufferAttribute[]
+            | undefined
+        const influences = m.morphTargetInfluences || []
+        const hasMorph =
+            !!morphAttrs &&
+            morphAttrs.length > 0 &&
+            influences.length > 0 &&
+            influences.some((i) => Math.abs(i) > 1e-9)
+
+        if (!hasMorph) {
+            const meshBox = new THREE.Box3().setFromObject(m)
+            if (!meshBox.isEmpty()) box.union(meshBox)
+            return
+        }
+
+        const relative = (geom as any).morphTargetsRelative ?? true
+        for (let i = 0; i < posAttr.count; i++) {
+            baseV.fromBufferAttribute(posAttr, i)
+            vert.copy(baseV)
+            for (let mi = 0; mi < morphAttrs.length; mi++) {
+                const w = influences[mi] || 0
+                if (w === 0) continue
+                morphV.fromBufferAttribute(morphAttrs[mi], i)
+                if (relative) {
+                    vert.x += w * morphV.x
+                    vert.y += w * morphV.y
+                    vert.z += w * morphV.z
+                } else {
+                    vert.x += w * (morphV.x - baseV.x)
+                    vert.y += w * (morphV.y - baseV.y)
+                    vert.z += w * (morphV.z - baseV.z)
+                }
+            }
+            vert.applyMatrix4(m.matrixWorld)
+            box.expandByPoint(vert)
+        }
+    })
+
+    if (box.isEmpty()) box.setFromObject(root)
+    return box
+}
+
 function applyCameraPreset(
     camera: THREE.PerspectiveCamera,
     controls: CameraControls,
     root: THREE.Object3D,
     preset: CameraPreset,
 ): void {
-    const box = new THREE.Box3().setFromObject(root)
+    const box = computeRenderableBox(root)
     const center = box.getCenter(new THREE.Vector3())
     const size = box.getSize(new THREE.Vector3())
     const radius = Math.max(size.length() * 0.5, 1e-3)
