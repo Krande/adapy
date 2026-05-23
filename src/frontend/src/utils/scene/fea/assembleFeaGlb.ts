@@ -173,6 +173,17 @@ export async function assembleAnimatedFeaGlb(
     // and the user sees the un-deformed mesh under every mode.
     mesh.name = ASSEMBLED_MESH_NAME;
 
+    // Mark the mesh as an FEA streaming mesh so prepareLoadedModel
+    // skips the design-side edge overlay (`customMesh.getEdgeOverlay`).
+    // That overlay extracts edges from the un-deformed geometry and
+    // doesn't share morph attributes — without this flag it renders
+    // on top of our morph-aware AFEG wireframe (added in section 5b
+    // below), giving the user TWO sets of edges: a fixed un-deformed
+    // ghost + the live deformed wireframe. The same flag is set by
+    // the standalone load_fea_streaming.ts so the embed and the REST
+    // viewer agree on which side owns the wireframe.
+    mesh.userData.feaStreaming = true;
+
     // 2. Displacement field (mode lookup) ------------------------------
     // For a caller-supplied global modeIndex, walk the manifest's
     // displacement fields to find which field + which step
