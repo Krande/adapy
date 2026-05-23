@@ -100,6 +100,10 @@ RUN pixi install --environment docs --locked
 #   * Camera re-fits AFTER `onReady` so FEA-session activation (which
 #     writes the [1.0] morph influence) is in scope when the bbox is
 #     computed — the previous attempt had the timing inverted.
+#   * Interactive3DFigure viewerSize auto-measure no longer locks to
+#     the poster's placeholder height — the wrapper now grows to
+#     match the loaded image so the canvas isn't overflow-clipped at
+#     the bottom by its own ``overflow: hidden`` ancestor.
 ARG PARADOC_GIT_URL
 ARG PARADOC_REF=main
 # CACHE_BUST forces a fresh clone when ``PARADOC_REF`` is a moving
