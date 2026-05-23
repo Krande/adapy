@@ -107,6 +107,10 @@ RUN pixi install --environment docs --locked
 #   * mountViewer skips its 400 px min-height floor when the host has
 #     an explicit ``style.height`` — fixes mobile clipping where the
 #     poster-sized wrapper (~322 px) was shorter than the floor.
+#   * ThreeDRenderer outer wrapper now ``h-full`` so the wrapper's
+#     explicit pixel height (set by Interactive3DFigure to match the
+#     poster) propagates down to the mountViewer host without
+#     collapsing through an ``auto``-height intermediate div.
 ARG PARADOC_GIT_URL
 ARG PARADOC_REF=main
 # CACHE_BUST forces a fresh clone when ``PARADOC_REF`` is a moving
