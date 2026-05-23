@@ -612,18 +612,199 @@ for _mode_n in range(1, _MAX_MODE_ATTRS + 1):
 def register_paradoc_block_sugar(dispatcher: Any) -> None:
     """Entry-point target for the ``paradoc.figure_sources`` group.
 
-    Step 6 of the migration will wire ``figure_source: fea_artefact_bundle``
-    block sugar through this function — paradoc's startup will iterate
-    its ``paradoc.figure_sources`` entry points and call each with the
-    dispatcher object, letting plugins register handlers without
-    paradoc itself naming the implementing packages.
+    Registers ``figure_source: fea_artefact_bundle`` so a user can drop
+    a raw solver result (``.frd`` / ``.odb`` / ``.rmed`` / ``.sif`` /
+    ``.sin``) into a markdown block and get back one interactive figure
+    per mode + matching static PNGs::
 
-    For now this is a stub: declaring the entry point in
-    ``pyproject.toml`` today means paradoc's discovery hook (also
-    landing in step 6) finds something callable, and the rest of the
-    migration can ship incrementally.
+        <!-- paradoc:figure
+        figure_source: fea_artefact_bundle
+        figure_title: Cantilever frequency analysis
+        source_inp: files/cantilever.frd
+        camera_pos: iso_3
+        layout: per_mode      # or "gallery" (TODO)
+        n_modes: 10           # optional cap; default = every mode
+        poster_backend: pygfx # or "chromium"
+        -->
+
+    Each mode produces one ``ThreeDData`` row + one PNG figure tag,
+    using the same bake / poster pipeline :class:`FeaCaseFilter` runs
+    under the hood. Static counterparts are mandatory in this codebase
+    (PDF / DOCX / ODT exports can't run the interactive slider), so the
+    per-mode static figures are the default and ``layout`` only
+    controls the *visual* grouping.
+
+    The spec + filter classes are defined inside this function to keep
+    the module-load cost low when adapy is imported without paradoc
+    present — only paradoc's entry-point dispatcher calls in here, and
+    paradoc is in scope by the time it does.
     """
-    # Step 6: dispatcher.register(
-    #     "fea_artefact_bundle", _handle_fea_artefact_bundle,
-    # )
-    return None
+    from pathlib import Path
+    from typing import Literal, Optional
+
+    from pydantic import Field
+
+    from paradoc.figure_sources.filters.base import (
+        FigureSourceFilter,
+        RenderResult,
+    )
+    from paradoc.figure_sources.models import BaseFigureSource
+
+    class FeaArtefactBundle(BaseFigureSource):
+        """Block-sugar spec for ``figure_source: fea_artefact_bundle``.
+
+        ``source_inp`` points at the raw solver result file paradoc
+        bakes into the FEA artefact bundle at build time. ``layout``
+        controls how the per-mode figures are grouped in the rendered
+        document; ``n_modes`` caps how many modes get rendered (default
+        = all displacement steps the bundle carries).
+        """
+
+        figure_source: Literal["fea_artefact_bundle"] = "fea_artefact_bundle"
+        source_inp: Path = Field(
+            ...,
+            description=(
+                "Path to a raw FEA result file (.frd / .odb / .rmed / "
+                ".sif / .sin). Relative paths resolve against the doc "
+                "bundle root (paradoc convention)."
+            ),
+        )
+        layout: Literal["per_mode", "gallery"] = Field(
+            "per_mode",
+            description=(
+                "How to group the per-mode figures. `per_mode` (default) "
+                "emits one figure block per mode — best for engineering "
+                "docs that walk through modes individually. `gallery` "
+                "is reserved for a future grid layout; today it falls "
+                "back to `per_mode` with a warning."
+            ),
+        )
+        n_modes: Optional[int] = Field(
+            default=None,
+            description=(
+                "Optional cap on the number of modes to render. None "
+                "(default) means every displacement step the bundle "
+                "carries. The bake stops at the cap to keep large "
+                "transient analyses from blowing out the doc size."
+            ),
+        )
+        poster_backend: Literal["pygfx", "chromium"] = Field(
+            "pygfx",
+            description=(
+                "Offscreen backend for the per-mode PNG posters. Same "
+                "split as the cad_model_file source: pygfx is fast and "
+                "pure-Python; chromium drives the production embed for "
+                "bit-identical output, at ~5 s/PNG."
+            ),
+        )
+
+    dispatcher.register_spec("fea_artefact_bundle", FeaArtefactBundle)
+
+    class FeaArtefactBundleFilter(FigureSourceFilter):
+        """Bake a raw FEA result into an artefact bundle + emit one
+        figure per mode.
+
+        Uses :func:`assets_for_docs` under the hood — same code path
+        :class:`FeaCaseFilter` runs when invoked from Python. The
+        difference is purely the entry point: this filter handles the
+        markdown-block flow, where the user never touches Python.
+        """
+
+        figure_source = "fea_artefact_bundle"
+
+        def render(self, spec, *, key):  # type: ignore[override]
+            if not isinstance(spec, FeaArtefactBundle):
+                raise TypeError(
+                    f"FeaArtefactBundleFilter received non-FEA spec: "
+                    f"{type(spec).__name__}"
+                )
+
+            source_path = Path(spec.source_inp)
+            if not source_path.is_absolute():
+                source_path = (self.bundle_root / source_path).resolve()
+            if not source_path.exists():
+                raise FileNotFoundError(
+                    f"FEA source file not found: {source_path}"
+                )
+
+            # Bake into a per-key directory under the bundle's 3D assets
+            # tree. Layout mirrors the cad_model_file source so paradoc's
+            # static export's relative-path heuristics keep working.
+            bundle_dir = self.bundle_root / "assets" / "3d" / key
+            bundle_dir.mkdir(parents=True, exist_ok=True)
+
+            modes = "all" if spec.n_modes is None else spec.n_modes
+            assets = assets_for_docs(
+                source_path,
+                key=key,
+                out_dir=bundle_dir,
+                modes=modes,
+                poster_backend=spec.poster_backend,
+            )
+
+            if spec.layout == "gallery":
+                # Gallery layout (single block with a CSS grid of PNGs)
+                # needs paradoc-side markup support that's not in tree
+                # yet. Fall back to per_mode so the user gets the right
+                # static counterparts even if the visual grouping isn't
+                # ideal. Log a warning so the caller can track.
+                import logging
+
+                logging.getLogger(__name__).warning(
+                    "fea_artefact_bundle: layout='gallery' not yet "
+                    "supported; falling back to layout='per_mode' for "
+                    "key %r.",
+                    key,
+                )
+
+            # Resolve paths bundle-relative (paradoc convention). The
+            # canonical mesh GLB is shared across all per-mode rows —
+            # the embed picks the right mode via ``fea_mode_index`` in
+            # metadata.
+            mesh_glb_rel = str(
+                assets.mesh_glb_path.relative_to(self.bundle_root)
+            )
+            mesh_sha = hashlib.sha256(
+                assets.mesh_glb_path.read_bytes()
+            ).hexdigest()
+            mesh_size = assets.mesh_glb_path.stat().st_size
+
+            results: list[RenderResult] = []
+            for mode_idx in sorted(assets.poster_paths.keys()):
+                poster = assets.poster_paths[mode_idx]
+                if not poster.is_file():
+                    continue
+                png_rel = str(poster.relative_to(self.bundle_root))
+                mode_n = mode_idx + 1
+                results.append(
+                    RenderResult(
+                        png_path=png_rel,
+                        glb_path=mesh_glb_rel,
+                        glb_sha256=mesh_sha,
+                        glb_size=mesh_size,
+                        caption=f"{spec.figure_title} — mode {mode_n}",
+                        camera_pos=spec.camera_pos,
+                        source_type=self.figure_source,
+                        metadata={
+                            "source_inp": str(source_path),
+                            "image_path": png_rel,
+                            "fea_bundle_key": key,
+                            "fea_mode_index": mode_idx,
+                            "fea_manifest_path": str(
+                                assets.manifest_path.relative_to(
+                                    self.bundle_root
+                                )
+                            ),
+                        },
+                    )
+                )
+
+            if not results:
+                raise RuntimeError(
+                    f"fea_artefact_bundle: bake produced no posters for "
+                    f"{source_path} — does the result file carry "
+                    "displacement fields?"
+                )
+            return results
+
+    dispatcher.register_filter(FeaArtefactBundleFilter)
