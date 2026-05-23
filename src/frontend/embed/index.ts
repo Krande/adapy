@@ -49,6 +49,11 @@ import { setupModelLoaderAsync } from "../src/components/viewer/sceneHelpers/set
 import { setupPointerHandler } from "../src/components/viewer/sceneHelpers/setupPointerHandler"
 import { applyStandardLayers } from "../src/components/viewer/sceneHelpers/setupCamera"
 import { setupCameraControlsHandlers } from "../src/components/viewer/sceneHelpers/setupCameraControlsHandlers"
+import { useFeaAnimationStore } from "../src/state/feaAnimationStore"
+import {
+    resetFeaAnimationPhase,
+    tickFeaAnimation,
+} from "../src/utils/scene/fea/feaAnimationDriver"
 
 import { EmbedUI } from "./EmbedUI"
 
@@ -319,7 +324,13 @@ export function mountViewer(element: HTMLElement, opts: MountViewerOptions): Mou
     const tick = () => {
         if (disposed) return
         frame = requestAnimationFrame(tick)
-        controls.update(clock.getDelta())
+        const delta = clock.getDelta()
+        controls.update(delta)
+        // Drive the FEA mode-shape morph each frame when an FEA
+        // session is active (set by mountFeaArtefactViewer). No-op
+        // when no session is active — same path the standalone
+        // viewer uses via ThreeCanvas.tsx.
+        tickFeaAnimation(delta)
         // Reposition the key light to track the camera each frame —
         // matches the standalone viewer's lighting feel.
         updateCameraLight()
@@ -502,6 +513,143 @@ function applyCameraPreset(
 
 
 /**
+ * Walk the loaded scene, find the CustomBatchedMesh that carries the
+ * FEA mode-shape morph, finalise its morph wiring, and flip the
+ * feaAnimationStore session on. After this runs:
+ *
+ *   * `feaAnimationStore.sessionActive` is true, which is what
+ *     `EmbedUI` / `SimulationControls` gate the FeaModeControls panel
+ *     on (the legacy GltfClipControls drop-down stays hidden).
+ *   * `feaAnimationStore.mesh` points at the live CustomBatchedMesh,
+ *     so `tickFeaAnimation` writes through its morphTargetInfluences.
+ *   * The deformation-scale slider's range follows the field's
+ *     analysis_kind ([-1, +1] for eigen, [0, 1] for static).
+ *
+ * Defensive on every step — the embed should still render the mesh
+ * at the baked influence=1 baseline if any of this fails.
+ */
+function activateFeaSession(
+    manifest: import("../src/services/viewerApi").FeaManifest,
+    modeIndex: number,
+): void {
+    const scene = sceneRef.current
+    if (!scene) return
+
+    // Find the first mesh whose geometry has a morph attribute — the
+    // bake installs exactly one (the mode displacement delta).
+    // CustomBatchedMesh has `isMesh = true`, so this catches both
+    // it and any leftover plain Mesh in the same traversal.
+    let feaMesh: (THREE.Mesh & {
+        morphTargetInfluences?: number[]
+    }) | null = null
+    scene.traverse((obj) => {
+        if (feaMesh) return
+        const m = obj as any
+        if (
+            m.isMesh &&
+            m.geometry?.morphAttributes?.position?.length > 0
+        ) {
+            feaMesh = m
+        }
+    })
+    if (!feaMesh) return
+
+    // prepareLoadedModel only copies morphTargetInfluences onto the
+    // CustomBatchedMesh when useAnimationStore.hasAnimation is true
+    // AND the mesh is flagged as a sim mesh (ADA_EXT_data present);
+    // assembleFeaGlb installs neither, so wire it here. Material flags
+    // already set by assembleFeaGlb survive the export/import.
+    feaMesh.morphTargetInfluences = [1.0]
+    const enableMorph = (mat: THREE.Material) => {
+        let dirty = false
+        if ("morphTargets" in mat && (mat as any).morphTargets !== true) {
+            ;(mat as any).morphTargets = true
+            dirty = true
+        }
+        if ("vertexColors" in mat && (mat as any).vertexColors !== true) {
+            ;(mat as any).vertexColors = true
+            dirty = true
+        }
+        if (dirty) mat.needsUpdate = true
+    }
+    if (Array.isArray(feaMesh.material)) {
+        feaMesh.material.forEach(enableMorph)
+    } else if (feaMesh.material) {
+        enableMorph(feaMesh.material as THREE.Material)
+    }
+
+    // Re-share the morphTargetInfluences array with the wireframe-edge
+    // LineSegments child. The GLB roundtrip gave them independent arrays
+    // (glTF stores weights per-mesh), so a single writer (the driver)
+    // would only morph the surface and the edges would stay un-deformed.
+    // Same pattern as load_fea_streaming's assignMorphToEdgeAlso.
+    feaMesh.traverse((child) => {
+        const c = child as any
+        if (c === feaMesh) return
+        if (
+            c.isLineSegments &&
+            c.geometry?.morphAttributes?.position?.length > 0
+        ) {
+            c.morphTargetInfluences = feaMesh!.morphTargetInfluences
+            if (c.material) {
+                const lm = c.material as THREE.Material
+                if ("morphTargets" in lm) {
+                    ;(lm as any).morphTargets = true
+                    lm.needsUpdate = true
+                }
+            }
+        }
+    })
+
+    // Field range follows the active field's analysis_kind. Match the
+    // global modeIndex to the (field, step) the bake actually
+    // rendered so the slider's polarity matches the displayed mode.
+    let analysisKind: "static" | "eigen" = "eigen"
+    let fieldName: string | null = null
+    let nSteps = 1
+    let stepIndex = 0
+    if (manifest?.fields?.length) {
+        const dispFields = manifest.fields.filter(
+            (f: any) =>
+                f.blob &&
+                (f.category === "displacement" ||
+                    /U|DEPL|DISPLACEMENT/i.test(f.name_canonical || "")),
+        )
+        let seen = 0
+        for (const f of dispFields) {
+            const n = Math.max(1, f.n_steps | 0)
+            if (modeIndex < seen + n) {
+                analysisKind = (f as any).analysis_kind || "eigen"
+                fieldName = (f as any).name_canonical || null
+                stepIndex = modeIndex - seen
+                break
+            }
+            seen += n
+        }
+        nSteps = dispFields.reduce(
+            (acc: number, f: any) => acc + Math.max(1, f.n_steps | 0),
+            0,
+        )
+    }
+
+    const range: [number, number] =
+        analysisKind === "static" ? [0, 1] : [-1, 1]
+
+    resetFeaAnimationPhase()
+    const s = useFeaAnimationStore.getState()
+    s.setMesh(feaMesh as unknown as THREE.Mesh)
+    s.setRange(range)
+    s.setFactor(1.0)
+    s.setNSteps(Math.max(1, nSteps))
+    s.setStepIndex(stepIndex)
+    s.setFieldName(fieldName)
+    s.setManifest(manifest as never)
+    s.setIsPlaying(false)
+    s.setSessionActive(true)
+}
+
+
+/**
  * Mount a viewer fed by a pre-baked FEA artefact bundle.
  *
  * The standalone adapy-viewer loads bundles directly through
@@ -556,12 +704,38 @@ export function mountFeaArtefactViewer(
                 opts.modeIndex ?? 0,
             )
             if (disposed) return
+            const userOnReady = opts.onReady
             inner = mountViewer(element, {
                 modelBytes,
                 camera: opts.camera,
                 caption: opts.caption,
                 showControls: opts.showControls,
-                onReady: opts.onReady,
+                onReady: () => {
+                    // Hook the live scene up to the feaAnimationStore so
+                    // SimulationControls' FeaModeControls panel surfaces
+                    // (sessionActive=true) and its deformation-scale
+                    // slider / play sweep drive the morph influence in
+                    // sync with the standalone viewer's REST path.
+                    if (!disposed) {
+                        try {
+                            activateFeaSession(
+                                opts.manifest as never,
+                                opts.modeIndex ?? 0,
+                            )
+                        } catch (err) {
+                            // Session activation is best-effort —
+                            // without it the mesh still renders at the
+                            // initial morphTargetInfluences=1 baseline,
+                            // just without the slider UI.
+                            // eslint-disable-next-line no-console
+                            console.warn(
+                                "[fea-embed] feaAnimationStore wiring failed:",
+                                err,
+                            )
+                        }
+                    }
+                    userOnReady?.()
+                },
                 onError: opts.onError,
             })
         } catch (err) {
@@ -581,6 +755,13 @@ export function mountFeaArtefactViewer(
     return {
         dispose: () => {
             disposed = true
+            try {
+                // Clear the FEA session so a subsequent non-FEA mount
+                // doesn't inherit our sessionActive / mesh ref.
+                useFeaAnimationStore.getState().reset()
+            } catch {
+                /* store may already be torn down in test envs */
+            }
             try {
                 inner?.dispose()
             } catch {

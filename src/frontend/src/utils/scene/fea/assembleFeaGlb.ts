@@ -208,52 +208,54 @@ export async function assembleAnimatedFeaGlb(
         );
     }
 
-    // 3. Static mode-1 deformation + abaqus vertex colours -----------
-    // First cut: bake the first mode (or the first step) into the
-    // GLB as a STATIC deformed mesh + per-vertex abaqus colours.
+    // 3. Mode deformation as a morph target + abaqus vertex colours ---
     //
-    // Why not glTF morph targets + animation clips: that path looked
-    // promising on paper but turned out brittle in practice — the
-    // animation track binding through GLTFExporter ↔ GLTFLoader was
-    // unreliable across the embed's CustomBatchedMesh conversion, and
-    // when clips DID register the embed lit up the legacy
-    // AnimationControls panel instead of SimulationControls (which is
-    // what FEA mode shapes should drive). Proper SimulationControls
-    // integration needs `feaAnimationStore.setMesh(...)` + scene-
-    // graph references the standalone viewer's `load_fea_streaming`
-    // owns; that's the right next step and lives in a separate piece
-    // of work.
+    // The base mesh keeps its un-deformed positions; the displacement
+    // for this mode lives on the geometry as a single relative-morph
+    // attribute (`geometry.morphTargetsRelative = true`). Setting
+    // `mesh.morphTargetInfluences[0] = scale` then drives the deformed
+    // shape — paired with the embed's feaAnimationStore wiring, the
+    // SimulationControls deformation-scale slider and the RAF sweep
+    // both flow through that single number.
     //
-    // For now we show ONE deformed mode statically — same data, no
-    // animation, no controls UI. Mode 1 is the lowest-frequency mode
-    // and the most visually informative; subsequent modes can be
-    // selected once the SimControls integration lands.
+    // We *don't* add a glTF AnimationClip — those bind through
+    // THREE.AnimationMixer, which lights up the legacy
+    // AnimationControls panel and isn't morph-aware on
+    // CustomBatchedMesh (the earlier "brittle" finding). The driver
+    // here is the standalone viewer's RAF path
+    // (`tickFeaAnimation` from `feaAnimationDriver`), which the embed
+    // ticks each frame.
     const modeStep = parsed.steps[stepIndexInField];
 
-    // Deformed positions = base + displacement vector at every node.
     const basePositions = positionAttr.array as Float32Array;
-    const deformed = new Float32Array(basePositions.length);
+    const displacement = new Float32Array(basePositions.length);
     const mag = new Float32Array(n_points);
     let maxMag = 0;
     for (let v = 0; v < n_points; v++) {
         const dx = modeStep[v * n_components + 0] * WARP_SCALE;
         const dy = n_components >= 2 ? modeStep[v * n_components + 1] * WARP_SCALE : 0;
         const dz = n_components >= 3 ? modeStep[v * n_components + 2] * WARP_SCALE : 0;
-        deformed[v * 3 + 0] = basePositions[v * 3 + 0] + dx;
-        deformed[v * 3 + 1] = basePositions[v * 3 + 1] + dy;
-        deformed[v * 3 + 2] = basePositions[v * 3 + 2] + dz;
-        // Magnitude still computed on the scaled displacement so the
-        // abaqus colourmap normalises to the same per-mode max we
-        // actually rendered (otherwise the colour scale and the
-        // deformation scale would disagree).
+        displacement[v * 3 + 0] = dx;
+        displacement[v * 3 + 1] = dy;
+        displacement[v * 3 + 2] = dz;
+        // Magnitude normalised so the abaqus colourmap peaks at the
+        // mode's largest displacement (matches what the static bake
+        // showed previously). Colour is decoupled from the slider —
+        // it follows mode topology, not the current scale factor.
         const m = Math.sqrt(dx * dx + dy * dy + dz * dz);
         mag[v] = m;
         if (m > maxMag) maxMag = m;
     }
-    mesh.geometry.setAttribute(
-        "position",
-        new THREE.BufferAttribute(deformed, 3),
-    );
+
+    // Install displacement as a relative morph target. Influence at 1
+    // reproduces the previous static-bake look; the driver writes the
+    // slider value through `mesh.morphTargetInfluences[0]`.
+    mesh.geometry.morphAttributes.position = [
+        new THREE.BufferAttribute(displacement, 3),
+    ];
+    mesh.geometry.morphTargetsRelative = true;
+    mesh.morphTargetInfluences = [1.0];
+    mesh.morphTargetDictionary = {displacement: 0};
 
     // Per-vertex abaqus rainbow on displacement magnitude.
     const colours = new Float32Array(n_points * 3);
@@ -270,16 +272,18 @@ export async function assembleAnimatedFeaGlb(
         new THREE.BufferAttribute(colours, 3),
     );
 
-    // Switch material(s) into vertexColors-aware mode so the colour
-    // attribute actually paints the surface.
-    const enableVertexColours = (m: THREE.Material) => {
+    // Switch material(s) into vertexColors + morphTargets mode so the
+    // colour attribute paints the surface and morphTargetInfluences[0]
+    // actually deforms the geometry.
+    const enableShaderFlags = (m: THREE.Material) => {
         (m as THREE.MeshStandardMaterial).vertexColors = true;
+        (m as any).morphTargets = true;
         m.needsUpdate = true;
     };
     if (Array.isArray(mesh.material)) {
-        mesh.material.forEach(enableVertexColours);
+        mesh.material.forEach(enableShaderFlags);
     } else if (mesh.material) {
-        enableVertexColours(mesh.material);
+        enableShaderFlags(mesh.material);
     }
 
     // 5a. Per-element draw ranges (AFEM) ------------------------------
@@ -343,8 +347,10 @@ export async function assembleAnimatedFeaGlb(
     }
 
     // 5b. Element-edge wireframe (optional) ----------------------------
-    // Shares the deformed `positionAttr` we just installed, so the
-    // wireframe automatically follows the mode shape.
+    // Shares the mesh's position + morph attribute so the wireframe
+    // follows the deformation in lockstep with the main mesh under any
+    // morphTargetInfluences[0] slider value. Same pattern as
+    // load_fea_streaming's `assignMorphToEdgeAlso`.
     if (manifest.mesh.edges_url) {
         try {
             const edgeBuf = await fetcher(manifest.mesh.edges_url);
@@ -355,13 +361,26 @@ export async function assembleAnimatedFeaGlb(
                     "position",
                     mesh.geometry.getAttribute("position"),
                 );
+                if (mesh.geometry.morphAttributes.position) {
+                    lineGeom.morphAttributes.position =
+                        mesh.geometry.morphAttributes.position;
+                    lineGeom.morphTargetsRelative = true;
+                }
                 lineGeom.setIndex(new THREE.BufferAttribute(idx, 1));
                 const lineMat = new THREE.LineBasicMaterial({
                     color: 0x111111,
                     depthTest: true,
                 });
+                (lineMat as any).morphTargets = true;
                 const segments = new THREE.LineSegments(lineGeom, lineMat);
                 segments.name = "fea-element-edges";
+                // Sharing the array reference means writes through
+                // mesh.morphTargetInfluences (driver / slider) update
+                // the edge geometry's morph too — no separate driver
+                // needed.
+                if (mesh.morphTargetInfluences) {
+                    segments.morphTargetInfluences = mesh.morphTargetInfluences;
+                }
                 mesh.add(segments);
             }
         } catch (err) {

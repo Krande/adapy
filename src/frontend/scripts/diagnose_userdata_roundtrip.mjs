@@ -55,8 +55,20 @@ const geom = new THREE.BufferGeometry()
 geom.setAttribute("position", new THREE.BufferAttribute(positions, 3))
 geom.setIndex(new THREE.BufferAttribute(indices, 1))
 
+// Install a morph target (displacement delta) to mirror the FEA bake.
+const displacement = new Float32Array([
+    0, 0, 0,
+    0, 0, 0.5,
+    0, 0, 0.5,
+    0, 0, 0,
+])
+geom.morphAttributes.position = [new THREE.BufferAttribute(displacement, 3)]
+geom.morphTargetsRelative = true
+
 const mesh = new THREE.Mesh(geom, new THREE.MeshStandardMaterial())
 mesh.name = "node0"
+mesh.morphTargetInfluences = [1.0]
+mesh.morphTargetDictionary = { displacement: 0 }
 loadedGroup.add(mesh)
 
 // Apply the assembleFeaGlb fix: reparent into a real THREE.Scene
@@ -135,13 +147,29 @@ gltf.scene.traverse((o) => {
     if (o.isMesh && !foundMesh) foundMesh = o
 })
 console.log("loaded mesh.name:", foundMesh?.name)
+console.log(
+    "loaded morphTargetInfluences:",
+    JSON.stringify(foundMesh?.morphTargetInfluences),
+)
+console.log(
+    "loaded morphAttributes.position[0]?:",
+    !!foundMesh?.geometry?.morphAttributes?.position?.[0],
+)
+console.log(
+    "loaded morphTargetsRelative:",
+    foundMesh?.geometry?.morphTargetsRelative,
+)
 
 // --- 5. Verdict -------------------------------------------------------------
 const drawOk = !!gltf.scene.userData["draw_ranges_node0"]
 const hierOk = !!gltf.scene.userData["id_hierarchy"]
 const nameOk = foundMesh?.name === "node0"
+const morphOk = !!foundMesh?.geometry?.morphAttributes?.position?.[0]
+const weightOk = foundMesh?.morphTargetInfluences?.[0] === 1.0
 console.log("\n=== VERDICT ===")
 console.log("draw_ranges_node0 round-trip:", drawOk)
 console.log("id_hierarchy round-trip:    ", hierOk)
 console.log("mesh.name === 'node0':       ", nameOk)
-process.exit(drawOk && hierOk && nameOk ? 0 : 1)
+console.log("morph attribute present:     ", morphOk)
+console.log("morph weight = 1.0:          ", weightOk)
+process.exit(drawOk && hierOk && nameOk && morphOk && weightOk ? 0 : 1)
