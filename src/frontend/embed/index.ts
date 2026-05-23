@@ -149,14 +149,14 @@ export function mountViewer(element: HTMLElement, opts: MountViewerOptions): Mou
 
     // --- DOM scaffolding ---
     element.innerHTML = ""
-    // Floor the canvas to a usable size IFF the parent hasn't given
-    // us explicit pixel dimensions. The floor matters when a caller
-    // hands us a `<div>` with no height at all (the canvas would
-    // collapse to 0); it actively hurts when the host already has a
-    // measured height (paradoc's Interactive3DFigure on mobile pins
-    // the host to ~322 px to match the poster). Forcing
-    // ``min-height: 400 px`` there made the canvas overflow its
-    // `overflow: hidden` parent and clip the beam's bottom-left.
+    // Safety floor for hosts that arrive with no sizing at all. If
+    // the caller has set an explicit `style.height` (paradoc's
+    // ThreeDRenderer passes `height: '100%'`, expecting its parent
+    // chain to constrain the host), we trust them — forcing
+    // ``min-height: 400 px`` on a 322 px mobile wrapper made the
+    // canvas overflow its `overflow: hidden` ancestor and clip the
+    // model. Callers that don't size the host explicitly still get
+    // the floor so the canvas can't collapse to 0.
     if (!element.style.minHeight && !element.style.height) {
         element.style.minHeight = `${DEFAULT_MIN_HEIGHT}px`
     }
