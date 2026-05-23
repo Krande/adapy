@@ -1406,6 +1406,96 @@ def test_sif_gpipe_section_synthesises_circular_radius():
     assert abs(fb.r - 0.1) < 1e-3
 
 
+def test_resolve_mode_selection_covers_all_input_shapes():
+    """The mode-selection knob accepts ``"all"`` / int / iterable /
+    None — covers each shape so future ergonomic tweaks have a
+    regression net."""
+
+    from ada.fem.results.artefacts import _resolve_mode_selection
+
+    assert _resolve_mode_selection("all", 5) == [0, 1, 2, 3, 4]
+    assert _resolve_mode_selection("all", 0) == []
+    assert _resolve_mode_selection(3, 5) == [0, 1, 2]
+    # Over-specifying clamps to what the bundle actually has — a
+    # report that asks for 99 modes against a 5-mode bundle gets
+    # the 5 it can, not a crash.
+    assert _resolve_mode_selection(99, 5) == [0, 1, 2, 3, 4]
+    assert _resolve_mode_selection(0, 5) == []
+    assert _resolve_mode_selection(-1, 5) == []
+    assert _resolve_mode_selection(None, 5) == []
+    assert _resolve_mode_selection([0, 2, 4], 5) == [0, 2, 4]
+    # Out-of-range indices in an iterable get dropped without raising
+    # so a caller can pass a static range that's wider than every
+    # case and have it adapt per-case.
+    assert _resolve_mode_selection([7, 8], 5) == []
+    assert _resolve_mode_selection([0, 2, 9, 3], 5) == [0, 2, 3]
+    assert _resolve_mode_selection(range(3), 10) == [0, 1, 2]
+
+
+def test_bake_with_posters_bundle_only(fem_files, tmp_path):
+    """``modes=None`` produces the bundle but no posters — the rare
+    opt-out path for callers driving poster rendering separately."""
+
+    rmed = fem_files / "code_aster/Cantilever_CA_EIG_bm.rmed"
+    if not rmed.exists():
+        pytest.skip("RMED fixture not present")
+
+    from ada.fem.results.artefacts import bake_with_posters_from_source
+
+    result = bake_with_posters_from_source(rmed, tmp_path / "out", modes=None)
+
+    assert result.manifest_path.exists()
+    assert result.mesh_glb_path.exists()
+    assert result.poster_paths == {}
+    assert result.canonical_poster_path is None
+
+
+def test_bake_with_posters_renders_requested_modes(fem_files, tmp_path):
+    """Default ``modes="all"`` plus an explicit int selection both
+    produce PNGs with the right filename convention.
+
+    Mode 1 (0-indexed 0) lands at ``fea.mesh.png`` so the paradoc
+    exporter's ``<glb>.png`` sibling lookup finds it; modes ≥ 2 use
+    ``fea.mesh.mode_<N>.png``.
+
+    Skipped if the rendering toolchain (pygfx / trimesh) isn't in the
+    env — the bundle-only path above still gives the bake function
+    test coverage.
+    """
+
+    rmed = fem_files / "code_aster/Cantilever_CA_EIG_bm.rmed"
+    if not rmed.exists():
+        pytest.skip("RMED fixture not present")
+    pytest.importorskip("pygfx")
+    pytest.importorskip("trimesh")
+
+    from ada.fem.results.artefacts import bake_with_posters_from_source
+
+    # int — first N modes.
+    result = bake_with_posters_from_source(rmed, tmp_path / "first2", modes=2)
+    assert set(result.poster_paths.keys()) == {0, 1}
+    assert result.canonical_poster_path is not None
+    assert result.canonical_poster_path.name == "fea.mesh.png"
+    assert result.canonical_poster_path.exists()
+    assert result.poster_paths[1].name == "fea.mesh.mode_2.png"
+    # The two posters must NOT be identical — modes 0 and 1 are
+    # different shapes, the previous bake-then-loop-on-FEAResult bug
+    # silently produced the same image for every mode.
+    assert (
+        result.poster_paths[0].read_bytes()
+        != result.poster_paths[1].read_bytes()
+    )
+
+    # Iterable selection — only the indices listed appear, with the
+    # canonical poster sitting wherever mode 0 lands (filename, not
+    # iteration order). Mode 4 → ``fea.mesh.mode_5.png``.
+    result2 = bake_with_posters_from_source(
+        rmed, tmp_path / "picked", modes=[0, 4]
+    )
+    assert set(result2.poster_paths.keys()) == {0, 4}
+    assert result2.poster_paths[4].name == "fea.mesh.mode_5.png"
+
+
 def test_classify_field_by_field_type_overrides_name():
     """An explicit NodalFieldType.DISP on the sample wins even if the
     name doesn't look like a displacement field — readers know
