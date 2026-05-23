@@ -87,6 +87,12 @@ RUN pixi install --environment docs --locked
 #   * `/api/docs/{id}/files/{path}` route + auth-aware AsyncImage —
 #     plain `![](files/x.png)` markdown refs in the report no longer
 #     need the IndexedDB-embedding round-trip.
+#   * Static export ships images as files (not a 10 MB base64
+#     `images.json`): absolute build-container paths get flattened to
+#     `_images/<sha8>-<basename>` and the bundle's Image srcs are
+#     rewritten in-place. `<img loading="lazy">` lets the browser
+#     defer off-screen fetches; replaces the legacy bulk preload that
+#     gated first paint at ~2 s desktop / 10–30 s mobile cellular.
 ARG PARADOC_GIT_URL
 ARG PARADOC_REF=main
 # CACHE_BUST forces a fresh clone when ``PARADOC_REF`` is a moving
