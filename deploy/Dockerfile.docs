@@ -104,6 +104,9 @@ RUN pixi install --environment docs --locked
 #     the poster's placeholder height — the wrapper now grows to
 #     match the loaded image so the canvas isn't overflow-clipped at
 #     the bottom by its own ``overflow: hidden`` ancestor.
+#   * mountViewer skips its 400 px min-height floor when the host has
+#     an explicit ``style.height`` — fixes mobile clipping where the
+#     poster-sized wrapper (~322 px) was shorter than the floor.
 ARG PARADOC_GIT_URL
 ARG PARADOC_REF=main
 # CACHE_BUST forces a fresh clone when ``PARADOC_REF`` is a moving
