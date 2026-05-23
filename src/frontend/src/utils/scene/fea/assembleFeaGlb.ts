@@ -293,6 +293,26 @@ export async function assembleAnimatedFeaGlb(
     // exported scene; GLTFExporter writes it as `extras` and the
     // GLTFLoader puts it back on `userData` on import. End-to-end:
     // FEA mesh clicks resolve to single elements, not the whole beam.
+    // GLTFLoader returns `gltf.scene` as a `THREE.Group`. If we hand
+    // that Group directly to GLTFExporter, the exporter wraps it in a
+    // synthetic Scene ("AuxScene") whose userData is empty — the
+    // Group's userData gets written as *node* extras, not *scene*
+    // extras. On reload, `prepareLoadedModel` reads
+    // `gltf_scene.userData[draw_ranges_<meshName>]` from the loaded
+    // scene root (an AuxScene Group) and finds nothing there, falling
+    // into the synthesize-one-range-for-the-whole-mesh path — which is
+    // exactly the "whole beam selected on click" symptom.
+    //
+    // Reparenting into a real `THREE.Scene` and exporting that Scene
+    // makes GLTFExporter take its `processSceneAsync(scene)` branch
+    // (which DOES serialize scene.userData onto sceneDef.extras), and
+    // GLTFLoader's `loadScene` then assigns those extras to the
+    // loaded scene's userData. End-to-end the userData survives.
+    const exportScene = new THREE.Scene();
+    while (scene.children.length > 0) {
+        exportScene.add(scene.children[0]);
+    }
+
     if (manifest.mesh.elements_url) {
         try {
             const entries = parseMeshElements(await fetcher(manifest.mesh.elements_url));
@@ -310,8 +330,8 @@ export async function assembleAnimatedFeaGlb(
             // setupModelLoaderAsync reads
             // `gltf_scene.userData.draw_ranges_<meshName>`. Match the
             // pinned mesh name so the right key is found.
-            scene.userData[`draw_ranges_${ASSEMBLED_MESH_NAME}`] = ranges;
-            scene.userData["id_hierarchy"] = hierarchy;
+            exportScene.userData[`draw_ranges_${ASSEMBLED_MESH_NAME}`] = ranges;
+            exportScene.userData["id_hierarchy"] = hierarchy;
         } catch (err) {
             // Selection wiring is best-effort — without AFEM the picker
             // still resolves clicks to the whole-mesh level, which is
@@ -353,11 +373,15 @@ export async function assembleAnimatedFeaGlb(
     }
 
     // 6. Export to binary GLB ------------------------------------------
+    // Export the THREE.Scene wrapper so GLTFExporter.processSceneAsync
+    // serializes our pinned userData (draw_ranges + id_hierarchy)
+    // onto sceneDef.extras — not as inner-node extras the loader's
+    // reverse path doesn't surface at gltf_scene.userData.
     const exporter = new GLTFExporter();
     const result = await new Promise<ArrayBuffer | Record<string, unknown>>(
         (resolve, reject) => {
             exporter.parse(
-                scene,
+                exportScene,
                 (r) => resolve(r),
                 (err) => reject(err),
                 {binary: true},
