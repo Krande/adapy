@@ -381,7 +381,19 @@ export function mountViewer(element: HTMLElement, opts: MountViewerOptions): Mou
 
             tick()
             queueMicrotask(() => {
-                if (!disposed) opts.onReady?.()
+                if (disposed) return
+                opts.onReady?.()
+                // `onReady` is where mountFeaArtefactViewer activates the FEA
+                // session and sets ``morphTargetInfluences = [1.0]`` on the
+                // mesh. The first ``applyCameraPreset`` above ran before that
+                // — its bbox saw the rest-position vertices and framed the
+                // un-deformed silhouette, so the deformed tip ended up below
+                // the bottom of the viewport. Re-fit here so the framing
+                // matches whatever the scene became during ``onReady``. No-op
+                // for non-FEA mounts (no morphs → same bbox → same fit).
+                if (loadedModelGroup) {
+                    applyCameraPreset(camera, controls, loadedModelGroup, opts.camera)
+                }
             })
         } catch (err) {
             opts.onError?.(err instanceof Error ? err : new Error(String(err)))
