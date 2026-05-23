@@ -164,6 +164,84 @@ def _extract_solver_and_freqs(
     return solver, solver_version, frequencies
 
 
+def assets_from_bundle_dir(
+    bundle_dir: "pathlib.Path | str",
+    *,
+    key: str | None = None,
+) -> FeaDocAssets:
+    """Build a :class:`FeaDocAssets` from an already-baked bundle dir.
+
+    Cache-only / CI builds run the verification report against
+    bundles that were baked in a previous pass and committed to the
+    repo. This helper walks the bundle dir, picks up the poster PNGs
+    matching the filename convention :func:`bake_with_posters` writes
+    (``fea.mesh.png`` for mode 1, ``fea.mesh.mode_<N>.png`` for N ≥ 2),
+    and parses the manifest for frequencies + step count. No re-bake,
+    no FEAResult required.
+
+    ``key`` defaults to the bundle dir's basename, matching the keying
+    convention :func:`bake_with_posters_from_source` uses with
+    ``src_key=stem``.
+    """
+    bundle = pathlib.Path(bundle_dir)
+    if key is None:
+        key = bundle.name
+    manifest_path = bundle / "fea.manifest.json"
+    mesh_glb_path = bundle / "fea.mesh.glb"
+    if not manifest_path.is_file():
+        raise FileNotFoundError(
+            f"assets_from_bundle_dir: {manifest_path} not present — "
+            "the bundle hasn't been baked yet. Use assets_for_docs() "
+            "to bake-and-register, or point at the right directory."
+        )
+    if not mesh_glb_path.is_file():
+        raise FileNotFoundError(f"missing {mesh_glb_path}")
+
+    # Walk the disk for the per-mode posters the bake convention
+    # writes. Mode 1 sits at the `<glb>.png` sibling; modes ≥ 2 at
+    # `fea.mesh.mode_<N>.png`. Discovery is filename-driven (not
+    # manifest-driven) so a bundle that baked fewer posters than the
+    # manifest's displacement-step count registers exactly those that
+    # exist on disk — un-baked modes get no row.
+    poster_paths: dict[int, pathlib.Path] = {}
+    canonical = mesh_glb_path.with_suffix(".png")
+    if canonical.is_file():
+        poster_paths[0] = canonical
+    for png in bundle.glob("fea.mesh.mode_*.png"):
+        match = png.stem  # e.g. "fea.mesh.mode_7"
+        suffix = match.split("_")[-1]
+        try:
+            mode_n = int(suffix)
+        except ValueError:
+            continue
+        if mode_n >= 2:
+            poster_paths[mode_n - 1] = png
+
+    canonical_path = poster_paths.get(0)
+
+    # Synthesise a minimal BakeWithPostersResult-shaped object for the
+    # solver/frequency extractor. We don't have a FEAResult, so solver
+    # name / version stay None — the manifest doesn't carry them
+    # today. Frequencies come from the manifest's step values.
+    class _BakeStub:
+        manifest_path = bundle / "fea.manifest.json"
+
+    _stub = _BakeStub()
+    solver, solver_version, frequencies = _extract_solver_and_freqs(_stub, None)
+
+    return FeaDocAssets(
+        key=key,
+        bundle_dir=bundle,
+        manifest_path=manifest_path,
+        mesh_glb_path=mesh_glb_path,
+        poster_paths=poster_paths,
+        canonical_poster_path=canonical_path,
+        solver=solver,
+        solver_version=solver_version,
+        frequencies=frequencies,
+    )
+
+
 def assets_for_docs(
     src: "pathlib.Path | str | FEAResult | FEAStreamReader",
     *,
@@ -321,6 +399,17 @@ def to_paradoc_rows(
 # ---------------------------------------------------------------------------
 
 
+#: Maximum mode count the class pre-generates ``mode_1`` … ``mode_<N>``
+#: methods for. A class-level cap is required because paradoc's filter
+#: cache walks ``inspect.getsource(getattr(filter_cls, attr_name))`` —
+#: i.e. class-level lookup that bypasses ``__getattr__`` — to hash the
+#: implementation. Dynamic instance-level resolution would raise
+#: ``AttributeError`` out of that pass and crash the build. 30 covers
+#: every eigen analysis the verification report runs today (10 modes
+#: per case × a 3× margin); bump if a downstream report exceeds it.
+_MAX_MODE_ATTRS = 30
+
+
 class FeaCaseFilter(Filter):
     """Stock paradoc Filter for one FEA case — lazy bake on first attr access.
 
@@ -341,11 +430,15 @@ class FeaCaseFilter(Filter):
         ${ ca_solid_o1.solver_version } → ScalarValue ("2.22")
         ${ ca_solid_o1.n_modes }        → int
 
-    ``mode_N`` is resolved dynamically via ``__getattr__`` — there's
-    no static ``mode_3`` method, so a filter registering 20 modes
-    doesn't grow a 20-method body. Each ``mode_N`` access pulls a
-    :class:`paradoc.filters.ThreeDView` whose ``glb_key`` matches the
-    mode-view row :func:`to_paradoc_rows` registers for the same key.
+    ``mode_1`` … ``mode_<MAX>`` are pre-attached as ``@attr`` class
+    methods (see the ``_attach_mode_attrs`` block below). The actual
+    poster rendering is governed by the ``modes=`` constructor kwarg
+    — a ``${ case.mode_5 }`` reference where mode 5 wasn't baked
+    still resolves to a :class:`ThreeDView` with the correct
+    ``glb_key``; paradoc's static export then shows a missing-asset
+    placeholder for the un-baked mode. This split keeps the class
+    surface stable while letting per-case bakes choose how many
+    posters to materialise.
 
     The bake fires the first time *any* attr is accessed (via the
     ``self.assets`` lazy property). Subsequent accesses reuse the
@@ -354,28 +447,83 @@ class FeaCaseFilter(Filter):
     every reference.
     """
 
-    # __getattr__ on @attr-decorated names would shadow paradoc's
-    # @attr discovery and break the resolver. Keep the dynamic shape
-    # behind a clear sentinel prefix that no `@attr` method uses.
-    _DYNAMIC_PREFIX = "mode_"
-
     def __init__(
         self,
         name: str,
-        src: "pathlib.Path | str | FEAResult | FEAStreamReader",
-        out_dir: "pathlib.Path | str",
+        src: "pathlib.Path | str | FEAResult | FEAStreamReader | None" = None,
+        out_dir: "pathlib.Path | str | None" = None,
         *,
         modes: "str | int | Iterable[int] | None" = "all",
         poster_backend: str = "pygfx",
         camera_preset: str = "iso_3",
+        assets: "FeaDocAssets | None" = None,
     ) -> None:
+        """Construct a per-case filter.
+
+        Two construction styles:
+
+        1. **Lazy-bake** — pass ``src`` + ``out_dir``. The bake fires on
+           first attr access via :func:`assets_for_docs`. Useful when the
+           filter is the one driving the bake (e.g. ad-hoc scripts).
+
+        2. **Pre-baked** — pass ``assets`` (a :class:`FeaDocAssets` from
+           :func:`assets_for_docs` / :func:`assets_from_bundle_dir`).
+           Common path in pipelines that need to bake eagerly to
+           register paradoc ``ThreeDData`` rows before the filter
+           resolver runs; the filter then just surfaces the already-
+           computed paths without re-baking.
+
+        Use :meth:`from_assets` / :meth:`from_bundle_dir` for the
+        pre-baked styles — they're a touch more discoverable and
+        document intent at the call site.
+        """
         super().__init__(name=name)
+        if assets is None and (src is None or out_dir is None):
+            raise ValueError(
+                "FeaCaseFilter: must supply either `assets=…` (pre-baked) "
+                "or both `src` + `out_dir` (lazy-bake)."
+            )
         self._src = src
-        self._out_dir = pathlib.Path(out_dir)
+        self._out_dir = pathlib.Path(out_dir) if out_dir is not None else None
         self._modes = modes
         self._poster_backend = poster_backend
         self._camera_preset = camera_preset
-        self._assets: FeaDocAssets | None = None
+        self._assets: FeaDocAssets | None = assets
+
+    @classmethod
+    def from_assets(
+        cls,
+        assets: FeaDocAssets,
+        *,
+        camera_preset: str = "iso_3",
+    ) -> "FeaCaseFilter":
+        """Build a filter from an already-baked :class:`FeaDocAssets`.
+
+        ``assets.key`` becomes the filter ``name`` (paradoc requires a
+        valid Python identifier — make sure ``key`` already satisfies
+        that on the call site).
+        """
+        return cls(
+            name=assets.key,
+            assets=assets,
+            camera_preset=camera_preset,
+        )
+
+    @classmethod
+    def from_bundle_dir(
+        cls,
+        bundle_dir: "pathlib.Path | str",
+        *,
+        key: str | None = None,
+        camera_preset: str = "iso_3",
+    ) -> "FeaCaseFilter":
+        """Build a filter from a committed bundle directory.
+
+        Cache-only build path — :func:`assets_from_bundle_dir` walks
+        the dir for the manifest + posters; no re-bake.
+        """
+        a = assets_from_bundle_dir(bundle_dir, key=key)
+        return cls.from_assets(a, camera_preset=camera_preset)
 
     @property
     def assets(self) -> FeaDocAssets:
@@ -414,56 +562,46 @@ class FeaCaseFilter(Filter):
     def n_modes(self) -> int:
         return self.assets.n_modes
 
-    # --- dynamic .mode_N --------------------------------------------------
+    def _mode_view(self, mode_n: int) -> ThreeDView:
+        """Build the :class:`ThreeDView` for a 1-based mode index.
 
-    def __getattr__(self, name: str) -> Any:
-        # __getattr__ only fires when normal lookup misses, so it
-        # doesn't shadow the @attr-decorated methods above.
-        if not name.startswith(self._DYNAMIC_PREFIX):
-            raise AttributeError(name)
-        try:
-            mode_n = int(name[len(self._DYNAMIC_PREFIX):])
-        except ValueError as exc:
-            raise AttributeError(name) from exc
-        if mode_n < 1:
-            raise AttributeError(
-                f"{name}: mode index must be 1-based and positive."
-            )
+        Called by every generated ``mode_<N>`` class attr below. The
+        view's ``glb_key`` matches :func:`to_paradoc_rows`' mode-view
+        row key, so the resolver finds the right ``ThreeDData`` entry
+        in the paradoc asset store regardless of whether the poster
+        for this specific mode was actually baked — un-baked modes
+        render with a placeholder image, but the glb_key still
+        addresses the bundle file the interactive viewer mounts.
+        """
         a = self.assets
         idx = mode_n - 1
-        if idx not in a.poster_paths:
-            available = sorted(i + 1 for i in a.poster_paths)
-            raise AttributeError(
-                f"{name}: mode {mode_n} not in baked poster set "
-                f"(have {available}). Pass modes=… to widen the bake."
-            )
-        view = ThreeDView(
+        return ThreeDView(
             glb_key=f"{a.key}_mode_{mode_n}",
             caption=f"{self.name} — mode {mode_n}.",
             camera_preset=self._camera_preset,
-            image_path=a.poster_paths[idx],
+            image_path=a.poster_paths.get(idx),
         )
-        # Wrap in the same .attr marker so the resolver treats this
-        # like the static @attr methods. Returning a bare ThreeDView
-        # would still work for `${ x.mode_3 }` substitution today,
-        # but `Filter.list_attrs()` and future cache keys discover by
-        # the marker.
-        return _make_attr_returning(view)
 
 
-def _make_attr_returning(value: Any):
-    """Wrap ``value`` in a zero-arg callable that the @attr marker
-    recognises. paradoc's ``_is_attr`` checks ``callable(obj) and
-    getattr(obj, _ATTR_MARKER, False)`` — by returning a tagged
-    callable from ``__getattr__`` we keep the dynamic ``mode_N``
-    indistinguishable from a real ``@attr`` method to the resolver.
+def _make_mode_attr(mode_n: int):
+    """Build a single ``mode_<N>`` ``@attr`` method.
+
+    Cosmetic ``__name__`` / ``__qualname__`` lines keep ``inspect``
+    output and AST cache keys stable as ``FeaCaseFilter.mode_<N>``
+    instead of every generated method showing up as ``_per_mode``.
     """
 
-    def _attr_view():
-        return value
+    @attr
+    def _per_mode(self) -> ThreeDView:
+        return self._mode_view(mode_n)
 
-    setattr(_attr_view, "__paradoc_attr__", True)
-    return _attr_view
+    _per_mode.__name__ = f"mode_{mode_n}"
+    _per_mode.__qualname__ = f"FeaCaseFilter.mode_{mode_n}"
+    return _per_mode
+
+
+for _mode_n in range(1, _MAX_MODE_ATTRS + 1):
+    setattr(FeaCaseFilter, f"mode_{_mode_n}", _make_mode_attr(_mode_n))
 
 
 # ---------------------------------------------------------------------------

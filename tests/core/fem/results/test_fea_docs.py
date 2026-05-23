@@ -121,15 +121,24 @@ def test_to_paradoc_rows_emits_canonical_plus_mode_views(rmed_path, tmp_path):
         assert not pathlib.Path(r.metadata["image_path"]).is_absolute()
 
 
-def test_feacase_filter_lazy_bake_and_dynamic_modes(rmed_path, tmp_path):
+def test_feacase_filter_lazy_bake_and_modes(rmed_path, tmp_path):
     """``FeaCaseFilter`` doesn't run the bake until the first attr is
     accessed. Subsequent accesses reuse the cached :class:`FeaDocAssets`.
-    Dynamic ``.mode_N`` resolves to a :class:`paradoc.filters.ThreeDView`
-    matching :func:`to_paradoc_rows`' glb_key convention."""
+    ``mode_<N>`` resolves to a :class:`paradoc.filters.ThreeDView`
+    matching :func:`to_paradoc_rows`' glb_key convention.
+
+    Modes are pre-attached at class level (paradoc's filter cache
+    walks ``inspect.getsource(getattr(cls, name))`` which bypasses
+    ``__getattr__``), so ``mode_<N>`` exists for every N in
+    ``1..MAX``; whether the mode was actually baked governs whether
+    the view carries a poster path. The static ``ThreeDView.glb_key``
+    is consistent regardless — paradoc renders a placeholder when the
+    matching ``ThreeDData`` row isn't registered.
+    """
 
     pytest.importorskip("pygfx")
     pytest.importorskip("trimesh")
-    from ada.fem.results.docs import FeaCaseFilter
+    from ada.fem.results.docs import FeaCaseFilter, _MAX_MODE_ATTRS
 
     case = FeaCaseFilter("ca_bm", rmed_path, tmp_path / "bundle", modes=2)
     assert case._assets is None  # lazy
@@ -141,26 +150,30 @@ def test_feacase_filter_lazy_bake_and_dynamic_modes(rmed_path, tmp_path):
     _ = case.solver()
     assert case._assets is cached  # not re-baked
 
+    # Baked mode → view carries the per-mode poster path.
     mode2 = case.mode_2()
     assert mode2.glb_key == "ca_bm_mode_2"
     assert mode2.caption.endswith("mode 2.")
+    assert mode2.image_path is not None and mode2.image_path.is_file()
 
-    # Out-of-range mode raises (with the available set in the message
-    # so a user can widen ``modes=…`` if they need more).
-    with pytest.raises(AttributeError, match=r"have \[1, 2\]"):
-        case.mode_99()
+    # Un-baked mode → view still resolves with the right glb_key, but
+    # ``image_path`` is None. paradoc's static export shows a
+    # placeholder; the interactive bundle viewer still mounts and
+    # surfaces the mode through SimulationControls because the bundle
+    # carries every step's displacement blob regardless of poster.
+    mode_unbaked = case.mode_5()
+    assert mode_unbaked.glb_key == "ca_bm_mode_5"
+    assert mode_unbaked.image_path is None
 
-    # Negative / 0-indexed accidents are caught.
+    # mode_<MAX_MODE_ATTRS> exists; mode_<MAX_MODE_ATTRS+1> doesn't —
+    # the class-level cap is intentional (see _MAX_MODE_ATTRS docstring).
+    assert hasattr(case, f"mode_{_MAX_MODE_ATTRS}")
     with pytest.raises(AttributeError):
-        case.mode_0()
-    with pytest.raises(AttributeError):
-        case.mode_foo()  # not an int
+        getattr(case, f"mode_{_MAX_MODE_ATTRS + 1}")
 
-    # The dynamic mode_N still registers as a substitutable attr in
-    # paradoc's eyes — the resolver does `getattr(filter, name)` then
-    # `_is_attr(value)`, which checks the `__paradoc_attr__` marker.
-    raw = getattr(case, "mode_2")
-    assert callable(raw)
+    # mode_<N> is @attr-decorated at class level so paradoc's resolver
+    # picks it up the same way as the static @attr methods.
+    raw = FeaCaseFilter.__dict__["mode_2"]
     assert getattr(raw, "__paradoc_attr__", False) is True
 
 
