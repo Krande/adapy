@@ -76,9 +76,7 @@ nbsphinx_prolog = r"""
     <div class="admonition note">
       This page was generated from
       <a class="reference external" href="https://github.com/Krande/adapy/blob/{{ env.config.release|e }}/{{ docname|e }}">{{ docname|e }}</a>.<br>
-      Interactive online version:
-      <span style="white-space: nowrap;"><a href="https://mybinder.org/v2/gh/Krande/adapy/{{ env.config.release|e }}?filepath={{ docname|e }}"><img alt="Binder badge" src="https://mybinder.org/badge_logo.svg" style="vertical-align:text-bottom"></a> - </span>
-      <a href="{{ env.docname.split('/')|last|e + '.ipynb' }}" class="reference download internal" download>Download notebook</a> - 
+      <a href="{{ env.docname.split('/')|last|e + '.ipynb' }}" class="reference download internal" download>Download notebook</a> -
       <script>
         if (document.location.host) {
           let nbviewer_link = document.createElement('a');

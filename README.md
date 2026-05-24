@@ -26,11 +26,6 @@ Here are some of the goals with `ada-py`:
 
 ## Quick Links
 
-Try ada-py online with code-aster and calculix pre-installed
-
-[![Binder-main](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/Krande/adapy/main)
-
-
 * Feel free to start/join any informal topic related to adapy [here](https://github.com/Krande/adapy/discussions).
 * Issues related to adapy can be raised [here](https://github.com/Krande/adapy/issues)
 

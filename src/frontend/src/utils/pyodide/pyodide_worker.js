@@ -9,8 +9,10 @@
 // only for the formats the user actually converts. Dispatch happens in
 // onmessage based on data.format ("ifc" | "step").
 //
-// Identical Pyodide-bootstrap strategy to experiments/pyodide-converter
-// — kept in sync with that experiment so they share Python plumbing.
+// The Pyodide-bootstrap strategy was prototyped in a standalone
+// experiments/pyodide-converter PoC and then promoted to this worker;
+// keeping the comment here so the genealogy of the bootstrap idiom
+// (loadPyodide → micropip.install → import) is discoverable.
 
 const PYODIDE_VERSION = "0.27.7";
 const IFC_WASM_WHEEL =
