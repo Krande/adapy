@@ -65,6 +65,20 @@ class Assembly(Part):
         self._ifc_materials = None
         self._source_ifc_files = dict()
 
+    def __getstate__(self):
+        # ifcopenshell.file and ifcopenshell.geom.settings are C-bound and
+        # don't pickle. Both _ifc_store and _source_ifc_files are caches over
+        # lazily generated state; clearing them lets the assembly cross a
+        # process boundary cleanly and the caches rebuild on next access.
+        state = self.__dict__.copy()
+        state["_ifc_store"] = None
+        state["_ifc_file"] = None
+        state["_source_ifc_files"] = {}
+        return state
+
+    def __setstate__(self, state):
+        self.__dict__.update(state)
+
     def read_ifc(self, ifc_file: str | os.PathLike | ifcopenshell.file, data_only=False, elements2part=None):
         """Import from IFC file."""
         self.ifc_store.load_ifc_content_from_file(ifc_file, data_only=data_only, elements2part=elements2part)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from operator import attrgetter
 from typing import TYPE_CHECKING, Iterable
 
 from ada.api.beams import Beam
@@ -12,11 +13,13 @@ if TYPE_CHECKING:
 
 class Beams(IndexedCollection[Beam, str, int]):
     def __init__(self, beams: Iterable[Beam] = (), parent=None):
+        # attrgetter rather than lambdas so the collection round-trips
+        # through pickle; closure-scoped lambdas have no qualified name.
         super().__init__(
             items=beams,
-            sort_key=lambda b: b.name,
-            id_key=lambda b: b.guid,
-            name_key=lambda b: b.name,
+            sort_key=attrgetter("name"),
+            id_key=attrgetter("guid"),
+            name_key=attrgetter("name"),
         )
         self._parent = parent
 
