@@ -16,7 +16,7 @@ json-code-gen-py = { cmd = [
 [feature.docs.tasks]
 # `docs` chains fea-doc → sphinx-build via depends-on. In the Dockerfile.docs
 # CI image we ship a sibling paradoc checkout at /work/paradoc plus the
-# verification_report dir, so the chain runs end-to-end during image build.
+# verification dir, so the chain runs end-to-end during image build.
 # Locally, the same chain works as long as paradoc is cloned alongside adapy.
 docs = { cmd = "cd docs && sphinx-build -b html -v -D nbsphinx_execute=auto . _build/html", depends-on = ["fea-doc"], env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 serve = { cmd = "python docs/main.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" }, depends-on = ["docs"] }
@@ -28,10 +28,10 @@ serve = { cmd = "python docs/main.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROO
 # without it the helper only tries to load existing result files and
 # prints "Result file ... not found" for solvers (ccx/ca) whose
 # `.cache/` is gitignored. The Docker docs build runs this end-to-end.
-fea-doc = { cmd = "python build_verification_report.py --overwrite --execute --regen-assets", cwd = "./tests/fem/verification_report", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src:$PIXI_PROJECT_ROOT/../paradoc/src" } }
+fea-doc = { cmd = "python build_verification_report.py --overwrite --execute --regen-assets", cwd = "./verification", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src:$PIXI_PROJECT_ROOT/../paradoc/src" } }
 # Cache-only variant — no solver execution, consumes the committed
 # `.cache/*.json` and `_assets/*.glb`. Useful for hosts without solvers.
-fea-doc-cached = { cmd = "python build_verification_report.py", cwd = "./tests/fem/verification_report", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src:$PIXI_PROJECT_ROOT/../paradoc/src" } }
+fea-doc-cached = { cmd = "python build_verification_report.py", cwd = "./verification", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src:$PIXI_PROJECT_ROOT/../paradoc/src" } }
 # Serve the static bundle on http://localhost:8765/ for fast iteration
 # without going through the docs Docker build → harbor → ArgoCD loop.
 # Run after `fea-doc` (or `fea-doc-cached`) so the bundle exists under

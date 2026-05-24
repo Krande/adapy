@@ -1,13 +1,24 @@
-from fem.verification_report import build_report_utils as ru
-from fem.verification_report.build_verification_report import build_fea_report
+import sys
+from pathlib import Path
 
-import ada
-from ada.config import logger
-from ada.fem.formats.abaqus.config import AbaqusSetup
-from ada.fem.meshing import GmshOptions
+# Run as a flat script from within this dir. ``conftest.beam`` and
+# ``test_fem_eig`` still live under ``tests/fem/`` — they're test
+# fixtures we reuse for the debug pipeline, so we bootstrap that path
+# onto ``sys.path`` rather than packaging this script.
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(_REPO_ROOT / "tests" / "fem"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from ..conftest import beam
-from ..test_fem_eig_cantilever import test_fem_eig
+import build_report_utils as ru  # noqa: E402
+from build_verification_report import build_fea_report  # noqa: E402
+
+import ada  # noqa: E402
+from ada.config import logger  # noqa: E402
+from ada.fem.formats.abaqus.config import AbaqusSetup  # noqa: E402
+from ada.fem.meshing import GmshOptions  # noqa: E402
+
+from conftest import beam  # noqa: E402
+from test_fem_eig_cantilever import test_fem_eig  # noqa: E402
 
 
 def main(overwrite=True, execute=True, test_gmsh_options=False, build_report=False, show=False):

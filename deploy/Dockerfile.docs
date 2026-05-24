@@ -5,7 +5,7 @@
 # report bundle (``fea-doc`` task → ``docs/_static/fea-report/``); runtime
 # stage serves the rendered HTML via nginx-unprivileged on :8080.
 #
-# Triggered by docs/**, tests/fem/verification_report/**, pixi.toml/lock,
+# Triggered by docs/**, verification/**, pixi.toml/lock,
 # this Dockerfile, or the workflow itself — see the ``docs`` filter in
 # .forgejo/workflows/build.yaml.
 
@@ -126,12 +126,12 @@ RUN test -n "$PARADOC_GIT_URL" \
 # autodoc imports ``ada`` at build time, so src/ must be present. The
 # .git directory is included because docs/conf.py runs ``git describe``
 # to derive the release string (it falls back gracefully if absent, but
-# we want a real version on the rendered page). tests/fem/verification_report
-# is needed by the fea-doc task that the `docs` pixi task depends on.
+# we want a real version on the rendered page). verification/ is needed
+# by the fea-doc task that the `docs` pixi task depends on.
 COPY .git/ ./.git/
 COPY src/ ./src/
 COPY docs/ ./docs/
-COPY tests/fem/verification_report/ ./tests/fem/verification_report/
+COPY verification/ ./verification/
 
 # Runs fea-doc (FEA verification report bundle into docs/_static/fea-report/)
 # then sphinx, via the `depends-on` chain in pixi.toml.

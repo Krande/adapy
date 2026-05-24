@@ -38,7 +38,7 @@ on:
       - 'deploy/Dockerfile.docs'
       - 'deploy/viewer-ada-init.py'
       - 'docs/**'
-      - 'tests/fem/verification_report/**'
+      - 'verification/**'
       - '.forgejo/workflows/build.yaml'
 
 jobs:
@@ -119,7 +119,7 @@ jobs:
              match '^src/ada/' || \
              match '^pixi\.(toml|lock)$' || \
              match '^pyproject\.toml$' || \
-             match '^tests/fem/verification_report/' || \
+             match '^verification/' || \
              match '^deploy/Dockerfile\.docs$' || \
              match '^\.forgejo/workflows/build\.yaml$'; then
             docs=true

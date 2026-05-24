@@ -67,7 +67,7 @@ Two pixi tasks drive the report:
 
 The bundle lands at ``docs/_static/fea-report/`` and is served as a
 standalone page (linked above). Mode-shape and beam geometry GLBs are
-checked into ``tests/fem/verification_report/_assets/``; the frontend
+checked into ``verification/_assets/``; the frontend
 resolves them by the ``data-3d-key`` attribute on each ``ThreeDView``
 substitution.
 
