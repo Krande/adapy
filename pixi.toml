@@ -40,7 +40,18 @@ fea-doc-cached = { cmd = "python build_verification_report.py", cwd = "./verific
 serve-fea = { cmd = "python -m http.server 8765 --bind 127.0.0.1 --directory docs/_static/fea-report" }
 
 [feature.tests.tasks]
-pre-install = { cmd = "playwright install --with-deps chromium", outputs = ["$PIXI_HOME/envs/tests/Scripts/playwright.exe"] }
+# Install the Chromium browser binary that pytest-playwright drives.
+# `--with-deps` is intentionally NOT used here: it shells out to
+# `sudo apt install` for system libs, which blows up in non-interactive
+# shells. On a dev machine the libs are usually present already; if a
+# playwright test ever errors with a missing-lib message, run
+# `pixi run -e tests playwright install-deps chromium` once by hand.
+# The stamp file under .temp/ (gitignored) is the gate that lets pixi
+# skip this task on subsequent runs — cross-platform, unlike the old
+# Scripts/playwright.exe path which never existed on Linux/macOS.
+# (.pixi/ doesn't work as a stamp location — pixi excludes its own
+# state dir from output glob matching.)
+pre-install = { cmd = "mkdir -p $PIXI_PROJECT_ROOT/.temp && playwright install chromium && touch $PIXI_PROJECT_ROOT/.temp/playwright-browsers.stamp", outputs = [".temp/playwright-browsers.stamp"] }
 
 test = { cmd = "pytest tests --ignore=tests/profiling --ignore=tests/fem --ignore=tests/comms/rest --durations=0", depends-on = ["pre-install"], env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 test-core = { cmd = "pytest tests/core --durations=0", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
