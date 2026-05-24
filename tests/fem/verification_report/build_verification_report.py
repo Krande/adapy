@@ -274,8 +274,24 @@ def _collect_bundle_assets(
     return out
 
 
-def _build_freq_vs_mode_plot(results: list[ru.FeaVerificationResult]) -> Optional[object]:
-    """Return a plotly Figure of mode frequency vs mode-number per case."""
+def _build_freq_vs_mode_plot(
+    results: list[ru.FeaVerificationResult],
+    *,
+    legend_position: str = "below",
+) -> Optional[object]:
+    """Return a plotly Figure of mode frequency vs mode-number per case.
+
+    ``legend_position`` controls where the per-case legend lands:
+
+    * ``"below"`` (default) — horizontal legend under the plot area.
+      With ~6+ FEA cases the right-side legend ate ~25 % of the canvas
+      width on the rendered doc page; the below layout reclaims that
+      space for the actual curves at the cost of one extra row of
+      vertical real estate.
+    * ``"right"`` — plotly's stock right-side vertical legend. Useful
+      when there are too many cases to fit horizontally without
+      wrapping into multiple rows that shove the x-axis off-screen.
+    """
     try:
         import pandas as pd
         import plotly.express as px
@@ -303,6 +319,24 @@ def _build_freq_vs_mode_plot(results: list[ru.FeaVerificationResult]) -> Optiona
         labels={"mode": "Mode number", "f_hz": "Frequency [Hz]"},
         title="Eigenfrequency vs. mode number, per FEA case",
     )
+    if legend_position == "below":
+        # ``y=-0.2`` clears the x-axis title; ``yanchor=top`` pins the
+        # legend's top edge to that y so it grows downward, not into
+        # the plot. ``xanchor=center, x=0.5`` centres it under the plot.
+        fig.update_layout(
+            legend=dict(
+                orientation="h",
+                yanchor="top",
+                y=-0.2,
+                xanchor="center",
+                x=0.5,
+                title_text="",
+            ),
+        )
+    elif legend_position != "right":
+        logger.warning(
+            f"unknown legend_position={legend_position!r}; using plotly default (right)"
+        )
     return fig
 
 
