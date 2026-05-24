@@ -10,6 +10,7 @@ from __future__ import annotations
 import pickle
 
 import ada
+from ada.fem.elements import ElemType
 
 
 def _build_assembly():
@@ -55,6 +56,46 @@ def test_assembly_pickle_preserves_beam_geometry():
     assert tuple(src_bm.n1.p) == tuple(dst_bm.n1.p)
     assert tuple(src_bm.n2.p) == tuple(dst_bm.n2.p)
     assert src_bm.section.name == dst_bm.section.name
+
+
+def _mesh_line_beam():
+    bm = ada.Beam("bm1", (0, 0, 0), (1, 0, 0), "IPE300")
+    return ada.Assembly("meshed") / (ada.Part("MyPart", fem=bm.to_fem_obj(0.1, ElemType.LINE)) / bm)
+
+
+def test_assembly_pickle_preserves_line_mesh():
+    a = _mesh_line_beam()
+    part = a.get_part("MyPart")
+    src_nodes = len(part.fem.nodes)
+    src_elements = len(part.fem.elements)
+    assert src_nodes > 0 and src_elements > 0
+
+    b = pickle.loads(pickle.dumps(a))
+
+    dst_part = b.get_part("MyPart")
+    assert len(dst_part.fem.nodes) == src_nodes
+    assert len(dst_part.fem.elements) == src_elements
+
+    # element types and connectivity survive the round-trip
+    src_first = part.fem.elements[0]
+    dst_first = dst_part.fem.elements[0]
+    assert src_first.type == dst_first.type
+    assert [n.id for n in src_first.nodes] == [n.id for n in dst_first.nodes]
+
+
+def test_assembly_pickle_preserves_shell_mesh():
+    bm = ada.Beam("bm1", (0, 0, 0), (1, 0, 0), "IPE300")
+    a = ada.Assembly("meshed") / (ada.Part("MyPart", fem=bm.to_fem_obj(0.1, ElemType.SHELL)) / bm)
+    part = a.get_part("MyPart")
+    src_nodes = len(part.fem.nodes)
+    src_elements = len(part.fem.elements)
+    assert src_nodes > 0 and src_elements > 0
+
+    b = pickle.loads(pickle.dumps(a))
+
+    dst_part = b.get_part("MyPart")
+    assert len(dst_part.fem.nodes) == src_nodes
+    assert len(dst_part.fem.elements) == src_elements
 
 
 def test_ifc_store_direct_pickle_is_stub():
