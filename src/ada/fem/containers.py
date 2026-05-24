@@ -346,7 +346,7 @@ class FemElements:
                 return False if el.type in delete_elem else True
 
         self._elements = list(filter(eval_elem, self._elements))
-        self._by_types = dict(self.group_by_type())
+        self._by_types = {k: list(v) for k, v in self.group_by_type()}
         self._idmap = {e.id: e for e in self._elements}
 
     @property
@@ -390,9 +390,13 @@ class FemElements:
 
     def _group_by_types(self):
         if len(self._elements) > 0:
-            self._by_types = groupby(
+            # Materialize the groupby into {key: [Elem, ...]}. The raw
+            # iterator isn't picklable (3.14 drops itertools pickle support
+            # entirely) and would also exhaust on first read.
+            grouped = groupby(
                 sorted(self._elements, key=attrgetter("type")), key=attrgetter("type", SetTypes.ELSET)
             )
+            self._by_types = {k: list(v) for k, v in grouped}
         else:
             self._by_types = dict()
 

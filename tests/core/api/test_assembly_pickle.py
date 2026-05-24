@@ -8,6 +8,7 @@ clears them before serialize; these tests confirm the round trip survives.
 from __future__ import annotations
 
 import pickle
+import warnings
 
 import ada
 from ada.fem.elements import ElemType
@@ -70,7 +71,11 @@ def test_assembly_pickle_preserves_line_mesh():
     src_elements = len(part.fem.elements)
     assert src_nodes > 0 and src_elements > 0
 
-    b = pickle.loads(pickle.dumps(a))
+    # Guard against re-introducing itertools.groupby as instance state on
+    # FemElements (drops pickle support in Python 3.14).
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", DeprecationWarning)
+        b = pickle.loads(pickle.dumps(a))
 
     dst_part = b.get_part("MyPart")
     assert len(dst_part.fem.nodes) == src_nodes
