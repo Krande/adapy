@@ -20,11 +20,17 @@ import SceneIcon from "@/components/icons/SceneIcon"
 import ToggleControlsIcon from "@/components/icons/AnimationControlToggle"
 import { useViewerStores } from "@/state/AdaViewerContext"
 
+// ``pointer-fine:`` gate on hover styles (same as Menu.tsx): plain
+// ``hover:`` resolves to ``@media (hover: hover)`` which Android
+// Chrome reports TRUE on touch devices, leaving :hover sticky after a
+// tap. The sticky translucent ``bg-blue-700/50`` made an
+// already-deactivated toolbar button look half-pressed.
+// ``pointer-fine`` matches mouse / trackpad only.
 const BTN_BASE =
     "inline-flex items-center justify-center w-10 h-10 shrink-0 " +
     "text-white font-bold rounded transition-colors"
-const BTN_INACTIVE = "bg-blue-700 hover:bg-blue-700/50"
-const BTN_ACTIVE = "bg-blue-900 hover:bg-blue-800 shadow-inner"
+const BTN_INACTIVE = "bg-blue-700 pointer-fine:hover:bg-blue-700/50"
+const BTN_ACTIVE = "bg-blue-900 pointer-fine:hover:bg-blue-800 shadow-inner"
 
 function btnClass(active: boolean): string {
     return `${BTN_BASE} ${active ? BTN_ACTIVE : BTN_INACTIVE}`
@@ -64,7 +70,15 @@ export const EmbedUI: React.FC = () => {
 
     return (
         <div className="absolute inset-0 pointer-events-none">
-            <ResizableTreeView />
+            {/* The tree drawer is the only child here that *isn't* in
+                the toolbar column; it needs its own pointer-events-auto
+                opt-in or every click in it (close ×, node selection,
+                scroll) is swallowed by the inert backdrop above.
+                Standalone (app.tsx) renders it under a normal parent
+                so no opt-in is needed there. */}
+            <div className="pointer-events-auto">
+                <ResizableTreeView />
+            </div>
             <div
                 className="absolute left-0 top-0 z-10 py-2 flex flex-col gap-2 pointer-events-none transition-[padding] duration-150"
                 style={{ paddingLeft: `${shiftPx}px` }}

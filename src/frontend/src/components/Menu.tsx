@@ -53,12 +53,22 @@ const DESKTOP_QUERY = "(min-width: 768px)";
 // and the simulation-controls / node-editor toggles stay properly
 // gated on their ``hasAnimation``/``feaSessionActive``/``enableNodeEditor``
 // state.
+//
+// Hover styles are gated with ``pointer-fine:`` (mouse-only) instead
+// of plain ``hover:``. ``hover:`` resolves to ``@media (hover: hover)``
+// which Android Chrome and many hybrid tablets report TRUE on touch-
+// primary devices because the hardware *could* accept a stylus or
+// paired mouse — leaving :hover sticky on touch. After tapping a
+// button to toggle the menu OFF, the now-inactive button rendered
+// the translucent ``bg-blue-700/50`` hover style and looked
+// half-pressed. ``pointer: coarse`` is the touch canonical, so
+// ``pointer-fine`` is the safe mouse-only gate.
 const NAV_BTN_BASE =
     "inline-flex items-center justify-center w-10 h-10 shrink-0 rounded-sm " +
     "md:w-auto md:h-auto md:py-2 md:px-4 md:rounded " +
     "text-white font-bold transition-colors";
-const NAV_BTN_INACTIVE = "bg-blue-700 hover:bg-blue-700/50";
-const NAV_BTN_ACTIVE = "bg-blue-900 hover:bg-blue-800 shadow-inner";
+const NAV_BTN_INACTIVE = "bg-blue-700 pointer-fine:hover:bg-blue-700/50";
+const NAV_BTN_ACTIVE = "bg-blue-900 pointer-fine:hover:bg-blue-800 shadow-inner";
 
 function navBtnClass(active: boolean, extra: string = "", hidden: boolean = false): string {
     const hiddenClass = hidden ? "hidden!" : "";

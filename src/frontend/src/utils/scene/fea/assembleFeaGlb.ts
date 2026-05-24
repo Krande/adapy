@@ -190,12 +190,17 @@ export async function assembleAnimatedFeaGlb(
     // corresponds. Both Calculix (1 field × N steps) and Code Aster
     // (N fields × 1 step each) flatten to the same global index.
     const entry = pickModeEntry(manifest, Math.max(0, modeIndex | 0));
-    if (!entry || !entry.field.blob) {
+    if (!entry) {
         throw new Error(
             "fea bundle: manifest has no displacement fields; nothing to deform.",
         );
     }
     const field = entry.field;
+    if (!field.blob) {
+        throw new Error(
+            "fea bundle: displacement field has no blob; nothing to deform.",
+        );
+    }
 
     const fieldBuf = await fetcher(field.blob.url);
     const parsed = parseFieldBlob(fieldBuf);
