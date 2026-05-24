@@ -588,7 +588,7 @@ def create_fea_report(overwrite: bool = False, execute: bool = False, regen_asse
 
     one = build_fea_report(bm, results, eig_modes, regen_assets=regen_assets)
 
-    adapy_root = pathlib.Path(__file__).parent.parent.parent.parent.resolve().absolute()
+    adapy_root = pathlib.Path(__file__).resolve().parent.parent
     static_output_dir = adapy_root / "docs" / "_static" / "fea-report"
     logger.info(f"exporting static web bundle to {static_output_dir}")
     # `../../` walks `_static/fea-report/index.html` → `<docs_root>/index.html`,
