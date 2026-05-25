@@ -12,17 +12,35 @@
 # `[paradoc.envs]` aliases and tag each task with `env=...`.
 
 [paradoc]
-# Markdown lives in `report/` while tasks.py / filters.py / build_hooks.py
-# stay at the doc root. paradoc.tasks honors this override and pre-
-# registers filters from the doc root rather than `source_dir`.
+# Markdown lives in `report/` while tasks.py / filters.py stay at the
+# doc root. paradoc.tasks honors this override and pre-registers
+# filters from the doc root rather than `source_dir`.
 source_dir = "report"
 
 # Default profile: the full 5-axis verification matrix declared in
-# tasks.py runs unchanged. No fanout overrides needed.
+# tasks.py runs unchanged. No fanout overrides needed. The static
+# bundle target is the adapy docs landing page; `../../index.html`
+# walks the bundle index back to the Sphinx-served docs root.
 [build.default]
+outputs = ["static"]
+
+[build.default.static]
+target = "../docs/_static/fea-report"
+header_links = [
+    { label = "← adapy docs", href = "../../index.html" },
+]
 
 # Smoke profile: minimal cell count for quick iteration / CI sanity.
 # One mesh cell × one solver = ~1 cell post-skip.
+[build.smoke]
+outputs = ["static"]
+
+[build.smoke.static]
+target = "../docs/_static/fea-report"
+header_links = [
+    { label = "← adapy docs", href = "../../index.html" },
+]
+
 [build.smoke.fanout.mesh]
 geom_repr = ["shell"]
 elem_order = [1]
