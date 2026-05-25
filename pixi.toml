@@ -20,18 +20,20 @@ json-code-gen-py = { cmd = [
 # Locally, the same chain works as long as paradoc is cloned alongside adapy.
 docs = { cmd = "cd docs && sphinx-build -b html -v -D nbsphinx_execute=auto . _build/html", depends-on = ["fea-doc"], env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 serve = { cmd = "python docs/main.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" }, depends-on = ["docs"] }
-# FEA verification report → paradoc static-web bundle landing under
-# `docs/_static/fea-report/`. Runs calculix + code_aster (available in
-# the `docs` env via fem-deps) for every case and bakes fresh
-# per-(case, mode) deformed-mesh GLBs into `_assets/`. `--overwrite`
-# is what makes eigen_test actually invoke the solver in cases.py;
-# without it the helper only tries to load existing result files and
-# prints "Result file ... not found" for solvers (ccx/ca) whose
-# `.cache/` is gitignored. The Docker docs build runs this end-to-end.
-fea-doc = { cmd = "python build_verification_report.py --overwrite --execute --regen-assets", cwd = "./verification", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src:$PIXI_PROJECT_ROOT/../paradoc/src" } }
+# FEA verification report → paradoc static-web bundle under
+# `docs/_static/fea-report/`. Runs the @task DAG declared in
+# `verification/tasks.py` (calculix + code_aster available in the
+# `docs` env via fem-deps), then `verification/build_hooks.py::setup`
+# bakes per-(case, mode) GLBs into `_assets/` and registers tables /
+# plots / 3D rows on OneDoc.db_manager. `--no-cache` forces the task
+# cache to invalidate so solvers actually re-run rather than replaying
+# .paradoc-cache/. ADAPY_VERIFICATION_REGEN_ASSETS=1 makes
+# build_hooks.setup re-bake GLBs from the fresh FEA result files. The
+# Docker docs build runs this end-to-end.
+fea-doc = { cmd = "python -m paradoc.cli_app build verification --no-cache", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src:$PIXI_PROJECT_ROOT/../paradoc/src", "ADAPY_VERIFICATION_REGEN_ASSETS" = "1" } }
 # Cache-only variant — no solver execution, consumes the committed
 # `.cache/*.json` and `_assets/*.glb`. Useful for hosts without solvers.
-fea-doc-cached = { cmd = "python build_verification_report.py", cwd = "./verification", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src:$PIXI_PROJECT_ROOT/../paradoc/src" } }
+fea-doc-cached = { cmd = "python -m paradoc.cli_app build verification", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src:$PIXI_PROJECT_ROOT/../paradoc/src" } }
 # Smoke test the paradoc.tasks DAG without executing any solver. Prints
 # the task tree + cell counts; matches the imperative driver's 5-D
 # fanout (24 mesh × 42 live run_eig with skip rules applied). Useful

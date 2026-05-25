@@ -1,14 +1,22 @@
+"""Drive a single eig case from the design->mesh->run_eig pipeline.
+
+Useful for quick iteration on the FEM-tasks helpers without spinning
+up the full @task DAG or building the report. Drops the
+``build_report`` branch the legacy version had — for full-bundle
+output, use `pixi run -e docs fea-doc` (or
+`paradoc build verification`).
+"""
+
 import sys
 from pathlib import Path
 
 # Flat script under verification/scripts/. Bootstrap the parent
-# verification/ dir onto sys.path so `build_report_utils` /
-# `build_verification_report` resolve as siblings of one level up.
+# verification/ dir onto sys.path so `build_report_utils` resolves
+# as a sibling of one level up.
 _VERIFICATION_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_VERIFICATION_DIR))
 
 import build_report_utils as ru  # noqa: E402
-from build_verification_report import build_fea_report  # noqa: E402
 
 import ada  # noqa: E402
 from ada.api.fem_tasks import (  # noqa: E402
@@ -21,7 +29,7 @@ from ada.config import logger  # noqa: E402
 from ada.fem.formats.abaqus.config import AbaqusSetup  # noqa: E402
 
 
-def main(overwrite=True, execute=True, build_report=False, show=False):
+def main(overwrite: bool = True, execute: bool = True, show: bool = False):
     if ru.ODB_DUMP_EXE is not None:
         AbaqusSetup.set_default_post_processor(ru.post_processing_abaqus)
 
@@ -41,7 +49,7 @@ def main(overwrite=True, execute=True, build_report=False, show=False):
         reduced_integration=reduced_integration,
     )
 
-    result = run_eig(
+    run_eig(
         a,
         fem_format=fea_format,
         scratch_dir=_VERIFICATION_DIR / "temp" / "eigen",
@@ -54,18 +62,7 @@ def main(overwrite=True, execute=True, build_report=False, show=False):
     if show:
         a.show()
 
-    if build_report:
-        if result is None:
-            logger.error("No result file is located")
-            return
-
-        metadata = dict(geo=geom_repr, elo=elem_order, hexquad=use_hex_quad,
-                        reduced_integration=reduced_integration)
-        fvr = ru.postprocess_result(result, metadata)
-        bm = next(b for b in a.get_all_physical_objects() if isinstance(b, ada.Beam))
-        build_fea_report(bm, [fvr], eigen_modes)
-
 
 if __name__ == "__main__":
     logger.setLevel("INFO")
-    main(overwrite=True, execute=True, build_report=False)
+    main(overwrite=True, execute=True)

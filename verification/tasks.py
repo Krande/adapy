@@ -19,23 +19,46 @@ from __future__ import annotations
 import copy
 import logging
 import pathlib
+import sys
 
-from paradoc.tasks import task
+# `tasks.py` gets loaded via paradoc.tasks.discovery's
+# spec_from_file_location, which does NOT add the parent dir to
+# sys.path. Bootstrap THIS_DIR so sibling modules (build_report_utils)
+# import cleanly.
+_THIS_DIR = pathlib.Path(__file__).resolve().parent
+if str(_THIS_DIR) not in sys.path:
+    sys.path.insert(0, str(_THIS_DIR))
 
-import ada
-from ada.api.fem_tasks import (
+from paradoc.tasks import task  # noqa: E402
+
+import ada  # noqa: E402
+from ada.api.fem_tasks import (  # noqa: E402
     design_cantilever,
     eig_case_name,
     is_eig_skip,
     mesh_cantilever,
     run_eig as run_eig_helper,
 )
-from ada.fem.exceptions.fea_software import FEASolverNotInstalled
+from ada.fem.exceptions.fea_software import FEASolverNotInstalled  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
 
 _SCRATCH_DIR = pathlib.Path(__file__).resolve().parent / "temp" / "eigen"
+
+
+# Wire the Abaqus odb post-processor at module-import time so any
+# subsequent run_eig cell that hits the Abaqus solver picks it up.
+# The legacy driver did this in create_fea_report(); putting it
+# here keeps the side effect alongside the @task declarations.
+try:
+    import build_report_utils as _ru
+    from ada.fem.formats.abaqus.config import AbaqusSetup as _AbaqusSetup
+
+    if _ru.ODB_DUMP_EXE is not None:
+        _AbaqusSetup.set_default_post_processor(_ru.post_processing_abaqus)
+except Exception as _exc:  # noqa: BLE001
+    logger.warning(f"abaqus post-processor wiring skipped: {_exc}")
 
 
 @task

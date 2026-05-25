@@ -11,6 +11,12 @@
 # pool, add `[paradoc] pixi_toml = "../pixi.toml"` plus
 # `[paradoc.envs]` aliases and tag each task with `env=...`.
 
+[paradoc]
+# Markdown lives in `report/` while tasks.py / filters.py / build_hooks.py
+# stay at the doc root. paradoc.tasks honors this override and pre-
+# registers filters from the doc root rather than `source_dir`.
+source_dir = "report"
+
 # Default profile: the full 5-axis verification matrix declared in
 # tasks.py runs unchanged. No fanout overrides needed.
 [build.default]
