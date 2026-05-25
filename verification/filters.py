@@ -247,6 +247,24 @@ class Eig(Filter):
         )
 
 
+# ---------------------------------------------------------------------
+# Module-level instances. paradoc.filters.discover_filters picks these
+# up from `verification/filters.py`; OneDoc binds the TaskHandles when
+# the runner-aware compile path runs (CLI: `paradoc build verification`,
+# or `create_fea_report` after the driver flip).
+#
+# Versions is NOT instantiated here because it carries runtime version
+# data the driver constructs separately via `_solver_versions()`. When
+# version_probe becomes accessible on TaskHandle, Versions moves here
+# too.
+# ---------------------------------------------------------------------
+
+from paradoc.tasks import TaskHandle  # noqa: E402 — module-level instances need this
+
+beam = Beam(name="beam", task=TaskHandle.unbound("design"))
+eig = Eig(name="eig", task=TaskHandle.unbound("run_eig"))
+
+
 # `SolverCase` lived here until step 5 of the FEA-docs generalisation
 # moved per-case filter logic into `ada.fem.results.docs.FeaCaseFilter`.
 # That class covers `.solver` / `.solver_version` / `.n_modes` plus

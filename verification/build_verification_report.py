@@ -44,6 +44,7 @@ from ada.api.fem_tasks import (
 )
 from ada.config import logger
 from ada.fem.formats.abaqus.config import AbaqusSetup
+from paradoc.tasks import build_document
 from ada.fem.results.docs import (
     FeaCaseFilter,
     FeaDocAssets,
@@ -105,74 +106,43 @@ def _safe_filter_name(name: str) -> str:
     return cleaned
 
 
-def simulate(
-    bm, el_order, geom_repr, analysis_software, use_hex_quad, use_reduced_int, eig_modes, overwrite, execute
-) -> list[ru.FeaVerificationResult]:
-    """Run FEA cases. Returns whatever produced results (possibly empty).
+def _collect_results_from_runner(runner) -> list[ru.FeaVerificationResult]:
+    """Walk run_eig cells, postprocess FEAResults into FeaVerificationResults.
 
-    Every per-case failure is swallowed so the build keeps going. With
-    ``--overwrite`` the live solver invocations under
-    ``run_eig → a.to_fem(execute=True)`` can fail in many ways (gmsh
-    meshing, solver subprocess crash, post-processor unable to parse
-    partial output). We log and continue rather than letting one bad
-    case kill the docs build for everyone else.
+    Replaces the imperative `simulate()` loop. The runner's already
+    expanded the 5-D matrix + executed each cell via
+    `paradoc.tasks.build_document`; this function just translates the
+    cell results into the FeaVerificationResult shape the rest of the
+    report-building code consumes (tables, plots, asset baking).
 
-    Note: `bm` is accepted for backwards compat with the prior signature
-    but is no longer the canonical geometry source — `design_cantilever()`
-    is. The caller still uses `bm` for paradoc filter wiring downstream.
+    Cells whose result is None (missing solver / failed run) are
+    skipped — the task body in `verification/tasks.py` returns None
+    for those, mirroring `simulate()`'s try/except behavior.
     """
-    del bm  # unused; design_cantilever is canonical
-    results = []
-    for elo in el_order:
-        for geo in geom_repr:
-            for soft in analysis_software:
-                for hexquad in use_hex_quad:
-                    for uri in use_reduced_int:
-                        case_label = f"{soft}/{geo}/order={elo}/hq={hexquad}/ri={uri}"
-                        logger.info(f"==> {case_label}: starting")
-                        if is_eig_skip(fem_format=soft, geom_repr=geo, elem_order=elo,
-                                       use_hex_quad=hexquad, reduced_integration=uri):
-                            logger.info(f"<== {case_label}: skipped by is_eig_skip")
-                            continue
-                        try:
-                            a = design_cantilever()
-                            a = mesh_cantilever(a, geom_repr=geo, elem_order=elo,
-                                                use_hex_quad=hexquad, reduced_integration=uri)
-                            result = run_eig(
-                                a,
-                                fem_format=soft,
-                                scratch_dir=pathlib.Path(__file__).parent / "temp" / "eigen",
-                                name=eig_case_name(soft, geo, elo, hexquad, uri),
-                                eigen_modes=eig_modes,
-                                overwrite=overwrite,
-                                execute=execute,
-                            )
-                            if result is None:
-                                logger.info(f"<== {case_label}: run_eig returned None (replay miss)")
-                                continue
-                            metadata = dict(
-                                geo=geo, elo=elo, hexquad=hexquad, reduced_integration=uri
-                            )
-                            fvr = ru.postprocess_result(result, metadata)
-                            # Defensive: paradoc Filter names must be valid
-                            # Python identifiers, and adapy's per-solver
-                            # FEAResult.name has historically leaked file
-                            # extensions (`.rmed`, `.frd`, ...). Strip any
-                            # extension + replace non-identifier chars so
-                            # downstream filter / table keys can't trip the
-                            # `Filter name '…' must be a valid Python
-                            # identifier` validator.
-                            fvr.name = _safe_filter_name(fvr.name)
-                            logger.info(f"<== {case_label}: OK ({fvr.name})")
-                        except FileNotFoundError as e:
-                            logger.warning(f"{case_label}: {e}", exc_info=True)
-                            continue
-                        except Exception as e:
-                            logger.warning(f"{case_label} failed: {type(e).__name__}: {e}", exc_info=True)
-                            continue
-                        results.append(fvr)
-    logger.info(f"simulate(): produced {len(results)} live result(s)")
-    return results
+    out: list[ru.FeaVerificationResult] = []
+    for cell in runner.cells_for("run_eig"):
+        result = runner.result_for(cell)
+        if result is None:
+            continue
+        axes = cell.full_kwargs
+        metadata = dict(
+            geo=axes["geom_repr"],
+            elo=axes["elem_order"],
+            hexquad=axes["use_hex_quad"],
+            reduced_integration=axes["reduced_integration"],
+        )
+        fvr = ru.postprocess_result(result, metadata)
+        # Defensive: paradoc Filter names must be valid Python
+        # identifiers, and adapy's per-solver FEAResult.name has
+        # historically leaked file extensions (`.rmed`, `.frd`, ...).
+        # Strip any extension + replace non-identifier chars so
+        # downstream filter / table keys can't trip the
+        # `Filter name '…' must be a valid Python identifier`
+        # validator.
+        fvr.name = _safe_filter_name(fvr.name)
+        out.append(fvr)
+    logger.info(f"_collect_results_from_runner: {len(out)} live result(s)")
+    return out
 
 
 def _bake_beam_glb(bm: ada.Beam, dest: pathlib.Path) -> bool:
@@ -481,8 +451,20 @@ def _beam_geom_row(beam_glb: pathlib.Path) -> ThreeDData:
     )
 
 
-def build_fea_report(bm: ada.Beam, results: list[ru.FeaVerificationResult], eig_modes: int, regen_assets: bool) -> OneDoc:
-    """Hydrate `OneDoc` with filters + DB-backed tables/plots/3D assets."""
+def build_fea_report(
+    bm: ada.Beam,
+    results: list[ru.FeaVerificationResult],
+    eig_modes: int,
+    regen_assets: bool,
+    runner=None,
+) -> OneDoc:
+    """Hydrate `OneDoc` with filters + DB-backed tables/plots/3D assets.
+
+    When `runner` is set, OneDoc is constructed with it so the
+    discovery step binds `verification/filters.py` module-level
+    `beam` and `eig` TaskHandles. The legacy register-Beam-manually
+    path stays available for callers without a runner.
+    """
     # Beam GLB + sibling PNG — the only non-FEA-bundle 3D asset in the
     # report. Standalone CAD geometry, separate from the bundle path.
     beam_glb = assets_dir / "beam.glb"
@@ -504,7 +486,10 @@ def build_fea_report(bm: ada.Beam, results: list[ru.FeaVerificationResult], eig_
         assets_by_name.setdefault(a.key, a)
 
     _regenerate_results_detailed_md(results, assets_by_name)
-    one = OneDoc(source_dir=report_src_dir)
+    # `runner=` makes OneDoc bind the TaskHandles declared at module
+    # level in `verification/filters.py` (beam, eig). Without it the
+    # filters are discovered but unbound; @attr access would fail.
+    one = OneDoc(source_dir=report_src_dir, runner=runner)
 
     # ------------------------------------------------------------------
     # Tables: per-(geom, order) eigenfrequency comparisons.
@@ -568,17 +553,27 @@ def build_fea_report(bm: ada.Beam, results: list[ru.FeaVerificationResult], eig_
             one.db_manager.add_three_d(row)
 
     # ------------------------------------------------------------------
-    # Filters — instantiated with the live domain objects, registered
-    # manually (bypassing discover_filters because state is runtime-only).
-    # Per-case FeaCaseFilter comes from adapy now: built from the
-    # already-baked FeaDocAssets so no re-bake fires on first attr
-    # access in the markdown resolver.
+    # Filters.
+    #
+    # The runner-bound shape: when `runner` was passed in, the
+    # `beam` and `eig` module-level instances in filters.py get picked
+    # up by OneDoc.discover_filters_once and their TaskHandles bound to
+    # the runner. We only register the remaining filters manually here:
+    # Versions carries env-probed data not derivable from a task, and
+    # FeaCaseFilter wraps already-baked per-case bundles.
+    #
+    # Legacy shape (runner is None): Beam and Eig still need data
+    # passed in, so we register them with the live domain objects.
     # ------------------------------------------------------------------
     versions = _solver_versions(results)
     registry = one._filter_registry
-    registry.register(BeamFilter(bm, name="beam"))
+
+    if runner is None:
+        registry.register(BeamFilter(bm, name="beam"))
+        registry.register(EigFilter(results, num_modes=eig_modes, name="eig"))
+    # else: beam + eig come from filters.py discovery, bound by OneDoc.
+
     registry.register(VersionsFilter(versions, name="versions"))
-    registry.register(EigFilter(results, num_modes=eig_modes, name="eig"))
     for assets in assets_by_name.values():
         registry.register(FeaCaseFilter.from_assets(assets))
 
@@ -589,19 +584,29 @@ def create_fea_report(overwrite: bool = False, execute: bool = False, regen_asse
     if ru.ODB_DUMP_EXE is not None:
         AbaqusSetup.set_default_post_processor(ru.post_processing_abaqus)
 
-    software = ru.get_available_software()
-
-    el_order = [1, 2]
-    geom_repr = ["line", "shell", "solid"]
     eig_modes = 11
-    uhq = [False, True]
-    uri = [False, True]
 
-    bm = beam()
-    results = simulate(bm, el_order, geom_repr, software, uhq, uri, eig_modes, overwrite, execute)
+    # Run the task DAG (verification/tasks.py: design -> mesh -> run_eig)
+    # via paradoc.tasks. `compile=False` returns the runner without
+    # invoking OneDoc.compile — we still need the imperative
+    # asset/table/plot baking below before compile fires.
+    #
+    # `no_cache=not overwrite` mirrors the legacy semantic: --overwrite
+    # forces re-execution; the default replays from cache when possible.
+    # `--execute` toggle from the legacy driver is no longer threaded
+    # through (the task body always sets execute=True); pre-overwrite
+    # deck-only inspection was a narrow use case retired in this flip.
+    runner, _ = build_document(
+        THIS_DIR,
+        compile=False,
+        no_cache=overwrite,
+    )
+
+    bm = beam()  # canonical beam for asset baking + legacy compatibility paths
+    results = _collect_results_from_runner(runner)
     ru.retrieve_cached_results(results, cache_dir)
 
-    one = build_fea_report(bm, results, eig_modes, regen_assets=regen_assets)
+    one = build_fea_report(bm, results, eig_modes, regen_assets=regen_assets, runner=runner)
 
     adapy_root = pathlib.Path(__file__).resolve().parent.parent
     static_output_dir = adapy_root / "docs" / "_static" / "fea-report"
