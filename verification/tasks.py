@@ -16,6 +16,7 @@ Layout matches paradoc's Q6 convention:
 
 from __future__ import annotations
 
+import copy
 import logging
 import pathlib
 
@@ -62,11 +63,18 @@ def mesh(
 ) -> ada.Assembly:
     """Mesh + BC + reduced-integration option toggle.
 
+    Each mesh cell deep-copies the assembly first. The runner reuses
+    `design()`'s single result across every mesh cell; without the
+    copy, the second cell's `add_bc("Fixed", ...)` would collide with
+    the first's. Q8's pickle work guarantees deepcopy survives the
+    OCCT/IFC caches the audit identified.
+
     Axes (geom_repr, elem_order, use_hex_quad, reduced_integration) are
     stashed onto `a.metadata["case_axes"]` so the downstream `run_eig`
     task can reconstruct the case name without re-declaring them on its
     own fanout (which would re-fan-out the matrix, not what we want).
     """
+    a = copy.deepcopy(a)
     a = mesh_cantilever(
         a,
         geom_repr=geom_repr,
