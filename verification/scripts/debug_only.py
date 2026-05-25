@@ -1,10 +1,11 @@
 import sys
 from pathlib import Path
 
-# Flat script run from this directory. Bootstrap sibling utility module
-# onto sys.path rather than packaging.
-_REPO_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+# Flat script under verification/scripts/. Bootstrap the parent
+# verification/ dir onto sys.path so `build_report_utils` /
+# `build_verification_report` resolve as siblings of one level up.
+_VERIFICATION_DIR = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(_VERIFICATION_DIR))
 
 import build_report_utils as ru  # noqa: E402
 from build_verification_report import build_fea_report  # noqa: E402
@@ -43,7 +44,7 @@ def main(overwrite=True, execute=True, build_report=False, show=False):
     result = run_eig(
         a,
         fem_format=fea_format,
-        scratch_dir=_REPO_ROOT / "verification" / "temp" / "eigen",
+        scratch_dir=_VERIFICATION_DIR / "temp" / "eigen",
         name=eig_case_name(fea_format, geom_repr, elem_order, use_hex_quad, reduced_integration),
         eigen_modes=eigen_modes,
         overwrite=overwrite,

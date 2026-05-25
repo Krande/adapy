@@ -52,7 +52,6 @@ from ada.fem.results.docs import (
     assets_from_bundle_dir,
     to_paradoc_rows,
 )
-from ada.materials.metals import CarbonSteel, DnvGl16Mat
 
 # Filter classes live in a sibling module; we instantiate at runtime and
 # register manually so each instance can carry references to the live
@@ -72,16 +71,6 @@ report_src_dir = THIS_DIR / "report"
 
 os.makedirs(cache_dir, exist_ok=True)
 os.makedirs(assets_dir, exist_ok=True)
-
-
-def beam() -> ada.Beam:
-    return ada.Beam(
-        "MyBeam",
-        (0, 0.5, 0.5),
-        (3, 0.5, 0.5),
-        "IPE400",
-        ada.Material("S420", CarbonSteel("S420", plasticity_model=DnvGl16Mat(15e-3, "S355"))),
-    )
 
 
 load_dotenv()
@@ -619,7 +608,14 @@ def create_fea_report(overwrite: bool = False, execute: bool = False, regen_asse
         no_cache=overwrite,
     )
 
-    bm = beam()  # canonical beam for asset baking + legacy compatibility paths
+    # Pull the canonical beam off the runner's design output instead of
+    # re-constructing it. The design task in tasks.py is the single
+    # source of truth; the local `beam()` duplicate was a holdover
+    # from the imperative driver and is retired here.
+    design_assembly = runner.result_for(runner.cells_for("design")[0])
+    bm = next(
+        b for b in design_assembly.get_all_physical_objects() if isinstance(b, ada.Beam)
+    )
     results = _collect_results_from_runner(runner)
     ru.retrieve_cached_results(results, cache_dir)
 
