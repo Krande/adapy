@@ -1,0 +1,27 @@
+# Build config for `paradoc build verification`.
+#
+# All tasks run in the controlling Python process — adapy + gmsh +
+# solver invocations are already orchestrated through the existing
+# pixi env. No subprocess-per-cell isolation needed (and no pixi_toml
+# reference), since adapy's verification report is exactly the
+# special case noted in the docs: a document that uses its hosting
+# package's own pixi env.
+#
+# When/if we want concurrent solver runs across an in-process worker
+# pool, add `[paradoc] pixi_toml = "../pixi.toml"` plus
+# `[paradoc.envs]` aliases and tag each task with `env=...`.
+
+# Default profile: the full 5-axis verification matrix declared in
+# tasks.py runs unchanged. No fanout overrides needed.
+[build.default]
+
+# Smoke profile: minimal cell count for quick iteration / CI sanity.
+# One mesh cell × one solver = ~1 cell post-skip.
+[build.smoke.fanout.mesh]
+geom_repr = ["shell"]
+elem_order = [1]
+use_hex_quad = [false]
+reduced_integration = [false]
+
+[build.smoke.fanout.run_eig]
+solver = ["calculix"]
