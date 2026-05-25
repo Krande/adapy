@@ -491,6 +491,23 @@ def build_fea_report(
     # filters are discovered but unbound; @attr access would fail.
     one = OneDoc(source_dir=report_src_dir, runner=runner)
 
+    # OneDoc's lazy filter discovery looks at `source_dir/filters.py`,
+    # but for the verification report `source_dir` is `verification/report/`
+    # (the markdown root) while `filters.py` lives at `verification/`
+    # (the doc root, alongside tasks.py + paradoc.toml). Pre-register
+    # filters from the right location here; OneDoc's subsequent lazy
+    # call into `verification/report/filters.py` no-ops silently.
+    #
+    # When invoked via the CLI (`paradoc build verification`), the
+    # orchestrator passes the doc_root straight to OneDoc as source_dir
+    # so this manual step isn't needed — the legacy driver entry point
+    # `create_fea_report` is the only path that takes the report-subdir
+    # shape.
+    if runner is not None:
+        from paradoc.filters import discover_filters as _discover_filters
+
+        _discover_filters(doc_root=THIS_DIR, registry=one._filter_registry)
+
     # ------------------------------------------------------------------
     # Tables: per-(geom, order) eigenfrequency comparisons.
     # The data is built by the existing `create_df_of_data` helper.
