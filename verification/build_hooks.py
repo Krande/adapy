@@ -40,13 +40,13 @@ from typing import TYPE_CHECKING, Optional
 
 # Mirror tasks.py's sys.path bootstrap — the orchestrator loads this
 # module via spec_from_file_location and that doesn't add the parent
-# dir to sys.path, so sibling imports (build_report_utils, filters)
-# need help finding each other.
+# dir to sys.path, so sibling imports (utils, filters) need help
+# finding each other.
 _THIS_DIR_STR = str(pathlib.Path(__file__).resolve().parent)
 if _THIS_DIR_STR not in sys.path:
     sys.path.insert(0, _THIS_DIR_STR)
 
-import build_report_utils as ru  # noqa: E402
+import utils as ru  # noqa: E402 — verification's private helpers
 from dotenv import load_dotenv  # noqa: E402
 from paradoc.db import dataframe_to_table_data, plotly_figure_to_plot_data  # noqa: E402
 from paradoc.db.models import ThreeDData  # noqa: E402
@@ -373,14 +373,20 @@ def _solver_versions(results) -> dict[str, str]:
         abaqus=cached.get("abaqus", "2021"),
         sesam=cached.get("sesam", "10"),
     )
-    if ru.ABAQUS_EXE is not None:
+    from ada.fem.formats.abaqus.versions import get_abaqus_exe, get_abaqus_version
+    from ada.fem.formats.sesam.sesam_exe_locator import (
+        get_sestra_default_exe_path,
+        get_sestra_version,
+    )
+
+    if get_abaqus_exe() is not None:
         try:
-            versions["abaqus"] = ru.get_abaqus_version()
+            versions["abaqus"] = get_abaqus_version()
         except Exception as exc:
             logger.warning(f"abaqus version probe failed: {exc}")
-    if ru.SESTRA_EXE is not None:
+    if get_sestra_default_exe_path() is not None:
         try:
-            versions["sesam"] = ru.get_sesam_version()
+            versions["sesam"] = get_sestra_version()
         except Exception as exc:
             logger.warning(f"sesam version probe failed: {exc}")
 

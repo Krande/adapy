@@ -29,6 +29,39 @@ class FEATypes(BaseEnum):
         return [x for x in FEATypes if x not in non_solvers]
 
 
+def get_available_software() -> list[str]:
+    """Return the list of solver names this machine can actually run.
+
+    Calculix + Code_Aster are always considered available (they ship via
+    the docs/test pixi envs in adapy). Abaqus + Sesam require
+    `ADA_abaqus_exe` / `ADA_SESTRA_EXE` to point at existing files.
+
+    Used by reporting code (eg the verification report) to narrow the
+    solver fanout to what the host can produce results for.
+    """
+    software = ["calculix", "code_aster"]
+
+    from .abaqus.versions import get_abaqus_exe
+    from .sesam.sesam_exe_locator import get_sestra_default_exe_path
+
+    abaqus_exe = get_abaqus_exe()
+    if abaqus_exe is not None:
+        if not abaqus_exe.exists():
+            raise FileNotFoundError(f"ABAQUS executable not found at {abaqus_exe}")
+        software.append("abaqus")
+
+    sestra_path_raw = get_sestra_default_exe_path()
+    if sestra_path_raw is not None:
+        import pathlib as _pathlib
+
+        sestra_path = _pathlib.Path(sestra_path_raw)
+        if not sestra_path.exists():
+            raise FileNotFoundError(f"SESTRA executable not found at {sestra_path}")
+        software.append("sesam")
+
+    return software
+
+
 def get_fem_imports() -> dict[FEATypes, Callable[..., Assembly]]:
     from . import abaqus, code_aster, sesam
 

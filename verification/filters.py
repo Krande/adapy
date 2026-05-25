@@ -41,7 +41,7 @@ from paradoc.filters import Filter, FigureView, TableView, ThreeDView, attr
 
 if TYPE_CHECKING:
     import ada
-    from build_report_utils import FeaVerificationResult
+    from utils import FeaVerificationResult
 
 
 class Beam(Filter):

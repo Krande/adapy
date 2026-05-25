@@ -11,12 +11,11 @@ import sys
 from pathlib import Path
 
 # Flat script under verification/scripts/. Bootstrap the parent
-# verification/ dir onto sys.path so `build_report_utils` resolves
-# as a sibling of one level up.
+# verification/ dir onto sys.path in case the script wants to import
+# anything from `verification/utils.py`. Not currently used but kept
+# for symmetry with the rest of the verification scripts.
 _VERIFICATION_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_VERIFICATION_DIR))
-
-import build_report_utils as ru  # noqa: E402
 
 import ada  # noqa: E402
 from ada.api.fem_tasks import (  # noqa: E402
@@ -27,11 +26,15 @@ from ada.api.fem_tasks import (  # noqa: E402
 )
 from ada.config import logger  # noqa: E402
 from ada.fem.formats.abaqus.config import AbaqusSetup  # noqa: E402
+from ada.fem.formats.abaqus.post_processing import (  # noqa: E402
+    get_odb_dump_exe,
+    post_processing_abaqus,
+)
 
 
 def main(overwrite: bool = True, execute: bool = True, show: bool = False):
-    if ru.ODB_DUMP_EXE is not None:
-        AbaqusSetup.set_default_post_processor(ru.post_processing_abaqus)
+    if get_odb_dump_exe() is not None:
+        AbaqusSetup.set_default_post_processor(post_processing_abaqus)
 
     fea_format = "code_aster"
     geom_repr = "shell"

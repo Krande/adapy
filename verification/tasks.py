@@ -49,14 +49,17 @@ _SCRATCH_DIR = pathlib.Path(__file__).resolve().parent / "temp" / "eigen"
 
 # Wire the Abaqus odb post-processor at module-import time so any
 # subsequent run_eig cell that hits the Abaqus solver picks it up.
-# The legacy driver did this in create_fea_report(); putting it
-# here keeps the side effect alongside the @task declarations.
+# The legacy driver did this in create_fea_report(); putting it here
+# keeps the side effect alongside the @task declarations.
 try:
-    import build_report_utils as _ru
     from ada.fem.formats.abaqus.config import AbaqusSetup as _AbaqusSetup
+    from ada.fem.formats.abaqus.post_processing import (
+        get_odb_dump_exe as _get_odb_dump_exe,
+        post_processing_abaqus as _post_processing_abaqus,
+    )
 
-    if _ru.ODB_DUMP_EXE is not None:
-        _AbaqusSetup.set_default_post_processor(_ru.post_processing_abaqus)
+    if _get_odb_dump_exe() is not None:
+        _AbaqusSetup.set_default_post_processor(_post_processing_abaqus)
 except Exception as _exc:  # noqa: BLE001
     logger.warning(f"abaqus post-processor wiring skipped: {_exc}")
 
