@@ -35,8 +35,14 @@ from paradoc.db import dataframe_to_table_data, plotly_figure_to_plot_data
 from paradoc.db.models import ThreeDData
 
 import ada
+from ada.api.fem_tasks import (
+    design_cantilever,
+    eig_case_name,
+    is_eig_skip,
+    mesh_cantilever,
+    run_eig,
+)
 from ada.config import logger
-from ada.fem.cases import eigen_test
 from ada.fem.formats.abaqus.config import AbaqusSetup
 from ada.fem.results.docs import (
     FeaCaseFilter,
@@ -106,11 +112,16 @@ def simulate(
 
     Every per-case failure is swallowed so the build keeps going. With
     ``--overwrite`` the live solver invocations under
-    ``eigen_test → a.to_fem(execute=True)`` can fail in many ways
-    (gmsh meshing, solver subprocess crash, post-processor unable to
-    parse partial output). We log and continue rather than letting one
-    bad case kill the docs build for everyone else.
+    ``run_eig → a.to_fem(execute=True)`` can fail in many ways (gmsh
+    meshing, solver subprocess crash, post-processor unable to parse
+    partial output). We log and continue rather than letting one bad
+    case kill the docs build for everyone else.
+
+    Note: `bm` is accepted for backwards compat with the prior signature
+    but is no longer the canonical geometry source — `design_cantilever()`
+    is. The caller still uses `bm` for paradoc filter wiring downstream.
     """
+    del bm  # unused; design_cantilever is canonical
     results = []
     for elo in el_order:
         for geo in geom_repr:
@@ -119,21 +130,25 @@ def simulate(
                     for uri in use_reduced_int:
                         case_label = f"{soft}/{geo}/order={elo}/hq={hexquad}/ri={uri}"
                         logger.info(f"==> {case_label}: starting")
+                        if is_eig_skip(fem_format=soft, geom_repr=geo, elem_order=elo,
+                                       use_hex_quad=hexquad, reduced_integration=uri):
+                            logger.info(f"<== {case_label}: skipped by is_eig_skip")
+                            continue
                         try:
-                            result = eigen_test(
-                                bm,
-                                soft,
-                                geo,
-                                elo,
-                                hexquad,
-                                reduced_integration=uri,
-                                short_name_map=ru.short_name_map,
+                            a = design_cantilever()
+                            a = mesh_cantilever(a, geom_repr=geo, elem_order=elo,
+                                                use_hex_quad=hexquad, reduced_integration=uri)
+                            result = run_eig(
+                                a,
+                                fem_format=soft,
+                                scratch_dir=pathlib.Path(__file__).parent / "temp" / "eigen",
+                                name=eig_case_name(soft, geo, elo, hexquad, uri),
+                                eigen_modes=eig_modes,
                                 overwrite=overwrite,
                                 execute=execute,
-                                eigen_modes=eig_modes,
                             )
                             if result is None:
-                                logger.info(f"<== {case_label}: eigen_test returned None (likely a skip rule)")
+                                logger.info(f"<== {case_label}: run_eig returned None (replay miss)")
                                 continue
                             metadata = dict(
                                 geo=geo, elo=elo, hexquad=hexquad, reduced_integration=uri
