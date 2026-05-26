@@ -10,12 +10,18 @@ post-processing + comparison-table conventions.
 Surface:
 
 - `FeaVerificationResult`: wrap an adapy `FEAResult` / `FEAResultV2`
-  plus metadata + JSON cache I/O.
+  plus metadata + JSON cache I/O. Exposes a `safe_name` cached_property
+  that maps the result name to a paradoc-Filter-safe identifier.
 - `postprocess_result(result, metadata)`: build a `FeaVerificationResult`
   from a freshly-run case.
 - `retrieve_cached_results(results, cache_dir)`: in-place augment a
   results list with cached JSON entries for cases that weren't
   re-executed this run.
+- Bundle bake / collect lives in :mod:`ada.fem.results.docs`
+  (``bake_fea_bundles`` / ``collect_fea_bundles``) — duck-typed on
+  ``case.name`` / ``case.results`` so any per-report case wrapper
+  (this one's :class:`FeaVerificationResult`, future param_models
+  counterparts, …) plugs straight in without duplicating.
 - `eig_data_to_df` / `append_df`: thin pandas helpers used by the
   comparison-table builder.
 - `create_df_of_data(results, geom, order, hexquad)`: build one
@@ -26,17 +32,15 @@ Surface:
 
 from __future__ import annotations
 
-import json
 import logging
 import pathlib
-from dataclasses import dataclass, field
-from datetime import datetime
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Union
 
 import pandas as pd
 
 from ada.fem.formats.abaqus.post_processing import FEAResultV2
-from ada.fem.results import EigenDataSummary
+from ada.fem.results import EigenDataSummary, FeaCaseResult, walk_cached_case_results
 from ada.fem.results.common import FEAResult
 
 if TYPE_CHECKING:
@@ -49,36 +53,28 @@ short_name_map = dict(calculix="ccx", code_aster="ca", abaqus="aba", sesam="ses"
 
 
 @dataclass
-class FeaVerificationResult:
-    """A single FEA case's result + metadata, with JSON cache I/O.
+class FeaVerificationResult(FeaCaseResult):
+    """Eigen-analysis case wrapper for the verification report.
 
-    Wraps an adapy result (`FEAResult` from a live run or `FEAResultV2`
-    from a re-loaded SQLite dump) alongside the case's axis values
-    (geom_repr, elem_order, hexquad, reduced_integration) and an
-    optional last-modified timestamp.
+    Adds an :class:`EigenDataSummary` slot to :class:`FeaCaseResult`'s
+    common skeleton so the comparison-table builder can pull mode
+    frequencies directly from the live (or cached) wrapper without
+    re-parsing the source solver file. JSON round-trip preserves the
+    eig summary via the ``_extra_payload`` / ``_hydrate_extras`` hooks
+    the base class exposes; everything else (``name``, ``fem_format``,
+    ``metadata``, ``last_modified``, :attr:`safe_name`, cache replay)
+    comes from the base class.
     """
 
-    name: str
-    fem_format: str
     eig_data: EigenDataSummary = None
-    results: Union[FEAResult, FEAResultV2] = None
-    metadata: dict = field(default_factory=dict)
-    last_modified: datetime = field(default_factory=datetime.now)
 
-    def save_results_to_json(self, cache_filepath) -> None:
-        """Persist a JSON snapshot (eig data + metadata) for offline replay."""
-        if isinstance(cache_filepath, str):
-            cache_filepath = pathlib.Path(cache_filepath)
+    def _extra_payload(self) -> dict:
+        return {"eigen_mode_data": self.eig_data.to_dict()}
 
-        payload = {
-            "name": self.name,
-            "fem_format": self.fem_format,
-            "metadata": self.metadata,
-            "eigen_mode_data": self.eig_data.to_dict(),
-            "last_modified": self.last_modified.timestamp(),
-        }
-        with open(cache_filepath.with_suffix(".json"), "w") as f:
-            json.dump(payload, f, indent=4)
+    def _hydrate_extras(self, payload: dict) -> None:
+        eig = EigenDataSummary([])
+        eig.from_dict(payload["eigen_mode_data"])
+        self.eig_data = eig
 
 
 def postprocess_result(
@@ -95,64 +91,35 @@ def postprocess_result(
     return FeaVerificationResult(
         name=result.name,
         fem_format=software,
-        eig_data=result.get_eig_summary(),
         results=result,
         metadata=metadata,
+        eig_data=result.get_eig_summary(),
     )
-
-
-def _results_from_cache(cached: dict) -> FeaVerificationResult:
-    """Reconstruct a FeaVerificationResult from its on-disk JSON shape.
-
-    Strips any legacy file extension (`.rmed`, `.frd`) from the cached
-    name so it matches the post-fix live-run convention. Without that
-    normalization, the loader would treat an old `.rmed`-suffixed
-    cache as a distinct case from a clean-named live result and we'd
-    end up with duplicate rows / duplicate DataFrame columns.
-    """
-    raw_name = cached["name"]
-    name = pathlib.Path(raw_name).stem if "." in raw_name else raw_name
-    res = FeaVerificationResult(
-        name=name, fem_format=cached["fem_format"], metadata=cached["metadata"]
-    )
-    eig_data = EigenDataSummary([])
-    eig_data.from_dict(cached["eigen_mode_data"])
-    res.eig_data = eig_data
-    res.last_modified = datetime.fromtimestamp(cached["last_modified"])
-    return res
 
 
 def retrieve_cached_results(
     results: list[FeaVerificationResult], cache_dir: pathlib.Path
 ) -> None:
-    """Augment `results` in place with cached cases from `cache_dir`.
+    """Augment ``results`` in-place with cached cases from ``cache_dir``.
 
-    Walks `cache_dir/*.json`, skips entries already present in
-    `results`, decodes the rest into FeaVerificationResults, and
-    inserts them next to live results with the same `el_order` (keeps
-    table ordering) — falls back to append if no live result with
-    matching el_order exists yet. Covers the empty-seed case where a
-    CI build has no live solver output and consumes cached results
-    only.
+    The cache-walk + decode itself is generic (lives in
+    :func:`ada.fem.results.walk_cached_case_results`); what stays here
+    is the verification-specific *insertion ordering*: we slot each
+    cached entry next to a live entry sharing the same ``metadata['elo']``
+    so the comparison-table column order keeps the by-element-order
+    grouping the report expects. Falls back to plain append when no
+    matching live entry exists yet (the CI / cache-only path that
+    seeds the list from scratch).
     """
+    cached = walk_cached_case_results(
+        FeaVerificationResult,
+        cache_dir,
+        skip_names={r.name for r in results},
+    )
+
     res_names = [r.name for r in results]
     res_elo = [r.metadata["elo"] for r in results]
-    for res_file in cache_dir.rglob("*.json"):
-        if res_file.stem in ("software_versions", "debug"):
-            continue
-        try:
-            with open(res_file, "r") as f:
-                cached = json.load(f)
-        except json.decoder.JSONDecodeError as exc:
-            logger.error(f"{res_file}: {exc}")
-            continue
-        raw_cached_name = cached["name"]
-        cached_name = (
-            pathlib.Path(raw_cached_name).stem if "." in raw_cached_name else raw_cached_name
-        )
-        if cached_name in res_names:
-            continue
-        cached_result = _results_from_cache(cached)
+    for cached_result in cached:
         cache_elo = cached_result.metadata["elo"]
         try:
             results.insert(res_elo.index(cache_elo), cached_result)

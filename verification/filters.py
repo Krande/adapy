@@ -277,3 +277,250 @@ eig = Eig(name="eig", task=TaskHandle.unbound("run_eig"))
 # `one.db_manager.add_table(...)` and reference by key — paradoc
 # resolves the bare `${ <table_key> }` substitution without going
 # through a filter attr.
+
+
+# ---------------------------------------------------------------------
+# Block-sugar handler for `<!-- paradoc:figure figure_source:
+# eig_modes_section ... -->`. Registered at module load so paradoc
+# picks it up alongside the @task discovery.
+#
+# Why this lives in filters.py and not tasks.py: paradoc has two
+# user-facing markdown surfaces — ``${ name.attr }`` (Filter subclasses)
+# and ``<!-- paradoc:figure ... -->`` (FigureSourceFilter subclasses).
+# The names the markdown author references in either syntax conceptually
+# belong to the "filters" file. tasks.py stays focused on workloads
+# (@task functions that produce data).
+# ---------------------------------------------------------------------
+
+import hashlib
+import logging
+import pathlib  # noqa: F401  (kept for type/path manipulation in render helpers)
+from typing import Literal
+
+from pydantic import Field
+
+from paradoc.figure_sources.filters.base import (
+    FigureSourceFilter,
+    MarkdownChunk,
+    RenderResult,
+    register_filter,
+)
+from paradoc.figure_sources.models import BaseFigureSource, register_spec
+
+from ada.fem.results.docs import FeaDocAssets, assets_from_bundle_dir
+
+_eig_logger = logging.getLogger(__name__)
+
+
+class EigModesSection(BaseFigureSource):
+    """Spec for ``figure_source: eig_modes_section``.
+
+    Expands a comment block into a per-case markdown section for every
+    case under ``assets_dir/`` whose case-name carries ``solver``'s short
+    tag (``ca``, ``ccx``, ``aba``, ``sesam``). Each case yields either a
+    full ``#### Mode N`` walk (``layout=mode_per_section``) or a flat
+    sequence of mode figures (``layout=gallery`` — visual grouping
+    today falls back to mode_per_section without subsection headings).
+
+    The block carries no figure of its own; ``figure_title`` is
+    inherited from :class:`BaseFigureSource` and ignored at render
+    time. ``camera_pos`` / ``renderer`` are likewise unused (each mode's
+    poster was baked upstream by ``fea_outputs``); they sit on the spec
+    only because the base class declares them.
+    """
+
+    figure_source: Literal["eig_modes_section"] = "eig_modes_section"
+    solver: Literal["abaqus", "calculix", "code_aster", "sesam"] = Field(
+        ..., description="Which solver's cases the block expands."
+    )
+    layout: Literal["mode_per_section", "gallery"] = Field(
+        "mode_per_section",
+        description=(
+            "How to lay out per-case modes. mode_per_section emits "
+            "`#### Mode N` headings between figures; gallery emits a "
+            "flat sequence of figures."
+        ),
+    )
+    assets_dir: str = Field(
+        "_assets",
+        description=(
+            "Path (relative to the doc / bundle root) where per-case "
+            "FEA bundles live. The filter walks it for "
+            "`<case>/fea.manifest.json`."
+        ),
+    )
+
+
+register_spec("eig_modes_section", EigModesSection)
+
+
+# Short-form tokens used in the case-name convention `eig_case_name`
+# produces in tasks.py. Maps spec.solver → the token to substring-match
+# against the case directory's basename. Keep in lockstep with
+# `ada.fem.results.docs`'s naming convention.
+_SOLVER_NAME_TAG = {
+    "abaqus": "aba",
+    "calculix": "ccx",
+    "code_aster": "ca",
+    "sesam": "sesam",
+}
+
+
+def _case_matches_solver(case_name: str, solver_tag: str) -> bool:
+    """True if ``case_name`` belongs to ``solver_tag``'s solver.
+
+    Case names look like ``cantilever_EIG_<tag>_<geom>_<order>_...``.
+    Split on ``_`` and check the position-3 token (after the static
+    ``cantilever`` / ``EIG`` prefix) — substring-matching would
+    misfire on ``sesam`` matching ``ces`` etc.
+    """
+    parts = case_name.split("_")
+    # cantilever_EIG_<tag>_..., so index 2 is the solver token.
+    if len(parts) < 3:
+        return False
+    return parts[2] == solver_tag
+
+
+@register_filter
+class EigModesSectionFilter(FigureSourceFilter):
+    """Block-sugar handler for ``eig_modes_section``.
+
+    Walks ``bundle_root/<assets_dir>/`` for per-case FEA bundles
+    (``fea.manifest.json`` + posters baked by the upstream
+    ``fea_outputs`` task), filters by solver, and emits the per-case
+    markdown sections. Returns a mixed list of
+    :class:`MarkdownChunk` (section + mode headings, placeholder text)
+    and :class:`RenderResult` (per-mode figure references); the
+    preprocessor splices them into the document in order.
+
+    The same case-name keys ``to_paradoc_rows`` already registered are
+    reused for ``ThreeDData`` rows so the 3D viewer mounts against the
+    same GLBs (``add_three_d`` uses ``INSERT OR REPLACE``).
+    """
+
+    figure_source = "eig_modes_section"
+
+    _PLACEHOLDER = "_Mode-shape figures unavailable for this case._"
+
+    def render(self, spec, *, key):  # type: ignore[override]
+        if not isinstance(spec, EigModesSection):
+            raise TypeError(
+                f"EigModesSectionFilter received non-EigModesSection spec: "
+                f"{type(spec).__name__}"
+            )
+
+        solver_tag = _SOLVER_NAME_TAG[spec.solver]
+        # Source FEA bundles live under doc_root (the dir containing
+        # paradoc.toml / tasks.py / filters.py / _assets/), NOT under
+        # bundle_root (which is the markdown build-staging dir under
+        # work_dir). The block-sugar reads pre-baked artefacts from the
+        # source tree; paradoc's static-export step copies them into
+        # the final bundle via the ThreeDData rows fea_outputs emits.
+        assets_root = (self.doc_root / spec.assets_dir).resolve()
+
+        if not assets_root.is_dir():
+            _eig_logger.warning(
+                "eig_modes_section: assets_dir %s does not exist under "
+                "doc_root; emitting placeholder.",
+                assets_root,
+            )
+            return [
+                MarkdownChunk(
+                    text=f"_No FEA bundles found under `{spec.assets_dir}`._"
+                )
+            ]
+
+        case_dirs = sorted(
+            d for d in assets_root.iterdir()
+            if d.is_dir() and _case_matches_solver(d.name, solver_tag)
+        )
+
+        if not case_dirs:
+            return [
+                MarkdownChunk(
+                    text=f"_No cases for solver `{spec.solver}`._"
+                )
+            ]
+
+        entries: list = []
+        for case_dir in case_dirs:
+            case_name = case_dir.name
+            manifest = case_dir / "fea.manifest.json"
+
+            # Cache-only / pre-bake state: case dir exists (e.g. mode
+            # GLBs committed) but the bake never ran, so manifest +
+            # posters are absent. Emit the placeholder so the report
+            # reader sees the case exists but has no figures yet.
+            if not manifest.is_file():
+                entries.append(
+                    MarkdownChunk(text=f"\n### {case_name}\n\n{self._PLACEHOLDER}\n")
+                )
+                continue
+
+            try:
+                assets = assets_from_bundle_dir(case_dir, key=case_name)
+            except Exception as exc:
+                _eig_logger.warning(
+                    "eig_modes_section: failed to load %s: %s", case_dir, exc
+                )
+                entries.append(
+                    MarkdownChunk(text=f"\n### {case_name}\n\n{self._PLACEHOLDER}\n")
+                )
+                continue
+
+            entries.extend(self._render_case(assets, layout=spec.layout))
+
+        return entries or [MarkdownChunk(text="_No baked FEA cases found._")]
+
+    def _render_case(
+        self, assets: FeaDocAssets, *, layout: str
+    ) -> list:
+        """Build chunks + RenderResults for one case.
+
+        ``layout='gallery'`` falls back to a flat sequence of figures
+        without subsection headings — visual grouping (CSS grid) is a
+        future iteration. mode_per_section is the default.
+        """
+        case_name = assets.key
+        chunks: list = [MarkdownChunk(text=f"\n### {case_name}\n")]
+
+        if not assets.poster_paths:
+            chunks.append(MarkdownChunk(text=f"\n{self._PLACEHOLDER}\n"))
+            return chunks
+
+        # Source bundles live under doc_root, not bundle_root. Emit
+        # absolute paths in the RenderResult — paradoc's preprocessor
+        # handles absolute png_path via `os.path.relpath(absolute, md_dir)`
+        # and the static-export glb resolver searches absolute paths
+        # first. The user's repo convention has _assets/ next to
+        # tasks.py / filters.py rather than under the markdown source_dir.
+        glb_abs = str(assets.mesh_glb_path)
+        mesh_sha = hashlib.sha256(assets.mesh_glb_path.read_bytes()).hexdigest()
+        mesh_size = assets.mesh_glb_path.stat().st_size
+
+        for mode_idx in sorted(assets.poster_paths.keys()):
+            mode_n = mode_idx + 1
+            poster = assets.poster_paths[mode_idx]
+            png_abs = str(poster)
+
+            if layout == "mode_per_section":
+                chunks.append(MarkdownChunk(text=f"\n#### Mode {mode_n}\n"))
+
+            chunks.append(
+                RenderResult(
+                    png_path=png_abs,
+                    glb_path=glb_abs,
+                    glb_sha256=mesh_sha,
+                    glb_size=mesh_size,
+                    caption=f"{case_name} — mode {mode_n}",
+                    camera_pos="iso_3",
+                    source_type="fea_artefact_bundle_mode_view",
+                    metadata={
+                        "fea_bundle_key": case_name,
+                        "fea_mode_index": mode_idx,
+                        "image_path": png_abs,
+                    },
+                )
+            )
+
+        return chunks

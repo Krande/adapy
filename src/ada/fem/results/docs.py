@@ -34,9 +34,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import pathlib
+import shutil
 from dataclasses import dataclass, field as dc_field
 from typing import TYPE_CHECKING, Any, Iterable
+
+logger = logging.getLogger(__name__)
 
 from paradoc.db.models import ThreeDData
 from paradoc.filters import Filter, ScalarValue, ThreeDView, attr
@@ -392,6 +396,114 @@ def to_paradoc_rows(
             )
         )
     return rows
+
+
+# ---------------------------------------------------------------------------
+# Batch bake / collect — multi-case helpers a report's @task body calls
+# ---------------------------------------------------------------------------
+
+
+def bake_fea_bundles(
+    cases: Iterable[Any],
+    *,
+    out_dir: "pathlib.Path | str",
+    modes: "str | int | Iterable[int]" = "all",
+) -> dict[str, FeaDocAssets]:
+    """Bake one FEA artefact bundle per case under ``out_dir/<case.name>/``.
+
+    The per-report orchestration shape every paradoc-driven FEA report
+    needs: walk a collection of solved cases, wipe each case's bundle
+    directory, re-bake fresh, and hand back a name → :class:`FeaDocAssets`
+    mapping the downstream task can hang ``ThreeDOutcome`` /
+    ``FilterOutcome`` off of.
+
+    Each entry in ``cases`` must expose:
+
+    * ``case.name: str`` — case identifier; becomes the bundle dir name
+      and :attr:`FeaDocAssets.key`. Must be a valid Python identifier
+      so paradoc's Filter registry accepts it.
+    * ``case.results`` — a live :class:`FEAResult` / :class:`FEAResultV2`,
+      or ``None``. Entries without a live result are skipped (the
+      cache-only / CI replay path: the committed bundle on disk is what
+      the report renders against in that case).
+
+    Duck-typed rather than requiring a specific wrapper class so each
+    report can keep its own per-case dataclass (e.g. verification's
+    ``FeaVerificationResult`` for eigen analyses, future param_models
+    counterparts for static / nonlinear analyses) without inheriting
+    from a shared adapy base. The two attribute names are the contract.
+
+    Wipes each case dir before re-baking so a stale per-mode PNG from
+    an older run can't outlive the new bundle. Per-case bake failures
+    are logged and dropped: a single broken case never kills the loop;
+    the report degrades to the "figures unavailable" placeholder for
+    that case via :func:`collect_fea_bundles` returning nothing for it.
+    """
+    out_dir = pathlib.Path(out_dir)
+    out: dict[str, FeaDocAssets] = {}
+    for case in cases:
+        fea_result = getattr(case, "results", None)
+        if fea_result is None:
+            logger.info(
+                f"{case.name}: no FEAResult attached (cache-only) — "
+                "skipping FEA artefact bake"
+            )
+            continue
+        case_dir = out_dir / case.name
+        if case_dir.exists():
+            shutil.rmtree(case_dir)
+        try:
+            assets = assets_for_docs(
+                fea_result, key=case.name, out_dir=case_dir, modes=modes,
+            )
+            out[case.name] = assets
+            logger.info(
+                f"{case.name}: baked FEA artefacts → {case_dir.name}/ "
+                f"(n_modes={assets.n_modes})"
+            )
+        except Exception as exc:
+            logger.warning(
+                f"{case.name}: FEA artefact bake failed: {exc}", exc_info=True
+            )
+    return out
+
+
+def collect_fea_bundles(
+    assets_dir: "pathlib.Path | str",
+    *,
+    skip_keys: Iterable[str] = (),
+) -> list[FeaDocAssets]:
+    """Walk ``assets_dir/*/fea.manifest.json`` and load each as
+    :class:`FeaDocAssets`.
+
+    Cache-only / CI counterpart to :func:`bake_fea_bundles`: when the
+    bake step didn't fire (no ``ADAPY_*_REGEN_ASSETS`` env flag, no
+    solver installed, etc.), these are the committed bundles the report
+    renders against.
+
+    ``skip_keys`` excludes case names already baked fresh, so live bakes
+    take precedence over stale committed bundles for the same case:
+
+    .. code-block:: python
+
+        fresh = bake_fea_bundles(results, out_dir=ASSETS_DIR)
+        cached = collect_fea_bundles(ASSETS_DIR, skip_keys=set(fresh))
+
+    Load failures (corrupt manifest, missing mesh GLB) are logged and
+    dropped — same robustness contract as :func:`bake_fea_bundles`.
+    """
+    skip = set(skip_keys)
+    out: list[FeaDocAssets] = []
+    for manifest_path in sorted(pathlib.Path(assets_dir).rglob("fea.manifest.json")):
+        case_dir = manifest_path.parent
+        case = case_dir.name
+        if case in skip:
+            continue
+        try:
+            out.append(assets_from_bundle_dir(case_dir, key=case))
+        except Exception as exc:
+            logger.warning(f"could not load bundle at {case_dir}: {exc}")
+    return out
 
 
 # ---------------------------------------------------------------------------

@@ -5,7 +5,7 @@ Complete declarative pipeline for the FEA verification report:
   design → mesh → run_eig                          (compute)
   postprocess (consumes=run_eig)                   (aggregator: one cell)
   beam_glb (parent=design)                         (CAD asset)
-  fea_outputs (parent=postprocess)                 (bundles + per-case 3D + md regen)
+  fea_outputs (parent=postprocess)                 (bundles + per-case 3D)
   eig_tables / modal_tables / freq_plot
       (each parent=postprocess)                    (data outcomes)
   versions_filter (parent=postprocess)             (env-probed filter)
@@ -20,8 +20,17 @@ Layout matches paradoc's Q6 convention:
     verification/
       paradoc.toml      # build profiles, fanout overrides, static target
       tasks.py          # this file
-      filters.py        # Filter classes
+      filters.py        # Filter subclasses + block-sugar handlers
+      _assets/          # per-case FEA bundles (bake target)
       report/*.md       # the document body
+
+The per-case ``#### Mode N`` markdown sections are NOT generated at
+build time. Instead, ``report/01-app/00-results-detailed.md`` is
+static, with one ``<!-- paradoc:figure figure_source: eig_modes_section
+solver: X ... -->`` block per solver. The ``eig_modes_section``
+figure-source handler in ``filters.py`` walks ``_assets/<case>/``
+for baked bundles, filters by solver, and expands each block into
+the per-case markdown at preprocessor time.
 """
 
 from __future__ import annotations
@@ -32,8 +41,6 @@ import json
 import logging
 import os
 import pathlib
-import re
-import shutil
 import sys
 
 # `tasks.py` gets loaded via paradoc.tasks.discovery's
@@ -64,9 +71,8 @@ from ada.api.fem_tasks import (  # noqa: E402
 from ada.fem.exceptions.fea_software import FEASolverNotInstalled  # noqa: E402
 from ada.fem.results.docs import (  # noqa: E402
     FeaCaseFilter,
-    FeaDocAssets,
-    assets_for_docs,
-    assets_from_bundle_dir,
+    bake_fea_bundles,
+    collect_fea_bundles,
     to_paradoc_rows,
 )
 
@@ -80,7 +86,6 @@ logger = logging.getLogger(__name__)
 _SCRATCH_DIR = _THIS_DIR / "temp" / "eigen"
 _CACHE_DIR = _THIS_DIR / ".cache"
 _ASSETS_DIR = _THIS_DIR / "_assets"
-_REPORT_SRC_DIR = _THIS_DIR / "report"
 
 _CACHE_DIR.mkdir(parents=True, exist_ok=True)
 _ASSETS_DIR.mkdir(parents=True, exist_ok=True)
@@ -94,20 +99,6 @@ except ImportError:
     pass
 
 _EIG_MODES = 11
-_FILTER_NAME_RE = re.compile(r"[^0-9A-Za-z_]")
-
-_SOLVER_DISPLAY_NAME = {
-    "calculix": "Calculix",
-    "code_aster": "Code Aster",
-    "abaqus": "Abaqus",
-    "sesam": "Sesam",
-}
-_SOLVER_VERSION_ATTR = {
-    "calculix": "ccx",
-    "code_aster": "ca",
-    "abaqus": "aba",
-    "sesam": "ses",
-}
 
 _COMPARISON_SPECS = [
     ("eig_compare_solid_o1", "solid", 1, None, "Eigenfrequency comparison (Hz) — solid, 1st order."),
@@ -262,23 +253,6 @@ def run_eig(a: ada.Assembly, *, solver: str):
 # ---------------- post-processing / outcomes ----------------
 
 
-def _safe_filter_name(name: str) -> str:
-    """Drop file extension + replace non-identifier chars with `_`.
-
-    paradoc Filter names must be valid Python identifiers, and adapy's
-    per-solver FEAResult.name has historically leaked extensions
-    (`.rmed`, `.frd`, ...). Falls back to a generic identifier if the
-    result is empty or starts with a digit.
-    """
-    stem = pathlib.Path(name).stem if "." in name else name
-    cleaned = _FILTER_NAME_RE.sub("_", stem)
-    if not cleaned:
-        return "case"
-    if cleaned[0].isdigit():
-        cleaned = f"_{cleaned}"
-    return cleaned
-
-
 @task(consumes=run_eig)
 def postprocess(results: list) -> list:
     """Aggregator: turn each FEAResult into a FeaVerificationResult and
@@ -294,7 +268,11 @@ def postprocess(results: list) -> list:
     for r in results:
         case_meta = getattr(r, "_case_axes", {})
         fvr = ru.postprocess_result(r, dict(case_meta))
-        fvr.name = _safe_filter_name(fvr.name)
+        # Snapshot the FeaVerificationResult.safe_name cached_property
+        # back into `.name` so every downstream consumer (bundle paths,
+        # paradoc Filter keys, cache filenames) sees the same identifier
+        # without each computing the cleaning independently.
+        fvr.name = fvr.safe_name
         out.append(fvr)
 
     ru.retrieve_cached_results(out, _CACHE_DIR)
@@ -385,7 +363,7 @@ def modal_tables(results: list) -> list:
     out: list = []
     for r in results:
         if save_cache:
-            r.save_results_to_json(_CACHE_DIR / r.name)
+            r.save_to_json(_CACHE_DIR / r.name)
         df = ru.eig_data_to_df(r.eig_data, ["Mode", "Eigenvalue (real)"])
         out.append(
             TableOutcome(
@@ -492,135 +470,32 @@ def versions_filter(results: list):
     return FilterOutcome(filter=VersionsFilter(versions, name="versions"))
 
 
-def _bake_fea_assets(results: list) -> dict:
-    """One FEA bundle per case via `ada.fem.results.docs.assets_for_docs`.
-
-    Only fires when `ADAPY_VERIFICATION_REGEN_ASSETS=1`. Wipes each
-    case dir first so a stale per-mode PNG from an earlier run doesn't
-    outlive the new bundle. Cases without a live FEAResult are skipped
-    silently (cache-only path picks the committed bundle up below).
-    """
-    out: dict = {}
-    for r in results:
-        res = getattr(r, "results", None)
-        if res is None:
-            logger.info(
-                f"{r.name}: no FEAResult attached (cached-only) — "
-                "skipping FEA artefact bake"
-            )
-            continue
-        case_dir = _ASSETS_DIR / r.name
-        if case_dir.exists():
-            shutil.rmtree(case_dir)
-        try:
-            out[r.name] = assets_for_docs(
-                res, key=r.name, out_dir=case_dir, modes="all",
-            )
-            logger.info(
-                f"{r.name}: baked FEA artefacts → {case_dir.name}/ "
-                f"(n_modes={out[r.name].n_modes})"
-            )
-        except Exception as exc:
-            logger.warning(
-                f"{r.name}: FEA artefact bake failed: {exc}", exc_info=True
-            )
-    return out
-
-
-def _collect_bundle_assets(skip_keys: set) -> list:
-    """Pick up committed FEA bundles under `_assets/`. CI / cache-only
-    path: when `_bake_fea_assets` didn't fire, these are the bundles
-    paradoc renders against."""
-    out: list = []
-    for manifest_path in sorted(_ASSETS_DIR.rglob("fea.manifest.json")):
-        case_dir = manifest_path.parent
-        case = case_dir.name
-        if case in skip_keys:
-            continue
-        try:
-            out.append(assets_from_bundle_dir(case_dir, key=case))
-        except Exception as exc:
-            logger.warning(f"could not load bundle at {case_dir}: {exc}")
-    return out
-
-
-def _regenerate_results_detailed_md(results: list, assets_by_name: dict) -> None:
-    """Overwrite `report/01-app/00-results-detailed.md` from live results.
-
-    Each case section emits one `${ <case>.mode_<N> }` per mode that
-    has a baked poster — `assets_by_name` is the union of fresh-baked
-    and committed bundles, so the generated markdown never references
-    a mode that doesn't have a paradoc row backing it.
-    """
-    target = _REPORT_SRC_DIR / "01-app" / "00-results-detailed.md"
-    target.parent.mkdir(parents=True, exist_ok=True)
-
-    by_solver: dict = {}
-    for r in results:
-        by_solver.setdefault(r.fem_format, []).append(r)
-
-    lines: list[str] = ["# Eigenvalue analysis detailed results", ""]
-    for solver in sorted(by_solver):
-        rs = sorted(by_solver[solver], key=lambda r: r.name)
-        display = _SOLVER_DISPLAY_NAME.get(solver, solver)
-        ver_attr = _SOLVER_VERSION_ATTR.get(solver)
-        lines.append(f"## {display}")
-        if ver_attr:
-            lines.append(
-                f"Using {display} v${{ versions.{ver_attr} }} the following results were obtained."
-            )
-        lines.append("")
-        for r in rs:
-            lines.append(f"### {r.name}")
-            lines.append("")
-            assets = assets_by_name.get(r.name)
-            if assets is None or not assets.poster_paths:
-                lines.append(
-                    "_Mode-shape figures unavailable for this case "
-                    "(solver result file not bundled into CI)._"
-                )
-                lines.append("")
-                continue
-            for mode_idx in sorted(assets.poster_paths.keys()):
-                mode_n = mode_idx + 1
-                lines.append(f"#### Mode {mode_n}")
-                lines.append("")
-                lines.append(f"${{ {r.name}.mode_{mode_n} }}")
-                lines.append("")
-    target.write_text("\n".join(lines), encoding="utf-8")
-    logger.info(f"regenerated {target.name} with {len(results)} case sections")
-
-
-@task(
-    parent=postprocess,
-    outputs=[_REPORT_SRC_DIR / "01-app" / "00-results-detailed.md"],
-)
+@task(parent=postprocess)
 def fea_outputs(results: list) -> list:
-    """Per-case FEA bundle bakes + ThreeD/Filter outcomes + detailed-md regen.
+    """Per-case FEA bundle bakes + ThreeD/Filter outcomes.
 
     One task fans out into all per-case artifacts:
     - Bakes fresh FEA bundles if `ADAPY_VERIFICATION_REGEN_ASSETS=1`
     - Picks up committed bundles for cases that weren't re-baked
-    - Writes `report/01-app/00-results-detailed.md` so OneDoc has the
-      per-mode references resolvable at compile time
     - Yields one ThreeDOutcome per paradoc row in the bundle + one
       FilterOutcome per `FeaCaseFilter`
 
-    outputs= covers the regenerated markdown so cache pre-flight
-    catches deletion of that file. The bundle dirs themselves aren't
-    declared (they're solver-output dependents controlled by the
-    REGEN env flag, not by paradoc's cache layer).
+    The bake / collect plumbing lives in `utils.py`; this task just
+    sequences them and emits outcomes. The per-case markdown sections
+    (`### case / #### Mode N` blocks) are NOT generated here. Instead,
+    `report/01-app/00-results-detailed.md` is static and uses
+    `<!-- paradoc:figure figure_source: eig_modes_section ... -->`
+    block-sugar registered in `filters.py` to expand per-case sections
+    at preprocessor time. See `verification/filters.py:EigModesSectionFilter`.
     """
     fresh: dict = {}
     if os.environ.get("ADAPY_VERIFICATION_REGEN_ASSETS", "0") == "1":
-        fresh = _bake_fea_assets(results)
-    cached = _collect_bundle_assets(skip_keys=set(fresh))
+        fresh = bake_fea_bundles(results, out_dir=_ASSETS_DIR)
+    cached = collect_fea_bundles(_ASSETS_DIR, skip_keys=set(fresh))
 
     assets_by_name: dict = {**fresh}
     for a in cached:
         assets_by_name.setdefault(a.key, a)
-
-    _regenerate_results_detailed_md(results, assets_by_name)
 
     outcomes: list = []
     for assets in assets_by_name.values():
