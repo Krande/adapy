@@ -39,6 +39,27 @@ if TYPE_CHECKING:
 from ada.config import logger
 
 
+def _is_raw_occ_shape(shape) -> bool:
+    """STEP / SAT imports produce ``Shape`` instances whose ``_geom``
+    is a raw OCC ``TopoDS_Shape`` (no ``ada.geom.Geometry`` wrapper).
+    The parametric IFC write path can't represent these — it
+    dereferences ``.geom.geometry`` which doesn't exist on a raw OCC
+    body. Tesselation handles them cleanly. Returns True for those.
+
+    Done as a local helper rather than ``isinstance`` against the
+    OCC class directly so non-OCC builds (Pyodide / docs-only env)
+    don't carry a hard import.
+    """
+    geom = getattr(shape, "_geom", None)
+    if geom is None:
+        return False
+    try:
+        from OCC.Core.TopoDS import TopoDS_Shape as _TopoDS_Shape
+    except ImportError:
+        return False
+    return isinstance(geom, _TopoDS_Shape)
+
+
 def _default_relative_placement(f):
     """
     Pick a stable placement anchor already in the IFC file.
@@ -86,11 +107,34 @@ def write_ifc_shape(ifc_store: IfcStore, shape: Shape):
 
     schema = f.wrapped_data.schema
 
-    # NOTE: issubclass(type(shape), Shape) is always True here.
-    # If you intended a special subclass check, change it to something meaningful.
-    if issubclass(type(shape), Shape):
-        ifc_shape = generate_parametric_solid(shape, f)
-    else:
+    # Choose between parametric (round-trippable IfcAdvancedFace /
+    # ClosedShell / etc.) and tesselation. The parametric path
+    # assumes ``shape.geom`` is an ``ada.geom.Geometry`` wrapper;
+    # STEP / SAT imports come in with ``_geom`` as a raw OCC
+    # ``TopoDS_Shape`` (no wrapper, no parametric description) and
+    # fall straight through to the faceted-brep / triangulated path.
+    # Similarly, Shapes constructed without geometry at all
+    # (``_geom is None`` but ``solid_occ()`` produces something via
+    # ``solid_geom()``) need the parametric path; we only switch to
+    # tesselation when there's a concrete OCC body to mesh.
+    use_tesselation = _is_raw_occ_shape(shape)
+    if not use_tesselation:
+        try:
+            ifc_shape = generate_parametric_solid(shape, f)
+        except (NotImplementedError, AttributeError) as exc:
+            # Last-resort fallback for shapes that LOOK parametric
+            # (Geometry wrapper present) but whose geometry kind
+            # we don't know how to round-trip. Better to ship a
+            # faceted brep than fail the whole IFC export — the
+            # user still sees the geometry in viewers / queries
+            # that don't care about the parametric details.
+            logger.warning(
+                "ifc-write: parametric path failed for %s (%s); "
+                "falling back to tesselation",
+                shape.name, exc,
+            )
+            use_tesselation = True
+    if use_tesselation:
         tol = Units.get_general_point_tol(a.units)
         serialized_geom = tesselate_shape(shape.solid_occ(), schema, tol)
         ifc_shape = f.add(serialized_geom)

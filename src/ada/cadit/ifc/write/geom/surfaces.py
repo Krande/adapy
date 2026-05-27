@@ -153,13 +153,23 @@ def create_face_surface(fs: geo_su.FaceSurface, f: ifcopenshell.file) -> ifcopen
 
 
 def create_closed_shell(cs: geo_su.ClosedShell, f: ifcopenshell.file) -> ifcopenshell.entity_instance:
-    """Converts a ClosedShell to an IFC representation"""
+    """Converts a ClosedShell to an IFC representation.
+
+    ``IfcAdvancedFace`` IS-A ``IfcFaceSurface`` IS-A ``IfcFace`` per
+    IFC4x3, so the same ``CfsFaces`` set accepts all three concrete
+    types. We already have a writer for AdvancedFace (right below)
+    — just wire it in so SAT inputs that decompose to advanced faces
+    round-trip through the IFC export instead of failing the whole
+    shell.
+    """
     faces = []
     for face in cs.cfs_faces:
         if type(face) is geo_su.Face:
             faces.append(create_face(face, f))
         elif type(face) is geo_su.FaceSurface:
             faces.append(create_face_surface(face, f))
+        elif type(face) is geo_su.AdvancedFace:
+            faces.append(advanced_face(face, f))
         else:
             raise NotImplementedError(f"Unsupported face type: {type(face)}")
 
