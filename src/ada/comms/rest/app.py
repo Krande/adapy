@@ -93,7 +93,29 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except Exception:
             logger.exception("db: pool init failed; running shared-only")
             app.state.db_pool = None
+        # Built-in audit scheduler (M4). Skip when the DB pool failed
+        # or when the queue is disabled — without either we have no
+        # way to fire a sweep, so spinning the loop would just log
+        # warnings every 30s. The task is cancelled at shutdown.
+        app.state.scheduler_task = None
+        if app.state.db_pool is not None and queue.enabled:
+            app.state.scheduler_task = asyncio.create_task(
+                _scheduler_loop(app.state.db_pool),
+                name="audit-scheduler",
+            )
         yield
+        # Cancel scheduler first so a tick in flight doesn't try to
+        # use a pool / queue that's about to be torn down.
+        task = getattr(app.state, "scheduler_task", None)
+        if task is not None and not task.done():
+            task.cancel()
+            try:
+                await task
+            except (asyncio.CancelledError, Exception):
+                # CancelledError is the normal shutdown path; any
+                # other exception we want to see in the logs but
+                # not block the rest of teardown.
+                logger.debug("scheduler task cancellation completed")
         if queue.enabled:
             try:
                 await queue.close()
@@ -1570,6 +1592,189 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # segment ``"runs"`` would fail the ``audit_id: int`` validation
     # with a 422 if the parameterized route won the match).
 
+    # Synthetic User stand-in used by the scheduler tick + cron-fired
+    # runs. ``_parse_scope`` only reads ``.sub`` (and only on
+    # ``user:me``, which a scheduled run wouldn't sensibly use), but
+    # we still give it a recognisable identifier so audit rows say
+    # ``created_by=system`` rather than ``None``.
+    class _SystemUser:
+        sub = "system"
+        is_admin = True
+
+    def _validate_cron(cron_expr: str) -> str:
+        """Parse-and-normalise a 5-field cron expression. Returns the
+        cleaned form on success; raises HTTPException(400) on a
+        malformed input so the REST handler can surface a useful
+        message instead of a 500."""
+        from croniter import croniter, CroniterBadCronError  # type: ignore
+
+        cleaned = cron_expr.strip()
+        if not cleaned:
+            raise HTTPException(status_code=400, detail="cron_expr is required")
+        try:
+            croniter(cleaned)
+        except (CroniterBadCronError, ValueError) as exc:
+            raise HTTPException(
+                status_code=400,
+                detail=f"invalid cron expression: {exc}",
+            ) from exc
+        return cleaned
+
+    def _next_fire(cron_expr: str, *, after=None):
+        """Compute the next firing instant from ``after`` (defaults to
+        now). Returns a timezone-aware UTC datetime — Postgres
+        ``TIMESTAMPTZ`` round-trips it without conversion surprises."""
+        from datetime import datetime, timezone
+        from croniter import croniter  # type: ignore
+
+        base = after or datetime.now(timezone.utc)
+        return croniter(cron_expr, base).get_next(datetime)
+
+    async def _scheduler_loop(pool) -> None:
+        """Background task: tick every 30s, claim due schedules, fire
+        the same dispatch code path as ``POST /admin/audit/runs``.
+
+        The loop is defensive — exceptions inside one tick are logged
+        but don't kill the loop, so a transient DB blip or a
+        malformed schedule row never silently disables the whole
+        scheduler. Only ``asyncio.CancelledError`` exits cleanly (the
+        shutdown path).
+
+        Cross-replica safety: ``claim_due_audit_schedule`` is the only
+        operation that mutates a schedule's ``last_fired_at`` /
+        ``next_fire_at``, and it does so under
+        ``FOR UPDATE SKIP LOCKED`` so two replicas ticking the same
+        row produce at most one fire.
+        """
+        from datetime import datetime, timezone
+
+        # One tick is "claim and dispatch until no more rows are due,
+        # then sleep". The inner while-loop ensures a backlog (e.g.
+        # after a deploy with several pending schedules) drains in
+        # one tick instead of one-per-30s.
+        TICK_INTERVAL_S = 30.0
+        logger.info("audit scheduler: starting (tick every %ss)", TICK_INTERVAL_S)
+        try:
+            while True:
+                try:
+                    now = datetime.now(timezone.utc)
+                    while True:
+                        try:
+                            # Compute provisional next_fire_at from
+                            # the CURRENT time, not from the row's
+                            # cron_expr — we don't know cron_expr
+                            # until we've claimed the row. We claim
+                            # with a placeholder, then immediately
+                            # follow up to set the correct
+                            # next_fire_at based on the row's expr.
+                            placeholder_next = now  # overwritten below
+                            row = await db_module.claim_due_audit_schedule(
+                                pool, now=now, next_fire_at=placeholder_next,
+                            )
+                        except Exception:
+                            logger.exception("audit scheduler: claim failed")
+                            break
+                        if row is None:
+                            break
+                        # Update next_fire_at to the real value
+                        # computed from this row's cron expression.
+                        # If parsing fails (shouldn't — we validated
+                        # on insert/update) leave the schedule alone
+                        # and disable it via a skip reason.
+                        try:
+                            real_next = _next_fire(row["cron_expr"], after=now)
+                            await db_module.update_audit_schedule(
+                                pool, row["id"],
+                                next_fire_at=real_next,
+                                next_fire_at_set=True,
+                            )
+                        except Exception as exc:
+                            logger.exception(
+                                "audit scheduler: cron parse failed for %s",
+                                row["id"],
+                            )
+                            await db_module.set_audit_schedule_skip_reason(
+                                pool, row["id"],
+                                f"cron parse failed: {exc}",
+                            )
+                            continue
+
+                        await _scheduler_fire(pool, row)
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    logger.exception("audit scheduler: tick failed")
+                await asyncio.sleep(TICK_INTERVAL_S)
+        except asyncio.CancelledError:
+            logger.info("audit scheduler: stopped")
+            raise
+
+    async def _scheduler_fire(pool, schedule_row: dict) -> None:
+        """One claimed-row's dispatch. Resolves scope, runs the
+        concurrent-fire guard, creates the audit_run, and kicks off
+        ``_audit_dispatch`` in a fresh task (mirroring the
+        BackgroundTask path used by the manual route)."""
+        sched_id = schedule_row["id"]
+        scope_str = schedule_row["scope"]
+        worker_pool = schedule_row["worker_pool"]
+        try:
+            s = _parse_scope(scope_str, _SystemUser())
+            s = await _resolve_project_scope(pool, s)
+        except HTTPException as exc:
+            await db_module.set_audit_schedule_skip_reason(
+                pool, sched_id,
+                f"scope resolution failed ({exc.status_code}): {exc.detail}",
+            )
+            return
+        except Exception as exc:
+            logger.exception("audit scheduler: scope resolution crashed")
+            await db_module.set_audit_schedule_skip_reason(
+                pool, sched_id, f"scope resolution crashed: {exc}",
+            )
+            return
+
+        # Concurrent-fire guard: a previous run with the same
+        # (scope, worker_pool) is still in-flight. Skipping is the
+        # safe choice — overlapping audits would double the worker
+        # pool load and confuse the per-cell grid.
+        try:
+            in_flight = await db_module.audit_run_exists_for_key(
+                pool, scope_str, worker_pool,
+            )
+        except Exception:
+            logger.exception("audit scheduler: concurrent-fire check failed")
+            return
+        if in_flight:
+            await db_module.set_audit_schedule_skip_reason(
+                pool, sched_id,
+                "skipped: previous audit run still in-flight",
+            )
+            return
+
+        try:
+            run = await db_module.create_audit_run(
+                pool,
+                scope=scope_str,
+                worker_pool=worker_pool,
+                trigger="cron",
+                note=f"scheduled: {schedule_row['name']}",
+                created_by="system",
+            )
+        except Exception as exc:
+            logger.exception("audit scheduler: create_audit_run failed")
+            await db_module.set_audit_schedule_skip_reason(
+                pool, sched_id, f"create_audit_run failed: {exc}",
+            )
+            return
+
+        # Mirror the manual path: dispatch runs as a fire-and-forget
+        # task so the scheduler tick stays responsive. The task takes
+        # over emitting audit_log rows + bumping run counters.
+        asyncio.create_task(
+            _audit_dispatch(run["id"], s, worker_pool, "system", pool),
+            name=f"audit-dispatch-{run['id']}",
+        )
+
     async def _audit_dispatch(
         run_id: str,
         scope_obj: Scope,
@@ -1833,6 +2038,182 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if not ok:
             raise HTTPException(status_code=404, detail=f"corpus {slug!r} not found")
         return JSONResponse({"slug": slug, "archived": True})
+
+    # ── Audit schedules (M4 admin audit panel) ────────────────────────
+    #
+    # GET    /admin/audit/schedules            list live schedules
+    # POST   /admin/audit/schedules            create a schedule
+    # PATCH  /admin/audit/schedules/{id}       partial update
+    # DELETE /admin/audit/schedules/{id}       soft-archive
+    # POST   /admin/audit/schedules/{id}/fire  fire-now (bypasses cron)
+    #
+    # The actual firing happens via the scheduler background task
+    # (see ``_scheduler_loop`` above). These endpoints just CRUD the
+    # rows + offer a manual override for "fire this schedule right
+    # now" which the admin UI binds to a button.
+
+    @admin.get("/audit/schedules")
+    async def admin_audit_schedules_list(request: Request) -> JSONResponse:
+        pool = _require_pool(request)
+        rows = await db_module.list_audit_schedules(pool)
+        return JSONResponse({"schedules": rows})
+
+    @admin.post("/audit/schedules")
+    async def admin_audit_schedules_create(
+        request: Request,
+        user: User = Depends(auth_module.current_user),
+    ) -> JSONResponse:
+        """Create a new schedule.
+
+        Body: ``{"name": "...", "cron_expr": "0 2 * * *",
+                 "scope": "corpus:cad-baseline",
+                 "worker_pool": "audit" | null,
+                 "enabled": true}``.
+
+        ``cron_expr`` is validated via croniter; the next fire instant
+        is computed and stored so the scheduler tick can pick it up
+        on its very next pass without re-parsing.
+        """
+        pool = _require_pool(request)
+        body = await request.json() if await request.body() else {}
+        name = (body.get("name") or "").strip()
+        cron_expr = _validate_cron(body.get("cron_expr") or "")
+        scope_str = (body.get("scope") or "").strip()
+        worker_pool = body.get("worker_pool") or None
+        enabled = bool(body.get("enabled", True))
+        if not name:
+            raise HTTPException(status_code=400, detail="name required")
+        if not scope_str:
+            raise HTTPException(status_code=400, detail="scope required")
+        # Validate scope-string parses (raises 400 with detail). Don't
+        # resolve project slugs to ids yet — slug→id resolution
+        # happens at fire time so renaming a project doesn't strand
+        # a schedule.
+        _ = _parse_scope(scope_str, user)
+        next_fire = _next_fire(cron_expr)
+        try:
+            row = await db_module.create_audit_schedule(
+                pool,
+                name=name, cron_expr=cron_expr, scope=scope_str,
+                worker_pool=worker_pool, next_fire_at=next_fire,
+                enabled=enabled, created_by=user.sub,
+            )
+        except Exception as exc:
+            if exc.__class__.__name__ == "UniqueViolationError":
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"schedule name {name!r} already in use",
+                ) from exc
+            raise
+        return JSONResponse(row, status_code=201)
+
+    @admin.patch("/audit/schedules/{schedule_id}")
+    async def admin_audit_schedules_update(
+        schedule_id: str,
+        request: Request,
+        user: User = Depends(auth_module.current_user),
+    ) -> JSONResponse:
+        """Partial update. Recognised fields: ``name``, ``cron_expr``,
+        ``scope``, ``worker_pool``, ``enabled``. Editing ``cron_expr``
+        recomputes ``next_fire_at`` from the current instant so a
+        retimed schedule fires from the new pattern immediately
+        instead of waiting for the old slot."""
+        pool = _require_pool(request)
+        body = await request.json() if await request.body() else {}
+        kwargs: dict = {}
+        if "name" in body:
+            val = (body.get("name") or "").strip()
+            if not val:
+                raise HTTPException(status_code=400, detail="name cannot be empty")
+            kwargs["name"] = val
+        new_cron: str | None = None
+        if "cron_expr" in body:
+            new_cron = _validate_cron(body.get("cron_expr") or "")
+            kwargs["cron_expr"] = new_cron
+        if "scope" in body:
+            val = (body.get("scope") or "").strip()
+            if not val:
+                raise HTTPException(status_code=400, detail="scope cannot be empty")
+            _ = _parse_scope(val, user)
+            kwargs["scope"] = val
+        if "worker_pool" in body:
+            kwargs["worker_pool"] = body.get("worker_pool") or None
+            kwargs["worker_pool_set"] = True
+        if "enabled" in body:
+            kwargs["enabled"] = bool(body["enabled"])
+        if new_cron is not None:
+            kwargs["next_fire_at"] = _next_fire(new_cron)
+            kwargs["next_fire_at_set"] = True
+        try:
+            row = await db_module.update_audit_schedule(pool, schedule_id, **kwargs)
+        except Exception as exc:
+            if exc.__class__.__name__ == "UniqueViolationError":
+                raise HTTPException(
+                    status_code=409,
+                    detail="schedule name already in use",
+                ) from exc
+            raise
+        if row is None:
+            raise HTTPException(status_code=404, detail="schedule not found")
+        return JSONResponse(row)
+
+    @admin.delete("/audit/schedules/{schedule_id}")
+    async def admin_audit_schedules_archive(
+        schedule_id: str, request: Request,
+    ) -> JSONResponse:
+        pool = _require_pool(request)
+        ok = await db_module.archive_audit_schedule(pool, schedule_id)
+        if not ok:
+            raise HTTPException(status_code=404, detail="schedule not found")
+        return JSONResponse({"id": schedule_id, "archived": True})
+
+    @admin.post("/audit/schedules/{schedule_id}/fire")
+    async def admin_audit_schedules_fire_now(
+        schedule_id: str,
+        request: Request,
+        background_tasks: BackgroundTasks,
+        user: User = Depends(auth_module.current_user),
+    ) -> JSONResponse:
+        """Manual "fire now" — dispatch the schedule's scope without
+        waiting for the next cron slot. Honours the concurrent-fire
+        guard so a "fire now" while another run is still in flight
+        returns 409 instead of stacking workloads.
+
+        Does NOT advance ``next_fire_at`` — the next scheduled slot
+        still fires as planned. Useful for testing a freshly-created
+        schedule or for backfilling after fixing a broken corpus.
+        """
+        if not queue.enabled:
+            raise HTTPException(
+                status_code=503,
+                detail="conversion disabled (no NATS configured)",
+            )
+        pool = _require_pool(request)
+        row = await db_module.get_audit_schedule(pool, schedule_id)
+        if row is None or row["archived_at"] is not None:
+            raise HTTPException(status_code=404, detail="schedule not found")
+        scope_str = row["scope"]
+        worker_pool = row["worker_pool"]
+        s = _parse_scope(scope_str, user)
+        s = await _resolve_project_scope(pool, s)
+        if not await scope_can_access(user, s, pool):
+            raise HTTPException(status_code=403, detail="forbidden")
+        if await db_module.audit_run_exists_for_key(pool, scope_str, worker_pool):
+            raise HTTPException(
+                status_code=409,
+                detail="another audit run with this (scope, pool) is still running",
+            )
+        run = await db_module.create_audit_run(
+            pool,
+            scope=scope_str, worker_pool=worker_pool,
+            trigger="manual",  # operator-initiated even though it's a schedule
+            note=f"fire-now: {row['name']}",
+            created_by=user.sub,
+        )
+        background_tasks.add_task(
+            _audit_dispatch, run["id"], s, worker_pool, user.sub, pool,
+        )
+        return JSONResponse(run, status_code=202)
 
     @admin.get("/audit/{audit_id}")
     async def admin_audit_get(

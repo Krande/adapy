@@ -486,3 +486,123 @@ async def test_cancel_audit_by_job_marks_only_owned_inflight(tmp_path):
         assert queue_module.JOB_STATUS_QUEUED == "queued"
     finally:
         await dbm.close_pool(pool)
+
+
+# ── M4: audit schedules ────────────────────────────────────────────
+
+
+def test_audit_schedule_create_rejects_bad_cron(tmp_path):
+    """Bad cron expression should 400 with a clear message before
+    touching the DB. We spoof a pool so the 503 gate doesn't fire —
+    validation must run first."""
+    app = create_app(_settings(tmp_path))
+    with TestClient(app) as client:
+        app.state.db_pool = object()
+        r = client.post(
+            "/api/admin/audit/schedules",
+            json={
+                "name": "bad",
+                "cron_expr": "not a cron",
+                "scope": "shared",
+            },
+        )
+        assert r.status_code == 400
+        assert "cron" in r.json()["detail"].lower()
+
+
+def test_audit_schedule_create_rejects_missing_name(tmp_path):
+    """Missing required fields should 400, not 500."""
+    app = create_app(_settings(tmp_path))
+    with TestClient(app) as client:
+        app.state.db_pool = object()
+        r = client.post(
+            "/api/admin/audit/schedules",
+            json={"cron_expr": "0 2 * * *", "scope": "shared"},
+        )
+        assert r.status_code == 400
+        r = client.post(
+            "/api/admin/audit/schedules",
+            json={"name": "x", "cron_expr": "0 2 * * *", "scope": ""},
+        )
+        assert r.status_code == 400
+
+
+def test_audit_schedule_endpoints_503_without_db(tmp_path):
+    """No DATABASE_URL → 503 across the schedule namespace."""
+    app = create_app(_settings(tmp_path))
+    with TestClient(app) as client:
+        r = client.get("/api/admin/audit/schedules")
+        assert r.status_code == 503
+        r = client.post(
+            "/api/admin/audit/schedules",
+            json={"name": "x", "cron_expr": "0 2 * * *", "scope": "shared"},
+        )
+        assert r.status_code == 503
+        r = client.delete(f"/api/admin/audit/schedules/{uuid.uuid4()}")
+        assert r.status_code == 503
+
+
+@needs_postgres
+@pytest.mark.asyncio
+async def test_audit_schedule_lifecycle():
+    """End-to-end: create → list → update → claim (atomic) → archive.
+
+    Walks the dbm helpers directly so we can drive the FOR UPDATE
+    SKIP LOCKED claim path without spinning up a TestClient (matches
+    the pattern test_admin_project_lifecycle uses)."""
+    from datetime import datetime, timezone, timedelta
+
+    pool = await dbm.init_pool(POSTGRES_URL)
+    assert pool is not None
+    try:
+        name = f"sched-{uuid.uuid4().hex[:12]}"
+        past = datetime.now(timezone.utc) - timedelta(minutes=1)
+        sched = await dbm.create_audit_schedule(
+            pool,
+            name=name, cron_expr="0 2 * * *", scope="shared",
+            worker_pool=None, next_fire_at=past, enabled=True,
+            created_by="test",
+        )
+        assert sched["name"] == name
+        assert sched["enabled"] is True
+
+        listed = await dbm.list_audit_schedules(pool)
+        assert any(s["id"] == sched["id"] for s in listed)
+
+        # Toggle enabled off via partial update.
+        updated = await dbm.update_audit_schedule(
+            pool, sched["id"], enabled=False,
+        )
+        assert updated["enabled"] is False
+
+        # Re-enable so claim picks it up.
+        await dbm.update_audit_schedule(pool, sched["id"], enabled=True)
+
+        now = datetime.now(timezone.utc)
+        next_at = now + timedelta(hours=1)
+        claimed = await dbm.claim_due_audit_schedule(
+            pool, now=now, next_fire_at=next_at,
+        )
+        assert claimed is not None and claimed["id"] == sched["id"]
+        # last_fired_at is set; next_fire_at advanced; skip-reason cleared.
+        assert claimed["last_fired_at"] is not None
+        assert claimed["last_skipped_reason"] is None
+
+        # Second claim with same ``now`` finds nothing — the row has
+        # been advanced past it.
+        claimed2 = await dbm.claim_due_audit_schedule(
+            pool, now=now, next_fire_at=next_at,
+        )
+        assert claimed2 is None
+
+        await dbm.set_audit_schedule_skip_reason(
+            pool, sched["id"], "test skip reason",
+        )
+        again = await dbm.get_audit_schedule(pool, sched["id"])
+        assert again["last_skipped_reason"] == "test skip reason"
+
+        assert await dbm.archive_audit_schedule(pool, sched["id"]) is True
+        # Idempotent — second archive is a no-op.
+        assert await dbm.archive_audit_schedule(pool, sched["id"]) is False
+    finally:
+        await dbm.close_pool(pool)

@@ -301,6 +301,10 @@ asyncpg = "*"
 # feeds the admin panel's metrics view. Cross-platform; Linux gives
 # the full picture (incl. io_counters), macOS skips IO.
 psutil = "*"
+# croniter parses + steps audit-schedule cron expressions. Used by
+# the API's scheduler tick to validate user-supplied expressions and
+# to compute ``next_fire_at`` after each fire.
+croniter = "*"
 
 [feature.viewer-api.tasks]
 viewer-api = { cmd = "python -m ada.comms.rest", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }

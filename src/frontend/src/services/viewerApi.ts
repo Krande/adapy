@@ -514,6 +514,26 @@ export interface Corpus {
     archived_at: string | null;
 }
 
+// One recurring audit schedule. The API scheduler tick fires the
+// row's (scope, worker_pool) sweep every ``cron_expr`` slot. The UI
+// shows ``next_fire_at`` so admins know when the next run lands;
+// ``last_skipped_reason`` surfaces when a tick decided not to
+// dispatch (e.g. concurrent-fire guard).
+export interface AuditSchedule {
+    id: string;
+    name: string;
+    cron_expr: string;
+    scope: string;
+    worker_pool: string | null;
+    enabled: boolean;
+    last_fired_at: string | null;
+    next_fire_at: string | null;
+    last_skipped_reason: string | null;
+    created_at: string | null;
+    created_by: string | null;
+    archived_at: string | null;
+}
+
 export interface AuditFilters {
     user_sub?: string;
     scope_kind?: string;
@@ -1050,6 +1070,84 @@ export const viewerApi = {
             `${runtime.apiBase()}/admin/audit/runs/${encodeURIComponent(runId)}`,
         );
         return jsonOrThrow(r, `adminAuditRunGet(${runId})`);
+    },
+
+    /** Admin: list live audit schedules (M4). Archived rows hidden;
+     * the picker only ever wants currently-firing rows. */
+    async adminAuditSchedulesList(): Promise<{schedules: AuditSchedule[]}> {
+        const r = await authedFetch(`${runtime.apiBase()}/admin/audit/schedules`);
+        return jsonOrThrow(r, "adminAuditSchedulesList");
+    },
+
+    /** Admin: create a recurring schedule. ``cron_expr`` is validated
+     * server-side via croniter — invalid expressions return 400 with
+     * the croniter parse error in the body. */
+    async adminAuditScheduleCreate(
+        body: {
+            name: string;
+            cron_expr: string;
+            scope: string;
+            worker_pool?: string | null;
+            enabled?: boolean;
+        },
+    ): Promise<AuditSchedule> {
+        const r = await authedFetch(`${runtime.apiBase()}/admin/audit/schedules`, {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify(body),
+        });
+        return jsonOrThrow(r, "adminAuditScheduleCreate");
+    },
+
+    /** Admin: partial update. Only included keys are written; omit
+     * a field to leave it alone. Editing ``cron_expr`` recomputes
+     * ``next_fire_at`` so the retimed pattern takes effect right
+     * away. */
+    async adminAuditScheduleUpdate(
+        scheduleId: string,
+        body: Partial<{
+            name: string;
+            cron_expr: string;
+            scope: string;
+            worker_pool: string | null;
+            enabled: boolean;
+        }>,
+    ): Promise<AuditSchedule> {
+        const r = await authedFetch(
+            `${runtime.apiBase()}/admin/audit/schedules/${encodeURIComponent(scheduleId)}`,
+            {
+                method: "PATCH",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify(body),
+            },
+        );
+        return jsonOrThrow(r, `adminAuditScheduleUpdate(${scheduleId})`);
+    },
+
+    /** Admin: soft-delete a schedule. The tick filter excludes
+     * archived rows so the schedule stops firing immediately. */
+    async adminAuditScheduleArchive(scheduleId: string): Promise<void> {
+        const r = await authedFetch(
+            `${runtime.apiBase()}/admin/audit/schedules/${encodeURIComponent(scheduleId)}`,
+            {method: "DELETE"},
+        );
+        if (!r.ok) {
+            throw new ApiError(
+                `adminAuditScheduleArchive(${scheduleId})`, r.status, await readDetail(r),
+            );
+        }
+    },
+
+    /** Admin: fire a schedule's sweep right now, bypassing the cron
+     * slot. Honours the concurrent-fire guard (409 if a previous
+     * run with the same (scope, pool) is still in-flight). Does NOT
+     * advance ``next_fire_at``. */
+    async adminAuditScheduleFireNow(scheduleId: string): Promise<AuditRun> {
+        const r = await authedFetch(
+            `${runtime.apiBase()}/admin/audit/schedules/${encodeURIComponent(scheduleId)}/fire`,
+            {method: "POST"},
+        );
+        return jsonOrThrow(r, `adminAuditScheduleFireNow(${scheduleId})`);
     },
 
     /** Admin: kick off a background sweep that scans the scope for
