@@ -282,18 +282,172 @@ const CompressionToast: React.FC<{
     );
 };
 
+// One-line summary of a job's current step. The worker publishes a
+// ``stage`` string alongside each KV update; we surface it directly so
+// users see what's actually happening ("loading", "tessellating face
+// 1247/4532", "writing output") instead of just a wall-clock spinner.
+// Terse codes the worker uses today get a friendlier rendering; any
+// free-text the worker publishes is shown verbatim so adding a new
+// stage in the worker doesn't require a frontend round trip.
+// Friendly translations for the stage codes adapy's converters emit
+// (see ada/comms/rest/converter.py — the ``on_progress(stage, frac)``
+// callback feeds these in). The map is exhaustive against what's
+// emitted today; any unrecognised stage falls through to the raw
+// string (so a worker that adds a new stage code can surface it
+// without a frontend deploy).
+const STAGE_LABEL: Record<string, string> = {
+    queued: "Waiting for worker…",
+    loading: "Loading source file…",
+    parsing: "Parsing source…",
+    unpacking: "Unpacking bundle…",
+    translating: "Translating geometry…",
+    tessellating: "Tessellating geometry…",
+    "selecting-field": "Selecting FEA field…",
+    writing: "Writing output…",
+    "writing-ifc": "Writing IFC…",
+    "writing-step": "Writing STEP…",
+    "writing-xml": "Writing Genie XML…",
+    exporting: "Exporting…",
+    convert: "Converting…",
+    upload: "Uploading result…",
+    uploading: "Uploading result…",
+    ready: "Ready",
+    cached: "Cached result",
+    aborted: "Aborted",
+    misrouted: "Routed to wrong pool",
+};
+
+function stageText(stage: string | undefined | null): string {
+    if (!stage) return "";
+    const known = STAGE_LABEL[stage];
+    return known || stage;
+}
+
+import type {ConversionJob} from "@/state/conversionStore";
+
+// Single in-progress job row inside the unified toast. Pulled out so
+// the multi-job expansion can reuse the same shape.
+const JobRow: React.FC<{
+    job: ConversionJob;
+    onCancel: () => void;
+    showCancel: boolean;
+}> = ({job, onCancel, showCancel}) => {
+    const pct = Math.round((job.progress || 0) * 100);
+    const isCancellable = job.status === "queued" || job.status === "running";
+    return (
+        <div className="space-y-1">
+            <div className="flex justify-between items-center gap-2">
+                <span className="truncate flex-1 text-gray-100" title={job.sourceKey}>
+                    {job.sourceKey}
+                </span>
+                <span className="ml-2 text-gray-400 shrink-0">
+                    {STATUS_LABEL[job.status] || job.status} {pct}%
+                </span>
+                {showCancel && isCancellable && (
+                    <CancelButton
+                        sourceKey={job.sourceKey}
+                        jobId={job.jobId}
+                        status={job.status as "queued" | "running"}
+                        onCancelled={onCancel}
+                    />
+                )}
+            </div>
+            {stageText(job.stage) && (
+                <div className="text-[11px] text-gray-400 truncate" title={stageText(job.stage)}>
+                    {stageText(job.stage)}
+                </div>
+            )}
+            <div className="h-1 bg-gray-700 rounded-sm overflow-hidden">
+                <div
+                    className="h-full bg-blue-500 transition-all"
+                    style={{width: `${Math.max(pct, 4)}%`}}
+                />
+            </div>
+        </div>
+    );
+};
+
+// Unified in-progress toast. ONE toast for any number of running /
+// queued conversions, plus a separate toast per error (errors are
+// individually actionable so they stay split out). Click the count
+// pill to expand the queued list.
+const InProgressToast: React.FC<{
+    jobs: ConversionJob[];
+    onClearJob: (sourceKey: string) => void;
+}> = ({jobs, onClearJob}) => {
+    const [expanded, setExpanded] = useState(false);
+    if (jobs.length === 0) return null;
+    // Newest first by startedAt — most-recently kicked-off conversion
+    // becomes the "top" job shown in the compact view.
+    const sorted = [...jobs].sort((a, b) => b.startedAt - a.startedAt);
+    const top = sorted[0];
+    const extras = sorted.slice(1);
+    const total = jobs.length;
+
+    return (
+        <div className="bg-gray-800 text-gray-100 rounded-sm shadow-lg px-3 py-2 text-xs border border-gray-700 space-y-1">
+            <JobRow
+                job={top}
+                onCancel={() => onClearJob(top.sourceKey)}
+                showCancel={true}
+            />
+            {extras.length > 0 && (
+                <div className="pt-1 border-t border-gray-700/60">
+                    <button
+                        type="button"
+                        onClick={() => setExpanded(!expanded)}
+                        className="text-[11px] text-blue-300 hover:text-blue-200 flex items-center gap-1"
+                        title={expanded ? "Hide other jobs" : "Show other jobs"}
+                    >
+                        <span className="font-mono bg-blue-900/40 border border-blue-700 px-1.5 py-0.5 rounded-sm">
+                            +{extras.length}
+                        </span>
+                        <span>
+                            {extras.length === 1 ? "more conversion" : "more conversions"}
+                            {" "}({total} total)
+                        </span>
+                        <span className="ml-1">{expanded ? "▾" : "▸"}</span>
+                    </button>
+                    {expanded && (
+                        <div className="mt-2 space-y-2 max-h-64 overflow-auto">
+                            {extras.map((j) => (
+                                <div
+                                    key={j.sourceKey}
+                                    className="border-t border-gray-700/40 pt-2"
+                                >
+                                    <JobRow
+                                        job={j}
+                                        onCancel={() => onClearJob(j.sourceKey)}
+                                        showCancel={true}
+                                    />
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            )}
+        </div>
+    );
+};
+
 const ConversionProgress = () => {
     const jobs = useConversionStore((s) => s.jobs);
     const clearJob = useConversionStore((s) => s.clearJob);
     const sweeps = useCompressionStore((s) => s.sweeps);
     const clearSweep = useCompressionStore((s) => s.clearSweep);
 
-    const visibleJobs = Object.values(jobs).filter(
+    const allVisible = Object.values(jobs).filter(
         (j) => j.status === "queued" || j.status === "running" || j.status === "error"
     );
+    // In-progress jobs collapse into one toast; errors stay split so
+    // each one's traceback + copy button is reachable.
+    const inProgress = allVisible.filter(
+        (j) => j.status === "queued" || j.status === "running",
+    );
+    const errored = allVisible.filter((j) => j.status === "error");
     const visibleSweeps = Object.entries(sweeps);
 
-    if (visibleJobs.length === 0 && visibleSweeps.length === 0) {
+    if (allVisible.length === 0 && visibleSweeps.length === 0) {
         return null;
     }
 
@@ -311,48 +465,27 @@ const ConversionProgress = () => {
                     onDismiss={() => clearSweep(scopeLabel)}
                 />
             ))}
-            {visibleJobs.map((job) => {
-                const pct = Math.round((job.progress || 0) * 100);
-                const isError = job.status === "error";
-                const isCancellable = job.status === "queued" || job.status === "running";
-                return (
-                    <div
-                        key={job.sourceKey}
-                        className="bg-gray-800 text-gray-100 rounded-sm shadow-lg px-3 py-2 text-xs border border-gray-700"
-                    >
-                        <div className="flex justify-between items-center mb-1">
-                            <span className="truncate flex-1">{job.sourceKey}</span>
-                            <span className="ml-2 text-gray-400">
-                                {STATUS_LABEL[job.status] || job.status}
-                                {!isError && ` ${pct}%`}
-                            </span>
-                            {isCancellable && (
-                                <CancelButton
-                                    sourceKey={job.sourceKey}
-                                    jobId={job.jobId}
-                                    status={job.status as "queued" | "running"}
-                                    onCancelled={() => clearJob(job.sourceKey)}
-                                />
-                            )}
-                        </div>
-                        {!isError && (
-                            <div className="h-1 bg-gray-700 rounded-sm overflow-hidden">
-                                <div
-                                    className="h-full bg-blue-500 transition-all"
-                                    style={{width: `${Math.max(pct, 4)}%`}}
-                                />
-                            </div>
-                        )}
-                        {isError && (
-                            <ErrorRow
-                                sourceKey={job.sourceKey}
-                                message={job.error || "(no error message)"}
-                                onClear={() => clearJob(job.sourceKey)}
-                            />
-                        )}
+            {inProgress.length > 0 && (
+                <InProgressToast jobs={inProgress} onClearJob={clearJob}/>
+            )}
+            {errored.map((job) => (
+                <div
+                    key={job.sourceKey}
+                    className="bg-gray-800 text-gray-100 rounded-sm shadow-lg px-3 py-2 text-xs border border-gray-700"
+                >
+                    <div className="flex justify-between items-center mb-1">
+                        <span className="truncate flex-1">{job.sourceKey}</span>
+                        <span className="ml-2 text-red-400 shrink-0">
+                            {STATUS_LABEL[job.status] || job.status}
+                        </span>
                     </div>
-                );
-            })}
+                    <ErrorRow
+                        sourceKey={job.sourceKey}
+                        message={job.error || "(no error message)"}
+                        onClear={() => clearJob(job.sourceKey)}
+                    />
+                </div>
+            ))}
         </div>
     );
 };
