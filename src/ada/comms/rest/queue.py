@@ -68,6 +68,16 @@ class Job:
     # top of the global settings before forking. Stored as plain
     # str/bool/None so the JSON round-trip through KV stays stable.
     conversion_options: dict | None = None
+    # Worker-pool routing (M2 admin audit panel). When set, only
+    # workers whose ``ADA_WORKER_CAPABILITIES`` env-derived
+    # capability set includes this token will accept the job;
+    # everything else NAKs with a small delay so a matching pool
+    # has a chance to grab the redelivery. The audit dispatcher
+    # stamps this from the run config; regular user-driven
+    # ``/convert`` leaves it None so any worker can pick the job
+    # up. Honoured by the existing capability gate in
+    # ``worker.py:_run`` alongside the extension allowlist.
+    target_capability: str | None = None
 
     def to_json(self) -> bytes:
         return json.dumps(asdict(self)).encode("utf-8")
@@ -145,6 +155,7 @@ class JobQueue:
         field: str | None = None,
         conversion_options: dict | None = None,
         derived_key: str | None = None,
+        target_capability: str | None = None,
     ) -> Job:
         # ``derived_key`` lets callers pin an explicit produced-blob
         # path. The convert flow leaves it None and lets
@@ -170,6 +181,7 @@ class JobQueue:
             step=step,
             field=field,
             conversion_options=conversion_options,
+            target_capability=target_capability,
         )
         await self._put(job)
         await self._js.publish(self._cfg.subject, job.job_id.encode("utf-8"))

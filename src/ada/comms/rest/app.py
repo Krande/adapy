@@ -1654,6 +1654,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     target_format,
                     scope_kind=scope_obj.kind,
                     scope_id=scope_obj.id,
+                    target_capability=worker_pool,
                 )
             except Exception as exc:
                 logger.exception(

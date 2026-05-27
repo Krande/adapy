@@ -179,6 +179,35 @@ const TriggerForm: React.FC<{onCreated: () => void}> = ({onCreated}) => {
     const [note, setNote] = useState("");
     const [busy, setBusy] = useState(false);
     const [err, setErr] = useState<string | null>(null);
+    // Distinct capability tags advertised by every currently-online
+    // worker (M2). Used to populate the pool picker so the operator
+    // can't typo a tag — if a regression pod isn't registered yet,
+    // its tag won't show up here either, which is the honest signal.
+    const [capabilities, setCapabilities] = useState<string[]>([]);
+
+    useEffect(() => {
+        let cancelled = false;
+        (async () => {
+            try {
+                const r = await viewerApi.adminListWorkers();
+                if (cancelled) return;
+                const tags = new Set<string>();
+                for (const w of r.workers) {
+                    if (!w.online) continue;
+                    for (const c of w.capabilities || []) {
+                        const v = c.trim().toLowerCase();
+                        if (v) tags.add(v);
+                    }
+                }
+                setCapabilities(Array.from(tags).sort());
+            } catch {
+                // No-op: the picker just falls back to "any" + a free
+                // hint. Failure to list workers shouldn't break audit
+                // dispatch — the operator can still type a tag.
+            }
+        })();
+        return () => { cancelled = true; };
+    }, []);
 
     const onSubmit = useCallback(async (e: React.FormEvent) => {
         e.preventDefault();
@@ -212,14 +241,22 @@ const TriggerForm: React.FC<{onCreated: () => void}> = ({onCreated}) => {
                 />
             </label>
             <label className="text-xs text-gray-300 flex flex-col gap-1">
-                <span>Worker pool <span className="text-gray-500">(optional)</span></span>
-                <input
-                    type="text"
+                <span>Worker pool</span>
+                <select
                     value={workerPool}
                     onChange={(e) => setWorkerPool(e.target.value)}
-                    placeholder="audit (M2)"
                     className="bg-gray-900 border border-gray-600 rounded-sm px-2 py-1 text-sm text-gray-100 font-mono w-40"
-                />
+                    title={
+                        capabilities.length === 0
+                            ? "No online workers found; pool restriction won't take effect"
+                            : "Restrict the sweep to workers advertising this capability tag"
+                    }
+                >
+                    <option value="">any pool</option>
+                    {capabilities.map((c) => (
+                        <option key={c} value={c}>{c}</option>
+                    ))}
+                </select>
             </label>
             <label className="text-xs text-gray-300 flex flex-col gap-1 flex-1 min-w-[200px]">
                 <span>Note <span className="text-gray-500">(optional)</span></span>

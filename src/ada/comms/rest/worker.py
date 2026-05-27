@@ -729,6 +729,10 @@ async def _run() -> None:
         for c in os.environ.get("ADA_WORKER_CAPABILITIES", "base").split(",")
         if c.strip()
     ]
+    # Set form for the per-job capability gate in the message loop
+    # below — set membership is the natural lookup and we don't want
+    # to re-build the set per delivery.
+    capability_set = {c.lower() for c in capabilities}
     # Source extensions this worker can handle. Pulled from adapy's
     # stream-reader registry — whatever plug-ins ran before this point
     # (e.g. a capability worker's entrypoint that registered an extra
@@ -898,6 +902,34 @@ async def _run() -> None:
                         ext = pathlib.PurePosixPath(
                             peeked.source_key
                         ).suffix.lower()
+                        # Capability gate (M2 audit worker pools).
+                        # Audit-dispatcher jobs carry a
+                        # ``target_capability`` like ``"audit"`` so
+                        # they only land on regression workers. If
+                        # this worker's capability set doesn't
+                        # cover the requested tag, NAK with a small
+                        # delay so a matching pool can grab the
+                        # redelivery. Regular user-driven /convert
+                        # leaves ``target_capability`` None — every
+                        # worker accepts the gate.
+                        wanted_cap = (
+                            (peeked.target_capability or "").strip().lower()
+                        )
+                        if wanted_cap and wanted_cap not in capability_set:
+                            logger.info(
+                                "worker: NAK job %s wants capability=%s "
+                                "(this worker has %s) delivery=%d",
+                                job_id, wanted_cap, sorted(capability_set),
+                                delivery_count,
+                            )
+                            try:
+                                await msg.nak(delay=2.0)
+                            except Exception:
+                                logger.exception(
+                                    "worker: nak failed for %s", job_id,
+                                )
+                            continue
+
                         # Legacy /convert path also gated by the
                         # allowlist when set — otherwise an abacpp pod
                         # restricted to .odb would still pick up
