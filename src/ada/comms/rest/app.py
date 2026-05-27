@@ -371,11 +371,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         error: str | None = None,
         duration_ms: int | None = None,
         job_id: str | None = None,
+        audit_run_id: str | None = None,
     ) -> None:
         """Best-effort audit row insert. No-ops without DB; never raises.
 
         Audit failures must not break user requests — a missing log line
         is preferable to a 500 on a successful upload.
+
+        ``audit_run_id`` links the row to an admin-triggered audit
+        sweep so the dispatcher can show per-cell pass/fail in the
+        admin panel. NULL on every user-driven action.
         """
         pool = getattr(request.app.state, "db_pool", None)
         if pool is None:
@@ -393,6 +398,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 error=error,
                 duration_ms=duration_ms,
                 job_id=job_id,
+                audit_run_id=audit_run_id,
             )
         except Exception:
             logger.exception("audit insert failed (action=%s)", action)
@@ -1787,6 +1793,196 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # as ``before_id`` to fetch the next older page.
         next_before = rows[-1]["id"] if len(rows) >= max(1, min(limit, 500)) else None
         return JSONResponse({"entries": rows, "next_before_id": next_before})
+
+    # ── Audit runs (M1 admin audit panel) ─────────────────────────────
+    #
+    # POST  /admin/audit/runs           — kick off a sweep
+    # GET   /admin/audit/runs           — recent runs (paginated)
+    # GET   /admin/audit/runs/{id}      — one run + per-cell grid
+
+    async def _audit_dispatch(
+        run_id: str,
+        scope_obj: Scope,
+        worker_pool: str | None,
+        user_sub: str,
+        pool,
+    ) -> None:
+        """Enumerate the scope's files × the converter matrix and
+        enqueue one regular convert job per cell. Cached cells
+        (derived blob already present) are audited as ``done``
+        immediately. Runs in a BackgroundTask so the request returns
+        202 immediately; the operator polls the run row for progress.
+
+        Errors during enumeration / enqueue surface as a ``failed``
+        audit row on the cell that tripped them — the run still
+        finishes when the rest of the jobs complete.
+        """
+        from .converter import (
+            ConverterRegistry,
+            derived_key_for,
+            is_derived_key,
+            is_supported_source,
+        )
+
+        synthetic_user = type("AdminAuditUser", (), {"sub": user_sub})()
+        try:
+            files = await storage.list(scope_obj)
+        except Exception:
+            logger.exception("audit run %s: scope listing failed", run_id)
+            await db_module.set_audit_run_total(pool, run_id, 0)
+            return
+
+        # Collect viable cells before enqueueing so the total is
+        # exact — set_audit_run_total flips the row to 'finished'
+        # if it gets zero, so a typo'd scope shows up immediately in
+        # the UI rather than as a perpetually-running ghost.
+        cells: list[tuple[str, str]] = []
+        for f in files:
+            if is_derived_key(f.key):
+                continue
+            if not is_supported_source(f.key):
+                continue
+            ext = pathlib.PurePosixPath(f.key).suffix.lower()
+            for target_format in ConverterRegistry.targets_for(ext):
+                cells.append((f.key, target_format))
+
+        await db_module.set_audit_run_total(pool, run_id, len(cells))
+        if not cells:
+            return
+
+        for source_key, target_format in cells:
+            try:
+                derived_key = derived_key_for(source_key, target_format)
+            except Exception as exc:
+                # Should never trigger — targets_for already filtered
+                # to viable targets — but record the failure so the
+                # grid surfaces it instead of silently shrinking the
+                # cell count.
+                await _audit(
+                    None, synthetic_user, scope_obj, "convert",
+                    key=source_key, target_format=target_format,
+                    status="error", error=str(exc),
+                    audit_run_id=run_id,
+                )
+                continue
+
+            try:
+                cached = await storage.exists(scope_obj, derived_key)
+            except Exception:
+                logger.exception(
+                    "audit run %s: storage.exists failed for %s",
+                    run_id, derived_key,
+                )
+                cached = False
+
+            if cached:
+                # Cached cell — count as ``done`` without enqueueing.
+                # The audit row carries the run id; insert_audit bumps
+                # the run's ok counter inline (see db.insert_audit).
+                await _audit(
+                    None, synthetic_user, scope_obj, "convert",
+                    key=source_key, target_format=target_format,
+                    status="done", audit_run_id=run_id,
+                )
+                continue
+
+            try:
+                job = await queue.enqueue(
+                    source_key,
+                    target_format,
+                    scope_kind=scope_obj.kind,
+                    scope_id=scope_obj.id,
+                )
+            except Exception as exc:
+                logger.exception(
+                    "audit run %s: enqueue failed for %s -> %s",
+                    run_id, source_key, target_format,
+                )
+                await _audit(
+                    None, synthetic_user, scope_obj, "convert",
+                    key=source_key, target_format=target_format,
+                    status="error", error=str(exc),
+                    audit_run_id=run_id,
+                )
+                continue
+
+            await _audit(
+                None, synthetic_user, scope_obj, "convert",
+                key=source_key, target_format=target_format,
+                status="queued", job_id=job.job_id,
+                audit_run_id=run_id,
+            )
+
+    @admin.post("/audit/runs")
+    async def admin_audit_run_create(
+        request: Request,
+        background_tasks: BackgroundTasks,
+        user: User = Depends(auth_module.current_user),
+    ) -> JSONResponse:
+        """Kick off a regression sweep across one scope.
+
+        Body: ``{"scope": "shared" | "user:me" | "project:<id>",
+                 "worker_pool": "audit" | null,
+                 "note": "..." }``.
+
+        Returns 202 with the new run id; client polls
+        ``GET /admin/audit/runs/{id}`` for progress.
+        """
+        if not queue.enabled:
+            raise HTTPException(
+                status_code=503,
+                detail="conversion disabled (no NATS configured)",
+            )
+        pool = _require_pool(request)
+        body = await request.json() if await request.body() else {}
+        scope_str = (body.get("scope") or "shared").strip()
+        worker_pool = body.get("worker_pool") or None
+        note = body.get("note") or None
+
+        s = _parse_scope(scope_str, user)
+        s = await _resolve_project_scope(pool, s)
+        if not await scope_can_access(user, s, pool):
+            raise HTTPException(status_code=403, detail="forbidden")
+
+        run = await db_module.create_audit_run(
+            pool,
+            scope=scope_str,
+            worker_pool=worker_pool,
+            trigger="manual",
+            note=note,
+            created_by=user.sub,
+        )
+        background_tasks.add_task(
+            _audit_dispatch, run["id"], s, worker_pool, user.sub, pool,
+        )
+        return JSONResponse(run, status_code=202)
+
+    @admin.get("/audit/runs")
+    async def admin_audit_runs_list(
+        request: Request,
+        limit: int = 50,
+        before_started_at: str | None = None,
+    ) -> JSONResponse:
+        pool = _require_pool(request)
+        runs = await db_module.list_audit_runs(
+            pool, limit=limit, before_started_at=before_started_at,
+        )
+        next_before = (
+            runs[-1]["started_at"]
+            if len(runs) >= max(1, min(limit, 200)) else None
+        )
+        return JSONResponse({"runs": runs, "next_before_started_at": next_before})
+
+    @admin.get("/audit/runs/{run_id}")
+    async def admin_audit_run_get(
+        run_id: str, request: Request,
+    ) -> JSONResponse:
+        pool = _require_pool(request)
+        run = await db_module.get_audit_run(pool, run_id)
+        if run is None:
+            raise HTTPException(status_code=404, detail="audit run not found")
+        jobs = await db_module.list_audit_run_jobs(pool, run_id)
+        return JSONResponse({"run": run, "jobs": jobs})
 
     @admin.get("/projects")
     async def admin_projects_list(request: Request) -> JSONResponse:

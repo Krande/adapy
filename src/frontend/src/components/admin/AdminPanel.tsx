@@ -3,6 +3,7 @@ import {Rnd} from "react-rnd";
 import {useAdminPanelStore} from "@/state/adminPanelStore";
 import {useMeStore} from "@/state/meStore";
 import AuditLogTab from "./AuditLogTab";
+import AuditRunsTab from "./AuditRunsTab";
 import CliTokenButton from "./CliTokenButton";
 import ConversionSettingsTab from "./ConversionSettingsTab";
 import ProjectsTab from "./ProjectsTab";
@@ -21,7 +22,7 @@ import WorkersTab from "./WorkersTab";
 //   projects / storage) — same min-width on every internal table —
 //   so flipping tabs doesn't reflow the modal.
 
-type Tab = "audit" | "projects" | "storage" | "workers" | "conversion";
+type Tab = "audit" | "audit_runs" | "projects" | "storage" | "workers" | "conversion";
 
 const STORAGE_KEY = "ada-admin-panel-rect";
 const DESKTOP_QUERY = "(min-width: 768px)";
@@ -126,7 +127,10 @@ const AdminPanel: React.FC<{onClose: () => void}> = ({onClose}) => {
                     intrinsic content width. */}
                 <div className="flex-1 min-w-0 overflow-x-auto flex gap-1 text-sm">
                     <TabButton active={tab === "audit"} onClick={() => setTab("audit")}>
-                        Audit
+                        Audit Log
+                    </TabButton>
+                    <TabButton active={tab === "audit_runs"} onClick={() => setTab("audit_runs")}>
+                        Audit Runs
                     </TabButton>
                     <TabButton active={tab === "projects"} onClick={() => setTab("projects")}>
                         Projects
@@ -155,6 +159,7 @@ const AdminPanel: React.FC<{onClose: () => void}> = ({onClose}) => {
             </div>
             <div className="flex-1 overflow-hidden">
                 {tab === "audit" && <AuditLogTab/>}
+                {tab === "audit_runs" && <AuditRunsTab/>}
                 {tab === "projects" && <ProjectsTab/>}
                 {tab === "storage" && <StorageTab/>}
                 {tab === "workers" && <WorkersTab/>}

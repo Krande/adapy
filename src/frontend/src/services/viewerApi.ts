@@ -408,6 +408,46 @@ export interface AuditEntry {
     job_id: string | null;
 }
 
+// One audit-sweep record. Returned by /admin/audit/runs endpoints.
+// Counters are eventually-consistent — total is set once the
+// dispatcher finishes enumerating cells; ok/failed/skipped advance
+// as worker outcomes land. status flips to 'finished' when their
+// sum equals total.
+export interface AuditRun {
+    id: string;
+    scope: string;
+    worker_pool: string | null;
+    trigger: string;
+    started_at: string;
+    finished_at: string | null;
+    status: string;
+    note: string | null;
+    total: number;
+    ok: number;
+    failed: number;
+    skipped: number;
+    created_by: string | null;
+}
+
+// One audit_log row scoped to a parent audit_run. Narrower projection
+// than ``AuditEntry`` — the grid view doesn't need user_sub /
+// scope_kind / traceback (all redundant for cells in one run).
+export interface AuditRunJob {
+    id: number;
+    ts: string | null;
+    key: string | null;
+    target_format: string | null;
+    status: string | null;
+    error: string | null;
+    duration_ms: number | null;
+    cpu_user_ms: number | null;
+    cpu_sys_ms: number | null;
+    peak_rss_kb: number | null;
+    read_bytes: number | null;
+    write_bytes: number | null;
+    job_id: string | null;
+}
+
 export interface ProfileStatsRow {
     func: string;
     file: string;
@@ -917,6 +957,52 @@ export const viewerApi = {
         const url = `${runtime.apiBase()}/admin/audit${qs ? `?${qs}` : ""}`;
         const r = await authedFetch(url);
         return jsonOrThrow(r, "adminAudit");
+    },
+
+    /** Admin: kick off a regression sweep across one scope. Enumerates
+     * every (source file × viable target) cell from the converter
+     * matrix and enqueues a normal convert job per cell with the
+     * resulting audit_run id stamped on each row. Cached cells (derived
+     * blob already present) count as ``done`` immediately. Returns the
+     * fresh run record (status='running', total=0); poll
+     * ``adminAuditRunGet`` for progress as the dispatcher fills in
+     * ``total`` and counters update as jobs land. */
+    async adminAuditRunCreate(
+        body: {scope: ScopeUrl; worker_pool?: string | null; note?: string | null},
+    ): Promise<AuditRun> {
+        const r = await authedFetch(`${runtime.apiBase()}/admin/audit/runs`, {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify(body),
+        });
+        return jsonOrThrow(r, "adminAuditRunCreate");
+    },
+
+    /** Admin: recent audit runs, reverse-chronological. ``before_started_at``
+     * is the keyset cursor (ISO timestamp) — pass the previous response's
+     * ``next_before_started_at`` to page back further. */
+    async adminAuditRunsList(opts?: {
+        limit?: number;
+        before_started_at?: string | null;
+    }): Promise<{runs: AuditRun[]; next_before_started_at: string | null}> {
+        const params = new URLSearchParams();
+        if (opts?.limit) params.set("limit", String(opts.limit));
+        if (opts?.before_started_at) params.set("before_started_at", opts.before_started_at);
+        const qs = params.toString();
+        const url = `${runtime.apiBase()}/admin/audit/runs${qs ? `?${qs}` : ""}`;
+        const r = await authedFetch(url);
+        return jsonOrThrow(r, "adminAuditRunsList");
+    },
+
+    /** Admin: one run + every audit_log row tied to it. The job list
+     * powers the per-cell grid view (files × targets) in the audit
+     * panel. Returned in dispatch order (asc by audit_log.id) so
+     * grid rendering is deterministic. */
+    async adminAuditRunGet(runId: string): Promise<{run: AuditRun; jobs: AuditRunJob[]}> {
+        const r = await authedFetch(
+            `${runtime.apiBase()}/admin/audit/runs/${encodeURIComponent(runId)}`,
+        );
+        return jsonOrThrow(r, `adminAuditRunGet(${runId})`);
     },
 
     /** Admin: kick off a background sweep that scans the scope for

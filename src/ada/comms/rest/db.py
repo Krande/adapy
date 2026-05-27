@@ -216,26 +216,65 @@ async def insert_audit(
     duration_ms: int | None = None,
     job_id: str | None = None,
     traceback: str | None = None,
+    audit_run_id: str | None = None,
 ) -> None:
-    await pool.execute(
-        """
-        INSERT INTO audit_log
-            (user_sub, scope_kind, scope_id, action, key,
-             target_format, status, error, duration_ms, job_id, traceback)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-        """,
-        user_sub,
-        scope_kind,
-        scope_id,
-        action,
-        key,
-        target_format,
-        status,
-        error,
-        duration_ms,
-        job_id,
-        traceback,
+    """Insert one audit_log row.
+
+    ``audit_run_id`` links the row back to an admin-triggered
+    regression sweep (M1 audit panel). NULL for every user-driven
+    convert / upload / download row — only the audit dispatcher
+    populates it.
+
+    When the row both carries an ``audit_run_id`` AND lands in a
+    terminal status (``done`` / ``ok`` / ``error`` / ``cancelled``
+    / ``skipped``), the matching counter on ``audit_runs`` is bumped
+    in the same transaction. This is the cached-cell path of the
+    dispatcher — derived blobs that already exist get audited as
+    ``done`` without enqueueing a job, and the run's ok counter
+    needs to advance immediately so the math closes against the
+    total.
+    """
+
+    counter_col = (
+        _AUDIT_RUN_COUNTER_FOR_STATUS.get(status)
+        if audit_run_id is not None and status is not None
+        else None
     )
+    if counter_col is None:
+        # Hot path — single INSERT, no transaction overhead. Covers
+        # every user-driven action and the audit dispatcher's
+        # ``status='queued'`` enqueue audit.
+        await pool.execute(
+            """
+            INSERT INTO audit_log
+                (user_sub, scope_kind, scope_id, action, key,
+                 target_format, status, error, duration_ms, job_id,
+                 traceback, audit_run_id)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+            """,
+            user_sub, scope_kind, scope_id, action, key, target_format,
+            status, error, duration_ms, job_id, traceback, audit_run_id,
+        )
+        return
+
+    # Audit-dispatcher cached-cell path: insert + counter bump in one
+    # transaction so a crash between the two can't leave a row counted
+    # by the audit grid but not by the run total.
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            await conn.execute(
+                """
+                INSERT INTO audit_log
+                    (user_sub, scope_kind, scope_id, action, key,
+                     target_format, status, error, duration_ms, job_id,
+                     traceback, audit_run_id)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                """,
+                user_sub, scope_kind, scope_id, action, key,
+                target_format, status, error, duration_ms, job_id,
+                traceback, audit_run_id,
+            )
+            await _bump_audit_run_counter(conn, audit_run_id, status)
 
 
 async def cancel_audit_by_job(
@@ -287,33 +326,96 @@ async def update_audit_by_job(
     No-op when the row is missing (job predates the migration, or the
     enqueue-time audit insert failed). COALESCE preserves any existing
     column when the caller passes None.
+
+    When the row carries an ``audit_run_id`` (M1 audit panel), the
+    matching counter on ``audit_runs`` (``ok`` / ``failed`` /
+    ``skipped``) is bumped in the same transaction. The run flips to
+    ``status='finished'`` when ``ok + failed + skipped`` reaches
+    ``total``. Regular user-driven jobs (audit_run_id IS NULL) take
+    the original single-table path with no overhead.
     """
-    await pool.execute(
-        """
-        UPDATE audit_log
-        SET status = $2,
-            error = COALESCE($3, error),
-            duration_ms = COALESCE($4, duration_ms),
-            traceback = COALESCE($5, traceback),
-            cpu_user_ms = COALESCE($6, cpu_user_ms),
-            cpu_sys_ms = COALESCE($7, cpu_sys_ms),
-            peak_rss_kb = COALESCE($8, peak_rss_kb),
-            read_bytes = COALESCE($9, read_bytes),
-            write_bytes = COALESCE($10, write_bytes),
-            profile_key = COALESCE($11, profile_key)
-        WHERE job_id = $1
+    # Single transaction so the per-row write + the run-counter bump
+    # never split — a worker restart between the two would otherwise
+    # leak a job from the counters and the run would never finish.
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            updated = await conn.fetchrow(
+                """
+                UPDATE audit_log
+                SET status = $2,
+                    error = COALESCE($3, error),
+                    duration_ms = COALESCE($4, duration_ms),
+                    traceback = COALESCE($5, traceback),
+                    cpu_user_ms = COALESCE($6, cpu_user_ms),
+                    cpu_sys_ms = COALESCE($7, cpu_sys_ms),
+                    peak_rss_kb = COALESCE($8, peak_rss_kb),
+                    read_bytes = COALESCE($9, read_bytes),
+                    write_bytes = COALESCE($10, write_bytes),
+                    profile_key = COALESCE($11, profile_key)
+                WHERE job_id = $1
+                RETURNING audit_run_id
+                """,
+                job_id,
+                status,
+                error,
+                duration_ms,
+                traceback,
+                cpu_user_ms,
+                cpu_sys_ms,
+                peak_rss_kb,
+                read_bytes,
+                write_bytes,
+                profile_key,
+            )
+            if updated is None or updated["audit_run_id"] is None:
+                return
+            await _bump_audit_run_counter(conn, updated["audit_run_id"], status)
+
+
+# Map terminal job-status values to the audit_runs counter column they
+# bump. Statuses outside this set (``running`` / ``queued``) don't
+# advance any counter — only terminal transitions do.
+_AUDIT_RUN_COUNTER_FOR_STATUS = {
+    "done": "ok",
+    "ok": "ok",
+    "error": "failed",
+    "failed": "failed",
+    "cancelled": "skipped",
+    "skipped": "skipped",
+}
+
+
+async def _bump_audit_run_counter(
+    conn: asyncpg.Connection, run_id, terminal_status: str,
+) -> None:
+    """Increment one of the run's terminal counters and finish the
+    run when all enqueued jobs have landed. Connection-bound (not
+    pool-bound) so the caller can run this inside the same
+    transaction as the audit_log UPDATE."""
+    column = _AUDIT_RUN_COUNTER_FOR_STATUS.get(terminal_status)
+    if column is None:
+        # Transient state (``running``); nothing to bump yet.
+        return
+    # The SET clause uses dynamic column interpolation but ``column``
+    # is constrained to a closed allowlist above, so f-string here is
+    # safe — no caller-supplied SQL surface.
+    await conn.execute(
+        f"""
+        UPDATE audit_runs
+        SET {column} = {column} + 1,
+            finished_at = CASE
+                WHEN ok + failed + skipped + 1 >= total
+                  THEN COALESCE(finished_at, NOW())
+                ELSE finished_at
+            END,
+            status = CASE
+                WHEN ok + failed + skipped + 1 >= total
+                  THEN 'finished'
+                ELSE status
+            END
+        WHERE id = $1
         """,
-        job_id,
-        status,
-        error,
-        duration_ms,
-        traceback,
-        cpu_user_ms,
-        cpu_sys_ms,
-        peak_rss_kb,
-        read_bytes,
-        write_bytes,
-        profile_key,
+        run_id,
     )
 
 
@@ -696,3 +798,148 @@ async def project_id_from_slug(pool: asyncpg.Pool, slug: str) -> str | None:
         slug,
     )
     return str(row["id"]) if row else None
+
+
+# ── Audit runs (M1 admin audit panel) ──────────────────────────────
+
+
+def _audit_run_row(r) -> dict:
+    """Project an audit_runs row to its JSON-ready dict shape."""
+    return {
+        "id": str(r["id"]),
+        "scope": r["scope"],
+        "worker_pool": r["worker_pool"],
+        "trigger": r["trigger"],
+        "started_at": r["started_at"].isoformat() if r["started_at"] else None,
+        "finished_at": r["finished_at"].isoformat() if r["finished_at"] else None,
+        "status": r["status"],
+        "note": r["note"],
+        "total": r["total"],
+        "ok": r["ok"],
+        "failed": r["failed"],
+        "skipped": r["skipped"],
+        "created_by": r["created_by"],
+    }
+
+
+async def create_audit_run(
+    pool: asyncpg.Pool,
+    *,
+    scope: str,
+    worker_pool: str | None,
+    trigger: str = "manual",
+    note: str | None = None,
+    created_by: str | None = None,
+) -> dict:
+    """Open a new audit_runs row in ``status='running'``. Returns the
+    fresh row (including its server-generated UUID + started_at) so
+    the dispatcher can stamp the jobs it enqueues. ``total`` starts
+    at 0 — :func:`set_audit_run_total` finalises it once dispatch
+    knows how many jobs landed."""
+    row = await pool.fetchrow(
+        """
+        INSERT INTO audit_runs (scope, worker_pool, trigger, note, created_by)
+        VALUES ($1, $2, $3, $4, $5)
+        RETURNING *
+        """,
+        scope, worker_pool, trigger, note, created_by,
+    )
+    return _audit_run_row(row)
+
+
+async def set_audit_run_total(
+    pool: asyncpg.Pool, run_id: str, total: int,
+) -> None:
+    """Set the dispatched-job count after enqueue completes. If
+    ``total`` is 0 (no jobs to run — empty scope or no viable cells),
+    the run is marked ``finished`` immediately so the UI doesn't show
+    a perpetually-running row."""
+    await pool.execute(
+        """
+        UPDATE audit_runs
+        SET total = $2,
+            status = CASE WHEN $2 = 0 THEN 'finished' ELSE status END,
+            finished_at = CASE WHEN $2 = 0 THEN NOW() ELSE finished_at END
+        WHERE id = $1
+        """,
+        run_id, total,
+    )
+
+
+async def list_audit_runs(
+    pool: asyncpg.Pool,
+    *,
+    limit: int = 50,
+    before_started_at: str | None = None,
+) -> list[dict]:
+    """Reverse-chronological audit_runs scan. Keyset paginated on
+    ``started_at`` so new runs landing between requests don't shift
+    the page boundary the way an offset would."""
+    args: list = []
+    where = ""
+    if before_started_at:
+        args.append(before_started_at)
+        where = f" WHERE started_at < ${len(args)}::timestamptz"
+    args.append(min(max(limit, 1), 200))
+    rows = await pool.fetch(
+        f"""
+        SELECT id, scope, worker_pool, trigger, started_at, finished_at,
+               status, note, total, ok, failed, skipped, created_by
+        FROM audit_runs
+        {where}
+        ORDER BY started_at DESC
+        LIMIT ${len(args)}
+        """,
+        *args,
+    )
+    return [_audit_run_row(r) for r in rows]
+
+
+async def get_audit_run(pool: asyncpg.Pool, run_id: str) -> dict | None:
+    row = await pool.fetchrow(
+        """
+        SELECT id, scope, worker_pool, trigger, started_at, finished_at,
+               status, note, total, ok, failed, skipped, created_by
+        FROM audit_runs WHERE id = $1
+        """,
+        run_id,
+    )
+    return _audit_run_row(row) if row else None
+
+
+async def list_audit_run_jobs(
+    pool: asyncpg.Pool, run_id: str,
+) -> list[dict]:
+    """Every audit_log row tied to one audit_run. Returned in
+    insert order (ascending id) so the per-run grid in the admin
+    panel can render rows in the deterministic order the
+    dispatcher emitted them."""
+    rows = await pool.fetch(
+        """
+        SELECT id, ts, key, target_format, status, error,
+               duration_ms, cpu_user_ms, cpu_sys_ms, peak_rss_kb,
+               read_bytes, write_bytes, job_id
+        FROM audit_log
+        WHERE audit_run_id = $1
+        ORDER BY id ASC
+        """,
+        run_id,
+    )
+    return [
+        {
+            "id": r["id"],
+            "ts": r["ts"].isoformat() if r["ts"] else None,
+            "key": r["key"],
+            "target_format": r["target_format"],
+            "status": r["status"],
+            "error": r["error"],
+            "duration_ms": r["duration_ms"],
+            "cpu_user_ms": r["cpu_user_ms"],
+            "cpu_sys_ms": r["cpu_sys_ms"],
+            "peak_rss_kb": r["peak_rss_kb"],
+            "read_bytes": r["read_bytes"],
+            "write_bytes": r["write_bytes"],
+            "job_id": r["job_id"],
+        }
+        for r in rows
+    ]

@@ -1,6 +1,6 @@
 import {create} from "zustand";
 
-export type AdminTab = "audit" | "projects" | "storage" | "workers" | "conversion";
+export type AdminTab = "audit" | "audit_runs" | "projects" | "storage" | "workers" | "conversion";
 
 interface AdminPanelStore {
     open: boolean;
