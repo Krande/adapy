@@ -186,8 +186,15 @@ def calc_isec(sec: Section) -> GeneralProperties:
     bt = sec.w_top
     tt = sec.t_ftop
     ty = sec.t_w
-    bb = sec.w_btn
-    tb = sec.t_fbtn
+    # Default the bottom flange dims to the top values when the
+    # section was declared without an asymmetric profile (IFC
+    # imports of symmetric I-sections leave ``w_btn`` /
+    # ``t_fbtn`` ``None``). Falling back to the top values
+    # produces the right answer for the symmetric case and
+    # avoids a ``TypeError: NoneType + float`` that previously
+    # aborted the whole solid_geom path.
+    bb = sec.w_btn if sec.w_btn is not None else bt
+    tb = sec.t_fbtn if sec.t_fbtn is not None else tt
 
     Ax = bt * tt + ty * (hz - (tb + tt)) + bb * tb
     hw = hz - tt - tb
