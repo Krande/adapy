@@ -73,6 +73,21 @@ class UnsupportedFormat(ValueError):
 ConverterFn = Callable[..., bytes]
 
 
+# Per-pair option schema. Each option is described by a small dict so
+# the SPA can render the right widget without baking option names into
+# its source. Same shape used both in :class:`ConverterRegistry` and
+# on the wire via ``/api/config["conversionMatrix"]``.
+#
+#   {
+#       "name": "mesh_only",        # passed back through the convert
+#                                   # body's ``conversion_options`` map
+#       "type": "bool",             # bool | string | int | enum
+#       "default": False,
+#       "description": "...",
+#       "enum": [...]               # only when type == "enum"
+#   }
+
+
 class ConverterRegistry:
     """Module-level (from_ext, to_ext) → handler table.
 
@@ -81,17 +96,70 @@ class ConverterRegistry:
     that fan one handler across multiple source extensions). The
     table is intentionally a plain dict — the worker's job loop
     looks up once per job, so atomicity is not a concern.
+
+    Each registered pair carries an optional option schema
+    (``options_for(from_ext, to_ext)``) describing per-job knobs
+    the SPA can surface. The schema is the source of truth — the
+    API allowlist and the worker's env-mapping both derive from
+    it instead of repeating hardcoded enum lists.
     """
 
     _entries: dict[tuple[str, str], ConverterFn] = {}
+    _options: dict[tuple[str, str], list[dict]] = {}
+
+    @staticmethod
+    def _norm_key(from_ext: str, to_ext: str) -> tuple[str, str]:
+        """Canonical registry key: source extension WITH leading dot
+        (matches ``_ext()`` output), target extension WITHOUT
+        (matches the ``target_format`` convention used everywhere
+        else — ``"glb"`` not ``".glb"``). Caller can pass either
+        form on either side; we normalise both."""
+        f = from_ext.lower()
+        if not f.startswith("."):
+            f = "." + f
+        t = to_ext.lower().lstrip(".")
+        return (f, t)
 
     @classmethod
-    def register(cls, from_ext: str, to_ext: str, fn: ConverterFn) -> None:
-        cls._entries[(from_ext.lower(), to_ext.lower())] = fn
+    def register(
+        cls,
+        from_ext: str,
+        to_ext: str,
+        fn: ConverterFn,
+        *,
+        options: list[dict] | None = None,
+    ) -> None:
+        key = cls._norm_key(from_ext, to_ext)
+        cls._entries[key] = fn
+        if options:
+            cls._options[key] = list(options)
 
     @classmethod
     def lookup(cls, from_ext: str, to_ext: str) -> ConverterFn | None:
-        return cls._entries.get((from_ext.lower(), to_ext.lower()))
+        return cls._entries.get(cls._norm_key(from_ext, to_ext))
+
+    @classmethod
+    def options_for(cls, from_ext: str, to_ext: str) -> list[dict]:
+        """Option schema for one (from, to) pair. Empty list when
+        the pair has no per-job knobs. Returned list is a shallow
+        copy so callers can mutate without poisoning the registry."""
+        return list(cls._options.get(cls._norm_key(from_ext, to_ext), ()))
+
+    @classmethod
+    def all_options(cls) -> set[str]:
+        """Union of option names across every registered pair.
+
+        Used by the API's per-job ``conversion_options`` validator
+        (replaces the hardcoded allowlist) — any name that no
+        registered converter declares gets dropped from the body.
+        """
+        out: set[str] = set()
+        for opts in cls._options.values():
+            for opt in opts:
+                name = opt.get("name")
+                if isinstance(name, str):
+                    out.add(name)
+        return out
 
     @classmethod
     def all_sources(cls) -> frozenset[str]:
@@ -101,9 +169,10 @@ class ConverterRegistry:
     def all_targets(cls) -> frozenset[str]:
         """Target extensions WITHOUT the leading dot — matches the
         rest of the codebase's ``target_format`` convention
-        (``"glb"`` not ``".glb"``).
+        (``"glb"`` not ``".glb"``). Stored that way already; this
+        is just a projection over the key space.
         """
-        return frozenset(t.lstrip(".") for (_, t) in cls._entries)
+        return frozenset(t for (_, t) in cls._entries)
 
     @classmethod
     def targets_for(cls, from_ext: str) -> list[str]:
@@ -112,41 +181,147 @@ class ConverterRegistry:
         dot (``["glb", "ifc"]`` not ``[".glb", ".ifc"]``).
         """
         f = from_ext.lower()
-        return sorted({t.lstrip(".") for (frm, t) in cls._entries if frm == f})
+        if not f.startswith("."):
+            f = "." + f
+        return sorted({t for (frm, t) in cls._entries if frm == f})
 
     @classmethod
     def matrix(cls) -> list[dict]:
-        """JSON-serialisable rollup ``[{"from": ".step", "to": ["glb",
-        "ifc", "stl"]}, ...]``. Stable ordering so the worker's
-        published payload diffs cleanly across heartbeats.
+        """JSON-serialisable rollup. Wire shape::
+
+            [{
+                "from": ".step",
+                "to": ["glb", "ifc", "stl"],
+                "options": {
+                    "glb": [{"name": ..., "type": ..., ...}, ...],
+                    "ifc": [...],
+                    "stl": [...],
+                },
+             }, ...]
+
+        ``options`` is always present; pairs with no per-job knobs
+        get an empty list, so a frontend can render unconditionally
+        without testing for the key.
         """
         by_from: dict[str, set[str]] = {}
         for (f, t) in cls._entries:
-            by_from.setdefault(f, set()).add(t.lstrip("."))
-        return [
-            {"from": f, "to": sorted(by_from[f])}
-            for f in sorted(by_from)
-        ]
+            by_from.setdefault(f, set()).add(t)
+        rows: list[dict] = []
+        for f in sorted(by_from):
+            targets = sorted(by_from[f])
+            opts: dict[str, list[dict]] = {}
+            for t in targets:
+                opts[t] = list(cls._options.get((f, t), ()))
+            rows.append({"from": f, "to": targets, "options": opts})
+        return rows
 
 
-def converter(from_ext: str, to_ext: str):
-    """Decorator: register ``fn`` as the handler for the
-    ``(from_ext, to_ext)`` conversion pair. Both arguments should
-    carry the leading dot (``.step`` / ``.glb``) for symmetry with
-    the rest of the module.
+def converter(
+    *args,
+    accepts: list[str] | None = None,
+    exports: list[str] | None = None,
+    exclude_identity: bool = True,
+    options: list[dict] | None = None,
+):
+    """Decorator that registers ``fn`` for one or more (from, to)
+    conversion pairs.
 
-    Handler signature::
+    Two equivalent invocation styles:
 
-        fn(src_path: Path, on_progress: ProgressFn, **kwargs) -> bytes
+    * **Single pair (positional, legacy):**
 
-    ``**kwargs`` is forwarded from :func:`convert`; today only the
-    FEA result handler reads ``step`` / ``field``. Future handlers
-    can pull their own knobs out of kwargs without touching the
-    dispatch.
+      .. code-block:: python
+
+          @converter(".step", ".stl")
+          def step_to_stl(src, on_progress, **_): ...
+
+    * **Multi-format with options (new):**
+
+      .. code-block:: python
+
+          @converter(
+              accepts=[".inp", ".fem", ".med"],
+              exports=[".inp", ".fem", ".med"],
+              exclude_identity=True,
+              options=[
+                  {"name": "mesh_only", "type": "bool", "default": False,
+                   "description": "Skip BCs / loads / sections; mesh only."},
+              ],
+          )
+          def fea_to_fea(src, on_progress, *, source_ext, target_ext,
+                         mesh_only=False, **_): ...
+
+    Handler signature in the multi-format form receives ``source_ext``
+    and ``target_ext`` kwargs so one function body can serve every
+    cell in the cartesian product. ``exclude_identity=True`` drops
+    same-from-same-to pairs (``.inp → .inp`` etc.) — flip to
+    ``False`` if a self-conversion is actually meaningful (e.g.
+    re-export through a parser for normalisation).
+
+    ``options`` is a list of schema dicts (see the module-level
+    comment on the wire shape) shared across every registered cell
+    — declare per-target options by splitting the registrations.
     """
 
+    # Legacy positional form: @converter(".step", ".stl")
+    if args:
+        if accepts is not None or exports is not None:
+            raise TypeError(
+                "@converter: pass either positional (from, to) OR "
+                "accepts/exports, not both"
+            )
+        if len(args) != 2:
+            raise TypeError(
+                "@converter(positional) expects exactly (from_ext, to_ext)"
+            )
+        accepts = [args[0]]
+        exports = [args[1]]
+
+    if not accepts or not exports:
+        raise TypeError(
+            "@converter: need at least one accepts and one exports entry"
+        )
+
+    # Source extensions are stored WITH a leading dot to match
+    # ``_ext()`` output; target extensions are stored WITHOUT
+    # (mirrors the ``target_format`` convention everywhere else in
+    # the module — ``"glb"``, not ``".glb"``). Normalise the inputs
+    # here so caller can pass either form.
+    accepts_norm = [
+        ("." + a.lstrip(".").lower()) for a in accepts
+    ]
+    exports_norm = [e.lstrip(".").lower() for e in exports]
+
     def deco(fn: ConverterFn) -> ConverterFn:
-        ConverterRegistry.register(from_ext, to_ext, fn)
+        for src_ext in accepts_norm:
+            # ``src_ext`` carries the leading dot (``.inp``);
+            # ``tgt_ext`` does not (``fem``). The identity check
+            # strips both to the bare extension so ``.inp`` and
+            # ``inp`` count as the same format.
+            src_bare = src_ext.lstrip(".")
+            for tgt_ext in exports_norm:
+                if exclude_identity and src_bare == tgt_ext:
+                    continue
+
+                # Wrap the bare handler so the registry's uniform
+                # ``(src, on_progress, **kw)`` shape gets the
+                # source/target pair injected — the user-side body
+                # then reads them off kwargs (or named params).
+                # Bind src_ext / tgt_ext via default args so each
+                # closure captures its own values instead of the
+                # loop's last iteration. The handler receives the
+                # canonical ``.<ext>`` form for both since user code
+                # typically does suffix-based dispatch.
+                def _adapter(src, on_progress, *, _s=src_ext, _t=tgt_ext, **kw):
+                    return fn(
+                        src, on_progress,
+                        source_ext=_s, target_ext=f".{_t}",
+                        **kw,
+                    )
+
+                ConverterRegistry.register(
+                    src_ext, tgt_ext, _adapter, options=options,
+                )
         return fn
 
     return deco
@@ -663,6 +838,95 @@ def _via_ada_to_step(
             pass
 
 
+def _via_fea_to_fem(
+    src_path: pathlib.Path,
+    source_ext: str,
+    target_ext: str,
+    on_progress: ProgressFn,
+) -> bytes:
+    """FEA input deck → FEA input deck.
+
+    Both sides use adapy's general FEM dispatch: ``ada.from_fem(src)``
+    materialises an ``Assembly`` carrying the full ``Part.fem`` (nodes,
+    elements, materials, sections, BCs, loads), then
+    ``Assembly.to_fem(name, fem_format, scratch_dir)`` runs the matching
+    writer.
+
+    Caveats by target:
+
+    * **.inp** (Abaqus) — single-file deck; we return its bytes
+      directly.
+    * **.fem** (Sesam) — single-file deck; same.
+    * **.med** (Code_Aster) — the writer emits ``name.med`` (mesh +
+      groups) plus ``name.comm`` (analysis-spec template) and a
+      ``.adapy_fem.json`` sidecar. We return only the ``.med`` here;
+      the ``.comm`` is template-driven and would round-trip a stub
+      analysis the user didn't ask for. Honest mesh-export
+      semantics; full multi-file deck packaging would be a separate
+      zip-output target.
+    """
+
+    on_progress("parsing", 0.15)
+    import ada
+
+    assembly = ada.from_fem(src_path)
+    on_progress("translating", 0.45)
+
+    # ``fem_format`` is a string the general writer dispatcher knows
+    # how to resolve (``"abaqus"`` / ``"sesam"`` / ``"code_aster"``).
+    fmt = _FEM_TARGET_TO_FORMAT.get(target_ext.lower())
+    if fmt is None:
+        raise UnsupportedFormat(
+            f"no FEA writer for target {target_ext!r}"
+        )
+
+    out_dir = pathlib.Path(tempfile.mkdtemp(prefix="ada-convert-"))
+    name = "model"
+    try:
+        on_progress("writing", 0.65)
+        assembly.to_fem(
+            name,
+            fem_format=fmt,
+            scratch_dir=out_dir,
+            overwrite=True,
+            write_input_files_only=True,
+        )
+        # Writers nest output in ``{scratch_dir}/{name}/`` — pick the
+        # canonical deck file out of that directory. For Code_Aster
+        # we deliberately drop the ``.comm`` (see the docstring).
+        deck = out_dir / name / f"{name}{target_ext}"
+        if not deck.exists():
+            # Older writers wrote directly into ``scratch_dir/`` rather
+            # than the per-name subdir. Try the flat layout before
+            # giving up so this code stays robust across writer
+            # versions.
+            deck = out_dir / f"{name}{target_ext}"
+        if not deck.exists():
+            raise UnsupportedFormat(
+                f"FEA writer ran but no {target_ext} appeared under "
+                f"{out_dir} — adapy writer layout may have changed."
+            )
+        on_progress("ready", 1.0)
+        return deck.read_bytes()
+    finally:
+        try:
+            import shutil as _sh
+
+            _sh.rmtree(out_dir, ignore_errors=True)
+        except Exception:
+            pass
+
+
+# Map M3 target extensions to the ``fem_format`` strings adapy's
+# write-dispatcher understands. Source-side ada.from_fem auto-detects
+# from the file extension so no symmetric map is needed.
+_FEM_TARGET_TO_FORMAT: dict[str, str] = {
+    ".inp": "abaqus",
+    ".fem": "sesam",
+    ".med": "code_aster",
+}
+
+
 def _via_glb_to_trimesh(
     src_path: pathlib.Path,
     target_ext: str,
@@ -828,6 +1092,47 @@ def _register_glb_to_mesh() -> None:
             return _via_glb_to_trimesh(src, f".{_tgt}", on_progress)
 
         ConverterRegistry.register(".glb", tgt, _h)
+
+
+# M3: FEA input-deck ↔ FEA input-deck. Six new (from, to) cells in
+# one ``@converter`` call. The cartesian product registers everything
+# pairwise; ``exclude_identity=True`` drops the three self-pairs
+# (``.inp → .inp`` etc.). Same handler body serves every cell — it
+# reads ``source_ext`` / ``target_ext`` from kwargs and lets the
+# generic adapy dispatcher pick the right writer.
+
+
+@converter(
+    accepts=[".inp", ".fem", ".med"],
+    exports=[".inp", ".fem", ".med"],
+    exclude_identity=True,
+    # Schema-shipping with no entries: confirms the wire format
+    # round-trips an empty options list and stays additive. Real
+    # per-pair knobs (e.g. ``mesh_only``) land in a follow-up CL
+    # together with the worker plumbing that forwards
+    # conversion_options into the handler's kwargs (today they're
+    # consumed env-var-style before convert() is invoked).
+    options=[],
+)
+def _fea_to_fea(src, on_progress, *, source_ext, target_ext, **_):
+    """Abaqus ↔ Sesam ↔ Code_Aster input-deck cross-conversion.
+
+    All three formats have readers AND writers in adapy; cells where
+    both ends support the same constructs (nodes, elements,
+    materials, sections, BCs, loads) round-trip cleanly. Writers
+    fail with adapy-internal errors on sources missing constructs
+    they expect — e.g. the Sesam writer raises on inputs without a
+    populated ``fem.sections`` table. Those surface as job errors in
+    the conversion toast rather than being caught here, since the
+    failure mode is informative and silently degrading would hide
+    real adapy regressions.
+
+    Code_Aster output is the ``.med`` (mesh + groups) only; the
+    matching ``.comm`` analysis-spec template is dropped (see
+    :func:`_via_fea_to_fem` for the rationale).
+    """
+
+    return _via_fea_to_fem(src, source_ext, target_ext, on_progress)
 
 
 _register_passthrough_glb()

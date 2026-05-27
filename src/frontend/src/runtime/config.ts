@@ -1,5 +1,17 @@
 // Centralised, typed access to the `window.*` globals that the SPA
 // depends on. These are injected at build/serve time:
+
+// Per-job knob declared at the @converter decorator site on the
+// worker (one schema entry per name). Wire-shape lives in the
+// matrix entry's ``options[<target>]`` array.
+export interface ConversionOption {
+    name: string;
+    type: "bool" | "string" | "int" | "enum";
+    default?: boolean | string | number | null;
+    description?: string;
+    enum?: readonly string[];
+}
+
 //
 //   - /config.js (REST mode)        : COMMS_MODE, API_BASE, CONVERT_ENABLED
 //   - embedded index.html           : WEBSOCKET_ID, WEBSOCKET_PORT, B64GLTF,
@@ -47,7 +59,17 @@ declare global {
         // to populate the target dropdown per uploaded file. Empty
         // when the queue is disabled (dev / desktop mode) or no
         // worker has registered yet.
-        CONVERSION_MATRIX?: readonly { from: string; to: readonly string[] }[];
+        //
+        // `options` is the per-(from, target) per-job knob schema —
+        // one list of {name, type, default, description, ...} per
+        // target. Empty list when the pair has no per-job knobs;
+        // the field is always present so callers can render
+        // unconditionally without a key check.
+        CONVERSION_MATRIX?: readonly {
+            from: string;
+            to: readonly string[];
+            options?: Readonly<Record<string, readonly ConversionOption[]>>;
+        }[];
         WEBSOCKET_ID?: number | string;
         WEBSOCKET_PORT?: number | string;
         TARGET_INSTANCE_ID?: number | string;
@@ -76,8 +98,7 @@ export const runtime = {
     workerImageTag: (): string => (w().WORKER_IMAGE_TAG || "").trim(),
     extraSourceExts: (): readonly string[] => w().EXTRA_SOURCE_EXTS ?? [],
     streamingOnlyExts: (): readonly string[] => w().STREAMING_ONLY_EXTS ?? [],
-    conversionMatrix: (): readonly { from: string; to: readonly string[] }[] =>
-        w().CONVERSION_MATRIX ?? [],
+    conversionMatrix: () => w().CONVERSION_MATRIX ?? [],
     /** Targets advertised for a given source extension. Lower-cases
      * and dot-normalises the input so callers don't have to. Empty
      * array when the source extension isn't in the matrix (either
@@ -89,6 +110,22 @@ export const runtime = {
             if ((entry.from || "").toLowerCase() === normFrom) {
                 return entry.to || [];
             }
+        }
+        return [];
+    },
+    /** Option schema for a given (source extension, target format)
+     * pair. Empty array when the pair has no per-job knobs. Frontend
+     * uses this to render one widget per option on the /convert
+     * page row (checkbox / input / select depending on `type`). */
+    conversionOptionsFor: (ext: string, target: string): readonly ConversionOption[] => {
+        const normFrom = (ext.startsWith(".") ? ext : `.${ext}`).toLowerCase();
+        const normTo = target.replace(/^\./, "").toLowerCase();
+        const matrix = w().CONVERSION_MATRIX ?? [];
+        for (const entry of matrix) {
+            if ((entry.from || "").toLowerCase() !== normFrom) continue;
+            const opts = entry.options;
+            if (opts && opts[normTo]) return opts[normTo];
+            return [];
         }
         return [];
     },
