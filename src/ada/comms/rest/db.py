@@ -897,7 +897,19 @@ async def archive_corpus(pool: asyncpg.Pool, slug: str) -> bool:
 
 
 def _audit_run_row(r) -> dict:
-    """Project an audit_runs row to its JSON-ready dict shape."""
+    """Project an audit_runs row to its JSON-ready dict shape.
+
+    Includes the M5 issue-bot fields when the underlying row has
+    them (it always does post-migration 009, but the helper tolerates
+    rows from a SELECT that omits those columns by falling back to
+    ``None``)."""
+    def _opt(col: str):
+        try:
+            return r[col]
+        except (KeyError, TypeError):
+            return None
+
+    issue_bot_synced_at = _opt("issue_bot_synced_at")
     return {
         "id": str(r["id"]),
         "scope": r["scope"],
@@ -912,6 +924,12 @@ def _audit_run_row(r) -> dict:
         "failed": r["failed"],
         "skipped": r["skipped"],
         "created_by": r["created_by"],
+        "issue_bot_status": _opt("issue_bot_status"),
+        "issue_bot_last_error": _opt("issue_bot_last_error"),
+        "issue_bot_synced_at": (
+            issue_bot_synced_at.isoformat()
+            if issue_bot_synced_at else None
+        ),
     }
 
 
@@ -977,7 +995,8 @@ async def list_audit_runs(
     rows = await pool.fetch(
         f"""
         SELECT id, scope, worker_pool, trigger, started_at, finished_at,
-               status, note, total, ok, failed, skipped, created_by
+               status, note, total, ok, failed, skipped, created_by,
+               issue_bot_status, issue_bot_last_error, issue_bot_synced_at
         FROM audit_runs
         {where}
         ORDER BY started_at DESC
@@ -992,7 +1011,8 @@ async def get_audit_run(pool: asyncpg.Pool, run_id: str) -> dict | None:
     row = await pool.fetchrow(
         """
         SELECT id, scope, worker_pool, trigger, started_at, finished_at,
-               status, note, total, ok, failed, skipped, created_by
+               status, note, total, ok, failed, skipped, created_by,
+               issue_bot_status, issue_bot_last_error, issue_bot_synced_at
         FROM audit_runs WHERE id = $1
         """,
         run_id,
@@ -1272,3 +1292,117 @@ async def set_audit_schedule_skip_reason(
         "UPDATE audit_schedules SET last_skipped_reason = $2 WHERE id = $1",
         schedule_id, reason,
     )
+
+
+# ── Audit issue-bot (M5 admin audit panel) ─────────────────────────
+
+
+async def claim_audit_run_for_issue_bot(
+    pool: asyncpg.Pool,
+):
+    """Atomically claim the oldest finished audit_run that hasn't
+    been issue-synced yet. Sets ``issue_bot_status='syncing'`` so
+    other replicas / retries skip it.
+
+    Returns the claimed row (dict shaped like the public audit_run
+    projection) or ``None`` if nothing is pending. The caller is
+    expected to call :func:`mark_audit_run_issue_bot` with a
+    terminal state once the sync completes (or fails).
+    """
+    row = await pool.fetchrow(
+        """
+        UPDATE audit_runs
+        SET issue_bot_status = 'syncing'
+        WHERE id = (
+            SELECT id FROM audit_runs
+            WHERE status = 'finished'
+              AND issue_bot_status IS NULL
+            ORDER BY finished_at ASC NULLS LAST
+            LIMIT 1
+            FOR UPDATE SKIP LOCKED
+        )
+        RETURNING id, scope, worker_pool, trigger, started_at, finished_at,
+                  status, note, total, ok, failed, skipped, created_by,
+                  issue_bot_status, issue_bot_last_error, issue_bot_synced_at
+        """,
+    )
+    return _audit_run_row(row) if row else None
+
+
+async def mark_audit_run_issue_bot(
+    pool: asyncpg.Pool,
+    run_id: str,
+    *,
+    status: str,
+    error: str | None = None,
+) -> None:
+    """Stamp a terminal issue-bot status on the run. ``status`` is
+    'done' (issues synced), 'skipped' (no failures to sync / bot
+    disabled), or 'failed' (raised mid-sync — ``error`` carries the
+    summary). All three set ``issue_bot_synced_at`` to NOW() so the
+    UI can show how recently the bot ran."""
+    await pool.execute(
+        """
+        UPDATE audit_runs
+        SET issue_bot_status = $2,
+            issue_bot_last_error = $3,
+            issue_bot_synced_at = NOW()
+        WHERE id = $1
+        """,
+        run_id, status, error,
+    )
+
+
+async def reset_audit_run_issue_bot(
+    pool: asyncpg.Pool, run_id: str,
+) -> bool:
+    """Clear the issue-bot status so the next tick picks the run up
+    again. Used by the admin "retry sync" button. Returns True on a
+    real reset, False when the run wasn't found or wasn't finished
+    (in which case retrying makes no sense)."""
+    result = await pool.execute(
+        """
+        UPDATE audit_runs
+        SET issue_bot_status = NULL,
+            issue_bot_last_error = NULL,
+            issue_bot_synced_at = NULL
+        WHERE id = $1 AND status = 'finished'
+        """,
+        run_id,
+    )
+    return result.endswith(" 1")
+
+
+async def list_failed_audit_run_jobs(
+    pool: asyncpg.Pool, run_id: str,
+) -> list[dict]:
+    """All ``audit_log`` rows in ``run_id`` whose status indicates a
+    failure ('error' or 'failed'). Returns the columns the issue-bot
+    needs to fingerprint + describe the failure — key, target,
+    error message, traceback excerpt. Cached cells (status='done')
+    and queued cells that never resolved aren't included; the bot
+    only opens issues for real failures."""
+    rows = await pool.fetch(
+        """
+        SELECT id, key, scope_kind, scope_id, target_format,
+               status, error, traceback
+        FROM audit_log
+        WHERE audit_run_id = $1
+          AND status IN ('error', 'failed')
+        ORDER BY id ASC
+        """,
+        run_id,
+    )
+    return [
+        {
+            "id": r["id"],
+            "key": r["key"],
+            "scope_kind": r["scope_kind"],
+            "scope_id": r["scope_id"],
+            "target_format": r["target_format"],
+            "status": r["status"],
+            "error": r["error"],
+            "traceback": r["traceback"],
+        }
+        for r in rows
+    ]

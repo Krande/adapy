@@ -308,6 +308,66 @@ const TriggerForm: React.FC<{onCreated: () => void}> = ({onCreated}) => {
     );
 };
 
+const ISSUE_BOT_BADGE: Record<string, {cls: string; label: string}> = {
+    done:     {cls: "bg-emerald-900/40 border-emerald-700 text-emerald-200", label: "issues synced"},
+    skipped:  {cls: "bg-gray-800 border-gray-600 text-gray-400",             label: "issues skipped"},
+    failed:   {cls: "bg-red-900/40 border-red-700 text-red-200",             label: "issue sync failed"},
+    syncing:  {cls: "bg-blue-900/40 border-blue-700 text-blue-200",          label: "issues syncing…"},
+};
+
+// Surface the per-run issue-bot outcome inline with the rest of the
+// run header. Manual retry button is shown only when the bot
+// terminated in 'failed' so a happy-path run doesn't get extra
+// clickable noise.
+const IssueBotStatus: React.FC<{
+    run: AuditRun;
+    onChanged: () => void;
+}> = ({run, onChanged}) => {
+    const [busy, setBusy] = useState(false);
+    const [err, setErr] = useState<string | null>(null);
+    if (run.status !== "finished" || !run.issue_bot_status) {
+        return null;
+    }
+    const badge = ISSUE_BOT_BADGE[run.issue_bot_status] || {
+        cls: "bg-gray-800 border-gray-600 text-gray-400",
+        label: run.issue_bot_status,
+    };
+    const retry = async () => {
+        setBusy(true);
+        setErr(null);
+        try {
+            await viewerApi.adminAuditRunSyncIssues(run.id);
+            onChanged();
+        } catch (e) {
+            setErr((e as Error).message || "retry failed");
+        } finally {
+            setBusy(false);
+        }
+    };
+    return (
+        <div className="mt-1 flex items-center gap-2 text-[11px]">
+            <span
+                className={`px-1.5 py-0.5 rounded-sm border ${badge.cls}`}
+                title={run.issue_bot_last_error || badge.label}
+            >
+                {badge.label}
+            </span>
+            {(run.issue_bot_status === "failed" || run.issue_bot_status === "done") && (
+                <button
+                    type="button"
+                    onClick={retry}
+                    disabled={busy}
+                    className="text-blue-400 hover:text-blue-300 disabled:opacity-50"
+                    title="Re-run the issue-bot sync for this run"
+                >
+                    {busy ? "queued…" : "resync"}
+                </button>
+            )}
+            {err && <span className="text-red-400" role="alert">{err}</span>}
+        </div>
+    );
+};
+
 const AuditRunsTab: React.FC = () => {
     const [runs, setRuns] = useState<AuditRun[]>([]);
     const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -477,6 +537,10 @@ const AuditRunsTab: React.FC = () => {
                                             ok {selectedRun.ok} · failed {selectedRun.failed} ·
                                             skipped {selectedRun.skipped} · total {selectedRun.total}
                                         </div>
+                                        <IssueBotStatus
+                                            run={selectedRun}
+                                            onChanged={() => selectedId && loadDetail(selectedId)}
+                                        />
                                     </div>
                                 </div>
                                 <label className="text-xs text-gray-300 flex items-center gap-2 shrink-0">

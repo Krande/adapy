@@ -427,6 +427,23 @@ export interface AuditRun {
     failed: number;
     skipped: number;
     created_by: string | null;
+    // M5: issue-bot sync status. NULL until the bot has touched the
+    // run; 'syncing' while in flight; terminal 'done'/'skipped'/'failed'.
+    issue_bot_status: string | null;
+    issue_bot_last_error: string | null;
+    issue_bot_synced_at: string | null;
+}
+
+// Per-deployment configuration for the audit-failure → issue tracker
+// bridge. ``token_env_name`` references the env var that carries the
+// token (sourced from a k8s Secret); ``token_present`` reflects
+// whether that env var is set on the serving API replica.
+export interface IssueTargetConfig {
+    kind: "disabled" | "github" | "forgejo";
+    repo: string;
+    base_url: string;
+    token_env_name: string;
+    token_present: boolean;
 }
 
 // One audit_log row scoped to a parent audit_run. Narrower projection
@@ -1148,6 +1165,47 @@ export const viewerApi = {
             {method: "POST"},
         );
         return jsonOrThrow(r, `adminAuditScheduleFireNow(${scheduleId})`);
+    },
+
+    /** Admin: read the configured issue-tracker target (M5). Tokens
+     * never come back — only the env var name + a present/missing
+     * flag for the serving replica. */
+    async adminIssueTargetGet(): Promise<IssueTargetConfig> {
+        const r = await authedFetch(`${runtime.apiBase()}/admin/audit/issue-target`);
+        return jsonOrThrow(r, "adminIssueTargetGet");
+    },
+
+    /** Admin: overwrite the issue-tracker target. The actual token
+     * is rotated by changing the underlying k8s Secret + re-rolling
+     * the API deployment; this endpoint only points at which env
+     * var to read. */
+    async adminIssueTargetSet(body: {
+        kind: "disabled" | "github" | "forgejo";
+        repo: string;
+        base_url?: string;
+        token_env_name?: string;
+    }): Promise<IssueTargetConfig> {
+        const r = await authedFetch(`${runtime.apiBase()}/admin/audit/issue-target`, {
+            method: "PUT",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify(body),
+        });
+        return jsonOrThrow(r, "adminIssueTargetSet");
+    },
+
+    /** Admin: re-run the issue-bot sync for one finished audit run.
+     * Clears the prior ``issue_bot_status`` and kicks an immediate
+     * sync as a background task so the user gets quick feedback. */
+    async adminAuditRunSyncIssues(runId: string): Promise<void> {
+        const r = await authedFetch(
+            `${runtime.apiBase()}/admin/audit/runs/${encodeURIComponent(runId)}/sync-issues`,
+            {method: "POST"},
+        );
+        if (!r.ok) {
+            throw new ApiError(
+                `adminAuditRunSyncIssues(${runId})`, r.status, await readDetail(r),
+            );
+        }
     },
 
     /** Admin: kick off a background sweep that scans the scope for

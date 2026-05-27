@@ -6,6 +6,7 @@ import AuditRunsTab from "./AuditRunsTab";
 import CliTokenButton from "./CliTokenButton";
 import ConversionSettingsTab from "./ConversionSettingsTab";
 import CorpusTab from "./CorpusTab";
+import IssueTargetTab from "./IssueTargetTab";
 import ProjectsTab from "./ProjectsTab";
 import SchedulesTab from "./SchedulesTab";
 import StorageTab from "./StorageTab";
@@ -25,7 +26,7 @@ import WorkersTab from "./WorkersTab";
 // info icon hard-codes ``/admin#audit``.
 
 const VALID_TABS = new Set<AdminTab>([
-    "audit", "audit_runs", "schedules", "corpus",
+    "audit", "audit_runs", "schedules", "issues", "corpus",
     "projects", "storage", "workers", "conversion",
 ]);
 
@@ -92,6 +93,9 @@ const AdminPanel: React.FC = () => {
                     <TabButton active={tab === "schedules"} onClick={() => setTab("schedules")}>
                         Schedules
                     </TabButton>
+                    <TabButton active={tab === "issues"} onClick={() => setTab("issues")}>
+                        Issues
+                    </TabButton>
                     <TabButton active={tab === "corpus"} onClick={() => setTab("corpus")}>
                         Corpus
                     </TabButton>
@@ -123,6 +127,7 @@ const AdminPanel: React.FC = () => {
                 {tab === "audit" && <AuditLogTab/>}
                 {tab === "audit_runs" && <AuditRunsTab/>}
                 {tab === "schedules" && <SchedulesTab/>}
+                {tab === "issues" && <IssueTargetTab/>}
                 {tab === "corpus" && <CorpusTab/>}
                 {tab === "projects" && <ProjectsTab/>}
                 {tab === "storage" && <StorageTab/>}

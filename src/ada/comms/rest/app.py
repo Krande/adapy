@@ -103,19 +103,30 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 _scheduler_loop(app.state.db_pool),
                 name="audit-scheduler",
             )
+        # Issue-bot poller (M5). Only needs the DB pool — the bot
+        # talks to an HTTP forge, not NATS, so a queue-less deploy
+        # can still publish failure issues. Skipped without a pool.
+        app.state.issue_bot_task = None
+        if app.state.db_pool is not None:
+            app.state.issue_bot_task = asyncio.create_task(
+                _issue_bot_loop(app.state.db_pool),
+                name="audit-issue-bot",
+            )
         yield
-        # Cancel scheduler first so a tick in flight doesn't try to
-        # use a pool / queue that's about to be torn down.
-        task = getattr(app.state, "scheduler_task", None)
-        if task is not None and not task.done():
-            task.cancel()
-            try:
-                await task
-            except (asyncio.CancelledError, Exception):
-                # CancelledError is the normal shutdown path; any
-                # other exception we want to see in the logs but
-                # not block the rest of teardown.
-                logger.debug("scheduler task cancellation completed")
+        # Cancel scheduler + issue bot first so a tick in flight
+        # doesn't try to use a pool / queue that's about to be torn
+        # down.
+        for attr in ("scheduler_task", "issue_bot_task"):
+            task = getattr(app.state, attr, None)
+            if task is not None and not task.done():
+                task.cancel()
+                try:
+                    await task
+                except (asyncio.CancelledError, Exception):
+                    # CancelledError is the normal shutdown path; any
+                    # other exception we want to see in the logs but
+                    # not block the rest of teardown.
+                    logger.debug("background task %s cancelled", attr)
         if queue.enabled:
             try:
                 await queue.close()
@@ -1775,6 +1786,165 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             name=f"audit-dispatch-{run['id']}",
         )
 
+    # ── Issue-bot configuration + poller (M5) ─────────────────────
+
+    # Settings keys for the audit-failure → issue-tracker bridge.
+    # Tokens are NEVER stored in app_settings; the deployment puts
+    # the token in an env var (typically populated from a k8s Secret)
+    # and ``token_env_name`` here records which env var to read.
+    _ISSUE_KIND_KEY = "audit.issue_target.kind"
+    _ISSUE_REPO_KEY = "audit.issue_target.repo"
+    _ISSUE_BASE_URL_KEY = "audit.issue_target.base_url"
+    _ISSUE_TOKEN_ENV_KEY = "audit.issue_target.token_env_name"
+
+    async def _load_issue_target_config(pool) -> dict | None:
+        """Read the configured issue target from app_settings + the
+        token from the named env var. Returns ``None`` when the
+        target is disabled / unconfigured / missing the token; the
+        caller treats that as ``issue_bot_status='skipped'``.
+        """
+        kind = await db_module.get_setting(pool, _ISSUE_KIND_KEY)
+        if not kind or kind.strip().lower() in ("", "disabled", "off"):
+            return None
+        repo = await db_module.get_setting(pool, _ISSUE_REPO_KEY)
+        if not repo:
+            return None
+        token_env = await db_module.get_setting(pool, _ISSUE_TOKEN_ENV_KEY)
+        if not token_env:
+            return None
+        token = os.environ.get(token_env.strip())
+        if not token:
+            logger.warning(
+                "issue-bot: token env var %r is not set; skipping sync",
+                token_env,
+            )
+            return None
+        base_url = await db_module.get_setting(pool, _ISSUE_BASE_URL_KEY)
+        return {
+            "kind": kind.strip().lower(),
+            "repo": repo.strip(),
+            "base_url": (base_url or "").strip() or None,
+            "token": token,
+            "token_env": token_env.strip(),
+        }
+
+    async def _run_issue_bot_for(pool, run: dict) -> None:
+        """Sync one finished audit run against the configured forge.
+
+        Stamps the run's ``issue_bot_status`` to a terminal value
+        ('done' / 'skipped' / 'failed'). Catches and records every
+        exception so a single bad run can't kill the poller.
+        """
+        from . import audit_issue
+        from . import issue_client
+
+        run_id = run["id"]
+        cfg = await _load_issue_target_config(pool)
+        if cfg is None:
+            await db_module.mark_audit_run_issue_bot(
+                pool, run_id, status="skipped",
+                error="issue target disabled or token env var unset",
+            )
+            return
+
+        try:
+            failed = await db_module.list_failed_audit_run_jobs(pool, run_id)
+        except Exception as exc:
+            logger.exception("issue-bot: list_failed_audit_run_jobs failed")
+            await db_module.mark_audit_run_issue_bot(
+                pool, run_id, status="failed",
+                error=f"db read failed: {exc}",
+            )
+            return
+
+        # No failures → nothing to publish, but we still rebuild the
+        # dashboard so a clean run flips the dashboard back to "no
+        # open regressions".
+        try:
+            client = issue_client.build_client(
+                cfg["kind"], repo=cfg["repo"], token=cfg["token"],
+                base_url=cfg["base_url"],
+            )
+        except Exception as exc:
+            await db_module.mark_audit_run_issue_bot(
+                pool, run_id, status="failed",
+                error=f"client init failed: {exc}",
+            )
+            return
+
+        summary: dict
+        if failed:
+            try:
+                summary = await audit_issue.sync_run_issues(
+                    client, run=run, failed_jobs=failed,
+                )
+            except Exception as exc:
+                logger.exception("issue-bot: sync_run_issues failed")
+                await db_module.mark_audit_run_issue_bot(
+                    pool, run_id, status="failed",
+                    error=f"sync failed: {exc}",
+                )
+                return
+        else:
+            summary = {"opened": 0, "commented": 0, "errors": [], "unique_failures": 0}
+
+        try:
+            dash = await audit_issue.rebuild_dashboard_issue(client, last_run=run)
+        except Exception as exc:
+            logger.exception("issue-bot: rebuild_dashboard_issue failed")
+            dash = {"updated": False, "error": str(exc)}
+
+        if summary["errors"] or not dash.get("updated", False):
+            note_parts: list[str] = []
+            if summary["errors"]:
+                note_parts.append(
+                    f"{len(summary['errors'])} per-issue errors: "
+                    + "; ".join(summary["errors"][:3])
+                )
+            if not dash.get("updated", False) and dash.get("error"):
+                note_parts.append(f"dashboard: {dash['error']}")
+            await db_module.mark_audit_run_issue_bot(
+                pool, run_id, status="failed",
+                error=" | ".join(note_parts) or "unknown",
+            )
+            return
+
+        note = (
+            f"opened={summary['opened']} commented={summary['commented']} "
+            f"unique={summary['unique_failures']}"
+        )
+        await db_module.mark_audit_run_issue_bot(
+            pool, run_id,
+            status="done" if failed else "skipped",
+            error=None if failed else "no failures to report",
+        )
+        logger.info("issue-bot: synced run %s — %s", run_id, note)
+
+    async def _issue_bot_loop(pool) -> None:
+        """Background task: claim finished+unsynced runs, sync each
+        through :func:`_run_issue_bot_for`. Defensive — exceptions
+        in one tick don't kill the loop."""
+        TICK_INTERVAL_S = 30.0
+        logger.info("issue-bot poller: starting (tick every %ss)", TICK_INTERVAL_S)
+        try:
+            while True:
+                try:
+                    # Drain everything that's pending in one tick so a
+                    # backlog clears quickly after a restart.
+                    while True:
+                        run = await db_module.claim_audit_run_for_issue_bot(pool)
+                        if run is None:
+                            break
+                        await _run_issue_bot_for(pool, run)
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    logger.exception("issue-bot poller: tick failed")
+                await asyncio.sleep(TICK_INTERVAL_S)
+        except asyncio.CancelledError:
+            logger.info("issue-bot poller: stopped")
+            raise
+
     async def _audit_dispatch(
         run_id: str,
         scope_obj: Scope,
@@ -2214,6 +2384,124 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             _audit_dispatch, run["id"], s, worker_pool, user.sub, pool,
         )
         return JSONResponse(run, status_code=202)
+
+    # ── Issue target configuration (M5) ───────────────────────────
+    #
+    # Tokens are deployed via env vars (typically populated from a
+    # k8s Secret). The DB stores only the env var name, never the
+    # raw token. ``GET`` reports whether the configured env var is
+    # currently set on this API process so the admin sees "token
+    # configured" vs "token env var missing".
+
+    _ISSUE_TARGET_KINDS: frozenset[str] = frozenset({"disabled", "github", "forgejo"})
+
+    @admin.get("/audit/issue-target")
+    async def admin_issue_target_get(request: Request) -> JSONResponse:
+        pool = _require_pool(request)
+        kind = await db_module.get_setting(pool, _ISSUE_KIND_KEY) or "disabled"
+        repo = await db_module.get_setting(pool, _ISSUE_REPO_KEY) or ""
+        base_url = await db_module.get_setting(pool, _ISSUE_BASE_URL_KEY) or ""
+        token_env = await db_module.get_setting(pool, _ISSUE_TOKEN_ENV_KEY) or ""
+        # ``token_present`` is the truthy-state of the env var on the
+        # currently-serving replica. Replicas with different env
+        # would disagree here — that's fine, the UI label is "as
+        # seen by this API process".
+        token_present = bool(token_env and os.environ.get(token_env))
+        return JSONResponse({
+            "kind": kind,
+            "repo": repo,
+            "base_url": base_url,
+            "token_env_name": token_env,
+            "token_present": token_present,
+        })
+
+    @admin.put("/audit/issue-target")
+    async def admin_issue_target_set(
+        request: Request,
+        user: User = Depends(auth_module.current_user),
+    ) -> JSONResponse:
+        """Overwrite the four issue-target settings atomically.
+
+        Body: ``{"kind": "github"|"forgejo"|"disabled", "repo": "owner/name",
+                 "base_url": "...", "token_env_name": "..."}``.
+
+        We never accept a raw ``token`` field here — credentials live
+        in env vars (sourced from k8s Secrets); the operator changes
+        the actual token by rotating the Secret + re-rolling the
+        deployment, not via this endpoint.
+        """
+        pool = _require_pool(request)
+        body = await request.json() if await request.body() else {}
+        kind = (body.get("kind") or "disabled").strip().lower()
+        if kind not in _ISSUE_TARGET_KINDS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"kind must be one of {sorted(_ISSUE_TARGET_KINDS)}",
+            )
+        repo = (body.get("repo") or "").strip()
+        base_url = (body.get("base_url") or "").strip()
+        token_env = (body.get("token_env_name") or "").strip()
+        if kind != "disabled":
+            if not repo or "/" not in repo:
+                raise HTTPException(
+                    status_code=400,
+                    detail="repo must be 'owner/name' when kind is not disabled",
+                )
+            if kind == "forgejo" and not base_url:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "base_url required for forgejo "
+                        "(e.g. https://git.example.com/api/v1)"
+                    ),
+                )
+            if not token_env:
+                raise HTTPException(
+                    status_code=400,
+                    detail="token_env_name required when kind is not disabled",
+                )
+        await db_module.set_setting(pool, _ISSUE_KIND_KEY, kind, updated_by=user.sub)
+        await db_module.set_setting(pool, _ISSUE_REPO_KEY, repo, updated_by=user.sub)
+        await db_module.set_setting(pool, _ISSUE_BASE_URL_KEY, base_url, updated_by=user.sub)
+        await db_module.set_setting(pool, _ISSUE_TOKEN_ENV_KEY, token_env, updated_by=user.sub)
+        token_present = bool(token_env and os.environ.get(token_env))
+        return JSONResponse({
+            "kind": kind, "repo": repo, "base_url": base_url,
+            "token_env_name": token_env, "token_present": token_present,
+        })
+
+    @admin.post("/audit/runs/{run_id}/sync-issues")
+    async def admin_audit_run_sync_issues(
+        run_id: str,
+        request: Request,
+        background_tasks: BackgroundTasks,
+    ) -> JSONResponse:
+        """Manually retry the issue-bot for one run. Clears the
+        run's ``issue_bot_status`` so the next poller tick picks it
+        up — also kicks off an immediate sync as a BackgroundTask so
+        the user doesn't have to wait the full 30 s for the poller."""
+        pool = _require_pool(request)
+        run = await db_module.get_audit_run(pool, run_id)
+        if run is None:
+            raise HTTPException(status_code=404, detail="audit run not found")
+        if run["status"] != "finished":
+            raise HTTPException(
+                status_code=400,
+                detail="run is not finished; sync only meaningful on finished runs",
+            )
+        ok = await db_module.reset_audit_run_issue_bot(pool, run_id)
+        if not ok:
+            raise HTTPException(status_code=409, detail="reset failed (race?)")
+        # Kick the bot immediately for snappier feedback. The poller
+        # would catch it on its next tick anyway, but the user just
+        # clicked a button and waiting 30s is unfriendly.
+        async def _kick() -> None:
+            claimed = await db_module.claim_audit_run_for_issue_bot(pool)
+            if claimed is not None:
+                await _run_issue_bot_for(pool, claimed)
+
+        background_tasks.add_task(_kick)
+        return JSONResponse({"id": run_id, "status": "queued"}, status_code=202)
 
     @admin.get("/audit/{audit_id}")
     async def admin_audit_get(
