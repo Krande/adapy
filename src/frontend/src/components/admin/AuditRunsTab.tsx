@@ -127,7 +127,11 @@ const RunGrid: React.FC<{
     }
 
     return (
-        <div className="overflow-auto">
+        // ``h-full`` so the parent's ``min-h-0 overflow-hidden`` can
+        // clamp the inner overflow-auto. Without it the grid grows
+        // to content height and mobile scrolls the page instead of
+        // the table.
+        <div className="h-full overflow-auto">
             <table className="text-xs border-collapse">
                 <thead className="sticky top-0 bg-gray-900 z-10">
                     <tr>
@@ -622,7 +626,7 @@ const AuditRunsTab: React.FC = () => {
                             {detailError && (
                                 <div className="text-xs text-red-400 px-3 py-2">{detailError}</div>
                             )}
-                            <div className="flex-1 overflow-hidden">
+                            <div className="flex-1 min-h-0 overflow-hidden">
                                 <RunGrid jobs={selectedJobs} metric={metric}/>
                             </div>
                         </>
