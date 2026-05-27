@@ -74,7 +74,76 @@ jobs:
           # edge cases without per-event tuning.
           fetch-depth: 0
 
+      - id: last_deployed
+        # Read the SHA of whatever's currently deployed in gitops so
+        # the diff base survives cancel-in-progress. Without this, a
+        # build run that gets cancelled mid-way (because a newer
+        # push superseded it) leaves its src/ada/** changes
+        # un-built; the next run would diff only ``before..HEAD``
+        # which doesn't include them. Diffing against the last
+        # ACTUALLY-DEPLOYED SHA means every change since that
+        # deployment is rebuilt, regardless of how many runs were
+        # cancelled along the way.
+        env:
+          GITOPS_REMOTE: ${{ secrets.GITOPS_REMOTE }}
+          GITOPS_TOKEN: ${{ secrets.GITOPS_TOKEN }}
+          GITOPS_BRANCH: ${{ secrets.GITOPS_BRANCH }}
+          VIEWER_GITOPS_MANIFEST: ${{ secrets.VIEWER_GITOPS_MANIFEST }}
+          VIEWER_IMAGE: ${{ secrets.VIEWER_REGISTRY_IMAGE }}
+        run: |
+          # Best-effort: missing secrets / parse failure → leave the
+          # output empty so the next step falls back to the previous
+          # tip ``before`` behaviour. Never block the build on a
+          # gitops read.
+          if [ -z "$GITOPS_REMOTE" ] || [ -z "$GITOPS_TOKEN" ] || \
+             [ -z "$GITOPS_BRANCH" ] || [ -z "$VIEWER_GITOPS_MANIFEST" ] || \
+             [ -z "$VIEWER_IMAGE" ]; then
+            echo "gitops secrets unavailable; skipping last-deployed lookup."
+            echo "sha=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          WORK=$(mktemp -d)
+          cd "$WORK"
+          if ! git clone --depth 1 --branch "$GITOPS_BRANCH" \
+              "https://x-access-token:${GITOPS_TOKEN}@${GITOPS_REMOTE}" gitops 2>/dev/null; then
+            echo "gitops clone failed; skipping last-deployed lookup."
+            echo "sha=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          MANIFEST="gitops/${VIEWER_GITOPS_MANIFEST}"
+          if [ ! -f "$MANIFEST" ]; then
+            echo "manifest $MANIFEST not present; skipping."
+            echo "sha=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Find the ``tag: sha-XXXXXXX`` line immediately after the
+          # viewer image's ``repository:`` block. Same shape
+          # apply_bump rewrites in the gitops job.
+          last_sha=$(awk -v img="$VIEWER_IMAGE" '
+            BEGIN { found=0 }
+            {
+              s = $0
+              sub(/^[[:space:]]*/, "", s); sub(/[[:space:]]*$/, "", s)
+              if (!found && s == "repository: " img) { found=1; next }
+              if (found && $0 ~ /^[[:space:]]*tag:[[:space:]]*sha-[0-9a-f]+/) {
+                sub(/.*tag:[[:space:]]*sha-/, "")
+                sub(/[[:space:]].*$/, "")
+                print
+                exit
+              }
+            }
+          ' "$MANIFEST")
+          if [ -z "$last_sha" ]; then
+            echo "no sha-XXX tag found in $MANIFEST; falling back to before."
+            echo "sha=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "last-deployed viewer image SHA: $last_sha"
+          echo "sha=$last_sha" >> "$GITHUB_OUTPUT"
+
       - id: filter
+        env:
+          LAST_DEPLOYED_SHA: ${{ steps.last_deployed.outputs.sha }}
         run: |
           # Capture run-start epoch up front. viewer-build later
           # compares it against Harbor's push_time on the adacpp
@@ -82,12 +151,35 @@ jobs:
           # base-image rebuild has caught up.
           run_start_epoch=$(date +%s)
 
-          # Compare against the previous tip. workflow_dispatch and
-          # the initial branch push (before=000…) both lack a parent
-          # — fall back to "build everything" so the manual trigger
-          # is always useful and a fresh branch ships both images.
-          BEFORE="${{ github.event.before }}"
-          if [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+          # Prefer the last-deployed SHA from gitops as the diff
+          # base — it survives cancel-in-progress, so a cancelled
+          # worker build's src/ada/** changes get picked up by the
+          # next run instead of being silently stranded.
+          # Fall back to ``before`` when gitops lookup yielded
+          # nothing; fall back to "build everything" when neither
+          # is available (workflow_dispatch, first push, or first-
+          # ever build before gitops has a real tag).
+          BEFORE=""
+          if [ -n "$LAST_DEPLOYED_SHA" ]; then
+            # The last-deployed SHA is a short 7-char prefix; resolve
+            # to a full SHA in the local clone before diffing. If it
+            # doesn't resolve (e.g., the registry tag predates this
+            # branch's history), fall through to ``before``.
+            if git cat-file -e "${LAST_DEPLOYED_SHA}^{commit}" 2>/dev/null; then
+              BEFORE=$(git rev-parse "${LAST_DEPLOYED_SHA}")
+              echo "Using last-deployed SHA as diff base: $BEFORE"
+            else
+              echo "Last-deployed SHA $LAST_DEPLOYED_SHA not in local history; falling back to before."
+            fi
+          fi
+          if [ -z "$BEFORE" ]; then
+            BEFORE_GHE="${{ github.event.before }}"
+            if [ -n "$BEFORE_GHE" ] && [ "$BEFORE_GHE" != "0000000000000000000000000000000000000000" ]; then
+              BEFORE="$BEFORE_GHE"
+            fi
+          fi
+
+          if [ -z "$BEFORE" ]; then
             CHANGED=""
           else
             CHANGED=$(git diff --name-only "$BEFORE" "$GITHUB_SHA")
