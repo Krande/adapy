@@ -471,10 +471,21 @@ const AuditRunsTab: React.FC = () => {
 
             <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
                 {/* History list. Side-by-side w-80 on md+; full-width
-                    on mobile, hidden once a run is selected. */}
+                    on mobile, hidden once a run is selected.
+
+                    Mobile scroll wiring: parent is ``flex-col``, so
+                    this div needs ``flex-1 min-h-0`` to claim the
+                    available column height AND let its inner
+                    overflow-auto kick in. Without ``min-h-0`` flex
+                    children default to ``min-height: auto`` which
+                    refuses to shrink below content size — the page
+                    ends up scrolling instead of the list. Desktop
+                    reverts to a fixed ``md:w-80`` row child with
+                    natural height from the row's overflow-hidden
+                    parent. */}
                 <div className={
-                    "md:w-80 md:shrink-0 md:border-r md:border-b-0 " +
-                    "border-b border-gray-800 overflow-auto " +
+                    "md:w-80 md:shrink-0 md:flex-none md:border-r md:border-b-0 " +
+                    "flex-1 min-h-0 border-b border-gray-800 overflow-auto " +
                     (showHistory ? "block" : "hidden md:block")
                 }>
                     {listError && (
