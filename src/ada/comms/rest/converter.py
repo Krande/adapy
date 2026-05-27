@@ -544,18 +544,31 @@ def _load_with_ada(src_path: pathlib.Path, ext: str):
     raise UnsupportedFormat(f"ada path does not handle {ext!r}")
 
 
-def _export_with_ada(model, target_format: str, out_path: pathlib.Path, on_progress: ProgressFn) -> bytes:
-    """Run the matching ada exporter and read back the produced bytes."""
+def _export_with_ada(
+    model,
+    target_format: str,
+    out_path: pathlib.Path,
+    on_progress: ProgressFn,
+    *,
+    merge_meshes: bool | None = None,
+) -> bytes:
+    """Run the matching ada exporter and read back the produced bytes.
+
+    ``merge_meshes`` is the per-job override for the ada-loadable →
+    GLB pipeline. ``True`` (default) merges every geometry into one
+    glTF node per material; ``False`` yields one node per source
+    object (debug aid — lets you compare exporter output by Plate /
+    Beam / Face name in any glTF viewer). ``None`` falls back to the
+    ``ADA_GLB_MERGE_MESHES`` env var so admin-flipped defaults and
+    explicit per-job kwargs both work; the kwarg wins when set.
+    """
     if target_format == "glb":
         on_progress("tessellating", 0.55)
         buf = io.BytesIO()
-        # Debug knob: ``ADA_GLB_MERGE_MESHES=false`` (or 0/no) yields one
-        # glTF node per source object, naming each by its plate/face id.
-        # Useful when triaging tessellation issues — you can compare
-        # exporter output by name in any glTF viewer.
-        import os as _os
-        merge_env = (_os.environ.get("ADA_GLB_MERGE_MESHES") or "").strip().lower()
-        merge_meshes = not (merge_env in {"0", "false", "no", "off"})
+        if merge_meshes is None:
+            import os as _os
+            merge_env = (_os.environ.get("ADA_GLB_MERGE_MESHES") or "").strip().lower()
+            merge_meshes = not (merge_env in {"0", "false", "no", "off"})
         model.to_gltf(buf, merge_meshes=merge_meshes)
         on_progress("ready", 1.0)
         return buf.getvalue()
@@ -571,16 +584,31 @@ def _export_with_ada(model, target_format: str, out_path: pathlib.Path, on_progr
     return out_path.read_bytes()
 
 
-def _via_ada(src_path: pathlib.Path, source_ext: str, target_format: str, on_progress: ProgressFn) -> bytes:
+def _via_ada(
+    src_path: pathlib.Path,
+    source_ext: str,
+    target_format: str,
+    on_progress: ProgressFn,
+    *,
+    merge_meshes: bool | None = None,
+) -> bytes:
     """Heavy path: load with ada, export to target format. Used for any
     non-trivial source/target combination that needs the full ada-py
-    stack. Source already lives on disk (worker streamed it there)."""
+    stack. Source already lives on disk (worker streamed it there).
+
+    ``merge_meshes`` is forwarded to :func:`_export_with_ada` so the
+    per-job kwarg path established by the convert() options dispatch
+    reaches the actual GLB writer call. Other targets ignore it.
+    """
     on_progress("parsing", 0.15)
     suffix = ".glb" if target_format == "glb" else f".{target_format}"
     out_path = pathlib.Path(tempfile.mkstemp(suffix=suffix)[1])
     try:
         model = _load_with_ada(src_path, source_ext)
-        return _export_with_ada(model, target_format, out_path, on_progress)
+        return _export_with_ada(
+            model, target_format, out_path, on_progress,
+            merge_meshes=merge_meshes,
+        )
     finally:
         try:
             out_path.unlink()
@@ -588,7 +616,13 @@ def _via_ada(src_path: pathlib.Path, source_ext: str, target_format: str, on_pro
             pass
 
 
-def _via_bundle(src_path: pathlib.Path, target_format: str, on_progress: ProgressFn) -> bytes:
+def _via_bundle(
+    src_path: pathlib.Path,
+    target_format: str,
+    on_progress: ProgressFn,
+    *,
+    options: dict | None = None,
+) -> bytes:
     """Unpack a zip, validate the include chain, then run ada-py on the
     entry-point with the bundle's tempdir as cwd so relative INCLUDEs
     resolve.
@@ -597,6 +631,9 @@ def _via_bundle(src_path: pathlib.Path, target_format: str, on_progress: Progres
     worker translates into a job-level ``error`` audit row with the
     user-visible reason ("missing include: foo.inp", "ambiguous
     entry-point: a.inp, b.inp", etc.).
+
+    ``options`` is forwarded to :func:`_export_with_ada` so per-job
+    knobs (``merge_meshes``, …) survive the unpack indirection.
     """
     from . import bundle as bundle_mod
 
@@ -606,6 +643,7 @@ def _via_bundle(src_path: pathlib.Path, target_format: str, on_progress: Progres
     # rejects pathological archives before we'd OOM).
     data = src_path.read_bytes()
     tmp, info = bundle_mod.unpack_and_inspect(data)
+    opts = options or {}
     try:
         on_progress("parsing", 0.20)
         # ada.from_fem reads the file at `info.entry`; the includes it
@@ -615,7 +653,10 @@ def _via_bundle(src_path: pathlib.Path, target_format: str, on_progress: Progres
         suffix = ".glb" if target_format == "glb" else f".{target_format}"
         out_path = pathlib.Path(tempfile.mkstemp(suffix=suffix)[1])
         try:
-            return _export_with_ada(model, target_format, out_path, on_progress)
+            return _export_with_ada(
+                model, target_format, out_path, on_progress,
+                merge_meshes=opts.get("merge_meshes"),
+            )
         finally:
             try:
                 out_path.unlink()
@@ -959,6 +1000,7 @@ def convert(
     *,
     step: int | None = None,
     field: str | None = None,
+    options: dict | None = None,
 ) -> bytes:
     """Convert a local source file to the requested target format.
 
@@ -976,6 +1018,18 @@ def convert(
     ``step`` / ``field`` only apply to FEA result sources (.sif /
     .sin). When unset the FEA handler picks the first available pair,
     matching the behavior of the auto-convert at upload time.
+
+    ``options`` is a per-job knob dict — keys match option ``name``
+    fields declared at the ``@converter(options=[...])`` site for the
+    selected (from, to) pair. Forwarded to the handler as kwargs; the
+    handler's adapter (registered by ``@converter``) unpacks the
+    options it understands and ignores the rest, so passing unknown
+    keys is harmless. Legacy env-var-driven options (use_sat_pcurves
+    / pcurve_drive_edge / skip_shapefix) still flow through env vars
+    set on the worker subprocess; they're not in the registry schema
+    today because the consuming code is in deep OCC paths
+    (ada/occ/geom/surfaces.py) that don't yet accept these as
+    function parameters. Migrating them is the natural follow-up.
     """
     progress = on_progress or (lambda _stage, _frac: None)
     progress("starting", 0.0)
@@ -989,7 +1043,7 @@ def convert(
     # via the inner entry-point's extension. The recursion stops one
     # level deep because no inner format is itself ``.zip``.
     if src_ext in _BUNDLE_EXTS:
-        return _via_bundle(src_path, fmt, progress)
+        return _via_bundle(src_path, fmt, progress, options=options)
 
     handler = ConverterRegistry.lookup(src_ext, fmt)
     if handler is None:
@@ -997,7 +1051,8 @@ def convert(
             f"no converter registered for {src_ext!r} -> {fmt!r}; "
             f"viable targets: {ConverterRegistry.targets_for(src_ext) or 'none'}"
         )
-    return handler(src_path, progress, step=step, field=field)
+    opts = options or {}
+    return handler(src_path, progress, step=step, field=field, **opts)
 
 
 def supported_extensions() -> Iterable[str]:
@@ -1047,14 +1102,43 @@ def _register_trimesh_to_glb() -> None:
 
 
 def _register_ada_loadable() -> None:
+    # Schema for the ada-loadable → GLB pairs. ``merge_meshes`` flows
+    # straight into :func:`_export_with_ada`'s ``model.to_gltf`` call.
+    # Declared per-target so it shows up on the GLB row only — IFC /
+    # XML / STL / OBJ writers don't honour it.
+    glb_options = [
+        {
+            "name": "merge_meshes",
+            "type": "bool",
+            "default": True,
+            "description": (
+                "Merge every geometry into a single glTF node per "
+                "material (default). Disable to emit one node per "
+                "source object — useful for debugging tessellation "
+                "by Plate / Beam / Face name."
+            ),
+        },
+    ]
+
     # Original three targets (glb/ifc/xml) via the long-standing ada
     # writers.
     for ext in _ADA_LOADABLE_EXTS:
         for tgt in ("glb", "ifc", "xml"):
-            def _h(src, on_progress, *, _ext=ext, _tgt=tgt, **_kw):
-                return _via_ada(src, _ext, _tgt, on_progress)
+            def _h(
+                src, on_progress, *,
+                _ext=ext, _tgt=tgt,
+                merge_meshes=None,
+                **_kw,
+            ):
+                return _via_ada(
+                    src, _ext, _tgt, on_progress,
+                    merge_meshes=merge_meshes,
+                )
 
-            ConverterRegistry.register(ext, tgt, _h)
+            ConverterRegistry.register(
+                ext, tgt, _h,
+                options=(glb_options if tgt == "glb" else None),
+            )
 
     # New M2 targets: stl / obj (via to_trimesh_scene) and step (via
     # to_stp). All eight ada-loadable sources support all three new

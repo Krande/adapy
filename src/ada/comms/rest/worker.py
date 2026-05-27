@@ -576,6 +576,32 @@ async def _process_one(
             )
             return
 
+        # Build the kwargs convert() receives in the child process.
+        # ``step`` / ``field`` are SIF/SIN-specific; ``options`` is
+        # the registry-driven per-job knob dict (e.g.
+        # ``{"merge_meshes": False}``) declared at
+        # ``@converter(options=...)`` sites. Pass-through is uniform —
+        # convert() forwards the dict to the matched handler and the
+        # handler unpacks the knobs it understands; unknown keys are
+        # ignored harmlessly.
+        #
+        # Legacy env-var-driven options (use_sat_pcurves /
+        # pcurve_drive_edge / skip_shapefix) still flow via env vars
+        # on the child fork (see ``env_overrides`` below) because
+        # their consuming code lives in deep OCC paths that haven't
+        # been migrated to take these as function parameters yet.
+        # The same option name can ride both rails — the kwarg wins
+        # at the handler call site; the env var is the fallback for
+        # adapy internals that haven't learned the kwarg path.
+        convert_options: dict = {}
+        if per_job:
+            for k, v in per_job.items():
+                if k == "profile_conversions":
+                    continue  # already consumed as a meta kwarg above
+                if v is None:
+                    continue  # tri-state "clear"; nothing to forward
+                convert_options[k] = v
+
         # Run convert() in a forked child. Crash isolation + rusage on
         # exit + per-/proc heartbeat sampling all in one. See
         # subprocess_convert.run_isolated_convert for the rationale.
@@ -585,7 +611,11 @@ async def _process_one(
                 src_path,
                 job.source_key,
                 job.target_format,
-                convert_kwargs={"step": job.step, "field": job.field},
+                convert_kwargs={
+                    "step": job.step,
+                    "field": job.field,
+                    "options": convert_options or None,
+                },
                 on_progress=_on_progress,
                 on_sample=_on_sample,
                 profile_in_child=profile_enabled,

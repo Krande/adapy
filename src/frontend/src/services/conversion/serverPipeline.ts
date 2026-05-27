@@ -28,10 +28,11 @@ export async function convertViaServer(
     opts?: {
         step?: number;
         field?: string;
-        conversionOptions?: Partial<Record<
-            "use_sat_pcurves" | "pcurve_drive_edge" | "skip_shapefix" | "merge_meshes" | "profile_conversions",
-            boolean | null
-        >>;
+        // Per-job knobs forwarded to /convert as ``conversion_options``.
+        // Names + types come from the worker matrix
+        // (``runtime.conversionOptionsFor(ext, target)``); ConversionRow
+        // collects them from the rendered option widgets.
+        conversionOptions?: Record<string, boolean | string | number | null>;
     },
 ): Promise<string> {
     // Track jobs per (source, format) so a parallel ifc + xml conversion

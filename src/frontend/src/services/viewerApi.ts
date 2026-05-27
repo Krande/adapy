@@ -817,15 +817,15 @@ export const viewerApi = {
         opts?: {
             step?: number;
             field?: string;
-            // Per-job overrides for the global app_settings toggles.
-            // Each value is a tri-state: true | false | null. ``null``
-            // means "drop any global override and let adapy's in-code
-            // default win for this job"; absent keys inherit the
-            // global setting.
-            conversionOptions?: Partial<Record<
-                "use_sat_pcurves" | "pcurve_drive_edge" | "skip_shapefix" | "merge_meshes" | "profile_conversions",
-                boolean | null
-            >>;
+            // Per-job knobs. Keys come from the conversion matrix's
+            // ``options[<target>]`` schema (declared at the worker
+            // ``@converter(options=...)`` site) plus the legacy
+            // hardcoded set (use_sat_pcurves / pcurve_drive_edge /
+            // skip_shapefix / profile_conversions) that still ride
+            // the env-var rail. Values are tri-state native:
+            // ``null`` clears any global override; otherwise the
+            // type matches the option's declared ``type``.
+            conversionOptions?: Record<string, boolean | string | number | null>;
         },
     ): Promise<ConvertResponse> {
         const body: Record<string, unknown> = {

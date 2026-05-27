@@ -27,6 +27,7 @@ from .auth import User
 from .config import Settings, load_settings
 from .scope import Scope, can_access as scope_can_access
 from .converter import (
+    ConverterRegistry,
     LEGACY_CONVERT_EXTS,
     TARGET_FORMATS,
     UnsupportedFormat,
@@ -833,31 +834,40 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             field = str(raw_field).strip() or None
             if not field:
                 raise HTTPException(status_code=400, detail="field must be non-empty")
-        # Optional per-conversion overrides for the global app_settings
-        # toggles (use_sat_pcurves / pcurve_drive_edge / skip_shapefix /
-        # merge_meshes / profile_conversions). Unknown keys are dropped
-        # rather than 400'd so a future-server-old-client mix degrades
-        # to "global setting wins".
-        _ALLOWED_OPTS = {
+        # Optional per-conversion overrides. Allowlist is the union of:
+        #   1. Names declared at any ``@converter(options=[...])``
+        #      site — registry-driven path that flows the value to
+        #      the handler as a kwarg.
+        #   2. Legacy env-var-driven names whose consuming code in
+        #      ada/occ/geom/surfaces.py still reads ``os.environ``.
+        #      These stay until the surfaces.py path learns to take
+        #      these as function parameters; migrating them retires
+        #      the legacy half-union below.
+        # Unknown keys are dropped rather than 400'd so a future-server-
+        # old-client mix degrades to "global setting wins".
+        _LEGACY_ENV_OPTS = {
             "use_sat_pcurves",
             "pcurve_drive_edge",
             "skip_shapefix",
-            "merge_meshes",
             "profile_conversions",
         }
+        _ALLOWED_OPTS = ConverterRegistry.all_options() | _LEGACY_ENV_OPTS
         raw_opts = body.get("conversion_options") or {}
         conversion_options: dict | None = None
         if isinstance(raw_opts, dict) and raw_opts:
-            cleaned: dict[str, str | None] = {}
+            # Preserve native types (bool stays bool, int stays int)
+            # so the worker's kwarg path forwards them as-is to the
+            # handler. The legacy env-var path in worker.py already
+            # ``str()``s on its way to the env-var write, so storing
+            # natives doesn't regress that rail.
+            cleaned: dict[str, object] = {}
             for k, v in raw_opts.items():
                 if k not in _ALLOWED_OPTS:
                     continue
                 if v is None:
                     cleaned[k] = None
-                elif isinstance(v, bool):
-                    cleaned[k] = "true" if v else "false"
                 else:
-                    cleaned[k] = str(v)
+                    cleaned[k] = v
             if cleaned:
                 conversion_options = cleaned
         if not source_key:

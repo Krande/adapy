@@ -1,10 +1,104 @@
 import React, {useCallback, useEffect, useMemo, useState} from "react";
 import {convertViaServer} from "@/services/conversion/serverPipeline";
 import {viewerApi, TargetFormat} from "@/services/viewerApi";
-import {runtime} from "@/runtime/config";
+import {runtime, ConversionOption} from "@/runtime/config";
 import {useConversionStore} from "@/state/conversionStore";
 import {useConvertPageStore, ConvertRow} from "@/state/convertPageStore";
 import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
+
+type OptionValue = boolean | string | number | null;
+
+// Render one per-job-knob widget driven by the @converter(options=...)
+// schema. Type-dispatch is intentionally narrow — the wire format
+// declares the shape, the worker enforces it, so the frontend only
+// needs to map the four documented types to a sensible HTML input.
+// Future option types can land here without touching ConversionRow's
+// state plumbing.
+const OptionWidget: React.FC<{
+    opt: ConversionOption;
+    value: OptionValue | undefined;
+    onChange: (v: OptionValue) => void;
+    disabled?: boolean;
+}> = ({opt, value, onChange, disabled = false}) => {
+    // Default to the schema's declared default whenever the user
+    // hasn't picked one yet. Re-applying this on every render keeps
+    // the input controlled without an extra useEffect.
+    const effective = value === undefined ? opt.default ?? null : value;
+
+    if (opt.type === "bool") {
+        return (
+            <label
+                className="inline-flex items-center gap-1 text-xs text-gray-300 cursor-pointer"
+                title={opt.description || opt.name}
+            >
+                <input
+                    type="checkbox"
+                    checked={effective === true}
+                    onChange={(e) => onChange(e.target.checked)}
+                    disabled={disabled}
+                    className="accent-blue-500"
+                />
+                <span>{opt.name}</span>
+            </label>
+        );
+    }
+    if (opt.type === "enum" && opt.enum) {
+        return (
+            <label
+                className="inline-flex items-center gap-1 text-xs text-gray-300"
+                title={opt.description || opt.name}
+            >
+                <span>{opt.name}:</span>
+                <select
+                    className="bg-gray-900 border border-gray-600 rounded-sm px-1 py-0.5 text-xs text-gray-100"
+                    value={String(effective ?? "")}
+                    onChange={(e) => onChange(e.target.value)}
+                    disabled={disabled}
+                >
+                    {opt.enum.map((v) => (
+                        <option key={v} value={v}>{v}</option>
+                    ))}
+                </select>
+            </label>
+        );
+    }
+    if (opt.type === "int") {
+        return (
+            <label
+                className="inline-flex items-center gap-1 text-xs text-gray-300"
+                title={opt.description || opt.name}
+            >
+                <span>{opt.name}:</span>
+                <input
+                    type="number"
+                    className="w-20 bg-gray-900 border border-gray-600 rounded-sm px-1 py-0.5 text-xs text-gray-100"
+                    value={effective === null ? "" : String(effective)}
+                    onChange={(e) => {
+                        const n = parseInt(e.target.value, 10);
+                        onChange(Number.isFinite(n) ? n : null);
+                    }}
+                    disabled={disabled}
+                />
+            </label>
+        );
+    }
+    // string fallback (and unknown future types — best-effort).
+    return (
+        <label
+            className="inline-flex items-center gap-1 text-xs text-gray-300"
+            title={opt.description || opt.name}
+        >
+            <span>{opt.name}:</span>
+            <input
+                type="text"
+                className="w-32 bg-gray-900 border border-gray-600 rounded-sm px-1 py-0.5 text-xs text-gray-100"
+                value={effective === null ? "" : String(effective)}
+                onChange={(e) => onChange(e.target.value || null)}
+                disabled={disabled}
+            />
+        </label>
+    );
+};
 
 // Per-file row on the /convert page. Owns the target-format pick, the
 // "Convert" trigger, and the post-conversion download / view-in-3D
@@ -48,6 +142,11 @@ const ConversionRow: React.FC<{row: ConvertRow}> = ({row}) => {
     const ext = useMemo(() => extOf(row.sourceKey), [row.sourceKey]);
     const [availableTargets, setAvailableTargets] = useState<TargetFormat[]>([]);
     const [submitting, setSubmitting] = useState(false);
+    // Per-option user picks. Keyed by option name; undefined means
+    // "the user hasn't touched this knob, use the schema default".
+    // Reset whenever ``target`` changes since the option schema is
+    // (from, to)-specific.
+    const [optionValues, setOptionValues] = useState<Record<string, OptionValue>>({});
 
     // Use the row's `target` if set, else the best-guess default.
     const target: TargetFormat = row.target ?? suggestedTarget(ext);
@@ -81,11 +180,31 @@ const ConversionRow: React.FC<{row: ConvertRow}> = ({row}) => {
         return () => { cancelled = true; };
     }, [current, row.sourceKey]);
 
+    // Reset option picks when the target changes — the schema is
+    // (from, to)-specific, so old keys may not be valid against the
+    // new target's option set.
+    useEffect(() => {
+        setOptionValues({});
+    }, [target]);
+
     const onConvert = useCallback(async () => {
         if (!current) return;
         setSubmitting(true);
         try {
-            await convertViaServer(scopeUrlPart(current), row.sourceKey, target);
+            // Drop ``undefined`` entries — convertViaServer / the
+            // API both treat presence as "explicit override", and
+            // we only want to send keys the user actually touched
+            // (or that have a non-default schema value).
+            const conversionOptions: Record<string, OptionValue> = {};
+            for (const [k, v] of Object.entries(optionValues)) {
+                if (v !== undefined) conversionOptions[k] = v;
+            }
+            await convertViaServer(
+                scopeUrlPart(current), row.sourceKey, target,
+                Object.keys(conversionOptions).length
+                    ? {conversionOptions}
+                    : undefined,
+            );
         } catch (e) {
             // convertViaServer already writes the error to the
             // conversion store, which the row reads below — no extra
@@ -95,7 +214,7 @@ const ConversionRow: React.FC<{row: ConvertRow}> = ({row}) => {
         } finally {
             setSubmitting(false);
         }
-    }, [current, row.sourceKey, target]);
+    }, [current, row.sourceKey, target, optionValues]);
 
     const onDownload = useCallback(async () => {
         if (!current || !job?.derivedKey) return;
@@ -141,6 +260,11 @@ const ConversionRow: React.FC<{row: ConvertRow}> = ({row}) => {
         : matrixTargets.length > 0
             ? (matrixTargets as TargetFormat[])
             : ["glb", "ifc", "xml"];
+
+    // Per-(from, target) option schema. Pulled from the merged
+    // worker matrix; empty list when the pair has no per-job knobs,
+    // in which case the option panel below collapses to nothing.
+    const optionSchema = runtime.conversionOptionsFor(ext, target);
 
     const isRunning = job?.status === "queued" || job?.status === "running";
     const isDone = job?.status === "done";
@@ -212,6 +336,23 @@ const ConversionRow: React.FC<{row: ConvertRow}> = ({row}) => {
                     </>
                 )}
             </div>
+
+            {optionSchema.length > 0 && !isDone && (
+                <div className="flex items-center gap-4 flex-wrap pt-1 border-t border-gray-700/50">
+                    <span className="text-[11px] uppercase tracking-wider text-gray-500">
+                        options
+                    </span>
+                    {optionSchema.map((opt) => (
+                        <OptionWidget
+                            key={opt.name}
+                            opt={opt}
+                            value={optionValues[opt.name]}
+                            onChange={(v) => setOptionValues((prev) => ({...prev, [opt.name]: v}))}
+                            disabled={isRunning || submitting}
+                        />
+                    ))}
+                </div>
+            )}
 
             {job && (
                 <div className="space-y-1">
