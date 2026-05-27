@@ -85,17 +85,37 @@ function buildGrid(jobs: AuditRunJob[]): {
     };
 }
 
-function cellLabel(metric: MetricKey, job: AuditRunJob | undefined, sourceSizeMb: number | null): string {
+// Numeric value of a cell under the currently-selected metric. Used
+// both for the cell label AND for the value-based color gradient
+// across the grid. Returns null when the cell has no data for that
+// metric (queued / cached / failed cells often lack RSS samples).
+function cellValue(metric: MetricKey, job: AuditRunJob | undefined): number | null {
+    if (!job) return null;
+    if (metric === "peak_rss_kb") return job.peak_rss_kb ?? null;
+    if (metric === "duration_ms") return job.duration_ms ?? null;
+    if (metric === "write_bytes") return job.write_bytes ?? null;
+    if (metric === "mem_per_mb") {
+        // RSS / source MB. Use ``read_bytes`` as the source size
+        // proxy — that's what the worker pulled in from storage, and
+        // the only per-job size we have in the AuditRunJob shape.
+        // <1 KB inputs floor at 0.001 MB to avoid divide-by-zero
+        // blowing up the gradient.
+        if (job.peak_rss_kb == null || job.read_bytes == null) return null;
+        const sourceMb = Math.max(job.read_bytes / 1024 / 1024, 0.001);
+        return (job.peak_rss_kb / 1024) / sourceMb;
+    }
+    return null;
+}
+
+function cellLabel(metric: MetricKey, job: AuditRunJob | undefined): string {
     if (!job) return "";
     if (metric === "status") return job.status ?? "";
-    if (metric === "peak_rss_kb") return fmtBytes(job.peak_rss_kb ? job.peak_rss_kb * 1024 : null);
-    if (metric === "duration_ms") return fmtMs(job.duration_ms);
-    if (metric === "write_bytes") return fmtBytes(job.write_bytes);
-    if (metric === "mem_per_mb") {
-        if (!job.peak_rss_kb || !sourceSizeMb || sourceSizeMb <= 0) return "—";
-        const ratio = (job.peak_rss_kb / 1024) / sourceSizeMb;
-        return `${ratio.toFixed(1)}×`;
-    }
+    const v = cellValue(metric, job);
+    if (v == null) return "—";
+    if (metric === "peak_rss_kb") return fmtBytes(v * 1024);
+    if (metric === "duration_ms") return fmtMs(v);
+    if (metric === "write_bytes") return fmtBytes(v);
+    if (metric === "mem_per_mb") return `${v.toFixed(1)}×`;
     return "";
 }
 
@@ -111,11 +131,76 @@ function cellTooltip(job: AuditRunJob | undefined): string {
     return parts.join("\n");
 }
 
+// 3-stop colour palette (low / mid / high) for value-based metric
+// shading. Distinct from the status palette so the user can tell at
+// a glance whether they're reading "did this conversion pass?"
+// (status colours) or "how heavy was it?" (gradient colours). Cells
+// with non-OK status keep the status palette regardless of metric
+// — a failed cell is still failed when you're looking at RSS.
+const METRIC_COLOR_BUCKETS: {cls: string}[] = [
+    {cls: "bg-emerald-900/40 border-emerald-700 text-emerald-100"},  // fast / light
+    {cls: "bg-amber-900/40 border-amber-700 text-amber-100"},        // medium
+    {cls: "bg-orange-900/60 border-orange-600 text-orange-100"},     // heavy
+    {cls: "bg-red-900/60 border-red-600 text-red-100"},              // outlier
+];
+
 const RunGrid: React.FC<{
     jobs: AuditRunJob[];
     metric: MetricKey;
 }> = ({jobs, metric}) => {
     const grid = useMemo(() => buildGrid(jobs), [jobs]);
+
+    // For value-based metrics, compute percentile thresholds across
+    // every OK cell in the grid. Lets the colour bucket a cell
+    // relative to the rest of the run rather than against an
+    // absolute threshold that wouldn't generalise across vastly
+    // different scopes. ``p25 / p50 / p90`` split into the four
+    // METRIC_COLOR_BUCKETS — green / amber / orange / red.
+    const thresholds = useMemo(() => {
+        if (metric === "status") return null;
+        const vals: number[] = [];
+        for (const j of jobs) {
+            const status = j.status ?? "";
+            // Only successful runs feed the gradient — failed cells
+            // would otherwise skew the high end with sentinel /
+            // partial values. The failed cells themselves get the
+            // status palette so they're still visible.
+            if (status !== "done" && status !== "ok") continue;
+            const v = cellValue(metric, j);
+            if (v == null) continue;
+            vals.push(v);
+        }
+        if (vals.length === 0) return null;
+        vals.sort((a, b) => a - b);
+        const q = (p: number) => {
+            const idx = Math.min(vals.length - 1, Math.floor(p * vals.length));
+            return vals[idx];
+        };
+        return {p25: q(0.25), p50: q(0.5), p90: q(0.9)};
+    }, [jobs, metric]);
+
+    const cellClass = (job: AuditRunJob | undefined): string => {
+        if (!job) return "bg-gray-900 border-gray-800 text-gray-500";
+        const status = job.status ?? "";
+        // Non-OK statuses always render in their status palette so a
+        // failed cell stays red regardless of which metric the user
+        // selected — same recognisability as the pass/fail view.
+        if (metric === "status" || status !== "done" && status !== "ok") {
+            return STATUS_COLOR[status] || "bg-gray-900 border-gray-800 text-gray-500";
+        }
+        if (!thresholds) {
+            return "bg-gray-900 border-gray-800 text-gray-500";
+        }
+        const v = cellValue(metric, job);
+        if (v == null) {
+            return "bg-gray-900 border-gray-800 text-gray-500";
+        }
+        let bucket = 0;
+        if (v > thresholds.p90) bucket = 3;
+        else if (v > thresholds.p50) bucket = 2;
+        else if (v > thresholds.p25) bucket = 1;
+        return METRIC_COLOR_BUCKETS[bucket].cls;
+    };
 
     if (grid.files.length === 0) {
         return (
@@ -156,9 +241,8 @@ const RunGrid: React.FC<{
                             </td>
                             {grid.targets.map((target) => {
                                 const job = grid.cells.get(`${file}::${target}`);
-                                const status = job?.status ?? "";
-                                const cls = STATUS_COLOR[status] || "bg-gray-900 border-gray-800 text-gray-500";
-                                const label = cellLabel(metric, job, null);
+                                const cls = cellClass(job);
+                                const label = cellLabel(metric, job);
                                 return (
                                     <td
                                         key={target}
