@@ -110,23 +110,67 @@ class JobQueue:
     def enabled(self) -> bool:
         return self._cfg.url is not None
 
+    # Default capability tag for jobs with no explicit ``target_capability``.
+    # Maps to the per-pool subject suffix the base worker subscribes to,
+    # so a user-driven /convert with no pool selection always lands on the
+    # base pool. Capability workers (audit, abaqus) only get jobs whose
+    # ``target_capability`` matches their tag — NATS subject routing
+    # replaces the in-loop NAK gate that previously burned the message's
+    # delivery budget when a capability pod pulled a job it couldn't
+    # handle.
+    DEFAULT_CAPABILITY = "base"
+
     async def connect(self) -> None:
         if not self.enabled:
             raise QueueDisabled("ADA_VIEWER_NATS_URL not set")
         self._nc = await nats.connect(self._cfg.url)
         self._js = self._nc.jetstream()
 
-        # Stream — idempotent.
+        # Stream — idempotent. Carries both the legacy bare subject
+        # (so messages already in flight at the moment of upgrade
+        # keep draining) and the new wildcard form
+        # ``<subject>.<capability>`` that powers per-pool routing.
+        # The wildcard is what every new ``enqueue`` publishes on;
+        # the bare subject is kept in the subject list only so the
+        # stream accepts in-flight ``convert`` messages already
+        # queued by a pre-upgrade replica.
+        stream_subjects = [self._cfg.subject, f"{self._cfg.subject}.>"]
         try:
             await self._js.add_stream(
                 StreamConfig(
                     name=self._cfg.stream,
-                    subjects=[self._cfg.subject],
+                    subjects=stream_subjects,
                     retention=RetentionPolicy.WORK_QUEUE,
                 )
             )
         except BadRequestError:
-            # already exists with compatible config
+            # Stream exists with a different config; bring it
+            # forward to include the wildcard subject. ``update_stream``
+            # is idempotent and tolerant of the existing config so
+            # repeated calls are safe.
+            try:
+                await self._js.update_stream(
+                    StreamConfig(
+                        name=self._cfg.stream,
+                        subjects=stream_subjects,
+                        retention=RetentionPolicy.WORK_QUEUE,
+                    )
+                )
+            except Exception:
+                # Failures here are non-fatal — the stream still
+                # works for the old subject; just the new wildcard
+                # routing won't activate until manual intervention.
+                pass
+
+        # Remove the legacy un-filtered durable consumer if a
+        # previous deploy created it. The new per-pool design uses
+        # ``<durable>-<capability>`` consumers; leaving the legacy
+        # ``<durable>`` consumer alive would just be dead weight on
+        # the stream (no one subscribes to it after this deploy).
+        # Idempotent: ignore NotFound.
+        try:
+            await self._js.delete_consumer(self._cfg.stream, self._cfg.durable)
+        except Exception:
             pass
 
         # KV bucket — idempotent.
@@ -183,9 +227,58 @@ class JobQueue:
             conversion_options=conversion_options,
             target_capability=target_capability,
         )
-        await self._put(job)
-        await self._js.publish(self._cfg.subject, job.job_id.encode("utf-8"))
+        # Resolve which pool should handle this job. When the caller
+        # passes ``target_capability`` explicitly (admin audit form,
+        # CI pipeline tagging), honour it. Otherwise look up the
+        # source extension in the live worker registry: whichever
+        # pool advertises this extension picks it up. Falls back to
+        # ``DEFAULT_CAPABILITY`` (= base) when nothing matches —
+        # which surfaces as an explicit misroute error at the worker
+        # instead of stuck-pending forever, so the operator sees
+        # the actual problem (unsupported file type, missing pool).
+        if target_capability is None:
+            target_capability = await self._capability_for_ext(source_key)
+            # Persist the resolved capability so the worker / UI can
+            # show "audit-dispatched to abaqus" without a second
+            # registry lookup.
+            job.target_capability = target_capability
+            await self._put(job)
+        cap = (target_capability or self.DEFAULT_CAPABILITY).strip().lower()
+        subject = f"{self._cfg.subject}.{cap}"
+        await self._js.publish(subject, job.job_id.encode("utf-8"))
         return job
+
+    async def _capability_for_ext(self, source_key: str) -> str:
+        """Look up the capability tag of the first online worker
+        whose advertised ``source_exts`` includes the source's
+        suffix. Used by :func:`enqueue` to route a job to the pool
+        that can actually process it (``.odb`` → abaqus etc.) when
+        the caller didn't pin a pool explicitly.
+
+        Falls back to :data:`DEFAULT_CAPABILITY` when no online
+        worker advertises the extension. The worker-side misroute
+        guard catches that case and writes an explicit error so the
+        operator sees what's wrong instead of a silently-stuck job.
+        """
+        import pathlib
+        ext = pathlib.PurePosixPath(source_key).suffix.lower()
+        try:
+            workers = await self.list_workers()
+        except Exception:
+            return self.DEFAULT_CAPABILITY
+        for w in workers:
+            if not w.get("online"):
+                continue
+            for src in (w.get("source_exts") or []):
+                if not isinstance(src, str):
+                    continue
+                if src.strip().lower() == ext:
+                    caps = w.get("capabilities") or []
+                    for c in caps:
+                        if isinstance(c, str) and c.strip():
+                            return c.strip().lower()
+                    return self.DEFAULT_CAPABILITY
+        return self.DEFAULT_CAPABILITY
 
     async def get(self, job_id: str) -> Job | None:
         try:
@@ -400,18 +493,33 @@ class JobQueue:
     # within the new wait + the MAX_DELIVERIES cap.
     _ACK_WAIT_SECONDS = 30 * 60
 
-    async def pull_subscribe(self):
-        """Create a durable pull-subscriber on the work-queue stream.
+    async def pull_subscribe(self, capability: str | None = None):
+        """Create a per-pool durable pull-subscriber on the work-queue stream.
 
-        Workers fetch in batches; the durable name (from config) lets
-        multiple worker pods share the same consumer cursor. The
-        consumer's ``ack_wait`` is bumped above JetStream's default
-        30 s — see ``_ACK_WAIT_SECONDS`` for the rationale.
+        Each worker pool subscribes to ONE capability subject suffix
+        (default ``"base"``). The durable name embeds the capability
+        so each pool gets its own cursor and JetStream's subject
+        filter ensures a pod only ever pulls messages tagged for its
+        pool. Replaces the previous shared-consumer design that
+        forced every worker to NAK messages from other pools — that
+        NAK loop burned the per-message delivery budget and surfaced
+        as ``worker exceeded 3 delivery attempts`` errors on perfectly
+        valid jobs (see plan/v2 audit-pool routing notes).
+
+        Idempotent: ``pull_subscribe`` matches an existing durable by
+        name if the config is compatible, so multiple pods in the
+        same pool share one cursor.
         """
+        cap = (capability or self.DEFAULT_CAPABILITY).strip().lower()
+        filter_subject = f"{self._cfg.subject}.{cap}"
+        durable = f"{self._cfg.durable}-{cap}"
         return await self._js.pull_subscribe(
-            subject=self._cfg.subject,
-            durable=self._cfg.durable,
-            config=ConsumerConfig(ack_wait=self._ACK_WAIT_SECONDS),
+            subject=filter_subject,
+            durable=durable,
+            config=ConsumerConfig(
+                ack_wait=self._ACK_WAIT_SECONDS,
+                filter_subject=filter_subject,
+            ),
         )
 
 

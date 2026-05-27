@@ -833,7 +833,18 @@ async def _run() -> None:
         except Exception:
             logger.exception("worker: db connect failed; running without audit updates")
 
-    sub = await queue.pull_subscribe()
+    # Subscribe to ONLY this pool's subject — NATS does the routing
+    # so this worker never sees jobs tagged for another capability.
+    # ``primary_capability`` is the first entry in ADA_WORKER_CAPABILITIES
+    # (defaults to ``base`` when the env is unset). Workers with
+    # multiple capabilities pick the first one as their pool — running
+    # a worker that bridges two pools needs two distinct deployments.
+    primary_capability = capabilities[0].lower() if capabilities else "base"
+    logger.info(
+        "worker: subscribing to capability pool %r (consumer durable suffix)",
+        primary_capability,
+    )
+    sub = await queue.pull_subscribe(primary_capability)
 
     stop = asyncio.Event()
 
@@ -886,74 +897,48 @@ async def _run() -> None:
                 except Exception:
                     delivery_count = 1
 
-                # Capability gate. Multi-pool deployments fan one
-                # JetStream subject across heterogeneous workers
-                # (base + capability pools that share the same queue).
-                # If this pool's stream-reader registry doesn't cover
-                # the job's source extension AND the legacy /convert
-                # pipeline can't handle it either, NAK with a small
-                # delay so a more capable worker has a chance to grab
-                # the redelivery. Cap the dance at a few rounds so a
-                # missing-capability misroute eventually surfaces as
-                # a real bake error rather than spinning forever.
-                if delivery_count <= 3:
-                    peeked = await queue.get(job_id)
-                    if peeked is not None:
-                        ext = pathlib.PurePosixPath(
-                            peeked.source_key
-                        ).suffix.lower()
-                        # Capability gate (M2 audit worker pools).
-                        # Audit-dispatcher jobs carry a
-                        # ``target_capability`` like ``"audit"`` so
-                        # they only land on regression workers. If
-                        # this worker's capability set doesn't
-                        # cover the requested tag, NAK with a small
-                        # delay so a matching pool can grab the
-                        # redelivery. Regular user-driven /convert
-                        # leaves ``target_capability`` None — every
-                        # worker accepts the gate.
-                        wanted_cap = (
-                            (peeked.target_capability or "").strip().lower()
+                # Misrouted-message safety net. Routing is now done at
+                # the NATS subject layer (each pool subscribes to its
+                # own capability-suffixed subject), so a message
+                # arriving here should always be one this pool can
+                # handle. If it isn't — bug in routing or a job
+                # enqueued before the upgrade — fail it immediately
+                # rather than NAK-looping. NAK would burn through the
+                # delivery budget and surface as the misleading
+                # "worker exceeded N delivery attempts" error; the
+                # explicit failure points at the real problem.
+                peeked = await queue.get(job_id)
+                if peeked is not None:
+                    ext = pathlib.PurePosixPath(peeked.source_key).suffix.lower()
+                    legacy_ok = ext in LEGACY_CONVERT_EXTS and (
+                        ext_allow_set is None or ext in ext_allow_set
+                    )
+                    can_handle = ext in source_ext_set or legacy_ok
+                    if not can_handle:
+                        misroute_msg = (
+                            f"misrouted: pool capability {primary_capability!r} "
+                            f"can't handle .{ext.lstrip('.')} "
+                            f"(supported here: {sorted(source_ext_set) or ['legacy convert']})"
                         )
-                        if wanted_cap and wanted_cap not in capability_set:
-                            logger.info(
-                                "worker: NAK job %s wants capability=%s "
-                                "(this worker has %s) delivery=%d",
-                                job_id, wanted_cap, sorted(capability_set),
-                                delivery_count,
-                            )
-                            try:
-                                await msg.nak(delay=2.0)
-                            except Exception:
-                                logger.exception(
-                                    "worker: nak failed for %s", job_id,
-                                )
-                            continue
-
-                        # Legacy /convert path also gated by the
-                        # allowlist when set — otherwise an abacpp pod
-                        # restricted to .odb would still pick up
-                        # legacy converter jobs (.ifc, .step, …) just
-                        # because LEGACY_CONVERT_EXTS doesn't go
-                        # through the registry.
-                        legacy_ok = ext in LEGACY_CONVERT_EXTS and (
-                            ext_allow_set is None or ext in ext_allow_set
+                        logger.warning(
+                            "worker: %s — job %s", misroute_msg, job_id,
                         )
-                        can_handle = ext in source_ext_set or legacy_ok
-                        if not can_handle:
-                            logger.info(
-                                "worker: NAK job %s ext=%s not in registry "
-                                "(have stream=%s legacy convert) delivery=%d",
-                                job_id, ext, sorted(source_ext_set),
-                                delivery_count,
+                        try:
+                            await queue.update(
+                                job_id, status=JOB_STATUS_ERROR,
+                                stage="misrouted", progress=0.0,
+                                error=misroute_msg,
                             )
-                            try:
-                                await msg.nak(delay=2.0)
-                            except Exception:
-                                logger.exception(
-                                    "worker: nak failed for %s", job_id,
-                                )
-                            continue
+                            await _audit_done(
+                                db_pool, job_id, "error", misroute_msg, time.monotonic(),
+                            )
+                        except Exception:
+                            logger.exception(
+                                "worker: failed to mark misrouted job %s as error",
+                                job_id,
+                            )
+                        await msg.ack()
+                        continue
 
                 logger.info(
                     "worker: picked up job %s (delivery %d/%d)",
