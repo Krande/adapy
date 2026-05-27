@@ -53,7 +53,28 @@ class Shape(BackendGeom):
             opacity=opacity,
             parent=parent,
         )
-        self._geom = geom
+        # STEP/SAT read paths historically passed the raw OCC
+        # ``TopoDS_Shape`` into ``geom`` directly, since the parametric
+        # path had nothing to round-trip through. Storing OCC objects
+        # as a persistent attribute breaks every "ship this Part across
+        # a process boundary" use case (pickle, multiprocessing fork,
+        # cache to disk, send over the wire). Detect the OCC type here
+        # and route it to the dedicated transient slot ``_occ_cache``
+        # instead — ``_geom`` is then guaranteed to be either an
+        # ``ada.geom.Geometry`` wrapper or ``None``.
+        self._geom = None
+        self._occ_cache = None
+        if geom is not None:
+            try:
+                from OCC.Core.TopoDS import TopoDS_Shape as _TopoDS_Shape
+                _occ_avail = True
+            except ImportError:
+                _TopoDS_Shape = None  # type: ignore[assignment]
+                _occ_avail = False
+            if _occ_avail and isinstance(geom, _TopoDS_Shape):
+                self._occ_cache = geom
+            else:
+                self._geom = geom
         self._mass = mass
         if cog is not None and not isinstance(cog, Point):
             cog = Point(*cog)
@@ -108,36 +129,25 @@ class Shape(BackendGeom):
         return shape_to_tri_mesh(self.solid_occ())
 
     def solid_occ(self) -> TopoDS_Shape:
-        from OCC.Core.TopoDS import TopoDS_Shape as _TopoDS_Shape
-
         from ada.occ.geom import geom_to_occ_geom
 
-        # STEP/SAT-imported shapes carry the raw OCC TopoDS_Shape directly
-        # (read_step_file → extract_occ_shapes → Shape(name, occ_shape)),
-        # without the ada.geom.Geometry wrapper that the rest of the
-        # pipeline normally builds on. There's no parametric primitive
-        # to round-trip through here — the OCC body is the source of
-        # truth — so hand it back unchanged.
-        if isinstance(self._geom, _TopoDS_Shape):
-            return self._geom
+        # STEP/SAT-imported shapes (read_step_file →
+        # extract_occ_shapes → Shape(name, occ_shape)) hold the OCC
+        # body in the transient ``_occ_cache`` slot — no parametric
+        # primitive to round-trip through, the OCC body is the source
+        # of truth. Hand it back unchanged when present.
+        if self._occ_cache is not None:
+            return self._occ_cache
 
         return geom_to_occ_geom(self.solid_geom())
 
     def solid_geom(self) -> Geometry:
-        from OCC.Core.TopoDS import TopoDS_Shape as _TopoDS_Shape
-
+        # ``_geom`` is now guaranteed to be an ``ada.geom.Geometry``
+        # wrapper or ``None`` (the constructor routes OCC bodies to
+        # ``_occ_cache`` instead). Callers that need the OCC body
+        # use :meth:`solid_occ` which prefers the cache.
         if self.geom is None:
             raise NotImplementedError(f"solid_geom() not implemented for {self.__class__.__name__}")
-
-        if isinstance(self.geom, _TopoDS_Shape):
-            # Raw OCC body with no parametric description (STEP/SAT
-            # import path). Callers that need geometry-of-data should
-            # check ``solid_occ()`` instead — it short-circuits and
-            # returns the OCC shape directly.
-            raise NotImplementedError(
-                f"Shape {self.name!r} carries a raw OCC body (no ada.geom.Geometry wrapper); "
-                "use solid_occ() to access the OCC shape directly"
-            )
 
         import ada.geom.solids as geo_so
         import ada.geom.surfaces as geo_su
@@ -159,15 +169,41 @@ class Shape(BackendGeom):
             value = Units.from_str(value)
         if value != self._units:
             scale_factor = Units.get_scale_factor(self._units, value)
-            if self._geom is not None:
+            if self._geom is not None or self._occ_cache is not None:
                 from ada.occ.utils import transform_shape
 
-                self._geom = transform_shape(self.solid_occ(), scale_factor)
+                # ``transform_shape`` returns an OCC body; cache it
+                # transiently so a subsequent pickle / fork doesn't
+                # try to serialise an OCC object.
+                self._occ_cache = transform_shape(self.solid_occ(), scale_factor)
 
             if self.metadata.get("ifc_source") is True:
                 raise NotImplementedError()
 
             self._units = value
+
+    def __getstate__(self):
+        """Drop transient OCC state when pickling.
+
+        ``_occ_cache`` may hold a ``TopoDS_Shape`` (STEP/SAT import,
+        or the cached transform result above) — OCC objects aren't
+        picklable, and even when wrapped in some forks they don't
+        survive a process boundary cleanly. Callers that need the
+        OCC body after unpickling can rebuild it via
+        :meth:`solid_occ` from the parametric ``_geom``; raw-OCC
+        Shapes lose their geometry on round-trip, which is the
+        honest answer (we don't have a serialisable representation
+        for arbitrary OCC bodies).
+        """
+        state = self.__dict__.copy()
+        state.pop("_occ_cache", None)
+        return state
+
+    def __setstate__(self, state):
+        self.__dict__.update(state)
+        # Restore the slot so attribute access doesn't AttributeError
+        # before something calls ``solid_occ`` to rebuild.
+        self._occ_cache = None
 
     @property
     def material(self) -> Material:

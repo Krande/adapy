@@ -40,24 +40,19 @@ from ada.config import logger
 
 
 def _is_raw_occ_shape(shape) -> bool:
-    """STEP / SAT imports produce ``Shape`` instances whose ``_geom``
-    is a raw OCC ``TopoDS_Shape`` (no ``ada.geom.Geometry`` wrapper).
-    The parametric IFC write path can't represent these — it
-    dereferences ``.geom.geometry`` which doesn't exist on a raw OCC
-    body. Tesselation handles them cleanly. Returns True for those.
+    """STEP / SAT imports produce ``Shape`` instances whose only
+    geometry is an OCC ``TopoDS_Shape`` sitting in the transient
+    ``_occ_cache`` slot — there's no ``ada.geom.Geometry`` wrapper
+    to drive the parametric IFC path. Tesselation handles them
+    cleanly. Returns True for those.
 
-    Done as a local helper rather than ``isinstance`` against the
-    OCC class directly so non-OCC builds (Pyodide / docs-only env)
-    don't carry a hard import.
+    Done as a local helper without importing OCC at module load
+    so non-OCC builds (Pyodide / docs-only env) don't carry a
+    hard import on every IFC write.
     """
-    geom = getattr(shape, "_geom", None)
-    if geom is None:
+    if getattr(shape, "_geom", None) is not None:
         return False
-    try:
-        from OCC.Core.TopoDS import TopoDS_Shape as _TopoDS_Shape
-    except ImportError:
-        return False
-    return isinstance(geom, _TopoDS_Shape)
+    return getattr(shape, "_occ_cache", None) is not None
 
 
 def _default_relative_placement(f):

@@ -47,7 +47,10 @@ class PrimSphere(Shape):
 
             self.cog = [x * scale_factor for x in self.cog]
             self.radius = self.radius * scale_factor
-            self._geom = self.geom_occ()
+            # OCC body cached transiently — never stored in the
+            # serialisable ``_geom`` slot. The parametric (cog,
+            # radius) is the durable representation.
+            self._occ_cache = self.geom_occ()
             self._units = value
 
     def __repr__(self):

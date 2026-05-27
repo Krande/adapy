@@ -30,7 +30,10 @@ class PrimCyl(Shape):
             self.p1 = [x * scale_factor for x in self.p1]
             self.p2 = [x * scale_factor for x in self.p2]
             self.r = self.r * scale_factor
-            self._geom = self.solid_occ()
+            # OCC body cached transiently — never stored in the
+            # serialisable ``_geom`` slot. The parametric (p1, p2, r)
+            # is the durable representation.
+            self._occ_cache = self.solid_occ()
 
     def solid_occ(self) -> TopoDS_Shape:
         from ada.occ.geom import geom_to_occ_geom
