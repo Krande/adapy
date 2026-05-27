@@ -332,65 +332,94 @@ class SifReader:
     def get_gelref(self):
         return self._gelref1
 
+    # Card-name → DataCard dispatch maps. Built lazily on first
+    # ``eval_flags`` call so the dataclass default-factory dance
+    # stays simple. Replacing the original ``startswith`` chain
+    # (one comparison per card per line × ~15 cards × 1.1M lines)
+    # with O(1) dict lookups is the hot-path win — SIF profiling
+    # showed ``eval_flags`` was 38 s of a 67 s SIF→GLB conversion,
+    # dominated by chained ``str.startswith`` calls on every line.
+    _other_map: dict | None = None
+    _section_map: dict | None = None
+    _result_map: dict | None = None
+
+    def _build_dispatch_maps(self) -> None:
+        self._other_map = {c.name: c for c in OTHER_CARDS}
+        self._section_map = {c.name: c for c in SECTION_CARDS}
+        self._result_map = {c.name: c for c in RESULT_CARDS}
+
     def eval_flags(self, line: str):
+        if self._other_map is None:
+            self._build_dispatch_maps()
+
         stripped = line.strip()
-        is_skipped_flag = False
+        if not stripped:
+            return
 
-        # Nodes
-        if stripped.startswith(cards.GCOORD.name):
+        # Continuation lines (numeric or signed-numeric prefix) don't
+        # carry a card name; they're consumed by the parent
+        # ``iter_card`` call. The first-block elif in the original
+        # used ``isnumeric()`` for this same gate.
+        first = stripped[0]
+        if first.isdigit() or first == "-":
+            return
+
+        # Single tokenisation: take everything up to the first space
+        # as the card name. SIF cards always start at column 0 with
+        # the card name immediately followed by whitespace.
+        space_idx = stripped.find(" ")
+        token = stripped if space_idx < 0 else stripped[:space_idx]
+
+        is_skipped_flag = True  # default; cleared by the GCOORD /
+                                # GNODE / GELMNT1 / RESULT_CARDS
+                                # branches to match original semantics
+
+        # First-block exclusive cards (Nodes, Elements).
+        if token == cards.GCOORD.name:
             self.nodes = np.array(list(self.read_gcoords(stripped)))
-        elif stripped.startswith(cards.GNODE.name):
+            is_skipped_flag = False
+        elif token == cards.GNODE.name:
             self.node_ids = np.array(list(self.read_gnodes(stripped)))
-
-        # Elements
-        elif stripped.startswith(cards.GELMNT1.name):
+            is_skipped_flag = False
+        elif token == cards.GELMNT1.name:
             self.elements = list(self.read_gelmnts(stripped))
+            is_skipped_flag = False
 
-        elif stripped[0].isnumeric() is False and stripped[0] != "-":
-            is_skipped_flag = True
-
-        # Sections
-        if stripped.startswith(cards.GELREF1.name):
+        # Sections (GELREF1 is independent in the original).
+        if token == cards.GELREF1.name:
             self._gelref1 = list(self.iter_card(cards.GELREF1, self.file, stripped))
 
-        for other_card in OTHER_CARDS:
-            if stripped.startswith(other_card.name):
-                if other_card.name in self._other.keys():
-                    self._other[other_card.name] += list(self.iter_card(other_card, self.file, stripped))
-                else:
-                    self._other[other_card.name] = list(self.iter_card(other_card, self.file, stripped))
+        other_card = self._other_map.get(token)
+        if other_card is not None:
+            new_rows = list(self.iter_card(other_card, self.file, stripped))
+            existing = self._other.get(token)
+            if existing is None:
+                self._other[token] = new_rows
+            else:
+                existing.extend(new_rows)
 
-        for sec_card in SECTION_CARDS:
-            if stripped.startswith(sec_card.name):
-                # SIF files emit section cards in non-contiguous
-                # blocks — GIORH records can appear, then a GBEAMG /
-                # TDSECT block, then more GIORH later in the file.
-                # Each ``iter_card`` call only consumes the *current*
-                # contiguous block, so we have to accumulate across
-                # encounters rather than overwrite. Pre-fix: a model
-                # with three GIORH blocks would land with only the
-                # last block in ``self._sections["GIORH"]`` — silently
-                # dropping the rest and starving every line element
-                # referencing a sec_id from an earlier block.
-                new_rows = list(self.iter_card(sec_card, self.file, stripped))
-                if sec_card.name in self._sections:
-                    self._sections[sec_card.name] += new_rows
-                else:
-                    self._sections[sec_card.name] = new_rows
+        sec_card = self._section_map.get(token)
+        if sec_card is not None:
+            # SIF files emit section cards in non-contiguous blocks —
+            # GIORH records can appear, then a GBEAMG / TDSECT block,
+            # then more GIORH later in the file. Each ``iter_card``
+            # call only consumes the *current* contiguous block, so
+            # we accumulate across encounters rather than overwrite.
+            new_rows = list(self.iter_card(sec_card, self.file, stripped))
+            existing = self._sections.get(token)
+            if existing is None:
+                self._sections[token] = new_rows
+            else:
+                existing.extend(new_rows)
 
-        # if len(self._other) > 0 and self._gelref1 is not None and len(self._sections) > 0:
-        #     self.read_fem_sections()
-
-        # Results
-        for res_card in RESULT_CARDS:
-            if stripped.startswith(res_card.name):
-                self.results.append((res_card.name, list(self.read_results(res_card.name, stripped))))
-                is_skipped_flag = False
+        res_card = self._result_map.get(token)
+        if res_card is not None:
+            self.results.append((token, list(self.read_results(token, stripped))))
+            is_skipped_flag = False
 
         if is_skipped_flag:
-            flag = stripped.split()[0]
-            if flag not in self.skipped_flags:
-                self.skipped_flags.append(flag)
+            if token not in self.skipped_flags:
+                self.skipped_flags.append(token)
 
     def iter_card(self, datacard: DataCard, f: Iterator, curr_line: str):
         curr_elements = [float(x) for x in curr_line.split()[1:]]

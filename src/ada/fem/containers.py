@@ -192,23 +192,55 @@ class FemElements:
         """Calculate COG of your FEM model based on element mass distributed to element and nodes"""
         from itertools import chain
 
-        from ada.core.vector_transforms import global_2_local_nodes
+        from ada.core.vector_transforms import (
+            global_2_local_nodes,
+            rotation_matrix_csys_rotate,
+        )
         from ada.core.vector_utils import poly_area, vector_length
 
+        # Per-section rotation-matrix cache. ``calc_sh_elem`` runs
+        # once per shell element (65k for the Ship1T1 deck); without
+        # the cache it rebuilds a Quaternion-based rotation matrix
+        # for every element even though all elements in a section
+        # share the same local frame. Cached version drops 65k
+        # builds → ~100 (one per FemSection).
+        global_csys = [(1.0, 0.0, 0.0), (0.0, 1.0, 0.0)]
+        rot_cache: dict[int, np.ndarray] = {}
+
+        def _section_rot(fem_sec) -> np.ndarray:
+            key = id(fem_sec)
+            rm = rot_cache.get(key)
+            if rm is None:
+                rm = rotation_matrix_csys_rotate(
+                    global_csys, [fem_sec.local_x, fem_sec.local_y],
+                )
+                rot_cache[key] = rm
+            return rm
+
         def calc_sh_elem(el: Elem):
-            locx = el.fem_sec.local_x
-            locy = el.fem_sec.local_y
-            locz = el.fem_sec.local_z
+            fem_sec = el.fem_sec
+            rot_mat = _section_rot(fem_sec)
             origin = el.nodes[0]
-            t = el.fem_sec.thickness
+            origin_p = origin.p if isinstance(origin, Node) else np.asarray(origin)
+            t = fem_sec.thickness
 
-            ln = global_2_local_nodes([locx, locy, locz], origin, el.nodes)
+            # Vectorised global→local: stack all node coordinates,
+            # subtract origin, multiply by the cached rotation. The
+            # original looped per-node with ``[np.dot(rot, p-origin)
+            # for p in nodes]`` which was the bulk of the 24.9 s
+            # ``global_2_local_nodes`` total in the .inp → .obj
+            # profile.
+            nodes_p = np.asarray(
+                [(n.p if isinstance(n, Node) else n) for n in el.nodes],
+                dtype=float,
+            )
+            ln = (rot_mat @ (nodes_p - origin_p).T).T
 
-            x, y, z = list(zip(*ln))
+            x, y = ln[:, 0], ln[:, 1]
             area = poly_area(x, y)
             vol_ = t * area
-            mass = vol_ * el.fem_sec.material.model.rho
-            center = sum([e.p for e in el.nodes]) / len(el.nodes)
+            mass = vol_ * fem_sec.material.model.rho
+            center = nodes_p.mean(axis=0)
 
             return mass, center, vol_
 
