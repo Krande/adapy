@@ -7,6 +7,7 @@ import CliTokenButton from "./CliTokenButton";
 import ConversionSettingsTab from "./ConversionSettingsTab";
 import CorpusTab from "./CorpusTab";
 import IssueTargetTab from "./IssueTargetTab";
+import PerformanceTab from "./PerformanceTab";
 import ProjectsTab from "./ProjectsTab";
 import SchedulesTab from "./SchedulesTab";
 import StorageTab from "./StorageTab";
@@ -26,8 +27,8 @@ import WorkersTab from "./WorkersTab";
 // info icon hard-codes ``/admin#audit``.
 
 const VALID_TABS = new Set<AdminTab>([
-    "audit", "audit_runs", "schedules", "issues", "corpus",
-    "projects", "storage", "workers", "conversion",
+    "audit", "audit_runs", "schedules", "issues", "performance",
+    "corpus", "projects", "storage", "workers", "conversion",
 ]);
 
 function readTabFromHash(): AdminTab {
@@ -96,6 +97,9 @@ const AdminPanel: React.FC = () => {
                     <TabButton active={tab === "issues"} onClick={() => setTab("issues")}>
                         Issues
                     </TabButton>
+                    <TabButton active={tab === "performance"} onClick={() => setTab("performance")}>
+                        Performance
+                    </TabButton>
                     <TabButton active={tab === "corpus"} onClick={() => setTab("corpus")}>
                         Corpus
                     </TabButton>
@@ -128,6 +132,7 @@ const AdminPanel: React.FC = () => {
                 {tab === "audit_runs" && <AuditRunsTab/>}
                 {tab === "schedules" && <SchedulesTab/>}
                 {tab === "issues" && <IssueTargetTab/>}
+                {tab === "performance" && <PerformanceTab/>}
                 {tab === "corpus" && <CorpusTab/>}
                 {tab === "projects" && <ProjectsTab/>}
                 {tab === "storage" && <StorageTab/>}

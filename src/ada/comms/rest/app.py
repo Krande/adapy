@@ -2503,6 +2503,147 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         background_tasks.add_task(_kick)
         return JSONResponse({"id": run_id, "status": "queued"}, status_code=202)
 
+    # ── Cross-conversion perf dashboard (M6) ──────────────────────
+    #
+    # GET /admin/audit/perf?since=30&trigger=all
+    #   Aggregates audit_log convert rows over the last N days,
+    #   returns per-cell metrics + streaming-candidate verdict.
+    #
+    # GET /admin/audit/perf/thresholds
+    # PUT /admin/audit/perf/thresholds
+    #   Read / update the streaming-classifier thresholds. Defaults
+    #   ship in audit_perf.DEFAULT_THRESHOLDS; admin overrides land
+    #   in app_settings under audit.perf.thresholds.<key>.
+
+    _PERF_TRIGGERS: frozenset[str] = frozenset({"all", "audit", "user"})
+
+    async def _load_perf_thresholds(pool) -> dict:
+        """Read the admin-overridable thresholds from app_settings,
+        layered on top of the ``audit_perf.DEFAULT_THRESHOLDS``. Keys
+        live under ``audit.perf.thresholds.<short_name>``; values are
+        stored as JSON-encoded floats so a typo'd string can't sneak
+        through to the classifier."""
+        from . import audit_perf
+        overrides: dict[str, float] = {}
+        for key in audit_perf.DEFAULT_THRESHOLDS:
+            raw = await db_module.get_setting(
+                pool, f"audit.perf.thresholds.{key}",
+            )
+            if raw is None:
+                continue
+            try:
+                overrides[key] = float(raw)
+            except (TypeError, ValueError):
+                continue
+        return audit_perf.merged_thresholds(overrides)
+
+    @admin.get("/audit/perf")
+    async def admin_audit_perf(
+        request: Request,
+        since: int = 30,
+        trigger: str = "all",
+    ) -> JSONResponse:
+        """Cross-conversion perf snapshot. ``since`` is days back from
+        now; ``trigger`` is one of ``all`` / ``audit`` / ``user``.
+
+        Response shape:
+
+        ``{"cells": [...with streaming verdict],
+           "thresholds": {...effective},
+           "since_days": N,
+           "trigger": "...",
+           "generated_at": "ISO-8601"}``
+
+        Every cell in ``cells`` carries a ``streaming`` field
+        (``{"is_candidate": bool, "signals": [...]}``) so the UI can
+        render the badge without an extra round trip.
+        """
+        from datetime import datetime, timezone
+        from . import audit_perf
+
+        pool = _require_pool(request)
+        trig = (trigger or "all").strip().lower()
+        if trig not in _PERF_TRIGGERS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"trigger must be one of {sorted(_PERF_TRIGGERS)}",
+            )
+        cells = await db_module.aggregate_conversion_metrics(
+            pool,
+            since_days=since,
+            trigger=None if trig == "all" else trig,
+        )
+        thresholds = await _load_perf_thresholds(pool)
+        annotated = audit_perf.annotate(cells, thresholds=thresholds)
+        return JSONResponse({
+            "cells": annotated,
+            "thresholds": thresholds,
+            "signal_reasons": audit_perf.SIGNAL_REASONS,
+            "since_days": max(1, min(365, since)),
+            "trigger": trig,
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+        })
+
+    @admin.get("/audit/perf/thresholds")
+    async def admin_perf_thresholds_get(request: Request) -> JSONResponse:
+        """Effective streaming-classifier thresholds (defaults +
+        admin overrides). Returned alongside the per-key defaults so
+        the editor can show "reset to default" deltas."""
+        from . import audit_perf
+        pool = _require_pool(request)
+        return JSONResponse({
+            "thresholds": await _load_perf_thresholds(pool),
+            "defaults": audit_perf.DEFAULT_THRESHOLDS,
+        })
+
+    @admin.put("/audit/perf/thresholds")
+    async def admin_perf_thresholds_set(
+        request: Request,
+        user: User = Depends(auth_module.current_user),
+    ) -> JSONResponse:
+        """Overwrite thresholds. Body: ``{"<key>": <float>, ...}``.
+
+        Unknown keys are rejected with 400 so a typo doesn't quietly
+        disable a signal. Pass ``null`` for a key to clear an
+        override (the default takes over). All writes happen against
+        the same ``app_settings`` table the rest of the admin
+        settings use.
+        """
+        from . import audit_perf
+        pool = _require_pool(request)
+        body = await request.json() if await request.body() else {}
+        unknown = sorted(set(body.keys()) - set(audit_perf.DEFAULT_THRESHOLDS))
+        if unknown:
+            raise HTTPException(
+                status_code=400,
+                detail=f"unknown threshold keys: {unknown}",
+            )
+        for key, raw in body.items():
+            setting_key = f"audit.perf.thresholds.{key}"
+            if raw is None:
+                # Clear → write the empty string; get_setting + float()
+                # treat that as "no override" because the float()
+                # coercion fails. Cleanest path without adding a
+                # dedicated delete helper.
+                await db_module.set_setting(
+                    pool, setting_key, "", updated_by=user.sub,
+                )
+                continue
+            try:
+                val = float(raw)
+            except (TypeError, ValueError) as exc:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"{key}: must be a number ({exc})",
+                ) from exc
+            await db_module.set_setting(
+                pool, setting_key, str(val), updated_by=user.sub,
+            )
+        return JSONResponse({
+            "thresholds": await _load_perf_thresholds(pool),
+            "defaults": audit_perf.DEFAULT_THRESHOLDS,
+        })
+
     @admin.get("/audit/{audit_id}")
     async def admin_audit_get(
         audit_id: int,

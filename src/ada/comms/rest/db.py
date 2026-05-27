@@ -1373,6 +1373,130 @@ async def reset_audit_run_issue_bot(
     return result.endswith(" 1")
 
 
+async def aggregate_conversion_metrics(
+    pool: asyncpg.Pool,
+    *,
+    since_days: int = 30,
+    trigger: str | None = None,
+) -> list[dict]:
+    """Per-cell (``source_ext`` × ``target_format``) aggregation over
+    the recent convert jobs (M6 cross-conversion dashboard).
+
+    Computes p50 / p95 / max for duration, peak RSS, RSS per source MB,
+    and write bytes. Failure rate is ``fail_count / sample_count`` —
+    a float in ``[0, 1]``. ``source_size_mb`` is derived from
+    ``read_bytes`` (the storage bytes the worker pulled in); rows with
+    a NULL read_bytes contribute to sample/duration metrics but not
+    to RSS-per-MB.
+
+    ``trigger`` filters the underlying rows:
+      * ``None`` / ``'all'`` — every convert job (default)
+      * ``'audit'`` — only jobs tied to an audit run (M1+ sweeps)
+      * ``'user'`` — only direct user-driven convert jobs
+
+    ``since_days`` is clamped to ``[1, 365]`` so a typo'd
+    multi-year range can't accidentally pin the DB; the admin UI
+    exposes a fixed picker (24h / 7d / 30d / 90d).
+    """
+    days = max(1, min(365, since_days))
+    where_extra = ""
+    args: list = []
+    if trigger == "audit":
+        where_extra = " AND audit_run_id IS NOT NULL"
+    elif trigger == "user":
+        where_extra = " AND audit_run_id IS NULL"
+    # Otherwise no trigger filter ("all").
+    args.append(days)
+    sql = f"""
+        WITH convert_jobs AS (
+            SELECT
+                LOWER(SUBSTRING(key FROM '\\.([^.]+)$')) AS source_ext,
+                target_format,
+                status,
+                duration_ms,
+                peak_rss_kb,
+                read_bytes,
+                write_bytes,
+                -- Effective source size in MB. Floor at 0.001 so
+                -- division by zero can't happen for tiny / unknown
+                -- inputs; the resulting RSS/MB inflation only kicks
+                -- in for files <1 KB which are useless data points
+                -- anyway.
+                GREATEST(COALESCE(read_bytes, 0) / 1048576.0, 0.001) AS source_mb
+            FROM audit_log
+            WHERE action = 'convert'
+              AND ts > NOW() - ($1 || ' days')::interval
+              AND target_format IS NOT NULL
+              AND key IS NOT NULL
+              {where_extra}
+        )
+        SELECT
+            source_ext,
+            target_format,
+            COUNT(*) AS sample_count,
+            COUNT(*) FILTER (WHERE status IN ('error', 'failed')) AS fail_count,
+            COUNT(*) FILTER (WHERE status IN ('ok', 'done')) AS ok_count,
+            PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY duration_ms) AS duration_ms_p50,
+            PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY duration_ms) AS duration_ms_p95,
+            MAX(duration_ms) AS duration_ms_max,
+            PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY peak_rss_kb) AS peak_rss_kb_p50,
+            PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY peak_rss_kb) AS peak_rss_kb_p95,
+            MAX(peak_rss_kb) AS peak_rss_max_kb,
+            PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY peak_rss_kb / source_mb)
+                FILTER (WHERE peak_rss_kb IS NOT NULL AND read_bytes > 0)
+                AS peak_rss_per_source_mb_p95,
+            PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY write_bytes) AS write_bytes_p50,
+            PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY write_bytes) AS write_bytes_p95,
+            AVG(read_bytes)::bigint AS read_bytes_avg
+        FROM convert_jobs
+        WHERE source_ext IS NOT NULL
+          AND source_ext != ''
+          AND target_format != ''
+        GROUP BY source_ext, target_format
+        ORDER BY source_ext, target_format
+    """
+    rows = await pool.fetch(sql, *args)
+
+    def _f(v) -> float | None:
+        # PERCENTILE_CONT returns NUMERIC which asyncpg gives as
+        # Decimal; convert to float for the JSON layer. None stays
+        # None so the frontend can detect "no data" cleanly.
+        if v is None:
+            return None
+        return float(v)
+
+    def _i(v) -> int | None:
+        if v is None:
+            return None
+        return int(v)
+
+    cells: list[dict] = []
+    for r in rows:
+        sample_count = r["sample_count"] or 0
+        fail_count = r["fail_count"] or 0
+        cells.append({
+            "source_ext": r["source_ext"] or "",
+            "target_format": r["target_format"] or "",
+            "sample_count": sample_count,
+            "fail_count": fail_count,
+            "ok_count": r["ok_count"] or 0,
+            "failure_rate": (
+                fail_count / sample_count if sample_count > 0 else 0.0
+            ),
+            "duration_ms_p50": _i(r["duration_ms_p50"]),
+            "duration_ms_p95": _i(r["duration_ms_p95"]),
+            "duration_ms_max": _i(r["duration_ms_max"]),
+            "peak_rss_kb_p50": _i(r["peak_rss_kb_p50"]),
+            "peak_rss_kb_p95": _i(r["peak_rss_kb_p95"]),
+            "peak_rss_max_kb": _i(r["peak_rss_max_kb"]),
+            "peak_rss_per_source_mb_p95": _f(r["peak_rss_per_source_mb_p95"]),
+            "write_bytes_p50": _i(r["write_bytes_p50"]),
+            "write_bytes_p95": _i(r["write_bytes_p95"]),
+            "read_bytes_avg": _i(r["read_bytes_avg"]),
+        })
+    return cells
+
+
 async def list_failed_audit_run_jobs(
     pool: asyncpg.Pool, run_id: str,
 ) -> list[dict]:

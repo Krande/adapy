@@ -7,6 +7,7 @@ export type AdminTab =
     | "audit_runs"
     | "schedules"
     | "issues"
+    | "performance"
     | "corpus"
     | "projects"
     | "storage"

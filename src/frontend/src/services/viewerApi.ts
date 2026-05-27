@@ -446,6 +446,43 @@ export interface IssueTargetConfig {
     token_present: boolean;
 }
 
+// One row in the cross-conversion perf table (M6). ``streaming``
+// is the classifier's verdict; ``signals`` lists the threshold keys
+// that fired so the UI can render specific reasons in a tooltip.
+export interface PerfCell {
+    source_ext: string;
+    target_format: string;
+    sample_count: number;
+    fail_count: number;
+    ok_count: number;
+    failure_rate: number;
+    duration_ms_p50: number | null;
+    duration_ms_p95: number | null;
+    duration_ms_max: number | null;
+    peak_rss_kb_p50: number | null;
+    peak_rss_kb_p95: number | null;
+    peak_rss_max_kb: number | null;
+    peak_rss_per_source_mb_p95: number | null;
+    write_bytes_p50: number | null;
+    write_bytes_p95: number | null;
+    read_bytes_avg: number | null;
+    streaming: {is_candidate: boolean; signals: string[]};
+}
+
+export interface PerfReport {
+    cells: PerfCell[];
+    thresholds: Record<string, number>;
+    signal_reasons: Record<string, string>;
+    since_days: number;
+    trigger: "all" | "audit" | "user";
+    generated_at: string;
+}
+
+export interface PerfThresholdsResp {
+    thresholds: Record<string, number>;
+    defaults: Record<string, number>;
+}
+
 // One audit_log row scoped to a parent audit_run. Narrower projection
 // than ``AuditEntry`` — the grid view doesn't need user_sub /
 // scope_kind / traceback (all redundant for cells in one run).
@@ -1206,6 +1243,44 @@ export const viewerApi = {
                 `adminAuditRunSyncIssues(${runId})`, r.status, await readDetail(r),
             );
         }
+    },
+
+    /** Admin: cross-conversion perf snapshot (M6). Aggregates the
+     * last ``since`` days of convert jobs into a per (source × target)
+     * cell table with p50 / p95 / max metrics + a streaming-candidate
+     * verdict on each cell. */
+    async adminPerfReport(opts?: {
+        since?: number;
+        trigger?: "all" | "audit" | "user";
+    }): Promise<PerfReport> {
+        const params = new URLSearchParams();
+        if (opts?.since != null) params.set("since", String(opts.since));
+        if (opts?.trigger) params.set("trigger", opts.trigger);
+        const qs = params.toString();
+        const url = `${runtime.apiBase()}/admin/audit/perf${qs ? `?${qs}` : ""}`;
+        const r = await authedFetch(url);
+        return jsonOrThrow(r, "adminPerfReport");
+    },
+
+    /** Admin: effective streaming-classifier thresholds, plus the
+     * shipped defaults so the UI can label overridden rows. */
+    async adminPerfThresholdsGet(): Promise<PerfThresholdsResp> {
+        const r = await authedFetch(`${runtime.apiBase()}/admin/audit/perf/thresholds`);
+        return jsonOrThrow(r, "adminPerfThresholdsGet");
+    },
+
+    /** Admin: write threshold overrides. Pass ``null`` for a key to
+     * clear the override (ship-default takes over). Unknown keys
+     * 400 — we'd rather catch a typo than silently disable a signal. */
+    async adminPerfThresholdsSet(
+        body: Record<string, number | null>,
+    ): Promise<PerfThresholdsResp> {
+        const r = await authedFetch(`${runtime.apiBase()}/admin/audit/perf/thresholds`, {
+            method: "PUT",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify(body),
+        });
+        return jsonOrThrow(r, "adminPerfThresholdsSet");
     },
 
     /** Admin: kick off a background sweep that scans the scope for
