@@ -1623,6 +1623,8 @@ async def aggregate_conversion_metrics(
                 peak_rss_kb,
                 read_bytes,
                 write_bytes,
+                cpu_user_ms,
+                cpu_sys_ms,
                 -- Effective source size in MB. Floor at 0.001 so
                 -- division by zero can't happen for tiny / unknown
                 -- inputs; the resulting RSS/MB inflation only kicks
