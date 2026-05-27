@@ -117,6 +117,10 @@ spec:
           image: "{{ $w.image.repository }}:{{ $w.image.tag | default $ctx.Chart.AppVersion }}"
           imagePullPolicy: {{ $w.image.pullPolicy }}
           env:
+            {{- with $ctx.Values.timezone }}
+            - name: TZ
+              value: {{ . | quote }}
+            {{- end }}
             - name: ADA_VIEWER_STORAGE_KIND
               value: {{ $ctx.Values.storage.kind | quote }}
             {{- if eq $ctx.Values.storage.kind "s3" }}

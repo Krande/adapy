@@ -855,7 +855,7 @@ const SourceRow: React.FC<RowProps & {scope: string}> = ({
             <Td>{file.format}</Td>
             <Td>{formatBytes(file.size)}</Td>
             <Td title={file.last_modified || ""}>
-                {file.last_modified ? file.last_modified.replace("T", " ").slice(0, 19) : "—"}
+                {fmtIsoLocal(file.last_modified)}
             </Td>
             <Td>
                 <div className="flex flex-wrap gap-1 items-center">
@@ -1219,6 +1219,17 @@ const Td: React.FC<{children: React.ReactNode; title?: string}> = ({children, ti
         {children}
     </td>
 );
+
+// Render an ISO-shaped UTC string in the browser's local timezone.
+// The "sv-SE" locale gives the same "YYYY-MM-DD HH:MM:SS" layout the
+// raw-ISO slice used to produce, but with the values shifted to the
+// viewer's wall clock — matches what an Oslo admin actually expects.
+function fmtIsoLocal(ts: string | null | undefined): string {
+    if (!ts) return "—";
+    const d = new Date(ts);
+    if (Number.isNaN(d.getTime())) return ts;
+    return d.toLocaleString("sv-SE");
+}
 
 function formatBytes(n: number): string {
     if (!n) return "—";

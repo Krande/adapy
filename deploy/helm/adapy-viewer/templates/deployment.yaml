@@ -41,6 +41,10 @@ spec:
               containerPort: 8080
               protocol: TCP
           env:
+            {{- with .Values.timezone }}
+            - name: TZ
+              value: {{ . | quote }}
+            {{- end }}
             - name: ADA_VIEWER_STORAGE_KIND
               value: {{ .Values.storage.kind | quote }}
             {{- if eq .Values.storage.kind "s3" }}

@@ -21,6 +21,14 @@ fullnameOverride: ""
 ##       hostnames: [auth.example.com]
 hostAliases: []
 
+## Deployment timezone. Set to an IANA zone name (e.g. ``Europe/Oslo``)
+## to make container logs, Python ``datetime.now()`` (naive paths),
+## psql output, and the Postgres session render in that zone. Empty
+## leaves the pod's natural TZ (UTC on most base images). Storage of
+## ``TIMESTAMPTZ`` columns is unaffected — Postgres always keeps UTC
+## internally; this only controls display.
+timezone: ""
+
 replicaCount: 1
 
 ## Rollout strategy for the API deployment. Defaults to surge-only (no

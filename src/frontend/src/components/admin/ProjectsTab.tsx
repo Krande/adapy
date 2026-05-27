@@ -360,7 +360,7 @@ const MemberPane: React.FC<{
                             <Td title={m.user_sub}>{shortSub(m.user_sub)}</Td>
                             <Td>{m.role}</Td>
                             <Td title={m.last_seen_at || ""}>
-                                {m.last_seen_at ? m.last_seen_at.replace("T", " ").slice(0, 19) : "—"}
+                                {fmtIsoLocal(m.last_seen_at)}
                             </Td>
                             <Td>
                                 {!project.archived_at && (
@@ -523,6 +523,16 @@ const Td: React.FC<{children: React.ReactNode; title?: string}> = ({children, ti
         {children}
     </td>
 );
+
+// Render an ISO-shaped UTC string in the browser's local timezone.
+// "sv-SE" preserves the "YYYY-MM-DD HH:MM:SS" shape the old raw-ISO
+// slice used to produce, but with the values shifted to wall clock.
+function fmtIsoLocal(ts: string | null | undefined): string {
+    if (!ts) return "—";
+    const d = new Date(ts);
+    if (Number.isNaN(d.getTime())) return ts;
+    return d.toLocaleString("sv-SE");
+}
 
 function shortSub(s: string): string {
     if (!s || s.length <= 12) return s;

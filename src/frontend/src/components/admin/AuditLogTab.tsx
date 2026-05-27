@@ -1018,8 +1018,16 @@ function shortSub(s: string | null): string {
 }
 
 function formatTs(ts: string | null): string {
+    // Render in the browser's local timezone. ``sv-SE`` gives the
+    // ISO-shaped "YYYY-MM-DD HH:MM:SS" output that matches what the
+    // raw-ISO version used to look like, but with the values
+    // shifted to local time (the previous version sliced the raw
+    // UTC string verbatim and the table read 2h behind for any
+    // viewer in CEST).
     if (!ts) return "";
-    return ts.replace("T", " ").slice(0, 19);
+    const d = new Date(ts);
+    if (Number.isNaN(d.getTime())) return ts;
+    return d.toLocaleString("sv-SE");
 }
 
 function statusClass(s: string | null): string {
