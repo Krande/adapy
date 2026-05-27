@@ -19,9 +19,11 @@ const RestModeUI = React.lazy(() => import("./components/rest_mode/RestModeUI"))
 const AuthGate = React.lazy(() => import("./components/auth/AuthGate"));
 const AuthCallback = React.lazy(() => import("./components/auth/AuthCallback"));
 const ConvertPage = React.lazy(() => import("./components/convert/ConvertPage"));
+const AdminPanel = React.lazy(() => import("./components/admin/AdminPanel"));
 const isRestMode = runtime.isRestMode();
 const isAuthCallback = isRestMode && window.location.pathname === "/auth/callback";
 const isConvertPage = isRestMode && window.location.pathname.startsWith("/convert");
+const isAdminPage = isRestMode && window.location.pathname.startsWith("/admin");
 
 
 function App() {
@@ -47,6 +49,22 @@ function App() {
             <Suspense fallback={null}>
                 <AuthGate>
                     <ConvertPage/>
+                </AuthGate>
+            </Suspense>
+        );
+    }
+
+    if (isAdminPage) {
+        // Path-mounted /admin page. Outside AdaViewerProvider for
+        // the same reasons as /convert — no 3D, no websocket, no
+        // tree view. AuthGate gives us the user object so the panel
+        // can render its admin-only message for non-admins instead
+        // of a blank screen. Tab state syncs to URL hash so a
+        // refresh stays on /admin#<tab>.
+        return (
+            <Suspense fallback={null}>
+                <AuthGate>
+                    <AdminPanel/>
                 </AuthGate>
             </Suspense>
         );

@@ -333,13 +333,25 @@ const AuditRunsTab: React.FC = () => {
         void loadDetail(runId);
     }, [loadDetail]);
 
+    // ``md:`` breakpoint switches from stacked (mobile) to side-by-side
+    // (desktop) — Tailwind's ``md`` is 768 px. Below md the history
+    // list collapses out of view once a run is selected so the grid
+    // gets full screen width; the "← back" button in the per-run
+    // header restores the list.
+    const showHistory = !selectedId;  // only matters on mobile
+
     return (
         <div className="flex flex-col h-full">
             <TriggerForm onCreated={loadRuns}/>
 
-            <div className="flex-1 flex overflow-hidden">
-                {/* Left: history list */}
-                <div className="w-80 shrink-0 border-r border-gray-800 overflow-auto">
+            <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
+                {/* History list. Side-by-side w-80 on md+; full-width
+                    on mobile, hidden once a run is selected. */}
+                <div className={
+                    "md:w-80 md:shrink-0 md:border-r md:border-b-0 " +
+                    "border-b border-gray-800 overflow-auto " +
+                    (showHistory ? "block" : "hidden md:block")
+                }>
                     {listError && (
                         <div className="text-xs text-red-400 px-3 py-2">{listError}</div>
                     )}
@@ -406,25 +418,44 @@ const AuditRunsTab: React.FC = () => {
                     </ul>
                 </div>
 
-                {/* Right: per-run grid */}
-                <div className="flex-1 flex flex-col overflow-hidden">
+                {/* Per-run grid. Hidden on mobile when no run is
+                    selected so the history list owns the viewport. */}
+                <div className={
+                    "flex-1 flex-col overflow-hidden " +
+                    (showHistory ? "hidden md:flex" : "flex")
+                }>
                     {!selectedRun && (
-                        <div className="text-xs text-gray-500 italic px-4 py-6">
+                        <div className="hidden md:block text-xs text-gray-500 italic px-4 py-6">
                             Pick a run from the list to see its file × target grid.
                         </div>
                     )}
                     {selectedRun && (
                         <>
                             <div className="px-3 py-2 border-b border-gray-800 flex items-center justify-between gap-3 flex-wrap">
-                                <div className="text-xs text-gray-300">
-                                    <div className="font-mono">{selectedRun.scope}</div>
-                                    <div className="text-gray-500">
-                                        ok {selectedRun.ok} · failed {selectedRun.failed} ·
-                                        skipped {selectedRun.skipped} · total {selectedRun.total}
+                                <div className="flex items-center gap-2 min-w-0">
+                                    {/* Mobile-only back link. On desktop
+                                        the history list is always
+                                        visible so this would be
+                                        redundant. */}
+                                    <button
+                                        type="button"
+                                        onClick={() => setSelectedId(null)}
+                                        className="md:hidden text-sm text-blue-400 hover:text-blue-300 shrink-0"
+                                        title="Back to run list"
+                                    >
+                                        ← list
+                                    </button>
+                                    <div className="text-xs text-gray-300 min-w-0">
+                                        <div className="font-mono truncate">{selectedRun.scope}</div>
+                                        <div className="text-gray-500">
+                                            ok {selectedRun.ok} · failed {selectedRun.failed} ·
+                                            skipped {selectedRun.skipped} · total {selectedRun.total}
+                                        </div>
                                     </div>
                                 </div>
-                                <label className="text-xs text-gray-300 flex items-center gap-2">
-                                    Color cells by:
+                                <label className="text-xs text-gray-300 flex items-center gap-2 shrink-0">
+                                    <span className="hidden sm:inline">Color cells by:</span>
+                                    <span className="sm:hidden">Metric:</span>
                                     <select
                                         value={metric}
                                         onChange={(e) => setMetric(e.target.value as MetricKey)}

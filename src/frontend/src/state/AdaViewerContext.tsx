@@ -43,7 +43,6 @@ import {
     updatelightRef as g_updatelightRef,
 } from "./refs"
 
-import { useAdminPanelStore as g_useAdminPanelStore } from "./adminPanelStore"
 import { useAnimationStore as g_useAnimationStore } from "./animationStore"
 import { useColorStore as g_useColorStore } from "./colorLegendStore"
 import { useCompressionStore as g_useCompressionStore } from "./compressionStore"
@@ -98,7 +97,6 @@ export interface AdaViewerRefs {
  * direct import doesn't have to rename call sites.
  */
 export interface AdaViewerStores {
-    useAdminPanelStore: typeof g_useAdminPanelStore
     useAnimationStore: typeof g_useAnimationStore
     useColorStore: typeof g_useColorStore
     useCompressionStore: typeof g_useCompressionStore
@@ -186,7 +184,6 @@ export function AdaViewerProvider({ children }: { children: ReactNode }) {
                 selectedPoint: g_selectedPointRef,
             },
             stores: {
-                useAdminPanelStore: g_useAdminPanelStore,
                 useAnimationStore: g_useAnimationStore,
                 useColorStore: g_useColorStore,
                 useCompressionStore: g_useCompressionStore,

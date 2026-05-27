@@ -1,5 +1,4 @@
 import React, {useState} from "react";
-import {useAdminPanelStore} from "@/state/adminPanelStore";
 import {useConversionStore} from "@/state/conversionStore";
 import {useCompressionStore} from "@/state/compressionStore";
 import {useMeStore} from "@/state/meStore";
@@ -58,26 +57,24 @@ const InfoButton: React.FC<{title?: string}> = ({
     title = "Open audit log for traceback",
 }) => {
     const isAdmin = useMeStore((s) => s.isAdmin);
-    const openAdmin = useAdminPanelStore((s) => s.openAdmin);
     if (!isAdmin) return null;
     return (
-        <button
-            type="button"
-            onClick={(e) => {
-                e.stopPropagation();
-                openAdmin("audit");
-            }}
+        <a
+            href="/admin#audit"
+            target="_blank"
+            rel="noopener"
+            onClick={(e) => e.stopPropagation()}
             onMouseDown={(e) => e.stopPropagation()}
             aria-label={title}
             title={title}
             className={
                 "shrink-0 inline-flex items-center justify-center w-7 h-7 rounded-sm " +
                 "border border-blue-500/60 bg-blue-700/40 text-blue-200 cursor-pointer " +
-                "pointer-events-auto hover:bg-blue-600 hover:border-blue-300 hover:text-white text-xs font-semibold"
+                "pointer-events-auto hover:bg-blue-600 hover:border-blue-300 hover:text-white text-xs font-semibold no-underline"
             }
         >
             i
-        </button>
+        </a>
     );
 };
 

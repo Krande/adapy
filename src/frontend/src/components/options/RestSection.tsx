@@ -1,6 +1,5 @@
-import React, {useEffect, useState} from "react";
+import React, {useState} from "react";
 import {runtime} from "@/runtime/config";
-import {useAdminPanelStore} from "@/state/adminPanelStore";
 import {useMeStore} from "@/state/meStore";
 import {useScopeStore, ScopeOption, scopeUrlPart} from "@/state/scopeStore";
 import {useServerInfoStore} from "@/state/serverInfoStore";
@@ -13,9 +12,10 @@ import {clear_loaded_model} from "@/utils/scene/handlers/clear_loaded_model";
 // fit on phones and clutter the top bar on desktop too. The drawer is
 // mobile-friendly already, so we get readable controls for free.
 //
-// Lazy-loaded by OptionsComponent so the desktop bundle never picks up
-// admin code unless the operator explicitly opens the panel.
-const AdminPanel = React.lazy(() => import("../admin/AdminPanel"));
+// The admin entry point is a plain anchor to ``/admin`` — a real page
+// route mounted in app.tsx alongside ``/convert`` and ``/auth/callback``.
+// Refreshing the admin panel stays on the admin page, which the
+// previous draggable-modal version couldn't do.
 
 const RestSection: React.FC = () => {
     if (!runtime.isRestMode()) return null;
@@ -117,35 +117,14 @@ const ScopeSelector: React.FC = () => {
 
 const AdminButton: React.FC = () => {
     const isAdmin = useMeStore((s) => s.isAdmin);
-    const open = useAdminPanelStore((s) => s.open);
-    const openAdmin = useAdminPanelStore((s) => s.openAdmin);
-    const closeAdmin = useAdminPanelStore((s) => s.closeAdmin);
-    // Lock background scroll while the modal is open. Belt-and-braces
-    // for mobile, where the drawer + admin modal both want the
-    // document scroll.
-    useEffect(() => {
-        if (!open) return;
-        const prev = document.body.style.overflow;
-        document.body.style.overflow = "hidden";
-        return () => {
-            document.body.style.overflow = prev;
-        };
-    }, [open]);
     if (!isAdmin) return null;
     return (
-        <>
-            <button
-                className="w-full bg-purple-700 hover:bg-purple-600 text-white text-sm font-semibold py-1 px-2 rounded-sm"
-                onClick={() => openAdmin()}
-            >
-                Admin panel
-            </button>
-            {open && (
-                <React.Suspense fallback={null}>
-                    <AdminPanel onClose={closeAdmin}/>
-                </React.Suspense>
-            )}
-        </>
+        <a
+            href="/admin"
+            className="block text-center w-full bg-purple-700 hover:bg-purple-600 text-white text-sm font-semibold py-1 px-2 rounded-sm"
+        >
+            Admin panel
+        </a>
     );
 };
 
