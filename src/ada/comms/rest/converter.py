@@ -839,17 +839,40 @@ def _via_ada_to_trimesh(
     works.
     """
 
-    import trimesh  # noqa: F401 — verifies the dep is importable
+    import trimesh
 
     on_progress("parsing", 0.15)
     model = _load_with_ada(src_path, source_ext)
     on_progress("tessellating", 0.55)
     scene = model.to_trimesh_scene()
+    _seed_empty_scene(scene)
     on_progress("exporting", 0.85)
     out = io.BytesIO()
     scene.export(file_obj=out, file_type=target_ext.lstrip("."))
     on_progress("ready", 1.0)
     return out.getvalue()
+
+
+def _seed_empty_scene(scene) -> None:
+    """Trimesh refuses to export a 0-geometry scene with
+    ``"Can't export empty scenes!"`` even though every backing format
+    (glb/stl/obj) is perfectly happy with zero meshes. When adapy's
+    parse drops every face (SAT files containing only construction
+    geometry, IFC files with only metadata, etc.) we still want a
+    valid file the viewer can load and the audit log to record
+    ``status=done`` — the operator dug through the audit details if
+    they want to know why the scene was empty.
+
+    Same trick :mod:`ada.fem.results.artefacts` already uses for
+    line-only FEA models: seed a degenerate ``PointCloud`` of a
+    single origin point so trimesh has *something* to serialise.
+    """
+    import trimesh
+    import numpy as np
+    if len(scene.geometry) > 0:
+        return
+    placeholder = trimesh.PointCloud(vertices=np.zeros((1, 3), dtype=np.float64))
+    scene.add_geometry(placeholder, node_name="empty", geom_name="empty")
 
 
 def _via_ada_to_step(
@@ -1088,6 +1111,14 @@ def _via_glb_to_trimesh(
 
     on_progress("loading", 0.20)
     scene = trimesh.load(str(src_path), file_type="glb")
+    if not isinstance(scene, trimesh.Scene):
+        # ``trimesh.load`` can return a single Trimesh for
+        # one-mesh sources; wrap so the empty-scene helper has a
+        # consistent shape to inspect.
+        wrapped = trimesh.Scene()
+        wrapped.add_geometry(scene)
+        scene = wrapped
+    _seed_empty_scene(scene)
     on_progress("exporting", 0.80)
     out = io.BytesIO()
     scene.export(file_obj=out, file_type=target_ext.lstrip("."))
