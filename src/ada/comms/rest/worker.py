@@ -441,6 +441,22 @@ async def _process_one(
             v = await _read_bool_setting("profile_conversions")
             profile_enabled = (v or "").strip().lower() in {"1", "true", "yes", "on"}
 
+            # Optional per-job wall-clock budget. Empty / 0 / non-
+            # numeric leaves the watchdog off so legitimately-long
+            # bakes (a 4 GiB Abaqus ODB sweep can take 20+ min)
+            # aren't artificially killed. Set as a positive minutes
+            # value to enable; the parent process then SIGTERMs the
+            # convert subprocess after the deadline and SIGKILLs
+            # 30 s later if it's still alive.
+            timeout_minutes_raw = await _read_bool_setting("conversion_timeout_minutes")
+            timeout_s: float | None = None
+            try:
+                tm = float((timeout_minutes_raw or "").strip())
+                if tm > 0:
+                    timeout_s = tm * 60.0
+            except (TypeError, ValueError):
+                timeout_s = None
+
             # setting key → env var name. Worker passes the raw
             # truthy/falsy text through; surfaces.py /
             # converter.py do the same parsing they always have, so
@@ -620,6 +636,7 @@ async def _process_one(
                 on_sample=_on_sample,
                 profile_in_child=profile_enabled,
                 env_overrides=env_overrides or None,
+                timeout_s=timeout_s,
             )
         except Exception as exc:
             # Failure in the parent-side machinery (fork, /proc reads,

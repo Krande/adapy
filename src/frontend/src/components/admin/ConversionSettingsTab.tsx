@@ -79,10 +79,15 @@ function triToString(tri: TriState): string {
     return "";
 }
 
+const TIMEOUT_KEY = "conversion_timeout_minutes";
+
 const ConversionSettingsTab: React.FC = () => {
     const [values, setValues] = useState<Record<string, TriState>>(() =>
         Object.fromEntries(ROWS.map((r) => [r.key, "unset"])),
     );
+    const [timeoutMinutes, setTimeoutMinutes] = useState("");
+    const [timeoutSaving, setTimeoutSaving] = useState(false);
+    const [timeoutSavedAt, setTimeoutSavedAt] = useState<number | null>(null);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState<Record<string, boolean>>({});
     const [error, setError] = useState<string | null>(null);
@@ -97,6 +102,8 @@ const ConversionSettingsTab: React.FC = () => {
                     const v = await viewerApi.adminGetSetting(row.key);
                     next[row.key] = parseTri(v);
                 }
+                const t = await viewerApi.adminGetSetting(TIMEOUT_KEY);
+                if (!cancelled) setTimeoutMinutes((t || "").trim());
                 if (!cancelled) setValues(next);
             } catch (e) {
                 if (!cancelled) setError(e instanceof ApiError ? e.detail || e.message : String(e));
@@ -125,6 +132,27 @@ const ConversionSettingsTab: React.FC = () => {
         }
     };
 
+    const onTimeoutSave = async () => {
+        const raw = timeoutMinutes.trim();
+        if (raw !== "") {
+            const n = Number(raw);
+            if (Number.isNaN(n) || n < 0) {
+                setError(`timeout must be a non-negative number (got "${raw}")`);
+                return;
+            }
+        }
+        setTimeoutSaving(true);
+        setError(null);
+        try {
+            await viewerApi.adminSetSetting(TIMEOUT_KEY, raw);
+            setTimeoutSavedAt(Date.now());
+        } catch (e) {
+            setError(e instanceof ApiError ? e.detail || e.message : String(e));
+        } finally {
+            setTimeoutSaving(false);
+        }
+    };
+
     const anySaving = useMemo(() => Object.values(saving).some(Boolean), [saving]);
 
     return (
@@ -141,6 +169,50 @@ const ConversionSettingsTab: React.FC = () => {
                 </div>
             )}
             <div className="flex-1 min-h-0 overflow-auto">
+                {!loading && (
+                    <div className="px-3 sm:px-4 py-3 border-b border-gray-800 space-y-2">
+                        <div>
+                            <div className="font-medium text-sm">Conversion timeout</div>
+                            <div className="text-[11px] text-gray-400 font-mono">
+                                {TIMEOUT_KEY}
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                            <input
+                                type="number"
+                                min="0"
+                                step="1"
+                                value={timeoutMinutes}
+                                onChange={(e) => setTimeoutMinutes(e.target.value)}
+                                placeholder="off"
+                                className="bg-gray-900 border border-gray-700 rounded-sm px-2 py-1 text-sm w-32 text-gray-100"
+                            />
+                            <span className="text-xs text-gray-400">minutes</span>
+                            <button
+                                type="button"
+                                onClick={onTimeoutSave}
+                                disabled={timeoutSaving}
+                                className="bg-blue-700 hover:bg-blue-600 text-white text-xs px-3 py-1 rounded-sm disabled:opacity-50"
+                            >
+                                {timeoutSaving ? "Saving…" : "Save"}
+                            </button>
+                            {timeoutSavedAt && (
+                                <span className="text-[11px] text-emerald-400">
+                                    saved {Math.floor((Date.now() - timeoutSavedAt) / 1000)}s ago
+                                </span>
+                            )}
+                        </div>
+                        <div className="text-xs text-gray-400 max-w-2xl">
+                            Wall-clock budget per conversion. Leave empty (or 0) for no
+                            timeout. When set, the worker SIGTERMs the conversion
+                            subprocess after the deadline (30 s grace, then SIGKILL).
+                            The audit row gets ``conversion exceeded the configured
+                            timeout of N minutes`` as its error — feeds straight into
+                            the issue-bot dedup so the same converter hitting the same
+                            wall doesn't spam new issues.
+                        </div>
+                    </div>
+                )}
                 {loading ? (
                     <div className="px-3 sm:px-4 py-4 text-sm text-gray-300">Loading settings…</div>
                 ) : (

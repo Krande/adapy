@@ -146,6 +146,7 @@ async def run_isolated_convert(
     sample_interval_s: float = 2.0,
     profile_in_child: bool = False,
     env_overrides: Optional[dict[str, str]] = None,
+    timeout_s: Optional[float] = None,
 ) -> IsolatedConvertResult:
     """Fork, run ``convert_fn`` in the child, sample resource usage in
     the parent, and join with full rusage on exit.
@@ -162,6 +163,14 @@ async def run_isolated_convert(
     sidecar tempfile read after exit. The dump survives clean errors
     too (the child writes it in a finally), which is what makes
     "profile a job that fails after 6 minutes" actually useful.
+
+    ``timeout_s`` is the wall-clock budget. ``None`` (or non-positive)
+    disables the watchdog — the conversion runs until it exits on its
+    own. When set, the parent SIGTERMs the child after the deadline
+    expires; if it doesn't die within 30 s of grace, SIGKILL follows.
+    The returned :class:`IsolatedConvertResult` carries ``signal_name=
+    "TIMEOUT"`` in that case so the worker can surface a clear,
+    timeout-specific error rather than a generic "killed by signal".
     """
     convert_kwargs = convert_kwargs or {}
 
@@ -298,6 +307,18 @@ async def run_isolated_convert(
     last_sample_time = 0.0
     final_status = 0
     final_rusage = None
+    # Timeout watchdog state. ``deadline`` is None when no timeout is
+    # configured. After the deadline we SIGTERM once, then SIGKILL
+    # ``GRACE_S`` later if the child still hasn't exited. ``timed_out``
+    # records that we triggered so the result can carry a specific
+    # signal_name regardless of which signal actually reaped the child.
+    deadline: Optional[float] = (
+        started_at + timeout_s if (timeout_s and timeout_s > 0) else None
+    )
+    GRACE_S = 30.0
+    sigterm_sent_at: Optional[float] = None
+    sigkill_sent = False
+    timed_out = False
 
     while True:
         try:
@@ -310,6 +331,34 @@ async def run_isolated_convert(
             break
 
         now = time.monotonic()
+        # Watchdog escalation. Two-step (TERM then KILL) so a
+        # well-behaved converter that registered a SIGTERM cleanup
+        # path can ship partial output / flush logs; an OCCT-bound
+        # tessellation that ignores SIGTERM still gets reaped within
+        # GRACE_S.
+        if deadline is not None and now >= deadline:
+            timed_out = True
+            if sigterm_sent_at is None:
+                try:
+                    os.kill(pid, signal.SIGTERM)
+                except (ProcessLookupError, PermissionError):
+                    pass
+                sigterm_sent_at = now
+                logger.warning(
+                    "convert: timeout %.0fs exceeded for %s; sent SIGTERM",
+                    timeout_s, source_key,
+                )
+            elif not sigkill_sent and (now - sigterm_sent_at) >= GRACE_S:
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except (ProcessLookupError, PermissionError):
+                    pass
+                sigkill_sent = True
+                logger.warning(
+                    "convert: SIGTERM ignored for %s; sent SIGKILL",
+                    source_key,
+                )
+
         if now - last_sample_time >= sample_interval_s:
             sample = _proc_stats(pid, started_at)
             if sample is not None:
@@ -353,6 +402,19 @@ async def run_isolated_convert(
             sig_name = signal.Signals(signum).name
         except (ValueError, KeyError):
             sig_name = f"signal {signum}"
+    # Override sig_name when WE triggered the kill. The native signal
+    # is SIGTERM or SIGKILL, but the operator wants to know the cell
+    # was killed by the timeout watchdog, not that something else
+    # crashed it. ``signal_name="TIMEOUT"`` is the contract the worker
+    # checks against to write a specific error message.
+    if timed_out:
+        sig_name = "TIMEOUT"
+        if exit_code == 0:
+            # ``exit_code=0`` would only happen if the child raced us
+            # and exited cleanly between the watchdog firing and
+            # wait4 returning. Flip it to non-zero so the result is
+            # treated as an error.
+            exit_code = -signal.SIGTERM
 
     out_bytes: Optional[bytes] = None
     error_msg: Optional[str] = None
@@ -386,10 +448,17 @@ async def run_isolated_convert(
             pass
 
     if exit_code < 0 and error_msg is None:
-        error_msg = (
-            f"convert subprocess killed by {sig_name or f'signal {-exit_code}'} "
-            f"(SIGSEGV/SIGABRT typically means a C++ heap fault inside the CAD/FEM stack)."
-        )
+        if timed_out:
+            mins = (timeout_s or 0) / 60.0
+            error_msg = (
+                f"conversion exceeded the configured timeout "
+                f"of {mins:.1f} minutes and was terminated."
+            )
+        else:
+            error_msg = (
+                f"convert subprocess killed by {sig_name or f'signal {-exit_code}'} "
+                f"(SIGSEGV/SIGABRT typically means a C++ heap fault inside the CAD/FEM stack)."
+            )
 
     final_metrics: dict[str, Any] = {}
     if final_rusage is not None:
