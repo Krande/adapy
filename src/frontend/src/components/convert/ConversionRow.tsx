@@ -105,15 +105,19 @@ const ConversionRow: React.FC<{row: ConvertRow}> = ({row}) => {
 
     const onViewIn3D = useCallback(() => {
         if (!current || !job?.derivedKey) return;
-        // Open the viewer in a new tab. Scope is shared across tabs
-        // via sessionStorage so the viewer lands in the same scope
-        // automatically; the user picks the file from the storage
-        // browser. Auto-loading the converted file from the URL is
-        // a follow-up — the viewer doesn't yet consume query params
-        // for file selection, and shipping a button that hints it
-        // does would be a worse experience than not having one.
-        window.open("/", "_blank", "noopener");
-    }, [current, job?.derivedKey]);
+        // Hand off via ``?scope=...&file=...``. The viewer's
+        // useUrlParamLoad hook waits for the scope list and the
+        // three.js scene to be ready, then calls overlay_file_in_scene
+        // with the source name. We pass the SOURCE key, not the
+        // derived key — overlay_file_in_scene already knows how to
+        // map source → derived for non-GLB sources, and using the
+        // source key keeps the URL self-describing.
+        const params = new URLSearchParams({
+            scope: scopeUrlPart(current),
+            file: row.sourceKey,
+        });
+        window.open(`/?${params.toString()}`, "_blank", "noopener");
+    }, [current, job?.derivedKey, row.sourceKey]);
 
     const onRemove = useCallback(() => {
         if (job) clearJob(storeKey);

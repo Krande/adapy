@@ -9,6 +9,7 @@ import ResizableTreeView from './components/tree_view/ResizableTreeView';
 import {useNodeEditorStore} from "./state/useNodeEditorStore";
 import {AdaViewerProvider} from "./state/AdaViewerContext";
 import NodeEditorComponent from "./components/node_editor/NodeEditorComponent";
+import {useUrlParamLoad} from "./hooks/useUrlParamLoad";
 
 // REST-only UI lives in its own chunk so the embedded desktop bundle
 // (the index.zip shipped with ada-py) doesn't pull in the conversion /
@@ -64,6 +65,7 @@ function App() {
 
 function AppBody() {
     const {isNodeEditorVisible, use_node_editor_only} = useNodeEditorStore();
+    useUrlParamLoad();
     useEffect(() => {
         // Check if running inside a Jupyter Notebook
         if (runtime.inJupyter()) {
