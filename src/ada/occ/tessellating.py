@@ -301,9 +301,19 @@ class BatchTessellator:
                     continue
 
                 # Raw-OCC fast path: STEP/SAT-imported shapes hold a
-                # TopoDS_* directly on `_geom`; skip the ada.geom
-                # round-trip.
-                raw = getattr(obj, "_geom", None)
+                # TopoDS_* on the transient ``_occ_cache`` slot
+                # (post-refactor — used to live on ``_geom`` but
+                # that broke serialisability). Either way, when
+                # we have a raw OCC body and no parametric
+                # ``solid_geom()`` available, skip the ada.geom
+                # round-trip and tessellate the OCC body directly.
+                raw = getattr(obj, "_occ_cache", None)
+                if raw is None:
+                    # Backward-compat: any legacy code path that
+                    # still stuffs OCC into ``_geom`` keeps working.
+                    legacy = getattr(obj, "_geom", None)
+                    if isinstance(legacy, _TopoDS_Shape):
+                        raw = legacy
                 if geom_repr == GeomRepr.SOLID and isinstance(raw, _TopoDS_Shape):
                     try:
                         yield self.tessellate_occ_geom(raw, node_ref, obj.color)

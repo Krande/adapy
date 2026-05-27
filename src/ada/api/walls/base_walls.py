@@ -249,9 +249,9 @@ class Wall(BackendGeom):
         return poly.entity()
 
     def solid_occ(self):
-        from ada.occ.geom import geom_to_occ_geom
+        from ada.occ.geom.cache import get_solid_occ
 
-        return geom_to_occ_geom(self.solid_geom())
+        return get_solid_occ(self)
 
     def solid_geom(self) -> Geometry:
         poly = CurvePoly2d.from_3d_points(self.extrusion_area(), parent=self)

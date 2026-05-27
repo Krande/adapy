@@ -316,14 +316,14 @@ class Beam(BackendGeom):
         return make_wire_from_points(points)
 
     def shell_occ(self) -> TopoDS_Shape:
-        from ada.occ.geom import geom_to_occ_geom
+        from ada.occ.geom.cache import get_shell_occ
 
-        return geom_to_occ_geom(self.shell_geom())
+        return get_shell_occ(self)
 
     def solid_occ(self) -> TopoDS_Shape:
-        from ada.occ.geom import geom_to_occ_geom
+        from ada.occ.geom.cache import get_solid_occ
 
-        return geom_to_occ_geom(self.solid_geom())
+        return get_solid_occ(self)
 
     def solid_geom(self) -> Geometry:
         return geo_conv.straight_beam_to_geom(self)

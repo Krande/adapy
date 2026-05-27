@@ -35,9 +35,9 @@ class PrimFace(Shape):
         return self._poly
 
     def solid_occ(self) -> TopoDS_Shape:
-        from ada.occ.geom import geom_to_occ_geom
+        from ada.occ.geom.cache import get_solid_occ
 
-        return geom_to_occ_geom(self.solid_geom())
+        return get_solid_occ(self)
 
     def solid_geom(self) -> Geometry:
         from ada.geom.curves import IndexedPolyCurve

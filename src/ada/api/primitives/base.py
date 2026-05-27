@@ -129,17 +129,23 @@ class Shape(BackendGeom):
         return shape_to_tri_mesh(self.solid_occ())
 
     def solid_occ(self) -> TopoDS_Shape:
-        from ada.occ.geom import geom_to_occ_geom
-
-        # STEP/SAT-imported shapes (read_step_file →
-        # extract_occ_shapes → Shape(name, occ_shape)) hold the OCC
-        # body in the transient ``_occ_cache`` slot — no parametric
+        # STEP/SAT-imported shapes hold the OCC body in the
+        # transient per-instance ``_occ_cache`` slot — no parametric
         # primitive to round-trip through, the OCC body is the source
         # of truth. Hand it back unchanged when present.
         if self._occ_cache is not None:
             return self._occ_cache
 
-        return geom_to_occ_geom(self.solid_geom())
+        # Parametric path: delegate to the process-global guid-keyed
+        # cache so repeated callers (tessellator, IFC writer, clash
+        # check) share one OCC body per object. The cache lives in
+        # ``ada.occ.geom.cache`` — see the module docstring for the
+        # serialisability rationale (adapy objects must stay
+        # picklable, so OCC bodies live in a side cache, not on the
+        # object).
+        from ada.occ.geom.cache import get_solid_occ
+
+        return get_solid_occ(self)
 
     def solid_geom(self) -> Geometry:
         # ``_geom`` is now guaranteed to be an ``ada.geom.Geometry``
