@@ -401,7 +401,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return s
 
     async def _audit(
-        request: Request,
+        request: Request | None,
         user: User,
         scope: Scope,
         action: str,
@@ -413,6 +413,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         duration_ms: int | None = None,
         job_id: str | None = None,
         audit_run_id: str | None = None,
+        pool=None,
     ) -> None:
         """Best-effort audit row insert. No-ops without DB; never raises.
 
@@ -422,8 +423,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         ``audit_run_id`` links the row to an admin-triggered audit
         sweep so the dispatcher can show per-cell pass/fail in the
         admin panel. NULL on every user-driven action.
+
+        ``request`` is the FastAPI request when called from a route
+        handler; the dispatcher / scheduler tick / issue-bot pass
+        ``None`` instead and provide ``pool`` directly, since they
+        run outside a request lifecycle. Either path is acceptable —
+        we pick whichever pool source is available.
         """
-        pool = getattr(request.app.state, "db_pool", None)
+        if pool is None and request is not None:
+            pool = getattr(request.app.state, "db_pool", None)
         if pool is None:
             return
         try:
@@ -2007,7 +2015,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     None, synthetic_user, scope_obj, "convert",
                     key=source_key, target_format=target_format,
                     status="error", error=str(exc),
-                    audit_run_id=run_id,
+                    audit_run_id=run_id, pool=pool,
                 )
                 continue
 
@@ -2027,7 +2035,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 await _audit(
                     None, synthetic_user, scope_obj, "convert",
                     key=source_key, target_format=target_format,
-                    status="done", audit_run_id=run_id,
+                    status="done", audit_run_id=run_id, pool=pool,
                 )
                 continue
 
@@ -2048,7 +2056,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     None, synthetic_user, scope_obj, "convert",
                     key=source_key, target_format=target_format,
                     status="error", error=str(exc),
-                    audit_run_id=run_id,
+                    audit_run_id=run_id, pool=pool,
                 )
                 continue
 
@@ -2056,7 +2064,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 None, synthetic_user, scope_obj, "convert",
                 key=source_key, target_format=target_format,
                 status="queued", job_id=job.job_id,
-                audit_run_id=run_id,
+                audit_run_id=run_id, pool=pool,
             )
 
     @admin.post("/audit/runs")
@@ -2129,6 +2137,27 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="audit run not found")
         jobs = await db_module.list_audit_run_jobs(pool, run_id)
         return JSONResponse({"run": run, "jobs": jobs})
+
+    @admin.post("/audit/runs/{run_id}/cancel")
+    async def admin_audit_run_cancel(
+        run_id: str, request: Request,
+    ) -> JSONResponse:
+        """Abort a running audit. Flips ``status='aborted'`` and
+        cancels every queued / running child cell. No-op (404) if
+        the run is already terminal — re-cancelling a finished or
+        already-aborted run isn't useful.
+
+        Late worker completions arriving after the abort still bump
+        counters (so the per-cell grid keeps growing), but the run
+        won't auto-flip back to ``finished``."""
+        pool = _require_pool(request)
+        run = await db_module.abort_audit_run(pool, run_id)
+        if run is None:
+            raise HTTPException(
+                status_code=404,
+                detail="audit run not found or not in running state",
+            )
+        return JSONResponse(run)
 
     # ── Corpora (M3 admin audit panel) ────────────────────────────────
     #

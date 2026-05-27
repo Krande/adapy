@@ -308,6 +308,45 @@ const TriggerForm: React.FC<{onCreated: () => void}> = ({onCreated}) => {
     );
 };
 
+const CancelRunButton: React.FC<{
+    run: AuditRun;
+    onCancelled: () => void;
+}> = ({run, onCancelled}) => {
+    const [busy, setBusy] = useState(false);
+    const [err, setErr] = useState<string | null>(null);
+    const onClick = async () => {
+        if (!window.confirm(
+            `Abort audit run "${run.scope}"? Queued cells will be marked cancelled.`,
+        )) {
+            return;
+        }
+        setBusy(true);
+        setErr(null);
+        try {
+            await viewerApi.adminAuditRunCancel(run.id);
+            onCancelled();
+        } catch (e) {
+            setErr((e as Error).message || "cancel failed");
+        } finally {
+            setBusy(false);
+        }
+    };
+    return (
+        <div className="flex items-center gap-2">
+            <button
+                type="button"
+                onClick={onClick}
+                disabled={busy}
+                className="text-xs px-2 py-1 border border-red-700 text-red-300 hover:bg-red-900/30 rounded-sm disabled:opacity-50"
+                title="Abort this run; pending cells get marked cancelled."
+            >
+                {busy ? "Aborting…" : "Cancel run"}
+            </button>
+            {err && <span className="text-[11px] text-red-400" role="alert">{err}</span>}
+        </div>
+    );
+};
+
 const ISSUE_BOT_BADGE: Record<string, {cls: string; label: string}> = {
     done:     {cls: "bg-emerald-900/40 border-emerald-700 text-emerald-200", label: "issues synced"},
     skipped:  {cls: "bg-gray-800 border-gray-600 text-gray-400",             label: "issues skipped"},
@@ -470,6 +509,7 @@ const AuditRunsTab: React.FC = () => {
                                         <span className={
                                             "ml-2 text-[10px] shrink-0 " +
                                             (run.status === "running" ? "text-blue-300"
+                                                : run.status === "aborted" ? "text-orange-400"
                                                 : run.failed > 0 ? "text-red-400"
                                                 : "text-emerald-400")
                                         }>
@@ -543,19 +583,30 @@ const AuditRunsTab: React.FC = () => {
                                         />
                                     </div>
                                 </div>
-                                <label className="text-xs text-gray-300 flex items-center gap-2 shrink-0">
-                                    <span className="hidden sm:inline">Color cells by:</span>
-                                    <span className="sm:hidden">Metric:</span>
-                                    <select
-                                        value={metric}
-                                        onChange={(e) => setMetric(e.target.value as MetricKey)}
-                                        className="bg-gray-900 border border-gray-600 rounded-sm px-2 py-1 text-xs text-gray-100"
-                                    >
-                                        {(Object.keys(METRIC_LABELS) as MetricKey[]).map((k) => (
-                                            <option key={k} value={k}>{METRIC_LABELS[k]}</option>
-                                        ))}
-                                    </select>
-                                </label>
+                                <div className="flex items-center gap-2 shrink-0">
+                                    {selectedRun.status === "running" && (
+                                        <CancelRunButton
+                                            run={selectedRun}
+                                            onCancelled={() => {
+                                                void loadRuns();
+                                                if (selectedId) void loadDetail(selectedId);
+                                            }}
+                                        />
+                                    )}
+                                    <label className="text-xs text-gray-300 flex items-center gap-2">
+                                        <span className="hidden sm:inline">Color cells by:</span>
+                                        <span className="sm:hidden">Metric:</span>
+                                        <select
+                                            value={metric}
+                                            onChange={(e) => setMetric(e.target.value as MetricKey)}
+                                            className="bg-gray-900 border border-gray-600 rounded-sm px-2 py-1 text-xs text-gray-100"
+                                        >
+                                            {(Object.keys(METRIC_LABELS) as MetricKey[]).map((k) => (
+                                                <option key={k} value={k}>{METRIC_LABELS[k]}</option>
+                                            ))}
+                                        </select>
+                                    </label>
+                                </div>
                             </div>
                             {detailError && (
                                 <div className="text-xs text-red-400 px-3 py-2">{detailError}</div>

@@ -391,7 +391,13 @@ async def _bump_audit_run_counter(
     """Increment one of the run's terminal counters and finish the
     run when all enqueued jobs have landed. Connection-bound (not
     pool-bound) so the caller can run this inside the same
-    transaction as the audit_log UPDATE."""
+    transaction as the audit_log UPDATE.
+
+    ``status='aborted'`` (an admin pressed Cancel) is preserved —
+    late worker completions arriving after the abort still bump
+    counters for diagnostics, but the run never auto-flips back to
+    ``finished``.
+    """
     column = _AUDIT_RUN_COUNTER_FOR_STATUS.get(terminal_status)
     if column is None:
         # Transient state (``running``); nothing to bump yet.
@@ -404,11 +410,13 @@ async def _bump_audit_run_counter(
         UPDATE audit_runs
         SET {column} = {column} + 1,
             finished_at = CASE
+                WHEN status = 'aborted' THEN finished_at
                 WHEN ok + failed + skipped + 1 >= total
                   THEN COALESCE(finished_at, NOW())
                 ELSE finished_at
             END,
             status = CASE
+                WHEN status = 'aborted' THEN 'aborted'
                 WHEN ok + failed + skipped + 1 >= total
                   THEN 'finished'
                 ELSE status
@@ -417,6 +425,59 @@ async def _bump_audit_run_counter(
         """,
         run_id,
     )
+
+
+async def abort_audit_run(
+    pool: asyncpg.Pool, run_id: str,
+) -> dict | None:
+    """Stop a running audit. Sets the run's status to ``'aborted'``
+    and cancels every queued / running child audit_log row in the
+    same transaction so the per-cell grid shows where the run was
+    when it died (the rows that already finished keep their
+    terminal status — we don't rewrite history)."""
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            run = await conn.fetchrow(
+                """
+                UPDATE audit_runs
+                SET status = 'aborted',
+                    finished_at = NOW()
+                WHERE id = $1
+                  AND status = 'running'
+                RETURNING id, scope, worker_pool, trigger, started_at,
+                          finished_at, status, note, total, ok, failed,
+                          skipped, created_by, issue_bot_status,
+                          issue_bot_last_error, issue_bot_synced_at
+                """,
+                run_id,
+            )
+            if run is None:
+                return None
+            # Cancel still-queued / still-running children. Counts
+            # them as ``skipped`` so the run's ok+failed+skipped
+            # matches total once late completions stop landing.
+            cancelled_rows = await conn.fetch(
+                """
+                UPDATE audit_log
+                SET status = 'cancelled',
+                    error = COALESCE(error, 'audit run aborted')
+                WHERE audit_run_id = $1
+                  AND status IN ('queued', 'running')
+                RETURNING id
+                """,
+                run_id,
+            )
+            n_cancel = len(cancelled_rows)
+            if n_cancel > 0:
+                await conn.execute(
+                    """
+                    UPDATE audit_runs
+                    SET skipped = skipped + $2
+                    WHERE id = $1
+                    """,
+                    run_id, n_cancel,
+                )
+    return _audit_run_row(run)
 
 
 async def append_metrics_sample_by_job(

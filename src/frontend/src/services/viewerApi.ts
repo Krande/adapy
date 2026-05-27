@@ -1126,6 +1126,17 @@ export const viewerApi = {
         return jsonOrThrow(r, `adminAuditRunGet(${runId})`);
     },
 
+    /** Admin: abort a running audit. Flips the run to ``aborted``
+     * and cancels every queued / running child cell in one
+     * transaction. 404 if the run isn't currently ``running``. */
+    async adminAuditRunCancel(runId: string): Promise<AuditRun> {
+        const r = await authedFetch(
+            `${runtime.apiBase()}/admin/audit/runs/${encodeURIComponent(runId)}/cancel`,
+            {method: "POST"},
+        );
+        return jsonOrThrow(r, `adminAuditRunCancel(${runId})`);
+    },
+
     /** Admin: list live audit schedules (M4). Archived rows hidden;
      * the picker only ever wants currently-firing rows. */
     async adminAuditSchedulesList(): Promise<{schedules: AuditSchedule[]}> {
