@@ -75,75 +75,89 @@ jobs:
           fetch-depth: 0
 
       - id: last_deployed
-        # Read the SHA of whatever's currently deployed in gitops so
-        # the diff base survives cancel-in-progress. Without this, a
-        # build run that gets cancelled mid-way (because a newer
-        # push superseded it) leaves its src/ada/** changes
-        # un-built; the next run would diff only ``before..HEAD``
-        # which doesn't include them. Diffing against the last
-        # ACTUALLY-DEPLOYED SHA means every change since that
-        # deployment is rebuilt, regardless of how many runs were
-        # cancelled along the way.
+        # Read EACH image's currently-deployed SHA from gitops so
+        # every image gets its own diff base. Without this,
+        # cancel-in-progress strands changes: a cancelled
+        # ``worker-build`` job's src/ada/** edits would be invisible
+        # to the next run because ``before..HEAD`` doesn't include
+        # them. Per-image bases mean a worker that's three pushes
+        # behind correctly sees ALL src/ada changes since its last
+        # deployment, regardless of how many viewer-only / docs-
+        # only / cancelled runs landed in between.
         env:
           GITOPS_REMOTE: ${{ secrets.GITOPS_REMOTE }}
           GITOPS_TOKEN: ${{ secrets.GITOPS_TOKEN }}
           GITOPS_BRANCH: ${{ secrets.GITOPS_BRANCH }}
           VIEWER_GITOPS_MANIFEST: ${{ secrets.VIEWER_GITOPS_MANIFEST }}
+          DOCS_GITOPS_MANIFEST: ${{ secrets.DOCS_GITOPS_MANIFEST }}
           VIEWER_IMAGE: ${{ secrets.VIEWER_REGISTRY_IMAGE }}
+          WORKER_IMAGE: ${{ secrets.WORKER_REGISTRY_IMAGE }}
+          DOCS_IMAGE: ${{ secrets.DOCS_REGISTRY_IMAGE }}
         run: |
-          # Best-effort: missing secrets / parse failure → leave the
-          # output empty so the next step falls back to the previous
-          # tip ``before`` behaviour. Never block the build on a
-          # gitops read.
+          # Best-effort: missing secrets / parse failure → leave
+          # the outputs empty so the filter step falls back to
+          # ``before`` and finally to "build everything". Never
+          # block the build on a gitops read.
+          {
+            echo "viewer_sha="
+            echo "worker_sha="
+            echo "docs_sha="
+          } >> "$GITHUB_OUTPUT"
+
           if [ -z "$GITOPS_REMOTE" ] || [ -z "$GITOPS_TOKEN" ] || \
-             [ -z "$GITOPS_BRANCH" ] || [ -z "$VIEWER_GITOPS_MANIFEST" ] || \
-             [ -z "$VIEWER_IMAGE" ]; then
+             [ -z "$GITOPS_BRANCH" ]; then
             echo "gitops secrets unavailable; skipping last-deployed lookup."
-            echo "sha=" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           WORK=$(mktemp -d)
-          cd "$WORK"
           if ! git clone --depth 1 --branch "$GITOPS_BRANCH" \
-              "https://x-access-token:${GITOPS_TOKEN}@${GITOPS_REMOTE}" gitops 2>/dev/null; then
+              "https://x-access-token:${GITOPS_TOKEN}@${GITOPS_REMOTE}" "$WORK/gitops" 2>/dev/null; then
             echo "gitops clone failed; skipping last-deployed lookup."
-            echo "sha=" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          MANIFEST="gitops/${VIEWER_GITOPS_MANIFEST}"
-          if [ ! -f "$MANIFEST" ]; then
-            echo "manifest $MANIFEST not present; skipping."
-            echo "sha=" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          # Find the ``tag: sha-XXXXXXX`` line immediately after the
-          # viewer image's ``repository:`` block. Same shape
+
+          # Extract the ``tag: sha-XXX`` line immediately after the
+          # image's ``repository:`` block. Same helm-shape
           # apply_bump rewrites in the gitops job.
-          last_sha=$(awk -v img="$VIEWER_IMAGE" '
-            BEGIN { found=0 }
-            {
-              s = $0
-              sub(/^[[:space:]]*/, "", s); sub(/[[:space:]]*$/, "", s)
-              if (!found && s == "repository: " img) { found=1; next }
-              if (found && $0 ~ /^[[:space:]]*tag:[[:space:]]*sha-[0-9a-f]+/) {
-                sub(/.*tag:[[:space:]]*sha-/, "")
-                sub(/[[:space:]].*$/, "")
-                print
-                exit
+          read_image_sha() {
+            image="$1"
+            manifest="$2"
+            [ -z "$image" ] || [ -z "$manifest" ] || [ ! -f "$manifest" ] && return
+            awk -v img="$image" '
+              BEGIN { found=0 }
+              {
+                s = $0
+                sub(/^[[:space:]]*/, "", s); sub(/[[:space:]]*$/, "", s)
+                if (!found && s == "repository: " img) { found=1; next }
+                if (found && $0 ~ /^[[:space:]]*tag:[[:space:]]*sha-[0-9a-f]+/) {
+                  sub(/.*tag:[[:space:]]*sha-/, "")
+                  sub(/[[:space:]].*$/, "")
+                  print
+                  exit
+                }
               }
-            }
-          ' "$MANIFEST")
-          if [ -z "$last_sha" ]; then
-            echo "no sha-XXX tag found in $MANIFEST; falling back to before."
-            echo "sha=" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          echo "last-deployed viewer image SHA: $last_sha"
-          echo "sha=$last_sha" >> "$GITHUB_OUTPUT"
+            ' "$manifest"
+          }
+
+          viewer_sha=$(read_image_sha "$VIEWER_IMAGE" "$WORK/gitops/$VIEWER_GITOPS_MANIFEST")
+          # Worker shares the helm manifest with the viewer.
+          worker_sha=$(read_image_sha "$WORKER_IMAGE" "$WORK/gitops/$VIEWER_GITOPS_MANIFEST")
+          docs_sha=$(read_image_sha "$DOCS_IMAGE" "$WORK/gitops/$DOCS_GITOPS_MANIFEST")
+
+          # Rewrite outputs — previous empty assignment is replaced
+          # by the resolved values when found.
+          {
+            echo "viewer_sha=$viewer_sha"
+            echo "worker_sha=$worker_sha"
+            echo "docs_sha=$docs_sha"
+          } >> "$GITHUB_OUTPUT"
+          echo "last-deployed SHAs — viewer:${viewer_sha:-?} worker:${worker_sha:-?} docs:${docs_sha:-?}"
 
       - id: filter
         env:
-          LAST_DEPLOYED_SHA: ${{ steps.last_deployed.outputs.sha }}
+          VIEWER_LAST_SHA: ${{ steps.last_deployed.outputs.viewer_sha }}
+          WORKER_LAST_SHA: ${{ steps.last_deployed.outputs.worker_sha }}
+          DOCS_LAST_SHA: ${{ steps.last_deployed.outputs.docs_sha }}
         run: |
           # Capture run-start epoch up front. viewer-build later
           # compares it against Harbor's push_time on the adacpp
@@ -151,44 +165,74 @@ jobs:
           # base-image rebuild has caught up.
           run_start_epoch=$(date +%s)
 
-          # Prefer the last-deployed SHA from gitops as the diff
-          # base — it survives cancel-in-progress, so a cancelled
-          # worker build's src/ada/** changes get picked up by the
-          # next run instead of being silently stranded.
-          # Fall back to ``before`` when gitops lookup yielded
-          # nothing; fall back to "build everything" when neither
-          # is available (workflow_dispatch, first push, or first-
-          # ever build before gitops has a real tag).
-          BEFORE=""
-          if [ -n "$LAST_DEPLOYED_SHA" ]; then
-            # The last-deployed SHA is a short 7-char prefix; resolve
-            # to a full SHA in the local clone before diffing. If it
-            # doesn't resolve (e.g., the registry tag predates this
-            # branch's history), fall through to ``before``.
-            if git cat-file -e "${LAST_DEPLOYED_SHA}^{commit}" 2>/dev/null; then
-              BEFORE=$(git rev-parse "${LAST_DEPLOYED_SHA}")
-              echo "Using last-deployed SHA as diff base: $BEFORE"
-            else
-              echo "Last-deployed SHA $LAST_DEPLOYED_SHA not in local history; falling back to before."
-            fi
-          fi
-          if [ -z "$BEFORE" ]; then
-            BEFORE_GHE="${{ github.event.before }}"
-            if [ -n "$BEFORE_GHE" ] && [ "$BEFORE_GHE" != "0000000000000000000000000000000000000000" ]; then
-              BEFORE="$BEFORE_GHE"
-            fi
+          # Resolve each image's last-deployed SHA prefix to a full
+          # SHA in the local clone. If the prefix doesn't resolve
+          # (rare — the tag predates this branch's history, or the
+          # gitops manifest was hand-edited), fall through to
+          # ``before``. Each image gets its own diff base so a
+          # worker that's behind always sees its own src/ada/**
+          # changes even when those landed in a cancelled run.
+          BEFORE_GHE="${{ github.event.before }}"
+          if [ -z "$BEFORE_GHE" ] || [ "$BEFORE_GHE" = "0000000000000000000000000000000000000000" ]; then
+            BEFORE_GHE=""
           fi
 
-          if [ -z "$BEFORE" ]; then
-            CHANGED=""
-          else
-            CHANGED=$(git diff --name-only "$BEFORE" "$GITHUB_SHA")
-          fi
+          # Resolves a sha-prefix to a full SHA; empty string when
+          # the prefix isn't in the local history.
+          resolve() {
+            sha="$1"
+            [ -z "$sha" ] && return
+            git cat-file -e "${sha}^{commit}" 2>/dev/null && git rev-parse "${sha}"
+          }
 
+          VIEWER_BEFORE=$(resolve "$VIEWER_LAST_SHA")
+          WORKER_BEFORE=$(resolve "$WORKER_LAST_SHA")
+          DOCS_BEFORE=$(resolve "$DOCS_LAST_SHA")
+          [ -z "$VIEWER_BEFORE" ] && VIEWER_BEFORE="$BEFORE_GHE"
+          [ -z "$WORKER_BEFORE" ] && WORKER_BEFORE="$BEFORE_GHE"
+          [ -z "$DOCS_BEFORE" ] && DOCS_BEFORE="$BEFORE_GHE"
+
+          # Compute three CHANGED sets, one per image. The match
+          # function below picks the right one based on which image
+          # we're testing. Empty (no usable base) → "build it" by
+          # convention — the manual / first-push case.
+          changed_for() {
+            b="$1"
+            [ -z "$b" ] && { echo ""; return; }
+            git diff --name-only "$b" "$GITHUB_SHA"
+          }
+
+          VIEWER_CHANGED=$(changed_for "$VIEWER_BEFORE")
+          WORKER_CHANGED=$(changed_for "$WORKER_BEFORE")
+          DOCS_CHANGED=$(changed_for "$DOCS_BEFORE")
+          echo "diff bases — viewer:${VIEWER_BEFORE:-?} worker:${WORKER_BEFORE:-?} docs:${DOCS_BEFORE:-?}"
+
+          # Per-image match: empty CHANGED → "no info, build it"
+          # (manual / first push). Otherwise grep the per-image set.
           match() {
-            # Empty diff → "no info, build everything" (manual + first push)
-            [ -z "$CHANGED" ] && return 0
-            echo "$CHANGED" | grep -qE "$1"
+            scope_changed="$1"
+            pattern="$2"
+            [ -z "$scope_changed" ] && return 0
+            echo "$scope_changed" | grep -qE "$pattern"
+          }
+
+          # Variables expected by the rest of the script:
+          # we keep CHANGED as a SUPERSET of all three so the
+          # adacpp-base detection (downstream) still sees the
+          # original behaviour. Per-image filters use the scoped
+          # variables.
+          CHANGED=$(printf '%s\n%s\n%s\n' "$VIEWER_CHANGED" "$WORKER_CHANGED" "$DOCS_CHANGED" | sort -u | sed '/^$/d')
+
+          # Per-image match: each image only sees the diff against
+          # ITS OWN last-deployed SHA. Empty (no usable base or no
+          # changes) → "build it" for the empty-CHANGED case,
+          # otherwise stays false. The match function takes the
+          # scope-specific CHANGED set.
+          match_scope() {
+            scope_changed="$1"
+            pattern="$2"
+            [ -z "$scope_changed" ] && return 0
+            echo "$scope_changed" | grep -qE "$pattern"
           }
 
           # Viewer image is the slim API + bundled SPA. ada.* under
@@ -196,23 +240,23 @@ jobs:
           # deploy/Dockerfile.viewer); CAD/FEM parsers are unused
           # here, so a cadit-only change should not rebuild it.
           viewer=false
-          if match '^src/ada/comms/' || \
-             match '^src/ada/config\.py$' || \
-             match '^src/frontend/' || \
-             match '^deploy/Dockerfile\.viewer$' || \
-             match '^deploy/viewer-ada-init\.py$' || \
-             match '^\.forgejo/workflows/build\.yaml$'; then
+          if match_scope "$VIEWER_CHANGED" '^src/ada/comms/' || \
+             match_scope "$VIEWER_CHANGED" '^src/ada/config\.py$' || \
+             match_scope "$VIEWER_CHANGED" '^src/frontend/' || \
+             match_scope "$VIEWER_CHANGED" '^deploy/Dockerfile\.viewer$' || \
+             match_scope "$VIEWER_CHANGED" '^deploy/viewer-ada-init\.py$' || \
+             match_scope "$VIEWER_CHANGED" '^\.forgejo/workflows/build\.yaml$'; then
             viewer=true
           fi
 
           # Worker COPY src/ in wholesale via pixi, so any change
           # under src/ada is potentially runtime-affecting.
           worker=false
-          if match '^src/ada/' || \
-             match '^pixi\.(toml|lock)$' || \
-             match '^pyproject\.toml$' || \
-             match '^deploy/Dockerfile\.worker$' || \
-             match '^\.forgejo/workflows/build\.yaml$'; then
+          if match_scope "$WORKER_CHANGED" '^src/ada/' || \
+             match_scope "$WORKER_CHANGED" '^pixi\.(toml|lock)$' || \
+             match_scope "$WORKER_CHANGED" '^pyproject\.toml$' || \
+             match_scope "$WORKER_CHANGED" '^deploy/Dockerfile\.worker$' || \
+             match_scope "$WORKER_CHANGED" '^\.forgejo/workflows/build\.yaml$'; then
             worker=true
           fi
 
@@ -221,13 +265,13 @@ jobs:
           # Rebuild on docs/**, the report source tree, pixi env files,
           # the Dockerfile, or the workflow itself.
           docs=false
-          if match '^docs/' || \
-             match '^src/ada/' || \
-             match '^pixi\.(toml|lock)$' || \
-             match '^pyproject\.toml$' || \
-             match '^verification/' || \
-             match '^deploy/Dockerfile\.docs$' || \
-             match '^\.forgejo/workflows/build\.yaml$'; then
+          if match_scope "$DOCS_CHANGED" '^docs/' || \
+             match_scope "$DOCS_CHANGED" '^src/ada/' || \
+             match_scope "$DOCS_CHANGED" '^pixi\.(toml|lock)$' || \
+             match_scope "$DOCS_CHANGED" '^pyproject\.toml$' || \
+             match_scope "$DOCS_CHANGED" '^verification/' || \
+             match_scope "$DOCS_CHANGED" '^deploy/Dockerfile\.docs$' || \
+             match_scope "$DOCS_CHANGED" '^\.forgejo/workflows/build\.yaml$'; then
             docs=true
           fi
 
