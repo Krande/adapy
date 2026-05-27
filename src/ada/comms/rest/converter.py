@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import io
 import pathlib
+import re
 import tempfile
 from typing import Callable, Iterable, TYPE_CHECKING
 
@@ -879,6 +880,73 @@ def _via_ada_to_step(
             pass
 
 
+_INCLUDE_RE = re.compile(
+    r"^\s*\*INCLUDE\s*,\s*INPUT\s*=\s*(.+?)\s*$",
+    re.IGNORECASE,
+)
+
+
+def _inline_abaqus_includes(top_inp: pathlib.Path, max_depth: int = 4) -> bytes:
+    """Walk an Abaqus deck and inline every ``*INCLUDE,INPUT=...``
+    statement into a single self-contained ``.inp``.
+
+    Adapy's Abaqus writer (``write_parts.py`` / ``write_main_inp.py``)
+    emits a multi-file deck — the main ``model.inp`` references
+    ``bulk_<part>/aba_bulk.inp`` for mesh data and
+    ``core_input_files/<bc|materials|…>.inp`` for the analysis
+    surfaces. That layout is correct for running an analysis; it's
+    wrong for the /convert contract of "one bytes blob per derived
+    key" because anyone who downloads the bytes can't satisfy the
+    relative-path includes.
+
+    Resolution is relative to the directory of the file currently
+    being walked, so nested includes (a core_input_files/<step>.inp
+    that itself references another file) resolve correctly. Missing
+    include targets get a passthrough ``** [missing: <path>]`` line
+    rather than a hard raise — the writer emits placeholders for
+    sections with no data, and we don't want a missing optional
+    section file to nuke the conversion.
+
+    ``max_depth`` caps recursion in case the writer ever emits a
+    pathological self-referential include chain. Four levels is
+    deeper than any layout the writer produces today.
+    """
+
+    def _walk(path: pathlib.Path, depth: int) -> str:
+        if depth > max_depth:
+            return f"** [/convert: include depth cap reached at {path.name}]\n"
+        try:
+            text = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            text = path.read_text(encoding="latin-1")
+
+        out_lines: list[str] = []
+        for line in text.splitlines(keepends=True):
+            m = _INCLUDE_RE.match(line.rstrip("\r\n"))
+            if not m:
+                out_lines.append(line)
+                continue
+            # Abaqus paths use backslash on Windows-style emit; both
+            # POSIX (.split("/")) and backslash-only paths normalize
+            # through pathlib if we replace backslashes first.
+            inc_rel = m.group(1).replace("\\", "/").strip().strip('"')
+            inc_path = (path.parent / inc_rel).resolve()
+            if not inc_path.is_file():
+                out_lines.append(
+                    f"** [/convert: missing include {inc_rel}]\n"
+                )
+                continue
+            out_lines.append(
+                f"** ─── inlined: {inc_rel} ───\n"
+            )
+            out_lines.append(_walk(inc_path, depth + 1))
+            if not out_lines[-1].endswith("\n"):
+                out_lines.append("\n")
+        return "".join(out_lines)
+
+    return _walk(top_inp, 0).encode("utf-8")
+
+
 def _via_fea_to_fem(
     src_path: pathlib.Path,
     source_ext: str,
@@ -895,9 +963,12 @@ def _via_fea_to_fem(
 
     Caveats by target:
 
-    * **.inp** (Abaqus) — single-file deck; we return its bytes
-      directly.
-    * **.fem** (Sesam) — single-file deck; same.
+    * **.inp** (Abaqus) — the writer emits ``model.inp`` + a sibling
+      ``bulk_<part>/aba_bulk.inp`` + ``core_input_files/<...>.inp``
+      tree. We inline every ``*INCLUDE`` so the returned bytes are a
+      single self-contained deck — running Abaqus on the download
+      doesn't need the sibling files.
+    * **.fem** (Sesam) — single-file deck; bytes are returned as-is.
     * **.med** (Code_Aster) — the writer emits ``name.med`` (mesh +
       groups) plus ``name.comm`` (analysis-spec template) and a
       ``.adapy_fem.json`` sidecar. We return only the ``.med`` here;
@@ -948,6 +1019,8 @@ def _via_fea_to_fem(
                 f"{out_dir} — adapy writer layout may have changed."
             )
         on_progress("ready", 1.0)
+        if target_ext.lower() == ".inp":
+            return _inline_abaqus_includes(deck)
         return deck.read_bytes()
     finally:
         try:

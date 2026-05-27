@@ -16,6 +16,20 @@ if TYPE_CHECKING:
     from ada.api.spatial import Part
 
 
+def _mass_or_spring_attach_id(el) -> int:
+    """Resolve the node id a Mass/Spring element attaches to.
+
+    Tries ``.members`` first (proper :class:`ada.fem.Mass` /
+    :class:`ada.fem.Spring` instances populate it via ``fem_set``
+    assignment) and falls back to ``.nodes`` for plain ``Elem``
+    instances produced by cross-format readers.
+    """
+    members = getattr(el, "members", None)
+    if members:
+        return int(members[0].id)
+    return int(el.nodes[0].id)
+
+
 def med_elements(part: Part, time_step: h5py.Group, profile: str, families: h5py.Group):
     """
     Add the following ['FAM', 'NOD', 'NUM'] to the 'MAI' group
@@ -33,7 +47,18 @@ def med_elements(part: Part, time_step: h5py.Group, profile: str, families: h5py
         med_type = ada_to_med_type(group, part.fem.options.CODE_ASTER.use_reduced_integration)
         elements = list(elements)
         if isinstance(group, (shape_def.MassTypes, shape_def.SpringTypes)):
-            cells = np.array([el.members[0].id for el in elements])
+            # Point-mass / spring elements attach to a single node. The
+            # ``Mass`` / ``Spring`` subclasses expose that node via
+            # ``.members`` (populated when ``fem_set`` is assigned post-
+            # construction — :attr:`Mass.fem_set.setter` writes
+            # ``_members`` but leaves ``_nodes`` at whatever was passed
+            # at construction time, which is ``None`` for the common
+            # ``Mass(name, None, mass)`` flow). Cross-format readers
+            # (e.g. Sesam → ada) emit MASS-typed elements as plain
+            # ``Elem`` instances that only carry ``.nodes``. Read both
+            # so either origin works without forcing one shape to copy
+            # to the other.
+            cells = np.array([_mass_or_spring_attach_id(el) for el in elements])
         else:
             cells = np.array(list(map(get_node_ids_from_element, elements)))
 

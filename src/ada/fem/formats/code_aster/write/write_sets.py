@@ -49,7 +49,13 @@ def _add_cell_sets(cells_group, part: "Part", families):
                 cell_data[index] = t
 
         if isinstance(group, (shape_def.MassTypes, shape_def.SpringTypes)):
-            cells = np.array([el.members[0].id for el in elements])
+            # Mirror the ``.members`` → ``.nodes`` fallback in
+            # :mod:`write_med` — Mass/Spring proper subclasses populate
+            # ``.members`` via ``fem_set`` assignment; cross-format
+            # readers emit plain ``Elem`` instances that only carry
+            # ``.nodes``. Single helper handles both.
+            from .write_med import _mass_or_spring_attach_id
+            cells = np.array([_mass_or_spring_attach_id(el) for el in elements])
         else:
             cells = np.array(list(map(get_node_ids_from_element, elements)))
 

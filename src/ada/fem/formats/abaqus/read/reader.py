@@ -380,7 +380,18 @@ def get_nodes_from_inp(bulk_str, parent: FEM) -> Nodes:
 
     def getnodes(m):
         d = m.groupdict()
-        res = np.fromstring(list_cleanup(d["members"]), sep=",", dtype=np.float64)
+        # ``**`` is an Abaqus comment line. The non-greedy ``members``
+        # group can swallow comment lines between the last numeric
+        # node row and the next ``*Directive`` (e.g. ada's own writer
+        # emits a ``** No Nodes`` placeholder in the assembly-level
+        # node section when all nodes live at part level). Strip
+        # those lines before handing the buffer to ``np.fromstring``
+        # so the parser doesn't choke on non-numeric tokens.
+        raw_members = "\n".join(
+            line for line in d["members"].splitlines()
+            if not line.lstrip().startswith("**")
+        )
+        res = np.fromstring(list_cleanup(raw_members), sep=",", dtype=np.float64)
         res_ = res.reshape(int(res.size / 4), 4)
         members = [Node(n[1:4], int(n[0]), parent=parent) for n in res_]
         if d["nset"] is not None:
