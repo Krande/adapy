@@ -1,4 +1,4 @@
-import React, {useState} from "react";
+import React, {useEffect, useState} from "react";
 import {useConversionStore} from "@/state/conversionStore";
 import {useCompressionStore} from "@/state/compressionStore";
 import {useMeStore} from "@/state/meStore";
@@ -430,6 +430,71 @@ const InProgressToast: React.FC<{
     );
 };
 
+// Ambient indicator for in-progress audit sweeps. Admin-only — the
+// endpoint 403s for non-admins. Polls /admin/audit/active every 15s
+// so the badge stays current without re-fetching on every render.
+// Click → /admin#audit_runs (full audit panel). Hidden whenever
+// running_runs == 0 so the slot frees up for the conversion toast
+// the moment sweeps drain.
+const AuditActivityBadge: React.FC = () => {
+    const isAdmin = useMeStore((s) => s.isAdmin);
+    const [summary, setSummary] = useState<{
+        running_runs: number;
+        pending_cells: number;
+    } | null>(null);
+
+    useEffect(() => {
+        if (!isAdmin) return;
+        let cancelled = false;
+        const poll = async () => {
+            try {
+                const r = await viewerApi.adminAuditActive();
+                if (!cancelled) setSummary(r);
+            } catch {
+                // Network blip or auth dropped — silently retry on
+                // the next tick. The badge stays at its last
+                // known state in the meantime.
+            }
+        };
+        void poll();
+        const id = window.setInterval(poll, 15_000);
+        return () => {
+            cancelled = true;
+            window.clearInterval(id);
+        };
+    }, [isAdmin]);
+
+    if (!isAdmin || !summary || summary.running_runs === 0) return null;
+    const {running_runs, pending_cells} = summary;
+    return (
+        <a
+            href="/admin#audit_runs"
+            target="_blank"
+            rel="noopener"
+            className={
+                "block bg-blue-950/80 hover:bg-blue-900 border border-blue-700 " +
+                "text-blue-100 rounded-sm shadow-lg px-3 py-2 text-xs no-underline " +
+                "pointer-events-auto"
+            }
+            title="Open Audit Runs admin tab"
+        >
+            <div className="flex items-center justify-between gap-2">
+                <span className="font-medium">
+                    {running_runs === 1
+                        ? "Audit sweep in progress"
+                        : `${running_runs} audit sweeps in progress`}
+                </span>
+                <span className="text-blue-300">→</span>
+            </div>
+            {pending_cells > 0 && (
+                <div className="text-[11px] text-blue-300 mt-0.5">
+                    {pending_cells} cell{pending_cells === 1 ? "" : "s"} pending
+                </div>
+            )}
+        </a>
+    );
+};
+
 const ConversionProgress = () => {
     const jobs = useConversionStore((s) => s.jobs);
     const clearJob = useConversionStore((s) => s.clearJob);
@@ -447,7 +512,13 @@ const ConversionProgress = () => {
     const errored = allVisible.filter((j) => j.status === "error");
     const visibleSweeps = Object.entries(sweeps);
 
-    if (allVisible.length === 0 && visibleSweeps.length === 0) {
+    // We always render the outer slot so the admin-only
+    // AuditActivityBadge has somewhere to mount — the badge polls
+    // internally and returns null whenever no audits are running,
+    // so an empty container is invisible. The toast + sweeps only
+    // render when there's actually something to show.
+    const isAdmin = useMeStore.getState().isAdmin;
+    if (allVisible.length === 0 && visibleSweeps.length === 0 && !isAdmin) {
         return null;
     }
 
@@ -463,6 +534,7 @@ const ConversionProgress = () => {
         // floating-pill style — anchored to the right, capped at
         // ``max-w-sm`` (24rem).
         <div className="absolute bottom-4 left-4 right-4 sm:left-auto sm:max-w-sm z-50 flex flex-col gap-2 pointer-events-auto">
+            <AuditActivityBadge/>
             {visibleSweeps.map(([scopeLabel, state]) => (
                 <CompressionToast
                     key={`compress:${scopeLabel}`}

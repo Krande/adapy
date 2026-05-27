@@ -1025,7 +1025,7 @@ export const viewerApi = {
      *  shows up when they come back. Errors are intentionally
      *  excluded — they're terminal and the toast's error row expects
      *  manual dismissal, not silent restore. */
-    async myJobs(scope: ScopeUrl, limit = 20): Promise<AuditEntry[]> {
+    async myJobs(scope: ScopeUrl, limit = 200): Promise<AuditEntry[]> {
         const r = await authedFetch(
             `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/my-jobs` +
             `?limit=${encodeURIComponent(String(limit))}`,
@@ -1131,6 +1131,14 @@ export const viewerApi = {
             body: JSON.stringify(body),
         });
         return jsonOrThrow(r, "adminAuditRunCreate");
+    },
+
+    /** Admin: ambient summary of currently-running audit sweeps.
+     * Drives the bottom-right badge that links into the Audit Runs
+     * tab; intentionally cheap so it polls cleanly every 15s. */
+    async adminAuditActive(): Promise<{running_runs: number; pending_cells: number}> {
+        const r = await authedFetch(`${runtime.apiBase()}/admin/audit/active`);
+        return jsonOrThrow(r, "adminAuditActive");
     },
 
     /** Admin: recent audit runs, reverse-chronological. ``before_started_at``

@@ -1077,7 +1077,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         request: Request,
         scope_obj: Scope = Depends(_scope_from_path),
         user: User = Depends(auth_module.current_user),
-        limit: int = 20,
+        limit: int = 200,
     ) -> JSONResponse:
         """Conversions the calling user kicked off in this scope that
         are still in flight (``queued`` or ``running``).
@@ -1101,7 +1101,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             scope_kind=scope_obj.kind,
             scope_id=scope_obj.id,
             statuses=["queued", "running"],
-            limit=min(max(int(limit), 1), 100),
+            # Cap at 500 (same as the underlying list_audit clamp)
+            # so a typo'd limit can't pin the DB. 200 default is
+            # plenty of headroom over the typical interactive
+            # /convert flow (handfuls of jobs); audit-dispatched
+            # cells are filtered out below so the upper bound is
+            # almost never hit in practice.
+            limit=min(max(int(limit), 1), 500),
+            # Audit-dispatched cells are tagged with the admin's
+            # user_sub but they belong to a batch sweep, not an
+            # interactive /convert click. Filtering them out here
+            # keeps the bottom-right toast a reflection of "things
+            # I just clicked Convert on" — the Audit Runs admin tab
+            # is the right surface for batch progress.
+            exclude_audit_dispatched=True,
         )
         return JSONResponse({"jobs": rows})
 
@@ -2322,6 +2335,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             _audit_dispatch, run["id"], s, worker_pool, user.sub, pool,
         )
         return JSONResponse(run, status_code=202)
+
+    @admin.get("/audit/active")
+    async def admin_audit_active(request: Request) -> JSONResponse:
+        """Lightweight summary of running audit sweeps. Powers the
+        ambient bottom-right badge that links into the Audit Runs
+        admin tab; the badge polls this on a 15s cadence, so the
+        query needs to stay cheap (one indexed aggregate on the
+        ``audit_runs_running_idx`` partial index)."""
+        pool = _require_pool(request)
+        return JSONResponse(await db_module.active_audit_summary(pool))
 
     @admin.get("/audit/runs")
     async def admin_audit_runs_list(

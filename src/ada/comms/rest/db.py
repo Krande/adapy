@@ -427,6 +427,35 @@ async def _bump_audit_run_counter(
     )
 
 
+async def active_audit_summary(pool: asyncpg.Pool) -> dict:
+    """Aggregate state of currently-``running`` audit runs.
+
+    Used by the bottom-right viewer toast to show an ambient
+    "N audit runs · M cells pending" badge that links into the
+    admin panel. Cheap aggregate: two indexed counts on the
+    audit_runs partial index plus a sum of pending-cell deltas
+    (total - ok - failed - skipped). Skips the audit_log table
+    entirely.
+
+    Returns:
+        {"running_runs": int, "pending_cells": int}
+    """
+    row = await pool.fetchrow(
+        """
+        SELECT
+            COUNT(*) AS running_runs,
+            COALESCE(SUM(GREATEST(total - ok - failed - skipped, 0)), 0)
+                AS pending_cells
+        FROM audit_runs
+        WHERE status = 'running'
+        """
+    )
+    return {
+        "running_runs": int(row["running_runs"] or 0),
+        "pending_cells": int(row["pending_cells"] or 0),
+    }
+
+
 async def abort_audit_run(
     pool: asyncpg.Pool, run_id: str,
 ) -> dict | None:
@@ -518,6 +547,7 @@ async def list_audit(
     statuses: list[str] | None = None,
     limit: int = 100,
     before_id: int | None = None,
+    exclude_audit_dispatched: bool = False,
 ) -> list[dict]:
     """Reverse-chronological audit_log scan, optionally filtered.
 
@@ -529,6 +559,12 @@ async def list_audit(
     ``statuses`` filters by the job's terminal/transient state (e.g.
     ``["queued", "running"]`` for the user-facing "my in-flight jobs"
     view). Empty list / None disables the filter.
+
+    ``exclude_audit_dispatched`` filters out cells emitted by the
+    admin audit sweep (``audit_run_id IS NOT NULL``). The user-
+    facing /my-jobs view sets this so a 453-cell sweep doesn't
+    flood the bottom-right toast — the Audit Runs admin tab is
+    the proper surface for that work.
     """
     where: list[str] = []
     args: list = []
@@ -550,6 +586,8 @@ async def list_audit(
     if before_id is not None:
         args.append(before_id)
         where.append(f"id < ${len(args)}")
+    if exclude_audit_dispatched:
+        where.append("audit_run_id IS NULL")
     args.append(min(max(limit, 1), 500))
     sql = (
         "SELECT id, ts, user_sub, scope_kind, scope_id, action, key,"
