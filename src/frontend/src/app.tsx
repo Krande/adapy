@@ -17,8 +17,10 @@ import NodeEditorComponent from "./components/node_editor/NodeEditorComponent";
 const RestModeUI = React.lazy(() => import("./components/rest_mode/RestModeUI"));
 const AuthGate = React.lazy(() => import("./components/auth/AuthGate"));
 const AuthCallback = React.lazy(() => import("./components/auth/AuthCallback"));
+const ConvertPage = React.lazy(() => import("./components/convert/ConvertPage"));
 const isRestMode = runtime.isRestMode();
 const isAuthCallback = isRestMode && window.location.pathname === "/auth/callback";
+const isConvertPage = isRestMode && window.location.pathname.startsWith("/convert");
 
 
 function App() {
@@ -30,6 +32,21 @@ function App() {
         return (
             <Suspense fallback={null}>
                 <AuthCallback/>
+            </Suspense>
+        );
+    }
+
+    if (isConvertPage) {
+        // Standalone /convert page. Mounted outside AdaViewerProvider
+        // so the 3D scene, websocket plumbing, and tree view never
+        // spin up — the page is just upload + pick target + download.
+        // AuthGate handles sign-in + populates the scope store from
+        // /api/me; the page itself auto-picks the user's own scope.
+        return (
+            <Suspense fallback={null}>
+                <AuthGate>
+                    <ConvertPage/>
+                </AuthGate>
             </Suspense>
         );
     }
