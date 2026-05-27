@@ -414,7 +414,39 @@ class SifReader:
 
         res_card = self._result_map.get(token)
         if res_card is not None:
-            self.results.append((token, list(self.read_results(token, stripped))))
+            rows = list(self.read_results(token, stripped))
+            # SIF result cards (RVNODDIS / RVSTRESS / RVFORCES / etc.)
+            # commonly hold 100k–10M rows. Each row as a Python
+            # ``list[float]`` carries ~136 bytes of list overhead +
+            # 24 bytes per float — ~376 B / row total. A typical
+            # Sesam result file's 1.8 M rows blow that out to
+            # ~675 MB just in list-of-list overhead during parse,
+            # then again in the rebuilt ndarray during conversion.
+            #
+            # Convert to a contiguous float64 ndarray here as soon
+            # as we have all rows, so the per-row lists are
+            # released before the next card runs. Each row drops
+            # from ~376 B to 80 B (one ndarray row), and downstream
+            # consumers iterate / index the same way they did
+            # against list-of-lists.
+            #
+            # Only convert when every row has the same width AND
+            # contains only numeric scalars — some cards (e.g.
+            # those with a trailing name string) are intentionally
+            # heterogeneous and stay as lists.
+            if rows:
+                width = len(rows[0])
+                uniform = all(
+                    isinstance(r, list) and len(r) == width
+                    and not any(isinstance(v, str) for v in r)
+                    for r in rows
+                )
+                if uniform:
+                    try:
+                        rows = np.asarray(rows, dtype=np.float64)
+                    except (ValueError, TypeError):
+                        pass  # fall back to list-of-lists
+            self.results.append((token, rows))
             is_skipped_flag = False
 
         if is_skipped_flag:
