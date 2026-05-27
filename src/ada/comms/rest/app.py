@@ -2053,22 +2053,109 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             logger.info("profile parser: stopped")
             raise
 
+    async def _run_issue_bot_for_conversion(pool, row: dict) -> None:
+        """Sync ONE user-driven failed conversion against the forge.
+
+        Reuses :func:`sync_run_issues` with a 1-job list and a
+        synthetic 'run' wrapper labelled "user conversion" so the
+        comment / issue body wording reflects the trigger. Skips
+        the dashboard rebuild — that's the responsibility of the
+        audit-run bot pass; rebuilding on every single user
+        failure would hammer the forge needlessly.
+        """
+        from . import audit_issue
+        from . import issue_client
+
+        audit_id = int(row["id"])
+        cfg = await _load_issue_target_config(pool)
+        if cfg is None:
+            await db_module.mark_audit_log_issue_bot(
+                pool, audit_id, status="skipped",
+                error="issue target disabled or token env var unset",
+            )
+            return
+
+        try:
+            client = issue_client.build_client(
+                cfg["kind"], repo=cfg["repo"], token=cfg["token"],
+                base_url=cfg["base_url"],
+            )
+        except Exception as exc:
+            await db_module.mark_audit_log_issue_bot(
+                pool, audit_id, status="failed",
+                error=f"client init failed: {exc}",
+            )
+            return
+
+        run_wrapper = {
+            "id": f"audit-row-{audit_id}",
+            "started_at": row.get("ts"),
+        }
+        try:
+            summary = await audit_issue.sync_run_issues(
+                client, run=run_wrapper, failed_jobs=[row],
+                source_label="user conversion",
+            )
+        except Exception as exc:
+            logger.exception(
+                "issue-bot: sync_run_issues failed for audit row %s", audit_id,
+            )
+            await db_module.mark_audit_log_issue_bot(
+                pool, audit_id, status="failed",
+                error=f"sync failed: {exc}",
+            )
+            return
+
+        if summary["errors"]:
+            await db_module.mark_audit_log_issue_bot(
+                pool, audit_id, status="failed",
+                error="; ".join(summary["errors"][:3]),
+            )
+            return
+
+        await db_module.mark_audit_log_issue_bot(
+            pool, audit_id, status="done",
+            error=None,
+        )
+        logger.info(
+            "issue-bot: synced user conversion %s — opened=%d commented=%d",
+            audit_id, summary["opened"], summary["commented"],
+        )
+
     async def _issue_bot_loop(pool) -> None:
-        """Background task: claim finished+unsynced runs, sync each
-        through :func:`_run_issue_bot_for`. Defensive — exceptions
-        in one tick don't kill the loop."""
+        """Background task: drain (1) finished audit runs + (2)
+        failed user-driven conversions per tick. Defensive —
+        exceptions in one tick don't kill the loop.
+
+        User-conversion failures are processed individually but
+        rate-limited per tick (``USER_BATCH_PER_TICK``) so a burst
+        of failures doesn't flood the forge API. Audit-run sweeps
+        batch all of a run's failures into one sync, so they're
+        not rate-limited the same way.
+        """
         TICK_INTERVAL_S = 30.0
-        logger.info("issue-bot poller: starting (tick every %ss)", TICK_INTERVAL_S)
+        USER_BATCH_PER_TICK = 10
+        logger.info(
+            "issue-bot poller: starting (tick every %ss, user batch %d)",
+            TICK_INTERVAL_S, USER_BATCH_PER_TICK,
+        )
         try:
             while True:
                 try:
-                    # Drain everything that's pending in one tick so a
-                    # backlog clears quickly after a restart.
+                    # Drain audit runs first (each represents many
+                    # failures batched into one sync, more valuable
+                    # to keep current).
                     while True:
                         run = await db_module.claim_audit_run_for_issue_bot(pool)
                         if run is None:
                             break
                         await _run_issue_bot_for(pool, run)
+                    # Then user-conversion failures, capped per tick.
+                    for _ in range(USER_BATCH_PER_TICK):
+                        conv = await db_module.claim_failed_conversion_for_issue_bot(pool)
+                        if conv is None:
+                            break
+                        await _run_issue_bot_for_conversion(pool, conv)
                 except asyncio.CancelledError:
                     raise
                 except Exception:
@@ -2656,6 +2743,37 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         background_tasks.add_task(_kick)
         return JSONResponse({"id": run_id, "status": "queued"}, status_code=202)
+
+    @admin.post("/audit/{audit_id}/sync-issue")
+    async def admin_audit_log_sync_issue(
+        audit_id: int,
+        request: Request,
+        background_tasks: BackgroundTasks,
+    ) -> JSONResponse:
+        """Manually retry the issue-bot for ONE failed conversion
+        (M5b). Mirror of the per-run sync endpoint; resets the
+        row's issue_bot_status and kicks an immediate sync as a
+        background task so the operator gets quick feedback."""
+        pool = _require_pool(request)
+        row = await db_module.get_audit_by_id(pool, audit_id)
+        if row is None:
+            raise HTTPException(status_code=404, detail=f"audit row {audit_id} not found")
+        if row.get("status") not in ("error", "failed"):
+            raise HTTPException(
+                status_code=400,
+                detail="row is not in a failed state; sync only meaningful on failures",
+            )
+        ok = await db_module.reset_audit_log_issue_bot(pool, audit_id)
+        if not ok:
+            raise HTTPException(status_code=409, detail="reset failed (race?)")
+
+        async def _kick() -> None:
+            claimed = await db_module.claim_failed_conversion_for_issue_bot(pool)
+            if claimed is not None:
+                await _run_issue_bot_for_conversion(pool, claimed)
+
+        background_tasks.add_task(_kick)
+        return JSONResponse({"id": audit_id, "status": "queued"}, status_code=202)
 
     # ── Cross-conversion perf dashboard (M6) ──────────────────────
     #

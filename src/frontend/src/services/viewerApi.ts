@@ -406,6 +406,14 @@ export interface AuditEntry {
     write_bytes: number | null;
     profile_key: string | null;
     job_id: string | null;
+    // M5b: per-row issue-bot sync state for failed user conversions.
+    // NULL until the bot has touched the row. Audit-run-attached
+    // failures (audit_run_id IS NOT NULL) are processed via the
+    // parent run's pass and leave this column NULL by design.
+    audit_run_id: string | null;
+    issue_bot_status: string | null;
+    issue_bot_synced_at: string | null;
+    issue_bot_last_error: string | null;
 }
 
 // One audit-sweep record. Returned by /admin/audit/runs endpoints.
@@ -1278,6 +1286,21 @@ export const viewerApi = {
         if (!r.ok) {
             throw new ApiError(
                 `adminAuditRunSyncIssues(${runId})`, r.status, await readDetail(r),
+            );
+        }
+    },
+
+    /** Admin: re-run the issue-bot for ONE failed user conversion
+     * (M5b). Mirrors adminAuditRunSyncIssues; the response is 202
+     * + the row gets re-claimed by the bot's background task. */
+    async adminAuditLogSyncIssue(auditId: number): Promise<void> {
+        const r = await authedFetch(
+            `${runtime.apiBase()}/admin/audit/${auditId}/sync-issue`,
+            {method: "POST"},
+        );
+        if (!r.ok) {
+            throw new ApiError(
+                `adminAuditLogSyncIssue(${auditId})`, r.status, await readDetail(r),
             );
         }
     },

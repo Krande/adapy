@@ -295,6 +295,7 @@ const AuditLogTab: React.FC = () => {
                                         i
                                     </button>
                                 )}
+                                <IssueBotBadge entry={e} onChanged={() => reload(filters)}/>
                             </Td>
                         </tr>
                     ))}
@@ -1029,6 +1030,82 @@ function formatTs(ts: string | null): string {
     if (Number.isNaN(d.getTime())) return ts;
     return d.toLocaleString("sv-SE");
 }
+
+// Per-row badge for the issue-bot's sync status on failed user
+// conversions (M5b). Only renders on rows the bot is actually
+// allowed to touch: failed conversions not attached to an audit
+// run (audit-run-attached rows go through the parent run's bot
+// pass — showing a badge here would imply double-processing). A
+// row that hasn't been claimed yet (status NULL) shows a
+// 'pending' pill so the operator knows the bot will get to it.
+const ISSUE_BOT_BADGE_LOG: Record<string, {cls: string; label: string}> = {
+    done:    {cls: "bg-emerald-900/40 border-emerald-700 text-emerald-200", label: "issue synced"},
+    skipped: {cls: "bg-gray-800 border-gray-600 text-gray-400",             label: "bot disabled"},
+    failed:  {cls: "bg-red-900/40 border-red-700 text-red-200",             label: "issue sync failed"},
+    syncing: {cls: "bg-blue-900/40 border-blue-700 text-blue-200",          label: "syncing…"},
+};
+
+const IssueBotBadge: React.FC<{
+    entry: AuditEntry;
+    onChanged: () => void;
+}> = ({entry, onChanged}) => {
+    const [busy, setBusy] = useState(false);
+    const [err, setErr] = useState<string | null>(null);
+    const isFailed = entry.status === "error" || entry.status === "failed";
+    if (!isFailed) return null;
+    if (entry.audit_run_id) {
+        // Audit-run-attached rows: deliberately silent — the parent
+        // run's badge tracks the bot for the batch.
+        return null;
+    }
+    const status = entry.issue_bot_status;
+    const badge = status
+        ? ISSUE_BOT_BADGE_LOG[status] || {
+            cls: "bg-gray-800 border-gray-600 text-gray-400",
+            label: status,
+        }
+        : {cls: "bg-amber-900/30 border-amber-700 text-amber-300", label: "issue pending"};
+    const retry = async () => {
+        setBusy(true);
+        setErr(null);
+        try {
+            await viewerApi.adminAuditLogSyncIssue(entry.id);
+            // Give the background task a moment to flip status before
+            // we re-fetch — otherwise the badge briefly snaps back
+            // to its old value.
+            await new Promise((r) => setTimeout(r, 600));
+            onChanged();
+        } catch (e) {
+            setErr((e as Error).message || "retry failed");
+        } finally {
+            setBusy(false);
+        }
+    };
+    return (
+        <span className="ml-2 inline-flex items-center gap-1">
+            <span
+                className={`px-1.5 py-0.5 rounded-sm border text-[10px] ${badge.cls}`}
+                title={entry.issue_bot_last_error || badge.label}
+            >
+                {badge.label}
+            </span>
+            {(status === "failed" || status === "done") && (
+                <button
+                    type="button"
+                    onClick={retry}
+                    disabled={busy}
+                    className="text-[10px] text-blue-400 hover:text-blue-300 disabled:opacity-50 no-drag"
+                    title="Re-run the issue-bot for this row"
+                >
+                    {busy ? "queued…" : "resync"}
+                </button>
+            )}
+            {err && (
+                <span className="text-[10px] text-red-400" role="alert">{err}</span>
+            )}
+        </span>
+    );
+};
 
 function statusClass(s: string | null): string {
     if (s === "ok" || s === "done") return "text-green-400";

@@ -323,5 +323,70 @@ def test_sync_run_issues_handles_no_failures():
     assert summary == {"opened": 0, "commented": 0, "errors": [], "unique_failures": 0}
 
 
+# ── M5b: source_label parameterization ─────────────────────────────
+
+
+def test_issue_body_default_label_says_audit_run():
+    body = issue_body(
+        fp="abc", source_ext=".step", target_format="glb",
+        sanitized_source="shared/x.step", error_msg="boom",
+        traceback=None, run_id="r1", run_started_at=None,
+    )
+    assert "First seen in audit run" in body
+
+
+def test_issue_body_custom_label_for_user_conversion():
+    body = issue_body(
+        fp="abc", source_ext=".step", target_format="glb",
+        sanitized_source="user/me/x.step", error_msg="boom",
+        traceback=None, run_id="audit-row-42", run_started_at=None,
+        source_label="user conversion",
+    )
+    assert "First seen in user conversion" in body
+    assert "audit run" not in body  # default phrasing replaced
+
+
+def test_comment_body_uses_source_label():
+    body = comment_body(
+        fp="abc", run_id="audit-row-42",
+        sanitized_source="shared/x.step", run_started_at=None,
+        source_label="user conversion",
+    )
+    assert "Reproduced in user conversion" in body
+    assert "audit run" not in body
+
+
+def test_sync_run_issues_forwards_source_label_to_create():
+    """The user-conversion path should land an issue body that says
+    'user conversion', not 'audit run'."""
+    client = _StubClient()
+    job = _job("a.step", "glb", error="UnsupportedFormat")
+    asyncio.run(sync_run_issues(
+        client, run={"id": "audit-row-42", "started_at": None},
+        failed_jobs=[job], source_label="user conversion",
+    ))
+    assert client.created, "expected one issue created"
+    assert "user conversion" in client.created[0]["body"]
+
+
+def test_sync_run_issues_forwards_source_label_to_comment():
+    sample_fp = fingerprint(
+        source_ext=".step", target_format="glb",
+        error_msg="UnsupportedFormat", traceback=None,
+    )
+    label = fp_label(sample_fp)
+    client = _StubClient(existing={
+        label: [{"number": 9, "title": "audit: .step → glb", "labels": [label]}],
+    })
+    asyncio.run(sync_run_issues(
+        client, run={"id": "audit-row-9", "started_at": None},
+        failed_jobs=[_job("b.step", "glb", error="UnsupportedFormat")],
+        source_label="user conversion",
+    ))
+    assert client.commented, "expected one comment"
+    _, comment_text = client.commented[0]
+    assert "user conversion" in comment_text
+
+
 # Touch the module so unused-import lint passes don't drop it.
 _ = audit_issue

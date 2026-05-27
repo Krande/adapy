@@ -555,7 +555,9 @@ async def list_audit(
         "SELECT id, ts, user_sub, scope_kind, scope_id, action, key,"
         " target_format, status, error, duration_ms, traceback,"
         " cpu_user_ms, cpu_sys_ms, peak_rss_kb, read_bytes, write_bytes,"
-        " profile_key, job_id FROM audit_log"
+        " profile_key, job_id, audit_run_id,"
+        " issue_bot_status, issue_bot_synced_at, issue_bot_last_error"
+        " FROM audit_log"
     )
     if where:
         sql += " WHERE " + " AND ".join(where)
@@ -582,6 +584,13 @@ async def list_audit(
             "write_bytes": r["write_bytes"],
             "profile_key": r["profile_key"],
             "job_id": r["job_id"],
+            "audit_run_id": str(r["audit_run_id"]) if r["audit_run_id"] else None,
+            "issue_bot_status": r["issue_bot_status"],
+            "issue_bot_synced_at": (
+                r["issue_bot_synced_at"].isoformat()
+                if r["issue_bot_synced_at"] else None
+            ),
+            "issue_bot_last_error": r["issue_bot_last_error"],
         }
         for r in rows
     ]
@@ -596,7 +605,8 @@ async def get_audit_by_id(pool: asyncpg.Pool, audit_id: int) -> dict | None:
         """
         SELECT id, ts, user_sub, scope_kind, scope_id, profile_key, key,
                action, target_format, status, error, traceback,
-               duration_ms, job_id, metrics_samples
+               duration_ms, job_id, metrics_samples, audit_run_id,
+               issue_bot_status, issue_bot_synced_at, issue_bot_last_error
         FROM audit_log WHERE id = $1
         """,
         audit_id,
@@ -628,6 +638,13 @@ async def get_audit_by_id(pool: asyncpg.Pool, audit_id: int) -> dict | None:
         "duration_ms": row["duration_ms"],
         "job_id": row["job_id"],
         "metrics_samples": samples,
+        "audit_run_id": str(row["audit_run_id"]) if row["audit_run_id"] else None,
+        "issue_bot_status": row["issue_bot_status"],
+        "issue_bot_synced_at": (
+            row["issue_bot_synced_at"].isoformat()
+            if row["issue_bot_synced_at"] else None
+        ),
+        "issue_bot_last_error": row["issue_bot_last_error"],
     }
 
 
@@ -1430,6 +1447,96 @@ async def reset_audit_run_issue_bot(
         WHERE id = $1 AND status = 'finished'
         """,
         run_id,
+    )
+    return result.endswith(" 1")
+
+
+# ── Single-conversion issue-bot (M5b) ──────────────────────────────
+
+
+async def claim_failed_conversion_for_issue_bot(
+    pool: asyncpg.Pool,
+) -> dict | None:
+    """Atomically claim the oldest failed user-driven conversion
+    that hasn't been synced yet.
+
+    Restricted to ``audit_run_id IS NULL`` rows so audit-sweep
+    failures keep going through the parent run's bot pass — that
+    path batches all of a run's failures into one sync, which is
+    much friendlier on the forge API than firing N times.
+    """
+    row = await pool.fetchrow(
+        """
+        UPDATE audit_log
+        SET issue_bot_status = 'syncing'
+        WHERE id = (
+            SELECT id FROM audit_log
+            WHERE status IN ('error', 'failed')
+              AND audit_run_id IS NULL
+              AND issue_bot_status IS NULL
+            ORDER BY id ASC
+            LIMIT 1
+            FOR UPDATE SKIP LOCKED
+        )
+        RETURNING id, ts, user_sub, scope_kind, scope_id, action,
+                  key, target_format, status, error, traceback
+        """,
+    )
+    if row is None:
+        return None
+    return {
+        "id": row["id"],
+        "ts": row["ts"].isoformat() if row["ts"] else None,
+        "user_sub": row["user_sub"],
+        "scope_kind": row["scope_kind"],
+        "scope_id": row["scope_id"],
+        "action": row["action"],
+        "key": row["key"],
+        "target_format": row["target_format"],
+        "status": row["status"],
+        "error": row["error"],
+        "traceback": row["traceback"],
+    }
+
+
+async def mark_audit_log_issue_bot(
+    pool: asyncpg.Pool,
+    audit_id: int,
+    *,
+    status: str,
+    error: str | None = None,
+) -> None:
+    """Stamp a terminal issue-bot status on one audit_log row. Mirrors
+    :func:`mark_audit_run_issue_bot` for the per-row case."""
+    await pool.execute(
+        """
+        UPDATE audit_log
+        SET issue_bot_status = $2,
+            issue_bot_last_error = $3,
+            issue_bot_synced_at = NOW()
+        WHERE id = $1
+        """,
+        audit_id, status, error,
+    )
+
+
+async def reset_audit_log_issue_bot(
+    pool: asyncpg.Pool, audit_id: int,
+) -> bool:
+    """Clear the bot status on one audit_log row so the next tick
+    re-syncs it. Used by the admin "retry sync" button. Returns
+    True on a real reset, False when the row wasn't found or
+    isn't in a terminal failure state (queued/running rows don't
+    have anything to sync)."""
+    result = await pool.execute(
+        """
+        UPDATE audit_log
+        SET issue_bot_status = NULL,
+            issue_bot_last_error = NULL,
+            issue_bot_synced_at = NULL
+        WHERE id = $1 AND status IN ('error', 'failed')
+        """,
+        audit_id,
     )
     return result.endswith(" 1")
 

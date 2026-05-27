@@ -179,22 +179,27 @@ def issue_body(
     traceback: str | None,
     run_id: str,
     run_started_at: str | None,
+    source_label: str = "audit run",
 ) -> str:
     """Markdown body for a freshly-opened issue.
 
     Includes the structural identity (so triagers can see "this is
     .step → .glb failing on the top-level converter call without
     opening the audit panel"), the original error message, and a
-    short traceback excerpt. Run identity goes in too so a triager
-    can jump back to the per-cell grid.
+    short traceback excerpt.
+
+    ``source_label`` is the human-readable name for what triggered
+    the failure — "audit run" for sweep dispatch, "user conversion"
+    for a regular /convert that failed. Default keeps the existing
+    audit-run wording so old call sites stay correct.
     """
     parts: list[str] = []
     parts.append(f"**Fingerprint:** `{fp}`")
     parts.append(f"**Conversion:** `{source_ext}` → `{target_format}`")
     parts.append(f"**First source:** `{sanitized_source}`")
-    parts.append(f"**First seen in run:** `{run_id}`")
+    parts.append(f"**First seen in {source_label}:** `{run_id}`")
     if run_started_at:
-        parts.append(f"**Run started:** {run_started_at}")
+        parts.append(f"**Failure observed:** {run_started_at}")
     if error_msg:
         parts.append("\n**Error message:**\n")
         parts.append(f"```\n{error_msg.strip()}\n```")
@@ -204,24 +209,33 @@ def issue_body(
         parts.append(excerpt)
     parts.append(
         "\n---\n"
-        "_Auto-opened by the ada-py audit-issue bot. "
-        "Comments listing further reproductions are appended on "
-        "every run finish; the issue auto-closes when the audit "
-        "stops failing._"
+        "_Auto-opened by the ada-py issue bot. Comments listing "
+        "further reproductions are appended whenever the same "
+        "fingerprint trips again — from either an audit sweep or "
+        "a regular user conversion. The bot does not auto-close; "
+        "close the issue manually once the root cause ships._"
     )
     return "\n".join(parts)
 
 
 def comment_body(
-    *, fp: str, run_id: str, sanitized_source: str, run_started_at: str | None,
+    *,
+    fp: str,
+    run_id: str,
+    sanitized_source: str,
+    run_started_at: str | None,
+    source_label: str = "audit run",
 ) -> str:
     """Comment posted on an existing audit-fp issue when the
-    fingerprint reproduces in a later run. The comment is short by
-    design — a triager wants the count to grow without reading
-    duplicate stacks."""
+    fingerprint reproduces. Short by design — a triager wants the
+    count to grow without reading duplicate stacks.
+
+    ``source_label`` lets the comment say "Reproduced in user
+    conversion `<id>`" for ad-hoc failures vs the original "audit
+    run" phrasing for batch sweeps."""
     when = f" at {run_started_at}" if run_started_at else ""
     return (
-        f"Reproduced in audit run `{run_id}`{when}.\n\n"
+        f"Reproduced in {source_label} `{run_id}`{when}.\n\n"
         f"- Source: `{sanitized_source}`\n"
         f"- Fingerprint: `{fp}`"
     )
@@ -329,6 +343,7 @@ async def sync_run_issues(
     *,
     run: dict,
     failed_jobs: list[dict],
+    source_label: str = "audit run",
 ) -> dict:
     """Sync one audit-run's failures against the configured forge.
 
@@ -337,6 +352,11 @@ async def sync_run_issues(
     if it exists or open a new issue if not. Returns a summary
     dict (``opened``, ``commented``, ``errors``) so the caller can
     log a one-liner per run.
+
+    ``source_label`` controls the wording in the issue body /
+    comment — defaults to "audit run" for batch dispatch, callers
+    syncing a single user-driven failure pass "user conversion"
+    instead.
 
     The client conforms to :class:`ada.comms.rest.issue_client.GitForgeClient`.
     Errors on individual issues are caught + counted; one broken cell
@@ -386,6 +406,7 @@ async def sync_run_issues(
                         fp=fp, run_id=run["id"],
                         sanitized_source=ctx["sanitized_source"],
                         run_started_at=run.get("started_at"),
+                        source_label=source_label,
                     ),
                 )
                 commented += 1
@@ -405,6 +426,7 @@ async def sync_run_issues(
                         traceback=ctx["traceback"],
                         run_id=run["id"],
                         run_started_at=run.get("started_at"),
+                        source_label=source_label,
                     ),
                     labels=[
                         _AUDIT_LABEL,
