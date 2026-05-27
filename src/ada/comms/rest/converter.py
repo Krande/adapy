@@ -1003,17 +1003,21 @@ def _via_fea_to_fem(
             overwrite=True,
             write_input_files_only=True,
         )
-        # Writers nest output in ``{scratch_dir}/{name}/`` — pick the
-        # canonical deck file out of that directory. For Code_Aster
-        # we deliberately drop the ``.comm`` (see the docstring).
-        deck = out_dir / name / f"{name}{target_ext}"
-        if not deck.exists():
-            # Older writers wrote directly into ``scratch_dir/`` rather
-            # than the per-name subdir. Try the flat layout before
-            # giving up so this code stays robust across writer
-            # versions.
-            deck = out_dir / f"{name}{target_ext}"
-        if not deck.exists():
+        # Writers nest output in ``{scratch_dir}/{name}/`` — find the
+        # produced deck file. Each writer has its own filename
+        # conventions:
+        #
+        # * Abaqus: ``{name}.inp`` (lowercase, matches target_ext)
+        # * Code_Aster: ``{name}.med`` plus a ``.comm`` sidecar we
+        #   deliberately drop (see docstring)
+        # * Sesam: ``{name}T1.FEM`` — uppercase extension, plus a
+        #   ``T1`` super-element suffix the writer appends. Globbing
+        #   case-insensitively against ``*{target_ext}`` covers both
+        #   the suffix and the case difference without hard-coding
+        #   either.
+        deck = _find_writer_output(out_dir / name, name, target_ext) \
+            or _find_writer_output(out_dir, name, target_ext)
+        if deck is None:
             raise UnsupportedFormat(
                 f"FEA writer ran but no {target_ext} appeared under "
                 f"{out_dir} — adapy writer layout may have changed."
@@ -1029,6 +1033,32 @@ def _via_fea_to_fem(
             _sh.rmtree(out_dir, ignore_errors=True)
         except Exception:
             pass
+
+
+def _find_writer_output(
+    directory: pathlib.Path,
+    name: str,
+    target_ext: str,
+) -> pathlib.Path | None:
+    """Locate the deck file an FEA writer dropped into ``directory``.
+
+    Looks first for the exact ``{name}{target_ext}`` (lowercase
+    case), then for any sibling matching ``*{target_ext}``
+    case-insensitively. The fallback covers the Sesam writer's
+    ``{name}T1.FEM`` convention (uppercase extension + super-element
+    ``T1`` suffix) without each format needing its own special
+    case here.
+    """
+    if not directory.is_dir():
+        return None
+    canonical = directory / f"{name}{target_ext}"
+    if canonical.is_file():
+        return canonical
+    ext_lower = target_ext.lower()
+    for p in directory.iterdir():
+        if p.is_file() and p.suffix.lower() == ext_lower:
+            return p
+    return None
 
 
 # Map M3 target extensions to the ``fem_format`` strings adapy's
