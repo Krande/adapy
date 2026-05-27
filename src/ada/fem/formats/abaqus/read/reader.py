@@ -392,8 +392,24 @@ def get_nodes_from_inp(bulk_str, parent: FEM) -> Nodes:
             if not line.lstrip().startswith("**")
         )
         res = np.fromstring(list_cleanup(raw_members), sep=",", dtype=np.float64)
-        res_ = res.reshape(int(res.size / 4), 4)
-        members = [Node(n[1:4], int(n[0]), parent=parent) for n in res_]
+        # 3D nodes are ``id, x, y, z``; 2D models (plane-stress /
+        # plane-strain / axisymmetric / membrane decks) drop the z
+        # column so each row is ``id, x, y``. Pick the layout that
+        # divides evenly; pad z=0 for the 2D case so downstream
+        # code keeps its (x, y, z) assumption.
+        if res.size % 4 == 0:
+            res_ = res.reshape(int(res.size / 4), 4)
+            members = [Node(n[1:4], int(n[0]), parent=parent) for n in res_]
+        elif res.size % 3 == 0:
+            res_ = res.reshape(int(res.size / 3), 3)
+            members = [
+                Node((n[1], n[2], 0.0), int(n[0]), parent=parent) for n in res_
+            ]
+        else:
+            raise ValueError(
+                f"Abaqus *Node block has {res.size} values; "
+                f"not divisible by 4 (3D) or 3 (2D) — malformed?"
+            )
         if d["nset"] is not None:
             parent.sets.add(FemSet(d["nset"], members, "nset", parent=parent))
         return members
@@ -427,30 +443,81 @@ def get_sets_from_bulk(bulk_str, fem: FEM) -> FemSets:
         else:
             raise ValueError(f'Unable to find instance "{instance}" amongst assembly parts')
 
+    # Sets parsed so far, keyed by ``(set_type_lower, name)``. Abaqus
+    # supports set-of-sets composition:
+    #
+    #     *ELSET, ELSET=all
+    #     right, left, top
+    #
+    # where ``right``/``left``/``top`` are previously-defined ELSETs
+    # rather than raw element ids. ``str_to_ints`` already handles
+    # the heterogeneous-members case by falling back to strings, but
+    # the original ``get_set`` then called ``elements.from_id("right")``
+    # which fails. We now build an incremental name index and
+    # resolve string references through it.
+    parsed: dict[tuple[str, str], "FemSet"] = {}
+
     def get_set(match):
         name = match.group(2)
         set_type = match.group(1)
+        set_type_l = set_type.lower()
         internal = True if match.group(3) is not None else False
         instance = match.group(4)
         generate = True if match.group(5) is not None else False
         members_str = match.group(6)
         gen_mem = str_to_ints(members_str) if generate is True else []
-        members = [] if generate is True else str_to_ints(members_str)
+        raw_members = [] if generate is True else str_to_ints(members_str)
         metadata = dict(instance=instance, internal=internal, generate=generate, gen_mem=gen_mem)
         parent_instance = get_parent_instance(instance)
 
-        if set_type.lower() == "elset":
-            members = [parent_instance.elements.from_id(el_id) for el_id in members]
-        else:
-            members = [parent_instance.nodes.from_id(el_id) for el_id in members]
+        from_id_fn = (
+            parent_instance.elements.from_id
+            if set_type_l == "elset"
+            else parent_instance.nodes.from_id
+        )
+
+        resolved: list = []
+        for ref in raw_members:
+            if isinstance(ref, str):
+                # Named-set reference: inline the previously-parsed
+                # set's members. Look up by the SAME set_type as the
+                # current set (Abaqus disallows cross-type set
+                # composition); fall back to a case-insensitive name
+                # match against any set_type if the strict match
+                # misses.
+                composed = parsed.get((set_type_l, ref))
+                if composed is None:
+                    # Case-insensitive scan as a fallback —
+                    # Abaqus set names are case-insensitive but
+                    # casing in the deck varies.
+                    for (st, nm), fs in parsed.items():
+                        if st == set_type_l and nm.lower() == ref.lower():
+                            composed = fs
+                            break
+                if composed is None:
+                    logger.warning(
+                        "abaqus read: set %r references unknown sub-set %r — skipping that member",
+                        name, ref,
+                    )
+                    continue
+                resolved.extend(composed.members)
+                continue
+            try:
+                resolved.append(from_id_fn(ref))
+            except ValueError as exc:
+                logger.warning(
+                    "abaqus read: set %r references unknown id %r — skipping (%s)",
+                    name, ref, exc,
+                )
 
         fem_set = FemSet(
             name,
-            members,
+            resolved,
             set_type=set_type,
             metadata=metadata,
             parent=parent_instance,
         )
+        parsed[(set_type_l, name)] = fem_set
 
         return fem_set
 

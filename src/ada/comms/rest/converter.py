@@ -845,12 +845,44 @@ def _via_ada_to_trimesh(
     model = _load_with_ada(src_path, source_ext)
     on_progress("tessellating", 0.55)
     scene = model.to_trimesh_scene()
+    _strip_unexportable_for(scene, target_ext)
     _seed_empty_scene(scene)
     on_progress("exporting", 0.85)
     out = io.BytesIO()
     scene.export(file_obj=out, file_type=target_ext.lstrip("."))
     on_progress("ready", 1.0)
     return out.getvalue()
+
+
+# Mesh-only export targets. trimesh's OBJ and STL writers iterate
+# scene.geometry and assume every entry is a Trimesh — they break on
+# Path3D (polyline-only geometries that adapy emits for line elements
+# / open profiles). GLB tolerates Path3D natively so it stays
+# unfiltered.
+_MESH_ONLY_TARGETS: frozenset[str] = frozenset({".obj", ".stl", ".ply", ".off"})
+
+
+def _strip_unexportable_for(scene, target_ext: str) -> None:
+    """Drop scene entries that ``target_ext``'s writer can't handle.
+
+    For OBJ/STL/PLY/OFF we keep only ``trimesh.Trimesh`` geometries.
+    Path3D objects (line elements, open wireframes from the SAT /
+    IFC importers) get filtered so the export doesn't AttributeError
+    on the trimesh side. The dropped entities are recoverable in
+    the GLB output if the user needs them.
+    """
+    import trimesh
+    ext = target_ext.lower()
+    if not ext.startswith("."):
+        ext = "." + ext
+    if ext not in _MESH_ONLY_TARGETS:
+        return
+    to_drop = []
+    for name, geom in scene.geometry.items():
+        if not isinstance(geom, trimesh.Trimesh):
+            to_drop.append(name)
+    for name in to_drop:
+        scene.delete_geometry(name)
 
 
 def _seed_empty_scene(scene) -> None:
