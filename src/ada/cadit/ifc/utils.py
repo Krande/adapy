@@ -675,8 +675,41 @@ def scale_ifc_file(current_ifc, new_ifc):
         return new_file
 
 
+def _serialize_occ_shape(shape) -> str:
+    """Wrap ``ifcopenshell.geom.occ_utils.serialize_shape`` so the
+    pythonocc signature drift doesn't crash the whole IFC write.
+
+    Upstream's ``serialize_shape`` does
+    ``ss.Add(shape); ss.WriteToString()`` (no shape arg). The
+    OCC build we run against has ``BRepTools_ShapeSet.WriteToString``
+    as ``(self, shape)`` — so the unparameterised call raises
+    ``TypeError: missing 1 required positional argument: 'shape'``.
+    Fall back to calling ``WriteToString(shape)`` directly when
+    that happens; semantically equivalent for a single-shape set.
+    """
+    try:
+        return ifcopenshell.geom.occ_utils.serialize_shape(shape)
+    except TypeError as exc:
+        if "WriteToString" not in str(exc):
+            raise
+        from OCC.Core import BRepTools
+        ss = BRepTools.BRepTools_ShapeSet()
+        ss.SetFormatNb(2)
+        # Some OCC builds want both Add() and WriteToString(shape);
+        # others let WriteToString do the work alone. Try the
+        # combination that matches upstream's original intent
+        # (Add registers the shape, WriteToString emits it).
+        try:
+            ss.Add(shape)
+            return ss.WriteToString(shape)
+        except TypeError:
+            # Last resort: skip Add (some bindings have WriteToString
+            # take ownership).
+            return ss.WriteToString(shape)
+
+
 def tesselate_shape(shape, schema, tol):
-    occ_string = ifcopenshell.geom.occ_utils.serialize_shape(shape)
+    occ_string = _serialize_occ_shape(shape)
     serialized_geom = ifcopenshell.geom.serialise(schema, occ_string)
 
     if serialized_geom is None:

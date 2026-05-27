@@ -65,6 +65,20 @@ class CurveRevolve:
 
             self._radius = radius
             self._rot_origin = center
+
+            # Compute the profile frame here too — the BeamRevolve
+            # solid-geom path reads ``profile_normal`` /
+            # ``profile_perpendicular`` regardless of which branch
+            # constructed the curve. Without these set the
+            # downstream ``get_normalized()`` chain crashes when
+            # the curve came in via the (p1, point_on, p2) form
+            # (IFC import path). xvec is the radial direction from
+            # rot_origin to p1 at the start of the arc; the
+            # placement frame ties it to ``rot_axis``.
+            xvec1 = Direction(center - p1).get_normalized()
+            place = Placement(p1, xdir=xvec1, zdir=rot_axis)
+            self._profile_normal = place.xdir
+            self._profile_perpendicular = place.ydir
         else:
             if self._radius is not None and self._rot_origin is None:
                 center1, center2 = calc_center_from_start_end_radius(p1, p2, self._radius)
