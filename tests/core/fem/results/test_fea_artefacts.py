@@ -1469,6 +1469,23 @@ def test_bake_with_posters_renders_requested_modes(fem_files, tmp_path):
     pytest.importorskip("pygfx")
     pytest.importorskip("trimesh")
 
+    # GH Actions runners have pygfx installed but no graphics adapter
+    # (no vulkan/dx12/metal/gl driver, no lavapipe). Probe the offscreen
+    # renderer with a 1×1 canvas — if wgpu can't acquire an adapter, the
+    # whole poster path is moot and the test would assert empty
+    # ``poster_paths`` against the expected ``{0, 1}``.
+    import pygfx as gfx
+
+    try:
+        from rendercanvas.offscreen import OffscreenRenderCanvas as _ProbeCanvas
+    except ImportError:  # legacy wgpu < 0.20
+        from wgpu.gui.offscreen import WgpuCanvas as _ProbeCanvas
+    try:
+        gfx.renderers.WgpuRenderer(_ProbeCanvas(size=(1, 1)))
+    except Exception as exc:  # noqa: BLE001 — broad on purpose; any
+        # wgpu/adapter init failure means rendering is impossible here.
+        pytest.skip(f"no usable render adapter on this host: {exc}")
+
     from ada.fem.results.artefacts import bake_with_posters_from_source
 
     # int — first N modes.
