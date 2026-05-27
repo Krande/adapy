@@ -8,7 +8,12 @@ import {runtime} from "@/runtime/config";
 import {getAccessToken, isAuthEnabled, refreshAccessToken, signIn} from "@/services/auth/oidc";
 import {fetchFeaManifest, fetchResultMeta} from "@/services/feaManifestPoll";
 
-export type TargetFormat = "glb" | "ifc" | "xml";
+// Known-good target formats keep autocomplete on the call sites that
+// hardcode a value (the GLB auto-convert path on upload, etc.), while
+// the ``(string & {})`` trailer keeps the type open for whatever new
+// targets the worker matrix advertises (.stl, .obj, .step, …) without
+// each new pair needing a frontend release.
+export type TargetFormat = "glb" | "ifc" | "xml" | (string & {});
 export type ConvertStatus = "queued" | "running" | "done" | "error" | "cancelled";
 
 /** Wire-format scope identifier, one of: "shared", "user:me",

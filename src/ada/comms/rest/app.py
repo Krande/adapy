@@ -171,6 +171,52 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 out.add(ext)
         return sorted(out)
 
+    async def _worker_advertised_conversions() -> list[dict]:
+        """Merged conversion matrix across every currently-registered
+        worker.
+
+        Each worker publishes its own ``conversions: [{from, to:
+        [...]}, ...]`` matrix on its NATS KV record (see
+        ``worker.py``). This helper unions the per-worker
+        per-source target lists into a single matrix so the SPA can
+        render the /convert page's target dropdown without caring
+        which worker pool will end up picking up the job.
+
+        Returns a sorted list of ``{"from": ".step", "to": ["glb",
+        "ifc", ...]}`` entries — same shape ConverterRegistry.matrix()
+        produces, just aggregated across workers. Empty list when
+        the queue is disabled (dev / desktop mode) or no worker has
+        registered yet.
+        """
+        if not queue.enabled:
+            return []
+        try:
+            workers = await queue.list_workers()
+        except Exception:
+            logger.exception("config: failed to read worker registry for matrix")
+            return []
+        merged: dict[str, set[str]] = {}
+        for w in workers:
+            for entry in (w.get("conversions") or []):
+                if not isinstance(entry, dict):
+                    continue
+                frm = (entry.get("from") or "").strip().lower()
+                if not frm:
+                    continue
+                if not frm.startswith("."):
+                    frm = f".{frm}"
+                tos = entry.get("to")
+                if not isinstance(tos, list):
+                    continue
+                bucket = merged.setdefault(frm, set())
+                for t in tos:
+                    if isinstance(t, str) and t.strip():
+                        bucket.add(t.strip().lstrip(".").lower())
+        return [
+            {"from": frm, "to": sorted(merged[frm])}
+            for frm in sorted(merged)
+        ]
+
     # /api/config is *almost* public (the SPA fetches it before it has
     # a token, to learn whether auth is enabled and what the issuer is)
     # — but it never leaks user data, so we serve it unauthenticated.
@@ -199,6 +245,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         streaming_only_exts = sorted(
             e for e in extra_source_exts if e not in LEGACY_CONVERT_EXTS
         )
+        # Merged conversion matrix across live workers. The /convert
+        # page reads this to populate the target dropdown per source
+        # extension. Empty in dev / desktop mode (queue disabled) or
+        # when no worker has registered yet; the SPA falls back to a
+        # narrower static set in that case.
+        conversion_matrix = await _worker_advertised_conversions()
         return JSONResponse({
             "transport": "rest",
             "apiBase": "/api",
@@ -215,6 +267,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "workerImageTag": worker_tag,
             "extraSourceExts": extra_source_exts,
             "streamingOnlyExts": streaming_only_exts,
+            "conversionMatrix": conversion_matrix,
         })
 
     # Every /api/* below this line requires a verified user. The dep is
@@ -2348,6 +2401,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         streaming_only_exts = sorted(
             e for e in extra_source_exts if e not in LEGACY_CONVERT_EXTS
         )
+        conversion_matrix = await _worker_advertised_conversions()
 
         a = settings.auth
         body = (
@@ -2362,6 +2416,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             f"window.WORKER_IMAGE_TAG = {_json.dumps(worker_tag)};\n"
             f"window.EXTRA_SOURCE_EXTS = {_json.dumps(extra_source_exts)};\n"
             f"window.STREAMING_ONLY_EXTS = {_json.dumps(streaming_only_exts)};\n"
+            f"window.CONVERSION_MATRIX = {_json.dumps(conversion_matrix)};\n"
         )
         # config.js is the SPA's source of truth for runtime config
         # (worker registry → extraSourceExts / streamingOnlyExts, image

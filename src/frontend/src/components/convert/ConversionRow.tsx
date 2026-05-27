@@ -1,6 +1,7 @@
 import React, {useCallback, useEffect, useMemo, useState} from "react";
 import {convertViaServer} from "@/services/conversion/serverPipeline";
 import {viewerApi, TargetFormat} from "@/services/viewerApi";
+import {runtime} from "@/runtime/config";
 import {useConversionStore} from "@/state/conversionStore";
 import {useConvertPageStore, ConvertRow} from "@/state/convertPageStore";
 import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
@@ -124,9 +125,22 @@ const ConversionRow: React.FC<{row: ConvertRow}> = ({row}) => {
         removeRow(row.sourceKey);
     }, [clearJob, job, removeRow, row.sourceKey, storeKey]);
 
+    // Target options come from three layered sources, picked in order:
+    //   1. The /scopes/{scope}/convert/targets endpoint — authoritative
+    //      per-source answer (the server consults supported_targets_for
+    //      which reads the registry).
+    //   2. runtime.conversionTargetsFor(ext) — merged worker matrix
+    //      from /api/config. Works without a network round-trip and
+    //      stays right even when (1) hasn't returned yet.
+    //   3. The static union ``glb / ifc / xml`` — last-resort fallback
+    //      for the desktop bundle or a deployment where no worker has
+    //      registered yet.
+    const matrixTargets = runtime.conversionTargetsFor(ext);
     const targetOptions: TargetFormat[] = availableTargets.length > 0
         ? availableTargets
-        : ["glb", "ifc", "xml"];
+        : matrixTargets.length > 0
+            ? (matrixTargets as TargetFormat[])
+            : ["glb", "ifc", "xml"];
 
     const isRunning = job?.status === "queued" || job?.status === "running";
     const isDone = job?.status === "done";

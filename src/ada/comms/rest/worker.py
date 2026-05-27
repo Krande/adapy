@@ -33,7 +33,7 @@ from ada.config import logger
 from . import db as db_module
 from .bundle import BundleError
 from .config import load_settings
-from .converter import LEGACY_CONVERT_EXTS, convert
+from .converter import LEGACY_CONVERT_EXTS, ConverterRegistry, convert
 from .queue import (
     JOB_STATUS_DONE,
     JOB_STATUS_ERROR,
@@ -745,6 +745,20 @@ async def _run() -> None:
         except Exception:
             logger.exception("worker: failed to publish image tag (non-fatal)")
 
+    # Conversion matrix this worker advertises to the API. Take the
+    # full registry (every ``@converter`` registration adapy + any
+    # imported plug-in produced) and, if the per-pod allowlist is
+    # set, drop entries whose source extension this pod isn't
+    # licensed to handle — mirrors the capability gate in the
+    # message loop so we don't promise something we'd NAK at
+    # delivery time. The API merges every live worker's matrix into
+    # ``/api/config["conversionMatrix"]`` for the SPA's /convert page.
+    full_matrix = ConverterRegistry.matrix()
+    if ext_allow_set is not None:
+        conversions = [m for m in full_matrix if m["from"] in ext_allow_set]
+    else:
+        conversions = full_matrix
+
     async def _publish_registration() -> None:
         try:
             await queue.register_worker(
@@ -753,6 +767,7 @@ async def _run() -> None:
                     "image_tag": image_tag or None,
                     "capabilities": capabilities,
                     "source_exts": source_exts,
+                    "conversions": conversions,
                     "started_at": started_at,
                     "last_heartbeat": time.time(),
                 },

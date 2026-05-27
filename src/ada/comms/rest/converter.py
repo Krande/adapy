@@ -44,6 +44,114 @@ class UnsupportedFormat(ValueError):
     pass
 
 
+# ── Converter registry ─────────────────────────────────────────────
+#
+# Each ``(from_ext, to_ext)`` pair lands one entry here at module
+# load. Adding a new pair is one line:
+#
+#     @converter(".step", ".stl")
+#     def _step_to_stl(src, on_progress, **_): ...
+#
+# Two things consume the registry:
+#
+#  * :func:`convert` dispatches the worker side — no more if-elif
+#    chain on the (ext, target) pair.
+#  * :meth:`ConverterRegistry.matrix` is what the worker publishes
+#    to NATS KV (``conversions: [{from, to: [...]}, ...]``). The
+#    API merges every live worker's matrix and surfaces it through
+#    ``/api/config``; the SPA's /convert page uses it to populate
+#    the target dropdown per-source-extension. New pairs light up
+#    in the UI as soon as the registering worker registers.
+#
+# Both keys carry the leading dot ("." prefix) to stay symmetric
+# with the rest of the module (`_ext()` returns suffix with dot).
+# The target side is also recorded with a leading dot internally;
+# the matrix JSON strips the dot on serialization so the wire
+# format matches what /api/config already publishes for
+# ``source_exts``.
+
+ConverterFn = Callable[..., bytes]
+
+
+class ConverterRegistry:
+    """Module-level (from_ext, to_ext) → handler table.
+
+    Population happens at import time via the :func:`converter`
+    decorator (or :meth:`register` for programmatic registrations
+    that fan one handler across multiple source extensions). The
+    table is intentionally a plain dict — the worker's job loop
+    looks up once per job, so atomicity is not a concern.
+    """
+
+    _entries: dict[tuple[str, str], ConverterFn] = {}
+
+    @classmethod
+    def register(cls, from_ext: str, to_ext: str, fn: ConverterFn) -> None:
+        cls._entries[(from_ext.lower(), to_ext.lower())] = fn
+
+    @classmethod
+    def lookup(cls, from_ext: str, to_ext: str) -> ConverterFn | None:
+        return cls._entries.get((from_ext.lower(), to_ext.lower()))
+
+    @classmethod
+    def all_sources(cls) -> frozenset[str]:
+        return frozenset(f for (f, _) in cls._entries)
+
+    @classmethod
+    def all_targets(cls) -> frozenset[str]:
+        """Target extensions WITHOUT the leading dot — matches the
+        rest of the codebase's ``target_format`` convention
+        (``"glb"`` not ``".glb"``).
+        """
+        return frozenset(t.lstrip(".") for (_, t) in cls._entries)
+
+    @classmethod
+    def targets_for(cls, from_ext: str) -> list[str]:
+        """Sorted list of target_format values viable for the given
+        source extension. Targets are returned without the leading
+        dot (``["glb", "ifc"]`` not ``[".glb", ".ifc"]``).
+        """
+        f = from_ext.lower()
+        return sorted({t.lstrip(".") for (frm, t) in cls._entries if frm == f})
+
+    @classmethod
+    def matrix(cls) -> list[dict]:
+        """JSON-serialisable rollup ``[{"from": ".step", "to": ["glb",
+        "ifc", "stl"]}, ...]``. Stable ordering so the worker's
+        published payload diffs cleanly across heartbeats.
+        """
+        by_from: dict[str, set[str]] = {}
+        for (f, t) in cls._entries:
+            by_from.setdefault(f, set()).add(t.lstrip("."))
+        return [
+            {"from": f, "to": sorted(by_from[f])}
+            for f in sorted(by_from)
+        ]
+
+
+def converter(from_ext: str, to_ext: str):
+    """Decorator: register ``fn`` as the handler for the
+    ``(from_ext, to_ext)`` conversion pair. Both arguments should
+    carry the leading dot (``.step`` / ``.glb``) for symmetry with
+    the rest of the module.
+
+    Handler signature::
+
+        fn(src_path: Path, on_progress: ProgressFn, **kwargs) -> bytes
+
+    ``**kwargs`` is forwarded from :func:`convert`; today only the
+    FEA result handler reads ``step`` / ``field``. Future handlers
+    can pull their own knobs out of kwargs without touching the
+    dispatch.
+    """
+
+    def deco(fn: ConverterFn) -> ConverterFn:
+        ConverterRegistry.register(from_ext, to_ext, fn)
+        return fn
+
+    return deco
+
+
 # Extensions we hand to trimesh directly. trimesh will infer the type
 # and emit GLB without ada-py needing to be involved at all.
 _TRIMESH_EXTS: frozenset[str] = frozenset({".obj", ".stl", ".ply", ".dae", ".off"})
@@ -84,19 +192,12 @@ _STREAMING_FEA_EXTS: frozenset[str] = frozenset({".rmed"})
 FEA_ARTEFACT_SOURCE_EXTS: frozenset[str] = frozenset({".rmed", ".sif", ".sin"})
 
 # Union of source extensions the legacy /convert pipeline knows how
-# to handle (any target). Used by /api/config to compute the
-# streaming-only subset of worker-advertised extensions — i.e. those
-# the SPA should NOT auto-trigger /convert for after upload, because
-# the call would 415. Add new convert handlers to the relevant
-# narrow set above; this union picks them up automatically.
-LEGACY_CONVERT_EXTS: frozenset[str] = (
-    _PASSTHROUGH_EXTS
-    | _TRIMESH_EXTS
-    | frozenset({".gltf"})
-    | _ADA_LOADABLE_EXTS
-    | _BUNDLE_EXTS
-    | _FEA_RESULT_EXTS
-)
+# to handle (any target). Computed at the bottom of this module from
+# :class:`ConverterRegistry` so adding a ``@converter`` registration
+# also widens this set without manual upkeep. Used by /api/config to
+# compute the streaming-only subset of worker-advertised extensions
+# — i.e. those the SPA should NOT auto-trigger /convert for after
+# upload, because the call would 415.
 
 
 def is_fea_artefact_source(src_key_or_path) -> bool:
@@ -110,9 +211,12 @@ def is_fea_artefact_source(src_key_or_path) -> bool:
     suffix = pathlib.PurePosixPath(str(src_key_or_path)).suffix.lower()
     return suffix in FEA_ARTEFACT_SOURCE_EXTS
 
-# Allowed target formats. Each value is the file extension (with dot)
-# of the produced bytes.
-TARGET_FORMATS: frozenset[str] = frozenset({"glb", "ifc", "xml"})
+# ``TARGET_FORMATS`` is computed at the bottom of this module from
+# :class:`ConverterRegistry.all_targets` once every ``@converter``
+# registration has fired. Module-level so other code can
+# ``from .converter import TARGET_FORMATS`` without paying a method
+# call on every check. The set's content is the same shape it always
+# was (no leading dots; ``{"glb", "ifc", "xml", ...}``).
 
 
 def _ext(key: str) -> str:
@@ -200,37 +304,31 @@ def is_versions_artefact_key(key: str) -> bool:
 def is_supported_source(key: str) -> bool:
     ext = _ext(key)
     return (
-        ext in _PASSTHROUGH_EXTS
-        or ext in _TRIMESH_EXTS
-        or ext in {".gltf"}
-        or ext in _ADA_LOADABLE_EXTS
+        ext in ConverterRegistry.all_sources()
         or ext in _BUNDLE_EXTS
-        or ext in _FEA_RESULT_EXTS
         or ext in _STREAMING_FEA_EXTS
     )
 
 
 def supported_targets_for(source_key: str) -> list[str]:
-    """Return the target formats viable for a given source key. Used
-    by the frontend to render only the conversion options that will
-    actually succeed."""
+    """Return the target formats viable for a given source key.
+
+    Reads from :class:`ConverterRegistry` so new ``@converter``
+    registrations show up here automatically. Bundles
+    (``.zip``) inherit the targets of the inner-deck format the
+    bundle currently emits — which is the same Abaqus ``.inp``
+    family the ada-loadable group covers, so we mirror that
+    group's targets without re-implementing bundle inspection
+    just to answer the dropdown.
+    """
     ext = _ext(source_key)
-    targets: list[str] = []
-    if ext in _PASSTHROUGH_EXTS or ext in _TRIMESH_EXTS or ext == ".gltf":
-        targets.append("glb")
-    if ext in _ADA_LOADABLE_EXTS:
-        # ada-loadable sources can produce any target.
-        targets = ["glb", "ifc", "xml"]
     if ext in _BUNDLE_EXTS:
-        # Bundles unpack to an Abaqus deck, which goes through the
-        # same ada-py path as a single .inp — so all three targets are
-        # available. Validation runs at convert time, not here.
-        targets = ["glb", "ifc", "xml"]
-    if ext in _FEA_RESULT_EXTS:
-        # SIF carries result fields, not geometry an IFC/XML writer can
-        # consume. Visual GLB only for now.
-        targets = ["glb"]
-    return targets
+        # Bundles unpack to a single Abaqus deck; the inner deck is
+        # ada-loadable, so it can target any of that group's
+        # registrations. We synthesize the answer rather than peek
+        # inside the zip on every dropdown call.
+        return ConverterRegistry.targets_for(".inp")
+    return ConverterRegistry.targets_for(ext)
 
 
 def _passthrough(src_path: pathlib.Path, on_progress: ProgressFn) -> bytes:
@@ -505,6 +603,90 @@ def _via_fea_result(
             pass
 
 
+def _via_ada_to_trimesh(
+    src_path: pathlib.Path,
+    source_ext: str,
+    target_ext: str,
+    on_progress: ProgressFn,
+) -> bytes:
+    """Ada-loadable source → trimesh mesh export (``.stl`` / ``.obj``).
+
+    Bridges the same ada-loadable formats ``_via_ada`` handles to
+    trimesh's mesh-only export targets. We go through
+    :meth:`Part.to_trimesh_scene` so tessellation honours adapy's
+    geom-repr / merge-meshes conventions; trimesh just serialises the
+    resulting scene.
+
+    No native STL/OBJ ada exporter is needed — trimesh's own writers
+    are mature and the GLB pipeline already proves the round-trip
+    works.
+    """
+
+    import trimesh  # noqa: F401 — verifies the dep is importable
+
+    on_progress("parsing", 0.15)
+    model = _load_with_ada(src_path, source_ext)
+    on_progress("tessellating", 0.55)
+    scene = model.to_trimesh_scene()
+    on_progress("exporting", 0.85)
+    out = io.BytesIO()
+    scene.export(file_obj=out, file_type=target_ext.lstrip("."))
+    on_progress("ready", 1.0)
+    return out.getvalue()
+
+
+def _via_ada_to_step(
+    src_path: pathlib.Path,
+    source_ext: str,
+    on_progress: ProgressFn,
+) -> bytes:
+    """Ada-loadable source → STEP via the OCC writer.
+
+    Primary use is the IFC → STEP interop case (no STEP writer in
+    ifcopenshell itself); also exercised by .step / .stp identity
+    re-exports, which can be useful for normalising a malformed STEP
+    through OCC's parser.
+    """
+
+    on_progress("parsing", 0.15)
+    model = _load_with_ada(src_path, source_ext)
+    on_progress("writing-step", 0.55)
+    out_path = pathlib.Path(tempfile.mkstemp(suffix=".step")[1])
+    try:
+        model.to_stp(str(out_path))
+        on_progress("ready", 1.0)
+        return out_path.read_bytes()
+    finally:
+        try:
+            out_path.unlink()
+        except OSError:
+            pass
+
+
+def _via_glb_to_trimesh(
+    src_path: pathlib.Path,
+    target_ext: str,
+    on_progress: ProgressFn,
+) -> bytes:
+    """``.glb`` → mesh container (``.stl`` / ``.obj``) via trimesh.
+
+    Pure round-trip with no ada involvement; trimesh reads GLB and
+    writes whichever mesh format the target asks for. Used to make
+    /convert useful as a general 3D-format swiss-knife for users who
+    already have a GLB and want a downstream-friendly mesh.
+    """
+
+    import trimesh
+
+    on_progress("loading", 0.20)
+    scene = trimesh.load(str(src_path), file_type="glb")
+    on_progress("exporting", 0.80)
+    out = io.BytesIO()
+    scene.export(file_obj=out, file_type=target_ext.lstrip("."))
+    on_progress("ready", 1.0)
+    return out.getvalue()
+
+
 def convert(
     src_path: pathlib.Path,
     source_key: str,
@@ -516,55 +698,152 @@ def convert(
 ) -> bytes:
     """Convert a local source file to the requested target format.
 
+    Dispatches via :class:`ConverterRegistry` — every viable (from,
+    to) pair has an explicit registration at the bottom of this
+    module. The only special case is multi-file bundles (``.zip``):
+    we unpack first, then re-enter the registry against the inner
+    entry-point's extension.
+
     The worker streams the source from object storage into a tempfile
     and passes its path here, so we never round-trip the full payload
     through a `bytes` buffer in memory. Output is still returned as
     bytes — the worker uploads it via `Storage.put_bytes`.
 
-    ``step`` / ``field`` only apply to FEA result sources (.sif). When
-    unset the converter picks the first available pair, matching the
-    behavior of the auto-convert at upload time.
+    ``step`` / ``field`` only apply to FEA result sources (.sif /
+    .sin). When unset the FEA handler picks the first available pair,
+    matching the behavior of the auto-convert at upload time.
     """
     progress = on_progress or (lambda _stage, _frac: None)
     progress("starting", 0.0)
 
     fmt = target_format.lstrip(".").lower()
-    if fmt not in TARGET_FORMATS:
-        raise UnsupportedFormat(f"unknown target format: {target_format!r}")
-
     src_ext = _ext(source_key)
     if not src_ext:
         raise UnsupportedFormat(f"missing extension on key {source_key!r}")
 
+    # Multi-file analysis bundle: unpack, then re-enter the registry
+    # via the inner entry-point's extension. The recursion stops one
+    # level deep because no inner format is itself ``.zip``.
     if src_ext in _BUNDLE_EXTS:
         return _via_bundle(src_path, fmt, progress)
 
-    if src_ext in _FEA_RESULT_EXTS:
-        return _via_fea_result(src_path, fmt, progress, step=step, field=field)
-
-    if fmt == "glb":
-        if src_ext in _PASSTHROUGH_EXTS:
-            return _passthrough(src_path, progress)
-        if src_ext == ".gltf":
-            return _via_gltf_to_glb(src_path, progress)
-        if src_ext in _TRIMESH_EXTS:
-            return _via_trimesh(src_path, src_ext, progress)
-        return _via_ada(src_path, src_ext, "glb", progress)
-
-    # Non-GLB targets require an ada-loadable source.
-    if src_ext not in _ADA_LOADABLE_EXTS:
+    handler = ConverterRegistry.lookup(src_ext, fmt)
+    if handler is None:
         raise UnsupportedFormat(
-            f"target {fmt!r} requires an ada-loadable source; got {src_ext!r}"
+            f"no converter registered for {src_ext!r} -> {fmt!r}; "
+            f"viable targets: {ConverterRegistry.targets_for(src_ext) or 'none'}"
         )
-    return _via_ada(src_path, src_ext, fmt, progress)
+    return handler(src_path, progress, step=step, field=field)
 
 
 def supported_extensions() -> Iterable[str]:
-    return sorted(
-        _PASSTHROUGH_EXTS
-        | _TRIMESH_EXTS
-        | {".gltf"}
-        | _ADA_LOADABLE_EXTS
-        | _FEA_RESULT_EXTS
-        | _BUNDLE_EXTS
-    )
+    """Sorted list of every source extension at least one registered
+    converter accepts. Includes bundle wrappers (``.zip``) — those are
+    dispatched separately in :func:`convert` but still count as
+    supported uploads.
+    """
+    return sorted(ConverterRegistry.all_sources() | _BUNDLE_EXTS)
+
+
+# ── Registry population ────────────────────────────────────────────
+#
+# Every (from, to) pair the worker can serve is enumerated below.
+# Handlers above are parameterised on ``src_ext`` / ``target_ext``
+# where it makes sense to share code (e.g. one ``_via_ada`` handles
+# the eight ada-loadable sources × three writers via a 3-line lambda
+# adapter); pairs that need bespoke handling get their own
+# registered function.
+#
+# When you wire a new conversion path in adapy, register it here and
+# the worker's NATS KV publication + the SPA's /convert dropdown
+# pick it up automatically.
+
+
+def _register_passthrough_glb() -> None:
+    def _h(src, on_progress, **_):
+        return _passthrough(src, on_progress)
+
+    ConverterRegistry.register(".glb", "glb", _h)
+
+
+def _register_trimesh_to_glb() -> None:
+    def _gltf(src, on_progress, **_):
+        return _via_gltf_to_glb(src, on_progress)
+
+    ConverterRegistry.register(".gltf", "glb", _gltf)
+
+    for ext in _TRIMESH_EXTS:
+        # Closure-over-loop-var trap: bind ext via default arg so each
+        # registered handler captures its own source extension and the
+        # last iteration's value doesn't leak into earlier entries.
+        def _h(src, on_progress, *, _ext=ext, **_kw):
+            return _via_trimesh(src, _ext, on_progress)
+
+        ConverterRegistry.register(ext, "glb", _h)
+
+
+def _register_ada_loadable() -> None:
+    # Original three targets (glb/ifc/xml) via the long-standing ada
+    # writers.
+    for ext in _ADA_LOADABLE_EXTS:
+        for tgt in ("glb", "ifc", "xml"):
+            def _h(src, on_progress, *, _ext=ext, _tgt=tgt, **_kw):
+                return _via_ada(src, _ext, _tgt, on_progress)
+
+            ConverterRegistry.register(ext, tgt, _h)
+
+    # New M2 targets: stl / obj (via to_trimesh_scene) and step (via
+    # to_stp). All eight ada-loadable sources support all three new
+    # targets — to_trimesh_scene tessellates whatever Part the ada
+    # loader returned, and to_stp re-exports through OCC.
+    for ext in _ADA_LOADABLE_EXTS:
+        for tgt in ("stl", "obj"):
+            def _h(src, on_progress, *, _ext=ext, _tgt=tgt, **_kw):
+                return _via_ada_to_trimesh(src, _ext, f".{_tgt}", on_progress)
+
+            ConverterRegistry.register(ext, tgt, _h)
+
+        def _step(src, on_progress, *, _ext=ext, **_kw):
+            return _via_ada_to_step(src, _ext, on_progress)
+
+        ConverterRegistry.register(ext, "step", _step)
+
+
+def _register_fea_result_to_glb() -> None:
+    for ext in _FEA_RESULT_EXTS:
+        def _h(src, on_progress, *, _ext=ext, step=None, field=None, **_kw):
+            return _via_fea_result(
+                src, "glb", on_progress, step=step, field=field,
+            )
+
+        ConverterRegistry.register(ext, "glb", _h)
+
+
+def _register_glb_to_mesh() -> None:
+    # GLB → STL / OBJ via pure trimesh. No ada round-trip needed and
+    # no ada Assembly is materialised — the user came in with a mesh
+    # and wants a mesh out, in a different container.
+    for tgt in ("stl", "obj"):
+        def _h(src, on_progress, *, _tgt=tgt, **_kw):
+            return _via_glb_to_trimesh(src, f".{_tgt}", on_progress)
+
+        ConverterRegistry.register(".glb", tgt, _h)
+
+
+_register_passthrough_glb()
+_register_trimesh_to_glb()
+_register_ada_loadable()
+_register_fea_result_to_glb()
+_register_glb_to_mesh()
+
+
+# Allowed target formats — populated from the registry once every
+# ``_register_*`` call above has fired. Same surface as before
+# (frozenset of bare-name target extensions) so external imports
+# (``from .converter import TARGET_FORMATS``) keep working.
+TARGET_FORMATS: frozenset[str] = ConverterRegistry.all_targets()
+
+# Union of source extensions backed by at least one registered
+# converter (legacy ``/convert`` pipeline reach). Bundles are
+# included because they unpack to a registered source.
+LEGACY_CONVERT_EXTS: frozenset[str] = ConverterRegistry.all_sources() | _BUNDLE_EXTS

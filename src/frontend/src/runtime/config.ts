@@ -41,6 +41,13 @@ declare global {
         // GLB-preview path). Drives the picker between /convert and
         // /fea/manifest on upload.
         STREAMING_ONLY_EXTS?: readonly string[];
+        // Merged conversion matrix advertised by every live worker.
+        // Each entry says "source extension `from` can be converted
+        // to any of the `to` targets". The /convert page reads this
+        // to populate the target dropdown per uploaded file. Empty
+        // when the queue is disabled (dev / desktop mode) or no
+        // worker has registered yet.
+        CONVERSION_MATRIX?: readonly { from: string; to: readonly string[] }[];
         WEBSOCKET_ID?: number | string;
         WEBSOCKET_PORT?: number | string;
         TARGET_INSTANCE_ID?: number | string;
@@ -69,6 +76,22 @@ export const runtime = {
     workerImageTag: (): string => (w().WORKER_IMAGE_TAG || "").trim(),
     extraSourceExts: (): readonly string[] => w().EXTRA_SOURCE_EXTS ?? [],
     streamingOnlyExts: (): readonly string[] => w().STREAMING_ONLY_EXTS ?? [],
+    conversionMatrix: (): readonly { from: string; to: readonly string[] }[] =>
+        w().CONVERSION_MATRIX ?? [],
+    /** Targets advertised for a given source extension. Lower-cases
+     * and dot-normalises the input so callers don't have to. Empty
+     * array when the source extension isn't in the matrix (either
+     * because no worker advertises it or the queue is disabled). */
+    conversionTargetsFor: (ext: string): readonly string[] => {
+        const normFrom = (ext.startsWith(".") ? ext : `.${ext}`).toLowerCase();
+        const matrix = w().CONVERSION_MATRIX ?? [];
+        for (const entry of matrix) {
+            if ((entry.from || "").toLowerCase() === normFrom) {
+                return entry.to || [];
+            }
+        }
+        return [];
+    },
 
     // OIDC bootstrap. authEnabled() drives whether the SPA puts up an
     // auth gate at all; in dev / desktop it's false and the rest of
