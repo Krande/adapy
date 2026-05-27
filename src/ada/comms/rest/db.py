@@ -1633,7 +1633,12 @@ async def aggregate_conversion_metrics(
                 GREATEST(COALESCE(read_bytes, 0) / 1048576.0, 0.001) AS source_mb
             FROM audit_log
             WHERE action = 'convert'
-              AND ts > NOW() - ($1 || ' days')::interval
+              -- ``$1`` is an int (clamped days); multiply against
+              -- the interval literal so we don't need to round-
+              -- trip through a string concat (which asyncpg
+              -- rejects with ``expected str, got int`` because
+              -- ``||`` is the SQL string-concat operator).
+              AND ts > NOW() - ($1 * INTERVAL '1 day')
               AND target_format IS NOT NULL
               AND key IS NOT NULL
               {where_extra}
@@ -1842,7 +1847,7 @@ async def aggregate_profile_hotspots(
     days = max(1, min(365, since_days))
     where = [
         "al.action = 'convert'",
-        "al.ts > NOW() - ($1 || ' days')::interval",
+        "al.ts > NOW() - ($1 * INTERVAL '1 day')",
     ]
     args: list = [days]
     if source_ext:
