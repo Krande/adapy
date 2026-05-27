@@ -19,6 +19,20 @@ name: Build viewer + worker images
 # * each image still skips its own build when its paths weren't
 #   touched — the per-job `if:` gates on the detect job's outputs.
 
+# Cancel an in-flight run for the same branch when a new push lands.
+# Without this, two overlapping runs race at the gitops-commit step:
+# an older run (slow worker build) can finish AFTER a newer
+# viewer-only run, overwriting the newer image tag with the older
+# SHA in the gitops manifest. The existing rebase-retry loop handles
+# concurrent writes from different branches but not the same-branch
+# stale-overwrite case. cancel-in-progress means only the latest
+# push's run reaches gitops; a worker build from the older SHA gets
+# scrapped, which is acceptable since the next push usually re-
+# touches the same code anyway.
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
 on:
   workflow_dispatch:
   push:
