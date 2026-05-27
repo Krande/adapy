@@ -194,7 +194,7 @@ const CorpusFiles: React.FC<{corpus: Corpus}> = ({corpus}) => {
             {err && (
                 <div className="text-xs text-red-400 px-3 py-2">{err}</div>
             )}
-            <div className="flex-1 overflow-auto">
+            <div className="flex-1 min-h-0 overflow-auto">
                 {files.length === 0 && !err && (
                     <div className="text-xs text-gray-500 italic px-3 py-4">
                         No files yet. Upload representative source files (STEP /
@@ -285,12 +285,17 @@ const CorpusTab: React.FC = () => {
         <div className="flex flex-col h-full">
             <NewCorpusForm onCreated={loadCorpora}/>
 
-            <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
+            <div className="flex-1 min-h-0 flex flex-col md:flex-row overflow-hidden">
                 {/* Corpus list — full-width on mobile (collapses when
-                    a corpus is selected), sidebar on md+. */}
+                    a corpus is selected), sidebar on md+.
+                    Mobile scroll wiring matches AuditRunsTab: needs
+                    flex-1 min-h-0 in the column-flex context so
+                    overflow-auto can actually shrink below content
+                    size. md:flex-none restores the fixed sidebar
+                    sizing in the row layout. */}
                 <div className={
-                    "md:w-72 md:shrink-0 md:border-r md:border-b-0 " +
-                    "border-b border-gray-800 overflow-auto " +
+                    "md:w-72 md:shrink-0 md:flex-none md:border-r md:border-b-0 " +
+                    "flex-1 min-h-0 border-b border-gray-800 overflow-auto " +
                     (showList ? "block" : "hidden md:block")
                 }>
                     {listError && (
@@ -345,7 +350,7 @@ const CorpusTab: React.FC = () => {
                 {/* Per-corpus files — hidden on mobile when no corpus
                     is selected. */}
                 <div className={
-                    "flex-1 flex-col overflow-hidden " +
+                    "flex-1 min-h-0 flex-col overflow-hidden " +
                     (showList ? "hidden md:flex" : "flex")
                 }>
                     {!selected && (

@@ -140,7 +140,7 @@ const ConversionSettingsTab: React.FC = () => {
                     {error}
                 </div>
             )}
-            <div className="flex-1 overflow-auto">
+            <div className="flex-1 min-h-0 overflow-auto">
                 {loading ? (
                     <div className="px-3 sm:px-4 py-4 text-sm text-gray-300">Loading settings…</div>
                 ) : (

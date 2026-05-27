@@ -349,7 +349,7 @@ const SchedulesTab: React.FC = () => {
                 capabilities={capabilities}
                 onCreated={load}
             />
-            <div className="flex-1 overflow-auto">
+            <div className="flex-1 min-h-0 overflow-auto">
                 {listError && (
                     <div className="text-xs text-red-400 px-3 py-2">{listError}</div>
                 )}

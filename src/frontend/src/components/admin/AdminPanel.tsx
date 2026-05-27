@@ -82,7 +82,18 @@ const AdminPanel: React.FC = () => {
     }
 
     return (
-        <div className="min-h-screen flex flex-col bg-gray-900 text-white">
+        // ``h-[100dvh]`` (dynamic viewport height) instead of
+        // ``min-h-screen``: the page must be LOCKED to viewport
+        // height so the nested ``overflow-auto`` chain inside each
+        // tab actually clamps against something definite. With
+        // ``min-h-screen`` the outer page is free to grow past the
+        // viewport, every ``flex-1 overflow-hidden`` collapses to
+        // content height, and tab content just falls out the
+        // bottom of mobile Chrome / Safari with no inner scroll.
+        // ``100dvh`` (dynamic) tracks the visible viewport across
+        // address-bar show/hide, where plain ``100vh`` would stay
+        // stuck at the maximum.
+        <div className="h-[100dvh] flex flex-col bg-gray-900 text-white overflow-hidden">
             <header className="flex items-center gap-2 border-b border-gray-800 px-3 py-2 sm:px-4 shrink-0">
                 <div className="flex-1 min-w-0 overflow-x-auto flex gap-1 text-sm">
                     <TabButton active={tab === "audit"} onClick={() => setTab("audit")}>
@@ -127,7 +138,7 @@ const AdminPanel: React.FC = () => {
                     </a>
                 </div>
             </header>
-            <main className="flex-1 overflow-hidden">
+            <main className="flex-1 min-h-0 overflow-hidden">
                 {tab === "audit" && <AuditLogTab/>}
                 {tab === "audit_runs" && <AuditRunsTab/>}
                 {tab === "schedules" && <SchedulesTab/>}

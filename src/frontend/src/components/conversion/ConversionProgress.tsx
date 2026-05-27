@@ -335,9 +335,9 @@ const JobRow: React.FC<{
     const pct = Math.round((job.progress || 0) * 100);
     const isCancellable = job.status === "queued" || job.status === "running";
     return (
-        <div className="space-y-1">
-            <div className="flex justify-between items-center gap-2">
-                <span className="truncate flex-1 text-gray-100" title={job.sourceKey}>
+        <div className="space-y-1 min-w-0">
+            <div className="flex justify-between items-center gap-2 min-w-0">
+                <span className="truncate min-w-0 flex-1 text-gray-100" title={job.sourceKey}>
                     {job.sourceKey}
                 </span>
                 <span className="ml-2 text-gray-400 shrink-0">
@@ -456,7 +456,13 @@ const ConversionProgress = () => {
         // receives clicks even if a future ancestor opts into
         // pointer-events-none for the chrome layer (some overlay
         // shells do that to let drags reach the canvas).
-        <div className="absolute bottom-4 right-4 z-50 flex flex-col gap-2 max-w-sm pointer-events-auto">
+        //
+        // Mobile width: anchor to both left and right (16px from each
+        // edge) so a long source key can't overflow the viewport.
+        // From the ``sm:`` breakpoint up we revert to the desktop
+        // floating-pill style — anchored to the right, capped at
+        // ``max-w-sm`` (24rem).
+        <div className="absolute bottom-4 left-4 right-4 sm:left-auto sm:max-w-sm z-50 flex flex-col gap-2 pointer-events-auto">
             {visibleSweeps.map(([scopeLabel, state]) => (
                 <CompressionToast
                     key={`compress:${scopeLabel}`}

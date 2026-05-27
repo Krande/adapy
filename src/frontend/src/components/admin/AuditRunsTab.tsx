@@ -469,7 +469,7 @@ const AuditRunsTab: React.FC = () => {
         <div className="flex flex-col h-full">
             <TriggerForm onCreated={loadRuns}/>
 
-            <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
+            <div className="flex-1 min-h-0 flex flex-col md:flex-row overflow-hidden">
                 {/* History list. Side-by-side w-80 on md+; full-width
                     on mobile, hidden once a run is selected.
 
@@ -558,7 +558,7 @@ const AuditRunsTab: React.FC = () => {
                 {/* Per-run grid. Hidden on mobile when no run is
                     selected so the history list owns the viewport. */}
                 <div className={
-                    "flex-1 flex-col overflow-hidden " +
+                    "flex-1 min-h-0 flex-col overflow-hidden " +
                     (showHistory ? "hidden md:flex" : "flex")
                 }>
                     {!selectedRun && (

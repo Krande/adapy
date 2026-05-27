@@ -72,7 +72,7 @@ const ProjectsTab: React.FC = () => {
                         {error}
                     </div>
                 )}
-                <div className="flex-1 overflow-auto">
+                <div className="flex-1 min-h-0 overflow-auto">
                     {projects.map((p) => (
                         <button
                             key={p.id}
@@ -106,7 +106,7 @@ const ProjectsTab: React.FC = () => {
             </div>
             <div
                 className={
-                    "flex-1 overflow-auto " +
+                    "flex-1 min-h-0 overflow-auto " +
                     (showDetailOnly ? "block" : "hidden sm:block")
                 }
             >
@@ -331,7 +331,7 @@ const MemberPane: React.FC<{
                     {error}
                 </div>
             )}
-            <div className="flex-1 overflow-auto">
+            <div className="flex-1 min-h-0 overflow-auto">
                 {/* Desktop / tablet table */}
                 <table className="hidden sm:table w-full text-sm table-fixed min-w-[1200px]">
                     <colgroup>
@@ -482,7 +482,7 @@ const CiBotTokenModal: React.FC<{
                         ×
                     </button>
                 </div>
-                <div className="flex-1 overflow-auto p-4 space-y-4 text-sm">
+                <div className="flex-1 min-h-0 overflow-auto p-4 space-y-4 text-sm">
                     <div className="text-xs text-gray-300">
                         Copy now — the server does not store this token. Re-mint to rotate;
                         previous tokens for this bot stop validating immediately.

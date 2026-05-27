@@ -237,7 +237,7 @@ const AuditLogTab: React.FC = () => {
                     {error}
                 </div>
             )}
-            <div className="flex-1 overflow-auto">
+            <div className="flex-1 min-h-0 overflow-auto">
                 {/* Desktop / tablet table.
                     Time/User/Scope/Action/Target/Status are predictable in
                     width, so we fix them and let Key flex to consume the
