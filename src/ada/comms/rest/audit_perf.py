@@ -47,6 +47,13 @@ DEFAULT_THRESHOLDS: dict[str, float] = {
     # converter is either OOMing or timing out — both streaming-
     # solvable, both worth surfacing.
     "failure_rate": 0.05,
+    # CPU fraction = sum(cpu_user_ms + cpu_sys_ms) / sum(duration_ms).
+    # Below this threshold the conversion is mostly waiting (IO,
+    # network, etc.) rather than computing — async streaming /
+    # parallel IO usually wins back wall-clock without a code
+    # rewrite. Default 0.30 matches what a typical "blocked on
+    # network reads" conversion looks like in our existing data.
+    "cpu_fraction_max": 0.30,
 }
 
 
@@ -58,6 +65,7 @@ SIGNAL_REASONS: dict[str, str] = {
     "duration_s_p95": "p95 elapsed exceeds threshold",
     "peak_rss_max_mb": "max peak RSS approaches worker memory limit",
     "failure_rate": "failure rate exceeds threshold",
+    "cpu_fraction_max": "CPU fraction below threshold — likely IO-bound",
 }
 
 
@@ -126,6 +134,15 @@ def classify_streaming_candidate(
     failure_rate = cell.get("failure_rate")
     if failure_rate is not None and failure_rate > thr["failure_rate"]:
         signals.append("failure_rate")
+
+    # IO-bound signal: ``cpu_fraction`` strictly BELOW the threshold
+    # is the inverse-direction check vs the other signals. We
+    # surface it as an independent flag so the UI can render
+    # "IO-bound" alongside "consider streaming" — they often
+    # co-occur but aren't identical.
+    cpu_fraction = cell.get("cpu_fraction")
+    if cpu_fraction is not None and cpu_fraction < thr["cpu_fraction_max"]:
+        signals.append("cpu_fraction_max")
 
     return {"is_candidate": bool(signals), "signals": signals}
 

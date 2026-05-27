@@ -1,5 +1,12 @@
 import React, {useCallback, useEffect, useMemo, useState} from "react";
-import {PerfCell, PerfReport, PerfThresholdsResp, viewerApi} from "@/services/viewerApi";
+import {
+    PerfCell,
+    PerfHotspotRow,
+    PerfHotspotsResp,
+    PerfReport,
+    PerfThresholdsResp,
+    viewerApi,
+} from "@/services/viewerApi";
 
 // Admin tab — cross-conversion performance dashboard (M6 of
 // plan/v2/notes_admin_audit_panel.md).
@@ -136,23 +143,140 @@ const ThresholdEditor: React.FC<{
     );
 };
 
-const StreamingBadge: React.FC<{
+// One pill per fired signal. The IO-bound flag (``cpu_fraction_max``)
+// renders distinctly from the streaming-candidate flags so the
+// operator can see at a glance whether a slow cell is CPU-bound (RSS
+// or duration signals) vs IO-bound (cpu fraction signal). All other
+// fired signals collapse into a single "consider streaming" pill.
+const FlagsBadges: React.FC<{
     cell: PerfCell;
     reasons: Record<string, string>;
 }> = ({cell, reasons}) => {
-    if (!cell.streaming.is_candidate) {
+    const signals = cell.streaming.signals;
+    if (signals.length === 0) {
         return <span className="text-gray-600">—</span>;
     }
-    const tip = cell.streaming.signals
-        .map((s) => `• ${reasons[s] || s}`)
-        .join("\n");
+    const ioBound = signals.includes("cpu_fraction_max");
+    const otherSignals = signals.filter((s) => s !== "cpu_fraction_max");
     return (
-        <span
-            className="inline-block px-1.5 py-0.5 bg-amber-900/50 border border-amber-600 text-amber-200 rounded-sm text-[10px]"
-            title={tip}
-        >
-            consider streaming
-        </span>
+        <div className="flex gap-1 flex-wrap items-center">
+            {otherSignals.length > 0 && (
+                <span
+                    className="inline-block px-1.5 py-0.5 bg-amber-900/50 border border-amber-600 text-amber-200 rounded-sm text-[10px]"
+                    title={otherSignals.map((s) => `• ${reasons[s] || s}`).join("\n")}
+                >
+                    streaming
+                </span>
+            )}
+            {ioBound && (
+                <span
+                    className="inline-block px-1.5 py-0.5 bg-sky-900/50 border border-sky-600 text-sky-200 rounded-sm text-[10px]"
+                    title={reasons["cpu_fraction_max"] || "IO-bound"}
+                >
+                    IO-bound
+                </span>
+            )}
+        </div>
+    );
+};
+
+// Hotspots panel: lazy-fetch top functions for one cell. Empty
+// state distinguishes "profiling disabled" (no profiles_in_window)
+// from "no aggregated data yet" (the parser hasn't caught up).
+const HotspotsPanel: React.FC<{
+    sourceExt: string;
+    targetFormat: string;
+    sinceDays: number;
+}> = ({sourceExt, targetFormat, sinceDays}) => {
+    const [data, setData] = useState<PerfHotspotsResp | null>(null);
+    const [loading, setLoading] = useState(true);
+    const [err, setErr] = useState<string | null>(null);
+
+    useEffect(() => {
+        let cancelled = false;
+        setLoading(true);
+        setErr(null);
+        (async () => {
+            try {
+                const r = await viewerApi.adminPerfHotspots({
+                    source_ext: sourceExt,
+                    target_format: targetFormat,
+                    since: sinceDays,
+                    limit: 25,
+                });
+                if (!cancelled) setData(r);
+            } catch (e) {
+                if (!cancelled) setErr((e as Error).message || "fetch failed");
+            } finally {
+                if (!cancelled) setLoading(false);
+            }
+        })();
+        return () => { cancelled = true; };
+    }, [sourceExt, targetFormat, sinceDays]);
+
+    if (loading) {
+        return <div className="text-xs text-gray-500 italic">Loading hotspots…</div>;
+    }
+    if (err) {
+        return <div className="text-xs text-red-400">Hotspots failed: {err}</div>;
+    }
+    if (!data || data.profiles_in_window === 0) {
+        return (
+            <div className="text-xs text-gray-500 italic">
+                No profile data in the window. Toggle{" "}
+                <code className="text-gray-400">profile_conversions</code>{" "}
+                on (admin settings or per-job conversion options), run a few
+                conversions, then check back — the background parser indexes new
+                profiles every ~30 s.
+            </div>
+        );
+    }
+    return (
+        <div className="space-y-2">
+            <div className="text-[11px] text-gray-500">
+                Top {data.functions.length} functions across {data.profiles_in_window} profiled run
+                {data.profiles_in_window === 1 ? "" : "s"} in the last {data.since_days} day
+                {data.since_days === 1 ? "" : "s"}.
+                Ranked by cumulative time (sum across all matching profiles).
+            </div>
+            <div className="overflow-x-auto">
+                <table className="text-[11px] border-collapse w-full">
+                    <thead className="text-gray-400">
+                        <tr>
+                            <Th align="right">cumtime (s)</Th>
+                            <Th align="right">ncalls</Th>
+                            <Th align="right">in N runs</Th>
+                            <Th>function</Th>
+                            <Th>file:line</Th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {data.functions.map((row) => (
+                            <tr
+                                key={`${row.file}:${row.line}:${row.func}`}
+                                className="border-t border-gray-800 hover:bg-gray-900"
+                            >
+                                <td className="px-2 py-1 text-right text-amber-200 font-mono">
+                                    {row.agg_cumtime.toFixed(2)}
+                                </td>
+                                <td className="px-2 py-1 text-right text-gray-400 font-mono">
+                                    {row.agg_ncalls.toLocaleString()}
+                                </td>
+                                <td className="px-2 py-1 text-right text-gray-500">
+                                    {row.profiles_seen}
+                                </td>
+                                <td className="px-2 py-1 font-mono text-gray-200">
+                                    {row.func}
+                                </td>
+                                <td className="px-2 py-1 font-mono text-gray-500 truncate max-w-xs" title={`${row.file}:${row.line}`}>
+                                    {row.file ? `${row.file}:${row.line}` : "—"}
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                </table>
+            </div>
+        </div>
     );
 };
 
@@ -166,6 +290,9 @@ const PerformanceTab: React.FC = () => {
     const [showThresholds, setShowThresholds] = useState(false);
     const [err, setErr] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
+    // Hotspots drill-down: track which cell is expanded (one at a
+    // time keeps the table readable) and lazy-load the hotspots.
+    const [expanded, setExpanded] = useState<string | null>(null);
 
     const loadReport = useCallback(async (days: number, trig: typeof trigger) => {
         setLoading(true);
@@ -306,6 +433,7 @@ const PerformanceTab: React.FC = () => {
                     <table className="text-xs border-collapse w-full">
                         <thead className="sticky top-0 bg-gray-900 z-10">
                             <tr className="text-left text-gray-300">
+                                <Th align="center">…</Th>
                                 <Th onClick={() => onHeaderClick("cell")}>cell{sortArrow("cell")}</Th>
                                 <Th onClick={() => onHeaderClick("samples")} align="right">n{sortArrow("samples")}</Th>
                                 <Th onClick={() => onHeaderClick("failures")} align="right">fail%{sortArrow("failures")}</Th>
@@ -314,44 +442,83 @@ const PerformanceTab: React.FC = () => {
                                 <Th onClick={() => onHeaderClick("p95_rss")} align="right">p95 RSS{sortArrow("p95_rss")}</Th>
                                 <Th align="right">max RSS</Th>
                                 <Th onClick={() => onHeaderClick("rss_per_mb")} align="right">p95 RSS/MB{sortArrow("rss_per_mb")}</Th>
+                                <Th align="right">cpu%</Th>
                                 <Th align="right">avg input</Th>
                                 <Th align="right">p50 out</Th>
-                                <Th onClick={() => onHeaderClick("streaming")}>streaming?{sortArrow("streaming")}</Th>
+                                <Th onClick={() => onHeaderClick("streaming")}>flags{sortArrow("streaming")}</Th>
                             </tr>
                         </thead>
                         <tbody>
-                            {sortedCells.map((c) => (
-                                <tr
-                                    key={`${c.source_ext}::${c.target_format}`}
-                                    className={
-                                        "border-t border-gray-800 hover:bg-gray-800/40 " +
-                                        (c.streaming.is_candidate ? "bg-amber-950/20" : "")
-                                    }
-                                >
-                                    <td className="px-2 py-1 font-mono text-gray-200">
-                                        {c.source_ext} → {c.target_format}
-                                    </td>
-                                    <td className="px-2 py-1 text-right text-gray-300">{c.sample_count}</td>
-                                    <td className={
-                                        "px-2 py-1 text-right " +
-                                        (c.failure_rate > 0.05 ? "text-red-400"
-                                            : c.failure_rate > 0 ? "text-amber-300"
-                                            : "text-gray-500")
-                                    }>
-                                        {fmtPct(c.failure_rate)}
-                                    </td>
-                                    <td className="px-2 py-1 text-right text-gray-300">{fmtMs(c.duration_ms_p50)}</td>
-                                    <td className="px-2 py-1 text-right text-gray-300">{fmtMs(c.duration_ms_p95)}</td>
-                                    <td className="px-2 py-1 text-right text-gray-300">{fmtKB(c.peak_rss_kb_p95)}</td>
-                                    <td className="px-2 py-1 text-right text-gray-300">{fmtKB(c.peak_rss_max_kb)}</td>
-                                    <td className="px-2 py-1 text-right text-gray-300">{fmtRatio(c.peak_rss_per_source_mb_p95)}</td>
-                                    <td className="px-2 py-1 text-right text-gray-500">{fmtBytes(c.read_bytes_avg)}</td>
-                                    <td className="px-2 py-1 text-right text-gray-500">{fmtBytes(c.write_bytes_p50)}</td>
-                                    <td className="px-2 py-1">
-                                        <StreamingBadge cell={c} reasons={report.signal_reasons}/>
-                                    </td>
-                                </tr>
-                            ))}
+                            {sortedCells.map((c) => {
+                                const key = `${c.source_ext}::${c.target_format}`;
+                                const isOpen = expanded === key;
+                                return (
+                                    <React.Fragment key={key}>
+                                        <tr
+                                            className={
+                                                "border-t border-gray-800 hover:bg-gray-800/40 " +
+                                                (c.streaming.is_candidate ? "bg-amber-950/20" : "")
+                                            }
+                                        >
+                                            <td className="px-2 py-1 text-center">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setExpanded(isOpen ? null : key)}
+                                                    className="text-blue-400 hover:text-blue-300 font-mono"
+                                                    title={isOpen ? "Hide hotspots" : "Show top functions by cumtime"}
+                                                >
+                                                    {isOpen ? "▾" : "▸"}
+                                                </button>
+                                            </td>
+                                            <td className="px-2 py-1 font-mono text-gray-200">
+                                                {c.source_ext} → {c.target_format}
+                                            </td>
+                                            <td className="px-2 py-1 text-right text-gray-300">{c.sample_count}</td>
+                                            <td className={
+                                                "px-2 py-1 text-right " +
+                                                (c.failure_rate > 0.05 ? "text-red-400"
+                                                    : c.failure_rate > 0 ? "text-amber-300"
+                                                    : "text-gray-500")
+                                            }>
+                                                {fmtPct(c.failure_rate)}
+                                            </td>
+                                            <td className="px-2 py-1 text-right text-gray-300">{fmtMs(c.duration_ms_p50)}</td>
+                                            <td className="px-2 py-1 text-right text-gray-300">{fmtMs(c.duration_ms_p95)}</td>
+                                            <td className="px-2 py-1 text-right text-gray-300">{fmtKB(c.peak_rss_kb_p95)}</td>
+                                            <td className="px-2 py-1 text-right text-gray-300">{fmtKB(c.peak_rss_max_kb)}</td>
+                                            <td className="px-2 py-1 text-right text-gray-300">{fmtRatio(c.peak_rss_per_source_mb_p95)}</td>
+                                            <td className={
+                                                "px-2 py-1 text-right " +
+                                                (c.cpu_fraction == null ? "text-gray-600"
+                                                    : c.cpu_fraction < 0.3 ? "text-amber-300"
+                                                    : "text-gray-300")
+                                            } title={
+                                                c.cpu_fraction == null
+                                                    ? "no timing data"
+                                                    : "(cpu_user_ms + cpu_sys_ms) / duration_ms"
+                                            }>
+                                                {fmtPct(c.cpu_fraction)}
+                                            </td>
+                                            <td className="px-2 py-1 text-right text-gray-500">{fmtBytes(c.read_bytes_avg)}</td>
+                                            <td className="px-2 py-1 text-right text-gray-500">{fmtBytes(c.write_bytes_p50)}</td>
+                                            <td className="px-2 py-1">
+                                                <FlagsBadges cell={c} reasons={report.signal_reasons}/>
+                                            </td>
+                                        </tr>
+                                        {isOpen && (
+                                            <tr className="border-t border-gray-900 bg-gray-950">
+                                                <td colSpan={13} className="px-3 py-2">
+                                                    <HotspotsPanel
+                                                        sourceExt={c.source_ext}
+                                                        targetFormat={c.target_format}
+                                                        sinceDays={windowDays}
+                                                    />
+                                                </td>
+                                            </tr>
+                                        )}
+                                    </React.Fragment>
+                                );
+                            })}
                         </tbody>
                     </table>
                 </div>
@@ -363,12 +530,12 @@ const PerformanceTab: React.FC = () => {
 const Th: React.FC<{
     children: React.ReactNode;
     onClick?: () => void;
-    align?: "left" | "right";
+    align?: "left" | "right" | "center";
 }> = ({children, onClick, align = "left"}) => (
     <th
         className={
             "px-2 py-1 border-b border-gray-700 font-medium whitespace-nowrap " +
-            (align === "right" ? "text-right " : "") +
+            (align === "right" ? "text-right " : align === "center" ? "text-center " : "") +
             (onClick ? "cursor-pointer hover:text-blue-300" : "")
         }
         onClick={onClick}

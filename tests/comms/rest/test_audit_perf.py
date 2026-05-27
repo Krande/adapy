@@ -158,3 +158,38 @@ def test_missing_metric_does_not_fire_signal():
     cell = _cell(peak_rss_per_source_mb_p95=None, duration_ms_p95=None)
     verdict = classify_streaming_candidate(cell)
     assert verdict["is_candidate"] is False
+
+
+def test_cpu_fraction_signal_fires_when_io_bound():
+    """A cell with low CPU fraction (mostly IO/wait) should fire
+    the IO-bound signal."""
+    cell = _cell(cpu_fraction=0.10)
+    verdict = classify_streaming_candidate(cell)
+    assert "cpu_fraction_max" in verdict["signals"]
+    assert verdict["is_candidate"] is True
+
+
+def test_cpu_fraction_signal_silent_when_cpu_bound():
+    """A CPU-bound cell (cpu_fraction > threshold) should NOT
+    trigger the IO-bound flag — the test must check directionality
+    since cpu_fraction_max is the only inverse-direction signal."""
+    cell = _cell(cpu_fraction=0.80)
+    verdict = classify_streaming_candidate(cell)
+    assert "cpu_fraction_max" not in verdict["signals"]
+
+
+def test_cpu_fraction_null_does_not_fire():
+    """NULL cpu_fraction (no timing samples) must not trip the
+    signal — otherwise empty cells would always look IO-bound."""
+    cell = _cell(cpu_fraction=None)
+    verdict = classify_streaming_candidate(cell)
+    assert "cpu_fraction_max" not in verdict["signals"]
+
+
+def test_cpu_fraction_threshold_overridable():
+    """Same override mechanism as the other thresholds."""
+    cell = _cell(cpu_fraction=0.50)  # default would not fire
+    verdict = classify_streaming_candidate(
+        cell, thresholds={"cpu_fraction_max": 0.60},
+    )
+    assert "cpu_fraction_max" in verdict["signals"]

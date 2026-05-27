@@ -466,7 +466,33 @@ export interface PerfCell {
     write_bytes_p50: number | null;
     write_bytes_p95: number | null;
     read_bytes_avg: number | null;
+    // Fraction of wall-clock spent in CPU (user + sys) across all
+    // samples. Null when no rows had non-null duration. Below the
+    // ``cpu_fraction_max`` threshold the classifier flags the cell
+    // as IO-bound — see ``streaming.signals`` for the firing list.
+    cpu_fraction: number | null;
     streaming: {is_candidate: boolean; signals: string[]};
+}
+
+// One aggregated hot function inside a cell. ``agg_cumtime`` is the
+// SUM of pstats' ``cumtime`` across every profiled run in the
+// window — total seconds the function and its callees consumed.
+export interface PerfHotspotRow {
+    func: string;
+    file: string;
+    line: number;
+    agg_cumtime: number;
+    agg_ncalls: number;
+    profiles_seen: number;
+}
+
+export interface PerfHotspotsResp {
+    source_ext: string | null;
+    target_format: string | null;
+    functions: PerfHotspotRow[];
+    profiles_in_window: number;
+    total_top_cumtime_in_window: number;
+    since_days: number;
 }
 
 export interface PerfReport {
@@ -1292,6 +1318,27 @@ export const viewerApi = {
             body: JSON.stringify(body),
         });
         return jsonOrThrow(r, "adminPerfThresholdsSet");
+    },
+
+    /** Admin: function-level hotspots aggregated across recent
+     * profiles in one cell. Empty ``functions`` + ``profiles_in_window=0``
+     * usually means ``profile_conversions`` was off during the
+     * window, or the background parser hasn't caught up yet. */
+    async adminPerfHotspots(opts: {
+        source_ext?: string;
+        target_format?: string;
+        since?: number;
+        limit?: number;
+    }): Promise<PerfHotspotsResp> {
+        const params = new URLSearchParams();
+        if (opts.source_ext) params.set("source_ext", opts.source_ext);
+        if (opts.target_format) params.set("target_format", opts.target_format);
+        if (opts.since != null) params.set("since", String(opts.since));
+        if (opts.limit != null) params.set("limit", String(opts.limit));
+        const qs = params.toString();
+        const url = `${runtime.apiBase()}/admin/audit/perf/hotspots${qs ? `?${qs}` : ""}`;
+        const r = await authedFetch(url);
+        return jsonOrThrow(r, "adminPerfHotspots");
     },
 
     /** Admin: kick off a background sweep that scans the scope for

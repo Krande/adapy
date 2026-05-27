@@ -112,11 +112,26 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 _issue_bot_loop(app.state.db_pool),
                 name="audit-issue-bot",
             )
+        # Profile hotspot parser (M7). Pulls each new ``.prof`` blob
+        # produced by the conversion worker, extracts the top-K
+        # functions by cumtime, and lands them in
+        # ``profile_function_stats`` so the perf dashboard's
+        # hotspots view can GROUP BY across runs without round-
+        # tripping through pstats at query time. Idle if profiling
+        # is disabled — there'll just be no rows to claim.
+        app.state.profile_parser_task = None
+        if app.state.db_pool is not None:
+            app.state.profile_parser_task = asyncio.create_task(
+                _profile_parser_loop(app.state.db_pool),
+                name="audit-profile-parser",
+            )
         yield
         # Cancel scheduler + issue bot first so a tick in flight
         # doesn't try to use a pool / queue that's about to be torn
         # down.
-        for attr in ("scheduler_task", "issue_bot_task"):
+        for attr in (
+            "scheduler_task", "issue_bot_task", "profile_parser_task",
+        ):
             task = getattr(app.state, attr, None)
             if task is not None and not task.done():
                 task.cancel()
@@ -1928,6 +1943,116 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         logger.info("issue-bot: synced run %s — %s", run_id, note)
 
+    # ── Profile hotspot parser (M7 perf dashboard) ────────────────
+
+    _PROFILE_TOP_K = 50
+
+    async def _parse_one_profile(pool, claimed: dict) -> None:
+        """Download one .prof blob, extract top-K functions by
+        cumtime, and write rows into ``profile_function_stats``.
+        Failures get stamped on the audit_log row's
+        ``profile_stats_error`` so the operator can debug, but the
+        loop continues — one bad blob mustn't stop the queue."""
+        import pstats
+        import tempfile
+        import pathlib as _pl
+
+        audit_id = int(claimed["id"])
+        try:
+            scope = (
+                Scope.shared()
+                if claimed["scope_kind"] == "shared"
+                else Scope(kind=claimed["scope_kind"], id=claimed["scope_id"])  # type: ignore[arg-type]
+            )
+            data = await storage.get_bytes(scope, claimed["profile_key"])
+        except Exception as exc:
+            logger.warning(
+                "profile parser: storage read failed for audit %s: %s",
+                audit_id, exc,
+            )
+            await db_module.mark_profile_stats_failed(
+                pool, audit_id, f"storage read failed: {exc}",
+            )
+            return
+
+        # pstats only reads from disk — stash bytes in a tempfile
+        # rather than threading a BytesIO through it.
+        tmp_path = _pl.Path(tempfile.mkstemp(suffix=".prof")[1])
+        try:
+            tmp_path.write_bytes(data)
+            try:
+                stats = pstats.Stats(str(tmp_path))
+            except Exception as exc:
+                logger.warning(
+                    "profile parser: pstats failed for audit %s: %s",
+                    audit_id, exc,
+                )
+                await db_module.mark_profile_stats_failed(
+                    pool, audit_id, f"pstats parse failed: {exc}",
+                )
+                return
+        finally:
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
+
+        rows: list[dict] = []
+        for (fn, line, name), (cc, nc, tt, ct, _callers) in stats.stats.items():
+            rows.append({
+                "func": name or "",
+                "file": fn or "",
+                "line": int(line) if line is not None else 0,
+                "ncalls": int(nc),
+                "primitive_calls": int(cc),
+                "tottime": float(tt),
+                "cumtime": float(ct),
+            })
+        rows.sort(key=lambda r: r["cumtime"], reverse=True)
+        rows = rows[:_PROFILE_TOP_K]
+
+        try:
+            await db_module.insert_profile_function_stats(
+                pool, audit_id, rows,
+            )
+        except Exception as exc:
+            logger.exception("profile parser: insert failed for audit %s", audit_id)
+            await db_module.mark_profile_stats_failed(
+                pool, audit_id, f"insert failed: {exc}",
+            )
+
+    async def _profile_parser_loop(pool) -> None:
+        """Background task: pull unprocessed audit_log rows with a
+        ``profile_key``, parse the .prof, persist top-K function
+        stats. Idle when profiling is disabled (no rows match).
+
+        Batch-size limit per tick keeps the parser from monopolising
+        the event loop after a big audit run lands hundreds of new
+        .prof blobs at once.
+        """
+        TICK_INTERVAL_S = 30.0
+        BATCH_PER_TICK = 5
+        logger.info(
+            "profile parser: starting (tick every %ss, batch %d)",
+            TICK_INTERVAL_S, BATCH_PER_TICK,
+        )
+        try:
+            while True:
+                try:
+                    for _ in range(BATCH_PER_TICK):
+                        claimed = await db_module.claim_unprocessed_profile_row(pool)
+                        if claimed is None:
+                            break
+                        await _parse_one_profile(pool, claimed)
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    logger.exception("profile parser: tick failed")
+                await asyncio.sleep(TICK_INTERVAL_S)
+        except asyncio.CancelledError:
+            logger.info("profile parser: stopped")
+            raise
+
     async def _issue_bot_loop(pool) -> None:
         """Background task: claim finished+unsynced runs, sync each
         through :func:`_run_issue_bot_for`. Defensive — exceptions
@@ -2671,6 +2796,43 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return JSONResponse({
             "thresholds": await _load_perf_thresholds(pool),
             "defaults": audit_perf.DEFAULT_THRESHOLDS,
+        })
+
+    @admin.get("/audit/perf/hotspots")
+    async def admin_audit_perf_hotspots(
+        request: Request,
+        source_ext: str | None = None,
+        target_format: str | None = None,
+        since: int = 30,
+        limit: int = 25,
+    ) -> JSONResponse:
+        """Function-level hot paths inside one cell, aggregated across
+        every cProfile-tagged conversion in the window.
+
+        ``source_ext`` and ``target_format`` narrow the join to one
+        (source × target) cell; omit either to aggregate across all
+        cells (useful for "what's slow overall" exploratory views).
+        Returns the top N functions by SUMmed cumulative time —
+        same shape pstats uses, just rolled up.
+
+        Data only exists once ``profile_conversions=true`` is set on
+        the app settings (global) or per-job, AND the background
+        profile-parser loop has caught up with the new .prof blobs.
+        ``profiles_in_window=0`` flags the "profiling disabled or
+        nothing parsed yet" empty state cleanly.
+        """
+        pool = _require_pool(request)
+        out = await db_module.aggregate_profile_hotspots(
+            pool,
+            source_ext=source_ext,
+            target_format=target_format,
+            since_days=since,
+            limit=limit,
+        )
+        return JSONResponse({
+            "source_ext": source_ext,
+            "target_format": target_format,
+            **out,
         })
 
     @admin.get("/audit/{audit_id}")
