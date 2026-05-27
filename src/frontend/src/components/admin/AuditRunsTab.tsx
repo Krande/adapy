@@ -1,5 +1,5 @@
 import React, {useCallback, useEffect, useMemo, useState} from "react";
-import {viewerApi, AuditRun, AuditRunJob} from "@/services/viewerApi";
+import {viewerApi, AuditRun, AuditRunJob, Corpus} from "@/services/viewerApi";
 
 // Admin tab — kick off regression sweeps across the converter matrix
 // and drill into per-cell results. Layer 1 of the audit panel from
@@ -184,6 +184,10 @@ const TriggerForm: React.FC<{onCreated: () => void}> = ({onCreated}) => {
     // can't typo a tag — if a regression pod isn't registered yet,
     // its tag won't show up here either, which is the honest signal.
     const [capabilities, setCapabilities] = useState<string[]>([]);
+    // Available corpora (M3). Audit sweeps against a curated corpus
+    // are the release-gate flow; sweeping shared/user scopes is
+    // mostly for ad-hoc debugging.
+    const [corpora, setCorpora] = useState<Corpus[]>([]);
 
     useEffect(() => {
         let cancelled = false;
@@ -204,6 +208,15 @@ const TriggerForm: React.FC<{onCreated: () => void}> = ({onCreated}) => {
                 // No-op: the picker just falls back to "any" + a free
                 // hint. Failure to list workers shouldn't break audit
                 // dispatch — the operator can still type a tag.
+            }
+        })();
+        (async () => {
+            try {
+                const r = await viewerApi.adminCorporaList();
+                if (cancelled) return;
+                setCorpora(r.corpora);
+            } catch {
+                // Non-fatal: scope picker still has shared / user:me.
             }
         })();
         return () => { cancelled = true; };
@@ -232,13 +245,26 @@ const TriggerForm: React.FC<{onCreated: () => void}> = ({onCreated}) => {
         <form onSubmit={onSubmit} className="flex flex-wrap items-end gap-2 px-3 py-2 border-b border-gray-800 bg-gray-900/40">
             <label className="text-xs text-gray-300 flex flex-col gap-1">
                 <span>Scope</span>
-                <input
-                    type="text"
+                <select
                     value={scope}
                     onChange={(e) => setScope(e.target.value)}
-                    placeholder="shared | user:me | project:<id>"
                     className="bg-gray-900 border border-gray-600 rounded-sm px-2 py-1 text-sm text-gray-100 font-mono w-64"
-                />
+                    title="Pick a corpus for release-gate sweeps, or a non-corpus scope for ad-hoc debugging."
+                >
+                    {corpora.length > 0 && (
+                        <optgroup label="Corpora (release-gate)">
+                            {corpora.map((c) => (
+                                <option key={c.slug} value={`corpus:${c.slug}`}>
+                                    corpus:{c.slug}
+                                </option>
+                            ))}
+                        </optgroup>
+                    )}
+                    <optgroup label="Ad-hoc">
+                        <option value="shared">shared</option>
+                        <option value="user:me">user:me</option>
+                    </optgroup>
+                </select>
             </label>
             <label className="text-xs text-gray-300 flex flex-col gap-1">
                 <span>Worker pool</span>

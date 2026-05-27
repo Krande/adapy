@@ -5,6 +5,7 @@ import functools
 import json
 import os
 import pathlib
+import re
 import shutil
 import tempfile
 import time
@@ -306,6 +307,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if not pid:
                 raise HTTPException(status_code=400, detail="missing project id")
             return Scope.project(pid)
+        if s.startswith("corpus:"):
+            slug = s[len("corpus:"):].strip()
+            if not slug:
+                raise HTTPException(status_code=400, detail="missing corpus slug")
+            # Admin-only gate fires in scope_can_access; here we just
+            # parse. Non-admin requests hit a 403 at the access check.
+            return Scope.corpus(slug)
         raise HTTPException(status_code=400, detail=f"invalid scope {s!r}")
 
     async def _resolve_project_scope(pool, scope: Scope) -> Scope:
@@ -1746,6 +1754,85 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="audit run not found")
         jobs = await db_module.list_audit_run_jobs(pool, run_id)
         return JSONResponse({"run": run, "jobs": jobs})
+
+    # ── Corpora (M3 admin audit panel) ────────────────────────────────
+    #
+    # GET    /admin/corpora               list live corpora
+    # POST   /admin/corpora               create a corpus
+    # DELETE /admin/corpora/{slug}        archive (soft-delete)
+    #
+    # Per-corpus file management reuses the existing
+    # ``/api/scopes/{scope}/files`` family — corpus is just another
+    # ScopeKind, so listing / uploading / downloading bytes flows
+    # through the same code paths as user / project scopes (now gated
+    # by ``is_admin`` via scope_can_access).
+
+    _SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+
+    @admin.get("/corpora")
+    async def admin_corpora_list(request: Request) -> JSONResponse:
+        pool = _require_pool(request)
+        rows = await db_module.list_corpora(pool)
+        return JSONResponse({"corpora": rows})
+
+    @admin.post("/corpora")
+    async def admin_corpora_create(
+        request: Request,
+        user: User = Depends(auth_module.current_user),
+    ) -> JSONResponse:
+        """Create a new corpus.
+
+        Body: ``{"slug": "cad-baseline", "name": "...",
+                 "description": "..." }``.
+
+        ``slug`` is lowercase ASCII with hyphen separators — used in
+        URLs (``corpus:cad-baseline``) and storage prefixes
+        (``corpus/cad-baseline/``). Duplicate-against-live returns 409
+        via the partial unique index on ``corpora.slug``.
+        """
+        pool = _require_pool(request)
+        body = await request.json() if await request.body() else {}
+        slug = (body.get("slug") or "").strip().lower()
+        name = (body.get("name") or "").strip()
+        description = (body.get("description") or "").strip() or None
+        if not slug or not _SLUG_RE.match(slug):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "slug must be lowercase ASCII with hyphen separators "
+                    "(e.g. 'cad-baseline')"
+                ),
+            )
+        if not name:
+            raise HTTPException(status_code=400, detail="name required")
+        try:
+            row = await db_module.create_corpus(
+                pool,
+                slug=slug, name=name, description=description,
+                created_by=user.sub,
+            )
+        except Exception as exc:
+            # asyncpg surfaces unique-violation via ``UniqueViolationError``;
+            # treat that specifically as 409 instead of a generic 500.
+            if exc.__class__.__name__ == "UniqueViolationError":
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"corpus slug {slug!r} already in use",
+                ) from exc
+            raise
+        return JSONResponse(row, status_code=201)
+
+    @admin.delete("/corpora/{slug}")
+    async def admin_corpora_archive(slug: str, request: Request) -> JSONResponse:
+        """Soft-delete a corpus by slug. Storage bytes are NOT wiped —
+        the operator handles that out-of-band if disk pressure
+        matters. The slug becomes available for reuse immediately
+        because the uniqueness index is partial-on-live."""
+        pool = _require_pool(request)
+        ok = await db_module.archive_corpus(pool, slug)
+        if not ok:
+            raise HTTPException(status_code=404, detail=f"corpus {slug!r} not found")
+        return JSONResponse({"slug": slug, "archived": True})
 
     @admin.get("/audit/{audit_id}")
     async def admin_audit_get(
