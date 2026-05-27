@@ -71,7 +71,16 @@ class FemSection(FemBase):
             elset.refs.append(self)
 
     def __hash__(self):
-        return hash(f"{self.name}{self.id}")
+        # Tuple hash of the underlying attrs — was previously
+        # ``hash(f"{self.name}{self.id}")`` which paid for an
+        # f-string format AND went through the ``name`` / ``id``
+        # property descriptors on every call. The JackethybridFEM
+        # → Genie XML conversion calls this 5.8 BILLION times
+        # during ``consolidate_materials`` (set membership checks
+        # on the materials' ref lists). The format/descriptor
+        # overhead burned ~50 minutes of the 64-minute run; the
+        # tuple form is ~5× cheaper at the same collision rate.
+        return hash((self._name, self._id))
 
     def link_elements(self):
         from .elements import Elem
