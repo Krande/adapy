@@ -513,6 +513,8 @@ export interface PerfReport {
     signal_reasons: Record<string, string>;
     since_days: number;
     trigger: "all" | "audit" | "user";
+    audit_run_id: string | null;
+    worker_image_tag: string | null;
     generated_at: string;
 }
 
@@ -1359,18 +1361,37 @@ export const viewerApi = {
     /** Admin: cross-conversion perf snapshot (M6). Aggregates the
      * last ``since`` days of convert jobs into a per (source × target)
      * cell table with p50 / p95 / max metrics + a streaming-candidate
-     * verdict on each cell. */
+     * verdict on each cell. ``audit_run_id`` + ``worker_image_tag``
+     * narrow the snapshot to one sweep / one worker build so old or
+     * cached data from a different image doesn't dilute it. */
     async adminPerfReport(opts?: {
         since?: number;
         trigger?: "all" | "audit" | "user";
+        audit_run_id?: string;
+        worker_image_tag?: string;
     }): Promise<PerfReport> {
         const params = new URLSearchParams();
         if (opts?.since != null) params.set("since", String(opts.since));
         if (opts?.trigger) params.set("trigger", opts.trigger);
+        if (opts?.audit_run_id) params.set("audit_run_id", opts.audit_run_id);
+        if (opts?.worker_image_tag) params.set("worker_image_tag", opts.worker_image_tag);
         const qs = params.toString();
         const url = `${runtime.apiBase()}/admin/audit/perf${qs ? `?${qs}` : ""}`;
         const r = await authedFetch(url);
         return jsonOrThrow(r, "adminPerfReport");
+    },
+
+    /** Admin: distinct worker_image_tag values seen in the perf
+     * window, freshest first. Drives the PerformanceTab "Worker SHA"
+     * picker — only tags with data behind them appear. */
+    async adminPerfWorkers(since = 90): Promise<{
+        workers: {tag: string; samples: number; last_seen: string | null}[];
+        since_days: number;
+    }> {
+        const r = await authedFetch(
+            `${runtime.apiBase()}/admin/audit/perf/workers?since=${since}`,
+        );
+        return jsonOrThrow(r, "adminPerfWorkers");
     },
 
     /** Admin: effective streaming-classifier thresholds, plus the

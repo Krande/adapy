@@ -2904,9 +2904,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         request: Request,
         since: int = 30,
         trigger: str = "all",
+        audit_run_id: str | None = None,
+        worker_image_tag: str | None = None,
     ) -> JSONResponse:
         """Cross-conversion perf snapshot. ``since`` is days back from
         now; ``trigger`` is one of ``all`` / ``audit`` / ``user``.
+
+        ``audit_run_id`` locks the snapshot to one sweep; pair with
+        ``worker_image_tag`` to lock it to one worker build (so an
+        upgrade between the same-named runs doesn't smear results).
 
         Response shape:
 
@@ -2914,6 +2920,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
            "thresholds": {...effective},
            "since_days": N,
            "trigger": "...",
+           "audit_run_id": ... | None,
+           "worker_image_tag": ... | None,
            "generated_at": "ISO-8601"}``
 
         Every cell in ``cells`` carries a ``streaming`` field
@@ -2930,10 +2938,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 status_code=400,
                 detail=f"trigger must be one of {sorted(_PERF_TRIGGERS)}",
             )
+        run_id = (audit_run_id or "").strip() or None
+        worker_tag = (worker_image_tag or "").strip() or None
         cells = await db_module.aggregate_conversion_metrics(
             pool,
             since_days=since,
             trigger=None if trig == "all" else trig,
+            audit_run_id=run_id,
+            worker_image_tag=worker_tag,
         )
         thresholds = await _load_perf_thresholds(pool)
         annotated = audit_perf.annotate(cells, thresholds=thresholds)
@@ -2943,8 +2955,47 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "signal_reasons": audit_perf.SIGNAL_REASONS,
             "since_days": max(1, min(365, since)),
             "trigger": trig,
+            "audit_run_id": run_id,
+            "worker_image_tag": worker_tag,
             "generated_at": datetime.now(timezone.utc).isoformat(),
         })
+
+    @admin.get("/audit/perf/workers")
+    async def admin_audit_perf_workers(
+        request: Request,
+        since: int = 90,
+    ) -> JSONResponse:
+        """Distinct ``worker_image_tag`` values seen in the perf
+        window, with the row count + most recent timestamp for each.
+        Drives the PerformanceTab "Worker SHA" picker so the user
+        only sees tags that have real data behind them. Sorted by
+        ``last_seen`` desc — the freshest build first.
+        """
+        pool = _require_pool(request)
+        days = max(1, min(365, since))
+        rows = await pool.fetch(
+            """
+            SELECT worker_image_tag AS tag,
+                   COUNT(*)        AS samples,
+                   MAX(ts)         AS last_seen
+            FROM audit_log
+            WHERE action = 'convert'
+              AND worker_image_tag IS NOT NULL
+              AND ts > NOW() - ($1 * INTERVAL '1 day')
+            GROUP BY worker_image_tag
+            ORDER BY last_seen DESC
+            """,
+            days,
+        )
+        workers = [
+            {
+                "tag": r["tag"],
+                "samples": int(r["samples"] or 0),
+                "last_seen": r["last_seen"].isoformat() if r["last_seen"] else None,
+            }
+            for r in rows
+        ]
+        return JSONResponse({"workers": workers, "since_days": days})
 
     @admin.get("/audit/perf/thresholds")
     async def admin_perf_thresholds_get(request: Request) -> JSONResponse:

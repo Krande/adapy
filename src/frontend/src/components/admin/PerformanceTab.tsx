@@ -1,5 +1,6 @@
 import React, {useCallback, useEffect, useMemo, useState} from "react";
 import {
+    AuditRun,
     PerfCell,
     PerfHotspotRow,
     PerfHotspotsResp,
@@ -280,11 +281,32 @@ const HotspotsPanel: React.FC<{
     );
 };
 
+function fmtRunLabel(r: AuditRun): string {
+    const ts = new Date(r.started_at).toLocaleString();
+    const cells = r.total > 0 ? `${r.total} cells` : `${r.ok + r.failed + r.skipped} cells`;
+    const tags: string[] = [];
+    if (r.force_rebuild) tags.push("force-rebuild");
+    if (r.status && r.status !== "finished") tags.push(r.status);
+    const suffix = tags.length ? ` (${tags.join(", ")})` : "";
+    return `${ts} — ${cells}${suffix}`;
+}
+
+function fmtWorkerLabel(w: {tag: string; samples: number; last_seen: string | null}): string {
+    // Image tags are typically a git short-sha + a build counter; keep
+    // the full string but tack on a sample count so the user can pick
+    // the one with real data behind it.
+    return `${w.tag} (${w.samples})`;
+}
+
 const PerformanceTab: React.FC = () => {
     const [report, setReport] = useState<PerfReport | null>(null);
     const [thresholds, setThresholds] = useState<PerfThresholdsResp | null>(null);
     const [windowDays, setWindowDays] = useState(30);
     const [trigger, setTrigger] = useState<"all" | "audit" | "user">("all");
+    const [auditRunId, setAuditRunId] = useState<string>("");
+    const [workerTag, setWorkerTag] = useState<string>("");
+    const [runs, setRuns] = useState<AuditRun[]>([]);
+    const [workers, setWorkers] = useState<{tag: string; samples: number; last_seen: string | null}[]>([]);
     const [sortKey, setSortKey] = useState<SortKey>("p95_rss");
     const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
     const [showThresholds, setShowThresholds] = useState(false);
@@ -294,11 +316,21 @@ const PerformanceTab: React.FC = () => {
     // time keeps the table readable) and lazy-load the hotspots.
     const [expanded, setExpanded] = useState<string | null>(null);
 
-    const loadReport = useCallback(async (days: number, trig: typeof trigger) => {
+    const loadReport = useCallback(async (
+        days: number,
+        trig: typeof trigger,
+        runId: string,
+        worker: string,
+    ) => {
         setLoading(true);
         setErr(null);
         try {
-            const r = await viewerApi.adminPerfReport({since: days, trigger: trig});
+            const r = await viewerApi.adminPerfReport({
+                since: days,
+                trigger: trig,
+                audit_run_id: runId || undefined,
+                worker_image_tag: worker || undefined,
+            });
             setReport(r);
         } catch (e) {
             setErr((e as Error).message || "load failed");
@@ -316,11 +348,31 @@ const PerformanceTab: React.FC = () => {
         }
     }, []);
 
+    const loadPickers = useCallback(async () => {
+        // The two pickers are best-effort — if either fetch fails the
+        // user can still pick "all" + a time window and the report
+        // loads. Stale lists are fine: workers/runs only matter as
+        // dropdown options, the filter is applied server-side.
+        try {
+            const runsResp = await viewerApi.adminAuditRunsList({limit: 50});
+            setRuns(runsResp.runs);
+        } catch {
+            /* ignore */
+        }
+        try {
+            const w = await viewerApi.adminPerfWorkers(90);
+            setWorkers(w.workers);
+        } catch {
+            /* ignore */
+        }
+    }, []);
+
     useEffect(() => {
-        void loadReport(windowDays, trigger);
-    }, [windowDays, trigger, loadReport]);
+        void loadReport(windowDays, trigger, auditRunId, workerTag);
+    }, [windowDays, trigger, auditRunId, workerTag, loadReport]);
 
     useEffect(() => { void loadThresholds(); }, [loadThresholds]);
+    useEffect(() => { void loadPickers(); }, [loadPickers]);
 
     const sortedCells = useMemo(() => {
         if (!report) return [];
@@ -386,6 +438,38 @@ const PerformanceTab: React.FC = () => {
                         <option value="audit">audit-sweep only</option>
                     </select>
                 </label>
+                <label
+                    className="text-xs text-gray-300 flex items-center gap-2"
+                    title="Lock the report to one audit sweep — avoids smearing measurements across worker image upgrades."
+                >
+                    <span>Audit run</span>
+                    <select
+                        value={auditRunId}
+                        onChange={(e) => setAuditRunId(e.target.value)}
+                        className="bg-gray-900 border border-gray-600 rounded-sm px-2 py-1 text-sm text-gray-100 max-w-[22rem]"
+                    >
+                        <option value="">all runs</option>
+                        {runs.map((r) => (
+                            <option key={r.id} value={r.id}>{fmtRunLabel(r)}</option>
+                        ))}
+                    </select>
+                </label>
+                <label
+                    className="text-xs text-gray-300 flex items-center gap-2"
+                    title="Only count rows produced by this worker image. Use to compare two builds head-to-head, or to discard data from a known-broken worker."
+                >
+                    <span>Worker SHA</span>
+                    <select
+                        value={workerTag}
+                        onChange={(e) => setWorkerTag(e.target.value)}
+                        className="bg-gray-900 border border-gray-600 rounded-sm px-2 py-1 text-sm text-gray-100 max-w-[18rem]"
+                    >
+                        <option value="">any worker</option>
+                        {workers.map((w) => (
+                            <option key={w.tag} value={w.tag}>{fmtWorkerLabel(w)}</option>
+                        ))}
+                    </select>
+                </label>
                 <button
                     type="button"
                     onClick={() => setShowThresholds(!showThresholds)}
@@ -408,7 +492,7 @@ const PerformanceTab: React.FC = () => {
                             setThresholds(r);
                             // Re-fetch the report so the new thresholds
                             // re-run the classifier on the current data.
-                            void loadReport(windowDays, trigger);
+                            void loadReport(windowDays, trigger, auditRunId, workerTag);
                         }}
                     />
                 </div>

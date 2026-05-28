@@ -1675,6 +1675,8 @@ async def aggregate_conversion_metrics(
     *,
     since_days: int = 30,
     trigger: str | None = None,
+    audit_run_id: str | None = None,
+    worker_image_tag: str | None = None,
 ) -> list[dict]:
     """Per-cell (``source_ext`` × ``target_format``) aggregation over
     the recent convert jobs (M6 cross-conversion dashboard).
@@ -1691,7 +1693,11 @@ async def aggregate_conversion_metrics(
       * ``'audit'`` — only jobs tied to an audit run (M1+ sweeps)
       * ``'user'`` — only direct user-driven convert jobs
 
-    ``since_days`` is clamped to ``[1, 365]`` so a typo'd
+    ``audit_run_id`` narrows to a single sweep; combined with a
+    ``worker_image_tag`` filter that's the way to lock the dashboard
+    to one set of measurements taken with one worker build so an
+    old/cached row from a different image doesn't dilute the
+    numbers. ``since_days`` is clamped to ``[1, 365]`` so a typo'd
     multi-year range can't accidentally pin the DB; the admin UI
     exposes a fixed picker (24h / 7d / 30d / 90d).
     """
@@ -1699,11 +1705,17 @@ async def aggregate_conversion_metrics(
     where_extra = ""
     args: list = []
     if trigger == "audit":
-        where_extra = " AND audit_run_id IS NOT NULL"
+        where_extra += " AND audit_run_id IS NOT NULL"
     elif trigger == "user":
-        where_extra = " AND audit_run_id IS NULL"
+        where_extra += " AND audit_run_id IS NULL"
     # Otherwise no trigger filter ("all").
     args.append(days)
+    if audit_run_id is not None:
+        args.append(audit_run_id)
+        where_extra += f" AND audit_run_id = ${len(args)}"
+    if worker_image_tag is not None:
+        args.append(worker_image_tag)
+        where_extra += f" AND worker_image_tag = ${len(args)}"
     sql = f"""
         WITH convert_jobs AS (
             SELECT
