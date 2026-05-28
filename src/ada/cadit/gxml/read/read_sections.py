@@ -133,7 +133,12 @@ def unsymm_isec(name, sec_prop) -> Section:
             t_fbtn=t_fbtn,
         )
     if top_absent and not btn_absent:
-        # Inverted T — flip into adapy convention.
+        # Inverted T — re-encode into adapy convention (flange-up)
+        # AND mark the section so the beam reader flips the local-z
+        # vector. The geometry then renders flange-down, matching
+        # the Genie source. Without the flip every beam carrying an
+        # inverted T would point its flange the wrong way — the
+        # user would see them upside-down.
         return Section(
             name=name,
             sec_type=Section.TYPES.TPROFILE,
@@ -144,6 +149,7 @@ def unsymm_isec(name, sec_prop) -> Section:
             t_w=t_w,
             t_ftop=t_fbtn,
             t_fbtn=t_ftop,
+            metadata={"gxml_flange_down": True},
         )
     return Section(
         name=name,

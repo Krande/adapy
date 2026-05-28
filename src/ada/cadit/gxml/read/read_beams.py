@@ -100,7 +100,7 @@ def apply_offsets_and_alignments(name: str, bm_el: ET.Element, segs: list["Beam"
         return
 
     # ---- explicit numeric curve offsets ----
-    o1, o2, use_local = get_offsets(bm_el)
+    o1, o2, use_local, container = get_offsets(bm_el)
     if o1 is None and o2 is None:
         return
 
@@ -110,17 +110,35 @@ def apply_offsets_and_alignments(name: str, bm_el: ET.Element, segs: list["Beam"
     if o2 is None and o1 is not None:
         o2 = np.asarray(o1, dtype=float)
 
-    # ---- CurveEndOffset axial handling (THIS fixes Bm3/Bm4 behavior) ----
+    # ---- Axial-component handling ----
+    # Two Genie containers wrap numeric curve offsets:
+    #   * ``curve_end_offset`` — carries explicit
+    #     ``keep_axial_eccentricity_at_end{1,2}`` flags (Bm3/Bm4
+    #     fixture). Default flag value is False = strip axial.
+    #   * ``reparameterized_beam_curve_offset`` — re-parameterises
+    #     the rendered wire; the axial component is NOT supposed to
+    #     stretch the beam through e1/e2. Audit #5256 carries 280
+    #     stiffener beams (T-sections) with non-zero axial offsets
+    #     that previously extended them past their landing wall.
+    #     No keep-axial flags here, so always strip.
+    #
+    # When the offsets land bare under ``<curve_offset>`` (no wrapper),
+    # keep the axial component — that's the legacy direct-eccentricity
+    # case the original implementation already handled.
+    keep1 = True
+    keep2 = True
     ceo = bm_el.find("curve_offset/curve_end_offset")
     if ceo is not None:
         keep1 = _parse_bool(ceo.attrib.get("keep_axial_eccentricity_at_end1"))
         keep2 = _parse_bool(ceo.attrib.get("keep_axial_eccentricity_at_end2"))
+    elif container == "reparameterized_beam_curve_offset":
+        keep1 = False
+        keep2 = False
 
-        # If keep axial is FALSE at an end => remove axial component from the OFFSET at that end
-        if o1 is not None and not keep1:
-            o1 = _remove_axial_component(o1, segs[0], use_local)
-        if o2 is not None and not keep2:
-            o2 = _remove_axial_component(o2, segs[-1], use_local)
+    if o1 is not None and not keep1:
+        o1 = _remove_axial_component(o1, segs[0], use_local)
+    if o2 is not None and not keep2:
+        o2 = _remove_axial_component(o2, segs[-1], use_local)
 
     # Convert curve_offset -> eccentricity e (inverse of exporter convention)
     e1_global = curve_offset_to_eccentricity_global(o1, segs[0], use_local)
@@ -192,15 +210,23 @@ def curve_offset_to_eccentricity_global(offset: np.ndarray, bm: "Beam", use_loca
     return Direction(*e_global)
 
 
-def get_offsets(bm_el: ET.Element) -> tuple[np.ndarray | None, np.ndarray | None, bool]:
+def get_offsets(
+    bm_el: ET.Element,
+) -> tuple[np.ndarray | None, np.ndarray | None, bool, str | None]:
     """
     Reads curve offset definitions from Genie XML.
 
     Returns:
-      (end1_o, end2_o, use_local)
+      (end1_o, end2_o, use_local, container)
 
-    where end1_o/end2_o are np.ndarray([x,y,z]) or None, and use_local indicates
-    whether the offsets are expressed in the beam's local coordinate system.
+    end1_o/end2_o are np.ndarray([x,y,z]) or None; use_local indicates
+    whether the offsets are expressed in the beam's local coordinate
+    system. ``container`` names the immediate child of ``<curve_offset>``
+    that wraps the numeric offset nodes (``curve_end_offset``,
+    ``reparameterized_beam_curve_offset``) — or None when the numeric
+    offsets sit bare under ``<curve_offset>``. Callers use ``container``
+    to decide whether to default-strip the axial component before
+    converting to eccentricity.
     """
 
     def _parse_bool(attr_val: str | None) -> bool:
@@ -217,14 +243,20 @@ def get_offsets(bm_el: ET.Element) -> tuple[np.ndarray | None, np.ndarray | None
 
     curve_offset_el = bm_el.find("curve_offset")
     if curve_offset_el is None:
-        return None, None, False
+        return None, None, False, None
 
     # Genie can wrap numeric offsets in:
     # curve_offset/curve_end_offset/curve_offset/<constant_curve_offset|linear_varying_curve_offset>
+    # curve_offset/reparameterized_beam_curve_offset/curve_offset/<…>
     offsets_root = curve_offset_el
-    ceo = curve_offset_el.find("curve_end_offset")
-    if ceo is not None:
-        offsets_root = ceo.find("curve_offset") or ceo  # be defensive
+    container: str | None = None
+    for tag in ("curve_end_offset", "reparameterized_beam_curve_offset"):
+        wrap = curve_offset_el.find(tag)
+        if wrap is not None:
+            container = tag
+            inner = wrap.find("curve_offset")
+            offsets_root = inner if inner is not None else wrap
+            break
 
     # Direct numeric nodes under offsets_root
     constant_offset = offsets_root.find("constant_curve_offset")
@@ -264,7 +296,7 @@ def get_offsets(bm_el: ET.Element) -> tuple[np.ndarray | None, np.ndarray | None
         if not use_local and curve_offset_el is not None:
             use_local = _parse_bool(curve_offset_el.attrib.get("use_local_system"))
 
-    return end1_o, end2_o, use_local
+    return end1_o, end2_o, use_local, container
 
 
 def convert_offset_to_global_csys(o: np.ndarray, bm: Beam):
@@ -300,8 +332,18 @@ def seg_to_beam(name: str, seg: ET.Element, parent: Part, prev_bm: Beam, zv):
     n1 = parent.nodes.add(Node(pos_to_floats(pos["1"])))
     n2 = parent.nodes.add(Node(pos_to_floats(pos["2"])))
 
+    # Genie expresses inverted T-sections (flange-down) as
+    # ``unsymmetrical_i_section`` with a degenerate top flange. The
+    # section reader re-encodes those into adapy's flange-up TPROFILE
+    # convention and tags them; here we flip the beam up-vector so
+    # the rendered flange ends up at the bottom again, matching the
+    # original Genie geometry.
+    up = zv
+    if sec is not None and sec.metadata and sec.metadata.get("gxml_flange_down"):
+        up = tuple(-v for v in zv)
+
     try:
-        bm = Beam(name, n1, n2, sec=sec, mat=mat, parent=parent, metadata=metadata, up=zv)
+        bm = Beam(name, n1, n2, sec=sec, mat=mat, parent=parent, metadata=metadata, up=up)
     except VectorNormalizeError:
         logger.warning(f"Beam '{name}' has coincident nodes. Will skip for now")
         return None
