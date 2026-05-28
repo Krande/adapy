@@ -28,7 +28,7 @@ if not _PYODIDE:
     )
     from ada.api.boolean import Boolean
     from ada.api.curves import ArcSegment, CurvePoly2d, CurveRevolve, LineSegment
-    from ada.api.fasteners import Bolts, Weld
+    from ada.api.fasteners import Bolts, IntermittentSpec, Weld, WeldType
     from ada.api.groups import Group
     from ada.api.mass import MassPoint
     from ada.api.nodes import Node
@@ -324,7 +324,9 @@ if not _PYODIDE:
         "Instance",
         "User",
         "Bolts",
+        "IntermittentSpec",
         "Weld",
+        "WeldType",
         "Units",
         "fem",
         "set_jupyter_part_renderer",

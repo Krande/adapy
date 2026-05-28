@@ -301,3 +301,33 @@ class BackendGeom(Root):
         rotation_angle: float = None,
     ) -> BackendGeom:
         raise NotImplementedError(f"copy_to not implemented for {self.__class__.__name__}")
+
+    @property
+    def welds(self):
+        """Welds at or below the topmost ancestor that include this object as a member.
+
+        Walks to the root of the parent chain (Assembly, Part, or standalone
+        Connection) rather than insisting on an Assembly specifically — a
+        standalone Connection used for previews has no Assembly parent but
+        still owns welds in its `_welds` list.
+        """
+        root = self
+        while root.parent is not None:
+            root = root.parent
+        welds_for = getattr(root, "welds_for", None)
+        if welds_for is None:
+            return []
+        return welds_for(self)
+
+    def connected_members(self, weld_type=None) -> list[BackendGeom]:
+        """Deduplicated set of other objects welded to this one, optionally filtered by weld type."""
+        seen: set[int] = set()
+        result: list[BackendGeom] = []
+        for weld in self.welds:
+            if weld_type is not None and weld.type != weld_type:
+                continue
+            for other in weld.other_members(of=self):
+                if id(other) not in seen:
+                    seen.add(id(other))
+                    result.append(other)
+        return result

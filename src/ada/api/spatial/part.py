@@ -9,7 +9,6 @@ from typing import TYPE_CHECKING, Any, BinaryIO, Callable, Iterable, Literal
 from ada import Node, Pipe, PrimBox, PrimCyl, PrimExtrude, PrimRevolve, Shape
 from ada.api.beams.base_bm import Beam
 from ada.api.beams.beam_tapered import BeamTapered
-from ada.api.connections import JointBase
 from ada.api.containers import Beams, Connections, Materials, Nodes, Plates, Sections
 from ada.api.groups import Group
 from ada.api.plates import PlateCurved
@@ -43,6 +42,7 @@ if TYPE_CHECKING:
         Wall,
         Weld,
     )
+    from ada.api.connections import JointBase
     from ada.api.mass import MassPoint
     from ada.cadit.ifc.store import IfcStore
     from ada.fem.containers import COG
@@ -86,6 +86,7 @@ class Part(BackendGeom):
         self._instances: dict[Any, Instance] = dict()
         self._shapes = []
         self._welds = []
+        self._welds_for_cache: dict[int, list[Weld]] = {}
         self._parts = dict()
         self._groups: dict[str, Group] = dict()
         self._ifc_class = ifc_class
@@ -258,8 +259,29 @@ class Part(BackendGeom):
     def add_weld(self, weld: Weld) -> Weld:
         weld.parent = self
         self._welds.append(weld)
+        self._invalidate_welds_for_cache()
 
         return weld
+
+    def _invalidate_welds_for_cache(self) -> None:
+        for ancestor in self.get_ancestors():
+            cache = getattr(ancestor, "_welds_for_cache", None)
+            if cache is not None:
+                cache.clear()
+
+    def welds_for(self, member) -> list[Weld]:
+        """Return every Weld at or below this Part whose members include `member`."""
+        key = id(member)
+        cached = self._welds_for_cache.get(key)
+        if cached is not None:
+            return cached
+        result: list[Weld] = []
+        for part in self.get_all_subparts(include_self=True):
+            for weld in part._welds:
+                if any(m is member for m in weld.members):
+                    result.append(weld)
+        self._welds_for_cache[key] = result
+        return result
 
     def add_material(self, material: Material) -> Material:
         if material.units != self.units:

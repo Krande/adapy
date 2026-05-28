@@ -1,6 +1,8 @@
 import React, {Suspense, useEffect, useState} from 'react';
 import ObjectInfoBox from "./info_box_selected_object/ObjectInfoBoxComponent";
 import SimulationControls from "./simulation/SimulationControls";
+import ComponentControls from "./component_view/ComponentControls";
+import {useComponentControlsStore} from "@/state/componentControlsStore";
 import {request_list_of_nodes} from "../utils/node_editor/handlers/request_list_of_nodes";
 import ServerInfoBox from "./server_info/ServerInfoBox";
 import {runtime} from "@/runtime/config";
@@ -18,6 +20,7 @@ import ServerIcon from "./icons/ServerIcon";
 import ToggleControlsIcon from "./icons/AnimationControlToggle";
 import TreeViewIcon from "./icons/TreeViewIcon";
 import SceneIcon from "./icons/SceneIcon";
+import ComponentIcon from "./icons/ComponentIcon";
 import SceneInfoBox from "./info_box_scene/SceneInfoBox";
 import {WebsocketStatusMenu, WebsocketStatusBox} from "./WebsocketStatusMenu";
 
@@ -99,6 +102,8 @@ const Menu = () => {
     const {showServerInfoBox, setShowServerInfoBox} = stores.useServerInfoStore();
     const {hasAnimation, isControlsVisible, setIsControlsVisible} = stores.useAnimationStore();
     const feaSessionActive = stores.useFeaAnimationStore((s) => s.sessionActive);
+    const componentControlsVisible = useComponentControlsStore((s) => s.isVisible);
+    const toggleComponentControls = useComponentControlsStore((s) => s.toggleVisible);
     const {showInfoBox: showWebsocketInfoBox} = stores.useWebsocketStatusStore();
     const {isTreeCollapsed, setIsTreeCollapsed, treeViewWidth} = stores.useTreeViewStore();
     const isDesktop = useIsDesktop();
@@ -189,6 +194,14 @@ const Menu = () => {
                         title="Toggle animation controls"
                         aria-pressed={isControlsVisible}
                     ><ToggleControlsIcon/></button>
+                    <button
+                        className={navBtnClass(componentControlsVisible, "", use_node_editor_only)}
+                        hidden={use_node_editor_only}
+                        onClick={toggleComponentControls}
+                        title="Toggle connection-component panel"
+                        aria-label="Toggle connection-component panel"
+                        aria-pressed={componentControlsVisible}
+                    ><ComponentIcon/></button>
                     {!runtime.isRestMode() && (
                         <div
                             className={navBtnClass(showWebsocketInfoBox)}>
@@ -207,6 +220,7 @@ const Menu = () => {
                     {show_scene_info_box && <SceneInfoBox/>}
                     {showWebsocketInfoBox && <WebsocketStatusBox/>}
                     {isControlsVisible && <SimulationControls/>}
+                    {componentControlsVisible && <ComponentControls/>}
                 </div>
             </div>
         </div>

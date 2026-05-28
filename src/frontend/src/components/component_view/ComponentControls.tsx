@@ -1,0 +1,254 @@
+// ComponentControls — pick a registered ConnectionSpec, configure its
+// inputs (sections, angles), and trigger an on-demand build whose
+// resulting GLB the viewer renders. Mirror of SimulationControls'
+// structural pattern: panel toggled from Menu, reads its UI state
+// from a Zustand store, dispatches actions to a service-side
+// pipeline.
+//
+// Stage 11 surface only: form + submit. Stage 13 hooks the produced
+// GLB into the scene.
+
+import React, {useEffect, useMemo, useRef, useState} from "react";
+
+import {buildComponentViaServer} from "@/services/components/componentBuildPipeline";
+import {
+    type ComponentSpecManifestEntry,
+    type ComponentSpecRoleSchema,
+    type ComponentSpecsResponse,
+    viewerApi,
+} from "@/services/viewerApi";
+import {
+    type ComponentBuildJob,
+    useComponentBuildStore,
+} from "@/state/componentBuildStore";
+import {
+    type ComponentInputs,
+    useComponentControlsStore,
+} from "@/state/componentControlsStore";
+import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
+import {overlay_file_in_scene} from "@/utils/scene/handlers/overlay_file_in_scene";
+
+// Specs are auto-discovered: the server scans every scope the caller
+// can access and returns whichever have a published manifest. Builds,
+// on the other hand, always run in the user's currently-selected
+// scope so the produced GLB lands where overlay_file_in_scene reads
+// from. Empty manifest → panel surfaces the "no specs published"
+// hint.
+const DEFAULT_BRANCH = "main";
+
+const ComponentControls: React.FC = () => {
+    const isVisible = useComponentControlsStore((s) => s.isVisible);
+    const selectedSpecName = useComponentControlsStore((s) => s.selectedSpecName);
+    const selectSpec = useComponentControlsStore((s) => s.selectSpec);
+    const inputs = useComponentControlsStore((s) => s.inputs);
+    const setRoleField = useComponentControlsStore((s) => s.setRoleField);
+    const job = useComponentBuildStore((s) =>
+        selectedSpecName ? s.jobs[selectedSpecName] ?? null : null,
+    );
+    const currentScope = useScopeStore((s) => s.current);
+
+    const [specs, setSpecs] = useState<ComponentSpecsResponse | null>(null);
+    const [loadError, setLoadError] = useState<string | null>(null);
+    const [submitting, setSubmitting] = useState(false);
+    /** Last derivedKey we loaded into the scene — dedupe so the on-done
+     *  effect doesn't keep re-fetching the same blob on every store
+     *  re-render. */
+    const loadedKeyRef = useRef<string | null>(null);
+
+    // Lazy fetch — only when the panel becomes visible. Specs don't
+    // change inside a session, so we cache the response and only
+    // refetch on a manual reload. Auto-discovers across all the
+    // caller's accessible scopes — no scope param needed.
+    useEffect(() => {
+        if (!isVisible || specs !== null) return;
+        viewerApi
+            .componentsSpecs({branch: DEFAULT_BRANCH})
+            .then((res) => {
+                setSpecs(res);
+                setLoadError(null);
+            })
+            .catch((err) => {
+                setLoadError(err?.message ?? String(err));
+            });
+    }, [isVisible, specs]);
+
+    // On build completion, overlay the produced GLB into the scene.
+    // overlay_file_in_scene fetches the blob via authedFetch and routes
+    // through the existing setupModelLoaderAsync path, so the new
+    // `component_info` extension lands on the loaded group's
+    // `userData.__adaExt` automatically — future selection panels can
+    // read it from there without an extra round-trip.
+    useEffect(() => {
+        if (!job || job.status !== "done" || !job.derivedKey) return;
+        if (loadedKeyRef.current === job.derivedKey) return;
+        loadedKeyRef.current = job.derivedKey;
+        const sourceName = `component:${job.specName}`;
+        void overlay_file_in_scene(sourceName, job.derivedKey).catch((err) => {
+            console.error("component overlay failed", err);
+        });
+    }, [job?.status, job?.derivedKey, job?.specName]);
+
+    const selectedEntry: ComponentSpecManifestEntry | null = useMemo(() => {
+        if (!specs || !selectedSpecName) return null;
+        return specs.specs[selectedSpecName] ?? null;
+    }, [specs, selectedSpecName]);
+
+    if (!isVisible) return null;
+
+    const specNames = specs ? Object.keys(specs.specs).sort() : [];
+
+    const handleSpecChange = (name: string) => {
+        if (!name) {
+            selectSpec(null);
+            return;
+        }
+        const entry = specs?.specs[name];
+        selectSpec(name, (entry?.defaults as ComponentInputs | undefined) ?? null);
+    };
+
+    const handleBuild = async () => {
+        if (!selectedSpecName) return;
+        setSubmitting(true);
+        try {
+            await buildComponentViaServer(
+                {spec_name: selectedSpecName, inputs},
+                {scope: scopeUrlPart(currentScope)},
+            );
+        } catch (err) {
+            console.error("component build failed", err);
+        } finally {
+            setSubmitting(false);
+        }
+    };
+
+    return (
+        <div className="flex flex-col gap-2 text-xs text-white p-2 bg-gray-900/70 rounded-md min-w-[280px]">
+            <div className="flex items-center gap-2">
+                <span className="text-gray-300 shrink-0">Spec</span>
+                <select
+                    className="text-black bg-white rounded-sm px-1 py-0.5 min-w-0 flex-1 truncate"
+                    value={selectedSpecName ?? ""}
+                    onChange={(e) => handleSpecChange(e.target.value)}
+                    disabled={specs === null}
+                >
+                    <option value="">— pick a connection spec —</option>
+                    {specNames.map((name) => (
+                        <option key={name} value={name}>
+                            {name}
+                        </option>
+                    ))}
+                </select>
+            </div>
+
+            {loadError && (
+                <div className="text-red-400">Failed to load specs: {loadError}</div>
+            )}
+            {specs !== null && specNames.length === 0 && !loadError && (
+                <div className="text-gray-400">
+                    No baked previews on <code>{DEFAULT_BRANCH}</code> yet — run the
+                    component-previews bake.
+                </div>
+            )}
+
+            {selectedEntry && (
+                <>
+                    {selectedEntry.schema.roles.map((role) => (
+                        <RoleRow
+                            key={role.role}
+                            role={role}
+                            value={(inputs[role.role] ?? {}) as Record<string, unknown>}
+                            onField={(field, value) => setRoleField(role.role, field, value)}
+                        />
+                    ))}
+                    <div className="flex items-center gap-2 pt-1 border-t border-gray-700">
+                        <button
+                            type="button"
+                            onClick={handleBuild}
+                            disabled={submitting}
+                            className="bg-blue-600 hover:bg-blue-500 disabled:bg-gray-600 text-white rounded-sm px-3 py-1"
+                        >
+                            {submitting ? "Building..." : "Build"}
+                        </button>
+                        {selectedEntry.preview_url && (
+                            <a
+                                href={selectedEntry.preview_url}
+                                className="text-blue-300 hover:underline ml-auto"
+                                target="_blank"
+                                rel="noreferrer"
+                            >
+                                default preview
+                            </a>
+                        )}
+                    </div>
+                    {job && <JobStatus job={job} />}
+                </>
+            )}
+        </div>
+    );
+};
+
+const RoleRow: React.FC<{
+    role: ComponentSpecRoleSchema;
+    value: Record<string, unknown>;
+    onField: (field: string, value: unknown) => void;
+}> = ({role, value, onField}) => {
+    const allowed = role.section_in?.join(" | ") ?? "(any)";
+    const angleRange = role.angle_range;
+    return (
+        <div className="flex flex-col gap-1 p-1 bg-gray-800/40 rounded-sm">
+            <div className="text-gray-300 font-medium">
+                {role.role}
+                {role.kind ? <span className="text-gray-500"> · {role.kind}</span> : null}
+            </div>
+            <label className="flex items-center gap-2">
+                <span className="text-gray-400 w-12 shrink-0">section</span>
+                <input
+                    type="text"
+                    className="text-black bg-white rounded-sm px-1 py-0.5 flex-1 min-w-0"
+                    value={(value.section as string) ?? ""}
+                    placeholder={allowed}
+                    onChange={(e) => onField("section", e.target.value)}
+                />
+            </label>
+            {angleRange && (
+                <label className="flex items-center gap-2">
+                    <span className="text-gray-400 w-12 shrink-0">angle°</span>
+                    <input
+                        type="range"
+                        min={angleRange.min_deg}
+                        max={angleRange.max_deg}
+                        step={1}
+                        value={typeof value.angle_deg === "number" ? value.angle_deg : angleRange.min_deg}
+                        onChange={(e) => onField("angle_deg", parseFloat(e.target.value))}
+                        className="flex-1 h-2 rounded-lg appearance-none cursor-pointer accent-blue-700 bg-blue-700/30 min-w-0"
+                    />
+                    <input
+                        type="number"
+                        className="text-black bg-white rounded-sm px-1 py-0.5 w-16"
+                        min={angleRange.min_deg}
+                        max={angleRange.max_deg}
+                        value={typeof value.angle_deg === "number" ? value.angle_deg : ""}
+                        onChange={(e) => onField("angle_deg", parseFloat(e.target.value))}
+                    />
+                </label>
+            )}
+        </div>
+    );
+};
+
+const JobStatus: React.FC<{job: ComponentBuildJob}> = ({job}) => {
+    const pct = Math.round((job.progress ?? 0) * 100);
+    const color =
+        job.status === "error" ? "text-red-400" :
+        job.status === "done" ? "text-green-400" :
+        "text-gray-300";
+    return (
+        <div className={`flex items-center gap-2 ${color}`}>
+            <span className="font-mono w-12">{pct}%</span>
+            <span className="truncate">{job.stage || job.status}</span>
+            {job.error && <span className="text-red-400 truncate ml-2">{job.error}</span>}
+        </div>
+    );
+};
+
+export default ComponentControls;

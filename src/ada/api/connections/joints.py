@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, List
 
 from ada.api.containers import Beams, Connections
+from ada.api.spatial.part import Part
 from ada.base.physical_objects import BackendGeom
 from ada.config import logger
 
@@ -111,6 +112,23 @@ class JointBase(BackendGeom, ABC):
         return f'{self.__class__.__name__}("{self.name}", members:{len(self.beams)})'
 
 
-class Connection(BackendGeom):
-    def __init__(self, name: str, parent: Connections = None):
-        super(Connection, self).__init__(name, parent=parent)
+class Connection(Part):
+    """A Part subclass for connection components (e.g. welded joints).
+
+    Owns the geometry of the connection itself — sample/host members,
+    stiffener plates (via add_plate), boolean cutting objects (via
+    add_boolean on the contained beams), and welds (via add_weld). Carries
+    optional lineage attrs `spec_name` and `spec_inputs` so a Connection
+    built from a registered ConnectionSpec can be round-tripped.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        spec_name: str | None = None,
+        spec_inputs: dict[str, Any] | None = None,
+        **kwargs: Any,
+    ):
+        super().__init__(name, **kwargs)
+        self.spec_name = spec_name
+        self.spec_inputs = spec_inputs

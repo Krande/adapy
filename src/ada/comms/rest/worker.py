@@ -334,6 +334,92 @@ async def _run_fea_meta_compute(
     await _audit_done(db_pool, job_id, "done", None, started_at)
 
 
+async def _run_component_build(
+    *,
+    job: Job,
+    scope,
+    storage: "Storage",
+    queue: "JobQueue",
+    db_pool: "asyncpg.Pool | None",
+    started_at: float,
+) -> None:
+    """Build a Connection GLB from a registered ConnectionSpec + inputs.
+
+    Inputs are carried in ``job.conversion_options`` as
+    ``{"spec_name": ..., "inputs": ..., "name": ..., "extra_handler_kwargs": {...}}``.
+    The GLB lands at ``job.derived_key`` (typically
+    ``_derived/component_builds/<job_id>.glb``); the frontend then
+    fetches it via the standard blob GET. Runs in-process (pure Python
+    via adapy + the registered handler) since handler imports happen
+    at module load time in the worker process.
+    """
+    job_id = job.job_id
+    opts = job.conversion_options or {}
+    spec_name = opts.get("spec_name")
+    inputs = opts.get("inputs") or {}
+    component_name = opts.get("name")
+    extra_kwargs = opts.get("extra_handler_kwargs") or {}
+
+    if not spec_name:
+        await queue.update(
+            job_id, status=JOB_STATUS_ERROR, stage="build",
+            error="conversion_options.spec_name is required for component_build",
+        )
+        await _audit_done(db_pool, job_id, "error", "missing spec_name", started_at)
+        return
+
+    from ada.api.connections import build_component
+
+    loop = asyncio.get_running_loop()
+
+    def _build_and_serialize() -> bytes:
+        conn = build_component(
+            spec_name=spec_name,
+            inputs=inputs,
+            name=component_name,
+            **extra_kwargs,
+        )
+        glb_path = pathlib.Path(tempfile.mkstemp(suffix=".glb")[1])
+        try:
+            conn.to_gltf(glb_path)
+            return glb_path.read_bytes()
+        finally:
+            glb_path.unlink(missing_ok=True)
+
+    try:
+        await queue.update(job_id, stage="build", progress=0.40)
+        glb_bytes = await loop.run_in_executor(None, _build_and_serialize)
+    except Exception as exc:
+        logger.exception("worker: component_build failed for %s", spec_name)
+        trace = tb_module.format_exc()
+        await queue.update(
+            job_id, status=JOB_STATUS_ERROR, stage="build", error=str(exc),
+        )
+        await _audit_done(
+            db_pool, job_id, "error", str(exc), started_at, traceback=trace,
+        )
+        return
+
+    try:
+        await queue.update(job_id, stage="upload", progress=0.90)
+        await storage.put_bytes(scope, job.derived_key, glb_bytes)
+    except Exception as exc:
+        logger.exception("worker: component_build upload failed for %s", spec_name)
+        trace = tb_module.format_exc()
+        await queue.update(
+            job_id, status=JOB_STATUS_ERROR, stage="upload", error=str(exc),
+        )
+        await _audit_done(
+            db_pool, job_id, "error", str(exc), started_at, traceback=trace,
+        )
+        return
+
+    await queue.update(
+        job_id, status=JOB_STATUS_DONE, stage="ready", progress=1.0, error=None,
+    )
+    await _audit_done(db_pool, job_id, "done", None, started_at)
+
+
 async def _process_one(
     job_id: str,
     queue: JobQueue,
@@ -404,6 +490,22 @@ async def _process_one(
             )
         except Exception:
             logger.exception("worker: audit running-mark failed for job %s", job_id)
+
+    # component_build has no source file — it synthesizes geometry from
+    # a registered ConnectionSpec + user inputs carried in
+    # conversion_options. Short-circuit before the source-streaming
+    # path; the build runs in-process (pure Python via adapy + the
+    # registered handler).
+    if job.target_format == "component_build":
+        await _run_component_build(
+            job=job,
+            scope=scope,
+            storage=storage,
+            queue=queue,
+            db_pool=db_pool,
+            started_at=started_at,
+        )
+        return
 
     # Stream source to a worker-local tempfile rather than buffering
     # the whole payload in RAM. Big result decks (Sesam SIF can be

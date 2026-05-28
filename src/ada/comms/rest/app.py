@@ -1386,6 +1386,162 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=403, detail="forbidden")
         return JSONResponse(asdict(job))
 
+    # ── /api/components/* ────────────────────────────────────────────
+    #
+    # Connection-component panel:
+    #   * /api/components/profiles?category=...   — section dropdown data
+    #   * /api/components/specs?scope=...&branch= — preview gallery from
+    #                                               the latest ada-build
+    #                                               manifest on a branch
+    #   * /api/components/build (POST)            — on-demand build job
+    #                                               for user-tweaked
+    #                                               inputs
+    # The build-status poll reuses /api/convert/{job_id} since component
+    # jobs flow through the same NATS queue + KV.
+    from .components_manifest import (
+        _scope_url_segment,
+        expose_manifest,
+        resolve_latest_manifest,
+    )
+    from ada.sections.profile_lookup import (
+        list_categories as _list_section_categories,
+        load_profiles_by_category as _load_profiles_by_category,
+    )
+
+    @api.get("/components/profiles")
+    async def api_components_profiles(category: str | None = None) -> JSONResponse:
+        if category is None:
+            return JSONResponse({"categories": _list_section_categories()})
+        profiles = _load_profiles_by_category(category)
+        return JSONResponse({"category": category, "profiles": profiles})
+
+    @api.get("/components/specs")
+    async def api_components_specs(
+        request: Request,
+        branch: str = "main",
+        scope: str | None = None,
+        user: User = Depends(auth_module.current_user),
+    ) -> JSONResponse:
+        """List published component specs.
+
+        Auto-discovery: with no ``scope`` query param, scans every
+        scope the caller can access (personal, shared, all
+        memberships) and aggregates whichever happen to have a
+        manifest published. Each returned spec entry carries the
+        ``scope`` it was found in so the frontend can resolve preview
+        URLs and route builds correctly.
+
+        Explicit override: ``?scope=...`` restricts the lookup to one
+        scope — useful for tests and direct API consumers that don't
+        want the full sweep.
+
+        Name collisions across scopes: first-found wins. Order is
+        personal → shared → projects (matches /api/me ordering).
+        """
+        pool = getattr(request.app.state, "db_pool", None)
+        if scope is not None:
+            scope_obj = _parse_scope(scope, user)
+            scope_obj = await _resolve_project_scope(pool, scope_obj)
+            if not await scope_can_access(user, scope_obj, pool):
+                raise HTTPException(status_code=403, detail="forbidden")
+            candidate_scopes: list[Scope] = [scope_obj]
+        else:
+            candidate_scopes = [Scope.user(user.sub), Scope.shared()]
+            if pool is not None:
+                for p in await db_module.list_user_projects(pool, user.sub):
+                    candidate_scopes.append(Scope.project(p.id))
+
+        sources: list[dict] = []
+        all_specs: dict[str, dict] = {}
+        for cand in candidate_scopes:
+            try:
+                resolved = await resolve_latest_manifest(storage, cand, branch)
+            except Exception as exc:
+                logger.debug("components/specs: skipping scope %s (%s)", cand, exc)
+                continue
+            if resolved is None:
+                continue
+            scope_str = _scope_url_segment(cand)
+            sources.append({"scope": scope_str, "commit": resolved.commit})
+            exposed = expose_manifest(resolved, cand)
+            for name, entry in exposed["specs"].items():
+                if name in all_specs:
+                    continue  # first scope to publish this name wins
+                spec_entry = dict(entry)
+                spec_entry["scope"] = scope_str
+                all_specs[name] = spec_entry
+
+        return JSONResponse(
+            {"branch": branch, "sources": sources, "specs": all_specs}
+        )
+
+    @api.post("/components/build")
+    async def api_components_build(
+        request: Request,
+        scope: str = "shared",
+        user: User = Depends(auth_module.current_user),
+    ) -> JSONResponse:
+        """Enqueue an on-demand component build for user-tweaked inputs.
+
+        Body: ``{"spec_name": str, "inputs": dict, "name": str | None,
+        "extra_handler_kwargs": dict | None}``. Returns ``{"job_id":
+        str}``; poll status via the existing ``GET /api/convert/{job_id}``.
+        Result GLB lands at the job's derived_key and is fetchable via
+        ``GET /api/scopes/{scope}/blobs/{derived_key}``.
+        """
+        if not queue.enabled:
+            raise HTTPException(
+                status_code=503, detail="component build disabled (no NATS configured)"
+            )
+        body = await request.json()
+        spec_name = body.get("spec_name")
+        if not isinstance(spec_name, str) or not spec_name:
+            raise HTTPException(status_code=400, detail="spec_name (str) is required")
+        inputs = body.get("inputs")
+        if not isinstance(inputs, dict):
+            raise HTTPException(status_code=400, detail="inputs (dict) is required")
+        component_name = body.get("name")
+        extra_kwargs = body.get("extra_handler_kwargs") or {}
+        if not isinstance(extra_kwargs, dict):
+            raise HTTPException(status_code=400, detail="extra_handler_kwargs must be a dict")
+
+        scope_obj = _parse_scope(scope, user)
+        scope_obj = await _resolve_project_scope(
+            getattr(request.app.state, "db_pool", None), scope_obj
+        )
+        if not await scope_can_access(
+            user, scope_obj, getattr(request.app.state, "db_pool", None)
+        ):
+            raise HTTPException(status_code=403, detail="forbidden")
+
+        # No source file for component_build — use a synthetic source_key
+        # that captures spec_name + inputs hash so cache hits work for
+        # identical configurations (frontend submitting the same form
+        # twice should not double-build). derived_key is the produced
+        # GLB blob.
+        import hashlib as _hashlib
+        inputs_hash = _hashlib.sha256(
+            json.dumps(inputs, sort_keys=True).encode("utf-8")
+        ).hexdigest()[:16]
+        source_key = f"_synthetic/component_build/{spec_name}/{inputs_hash}"
+        derived_key = f"_derived/component_builds/{spec_name}/{inputs_hash}.glb"
+
+        job = await queue.enqueue(
+            source_key,
+            target_format="component_build",
+            scope_kind=scope_obj.kind,
+            scope_id=scope_obj.id,
+            conversion_options={
+                "spec_name": spec_name,
+                "inputs": inputs,
+                "name": component_name,
+                "extra_handler_kwargs": extra_kwargs,
+            },
+            derived_key=derived_key,
+            target_capability="base",
+        )
+        return JSONResponse({"job_id": job.job_id, "derived_key": derived_key})
+
     app.include_router(api)
 
     # ── /api/admin/* ────────────────────────────────────────────────

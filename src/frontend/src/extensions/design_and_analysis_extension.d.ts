@@ -25,6 +25,32 @@ export interface ADADesignAndAnalysisExtension {
    * Stable lineage anchor: the source Assembly's guid. CAD and FEA exports derived from the same Assembly share this value so a viewer can match them without name lookups.
    */
   assembly_guid?: string;
+  /**
+   * Present when the GLB represents a single Connection component built from a registered ConnectionSpec. Lets the viewer show the spec lineage and bind re-build UI back to the source registry.
+   */
+  component_info?: {
+    /**
+     * Component category. Today only 'connection'; future component kinds (bolted joints, stiffener assemblies, ...) will use their own tags.
+     */
+    type: string;
+    /**
+     * Registered ConnectionSpec name this component was built from.
+     */
+    spec_name: string;
+    /**
+     * Inputs (sections, angles, ...) the spec was evaluated with — the same dict shape build_component accepts.
+     */
+    spec_inputs?: {
+      [k: string]: unknown;
+    };
+    /**
+     * Optional map of role name (e.g. 'incoming', 'landing') to member node names — lets the viewer highlight individual roles.
+     */
+    member_groups?: {
+      [k: string]: string[];
+    };
+    [k: string]: unknown;
+  };
 }
 export interface SimulationDataExtensionMetadata {
   /**

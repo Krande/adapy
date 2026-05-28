@@ -77,6 +77,19 @@ def scene_from_part_or_assembly(part_or_assembly: Part | Assembly, converter: Sc
                 object_metadata[obj.name] = plate_metadata(
                     obj.name, obj.t, obj.material
                 )
+
+    # Welds are owned per-Part (`Part._welds`) rather than emitted by
+    # get_all_physical_objects; iterate the part tree ourselves to
+    # ship the per-weld metadata the viewer needs (type, throat,
+    # member names) for the inspector + reverse-graph lookup.
+    if object_metadata is not None:
+        for subp in part_or_assembly.get_all_subparts(include_self=True):
+            for weld in getattr(subp, "_welds", []):
+                if weld.name:
+                    object_metadata[weld.name] = _weld_metadata(weld)
+                if weld.guid:
+                    object_guids[weld.name] = weld.guid
+
     converter.ada_ext.design_objects.append(
         design_ext.DesignDataExtension(
             name=part_or_assembly.name,
@@ -90,6 +103,36 @@ def scene_from_part_or_assembly(part_or_assembly: Part | Assembly, converter: Sc
     )
 
     return scene
+
+
+def _weld_metadata(weld) -> dict:
+    """Serialise a Weld for object_metadata.
+
+    Forward edge for the viewer's weld graph: each weld lists its member
+    names; the frontend builds the reverse index (member → list[weld])
+    from this on GLB load. ``type`` is the discriminator on the
+    metadata dict — `{"type": "weld", ...}` distinguishes weld entries
+    from beam/plate ones that already live in the same map.
+    """
+    return {
+        "type": "weld",
+        "weld_type": weld.type.value if weld.type is not None else None,
+        "throat": weld.throat,
+        "leg1": weld.leg1,
+        "leg2": weld.leg2,
+        "sided": weld.sided,
+        "intermittent": (
+            {
+                "pitch": weld.intermittent.pitch,
+                "length_on": weld.intermittent.length_on,
+                "length_off": weld.intermittent.length_off,
+            }
+            if weld.intermittent is not None
+            else None
+        ),
+        "sweep_curve_present": weld.sweep_curve is not None,
+        "members": [m.name for m in weld.members if getattr(m, "name", None)],
+    }
 
 
 def _build_design_stats(part_or_assembly):

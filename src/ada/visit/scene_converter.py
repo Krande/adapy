@@ -85,7 +85,7 @@ class SceneConverter:
         if self.source is None:
             raise ValueError("No source object set")
 
-        is_part = type(self.source) is Part or type(self.source) is Assembly
+        is_part = isinstance(self.source, (Part, Assembly))
 
         root_id = 0
         if is_part:
@@ -125,6 +125,29 @@ class SceneConverter:
         # frontend matches them by this value instead of by name.
         if is_part:
             self.ada_ext.assembly_guid = self.source.get_assembly().guid
+
+        # Connection-component lineage: when the GLB represents a single
+        # Connection built from a registered ConnectionSpec, stamp the
+        # spec name + inputs so the viewer can show the build context and
+        # bind the "rebuild with different params" UI back to the
+        # registry. spec_name is the discriminator — a plain Connection
+        # without it doesn't get a component_info block.
+        spec_name = getattr(self.source, "spec_name", None)
+        if is_part and spec_name:
+            from ada.extension.design_and_analysis_extension_schema import ComponentInfo
+
+            member_groups: dict[str, list[str]] = {}
+            for beam in self.source.beams:
+                if beam.name and beam.name.startswith("sample_"):
+                    role = beam.name[len("sample_"):]
+                    member_groups.setdefault(role, []).append(beam.name)
+
+            self.ada_ext.component_info = ComponentInfo(
+                type="connection",
+                spec_name=spec_name,
+                spec_inputs=getattr(self.source, "spec_inputs", None),
+                member_groups=member_groups or None,
+            )
 
         # The extension is dumped from ``self.ada_ext`` inside
         # ``tree_postprocessor`` (after ``buffer_postprocessor`` has
