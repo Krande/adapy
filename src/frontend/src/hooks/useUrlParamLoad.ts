@@ -37,6 +37,7 @@ export function useUrlParamLoad(): void {
         const params = new URLSearchParams(window.location.search);
         const fileParam = params.get("file");
         const scopeParam = params.get("scope");
+        const derivedParam = params.get("derived");
         if (!fileParam) return;
 
         // Need the scope list before we can resolve ``?scope=user:me``.
@@ -81,7 +82,12 @@ export function useUrlParamLoad(): void {
                 const {overlay_file_in_scene} = await import(
                     "@/utils/scene/handlers/overlay_file_in_scene"
                 );
-                await overlay_file_in_scene(fileParam);
+                // ``derivedParam`` (e.g. ``_derived/foo.step.glb``) is
+                // the explicit derived-blob hand-off from /convert's
+                // "View in 3D" button. Pass it through so the loader
+                // can fetch the blob directly without a second
+                // ``/convert`` round-trip to re-resolve the path.
+                await overlay_file_in_scene(fileParam, derivedParam ?? undefined);
             } catch (err) {
                 // eslint-disable-next-line no-console
                 console.warn("[useUrlParamLoad] load failed for", fileParam, err);

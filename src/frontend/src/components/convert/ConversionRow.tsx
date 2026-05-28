@@ -225,16 +225,18 @@ const ConversionRow: React.FC<{row: ConvertRow}> = ({row}) => {
 
     const onViewIn3D = useCallback(() => {
         if (!current || !job?.derivedKey) return;
-        // Hand off via ``?scope=...&file=...``. The viewer's
-        // useUrlParamLoad hook waits for the scope list and the
-        // three.js scene to be ready, then calls overlay_file_in_scene
-        // with the source name. We pass the SOURCE key, not the
-        // derived key — overlay_file_in_scene already knows how to
-        // map source → derived for non-GLB sources, and using the
-        // source key keeps the URL self-describing.
+        // Hand off via ``?scope=...&file=...&derived=...``. The
+        // ``derived`` key (e.g. ``_derived/foo.step.glb``) tells
+        // the viewer's useUrlParamLoad hook exactly which blob to
+        // fetch — no second ``/convert`` round-trip to re-resolve
+        // the derived path, no chance of triggering a redundant
+        // conversion if the storage layer briefly misses. ``file``
+        // is kept so the loaded source name still registers
+        // against the scene's source map.
         const params = new URLSearchParams({
             scope: scopeUrlPart(current),
             file: row.sourceKey,
+            derived: job.derivedKey,
         });
         window.open(`/?${params.toString()}`, "_blank", "noopener");
     }, [current, job?.derivedKey, row.sourceKey]);

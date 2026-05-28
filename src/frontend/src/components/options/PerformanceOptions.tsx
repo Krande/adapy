@@ -1,5 +1,6 @@
 import React from "react";
 import {usePerfStore, requestRender} from "@/state/perfStore";
+import {useOptionsStore} from "@/state/optionsStore";
 
 // Phase A perf-toggle panel. Each row is an opt-in A/B switch for one
 // rendering-cost lever. Defaults reproduce the pre-toggle behaviour so
@@ -50,8 +51,24 @@ const PerformanceOptions: React.FC = () => {
     // need a fresh mesh; surface that as an inline hint instead of a
     // modal so users can keep iterating.
 
+    const {showPerf, setShowPerf} = useOptionsStore();
+
     return (
         <div className="space-y-2">
+            {/* Top-level Stats toggle — primary diagnosis lever and
+                the most common reason someone opens this section.
+                Belongs above the A/B knobs. */}
+            <label className="flex items-center space-x-2">
+                <input
+                    type="checkbox"
+                    checked={showPerf}
+                    onChange={() => setShowPerf(!showPerf)}
+                />
+                <span>Show Stats (FPS / draw calls)</span>
+            </label>
+
+            <hr className="border-gray-600 my-1"/>
+
             <div className="font-semibold text-xs uppercase tracking-wide text-gray-400">
                 Performance (A/B)
             </div>

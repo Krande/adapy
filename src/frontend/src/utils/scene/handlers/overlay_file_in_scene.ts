@@ -30,7 +30,10 @@ function derivedKeyForGlb(sourceKey: string): string {
         : `_derived/${sourceKey}.glb`;
 }
 
-export async function overlay_file_in_scene(sourceName: string): Promise<void> {
+export async function overlay_file_in_scene(
+    sourceName: string,
+    explicitDerivedKey?: string,
+): Promise<void> {
     if (!runtime.isRestMode()) {
         // Overlay path is REST-only — desktop mode opens external apps,
         // not a shared 3D scene we can stack into.
@@ -40,15 +43,26 @@ export async function overlay_file_in_scene(sourceName: string): Promise<void> {
 
     const scope = scopeUrlPart(useScopeStore.getState().current);
 
-    const isGlb = sourceName.toLowerCase().endsWith(".glb");
-    if (!isGlb) {
-        if (!runtime.convertEnabled()) {
-            console.warn("overlay_file_in_scene: non-GLB source but conversion disabled");
-            return;
+    // Caller (the /convert page's "View in 3D" link) can hand us the
+    // exact derived-blob key it just produced. Use it verbatim and
+    // skip the ensure-converted dance — the blob is on storage by
+    // construction. Without this shortcut the viewer would
+    // re-POST /convert which (a) adds latency on the deep-link, and
+    // (b) on a race could re-enqueue a conversion that just finished.
+    let glbKey: string;
+    if (explicitDerivedKey) {
+        glbKey = explicitDerivedKey;
+    } else {
+        const isGlb = sourceName.toLowerCase().endsWith(".glb");
+        if (!isGlb) {
+            if (!runtime.convertEnabled()) {
+                console.warn("overlay_file_in_scene: non-GLB source but conversion disabled");
+                return;
+            }
+            await ensureConvertedGlb(scope, sourceName);
         }
-        await ensureConvertedGlb(scope, sourceName);
+        glbKey = derivedKeyForGlb(sourceName);
     }
-    const glbKey = derivedKeyForGlb(sourceName);
     const blob = await viewerApi.getBlob(scope, glbKey);
     const url = URL.createObjectURL(new Blob([blob], {type: "model/gltf-binary"}));
 

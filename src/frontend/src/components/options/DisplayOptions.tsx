@@ -16,7 +16,6 @@ const Toggle: React.FC<{
 
 const DisplayOptions: React.FC = () => {
     const {
-        showPerf, setShowPerf,
         showEdges, setShowEdges,
         lockTranslation, setLockTranslation,
         enableNodeEditor, setEnableNodeEditor,
@@ -27,7 +26,9 @@ const DisplayOptions: React.FC = () => {
 
     return (
         <div className="space-y-2">
-            <Toggle checked={showPerf} onChange={() => setShowPerf(!showPerf)}>Show Stats (Perf)</Toggle>
+            {/* "Show Stats" moved to the top of the Performance
+                section — it's a perf-diagnosis toggle, not a display
+                preference. */}
             <Toggle checked={showLegend} onChange={() => setShowLegend(!showLegend)}>Show Color Legend</Toggle>
             <Toggle checked={showEdges} onChange={() => setShowEdges(!showEdges)}>Geometry Edges</Toggle>
             <Toggle checked={lockTranslation} onChange={() => setLockTranslation(!lockTranslation)}>Lock Translation</Toggle>

@@ -23,8 +23,24 @@ const RestSection: React.FC = () => {
         <div className="space-y-3">
             <SignedInRow/>
             <ScopeSelector/>
+            <ConvertButton/>
             <AdminButton/>
         </div>
+    );
+};
+
+const ConvertButton: React.FC = () => {
+    // Any authed user can hit /convert — the page is the primary
+    // upload + convert entry point and gates on scope-level access
+    // server-side. Sits next to the Admin button so power-users
+    // find it without scrolling; admins still get both.
+    return (
+        <a
+            href="/convert"
+            className="block text-center w-full bg-blue-700 hover:bg-blue-600 text-white text-sm font-semibold py-1 px-2 rounded-sm"
+        >
+            Convert files
+        </a>
     );
 };
 

@@ -1,7 +1,6 @@
 import React, {Suspense, useEffect, useState} from "react";
 import {runtime} from "@/runtime/config";
 import {useOptionsStore} from "@/state/optionsStore";
-import ActionButtons from "./options/ActionButtons";
 import PointSizeOptions from "./options/PointSizeOptions";
 import DisplayOptions from "./options/DisplayOptions";
 import ExperimentalOptions from "./options/ExperimentalOptions";
@@ -75,13 +74,6 @@ function OptionsComponent() {
                     <hr className="border-gray-600"/>
                 </>
             )}
-            {/* Closed by default — debug print, URDF load, screenshot
-                aren't first-tier actions for everyday users; they only
-                matter when you actually need them. */}
-            <CollapsibleSection title="Actions">
-                <ActionButtons/>
-            </CollapsibleSection>
-            <hr className="border-gray-600"/>
             {/* Same idea for the scene-config knobs. The defaults are
                 tuned for the common case; tucking the controls behind a
                 disclosure keeps the drawer from feeling overwhelming. */}
