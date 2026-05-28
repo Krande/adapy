@@ -173,13 +173,24 @@ class ElemShape:
     def get_faces(self):
         from itertools import chain
 
-        def hex_face_to_tris(q):
+        def quad_face_to_tris(q):
             return [(q[0], q[1], q[2]), (q[0], q[2], q[3])]
 
         if isinstance(self.type, SolidShapes):
             faces_seq = self.solids_face_seq
-            if self.type in (SolidShapes.HEX8, SolidShapes.HEX20):
-                faces_seq = list(chain.from_iterable([hex_face_to_tris(x) for x in faces_seq]))
+            # Generalised quad-to-tri split. Anything with 4-noded
+            # face entries needs triangulating before the renderer
+            # consumes it. Covers HEX8/HEX20/HEX27 (all-quad faces)
+            # plus PYRAMID5/13 (one quad base + four triangle
+            # sides). Mixed-arity face lists are fine — triangles
+            # pass through unchanged.
+            if faces_seq is not None:
+                faces_seq = list(
+                    chain.from_iterable(
+                        quad_face_to_tris(f) if len(f) == 4 else [f]
+                        for f in faces_seq
+                    )
+                )
         else:
             faces_seq = self.faces_seq
 

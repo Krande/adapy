@@ -10,7 +10,10 @@ def test_hex_element():
     coords = mesh.nodes.coords
     edges, faces = mesh.get_edges_and_faces_from_mesh()
     assert faces.shape == (12, 3)
-    assert edges.shape == (13, 2)
+    # 12 physical edges of a cube. The old (13, 2) count came from a
+    # bug in the HEX8 edge table that duplicated (3, 0) and dropped
+    # (3, 7) — fixed in solids._HEX_CORNER_EDGES.
+    assert edges.shape == (12, 2)
     assert coords.shape == (8, 3)
 
     # ada.Assembly("Assembly") / (ada.Part("BoxP", fem=fem) / box).to_gltf("temp/Box.glb")
