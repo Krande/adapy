@@ -175,6 +175,16 @@ def _curve_offset_add_local(bm: "Beam") -> np.ndarray:
         # OffsetHelper uses: dz = Cgz - h/2
         cgz = float(getattr(p, "Cgz", 0.0) or 0.0)
         h = float(sec.h)
+        # Genie-inverted T (flange-down) was re-encoded to adapy's
+        # flange-up storage by the section reader; that flips the
+        # sign of Cgz_from_mid relative to what Genie's exporter saw
+        # when it computed ``offset = Cgz - h/2``. Negating ``cgz``
+        # here recovers Genie's original ``add`` term so the eccen-
+        # tricity falls out correct — section lands with its web
+        # tip on the wall plate instead of half-a-beam-height past
+        # it (audit #5256 stiffeners).
+        if sec.metadata and sec.metadata.get("gxml_flange_down"):
+            cgz = -cgz
         dz = cgz - h / 2.0
 
     return np.array([0.0, dy, dz], dtype=float)
