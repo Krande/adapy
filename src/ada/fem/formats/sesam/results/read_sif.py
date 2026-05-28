@@ -763,9 +763,10 @@ class Sif2Mesh:
 
         rdpoints_map = self.sif.get_rdpoints_map()
         # No element result-point geometry → no per-element force
-        # visualisation we can construct. EigenR100 ships RDPOINTS as
-        # an empty type-block in every super-element; the nodal field
-        # path still works and is the primary bake output.
+        # visualisation we can construct. Some eigen decks ship
+        # RDPOINTS as an empty type-block in every super-element;
+        # the nodal field path still works and is the primary bake
+        # output.
         if not rdpoints_map:
             return []
 

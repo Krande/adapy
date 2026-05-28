@@ -167,8 +167,8 @@ def test_read_sin_metadata_cantilever():
 
     On the cantilever the savings don't matter (file is 250 KB), but
     this is the regression guard that the IRES extraction matches
-    what the full reader sees. EigenR100-scale assertions live in
-    the memory-bounded test below."""
+    what the full reader sees. Million-record-scale assertions live
+    in the memory-bounded test below."""
     from ada.fem.formats.sesam.results.read_sin import (
         read_sin_file,
         read_sin_metadata,
@@ -235,7 +235,8 @@ def test_read_sin_file_step_filter():
 
 def test_truncate_pointer_table_finds_cutoff():
     """Validate the cap-vs-real-count truncation that keeps huge
-    multi-SE RV* tables (EigenR100: dims=20 M, real=1.17 M) honest.
+    multi-SE RV* tables honest (real-world example: dims advertise
+    ~20 M slots while only ~1 M are actually populated).
 
     Build a synthetic mmap with:
       - 2 real records (NFIELD=11.0 at known byte offsets)

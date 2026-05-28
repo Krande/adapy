@@ -761,9 +761,9 @@ def _via_fea_result(
 
         # When the caller didn't pick a step, use the cheap metadata
         # path to pick one — avoids materialising every step's records
-        # just to throw them away (EigenR100: 200 modes × 1.17 M
-        # records would blow the 4 GiB worker budget). Then load
-        # only that step.
+        # just to throw them away (a hundreds-of-modes eigen deck
+        # would blow the 4 GiB worker budget). Then load only that
+        # step.
         if step is None or field is None:
             meta = read_sin_metadata(str(src_path))
             if not meta.fields or not meta.steps:

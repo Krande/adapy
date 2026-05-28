@@ -31,11 +31,12 @@ NAME_LEN = 8
 SLOT_STRIDE = 8  # bytes between consecutive header values
 SLOT_VALUE_OFFSET = 4  # high 4 bytes of each 8-byte slot hold the value
 # Hard cap on records per type-block. SIF schema reality: the largest
-# real Sesam result tables we've seen are <10 M records (RVFORCES
-# ~825 K on EigenR100). A block whose decoded ``prod(dims)`` exceeds
-# this is rejected as garbage rather than allocating billions of
-# Python ints into the pointer table — that path caused 15 GiB heap
-# allocations on a 5 GB SIN and froze the host machine.
+# real Sesam result tables we've seen are <10 M records (large eigen
+# RVFORCES blocks land near ~800 K). A block whose decoded
+# ``prod(dims)`` exceeds this is rejected as garbage rather than
+# allocating billions of Python ints into the pointer table — that
+# path caused 15 GiB heap allocations on a 5 GB SIN and froze the
+# host machine.
 _MAX_RECORDS_PER_BLOCK = 50_000_000
 # Hard cap on individual dim values for the same reason. A single dim
 # > 10^8 is almost certainly a junk u32 read.
@@ -100,7 +101,7 @@ def _validate_first_record(data: Any, block: "TypeBlock") -> bool:
 def _truncate_pointer_table(data: Any, ptrs: Any) -> int:
     """Return the index of the first non-zero invalid pointer in *ptrs*.
 
-    On multi-super-element files (e.g. EigenR100, 13 SEs, 5.4 GB),
+    On multi-super-element files (multi-GB decks with a dozen+ SEs),
     huge RV* tables encode ``dims`` as a CAP (~20 M) rather than the
     real populated count. Walking all 20 M slots reads record bytes
     that happen to encode small floats (NFIELD=11.0 → 0x41300000 ≈
@@ -113,8 +114,8 @@ def _truncate_pointer_table(data: Any, ptrs: Any) -> int:
     marks the end of the real table; everything after is record-data
     being misread.
 
-    Numpy-vectorised so the 1.17 M × 200 mode RVNODDIS table on
-    EigenR100 (~150 MiB of pointer bytes) validates in well under a
+    Numpy-vectorised so a million-row-by-hundreds-of-modes RVNODDIS
+    table (~150 MiB of pointer bytes) validates in well under a
     second without per-entry Python overhead.
     """
     import numpy as np
@@ -294,11 +295,11 @@ class TypeBlock:
     capacity: tuple[int, ...]  # allocated capacity per dimension
     pointer_table_offset: int
     # numpy int64 array of word-offsets (one per record slot). Stored
-    # as numpy rather than ``list[int]`` because EigenR100-scale tables
+    # as numpy rather than ``list[int]`` because large eigen tables
     # have up to 20 M entries — Python int + list overhead would push
     # 600 MiB+ per block, blowing past the 4 GiB worker cap on the
-    # 13-super-element file. int64 storage is 8 B/entry → 160 MiB for
-    # the biggest table.
+    # biggest multi-super-element decks. int64 storage is 8 B/entry →
+    # 160 MiB for the biggest table.
     pointer_table: Any
     records_start: int
 
@@ -406,10 +407,9 @@ def _decode_type_block(
     # The pointer table is 1-based: slot[0] is a zero sentinel and
     # records live at slots[1..N]. dims=(N,) therefore needs N+1
     # actual slots, otherwise the last record (id N) falls off the
-    # end. Without this, multi-SE files like EigenR100 lose one
-    # node/element per super-element — and the missing element
-    # references a node that then looks out-of-bounds to the trimesh
-    # builder.
+    # end. Without this, multi-super-element files lose one
+    # node/element per SE — and the missing element references a
+    # node that then looks out-of-bounds to the trimesh builder.
     import numpy as np
     file_end = len(data)
     slot_count = total_records + 1
@@ -429,10 +429,10 @@ def _decode_type_block(
         pointer_table = np.empty(0, dtype=np.int64)
 
     # Truncate the pointer table at the first non-zero invalid pointer.
-    # ``dims`` is a CAP for huge multi-SE RV* tables (EigenR100 reports
-    # ~20 M but the real count is 200 modes × N nodes/elements). Without
-    # this, walking the table yields millions of phantom records pulled
-    # from record-data bytes being misread as pointers.
+    # ``dims`` is a CAP for huge multi-SE RV* tables (some eigen decks
+    # report ~20 M but the real count is n_modes × N nodes/elements).
+    # Without this, walking the table yields millions of phantom
+    # records pulled from record-data bytes being misread as pointers.
     real_count = _truncate_pointer_table(data, pointer_table)
     if real_count < pointer_table.size:
         pointer_table = pointer_table[:real_count].copy()
@@ -470,13 +470,13 @@ class SinFile:
 
     Multi-super-element files: A Sesam SIN can carry data for multiple
     "first level super-elements" — each is an independent mesh + result
-    set (e.g. 13 separate load cases in EigenR100). They appear as
-    ``RESULTS`` records in the header. ``super_element_refs`` lists
-    every one; ``super_elements[iref]`` lazily decodes one on first
-    access (each can hold a 20 M-entry pointer table — decoding all 13
-    upfront would blow past a 4 GiB cgroup limit). ``type_blocks``
-    aliases the active super-element's blocks; defaults to the first
-    super-element, override via :meth:`use_super_element`.
+    set (e.g. tens of separate load cases in a large eigen deck). They
+    appear as ``RESULTS`` records in the header. ``super_element_refs``
+    lists every one; ``super_elements[iref]`` lazily decodes one on
+    first access (each can hold a 20 M-entry pointer table — decoding
+    every SE upfront would blow past a 4 GiB cgroup limit).
+    ``type_blocks`` aliases the active super-element's blocks; defaults
+    to the first super-element, override via :meth:`use_super_element`.
     """
 
     path: Path
@@ -571,12 +571,12 @@ class SinFile:
 
         # Step 2 — pick the super-element with the most type-blocks as
         # the default, and decode only that one. The first RESULTS entry
-        # is typically a summary-only super-element (EigenR100's IREF=1
-        # has 15 type-block stubs but zero GELMNT1 records — useless for
-        # rendering). The "main" data lives in whichever super-element
-        # carries the densest PTAB. Touching each PTAB's slot[4] is cheap
-        # (~64 bytes per super-element) and avoids materialising the
-        # heavy pointer tables for the wrong default.
+        # is typically a summary-only super-element (IREF=1 on multi-SE
+        # eigen decks has many type-block stubs but zero GELMNT1 records
+        # — useless for rendering). The "main" data lives in whichever
+        # super-element carries the densest PTAB. Touching each PTAB's
+        # slot[4] is cheap (~64 bytes per super-element) and avoids
+        # materialising the heavy pointer tables for the wrong default.
         default_iref = self._pick_default_super_element()
         if default_iref is not None:
             self.use_super_element(default_iref)
@@ -704,7 +704,8 @@ class SinFile:
         """Decode one PTAB section and return preamble byte offsets
         for every type-block it lists.
 
-        PTAB layout (verified empirically against cantilever + EigenR100):
+        PTAB layout (verified empirically against cantilever fixtures
+        plus large multi-super-element eigen decks):
 
             slot[1]  NFIELD       (= 5 on all PTABs seen)
             slot[2]  type_flag    (= 0 or 1)
@@ -737,8 +738,8 @@ class SinFile:
         # mandatory leading NORSAM reference. Verified on cantilever:
         # slot[4]=15, actual pointer table = slot[6..21] = 16 entries
         # (1 NORSAM + 15 type-blocks including TDMATER, TDRESREF). The
-        # same +1 offset is needed on EigenR100 — slot[4]=48 super-
-        # elements list 49 pointers each.
+        # same +1 offset is needed on large multi-SE eigen decks —
+        # e.g. slot[4]=48 lists 49 pointers each.
         count = _read_u32_slot(data, payload + 4 * SLOT_STRIDE) + 1
         if not (1 < count <= 1024):
             # PTAB with absurd count → likely corrupted header; bail.
@@ -754,8 +755,8 @@ class SinFile:
             # 32 bits in bytes [+4..+7] (matching the rest of the
             # NSPI=2 convention). For values ≤ 2^32, ptr_hi=0 and
             # the value is ptr_lo at +4. For huge files the value
-            # comes from the +0 word (verified on EigenR100 where
-            # PTAB pointers stay well under 2^32).
+            # comes from the +0 word (verified on multi-SE eigen
+            # decks where PTAB pointers stay well under 2^32).
             ptr = ptr_hi if ptr_lo == 0 else ptr_lo
             if ptr <= 0:
                 continue
@@ -799,11 +800,11 @@ class SinFile:
         """Return a numpy ``float32`` array of every populated record's
         first data word — the bulk-IRES gather for RV* result types.
 
-        For RVFORCES on EigenR100 (~20 M records) this materialises
-        a single 80 MiB numpy buffer instead of yielding 20 M Python
-        float objects (each 28 B + GC churn). The bulk read is
-        essential for staying under the worker's 4 GiB heap budget
-        on real-world SINs.
+        For large RVFORCES tables (tens of millions of records) this
+        materialises a single 80 MiB numpy buffer instead of yielding
+        20 M Python float objects (each 28 B + GC churn). The bulk
+        read is essential for staying under the worker's 4 GiB heap
+        budget on real-world SINs.
 
         Returns an empty array if the type isn't present.
         """
@@ -846,9 +847,9 @@ class SinFile:
         first data word equals this int are yielded. For RV* result
         types the first data word is ``IRES`` (the step / mode index),
         so passing ``where_first_word=step`` slices to that step
-        without materialising any record outside it. On EigenR100 this
-        cuts a single-step RVNODDIS slice from ~1.17 M records to
-        ~5867 records.
+        without materialising any record outside it. On large eigen
+        decks this typically cuts a single-step RVNODDIS slice from
+        a million-plus records to a few thousand.
         """
         block = self.type_blocks.get(name)
         if block is None:

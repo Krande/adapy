@@ -199,11 +199,11 @@ class FemElements:
         from ada.core.vector_utils import poly_area, vector_length
 
         # Per-section rotation-matrix cache. ``calc_sh_elem`` runs
-        # once per shell element (65k for the Ship1T1 deck); without
-        # the cache it rebuilds a Quaternion-based rotation matrix
-        # for every element even though all elements in a section
-        # share the same local frame. Cached version drops 65k
-        # builds → ~100 (one per FemSection).
+        # once per shell element (tens of thousands on a large ship-
+        # hull mesh); without the cache it rebuilds a Quaternion-based
+        # rotation matrix for every element even though all elements
+        # in a section share the same local frame. Cached version
+        # drops the build count to ~one per FemSection.
         global_csys = [(1.0, 0.0, 0.0), (0.0, 1.0, 0.0)]
         rot_cache: dict[int, np.ndarray] = {}
 

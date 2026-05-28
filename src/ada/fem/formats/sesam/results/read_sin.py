@@ -185,9 +185,10 @@ class SinReader(SifReader):
             # Always emit the super-header — Sif2Mesh's RDPOINTS map
             # (and other shape-driven consumers) do
             # ``self.get_result(card.name)[0]`` and crash if the card
-            # is missing from results. On EigenR100 iref=7 RDPOINTS
-            # is present as a type-block but empty (no record rows),
-            # so without this guard the whole convert fails.
+            # is missing from results. Some eigen decks have RDPOINTS
+            # present as a type-block but empty (no record rows) in
+            # certain super-elements, so without this guard the whole
+            # convert fails.
             super_header = [-float(block.ndim), float(block.ndim)] + [
                 float(d) for d in block.dims
             ]
@@ -236,11 +237,11 @@ def read_sin_metadata(sin_file: str | pathlib.Path) -> SinMetadata:
     """Enumerate steps + fields in a SIN without loading any values.
 
     Walks each RV* type's pointer table reading only the first data
-    word per record (= IRES, the step index). For EigenR100-scale
-    files (~1.5 M RV records) this touches ~6 MB of mmap pages, not
-    the multi-GB record streams. The full record materialisation
-    lives in :func:`read_sin_file` and only runs when a caller asks
-    for actual values.
+    word per record (= IRES, the step index). For million-record-
+    scale eigen files this touches a few MB of mmap pages, not the
+    multi-GB record streams. The full record materialisation lives
+    in :func:`read_sin_file` and only runs when a caller asks for
+    actual values.
     """
     sin = open_sin(sin_file)
     try:
@@ -252,10 +253,11 @@ def read_sin_metadata(sin_file: str | pathlib.Path) -> SinMetadata:
             if rv_name not in sin.type_blocks:
                 continue
             # Bulk-read every record's IRES as a numpy float32 array,
-            # then np.unique → cast to int. On RVFORCES (~20 M records
-            # on EigenR100) the per-record Python yield path allocates
-            # ~600 MiB of transient float objects before GC catches
-            # up; the bulk gather caps that at ~80 MiB and runs in <1s.
+            # then np.unique → cast to int. On large RVFORCES blocks
+            # (tens of millions of records) the per-record Python
+            # yield path allocates ~600 MiB of transient float objects
+            # before GC catches up; the bulk gather caps that at
+            # ~80 MiB and runs in <1s.
             ires_floats = sin.gather_first_words(rv_name)
             if ires_floats.size == 0:
                 field_steps[rv_name] = []
@@ -286,8 +288,9 @@ def read_sin_file(
     value are materialised. Streaming-bake workers use this to load
     one mode/load-case at a time, capping per-step heap at
     ``n_nodes × n_components × 8 B`` instead of the full
-    ``n_steps × …`` materialisation that EigenR100 (200 modes, 1.17 M
-    RVNODDIS rows) won't fit under the 4 GiB worker budget.
+    ``n_steps × …`` materialisation that hundreds-of-modes /
+    millions-of-RVNODDIS-rows decks won't fit under the 4 GiB
+    worker budget.
     """
     from ada.fem.formats.sesam.results.read_sif import Sif2Mesh
 
