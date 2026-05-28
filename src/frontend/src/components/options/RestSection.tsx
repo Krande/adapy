@@ -3,6 +3,7 @@ import {runtime} from "@/runtime/config";
 import {useMeStore} from "@/state/meStore";
 import {useScopeStore, ScopeOption, scopeUrlPart} from "@/state/scopeStore";
 import {useServerInfoStore} from "@/state/serverInfoStore";
+import {useViewerPanelStore} from "@/state/viewerPanelStore";
 import {getUser, isAuthEnabled, signOut} from "@/services/auth/oidc";
 import {request_list_of_files_from_server} from "@/utils/server_info/handlers/request_list_of_files_from_server";
 import {clear_loaded_model} from "@/utils/scene/handlers/clear_loaded_model";
@@ -12,10 +13,11 @@ import {clear_loaded_model} from "@/utils/scene/handlers/clear_loaded_model";
 // fit on phones and clutter the top bar on desktop too. The drawer is
 // mobile-friendly already, so we get readable controls for free.
 //
-// The admin entry point is a plain anchor to ``/admin`` — a real page
-// route mounted in app.tsx alongside ``/convert`` and ``/auth/callback``.
-// Refreshing the admin panel stays on the admin page, which the
-// previous draggable-modal version couldn't do.
+// Admin + Convert open in-viewer modals (Rnd-hosted by
+// ``InViewerPanelHost``) so the 3D model stays on screen while the
+// user pokes at admin tabs or kicks off a conversion. The modal
+// header carries an "open in new tab" button that pops the same UI
+// in dedicated full-page ``/admin`` / ``/convert`` routes.
 
 const RestSection: React.FC = () => {
     if (!runtime.isRestMode()) return null;
@@ -30,17 +32,21 @@ const RestSection: React.FC = () => {
 };
 
 const ConvertButton: React.FC = () => {
-    // Any authed user can hit /convert — the page is the primary
+    // Any authed user can hit Convert — the panel is the primary
     // upload + convert entry point and gates on scope-level access
-    // server-side. Sits next to the Admin button so power-users
-    // find it without scrolling; admins still get both.
+    // server-side. Opens as an in-viewer Rnd modal so the 3D model
+    // stays on screen; the modal's external-link button pops the
+    // dedicated ``/convert`` page in a new tab when the user wants
+    // a full-screen workspace.
+    const openPanel = useViewerPanelStore((s) => s.openPanel);
     return (
-        <a
-            href="/convert"
-            className="block text-center w-full bg-blue-700 hover:bg-blue-600 text-white text-sm font-semibold py-1 px-2 rounded-sm"
+        <button
+            type="button"
+            onClick={() => openPanel("convert")}
+            className="block w-full bg-blue-700 hover:bg-blue-600 text-white text-sm font-semibold py-1 px-2 rounded-sm"
         >
             Convert files
-        </a>
+        </button>
     );
 };
 
@@ -133,14 +139,16 @@ const ScopeSelector: React.FC = () => {
 
 const AdminButton: React.FC = () => {
     const isAdmin = useMeStore((s) => s.isAdmin);
+    const openPanel = useViewerPanelStore((s) => s.openPanel);
     if (!isAdmin) return null;
     return (
-        <a
-            href="/admin"
-            className="block text-center w-full bg-purple-700 hover:bg-purple-600 text-white text-sm font-semibold py-1 px-2 rounded-sm"
+        <button
+            type="button"
+            onClick={() => openPanel("admin")}
+            className="block w-full bg-purple-700 hover:bg-purple-600 text-white text-sm font-semibold py-1 px-2 rounded-sm"
         >
             Admin panel
-        </a>
+        </button>
     );
 };
 

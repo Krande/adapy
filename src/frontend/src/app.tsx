@@ -20,6 +20,7 @@ const AuthGate = React.lazy(() => import("./components/auth/AuthGate"));
 const AuthCallback = React.lazy(() => import("./components/auth/AuthCallback"));
 const ConvertPage = React.lazy(() => import("./components/convert/ConvertPage"));
 const AdminPanel = React.lazy(() => import("./components/admin/AdminPanel"));
+const InViewerPanelHost = React.lazy(() => import("./components/InViewerPanelHost"));
 const isRestMode = runtime.isRestMode();
 const isAuthCallback = isRestMode && window.location.pathname === "/auth/callback";
 const isConvertPage = isRestMode && window.location.pathname.startsWith("/convert");
@@ -48,7 +49,9 @@ function App() {
         return (
             <Suspense fallback={null}>
                 <AuthGate>
-                    <ConvertPage/>
+                    <div className="h-[100dvh] w-full overflow-hidden">
+                        <ConvertPage/>
+                    </div>
                 </AuthGate>
             </Suspense>
         );
@@ -64,7 +67,9 @@ function App() {
         return (
             <Suspense fallback={null}>
                 <AuthGate>
-                    <AdminPanel/>
+                    <div className="h-[100dvh] w-full overflow-hidden">
+                        <AdminPanel/>
+                    </div>
                 </AuthGate>
             </Suspense>
         );
@@ -123,6 +128,17 @@ function AppBody() {
             {isRestMode && (
                 <Suspense fallback={null}>
                     <RestModeUI/>
+                </Suspense>
+            )}
+
+            {/* Rnd-hosted Admin / Convert modal — mounted last so it
+                layers above the canvas + tree, but still under the
+                toast slot (z-50 vs the host's z-60). Lazy so the
+                Admin/Convert chunks don't load until the user opens
+                them. */}
+            {isRestMode && (
+                <Suspense fallback={null}>
+                    <InViewerPanelHost/>
                 </Suspense>
             )}
 

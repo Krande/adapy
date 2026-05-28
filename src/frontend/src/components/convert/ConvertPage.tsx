@@ -36,7 +36,11 @@ const ConvertPage: React.FC = () => {
     const current = useScopeStore((s) => s.current);
 
     return (
-        <div className="min-h-screen w-full bg-gray-900 text-gray-100">
+        // ``h-full`` so the page adapts to its container — full-page
+        // route wraps in ``h-[100dvh]``, in-viewer modal wraps in
+        // an Rnd-sized container. ``overflow-y-auto`` so long
+        // conversion lists scroll within the panel, not the page.
+        <div className="h-full w-full bg-gray-900 text-gray-100 overflow-y-auto">
             <header className="border-b border-gray-800 px-6 py-4 flex items-center justify-between gap-4 flex-wrap">
                 <div className="flex items-baseline gap-3">
                     <h1 className="text-xl font-semibold">adapy converter</h1>
