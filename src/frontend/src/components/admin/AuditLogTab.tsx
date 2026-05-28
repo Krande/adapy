@@ -244,16 +244,25 @@ const AuditLogTab: React.FC = () => {
                     rest of the row. Removes the postage-stamp truncation
                     that kicked in even when the modal had room to show
                     the full path. */}
-                <table className="hidden sm:table w-full text-sm table-fixed min-w-[1260px]">
+                {/* ``table-auto`` instead of ``table-fixed`` so each
+                    column sizes to its content rather than the
+                    rigid colgroup widths. ``min-w`` on each col
+                    pins a floor so a stale w-16 doesn't truncate a
+                    5-digit ID. ``whitespace-nowrap`` on the Td
+                    component below ensures content doesn't wrap to
+                    a second line when the natural width exceeds the
+                    floor. Key column stays flexible (``min-w-[14rem]``)
+                    so long source paths get the leftover width. */}
+                <table className="hidden sm:table w-full text-sm min-w-[1260px]">
                     <colgroup>
-                        <col className="w-16"/>
-                        <col className="w-40"/>
-                        <col className="w-32"/>
-                        <col className="w-48"/>
-                        <col className="w-24"/>
-                        <col className="min-w-56"/>
-                        <col className="w-24"/>
-                        <col className="w-24"/>
+                        <col className="min-w-[5rem]"/>
+                        <col className="min-w-[11rem]"/>
+                        <col className="min-w-[8rem]"/>
+                        <col className="min-w-[12rem]"/>
+                        <col className="min-w-[6rem]"/>
+                        <col className="min-w-[14rem]"/>
+                        <col className="min-w-[6rem]"/>
+                        <col className="min-w-[6rem]"/>
                     </colgroup>
                     <thead className="sticky top-0 bg-gray-800">
                     <tr className="text-left">
