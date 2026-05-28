@@ -792,19 +792,25 @@ class Part(BackendGeom):
 
         num_elem_changed = 0
         new_materials = Materials(parent=self)
+        _reassignable = (Beam, Plate, FemSection, PipeSegStraight, PipeSegElbow, Pipe)
         for mat in self.get_all_materials(include_self=include_self):
             res = new_materials.add(mat)
             if res.guid == mat.guid:
                 continue
-            refs = [r for r in mat.refs]
-            for elem in refs:
-                mat.refs.pop(mat.refs.index(elem))
-                if elem not in res.refs:
-                    res.refs.append(elem)
-                if isinstance(elem, (Beam, Plate, FemSection, PipeSegStraight, PipeSegElbow, Pipe)):
-                    elem.material = res
-                    num_elem_changed += 1
-                elif issubclass(type(elem), Shape):
+            # ``Materials.add`` above already merged ``mat.refs`` into
+            # ``res.refs`` via the ``_ref_id_set`` cache (O(N) amortised).
+            # All the outer loop needs to do is flip the source
+            # elements' ``.material`` pointer at ``res`` and clear the
+            # now-orphaned source list. The pre-fix loop used
+            # ``mat.refs.pop(mat.refs.index(elem))`` (two O(N) ops per
+            # element) plus ``elem not in res.refs`` (O(N) list
+            # membership) — O(N²) overall, and the dominant cost in
+            # large FEM → IFC / XML conversions where ``res.refs``
+            # grew into the tens of thousands.
+            refs_snapshot = list(mat.refs)
+            mat.refs.clear()
+            for elem in refs_snapshot:
+                if isinstance(elem, _reassignable) or issubclass(type(elem), Shape):
                     elem.material = res
                     num_elem_changed += 1
                 else:
