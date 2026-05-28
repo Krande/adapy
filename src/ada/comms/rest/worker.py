@@ -393,6 +393,17 @@ async def _process_one(
         return
 
     await queue.update(job_id, status=JOB_STATUS_RUNNING, stage="loading", progress=0.05)
+    # Mark the audit_log row matching this job as ``running`` (best-
+    # effort). Without this the admin "current cell" toast can't
+    # tell which queued row the worker is actually on, and the
+    # display sticks to the same cell for the whole sweep.
+    if db_pool is not None:
+        try:
+            await db_module.mark_audit_running(
+                db_pool, job_id=job_id, worker_image_tag=_WORKER_IMAGE_TAG,
+            )
+        except Exception:
+            logger.exception("worker: audit running-mark failed for job %s", job_id)
 
     # Stream source to a worker-local tempfile rather than buffering
     # the whole payload in RAM. Big result decks (Sesam SIF can be

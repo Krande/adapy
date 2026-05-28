@@ -473,13 +473,13 @@ const AuditActivityBadge: React.FC = () => {
             }
         };
         void poll();
-        // 5s while an audit is running so the "currently converting"
-        // line tracks actual cell turnover (~5–60 s per cell). When
-        // nothing's running we revert to the cheap 15s cadence —
-        // ``summary`` re-mounts the effect implicitly because
-        // ``running_runs`` only flips on the next poll, so this is
-        // a one-knob compromise.
-        const interval = summary && summary.running_runs > 0 ? 5_000 : 15_000;
+        // 2s while an audit is running so the "now: …" line keeps
+        // up with actual cell turnover (cells flip every couple of
+        // seconds on a force-rebuild). When nothing's running we
+        // revert to the cheap 15s cadence — ``summary`` re-mounts
+        // the effect implicitly because ``running_runs`` only flips
+        // on the next poll, so this is a one-knob compromise.
+        const interval = summary && summary.running_runs > 0 ? 2_000 : 15_000;
         const id = window.setInterval(poll, interval);
         return () => {
             cancelled = true;
@@ -514,15 +514,14 @@ const AuditActivityBadge: React.FC = () => {
                     {pending_cells} cell{pending_cells === 1 ? "" : "s"} pending
                 </div>
             )}
-            {current_cell && current_cell.key && current_cell.target_format && (
+            {current_cell && current_cell.key && current_cell.target_format
+                && current_cell.status === "running" && (
                 <div className="text-[11px] text-blue-200 mt-1 min-w-0">
-                    <span className="text-blue-400">
-                        {current_cell.status === "running" ? "now: " : "next: "}
-                    </span>
+                    <span className="text-blue-400">now: </span>
                     <span className="font-mono truncate inline-block max-w-full align-bottom" title={current_cell.key}>
                         {current_cell.key} → {current_cell.target_format}
                     </span>
-                    {current_cell.elapsed_ms != null && current_cell.status === "running" && (
+                    {current_cell.elapsed_ms != null && (
                         <span className="text-blue-400 ml-1">
                             · {fmtCellElapsed(current_cell.elapsed_ms)}
                         </span>

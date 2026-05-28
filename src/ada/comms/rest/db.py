@@ -306,6 +306,41 @@ async def cancel_audit_by_job(
     return result.endswith(" 1")
 
 
+async def mark_audit_running(
+    pool: asyncpg.Pool,
+    *,
+    job_id: str,
+    worker_image_tag: str | None = None,
+) -> None:
+    """Flip the audit_log row for a job into ``status='running'`` and
+    stamp ``ts = now()`` so the admin's "current cell" query has a
+    fresh row to surface.
+
+    Without this hop the row goes straight queued → done and the
+    audit toast's ORDER BY can't tell which queued cell is actually
+    being worked on — so the same one stays on screen for the
+    whole sweep. Best-effort: a DB hiccup must never break job
+    processing.
+    """
+    if pool is None:
+        return
+    try:
+        await pool.execute(
+            """
+            UPDATE audit_log
+            SET status = 'running',
+                ts = NOW(),
+                worker_image_tag = COALESCE($2, worker_image_tag)
+            WHERE job_id = $1
+              AND status = 'queued'
+            """,
+            job_id,
+            worker_image_tag,
+        )
+    except Exception:
+        logger.exception("worker: mark_audit_running failed for job %s", job_id)
+
+
 async def update_audit_by_job(
     pool: asyncpg.Pool,
     *,
@@ -456,23 +491,23 @@ async def active_audit_summary(pool: asyncpg.Pool) -> dict:
         WHERE status = 'running'
         """
     )
-    # Pick the most recently-touched in-flight cell. Prefer
-    # ``running`` (worker actively converting) over ``queued`` so
-    # the toast reads "now: foo.ifc → glb" not the next thing in
-    # the queue. The partial index ``audit_log_audit_run_id_idx``
-    # (id+ts) keeps this scan cheap even with many runs in flight.
+    # Only surface rows where the worker has actually picked the
+    # cell up — i.e. ``audit_log.status = 'running'`` (set by
+    # ``mark_audit_running`` at the start of ``_process_one``).
+    # Queued rows don't reflect what's converting right now; the
+    # dispatcher inserts them all with the same ts at the start of
+    # the sweep, so picking the "most recent queued" gives a row
+    # that doesn't change as the sweep advances. Caller sees no
+    # current_cell between cells (a few hundred ms) — that's the
+    # honest answer, and the toast hides the line there.
     current_row = await pool.fetchrow(
         """
         SELECT al.key, al.target_format, al.status, al.ts
         FROM audit_log al
         JOIN audit_runs ar ON ar.id = al.audit_run_id
         WHERE ar.status = 'running'
-          AND al.status IN ('running', 'queued')
-        ORDER BY
-            -- ``running`` first, then ``queued``; within each
-            -- bucket the most recently-touched row wins.
-            CASE al.status WHEN 'running' THEN 0 ELSE 1 END,
-            al.ts DESC
+          AND al.status = 'running'
+        ORDER BY al.ts DESC
         LIMIT 1
         """
     )
