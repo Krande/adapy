@@ -364,7 +364,15 @@ async def _process_one(
 
     # Skip if a previous run already produced the derived blob. This is
     # the cheap safety net for redelivered messages.
-    if await storage.exists(scope, job.derived_key):
+    #
+    # ``force_rebuild`` (set by the admin audit dispatcher when the
+    # operator picks the cache-bypass option) makes us re-run even
+    # if the blob exists — otherwise an audit measurement run would
+    # see every cell short-circuit at ~5 ms each and the
+    # ``duration_ms`` numbers would lie about actual conversion
+    # cost. Regular convert jobs leave this False so the
+    # redelivery safety-net still works.
+    if not getattr(job, "force_rebuild", False) and await storage.exists(scope, job.derived_key):
         await queue.update(
             job_id,
             status=JOB_STATUS_DONE,

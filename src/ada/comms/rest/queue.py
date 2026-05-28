@@ -78,6 +78,13 @@ class Job:
     # up. Honoured by the existing capability gate in
     # ``worker.py:_run`` alongside the extension allowlist.
     target_capability: str | None = None
+    # Skip the worker's cached-blob short-circuit and actually
+    # re-run the conversion. Set by the audit dispatcher when the
+    # operator picks "force rebuild" — used for perf measurement
+    # runs where a cache hit defeats the point. Regular convert
+    # jobs leave this False so the worker keeps its safety-net
+    # short-circuit on NATS redelivery.
+    force_rebuild: bool = False
 
     def to_json(self) -> bytes:
         return json.dumps(asdict(self)).encode("utf-8")
@@ -200,6 +207,7 @@ class JobQueue:
         conversion_options: dict | None = None,
         derived_key: str | None = None,
         target_capability: str | None = None,
+        force_rebuild: bool = False,
     ) -> Job:
         # ``derived_key`` lets callers pin an explicit produced-blob
         # path. The convert flow leaves it None and lets
@@ -226,6 +234,7 @@ class JobQueue:
             field=field,
             conversion_options=conversion_options,
             target_capability=target_capability,
+            force_rebuild=force_rebuild,
         )
         # Resolve which pool should handle this job. When the caller
         # passes ``target_capability`` explicitly (admin audit form,

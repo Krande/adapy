@@ -2280,6 +2280,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     scope_kind=scope_obj.kind,
                     scope_id=scope_obj.id,
                     target_capability=worker_pool,
+                    force_rebuild=force_rebuild,
                 )
             except Exception as exc:
                 logger.exception(
