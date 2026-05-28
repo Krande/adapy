@@ -538,6 +538,10 @@ export interface AuditRunJob {
     read_bytes: number | null;
     write_bytes: number | null;
     job_id: string | null;
+    // Image tag of the worker pod that processed this cell.
+    // Empty for cells finished before migration 013 / cells that
+    // hit the dispatcher's cached short-circuit.
+    worker_image_tag: string | null;
 }
 
 export interface ProfileStatsRow {

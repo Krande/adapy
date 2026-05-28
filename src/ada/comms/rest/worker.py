@@ -86,6 +86,14 @@ _SIDECAR_SIBLINGS: dict[str, tuple[str, ...]] = {
 }
 
 
+# Set once at worker startup from ``ADA_IMAGE_TAG`` (helm chart
+# stamps the build SHA into that env var). Read here without
+# threading through every call site so the audit row gets the same
+# attribution we publish on the workers KV registry without
+# touching the per-job code paths.
+_WORKER_IMAGE_TAG: str | None = None
+
+
 async def _audit_done(
     db_pool: asyncpg.Pool | None,
     job_id: str,
@@ -114,6 +122,7 @@ async def _audit_done(
             read_bytes=metrics.get("read_bytes"),
             write_bytes=metrics.get("write_bytes"),
             profile_key=metrics.get("profile_key"),
+            worker_image_tag=_WORKER_IMAGE_TAG,
         )
     except Exception:
         logger.exception("worker: audit update failed for job %s", job_id)
@@ -748,6 +757,10 @@ async def _run() -> None:
     # Best-effort: a KV write failure shouldn't keep the worker from
     # accepting jobs.
     image_tag = os.environ.get("ADA_IMAGE_TAG", "").strip()
+    # Stash on the module-level slot so ``_audit_done`` can stamp it
+    # onto every audit_log row without threading through callers.
+    global _WORKER_IMAGE_TAG
+    _WORKER_IMAGE_TAG = image_tag or None
     worker_id = (os.environ.get("HOSTNAME", "").strip() or f"local-{os.getpid()}")
     capabilities = [
         c.strip()

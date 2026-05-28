@@ -127,6 +127,7 @@ function cellTooltip(job: AuditRunJob | undefined): string {
     if (job.peak_rss_kb != null) parts.push(`peak rss: ${fmtBytes(job.peak_rss_kb * 1024)}`);
     if (job.read_bytes != null) parts.push(`read: ${fmtBytes(job.read_bytes)}`);
     if (job.write_bytes != null) parts.push(`write: ${fmtBytes(job.write_bytes)}`);
+    if (job.worker_image_tag) parts.push(`worker: ${job.worker_image_tag}`);
     if (job.error) parts.push(`error: ${job.error.slice(0, 200)}`);
     return parts.join("\n");
 }

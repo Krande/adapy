@@ -320,6 +320,7 @@ async def update_audit_by_job(
     read_bytes: int | None = None,
     write_bytes: int | None = None,
     profile_key: str | None = None,
+    worker_image_tag: str | None = None,
 ) -> None:
     """Patch the audit row tied to a queue job with its final outcome.
 
@@ -351,7 +352,8 @@ async def update_audit_by_job(
                     peak_rss_kb = COALESCE($8, peak_rss_kb),
                     read_bytes = COALESCE($9, read_bytes),
                     write_bytes = COALESCE($10, write_bytes),
-                    profile_key = COALESCE($11, profile_key)
+                    profile_key = COALESCE($11, profile_key),
+                    worker_image_tag = COALESCE($12, worker_image_tag)
                 WHERE job_id = $1
                 RETURNING audit_run_id
                 """,
@@ -366,6 +368,7 @@ async def update_audit_by_job(
                 read_bytes,
                 write_bytes,
                 profile_key,
+                worker_image_tag,
             )
             if updated is None or updated["audit_run_id"] is None:
                 return
@@ -633,7 +636,7 @@ async def list_audit(
         "SELECT id, ts, user_sub, scope_kind, scope_id, action, key,"
         " target_format, status, error, duration_ms, traceback,"
         " cpu_user_ms, cpu_sys_ms, peak_rss_kb, read_bytes, write_bytes,"
-        " profile_key, job_id, audit_run_id,"
+        " profile_key, job_id, audit_run_id, worker_image_tag,"
         " issue_bot_status, issue_bot_synced_at, issue_bot_last_error"
         " FROM audit_log"
     )
@@ -663,6 +666,7 @@ async def list_audit(
             "profile_key": r["profile_key"],
             "job_id": r["job_id"],
             "audit_run_id": str(r["audit_run_id"]) if r["audit_run_id"] else None,
+            "worker_image_tag": r["worker_image_tag"],
             "issue_bot_status": r["issue_bot_status"],
             "issue_bot_synced_at": (
                 r["issue_bot_synced_at"].isoformat()
@@ -1197,7 +1201,7 @@ async def list_audit_run_jobs(
         """
         SELECT id, ts, key, target_format, status, error,
                duration_ms, cpu_user_ms, cpu_sys_ms, peak_rss_kb,
-               read_bytes, write_bytes, job_id
+               read_bytes, write_bytes, job_id, worker_image_tag
         FROM audit_log
         WHERE audit_run_id = $1
         ORDER BY id ASC
@@ -1219,6 +1223,7 @@ async def list_audit_run_jobs(
             "read_bytes": r["read_bytes"],
             "write_bytes": r["write_bytes"],
             "job_id": r["job_id"],
+            "worker_image_tag": r["worker_image_tag"],
         }
         for r in rows
     ]
