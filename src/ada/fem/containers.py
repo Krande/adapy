@@ -189,21 +189,25 @@ class FemElements:
         return self._by_types
 
     def calc_cog(self) -> COG:
-        """Calculate COG of your FEM model based on element mass distributed to element and nodes"""
+        """Calculate COG of your FEM model based on element mass distributed to element and nodes.
+
+        Vectorised by (FemSection, node-count) so the rotation matrix
+        + material density + thickness are reused across every element
+        in a section, and area + centroid are computed with a single
+        shoelace+mean over an (M, K, 3) array per (section,
+        node-count) bucket. The pre-fix per-element loop reallocated
+        the rotation cache hit, built a fresh (K, 3) numpy array,
+        ran an individual matmul, and called ``poly_area`` 50 k+
+        times — that loop dominated the FEM → GLB hot path
+        (``_build_sim_stats`` cost on large meshes was ~160 s of a
+        210 s convert before batching).
+        """
+        from collections import defaultdict
         from itertools import chain
 
-        from ada.core.vector_transforms import (
-            global_2_local_nodes,
-            rotation_matrix_csys_rotate,
-        )
-        from ada.core.vector_utils import poly_area, vector_length
+        from ada.core.vector_transforms import rotation_matrix_csys_rotate
+        from ada.core.vector_utils import vector_length
 
-        # Per-section rotation-matrix cache. ``calc_sh_elem`` runs
-        # once per shell element (tens of thousands on a large ship-
-        # hull mesh); without the cache it rebuilds a Quaternion-based
-        # rotation matrix for every element even though all elements
-        # in a section share the same local frame. Cached version
-        # drops the build count to ~one per FemSection.
         global_csys = [(1.0, 0.0, 0.0), (0.0, 1.0, 0.0)]
         rot_cache: dict[int, np.ndarray] = {}
 
@@ -217,67 +221,83 @@ class FemElements:
                 rot_cache[key] = rm
             return rm
 
-        def calc_sh_elem(el: Elem):
-            fem_sec = el.fem_sec
-            rot_mat = _section_rot(fem_sec)
-            origin = el.nodes[0]
-            origin_p = origin.p if isinstance(origin, Node) else np.asarray(origin)
-            t = fem_sec.thickness
+        def _node_coord(n):
+            return n.p if isinstance(n, Node) else n
 
-            # Vectorised global→local: stack all node coordinates,
-            # subtract origin, multiply by the cached rotation. The
-            # original looped per-node with ``[np.dot(rot, p-origin)
-            # for p in nodes]`` which was the bulk of the 24.9 s
-            # ``global_2_local_nodes`` total in the .inp → .obj
-            # profile.
-            nodes_p = np.asarray(
-                [(n.p if isinstance(n, Node) else n) for n in el.nodes],
+        # ── shells: batched per (section_id, node_count). Different
+        # node counts inside one section (TRI3 + QUAD4 mixed) get
+        # separate buckets so the stacked array stays rectangular.
+        sh_buckets: dict[tuple[int, int], tuple] = {}
+        for el in self.shell:
+            key = (id(el.fem_sec), len(el.nodes))
+            bucket = sh_buckets.get(key)
+            if bucket is None:
+                sh_buckets[key] = ([el], el.fem_sec)
+            else:
+                bucket[0].append(el)
+
+        sh_mass = 0.0
+        sh_vol = 0.0
+        sh_mcog = np.zeros(3, dtype=float)
+        for (sec_id, nc), (elems, fem_sec) in sh_buckets.items():
+            rot = _section_rot(fem_sec)
+            t = float(fem_sec.thickness)
+            rho = float(fem_sec.material.model.rho)
+            # (M, nc, 3) stack of node coordinates.
+            nodes_p = np.array(
+                [[_node_coord(n) for n in el.nodes] for el in elems],
                 dtype=float,
             )
-            ln = (rot_mat @ (nodes_p - origin_p).T).T
+            # global → local: subtract per-element origin, then matmul
+            # by the shared rotation. Shape: (M, nc, 3) @ (3, 3).T
+            # broadcasts cleanly because numpy treats the last two
+            # axes as the matrix dims.
+            origin = nodes_p[:, 0:1, :]  # (M, 1, 3) — broadcasts
+            ln = (nodes_p - origin) @ rot.T  # (M, nc, 3)
+            x = ln[:, :, 0]
+            y = ln[:, :, 1]
+            # Shoelace on stacked polygons: identical to poly_area
+            # but in a single vectorised pass over M elements.
+            x_next = np.roll(x, -1, axis=1)
+            y_next = np.roll(y, -1, axis=1)
+            area = 0.5 * np.abs(np.sum(x * y_next - x_next * y, axis=1))  # (M,)
+            vol = t * area
+            mass = vol * rho
+            center = nodes_p.mean(axis=1)  # (M, 3)
+            sh_mass += float(mass.sum())
+            sh_vol += float(vol.sum())
+            sh_mcog += (mass[:, None] * center).sum(axis=0)
 
-            x, y = ln[:, 0], ln[:, 1]
-            area = poly_area(x, y)
-            vol_ = t * area
-            mass = vol_ * fem_sec.material.model.rho
-            center = nodes_p.mean(axis=0)
-
-            return mass, center, vol_
-
+        # Line + mass elements are usually a small fraction of the
+        # total so per-element Python is fine; keep them as-is.
         def calc_bm_elem(el: Elem):
             nodes_ = el.get_offset_coords()
             elem_len = vector_length(nodes_[-1] - nodes_[0])
             vol_ = el.fem_sec.section.properties.Ax * elem_len
             mass = vol_ * el.fem_sec.material.model.rho
             center = sum([e.p for e in el.nodes]) / len(el.nodes)
-
             return mass, center, vol_
 
         def calc_mass_elem(el: Mass):
             if el.type != MassTypes.MASS:
                 raise NotImplementedError(f'Mass type "{el.mass_props.type}" is not yet implemented')
-            mass = el.mass
-            vol_ = 0.0
-            return mass, el.nodes[0].p, vol_
+            return el.mass, el.nodes[0].p, 0.0
 
-        sh = list(chain(map(calc_sh_elem, self.shell)))
         bm = list(chain(map(calc_bm_elem, self.lines)))
         ma = list(chain(map(calc_mass_elem, self.masses)))
 
-        tot_mass = 0.0
-        tot_vol = 0.0
-        mcog_ = np.array([0, 0, 0]).astype(float)
+        bm_mass = sum(r[0] for r in bm)
+        no_mass = sum(r[0] for r in ma)
 
-        sh_mass = sum([r[0] for r in sh])
-        bm_mass = sum([r[0] for r in bm])
-        no_mass = sum([r[0] for r in ma])
+        tot_mass = sh_mass + bm_mass + no_mass
+        tot_vol = sh_vol + sum(r[2] for r in bm) + sum(r[2] for r in ma)
+        mcog_ = sh_mcog.copy()
+        for m, c, _vol in bm:
+            mcog_ += m * np.asarray(c, dtype=float)
+        for m, c, _vol in ma:
+            mcog_ += m * np.asarray(c, dtype=float)
 
-        for m, c, vol in sh + bm + ma:
-            tot_vol += vol
-            tot_mass += m
-            mcog_ += m * np.array(c).astype(float)
-
-        cog_ = mcog_ / tot_mass
+        cog_ = mcog_ / tot_mass if tot_mass else mcog_
 
         return COG(cog_, tot_mass, tot_vol, sh_mass, bm_mass, no_mass)
 
