@@ -435,6 +435,10 @@ export interface AuditRun {
     failed: number;
     skipped: number;
     created_by: string | null;
+    // M7+: when true, the dispatcher bypassed the cached-blob
+    // short-circuit. Useful as a UI badge so an unexpected slow
+    // run is recognisable as a perf measurement vs a regression.
+    force_rebuild: boolean;
     // M5: issue-bot sync status. NULL until the bot has touched the
     // run; 'syncing' while in flight; terminal 'done'/'skipped'/'failed'.
     issue_bot_status: string | null;
@@ -1123,7 +1127,12 @@ export const viewerApi = {
      * ``adminAuditRunGet`` for progress as the dispatcher fills in
      * ``total`` and counters update as jobs land. */
     async adminAuditRunCreate(
-        body: {scope: ScopeUrl; worker_pool?: string | null; note?: string | null},
+        body: {
+            scope: ScopeUrl;
+            worker_pool?: string | null;
+            note?: string | null;
+            force_rebuild?: boolean;
+        },
     ): Promise<AuditRun> {
         const r = await authedFetch(`${runtime.apiBase()}/admin/audit/runs`, {
             method: "POST",

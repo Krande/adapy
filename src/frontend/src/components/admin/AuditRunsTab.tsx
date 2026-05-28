@@ -265,6 +265,7 @@ const TriggerForm: React.FC<{onCreated: () => void}> = ({onCreated}) => {
     const [scope, setScope] = useState("shared");
     const [workerPool, setWorkerPool] = useState("");
     const [note, setNote] = useState("");
+    const [forceRebuild, setForceRebuild] = useState(false);
     const [busy, setBusy] = useState(false);
     const [err, setErr] = useState<string | null>(null);
     // Distinct capability tags advertised by every currently-online
@@ -319,6 +320,7 @@ const TriggerForm: React.FC<{onCreated: () => void}> = ({onCreated}) => {
                 scope,
                 worker_pool: workerPool.trim() || null,
                 note: note.trim() || null,
+                force_rebuild: forceRebuild,
             });
             setNote("");
             onCreated();
@@ -327,7 +329,7 @@ const TriggerForm: React.FC<{onCreated: () => void}> = ({onCreated}) => {
         } finally {
             setBusy(false);
         }
-    }, [scope, workerPool, note, onCreated]);
+    }, [scope, workerPool, note, forceRebuild, onCreated]);
 
     return (
         <form onSubmit={onSubmit} className="flex flex-wrap items-end gap-2 px-3 py-2 border-b border-gray-800 bg-gray-900/40">
@@ -381,6 +383,23 @@ const TriggerForm: React.FC<{onCreated: () => void}> = ({onCreated}) => {
                     placeholder="release v0.8 dry run"
                     className="bg-gray-900 border border-gray-600 rounded-sm px-2 py-1 text-sm text-gray-100"
                 />
+            </label>
+            <label
+                className="text-xs text-gray-300 flex items-center gap-1 h-[30px] mt-auto select-none"
+                title={
+                    "Skip the dispatcher's cached-blob short-circuit so every cell " +
+                    "actually re-converts. Use for perf measurements; a second run " +
+                    "against the same scope otherwise short-circuits ~80% of cells " +
+                    "against prior outputs."
+                }
+            >
+                <input
+                    type="checkbox"
+                    checked={forceRebuild}
+                    onChange={(e) => setForceRebuild(e.target.checked)}
+                    className="accent-blue-600"
+                />
+                <span>Force rebuild</span>
             </label>
             <button
                 type="submit"

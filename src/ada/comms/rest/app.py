@@ -2184,12 +2184,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         worker_pool: str | None,
         user_sub: str,
         pool,
+        force_rebuild: bool = False,
     ) -> None:
         """Enumerate the scope's files × the converter matrix and
         enqueue one regular convert job per cell. Cached cells
         (derived blob already present) are audited as ``done``
         immediately. Runs in a BackgroundTask so the request returns
         202 immediately; the operator polls the run row for progress.
+
+        ``force_rebuild`` skips the cached-blob short-circuit so
+        every cell is re-converted from source. Used for perf
+        measurement runs where a 4-hour audit re-run mustn't
+        short-circuit 80% of cells against prior outputs.
 
         Errors during enumeration / enqueue surface as a ``failed``
         audit row on the cell that tripped them — the run still
@@ -2244,14 +2250,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 )
                 continue
 
-            try:
-                cached = await storage.exists(scope_obj, derived_key)
-            except Exception:
-                logger.exception(
-                    "audit run %s: storage.exists failed for %s",
-                    run_id, derived_key,
-                )
+            if force_rebuild:
                 cached = False
+            else:
+                try:
+                    cached = await storage.exists(scope_obj, derived_key)
+                except Exception:
+                    logger.exception(
+                        "audit run %s: storage.exists failed for %s",
+                        run_id, derived_key,
+                    )
+                    cached = False
 
             if cached:
                 # Cached cell — count as ``done`` without enqueueing.
@@ -2302,7 +2311,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         Body: ``{"scope": "shared" | "user:me" | "project:<id>",
                  "worker_pool": "audit" | null,
-                 "note": "..." }``.
+                 "note": "...",
+                 "force_rebuild": false }``.
+
+        ``force_rebuild`` skips the cached-cell short-circuit so
+        every cell actually re-converts. Default false — daily
+        regression sweeps want the fast cached path.
 
         Returns 202 with the new run id; client polls
         ``GET /admin/audit/runs/{id}`` for progress.
@@ -2317,6 +2331,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         scope_str = (body.get("scope") or "shared").strip()
         worker_pool = body.get("worker_pool") or None
         note = body.get("note") or None
+        force_rebuild = bool(body.get("force_rebuild") or False)
 
         s = _parse_scope(scope_str, user)
         s = await _resolve_project_scope(pool, s)
@@ -2330,9 +2345,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             trigger="manual",
             note=note,
             created_by=user.sub,
+            force_rebuild=force_rebuild,
         )
         background_tasks.add_task(
             _audit_dispatch, run["id"], s, worker_pool, user.sub, pool,
+            force_rebuild,
         )
         return JSONResponse(run, status_code=202)
 

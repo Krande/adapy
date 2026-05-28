@@ -1040,6 +1040,7 @@ def _audit_run_row(r) -> dict:
         "failed": r["failed"],
         "skipped": r["skipped"],
         "created_by": r["created_by"],
+        "force_rebuild": _opt("force_rebuild") or False,
         "issue_bot_status": _opt("issue_bot_status"),
         "issue_bot_last_error": _opt("issue_bot_last_error"),
         "issue_bot_synced_at": (
@@ -1057,19 +1058,26 @@ async def create_audit_run(
     trigger: str = "manual",
     note: str | None = None,
     created_by: str | None = None,
+    force_rebuild: bool = False,
 ) -> dict:
     """Open a new audit_runs row in ``status='running'``. Returns the
     fresh row (including its server-generated UUID + started_at) so
     the dispatcher can stamp the jobs it enqueues. ``total`` starts
     at 0 — :func:`set_audit_run_total` finalises it once dispatch
-    knows how many jobs landed."""
+    knows how many jobs landed.
+
+    ``force_rebuild`` (M7+) bypasses the dispatcher's cached-cell
+    short-circuit so every viable cell actually re-converts.
+    Persisted on the row so the admin UI can show "this was a
+    force-rebuild" badge.
+    """
     row = await pool.fetchrow(
         """
-        INSERT INTO audit_runs (scope, worker_pool, trigger, note, created_by)
-        VALUES ($1, $2, $3, $4, $5)
+        INSERT INTO audit_runs (scope, worker_pool, trigger, note, created_by, force_rebuild)
+        VALUES ($1, $2, $3, $4, $5, $6)
         RETURNING *
         """,
-        scope, worker_pool, trigger, note, created_by,
+        scope, worker_pool, trigger, note, created_by, force_rebuild,
     )
     return _audit_run_row(row)
 
@@ -1112,6 +1120,7 @@ async def list_audit_runs(
         f"""
         SELECT id, scope, worker_pool, trigger, started_at, finished_at,
                status, note, total, ok, failed, skipped, created_by,
+               force_rebuild,
                issue_bot_status, issue_bot_last_error, issue_bot_synced_at
         FROM audit_runs
         {where}
@@ -1128,6 +1137,7 @@ async def get_audit_run(pool: asyncpg.Pool, run_id: str) -> dict | None:
         """
         SELECT id, scope, worker_pool, trigger, started_at, finished_at,
                status, note, total, ok, failed, skipped, created_by,
+               force_rebuild,
                issue_bot_status, issue_bot_last_error, issue_bot_synced_at
         FROM audit_runs WHERE id = $1
         """,
@@ -1439,6 +1449,7 @@ async def claim_audit_run_for_issue_bot(
         )
         RETURNING id, scope, worker_pool, trigger, started_at, finished_at,
                   status, note, total, ok, failed, skipped, created_by,
+                  force_rebuild,
                   issue_bot_status, issue_bot_last_error, issue_bot_synced_at
         """,
     )
