@@ -436,12 +436,28 @@ const InProgressToast: React.FC<{
 // Click → /admin#audit_runs (full audit panel). Hidden whenever
 // running_runs == 0 so the slot frees up for the conversion toast
 // the moment sweeps drain.
+type AuditActiveSummary = {
+    running_runs: number;
+    pending_cells: number;
+    current_cell: {
+        key: string | null;
+        target_format: string | null;
+        status: string | null;
+        started_at: string | null;
+        elapsed_ms: number | null;
+    } | null;
+};
+
+function fmtCellElapsed(ms: number | null): string {
+    if (ms == null) return "";
+    if (ms < 1000) return `${ms} ms`;
+    if (ms < 60_000) return `${Math.round(ms / 1000)} s`;
+    return `${Math.round(ms / 60_000)} m`;
+}
+
 const AuditActivityBadge: React.FC = () => {
     const isAdmin = useMeStore((s) => s.isAdmin);
-    const [summary, setSummary] = useState<{
-        running_runs: number;
-        pending_cells: number;
-    } | null>(null);
+    const [summary, setSummary] = useState<AuditActiveSummary | null>(null);
 
     useEffect(() => {
         if (!isAdmin) return;
@@ -457,15 +473,22 @@ const AuditActivityBadge: React.FC = () => {
             }
         };
         void poll();
-        const id = window.setInterval(poll, 15_000);
+        // 5s while an audit is running so the "currently converting"
+        // line tracks actual cell turnover (~5–60 s per cell). When
+        // nothing's running we revert to the cheap 15s cadence —
+        // ``summary`` re-mounts the effect implicitly because
+        // ``running_runs`` only flips on the next poll, so this is
+        // a one-knob compromise.
+        const interval = summary && summary.running_runs > 0 ? 5_000 : 15_000;
+        const id = window.setInterval(poll, interval);
         return () => {
             cancelled = true;
             window.clearInterval(id);
         };
-    }, [isAdmin]);
+    }, [isAdmin, summary && summary.running_runs > 0]);
 
     if (!isAdmin || !summary || summary.running_runs === 0) return null;
-    const {running_runs, pending_cells} = summary;
+    const {running_runs, pending_cells, current_cell} = summary;
     return (
         <a
             href="/admin#audit_runs"
@@ -478,17 +501,32 @@ const AuditActivityBadge: React.FC = () => {
             }
             title="Open Audit Runs admin tab"
         >
-            <div className="flex items-center justify-between gap-2">
-                <span className="font-medium">
+            <div className="flex items-center justify-between gap-2 min-w-0">
+                <span className="font-medium truncate">
                     {running_runs === 1
                         ? "Audit sweep in progress"
                         : `${running_runs} audit sweeps in progress`}
                 </span>
-                <span className="text-blue-300">→</span>
+                <span className="text-blue-300 shrink-0">→</span>
             </div>
             {pending_cells > 0 && (
                 <div className="text-[11px] text-blue-300 mt-0.5">
                     {pending_cells} cell{pending_cells === 1 ? "" : "s"} pending
+                </div>
+            )}
+            {current_cell && current_cell.key && current_cell.target_format && (
+                <div className="text-[11px] text-blue-200 mt-1 min-w-0">
+                    <span className="text-blue-400">
+                        {current_cell.status === "running" ? "now: " : "next: "}
+                    </span>
+                    <span className="font-mono truncate inline-block max-w-full align-bottom" title={current_cell.key}>
+                        {current_cell.key} → {current_cell.target_format}
+                    </span>
+                    {current_cell.elapsed_ms != null && current_cell.status === "running" && (
+                        <span className="text-blue-400 ml-1">
+                            · {fmtCellElapsed(current_cell.elapsed_ms)}
+                        </span>
+                    )}
                 </div>
             )}
         </a>

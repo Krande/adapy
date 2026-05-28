@@ -1144,8 +1144,21 @@ export const viewerApi = {
 
     /** Admin: ambient summary of currently-running audit sweeps.
      * Drives the bottom-right badge that links into the Audit Runs
-     * tab; intentionally cheap so it polls cleanly every 15s. */
-    async adminAuditActive(): Promise<{running_runs: number; pending_cells: number}> {
+     * tab; intentionally cheap so it polls cleanly every 15s.
+     * ``current_cell`` surfaces what's actively converting right now
+     * (most-recently-touched ``running`` or ``queued`` audit_log row
+     * across all live runs). */
+    async adminAuditActive(): Promise<{
+        running_runs: number;
+        pending_cells: number;
+        current_cell: {
+            key: string | null;
+            target_format: string | null;
+            status: string | null;
+            started_at: string | null;
+            elapsed_ms: number | null;
+        } | null;
+    }> {
         const r = await authedFetch(`${runtime.apiBase()}/admin/audit/active`);
         return jsonOrThrow(r, "adminAuditActive");
     },

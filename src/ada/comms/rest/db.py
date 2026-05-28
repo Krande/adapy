@@ -432,15 +432,18 @@ async def active_audit_summary(pool: asyncpg.Pool) -> dict:
 
     Used by the bottom-right viewer toast to show an ambient
     "N audit runs · M cells pending" badge that links into the
-    admin panel. Cheap aggregate: two indexed counts on the
-    audit_runs partial index plus a sum of pending-cell deltas
-    (total - ok - failed - skipped). Skips the audit_log table
-    entirely.
+    admin panel. Plus the most recently-touched in-flight cell
+    (status ``running`` preferred, falls back to ``queued``) so
+    the operator sees what's actually converting right now —
+    handy on a force-rebuild measurement run where every cell
+    actually executes.
 
     Returns:
-        {"running_runs": int, "pending_cells": int}
+        {"running_runs": int, "pending_cells": int,
+         "current_cell": {key, target_format, status,
+                          started_at, elapsed_ms} | None}
     """
-    row = await pool.fetchrow(
+    counts_row = await pool.fetchrow(
         """
         SELECT
             COUNT(*) AS running_runs,
@@ -450,9 +453,46 @@ async def active_audit_summary(pool: asyncpg.Pool) -> dict:
         WHERE status = 'running'
         """
     )
+    # Pick the most recently-touched in-flight cell. Prefer
+    # ``running`` (worker actively converting) over ``queued`` so
+    # the toast reads "now: foo.ifc → glb" not the next thing in
+    # the queue. The partial index ``audit_log_audit_run_id_idx``
+    # (id+ts) keeps this scan cheap even with many runs in flight.
+    current_row = await pool.fetchrow(
+        """
+        SELECT al.key, al.target_format, al.status, al.ts
+        FROM audit_log al
+        JOIN audit_runs ar ON ar.id = al.audit_run_id
+        WHERE ar.status = 'running'
+          AND al.status IN ('running', 'queued')
+        ORDER BY
+            -- ``running`` first, then ``queued``; within each
+            -- bucket the most recently-touched row wins.
+            CASE al.status WHEN 'running' THEN 0 ELSE 1 END,
+            al.ts DESC
+        LIMIT 1
+        """
+    )
+    current_cell = None
+    if current_row is not None:
+        ts = current_row["ts"]
+        elapsed_ms = None
+        if ts is not None:
+            from datetime import datetime, timezone
+            elapsed_ms = int(
+                (datetime.now(timezone.utc) - ts).total_seconds() * 1000
+            )
+        current_cell = {
+            "key": current_row["key"],
+            "target_format": current_row["target_format"],
+            "status": current_row["status"],
+            "started_at": ts.isoformat() if ts else None,
+            "elapsed_ms": elapsed_ms,
+        }
     return {
-        "running_runs": int(row["running_runs"] or 0),
-        "pending_cells": int(row["pending_cells"] or 0),
+        "running_runs": int(counts_row["running_runs"] or 0),
+        "pending_cells": int(counts_row["pending_cells"] or 0),
+        "current_cell": current_cell,
     }
 
 
