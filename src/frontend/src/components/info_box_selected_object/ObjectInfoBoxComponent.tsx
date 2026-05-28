@@ -20,7 +20,6 @@ const ObjectInfoBox = () => {
     } = useViewerStores();
     const {
         name,
-        faceIndex,
         jsonData,
     } = useObjectInfoStore();
     const selectedObjects = useSelectedObjectStore((s) => s.selectedObjects);
@@ -200,10 +199,6 @@ const ObjectInfoBox = () => {
                     </button>
                 </div>
             )}
-            <div className="table-row hidden">
-                <div className="table-cell w-24">Face Index:</div>
-                <div className="table-cell w-48">{faceIndex}</div>
-            </div>
             {/* The Properties panel renders for any selection — even
                 without a server-side jsonData payload — because it
                 also reads metadata from the lineage store (GLB
