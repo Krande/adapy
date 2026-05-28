@@ -86,16 +86,43 @@ def apply_offsets_and_alignments(name: str, bm_el: ET.Element, segs: list["Beam"
         alignment_str = aligned_el.attrib.get("alignment")  # flush_top/flush_bottom/no_flush
 
         for seg in segs:
-            if alignment_str == "flush_top":
+            # When the section was re-encoded from a Genie inverted T
+            # (flange-down → adapy flange-up storage + flipped
+            # bm.up), Genie's "flush_top" referred to the section's
+            # ORIGINAL top edge — the web tip on an inverted T. In
+            # adapy's flange-up storage that edge sits at -h/2, i.e.
+            # FLUSH_BOTTOM. Swap the justification so OffsetHelper
+            # produces the right eccentricity vector.
+            flange_down = bool(
+                seg.section.metadata
+                and seg.section.metadata.get("gxml_flange_down")
+            )
+            effective = alignment_str
+            if flange_down:
+                if alignment_str == "flush_top":
+                    effective = "flush_bottom"
+                elif alignment_str == "flush_bottom":
+                    effective = "flush_top"
+
+            if effective == "flush_top":
                 seg.justification = Justification.FLUSH_TOP
-            elif alignment_str == "flush_bottom":
+            elif effective == "flush_bottom":
                 seg.justification = Justification.FLUSH_BOTTOM
             else:
                 seg.justification = Justification.NA
 
             if seg.metadata is None:
                 seg.metadata = {}
-            seg.metadata["aligned_curve_offset_alignment"] = alignment_str
+            # OffsetHelper.curve_offset_local() reads this metadata
+            # key and overrides ``seg.justification`` with its
+            # interpretation, so the value we store has to be the
+            # SWAPPED one — otherwise the swap above gets undone
+            # the next time eccentricity is computed.
+            seg.metadata["aligned_curve_offset_alignment"] = effective
+            if flange_down and effective != alignment_str:
+                # Remember what Genie said so a later writer can
+                # un-swap on export.
+                seg.metadata["gxml_aligned_curve_offset_alignment_original"] = alignment_str
 
         return
 
