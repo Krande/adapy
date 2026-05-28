@@ -2,6 +2,7 @@ import React, {useCallback, useEffect, useMemo, useState} from "react";
 import {AdminFileEntry, DerivedBlob, viewerApi} from "@/services/viewerApi";
 import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
 import {useConvertPageStore} from "@/state/convertPageStore";
+import {view_in_3d} from "@/utils/scene/handlers/view_in_3d";
 
 // Pre-existing source-and-derived list for the /convert page. The
 // upload widget above only shows files the user just dropped in this
@@ -43,13 +44,8 @@ const DerivedRow: React.FC<{
     }, [scope, derived.key, baseName, ext]);
 
     const onViewIn3D = useCallback(() => {
-        const params = new URLSearchParams({
-            scope,
-            file: sourceKey,
-            derived: derived.key,
-        });
-        window.open(`/?${params.toString()}`, "_blank", "noopener");
-    }, [scope, sourceKey, derived.key]);
+        void view_in_3d(sourceKey, derived.key);
+    }, [sourceKey, derived.key]);
 
     return (
         <div className="flex items-center gap-2 text-xs">

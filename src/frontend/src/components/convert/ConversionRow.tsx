@@ -5,6 +5,7 @@ import {runtime, ConversionOption} from "@/runtime/config";
 import {useConversionStore} from "@/state/conversionStore";
 import {useConvertPageStore, ConvertRow} from "@/state/convertPageStore";
 import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
+import {view_in_3d} from "@/utils/scene/handlers/view_in_3d";
 
 type OptionValue = boolean | string | number | null;
 
@@ -225,20 +226,9 @@ const ConversionRow: React.FC<{row: ConvertRow}> = ({row}) => {
 
     const onViewIn3D = useCallback(() => {
         if (!current || !job?.derivedKey) return;
-        // Hand off via ``?scope=...&file=...&derived=...``. The
-        // ``derived`` key (e.g. ``_derived/foo.step.glb``) tells
-        // the viewer's useUrlParamLoad hook exactly which blob to
-        // fetch — no second ``/convert`` round-trip to re-resolve
-        // the derived path, no chance of triggering a redundant
-        // conversion if the storage layer briefly misses. ``file``
-        // is kept so the loaded source name still registers
-        // against the scene's source map.
-        const params = new URLSearchParams({
-            scope: scopeUrlPart(current),
-            file: row.sourceKey,
-            derived: job.derivedKey,
-        });
-        window.open(`/?${params.toString()}`, "_blank", "noopener");
+        // Modal mode loads in the underlying scene; path-mode opens
+        // a new tab via ``?scope&file&derived`` for useUrlParamLoad.
+        void view_in_3d(row.sourceKey, job.derivedKey);
     }, [current, job?.derivedKey, row.sourceKey]);
 
     const onRemove = useCallback(() => {
