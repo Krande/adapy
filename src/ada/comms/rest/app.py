@@ -556,22 +556,71 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # ── Scope-shaped storage + conversion routes ─────────────────────
 
     @api.get("/scopes/{scope}/files")
-    async def api_scope_files(scope_obj: Scope = Depends(_scope_from_path)) -> JSONResponse:
-        from .converter import is_derived_key
+    async def api_scope_files(
+        scope_obj: Scope = Depends(_scope_from_path),
+        include_derived: bool = False,
+    ) -> JSONResponse:
+        from .converter import is_derived_key, supported_targets_for
 
         files = await storage.list(scope_obj)
-        # Hide the _derived/ namespace — those blobs are an internal
-        # cache, not user files. Convert + download surfaces them
-        # explicitly when needed.
-        return JSONResponse(
-            {
-                "files": [
-                    {"key": f.key, "size": f.size}
-                    for f in files
-                    if not is_derived_key(f.key)
-                ],
-            }
+
+        if not include_derived:
+            # Default — hide the _derived/ namespace. Those blobs are
+            # an internal cache, not user files. Convert + download
+            # surfaces them explicitly when needed.
+            return JSONResponse(
+                {
+                    "files": [
+                        {"key": f.key, "size": f.size}
+                        for f in files
+                        if not is_derived_key(f.key)
+                    ],
+                }
+            )
+
+        # Convert-page mode — group every derived blob under its
+        # source so the page can list pre-existing conversions next
+        # to fresh upload rows. Same grouping the admin storage list
+        # builds; same helpers reused (``_derived_source_of`` parses
+        # the full derived-key zoo including the streaming-FEA tree
+        # and SIF step/field picks). Orphans (derived without a
+        # source in this scope) are dropped here — the admin tab is
+        # where you go to clean those up.
+        sources: dict[str, dict] = {}
+        derived_index: dict[str, list[dict]] = {}
+        for f in files:
+            if is_derived_key(f.key):
+                parsed = _derived_source_of(f.key)
+                if parsed is None:
+                    continue
+                src_key, target = parsed
+                derived_index.setdefault(src_key, []).append(
+                    {
+                        "format": target,
+                        "key": f.key,
+                        "size": f.size,
+                        "last_modified": f.last_modified,
+                    }
+                )
+            else:
+                sources[f.key] = {
+                    "key": f.key,
+                    "size": f.size,
+                    "last_modified": f.last_modified,
+                    "format": _format_label(f.key),
+                    "available_targets": supported_targets_for(f.key),
+                    "derived": [],
+                }
+        for src_key, derived_list in derived_index.items():
+            entry = sources.get(src_key)
+            if entry is not None:
+                entry["derived"] = derived_list
+        out = sorted(
+            sources.values(),
+            key=lambda e: e.get("last_modified") or "",
+            reverse=True,
         )
+        return JSONResponse({"files": out})
 
     @api.get("/scopes/{scope}/blobs/{key:path}")
     async def api_scope_blob_get(

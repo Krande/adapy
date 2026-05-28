@@ -1,6 +1,7 @@
 import React, {useEffect} from "react";
 import ConvertDropZone from "./ConvertDropZone";
 import ConversionRow from "./ConversionRow";
+import ExistingFilesPanel from "./ExistingFilesPanel";
 import WorkerStatusBadge from "./WorkerStatusBadge";
 import {useConvertPageStore} from "@/state/convertPageStore";
 import {useScopeStore} from "@/state/scopeStore";
@@ -84,6 +85,8 @@ const ConvertPage: React.FC = () => {
                         </div>
                     </section>
                 )}
+
+                <ExistingFilesPanel/>
             </main>
         </div>
     );

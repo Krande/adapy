@@ -711,6 +711,23 @@ export const viewerApi = {
         return body.files;
     },
 
+    /** Same scope file listing as ``listFiles`` but with each source's
+     * existing derived blobs grouped under it. The /convert page uses
+     * this to show pre-existing conversions next to fresh upload rows
+     * — the user wants to spot "I already converted this last week,
+     * just give me the GLB" without re-running the converter. Server
+     * filters orphan derived (no matching source in this scope); use
+     * the admin storage list for cleanup. */
+    async listFilesWithDerived(scope: ScopeUrl): Promise<AdminFileEntry[]> {
+        const r = await authedFetch(
+            `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/files?include_derived=1`,
+        );
+        const body = await jsonOrThrow<{files: AdminFileEntry[]}>(
+            r, `listFilesWithDerived(${scope})`,
+        );
+        return body.files;
+    },
+
     /** Trigger a browser download of a stored blob. Fetches with auth,
      * materialises a blob: URL, clicks a hidden anchor, then revokes
      * the URL to release memory. Works in both auth-on and auth-off
