@@ -4,7 +4,8 @@ Used to reproduce a failed conversion locally without spinning up a
 viewer-api stack: pair with ``audit_repro.py`` for the round trip.
 
 Auth: ``ADAPY_API_TOKEN`` (a CLI token minted from the admin panel).
-Base URL: ``ADAPY_API_BASE`` (e.g. ``https://viewer.example.com``).
+Base URL: ``ADAPY_API_BASE`` *or* ``ADAPY_BASE_URL``
+(e.g. ``https://viewer.example.com``).
 """
 
 from __future__ import annotations
@@ -29,6 +30,21 @@ def _env(name: str) -> str:
         )
         sys.exit(2)
     return val
+
+
+def _env_any(*names: str) -> str:
+    """First non-empty match among ``names``. Lets the script accept
+    either ``ADAPY_API_BASE`` or the more common ``ADAPY_BASE_URL`` —
+    folks reach for whichever they have in their .env first."""
+    for n in names:
+        val = os.environ.get(n, "").strip()
+        if val:
+            return val
+    sys.stderr.write(
+        f"error: none of {', '.join(names)} are set. Set the viewer base URL "
+        f"to (e.g.) https://viewer.example.com.\n"
+    )
+    sys.exit(2)
 
 
 def _api_get(url: str, token: str) -> tuple[bytes, dict[str, str]]:
@@ -60,7 +76,7 @@ def _normalize_base(raw: str) -> str:
 
 
 def fetch(audit_id: int, dest_root: pathlib.Path) -> pathlib.Path:
-    base = _normalize_base(_env("ADAPY_API_BASE"))
+    base = _normalize_base(_env_any("ADAPY_API_BASE", "ADAPY_BASE_URL"))
     token = _env("ADAPY_API_TOKEN")
     dest = dest_root / str(audit_id)
     dest.mkdir(parents=True, exist_ok=True)
