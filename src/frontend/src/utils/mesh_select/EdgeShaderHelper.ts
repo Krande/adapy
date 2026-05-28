@@ -1,6 +1,7 @@
 // utils/mesh_select/EdgeShader.ts
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { useOptionsStore } from '@/state/optionsStore';
 
 /**
  * Build one big LineSegments geometry where each vertex gets a 'rangeId' attribute.
@@ -14,6 +15,17 @@ export function buildEdgeGeometryWithRangeIds(
   let idx = 0;
   const posAttr = baseGeo.attributes.position as THREE.BufferAttribute;
 
+  // ``EdgesGeometry``'s ``thresholdAngle`` controls which adjacent
+  // triangles emit a shared edge. The Three.js default of 1° emits
+  // an edge for every tessellated triangle pair on a curved surface,
+  // so a cylindrical or spherical face shows its full triangulation
+  // grid. 30° keeps real feature edges (corners, silhouettes) while
+  // dropping the near-coplanar tessellation lines. Smaller edge
+  // geometry also means fewer line-segments rendered each frame —
+  // strictly a perf win, no shader changes.
+  const hideTess = useOptionsStore.getState().hideTessellationEdges;
+  const thresholdAngle = hideTess ? 30 : 1;
+
   drawRanges.forEach(([start,count], rangeId) => {
     const slice = (baseGeo.index!.array as Uint16Array|Uint32Array)
       .slice(start, start+count);
@@ -22,7 +34,7 @@ export function buildEdgeGeometryWithRangeIds(
     sub.setIndex(Array.from(slice));
 
     // EdgesGeometry is already non-indexed, so we can skip toNonIndexed()
-    const edges = new THREE.EdgesGeometry(sub);
+    const edges = new THREE.EdgesGeometry(sub, thresholdAngle);
 
     // attach a constant rangeId per-vertex
     const verts = edges.attributes.position.count;

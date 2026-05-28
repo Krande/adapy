@@ -8,6 +8,7 @@ export type OptionsState = {
     isOptionsVisible: boolean;
     showPerf: boolean;
     showEdges: boolean;
+    hideTessellationEdges: boolean;
     lockTranslation: boolean;
     enableWebsocket: boolean;
     enableNodeEditor: boolean;
@@ -18,6 +19,7 @@ export type OptionsState = {
     setIsOptionsVisible: (value: boolean) => void;
     setShowPerf: (value: boolean) => void;
     setShowEdges: (value: boolean) => void;
+    setHideTessellationEdges: (value: boolean) => void;
     setLockTranslation: (value: boolean) => void;
     setEnableWebsocket: (value: boolean) => void;
     setEnableNodeEditor: (value: boolean) => void;
@@ -30,6 +32,7 @@ export const useOptionsStore = create<OptionsState>((set) => ({
     isOptionsVisible: false,
     showPerf: false,
     showEdges: true,
+    hideTessellationEdges: true,
     lockTranslation: false,
     enableWebsocket: true,
     enableNodeEditor: false,
@@ -40,6 +43,7 @@ export const useOptionsStore = create<OptionsState>((set) => ({
     setIsOptionsVisible: (v) => set({isOptionsVisible: v}),
     setShowPerf: (v) => set({showPerf: v}),
     setShowEdges: (v) => set({showEdges: v}),
+    setHideTessellationEdges: (v) => set({hideTessellationEdges: v}),
     setLockTranslation: (v) => set({lockTranslation: v}),
     setEnableWebsocket: (v) => set({enableWebsocket: v}),
     setEnableNodeEditor: (v) => set({enableNodeEditor: v}),
