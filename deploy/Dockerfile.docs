@@ -23,15 +23,26 @@ FROM ghcr.io/prefix-dev/pixi:${PIXI_VERSION} AS builder
 # parametric_models Dockerfile.build pattern). SSH on the source-host's
 # alternate port (e.g. 2222) is also blocked by the sandbox — that's
 # why we clone over HTTPS rather than SSH.
-RUN sed -i 's|http://archive.ubuntu.com|https://archive.ubuntu.com|g; s|http://security.ubuntu.com|https://security.ubuntu.com|g' /etc/apt/sources.list.d/*.sources \
+#
+# BuildKit cache mounts on /var/cache/apt + /var/lib/apt persist the
+# downloaded .debs (140 s of installs for the headless-browser GUI
+# closure: libnss3, libcups2, etc.) across base-image bumps. The
+# default docker-clean apt hook wipes the cache, so disable it first
+# — without that the mount is empty on every run. Drop the trailing
+# ``rm -rf /var/lib/apt/lists/*`` for the same reason: the mount
+# IS the cache, no need to scrub it inside the layer (the cache
+# directory isn't copied into the image).
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    rm -f /etc/apt/apt.conf.d/docker-clean \
+    && sed -i 's|http://archive.ubuntu.com|https://archive.ubuntu.com|g; s|http://security.ubuntu.com|https://security.ubuntu.com|g' /etc/apt/sources.list.d/*.sources \
     && apt-get update \
     && apt-get install -y --no-install-recommends \
         git ca-certificates \
         libnss3 libatk-bridge2.0-0 libcups2 libxcomposite1 libxdamage1 \
         libxfixes3 libxrandr2 libgbm1 libxkbcommon0 libpango-1.0-0 libcairo2 \
         libasound2t64 \
-        mesa-vulkan-drivers libvulkan1 \
-    && rm -rf /var/lib/apt/lists/*
+        mesa-vulkan-drivers libvulkan1
 
 WORKDIR /work/adapy
 
