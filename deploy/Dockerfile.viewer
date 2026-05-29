@@ -84,6 +84,22 @@ COPY deploy/viewer-ada-init.py /app/src/ada/__init__.py
 COPY src/ada/config.py /app/src/ada/config.py
 COPY src/ada/comms/ /app/src/ada/comms/
 
+# ada.sections subset — required by /api/components/profiles. Only the
+# stdlib-only files (categories + profile_lookup + the ProfileDB.json
+# resource) ship here; the package __init__ that imports Section /
+# GeneralProperties (numpy-dependent) is replaced with a slim stub
+# below so importing ada.sections.profile_lookup doesn't drag the
+# whole CAD stack into the viewer image.
+COPY src/ada/sections/categories.py        /app/src/ada/sections/categories.py
+COPY src/ada/sections/profile_lookup.py    /app/src/ada/sections/profile_lookup.py
+COPY src/ada/sections/resources/ProfileDB.json /app/src/ada/sections/resources/ProfileDB.json
+RUN printf '%s\n' \
+    '"""Slim shim — see deploy/Dockerfile.viewer for context."""' \
+    'from .categories import SectionCat' \
+    '' \
+    '__all__ = ["SectionCat"]' \
+    > /app/src/ada/sections/__init__.py
+
 # Static SPA bundle from the first stage.
 COPY --from=frontend-build /build/dist /app/static
 

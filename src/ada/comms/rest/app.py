@@ -1403,13 +1403,24 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         expose_manifest,
         resolve_latest_manifest,
     )
-    from ada.sections.profile_lookup import (
-        list_categories as _list_section_categories,
-        load_profiles_by_category as _load_profiles_by_category,
-    )
 
+    # ada.sections.profile_lookup is imported lazily — the viewer image
+    # ships a minimal /app/src/ada/ layout (only ada.config + ada.comms)
+    # and a top-level import here would crash uvicorn on startup. Keep
+    # the import inside the handler so the rest of the API still serves
+    # if profile_lookup or its dep chain isn't present.
     @api.get("/components/profiles")
     async def api_components_profiles(category: str | None = None) -> JSONResponse:
+        try:
+            from ada.sections.profile_lookup import (
+                list_categories as _list_section_categories,
+                load_profiles_by_category as _load_profiles_by_category,
+            )
+        except ImportError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=f"section catalogue unavailable: {exc}",
+            )
         if category is None:
             return JSONResponse({"categories": _list_section_categories()})
         profiles = _load_profiles_by_category(category)
