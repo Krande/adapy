@@ -14,8 +14,6 @@ import {buildComponentViaServer} from "@/services/components/componentBuildPipel
 import {
     type ComponentSpecManifestEntry,
     type ComponentSpecRoleSchema,
-    type ComponentSpecsResponse,
-    viewerApi,
 } from "@/services/viewerApi";
 import {
     type ComponentBuildJob,
@@ -26,15 +24,14 @@ import {
     useComponentControlsStore,
 } from "@/state/componentControlsStore";
 import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
+import {useComponentSpecsStore} from "@/state/componentSpecsStore";
 import {overlay_file_in_scene} from "@/utils/scene/handlers/overlay_file_in_scene";
 
-// Specs are auto-discovered: the server scans every scope the caller
-// can access and returns whichever have a published manifest. Builds,
-// on the other hand, always run in the user's currently-selected
-// scope so the produced GLB lands where overlay_file_in_scene reads
-// from. Empty manifest → panel surfaces the "no specs published"
-// hint.
-const DEFAULT_BRANCH = "main";
+// Specs are fetched centrally by componentSpecsStore (re-fetches on
+// scope change, drives Menu button visibility). Builds always run in
+// the user's currently-selected scope so the produced GLB lands where
+// overlay_file_in_scene reads from. Empty cache → panel surfaces a
+// "no specs published" hint.
 
 const ComponentControls: React.FC = () => {
     const isVisible = useComponentControlsStore((s) => s.isVisible);
@@ -47,30 +44,14 @@ const ComponentControls: React.FC = () => {
     );
     const currentScope = useScopeStore((s) => s.current);
 
-    const [specs, setSpecs] = useState<ComponentSpecsResponse | null>(null);
-    const [loadError, setLoadError] = useState<string | null>(null);
+    const specs = useComponentSpecsStore((s) => s.specs);
+    const loadError = useComponentSpecsStore((s) => s.loadError);
+    const specsLoading = useComponentSpecsStore((s) => s.loading);
     const [submitting, setSubmitting] = useState(false);
     /** Last derivedKey we loaded into the scene — dedupe so the on-done
      *  effect doesn't keep re-fetching the same blob on every store
      *  re-render. */
     const loadedKeyRef = useRef<string | null>(null);
-
-    // Lazy fetch — only when the panel becomes visible. Specs don't
-    // change inside a session, so we cache the response and only
-    // refetch on a manual reload. Auto-discovers across all the
-    // caller's accessible scopes — no scope param needed.
-    useEffect(() => {
-        if (!isVisible || specs !== null) return;
-        viewerApi
-            .componentsSpecs({branch: DEFAULT_BRANCH})
-            .then((res) => {
-                setSpecs(res);
-                setLoadError(null);
-            })
-            .catch((err) => {
-                setLoadError(err?.message ?? String(err));
-            });
-    }, [isVisible, specs]);
 
     // On build completion, overlay the produced GLB into the scene.
     // overlay_file_in_scene fetches the blob via authedFetch and routes
@@ -96,6 +77,16 @@ const ComponentControls: React.FC = () => {
     if (!isVisible) return null;
 
     const specNames = specs ? Object.keys(specs.specs).sort() : [];
+    /** Group specs by the branch their manifest was published on so
+     *  the dropdown surfaces lineage at a glance. Specs without a
+     *  branch (legacy manifests from before the field was added) go
+     *  under an empty-string key rendered as "(unknown branch)". */
+    const specsByBranch: Record<string, string[]> = {};
+    for (const name of specNames) {
+        const branch = (specs?.specs[name]?.branch as string | undefined) ?? "";
+        (specsByBranch[branch] ??= []).push(name);
+    }
+    const branchOrder = Object.keys(specsByBranch).sort();
 
     const handleSpecChange = (name: string) => {
         if (!name) {
@@ -131,11 +122,20 @@ const ComponentControls: React.FC = () => {
                     onChange={(e) => handleSpecChange(e.target.value)}
                     disabled={specs === null}
                 >
-                    <option value="">— pick a connection spec —</option>
-                    {specNames.map((name) => (
-                        <option key={name} value={name}>
-                            {name}
-                        </option>
+                    <option value="">
+                        {specsLoading ? "loading…" : "— pick a connection spec —"}
+                    </option>
+                    {branchOrder.map((branch) => (
+                        <optgroup
+                            key={branch || "(unknown)"}
+                            label={branch || "(unknown branch)"}
+                        >
+                            {specsByBranch[branch].map((name) => (
+                                <option key={name} value={name}>
+                                    {name}
+                                </option>
+                            ))}
+                        </optgroup>
                     ))}
                 </select>
             </div>
@@ -143,9 +143,9 @@ const ComponentControls: React.FC = () => {
             {loadError && (
                 <div className="text-red-400">Failed to load specs: {loadError}</div>
             )}
-            {specs !== null && specNames.length === 0 && !loadError && (
+            {specs !== null && specNames.length === 0 && !loadError && !specsLoading && (
                 <div className="text-gray-400">
-                    No baked previews on <code>{DEFAULT_BRANCH}</code> yet — run the
+                    No baked previews in this scope yet — run the
                     component-previews bake.
                 </div>
             )}

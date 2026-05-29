@@ -36,21 +36,25 @@ class ResolvedManifest:
 async def resolve_latest_manifest(
     storage: Storage,
     scope: Scope,
-    branch: str,
+    branch: str | None,
 ) -> ResolvedManifest | None:
     """Return the newest ``manifest.json`` published on ``branch``.
 
     Scans every blob under ``versions/<branch>/`` and picks the most
-    recently modified ``manifest.json``. Returns ``None`` when nothing
-    has been published on the given branch yet.
+    recently modified ``manifest.json``. When ``branch`` is None, scans
+    every branch under ``versions/`` instead — the newest manifest
+    anywhere wins. Returns ``None`` when nothing matches.
     """
-    branch_prefix = f"{_VERSIONS_PREFIX}{branch}/"
+    if branch is None:
+        prefix = _VERSIONS_PREFIX
+    else:
+        prefix = f"{_VERSIONS_PREFIX}{branch}/"
     files = await storage.list(scope)
 
     candidates = [
         f
         for f in files
-        if f.key.startswith(branch_prefix) and f.key.endswith("/manifest.json")
+        if f.key.startswith(prefix) and f.key.endswith("/manifest.json")
     ]
     if not candidates:
         return None
@@ -60,16 +64,17 @@ async def resolve_latest_manifest(
     candidates.sort(key=lambda f: (f.last_modified or "", f.key))
     latest = candidates[-1]
 
-    # versions/<branch>/<commit>/manifest.json -> commit
+    # versions/<branch>/<commit>/manifest.json -> branch, commit
     parts = latest.key.split("/")
     if len(parts) < 4:
         return None
+    found_branch = parts[1]
     commit = parts[2]
 
     body_bytes = await storage.get_bytes(scope, latest.key)
     body = json.loads(body_bytes.decode("utf-8"))
     return ResolvedManifest(
-        branch=branch,
+        branch=found_branch,
         commit=commit,
         manifest_key=latest.key,
         body=body,

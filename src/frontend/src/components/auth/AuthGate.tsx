@@ -3,6 +3,7 @@ import {bootstrap, isAuthEnabled, isSignedIn, signIn} from "@/services/auth/oidc
 import {viewerApi} from "@/services/viewerApi";
 import {useScopeStore} from "@/state/scopeStore";
 import {useMeStore} from "@/state/meStore";
+import {subscribeSpecsToScope} from "@/state/componentSpecsStore";
 import {loadInitialServerState} from "@/utils/websocket/initWebSocket";
 
 // Gates the REST-mode app behind a verified bearer token. When auth
@@ -47,6 +48,11 @@ const AuthGate: React.FC<{children: React.ReactNode}> = ({children}) => {
             // (auth off). Skip when the sign-in prompt is being shown.
             if (live) {
                 await loadMe();
+                // Now that the scope store is populated, wire the
+                // component-specs cache to scope changes — the Menu
+                // button visibility and the panel dropdown both
+                // refresh whenever the user switches scopes.
+                subscribeSpecsToScope();
                 // initWebSocket's onConnect skipped the legacy RPCs
                 // when auth is enabled and no token was in hand yet
                 // (REST onConnect fires during initWebSocket, before

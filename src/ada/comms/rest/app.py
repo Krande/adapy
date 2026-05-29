@@ -1429,7 +1429,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @api.get("/components/specs")
     async def api_components_specs(
         request: Request,
-        branch: str = "main",
+        branch: str | None = None,
         scope: str | None = None,
         user: User = Depends(auth_module.current_user),
     ) -> JSONResponse:
@@ -1441,6 +1441,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         manifest published. Each returned spec entry carries the
         ``scope`` it was found in so the frontend can resolve preview
         URLs and route builds correctly.
+
+        Likewise without a ``branch`` query param, ``versions/`` is
+        scanned wholesale and the newest manifest anywhere in each
+        scope wins — the bake project may not have ever published to
+        ``main`` and the viewer shouldn't have to guess the right
+        branch name. Pass ``?branch=...`` when you need to pin to a
+        specific bake branch (tests, direct API consumers).
 
         Explicit override: ``?scope=...`` restricts the lookup to one
         scope — useful for tests and direct API consumers that don't
@@ -1473,13 +1480,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if resolved is None:
                 continue
             scope_str = _scope_url_segment(cand)
-            sources.append({"scope": scope_str, "commit": resolved.commit})
+            sources.append(
+                {"scope": scope_str, "branch": resolved.branch, "commit": resolved.commit}
+            )
             exposed = expose_manifest(resolved, cand)
             for name, entry in exposed["specs"].items():
                 if name in all_specs:
                     continue  # first scope to publish this name wins
                 spec_entry = dict(entry)
                 spec_entry["scope"] = scope_str
+                spec_entry["branch"] = resolved.branch
                 all_specs[name] = spec_entry
 
         return JSONResponse(

@@ -3,6 +3,7 @@ import ObjectInfoBox from "./info_box_selected_object/ObjectInfoBoxComponent";
 import SimulationControls from "./simulation/SimulationControls";
 import ComponentControls from "./component_view/ComponentControls";
 import {useComponentControlsStore} from "@/state/componentControlsStore";
+import {useComponentSpecsStore} from "@/state/componentSpecsStore";
 import {request_list_of_nodes} from "../utils/node_editor/handlers/request_list_of_nodes";
 import ServerInfoBox from "./server_info/ServerInfoBox";
 import {runtime} from "@/runtime/config";
@@ -104,6 +105,10 @@ const Menu = () => {
     const feaSessionActive = stores.useFeaAnimationStore((s) => s.sessionActive);
     const componentControlsVisible = useComponentControlsStore((s) => s.isVisible);
     const toggleComponentControls = useComponentControlsStore((s) => s.toggleVisible);
+    // Button only renders when the current scope actually has baked
+    // component specs. Auto-refetches on scope change via
+    // subscribeSpecsToScope (mounted in AuthGate).
+    const componentSpecsAvailable = useComponentSpecsStore((s) => s.hasSpecs);
     const {showInfoBox: showWebsocketInfoBox} = stores.useWebsocketStatusStore();
     const {isTreeCollapsed, setIsTreeCollapsed, treeViewWidth} = stores.useTreeViewStore();
     const isDesktop = useIsDesktop();
@@ -195,8 +200,12 @@ const Menu = () => {
                         aria-pressed={isControlsVisible}
                     ><ToggleControlsIcon/></button>
                     <button
-                        className={navBtnClass(componentControlsVisible, "", use_node_editor_only)}
-                        hidden={use_node_editor_only}
+                        className={navBtnClass(
+                            componentControlsVisible,
+                            "",
+                            use_node_editor_only || !componentSpecsAvailable,
+                        )}
+                        hidden={use_node_editor_only || !componentSpecsAvailable}
                         onClick={toggleComponentControls}
                         title="Toggle connection-component panel"
                         aria-label="Toggle connection-component panel"

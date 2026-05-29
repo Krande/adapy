@@ -100,6 +100,10 @@ export interface ComponentSpecSchema {
  *  bake actually produced. */
 export interface ComponentSpecManifestEntry {
     scope: string;
+    /** Bake branch this manifest was published from — surfaced so the
+     *  dropdown can group specs by their lineage. May be absent on
+     *  legacy entries published before the field was added. */
+    branch?: string;
     schema: ComponentSpecSchema;
     defaults: Record<string, Record<string, unknown>>;
     preview_url: string;
@@ -116,8 +120,10 @@ export interface ComponentSpecManifestEntry {
  *  baked manifest on the requested branch); empty when nothing has
  *  been published anywhere the caller can see. */
 export interface ComponentSpecsResponse {
-    branch: string;
-    sources: Array<{scope: string; commit: string}>;
+    /** The branch query param echoed back; null when the caller didn't
+     *  pin and the server scanned every branch under versions/. */
+    branch: string | null;
+    sources: Array<{scope: string; branch: string; commit: string}>;
     specs: Record<string, ComponentSpecManifestEntry>;
 }
 
