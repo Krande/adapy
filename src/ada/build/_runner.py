@@ -31,6 +31,11 @@ class ProjectConfig:
     project_id: str
     display_name: str
     entrypoints: list[EntrypointConfig]
+    connection_packages: list[str]
+    """Importable module paths declared in ``[[connections]]`` blocks
+    of ``ada_config.toml``. The CLI's ``run`` step invokes
+    ``ada.build.connections_bake.bake(packages)`` once these are
+    discovered — no per-project bake script needed."""
 
 
 def load(config_path: pathlib.Path) -> ProjectConfig:
@@ -54,10 +59,21 @@ def load(config_path: pathlib.Path) -> ProjectConfig:
             )
         )
 
+    connection_packages: list[str] = []
+    for block in raw.get("connections", []):
+        pkg = block.get("package")
+        if not isinstance(pkg, str) or not pkg.strip():
+            raise ValueError(
+                "[[connections]] block must declare 'package' (a dotted module path "
+                "whose import fires @register_connection decorators)"
+            )
+        connection_packages.append(pkg.strip())
+
     return ProjectConfig(
         project_id=project["id"],
         display_name=project.get("display_name", project["id"]),
         entrypoints=entries,
+        connection_packages=connection_packages,
     )
 
 

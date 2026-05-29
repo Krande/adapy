@@ -51,7 +51,12 @@ def cmd_run(args: argparse.Namespace) -> int:
         if args.entrypoint
         else project.entrypoints
     )
-    if args.entrypoint and not selected:
+    # ``connections`` is the reserved name for the built-in bake
+    # invoked by the [[connections]] block below; it isn't a real
+    # user-declared entrypoint so the unknown-entrypoint guard has
+    # to let it through. The connections block (later in cmd_run)
+    # validates that the project actually has [[connections]] blocks.
+    if args.entrypoint and not selected and args.entrypoint != "connections":
         print(f"unknown entrypoint: {args.entrypoint}", file=sys.stderr)
         return 2
 
@@ -73,6 +78,56 @@ def cmd_run(args: argparse.Namespace) -> int:
                 )
             )
             print(f"  {entry.name}: {a.name} ({a.format}) -> {a.path}")
+            print(f"    sidecar: {sidecar}")
+        total += len(artefacts)
+
+    # ``[[connections]]`` blocks in ada_config.toml drive a built-in
+    # bake step — projects get preview GLBs + manifest.json for every
+    # @register_connection spec they declare without writing their
+    # own entrypoint. Runs when no ``--entrypoint`` filter was passed
+    # (alongside the user entrypoints) or when the filter explicitly
+    # targets the synthetic ``connections`` name. Skipped silently
+    # when no ``[[connections]]`` blocks were declared.
+    run_connections = bool(project.connection_packages) and (
+        not args.entrypoint or args.entrypoint == "connections"
+    )
+    if args.entrypoint == "connections" and not project.connection_packages:
+        print(
+            "--entrypoint=connections but no [[connections]] blocks in "
+            f"{config_path} — nothing to bake.",
+            file=sys.stderr,
+        )
+        return 2
+    if run_connections:
+        from ada.build import _runner as _r
+        from ada.build import connections_bake
+
+        synthetic = _r.EntrypointConfig(
+            name="connections",
+            callable="ada.build.connections_bake:_bake_with_packages",
+        )
+        out_dir = output_root / synthetic.name
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        # Stash packages where _bake_with_packages can read them
+        # without rebuilding the importlib plumbing inside _run_callable.
+        connections_bake._PENDING_PACKAGES = list(project.connection_packages)
+        try:
+            artefacts = _runner.run_entrypoint(
+                synthetic, project.project_id, repo_root, out_dir
+            )
+        finally:
+            connections_bake._PENDING_PACKAGES = []
+
+        for a in artefacts:
+            sidecar = a.path.with_suffix(a.path.suffix + ".build.json")
+            sidecar.write_text(
+                json.dumps(
+                    _build_json(project.project_id, synthetic.name, a.name, git),
+                    indent=2,
+                )
+            )
+            print(f"  {synthetic.name}: {a.name} ({a.format}) -> {a.path}")
             print(f"    sidecar: {sidecar}")
         total += len(artefacts)
 
