@@ -37,9 +37,14 @@ WORKDIR /work/adapy
 
 # Solve the docs env first — fat closure (prod + desktop + fem-deps +
 # tests-core + sphinx/furo) dominates the cold build. Cache the layer
-# across source-only edits by COPYing manifests separately.
+# across source-only edits by COPYing manifests separately, and
+# persist the conda package cache via a BuildKit mount so the first
+# build after a base bump doesn't re-download ~500 MB of channels
+# every time.
 COPY pixi.toml pixi.lock pyproject.toml ./
-RUN pixi install --environment docs --locked
+RUN --mount=type=cache,target=/root/.cache/rattler,sharing=locked \
+    --mount=type=cache,target=/root/.cache/pip,sharing=locked \
+    pixi install --environment docs --locked
 
 # Sibling paradoc checkout — used by the FEA verification report's
 # compile-time stack. Conda-forge `paradoc` lags everything in this
@@ -113,29 +118,49 @@ RUN pixi install --environment docs --locked
 #     collapsing through an ``auto``-height intermediate div.
 ARG PARADOC_GIT_URL
 ARG PARADOC_REF=main
-# CACHE_BUST forces a fresh clone when ``PARADOC_REF`` is a moving
-# branch; without it Docker would reuse whatever HEAD was cloned the
-# first time. Workflow passes ``${{ github.run_id }}`` so every run
-# fetches the latest tip.
-ARG CACHE_BUST=""
+# PARADOC_SHA is the runner-resolved HEAD of PARADOC_REF at
+# build-launch time. Declaring it as an ARG referenced by the clone
+# RUN below binds the layer's cache key to its value — when paradoc
+# advances upstream the SHA changes and the clone layer
+# invalidates (a fresh clone runs). When it doesn't, the cache hit
+# avoids a redundant ~30s clone every CI run. Replaces the prior
+# ``CACHE_BUST=$GITHUB_RUN_ID`` strategy which always-busted.
+ARG PARADOC_SHA=unset
 RUN test -n "$PARADOC_GIT_URL" \
         || (echo "::error::PARADOC_GIT_URL build-arg is required" >&2; exit 1) \
-    && echo "cache-bust: $CACHE_BUST" \
+    && echo "paradoc ref=$PARADOC_REF sha=$PARADOC_SHA" \
     && git clone --depth 1 --branch "$PARADOC_REF" "$PARADOC_GIT_URL" /work/paradoc
 
-# autodoc imports ``ada`` at build time, so src/ must be present. The
-# .git directory is included because docs/conf.py runs ``git describe``
-# to derive the release string (it falls back gracefully if absent, but
-# we want a real version on the rendered page). verification/ is needed
-# by the fea-doc task that the `docs` pixi task depends on.
-COPY .git/ ./.git/
+# autodoc imports ``ada`` at build time, so src/ must be present.
+# verification/ is needed by the fea-doc task that the `docs` pixi
+# task depends on. The .git directory is intentionally NOT copied —
+# every commit appends to it, so `COPY .git/` would invalidate this
+# layer (and every layer below) on every CI run, defeating the
+# per-directory cache granularity. docs/conf.py reads ADA_DOCS_RELEASE
+# / ADA_DOCS_DATE from env first; the workflow runs `git describe`
+# / `git show` in the host checkout (depth: 0 there is mandatory)
+# and passes them as build args wired into ENV below.
+ARG ADA_DOCS_RELEASE=""
+ARG ADA_DOCS_DATE=""
+ENV ADA_DOCS_RELEASE=$ADA_DOCS_RELEASE \
+    ADA_DOCS_DATE=$ADA_DOCS_DATE
 COPY src/ ./src/
 COPY docs/ ./docs/
 COPY verification/ ./verification/
 
 # Runs fea-doc (FEA verification report bundle into docs/_static/fea-report/)
-# then sphinx, via the `depends-on` chain in pixi.toml.
-RUN pixi run --environment docs docs
+# then sphinx, via the `depends-on` chain in pixi.toml. Cache mounts:
+#
+#   * /root/.cache/rattler — conda packages, in case fea-doc / docs
+#     trigger another solve.
+#   * /work/adapy/docs/_build/doctrees — sphinx incremental compile
+#     cache (the .doctrees pickle tree). Lets sphinx skip
+#     re-rendering unchanged pages on subsequent builds; the rendered
+#     HTML at docs/_build/html/ is NOT a cache mount because the
+#     final ``COPY --from=builder`` needs it baked into the layer.
+RUN --mount=type=cache,target=/root/.cache/rattler,sharing=locked \
+    --mount=type=cache,target=/work/adapy/docs/_build/doctrees,sharing=locked \
+    pixi run --environment docs docs
 
 FROM nginxinc/nginx-unprivileged:1.27-alpine
 ARG IMAGE_TAG

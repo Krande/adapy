@@ -514,12 +514,32 @@ jobs:
           fi
           TAG="sha-${GITHUB_SHA::7}"
           BRANCH_TAG="branch-$(printf '%s' "$GITHUB_REF_NAME" | tr '/' '-')"
+          # Resolve paradoc HEAD up-front so the Dockerfile's
+          # ``ARG PARADOC_SHA`` binds the clone-layer cache key to it.
+          # paradoc no-op pushes keep the cached clone (and the
+          # downstream pixi+docs layers); paradoc tip-changes
+          # invalidate just the clone layer and what follows.
+          # Replaces the prior ``CACHE_BUST=$GITHUB_RUN_ID`` always-bust.
+          PARADOC_SHA=$(git ls-remote "$PARADOC_GIT_URL" "${PARADOC_REF:-main}" | cut -f1)
+          if [ -z "$PARADOC_SHA" ]; then
+            echo "::error::failed to resolve paradoc HEAD for ref ${PARADOC_REF:-main}"
+            exit 1
+          fi
+          echo "Resolved paradoc ${PARADOC_REF:-main} -> $PARADOC_SHA"
+          # Resolve release + commit date here so the docs build can
+          # skip `COPY .git/` — that copy used to invalidate every
+          # downstream layer on every commit. checkout@v4 was already
+          # called with fetch-depth: 0 above so the tags are present.
+          ADA_DOCS_RELEASE=$(git describe --tags --always)
+          ADA_DOCS_DATE=$(git show -s --format=%ad --date=short)
           docker build \
             -f deploy/Dockerfile.docs \
             --build-arg "IMAGE_TAG=${TAG}" \
             --build-arg "PARADOC_GIT_URL=${PARADOC_GIT_URL}" \
             --build-arg "PARADOC_REF=${PARADOC_REF:-main}" \
-            --build-arg "CACHE_BUST=${GITHUB_RUN_ID}" \
+            --build-arg "PARADOC_SHA=${PARADOC_SHA}" \
+            --build-arg "ADA_DOCS_RELEASE=${ADA_DOCS_RELEASE}" \
+            --build-arg "ADA_DOCS_DATE=${ADA_DOCS_DATE}" \
             -t "${REGISTRY_IMAGE}:${TAG}" \
             -t "${REGISTRY_IMAGE}:${BRANCH_TAG}" \
             .
