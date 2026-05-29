@@ -1357,6 +1357,11 @@ class Part(BackendGeom):
     def welds(self) -> list[Weld]:
         return self._welds
 
+    @welds.setter
+    def welds(self, value: list[Weld]):
+        self._welds = list(value)
+        self._invalidate_welds_for_cache()
+
     @property
     def walls(self) -> list[Wall]:
         return self._walls
