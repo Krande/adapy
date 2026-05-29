@@ -172,7 +172,9 @@ spec:
             - name: data
               mountPath: /data
           {{- end }}
-          resources: {{- toYaml $w.resources | nindent 12 }}
+          {{- with $w.resources }}
+          resources: {{- toYaml . | nindent 12 }}
+          {{- end }}
           {{- with $w.securityContext }}
           securityContext: {{- toYaml . | nindent 12 }}
           {{- end }}
@@ -190,7 +192,7 @@ spec:
           emptyDir: {}
           {{- end }}
       {{- end }}
-{{- end -}}
+{{- end }}
 
 {{- define "adapy-viewer.natsFullname" -}}
 {{- printf "%s-nats" (include "adapy-viewer.fullname" .) | trunc 63 | trimSuffix "-" -}}
