@@ -872,7 +872,15 @@ class Part(BackendGeom):
         filter_by_guids: list[str] = None,
         pipe_to_segments=False,
         by_metadata: dict = None,
+        include_welds: bool = True,
     ) -> Iterable[Beam | BeamTapered | Plate | Wall | Pipe | Shape | MassPoint]:
+        # ``include_welds`` defaults True so welds round-trip through
+        # every downstream consumer (GLB tessellation + GraphStore
+        # node names depend on it; without this, ``Part._welds`` is
+        # invisible to the writers and weld geometry vanishes from
+        # the GLB even though _weld_metadata is still attached).
+        # Callers that only want structural elements (FEM meshing,
+        # mass aggregations) pass ``include_welds=False``.
         physical_objects = []
         if sub_elements_only:
             iter_parts = iter([self])
@@ -880,11 +888,12 @@ class Part(BackendGeom):
             iter_parts = iter(self.get_all_subparts(include_self=True))
 
         for p in iter_parts:
+            weld_iter = iter(p._welds) if include_welds else iter(())
             if pipe_to_segments:
                 segments = chain.from_iterable([pipe.segments for pipe in p.pipes])
-                all_as_iterable = chain(p.plates, p.beams, p.shapes, segments, p.walls, p.masses)
+                all_as_iterable = chain(p.plates, p.beams, p.shapes, segments, p.walls, p.masses, weld_iter)
             else:
-                all_as_iterable = chain(p.plates, p.beams, p.shapes, p.pipes, p.walls, p.masses)
+                all_as_iterable = chain(p.plates, p.beams, p.shapes, p.pipes, p.walls, p.masses, weld_iter)
             physical_objects.append(all_as_iterable)
 
         if by_type is not None:

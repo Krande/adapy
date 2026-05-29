@@ -271,6 +271,14 @@ class Weld(BackendGeom):
     def geometry(self) -> PrimExtrude | PrimSweep:
         return self._geom
 
+    def solid_geom(self):
+        # Delegate to the wrapped PrimSweep/PrimExtrude so the
+        # tessellator's BackendGeom path produces the weld bead's
+        # mesh. Without this, Weld inherits BackendGeom's
+        # NotImplementedError stub and the GLB ships no weld
+        # geometry — only the metadata pinned via _weld_metadata.
+        return self._geom.solid_geom()
+
     @property
     def groove(self) -> PrimExtrude | None:
         return self._groove
