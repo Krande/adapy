@@ -220,6 +220,10 @@ export interface DesignDataExtension {
     };
   };
   stats?: DesignStats;
+  /**
+   * Per-Connection metadata (one entry per ada.Connection Part in this design model). Lets the inspector show a 'Connections (N)' rollup when a beam/plate is selected — each entry carries spec lineage + the member/weld names that belong to it, so the panel can group otherwise-flat weld lists by their parent Connection without walking the THREE scene graph.
+   */
+  connections?: ConnectionInfo[];
   [k: string]: unknown;
 }
 export interface Group {
@@ -297,5 +301,43 @@ export interface COG2 {
    * Sum of contributing volumes.
    */
   total_volume?: number;
+  [k: string]: unknown;
+}
+/**
+ * Spec lineage + member roster for one ada.Connection Part inside this design model. Names are the same identifiers used as keys in object_metadata / object_guids on this DesignDataExtension, so the inspector joins by name with no extra lookups.
+ */
+export interface ConnectionInfo {
+  /**
+   * The Connection Part's name — used as a stable id when the inspector cross-links from a member back to its parent connection.
+   */
+  name: string;
+  /**
+   * Registered ConnectionSpec name (e.g. 'box.box_to_box') when the Connection was built from one. Absent on ad-hoc Connections.
+   */
+  spec_name?: string;
+  /**
+   * The build_component inputs dict the spec was evaluated with (per-role sections, angles, etc.). Absent when the Connection isn't spec-derived.
+   */
+  spec_inputs?: {
+    [k: string]: unknown;
+  };
+  /**
+   * Map of role name ('incoming', 'landing', ...) to member node names — lets the inspector show 'incoming: <beam>' rows that select the right member.
+   */
+  member_roles?: {
+    [k: string]: string[];
+  };
+  /**
+   * All beam member names this Connection groups (including any roles).
+   */
+  beam_names?: string[];
+  /**
+   * Stiffener plate names this Connection contributes.
+   */
+  plate_names?: string[];
+  /**
+   * Weld names this Connection owns. The inspector renders one 'select all welds (N)' link rather than the per-weld dump.
+   */
+  weld_names?: string[];
   [k: string]: unknown;
 }

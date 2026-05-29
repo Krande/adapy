@@ -90,6 +90,13 @@ def scene_from_part_or_assembly(part_or_assembly: Part | Assembly, converter: Sc
                 if weld.guid:
                     object_guids[weld.name] = weld.guid
 
+    # Per-Connection roll-up: list every ada.Connection Part below
+    # this Assembly so the inspector can show "Connections (N)" for
+    # a clicked member and expand into per-connection details (spec
+    # lineage + member roles + weld names) without walking the
+    # THREE scene graph at runtime. One entry per Connection Part.
+    connections = _build_connection_entries(part_or_assembly)
+
     converter.ada_ext.design_objects.append(
         design_ext.DesignDataExtension(
             name=part_or_assembly.name,
@@ -99,10 +106,57 @@ def scene_from_part_or_assembly(part_or_assembly: Part | Assembly, converter: Sc
             object_guids=object_guids or None,
             object_metadata=object_metadata or None,
             stats=_build_design_stats(part_or_assembly),
+            connections=connections or None,
         )
     )
 
     return scene
+
+
+def _build_connection_entries(part_or_assembly):
+    """Walk the part tree and emit one ConnectionInfo per ada.Connection Part.
+
+    Each entry carries the connection's spec lineage (when present)
+    plus the names of every beam, plate, and weld it owns — the same
+    identifiers the inspector uses elsewhere on the extension, so the
+    panel can join by name with no extra lookups.
+    """
+    from ada.api.connections.joints import Connection
+    from ada.extension import design_extension_schema as design_ext
+
+    entries: list = []
+    for subp in part_or_assembly.get_all_subparts(include_self=True):
+        if not isinstance(subp, Connection):
+            continue
+
+        # Roles encoded in sample_<role>_<...> beam names from the
+        # build_sample synthesiser. Real-model Connections won't have
+        # this naming pattern — member_roles stays None and the
+        # inspector falls back to the flat beam_names list.
+        member_roles: dict[str, list[str]] = {}
+        beam_names: list[str] = []
+        for beam in subp.beams:
+            if beam.name:
+                beam_names.append(beam.name)
+                if beam.name.startswith("sample_"):
+                    role = beam.name[len("sample_"):]
+                    member_roles.setdefault(role, []).append(beam.name)
+
+        plate_names = [p.name for p in subp.plates if p.name]
+        weld_names = [w.name for w in subp.welds if w.name]
+
+        entries.append(
+            design_ext.ConnectionInfo(
+                name=subp.name,
+                spec_name=getattr(subp, "spec_name", None),
+                spec_inputs=getattr(subp, "spec_inputs", None),
+                member_roles=member_roles or None,
+                beam_names=beam_names or None,
+                plate_names=plate_names or None,
+                weld_names=weld_names or None,
+            )
+        )
+    return entries
 
 
 def _weld_metadata(weld) -> dict:

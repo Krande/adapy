@@ -43,6 +43,13 @@
       "type": "object",
       "description": "Aggregate metrics for this design model (centre of gravity, object counts). Computed at bake time so the viewer can show per-model info without reloading source.",
       "$ref": "#/definitions/DesignStats"
+    },
+    "connections": {
+      "type": "array",
+      "description": "Per-Connection metadata (one entry per ada.Connection Part in this design model). Lets the inspector show a 'Connections (N)' rollup when a beam/plate is selected — each entry carries spec lineage + the member/weld names that belong to it, so the panel can group otherwise-flat weld lists by their parent Connection without walking the THREE scene graph.",
+      "items": {
+        "$ref": "#/definitions/ConnectionInfo"
+      }
     }
   },
   "definitions": {
@@ -122,6 +129,49 @@
           "description": "Name of the parent design object"
         }
       }
+    },
+    "ConnectionInfo": {
+      "type": "object",
+      "description": "Spec lineage + member roster for one ada.Connection Part inside this design model. Names are the same identifiers used as keys in object_metadata / object_guids on this DesignDataExtension, so the inspector joins by name with no extra lookups.",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "The Connection Part's name — used as a stable id when the inspector cross-links from a member back to its parent connection."
+        },
+        "spec_name": {
+          "type": "string",
+          "description": "Registered ConnectionSpec name (e.g. 'box.box_to_box') when the Connection was built from one. Absent on ad-hoc Connections."
+        },
+        "spec_inputs": {
+          "type": "object",
+          "description": "The build_component inputs dict the spec was evaluated with (per-role sections, angles, etc.). Absent when the Connection isn't spec-derived.",
+          "additionalProperties": true
+        },
+        "member_roles": {
+          "type": "object",
+          "description": "Map of role name ('incoming', 'landing', ...) to member node names — lets the inspector show 'incoming: <beam>' rows that select the right member.",
+          "additionalProperties": {
+            "type": "array",
+            "items": {"type": "string"}
+          }
+        },
+        "beam_names": {
+          "type": "array",
+          "description": "All beam member names this Connection groups (including any roles).",
+          "items": {"type": "string"}
+        },
+        "plate_names": {
+          "type": "array",
+          "description": "Stiffener plate names this Connection contributes.",
+          "items": {"type": "string"}
+        },
+        "weld_names": {
+          "type": "array",
+          "description": "Weld names this Connection owns. The inspector renders one 'select all welds (N)' link rather than the per-weld dump.",
+          "items": {"type": "string"}
+        }
+      },
+      "required": ["name"]
     }
   },
   "required": [

@@ -100,13 +100,14 @@ export const useModelState = create<ModelState>((set) => ({
             void import('@/utils/lineage/registerLineageFromExtension').then(({registerLineageFromExtension}) =>
                 registerLineageFromExtension({gltf, extension: ext, fileName: name, root: group}),
             ).catch((err) => console.warn('lineage: register failed for', name, err));
-            // Build the reverse weld graph (member name → welds touching
-            // it) so the selection inspector can show "Welds (N)"
-            // without re-reading the GLB. Synchronous + cheap (small
-            // dict walk); a future model load replaces it.
-            void import('@/state/weldGraphStore').then(({buildWeldIndex, useWeldGraphStore}) => {
-                useWeldGraphStore.getState().setIndex(buildWeldIndex(ext));
-            }).catch((err) => console.warn('weld graph: build failed for', name, err));
+            // Build the reverse member→connection index so the
+            // selection inspector can show "Connections (N)" for a
+            // clicked beam/plate without re-reading the GLB.
+            // Synchronous + cheap (small dict walk); a future model
+            // load replaces it.
+            void import('@/state/connectionGraphStore').then(({buildConnectionIndex, useConnectionGraphStore}) => {
+                useConnectionGraphStore.getState().setIndex(buildConnectionIndex(ext));
+            }).catch((err) => console.warn('connection graph: build failed for', name, err));
         }
         set((s) => {
             const next = new Set(s.loadedSourceNames);
