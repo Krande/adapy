@@ -56,16 +56,28 @@ def build_sample(spec: ConnectionSpec, inputs: dict[str, dict[str, Any]]) -> dic
         section = _resolve_section(role_inputs, role_crit)
 
         if role_crit is _criteria_for(spec, anchor_role):
-            direction = (1.0, 0.0, 0.0)
+            # Anchor (the landing member) runs along ±X through the
+            # joint point so it presents a continuous side surface for
+            # incoming members to butt against. Without this the
+            # incoming's end-face lands on a single point (both n2's
+            # at origin) and the connection handler has no contact
+            # surface to trace welds along.
+            n1 = (-_SAMPLE_LENGTH_M, 0.0, 0.0)
+            n2 = (_SAMPLE_LENGTH_M, 0.0, 0.0)
         else:
-            angle_deg = _resolve_angle(role_inputs, role_crit)
+            angle_deg = _resolve_angle_to_anchor(
+                spec, inputs, role_crit, anchor_role,
+            )
             direction = _direction_in_xy_plane(angle_deg)
-
-        end = tuple(c * _SAMPLE_LENGTH_M for c in direction)
+            # Incoming starts at the joint point and extends OUTWARD;
+            # its n1 (origin) is the contact end that meets the
+            # anchor's side surface.
+            n1 = (0.0, 0.0, 0.0)
+            n2 = tuple(c * _SAMPLE_LENGTH_M for c in direction)
         beam = Beam(
             name=f"sample_{role_crit.role.value}",
-            n1=(0.0, 0.0, 0.0),
-            n2=end,
+            n1=n1,
+            n2=n2,
             sec=section,
         )
         if role_crit.section_in is not None and not role_crit.matches_single(beam):
@@ -81,11 +93,17 @@ def build_sample(spec: ConnectionSpec, inputs: dict[str, dict[str, Any]]) -> dic
 
 
 def _resolve_anchor_role(spec: ConnectionSpec) -> MemberRole:
-    """Pick the role that other roles' angles are measured against.
+    """Pick the role that runs as the through-beam in the sample.
 
-    Prefer a role that is *referenced* by another role's `angle_to_role`.
-    Fall back to the first role in declaration order.
+    Prefer ``LANDING`` when the spec uses it — the conventional name
+    for the member being landed onto, which needs to extend past the
+    joint so the incoming has a contact surface. Else fall back to the
+    role that another role references via ``angle_to_role`` (the
+    angle-reference direction), then to the first declared role.
     """
+    for crit in spec.roles:
+        if crit.role is MemberRole.LANDING:
+            return crit.role
     referenced = [r.angle_to_role for r in spec.roles if r.angle_to_role is not None]
     if referenced:
         return referenced[0]
@@ -135,6 +153,34 @@ def _resolve_angle(role_inputs: dict[str, Any], role_crit: MemberCriteria) -> fl
             f"[{rng.min_deg}°, {rng.max_deg}°]"
         )
     return float(angle)
+
+
+def _resolve_angle_to_anchor(
+    spec: ConnectionSpec,
+    inputs: dict[str, dict[str, Any]],
+    role_crit: MemberCriteria,
+    anchor_role: MemberRole,
+) -> float:
+    """Angle of ``role_crit`` relative to ``anchor_role``.
+
+    The angle relationship is symmetric: ``A.angle_to_role = B`` with
+    ``angle_deg = θ`` means the angle between A and B is θ° regardless
+    of which is the "anchor". So when placing a non-anchor role, look
+    for an angle reference in either direction:
+
+    * If this role's criteria has ``angle_to_role = anchor`` → use
+      this role's ``angle_deg``.
+    * If the anchor's criteria has ``angle_to_role = this`` → use the
+      anchor's ``angle_deg`` (the input lives in the anchor's inputs
+      block, since that's where the criteria with angle_range sits).
+    * Otherwise default to 0° (parallel with anchor).
+    """
+    if role_crit.angle_to_role is anchor_role:
+        return _resolve_angle(_require_role_inputs(inputs, role_crit), role_crit)
+    anchor_crit = _criteria_for(spec, anchor_role)
+    if anchor_crit.angle_to_role is role_crit.role:
+        return _resolve_angle(_require_role_inputs(inputs, anchor_crit), anchor_crit)
+    return 0.0
 
 
 def _direction_in_xy_plane(angle_deg: float) -> tuple[float, float, float]:
