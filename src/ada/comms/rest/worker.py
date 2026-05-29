@@ -1075,11 +1075,21 @@ async def _run() -> None:
                 # explicit failure points at the real problem.
                 peeked = await queue.get(job_id)
                 if peeked is not None:
-                    ext = pathlib.PurePosixPath(peeked.source_key).suffix.lower()
-                    legacy_ok = ext in LEGACY_CONVERT_EXTS and (
-                        ext_allow_set is None or ext in ext_allow_set
-                    )
-                    can_handle = ext in source_ext_set or legacy_ok
+                    # component_build jobs are synthetic — no source
+                    # file, so the extension-based routing guard
+                    # doesn't apply. Routing was already pinned by
+                    # the build endpoint via target_capability, and
+                    # the per-spec handler resolves from the registry
+                    # the worker preloaded at startup (ADA_WORKER_PRELOAD).
+                    if peeked.target_format == "component_build":
+                        can_handle = True
+                        ext = ""
+                    else:
+                        ext = pathlib.PurePosixPath(peeked.source_key).suffix.lower()
+                        legacy_ok = ext in LEGACY_CONVERT_EXTS and (
+                            ext_allow_set is None or ext in ext_allow_set
+                        )
+                        can_handle = ext in source_ext_set or legacy_ok
                     if not can_handle:
                         misroute_msg = (
                             f"misrouted: pool capability {primary_capability!r} "
