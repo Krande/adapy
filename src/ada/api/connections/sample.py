@@ -35,12 +35,22 @@ _SAMPLE_LENGTH_M = 1.0
 
 
 def build_sample(spec: ConnectionSpec, inputs: dict[str, dict[str, Any]]) -> dict[MemberRole, Beam]:
-    """Fabricate one Beam per role in the spec, sharing the origin as joint point.
+    """Fabricate one member per role in the spec, sharing the origin as joint point.
 
-    The role referenced as an anchor (`angle_to_role` target of any
-    other role) runs along the +X axis. Each other role is rotated in
-    the XY plane by its `angle_deg` from its `angle_to_role` member.
+    If the spec declared a ``synth_sample`` callable, that takes
+    precedence — the default beam-from-line logic below only runs
+    when the spec hasn't customised synthesis. Specs whose members
+    can't be expressed by the default rule (PLATE-kind members,
+    stub geometries that need pre-applied boolean cuts, etc.)
+    provide their own synth via the spec field.
+
+    Default behaviour (no synth_sample): the role referenced as the
+    anchor runs along the X axis through the origin; each other
+    role's beam starts at origin and extends at its ``angle_deg``.
     """
+    if spec.synth_sample is not None:
+        return spec.synth_sample(spec, inputs)
+
     from ada import Beam
 
     anchor_role = _resolve_anchor_role(spec)

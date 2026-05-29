@@ -64,6 +64,12 @@ class MemberCriteria:
         return True
 
 
+SampleSynth = Callable[
+    ["ConnectionSpec", dict[str, dict[str, Any]]],
+    dict[MemberRole, Any],
+]
+
+
 @dataclass(frozen=True)
 class ConnectionSpec:
     name: str
@@ -78,6 +84,19 @@ class ConnectionSpec:
     when generating preview GLBs, and by the frontend to pre-fill the
     configuration form. Specs without defaults are skipped during the
     bake."""
+    synth_sample: SampleSynth | None = None
+    """Optional spec-level sample-synthesis hook.
+
+    Signature: ``(spec, inputs) -> dict[MemberRole, Beam | Plate]``.
+    ``build_sample(spec, inputs)`` calls it first when present; the
+    default beam-from-line logic only runs when this is None.
+
+    Used by specs whose sample geometry can't be expressed by the
+    default BEAM placement rule — e.g. a spec with a PLATE member,
+    or a stub-style spec that needs to fabricate the boolean cuts
+    its handler expects. Lives next to the spec declaration so the
+    spec, its handler, and its sample synth stay co-located.
+    """
 
 
 ConnectionBuilder = Callable[..., Any]
