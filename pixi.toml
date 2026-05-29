@@ -14,55 +14,17 @@ json-code-gen-py = { cmd = [
     "--output-model-type", "pydantic_v2.BaseModel"], cwd = "./" }
 
 [feature.docs.tasks]
-# `docs` chains fea-doc → sphinx-build via depends-on. In the Dockerfile.docs
-# CI image we ship a sibling paradoc checkout at /work/paradoc plus the
-# verification dir, so the chain runs end-to-end during image build.
-# Locally, the same chain works as long as paradoc is cloned alongside adapy.
 docs = { cmd = "cd docs && sphinx-build -b html -v -D nbsphinx_execute=auto . _build/html", depends-on = ["fea-doc"], env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 serve = { cmd = "python docs/main.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" }, depends-on = ["docs"] }
-# FEA verification report → paradoc static-web bundle under
-# `docs/_static/fea-report/` (target declared in
-# `verification/paradoc.toml`). Runs the @task DAG declared in
-# `verification/tasks.py` (calculix + code_aster available in the
-# `docs` env via fem-deps); the per-(case, mode) GLB bake + paradoc
-# row / filter / table registration happens via typed Outcomes
-# returned from `fea_outputs`, `beam_glb`, `eig_tables`, ... no
-# imperative postcompile hook. `--no-cache` forces the task cache
-# to invalidate so solvers actually re-run rather than replaying
-# .paradoc-cache/. ADAPY_VERIFICATION_REGEN_ASSETS=1 makes the
-# bake tasks re-write GLBs from the fresh FEA result files. The
-# Docker docs build runs this end-to-end.
 fea-doc = { cmd = "python -m paradoc.cli_app build verification --no-cache", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src:$PIXI_PROJECT_ROOT/../paradoc/src", "ADAPY_VERIFICATION_REGEN_ASSETS" = "1" } }
-# Cache-only variant — no solver execution, consumes the committed
-# `.cache/*.json` and `_assets/*.glb`. Useful for hosts without solvers.
 fea-doc-cached = { cmd = "python -m paradoc.cli_app build verification", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src:$PIXI_PROJECT_ROOT/../paradoc/src" } }
-# Smoke test the paradoc.tasks DAG without executing any solver. Prints
-# the task tree + cell counts; matches the imperative driver's 5-D
-# fanout (24 mesh × 42 live run_eig with skip rules applied). Useful
-# for validating the migration without spending solver minutes.
-#
-#   pixi run -e docs fea-doc-inspect            # default profile (42 cells)
-#   pixi run -e docs fea-doc-inspect --profile smoke   # 1 cell
 fea-doc-inspect = { cmd = "python -m paradoc.cli_app build verification --inspect --no-compile", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src:$PIXI_PROJECT_ROOT/../paradoc/src" } }
-# Serve the static bundle on http://localhost:8765/ for fast iteration
-# without going through the docs Docker build → harbor → ArgoCD loop.
-# Run after `fea-doc` (or `fea-doc-cached`) so the bundle exists under
-# `docs/_static/fea-report/`. `python -m http.server` is enough — the
-# bundle is plain JSON + GLBs + a single index.html.
 serve-fea = { cmd = "python -m http.server 8765 --bind 127.0.0.1 --directory docs/_static/fea-report" }
 
 [feature.tests.tasks]
-# Install the Chromium browser binary that pytest-playwright drives.
-# `--with-deps` is intentionally NOT used here: it shells out to
-# `sudo apt install` for system libs, which blows up in non-interactive
-# shells. On a dev machine the libs are usually present already; if a
-# playwright test ever errors with a missing-lib message, run
-# `pixi run -e tests playwright install-deps chromium` once by hand.
-# The stamp file under .temp/ (gitignored) is the gate that lets pixi
-# skip this task on subsequent runs — cross-platform, unlike the old
-# Scripts/playwright.exe path which never existed on Linux/macOS.
-# (.pixi/ doesn't work as a stamp location — pixi excludes its own
-# state dir from output glob matching.)
+# `--with-deps` omitted on purpose — it shells out to `sudo apt` and
+# breaks in non-interactive shells. Run `pixi run -e tests playwright
+# install-deps chromium` once by hand if a test reports a missing lib.
 pre-install = { cmd = "mkdir -p $PIXI_PROJECT_ROOT/.temp && playwright install chromium && touch $PIXI_PROJECT_ROOT/.temp/playwright-browsers.stamp", outputs = [".temp/playwright-browsers.stamp"] }
 
 test = { cmd = "pytest tests --ignore=tests/profiling --ignore=tests/fem --ignore=tests/comms/rest --durations=0", depends-on = ["pre-install"], env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
@@ -101,38 +63,22 @@ pyprofile-html-all = { cmd = "pyinstrument -r html -o profile_all_tests.html -m 
 
 
 [environments]
-# ``prod`` is the all-features env most local workflows (jupyter,
-# rendering, plot export) use — it composes ``prod`` + ``desktop``.
-# Slim runtime envs that don't need Jupyter / pygfx (notably
-# ``viewer-api`` for the REST worker image) deliberately omit
-# ``desktop`` to keep the image lean.
 prod = { features = ["prod", "desktop"], solve-group = "prod", no-default-feature = true }
 lint = { features = ["lint"], no-default-feature = true }
 profile = { features = ["profile", "prod", "desktop"], solve-group = "prod", no-default-feature = true }
 frontend = { features = ["frontend"], no-default-feature = true }
 jupyterlite = { features = ["jupyterlite"], no-default-feature = true }
-
 tests-core = { features = ["tests-core"], no-default-feature = true }
-# Local smoke loop for the cad backend abstraction against the adacpp
-# wasm wheel. No pythonocc-core in this env — the whole point is to
-# prove the pyodide path stays clean. ADACPP_WHEEL points at a built
-# wheel; defaults to ../adacpp/dist/ada_cpp-*.whl.
 test-pyodide = { features = ["test-pyodide"], no-default-feature = true }
 tests = { features = ["tests", "tests-core", "prod", "desktop"], solve-group = "prod", no-default-feature = true }
 fem-deps = { features = ["fem-deps", "prod", "tests-core"], no-default-feature = true }
 fem = { features = ["fem", "prod", "desktop", "tests-core", "fem-deps"], no-default-feature = true }
 docs = { features = ["docs", "prod", "desktop", "fem-deps", "tests-core"], no-default-feature = true }
-# Worker image — REST API + file converter only. No Jupyter, no pygfx,
-# no plotly. Code paths gated behind those imports are unreachable from
-# the worker entrypoint (see ``feature.desktop`` for the inventory).
 viewer-api = { features = ["viewer-api", "prod"], solve-group = "prod", no-default-feature = true }
-# Separate test env for the REST viewer module: layers pytest on top
-# of the runtime deps so the production `viewer-api` image stays slim.
+# Slim runtime for the Dockerfile.viewer image — no `prod` so the
+# occt/pythonocc/numpy closure stays out.
+viewer-api-slim = { features = ["viewer-api"], no-default-feature = true }
 viewer-api-tests = { features = ["viewer-api", "tests-core", "prod"], solve-group = "prod", no-default-feature = true }
-# Test env for the meshio-bridge format adapters (XDMF + .mesh / .vtu /
-# etc. via meshio.write). Layers pytest on top of prod + the optional
-# meshio-bridge feature so the parity test against meshio's reader
-# can run in CI without putting meshio back into prod itself.
 meshio-bridge = { features = ["meshio-bridge", "prod", "desktop"], solve-group = "prod", no-default-feature = true }
 meshio-bridge-tests = { features = ["meshio-bridge", "tests-core", "prod", "desktop"], solve-group = "prod", no-default-feature = true }
 
@@ -140,8 +86,6 @@ meshio-bridge-tests = { features = ["meshio-bridge", "tests-core", "prod", "desk
 jupyterlite-core = "*"
 
 [feature.meshio-bridge.dependencies]
-# meshio is unmaintained but still useful as an optional bridge for
-# XDMF / mesh / vtu / etc. — opt in by depending on this feature.
 meshio = "*"
 
 [feature.prod.dependencies]
@@ -151,12 +95,9 @@ numpy = "*"
 hdf5 = "*"
 h5py = "*"
 ifcopenshell = "*"
-# Pin to the `novtk` build of the OpenCASCADE conda-forge feedstock —
-# the default `all_*` build links VTK, which drags in libxkbcommon /
-# mesa-libGL / X11 client libs we don't render through anyway. The
-# `novtk` variant strips that whole tree out. pythonocc-core has the
-# matching variant; they must agree on the build string or the solver
-# picks the vtk-enabled occt to satisfy pythonocc-core.
+# novtk: default occt builds link VTK + X libs we don't render through.
+# pythonocc-core build string must match occt's or the solver picks the
+# vtk-enabled occt.
 pythonocc-core = { version = "*", build = "novtk_*" }
 python-gmsh = "*"
 pyquaternion = "*"
@@ -170,37 +111,18 @@ lark = "*"
 pillow = "*"
 pydantic = "*"
 
-# Desktop / notebook / static-export deps. Split out of `prod` so the
-# slim REST worker image (which only does file conversion) doesn't have
-# to ship the entire pygfx → wgpu-py → imgui-bundle → libopencv (qt6
-# build) → ffmpeg → libopenvino-* closure plus Jupyter — that closure
-# alone is ~260 MiB on the resolved env, and the worker doesn't import
-# any of it.
-#
-# Code paths gated behind these imports (verified with grep -r):
-#   * ada.visit.rendering.*           → pygfx / pyglfw / glfw / wgpu
-#   * ada.calc.beams (display widget) → ipywidgets   (local import)
-#   * ada.core.curve_utils plots      → plotly       (local import)
-#   * ada.visit.plots                 → plotly       (local import)
-#   * ada.fem.formats.utils safe-del  → send2trash   (local import,
-#                                                     gated on Config
-#                                                     general_safe_deletion)
-#
-# Envs that face users in notebooks / desktop pipelines (``prod``,
-# ``tests``, ``fem``, ``docs``, ``profile``, ``meshio-bridge*``) add
-# this feature back in. ``viewer-api`` / ``viewer-api-tests`` deliberately
-# don't — that's the saving.
+# Notebook / rendering / static-export deps. Held separate from `prod`
+# so the slim viewer-api / worker images don't ship the
+# pygfx→wgpu→imgui→libopencv→ffmpeg closure (~260 MiB).
 [feature.desktop.dependencies]
-notebook = "*"      # For the notebook
+notebook = "*"
 ipywidgets = "*"
 jupyterlab = "*"
 plotly = "*"
 python-kaleido = ">=1.0.0"
 pygfx = ">=0.16"
-# pygfx 0.16 transitively requires wgpu ≥ 0.21 (which dropped the
-# legacy `wgpu.gui.offscreen` module) plus `rendercanvas ≥ 2.0` for
-# the offscreen canvas. Pin explicit lower bounds so the solver
-# doesn't downgrade to a wgpu where our offscreen code can't import.
+# pygfx 0.16 needs wgpu ≥ 0.21 (no more `wgpu.gui.offscreen`) and
+# rendercanvas ≥ 2.0 for our offscreen path.
 wgpu-py = ">=0.31"
 rendercanvas = ">=2.6"
 glfw = "==3.4"
@@ -208,10 +130,9 @@ pyglfw = "*"
 send2trash = "*"
 
 [feature.prod.target.win-64.dependencies]
-# Needed to fix issue with running from pycharm locally (llvm-openmp only works from pixi shell).
+# pycharm-launched interpreters can't see llvm-openmp from pixi shell.
 intel-openmp = "*"
 
-# For local development
 [feature.prod.target.win-64.activation.env]
 PYTHONPATH="%PIXI_PROJECT_ROOT%/src"
 
@@ -227,23 +148,7 @@ channels = ["conda-forge"]
 calculix = "*"
 
 [feature.fem-deps.target.linux-64.dependencies]
-# These are not available on conda-forge
 code-aster = ">=17.3.16"
-
-#[feature.fem-deps.target.win-64.dependencies]
-
-#code-aster = { version = "*", channel = "https://repo.prefix.dev/code-aster" }
-# Attempt to update to the latest version of the dependencies
-#code-aster = { version = "==17.2.8.1", channel = "https://repo.prefix.dev/code-aster" }
-#ifcopenshell = { version = "==0.8.1.250324", channel = "https://repo.prefix.dev/code-aster" }
-#hdf5 = { version = "==1.14.6", channel = "https://repo.prefix.dev/code-aster" }
-#gmsh = { version = "==4.13.1" , build="nompi_release_he31cdec_300", channel = "https://repo.prefix.dev/code-aster" }
-#python-gmsh = { version = "==4.13.1" , channel = "https://repo.prefix.dev/code-aster" }
-#scotch = { version = "*" , channel = "https://repo.prefix.dev/code-aster" }
-#libscotch = { version = "*" , channel = "https://repo.prefix.dev/code-aster" }
-#mumps = { version = "*" , channel = "https://repo.prefix.dev/code-aster" }
-#metis = { version = "*" , channel = "https://repo.prefix.dev/code-aster" }
-#calculix = { version = "==2.22", build="*_1", channel = "conda-forge" }
 
 [feature.tests-core.dependencies]
 pytest = "*"
@@ -288,48 +193,22 @@ fastapi = "*"
 uvicorn = "*"
 obstore = "*"
 nats-py = "*"
-# OIDC token verification (REST mode only). pyjwt[crypto] pulls in
-# `cryptography` for RS256/ES256 signature checks against JWKS keys.
+pydantic = "*"
+python-flatbuffers = "*"
 pyjwt = "*"
 cryptography = "*"
 httpx = "*"
-# Optional: project membership + audit log live in Postgres when the
-# deployment opts into it via DATABASE_URL. Without DATABASE_URL the
-# REST viewer runs in shared-only mode and asyncpg goes unused.
 asyncpg = "*"
-# psutil powers the worker's per-job CPU / RSS / IO sampling that
-# feeds the admin panel's metrics view. Cross-platform; Linux gives
-# the full picture (incl. io_counters), macOS skips IO.
 psutil = "*"
-# croniter parses + steps audit-schedule cron expressions. Used by
-# the API's scheduler tick to validate user-supplied expressions and
-# to compute ``next_fire_at`` after each fire.
 croniter = "*"
 
 [feature.viewer-api.tasks]
 viewer-api = { cmd = "python -m ada.comms.rest", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 viewer-worker = { cmd = "python -m ada.comms.rest.worker", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
-# Run the REST viewer tests. Requires the `viewer-api-tests` env, which
-# layers pytest (tests-core) on top of viewer-api's fastapi/jwt/asyncpg.
-# The default `test` task ignores tests/comms/rest because those deps
-# aren't in the slim `tests` env.
 test-rest = { cmd = "pytest tests/comms/rest --durations=0", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
-# Pull a failed conversion's source blob to ./audit_repro/<id>/. Needs
-# ADAPY_API_TOKEN (mint via admin panel) + ADAPY_API_BASE.
 audit-fetch = { cmd = "python scripts/audit_fetch.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
-# Run the converter directly on a previously-fetched (or just-fetched)
-# audit source. Bypasses REST/queue — fastest loop for debugging a
-# specific failure.
 audit-repro = { cmd = "python scripts/audit_repro.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
-# Upload a local file to the viewer as a source blob (any format the
-# viewer accepts: GLB, IFC, STEP, SAT, XML, SIF). Same auth env as
-# audit-fetch (ADAPY_API_TOKEN + ADAPY_API_BASE).
 viewer-upload = { cmd = "python scripts/viewer_upload.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
-# Compare two GLBs face-by-face (centroid + normal alignment) and
-# bucket subject-mesh primitives into OK / POS_OK_ROT_BAD /
-# POS_BAD_ROT_OK / WHOLLY_BAD. Optional ``--out`` writes per-bucket
-# GLBs + per_face.json so the failure modes can be inspected
-# visually + chased in code.
 glb-face-classify = { cmd = "python scripts/glb_face_classify.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 
 [feature.frontend.dependencies]
