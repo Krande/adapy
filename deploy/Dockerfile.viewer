@@ -56,6 +56,15 @@ WORKDIR /app
 
 COPY --from=env-builder /work/.pixi/envs/viewer-api-slim /env
 ENV PATH="/env/bin:$PATH"
+# conda's openssl bakes its CA path (OPENSSLDIR) to the absolute build
+# prefix (/work/.pixi/envs/viewer-api-slim/ssl), which no longer exists
+# after the env is COPY'd to /env. urllib (used by PyJWKClient for the
+# JWKS fetch) honours OpenSSL's default path, so without this it can't
+# verify TLS to authentik.krande.no and every token check 401s — while
+# httpx-based discovery still works via certifi, hence callback-OK but
+# /api/me-401. Point OpenSSL/urllib at the CA bundle in its new location.
+ENV SSL_CERT_FILE=/env/ssl/cert.pem \
+    SSL_CERT_DIR=/env/ssl/certs
 
 COPY deploy/viewer-ada-init.py /app/src/ada/__init__.py
 COPY src/ada/config.py /app/src/ada/config.py
