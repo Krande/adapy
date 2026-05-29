@@ -21,7 +21,10 @@ least one backend.
 from __future__ import annotations
 
 import os
-from typing import Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+
+if TYPE_CHECKING:
+    from ada.geom import Geometry
 
 
 @runtime_checkable
@@ -43,6 +46,7 @@ class CadBackend(Protocol):
 
     name: str
 
+    def build(self, geometry: "Geometry") -> ShapeHandle: ...
     def make_box(self, dx: float, dy: float, dz: float) -> ShapeHandle: ...
     def make_cylinder(self, radius: float, height: float) -> ShapeHandle: ...
     def make_sphere(self, radius: float) -> ShapeHandle: ...
@@ -63,6 +67,16 @@ class AdacppBackend:
     def __init__(self) -> None:
         from adacpp import cad
         self._cad = cad
+
+    def build(self, geometry: "Geometry") -> ShapeHandle:
+        # The full ada.geom.Geometry construction funnel is not ported to
+        # adacpp.cad yet — it currently exposes only primitive constructors
+        # (make_box/cylinder/sphere). Lands in a later phase of the CAD
+        # backend abstraction; until then callers fall back to OccBackend.
+        raise NotImplementedError(
+            "AdacppBackend.build() is not implemented yet — adacpp.cad only "
+            "supports primitive constructors so far."
+        )
 
     def make_box(self, dx: float, dy: float, dz: float) -> ShapeHandle:
         return self._cad.make_box(dx, dy, dz)
@@ -149,6 +163,16 @@ class OccBackend:
         self._make_box_by_points = make_box_by_points
         self._make_cylinder = _occ_make_cylinder
         self._make_sphere = _occ_make_sphere
+
+    def build(self, geometry: "Geometry") -> ShapeHandle:
+        # Coarse Layer-B construction seam: the parametric ada.geom.Geometry
+        # tree is the backend-neutral construction language. The fine-grained
+        # ada.occ.geom builders are OccBackend's private implementation and
+        # are never promoted to the CadBackend interface. The returned
+        # ShapeHandle is a TopoDS_Shape under this backend.
+        from ada.occ.geom import geom_to_occ_geom
+
+        return geom_to_occ_geom(geometry)
 
     def make_box(self, dx: float, dy: float, dz: float) -> ShapeHandle:
         # Centered axis-aligned box: matches adacpp.cad.make_box semantics
@@ -272,11 +296,38 @@ def select_backend(prefer: str | None = None) -> CadBackend:
     )
 
 
+_ACTIVE_BACKEND: CadBackend | None = None
+
+
+def active_backend() -> CadBackend:
+    """Return the process-wide CAD backend, selecting and memoizing one on
+    first use via :func:`select_backend`.
+
+    Call sites that build or convert geometry should go through this rather
+    than re-selecting a backend each time. Override the selection up front
+    with the ``ADAPY_CAD_BACKEND`` env var, or call
+    :func:`reset_active_backend` after changing it at runtime."""
+    global _ACTIVE_BACKEND
+    if _ACTIVE_BACKEND is None:
+        _ACTIVE_BACKEND = select_backend()
+    return _ACTIVE_BACKEND
+
+
+def reset_active_backend() -> None:
+    """Drop the memoized backend so the next :func:`active_backend` call
+    re-selects. For tests and for switching ``ADAPY_CAD_BACKEND`` at
+    runtime."""
+    global _ACTIVE_BACKEND
+    _ACTIVE_BACKEND = None
+
+
 __all__ = [
     "AdacppBackend",
     "CadBackend",
     "Mesh",
     "OccBackend",
     "ShapeHandle",
+    "active_backend",
+    "reset_active_backend",
     "select_backend",
 ]

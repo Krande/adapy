@@ -7,7 +7,7 @@ from OCC.Core.BRepExtrema import BRepExtrema_DistShapeShape
 
 from ada.occ.utils import compute_minimal_distance_between_shapes
 
-from .geom.cache import get_solid_occ, occ_solid_cache
+from .geom.cache import cached_solid_by_guid, get_solid_occ
 
 if TYPE_CHECKING:
     from ada import Plate
@@ -35,7 +35,7 @@ def _plates_min_distance_by_guid(guid1: str, guid2: str, tol: float) -> BRepExtr
     LRU‐cached on (guid1, guid2, tol). Fetches
     solids from _solid_cache and computes distance once.
     """
-    s1 = occ_solid_cache[guid1]
-    s2 = occ_solid_cache[guid2]
+    s1 = cached_solid_by_guid(guid1)
+    s2 = cached_solid_by_guid(guid2)
     dss = compute_minimal_distance_between_shapes(s1, s2)
     return dss if dss.Value() <= tol else None
