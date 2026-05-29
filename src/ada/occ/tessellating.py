@@ -429,8 +429,19 @@ class BatchTessellator:
         if params is None:
             params = RenderParams()
 
+        # Welds compose in alongside structural objects: Part._welds
+        # is intentionally a separate container (IFC/FEM/GXML writers
+        # can't process welds), so the GLB path is the one place we
+        # explicitly add them via Part.get_all_welds().
+        from itertools import chain as _chain
+
+        objects_iter = _chain(
+            part.get_all_physical_objects(pipe_to_segments=True, filter_by_guids=params.filter_by_guids),
+            part.get_all_welds(),
+        )
+
         shapes_tess_iter = self.batch_tessellate(
-            objects=part.get_all_physical_objects(pipe_to_segments=True, filter_by_guids=params.filter_by_guids),
+            objects=objects_iter,
             render_override=params.render_override,
             graph_store=graph,
         )
