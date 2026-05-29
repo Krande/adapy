@@ -26,6 +26,8 @@ import {
 import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
 import {useComponentSpecsStore} from "@/state/componentSpecsStore";
 import {overlay_file_in_scene} from "@/utils/scene/handlers/overlay_file_in_scene";
+import {unload_source_from_scene} from "@/utils/scene/handlers/unload_source_from_scene";
+import {useModelState} from "@/state/modelState";
 
 // Specs are fetched centrally by componentSpecsStore (re-fetches on
 // scope change, drives Menu button visibility). Builds always run in
@@ -59,11 +61,25 @@ const ComponentControls: React.FC = () => {
     // `component_info` extension lands on the loaded group's
     // `userData.__adaExt` automatically — future selection panels can
     // read it from there without an extra round-trip.
+    //
+    // Drop any previously-loaded component overlays first: clicking
+    // Build with new inputs (or a different spec) should REPLACE the
+    // displayed component, not stack a new one on top of the old.
+    // overlay_file_in_scene only de-dupes by sourceName, so a
+    // sibling spec build under a different name would otherwise
+    // remain visible. Walk every loadedSourceName with the
+    // ``component:`` prefix and detach.
     useEffect(() => {
         if (!job || job.status !== "done" || !job.derivedKey) return;
         if (loadedKeyRef.current === job.derivedKey) return;
         loadedKeyRef.current = job.derivedKey;
         const sourceName = `component:${job.specName}`;
+        const loaded = useModelState.getState().loadedSourceNames;
+        for (const name of loaded) {
+            if (name.startsWith("component:")) {
+                unload_source_from_scene(name);
+            }
+        }
         void overlay_file_in_scene(sourceName, job.derivedKey).catch((err) => {
             console.error("component overlay failed", err);
         });
