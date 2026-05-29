@@ -10,7 +10,7 @@ and worker.yaml stay in lockstep when env vars / mounts are added.
 */ -}}
 {{- range $key, $pool := (default (dict) .Values.extraWorkers) }}
 {{- if $pool.enabled }}
-{{- include "adapy-viewer.workerDeployment" (dict
+{{ include "adapy-viewer.workerDeployment" (dict
     "ctx"        $
     "w"          $pool
     "name"       (printf "%s-%s" (include "adapy-viewer.workerFullname" $) $key)
