@@ -33,6 +33,7 @@ function derivedKeyForGlb(sourceKey: string): string {
 export async function overlay_file_in_scene(
     sourceName: string,
     explicitDerivedKey?: string,
+    opts?: {scope?: string},
 ): Promise<void> {
     if (!runtime.isRestMode()) {
         // Overlay path is REST-only — desktop mode opens external apps,
@@ -41,7 +42,12 @@ export async function overlay_file_in_scene(
         return;
     }
 
-    const scope = scopeUrlPart(useScopeStore.getState().current);
+    // ``opts.scope`` overrides the current-scope default for cross-
+    // scope overlays — used by the component-preview panel which
+    // fetches GLBs from whichever scope the spec was published in
+    // (typically a project scope) regardless of which scope the user
+    // is currently browsing.
+    const scope = opts?.scope ?? scopeUrlPart(useScopeStore.getState().current);
 
     // Caller (the /convert page's "View in 3D" link) can hand us the
     // exact derived-blob key it just produced. Use it verbatim and

@@ -111,6 +111,37 @@ const ComponentControls: React.FC = () => {
         }
         const entry = specs?.specs[name];
         selectSpec(name, (entry?.defaults as ComponentInputs | undefined) ?? null);
+        // Auto-load the bake's default preview GLB so the user sees
+        // the connection immediately on selection. The bake's
+        // ``preview_url`` is ``/api/scopes/<scope>/blobs/<key>``; the
+        // blob-key portion is what overlay_file_in_scene wants, and
+        // the scope override targets whichever scope the spec was
+        // published in (often a project scope different from the
+        // user's currently-active scope). Replaces the broken
+        // "default preview" link that opened a raw bearer-less URL.
+        const previewKey = entry?.preview_url?.match(/\/blobs\/(.+)$/)?.[1];
+        if (previewKey && entry?.scope) {
+            // Drop any prior component overlay first (different spec
+            // means different component:<name> source key; without
+            // this the previous one stays in the scene).
+            const loaded = useModelState.getState().loadedSourceNames;
+            for (const src of loaded) {
+                if (src.startsWith("component:")) {
+                    unload_source_from_scene(src);
+                }
+            }
+            // Reset the loadedKeyRef so the on-build-done effect
+            // doesn't skip a subsequent Build (it dedupes by
+            // derivedKey).
+            loadedKeyRef.current = null;
+            void overlay_file_in_scene(
+                `component:${name}`,
+                previewKey,
+                {scope: entry.scope},
+            ).catch((err) => {
+                console.warn("component default-preview overlay failed", err);
+            });
+        }
     };
 
     const handleBuild = async () => {
@@ -193,16 +224,6 @@ const ComponentControls: React.FC = () => {
                         >
                             {submitting ? "Building..." : "Build"}
                         </button>
-                        {selectedEntry.preview_url && (
-                            <a
-                                href={selectedEntry.preview_url}
-                                className="text-blue-300 hover:underline ml-auto"
-                                target="_blank"
-                                rel="noreferrer"
-                            >
-                                default preview
-                            </a>
-                        )}
                     </div>
                     {job && <JobStatus job={job} />}
                 </>
