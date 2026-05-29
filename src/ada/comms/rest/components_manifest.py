@@ -101,22 +101,36 @@ def expose_manifest(
     The bake's manifest carries ``preview_glb`` as a bare filename
     (sibling of manifest.json). Convert that to a viewer-side URL the
     frontend can ``<img>``/``fetch`` directly.
+
+    The bake's top-level ``capability`` (the worker pool that knows
+    how to build these specs) is forwarded onto each spec entry so the
+    frontend / build endpoint can route the produce-build job to the
+    right worker. Falls back to None when the manifest doesn't declare
+    one (legacy bakes) — the build endpoint treats that as "let the
+    default-pool router pick".
     """
     base = (
         f"/api/scopes/{_scope_url_segment(scope)}/blobs/"
         f"versions/{resolved.branch}/{resolved.commit}/"
     )
+    manifest_capability = resolved.body.get("capability")
     out_specs: dict[str, dict] = {}
     for name, entry in (resolved.body.get("specs") or {}).items():
         spec_entry = dict(entry)
         preview_filename = spec_entry.get("preview_glb")
         if preview_filename:
             spec_entry["preview_url"] = base + preview_filename
+        # Per-spec override wins (lets a single project ship specs
+        # handled by different worker pools), top-level fallback
+        # applies otherwise.
+        if "capability" not in spec_entry and manifest_capability is not None:
+            spec_entry["capability"] = manifest_capability
         out_specs[name] = spec_entry
 
     return {
         "branch": resolved.branch,
         "commit": resolved.commit,
         "manifest_key": resolved.manifest_key,
+        "capability": manifest_capability,
         "specs": out_specs,
     }

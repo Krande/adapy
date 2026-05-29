@@ -104,6 +104,11 @@ export interface ComponentSpecManifestEntry {
      *  dropdown can group specs by their lineage. May be absent on
      *  legacy entries published before the field was added. */
     branch?: string;
+    /** Worker capability tag responsible for building this spec. The
+     *  build POST forwards it verbatim so the backend can route the
+     *  job to the matching worker pool. Absent on legacy manifests —
+     *  backend then re-resolves it from the manifest top-level. */
+    capability?: string;
     schema: ComponentSpecSchema;
     defaults: Record<string, Record<string, unknown>>;
     preview_url: string;
@@ -139,6 +144,12 @@ export interface ComponentBuildPayload {
     inputs: Record<string, Record<string, unknown>>;
     /** Optional override for the produced Connection's name. */
     name?: string;
+    /** Worker capability tag that should handle this build — usually
+     *  the manifest's top-level ``capability`` forwarded verbatim from
+     *  the spec entry. When omitted, the backend re-resolves the
+     *  scope's manifest to fill it in (built-in adapy specs use the
+     *  default pool). */
+    capability?: string;
     /** Forwarded to the handler as kwargs. Used by callers that need
      *  to pass handler-specific context (e.g. clash data) from a
      *  downstream consumer. */

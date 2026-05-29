@@ -857,6 +857,21 @@ async def _run() -> None:
     queue = JobQueue(settings.queue)
     await queue.connect()
 
+    # Optional importer hook: capability workers built FROM the base
+    # image often need to populate the connection-spec registry (or
+    # any other adapy import-side-effect registry) with project-
+    # specific entries that adapy core doesn't know about. ADA_WORKER_PRELOAD
+    # is a comma-separated list of dotted module paths to importlib.import
+    # before the worker subscribes to the queue. Errors abort startup
+    # — preload failure on a worker that exists *because* of those
+    # imports should be loud, not silently degrade to "queued forever".
+    preload_env = os.environ.get("ADA_WORKER_PRELOAD", "").strip()
+    if preload_env:
+        import importlib as _importlib
+        for mod_name in (m.strip() for m in preload_env.split(",") if m.strip()):
+            logger.info("worker: preloading %s", mod_name)
+            _importlib.import_module(mod_name)
+
     # Self-identify so the viewer's /api/config + /api/admin/workers
     # can surface this worker. Two artefacts:
     #

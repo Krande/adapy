@@ -102,7 +102,15 @@ const ComponentControls: React.FC = () => {
         setSubmitting(true);
         try {
             await buildComponentViaServer(
-                {spec_name: selectedSpecName, inputs},
+                {
+                    spec_name: selectedSpecName,
+                    inputs,
+                    // Route to the worker pool the bake declared in its
+                    // manifest top-level capability. Undefined means
+                    // "use the default pool" which only works for specs
+                    // registered in the base worker (built-in adapy).
+                    capability: selectedEntry?.capability,
+                },
                 {scope: scopeUrlPart(currentScope)},
             );
         } catch (err) {

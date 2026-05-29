@@ -1547,6 +1547,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         source_key = f"_synthetic/component_build/{spec_name}/{inputs_hash}"
         derived_key = f"_derived/component_builds/{spec_name}/{inputs_hash}.glb"
 
+        # Capability resolution: caller-supplied wins (frontend forwards
+        # the manifest's ``capability`` from the spec entry). Otherwise
+        # re-resolve the manifest in this scope and use its top-level
+        # capability so the right worker pool picks the job up. Falls
+        # back to the default pool when the manifest doesn't declare one
+        # (the spec must then be registered on the base worker — built-in
+        # adapy specs).
+        target_capability = body.get("capability")
+        if not isinstance(target_capability, str) or not target_capability.strip():
+            target_capability = None
+            resolved = await resolve_latest_manifest(storage, scope_obj, branch=None)
+            if resolved is not None:
+                manifest_cap = resolved.body.get("capability")
+                if isinstance(manifest_cap, str) and manifest_cap.strip():
+                    target_capability = manifest_cap.strip().lower()
+
         job = await queue.enqueue(
             source_key,
             target_format="component_build",
@@ -1559,7 +1575,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "extra_handler_kwargs": extra_kwargs,
             },
             derived_key=derived_key,
-            target_capability="base",
+            target_capability=target_capability,
         )
         return JSONResponse({"job_id": job.job_id, "derived_key": derived_key})
 
