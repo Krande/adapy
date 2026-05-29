@@ -251,7 +251,13 @@ class JobQueue:
             # show "audit-dispatched to abaqus" without a second
             # registry lookup.
             job.target_capability = target_capability
-            await self._put(job)
+        # Always persist before publishing so the worker (and the
+        # /api/convert/{job_id} status endpoint) can read the job
+        # record back from KV. Previously this _put only ran in the
+        # auto-routing branch — explicit target_capability callers
+        # (component_build) lost the record and the worker saw the
+        # job_id from NATS but couldn't look it up.
+        await self._put(job)
         cap = (target_capability or self.DEFAULT_CAPABILITY).strip().lower()
         subject = f"{self._cfg.subject}.{cap}"
         await self._js.publish(subject, job.job_id.encode("utf-8"))
