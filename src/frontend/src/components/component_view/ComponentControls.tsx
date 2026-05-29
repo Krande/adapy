@@ -57,10 +57,11 @@ const ComponentControls: React.FC = () => {
 
     // On build completion, overlay the produced GLB into the scene.
     // overlay_file_in_scene fetches the blob via authedFetch and routes
-    // through the existing setupModelLoaderAsync path, so the new
-    // `component_info` extension lands on the loaded group's
-    // `userData.__adaExt` automatically — future selection panels can
-    // read it from there without an extra round-trip.
+    // through the existing setupModelLoaderAsync path. Spec lineage
+    // (spec_name, spec_inputs) lives in the bake's sibling
+    // manifest.json — the panel reads it from componentSpecsStore
+    // directly; the GLB no longer carries a duplicate copy in its
+    // ADA extension.
     //
     // Drop any previously-loaded component overlays first: clicking
     // Build with new inputs (or a different spec) should REPLACE the

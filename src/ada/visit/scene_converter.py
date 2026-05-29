@@ -126,28 +126,17 @@ class SceneConverter:
         if is_part:
             self.ada_ext.assembly_guid = self.source.get_assembly().guid
 
-        # Connection-component lineage: when the GLB represents a single
-        # Connection built from a registered ConnectionSpec, stamp the
-        # spec name + inputs so the viewer can show the build context and
-        # bind the "rebuild with different params" UI back to the
-        # registry. spec_name is the discriminator — a plain Connection
-        # without it doesn't get a component_info block.
-        spec_name = getattr(self.source, "spec_name", None)
-        if is_part and spec_name:
-            from ada.extension.design_and_analysis_extension_schema import ComponentInfo
-
-            member_groups: dict[str, list[str]] = {}
-            for beam in self.source.beams:
-                if beam.name and beam.name.startswith("sample_"):
-                    role = beam.name[len("sample_"):]
-                    member_groups.setdefault(role, []).append(beam.name)
-
-            self.ada_ext.component_info = ComponentInfo(
-                type="connection",
-                spec_name=spec_name,
-                spec_inputs=getattr(self.source, "spec_inputs", None),
-                member_groups=member_groups or None,
-            )
+        # Connection-component lineage (spec_name, spec_inputs,
+        # member roles) is intentionally NOT written into the GLB
+        # extension here — the bake's manifest.json (sibling to the
+        # GLB) is the source of truth for those fields, and the
+        # extension would just duplicate them per-GLB with no link
+        # to mesh content. The viewer fetches manifest.json once and
+        # joins by spec name. For real-model connection grouping
+        # (which mesh nodes belong to which Connection part), the
+        # design extension's per-part DesignDataExtension already
+        # carries that — Connection's Part subtree gets the same
+        # treatment as any other Part.
 
         # The extension is dumped from ``self.ada_ext`` inside
         # ``tree_postprocessor`` (after ``buffer_postprocessor`` has
