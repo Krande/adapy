@@ -153,6 +153,20 @@ class AdacppBackend:
                 _axis(p.axis, (0, 0, 1)), _axis(p.ref_direction, (1, 0, 0)),
                 self._xyz(g.axis.location), _axis(g.axis.axis, (0, 0, 1)), float(g.angle), is_area,
             )
+        elif isinstance(g, so.FixedReferenceSweptAreaSolid):
+            area = g.swept_area
+            if not isinstance(area, su.ArbitraryProfileDef):
+                raise NotImplementedError(
+                    f"AdacppBackend.build: FixedReferenceSweptAreaSolid swept_area "
+                    f"{type(area).__name__!r} not yet ported to adacpp."
+                )
+            # MakePipeShell sweeps the profile *wire* (already positioned in 3D
+            # at the directrix start) along the directrix spine.
+            directrix = self._encode_curve(g.directrix)
+            outer = self._encode_curve(area.outer_curve)
+            shape = self._cad.build_fixed_reference_swept_area_solid(
+                directrix, outer, self._xyz(g.position.location),
+            )
         elif isinstance(g, su.CurveBoundedPlane):
             import ada.geom.curves as cu
 
