@@ -124,17 +124,34 @@ class AdacppBackend:
             shape = self._cad.build_cone(list(p.location), _axis(p.axis, (0, 0, 1)), g.bottom_radius, g.height)
         elif isinstance(g, so.ExtrudedAreaSolid):
             area = g.swept_area
-            if not isinstance(area, su.ArbitraryProfileDef) or area.profile_type != su.ProfileType.AREA:
+            if not isinstance(area, su.ArbitraryProfileDef):
                 raise NotImplementedError(
                     f"AdacppBackend.build: ExtrudedAreaSolid swept_area {type(area).__name__!r} "
-                    f"({getattr(area, 'profile_type', None)}) not yet ported to adacpp."
+                    f"not yet ported to adacpp."
                 )
+            is_area = area.profile_type == su.ProfileType.AREA
             outer = self._encode_curve(area.outer_curve)
             inners = [self._encode_curve(c) for c in area.inner_curves]
             p = g.position
             shape = self._cad.build_extruded_area_solid(
                 outer, inners, self._xyz(p.location),
-                _axis(p.axis, (0, 0, 1)), _axis(p.ref_direction, (1, 0, 0)), g.depth,
+                _axis(p.axis, (0, 0, 1)), _axis(p.ref_direction, (1, 0, 0)), g.depth, is_area,
+            )
+        elif isinstance(g, so.RevolvedAreaSolid):
+            area = g.swept_area
+            if not isinstance(area, su.ArbitraryProfileDef):
+                raise NotImplementedError(
+                    f"AdacppBackend.build: RevolvedAreaSolid swept_area {type(area).__name__!r} "
+                    f"not yet ported to adacpp."
+                )
+            is_area = area.profile_type == su.ProfileType.AREA
+            outer = self._encode_curve(area.outer_curve)
+            inners = [self._encode_curve(c) for c in area.inner_curves]
+            p = g.position
+            shape = self._cad.build_revolved_area_solid(
+                outer, inners, self._xyz(p.location),
+                _axis(p.axis, (0, 0, 1)), _axis(p.ref_direction, (1, 0, 0)),
+                self._xyz(g.axis.location), _axis(g.axis.axis, (0, 0, 1)), float(g.angle), is_area,
             )
         elif isinstance(g, su.CurveBoundedPlane):
             import ada.geom.curves as cu
