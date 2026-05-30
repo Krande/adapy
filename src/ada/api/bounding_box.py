@@ -100,14 +100,21 @@ class BoundingBox:
         """
         from ada.cad import active_backend
 
+        backend = active_backend()
+
         # Use the bare face (no extrusion) so the bbox isn't padded by
         # the prism thickness on whichever axis the normal points.
         # solid_occ returns the face for the raw-OCC path and the
         # AdvancedFace→OCC for the Geometry-backed path. optimal=False +
         # use_mesh reproduces the prior brepbndlib.Add(face, bbox) exactly.
-        xmin, ymin, zmin, xmax, ymax, zmax = active_backend().bbox(
-            self.parent.solid_occ(), optimal=False, use_mesh=True
-        )
+        shape = self.parent.solid_occ()
+        # PlateCurved wraps a face produced externally by OCC (loft tool /
+        # gxml AdvancedFace import). Under a non-OCC backend that raw OCC face
+        # isn't a native handle yet — adopt it across the kernel boundary
+        # (same OCCT version → safe) before querying the backend.
+        if not backend.is_handle(shape):
+            shape = backend.adopt_occ_shape(shape)
+        xmin, ymin, zmin, xmax, ymax, zmax = backend.bbox(shape, optimal=False, use_mesh=True)
         return (xmin, ymin, zmin), (xmax, ymax, zmax)
 
     def _calc_bbox_of_plate(self) -> tuple[tuple, tuple]:

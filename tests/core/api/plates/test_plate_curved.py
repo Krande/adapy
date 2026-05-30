@@ -189,10 +189,11 @@ def test_surface_renders_as_face_not_extruded_prism():
     occ_shape = surf.solid_occ()
     assert occ_shape is not None
     # The shape should be a face (or compound with a face), not a
-    # zero-volume prism. We just check it's not the placeholder None.
-    from OCC.Core.TopAbs import TopAbs_FACE
-    from OCC.Core.TopExp import TopExp_Explorer
-    assert TopExp_Explorer(occ_shape, TopAbs_FACE).More()
+    # zero-volume prism. Introspect via the active CAD backend so this
+    # holds under either backend (pythonocc or adacpp).
+    from ada.cad import active_backend
+
+    assert len(active_backend().faces(occ_shape)) >= 1
 
 
 def test_surface_curved_inherits_plate_curved_handling():
