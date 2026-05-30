@@ -105,11 +105,14 @@ ifcopenshell = "*"
 # novtk: default occt builds link VTK + X libs we don't render through.
 # pythonocc-core build string must match occt's or the solver picks the
 # vtk-enabled occt.
-pythonocc-core = { version = "*", build = "novtk_*" }
+# Pinned to 7.9.3 to share the exact OCCT version with adacpp (which links
+# OCCT statically) — identical TopoDS ABI makes the from_topods_pointer
+# bridge between the two backends safe. See dap plan/v3 Phase 7.
+pythonocc-core = { version = "7.9.3.*", build = "novtk_*" }
 python-gmsh = "*"
 pyquaternion = "*"
 trimesh = "*"
-occt = { version = "*", build = "novtk_*" }
+occt = { version = "7.9.3.*", build = "novtk_*" }
 websockets = ">=14"
 pyparsing = "*"
 flatbuffers = "*"
