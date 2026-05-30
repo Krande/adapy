@@ -82,6 +82,18 @@ def tessellate_advanced_face(face: TopoDS_Shape, linear_deflection=0.1, angular_
 
 
 def tessellate_shape(shape: TopoDS_Shape, quality=1.0, render_edges=False, parallel=True) -> TriangleMesh:
+    # Backend dispatch: a pythonocc TopoDS uses the rich ShapeTesselator
+    # (normals + edges). Any other handle (e.g. an adacpp ShapeHandle) is
+    # tessellated through the active backend's tessellate verb (adacpp's native
+    # ShapeTesselator port) and adapted to a TriangleMesh with computed normals.
+    if not isinstance(shape, TopoDS_Shape):
+        from ada.cad import active_backend
+
+        mesh = active_backend().tessellate(shape)
+        positions = np.ascontiguousarray(mesh.positions, dtype="float32")
+        faces = np.ascontiguousarray(mesh.indices, dtype="uint32")
+        return TriangleMesh(positions, faces, None, _vertex_normals(positions, faces))
+
     # first, compute the tesselation
     try:
         tess = ShapeTesselator(shape)
@@ -161,7 +173,7 @@ class BatchTessellator:
             tess_shape = tessellate_edges(occ_geom)
             indices = tess_shape.indices
         else:
-            tess_shape = self._triangulate(occ_geom)
+            tess_shape = tessellate_shape(occ_geom, self.quality, self.render_edges, self.parallel)
             indices = tess_shape.faces
 
         mat_id = self.material_store.get(geom_color, None)
@@ -179,26 +191,6 @@ class BatchTessellator:
             mesh_type,
             geom_ref,
         )
-
-    def _triangulate(self, occ_geom) -> TriangleMesh:
-        """Triangle-mesh a body. pythonocc TopoDS handles use the rich
-        ShapeTesselator (normals + edges). Any other handle (e.g. an adacpp
-        ShapeHandle) is tessellated through the active backend's tessellate
-        verb and adapted to a TriangleMesh — keeping the tessellation path
-        backend-independent. Normals are computed from the triangles since the
-        lean backend Mesh carries only positions + indices."""
-        from OCC.Core.TopoDS import TopoDS_Shape
-
-        if isinstance(occ_geom, TopoDS_Shape):
-            return tessellate_shape(occ_geom, self.quality, self.render_edges, self.parallel)
-
-        from ada.cad import active_backend
-
-        mesh = active_backend().tessellate(occ_geom)
-        positions = np.ascontiguousarray(mesh.positions, dtype="float32")
-        faces = np.ascontiguousarray(mesh.indices, dtype="uint32")
-        normals = _vertex_normals(positions, faces)
-        return TriangleMesh(positions, faces, None, normals)
 
     def tessellate_geom(
         self,

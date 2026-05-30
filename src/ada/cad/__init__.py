@@ -93,6 +93,7 @@ class AdacppBackend:
         # NotImplementedError rather than borrowing pythonocc. End goal: full
         # parity with OccBackend. See dap plan/v3 Phase 7.
         import ada.geom.solids as so
+        import ada.geom.surfaces as su
 
         g = geometry.geometry
 
@@ -114,8 +115,6 @@ class AdacppBackend:
             p = g.position
             shape = self._cad.build_cone(list(p.location), _axis(p.axis, (0, 0, 1)), g.bottom_radius, g.height)
         elif isinstance(g, so.ExtrudedAreaSolid):
-            import ada.geom.surfaces as su
-
             area = g.swept_area
             if not isinstance(area, su.ArbitraryProfileDef) or area.profile_type != su.ProfileType.AREA:
                 raise NotImplementedError(
@@ -128,6 +127,21 @@ class AdacppBackend:
             shape = self._cad.build_extruded_area_solid(
                 outer, inners, self._xyz(p.location),
                 _axis(p.axis, (0, 0, 1)), _axis(p.ref_direction, (1, 0, 0)), g.depth,
+            )
+        elif isinstance(g, su.CurveBoundedPlane):
+            import ada.geom.curves as cu
+
+            if not isinstance(g.outer_boundary, cu.IndexedPolyCurve):
+                raise NotImplementedError(
+                    f"AdacppBackend.build: CurveBoundedPlane outer_boundary "
+                    f"{type(g.outer_boundary).__name__!r} not yet ported to adacpp."
+                )
+            outer = self._encode_curve(g.outer_boundary)
+            inners = [self._encode_curve(c) for c in g.inner_boundaries]
+            pos = g.basis_surface.position
+            shape = self._cad.build_planar_face(
+                outer, inners, self._xyz(pos.location),
+                _axis(pos.axis, (0, 0, 1)), _axis(pos.ref_direction, (1, 0, 0)),
             )
         else:
             raise NotImplementedError(
