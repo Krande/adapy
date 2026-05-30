@@ -1256,9 +1256,10 @@ class Part(BackendGeom):
         ] = None,
         geom_repr_override: dict[str, GeomRepr] = None,
     ):
+        from ada.cad.doc import active_doc_backend
         from ada.occ.store import OCCStore
 
-        step_writer = OCCStore.get_step_writer()
+        step_writer = active_doc_backend().step_writer()
 
         num_shapes = len(list(self.get_all_physical_objects()))
         shape_iter = OCCStore.shape_iterator(self, geom_repr=geom_repr, render_override=geom_repr_override)

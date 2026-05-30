@@ -145,9 +145,9 @@ class BackendGeom(Root):
         a.to_fem(name, fem_format, **kwargs)
 
     def to_stp(self, destination_file, geom_repr: GeomRepr = GeomRepr.SOLID, progress_callback: Callable = None):
-        from ada.occ.store import OCCStore
+        from ada.cad.doc import active_doc_backend
 
-        step_writer = OCCStore.get_step_writer()
+        step_writer = active_doc_backend().step_writer()
         step_writer.add_shape(self.solid_occ(), self.name, rgb_color=self.color.rgb)
         step_writer.export(destination_file)
 

@@ -8,8 +8,8 @@ from ifcopenshell import ifcopenshell_wrapper
 import ada
 from ada.base.units import Units
 from ada.cadit.ifc.utils import add_colour, create_local_placement
+from ada.cad.doc import active_doc_backend
 from ada.cadit.ifc.write.write_ifc import IfcWriter
-from ada.cadit.step.store import StepStore
 from ada.config import logger
 from ada.core.guid import create_guid
 from ada.occ.serializers import serialize_shape
@@ -40,7 +40,7 @@ def step_file_to_ifc_file(
     shape_placement = create_local_placement(f)
     relating_elements = []
 
-    step = StepStore(step_file)
+    step = active_doc_backend().step_reader(step_file)
     num_serialized = 0
     num_tesselated = 0
 
