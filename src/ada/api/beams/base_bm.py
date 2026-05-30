@@ -25,10 +25,9 @@ from ada.sections import Section
 from ada.sections.string_to_section import interpret_section_str
 
 if TYPE_CHECKING:
-    from OCC.Core.TopoDS import TopoDS_Shape
-
     from ada import Plate
     from ada.api.beams.helpers import BeamConnectionProps
+    from ada.cad import ShapeHandle
 
 
 section_counter = Counter(1)
@@ -315,12 +314,12 @@ class Beam(BackendGeom):
 
         return make_wire_from_points(points)
 
-    def shell_occ(self) -> TopoDS_Shape:
+    def shell_occ(self) -> ShapeHandle:
         from ada.occ.geom.cache import get_shell_occ
 
         return get_shell_occ(self)
 
-    def solid_occ(self) -> TopoDS_Shape:
+    def solid_occ(self) -> ShapeHandle:
         from ada.occ.geom.cache import get_solid_occ
 
         return get_solid_occ(self)

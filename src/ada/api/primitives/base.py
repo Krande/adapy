@@ -15,8 +15,8 @@ from ada.materials.utils import get_material
 
 if TYPE_CHECKING:
     import trimesh
-    from OCC.Core.TopoDS import TopoDS_Shape
 
+    from ada.cad import ShapeHandle
     from ada.cadit.ifc.store import IfcStore
 
 
@@ -128,7 +128,7 @@ class Shape(BackendGeom):
 
         return shape_to_tri_mesh(self.solid_occ())
 
-    def solid_occ(self) -> TopoDS_Shape:
+    def solid_occ(self) -> ShapeHandle:
         # STEP/SAT-imported shapes hold the OCC body in the
         # transient per-instance ``_occ_cache`` slot — no parametric
         # primitive to round-trip through, the OCC body is the source

@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import numpy as np
-from OCC.Core.TopoDS import TopoDS_Shape
 
 from ada.api.primitives.base import Shape
 from ada.base.units import Units
+from ada.cad import ShapeHandle
 from ada.geom import Geometry
 from ada.geom.booleans import BooleanOperation
 
@@ -32,7 +32,7 @@ class PrimCone(Shape):
             self.r = self.r * scale_factor
             self._units = value
 
-    def solid_occ(self) -> TopoDS_Shape:
+    def solid_occ(self) -> ShapeHandle:
         from ada.occ.geom.cache import get_solid_occ
 
         return get_solid_occ(self)

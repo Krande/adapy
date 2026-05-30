@@ -2,10 +2,9 @@ from __future__ import annotations
 
 from typing import Iterable
 
-from OCC.Core.TopoDS import TopoDS_Shape
-
 from ada.api.curves import CurvePoly2d
 from ada.api.primitives.base import Shape
+from ada.cad import ShapeHandle
 from ada.core.utils import Counter
 from ada.geom import Geometry
 from ada.geom.direction import Direction
@@ -43,7 +42,7 @@ class BoolHalfSpace(Shape):
     def poly(self) -> CurvePoly2d:
         return self._poly
 
-    def solid_occ(self) -> TopoDS_Shape:
+    def solid_occ(self) -> ShapeHandle:
         from ada.occ.geom import geom_to_occ_geom
 
         return geom_to_occ_geom(self.solid_geom())

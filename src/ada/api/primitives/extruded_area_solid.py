@@ -3,11 +3,11 @@ from __future__ import annotations
 from typing import Iterable
 
 import numpy as np
-from OCC.Core.TopoDS import TopoDS_Shape
 
 from ada.api.curves import CurvePoly2d
 from ada.api.primitives.base import Shape
 from ada.base.units import Units
+from ada.cad import ShapeHandle
 from ada.config import Config
 from ada.core.vector_utils import unit_vector, vector_length
 from ada.geom import Geometry
@@ -62,7 +62,7 @@ class PrimExtrude(Shape):
     def extrude_depth(self):
         return self._extrude_depth
 
-    def solid_occ(self) -> TopoDS_Shape:
+    def solid_occ(self) -> ShapeHandle:
         from ada.occ.geom.cache import get_solid_occ
 
         return get_solid_occ(self)

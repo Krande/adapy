@@ -15,15 +15,8 @@ from ada.visit.colors import Color, color_dict
 from ada.visit.config import ExportConfig
 
 if TYPE_CHECKING:
-    from OCC.Core.TopoDS import (
-        TopoDS_Compound,
-        TopoDS_Face,
-        TopoDS_Shell,
-        TopoDS_Solid,
-        TopoDS_Wire,
-    )
-
     from ada import FEM, Boolean, BoolHalfSpace, Point
+    from ada.cad import ShapeHandle
     from ada.cadit.ifc.store import IfcStore
     from ada.fem import Elem
     from ada.fem.meshing import GmshOptions
@@ -275,14 +268,41 @@ class BackendGeom(Root):
 
         return JUPYTER_GEOM_RENDERER(self)
 
-    def solid_occ(self) -> TopoDS_Solid | TopoDS_Compound:
+    def solid_occ(self) -> ShapeHandle:
+        """Solid body for this object as an opaque CAD :class:`ShapeHandle`.
+
+        The handle is the cross-subsystem lingua franca (tessellation, IFC,
+        clash, bbox, FEM all consume it). Treat it as opaque — its concrete
+        type is backend-private (a ``TopoDS_Solid``/``TopoDS_Compound`` under
+        the default OCC backend). Operate on it via the CAD backend verbs,
+        not by importing kernel types. See dap plan/v3
+        notes_occ_backend_abstraction (Phase 2)."""
         raise NotImplementedError()
 
-    def shell_occ(self) -> TopoDS_Shell | TopoDS_Face:
+    def shell_occ(self) -> ShapeHandle:
+        """Shell/face body as an opaque CAD :class:`ShapeHandle` (see
+        :meth:`solid_occ` for the handle contract)."""
         raise NotImplementedError()
 
-    def line_occ(self) -> TopoDS_Wire:
+    def line_occ(self) -> ShapeHandle:
+        """Wire/edge body as an opaque CAD :class:`ShapeHandle` (see
+        :meth:`solid_occ` for the handle contract)."""
         raise NotImplementedError()
+
+    def shape(self, geom_repr: GeomRepr | str = GeomRepr.SOLID) -> ShapeHandle:
+        """Backend-neutral accessor for this object's CAD body in the given
+        representation — dispatches to :meth:`solid_occ` / :meth:`shell_occ`
+        / :meth:`line_occ`. Prefer this over the ``*_occ`` names in new code:
+        it carries no kernel-specific spelling and returns an opaque
+        :class:`ShapeHandle`."""
+        geom_repr = GeomRepr.from_str(geom_repr) if isinstance(geom_repr, str) else geom_repr
+        if geom_repr == GeomRepr.SOLID:
+            return self.solid_occ()
+        elif geom_repr == GeomRepr.SHELL:
+            return self.shell_occ()
+        elif geom_repr == GeomRepr.LINE:
+            return self.line_occ()
+        raise ValueError(f"Unrecognized geom representation {geom_repr!r}")
 
     def solid_geom(self) -> Geometry:
         raise NotImplementedError(f"solid_geom not implemented for {self.__class__.__name__}")

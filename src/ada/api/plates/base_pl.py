@@ -19,9 +19,10 @@ from ada.materials import Material
 from ada.materials.metals import CarbonSteel
 
 if TYPE_CHECKING:
-    from OCC.Core.TopoDS import TopoDS_Compound, TopoDS_Shape, TopoDS_Solid
+    from OCC.Core.TopoDS import TopoDS_Shape
 
     from ada import Placement
+    from ada.cad import ShapeHandle
 
 _NTYPE: TypeAlias = Union[int, float]
 # Define coordinate types
@@ -127,7 +128,7 @@ class Plate(BackendGeom):
 
         return get_shell_occ(self)
 
-    def solid_occ(self) -> TopoDS_Solid:
+    def solid_occ(self) -> ShapeHandle:
         from ada.occ.geom.cache import get_solid_occ
 
         return get_solid_occ(self)
@@ -487,7 +488,7 @@ class PlateCurved(BackendGeom):
     def solid_geom(self) -> Geometry:
         return self.geom
 
-    def solid_occ(self) -> TopoDS_Shape | TopoDS_Compound:
+    def solid_occ(self) -> ShapeHandle:
         if self._occ_face_override is not None:
             return self._occ_face_override
         from ada.occ.geom import geom_to_occ_geom
@@ -562,7 +563,7 @@ class Surface(Plate):
         poly = CurvePoly2d.from_3d_points(points, xdir=xdir, flip_n=flip_normal, **kwargs)
         return Surface(name, poly, mat=mat, color=color, metadata=metadata, **kwargs)
 
-    def solid_occ(self) -> TopoDS_Shape:
+    def solid_occ(self) -> ShapeHandle:
         # Override the extrusion-based path on Plate; a Surface has no
         # thickness so the "solid" representation is simply the
         # bounded face. Reuses the existing shell builder.
