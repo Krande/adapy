@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING, Iterable, Union
 import numpy as np
 from OCC.Core.Bnd import Bnd_Box
 from OCC.Core.BRep import BRep_Tool
-from OCC.Core.BRepAdaptor import BRepAdaptor_Surface
 from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Cut
 from OCC.Core.BRepBndLib import brepbndlib
 from OCC.Core.BRepBuilderAPI import (
@@ -23,7 +22,6 @@ from OCC.Core.BRepOffsetAPI import BRepOffsetAPI_MakePipe
 from OCC.Core.BRepPrimAPI import BRepPrimAPI_MakeCylinder
 from OCC.Core.ChFi2d import ChFi2d_AnaFilletAlgo
 from OCC.Core.GC import GC_MakeArcOfCircle
-from OCC.Core.GeomAbs import GeomAbs_Plane
 from OCC.Core.gp import (
     gp_Ax1,
     gp_Ax2,
@@ -253,25 +251,13 @@ def divide_edge_by_nr_of_points(edg, n_pts):
 
 
 def get_points_from_occ_shape(occ_shape: TopoDS_Shape | TopoDS_Vertex | TopoDS_Edge | TopoDS_Face):
-    t = TopologyExplorer(occ_shape)
-    points = []
-    for v in t.vertices():
-        apt = BRep_Tool.Pnt(v)
-        points.append((apt.X(), apt.Y(), apt.Z()))
-    return points
+    return active_backend().vertex_points(occ_shape)
 
 
 def get_face_normal(a_face: TopoDS_Face) -> tuple[Point, Direction] | tuple[None, None]:
     """Based on core_geometry_face_recognition_from_stepfile.py in pythonocc-demos"""
-    surf = BRepAdaptor_Surface(a_face, True)
-    surf_type = surf.GetType()
-    if surf_type != GeomAbs_Plane:
-        return None, None
-
-    gp_pln = surf.Plane()
-    location = gp_pln.Location().XYZ().Coord()  # a point of the plane
-    normal = gp_pln.Axis().Direction()  # the plane normal
-    return Point(*location), Direction(normal.X(), normal.Y(), normal.Z())
+    res = active_backend().face_plane(a_face)
+    return res if res is not None else (None, None)
 
 
 @dataclass
@@ -293,8 +279,7 @@ def iter_faces_with_normal(shape, normal, point_in_plane: Iterable | Point = Non
     if point_in_plane is not None:
         eop = EquationOfPlane(point_in_plane, normal)
 
-    t = TopologyExplorer(shape)
-    for face in t.faces():
+    for face in active_backend().faces(shape):
         point, n = get_face_normal(face)
         if n is None:
             continue

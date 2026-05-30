@@ -28,6 +28,8 @@ if TYPE_CHECKING:
 
     from ada.geom import Geometry
     from ada.geom.booleans import BoolOpEnum
+    from ada.geom.direction import Direction
+    from ada.geom.points import Point
 
 
 @runtime_checkable
@@ -65,6 +67,9 @@ class CadBackend(Protocol):
     def distance(self, a: ShapeHandle, b: ShapeHandle) -> float: ...
     def serialize(self, shape: ShapeHandle) -> str: ...
     def is_valid(self, shape: ShapeHandle) -> bool: ...
+    def faces(self, shape: ShapeHandle) -> list[ShapeHandle]: ...
+    def vertex_points(self, shape: ShapeHandle) -> list[tuple[float, float, float]]: ...
+    def face_plane(self, face: ShapeHandle) -> "tuple[Point, Direction] | None": ...
 
 
 class AdacppBackend:
@@ -157,6 +162,24 @@ class AdacppBackend:
             raise NotImplementedError("adacpp.cad.is_valid is not available in this build")
         return fn(shape)
 
+    def faces(self, shape: ShapeHandle) -> list[ShapeHandle]:
+        fn = getattr(self._cad, "faces", None)
+        if fn is None:
+            raise NotImplementedError("adacpp.cad.faces is not available in this build")
+        return list(fn(shape))
+
+    def vertex_points(self, shape: ShapeHandle) -> list[tuple[float, float, float]]:
+        fn = getattr(self._cad, "vertex_points", None)
+        if fn is None:
+            raise NotImplementedError("adacpp.cad.vertex_points is not available in this build")
+        return [tuple(p) for p in fn(shape)]
+
+    def face_plane(self, face: ShapeHandle) -> "tuple[Point, Direction] | None":
+        fn = getattr(self._cad, "face_plane", None)
+        if fn is None:
+            raise NotImplementedError("adacpp.cad.face_plane is not available in this build")
+        return fn(face)
+
     def from_topods_pointer(self, ptr: int) -> ShapeHandle:
         """Wrap an OCCT TopoDS_Shape addressed by a raw pointer.
         Native-only; wasm builds do not expose this — adacpp.cad surface
@@ -184,6 +207,8 @@ class OccBackend:
         # checking `name`) in environments where pythonocc-core isn't
         # installable. Raise on first instantiation if unavailable.
         from OCC.Core.Bnd import Bnd_Box
+        from OCC.Core.BRep import BRep_Tool
+        from OCC.Core.BRepAdaptor import BRepAdaptor_Surface
         from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Common, BRepAlgoAPI_Cut, BRepAlgoAPI_Fuse
         from OCC.Core.BRepBndLib import brepbndlib
         from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_Transform
@@ -191,6 +216,7 @@ class OccBackend:
         from OCC.Core.BRepExtrema import BRepExtrema_DistShapeShape
         from OCC.Core.BRepMesh import BRepMesh_IncrementalMesh
         from OCC.Core.BRepTools import breptools
+        from OCC.Core.GeomAbs import GeomAbs_Plane
         from OCC.Core.IFSelect import IFSelect_RetDone
         from OCC.Core.Message import Message_ProgressRange
         from OCC.Core.RWGltf import RWGltf_CafWriter, RWGltf_WriterTrsfFormat
@@ -201,6 +227,7 @@ class OccBackend:
         from OCC.Core.TColStd import TColStd_IndexedDataMapOfStringString
         from OCC.Core.TDocStd import TDocStd_Document
         from OCC.Core.XCAFDoc import XCAFDoc_DocumentTool
+        from OCC.Extend.TopologyUtils import TopologyExplorer
         from ada.occ.tessellating import tessellate_shape
         from ada.occ.utils import (
             make_box_by_points,
@@ -217,6 +244,10 @@ class OccBackend:
         self._BRepExtrema_DistShapeShape = BRepExtrema_DistShapeShape
         self._BRepMesh_IncrementalMesh = BRepMesh_IncrementalMesh
         self._breptools = breptools
+        self._BRep_Tool = BRep_Tool
+        self._BRepAdaptor_Surface = BRepAdaptor_Surface
+        self._GeomAbs_Plane = GeomAbs_Plane
+        self._TopologyExplorer = TopologyExplorer
         self._IFSelect_RetDone = IFSelect_RetDone
         self._Message_ProgressRange = Message_ProgressRange
         self._RWGltf_CafWriter = RWGltf_CafWriter
@@ -308,6 +339,37 @@ class OccBackend:
         # Topological validity (BRepCheck). geom_props=True checks geometric
         # consistency too.
         return self._BRepCheck_Analyzer(shape, True).IsValid()
+
+    def faces(self, shape: ShapeHandle) -> list[ShapeHandle]:
+        # Whole list of face sub-shapes — the boundary crosses once, not per
+        # face, so callers iterate without re-entering the backend per element.
+        return list(self._TopologyExplorer(shape).faces())
+
+    def vertex_points(self, shape: ShapeHandle) -> list[tuple[float, float, float]]:
+        # Walk every vertex and return all coordinates as one list. The
+        # per-vertex loop stays inside the backend (the abstraction boundary
+        # must never land inside a per-vertex loop — see the perf guardrail in
+        # dap plan/v3 notes_occ_backend_abstraction Phase 1/5).
+        exp = self._TopologyExplorer(shape)
+        pts = []
+        for v in exp.vertices():
+            p = self._BRep_Tool.Pnt(v)
+            pts.append((p.X(), p.Y(), p.Z()))
+        return pts
+
+    def face_plane(self, face: ShapeHandle) -> "tuple[Point, Direction] | None":
+        # The face's plane as (origin Point, normal Direction), or None if the
+        # face is not planar. Returns backend-neutral ada.geom data.
+        from ada.geom.direction import Direction
+        from ada.geom.points import Point
+
+        surf = self._BRepAdaptor_Surface(face, True)
+        if surf.GetType() != self._GeomAbs_Plane:
+            return None
+        pln = surf.Plane()
+        location = pln.Location().XYZ().Coord()
+        normal = pln.Axis().Direction()
+        return Point(*location), Direction(normal.X(), normal.Y(), normal.Z())
 
     def read_step_bytes(self, data: bytes) -> ShapeHandle:
         # pythonocc-core's STEPControl_Reader reads from filenames only, so

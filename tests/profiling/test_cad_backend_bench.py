@@ -93,6 +93,14 @@ def test_bench_solid_occ_cache_build(benchmark):
     assert all(s is not None for s in solids)
 
 
+# Each timed cache-hit sample repeats the full lookup pass this many times.
+# A single pass over the objects is only ~50 us — too small to hold a 10%
+# regression gate under OS scheduling jitter (it flaked 2-in-3). Repeating it
+# lifts each sample into the ms range where fixed jitter is <10% relative, so
+# the gate is meaningful instead of noisy. (Per-lookup cost = mean / passes.)
+_HIT_PASSES = 50
+
+
 @pytest.mark.benchmark(group="cad-backend")
 def test_bench_solid_occ_cache_hit(benchmark):
     """Phase 0 per-access overhead — warm-cache lookups only (the f-string
@@ -104,7 +112,10 @@ def test_bench_solid_occ_cache_hit(benchmark):
         get_solid_occ(o)
 
     def run():
-        return [get_solid_occ(o) for o in objects]
+        solids = None
+        for _ in range(_HIT_PASSES):
+            solids = [get_solid_occ(o) for o in objects]
+        return solids
 
-    solids = benchmark.pedantic(run, rounds=20, iterations=5, warmup_rounds=2)
+    solids = benchmark.pedantic(run, rounds=10, iterations=3, warmup_rounds=2)
     assert len(solids) == N_PER_TYPE * 4
