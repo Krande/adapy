@@ -85,14 +85,44 @@ class AdacppBackend:
         self._cad = cad
 
     def build(self, geometry: "Geometry") -> ShapeHandle:
-        # The full ada.geom.Geometry construction funnel is not ported to
-        # adacpp.cad yet — it currently exposes only primitive constructors
-        # (make_box/cylinder/sphere). Lands in a later phase of the CAD
-        # backend abstraction; until then callers fall back to OccBackend.
-        raise NotImplementedError(
-            "AdacppBackend.build() is not implemented yet — adacpp.cad only "
-            "supports primitive constructors so far."
-        )
+        # Native adacpp construction — NO pythonocc fallback. adacpp and the
+        # pythonocc backend must work independently (adacpp also targets wasm,
+        # where pythonocc does not exist). The ada.geom construction funnel is
+        # being ported to adacpp C++ incrementally; types not yet ported raise
+        # NotImplementedError rather than borrowing pythonocc. End goal: full
+        # parity with OccBackend. See dap plan/v3 Phase 7.
+        import ada.geom.solids as so
+
+        g = geometry.geometry
+
+        def _axis(d, default):
+            return list(d) if d is not None else list(default)
+
+        if isinstance(g, so.Box):
+            p = g.position
+            shape = self._cad.build_box(
+                list(p.location), _axis(p.axis, (0, 0, 1)), _axis(p.ref_direction, (1, 0, 0)),
+                g.x_length, g.y_length, g.z_length,
+            )
+        elif isinstance(g, so.Cylinder):
+            p = g.position
+            shape = self._cad.build_cylinder(list(p.location), _axis(p.axis, (0, 0, 1)), g.radius, g.height)
+        elif isinstance(g, so.Sphere):
+            shape = self._cad.build_sphere(list(g.center), g.radius)
+        elif isinstance(g, so.Cone):
+            p = g.position
+            shape = self._cad.build_cone(list(p.location), _axis(p.axis, (0, 0, 1)), g.bottom_radius, g.height)
+        else:
+            raise NotImplementedError(
+                f"AdacppBackend.build: ada.geom type {type(g).__name__!r} is not yet ported to "
+                "adacpp (no pythonocc fallback by design). Use ADAPY_CAD_BACKEND=occ for it, or "
+                "extend adacpp.cad."
+            )
+
+        # Apply booleans natively (operands built recursively in adacpp).
+        for op in geometry.bool_operations:
+            shape = self.boolean(op.operator, shape, self.build(op.second_operand))
+        return shape
 
     def make_box(self, dx: float, dy: float, dz: float) -> ShapeHandle:
         return self._cad.make_box(dx, dy, dz)
@@ -124,25 +154,25 @@ class AdacppBackend:
     def is_handle(self, obj: Any) -> bool:
         # Recognise an adacpp-native shape so callers can keep handle-type
         # introspection out of their own code (e.g. the tessellator's
-        # raw-import fast path). The wasm/native builds expose the concrete
-        # type as `adacpp.cad.Shape`; if a build omits it we conservatively
-        # report False (an unrecognised value is treated as "not a handle").
-        handle_t = getattr(self._cad, "Shape", None)
+        # raw-import fast path). adacpp.cad exposes the concrete type as
+        # `ShapeHandle`; if a build omits it we conservatively report False.
+        handle_t = getattr(self._cad, "ShapeHandle", None)
         return handle_t is not None and isinstance(obj, handle_t)
 
     def boolean(self, op: "BoolOpEnum", a: ShapeHandle, b: ShapeHandle) -> ShapeHandle:
-        # Lands with the Phase 7 adacpp.cad CSG surface; OccBackend covers
-        # native today.
         fn = getattr(self._cad, "boolean", None)
         if fn is None:
             raise NotImplementedError("adacpp.cad.boolean is not available in this build")
-        return fn(str(op.value), a, b)
+        return fn(op.value, a, b)
 
     def transform(self, shape: ShapeHandle, matrix: "np.ndarray", copy: bool = True) -> ShapeHandle:
         fn = getattr(self._cad, "transform", None)
         if fn is None:
             raise NotImplementedError("adacpp.cad.transform is not available in this build")
-        return fn(shape, matrix, copy)
+        # adacpp.cad.transform takes the top 3 rows of the 4x4 as 12 row-major
+        # doubles (implicit bottom row [0,0,0,1]).
+        m = [float(matrix[i][j]) for i in range(3) for j in range(4)]
+        return fn(shape, m, copy)
 
     def distance(self, a: ShapeHandle, b: ShapeHandle) -> float:
         fn = getattr(self._cad, "distance", None)
@@ -178,7 +208,16 @@ class AdacppBackend:
         fn = getattr(self._cad, "face_plane", None)
         if fn is None:
             raise NotImplementedError("adacpp.cad.face_plane is not available in this build")
-        return fn(face)
+        res = fn(face)
+        if res is None:
+            return None
+        # adacpp returns ((ox,oy,oz),(nx,ny,nz)); wrap into ada.geom types to
+        # match OccBackend.face_plane.
+        from ada.geom.direction import Direction
+        from ada.geom.points import Point
+
+        origin, normal = res
+        return Point(*origin), Direction(*normal)
 
     def from_topods_pointer(self, ptr: int) -> ShapeHandle:
         """Wrap an OCCT TopoDS_Shape addressed by a raw pointer.

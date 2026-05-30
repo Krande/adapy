@@ -11,6 +11,7 @@ from OCC.Core.BRepBuilderAPI import (
     BRepBuilderAPI_MakeEdge2d,
     BRepBuilderAPI_MakeVertex,
 )
+from OCC.Core.BRepCheck import BRepCheck_Analyzer
 from OCC.Core.Geom import Geom_Curve
 from OCC.Core.Geom2d import Geom2d_BSplineCurve
 from OCC.Core.gp import gp_Pnt, gp_Pnt2d
@@ -22,7 +23,6 @@ from OCC.Core.XCAFDoc import XCAFDoc_DocumentTool
 from OCC.Core.XSControl import XSControl_WorkSession
 
 from ada.base.units import Units
-from ada.cad import active_backend
 from ada.config import logger
 from ada.occ.xcaf_utils import set_color, set_name
 from ada.visit.colors import Color
@@ -85,14 +85,17 @@ class StepWriter:
                 logger.warning(f"Skipping NULL shape '{name}' (IsNull == True)")
                 return
 
-            # Validate topology via the CAD backend. If invalid, skip with a warning.
+            # Validate topology with BRepCheck. The STEP/XCAF writer is the
+            # OCC/pythonocc DocBackend implementation — it operates on raw
+            # TopoDS shapes, so it checks with OCC directly, not the active
+            # CAD backend. If invalid, skip with a warning.
             try:
-                if not active_backend().is_valid(shape):
-                    logger.warning(f"Skipping invalid shape '{name}' (is_valid == False)")
+                if not BRepCheck_Analyzer(shape, True).IsValid():
+                    logger.warning(f"Skipping invalid shape '{name}' (BRepCheck_Analyzer.IsValid == False)")
                     return
             except Exception as ex:
-                # If the validity check fails unexpectedly, log and continue without validation
-                logger.debug(f"is_valid check failed for shape '{name}': {ex}")
+                # If BRepCheck fails unexpectedly, log and continue without validation
+                logger.debug(f"BRepCheck_Analyzer failed for shape '{name}': {ex}")
 
             self.comp_builder.Add(self.comp, shape)
         except Exception as ex:

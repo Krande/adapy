@@ -1,17 +1,18 @@
+from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Common, BRepAlgoAPI_Cut, BRepAlgoAPI_Fuse
 from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_MakeFace
 from OCC.Core.BRepPrimAPI import BRepPrimAPI_MakeHalfSpace
 from OCC.Core.gp import gp_Dir, gp_Pln, gp_Pnt
 from OCC.Core.TopoDS import TopoDS_Shape
 
-from ada.cad import active_backend
 from ada.geom.booleans import BooleanOperation, BoolOpEnum
 from ada.geom.surfaces import HalfSpaceSolid, Plane
 
 
 def apply_geom_booleans(geom: TopoDS_Shape, booleans: list[BooleanOperation]) -> TopoDS_Shape:
+    # OCC-internal: part of the pythonocc construction funnel (geom_to_occ_geom),
+    # so it applies booleans with OCC directly rather than the active backend.
     from ada.occ.geom import geom_to_occ_geom
 
-    backend = active_backend()
     for boolean in booleans:
         if isinstance(boolean.second_operand.geometry, HalfSpaceSolid):
             solid_geom = boolean.second_operand.geometry
@@ -39,9 +40,17 @@ def apply_geom_booleans(geom: TopoDS_Shape, booleans: list[BooleanOperation]) ->
             half_space = half_space_maker.Solid()
 
             # Apply the boolean cut operation (half-space is typically used for cutting)
-            geom = backend.boolean(BoolOpEnum.DIFFERENCE, geom, half_space)
+            geom = BRepAlgoAPI_Cut(geom, half_space).Shape()
 
             continue
-        geom = backend.boolean(boolean.operator, geom, geom_to_occ_geom(boolean.second_operand))
+        operand = geom_to_occ_geom(boolean.second_operand)
+        if boolean.operator == BoolOpEnum.DIFFERENCE:
+            geom = BRepAlgoAPI_Cut(geom, operand).Shape()
+        elif boolean.operator == BoolOpEnum.UNION:
+            geom = BRepAlgoAPI_Fuse(geom, operand).Shape()
+        elif boolean.operator == BoolOpEnum.INTERSECTION:
+            geom = BRepAlgoAPI_Common(geom, operand).Shape()
+        else:
+            raise NotImplementedError(f"Boolean operation {boolean.operator} not implemented")
 
     return geom

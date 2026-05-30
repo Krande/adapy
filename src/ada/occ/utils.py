@@ -8,15 +8,18 @@ from typing import TYPE_CHECKING, Iterable, Union
 import numpy as np
 from OCC.Core.Bnd import Bnd_Box
 from OCC.Core.BRep import BRep_Tool
-from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Cut
+from OCC.Core.BRepAdaptor import BRepAdaptor_Surface
+from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Common, BRepAlgoAPI_Cut, BRepAlgoAPI_Fuse
 from OCC.Core.BRepBndLib import brepbndlib
 from OCC.Core.BRepBuilderAPI import (
     BRepBuilderAPI_MakeEdge,
     BRepBuilderAPI_MakeFace,
     BRepBuilderAPI_MakePolygon,
     BRepBuilderAPI_MakeWire,
+    BRepBuilderAPI_Transform,
 )
 from OCC.Core.BRepExtrema import BRepExtrema_DistShapeShape
+from OCC.Core.GeomAbs import GeomAbs_Plane
 from OCC.Core.BRepMesh import BRepMesh_IncrementalMesh
 from OCC.Core.BRepOffsetAPI import BRepOffsetAPI_MakePipe
 from OCC.Core.BRepPrimAPI import BRepPrimAPI_MakeCylinder
@@ -45,7 +48,6 @@ from OCC.Extend.ShapeFactory import make_extrusion, make_face, make_wire
 from OCC.Extend.TopologyUtils import TopologyExplorer
 
 from ada.api.transforms import EquationOfPlane, Placement, Plane, Rotation
-from ada.cad import active_backend
 from ada.config import logger
 from ada.core.utils import roundoff
 from ada.core.vector_transforms import normal_to_points_in_plane
@@ -81,22 +83,12 @@ def extract_occ_shapes(
     return shapes
 
 
-def _trsf_to_array(trsf: gp_Trsf) -> np.ndarray:
-    """Read an OCC ``gp_Trsf`` into a 4x4 affine matrix — the backend-neutral
-    transform currency consumed by ``CadBackend.transform``. ``gp_Trsf``
-    stores a 3x4; the implicit bottom row is ``[0, 0, 0, 1]``. Lossless for
-    the rigid + uniform-scale transforms adapy composes (verified to machine
-    epsilon; see dap plan/v3 notes_occ_backend_abstraction Phase 3)."""
-    m = np.eye(4)
-    for i in range(3):
-        for j in range(4):
-            m[i, j] = trsf.Value(i + 1, j + 1)
-    return m
-
-
 def transform_shape(
     shape: TopoDS_Shape, scale=None, transform: Placement | tuple | list = None, rotate: Rotation = None
 ) -> TopoDS_Shape:
+    # OCC-internal helper (construction / STEP-import / FEM): operates on raw
+    # pythonocc TopoDS shapes, so it uses OCC directly rather than the active
+    # CAD backend (which under adacpp would receive an incompatible handle).
     trsf = gp_Trsf()
     if scale is not None:
         trsf.SetScaleFactor(scale)
@@ -113,10 +105,7 @@ def transform_shape(
         dire = gp_Dir(*rotate.vector)
         revolve_axis = gp_Ax1(pt, dire)
         trsf.SetRotation(revolve_axis, math.radians(rotate.angle))
-    # gp_Trsf composed here (OCC math); applied through the backend on the
-    # neutral 4x4. Under OccBackend this is the same BRepBuilderAPI_Transform
-    # call as before.
-    return active_backend().transform(shape, _trsf_to_array(trsf), copy=True)
+    return BRepBuilderAPI_Transform(shape, trsf, True).Shape()
 
 
 def walk_shapes(dir_path):
@@ -251,13 +240,25 @@ def divide_edge_by_nr_of_points(edg, n_pts):
 
 
 def get_points_from_occ_shape(occ_shape: TopoDS_Shape | TopoDS_Vertex | TopoDS_Edge | TopoDS_Face):
-    return active_backend().vertex_points(occ_shape)
+    # OCC-internal helper (called on raw pythonocc shapes during construction,
+    # e.g. fillet/arc building) — uses OCC directly, not the active backend.
+    t = TopologyExplorer(occ_shape)
+    points = []
+    for v in t.vertices():
+        apt = BRep_Tool.Pnt(v)
+        points.append((apt.X(), apt.Y(), apt.Z()))
+    return points
 
 
 def get_face_normal(a_face: TopoDS_Face) -> tuple[Point, Direction] | tuple[None, None]:
     """Based on core_geometry_face_recognition_from_stepfile.py in pythonocc-demos"""
-    res = active_backend().face_plane(a_face)
-    return res if res is not None else (None, None)
+    surf = BRepAdaptor_Surface(a_face, True)
+    if surf.GetType() != GeomAbs_Plane:
+        return None, None
+    gp_pln = surf.Plane()
+    location = gp_pln.Location().XYZ().Coord()
+    normal = gp_pln.Axis().Direction()
+    return Point(*location), Direction(normal.X(), normal.Y(), normal.Z())
 
 
 @dataclass
@@ -279,7 +280,7 @@ def iter_faces_with_normal(shape, normal, point_in_plane: Iterable | Point = Non
     if point_in_plane is not None:
         eop = EquationOfPlane(point_in_plane, normal)
 
-    for face in active_backend().faces(shape):
+    for face in TopologyExplorer(shape).faces():
         point, n = get_face_normal(face)
         if n is None:
             continue
@@ -555,7 +556,7 @@ def rotate_shp_3_axis(shape, revolve_axis, rotation):
     """
     alpha = gp_Trsf()
     alpha.SetRotation(revolve_axis, np.deg2rad(rotation))
-    return active_backend().transform(shape, _trsf_to_array(alpha), copy=False)
+    return BRepBuilderAPI_Transform(shape, alpha, False).Shape()
 
 
 def compute_minimal_distance_between_shapes(shp1, shp2) -> BRepExtrema_DistShapeShape:
@@ -627,9 +628,17 @@ def sweep_geom(sweep_wire: TopoDS_Wire, wire_face: TopoDS_Wire):
 
 
 def apply_booleans(geom: TopoDS_Shape, booleans: list[Boolean]) -> TopoDS_Shape:
-    backend = active_backend()
+    from ada.geom.booleans import BoolOpEnum
+
     for boolean in booleans:
-        geom = backend.boolean(boolean.bool_op, geom, boolean.primitive.solid_occ())
+        if boolean.bool_op == BoolOpEnum.DIFFERENCE:
+            geom = BRepAlgoAPI_Cut(geom, boolean.primitive.solid_occ()).Shape()
+        elif boolean.bool_op == BoolOpEnum.UNION:
+            geom = BRepAlgoAPI_Fuse(geom, boolean.primitive.solid_occ()).Shape()
+        elif boolean.bool_op == BoolOpEnum.INTERSECTION:
+            geom = BRepAlgoAPI_Common(geom, boolean.primitive.solid_occ()).Shape()
+        else:
+            raise NotImplementedError(f"Boolean operation {boolean.bool_op} not implemented")
     return geom
 
 
@@ -680,14 +689,13 @@ def transform_shape_to_pos(shape: TopoDS_Shape, location: Point, axis: Direction
     ax_global = gp_Ax3(gp_Pnt(*Point(0, 0, 0)), gp_Dir(*Direction(0, 0, 1)), gp_Dir(*Direction(1, 0, 0)))
     ax_local = gp_Ax3(gp_Pnt(*Point(0, 0, 0)), gp_Dir(*axis), gp_Dir(*ref_dir))
     trsf_rot.SetTransformation(ax_local, ax_global)
-    backend = active_backend()
-    shape1 = backend.transform(shape, _trsf_to_array(trsf_rot), copy=True)
+    shape1 = BRepBuilderAPI_Transform(shape, trsf_rot, True).Shape()
 
     # Translate the extruded area solid
     trsf = gp_Trsf()
     trsf.SetTranslation(gp_Vec(*location))
 
-    return backend.transform(shape1, _trsf_to_array(trsf), copy=True)
+    return BRepBuilderAPI_Transform(shape1, trsf, True).Shape()
 
 
 def make_edges_and_fillet_from_3points_using_occ(start, center, end, radius):
