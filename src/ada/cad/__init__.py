@@ -147,6 +147,19 @@ class AdacppBackend:
                 outer, inners, self._xyz(pos.location),
                 _axis(pos.axis, (0, 0, 1)), _axis(pos.ref_direction, (1, 0, 0)),
             )
+        elif isinstance(g, su.FaceBasedSurfaceModel):
+            import ada.geom.curves as cu
+
+            polygons = []
+            for cfs in g.fbsm_faces:
+                for fb in cfs.cfs_faces:
+                    if not isinstance(fb.bound, cu.PolyLoop):
+                        raise NotImplementedError(
+                            f"AdacppBackend.build: FaceBasedSurfaceModel bound "
+                            f"{type(fb.bound).__name__!r} not yet ported to adacpp."
+                        )
+                    polygons.append([self._xyz(p) for p in fb.bound.polygon])
+            shape = self._cad.build_face_based_surface_model(polygons)
         else:
             raise NotImplementedError(
                 f"AdacppBackend.build: ada.geom type {type(g).__name__!r} is not yet ported to "
