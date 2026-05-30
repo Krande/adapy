@@ -81,9 +81,23 @@ class OCCStore:
             position = obj.parent.placement.to_axis2placement3d(use_absolute_placement=True)
 
             try:
-                trsf = gp_Trsf()
-                trsf.SetTranslation(gp_Vec(*position.location))
-                occ_geom = BRepBuilderAPI_Transform(occ_geom, trsf, True).Shape()
+                # Final-handle placement: route through the active backend so
+                # adacpp handles transform too (occ_geom is a backend handle,
+                # not necessarily a raw TopoDS_Shape).
+                import numpy as np
+
+                from ada.cad import active_backend
+
+                loc = position.location
+                mat = np.array(
+                    [
+                        [1.0, 0.0, 0.0, float(loc[0])],
+                        [0.0, 1.0, 0.0, float(loc[1])],
+                        [0.0, 0.0, 1.0, float(loc[2])],
+                        [0.0, 0.0, 0.0, 1.0],
+                    ]
+                )
+                occ_geom = active_backend().transform(occ_geom, mat, True)
             except (RuntimeError, BaseException) as e:
                 exc = traceback.format_exc()
                 err_msg = f"Failed to transform geometry for {obj.name} due to {e} from {name_ref} in {exc}"

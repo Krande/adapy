@@ -60,6 +60,9 @@ class CadBackend(Protocol):
     def bbox(
         self, shape: ShapeHandle, optimal: bool = True, use_mesh: bool = False
     ) -> tuple[float, float, float, float, float, float]: ...
+    def obb(
+        self, shape: ShapeHandle
+    ) -> "tuple[tuple[float, float, float], tuple[float, float, float]]": ...
     def read_step_bytes(self, data: bytes) -> ShapeHandle: ...
     def write_glb_bytes(self, shape: ShapeHandle, linear_deflection: float = 0.1) -> bytes: ...
     def is_handle(self, obj: Any) -> bool: ...
@@ -75,6 +78,7 @@ class CadBackend(Protocol):
     def vertex_points(self, shape: ShapeHandle) -> list[tuple[float, float, float]]: ...
     def face_plane(self, face: ShapeHandle) -> "tuple[Point, Direction] | None": ...
     def to_topods_pointer(self, shape: ShapeHandle) -> int: ...
+    def adopt_occ_shape(self, occ_shape: Any) -> ShapeHandle: ...
 
 
 class AdacppBackend:
@@ -219,6 +223,14 @@ class AdacppBackend:
         # knobs don't apply and are ignored.
         return tuple(self._cad.bbox(shape))
 
+    def obb(self, shape: ShapeHandle) -> "tuple[tuple[float, float, float], tuple[float, float, float]]":
+        fn = getattr(self._cad, "obb", None)
+        if fn is None:
+            raise NotImplementedError("adacpp.cad.obb is not available in this build")
+        # adacpp returns (center3, half_dims3) mirroring brepbndlib::AddOBB.
+        center, half_dims = fn(shape)
+        return tuple(center), tuple(half_dims)
+
     def read_step_bytes(self, data: bytes) -> ShapeHandle:
         return self._cad.read_step_bytes(data)
 
@@ -330,6 +342,13 @@ class AdacppBackend:
                 "(typical for wasm/pyodide — no OCCT to bridge to)"
             )
         return bridge(ptr)
+
+    def adopt_occ_shape(self, occ_shape: Any) -> ShapeHandle:
+        """Bring a raw pythonocc-core TopoDS_Shape (produced by the OCC
+        DocBackend's STEP/SAT reader) into an adacpp handle. Safe because both
+        kernels are the same OCCT version — the TopoDS_Shape ABI is identical,
+        so the SWIG pointer can be re-wrapped natively."""
+        return self.from_topods_pointer(int(occ_shape.this))
 
 
 class OccBackend:
@@ -459,6 +478,19 @@ class OccBackend:
             raise RuntimeError("bbox: empty bounding box (shape has no geometry)")
         xmin, ymin, zmin, xmax, ymax, zmax = bb.Get()
         return (xmin, ymin, zmin, xmax, ymax, zmax)
+
+    def obb(self, shape: ShapeHandle) -> "tuple[tuple[float, float, float], tuple[float, float, float]]":
+        # Oriented bounding box. Mirrors OCC.Extend.ShapeFactory.
+        # get_oriented_boundingbox: optimal OBB via triangulation. The portable
+        # result is the world-space barycenter plus the three OBB half-sizes
+        # (consumers reconstruct an axis-aligned span from those). The OBB
+        # orientation axes themselves are OCC-internal and not exposed.
+        from OCC.Core.Bnd import Bnd_OBB
+
+        obb = Bnd_OBB()
+        self._brepbndlib.AddOBB(shape, obb, True, True, False)
+        c = obb.Center()
+        return ((c.X(), c.Y(), c.Z()), (obb.XHSize(), obb.YHSize(), obb.ZHSize()))
 
     def distance(self, a: ShapeHandle, b: ShapeHandle) -> float:
         # Minimal distance between two bodies. The rich
@@ -630,6 +662,11 @@ class OccBackend:
             float(m[2][0]), float(m[2][1]), float(m[2][2]), float(m[2][3]),
         )
         return self._BRepBuilderAPI_Transform(shape, trsf, copy).Shape()
+
+    def adopt_occ_shape(self, occ_shape: Any) -> ShapeHandle:
+        # Under this backend a ShapeHandle IS a TopoDS_Shape, so a raw OCC
+        # body from the DocBackend reader is already a native handle.
+        return occ_shape
 
 
 def select_backend(prefer: str | None = None) -> CadBackend:

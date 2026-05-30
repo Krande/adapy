@@ -64,6 +64,21 @@ class StepWriter:
         self.units = units
 
     def add_shape(self, shape: Any, name: str, rgb_color=None, parent=None):
+        # This writer is the OCC/XCAF DocBackend — it operates on raw
+        # TopoDS_Shape. When the active CAD backend is adacpp the incoming
+        # shape is an opaque adacpp handle, not a TopoDS_Shape. Bridge it across
+        # the kernel boundary via BREP (adacpp serializes natively, OCC reads it
+        # back) — a version-stable, ABI-independent crossing that keeps the two
+        # kernels cleanly separated (no raw-pointer or shared-state mixing).
+        from OCC.Core.TopoDS import TopoDS_Shape as _TopoDS_Shape
+
+        from ada.cad import active_backend, is_shape_handle
+
+        if not isinstance(shape, _TopoDS_Shape) and is_shape_handle(shape):
+            from OCC.Core.BRepTools import breptools
+
+            shape = breptools.ReadFromString(active_backend().serialize(shape))
+
         # Normalize to a TopoDS_Shape when possible
         if issubclass(shape.__class__, gp_Pnt):
             # if a gp_Pnt is passed, first convert to vertex

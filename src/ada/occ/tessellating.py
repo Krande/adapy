@@ -357,6 +357,15 @@ class BatchTessellator:
                     legacy = getattr(obj, "_geom", None)
                     if is_shape_handle(legacy):
                         raw = legacy
+                # STEP/SAT-imported bodies are raw OCC TopoDS_Shapes from the
+                # OCC DocBackend reader. Under a non-OCC active backend (adacpp)
+                # they aren't active-backend handles yet — adopt across the
+                # kernel boundary (same OCCT version → safe) before rendering.
+                if raw is not None and not is_shape_handle(raw):
+                    try:
+                        raw = active_backend().adopt_occ_shape(raw)
+                    except (NotImplementedError, AttributeError):
+                        raw = None
                 if geom_repr == GeomRepr.SOLID and is_shape_handle(raw):
                     try:
                         yield self.tessellate_occ_geom(raw, node_ref, obj.color, MeshType.TRIANGLES)

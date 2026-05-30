@@ -240,8 +240,16 @@ def divide_edge_by_nr_of_points(edg, n_pts):
 
 
 def get_points_from_occ_shape(occ_shape: TopoDS_Shape | TopoDS_Vertex | TopoDS_Edge | TopoDS_Face):
-    # OCC-internal helper (called on raw pythonocc shapes during construction,
-    # e.g. fillet/arc building) — uses OCC directly, not the active backend.
+    # Dual-use helper: callers pass either a *final* backend handle (e.g.
+    # plate.shell_occ()) or a *construction-internal* raw pythonocc shape
+    # (fillet/arc building). For a final handle, route to the active backend's
+    # vertex_points verb so adacpp handles work too; for a raw TopoDS shape
+    # (not an active-backend handle) fall back to OCC directly.
+    from ada.cad import active_backend, is_shape_handle
+
+    if is_shape_handle(occ_shape):
+        return active_backend().vertex_points(occ_shape)
+
     t = TopologyExplorer(occ_shape)
     points = []
     for v in t.vertices():
@@ -275,13 +283,29 @@ def get_face_debug_params(face: TopoDS_Face) -> TopoDSFaceDebug:
 
 
 def iter_faces_with_normal(shape, normal, point_in_plane: Iterable | Point = None):
+    # Operates on a *final* shape handle. Route face enumeration and per-face
+    # plane extraction through the active backend so adacpp handles work too;
+    # for a raw construction TopoDS shape (not a backend handle) use OCC.
+    from ada.cad import active_backend, is_shape_handle
+
     normal = Direction(*normal)
     eop = None
     if point_in_plane is not None:
         eop = EquationOfPlane(point_in_plane, normal)
 
-    for face in TopologyExplorer(shape).faces():
-        point, n = get_face_normal(face)
+    if is_shape_handle(shape):
+        backend = active_backend()
+        faces = backend.faces(shape)
+
+        def _face_normal(f):
+            res = backend.face_plane(f)
+            return res if res is not None else (None, None)
+    else:
+        faces = TopologyExplorer(shape).faces()
+        _face_normal = get_face_normal
+
+    for face in faces:
+        point, n = _face_normal(face)
         if n is None:
             continue
         if not is_parallel(n, normal):
