@@ -79,6 +79,8 @@ class CadBackend(Protocol):
     def face_plane(self, face: ShapeHandle) -> "tuple[Point, Direction] | None": ...
     def to_topods_pointer(self, shape: ShapeHandle) -> int: ...
     def adopt_occ_shape(self, occ_shape: Any) -> ShapeHandle: ...
+    def make_halfspace(self, origin, normal, flip: bool) -> ShapeHandle: ...
+    def cut_surfaces(self, solid: ShapeHandle, cutters: list, deflection: float, tol: float) -> list: ...
 
 
 class AdacppBackend:
@@ -380,6 +382,20 @@ class AdacppBackend:
         kernels are the same OCCT version — the TopoDS_Shape ABI is identical,
         so the SWIG pointer can be re-wrapped natively."""
         return self.from_topods_pointer(int(occ_shape.this))
+
+    def make_halfspace(self, origin, normal, flip: bool) -> ShapeHandle:
+        fn = getattr(self._cad, "make_halfspace", None)
+        if fn is None:
+            raise NotImplementedError("adacpp.cad.make_halfspace is not available in this build")
+        return fn([float(c) for c in origin], [float(c) for c in normal], bool(flip))
+
+    def cut_surfaces(self, solid: ShapeHandle, cutters: list, deflection: float, tol: float) -> list:
+        # Native adacpp cut + face/edge extraction (its own OCCT, no pythonocc).
+        # Returns the same plain-data contract as OccBackend.cut_surfaces.
+        fn = getattr(self._cad, "cut_surfaces", None)
+        if fn is None:
+            raise NotImplementedError("adacpp.cad.cut_surfaces is not available in this build")
+        return fn(solid, list(cutters), float(deflection), float(tol))
 
 
 class OccBackend:
@@ -698,6 +714,19 @@ class OccBackend:
         # Under this backend a ShapeHandle IS a TopoDS_Shape, so a raw OCC
         # body from the DocBackend reader is already a native handle.
         return occ_shape
+
+    def make_halfspace(self, origin, normal, flip: bool) -> ShapeHandle:
+        from ada.occ.cut_surfaces_occ import occ_make_halfspace
+
+        return occ_make_halfspace(origin, normal, flip)
+
+    def cut_surfaces(self, solid: ShapeHandle, cutters: list, deflection: float, tol: float) -> list:
+        # Sequential BRepAlgoAPI_Cut with boolean history; all the per-face /
+        # per-edge OCCT loops stay inside this backend (the boundary crosses
+        # once, returning plain data — never inside a per-element loop).
+        from ada.occ.cut_surfaces_occ import occ_cut_surfaces
+
+        return occ_cut_surfaces(solid, cutters, deflection, tol)
 
 
 def select_backend(prefer: str | None = None) -> CadBackend:
