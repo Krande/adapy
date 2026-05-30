@@ -67,6 +67,7 @@ class CadBackend(Protocol):
     def distance(self, a: ShapeHandle, b: ShapeHandle) -> float: ...
     def serialize(self, shape: ShapeHandle) -> str: ...
     def is_valid(self, shape: ShapeHandle) -> bool: ...
+    def volume(self, shape: ShapeHandle) -> float: ...
     def faces(self, shape: ShapeHandle) -> list[ShapeHandle]: ...
     def vertex_points(self, shape: ShapeHandle) -> list[tuple[float, float, float]]: ...
     def face_plane(self, face: ShapeHandle) -> "tuple[Point, Direction] | None": ...
@@ -112,6 +113,22 @@ class AdacppBackend:
         elif isinstance(g, so.Cone):
             p = g.position
             shape = self._cad.build_cone(list(p.location), _axis(p.axis, (0, 0, 1)), g.bottom_radius, g.height)
+        elif isinstance(g, so.ExtrudedAreaSolid):
+            import ada.geom.surfaces as su
+
+            area = g.swept_area
+            if not isinstance(area, su.ArbitraryProfileDef) or area.profile_type != su.ProfileType.AREA:
+                raise NotImplementedError(
+                    f"AdacppBackend.build: ExtrudedAreaSolid swept_area {type(area).__name__!r} "
+                    f"({getattr(area, 'profile_type', None)}) not yet ported to adacpp."
+                )
+            outer = self._encode_curve(area.outer_curve)
+            inners = [self._encode_curve(c) for c in area.inner_curves]
+            p = g.position
+            shape = self._cad.build_extruded_area_solid(
+                outer, inners, self._xyz(p.location),
+                _axis(p.axis, (0, 0, 1)), _axis(p.ref_direction, (1, 0, 0)), g.depth,
+            )
         else:
             raise NotImplementedError(
                 f"AdacppBackend.build: ada.geom type {type(g).__name__!r} is not yet ported to "
@@ -123,6 +140,31 @@ class AdacppBackend:
         for op in geometry.bool_operations:
             shape = self.boolean(op.operator, shape, self.build(op.second_operand))
         return shape
+
+    @staticmethod
+    def _xyz(p) -> list[float]:
+        c = list(p)
+        return [float(c[0]), float(c[1]), float(c[2]) if len(c) > 2 else 0.0]
+
+    def _encode_curve(self, curve) -> list[list[float]]:
+        # Encode an ada.geom profile curve as adacpp edge records:
+        #   line=[0, p1, p2], arc=[1, start, mid, end], circle=[2, centre, axis, r].
+        import ada.geom.curves as cu
+
+        if isinstance(curve, cu.IndexedPolyCurve):
+            edges = []
+            for seg in curve.segments:
+                if isinstance(seg, cu.ArcLine):
+                    edges.append([1.0, *self._xyz(seg.start), *self._xyz(seg.midpoint), *self._xyz(seg.end)])
+                else:  # Edge — straight line
+                    edges.append([0.0, *self._xyz(seg.start), *self._xyz(seg.end)])
+            return edges
+        if isinstance(curve, cu.Circle):
+            axis = self._xyz(curve.position.axis) if curve.position.axis is not None else [0.0, 0.0, 1.0]
+            return [[2.0, *self._xyz(curve.position.location), *axis, float(curve.radius)]]
+        raise NotImplementedError(
+            f"AdacppBackend.build: profile curve {type(curve).__name__!r} not yet ported to adacpp."
+        )
 
     def make_box(self, dx: float, dy: float, dz: float) -> ShapeHandle:
         return self._cad.make_box(dx, dy, dz)
@@ -190,6 +232,12 @@ class AdacppBackend:
         fn = getattr(self._cad, "is_valid", None)
         if fn is None:
             raise NotImplementedError("adacpp.cad.is_valid is not available in this build")
+        return fn(shape)
+
+    def volume(self, shape: ShapeHandle) -> float:
+        fn = getattr(self._cad, "volume", None)
+        if fn is None:
+            raise NotImplementedError("adacpp.cad.volume is not available in this build")
         return fn(shape)
 
     def faces(self, shape: ShapeHandle) -> list[ShapeHandle]:
@@ -378,6 +426,14 @@ class OccBackend:
         # Topological validity (BRepCheck). geom_props=True checks geometric
         # consistency too.
         return self._BRepCheck_Analyzer(shape, True).IsValid()
+
+    def volume(self, shape: ShapeHandle) -> float:
+        from OCC.Core.BRepGProp import brepgprop
+        from OCC.Core.GProp import GProp_GProps
+
+        props = GProp_GProps()
+        brepgprop.VolumeProperties(shape, props)
+        return props.Mass()
 
     def faces(self, shape: ShapeHandle) -> list[ShapeHandle]:
         # Whole list of face sub-shapes — the boundary crosses once, not per
