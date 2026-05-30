@@ -1,7 +1,7 @@
-from OCC.Core.BRepTools import breptools
 from OCC.Core.TopoDS import TopoDS_Shape
+
+from ada.cad import active_backend
 
 
 def serialize_shape(shape: TopoDS_Shape) -> str:
-    breptools.Clean(shape)
-    return breptools.WriteToString(shape)
+    return active_backend().serialize(shape)

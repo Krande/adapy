@@ -54,12 +54,17 @@ class CadBackend(Protocol):
     def make_cylinder(self, radius: float, height: float) -> ShapeHandle: ...
     def make_sphere(self, radius: float) -> ShapeHandle: ...
     def tessellate(self, shape: ShapeHandle, linear_deflection: float = -1.0) -> Mesh: ...
-    def bbox(self, shape: ShapeHandle) -> tuple[float, float, float, float, float, float]: ...
+    def bbox(
+        self, shape: ShapeHandle, optimal: bool = True, use_mesh: bool = False
+    ) -> tuple[float, float, float, float, float, float]: ...
     def read_step_bytes(self, data: bytes) -> ShapeHandle: ...
     def write_glb_bytes(self, shape: ShapeHandle, linear_deflection: float = 0.1) -> bytes: ...
     def is_handle(self, obj: Any) -> bool: ...
     def boolean(self, op: "BoolOpEnum", a: ShapeHandle, b: ShapeHandle) -> ShapeHandle: ...
     def transform(self, shape: ShapeHandle, matrix: "np.ndarray", copy: bool = True) -> ShapeHandle: ...
+    def distance(self, a: ShapeHandle, b: ShapeHandle) -> float: ...
+    def serialize(self, shape: ShapeHandle) -> str: ...
+    def is_valid(self, shape: ShapeHandle) -> bool: ...
 
 
 class AdacppBackend:
@@ -96,7 +101,11 @@ class AdacppBackend:
     def tessellate(self, shape: ShapeHandle, linear_deflection: float = -1.0) -> Mesh:
         return self._cad.tessellate(shape, linear_deflection)
 
-    def bbox(self, shape: ShapeHandle) -> tuple[float, float, float, float, float, float]:
+    def bbox(
+        self, shape: ShapeHandle, optimal: bool = True, use_mesh: bool = False
+    ) -> tuple[float, float, float, float, float, float]:
+        # adacpp.cad.bbox is analytic only; the optimal/use_mesh OCC-accuracy
+        # knobs don't apply and are ignored.
         return tuple(self._cad.bbox(shape))
 
     def read_step_bytes(self, data: bytes) -> ShapeHandle:
@@ -130,6 +139,24 @@ class AdacppBackend:
             raise NotImplementedError("adacpp.cad.transform is not available in this build")
         return fn(shape, matrix, copy)
 
+    def distance(self, a: ShapeHandle, b: ShapeHandle) -> float:
+        fn = getattr(self._cad, "distance", None)
+        if fn is None:
+            raise NotImplementedError("adacpp.cad.distance is not available in this build")
+        return fn(a, b)
+
+    def serialize(self, shape: ShapeHandle) -> str:
+        fn = getattr(self._cad, "serialize", None)
+        if fn is None:
+            raise NotImplementedError("adacpp.cad.serialize is not available in this build")
+        return fn(shape)
+
+    def is_valid(self, shape: ShapeHandle) -> bool:
+        fn = getattr(self._cad, "is_valid", None)
+        if fn is None:
+            raise NotImplementedError("adacpp.cad.is_valid is not available in this build")
+        return fn(shape)
+
     def from_topods_pointer(self, ptr: int) -> ShapeHandle:
         """Wrap an OCCT TopoDS_Shape addressed by a raw pointer.
         Native-only; wasm builds do not expose this — adacpp.cad surface
@@ -160,7 +187,10 @@ class OccBackend:
         from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Common, BRepAlgoAPI_Cut, BRepAlgoAPI_Fuse
         from OCC.Core.BRepBndLib import brepbndlib
         from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_Transform
+        from OCC.Core.BRepCheck import BRepCheck_Analyzer
+        from OCC.Core.BRepExtrema import BRepExtrema_DistShapeShape
         from OCC.Core.BRepMesh import BRepMesh_IncrementalMesh
+        from OCC.Core.BRepTools import breptools
         from OCC.Core.IFSelect import IFSelect_RetDone
         from OCC.Core.Message import Message_ProgressRange
         from OCC.Core.RWGltf import RWGltf_CafWriter, RWGltf_WriterTrsfFormat
@@ -183,7 +213,10 @@ class OccBackend:
         self._BRepAlgoAPI_Cut = BRepAlgoAPI_Cut
         self._BRepAlgoAPI_Fuse = BRepAlgoAPI_Fuse
         self._BRepBuilderAPI_Transform = BRepBuilderAPI_Transform
+        self._BRepCheck_Analyzer = BRepCheck_Analyzer
+        self._BRepExtrema_DistShapeShape = BRepExtrema_DistShapeShape
         self._BRepMesh_IncrementalMesh = BRepMesh_IncrementalMesh
+        self._breptools = breptools
         self._IFSelect_RetDone = IFSelect_RetDone
         self._Message_ProgressRange = Message_ProgressRange
         self._RWGltf_CafWriter = RWGltf_CafWriter
@@ -233,17 +266,48 @@ class OccBackend:
             return self._tessellate_shape(shape)
         return self._tessellate_shape(shape, quality=linear_deflection)
 
-    def bbox(self, shape: ShapeHandle) -> tuple[float, float, float, float, float, float]:
-        # AddOptimal(useTriangulation=False, useShapeTolerance=False) matches
-        # adacpp.cad.bbox: analytic geometric extents only, ignoring any cached
-        # triangulation jitter. Both backends produce identical bbox values
-        # for the same primitive.
+    def bbox(
+        self, shape: ShapeHandle, optimal: bool = True, use_mesh: bool = False
+    ) -> tuple[float, float, float, float, float, float]:
+        # optimal=True → AddOptimal(useTriangulation=False, useShapeTolerance=
+        # False): analytic geometric extents only, matching adacpp.cad.bbox
+        # (both backends give identical AABBs for the same primitive). This is
+        # the neutral default. optimal=False → Add(shape, bb, use_mesh): the
+        # looser triangulation-aware box some OCC callers want (e.g. curved
+        # plates); OCC-accuracy knobs, ignored by adacpp.
         bb = self._Bnd_Box()
-        self._brepbndlib.AddOptimal(shape, bb, False, False)
+        if optimal:
+            self._brepbndlib.AddOptimal(shape, bb, False, False)
+        else:
+            self._brepbndlib.Add(shape, bb, use_mesh)
         if bb.IsVoid():
             raise RuntimeError("bbox: empty bounding box (shape has no geometry)")
         xmin, ymin, zmin, xmax, ymax, zmax = bb.Get()
         return (xmin, ymin, zmin, xmax, ymax, zmax)
+
+    def distance(self, a: ShapeHandle, b: ShapeHandle) -> float:
+        # Minimal distance between two bodies. The rich
+        # BRepExtrema_DistShapeShape (nearest points, support sub-shapes) is
+        # OCC-specific; the portable result is the scalar value, which is all
+        # adapy consumers read.
+        dss = self._BRepExtrema_DistShapeShape()
+        dss.LoadS1(a)
+        dss.LoadS2(b)
+        dss.Perform()
+        if not dss.IsDone():
+            raise RuntimeError("distance: BRepExtrema_DistShapeShape failed")
+        return dss.Value()
+
+    def serialize(self, shape: ShapeHandle) -> str:
+        # BREP text serialization (Clean drops cached triangulation first so
+        # the string is geometry-only and deterministic).
+        self._breptools.Clean(shape)
+        return self._breptools.WriteToString(shape)
+
+    def is_valid(self, shape: ShapeHandle) -> bool:
+        # Topological validity (BRepCheck). geom_props=True checks geometric
+        # consistency too.
+        return self._BRepCheck_Analyzer(shape, True).IsValid()
 
     def read_step_bytes(self, data: bytes) -> ShapeHandle:
         # pythonocc-core's STEPControl_Reader reads from filenames only, so

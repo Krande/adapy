@@ -95,19 +95,19 @@ class BoundingBox:
                 return (0, 0, 0), (1, 1, 1)
 
     def _calc_bbox_of_plate_curved(self) -> tuple[tuple, tuple]:
-        """Curved plates have no flat polygon to walk; ask OCC for the
-        axis-aligned bbox of the underlying face shape.
+        """Curved plates have no flat polygon to walk; ask the CAD backend for
+        the axis-aligned bbox of the underlying face shape.
         """
-        from OCC.Core.Bnd import Bnd_Box
-        from OCC.Core.BRepBndLib import brepbndlib
+        from ada.cad import active_backend
 
-        bbox = Bnd_Box()
         # Use the bare face (no extrusion) so the bbox isn't padded by
         # the prism thickness on whichever axis the normal points.
         # solid_occ returns the face for the raw-OCC path and the
-        # AdvancedFace→OCC for the Geometry-backed path.
-        brepbndlib.Add(self.parent.solid_occ(), bbox)
-        xmin, ymin, zmin, xmax, ymax, zmax = bbox.Get()
+        # AdvancedFace→OCC for the Geometry-backed path. optimal=False +
+        # use_mesh reproduces the prior brepbndlib.Add(face, bbox) exactly.
+        xmin, ymin, zmin, xmax, ymax, zmax = active_backend().bbox(
+            self.parent.solid_occ(), optimal=False, use_mesh=True
+        )
         return (xmin, ymin, zmin), (xmax, ymax, zmax)
 
     def _calc_bbox_of_plate(self) -> tuple[tuple, tuple]:
