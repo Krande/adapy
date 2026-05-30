@@ -308,11 +308,9 @@ class Beam(BackendGeom):
         return self._bbox
 
     def line_occ(self):
-        from ada.occ.utils import make_wire_from_points
+        from ada.cad import active_backend
 
-        points = [self.n1.p, self.n2.p]
-
-        return make_wire_from_points(points)
+        return active_backend().make_wire([self.n1.p, self.n2.p])
 
     def shell_occ(self) -> ShapeHandle:
         from ada.occ.geom.cache import get_shell_occ

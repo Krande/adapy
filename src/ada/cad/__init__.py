@@ -52,6 +52,7 @@ class CadBackend(Protocol):
     name: str
 
     def build(self, geometry: "Geometry") -> ShapeHandle: ...
+    def make_wire(self, points: "list") -> ShapeHandle: ...
     def make_box(self, dx: float, dy: float, dz: float) -> ShapeHandle: ...
     def make_cylinder(self, radius: float, height: float) -> ShapeHandle: ...
     def make_sphere(self, radius: float) -> ShapeHandle: ...
@@ -69,8 +70,11 @@ class CadBackend(Protocol):
     def is_valid(self, shape: ShapeHandle) -> bool: ...
     def volume(self, shape: ShapeHandle) -> float: ...
     def faces(self, shape: ShapeHandle) -> list[ShapeHandle]: ...
+    def solids(self, shape: ShapeHandle) -> list[ShapeHandle]: ...
+    def edges(self, shape: ShapeHandle) -> list[ShapeHandle]: ...
     def vertex_points(self, shape: ShapeHandle) -> list[tuple[float, float, float]]: ...
     def face_plane(self, face: ShapeHandle) -> "tuple[Point, Direction] | None": ...
+    def to_topods_pointer(self, shape: ShapeHandle) -> int: ...
 
 
 class AdacppBackend:
@@ -180,6 +184,9 @@ class AdacppBackend:
             f"AdacppBackend.build: profile curve {type(curve).__name__!r} not yet ported to adacpp."
         )
 
+    def make_wire(self, points: "list") -> ShapeHandle:
+        return self._cad.make_wire([[float(c) for c in self._xyz(p)] for p in points])
+
     def make_box(self, dx: float, dy: float, dz: float) -> ShapeHandle:
         return self._cad.make_box(dx, dy, dz)
 
@@ -259,6 +266,24 @@ class AdacppBackend:
         if fn is None:
             raise NotImplementedError("adacpp.cad.faces is not available in this build")
         return list(fn(shape))
+
+    def solids(self, shape: ShapeHandle) -> list[ShapeHandle]:
+        fn = getattr(self._cad, "solids", None)
+        if fn is None:
+            raise NotImplementedError("adacpp.cad.solids is not available in this build")
+        return list(fn(shape))
+
+    def edges(self, shape: ShapeHandle) -> list[ShapeHandle]:
+        fn = getattr(self._cad, "edges", None)
+        if fn is None:
+            raise NotImplementedError("adacpp.cad.edges is not available in this build")
+        return list(fn(shape))
+
+    def to_topods_pointer(self, shape: ShapeHandle) -> int:
+        fn = getattr(self._cad, "to_topods_pointer", None)
+        if fn is None:
+            raise NotImplementedError("adacpp.cad.to_topods_pointer is not available in this build")
+        return fn(shape)
 
     def vertex_points(self, shape: ShapeHandle) -> list[tuple[float, float, float]]:
         fn = getattr(self._cad, "vertex_points", None)
@@ -376,6 +401,11 @@ class OccBackend:
 
         return geom_to_occ_geom(geometry)
 
+    def make_wire(self, points: "list") -> ShapeHandle:
+        from ada.occ.utils import make_wire_from_points
+
+        return make_wire_from_points(list(points))
+
     def make_box(self, dx: float, dy: float, dz: float) -> ShapeHandle:
         # Centered axis-aligned box: matches adacpp.cad.make_box semantics
         # (corner at -d/2, opposite corner at +d/2). adapy's helper expects
@@ -453,6 +483,17 @@ class OccBackend:
         # Whole list of face sub-shapes — the boundary crosses once, not per
         # face, so callers iterate without re-entering the backend per element.
         return list(self._TopologyExplorer(shape).faces())
+
+    def solids(self, shape: ShapeHandle) -> list[ShapeHandle]:
+        return list(self._TopologyExplorer(shape).solids())
+
+    def edges(self, shape: ShapeHandle) -> list[ShapeHandle]:
+        return list(self._TopologyExplorer(shape).edges())
+
+    def to_topods_pointer(self, shape: ShapeHandle) -> int:
+        # Under this backend a ShapeHandle IS a TopoDS_Shape; its SWIG pointer
+        # is int(shape.this) — the value gmsh's importShapesNativePointer wants.
+        return int(shape.this)
 
     def vertex_points(self, shape: ShapeHandle) -> list[tuple[float, float, float]]:
         # Walk every vertex and return all coordinates as one list. The
