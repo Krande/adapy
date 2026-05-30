@@ -54,6 +54,7 @@ class CadBackend(Protocol):
     def bbox(self, shape: ShapeHandle) -> tuple[float, float, float, float, float, float]: ...
     def read_step_bytes(self, data: bytes) -> ShapeHandle: ...
     def write_glb_bytes(self, shape: ShapeHandle, linear_deflection: float = 0.1) -> bytes: ...
+    def is_handle(self, obj: Any) -> bool: ...
 
 
 class AdacppBackend:
@@ -101,6 +102,15 @@ class AdacppBackend:
         # bytes object so callers don't need to know about the underlying type.
         return bytes(self._cad.write_glb_bytes(shape, linear_deflection))
 
+    def is_handle(self, obj: Any) -> bool:
+        # Recognise an adacpp-native shape so callers can keep handle-type
+        # introspection out of their own code (e.g. the tessellator's
+        # raw-import fast path). The wasm/native builds expose the concrete
+        # type as `adacpp.cad.Shape`; if a build omits it we conservatively
+        # report False (an unrecognised value is treated as "not a handle").
+        handle_t = getattr(self._cad, "Shape", None)
+        return handle_t is not None and isinstance(obj, handle_t)
+
     def from_topods_pointer(self, ptr: int) -> ShapeHandle:
         """Wrap an OCCT TopoDS_Shape addressed by a raw pointer.
         Native-only; wasm builds do not expose this — adacpp.cad surface
@@ -135,6 +145,7 @@ class OccBackend:
         from OCC.Core.RWGltf import RWGltf_CafWriter, RWGltf_WriterTrsfFormat
         from OCC.Core.RWMesh import RWMesh_CoordinateSystem_Zup
         from OCC.Core.STEPControl import STEPControl_Reader
+        from OCC.Core.TopoDS import TopoDS_Shape
         from OCC.Core.TCollection import TCollection_AsciiString, TCollection_ExtendedString
         from OCC.Core.TColStd import TColStd_IndexedDataMapOfStringString
         from OCC.Core.TDocStd import TDocStd_Document
@@ -154,6 +165,7 @@ class OccBackend:
         self._RWGltf_WriterTrsfFormat_Compact = RWGltf_WriterTrsfFormat.RWGltf_WriterTrsfFormat_Compact
         self._RWMesh_CoordinateSystem_Zup = RWMesh_CoordinateSystem_Zup
         self._STEPControl_Reader = STEPControl_Reader
+        self._TopoDS_Shape = TopoDS_Shape
         self._TCollection_AsciiString = TCollection_AsciiString
         self._TCollection_ExtendedString = TCollection_ExtendedString
         self._TColStd_IndexedDataMapOfStringString = TColStd_IndexedDataMapOfStringString
@@ -268,6 +280,13 @@ class OccBackend:
         finally:
             os.unlink(path)
 
+    def is_handle(self, obj: Any) -> bool:
+        # Under this backend a ShapeHandle IS a TopoDS_Shape. Centralising
+        # the isinstance here lets callers (e.g. the tessellator's raw-import
+        # fast path) ask "is this a backend body?" without importing OCC
+        # types — keeping handle-type introspection out of portable code.
+        return isinstance(obj, self._TopoDS_Shape)
+
 
 def select_backend(prefer: str | None = None) -> CadBackend:
     """Pick a CAD backend.
@@ -321,6 +340,17 @@ def reset_active_backend() -> None:
     _ACTIVE_BACKEND = None
 
 
+def is_shape_handle(obj: Any) -> bool:
+    """True if ``obj`` is a shape handle produced by the active backend.
+
+    The portable way to ask "does this object carry a pre-built CAD body?"
+    without importing kernel types — the type check lives inside the
+    backend (``CadBackend.is_handle``). Under the OCC backend this is an
+    ``isinstance(obj, TopoDS_Shape)``; under adacpp it checks the native
+    shape type."""
+    return active_backend().is_handle(obj)
+
+
 __all__ = [
     "AdacppBackend",
     "CadBackend",
@@ -328,6 +358,7 @@ __all__ = [
     "OccBackend",
     "ShapeHandle",
     "active_backend",
+    "is_shape_handle",
     "reset_active_backend",
     "select_backend",
 ]

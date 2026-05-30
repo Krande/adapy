@@ -12,6 +12,7 @@ from OCC.Extend.TopologyUtils import discretize_edge
 
 from ada.base.physical_objects import BackendGeom
 from ada.base.types import GeomRepr
+from ada.cad import active_backend, is_shape_handle
 from ada.cadit.ifc.utils import default_settings
 from ada.config import logger
 from ada.geom import Geometry
@@ -19,7 +20,6 @@ from ada.occ.exceptions import (
     UnableToCreateCurveOCCGeom,
     UnableToCreateTesselationFromSolidOCCGeom,
 )
-from ada.occ.geom import geom_to_occ_geom
 from ada.visit.colors import Color
 from ada.visit.gltf.graph import GraphNode, GraphStore
 from ada.visit.gltf.meshes import MeshStore, MeshType
@@ -127,19 +127,27 @@ class BatchTessellator:
             self.material_store[color] = mat_id
         return mat_id
 
-    def tessellate_occ_geom(self, occ_geom: TopoDS_Shape, geom_ref: GraphNode | int | str, geom_color) -> MeshStore:
+    def tessellate_occ_geom(
+        self,
+        occ_geom: TopoDS_Shape,
+        geom_ref: GraphNode | int | str,
+        geom_color,
+        mesh_type: MeshType = MeshType.TRIANGLES,
+    ) -> MeshStore:
         if geom_ref is None:
             geom_ref = self._geom_id
             self._geom_id += 1
 
-        if isinstance(occ_geom, TopoDS_Edge):
+        # The kind (line vs triangle mesh) is passed in by the caller rather
+        # than sniffed off the OCC handle type — an opaque ShapeHandle under
+        # a non-OCC backend can't be isinstance-checked. See dap plan/v3
+        # notes_occ_backend_abstraction (Phase 1).
+        if mesh_type == MeshType.LINES:
             tess_shape = tessellate_edges(occ_geom)
             indices = tess_shape.indices
-            mesh_type = MeshType.LINES
         else:
             tess_shape = tessellate_shape(occ_geom, self.quality, self.render_edges, self.parallel)
             indices = tess_shape.faces
-            mesh_type = MeshType.TRIANGLES
 
         mat_id = self.material_store.get(geom_color, None)
         if mat_id is None:
@@ -157,9 +165,18 @@ class BatchTessellator:
             geom_ref,
         )
 
-    def tessellate_geom(self, geom: Geometry, obj: BackendGeom, graph_store: GraphStore = None) -> MeshStore:
+    def tessellate_geom(
+        self,
+        geom: Geometry,
+        obj: BackendGeom,
+        graph_store: GraphStore = None,
+        mesh_type: MeshType = MeshType.TRIANGLES,
+    ) -> MeshStore:
         try:
-            occ_geom = geom_to_occ_geom(geom)
+            # Construction seam: build through the active CAD backend rather
+            # than calling geom_to_occ_geom directly (= OccBackend.build under
+            # the default backend). Same funnel as ada.occ.geom.cache.
+            occ_geom = active_backend().build(geom)
         except Exception as e:
             print("\n================ GLB TESSELLATION ERROR ================")
             print(f"Beam name: {getattr(obj, 'name', None)}")
@@ -179,7 +196,7 @@ class BatchTessellator:
         else:
             node_ref = getattr(obj, "guid", geom.id)
 
-        return self.tessellate_occ_geom(occ_geom, node_ref, geom.color)
+        return self.tessellate_occ_geom(occ_geom, node_ref, geom.color, mesh_type)
 
     def batch_tessellate(
         self,
@@ -187,8 +204,6 @@ class BatchTessellator:
         render_override: dict[str, GeomRepr] = None,
         graph_store: GraphStore = None,
     ) -> Iterable[MeshStore]:
-        from OCC.Core.TopoDS import TopoDS_Shape as _TopoDS_Shape
-
         if render_override is None:
             render_override = dict()
 
@@ -310,30 +325,35 @@ class BatchTessellator:
                 raw = getattr(obj, "_occ_cache", None)
                 if raw is None:
                     # Backward-compat: any legacy code path that
-                    # still stuffs OCC into ``_geom`` keeps working.
+                    # still stuffs a backend body into ``_geom`` keeps
+                    # working.
                     legacy = getattr(obj, "_geom", None)
-                    if isinstance(legacy, _TopoDS_Shape):
+                    if is_shape_handle(legacy):
                         raw = legacy
-                if geom_repr == GeomRepr.SOLID and isinstance(raw, _TopoDS_Shape):
+                if geom_repr == GeomRepr.SOLID and is_shape_handle(raw):
                     try:
-                        yield self.tessellate_occ_geom(raw, node_ref, obj.color)
+                        yield self.tessellate_occ_geom(raw, node_ref, obj.color, MeshType.TRIANGLES)
                     except UnableToCreateTesselationFromSolidOCCGeom as e:
                         logger.error(e)
                     continue
                 if geom_repr == GeomRepr.SOLID:
                     geom = obj.solid_geom()
+                    mesh_type = MeshType.TRIANGLES
                 elif geom_repr == GeomRepr.SHELL:
                     geom = obj.shell_geom()
+                    mesh_type = MeshType.TRIANGLES
                 else:
                     geom = obj.line_geom()
+                    mesh_type = MeshType.LINES
             else:
                 geom = obj
                 ada_obj = None
+                mesh_type = MeshType.TRIANGLES
 
             # resolve transform based on parent transforms
             ms = None
             try:
-                ms = self.tessellate_geom(geom, ada_obj, graph_store=graph_store)
+                ms = self.tessellate_geom(geom, ada_obj, graph_store=graph_store, mesh_type=mesh_type)
             except UnableToCreateTesselationFromSolidOCCGeom as e:
                 logger.error(e)
             except UnableToCreateCurveOCCGeom as e:
