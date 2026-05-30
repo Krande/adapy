@@ -24,7 +24,10 @@ import os
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
+    import numpy as np
+
     from ada.geom import Geometry
+    from ada.geom.booleans import BoolOpEnum
 
 
 @runtime_checkable
@@ -55,6 +58,8 @@ class CadBackend(Protocol):
     def read_step_bytes(self, data: bytes) -> ShapeHandle: ...
     def write_glb_bytes(self, shape: ShapeHandle, linear_deflection: float = 0.1) -> bytes: ...
     def is_handle(self, obj: Any) -> bool: ...
+    def boolean(self, op: "BoolOpEnum", a: ShapeHandle, b: ShapeHandle) -> ShapeHandle: ...
+    def transform(self, shape: ShapeHandle, matrix: "np.ndarray", copy: bool = True) -> ShapeHandle: ...
 
 
 class AdacppBackend:
@@ -111,6 +116,20 @@ class AdacppBackend:
         handle_t = getattr(self._cad, "Shape", None)
         return handle_t is not None and isinstance(obj, handle_t)
 
+    def boolean(self, op: "BoolOpEnum", a: ShapeHandle, b: ShapeHandle) -> ShapeHandle:
+        # Lands with the Phase 7 adacpp.cad CSG surface; OccBackend covers
+        # native today.
+        fn = getattr(self._cad, "boolean", None)
+        if fn is None:
+            raise NotImplementedError("adacpp.cad.boolean is not available in this build")
+        return fn(str(op.value), a, b)
+
+    def transform(self, shape: ShapeHandle, matrix: "np.ndarray", copy: bool = True) -> ShapeHandle:
+        fn = getattr(self._cad, "transform", None)
+        if fn is None:
+            raise NotImplementedError("adacpp.cad.transform is not available in this build")
+        return fn(shape, matrix, copy)
+
     def from_topods_pointer(self, ptr: int) -> ShapeHandle:
         """Wrap an OCCT TopoDS_Shape addressed by a raw pointer.
         Native-only; wasm builds do not expose this — adacpp.cad surface
@@ -138,7 +157,9 @@ class OccBackend:
         # checking `name`) in environments where pythonocc-core isn't
         # installable. Raise on first instantiation if unavailable.
         from OCC.Core.Bnd import Bnd_Box
+        from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Common, BRepAlgoAPI_Cut, BRepAlgoAPI_Fuse
         from OCC.Core.BRepBndLib import brepbndlib
+        from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_Transform
         from OCC.Core.BRepMesh import BRepMesh_IncrementalMesh
         from OCC.Core.IFSelect import IFSelect_RetDone
         from OCC.Core.Message import Message_ProgressRange
@@ -158,6 +179,10 @@ class OccBackend:
         )
         self._Bnd_Box = Bnd_Box
         self._brepbndlib = brepbndlib
+        self._BRepAlgoAPI_Common = BRepAlgoAPI_Common
+        self._BRepAlgoAPI_Cut = BRepAlgoAPI_Cut
+        self._BRepAlgoAPI_Fuse = BRepAlgoAPI_Fuse
+        self._BRepBuilderAPI_Transform = BRepBuilderAPI_Transform
         self._BRepMesh_IncrementalMesh = BRepMesh_IncrementalMesh
         self._IFSelect_RetDone = IFSelect_RetDone
         self._Message_ProgressRange = Message_ProgressRange
@@ -286,6 +311,36 @@ class OccBackend:
         # fast path) ask "is this a backend body?" without importing OCC
         # types — keeping handle-type introspection out of portable code.
         return isinstance(obj, self._TopoDS_Shape)
+
+    def boolean(self, op: "BoolOpEnum", a: ShapeHandle, b: ShapeHandle) -> ShapeHandle:
+        # CSG on two opaque bodies. op is an ada.geom BoolOpEnum (backend-
+        # neutral); the kernel ops (Cut/Fuse/Common) are OccBackend-private.
+        from ada.geom.booleans import BoolOpEnum
+
+        if op == BoolOpEnum.DIFFERENCE:
+            return self._BRepAlgoAPI_Cut(a, b).Shape()
+        elif op == BoolOpEnum.UNION:
+            return self._BRepAlgoAPI_Fuse(a, b).Shape()
+        elif op == BoolOpEnum.INTERSECTION:
+            return self._BRepAlgoAPI_Common(a, b).Shape()
+        raise NotImplementedError(f"Boolean operation {op} not implemented")
+
+    def transform(self, shape: ShapeHandle, matrix: "np.ndarray", copy: bool = True) -> ShapeHandle:
+        # Apply a 4x4 affine transform (the backend-neutral currency) to an
+        # opaque body. The top 3 rows feed gp_Trsf.SetValues (the implicit
+        # bottom row is [0,0,0,1]); this is lossless for the rigid + uniform-
+        # scale transforms adapy composes (no shear). `copy` mirrors
+        # BRepBuilderAPI_Transform's copy flag.
+        from OCC.Core.gp import gp_Trsf
+
+        m = matrix
+        trsf = gp_Trsf()
+        trsf.SetValues(
+            float(m[0][0]), float(m[0][1]), float(m[0][2]), float(m[0][3]),
+            float(m[1][0]), float(m[1][1]), float(m[1][2]), float(m[1][3]),
+            float(m[2][0]), float(m[2][1]), float(m[2][2]), float(m[2][3]),
+        )
+        return self._BRepBuilderAPI_Transform(shape, trsf, copy).Shape()
 
 
 def select_backend(prefer: str | None = None) -> CadBackend:
