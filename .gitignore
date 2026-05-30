@@ -28,3 +28,5 @@ node_modules/
 .pixi/
 audit_repro/
 audit_repro_*/
+# pytest-benchmark timing baselines — machine-specific, regenerate locally
+.benchmarks/

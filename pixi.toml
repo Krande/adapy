@@ -32,6 +32,13 @@ test-core = { cmd = "pytest tests/core --durations=0", env = { "PYTHONPATH" = "$
 test-full = { cmd = "pytest tests/full --durations=0", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 test-cov = { cmd = "pytest tests --ignore=tests/profiling --ignore=tests/fem --ignore=tests/comms/rest --cov=src/ada --cov-report=html --cov-report=term --durations=0", depends-on = ["pre-install"], env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 
+# CAD-backend abstraction regression gate (dap plan/v3). bench-cad-save
+# captures a baseline before Phase 1; bench-cad-compare re-runs after and
+# fails on a >10% mean regression. Baselines live in .benchmarks/.
+bench-cad = { cmd = "pytest tests/profiling/test_cad_backend_bench.py --benchmark-only -q", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+bench-cad-save = { cmd = "pytest tests/profiling/test_cad_backend_bench.py --benchmark-only --benchmark-save=phase0 -q", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+bench-cad-compare = { cmd = "pytest tests/profiling/test_cad_backend_bench.py --benchmark-only --benchmark-compare --benchmark-compare-fail=mean:10% -q", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+
 [feature.fem.tasks]
 test-all = { cmd = "pytest tests --ignore=tests/comms/rest --durations=0", depends-on = ["pre-install"], env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 test-fem = { cmd = "pytest tests/fem --durations=0", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
