@@ -13,22 +13,74 @@ export interface GroupInfo {
   parent_name: string;
 }
 
+// One kwarg in a utility's input form (mirrors the worker @utility spec).
+export interface UtilityKwarg {
+  name: string;
+  type: 'string' | 'int' | 'float' | 'bool' | 'enum';
+  default?: string | number | boolean | null;
+  description?: string;
+  enum?: string[];
+}
+
+// A worker-advertised utility (from GET /api/config["utilities"]).
+export interface UtilitySpec {
+  name: string;
+  description: string;
+  kwargs: UtilityKwarg[];
+  inputs: string[];
+  affects: string[];
+  returns: string;
+}
+
+// Result summary shown in the panel after a utility run.
+export interface UtilityResult {
+  legend?: { label: string; color: string; count?: number }[];
+  summary?: Record<string, unknown>;
+}
+
+export type SceneInfoMode = 'info' | 'utilities';
+
 interface SceneInfoState {
   show_scene_info_box: boolean;
+  mode: SceneInfoMode;
   selectedGroup: GroupInfo | null;
   availableGroups: GroupInfo[];
+  // Utilities panel state
+  utilities: UtilitySpec[];
+  selectedUtility: string | null;
+  utilityKwargs: Record<string, string | number | boolean | null>;
+  running: boolean;
+  lastResult: UtilityResult | null;
   setShowSceneInfoBox: (show: boolean) => void;
+  setMode: (mode: SceneInfoMode) => void;
   setSelectedGroup: (group: GroupInfo | null) => void;
   setAvailableGroups: (groups: GroupInfo[]) => void;
+  setUtilities: (u: UtilitySpec[]) => void;
+  setSelectedUtility: (name: string | null) => void;
+  setUtilityKwargs: (kw: Record<string, string | number | boolean | null>) => void;
+  setRunning: (r: boolean) => void;
+  setLastResult: (r: UtilityResult | null) => void;
   toggle: () => void;
 }
 
 export const useSceneInfoStore = create<SceneInfoState>((set, get) => ({
   show_scene_info_box: false,
+  mode: 'info',
   selectedGroup: null,
   availableGroups: [],
+  utilities: [],
+  selectedUtility: null,
+  utilityKwargs: {},
+  running: false,
+  lastResult: null,
   setShowSceneInfoBox: (show) => set({ show_scene_info_box: show }),
+  setMode: (mode) => set({ mode }),
   setSelectedGroup: (group) => set({ selectedGroup: group }),
   setAvailableGroups: (groups) => set({ availableGroups: groups }),
+  setUtilities: (utilities) => set({ utilities }),
+  setSelectedUtility: (selectedUtility) => set({ selectedUtility }),
+  setUtilityKwargs: (utilityKwargs) => set({ utilityKwargs }),
+  setRunning: (running) => set({ running }),
+  setLastResult: (lastResult) => set({ lastResult }),
   toggle: () => set((state) => ({ show_scene_info_box: !state.show_scene_info_box })),
 }));

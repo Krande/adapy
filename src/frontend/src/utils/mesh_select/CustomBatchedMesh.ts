@@ -291,6 +291,47 @@ export class CustomBatchedMesh extends THREE.Mesh {
         this.updateSelectionGroups(Array.from(this.selectedRanges));
     }
 
+    /** Colour specific draw-ranges (by rangeId) via per-vertex colours.
+     *
+     *  Used by viewer utilities (e.g. diff) to recolour elements in place. Ranges
+     *  not present in ``colorByRangeId`` keep ``baseColor`` (a neutral grey by
+     *  default) so the diff result reads cleanly. Coexists with selection
+     *  highlighting (vertex-colour path); call
+     *  :meth:`disableVertexColorsAndResetMaterial` to reset to the original look.
+     */
+    public setRangeColors(
+        colorByRangeId: Map<string, THREE.Color>,
+        baseColor: THREE.Color = new THREE.Color(0.62, 0.62, 0.62),
+    ): void {
+        const index = this.geometry.index;
+        const pos = this.geometry.getAttribute('position');
+        if (!index || !pos) return;
+        let attr = this.geometry.getAttribute('color') as THREE.BufferAttribute | undefined;
+        if (!attr) {
+            const arr = new Float32Array(pos.count * 3);
+            for (let i = 0; i < pos.count; i++) {
+                arr[i * 3] = baseColor.r;
+                arr[i * 3 + 1] = baseColor.g;
+                arr[i * 3 + 2] = baseColor.b;
+            }
+            attr = new THREE.BufferAttribute(arr, 3);
+            this.geometry.setAttribute('color', attr);
+        }
+        for (const [rangeId, col] of colorByRangeId) {
+            const rng = this.drawRanges.get(rangeId);
+            if (!rng) continue;
+            const [start, count] = rng;
+            for (let j = start; j < start + count; j++) {
+                const vid = index.getX(j);
+                attr.setXYZ(vid, col.r, col.g, col.b);
+            }
+        }
+        attr.needsUpdate = true;
+        this.setBaseColorsFromCurrent();
+        this.updateGroups();
+        this.reapplySelectionHighlight();
+    }
+
     /** Disable vertex colors and restore original material behavior for non-vertex-colored mode */
     public disableVertexColorsAndResetMaterial(): void {
         // Remove color attribute from working geometry

@@ -1141,6 +1141,26 @@ export const viewerApi = {
         return jsonOrThrow<ConvertResponse>(r, `convertStatus(${jobId})`);
     },
 
+    /** Enqueue a worker utility against a loaded scene model. Returns the job
+     * (poll via ``convertStatus``; on ``done`` fetch ``derived_key`` for the
+     * viewer-ops JSON). Mirrors :func:`convert` but hits the utility endpoint. */
+    async runUtility(
+        scope: ScopeUrl,
+        sourceKey: string,
+        utilityName: string,
+        kwargs: Record<string, boolean | string | number | null>,
+    ): Promise<ConvertResponse> {
+        const r = await authedFetch(
+            `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/utility`,
+            {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({source_key: sourceKey, utility_name: utilityName, kwargs}),
+            },
+        );
+        return jsonOrThrow<ConvertResponse>(r, `runUtility(${utilityName} on ${sourceKey})`);
+    },
+
     // ── Connection-component panel ───────────────────────────────────
     //
     // Backed by /api/components/{profiles,specs,build}; build status
