@@ -420,6 +420,104 @@ async def _run_component_build(
     await _audit_done(db_pool, job_id, "done", None, started_at)
 
 
+class _SyncStorageFacade:
+    """Synchronous view of the async :class:`Storage`, scoped to one job.
+
+    A utility handler runs in a worker thread (sync) but needs to read/write
+    blobs (fetch a compare-ref build, upload an overlay GLB). This bridges each
+    call back onto the worker's event loop via ``run_coroutine_threadsafe`` so
+    the handler stays simple, synchronous code.
+    """
+
+    def __init__(self, storage, scope, loop):
+        self._s, self._scope, self._loop = storage, scope, loop
+
+    def _run(self, coro):
+        return asyncio.run_coroutine_threadsafe(coro, self._loop).result()
+
+    def list_keys(self, prefix: str = "") -> list[str]:
+        entries = self._run(self._s.list(self._scope))
+        return [e.key for e in entries if e.key.startswith(prefix)]
+
+    def fetch_to_path(self, key: str, dest):
+        self._run(self._s.stream_to_path(self._scope, key, pathlib.Path(dest)))
+        return dest
+
+    def get_bytes(self, key: str) -> bytes:
+        return self._run(self._s.get_bytes(self._scope, key))
+
+    def put_bytes(self, key: str, data: bytes) -> None:
+        self._run(self._s.put_bytes(self._scope, key, data))
+
+
+async def _run_utility_job(
+    *,
+    job: Job,
+    src_path: pathlib.Path,
+    scope,
+    storage: "Storage",
+    queue: "JobQueue",
+    db_pool: "asyncpg.Pool | None",
+    started_at: float,
+    _on_progress,
+) -> None:
+    """Run a worker @utility against the loaded scene GLB.
+
+    ``conversion_options`` carries ``{"utility_name": ..., "kwargs": {...}}``. The
+    handler returns a viewer-ops dict stored as JSON at ``job.derived_key`` (a
+    ``*.viewops.json`` key the API set at enqueue). The handler may also write
+    auxiliary blobs (e.g. an overlay GLB) via the sync storage facade and
+    reference them by key in the payload.
+    """
+    import json
+
+    from .utility import run_utility
+
+    job_id = job.job_id
+    opts = job.conversion_options or {}
+    uname = opts.get("utility_name")
+    ukwargs = opts.get("kwargs") or {}
+    if not uname:
+        await queue.update(
+            job_id, status=JOB_STATUS_ERROR, stage="utility",
+            error="conversion_options.utility_name is required for a utility job",
+        )
+        await _audit_done(db_pool, job_id, "error", "missing utility_name", started_at)
+        return
+
+    loop = asyncio.get_running_loop()
+    sync_storage = _SyncStorageFacade(storage, scope, loop)
+
+    def _invoke() -> dict:
+        return run_utility(
+            uname, src_path,
+            storage=sync_storage, scope=scope,
+            on_progress=_on_progress, kwargs=ukwargs,
+        )
+
+    try:
+        await queue.update(job_id, stage="utility", progress=0.30)
+        payload = await loop.run_in_executor(None, _invoke)
+    except Exception as exc:
+        logger.exception("worker: utility %s failed for job %s", uname, job_id)
+        trace = tb_module.format_exc()
+        await queue.update(job_id, status=JOB_STATUS_ERROR, stage="utility", error=str(exc))
+        await _audit_done(db_pool, job_id, "error", str(exc), started_at, traceback=trace)
+        return
+
+    try:
+        await queue.update(job_id, stage="upload", progress=0.90)
+        await storage.put_bytes(scope, job.derived_key, json.dumps(payload).encode("utf-8"))
+    except Exception as exc:
+        logger.exception("worker: utility %s upload failed for job %s", uname, job_id)
+        await queue.update(job_id, status=JOB_STATUS_ERROR, stage="upload", error=str(exc))
+        await _audit_done(db_pool, job_id, "error", str(exc), started_at)
+        return
+
+    await queue.update(job_id, status=JOB_STATUS_DONE, stage="ready", progress=1.0, error=None)
+    await _audit_done(db_pool, job_id, "done", None, started_at)
+
+
 async def _process_one(
     job_id: str,
     queue: JobQueue,
@@ -691,6 +789,21 @@ async def _process_one(
         # in a thread executor; the bake is pure Python (h5py + trimesh)
         # without the native-crash exposure that justifies fork
         # isolation for the convert path.
+        # Worker utility against the loaded scene GLB (e.g. diff). Returns a
+        # viewer-ops payload stored as JSON at the derived key, not a new file.
+        if job.target_format == "utility":
+            await _run_utility_job(
+                job=job,
+                src_path=src_path,
+                scope=scope,
+                storage=storage,
+                queue=queue,
+                db_pool=db_pool,
+                started_at=started_at,
+                _on_progress=_on_progress,
+            )
+            return
+
         if job.target_format == "fea_artefacts":
             await _run_fea_artefact_bake(
                 job=job,
@@ -959,6 +1072,13 @@ async def _run() -> None:
     else:
         conversions = full_matrix
 
+    # Utilities this worker advertises (every ``@utility`` registration adapy +
+    # any preloaded plug-in produced). Published alongside conversions so the
+    # API can merge them into ``/api/config`` for the SPA's Utilities panel.
+    from .utility import UtilityRegistry
+
+    utilities = UtilityRegistry.specs()
+
     async def _publish_registration() -> None:
         try:
             await queue.register_worker(
@@ -968,6 +1088,7 @@ async def _run() -> None:
                     "capabilities": capabilities,
                     "source_exts": source_exts,
                     "conversions": conversions,
+                    "utilities": utilities,
                     "started_at": started_at,
                     "last_heartbeat": time.time(),
                 },

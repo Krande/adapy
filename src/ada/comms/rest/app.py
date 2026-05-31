@@ -267,6 +267,29 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             for frm in sorted(merged)
         ]
 
+    async def _worker_advertised_utilities() -> list[dict]:
+        """Merged utility specs across every currently-registered worker.
+
+        Each worker publishes ``utilities: [{name, description, kwargs, inputs,
+        affects, returns}, ...]`` on its NATS KV record (see worker.py). We dedupe
+        by name (first writer wins) so the SPA's Utilities panel lists each once,
+        regardless of how many worker pods advertise it. Empty when the queue is
+        disabled or no worker has registered yet.
+        """
+        if not queue.enabled:
+            return []
+        try:
+            workers = await queue.list_workers()
+        except Exception:
+            logger.exception("config: failed to read worker registry for utilities")
+            return []
+        by_name: dict[str, dict] = {}
+        for w in workers:
+            for spec in (w.get("utilities") or []):
+                if isinstance(spec, dict) and isinstance(spec.get("name"), str):
+                    by_name.setdefault(spec["name"], spec)
+        return [by_name[n] for n in sorted(by_name)]
+
     # /api/config is *almost* public (the SPA fetches it before it has
     # a token, to learn whether auth is enabled and what the issuer is)
     # — but it never leaks user data, so we serve it unauthenticated.
@@ -301,10 +324,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # when no worker has registered yet; the SPA falls back to a
         # narrower static set in that case.
         conversion_matrix = await _worker_advertised_conversions()
+        # Worker-advertised utilities (Utilities panel in the scene component).
+        utilities = await _worker_advertised_utilities()
         return JSONResponse({
             "transport": "rest",
             "apiBase": "/api",
             "convertEnabled": queue.enabled,
+            "utilities": utilities,
             "auth": {
                 "enabled": settings.auth.enabled,
                 "issuer": settings.auth.issuer,
@@ -1069,6 +1095,73 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return JSONResponse(
             {"source_key": source_key, "targets": supported_targets_for(source_key)}
         )
+
+    @api.post("/scopes/{scope}/utility")
+    async def api_scope_utility(
+        request: Request,
+        scope_obj: Scope = Depends(_scope_from_path),
+        user: User = Depends(auth_module.current_user),
+    ) -> JSONResponse:
+        """Run a worker @utility against a loaded scene GLB.
+
+        Body: ``{"source_key": ..., "utility_name": ..., "kwargs": {...}}``. The
+        utility runs as a NATS job (target_format ``utility``) and writes a
+        viewer-ops JSON blob at the returned ``derived_key``; the SPA polls the
+        job, fetches that blob, and applies the ops to the live scene. Always
+        recomputed (``force_rebuild``) since the result depends on the kwargs,
+        which aren't encoded in the derived key.
+        """
+        from .utility import viewops_key_for
+
+        body = await request.json()
+        source_key = (body.get("source_key") or "").strip()
+        utility_name = (body.get("utility_name") or "").strip()
+        raw_kwargs = body.get("kwargs") or {}
+        if not source_key:
+            raise HTTPException(status_code=400, detail="source_key required")
+        if not utility_name:
+            raise HTTPException(status_code=400, detail="utility_name required")
+        if not isinstance(raw_kwargs, dict):
+            raise HTTPException(status_code=400, detail="kwargs must be an object")
+        # Gate against the live worker-advertised utility set so we don't enqueue
+        # a job no worker can serve.
+        advertised = {u.get("name") for u in await _worker_advertised_utilities()}
+        if advertised and utility_name not in advertised:
+            raise HTTPException(
+                status_code=404,
+                detail=f"unknown utility {utility_name!r}; available: {sorted(n for n in advertised if n)}",
+            )
+        if not await storage.exists(scope_obj, source_key):
+            raise HTTPException(status_code=404, detail=f"source not found: {source_key}")
+        if not queue.enabled:
+            raise HTTPException(status_code=503, detail="utilities disabled (no NATS configured)")
+
+        derived_key = viewops_key_for(source_key, utility_name)
+        try:
+            job = await queue.enqueue(
+                source_key,
+                "utility",
+                scope_kind=scope_obj.kind,
+                scope_id=scope_obj.id,
+                conversion_options={"utility_name": utility_name, "kwargs": raw_kwargs},
+                derived_key=derived_key,
+                force_rebuild=True,
+            )
+        except Exception as exc:
+            logger.exception("utility enqueue failed")
+            await _audit(
+                request, user, scope_obj, "utility",
+                key=source_key, target_format="utility", status="error", error=str(exc),
+            )
+            raise HTTPException(status_code=503, detail=f"enqueue failed: {exc}") from exc
+
+        await _audit(
+            request, user, scope_obj, "utility",
+            key=source_key, target_format="utility", status="queued", job_id=job.job_id,
+        )
+        payload = asdict(job)
+        payload["utility_name"] = utility_name
+        return JSONResponse(payload, status_code=202)
 
     @api.post("/scopes/{scope}/my-jobs/{job_id}/cancel")
     async def api_scope_cancel_my_job(
