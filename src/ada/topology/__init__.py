@@ -14,12 +14,24 @@ geometry verbs resolve a backend only when first used, so OCC-less environments
 from __future__ import annotations
 
 from ada.cad import Containment
+from ada.topology.graph import (
+    CellGraph,
+    FaceConnectionInfo,
+    GraphCell,
+    GraphEdge,
+    GraphFace,
+)
 from ada.topology.grid import CellGrid, GridIndexError
 from ada.topology.metadata import TopologyMetadata
 
 __all__ = [
     "Containment",
+    "CellGraph",
     "CellGrid",
+    "FaceConnectionInfo",
+    "GraphCell",
+    "GraphEdge",
+    "GraphFace",
     "GridIndexError",
     "TopologyMetadata",
 ]

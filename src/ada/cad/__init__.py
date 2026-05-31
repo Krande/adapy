@@ -101,6 +101,7 @@ class CadBackend(Protocol):
     def center_of_mass(self, shape: ShapeHandle) -> "Point": ...
     def shells(self, shape: ShapeHandle) -> list[ShapeHandle]: ...
     def wires(self, shape: ShapeHandle) -> list[ShapeHandle]: ...
+    def wire_points(self, shape: ShapeHandle) -> list[tuple[float, float, float]]: ...
 
 
 class AdacppBackend:
@@ -464,6 +465,12 @@ class AdacppBackend:
         if fn is None:
             raise NotImplementedError("adacpp.cad.wires is not available in this build")
         return list(fn(shape))
+
+    def wire_points(self, shape: ShapeHandle) -> list[tuple[float, float, float]]:
+        fn = getattr(self._cad, "wire_points", None)
+        if fn is None:
+            raise NotImplementedError("adacpp.cad.wire_points is not available in this build")
+        return [tuple(p) for p in fn(shape)]
 
 
 class OccBackend:
@@ -909,6 +916,27 @@ class OccBackend:
 
     def wires(self, shape: ShapeHandle) -> list[ShapeHandle]:
         return list(self._TopologyExplorer(shape).wires())
+
+    def wire_points(self, shape: ShapeHandle) -> list[tuple[float, float, float]]:
+        # Ordered boundary vertices. For a FACE, walk its outer wire; for a WIRE,
+        # walk it directly. BRepTools_WireExplorer yields them in connection
+        # order (unlike vertex_points, which is unordered) — needed to rebuild a
+        # face as an ordered polygon.
+        from OCC.Core.BRepTools import BRepTools_WireExplorer, breptools
+        from OCC.Core.TopAbs import TopAbs_FACE
+        from OCC.Core.TopoDS import topods
+
+        if shape.ShapeType() == TopAbs_FACE:
+            wire = breptools.OuterWire(topods.Face(shape))
+        else:
+            wire = shape
+        pts = []
+        exp = BRepTools_WireExplorer(wire)
+        while exp.More():
+            p = self._BRep_Tool.Pnt(exp.CurrentVertex())
+            pts.append((p.X(), p.Y(), p.Z()))
+            exp.Next()
+        return pts
 
 
 def select_backend(prefer: str | None = None) -> CadBackend:
