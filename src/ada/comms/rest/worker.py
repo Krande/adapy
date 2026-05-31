@@ -1073,8 +1073,14 @@ async def _run() -> None:
         conversions = full_matrix
 
     # Utilities this worker advertises (every ``@utility`` registration adapy +
-    # any preloaded plug-in produced). Published alongside conversions so the
-    # API can merge them into ``/api/config`` for the SPA's Utilities panel.
+    # any preloaded plug-in produced). Importing the bundled utilities package
+    # registers the built-ins (diff, ...); ADA_WORKER_PRELOAD can add more.
+    # Published alongside conversions so the API can merge them into
+    # ``/api/config`` for the SPA's Utilities panel.
+    try:
+        import ada.comms.rest.utilities  # noqa: F401  (registration side-effect)
+    except Exception:
+        logger.exception("worker: failed to import bundled utilities (non-fatal)")
     from .utility import UtilityRegistry
 
     utilities = UtilityRegistry.specs()
