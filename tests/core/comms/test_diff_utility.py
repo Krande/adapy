@@ -96,6 +96,30 @@ class _FakeStorage:
         self.put[key] = data
 
 
+def test_resolve_ref_glb_full_key_and_branch():
+    ref_glb = _glb(ada.Beam("b1", (0, 0, 0), (1, 0, 0), "IPE200"))
+
+    class _S:
+        def list_keys(self, prefix=""):
+            return ["versions/main/abc123/model.glb"]
+
+        def fetch_to_path(self, key, dest):
+            pathlib.Path(dest).write_bytes(ref_glb)
+            return dest
+
+    s = _S()
+    # full blob key -> used verbatim
+    assert diffmod.resolve_ref_glb(s, "versions/main/abc123/model.glb")[:4] == b"glTF"
+    # branch -> resolved
+    assert diffmod.resolve_ref_glb(s, "main")[:4] == b"glTF"
+    # commit sha -> resolved
+    assert diffmod.resolve_ref_glb(s, "abc123")[:4] == b"glTF"
+    import pytest
+
+    with pytest.raises(ValueError):
+        diffmod.resolve_ref_glb(s, "versions/main/zzz/missing.glb")
+
+
 def test_diff_handler_end_to_end(tmp_path):
     scene_glb = _scene()
     ref_glb = _glb(  # ref missing b2 (=> removed overlay), pl1 unchanged, b1 unchanged

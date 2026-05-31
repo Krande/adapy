@@ -19,68 +19,123 @@ function defaultsFor(spec: UtilitySpec): Record<string, string | number | boolea
     return out;
 }
 
-interface RefOption {
-    value: string;   // commit SHA (resolve_ref_glb matches versions/*/<sha>/)
-    label: string;   // "<branch> @ <shortsha>" + (current) marker
+interface VersionBuild {
+    commit: string;
     branch: string;
+    label: string;                       // "<branch> @ <shortsha>"
+    artefacts: {name: string; key: string}[];  // GLB files published under the commit
 }
 
 // Parse CI-published build keys (versions/<branch>/<commit>/<artefact>.glb) into
-// unique (branch, commit) picker options. The branch the model is loaded from is
-// listed first; the currently-loaded commit is excluded.
-function parseRefOptions(keys: string[], loadedSourceName: string | null): RefOption[] {
+// per-commit builds (each carrying its GLB artefacts). The branch the model is
+// loaded from is listed first; the currently-loaded commit is excluded. Also
+// returns the loaded model's artefact basename so the file picker can default
+// to the matching GLB (like-for-like comparison).
+function parseVersionBuilds(
+    keys: string[],
+    loadedSourceName: string | null,
+): {builds: VersionBuild[]; loadedArtefact: string | null} {
     let curBranch: string | null = null;
     let curCommit: string | null = null;
+    let loadedArtefact: string | null = null;
     if (loadedSourceName) {
         const p = loadedSourceName.split("/");
-        if (p[0] === "versions" && p.length >= 3) {
+        if (p[0] === "versions" && p.length >= 4) {
             curBranch = p[1].replace(/__/g, "/");
             curCommit = p[2];
+            loadedArtefact = p[p.length - 1];
         }
     }
-    const seen = new Set<string>();
-    const opts: RefOption[] = [];
+    const byCommit = new Map<string, VersionBuild>();
     for (const key of keys) {
         const p = key.split("/");
         if (p[0] !== "versions" || p.length < 4 || !key.endsWith(".glb")) continue;
         const branch = p[1].replace(/__/g, "/");
         const commit = p[2];
         if (commit === curCommit) continue;  // exclude the loaded commit
-        if (seen.has(commit)) continue;
-        seen.add(commit);
-        opts.push({value: commit, label: `${branch} @ ${commit.slice(0, 8)}`, branch});
+        const artefact = p[p.length - 1];
+        let b = byCommit.get(commit);
+        if (!b) {
+            b = {commit, branch, label: `${branch} @ ${commit.slice(0, 8)}`, artefacts: []};
+            byCommit.set(commit, b);
+        }
+        b.artefacts.push({name: artefact, key});
     }
-    // Current branch first, then the rest.
-    opts.sort((a, b) => {
+    const builds = Array.from(byCommit.values());
+    for (const b of builds) b.artefacts.sort((a, c) => a.name.localeCompare(c.name));
+    builds.sort((a, b) => {
         const ac = a.branch === curBranch ? 0 : 1;
         const bc = b.branch === curBranch ? 0 : 1;
         return ac - bc || a.label.localeCompare(b.label);
     });
-    return opts;
+    return {builds, loadedArtefact};
+}
+
+// Chained commit + GLB-file picker for a 'ref' kwarg. The kwarg value is the
+// full blob key of the selected artefact (resolve_ref_glb uses it verbatim).
+function RefField({
+    builds,
+    loadedArtefact,
+    value,
+    onChange,
+}: {
+    builds: VersionBuild[];
+    loadedArtefact: string | null;
+    value: string | number | boolean | null;
+    onChange: (v: string) => void;
+}) {
+    const common = "text-sm rounded-sm px-1 py-0.5 bg-white text-black w-full";
+    const ownerOf = (key: string) => builds.find((b) => b.artefacts.some((a) => a.key === key));
+    const [commit, setCommit] = React.useState<string>(
+        () => ownerOf(String(value ?? ""))?.commit ?? builds[0]?.commit ?? "",
+    );
+    const build = builds.find((b) => b.commit === commit) || builds[0];
+
+    // When the commit (or build list) changes, default the file to the loaded
+    // model's artefact name if present, else the first one.
+    React.useEffect(() => {
+        if (!build) return;
+        const preferred = build.artefacts.find((a) => a.name === loadedArtefact) || build.artefacts[0];
+        if (preferred && preferred.key !== value) onChange(preferred.key);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [commit, builds.length]);
+
+    if (!builds.length) {
+        return <div className="text-xs italic">(no published builds)</div>;
+    }
+    return (
+        <div className="space-y-1">
+            <select className={common} value={commit} onChange={(e) => setCommit(e.target.value)}>
+                {builds.map((b) => (
+                    <option key={b.commit} value={b.commit}>{b.label}</option>
+                ))}
+            </select>
+            <select className={common} value={String(value ?? "")} onChange={(e) => onChange(e.target.value)}>
+                {(build?.artefacts || []).map((a) => (
+                    <option key={a.key} value={a.key}>{a.name}</option>
+                ))}
+            </select>
+        </div>
+    );
 }
 
 function KwargField({
     kwarg,
     value,
     onChange,
-    refOptions,
+    builds,
+    loadedArtefact,
 }: {
     kwarg: UtilityKwarg;
     value: string | number | boolean | null;
     onChange: (v: string | number | boolean | null) => void;
-    refOptions: RefOption[];
+    builds: VersionBuild[];
+    loadedArtefact: string | null;
 }) {
     const common = "text-sm rounded-sm px-1 py-0.5 bg-white text-black w-full";
     let input: React.ReactNode;
     if (kwarg.type === "ref") {
-        input = (
-            <select className={common} value={String(value ?? "")} onChange={(e) => onChange(e.target.value)}>
-                {refOptions.length === 0 && <option value="">(no published builds)</option>}
-                {refOptions.map((o) => (
-                    <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
-            </select>
-        );
+        input = <RefField builds={builds} loadedArtefact={loadedArtefact} value={value} onChange={onChange}/>;
     } else if (kwarg.type === "enum") {
         input = (
             <select className={common} value={String(value ?? "")} onChange={(e) => onChange(e.target.value)}>
@@ -132,7 +187,8 @@ const UtilitiesSection = () => {
     const setRunning = useSceneInfoStore((s) => s.setRunning);
     const lastResult = useSceneInfoStore((s) => s.lastResult);
     const setLastResult = useSceneInfoStore((s) => s.setLastResult);
-    const [refOptions, setRefOptions] = React.useState<RefOption[]>([]);
+    const [refBuilds, setRefBuilds] = React.useState<VersionBuild[]>([]);
+    const [loadedArtefact, setLoadedArtefact] = React.useState<string | null>(null);
 
     // Fetch advertised utilities from /api/config once.
     React.useEffect(() => {
@@ -165,14 +221,19 @@ const UtilitiesSection = () => {
             try {
                 const scope = scopeUrlPart(useScopeStore.getState().current);
                 const files = await viewerApi.listFiles(scope);
-                const opts = parseRefOptions(files.map((f) => f.key), useModelState.getState().loadedSourceName);
-                setRefOptions(opts);
+                const {builds, loadedArtefact: la} = parseVersionBuilds(
+                    files.map((f) => f.key), useModelState.getState().loadedSourceName,
+                );
+                setRefBuilds(builds);
+                setLoadedArtefact(la);
                 const refK = spec!.kwargs.find((k) => k.type === "ref");
-                if (refK && opts.length && !kwargs[refK.name]) {
-                    setKwargs({...kwargs, [refK.name]: opts[0].value});
+                if (refK && builds.length && !kwargs[refK.name]) {
+                    const first = builds[0];
+                    const pref = first.artefacts.find((a) => a.name === la) || first.artefacts[0];
+                    if (pref) setKwargs({...kwargs, [refK.name]: pref.key});
                 }
             } catch {
-                setRefOptions([]);
+                setRefBuilds([]);
             }
         })();
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -238,7 +299,8 @@ const UtilitiesSection = () => {
                     key={k.name}
                     kwarg={k}
                     value={kwargs[k.name] ?? null}
-                    refOptions={refOptions}
+                    builds={refBuilds}
+                    loadedArtefact={loadedArtefact}
                     onChange={(v) => setKwargs({...kwargs, [k.name]: v})}
                 />
             ))}
@@ -271,7 +333,7 @@ const UtilitiesSection = () => {
                 </div>
             )}
             {lastResult?.summary && (
-                <pre className="mt-2 text-xs whitespace-pre-wrap bg-black bg-opacity-20 rounded-sm p-1 max-h-40 overflow-auto">
+                <pre className="mt-2 text-xs whitespace-pre-wrap bg-black bg-opacity-70 text-gray-100 rounded-sm p-1 max-h-40 overflow-auto">
                     {JSON.stringify(lastResult.summary, null, 1)}
                 </pre>
             )}

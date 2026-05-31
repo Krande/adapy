@@ -171,26 +171,37 @@ def parse_elements(glb_bytes: bytes) -> dict[str, Element]:
 # Compare-ref resolution                                                       #
 # --------------------------------------------------------------------------- #
 def resolve_ref_glb(storage, compare_ref: str) -> bytes:
-    """Resolve a branch name or commit SHA to a published build GLB's bytes.
+    """Resolve ``compare_ref`` to a published build GLB's bytes.
 
     Builds land at ``versions/<branch>/<commit>/<artefact>.glb`` (ada build
-    upload). We match a ref against either the ``<branch>`` or ``<commit>``
-    path segment and pick the first ``.glb`` (lexicographically) under it.
+    upload). ``compare_ref`` may be:
+
+    * a **full blob key** ``versions/<branch>/<commit>/<artefact>.glb`` — used
+      verbatim (the frontend's artefact picker sends this so the diff compares
+      like-for-like against the chosen GLB), or
+    * a **branch name** or **commit SHA** — matched against the ``<branch>`` or
+      ``<commit>`` path segment, picking the first ``.glb`` lexicographically
+      (back-compat / CLI use).
     """
-    ref = compare_ref.strip().replace("/", "__")  # branch slug encoding
+    ref = compare_ref.strip()
     keys = [k for k in storage.list_keys("versions/") if k.endswith(".glb")]
-    # branch match: versions/<ref>/<commit>/*.glb ; sha match: versions/*/<ref>/*.glb
-    cand = [k for k in keys if f"/{ref}/" in f"/{k}" or k.startswith(f"versions/{ref}/")]
-    if not cand:
-        # try raw (unencoded) ref too
-        raw = compare_ref.strip()
-        cand = [k for k in keys if f"/{raw}/" in f"/{k}"]
-    if not cand:
-        raise ValueError(
-            f"no published build found for ref {compare_ref!r} under versions/ "
-            f"(have: {sorted(set(k.split('/')[1] for k in keys if '/' in k))[:10]})"
-        )
-    chosen = sorted(cand)[0]
+
+    if ref.startswith("versions/") and ref.endswith(".glb"):
+        if ref not in keys:
+            raise ValueError(f"compare build not found: {ref!r}")
+        chosen = ref
+    else:
+        slug = ref.replace("/", "__")  # branch slug encoding
+        cand = [k for k in keys if f"/{slug}/" in f"/{k}" or k.startswith(f"versions/{slug}/")]
+        if not cand:
+            cand = [k for k in keys if f"/{ref}/" in f"/{k}"]
+        if not cand:
+            raise ValueError(
+                f"no published build found for ref {compare_ref!r} under versions/ "
+                f"(have: {sorted(set(k.split('/')[1] for k in keys if '/' in k))[:10]})"
+            )
+        chosen = sorted(cand)[0]
+
     dest = tempfile.mkstemp(suffix=".glb")[1]
     storage.fetch_to_path(chosen, dest)
     with open(dest, "rb") as fh:
