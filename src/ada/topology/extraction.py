@@ -49,10 +49,17 @@ class GraphCellExtractor:
         be = active_backend()
         face_map: dict[tuple, list[GraphFace]] = defaultdict(list)
         for cell in self.graph_cells:
+            cell_centroid = np.asarray(be.center_of_mass(cell.handle), dtype=float)
             for i, fh in enumerate(be.faces(cell.handle)):
                 plane = be.face_plane(fh)
                 normal = plane[1] if plane is not None else ada.Direction(0, 0, 1)
                 centroid = be.center_of_mass(fh)
+                # Orient outward: the face normal points away from the cell centre
+                # (the kernel's geometric plane normal carries no consistent side).
+                # Abutting cells then get opposite normals on a shared face.
+                nvec = np.asarray(normal, dtype=float)
+                if float(np.dot(nvec, np.asarray(centroid, dtype=float) - cell_centroid)) < 0:
+                    normal = ada.Direction(*(-nvec))
                 gf = GraphFace(fh, i, normal=normal, point_inside=centroid, parent_cell=cell)
                 cell.faces.append(gf)
                 face_map[_round_key(centroid)].append(gf)
