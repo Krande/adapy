@@ -102,6 +102,7 @@ class CadBackend(Protocol):
     def shells(self, shape: ShapeHandle) -> list[ShapeHandle]: ...
     def wires(self, shape: ShapeHandle) -> list[ShapeHandle]: ...
     def wire_points(self, shape: ShapeHandle) -> list[tuple[float, float, float]]: ...
+    def unify_coplanar_faces(self, shape: ShapeHandle) -> ShapeHandle: ...
 
 
 class AdacppBackend:
@@ -471,6 +472,12 @@ class AdacppBackend:
         if fn is None:
             raise NotImplementedError("adacpp.cad.wire_points is not available in this build")
         return [tuple(p) for p in fn(shape)]
+
+    def unify_coplanar_faces(self, shape: ShapeHandle) -> ShapeHandle:
+        fn = getattr(self._cad, "unify_coplanar_faces", None)
+        if fn is None:
+            raise NotImplementedError("adacpp.cad.unify_coplanar_faces is not available in this build")
+        return fn(shape)
 
 
 class OccBackend:
@@ -937,6 +944,17 @@ class OccBackend:
             pts.append((p.X(), p.Y(), p.Z()))
             exp.Next()
         return pts
+
+    def unify_coplanar_faces(self, shape: ShapeHandle) -> ShapeHandle:
+        # Merge adjacent same-surface (coplanar) faces into single faces
+        # (ShapeUpgrade_UnifySameDomain). On real geometry a cell wall is often
+        # split into several coplanar faces; unifying makes it one face so the
+        # shared-face match between adjacent cells (by centroid) is robust.
+        from OCC.Core.ShapeUpgrade import ShapeUpgrade_UnifySameDomain
+
+        unify = ShapeUpgrade_UnifySameDomain(shape, True, True, False)
+        unify.Build()
+        return unify.Shape()
 
 
 def select_backend(prefer: str | None = None) -> CadBackend:

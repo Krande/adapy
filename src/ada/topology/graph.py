@@ -451,32 +451,57 @@ class CellGraph:
         return CellGraph(GraphCellExtractor(cells).extract())
 
     @staticmethod
-    def from_prim_boxes(boxes: "Iterable[ada.PrimBox]") -> "CellGraph":
-        """Build a graph from a set of axis-aligned boxes.
+    def from_cell_solids(
+        solids_with_metadata: list[tuple[ShapeHandle, TopologyMetadata]],
+        merge: bool = True,
+        glue: bool = True,
+        unify: bool = True,
+    ) -> "CellGraph":
+        """Build a graph from cell solids (each a solid handle + its metadata).
 
-        Each box becomes a cell solid (built via the active backend); the cells
-        are non-manifold-merged so abutting boxes share faces, then extracted.
-        Box ``metadata`` is carried onto each cell's ``TopologyMetadata``.
+        When ``merge`` (default), the solids are non-manifold-merged first so
+        coincident faces of abutting cells collapse to a single shared face; the
+        merged solids are then re-paired to their source metadata by centroid.
+        Use ``merge=False`` when the solids already share faces (e.g. came out of
+        ``make_volumes_from_faces``).
+
+        When ``unify`` (default), each cell solid has its adjacent coplanar faces
+        merged into single faces first. Real geometry often splits a wall into
+        several coplanar faces; unifying makes the shared wall a single face so
+        the centroid-based shared-face match between adjacent cells is reliable.
         """
         from ada.topology.extraction import GraphCellExtractor
 
         be = active_backend()
-        cells: list[GraphCell] = []
-        solids = []
-        metas = []
-        for box in boxes:
-            solid = box.solid_occ()
-            solids.append(solid)
-            props = {f"IFC_{k}": v for k, v in (box.metadata or {}).items() if v is not None}
-            metas.append(TopologyMetadata(name=props.get("IFC_NAME", box.name), properties=props))
+        solids = [s for s, _ in solids_with_metadata]
+        metas = [m for _, m in solids_with_metadata]
 
-        # Merge so coincident faces of abutting boxes collapse to shared faces,
-        # then re-extract the individual solids from the merged compound.
-        merged = be.non_manifold_merge(solids, glue=True)
-        merged_solids = be.solids(merged)
-        # Pair each merged solid back to its source metadata by centroid match.
-        meta_by_key = {_round_key(be.center_of_mass(s)): m for s, m in zip(solids, metas)}
-        for ms in merged_solids:
-            md = meta_by_key.get(_round_key(be.center_of_mass(ms)), TopologyMetadata())
-            cells.append(GraphCell(ms, [], md))
+        if merge and len(solids) > 1:
+            merged_solids = be.solids(be.non_manifold_merge(solids, glue=glue))
+            meta_by_key = {_round_key(be.center_of_mass(s)): m for s, m in zip(solids, metas)}
+            cells = [
+                GraphCell(ms, [], meta_by_key.get(_round_key(be.center_of_mass(ms)), TopologyMetadata()))
+                for ms in merged_solids
+            ]
+        else:
+            cells = [GraphCell(s, [], m) for s, m in zip(solids, metas)]
+
+        if unify:
+            for cell in cells:
+                cell.handle = be.unify_coplanar_faces(cell.handle)
         return CellGraph(GraphCellExtractor(cells).extract())
+
+    @staticmethod
+    def from_prim_boxes(boxes: "Iterable[ada.PrimBox]") -> "CellGraph":
+        """Build a graph from a set of axis-aligned boxes.
+
+        Each box becomes a cell solid (built via the active backend); abutting
+        boxes are merged so they share faces. Box ``metadata`` is carried onto
+        each cell's ``TopologyMetadata`` (IFC_-prefixed, mirroring IFC ingest).
+        """
+        pairs = []
+        for box in boxes:
+            props = {f"IFC_{k}": v for k, v in (box.metadata or {}).items() if v is not None}
+            md = TopologyMetadata(name=props.get("IFC_NAME", box.name), properties=props)
+            pairs.append((box.solid_occ(), md))
+        return CellGraph.from_cell_solids(pairs, merge=True)

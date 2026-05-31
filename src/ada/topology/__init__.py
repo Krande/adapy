@@ -22,6 +22,7 @@ from ada.topology.graph import (
     GraphFace,
 )
 from ada.topology.grid import CellGrid, GridIndexError
+from ada.topology.io import from_assembly, from_ifc, from_part
 from ada.topology.metadata import TopologyMetadata
 
 __all__ = [
@@ -34,4 +35,7 @@ __all__ = [
     "GraphFace",
     "GridIndexError",
     "TopologyMetadata",
+    "from_assembly",
+    "from_ifc",
+    "from_part",
 ]
