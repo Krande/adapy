@@ -21,6 +21,7 @@ least one backend.
 from __future__ import annotations
 
 import os
+from enum import Enum
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
@@ -30,6 +31,17 @@ if TYPE_CHECKING:
     from ada.geom.booleans import BoolOpEnum
     from ada.geom.direction import Direction
     from ada.geom.points import Point
+
+
+class Containment(Enum):
+    """Backend-neutral result of a point-in-solid classification.
+
+    Mirrors OCCT's TopAbs_State without exposing the kernel enum."""
+
+    IN = "in"
+    OUT = "out"
+    ON = "on"
+    UNKNOWN = "unknown"
 
 
 @runtime_checkable
@@ -81,6 +93,14 @@ class CadBackend(Protocol):
     def adopt_occ_shape(self, occ_shape: Any) -> ShapeHandle: ...
     def make_halfspace(self, origin, normal, flip: bool) -> ShapeHandle: ...
     def cut_surfaces(self, solid: ShapeHandle, cutters: list, deflection: float, tol: float) -> list: ...
+    # --- topology-kernel verbs (the non-manifold core for ada.topology) ---
+    def make_volumes_from_faces(self, faces: list[ShapeHandle], tolerance: float = 1e-6) -> list[ShapeHandle]: ...
+    def non_manifold_merge(self, shapes: list[ShapeHandle], tolerance: float = 1e-6, glue: bool = True) -> ShapeHandle: ...
+    def free_faces(self, solids: list[ShapeHandle]) -> list[ShapeHandle]: ...
+    def point_in_solid(self, solid: ShapeHandle, point, tolerance: float = 1e-6) -> "Containment": ...
+    def center_of_mass(self, shape: ShapeHandle) -> "Point": ...
+    def shells(self, shape: ShapeHandle) -> list[ShapeHandle]: ...
+    def wires(self, shape: ShapeHandle) -> list[ShapeHandle]: ...
 
 
 class AdacppBackend:
@@ -396,6 +416,54 @@ class AdacppBackend:
         if fn is None:
             raise NotImplementedError("adacpp.cad.cut_surfaces is not available in this build")
         return fn(solid, list(cutters), float(deflection), float(tol))
+
+    # --- topology-kernel verbs (native adacpp, its own OCCT) ---------------
+
+    def make_volumes_from_faces(self, faces: list[ShapeHandle], tolerance: float = 1e-6) -> list[ShapeHandle]:
+        fn = getattr(self._cad, "make_volumes_from_faces", None)
+        if fn is None:
+            raise NotImplementedError("adacpp.cad.make_volumes_from_faces is not available in this build")
+        return list(fn(list(faces), float(tolerance)))
+
+    def non_manifold_merge(self, shapes: list[ShapeHandle], tolerance: float = 1e-6, glue: bool = True) -> ShapeHandle:
+        fn = getattr(self._cad, "non_manifold_merge", None)
+        if fn is None:
+            raise NotImplementedError("adacpp.cad.non_manifold_merge is not available in this build")
+        return fn(list(shapes), float(tolerance), bool(glue))
+
+    def free_faces(self, solids: list[ShapeHandle]) -> list[ShapeHandle]:
+        fn = getattr(self._cad, "free_faces", None)
+        if fn is None:
+            raise NotImplementedError("adacpp.cad.free_faces is not available in this build")
+        return list(fn(list(solids)))
+
+    def point_in_solid(self, solid: ShapeHandle, point, tolerance: float = 1e-6) -> "Containment":
+        fn = getattr(self._cad, "point_in_solid", None)
+        if fn is None:
+            raise NotImplementedError("adacpp.cad.point_in_solid is not available in this build")
+        # adacpp returns an int matching OCCT TopAbs_State (IN=0, OUT=1, ON=2, UNKNOWN=3).
+        state = fn(solid, [float(point[0]), float(point[1]), float(point[2])], float(tolerance))
+        return (Containment.IN, Containment.OUT, Containment.ON, Containment.UNKNOWN)[int(state)]
+
+    def center_of_mass(self, shape: ShapeHandle) -> "Point":
+        fn = getattr(self._cad, "center_of_mass", None)
+        if fn is None:
+            raise NotImplementedError("adacpp.cad.center_of_mass is not available in this build")
+        from ada.geom.points import Point
+
+        return Point(*fn(shape))
+
+    def shells(self, shape: ShapeHandle) -> list[ShapeHandle]:
+        fn = getattr(self._cad, "shells", None)
+        if fn is None:
+            raise NotImplementedError("adacpp.cad.shells is not available in this build")
+        return list(fn(shape))
+
+    def wires(self, shape: ShapeHandle) -> list[ShapeHandle]:
+        fn = getattr(self._cad, "wires", None)
+        if fn is None:
+            raise NotImplementedError("adacpp.cad.wires is not available in this build")
+        return list(fn(shape))
 
 
 class OccBackend:
@@ -727,6 +795,120 @@ class OccBackend:
         from ada.occ.cut_surfaces_occ import occ_cut_surfaces
 
         return occ_cut_surfaces(solid, cutters, deflection, tol)
+
+    # --- topology-kernel verbs ---------------------------------------------
+    # The non-manifold core ada.topology needs. Every per-face / per-solid
+    # OCCT loop stays inside the backend (the boundary crosses once, returning
+    # opaque handles or backend-neutral ada.geom data — never inside a loop).
+
+    def make_volumes_from_faces(self, faces: list[ShapeHandle], tolerance: float = 1e-6) -> list[ShapeHandle]:
+        # Partition space into solids from a face soup. BOPAlgo_MakerVolume
+        # builds every enclosed cell; faces interior to the soup come out shared
+        # between the two solids they separate, which free_faces() later relies on.
+        from OCC.Core.BOPAlgo import BOPAlgo_MakerVolume
+        from OCC.Core.TopTools import TopTools_ListOfShape
+
+        mv = BOPAlgo_MakerVolume()
+        args = TopTools_ListOfShape()
+        for f in faces:
+            args.Append(f)
+        mv.SetArguments(args)
+        mv.SetIntersect(True)  # imprint the faces against each other first
+        if tolerance and tolerance > 0:
+            mv.SetFuzzyValue(tolerance)
+        mv.Perform()
+        if mv.HasErrors():
+            raise RuntimeError("make_volumes_from_faces: BOPAlgo_MakerVolume reported errors")
+        return list(self._TopologyExplorer(mv.Shape()).solids())
+
+    def non_manifold_merge(self, shapes: list[ShapeHandle], tolerance: float = 1e-6, glue: bool = True) -> ShapeHandle:
+        # Non-manifold fuse keeping internal walls as shared faces.
+        # BOPAlgo_Builder glues coincident faces so adjacent cells share one face
+        # rather than duplicating it; plain BRepAlgoAPI_Fuse would dissolve the
+        # partitions.
+        from OCC.Core.BOPAlgo import BOPAlgo_Builder, BOPAlgo_GlueEnum
+        from OCC.Core.TopTools import TopTools_ListOfShape
+
+        builder = BOPAlgo_Builder()
+        args = TopTools_ListOfShape()
+        for s in shapes:
+            args.Append(s)
+        builder.SetArguments(args)
+        if glue:
+            builder.SetGlue(BOPAlgo_GlueEnum.BOPAlgo_GlueShift)
+        if tolerance and tolerance > 0:
+            builder.SetFuzzyValue(tolerance)
+        builder.Perform()
+        if builder.HasErrors():
+            raise RuntimeError("non_manifold_merge: BOPAlgo_Builder reported errors")
+        return builder.Shape()
+
+    def free_faces(self, solids: list[ShapeHandle]) -> list[ShapeHandle]:
+        # Faces belonging to exactly one solid — the outer envelope. Build a
+        # compound, map FACE→SOLID ancestors, keep the faces with a single owner.
+        from OCC.Core.BRep import BRep_Builder
+        from OCC.Core.TopAbs import TopAbs_FACE, TopAbs_SOLID
+        from OCC.Core.TopExp import topexp
+        from OCC.Core.TopoDS import TopoDS_Compound
+        from OCC.Core.TopTools import TopTools_IndexedDataMapOfShapeListOfShape
+
+        builder = BRep_Builder()
+        comp = TopoDS_Compound()
+        builder.MakeCompound(comp)
+        for s in solids:
+            builder.Add(comp, s)
+        amap = TopTools_IndexedDataMapOfShapeListOfShape()
+        topexp.MapShapesAndAncestors(comp, TopAbs_FACE, TopAbs_SOLID, amap)
+        out = []
+        for i in range(1, amap.Size() + 1):
+            if amap.FindFromIndex(i).Size() == 1:
+                out.append(amap.FindKey(i))
+        return out
+
+    def point_in_solid(self, solid: ShapeHandle, point, tolerance: float = 1e-6) -> "Containment":
+        from OCC.Core.BRepClass3d import BRepClass3d_SolidClassifier
+        from OCC.Core.gp import gp_Pnt
+        from OCC.Core.TopAbs import TopAbs_IN, TopAbs_ON, TopAbs_OUT
+
+        clf = BRepClass3d_SolidClassifier(solid)
+        clf.Perform(gp_Pnt(float(point[0]), float(point[1]), float(point[2])), tolerance)
+        state = clf.State()
+        if state == TopAbs_IN:
+            return Containment.IN
+        if state == TopAbs_OUT:
+            return Containment.OUT
+        if state == TopAbs_ON:
+            return Containment.ON
+        return Containment.UNKNOWN
+
+    def center_of_mass(self, shape: ShapeHandle) -> "Point":
+        from OCC.Core.BRepGProp import brepgprop
+        from OCC.Core.GProp import GProp_GProps
+        from OCC.Core.TopAbs import (
+            TopAbs_COMPOUND,
+            TopAbs_COMPSOLID,
+            TopAbs_FACE,
+            TopAbs_SHELL,
+            TopAbs_SOLID,
+        )
+        from ada.geom.points import Point
+
+        props = GProp_GProps()
+        st = shape.ShapeType()
+        if st in (TopAbs_SOLID, TopAbs_COMPSOLID, TopAbs_COMPOUND):
+            brepgprop.VolumeProperties(shape, props)
+        elif st in (TopAbs_SHELL, TopAbs_FACE):
+            brepgprop.SurfaceProperties(shape, props)
+        else:
+            brepgprop.LinearProperties(shape, props)
+        com = props.CentreOfMass()
+        return Point(com.X(), com.Y(), com.Z())
+
+    def shells(self, shape: ShapeHandle) -> list[ShapeHandle]:
+        return list(self._TopologyExplorer(shape).shells())
+
+    def wires(self, shape: ShapeHandle) -> list[ShapeHandle]:
+        return list(self._TopologyExplorer(shape).wires())
 
 
 def select_backend(prefer: str | None = None) -> CadBackend:
