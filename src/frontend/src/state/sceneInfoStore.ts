@@ -15,8 +15,9 @@ export interface GroupInfo {
 
 // One kwarg in a utility's input form (mirrors the worker @utility spec).
 export interface UtilityKwarg {
+  // 'ref' renders a published-build (branch/commit) picker in the frontend.
   name: string;
-  type: 'string' | 'int' | 'float' | 'bool' | 'enum';
+  type: 'string' | 'int' | 'float' | 'bool' | 'enum' | 'ref';
   default?: string | number | boolean | null;
   description?: string;
   enum?: string[];

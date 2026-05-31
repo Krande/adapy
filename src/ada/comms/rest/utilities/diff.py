@@ -57,6 +57,7 @@ class Element:
     etype: str | None
     centroid: tuple[float, float, float]
     area: float  # summed triangle area (surface measure)
+    node_id: str = ""  # GLB draw-range key == the frontend's rangeId (colour key)
     meta: dict = field(default_factory=dict)
 
 
@@ -160,6 +161,7 @@ def parse_elements(glb_bytes: bytes) -> dict[str, Element]:
                 etype=m.get("type"),
                 centroid=centroid,
                 area=_tri_area(verts),
+                node_id=str(node_id),
                 meta=m,
             )
     return out
@@ -226,14 +228,15 @@ def _by_identity(scene, ref, key_fn, *, compare_props: bool = False) -> dict:
     removed_names: list[str] = []
 
     for k, name in scene_keys.items():
+        nid = scene[name].node_id or name  # colour key = frontend rangeId
         if k not in ref_keys:
-            colors.append({"key": name, "color": COLOR_ADDED})
+            colors.append({"key": nid, "color": COLOR_ADDED})
             counts["added"] += 1
         elif compare_props and _meta_signature(scene[name]) != _meta_signature(ref[ref_keys[k]]):
-            colors.append({"key": name, "color": COLOR_MODIFIED})
+            colors.append({"key": nid, "color": COLOR_MODIFIED})
             counts["modified"] += 1
         else:
-            colors.append({"key": name, "color": COLOR_UNCHANGED})
+            colors.append({"key": nid, "color": COLOR_UNCHANGED})
             counts["unchanged"] += 1
 
     for k, name in ref_keys.items():
@@ -277,7 +280,10 @@ def _by_coverage(scene, ref, grid_size: float) -> dict:
             r, g, b = int(200 * (1 + t)), int(200 * (1 + t)), 255
         return f"#{r:02x}{g:02x}{b:02x}"
 
-    colors = [{"key": n, "color": heat(deltas.get(cell(e.centroid), 0))} for n, e in scene.items()]
+    colors = [
+        {"key": e.node_id or n, "color": heat(deltas.get(cell(e.centroid), 0))}
+        for n, e in scene.items()
+    ]
     changed_cells = sum(1 for v in deltas.values() if v != 0)
     summary = {
         "grid_size": grid_size,
@@ -395,8 +401,8 @@ def build_removed_overlay_glb(ref_glb: bytes, removed_names: list[str]) -> bytes
         "colour the elements to show what changed."
     ),
     kwargs=[
-        {"name": "compare_ref", "type": "string", "default": "main",
-         "description": "Branch name or commit SHA of the build to compare against."},
+        {"name": "compare_ref", "type": "ref", "default": "",
+         "description": "Published build (branch/commit) to compare against."},
         {"name": "diff_type", "type": "enum", "default": "byCentroid",
          "enum": ["byCentroid", "byName", "byProperty", "byCoverage"],
          "description": "How to match/compare elements between the two models."},

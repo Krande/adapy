@@ -19,18 +19,69 @@ function defaultsFor(spec: UtilitySpec): Record<string, string | number | boolea
     return out;
 }
 
+interface RefOption {
+    value: string;   // commit SHA (resolve_ref_glb matches versions/*/<sha>/)
+    label: string;   // "<branch> @ <shortsha>" + (current) marker
+    branch: string;
+}
+
+// Parse CI-published build keys (versions/<branch>/<commit>/<artefact>.glb) into
+// unique (branch, commit) picker options. The branch the model is loaded from is
+// listed first; the currently-loaded commit is excluded.
+function parseRefOptions(keys: string[], loadedSourceName: string | null): RefOption[] {
+    let curBranch: string | null = null;
+    let curCommit: string | null = null;
+    if (loadedSourceName) {
+        const p = loadedSourceName.split("/");
+        if (p[0] === "versions" && p.length >= 3) {
+            curBranch = p[1].replace(/__/g, "/");
+            curCommit = p[2];
+        }
+    }
+    const seen = new Set<string>();
+    const opts: RefOption[] = [];
+    for (const key of keys) {
+        const p = key.split("/");
+        if (p[0] !== "versions" || p.length < 4 || !key.endsWith(".glb")) continue;
+        const branch = p[1].replace(/__/g, "/");
+        const commit = p[2];
+        if (commit === curCommit) continue;  // exclude the loaded commit
+        if (seen.has(commit)) continue;
+        seen.add(commit);
+        opts.push({value: commit, label: `${branch} @ ${commit.slice(0, 8)}`, branch});
+    }
+    // Current branch first, then the rest.
+    opts.sort((a, b) => {
+        const ac = a.branch === curBranch ? 0 : 1;
+        const bc = b.branch === curBranch ? 0 : 1;
+        return ac - bc || a.label.localeCompare(b.label);
+    });
+    return opts;
+}
+
 function KwargField({
     kwarg,
     value,
     onChange,
+    refOptions,
 }: {
     kwarg: UtilityKwarg;
     value: string | number | boolean | null;
     onChange: (v: string | number | boolean | null) => void;
+    refOptions: RefOption[];
 }) {
     const common = "text-sm rounded-sm px-1 py-0.5 bg-white text-black w-full";
     let input: React.ReactNode;
-    if (kwarg.type === "enum") {
+    if (kwarg.type === "ref") {
+        input = (
+            <select className={common} value={String(value ?? "")} onChange={(e) => onChange(e.target.value)}>
+                {refOptions.length === 0 && <option value="">(no published builds)</option>}
+                {refOptions.map((o) => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+            </select>
+        );
+    } else if (kwarg.type === "enum") {
         input = (
             <select className={common} value={String(value ?? "")} onChange={(e) => onChange(e.target.value)}>
                 {(kwarg.enum || []).map((opt) => (
@@ -81,6 +132,7 @@ const UtilitiesSection = () => {
     const setRunning = useSceneInfoStore((s) => s.setRunning);
     const lastResult = useSceneInfoStore((s) => s.lastResult);
     const setLastResult = useSceneInfoStore((s) => s.setLastResult);
+    const [refOptions, setRefOptions] = React.useState<RefOption[]>([]);
 
     // Fetch advertised utilities from /api/config once.
     React.useEffect(() => {
@@ -103,6 +155,28 @@ const UtilitiesSection = () => {
     }, []);
 
     const spec = utilities.find((u) => u.name === selectedUtility) || null;
+    const hasRefKwarg = !!spec?.kwargs.some((k) => k.type === "ref");
+
+    // When a utility has a ref kwarg, list the CI-published builds (versions/*)
+    // as a branch/commit picker, defaulting the ref kwarg to the first option.
+    React.useEffect(() => {
+        if (!hasRefKwarg) return;
+        (async () => {
+            try {
+                const scope = scopeUrlPart(useScopeStore.getState().current);
+                const files = await viewerApi.listFiles(scope);
+                const opts = parseRefOptions(files.map((f) => f.key), useModelState.getState().loadedSourceName);
+                setRefOptions(opts);
+                const refK = spec!.kwargs.find((k) => k.type === "ref");
+                if (refK && opts.length && !kwargs[refK.name]) {
+                    setKwargs({...kwargs, [refK.name]: opts[0].value});
+                }
+            } catch {
+                setRefOptions([]);
+            }
+        })();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [hasRefKwarg, selectedUtility]);
 
     const onSelectUtility = (name: string) => {
         setSelectedUtility(name);
@@ -164,6 +238,7 @@ const UtilitiesSection = () => {
                     key={k.name}
                     kwarg={k}
                     value={kwargs[k.name] ?? null}
+                    refOptions={refOptions}
                     onChange={(v) => setKwargs({...kwargs, [k.name]: v})}
                 />
             ))}
