@@ -43,7 +43,10 @@ export async function handleTreeSelectionChange(ids: NodeApi[]) {
 
     // Scope tree search to the selected node's subtree (cleared when nothing
     // is selected, so search spans all roots again).
-    useTreeViewStore.getState().setScopeNodeId(ids.length > 0 ? ids[0].id : null);
+    useTreeViewStore.getState().setScope(
+        ids.length > 0 ? ids[0].id : null,
+        ids.length > 0 ? (ids[0].data?.name ?? null) : null,
+    );
 
     if (ids.length > 0) {
         let nodes: NodeApi[] = [];

@@ -6,7 +6,7 @@ import {handleTreeSelectionChange} from "@/utils/tree_view/handleClickedNode";
 
 const TreeViewComponent: React.FC = () => {
     const {useTreeViewStore} = useViewerStores();
-    const {treeData, setTree, searchTerm, scopeNodeId} = useTreeViewStore();
+    const {treeData, setTree, searchTerm, scopeNodeId, scopeNodeName, setScope} = useTreeViewStore();
     const [treeHeight, setTreeHeight] = useState<number>(800); // Default height
     const treeRef = useRef<any>(null);  // Use 'any' to allow custom properties
     const containerRef = useRef<HTMLDivElement | null>(null);
@@ -61,12 +61,29 @@ const TreeViewComponent: React.FC = () => {
             <div ref={headerRef} className={"w-full pr-1 pt-1"}>
                 <input
                     className={"w-full bg-gray-600 text-white rounded-sm pl-1"}
-                    placeholder={"Search here"}
+                    placeholder={scopeNodeId ? `Search in ${scopeNodeName ?? "selection"}` : "Search here"}
                     onInput={
                     (event) => {
                         useTreeViewStore.getState().setSearchTerm((event.target as HTMLInputElement).value);
                     }
                 }/>
+                {scopeNodeId && (
+                    <div className="mt-1 flex items-center">
+                        <span
+                            className="inline-flex items-center max-w-full text-xs bg-blue-700 text-white rounded-full px-2 py-0.5"
+                            title={`Search scoped to ${scopeNodeName ?? "selection"}`}
+                        >
+                            <span className="truncate">scope: {scopeNodeName ?? "selection"}</span>
+                            <button
+                                className="ml-1 font-bold hover:text-red-300"
+                                onClick={() => setScope(null, null)}
+                                aria-label="Clear search scope"
+                            >
+                                ×
+                            </button>
+                        </span>
+                    </div>
+                )}
             </div>
             <div>
                 <Tree

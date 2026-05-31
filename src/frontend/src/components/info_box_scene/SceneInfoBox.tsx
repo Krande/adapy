@@ -15,7 +15,8 @@ const SceneInfoBox = () => {
     const mode = useSceneInfoStore((s) => s.mode);
     const setMode = useSceneInfoStore((s) => s.setMode);
     return (
-        <div className="bg-gray-400 bg-opacity-50 rounded-sm p-2 min-w-80">
+        <div className="bg-gray-400 bg-opacity-50 rounded-sm p-2 min-w-80 max-h-[80vh] overflow-y-auto">
+
             <div className="flex items-center justify-between mb-1">
                 <h2 className="font-bold">Scene</h2>
                 <select
