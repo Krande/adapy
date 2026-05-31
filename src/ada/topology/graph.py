@@ -118,7 +118,10 @@ class GraphFace:
     _name: str | None = None
     _points: list[ada.Point] | None = None
     _centroid: ada.Point | None = None
+    _xdir: ada.Direction | None = None
+    _ydir: ada.Direction | None = None
     _is_hor: bool | None = None
+    _should_skip: bool | None = None
     _normal_position: float | None = None
     _name_gen: "ada.Counter | None" = None
 
@@ -165,6 +168,37 @@ class GraphFace:
 
     def get_space_name(self) -> str:
         return self.parent_cell.name
+
+    def get_area_name(self):
+        # Domain-neutral read off the cell metadata; ``None`` when absent.
+        return self.parent_cell.metadata.get("AREA")
+
+    def get_stru_name(self):
+        return self.parent_cell.metadata.get("STRUCTURE_NAME")
+
+    def get_xdir(self) -> ada.Direction:
+        if self._xdir is None:
+            from ada.topology._geom import calculate_plate_xdir
+
+            face_xdir = ada.Direction(calculate_plate_xdir(normal=(self.normal.x, self.normal.y, self.normal.z)))
+            self._xdir = face_xdir.get_normalized()
+        return self._xdir
+
+    def get_ydir(self) -> ada.Direction:
+        if self._ydir is None:
+            xdir = self.get_xdir()
+            self._ydir = ada.Direction(np.cross(self.normal, xdir)).get_normalized()
+        return self._ydir
+
+    def get_blueprint(self):
+        # Walk to the (optional) builder's plugged-in blueprint. ``None`` when no
+        # builder/blueprint is attached (generic, kernel-only graphs).
+        cg = self.parent_cell.cell_graph
+        builder = getattr(cg, "builder", None) if cg is not None else None
+        return getattr(builder, "blueprint", None) if builder is not None else None
+
+    def is_cantilevered_deck(self) -> bool:
+        return bool(getattr(self.parent_cell.metadata, "is_cantilevered_deck", False))
 
     def get_equation_of_plane(self) -> EquationOfPlane:
         return EquationOfPlane(self.point_inside, self.normal)
@@ -219,8 +253,11 @@ class GraphFace:
 
     @property
     def name(self) -> str:
+        # Stable name from the cell metadata (structure/area/space). When the
+        # metadata carries no structure/area (plain TopologyMetadata) the missing
+        # parts render as ``None`` — callers that care attach a richer metadata.
         if self._name is None:
-            self._name = f"{self.parent_cell.name}_f{self.index}"
+            self._name = f"{self.get_stru_name()}_{self.get_area_name()}_{self.get_space_name()}_f{self.index}"
         return self._name
 
     def get_name(self) -> str:
@@ -230,9 +267,16 @@ class GraphFace:
         return next(self._name_gen)
 
     def should_skip(self) -> bool:
-        # Neutral hook: domain subclasses override to exclude faces (e.g. by
-        # metadata-driven include/exclude indices).
-        return False
+        # Skip faces excluded via the metadata's side-exclude indices. Defensive:
+        # plain metadata without ``get_exclude_indices`` never skips.
+        if self._should_skip is None:
+            self._should_skip = False
+            get_excl = getattr(self.parent_cell.metadata, "get_exclude_indices", None)
+            for sir in get_excl() if callable(get_excl) else []:
+                if self in self.parent_cell.get_faces_from_index(sir):
+                    self._should_skip = True
+                    break
+        return self._should_skip
 
     def __repr__(self):
         return (
@@ -297,12 +341,20 @@ class CellGraph:
     grid_sec_girders: CellGrid = field(default_factory=CellGrid)
     grid_stiffeners: CellGrid = field(default_factory=CellGrid)
 
+    # Optional back-reference to the (generic) builder that produced this graph;
+    # a face's ``get_blueprint`` walks through it. ``None`` for kernel-only graphs.
+    builder: object | None = field(default=None, repr=False)
+
     def __post_init__(self):
         for cell in self.cells:
             if cell.cell_graph is None:
                 cell.cell_graph = self
 
-    # --- neutral hooks (domain subclasses override) -----------------------
+    @staticmethod
+    def _is_cantilever(cell: GraphCell) -> bool:
+        return bool(getattr(cell.metadata, "is_cantilevered_deck", False))
+
+    # --- priority read ----------------------------------------------------
     def _priority(self, cell: GraphCell) -> float:
         v = cell.metadata.get("PRIORITY", 0)
         try:
@@ -313,7 +365,17 @@ class CellGraph:
     # --- iteration --------------------------------------------------------
     def _iter_horizontal_sides(self) -> Iterable[GraphFace]:
         for cell in self.cells:
+            is_cant = self._is_cantilever(cell)
             for side in cell.faces:
+                is_floor = side.is_floor()
+                is_roof = side.is_roof()
+                # A cantilevered deck contributes only its deck plate, not the
+                # opposing horizontal face nor its walls.
+                if is_roof and not is_floor and is_cant:
+                    if cell.metadata.get("FUNCTION") == "cantilevered_deck":
+                        continue
+                if is_cant and not (is_floor or is_roof):
+                    continue
                 if side.should_skip():
                     continue
                 if side.is_horizontal():
@@ -321,6 +383,8 @@ class CellGraph:
 
     def _iter_non_horizontal_sides(self) -> Iterable[GraphFace]:
         for cell in self.cells:
+            if self._is_cantilever(cell):
+                continue
             for side in cell.faces:
                 if side.should_skip():
                     continue
@@ -392,6 +456,18 @@ class CellGraph:
         for face in self.get_all_faces():
             c = face.get_centroid()
             if min_x <= c.x <= max_x and min_y <= c.y <= max_y and min_z <= c.z <= max_z:
+                out.append(face)
+        return out
+
+    def get_faces_intersecting_box(self, p1, p2) -> list[GraphFace]:
+        """Faces overlapping a box region (in-plane plate overlap or 3D box overlap)."""
+        from ada.topology._geom import is_face_inside_box
+
+        p1 = np.array(p1)
+        p2 = np.array(p2)
+        out = []
+        for face in self.get_all_faces():
+            if is_face_inside_box(np.array(face.get_points()), p1, p2):
                 out.append(face)
         return out
 

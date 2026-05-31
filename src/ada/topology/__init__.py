@@ -14,6 +14,16 @@ geometry verbs resolve a backend only when first used, so OCC-less environments
 from __future__ import annotations
 
 from ada.cad import Containment
+from ada.topology.blueprint import BlueprintBase
+from ada.topology.builder import TopologyBuilder
+from ada.topology.entities import (
+    EquipRepr,
+    TopoEquipment,
+    TopoOpening,
+    TopoSpace,
+    from_ada_meta,
+    from_ada_obj,
+)
 from ada.topology.graph import (
     CellGraph,
     FaceConnectionInfo,
@@ -27,14 +37,22 @@ from ada.topology.metadata import TopologyMetadata
 
 __all__ = [
     "Containment",
+    "BlueprintBase",
     "CellGraph",
     "CellGrid",
+    "EquipRepr",
+    "TopologyBuilder",
     "FaceConnectionInfo",
     "GraphCell",
     "GraphEdge",
     "GraphFace",
     "GridIndexError",
+    "TopoEquipment",
+    "TopoOpening",
+    "TopoSpace",
     "TopologyMetadata",
+    "from_ada_meta",
+    "from_ada_obj",
     "from_assembly",
     "from_ifc",
     "from_part",
