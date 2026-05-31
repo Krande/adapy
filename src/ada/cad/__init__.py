@@ -90,6 +90,7 @@ class CadBackend(Protocol):
     def vertex_points(self, shape: ShapeHandle) -> list[tuple[float, float, float]]: ...
     def face_plane(self, face: ShapeHandle) -> "tuple[Point, Direction] | None": ...
     def to_topods_pointer(self, shape: ShapeHandle) -> int: ...
+    def face_id(self, shape: ShapeHandle) -> "int | None": ...
     def adopt_occ_shape(self, occ_shape: Any) -> ShapeHandle: ...
     def make_halfspace(self, origin, normal, flip: bool) -> ShapeHandle: ...
     def cut_surfaces(self, solid: ShapeHandle, cutters: list, deflection: float, tol: float) -> list: ...
@@ -364,6 +365,13 @@ class AdacppBackend:
         if fn is None:
             raise NotImplementedError("adacpp.cad.to_topods_pointer is not available in this build")
         return fn(shape)
+
+    def face_id(self, shape: ShapeHandle) -> "int | None":
+        # Orientation-independent topological identity (see OccBackend.face_id).
+        # Returns None when the native build lacks it, so the cell-graph extractor
+        # falls back to geometric face matching.
+        fn = getattr(self._cad, "face_id", None)
+        return fn(shape) if fn is not None else None
 
     def vertex_points(self, shape: ShapeHandle) -> list[tuple[float, float, float]]:
         fn = getattr(self._cad, "vertex_points", None)
@@ -668,6 +676,17 @@ class OccBackend:
         # Under this backend a ShapeHandle IS a TopoDS_Shape; its SWIG pointer
         # is int(shape.this) — the value gmsh's importShapesNativePointer wants.
         return int(shape.this)
+
+    def face_id(self, shape: ShapeHandle) -> int:
+        # Orientation-independent topological identity: two sub-shapes that are
+        # the same face of a non-manifold complex (shared by two solids, with
+        # opposite orientation) hash equal here. This lets the cell graph detect
+        # shared faces by true topological identity rather than geometry.
+        try:
+            loc_hash = shape.Location().HashCode()
+        except Exception:
+            loc_hash = 0
+        return hash((shape.TShape().__hash__(), loc_hash))
 
     def vertex_points(self, shape: ShapeHandle) -> list[tuple[float, float, float]]:
         # Walk every vertex and return all coordinates as one list. The

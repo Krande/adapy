@@ -62,11 +62,14 @@ class GraphCellExtractor:
                     normal = ada.Direction(*(-nvec))
                 gf = GraphFace(fh, i, normal=normal, point_inside=centroid, parent_cell=cell)
                 cell.faces.append(gf)
-                # Key on the face's actual boundary (its vertex set), not just the
-                # centroid: two different-sized coplanar faces can share a centroid
-                # but are NOT the same interface, so only equal faces get linked.
-                key = tuple(sorted(_round_key(p) for p in be.wire_points(fh)))
-                face_map[key].append(gf)
+                # Prefer true topological identity: in a non-manifold complex an
+                # internal face is one shared sub-shape referenced by two cells, so
+                # its face_id matches across both. Fall back to the face's vertex
+                # set when the backend can't provide an id (geometric match).
+                fid = be.face_id(fh)
+                if fid is None:
+                    fid = ("vtx",) + tuple(sorted(_round_key(p) for p in be.wire_points(fh)))
+                face_map[fid].append(gf)
 
         for faces in face_map.values():
             if len(faces) == 2:
