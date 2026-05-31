@@ -46,8 +46,11 @@ def test_box_to_box_at_90deg():
     assert set(members) == {MemberRole.INCOMING, MemberRole.LANDING}
     assert all(isinstance(m, Beam) for m in members.values())
 
+    # The landing (anchor) member runs through the joint point along ±X
+    # so it presents a continuous side surface for the incoming to butt
+    # against (see build_sample / commit "landing extends ±X").
     landing = members[MemberRole.LANDING]
-    assert tuple(landing.n1.p) == (0.0, 0.0, 0.0)
+    assert pytest.approx(tuple(landing.n1.p)) == (-1.0, 0.0, 0.0)
     assert pytest.approx(tuple(landing.n2.p)) == (1.0, 0.0, 0.0)
 
     incoming = members[MemberRole.INCOMING]

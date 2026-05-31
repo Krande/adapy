@@ -9,6 +9,7 @@ import {requestRender} from "@/state/perfStore";
 import {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
 import {loadGLTF} from "@/components/viewer/sceneHelpers/asyncModelLoader";
 import {viewerApi, type ScopeUrl} from "@/services/viewerApi";
+import {useModelState} from "@/state/modelState";
 
 export interface ColorElement {
     key: string;        // element rangeId (== GLB draw-range / node_id)
@@ -62,6 +63,11 @@ async function _addOverlay(op: ViewerOp, scope: ScopeUrl): Promise<void> {
         const gltf = await loadGLTF(url);
         const group = gltf.scene;
         group.name = `__diff_overlay__:${op.label ?? op.blob_key}`;
+        // Loaded models are shifted by a shared centering translation (see
+        // setupModelLoader); apply the same so the overlay lands in the same
+        // frame as the current model instead of at the raw build origin.
+        const translation = useModelState.getState().translation;
+        if (translation) group.position.copy(translation);
         // The overlay GLB carries its own (red) material; keep it as-is.
         sceneRef.current.add(group);
         _overlayGroups.push(group);
