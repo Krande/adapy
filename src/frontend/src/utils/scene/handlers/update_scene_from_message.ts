@@ -22,7 +22,7 @@ export function load_base64_model(){
 
 }
 
-export async function replace_model(url: string, prepareHook?: SetupModelPrepareHook) {
+export async function replace_model(url: string, prepareHook?: SetupModelPrepareHook, sourceName?: string) {
         // Clear animation state first
     const animationStore = useAnimationStore.getState();
     animationStore.setHasAnimation(false);
@@ -61,7 +61,7 @@ export async function replace_model(url: string, prepareHook?: SetupModelPrepare
 
         }
     }
-    return await setupModelLoaderAsync(url, false, prepareHook);
+    return await setupModelLoaderAsync(url, false, prepareHook, sourceName);
 }
 
 export async function update_scene_from_message(message: Message) {
@@ -98,12 +98,11 @@ export async function update_scene_from_message(message: Message) {
 
     const blob = new Blob([finalData], {type: 'model/gltf-binary'});
     const url = URL.createObjectURL(blob);
+    const sourceName = fileObject.name();
     if (operation == SceneOperations.REPLACE) {
-        const group = await replace_model(url);
-        // Register this load under the source name so the
-        // StorageBrowser checkbox stays in sync and a future
-        // unload (uncheck) can find the right group to remove.
-        const sourceName = fileObject.name();
+        // sourceName labels the tree root (GLB filename) and keeps the
+        // StorageBrowser checkbox in sync (unload finds the right group).
+        const group = await replace_model(url, undefined, sourceName ?? undefined);
         if (group && sourceName) {
             useModelState.getState().registerLoadedSource(sourceName, group);
         }
@@ -114,8 +113,7 @@ export async function update_scene_from_message(message: Message) {
         if (mesh) {
             await add_mesh_to_scene(mesh)
         } else {
-            const group = await setupModelLoaderAsync(url, true);
-            const sourceName = fileObject.name();
+            const group = await setupModelLoaderAsync(url, true, undefined, sourceName ?? undefined);
             if (group && sourceName) {
                 useModelState.getState().registerLoadedSource(sourceName, group);
             }

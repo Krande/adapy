@@ -3,6 +3,7 @@ import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
 import {CustomBatchedMesh} from "../mesh_select/CustomBatchedMesh";
 import {modelKeyMapRef} from "@/state/refs";
 import {useObjectInfoStore} from "@/state/objectInfoStore";
+import {useTreeViewStore} from "@/state/treeViewStore";
 
 
 export async function get_nodes_recursive(node: NodeApi, nodes: NodeApi[]) {
@@ -39,6 +40,10 @@ async function get_mesh_and_draw_ranges(nodes: NodeApi[]) {
 
 export async function handleTreeSelectionChange(ids: NodeApi[]) {
     const selectedObjectStore = useSelectedObjectStore.getState();
+
+    // Scope tree search to the selected node's subtree (cleared when nothing
+    // is selected, so search spans all roots again).
+    useTreeViewStore.getState().setScopeNodeId(ids.length > 0 ? ids[0].id : null);
 
     if (ids.length > 0) {
         let nodes: NodeApi[] = [];

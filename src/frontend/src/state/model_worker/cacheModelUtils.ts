@@ -8,9 +8,29 @@ import {TreeNodeData} from "@/components/tree_view/CustomNode";
  * 2) build the parent/child tree in the worker
  * 3) set treeData in your Zustand store
  */
+// Synthetic container holding one root per loaded model. Its children are the
+// per-model roots (labelled by GLB filename); it is never rendered itself —
+// TreeViewComponent renders ``treeData.children``.
+const ROOTS_CONTAINER_ID = "__roots__";
+
+function filenameLabel(sourceName: string | undefined, fallback: string): string {
+    if (!sourceName) return fallback || "model";
+    const base = sourceName.split("/").pop() || sourceName;
+    return base || fallback || "model";
+}
+
+// Append -2 / -3 / ... when an identical filename is already a root.
+function dedupLabel(base: string, existing: string[]): string {
+    if (!existing.includes(base)) return base;
+    let n = 2;
+    while (existing.includes(`${base}-${n}`)) n++;
+    return `${base}-${n}`;
+}
+
 export async function cacheAndBuildTree(
     key: string,
-    rawUserData: Record<string, any>
+    rawUserData: Record<string, any>,
+    sourceName?: string,
 ): Promise<void> {
     const tree_store = useTreeViewStore.getState()
 
@@ -48,30 +68,36 @@ export async function cacheAndBuildTree(
         return;
     }
 
-    // 4) populate your store
+    // 4) populate the store: one root per loaded model, labelled by GLB
+    //    filename (deduped with -2/-3 on collision), held under a synthetic
+    //    container whose children TreeViewComponent renders as the top level.
     if (treeData) {
-        if (tree_store.treeData && tree_store.treeData.children.length > 0) {
-            // if treeData is not empty, make a new root node "root" if not already exist and place the treeData under it
-            let existing_root = tree_store.treeData?.children.find((child) => child.name === "root");
-            if (!existing_root) {
-                // create a new root node with unique uuid key
-                existing_root = {
-                    id: (tree_store.max_id + 1).toString(),
-                    name: "root",
-                    children: [treeData, tree_store.treeData],
-                    model_key: key,
-                    node_name: null,
-                };
-            } else {
-                existing_root.children = [...existing_root.children, treeData];
-            }
-            tree_store.setTreeData(existing_root);
-        } else {
-            tree_store.setTreeData(treeData);
+        treeData.model_key = key;
 
-        }
-        // find the highest id number from all recursive children and set the state
-        const max_id = await get_max_child_id(treeData);
+        const prev = tree_store.treeData;
+        const isContainer = !!prev && prev.id === ROOTS_CONTAINER_ID;
+        // Existing roots, minus any prior load of this same model (reload replaces).
+        const siblings = isContainer
+            ? prev!.children.filter((c) => c.model_key !== key)
+            : prev
+                ? [prev].filter((c) => c.model_key !== key)
+                : [];
+
+        treeData.name = dedupLabel(
+            filenameLabel(sourceName, treeData.name),
+            siblings.map((c) => c.name),
+        );
+
+        const container: TreeNodeData = {
+            id: ROOTS_CONTAINER_ID,
+            name: "",
+            children: [...siblings, treeData],
+            model_key: null,
+            node_name: null,
+        };
+        tree_store.setTreeData(container);
+
+        const max_id = await get_max_child_id(container);
         tree_store.setMaxId(max_id + 1);
     }
 }

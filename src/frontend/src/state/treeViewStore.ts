@@ -18,6 +18,10 @@ export interface TreeViewState {
     setTree: (tree: TreeApi<any>) => void;
     searchTerm: string;
     setSearchTerm: (searchTerm: string) => void;
+    /** Id of the currently-selected tree node. Search is scoped to this node's
+     *  subtree; when null, search spans all roots (hits group per root). */
+    scopeNodeId: string | null;
+    setScopeNodeId: (id: string | null) => void;
     max_id: number
     /** Width of the floating tree panel in pixels. Lifted out of
      *  ResizableTreeView's local state so the menu bar can shift to
@@ -32,6 +36,8 @@ export const useTreeViewStore = create<TreeViewState>((set) => ({
     treeData: null,
     tree: null,
     searchTerm: '',
+    scopeNodeId: null,
+    setScopeNodeId: (id) => set({scopeNodeId: id}),
     max_id: 0,
     setSearchTerm: (searchTerm) => set({searchTerm: searchTerm}),
     setTree: (tree) => set({tree: tree}),

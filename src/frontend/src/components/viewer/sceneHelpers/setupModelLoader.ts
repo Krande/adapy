@@ -26,6 +26,7 @@ export async function setupModelLoaderAsync(
     modelUrl: string | null,
     translate: boolean = true,
     prepareHook?: SetupModelPrepareHook,
+    sourceName?: string,
 ): Promise<THREE.Group> {
     if (sceneRef.current == null) {
         console.error("Scene reference is null");
@@ -103,8 +104,8 @@ export async function setupModelLoaderAsync(
         any
     >;
 
-    // delegate all the caching to our helper
-    await cacheAndBuildTree(model_hash, rawUD);
+    // delegate all the caching to our helper (sourceName -> the tree root label)
+    await cacheAndBuildTree(model_hash, rawUD, sourceName);
 
     if (modelStore.translation && translate) {
         console.log("Model already translated");

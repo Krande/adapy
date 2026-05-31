@@ -82,7 +82,7 @@ export async function overlay_file_in_scene(
     // If no translation is cached yet (overlay is the first thing
     // loaded), the loader's else branch computes one as usual; same
     // outcome as a normal first load.
-    const group = await setupModelLoaderAsync(url, true);
+    const group = await setupModelLoaderAsync(url, true, undefined, sourceName);
 
     // Register the source → group mapping so we can later remove
     // just this overlay without nuking the rest of the scene.

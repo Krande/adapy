@@ -6,17 +6,15 @@ import {handleTreeSelectionChange} from "@/utils/tree_view/handleClickedNode";
 
 const TreeViewComponent: React.FC = () => {
     const {useTreeViewStore} = useViewerStores();
-    const {treeData, setTree, searchTerm} = useTreeViewStore();
+    const {treeData, setTree, searchTerm, scopeNodeId} = useTreeViewStore();
     const [treeHeight, setTreeHeight] = useState<number>(800); // Default height
     const treeRef = useRef<any>(null);  // Use 'any' to allow custom properties
     const containerRef = useRef<HTMLDivElement | null>(null);
     const headerRef = useRef<HTMLDivElement | null>(null);
 
-    const treeNodes = treeData ? [{id: 'root', name: 'scene', children: [treeData]}] : [{
-        id: 'root',
-        name: 'scene',
-        children: []
-    }];
+    // Top level = one root per loaded model (labelled by GLB filename). The
+    // store keeps them under a synthetic container; render its children.
+    const treeNodes = treeData?.children ?? [];
 
     // Update the tree height based on the container size using ResizeObserver
     useEffect(() => {
@@ -86,6 +84,18 @@ const TreeViewComponent: React.FC = () => {
                     searchTerm={searchTerm}
                     searchMatch={
                         (node, term) => {
+                            // Scope to the selected node's subtree when one is
+                            // selected; otherwise search all roots (matches stay
+                            // under their root, so hits group per root).
+                            if (scopeNodeId) {
+                                let inScope = false;
+                                let n: NodeApi | null = node;
+                                while (n) {
+                                    if (n.id === scopeNodeId) { inScope = true; break; }
+                                    n = n.parent;
+                                }
+                                if (!inScope) return false;
+                            }
                             const name = (node?.data?.name ?? '').toString().toLowerCase();
                             const raw = (term ?? '').toString().toLowerCase();
                             const candidates: string[] = [raw];
