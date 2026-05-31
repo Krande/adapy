@@ -62,7 +62,11 @@ class GraphCellExtractor:
                     normal = ada.Direction(*(-nvec))
                 gf = GraphFace(fh, i, normal=normal, point_inside=centroid, parent_cell=cell)
                 cell.faces.append(gf)
-                face_map[_round_key(centroid)].append(gf)
+                # Key on the face's actual boundary (its vertex set), not just the
+                # centroid: two different-sized coplanar faces can share a centroid
+                # but are NOT the same interface, so only equal faces get linked.
+                key = tuple(sorted(_round_key(p) for p in be.wire_points(fh)))
+                face_map[key].append(gf)
 
         for faces in face_map.values():
             if len(faces) == 2:

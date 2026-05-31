@@ -45,6 +45,26 @@ def _round_key(pt, ndigits: int = 4) -> tuple[float, float, float]:
     return (round(float(pt[0]), ndigits), round(float(pt[1]), ndigits), round(float(pt[2]), ndigits))
 
 
+def _drop_collinear(pts: list, tol: float = 1e-6) -> list:
+    """Drop boundary vertices that lie on the straight edge between their
+    neighbours. A kernel may emit collinear vertices on a face wire where another
+    solid imprinted an edge; they don't change the polygon but skew a
+    vertex-averaged centroid and confuse downstream polygon clipping.
+    """
+    n = len(pts)
+    if n < 3:
+        return pts
+    arr = [np.asarray(p, dtype=float) for p in pts]
+    keep = []
+    for i in range(n):
+        v1 = arr[i] - arr[i - 1]
+        v2 = arr[(i + 1) % n] - arr[i]
+        scale = max(float(np.linalg.norm(v1)), float(np.linalg.norm(v2)), 1.0)
+        if float(np.linalg.norm(np.cross(v1, v2))) > tol * scale:
+            keep.append(pts[i])
+    return keep if len(keep) >= 3 else pts
+
+
 @dataclass
 class GraphEdge:
     handle: ShapeHandle = field(repr=False)
@@ -158,7 +178,8 @@ class GraphFace:
 
     def get_points(self) -> list[ada.Point]:
         if self._points is None:
-            self._points = [ada.Point(*p) for p in active_backend().wire_points(self.handle)]
+            raw = [ada.Point(*p) for p in active_backend().wire_points(self.handle)]
+            self._points = _drop_collinear(raw)
         return self._points
 
     def get_centroid(self) -> ada.Point:
