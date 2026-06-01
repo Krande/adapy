@@ -168,10 +168,14 @@ function init(
                 const plane = planeById.get(sp.id)!;
                 const order = i * 2 + 1;
 
-                const helper = new THREE.PlaneHelper(plane, size, 0x2266ff);
-                helper.layers.set(1);
-                helper.visible = st.gizmoVisible;  // hide plane outline with the gizmo
-                container.add(helper);
+                // Only show the plane outline when the gizmo is shown — skip
+                // creating it entirely otherwise (robust vs PlaneHelper's fill
+                // child not honouring `.visible`).
+                if (st.gizmoVisible) {
+                    const helper = new THREE.PlaneHelper(plane, size, 0x2266ff);
+                    helper.layers.set(1);
+                    container.add(helper);
+                }
 
                 for (const g of geoms) container.add(createPlaneStencilGroup(g, plane, order));
 
