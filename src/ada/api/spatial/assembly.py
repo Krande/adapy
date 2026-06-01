@@ -201,9 +201,15 @@ class Assembly(Part):
                 name, fem_format, scratch_dir, cpus, gpus, run_ext, metadata, execute, exit_on_complete, run_in_shell
             )
 
+        # Honor return_fea_results=False even when the solver DID produce a
+        # result file: callers that pass it (e.g. a build that only publishes the
+        # .rmed) don't want the in-memory read, and postprocessing here would
+        # force a result-parse they never asked for (and can trip an unsupported
+        # field-profile branch on an otherwise-successful solve).
+        if return_fea_results is False:
+            return None
+
         if res_path.exists() is False:
-            if return_fea_results is False:
-                return None
             if execute:
                 raise FileNotFoundError(f"FEM result file does not exist: {res_path}")
             logger.info(f"FEM result file does not exist: {res_path}")

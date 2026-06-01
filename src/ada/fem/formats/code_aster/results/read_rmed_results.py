@@ -198,7 +198,20 @@ class MedReader:
         if profile.decode() == "MED_NO_PROFILE_INTERNAL":  # default profile with everything
             values = data_profile["CO"][()].reshape(n_points, -1, order="F")
         else:
-            raise NotImplementedError()
+            # Partial profile: the field is defined on a subset of nodes (e.g. the
+            # structural nodes only, excluding orphan mass-point nodes). The named
+            # MED profile's PFL dataset holds the 1-based node ids of that subset;
+            # the CO data array has one row per profile node (NOT per mesh node —
+            # data_profile.attrs["NBR"] is the total mesh-node count here, so it
+            # can't size the reshape). Scatter the subset values back to a full
+            # per-node array (missing nodes -> NaN) so they align with the mesh
+            # node identifiers prepended below.
+            prof_nodes = self.f["PROFILS"][profile.decode()]["PFL"][()].astype(int)
+            n_sub = len(prof_nodes)
+            sub_values = data_profile["CO"][()].reshape(n_sub, -1, order="F")
+            n_total = len(self.mesh.nodes.identifiers)
+            values = np.full((n_total, sub_values.shape[1]), np.nan, dtype=float)
+            values[prof_nodes - 1, :] = sub_values
 
         if values.shape[-1] == 1:  # cut off for scalars
             values = values[:, 0]
