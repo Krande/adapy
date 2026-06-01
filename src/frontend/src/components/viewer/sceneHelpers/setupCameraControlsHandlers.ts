@@ -104,15 +104,29 @@ export function setupCameraControlsHandlers(
     };
 }
 
+// Skip helper subtrees (section planes, caps, the transform gizmo) and hidden
+// objects when fitting the camera. setFromObject ignores `visible`, so the
+// gizmo — which scales with camera distance — would otherwise blow up the box
+// and fling the camera off into empty space (the "solid grey" screen).
+const isExcludedFromFit = (obj: THREE.Object3D): boolean => {
+    let cur: THREE.Object3D | null = obj;
+    while (cur) {
+        if (!cur.visible || cur.userData?.__excludeFromFit) return true;
+        cur = cur.parent;
+    }
+    return false;
+};
+
 const zoomToAll = (scene: THREE.Scene, camera: THREE.PerspectiveCamera, controls: OrbitControls | CameraControls) => {
-    // Compute bounding box only from imported/visible meshes, excluding helpers like GridHelper
+    // Compute bounding box only from imported/visible meshes, excluding helpers
+    // like GridHelper, the section caps/stencil and the transform gizmo.
     const overallBox = new THREE.Box3();
     let hasMesh = false;
 
     scene.traverse((obj) => {
-        if (obj instanceof THREE.Mesh) {
+        if (obj instanceof THREE.Mesh && !isExcludedFromFit(obj)) {
             const objBox = new THREE.Box3().setFromObject(obj);
-            if (!objBox.isEmpty()) {
+            if (!objBox.isEmpty() && isFinite(objBox.min.x) && isFinite(objBox.max.x)) {
                 overallBox.union(objBox);
                 hasMesh = true;
             }
@@ -123,7 +137,7 @@ const zoomToAll = (scene: THREE.Scene, camera: THREE.PerspectiveCamera, controls
 
     // Compute a bounding sphere from the overall box for robust FOV-based fitting
     const sphere = overallBox.getBoundingSphere(new THREE.Sphere());
-    if (!sphere || sphere.radius === 0) return;
+    if (!sphere || sphere.radius === 0 || !isFinite(sphere.radius)) return;
 
     const center = sphere.center.clone();
     const radius = sphere.radius;

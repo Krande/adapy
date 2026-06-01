@@ -51,6 +51,7 @@ function init(
 
         const container = new THREE.Group();
         container.name = "__section_planes__";
+        container.userData.__excludeFromFit = true;  // keep caps/stencil out of zoom-to-all
         scene.add(container);
 
         // Live THREE.Plane per store-plane id; the SAME instances are shared by
@@ -61,12 +62,14 @@ function init(
 
         // Gizmo: drags a handle along the active plane's normal.
         const handle = new THREE.Object3D();
+        handle.userData.__excludeFromFit = true;
         scene.add(handle);
         const gizmo = new TransformControls(camera, renderer.domElement);
         gizmo.setMode("translate");
         gizmo.setSpace("world");
         const gizmoHelper = gizmo.getHelper();
         gizmoHelper.visible = false;
+        gizmoHelper.userData.__excludeFromFit = true;  // gizmo scales w/ distance — never fit to it
         scene.add(gizmoHelper);
 
         gizmo.addEventListener("dragging-changed", (e: any) => {
