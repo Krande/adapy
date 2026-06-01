@@ -115,10 +115,8 @@ def scene_from_part_or_assembly(part_or_assembly: Part | Assembly, converter: Sc
 
 
 def _build_fem_concepts(part_or_assembly):
-    """Collect FEA input concepts for the viewer's FEM visualization mode.
-
-    Phase 1: point masses (e.g. lumped equipment footprint mass at deck feet).
-    Loads/scenarios are added here in a later phase; BCs are emitted on the
+    """Collect FEA input concepts for the viewer's FEM visualization mode:
+    point masses + per-case/combination load scenarios. BCs are emitted on the
     simulation extension in scene_from_fem. Returns None when there's nothing.
     """
     from ada.extension import fem_concepts_schema as fem_ext
@@ -135,9 +133,98 @@ def _build_fem_concepts(part_or_assembly):
                 )
             )
 
-    if not masses:
+    scenarios = _build_load_scenarios(part_or_assembly)
+
+    if not masses and not scenarios:
         return None
-    return fem_ext.FemConcepts(masses=masses)
+    return fem_ext.FemConcepts(masses=masses or None, scenarios=scenarios or None)
+
+
+def _norm_mag(v):
+    """(unit-direction, magnitude) of a 3-vector; (None, 0.0) for a ~zero vector."""
+    import math
+
+    comps = [float(c) for c in v]
+    mag = math.sqrt(sum(c * c for c in comps))
+    if mag < 1e-12:
+        return None, 0.0
+    return [c / mag for c in comps], mag
+
+
+def _resolve_load_glyph(load, factor: float = 1.0):
+    """Map one concept load to a geometric LoadGlyph (or None). `factor` scales
+    the magnitude for a load combination's factored case."""
+    from ada.extension import fem_concepts_schema as fem_ext
+    from ada.fem.concept.loads import (
+        LoadConceptAccelerationField,
+        LoadConceptLine,
+        LoadConceptPoint,
+        LoadConceptSurface,
+    )
+
+    if isinstance(load, LoadConceptPoint):
+        direction, mag = _norm_mag(load.force)
+        moment = [float(c) * factor for c in load.moment] if any(load.moment) else None
+        return fem_ext.LoadGlyph(
+            name=load.name, type="point",
+            position=[float(c) for c in load.position],
+            direction=direction, magnitude=mag * factor, moment=moment,
+        )
+    if isinstance(load, LoadConceptLine):
+        direction, mag = _norm_mag(load.intensity_start)
+        return fem_ext.LoadGlyph(
+            name=load.name, type="line",
+            position=[float(c) for c in load.start_point],
+            end_position=[float(c) for c in load.end_point],
+            direction=direction, magnitude=mag * factor,
+        )
+    if isinstance(load, LoadConceptSurface):
+        points = None
+        if load.plate_ref is not None:
+            points = [[float(c) for c in p] for p in load.plate_ref.poly.points3d]
+        elif load.points is not None:
+            points = [[float(c) for c in p] for p in load.points]
+        return fem_ext.LoadGlyph(
+            name=load.name, type="surface", points=points,
+            magnitude=float(load.pressure) * factor if load.pressure is not None else None,
+        )
+    if isinstance(load, LoadConceptAccelerationField):
+        direction, mag = _norm_mag(load.acceleration)
+        return fem_ext.LoadGlyph(name=load.name, type="accel", direction=direction, magnitude=mag * factor)
+    return None
+
+
+def _build_load_scenarios(part_or_assembly):
+    """One LoadScenario per load case AND per load combination, each pre-resolved
+    to a flat list of LoadGlyphs (combinations apply each factored case's factor
+    × the combination's global scale) — so the viewer can cycle and render
+    scenario[i].loads directly without superposing client-side."""
+    from ada.extension import fem_concepts_schema as fem_ext
+
+    cfem = getattr(part_or_assembly, "concept_fem", None)
+    if cfem is None or getattr(cfem, "loads", None) is None:
+        return []
+    try:
+        loads = cfem.loads.get_global_load_concepts()
+    except Exception:
+        loads = cfem.loads
+
+    scenarios = []
+    for name, case in (loads.load_cases or {}).items():
+        glyphs = [g for g in (_resolve_load_glyph(ld) for ld in case.loads) if g is not None]
+        if glyphs:
+            scenarios.append(fem_ext.LoadScenario(name=name, kind="case", loads=glyphs))
+
+    for name, comb in (loads.load_case_combinations or {}).items():
+        gsf = getattr(comb, "global_scale_factor", 1.0) or 1.0
+        glyphs = []
+        for fc in comb.load_cases:
+            f = (getattr(fc, "factor", 1.0) or 0.0) * gsf
+            glyphs.extend(g for g in (_resolve_load_glyph(ld, f) for ld in fc.load_case.loads) if g is not None)
+        if glyphs:
+            scenarios.append(fem_ext.LoadScenario(name=name, kind="combination", loads=glyphs))
+
+    return scenarios
 
 
 def _build_connection_entries(part_or_assembly):

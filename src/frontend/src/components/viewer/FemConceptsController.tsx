@@ -59,6 +59,7 @@ function parseExtension(): {masses: MassGlyph[]; bcs: BcGlyph[]; scenarios: Load
 
 const MASS_COLOR = 0xffb300; // amber
 const BC_COLOR = 0xff3b30; // red — restrained nodes
+const LOAD_COLOR = 0x2ecc71; // green — applied loads
 
 function init(scene: THREE.Scene): () => void {
     const container = new THREE.Group();
@@ -139,6 +140,72 @@ function init(scene: THREE.Scene): () => void {
         }
     };
 
+    // Make an overlay object always-visible (depthTest off, high renderOrder) and
+    // non-pickable (layer 1) — handles ArrowHelper's line+cone children too.
+    const styleOverlay = (o: THREE.Object3D, order: number) => {
+        o.traverse((c: any) => {
+            c.layers?.set(1);
+            c.renderOrder = order;
+            if (c.material) {
+                const mats = Array.isArray(c.material) ? c.material : [c.material];
+                mats.forEach((m: any) => {
+                    m.depthTest = false;
+                    m.transparent = true;
+                });
+            }
+        });
+        o.renderOrder = order;
+    };
+
+    // Arrows for the selected load scenario: point/accel = a single arrow along
+    // the force direction; line = a line + arrow at its midpoint; surface = the
+    // loaded polygon outline. Arrow length scales with the load's magnitude
+    // relative to the scenario's max (fixed length would hide tiny loads;
+    // pure-linear would dwarf the model).
+    const addLoads = (scenario: LoadScenario, glyph: number) => {
+        const loads = scenario.loads ?? [];
+        if (!loads.length) return;
+        const maxMag = Math.max(...loads.map((l) => Math.abs(l.magnitude ?? 0)), 1e-9);
+        const lenFor = (l: {magnitude?: number}) =>
+            glyph * (1.2 + 1.6 * (maxMag > 0 ? Math.abs(l.magnitude ?? 0) / maxMag : 1));
+
+        for (const l of loads) {
+            if (l.type === "surface") {
+                const pts = (l.points ?? []).map((p) => new THREE.Vector3(p[0], p[1], p[2]));
+                if (pts.length >= 2) {
+                    const geo = new THREE.BufferGeometry().setFromPoints([...pts, pts[0]]);
+                    const loop = new THREE.Line(geo, new THREE.LineBasicMaterial({color: LOAD_COLOR}));
+                    styleOverlay(loop, 9992);
+                    container.add(loop);
+                }
+                continue;
+            }
+            const dir = l.direction
+                ? new THREE.Vector3(l.direction[0], l.direction[1], l.direction[2]).normalize()
+                : new THREE.Vector3(0, 0, -1);
+            const len = lenFor(l);
+            let origin: THREE.Vector3;
+            if (l.type === "accel") {
+                const bb = useModelState.getState().boundingBox;
+                origin = bb ? bb.getCenter(new THREE.Vector3()) : new THREE.Vector3();
+            } else {
+                const p = l.position ?? [0, 0, 0];
+                origin = new THREE.Vector3(p[0], p[1], p[2]);
+            }
+            if (l.type === "line" && l.end_position) {
+                const e = new THREE.Vector3(l.end_position[0], l.end_position[1], l.end_position[2]);
+                const lineGeo = new THREE.BufferGeometry().setFromPoints([origin.clone(), e]);
+                const line = new THREE.Line(lineGeo, new THREE.LineBasicMaterial({color: LOAD_COLOR}));
+                styleOverlay(line, 9992);
+                container.add(line);
+                origin = origin.clone().add(e).multiplyScalar(0.5); // arrow at midpoint
+            }
+            const arrow = new THREE.ArrowHelper(dir, origin, len, LOAD_COLOR, len * 0.32, len * 0.2);
+            styleOverlay(arrow, 9992);
+            container.add(arrow);
+        }
+    };
+
     const rebuild = () => {
         if (!sceneRef.current) return;
         disposeContainer();
@@ -146,7 +213,8 @@ function init(scene: THREE.Scene): () => void {
         const glyph = glyphScale();
         if (st.showMasses) addMasses(st.masses, glyph);
         if (st.showBcs) addBcs(st.bcs, glyph);
-        // Phase 3 (load scenarios) adds its arrow glyphs here.
+        const sc = st.selectedScenario;
+        if (sc >= 0 && sc < st.scenarios.length) addLoads(st.scenarios[sc], glyph);
         requestRender();
     };
 
