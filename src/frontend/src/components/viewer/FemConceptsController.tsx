@@ -58,6 +58,7 @@ function parseExtension(): {masses: MassGlyph[]; bcs: BcGlyph[]; scenarios: Load
 }
 
 const MASS_COLOR = 0xffb300; // amber
+const BC_COLOR = 0xff3b30; // red — restrained nodes
 
 function init(scene: THREE.Scene): () => void {
     const container = new THREE.Group();
@@ -110,13 +111,42 @@ function init(scene: THREE.Scene): () => void {
         }
     };
 
+    // One instanced diamond (octahedron) per restrained node. Orientation-free
+    // so it reads as a "fixed point" regardless of z-up; instanced because a BC
+    // set (e.g. a pinned band) can carry many nodes.
+    const addBcs = (bcs: BcGlyph[], glyph: number) => {
+        for (const bc of bcs) {
+            const pts = bc.positions ?? [];
+            if (!pts.length) continue;
+            const geo = new THREE.OctahedronGeometry(glyph * 0.7);
+            const mat = new THREE.MeshBasicMaterial({
+                color: BC_COLOR,
+                transparent: true,
+                opacity: 0.85,
+                depthTest: false,
+            });
+            const inst = new THREE.InstancedMesh(geo, mat, pts.length);
+            inst.renderOrder = 9991;
+            inst.layers.set(1);
+            const m = new THREE.Matrix4();
+            pts.forEach((p, i) => {
+                m.makeTranslation(p[0], p[1], p[2]);
+                inst.setMatrixAt(i, m);
+            });
+            inst.instanceMatrix.needsUpdate = true;
+            inst.userData.__femConcept = {kind: "bc", name: bc.name, dofs: bc.dofs};
+            container.add(inst);
+        }
+    };
+
     const rebuild = () => {
         if (!sceneRef.current) return;
         disposeContainer();
         const st = useFemConceptsStore.getState();
         const glyph = glyphScale();
         if (st.showMasses) addMasses(st.masses, glyph);
-        // Phase 2 (BCs) and Phase 3 (load scenarios) add their glyphs here.
+        if (st.showBcs) addBcs(st.bcs, glyph);
+        // Phase 3 (load scenarios) adds its arrow glyphs here.
         requestRender();
     };
 
