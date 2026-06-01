@@ -86,13 +86,25 @@ class BoundingBox:
         if type(self.parent) is PrimBox:
             return self.parent.p1, self.parent.p2
         else:
-            from ada.occ.utils import get_boundingbox
+            from ada.cad import active_backend
 
+            backend = active_backend()
             try:
-                return get_boundingbox(self.parent.solid_occ(), use_mesh=True)
+                shape = self.parent.solid_occ()
             except NoGeomPassedToShapeError as e:
                 logger.info(f'Shape "{self.parent.name}" has no attached geometry. Error "{e}"')
                 return (0, 0, 0), (1, 1, 1)
+            # Route the bbox through the CAD backend (not pythonocc directly) so
+            # this works under any backend. A shape produced outside the active
+            # backend (raw OCC) is adopted across the kernel boundary first.
+            if not backend.is_handle(shape):
+                shape = backend.adopt_occ_shape(shape)
+            # optimal=False + use_mesh=True reproduces the prior
+            # get_boundingbox(shape, use_mesh=True) (brepbndlib.Add) exactly, so
+            # the OccBackend result is unchanged; adacpp ignores the knobs and
+            # returns its analytic AABB.
+            xmin, ymin, zmin, xmax, ymax, zmax = backend.bbox(shape, optimal=False, use_mesh=True)
+            return (xmin, ymin, zmin), (xmax, ymax, zmax)
 
     def _calc_bbox_of_plate_curved(self) -> tuple[tuple, tuple]:
         """Curved plates have no flat polygon to walk; ask the CAD backend for
