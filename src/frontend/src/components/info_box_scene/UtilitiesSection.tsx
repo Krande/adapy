@@ -1,5 +1,6 @@
 import React from "react";
 
+import CollapsibleSection from "@/components/common/CollapsibleSection";
 import {runtime} from "@/runtime/config";
 import {viewerApi} from "@/services/viewerApi";
 import {useScopeStore, scopeUrlPart} from "@/state/scopeStore";
@@ -331,16 +332,20 @@ const UtilitiesSection = () => {
                 </select>
             </label>
             {spec && <p className="text-xs mb-2 opacity-80">{spec.description}</p>}
-            {spec?.kwargs.map((k) => (
-                <KwargField
-                    key={k.name}
-                    kwarg={k}
-                    value={kwargs[k.name] ?? null}
-                    builds={refBuilds}
-                    loadedArtefact={loadedArtefact}
-                    onChange={(v) => setKwargs({...kwargs, [k.name]: v})}
-                />
-            ))}
+            {spec && spec.kwargs.length > 0 && (
+                <CollapsibleSection title="Properties" defaultOpen>
+                    {spec.kwargs.map((k) => (
+                        <KwargField
+                            key={k.name}
+                            kwarg={k}
+                            value={kwargs[k.name] ?? null}
+                            builds={refBuilds}
+                            loadedArtefact={loadedArtefact}
+                            onChange={(v) => setKwargs({...kwargs, [k.name]: v})}
+                        />
+                    ))}
+                </CollapsibleSection>
+            )}
             {refKwargName && (
                 <label
                     className="flex items-center gap-2 mt-1 mb-1 text-xs"
