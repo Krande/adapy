@@ -7,6 +7,7 @@ import {requestRender} from "@/state/perfStore";
 import {useSectionStore} from "@/state/sectionStore";
 import {useModelState} from "@/state/modelState";
 import {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
+import {gpuMeshPicker} from "@/utils/mesh_select/GpuMeshPicker";
 import {createPlaneStencilGroup, createCapMesh, orientCapToPlane} from "@/utils/scene/section_caps";
 
 // Headless: reconciles the section-plane store with three.js (per-material
@@ -110,6 +111,10 @@ function init(
             if (planes.length > 0) renderer.localClippingEnabled = true;
             clippingApplied = planes.length > 0;
             const cp = planes.length ? planes : null;
+            // Keep the GPU picker's pick render clipped the same way, so clicks
+            // on cut-exposed interior elements hit the visible element instead
+            // of the (invisible) cut-away shell in front of it.
+            gpuMeshPicker.setClippingPlanes(planes);
             scene.traverse((o) => {
                 if (o instanceof CustomBatchedMesh) {
                     const mats = Array.isArray(o.material) ? o.material : [o.material];

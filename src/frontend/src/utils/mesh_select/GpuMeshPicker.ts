@@ -160,6 +160,22 @@ class GpuMeshPicker {
     private _tmpVec2 = new THREE.Vector2();
     private _origProj = new THREE.Matrix4();
 
+    // Section-plane clipping shared with every picker material. A SINGLE
+    // stable array instance — every makePickingMaterial points its
+    // ``clippingPlanes`` here, so ``setClippingPlanes`` mutates it in place and
+    // all pickers (current and future) see the change with no per-material
+    // bookkeeping. three.js auto-recompiles a clipping material when the plane
+    // count changes, so going 0↔N planes just works.
+    private clippingPlanes: THREE.Plane[] = [];
+
+    /** Point the GPU picker at the active section planes so its pick render is
+     *  clipped identically to the visible scene. Pass [] to disable. Called by
+     *  SectionPlanesController whenever the plane set changes. */
+    setClippingPlanes(planes: THREE.Plane[]): void {
+        // In-place replace so existing material references stay valid.
+        this.clippingPlanes.splice(0, this.clippingPlanes.length, ...planes);
+    }
+
     private getWorker(): Comlink.Remote<PickerGeometryWorkerAPI> {
         if (!this.workerApi) {
             this.workerInstance = new PickerGeometryWorker();
@@ -230,25 +246,35 @@ class GpuMeshPicker {
         //    corners of each triangle and only duplicate the third
         //    (provoking) vertex. Roughly 30-50% less picker memory
         //    on big meshes.
+        // Clipping chunks (+ `clipping: true` + a shared clippingPlanes array)
+        // make the pick render honour the section planes. Without this the
+        // picker rasterises the un-clipped geometry, so the cut-away shell still
+        // occludes the framebuffer and clicks on cut-exposed interior elements
+        // miss (they decode to the invisible shell, or to nothing).
         if (flat) {
             const vertex = `
                 precision mediump float;
                 #include <common>
                 #include <morphtarget_pars_vertex>
+                #include <clipping_planes_pars_vertex>
                 in vec3 pickColor;
                 flat out vec3 vPick;
                 void main() {
                     vPick = pickColor;
                     vec3 transformed = position;
                     #include <morphtarget_vertex>
-                    gl_Position = projectionMatrix * modelViewMatrix * vec4(transformed, 1.0);
+                    vec4 mvPosition = modelViewMatrix * vec4(transformed, 1.0);
+                    gl_Position = projectionMatrix * mvPosition;
+                    #include <clipping_planes_vertex>
                 }
             `;
             const fragment = `
                 precision mediump float;
+                #include <clipping_planes_pars_fragment>
                 flat in vec3 vPick;
                 out vec4 fragColor;
                 void main() {
+                    #include <clipping_planes_fragment>
                     fragColor = vec4(vPick, 1.0);
                 }
             `;
@@ -259,6 +285,8 @@ class GpuMeshPicker {
                 side: THREE.DoubleSide,
                 depthTest: true,
                 depthWrite: true,
+                clipping: true,
+                clippingPlanes: this.clippingPlanes,
             });
             if (morphTargetCount > 0) (sm as any).morphTargets = true;
             return sm;
@@ -268,19 +296,24 @@ class GpuMeshPicker {
             precision mediump float;
             #include <common>
             #include <morphtarget_pars_vertex>
+            #include <clipping_planes_pars_vertex>
             attribute vec3 pickColor;
             varying vec3 vPick;
             void main() {
                 vPick = pickColor;
                 vec3 transformed = position;
                 #include <morphtarget_vertex>
-                gl_Position = projectionMatrix * modelViewMatrix * vec4(transformed, 1.0);
+                vec4 mvPosition = modelViewMatrix * vec4(transformed, 1.0);
+                gl_Position = projectionMatrix * mvPosition;
+                #include <clipping_planes_vertex>
             }
         `;
         const fragment = `
             precision mediump float;
+            #include <clipping_planes_pars_fragment>
             varying vec3 vPick;
             void main() {
+                #include <clipping_planes_fragment>
                 gl_FragColor = vec4(vPick, 1.0);
             }
         `;
@@ -290,6 +323,8 @@ class GpuMeshPicker {
             side: THREE.DoubleSide,
             depthTest: true,
             depthWrite: true,
+            clipping: true,
+            clippingPlanes: this.clippingPlanes,
         });
         // Three.js gates the morph code path on this flag. Without it
         // the morphtarget_vertex chunk compiles to a no-op even when
