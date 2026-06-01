@@ -291,9 +291,14 @@ def _read_nodal_step(
 
     profile = step_group["NOE"].attrs["PFL"]
     data_profile = step_group["NOE"][profile]
-    n_data = int(data_profile.attrs["NBR"])
 
-    raw = np.asarray(data_profile["CO"][()]).reshape((n_data, -1), order="F")
+    # Infer the row (node) count from the data size / n_components rather than
+    # data_profile.attrs["NBR"]: for a profile-restricted field NBR is the TOTAL
+    # mesh-node count, not the number of rows actually stored (which equals the
+    # profile length), so reshaping by NBR raises "cannot reshape array of size
+    # N into shape (NBR, newaxis)". size/n_components gives the right row count
+    # for both the default profile (== mesh nodes) and a partial profile.
+    raw = np.asarray(data_profile["CO"][()]).reshape((-1, n_components), order="F")
 
     if profile.decode() == "MED_NO_PROFILE_INTERNAL":
         if raw.shape[0] != n_points_mesh:
