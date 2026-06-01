@@ -96,10 +96,22 @@ function init(
             requestRender();
         });
 
+        const isEffectivelyVisible = (o: THREE.Object3D): boolean => {
+            let cur: THREE.Object3D | null = o;
+            while (cur) {
+                if (!cur.visible) return false;
+                cur = cur.parent;
+            }
+            return true;
+        };
+
+        // Only visible meshes feed the stencil caps — a hidden model (e.g. the
+        // original while "flipped" to a compared build) must not contribute
+        // cross-section fill.
         const batchedMeshes = (): CustomBatchedMesh[] => {
             const meshes: CustomBatchedMesh[] = [];
             scene.traverse((o) => {
-                if (o instanceof CustomBatchedMesh) meshes.push(o);
+                if (o instanceof CustomBatchedMesh && isEffectivelyVisible(o)) meshes.push(o);
             });
             return meshes;
         };
@@ -212,9 +224,12 @@ function init(
 
         rebuild();
         const unsubSection = useSectionStore.subscribe(rebuild);
-        // New model -> the CustomBatchedMesh set changed; re-apply clipping/caps.
+        // New / removed / flipped model -> the CustomBatchedMesh set changed;
+        // re-apply clipping/caps so the planes follow the current geometry.
         const unsubModel = useModelState.subscribe((s, prev) => {
-            if (s.boundingBox !== prev.boundingBox) rebuild();
+            if (s.boundingBox !== prev.boundingBox || s.loadedSourceNames !== prev.loadedSourceNames) {
+                rebuild();
+            }
         });
 
         return () => {

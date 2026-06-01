@@ -10,6 +10,7 @@ import {
     type UtilitySpec,
 } from "@/state/sceneInfoStore";
 import {applyViewerOps, clearViewerOps} from "@/utils/scene/apply_viewer_ops";
+import {flipToCompared, unflip, isFlipped} from "@/utils/scene/flip_geometry";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -189,6 +190,11 @@ const UtilitiesSection = () => {
     const setLastResult = useSceneInfoStore((s) => s.setLastResult);
     const [refBuilds, setRefBuilds] = React.useState<VersionBuild[]>([]);
     const [loadedArtefact, setLoadedArtefact] = React.useState<string | null>(null);
+    // "Flip to compared geometry" — load the ref build's model in place of the
+    // current one for detailed inspection. Module-level flip state mirrored here
+    // so the toggle reflects it; `flipBusy` guards the async load.
+    const [flipped, setFlipped] = React.useState<boolean>(isFlipped());
+    const [flipBusy, setFlipBusy] = React.useState<boolean>(false);
 
     // Fetch advertised utilities from /api/config once.
     React.useEffect(() => {
@@ -239,11 +245,42 @@ const UtilitiesSection = () => {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [hasRefKwarg, selectedUtility]);
 
+    // The ref kwarg's value is the compared build's GLB key (what we flip to).
+    const refKwargName = spec?.kwargs.find((k) => k.type === "ref")?.name;
+    const compareKey = refKwargName ? String(kwargs[refKwargName] ?? "") : "";
+
     const onSelectUtility = (name: string) => {
+        unflip();              // leaving the utility shouldn't keep the scene flipped
+        setFlipped(false);
         setSelectedUtility(name);
         const s = utilities.find((u) => u.name === name);
         if (s) setKwargs(defaultsFor(s));
     };
+
+    const toggleFlip = async () => {
+        if (flipBusy) return;
+        if (isFlipped()) {
+            unflip();
+            setFlipped(false);
+            return;
+        }
+        if (!compareKey) return;
+        setFlipBusy(true);
+        try {
+            await flipToCompared(compareKey);
+            setFlipped(true);
+        } catch (e) {
+            setLastResult({summary: {error: `flip failed: ${String(e)}`}});
+            setFlipped(false);
+        } finally {
+            setFlipBusy(false);
+        }
+    };
+
+    // NOTE: deliberately no unflip-on-unmount — the flip must survive switching
+    // the scene panel to "Section" so the user can cut the compared geometry.
+    // Re-mounting initialises `flipped` from isFlipped() so the toggle stays
+    // accurate. Unflip happens only on explicit toggle-off / Reset / utility switch.
 
     const run = async () => {
         if (!spec) return;
@@ -304,6 +341,20 @@ const UtilitiesSection = () => {
                     onChange={(v) => setKwargs({...kwargs, [k.name]: v})}
                 />
             ))}
+            {refKwargName && (
+                <label
+                    className="flex items-center gap-2 mt-1 mb-1 text-xs"
+                    title="Hide the current model and load the compared build's geometry in its place for detailed inspection (section planes + selection work on it). Toggle off to return."
+                >
+                    <input
+                        type="checkbox"
+                        checked={flipped}
+                        disabled={flipBusy || (!flipped && !compareKey)}
+                        onChange={toggleFlip}
+                    />
+                    <span>{flipBusy ? "Flipping…" : "Inspect compared geometry"}</span>
+                </label>
+            )}
             <div className="flex gap-2 mt-2">
                 <button
                     className="text-sm px-2 py-1 rounded-sm bg-blue-600 text-white disabled:opacity-50"
@@ -315,6 +366,8 @@ const UtilitiesSection = () => {
                 <button
                     className="text-sm px-2 py-1 rounded-sm bg-gray-600 text-white"
                     onClick={() => {
+                        unflip();
+                        setFlipped(false);
                         clearViewerOps();
                         setLastResult(null);
                     }}
