@@ -5,8 +5,13 @@ import {useConversionStore} from "@/state/conversionStore";
 import {useExperimentalStore} from "@/state/experimentalStore";
 import {runtime} from "@/runtime/config";
 import {viewerApi, TargetFormat, ScopeUrl} from "@/services/viewerApi";
-import {convertViaPyodideAndUpload} from "./pyodidePipeline";
 import {convertViaServer} from "./serverPipeline";
+
+// NOTE: the Pyodide pipeline is imported lazily (inside ensureConverted), not
+// at module top. It pulls a `new Worker(new URL(...))` that Vite emits as a
+// separate chunk, which must NOT land in the single-file embed bundle that
+// paradoc consumes. Keeping it behind a dynamic import keeps pyodide_converter
+// out of any static graph that never runs an in-browser conversion (the embed).
 
 export type {TargetFormat} from "@/services/viewerApi";
 
@@ -50,6 +55,7 @@ export async function ensureConverted(
     },
 ): Promise<string> {
     if (shouldUsePyodide(sourceKey, targetFormat)) {
+        const {convertViaPyodideAndUpload} = await import("./pyodidePipeline");
         return convertViaPyodideAndUpload(scope, sourceKey);
     }
     if (!runtime.convertEnabled()) {

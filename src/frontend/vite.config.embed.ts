@@ -104,9 +104,20 @@ export default defineConfig({
     publicDir: false,
     plugins: [react(), inlineCssAtRuntime()],
     resolve: {
-        alias: {
-            "@": path.resolve(__dirname, 'src'),
-        },
+        // Array form so the exact-match pyodide stub is checked BEFORE the
+        // broad "@" prefix alias. The embed never runs an in-browser Pyodide
+        // conversion, but `@/utils/pyodide/pyodide_converter` is still reachable
+        // through overlay_file_in_scene → services/conversion; its
+        // `new Worker(new URL(...))` would otherwise emit a separate
+        // pyodide_worker chunk and break paradoc's single-file embed. Aliasing
+        // it to a worker-free stub keeps pyodide out of the embed bundle.
+        alias: [
+            {
+                find: /^@\/utils\/pyodide\/pyodide_converter$/,
+                replacement: path.resolve(__dirname, 'embed/stubs/pyodide_converter.ts'),
+            },
+            {find: '@', replacement: path.resolve(__dirname, 'src')},
+        ],
     },
     build: {
         outDir: path.resolve(__dirname, 'dist-embed'),
