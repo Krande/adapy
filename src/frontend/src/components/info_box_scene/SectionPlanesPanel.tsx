@@ -28,7 +28,7 @@ function sliderRange(p: SectionPlane): [number, number] {
 }
 
 const SectionPlanesPanel = () => {
-    const {planes, activeId, capColor, addPlane, removePlane, toggle, setConstant, flip, setActive, setCapColor, clearAll} =
+    const {planes, activeId, gizmoVisible, capColor, addPlane, removePlane, toggle, setConstant, flip, setActive, setGizmoVisible, setCapColor, clearAll} =
         useSectionStore();
     const [menuId, setMenuId] = React.useState<string | null>(null);
     const hasModel = !!useModelState((s) => s.boundingBox);
@@ -120,10 +120,16 @@ const SectionPlanesPanel = () => {
             })}
 
             {planes.length > 0 && (
-                <label className="flex items-center gap-2 mt-2 text-xs">
-                    <span>Cap colour</span>
-                    <input type="color" value={capColor} onChange={(e) => setCapColor(e.target.value)}/>
-                </label>
+                <div className="mt-2 space-y-1 text-xs">
+                    <label className="flex items-center gap-2">
+                        <input type="checkbox" checked={gizmoVisible} onChange={(e) => setGizmoVisible(e.target.checked)}/>
+                        <span>Show gizmo</span>
+                    </label>
+                    <label className="flex items-center gap-2">
+                        <span>Cap colour</span>
+                        <input type="color" value={capColor} onChange={(e) => setCapColor(e.target.value)}/>
+                    </label>
+                </div>
             )}
         </div>
     );

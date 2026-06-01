@@ -25,6 +25,7 @@ const nextId = () => `sp_${++_seq}`;
 interface SectionState {
     planes: SectionPlane[];
     activeId: string | null;        // plane the drag gizmo is attached to
+    gizmoVisible: boolean;          // show/hide the drag gizmo (navigate safely)
     capColor: string;               // fill colour of the cut cross-section
     addPlane: (axis: "x" | "y" | "z") => void;
     removePlane: (id: string) => void;
@@ -32,6 +33,7 @@ interface SectionState {
     setConstant: (id: string, constant: number) => void;
     flip: (id: string) => void;
     setActive: (id: string | null) => void;
+    setGizmoVisible: (v: boolean) => void;
     setCapColor: (c: string) => void;
     clearAll: () => void;
 }
@@ -39,6 +41,7 @@ interface SectionState {
 export const useSectionStore = create<SectionState>((set) => ({
     planes: [],
     activeId: null,
+    gizmoVisible: true,
     capColor: "#9099a1",  // ~ the default geometry grey
     addPlane: (axis) =>
         set((s) => {
@@ -73,6 +76,7 @@ export const useSectionStore = create<SectionState>((set) => ({
             ),
         })),
     setActive: (id) => set({activeId: id}),
+    setGizmoVisible: (gizmoVisible) => set({gizmoVisible}),
     setCapColor: (capColor) => set({capColor}),
     clearAll: () => set({planes: [], activeId: null}),
 }));

@@ -101,13 +101,22 @@ function init(
         };
 
         const applyMaterialClipping = (planes: THREE.Plane[]) => {
+            const cp = planes.length ? planes : null;
             scene.traverse((o) => {
-                if (!(o instanceof CustomBatchedMesh)) return;
-                const mats = Array.isArray(o.material) ? o.material : [o.material];
-                for (const m of mats) {
-                    (m as THREE.Material).clippingPlanes = planes.length ? planes : null;
-                    (m as THREE.Material).clipShadows = true;
-                    (m as THREE.Material).needsUpdate = true;
+                if (o instanceof CustomBatchedMesh) {
+                    const mats = Array.isArray(o.material) ? o.material : [o.material];
+                    for (const m of mats) {
+                        (m as THREE.Material).clippingPlanes = cp;
+                        (m as THREE.Material).clipShadows = true;
+                        (m as THREE.Material).needsUpdate = true;
+                    }
+                } else if ((o as THREE.LineSegments).isLineSegments) {
+                    // Edge overlay (custom ShaderMaterial w/ clipping:true) — cut it too.
+                    const mat: any = (o as THREE.LineSegments).material;
+                    if (mat?.uniforms?.uVisibleTex) {
+                        mat.clippingPlanes = cp;
+                        mat.needsUpdate = true;
+                    }
                 }
             });
         };
@@ -164,18 +173,21 @@ function init(
                 container.add(cap);
             });
 
-            // Gizmo follows the active (and enabled) plane.
+            // Gizmo follows the active (and enabled) plane — unless hidden, so
+            // the user can navigate without grabbing it.
             const active = enabled.find((p) => p.id === st.activeId);
             const activePlane = active ? planeById.get(active.id) : undefined;
-            if (active && activePlane) {
+            if (active && activePlane && st.gizmoVisible) {
                 handle.position.copy(activePlane.coplanarPoint(new THREE.Vector3()));
                 gizmo.showX = Math.abs(active.normal[0]) > 0.5;
                 gizmo.showY = Math.abs(active.normal[1]) > 0.5;
                 gizmo.showZ = Math.abs(active.normal[2]) > 0.5;
                 gizmo.attach(handle);
+                gizmo.enabled = true;
                 gizmoHelper.visible = true;
             } else {
                 gizmo.detach();
+                gizmo.enabled = false;        // ignore pointer when hidden/none
                 gizmoHelper.visible = false;
             }
             requestRender();
