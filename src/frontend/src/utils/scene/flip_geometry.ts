@@ -13,12 +13,17 @@ import {sceneRef} from "@/state/refs";
 import {requestRender} from "@/state/perfStore";
 import {useModelState, loadedSourceGroups} from "@/state/modelState";
 import {overlay_file_in_scene} from "@/utils/scene/handlers/overlay_file_in_scene";
+import {useTreeViewStore} from "@/state/treeViewStore";
+import {TreeNodeData} from "@/components/tree_view/CustomNode";
 
 interface FlipState {
     flippedKey: string;
     hidden: THREE.Object3D[];            // original groups we hid
     prevSourceName: string | null;       // loaded-source bookkeeping to restore
     prevSourceNames: ReadonlySet<string>;
+    prevTreeData: TreeNodeData | null;   // tree to restore on unflip
+    prevScopeId: string | null;
+    prevScopeName: string | null;
 }
 
 let _flip: FlipState | null = null;
@@ -40,6 +45,10 @@ export async function flipToCompared(compareKey: string): Promise<void> {
     const ms = useModelState.getState();
     const prevSourceName = ms.loadedSourceName;
     const prevSourceNames = ms.loadedSourceNames;
+    const ts = useTreeViewStore.getState();
+    const prevTreeData = ts.treeData;
+    const prevScopeId = ts.scopeNodeId;
+    const prevScopeName = ts.scopeNodeName;
 
     const hidden: THREE.Object3D[] = [];
     for (const g of loadedSourceGroups.values()) {
@@ -50,7 +59,8 @@ export async function flipToCompared(compareKey: string): Promise<void> {
     }
     // Set the flip marker BEFORE the await so a double-click can't start a
     // second load while the first is in flight.
-    _flip = {flippedKey: compareKey, hidden, prevSourceName, prevSourceNames};
+    _flip = {flippedKey: compareKey, hidden, prevSourceName, prevSourceNames,
+             prevTreeData, prevScopeId, prevScopeName};
 
     try {
         // translate=true inside overlay_file_in_scene reuses the cached
@@ -63,13 +73,17 @@ export async function flipToCompared(compareKey: string): Promise<void> {
         requestRender();
         throw err;
     }
+    // The compared model is now an extra tree root (cacheAndBuildTree) — that's
+    // the desired "tree follows the flip". prevTreeData is kept only so unflip
+    // can drop that root again.
     requestRender();
 }
 
 /** Remove the compared model and restore the original(s). No-op if not flipped. */
 export function unflip(): void {
     if (!_flip) return;
-    const {flippedKey: key, hidden, prevSourceName, prevSourceNames} = _flip;
+    const {flippedKey: key, hidden, prevSourceName, prevSourceNames,
+           prevTreeData, prevScopeId, prevScopeName} = _flip;
     _flip = null;
 
     const group = useModelState.getState().unregisterLoadedSource(key);
@@ -86,5 +100,10 @@ export function unflip(): void {
     for (const g of hidden) g.visible = true;
     // Restore the loaded-source bookkeeping the flip load mutated.
     useModelState.setState({loadedSourceName: prevSourceName, loadedSourceNames: prevSourceNames});
+    // Drop the compared model's tree root (restore the pre-flip tree + scope).
+    const ts = useTreeViewStore.getState();
+    if (prevTreeData) ts.setTreeData(prevTreeData);
+    else ts.clearTreeData();
+    ts.setScope(prevScopeId, prevScopeName);
     requestRender();
 }
