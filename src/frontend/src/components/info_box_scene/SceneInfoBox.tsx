@@ -4,6 +4,7 @@ import CollapsibleSection from "@/components/common/CollapsibleSection";
 import StatsSection from "./StatsSection";
 import GroupsSection from "./GroupsSection";
 import UtilitiesSection from "./UtilitiesSection";
+import SectionPlanesPanel from "./SectionPlanesPanel";
 import {useSceneInfoStore} from "@/state/sceneInfoStore";
 
 // Container for everything that talks about the currently-loaded scene
@@ -22,10 +23,11 @@ const SceneInfoBox = () => {
                 <select
                     className="text-sm rounded-sm px-1 py-0.5 bg-white text-black"
                     value={mode}
-                    onChange={(e) => setMode(e.target.value as "info" | "utilities")}
+                    onChange={(e) => setMode(e.target.value as "info" | "utilities" | "section")}
                 >
                     <option value="info">Info</option>
                     <option value="utilities">Utilities</option>
+                    <option value="section">Section</option>
                 </select>
             </div>
             {mode === "info" ? (
@@ -37,8 +39,10 @@ const SceneInfoBox = () => {
                         <GroupsSection/>
                     </CollapsibleSection>
                 </>
-            ) : (
+            ) : mode === "utilities" ? (
                 <UtilitiesSection/>
+            ) : (
+                <SectionPlanesPanel/>
             )}
         </div>
     );

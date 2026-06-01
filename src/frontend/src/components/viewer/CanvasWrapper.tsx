@@ -2,6 +2,7 @@
 import React from "react";
 import ColorLegend from "./ColorLegend";
 import ThreeCanvas from "./ThreeCanvas";
+import SectionPlanesController from "./SectionPlanesController";
 
 const CanvasWrapper: React.FC = () => {
   return (
@@ -13,6 +14,8 @@ const CanvasWrapper: React.FC = () => {
       <div id="canvasParent" className="absolute w-full h-full">
         <ThreeCanvas />
       </div>
+      {/* Headless: reconciles section-plane clipping/caps/gizmo with the scene. */}
+      <SectionPlanesController />
     </div>
   );
 };
