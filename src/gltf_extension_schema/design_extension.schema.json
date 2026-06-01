@@ -50,6 +50,10 @@
       "items": {
         "$ref": "#/definitions/ConnectionInfo"
       }
+    },
+    "fem_concepts": {
+      "description": "FEA input concepts (masses + load scenarios) attached to this design model, for the viewer's FEM visualization mode.",
+      "$ref": "./fem_concepts.schema.json"
     }
   },
   "definitions": {

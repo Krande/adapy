@@ -5,6 +5,7 @@ import StatsSection from "./StatsSection";
 import GroupsSection from "./GroupsSection";
 import UtilitiesSection from "./UtilitiesSection";
 import SectionPlanesPanel from "./SectionPlanesPanel";
+import FemConceptsPanel from "./FemConceptsPanel";
 import {useSceneInfoStore} from "@/state/sceneInfoStore";
 
 // Container for everything that talks about the currently-loaded scene
@@ -23,11 +24,12 @@ const SceneInfoBox = () => {
                 <select
                     className="text-sm rounded-sm px-1 py-0.5 bg-white text-black"
                     value={mode}
-                    onChange={(e) => setMode(e.target.value as "info" | "utilities" | "section")}
+                    onChange={(e) => setMode(e.target.value as "info" | "utilities" | "section" | "fem")}
                 >
                     <option value="info">Info</option>
                     <option value="utilities">Utilities</option>
                     <option value="section">Section</option>
+                    <option value="fem">FEM</option>
                 </select>
             </div>
             {mode === "info" ? (
@@ -41,8 +43,10 @@ const SceneInfoBox = () => {
                 </>
             ) : mode === "utilities" ? (
                 <UtilitiesSection/>
-            ) : (
+            ) : mode === "section" ? (
                 <SectionPlanesPanel/>
+            ) : (
+                <FemConceptsPanel/>
             )}
         </div>
     );

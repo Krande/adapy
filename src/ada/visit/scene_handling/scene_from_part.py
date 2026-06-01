@@ -107,10 +107,37 @@ def scene_from_part_or_assembly(part_or_assembly: Part | Assembly, converter: Sc
             object_metadata=object_metadata or None,
             stats=_build_design_stats(part_or_assembly),
             connections=connections or None,
+            fem_concepts=_build_fem_concepts(part_or_assembly),
         )
     )
 
     return scene
+
+
+def _build_fem_concepts(part_or_assembly):
+    """Collect FEA input concepts for the viewer's FEM visualization mode.
+
+    Phase 1: point masses (e.g. lumped equipment footprint mass at deck feet).
+    Loads/scenarios are added here in a later phase; BCs are emitted on the
+    simulation extension in scene_from_fem. Returns None when there's nothing.
+    """
+    from ada.extension import fem_concepts_schema as fem_ext
+
+    masses = []
+    for subp in part_or_assembly.get_all_subparts(include_self=True):
+        for m in getattr(subp, "masses", None) or []:
+            cog = m.cog
+            masses.append(
+                fem_ext.MassGlyph(
+                    name=m.name,
+                    position=[float(cog[0]), float(cog[1]), float(cog[2])],
+                    mass=float(m.mass),
+                )
+            )
+
+    if not masses:
+        return None
+    return fem_ext.FemConcepts(masses=masses)
 
 
 def _build_connection_entries(part_or_assembly):

@@ -39,7 +39,7 @@ export interface UtilityResult {
   summary?: Record<string, unknown>;
 }
 
-export type SceneInfoMode = 'info' | 'utilities' | 'section';
+export type SceneInfoMode = 'info' | 'utilities' | 'section' | 'fem';
 
 interface SceneInfoState {
   show_scene_info_box: boolean;

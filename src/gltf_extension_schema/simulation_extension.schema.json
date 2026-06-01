@@ -44,6 +44,10 @@
       "type": "object",
       "description": "Aggregate metrics for this simulation model (centre of gravity, element counts). Computed at bake time so the viewer can show per-model info without reloading source.",
       "$ref": "#/definitions/SimStats"
+    },
+    "fem_concepts": {
+      "description": "FEA input concepts (boundary conditions) attached to this simulation model, for the viewer's FEM visualization mode.",
+      "$ref": "./fem_concepts.schema.json"
     }
   },
   "required": [

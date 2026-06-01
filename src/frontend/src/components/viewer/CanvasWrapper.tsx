@@ -3,6 +3,7 @@ import React from "react";
 import ColorLegend from "./ColorLegend";
 import ThreeCanvas from "./ThreeCanvas";
 import SectionPlanesController from "./SectionPlanesController";
+import FemConceptsController from "./FemConceptsController";
 
 const CanvasWrapper: React.FC = () => {
   return (
@@ -16,6 +17,8 @@ const CanvasWrapper: React.FC = () => {
       </div>
       {/* Headless: reconciles section-plane clipping/caps/gizmo with the scene. */}
       <SectionPlanesController />
+      {/* Headless: draws the FEM-concept glyph overlay (masses / BCs / loads). */}
+      <FemConceptsController />
     </div>
   );
 };
