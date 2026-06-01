@@ -95,12 +95,12 @@ function init(
             requestRender();
         });
 
-        const batchedGeometries = (): THREE.BufferGeometry[] => {
-            const geoms: THREE.BufferGeometry[] = [];
+        const batchedMeshes = (): CustomBatchedMesh[] => {
+            const meshes: CustomBatchedMesh[] = [];
             scene.traverse((o) => {
-                if (o instanceof CustomBatchedMesh) geoms.push(o.geometry);
+                if (o instanceof CustomBatchedMesh) meshes.push(o);
             });
-            return geoms;
+            return meshes;
         };
 
         const applyMaterialClipping = (planes: THREE.Plane[]) => {
@@ -162,22 +162,21 @@ function init(
             const bb = useModelState.getState().boundingBox;
             const size = bb ? bb.getSize(new THREE.Vector3()).length() * 1.1 : 50;
             const capColor = new THREE.Color(st.capColor);
-            const geoms = planes.length ? batchedGeometries() : [];
+            const meshes = planes.length ? batchedMeshes() : [];
 
             enabled.forEach((sp, i) => {
                 const plane = planeById.get(sp.id)!;
                 const order = i * 2 + 1;
 
-                // Only show the plane outline when the gizmo is shown — skip
-                // creating it entirely otherwise (robust vs PlaneHelper's fill
-                // child not honouring `.visible`).
-                if (st.gizmoVisible) {
-                    const helper = new THREE.PlaneHelper(plane, size, 0x2266ff);
-                    helper.layers.set(1);
-                    container.add(helper);
-                }
+                const helper = new THREE.PlaneHelper(plane, size, 0x2266ff);
+                helper.layers.set(1);
+                helper.visible = st.gizmoVisible;  // hide plane outline with the gizmo
+                container.add(helper);
 
-                for (const g of geoms) container.add(createPlaneStencilGroup(g, plane, order));
+                for (const m of meshes) {
+                    m.updateWorldMatrix(true, false);
+                    container.add(createPlaneStencilGroup(m.geometry, plane, order, m.matrixWorld));
+                }
 
                 const others = planes.filter((pl) => pl !== plane);
                 const cap = createCapMesh(plane, size, capColor, others, order + 1);

@@ -19,6 +19,7 @@ export function createPlaneStencilGroup(
     geometry: THREE.BufferGeometry,
     plane: THREE.Plane,
     renderOrder: number,
+    matrixWorld?: THREE.Matrix4,
 ): THREE.Group {
     const group = new THREE.Group();
     const base = new THREE.MeshBasicMaterial();
@@ -48,6 +49,15 @@ export function createPlaneStencilGroup(
     front.renderOrder = renderOrder;
     front.layers.set(HELPER_LAYER);
     group.add(front);
+
+    // The source CustomBatchedMesh bakes its world transform into the rendered
+    // geometry (see CustomBatchedMesh edge mesh). Our stencil meshes share the
+    // raw geometry, so we must reproduce that transform or the stencil is
+    // written in the wrong place and the cap masks the wrong region.
+    if (matrixWorld) {
+        back.applyMatrix4(matrixWorld);
+        front.applyMatrix4(matrixWorld);
+    }
 
     group.layers.set(HELPER_LAYER);
     return group;

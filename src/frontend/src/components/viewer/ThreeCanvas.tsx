@@ -85,7 +85,10 @@ const ThreeCanvas: React.FC = () => {
         // takes effect without a reload.
         if (!rendererRef.current) {
             const initialPerf = usePerfStore.getState();
-            const renderer = new THREE.WebGLRenderer({antialias: initialPerf.antialias});
+            // `stencil: true` is required for the section-plane caps (three r163+
+            // defaults stencil OFF; without the buffer the NotEqual(0) cap test
+            // always passes and the cut cross-section renders as a full plane).
+            const renderer = new THREE.WebGLRenderer({antialias: initialPerf.antialias, stencil: true});
             renderer.setSize(
                 containerRef.current.clientWidth,
                 containerRef.current.clientHeight,
