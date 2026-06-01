@@ -28,9 +28,12 @@ RUN npm run build:serve
 # After Vite produces dist/, layer in the static assets the pyodide
 # worker fetches at runtime: the adacpp wheel and the minimal adapy
 # source closure (just ada/__init__.py + ada/cad/__init__.py — these
-# are the only files imported in the pyodide branch of __init__.py).
+# are the only files imported under pyodide). The real
+# src/ada/__init__.py imports adapy's full native-dep surface and can't
+# run under wasm, so we stage the pyodide-only entrypoint in its place
+# (see deploy/pyodide-ada-init.py).
 COPY --from=adacpp-wheel /out/ /build/dist/wheels/
-COPY src/ada/__init__.py        /build/dist/adapy_src/ada/__init__.py
+COPY deploy/pyodide-ada-init.py /build/dist/adapy_src/ada/__init__.py
 COPY src/ada/cad/__init__.py    /build/dist/adapy_src/ada/cad/__init__.py
 
 # Stage 2a: pixi env solver — installs the viewer-api-slim environment

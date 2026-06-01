@@ -2,8 +2,10 @@
 //
 // The harness exercises:
 //   1. The adacpp wasm wheel actually loads under pyodide
-//   2. adapy's `ada/__init__.py` emscripten branch lets `import ada.cad`
-//      succeed without the heavy native deps (pythonocc-core, gmsh, ...)
+//   2. adapy's pyodide entrypoint (deploy/pyodide-ada-init.py, swapped in
+//      over ada/__init__.py the same way the Docker build does) lets
+//      `import ada.cad` succeed without the heavy native deps
+//      (pythonocc-core, gmsh, ...)
 //   3. AdacppBackend.tessellate(make_box/cylinder/sphere(...)) all produce
 //      real OCCT meshes through the abstraction layer (wasm now links
 //      OCCT statically — no more stub kernel)
@@ -21,6 +23,7 @@ const { loadPyodide } = require("pyodide");
 const REPO_ROOT      = path.resolve(__dirname, "..", "..");
 const ADAPY_SRC      = path.join(REPO_ROOT, "src");
 const ADAPY_PKG      = path.join(ADAPY_SRC, "ada");
+const PYODIDE_INIT   = path.join(REPO_ROOT, "deploy", "pyodide-ada-init.py");
 const DEFAULT_DIST   = path.resolve(REPO_ROOT, "..", "adacpp", "dist");
 
 function resolveWheel() {
@@ -98,9 +101,16 @@ function copyDirToPyodideFS(py, srcDir, destDir, opts = {}) {
     }
 
     // Mount adapy/src on pyodide FS so `import ada.cad` resolves through
-    // the real package (exercising the emscripten branch in __init__.py).
+    // the real package. The real ada/__init__.py imports adapy's full
+    // native-dep surface and can't run under wasm, so overlay the pyodide
+    // entrypoint in its place — exactly what deploy/Dockerfile.viewer does
+    // when staging adapy for the browser worker.
     py.FS.mkdirTree("/adapy_src");
     copyDirToPyodideFS(py, ADAPY_PKG, "/adapy_src/ada");
+    if (!fs.existsSync(PYODIDE_INIT)) {
+        throw new Error(`Expected pyodide entrypoint at ${PYODIDE_INIT} but it's missing`);
+    }
+    py.FS.writeFile("/adapy_src/ada/__init__.py", fs.readFileSync(PYODIDE_INIT));
 
     await py.loadPackage(["micropip"]);
     const mp = py.pyimport("micropip");
@@ -110,8 +120,8 @@ function copyDirToPyodideFS(py, srcDir, destDir, opts = {}) {
 import sys
 sys.path.insert(0, "/adapy_src")
 
-# This import path goes through ada/__init__.py — its emscripten branch
-# must skip the heavy imports (pythonocc-core, gmsh, ...) so this load
+# This import path goes through the pyodide ada/__init__.py — it must
+# skip the heavy imports (pythonocc-core, gmsh, ...) so this load
 # doesn't raise.
 import ada
 import ada.cad
