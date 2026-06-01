@@ -208,6 +208,23 @@ class RmedStreamReader:
 
         return try_load_lineage_payload(self._path)
 
+    def try_fem_concepts(self):
+        """FEA input concepts (masses / BCs / load scenarios) from the
+        sidecar's v5 ``fem_concepts`` block.
+
+        A .rmed result file carries none of these (they're solver
+        inputs); adapy's MED writer stamps them into the
+        ``<name>.adapy_fem.json`` sidecar at write time. Returns the raw
+        dict for the bake to inject into ``fea.manifest.json.fem_concepts``,
+        or None when the sidecar is absent / pre-v5. The frontend feeds it
+        to the same FemConceptsController overlay as a CAD/FEM GLB's
+        embedded concepts."""
+        from ada.fem.formats.code_aster.read.beams_sidecar import (
+            try_load_fem_concepts,
+        )
+
+        return try_load_fem_concepts(self._path)
+
     def try_solid_beams(self):
         # Code Aster's .med output has no section / orientation info
         # of its own — that lives in the .comm deck. adapy's MED

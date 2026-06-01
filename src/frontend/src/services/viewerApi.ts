@@ -7,6 +7,7 @@
 import {runtime} from "@/runtime/config";
 import {getAccessToken, isAuthEnabled, refreshAccessToken, signIn} from "@/services/auth/oidc";
 import {fetchFeaManifest, fetchResultMeta} from "@/services/feaManifestPoll";
+import type {FemConcepts} from "@/extensions/design_and_analysis_extension";
 
 // Known-good target formats keep autocomplete on the call sites that
 // hardcode a value (the GLB auto-convert path on upload, etc.), while
@@ -330,6 +331,14 @@ export interface FeaManifest {
      *  in this baked FEA model can resolve back to the source CAD
      *  Beam/Plate when the parent assembly's GLB is also loaded. */
     lineage?: FeaManifestLineage;
+    /** FEA *input* concepts — point masses, boundary conditions, and
+     *  per-case / combination load scenarios — carried from adapy's
+     *  deck-write sidecar (the .rmed result file itself holds none of
+     *  them). Same shape as the ``fem_concepts`` glTF-extension block,
+     *  so the frontend feeds it to ``useFemConceptsStore`` and the
+     *  FemConceptsController renders the same masses / BCs / load
+     *  overlay it draws for a CAD/FEM GLB's embedded concepts. */
+    fem_concepts?: FemConcepts;
     legacy_glb?: {url_template: string};
 }
 

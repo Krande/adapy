@@ -255,4 +255,30 @@ def try_load_lineage_payload(rmed_path: pathlib.Path) -> dict | None:
     return out
 
 
-__all__ = ["try_load_beams_sidecar", "try_load_lineage_payload"]
+def try_load_fem_concepts(rmed_path: pathlib.Path) -> dict | None:
+    """Read the sidecar's ``fem_concepts`` block (v5+), if present.
+
+    Returns the raw dict — masses / bcs / scenarios in the same shape as
+    the ``fem_concepts`` glTF-extension block — for the bake to drop
+    straight into ``fea.manifest.json.fem_concepts``. ``None`` when the
+    sidecar is missing, unreadable, or pre-dates the v5 schema (no
+    ``fem_concepts`` key). The frontend renders it via the same
+    FemConceptsController path as a CAD/FEM GLB's embedded concepts."""
+    sidecar = _sidecar_path_for(rmed_path)
+    if not sidecar.is_file():
+        return None
+    try:
+        payload = json.loads(sidecar.read_text())
+    except (OSError, ValueError):
+        return None
+    fem_concepts = payload.get("fem_concepts")
+    if not isinstance(fem_concepts, dict) or not fem_concepts:
+        return None
+    return fem_concepts
+
+
+__all__ = [
+    "try_load_beams_sidecar",
+    "try_load_lineage_payload",
+    "try_load_fem_concepts",
+]

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime
+import pathlib
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -147,4 +148,35 @@ def export_sim_metadata(fea_res: FEAResult) -> sim_meta.SimulationDataExtensionM
         fea_software=str(fea_res.software.value),
         fea_software_version=fea_res.software_version,
         steps=step_objects,
+        fem_concepts=_load_fem_concepts_from_sidecar(fea_res),
     )
+
+
+def _load_fem_concepts_from_sidecar(fea_res: FEAResult):
+    """FEA input concepts (masses / BCs / load scenarios) for the eager
+    ``FEAResult.to_gltf`` path. The .rmed result holds none of them — they
+    come from the ``<name>.adapy_fem.json`` sidecar adapy stamped at
+    deck-write time. Returns a ``FemConcepts`` or None (no sidecar / pre-v5
+    / non-code_aster source). Mirrors the streaming bake's manifest
+    injection so both result-GLB paths surface the same overlay."""
+    from ada.extension import fem_concepts_schema as fem_ext
+
+    results_path = getattr(fea_res, "results_file_path", None)
+    if results_path is None:
+        return None
+    try:
+        from ada.fem.formats.code_aster.read.beams_sidecar import (
+            try_load_fem_concepts,
+        )
+
+        raw = try_load_fem_concepts(pathlib.Path(results_path))
+    except Exception as e:  # noqa: BLE001 — concepts are best-effort decoration
+        logger.debug(f"fem_concepts sidecar read skipped: {type(e).__name__}: {e}")
+        return None
+    if not raw:
+        return None
+    try:
+        return fem_ext.FemConcepts.model_validate(raw)
+    except Exception as e:  # noqa: BLE001 — a malformed sidecar shouldn't break export
+        logger.debug(f"fem_concepts sidecar parse skipped: {type(e).__name__}: {e}")
+        return None

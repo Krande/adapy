@@ -6,6 +6,49 @@
  */
 
 /**
+ * Mass centre of gravity.
+ *
+ * @minItems 3
+ * @maxItems 3
+ */
+export type Vec3 = [number, number, number];
+/**
+ * An [x, y, z] triple in model units.
+ *
+ * @minItems 3
+ * @maxItems 3
+ */
+export type Vec31 = [number, number, number];
+/**
+ * An [x, y, z] triple in model units.
+ *
+ * @minItems 3
+ * @maxItems 3
+ */
+export type Vec32 = [number, number, number];
+/**
+ * An [x, y, z] triple in model units.
+ *
+ * @minItems 3
+ * @maxItems 3
+ */
+export type Vec33 = [number, number, number];
+/**
+ * An [x, y, z] triple in model units.
+ *
+ * @minItems 3
+ * @maxItems 3
+ */
+export type Vec34 = [number, number, number];
+/**
+ * An [x, y, z] triple in model units.
+ *
+ * @minItems 3
+ * @maxItems 3
+ */
+export type Vec35 = [number, number, number];
+
+/**
  * GLTF extension for design and analysis objects
  */
 export interface ADADesignAndAnalysisExtension {
@@ -53,6 +96,7 @@ export interface SimulationDataExtensionMetadata {
    */
   groups?: SimGroup[];
   stats?: SimStats;
+  fem_concepts?: FemConcepts;
   [k: string]: unknown;
 }
 export interface StepObject {
@@ -189,6 +233,93 @@ export interface COG {
   [k: string]: unknown;
 }
 /**
+ * FEA input concepts (boundary conditions) attached to this simulation model, for the viewer's FEM visualization mode.
+ */
+export interface FemConcepts {
+  /**
+   * Point masses (e.g. lumped equipment mass at deck feet).
+   */
+  masses?: MassGlyph[];
+  /**
+   * Boundary conditions: a set of restrained node positions and which dofs are fixed.
+   */
+  bcs?: BcGlyph[];
+  /**
+   * Load scenarios (one per load case AND per load combination), each pre-resolved to a flat list of load glyphs so the viewer can cycle through them and render scenario[i].loads directly.
+   */
+  scenarios?: LoadScenario[];
+  [k: string]: unknown;
+}
+export interface MassGlyph {
+  /**
+   * Mass point name.
+   */
+  name?: string;
+  position: Vec3;
+  /**
+   * Mass magnitude (drives glyph size).
+   */
+  mass: number;
+  [k: string]: unknown;
+}
+export interface BcGlyph {
+  /**
+   * Boundary condition name.
+   */
+  name?: string;
+  /**
+   * Restrained node positions.
+   */
+  positions: Vec31[];
+  /**
+   * Restrained degrees of freedom, 1..6 (1-3 translation, 4-6 rotation).
+   */
+  dofs: number[];
+  /**
+   * Boundary condition type (e.g. displacement).
+   */
+  bc_type?: string;
+  [k: string]: unknown;
+}
+export interface LoadScenario {
+  /**
+   * Load case or combination name.
+   */
+  name: string;
+  /**
+   * Whether this scenario is a single load case or a (factored) combination.
+   */
+  kind?: "case" | "combination";
+  /**
+   * Resolved load glyphs for this scenario.
+   */
+  loads?: LoadGlyph[];
+  [k: string]: unknown;
+}
+export interface LoadGlyph {
+  /**
+   * Load name.
+   */
+  name?: string;
+  /**
+   * Load arrangement type.
+   */
+  type: "point" | "line" | "surface" | "accel";
+  position?: Vec32;
+  end_position?: Vec33;
+  /**
+   * Surface load polygon vertices.
+   */
+  points?: Vec31[];
+  direction?: Vec34;
+  /**
+   * Force magnitude / pressure / acceleration magnitude (drives arrow color/label).
+   */
+  magnitude?: number;
+  moment?: Vec35;
+  [k: string]: unknown;
+}
+/**
  * GLTF extension for design object metadata and grouping
  */
 export interface DesignDataExtension {
@@ -224,6 +355,7 @@ export interface DesignDataExtension {
    * Per-Connection metadata (one entry per ada.Connection Part in this design model). Lets the inspector show a 'Connections (N)' rollup when a beam/plate is selected — each entry carries spec lineage + the member/weld names that belong to it, so the panel can group otherwise-flat weld lists by their parent Connection without walking the THREE scene graph.
    */
   connections?: ConnectionInfo[];
+  fem_concepts?: FemConcepts1;
   [k: string]: unknown;
 }
 export interface Group {
@@ -339,5 +471,23 @@ export interface ConnectionInfo {
    * Weld names this Connection owns. The inspector renders one 'select all welds (N)' link rather than the per-weld dump.
    */
   weld_names?: string[];
+  [k: string]: unknown;
+}
+/**
+ * FEA input concepts (masses + load scenarios) attached to this design model, for the viewer's FEM visualization mode.
+ */
+export interface FemConcepts1 {
+  /**
+   * Point masses (e.g. lumped equipment mass at deck feet).
+   */
+  masses?: MassGlyph[];
+  /**
+   * Boundary conditions: a set of restrained node positions and which dofs are fixed.
+   */
+  bcs?: BcGlyph[];
+  /**
+   * Load scenarios (one per load case AND per load combination), each pre-resolved to a flat list of load glyphs so the viewer can cycle through them and render scenario[i].loads directly.
+   */
+  scenarios?: LoadScenario[];
   [k: string]: unknown;
 }

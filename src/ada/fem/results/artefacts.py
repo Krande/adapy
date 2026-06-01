@@ -1785,6 +1785,7 @@ def build_manifest(
     n_elements: int = 0,
     history: "HistoryRecords | None" = None,
     lineage: dict | None = None,
+    fem_concepts: dict | None = None,
     legacy_glb_url_template: str | None = None,
 ) -> dict:
     """Compose the manifest dict from the bake outputs.
@@ -1799,7 +1800,14 @@ def build_manifest(
     ``{"assembly_guid": str, "groups": [{"parent_object_guid": str,
     "parent_object_name": str, "members": ["E17", ...]}]}``.
     Frontend feeds this to ``useLineageStore`` so a click in the FEA
-    viewer can jump to the parent beam in a loaded CAD overlay."""
+    viewer can jump to the parent beam in a loaded CAD overlay.
+
+    ``fem_concepts`` (optional) carries the FEA *input* concepts —
+    point masses, boundary conditions, and per-case / combination load
+    scenarios — read back from the same deck-write sidecar (the .rmed
+    result has none of them). Same shape as the ``fem_concepts``
+    glTF-extension block; the frontend renders it via the shared
+    FemConceptsController overlay in the viewer's FEM mode."""
 
     n_cells = sum(int(cb.data.shape[0]) for cb in mesh_geom.cell_blocks)
     fields_payload = []
@@ -2018,6 +2026,12 @@ def build_manifest(
         lineage.get("assembly_guid") or lineage.get("groups")
     ):
         manifest["lineage"] = lineage
+    # FEA input concepts (masses / BCs / load scenarios), carried from
+    # adapy's deck-write sidecar. Same shape as the ``fem_concepts``
+    # glTF-extension block so the frontend renders it via the shared
+    # FemConceptsController overlay.
+    if fem_concepts:
+        manifest["fem_concepts"] = fem_concepts
     if legacy_glb_url_template is not None:
         manifest["legacy_glb"] = {"url_template": legacy_glb_url_template}
     return manifest
@@ -2359,6 +2373,16 @@ def bake_artefacts(
     except (AttributeError, NotImplementedError):
         lineage = None
 
+    # FEA input concepts (masses / BCs / load scenarios). Same sidecar
+    # source as lineage — present only when adapy wrote the deck (the
+    # .rmed itself has no inputs). Readers that pre-date the method, or
+    # sources without a v5 sidecar, contribute nothing and the manifest
+    # key is omitted.
+    try:
+        fem_concepts = reader.try_fem_concepts()
+    except (AttributeError, NotImplementedError):
+        fem_concepts = None
+
     manifest = build_manifest(
         src=src,
         mesh_geom=geom,
@@ -2390,6 +2414,7 @@ def bake_artefacts(
             solid_beams.skip_reasons if solid_beams is not None else None
         ),
         lineage=lineage,
+        fem_concepts=fem_concepts,
         legacy_glb_url_template=legacy_glb_url_template,
     )
     manifest_path = out_dir / "fea.manifest.json"

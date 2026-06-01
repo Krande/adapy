@@ -630,6 +630,25 @@ export async function load_fea_streaming(args: {
                     });
                 }
             }
+
+            // FEA input concepts (masses / BCs / load scenarios) carried
+            // from adapy's deck-write sidecar through the manifest. A baked
+            // FEA-result GLB is geometry-only (no ADA_EXT extension), so
+            // FemConceptsController's adaExtensionRef parse finds nothing
+            // for it — we push the manifest's concepts straight into the
+            // store instead, the same way lineage feeds useLineageStore
+            // above. This runs after setLoadedSourceName, whose store
+            // subscription (reparse → empty extension) would otherwise have
+            // just cleared the overlay.
+            if (manifest.fem_concepts) {
+                const {useFemConceptsStore} = await import("@/state/femConceptsStore");
+                const fc = manifest.fem_concepts;
+                useFemConceptsStore.getState().setData({
+                    masses: fc.masses ?? [],
+                    bcs: fc.bcs ?? [],
+                    scenarios: fc.scenarios ?? [],
+                });
+            }
         } catch (err) {
             URL.revokeObjectURL(url);
             throw err;

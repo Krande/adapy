@@ -4,6 +4,7 @@ import datetime
 from typing import TYPE_CHECKING
 
 from ada.base.physical_objects import BackendGeom
+from ada.extension.fem_concepts_builder import build_sim_fem_concepts
 from ada.fem import Elem
 from ada.visit.gltf.graph import GraphNode
 
@@ -107,41 +108,11 @@ def scene_from_fem(fem: FEM, converter: SceneConverter) -> trimesh.Scene:
         ),
         groups=groups,
         stats=_build_sim_stats(fem),
-        fem_concepts=_build_bc_concepts(fem),
+        fem_concepts=build_sim_fem_concepts(fem),
     )
     converter.ada_ext.simulation_objects.append(sim_data)
 
     return scene
-
-
-def _build_bc_concepts(fem: FEM):
-    """Emit boundary conditions (restrained node positions + dofs) for the
-    viewer's FEM visualization mode. Returns None when the FEM has no BCs."""
-    from ada import Node
-    from ada.extension import fem_concepts_schema as fem_ext
-
-    bcs = []
-    for bc in getattr(fem, "bcs", None) or []:
-        fset = getattr(bc, "fem_set", None)
-        if fset is None:
-            continue
-        positions = [
-            [float(m.p[0]), float(m.p[1]), float(m.p[2])] for m in fset.members if isinstance(m, Node)
-        ]
-        if not positions:
-            continue
-        bcs.append(
-            fem_ext.BcGlyph(
-                name=bc.name,
-                positions=positions,
-                dofs=[int(d) for d in bc.dofs],
-                bc_type=str(getattr(bc, "type", "") or "") or None,
-            )
-        )
-
-    if not bcs:
-        return None
-    return fem_ext.FemConcepts(bcs=bcs)
 
 
 def _build_sim_stats(fem: FEM):

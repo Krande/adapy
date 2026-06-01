@@ -68,6 +68,15 @@ directly from the MED mesh); the array exists only to thread the
 ``parent_object_guid`` link from CAD plates to their meshed shell
 elements through to the bake's lineage manifest.
 
+v5 adds an optional top-level ``fem_concepts`` object — the FEA
+*input* concepts (point masses, boundary conditions, per-case /
+combination load scenarios) serialized in the same shape as the
+``fem_concepts`` glTF-extension block. The .rmed result file holds
+none of these (they're solver inputs), so the sidecar is the only
+place they survive the .med→.rmed round-trip; the bake reads it
+back into the result manifest so the viewer's FEM mode can overlay
+masses / BCs / loads on a baked FEA-result GLB.
+
 Schema is additive across versions: v1/v2 readers see new keys as
 unknown and ignore them; v3 readers fall back gracefully when v1/v2
 files don't carry the new arrays. So the bump is backward-
@@ -87,7 +96,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from ada.api.spatial import Assembly
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 
 def _section_to_dict(section) -> dict | None:
@@ -226,7 +235,30 @@ def build_beams_payload(assembly: "Assembly") -> dict:
     materials = _build_materials_dict(assembly)
     if materials:
         payload["materials"] = materials
+    # FEA *input* concepts — point masses, boundary conditions, and
+    # per-case/combination load scenarios. The .rmed result file holds
+    # none of these (they're solver inputs), so the sidecar is the only
+    # transport that survives the .med→.rmed round-trip; the bake reads
+    # it back and injects it into the result manifest's ``fem_concepts``
+    # so the viewer's FEM mode can overlay them on the result GLB. The
+    # serialized shape matches the ``fem_concepts`` glTF-extension block
+    # the CAD/FEM GLB producers emit, so the frontend renderer is shared.
+    fem_concepts = _build_fem_concepts_dict(assembly)
+    if fem_concepts:
+        payload["fem_concepts"] = fem_concepts
     return payload
+
+
+def _build_fem_concepts_dict(assembly: "Assembly") -> dict | None:
+    """Serialize the assembly's masses + BCs + load scenarios to a JSON
+    dict matching the ``fem_concepts`` extension block, or None when the
+    model carries no such concepts."""
+    from ada.extension.fem_concepts_builder import build_combined_fem_concepts
+
+    concepts = build_combined_fem_concepts(assembly)
+    if concepts is None:
+        return None
+    return concepts.model_dump(mode="json", exclude_none=True)
 
 
 def _build_materials_dict(assembly: "Assembly") -> dict[str, dict]:
