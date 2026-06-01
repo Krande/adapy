@@ -43,7 +43,10 @@ function init(
     camera: THREE.Camera,
 ): () => void {
     {
-        renderer.localClippingEnabled = true;
+        // NOTE: do NOT enable localClippingEnabled or touch materials until a
+        // plane actually exists — doing it eagerly forces a full shader
+        // recompile of the whole model on load (a real regression on big models).
+        let clippingApplied = false;
 
         const container = new THREE.Group();
         container.name = "__section_planes__";
@@ -101,6 +104,11 @@ function init(
         };
 
         const applyMaterialClipping = (planes: THREE.Plane[]) => {
+            // No planes and nothing previously clipped → skip the (expensive)
+            // material walk + recompile entirely. This keeps model load fast.
+            if (planes.length === 0 && !clippingApplied) return;
+            if (planes.length > 0) renderer.localClippingEnabled = true;
+            clippingApplied = planes.length > 0;
             const cp = planes.length ? planes : null;
             scene.traverse((o) => {
                 if (o instanceof CustomBatchedMesh) {
@@ -162,6 +170,7 @@ function init(
 
                 const helper = new THREE.PlaneHelper(plane, size, 0x2266ff);
                 helper.layers.set(1);
+                helper.visible = st.gizmoVisible;  // hide plane outline with the gizmo
                 container.add(helper);
 
                 for (const g of geoms) container.add(createPlaneStencilGroup(g, plane, order));
