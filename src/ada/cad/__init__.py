@@ -96,6 +96,7 @@ class CadBackend(Protocol):
     def cut_surfaces(self, solid: ShapeHandle, cutters: list, deflection: float, tol: float) -> list: ...
     # --- topology-kernel verbs (the non-manifold core for ada.topology) ---
     def make_volumes_from_faces(self, faces: list[ShapeHandle], tolerance: float = 1e-6) -> list[ShapeHandle]: ...
+    def merge_cells(self, solids: list[ShapeHandle], tolerance: float = 0.0) -> list[ShapeHandle]: ...
     def non_manifold_merge(self, shapes: list[ShapeHandle], tolerance: float = 1e-6, glue: bool = True) -> ShapeHandle: ...
     def free_faces(self, solids: list[ShapeHandle]) -> list[ShapeHandle]: ...
     def point_in_solid(self, solid: ShapeHandle, point, tolerance: float = 1e-6) -> "Containment": ...
@@ -434,6 +435,12 @@ class AdacppBackend:
         if fn is None:
             raise NotImplementedError("adacpp.cad.make_volumes_from_faces is not available in this build")
         return list(fn(list(faces), float(tolerance)))
+
+    def merge_cells(self, solids: list[ShapeHandle], tolerance: float = 0.0) -> list[ShapeHandle]:
+        fn = getattr(self._cad, "merge_cells", None)
+        if fn is None:
+            raise NotImplementedError("adacpp.cad.merge_cells is not available in this build")
+        return list(fn(list(solids), float(tolerance)))
 
     def non_manifold_merge(self, shapes: list[ShapeHandle], tolerance: float = 1e-6, glue: bool = True) -> ShapeHandle:
         fn = getattr(self._cad, "non_manifold_merge", None)
@@ -853,6 +860,43 @@ class OccBackend:
         if mv.HasErrors():
             raise RuntimeError("make_volumes_from_faces: BOPAlgo_MakerVolume reported errors")
         return list(self._TopologyExplorer(mv.Shape()).solids())
+
+    def merge_cells(self, solids: list[ShapeHandle], tolerance: float = 0.0) -> list[ShapeHandle]:
+        # Faithful port of topologic's Topology::Merge over solids (the old
+        # topologicpy partition: pairwise Topology.Merge of space-box prisms).
+        # BOPAlgo_CellsBuilder general-fuses the solids, then each operand is
+        # taken into the result (AddToResult) and MakeContainers() assembles the
+        # non-manifold CellComplex: each input solid survives as a cell and every
+        # mutual interface becomes ONE shared face referenced by both cells (so
+        # face_id-based sharing in the extractor links them). This differs from
+        # make_volumes_from_faces (BOPAlgo_MakerVolume over a face soup), which
+        # rebuilds minimal volumes and loses operand identity / imprints.
+        #
+        # A single all-at-once CellsBuilder is used rather than topologic's
+        # balanced *pairwise* merge tree: both were measured to produce a
+        # byte-identical cell complex on hvdc_lean (same cells/faces/members),
+        # since CellsBuilder is order-independent — so we keep the cheaper one.
+        from OCC.Core.BOPAlgo import BOPAlgo_CellsBuilder
+        from OCC.Core.TopTools import TopTools_ListOfShape
+
+        cb = BOPAlgo_CellsBuilder()
+        args = TopTools_ListOfShape()
+        for s in solids:
+            args.Append(s)
+        cb.SetArguments(args)
+        if tolerance and tolerance > 0:
+            cb.SetFuzzyValue(tolerance)
+        cb.Perform()
+        if cb.HasErrors():
+            raise RuntimeError("merge_cells: BOPAlgo_CellsBuilder reported errors")
+        # Take each operand's region into the result (mirrors Topology::Merge's
+        # per-operand AddToResult with an empty avoid-list).
+        for s in solids:
+            take = TopTools_ListOfShape()
+            take.Append(s)
+            cb.AddToResult(take, TopTools_ListOfShape())
+        cb.MakeContainers()
+        return list(self._TopologyExplorer(cb.Shape()).solids())
 
     def non_manifold_merge(self, shapes: list[ShapeHandle], tolerance: float = 1e-6, glue: bool = True) -> ShapeHandle:
         # Non-manifold fuse keeping internal walls as shared faces.

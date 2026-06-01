@@ -73,6 +73,11 @@ class GraphCellExtractor:
 
         for faces in face_map.values():
             if len(faces) == 2:
+                # A face shared with a cantilevered deck is NOT marked internal —
+                # the abutting space wall stays external (topologic parity: the
+                # old extractor did the same `has_cantilever: continue`).
+                if any(getattr(f.parent_cell.metadata, "is_cantilevered_deck", False) for f in faces):
+                    continue
                 conn = FaceConnectionInfo(*faces)
                 for f in faces:
                     f.shared_face_connection = conn
