@@ -94,6 +94,7 @@ class CadBackend(Protocol):
     def shape_type(self, shape: ShapeHandle) -> str: ...
     def face_surface_type(self, shape: ShapeHandle) -> str: ...
     def extrude_face_along_normal(self, face: ShapeHandle, thickness: float) -> ShapeHandle: ...
+    def face_to_advanced_face(self, shape: ShapeHandle): ...
     def faces(self, shape: ShapeHandle) -> list[ShapeHandle]: ...
     def solids(self, shape: ShapeHandle) -> list[ShapeHandle]: ...
     def edges(self, shape: ShapeHandle) -> list[ShapeHandle]: ...
@@ -556,6 +557,60 @@ class AdacppBackend:
             raise NotImplementedError("adacpp.cad.extrude_face_along_normal is not available in this build")
         return fn(face, float(thickness))
 
+    def face_to_advanced_face(self, shape: ShapeHandle):
+        """Decompose a B-spline face handle into an ada.geom AdvancedFace
+        (surface + FaceBound/EdgeLoop/OrientedEdge with supplied pcurves) —
+        reconstructed from adacpp's AdvancedFaceData. Inverse of build()."""
+        import ada.geom.curves as cu
+        import ada.geom.surfaces as su
+        from ada.geom.points import Point
+
+        fn = getattr(self._cad, "face_to_advanced_face", None)
+        if fn is None:
+            raise NotImplementedError("adacpp.cad.face_to_advanced_face is not available in this build")
+        d = fn(shape)
+
+        common = dict(
+            u_degree=d.u_degree,
+            v_degree=d.v_degree,
+            control_points_list=[[Point(*p) for p in row] for row in d.poles],
+            surface_form=su.BSplineSurfaceForm.UNSPECIFIED,
+            u_closed=d.u_closed,
+            v_closed=d.v_closed,
+            self_intersect=False,
+            u_multiplicities=list(d.u_multiplicities),
+            v_multiplicities=list(d.v_multiplicities),
+            u_knots=list(d.u_knots),
+            v_knots=list(d.v_knots),
+            knot_spec=cu.KnotType.UNSPECIFIED,
+        )
+        if d.weights:
+            surface = su.RationalBSplineSurfaceWithKnots(weights_data=[list(r) for r in d.weights], **common)
+        else:
+            surface = su.BSplineSurfaceWithKnots(**common)
+
+        bounds = []
+        for wire in d.bounds:
+            edges = []
+            for pc in wire:
+                s, e = Point(*pc.start), Point(*pc.end)
+                pcurve = None
+                if pc.has_pcurve:
+                    pcurve = cu.Pcurve2dBSpline(
+                        degree=pc.degree,
+                        control_points_2d=[tuple(c) for c in pc.control_points],
+                        knots=list(pc.knots),
+                        knot_multiplicities=list(pc.multiplicities),
+                        weights=list(pc.weights) or None,
+                        closed=pc.closed,
+                    )
+                # edge_element is a placeholder 3D edge — the rebuild path uses
+                # the pcurve when present (matches OccBackend's drive-from-pcurve).
+                oe = cu.OrientedEdge(s, e, edge_element=cu.Edge(s, e), orientation=True, pcurve=pcurve)
+                edges.append(oe)
+            bounds.append(su.FaceBound(bound=cu.EdgeLoop(edge_list=edges), orientation=True))
+        return su.AdvancedFace(bounds=bounds, face_surface=surface)
+
     def faces(self, shape: ShapeHandle) -> list[ShapeHandle]:
         fn = getattr(self._cad, "faces", None)
         if fn is None:
@@ -998,6 +1053,11 @@ class OccBackend:
         from ada.occ.plate_curved import extrude_face_along_normal
 
         return extrude_face_along_normal(face, thickness)
+
+    def face_to_advanced_face(self, shape: ShapeHandle):
+        from ada.cadit.step.read.geom.surfaces import occ_face_to_ada_face
+
+        return occ_face_to_ada_face(shape)
 
     def faces(self, shape: ShapeHandle) -> list[ShapeHandle]:
         # Whole list of face sub-shapes — the boundary crosses once, not per

@@ -22,14 +22,6 @@ from ada.cad import active_backend
 from ada.geom.curves import PolyLoop
 from ada.geom.points import Point
 
-# The round-trip tests below exercise occ_face_to_ada_face — the pythonocc
-# SAT/STEP importer (face → AdvancedFace with supplied pcurves), which is not
-# ported to adacpp. They only make sense when the active backend is OCC (they
-# feed an OCC face into the OCC importer), so skip them under adacpp.
-occ_importer_only = pytest.mark.skipif(
-    active_backend().name == "adacpp",
-    reason="occ_face_to_ada_face (OCC SAT/STEP importer round-trip) is not ported to adacpp",
-)
 
 
 def _bspline_loft_face():
@@ -246,7 +238,6 @@ def _count_topology(shape) -> tuple[int, int, int]:
     return len(backend.faces(shape)), len(backend.wires(shape)), len(backend.edges(shape))
 
 
-@occ_importer_only
 def test_round_trip_advanced_face_preserves_bspline_surface():
     """OCC face → AdvancedFace → OCC face round-trip — full integrity check.
 
@@ -262,20 +253,13 @@ def test_round_trip_advanced_face_preserves_bspline_surface():
     * the boundary node count survives a second round-trip via
       ``PlateCurved.nodes``.
     """
-    from OCC.Core.BRep import BRep_Tool
-    from OCC.Core.TopAbs import TopAbs_FACE
-    from OCC.Core.TopExp import TopExp_Explorer
-    from OCC.Core.TopoDS import topods
-
-    from ada.cadit.step.read.geom.surfaces import occ_face_to_ada_face
     from ada.geom import Geometry
     from ada.geom import curves as geo_cu
     from ada.geom import surfaces as geo_su
-    from ada.occ.geom import geom_to_occ_geom
 
     face_in = _bspline_loft_face()
 
-    advanced = occ_face_to_ada_face(face_in)
+    advanced = active_backend().face_to_advanced_face(face_in)
     assert advanced is not None
 
     # Structural: bounds chain must be FaceBound → EdgeLoop → OrientedEdge.
@@ -293,7 +277,7 @@ def test_round_trip_advanced_face_preserves_bspline_surface():
             assert oe.pcurve.degree >= 1
             assert len(oe.pcurve.control_points_2d) >= 2
 
-    rebuilt = geom_to_occ_geom(Geometry(id="rt", geometry=advanced))
+    rebuilt = active_backend().build(Geometry(id="rt", geometry=advanced))
 
     # Geometric: surface area must match within a tight tolerance.
     orig_area = _occ_face_area(face_in)
@@ -312,11 +296,8 @@ def test_round_trip_advanced_face_preserves_bspline_surface():
         assert abs(lo - hi) < 1e-3, f"round-trip bbox axis {i}: orig={lo:.6f} rebuilt={hi:.6f}"
 
     # Surface kind: still a BSpline (no degradation to plane / cone).
-    exp = TopExp_Explorer(rebuilt, TopAbs_FACE)
-    assert exp.More(), "Round-trip produced no faces"
-    rebuilt_face = topods.Face(exp.Current())
-    surf = BRep_Tool.Surface(rebuilt_face)
-    assert surf.DynamicType().Name() == "Geom_BSplineSurface"
+    assert active_backend().faces(rebuilt), "Round-trip produced no faces"
+    assert active_backend().face_surface_type(rebuilt) == "bspline"
 
     # Topology: same number of faces / wires / edges either way.
     assert _count_topology(face_in) == _count_topology(rebuilt)
@@ -330,7 +311,6 @@ def _all_bspline_faces(shape):
             yield face
 
 
-@occ_importer_only
 def test_round_trip_every_bspline_face_in_a_mixed_loft():
     """Every B-spline face that comes out of a mixed-cardinality loft
     (4-pt sharp ↔ 12-pt rounded) must round-trip cleanly. Failure of
@@ -340,11 +320,9 @@ def test_round_trip_every_bspline_face_in_a_mixed_loft():
     import math
 
     from ada.api.loft import loft_profiles
-    from ada.cadit.step.read.geom.surfaces import occ_face_to_ada_face
     from ada.geom import Geometry
     from ada.geom.curves import PolyLoop
     from ada.geom.points import Point
-    from ada.occ.geom import geom_to_occ_geom
 
     sharp = PolyLoop(
         polygon=[
@@ -383,9 +361,9 @@ def test_round_trip_every_bspline_face_in_a_mixed_loft():
 
     for i, face in enumerate(bspline_faces):
         orig_area = _occ_face_area(face)
-        advanced = occ_face_to_ada_face(face)
+        advanced = active_backend().face_to_advanced_face(face)
         assert advanced is not None, f"face {i}: AdvancedFace conversion returned None"
-        rebuilt = geom_to_occ_geom(Geometry(id=f"rt_{i}", geometry=advanced))
+        rebuilt = active_backend().build(Geometry(id=f"rt_{i}", geometry=advanced))
         new_area = _occ_face_area(rebuilt)
         rel_err = abs(orig_area - new_area) / max(orig_area, 1e-12)
         assert rel_err < 1e-3, (
@@ -395,7 +373,6 @@ def test_round_trip_every_bspline_face_in_a_mixed_loft():
         )
 
 
-@occ_importer_only
 def test_round_trip_preserves_pcurve_for_every_edge_on_bspline_face():
     """Hard contract — every edge of a BSpline-surface face must carry a
     stored 2D pcurve in the AdvancedFace round-trip. A missing pcurve
@@ -406,7 +383,6 @@ def test_round_trip_preserves_pcurve_for_every_edge_on_bspline_face():
     import math
 
     from ada.api.loft import loft_profiles
-    from ada.cadit.step.read.geom.surfaces import occ_face_to_ada_face
     from ada.geom.curves import PolyLoop
     from ada.geom.points import Point
 
@@ -443,7 +419,7 @@ def test_round_trip_preserves_pcurve_for_every_edge_on_bspline_face():
 
     n_checked = 0
     for face in _all_bspline_faces(shape):
-        advanced = occ_face_to_ada_face(face)
+        advanced = active_backend().face_to_advanced_face(face)
         for fb in advanced.bounds:
             for oe in fb.bound.edge_list:
                 assert oe.pcurve is not None, (
@@ -499,24 +475,19 @@ def test_round_trip_pure_planar_loft_does_not_use_bspline_path():
     )
 
 
-@occ_importer_only
 def test_round_trip_via_plate_curved_renders_solid_with_volume():
     """End-to-end: a BSpline loft face wrapped in PlateCurved via the
     AdvancedFace round-trip should extrude into a prism with volume
     matching ``face_area × thickness``. The pre-pcurve-fix path
     produced zero-area faces that extruded to zero-volume prisms
     (visually invisible in the GLB)."""
-    from OCC.Core.BRepGProp import brepgprop
-    from OCC.Core.GProp import GProp_GProps
-
-    from ada.cadit.step.read.geom.surfaces import occ_face_to_ada_face
     from ada.geom import Geometry
 
     face = _bspline_loft_face()
     face_area = _occ_face_area(face)
     assert face_area > 0, "fixture produced a degenerate face"
 
-    advanced = occ_face_to_ada_face(face)
+    advanced = active_backend().face_to_advanced_face(face)
     thickness = 0.05
     plate = ada.PlateCurved(
         "rt_plate",
@@ -524,15 +495,14 @@ def test_round_trip_via_plate_curved_renders_solid_with_volume():
         t=thickness,
     )
     solid = plate.extruded_solid_occ()
-    props = GProp_GProps()
-    brepgprop.VolumeProperties(solid, props)
+    volume = active_backend().volume(solid)
     expected = face_area * thickness
     # Prism cross-section varies along the swept direction on a curved
     # surface, so allow a generous slack; the regression we're guarding
     # against is a volume near zero (round-trip dropping the surface),
     # not a few-percent numerical drift from curvature.
-    assert props.Mass() > expected * 0.5, (
-        f"PlateCurved volume {props.Mass():.6f} m³ << expected ~"
+    assert volume > expected * 0.5, (
+        f"PlateCurved volume {volume:.6f} m³ << expected ~"
         f"{expected:.6f} m³ (face area × thickness) — round-trip "
         f"dropped the surface (would render as empty space in the GLB)"
     )
