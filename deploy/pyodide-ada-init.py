@@ -15,7 +15,9 @@ from __future__ import annotations
 
 __author__ = "Kristoffer H. Andersen"
 
-__all__ = ["cad"]
+# ``cad`` is a lazily-imported subpackage (``import ada.cad``), not a
+# module-level attribute, so ruff can't see it — advertise it anyway.
+__all__ = ["cad"]  # noqa: F822
 
 
 def _jupyter_nbextension_paths():

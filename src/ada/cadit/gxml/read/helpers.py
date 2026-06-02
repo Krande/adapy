@@ -174,7 +174,6 @@ def yield_plate_elems_to_plate(plate_elem, parent, sat_ref_d, thick_map, flat_fa
                         flat_min = flat_arr.min(axis=0)
                         flat_max = flat_arr.max(axis=0)
                         flat_extent = flat_max - flat_min
-                        flat_centre = (flat_min + flat_max) / 2
                         # Sample the AdvancedFace surface centre +
                         # extent from its control-points convex
                         # hull. Three failure modes the recent

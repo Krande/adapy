@@ -60,7 +60,6 @@ async def init_pool(database_url: str) -> Optional[asyncpg.Pool]:
         logger.info("db: DATABASE_URL not set — running in shared-only mode")
         return None
     import asyncio as _asyncio
-    last_exc: Exception | None = None
     delay = 1.0
     deadline = 60.0
     waited = 0.0
@@ -77,7 +76,6 @@ async def init_pool(database_url: str) -> Optional[asyncpg.Pool]:
             )
             break
         except (OSError, asyncpg.exceptions.PostgresError) as exc:
-            last_exc = exc
             if waited >= deadline:
                 logger.error(
                     "db: pool init still failing after %.0fs — giving up: %s",

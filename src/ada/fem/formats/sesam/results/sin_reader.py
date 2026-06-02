@@ -552,7 +552,6 @@ class SinFile:
         num_types) and visits only meaningful pages.
         """
         data = self._data
-        file_end = len(data)
         if isinstance(data, mmap.mmap):
             try:
                 data.madvise(mmap.MADV_RANDOM)

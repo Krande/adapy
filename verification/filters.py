@@ -33,15 +33,29 @@ Markdown references resolve as `${ filter_name.attr_name(:fmtspec) }`.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional
+import hashlib
+import logging
+import pathlib  # noqa: F401  (kept for type/path manipulation in render helpers)
+from typing import TYPE_CHECKING, Literal, Optional
 
 import numpy as np
+from pydantic import Field
 
+from ada.fem.results.docs import FeaDocAssets, assets_from_bundle_dir
+from paradoc.figure_sources.filters.base import (
+    FigureSourceFilter,
+    MarkdownChunk,
+    RenderResult,
+    register_filter,
+)
+from paradoc.figure_sources.models import BaseFigureSource, register_spec
 from paradoc.filters import Filter, FigureView, TableView, ThreeDView, attr
 
 if TYPE_CHECKING:
     import ada
     from utils import FeaVerificationResult
+
+_eig_logger = logging.getLogger(__name__)
 
 
 class Beam(Filter):
@@ -291,26 +305,6 @@ eig = Eig(name="eig", task=TaskHandle.unbound("run_eig"))
 # belong to the "filters" file. tasks.py stays focused on workloads
 # (@task functions that produce data).
 # ---------------------------------------------------------------------
-
-import hashlib
-import logging
-import pathlib  # noqa: F401  (kept for type/path manipulation in render helpers)
-from typing import Literal
-
-from pydantic import Field
-
-from paradoc.figure_sources.filters.base import (
-    FigureSourceFilter,
-    MarkdownChunk,
-    RenderResult,
-    register_filter,
-)
-from paradoc.figure_sources.models import BaseFigureSource, register_spec
-
-from ada.fem.results.docs import FeaDocAssets, assets_from_bundle_dir
-
-_eig_logger = logging.getLogger(__name__)
-
 
 class EigModesSection(BaseFigureSource):
     """Spec for ``figure_source: eig_modes_section``.

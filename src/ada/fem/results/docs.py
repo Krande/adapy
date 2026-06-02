@@ -40,8 +40,6 @@ import shutil
 from dataclasses import dataclass, field as dc_field
 from typing import TYPE_CHECKING, Any, Iterable
 
-logger = logging.getLogger(__name__)
-
 from paradoc.db.models import ThreeDData
 from paradoc.filters import Filter, ScalarValue, ThreeDView, attr
 
@@ -54,6 +52,8 @@ from ada.fem.results.artefacts import (
 if TYPE_CHECKING:  # pragma: no cover
     from ada.fem.results.artefacts import FEAStreamReader
     from ada.fem.results.common import FEAResult
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------

@@ -1008,10 +1008,6 @@ async def _run() -> None:
         for c in os.environ.get("ADA_WORKER_CAPABILITIES", "base").split(",")
         if c.strip()
     ]
-    # Set form for the per-job capability gate in the message loop
-    # below — set membership is the natural lookup and we don't want
-    # to re-build the set per delivery.
-    capability_set = {c.lower() for c in capabilities}
     # Source extensions this worker can handle. Pulled from adapy's
     # stream-reader registry — whatever plug-ins ran before this point
     # (e.g. a capability worker's entrypoint that registered an extra

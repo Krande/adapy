@@ -250,7 +250,6 @@ def test_truncate_pointer_table_finds_cutoff():
     # bytes 32..35 = garbage (float 0.0 — fails NFIELD check).
     buf = bytearray(64)
     nfield_bytes = np.array([11.0, 11.0], dtype=np.float32).tobytes()
-    np_buf = np.frombuffer(buf, dtype=np.uint8)
     np_buf_writable = bytearray(buf)
     np_buf_writable[0:4] = nfield_bytes[0:4]   # NFIELD at byte 0
     np_buf_writable[16:20] = nfield_bytes[4:8]  # NFIELD at byte 16

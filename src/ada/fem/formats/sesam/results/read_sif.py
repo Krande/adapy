@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from ada import Material, Section
     from ada.fem.formats.sesam.read.cards import DataCard
     from ada.fem.results.common import ElementFieldData, FEAResult, Mesh, NodalFieldData
+    from ada.materials.metals import Metal
 
 FEM_SEC_NAME = Counter(prefix="FS")
 

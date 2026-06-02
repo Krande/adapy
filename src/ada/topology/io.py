@@ -32,9 +32,7 @@ def from_assembly(assembly, ifc_types=("IfcSpace", "IfcRoom", "IfcZone")) -> Cel
     object's property sets + IFC type are carried onto its ``TopologyMetadata``.
     """
     import ada
-    from ada.cad import active_backend
 
-    be = active_backend()
     store = getattr(assembly, "ifc_store", None)
     pairs: list[tuple] = []
     for obj in assembly.get_all_physical_objects(by_type=ada.Shape):

@@ -11,7 +11,7 @@ boundaries back out as poly loops for downstream plate construction.
 """
 from __future__ import annotations
 
-from typing import Iterator, Sequence
+from typing import TYPE_CHECKING, Iterator, Sequence
 
 import math
 
@@ -30,6 +30,9 @@ from OCC.Extend.TopologyUtils import TopologyExplorer
 from ada.geom.curves import PolyLoop
 from ada.geom.direction import Direction
 from ada.geom.points import Point
+
+if TYPE_CHECKING:
+    from ada.api.spatial.part import Part
 
 
 def wire_from_poly_loop(loop: PolyLoop) -> TopoDS_Wire:
