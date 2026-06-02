@@ -3,8 +3,6 @@
 # Run this file directly to visualize the 3 sweeps if you have a GUI environment.
 from typing import Iterable, List, Optional, Tuple
 
-from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_RoundCorner
-
 wt = 8e-3
 # 2D profile (triangle/fillet) in local profile coordinates
 fillet = [(0, 0), (-wt, 0), (0, wt)]
@@ -181,6 +179,7 @@ def sweep_profile_along_path(
     profile_ydir: Optional[Tuple[float, float, float]] = None,
     profile_xdir: Optional[Tuple[float, float, float]] = None,
 ):
+    from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_RoundCorner
     from OCC.Core.BRepOffsetAPI import BRepOffsetAPI_MakePipeShell
 
     # Build a smooth C1 spine wire for consistent section transport

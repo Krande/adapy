@@ -37,11 +37,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Dict
 
-from OCC.Core.TopoDS import TopoDS_Shape
-
 from ada.cad import active_backend
 
 if TYPE_CHECKING:
+    from OCC.Core.TopoDS import TopoDS_Shape
+
     from ada.base.physical_objects import BackendGeom
 
 # — module-level dicts so the objects stay alive —

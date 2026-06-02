@@ -77,21 +77,74 @@ class OccDocBackend:
         return OCCStore.to_gltf(*args, **kwargs)
 
 
+class AdacppDocBackend:
+    """OCAF/XCAF document I/O via adacpp's bundled (native) OCCT. Lets STEP
+    export run with no pythonocc installed — the native adacpp build links the
+    full OCCT, so OCAF names/colors are available (unlike the wasm build).
+
+    STEP *read* (named/colored OCAF reader) and the RWGltf XCAF writer are not
+    routed here yet; callers needing those should use the portable per-shape
+    ``CadBackend.write_glb_bytes`` path or the OCC doc backend."""
+
+    name = "adacpp-xcaf"
+    capabilities = frozenset({XCAF_DOC})
+
+    def __init__(self) -> None:
+        # Probe that adacpp + its STEP writer are importable so selection fails
+        # cleanly where the native adacpp build isn't present.
+        from adacpp import cad as _cad  # noqa: F401
+
+        if not hasattr(_cad, "write_step"):
+            raise ImportError("adacpp build lacks cad.write_step (upgrade ada-cpp)")
+
+    def step_writer(self) -> "StepWriter":
+        from ada.cadit.step.write.adacpp_writer import AdacppStepWriter
+
+        return AdacppStepWriter("AdaStep")
+
+    def step_reader(self, filepath: Any) -> "StepStore":
+        raise NotImplementedError(
+            "AdacppDocBackend.step_reader: named/colored OCAF STEP read is not yet "
+            "routed through adacpp — use the OCC doc backend for STEP import."
+        )
+
+    def write_gltf(self, *args: Any, **kwargs: Any) -> Any:
+        raise NotImplementedError(
+            "AdacppDocBackend.write_gltf: use the portable per-shape "
+            "CadBackend.write_glb_bytes path under the adacpp backend."
+        )
+
+
 def select_doc_backend(prefer: str | None = None) -> DocBackend:
     """Pick a document backend. ``prefer`` overrides everything, then
-    ``ADAPY_DOC_BACKEND``, then auto-detect (OCC/XCAF if importable)."""
+    ``ADAPY_DOC_BACKEND``; otherwise align with the CAD backend choice
+    (``ADAPY_CAD_BACKEND``) and fall back to whichever kernel is importable."""
     choice = prefer or os.environ.get("ADAPY_DOC_BACKEND")
+    if choice in ("adacpp", "adacpp-xcaf"):
+        return AdacppDocBackend()
     if choice in ("occ", "pythonocc-core", "pythonocc-xcaf", "xcaf"):
         return OccDocBackend()
     if choice is not None:
         raise ValueError(f"Unknown ADAPY_DOC_BACKEND: {choice!r}")
 
+    # No explicit doc backend: honour the active CAD backend choice first.
+    if os.environ.get("ADAPY_CAD_BACKEND") == "adacpp":
+        try:
+            return AdacppDocBackend()
+        except ImportError:
+            pass
+
     try:
         return OccDocBackend()
-    except ImportError as e:
-        raise ImportError(
-            "No document backend available — install `pythonocc-core` for " f"OCAF/XCAF assembly I/O. Last error: {e}"
-        )
+    except ImportError:
+        # Pure-adacpp environment (no pythonocc): fall back to the adacpp doc backend.
+        try:
+            return AdacppDocBackend()
+        except ImportError as e:
+            raise ImportError(
+                "No document backend available — install `pythonocc-core` or `ada-cpp` "
+                f"for OCAF/XCAF assembly I/O. Last error: {e}"
+            )
 
 
 _ACTIVE_DOC_BACKEND: DocBackend | None = None
@@ -128,6 +181,7 @@ __all__ = [
     "XCAF_DOC",
     "DocBackend",
     "OccDocBackend",
+    "AdacppDocBackend",
     "active_doc_backend",
     "require_capability",
     "reset_active_doc_backend",

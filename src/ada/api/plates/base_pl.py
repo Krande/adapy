@@ -468,12 +468,14 @@ class PlateCurved(BackendGeom):
         if self._nodes_cache is not None:
             return self._nodes_cache
         try:
-            from ada.occ.plate_curved import boundary_nodes_of, boundary_nodes_of_face
+            from ada.api.nodes import Node
+            from ada.cad import active_backend
+            from ada.cad.inspect import boundary_points
 
-            if self._occ_face_override is not None:
-                nodes = boundary_nodes_of_face(self._occ_face_override)
-            else:
-                nodes = boundary_nodes_of(self.solid_geom())
+            shape = self._occ_face_override
+            if shape is None:
+                shape = active_backend().build(self.solid_geom())
+            nodes = [Node(p) for p in boundary_points(shape)]
         except Exception:
             nodes = []
         self._nodes_cache = nodes
@@ -490,9 +492,9 @@ class PlateCurved(BackendGeom):
     def solid_occ(self) -> ShapeHandle:
         if self._occ_face_override is not None:
             return self._occ_face_override
-        from ada.occ.geom import geom_to_occ_geom
+        from ada.cad import active_backend
 
-        return geom_to_occ_geom(self.solid_geom())
+        return active_backend().build(self.solid_geom())
 
     def extruded_solid_occ(self) -> TopoDS_Shape:
         """Prism-extrude the curved face by ``t`` along its normal so
@@ -503,15 +505,17 @@ class PlateCurved(BackendGeom):
         raw-OCC fast path. Falls back to the bare face shape on any
         prism failure so the caller still gets *something* to render.
         """
+        # t=0 (SurfaceCurved): the "extruded" representation is just the bare
+        # face — return the exact solid_occ() object so callers relying on the
+        # short-circuit identity hold under any backend.
+        if not self.t:
+            return self.solid_occ()
         try:
-            from ada.occ.plate_curved import (
-                extrude_face_along_normal,
-                extrude_face_geom_along_normal,
-            )
+            from ada.cad import active_backend
 
-            if self._occ_face_override is not None:
-                return extrude_face_along_normal(self._occ_face_override, self.t)
-            return extrude_face_geom_along_normal(self.solid_geom(), self.t)
+            backend = active_backend()
+            face = self._occ_face_override if self._occ_face_override is not None else backend.build(self.solid_geom())
+            return backend.extrude_face_along_normal(face, self.t)
         except Exception:
             # Conversion failures (gxml flat-fallback faces, malformed
             # control-net data) — defer to ``solid_occ`` so the caller

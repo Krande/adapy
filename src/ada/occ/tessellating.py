@@ -5,10 +5,6 @@ from itertools import groupby
 from typing import TYPE_CHECKING, Iterable
 
 import numpy as np
-from OCC.Core.BRepMesh import BRepMesh_IncrementalMesh
-from OCC.Core.Tesselator import ShapeTesselator
-from OCC.Core.TopoDS import TopoDS_Edge, TopoDS_Shape
-from OCC.Extend.TopologyUtils import discretize_edge
 
 from ada.base.physical_objects import BackendGeom
 from ada.base.types import GeomRepr
@@ -29,9 +25,22 @@ from ada.visit.render_params import RenderParams
 
 if TYPE_CHECKING:
     import trimesh
+    from OCC.Core.TopoDS import TopoDS_Edge, TopoDS_Shape
 
     from ada.api.spatial import Part
     from ada.cadit.ifc.store import IfcStore
+
+
+def _is_topods_shape(shape) -> bool:
+    """True if ``shape`` is a raw pythonocc ``TopoDS_Shape``. Returns False when
+    pythonocc isn't installed (e.g. the adacpp-only environment) so the
+    tessellation dispatch falls through to the active backend's tessellate verb
+    rather than blowing up on the import. See dap plan/v3 Phase 2."""
+    try:
+        from OCC.Core.TopoDS import TopoDS_Shape
+    except ModuleNotFoundError:
+        return False
+    return isinstance(shape, TopoDS_Shape)
 
 
 @dataclass
@@ -65,6 +74,8 @@ def _vertex_normals(positions: np.ndarray, faces: np.ndarray) -> np.ndarray:
 
 
 def tessellate_edges(shape: TopoDS_Edge, deflection=0.01) -> LineMesh:
+    from OCC.Extend.TopologyUtils import discretize_edge
+
     points = discretize_edge(shape, deflection=deflection)
 
     np_edge_vertices = np.array(points, dtype=np.float32)
@@ -73,6 +84,8 @@ def tessellate_edges(shape: TopoDS_Edge, deflection=0.01) -> LineMesh:
 
 
 def tessellate_advanced_face(face: TopoDS_Shape, linear_deflection=0.1, angular_deflection=0.1, relative=True) -> None:
+    from OCC.Core.BRepMesh import BRepMesh_IncrementalMesh
+
     # Perform tessellation using BRepMesh_IncrementalMesh
     mesh = BRepMesh_IncrementalMesh(face, linear_deflection, relative, angular_deflection)
     if not mesh.IsDone():
@@ -86,13 +99,15 @@ def tessellate_shape(shape: TopoDS_Shape, quality=1.0, render_edges=False, paral
     # (normals + edges). Any other handle (e.g. an adacpp ShapeHandle) is
     # tessellated through the active backend's tessellate verb (adacpp's native
     # ShapeTesselator port) and adapted to a TriangleMesh with computed normals.
-    if not isinstance(shape, TopoDS_Shape):
+    if not _is_topods_shape(shape):
         from ada.cad import active_backend
 
         mesh = active_backend().tessellate(shape)
         positions = np.ascontiguousarray(mesh.positions, dtype="float32")
         faces = np.ascontiguousarray(mesh.indices, dtype="uint32")
         return TriangleMesh(positions, faces, None, _vertex_normals(positions, faces))
+
+    from OCC.Core.Tesselator import ShapeTesselator
 
     # first, compute the tesselation
     try:

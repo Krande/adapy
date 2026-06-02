@@ -33,6 +33,21 @@ def points_of(shape) -> list[tuple[float, float, float]]:
     return points
 
 
+def boundary_points(shape) -> list[tuple[float, float, float]]:
+    """Outer-wire vertex points of the first face in ``shape`` (the boundary
+    loop; further wires are holes). Empty list if there's no face/wire."""
+    from ada.cad import active_backend
+
+    backend = active_backend()
+    faces = backend.faces(shape)
+    if not faces:
+        return []
+    wires = backend.wires(faces[0])
+    if not wires:
+        return []
+    return backend.wire_points(wires[0])
+
+
 def faces_with_normal(shape, normal, point_in_plane: Iterable | Point = None) -> Iterator:
     """Yield faces of ``shape`` whose plane normal is parallel to ``normal``
     (and, if ``point_in_plane`` is given, lie in that plane)."""

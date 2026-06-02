@@ -9,8 +9,6 @@ import numpy as np
 
 from ada.api.transforms import EquationOfPlane
 from ada.config import logger
-from ada.occ.geom.cache import get_solid_occ
-from ada.occ.occ_clash_check import plates_min_distance
 
 from .utils import Counter
 from .vector_utils import (
@@ -299,6 +297,11 @@ def _classify_connection(
 
 def find_edge_connected_perpendicular_plates(plates: list[Plate]) -> PlateConnections:
     """Find all plates that are connected at an edge and are perpendicular to that edge."""
+    # OCC-backend solid build/distance — imported lazily so this module stays
+    # importable under a non-OCC CAD backend (e.g. adacpp). See dap plan/v3 Phase 1.
+    from ada.occ.geom.cache import get_solid_occ
+    from ada.occ.occ_clash_check import plates_min_distance
+
     # 1) Precompute every per‐plate bit once
     pdata: dict[str, dict] = {}
     for pl in plates:

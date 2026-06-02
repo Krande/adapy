@@ -17,9 +17,11 @@ class PrimSphere(Shape):
         super(PrimSphere, self).__init__(name=name, cog=cog, **kwargs)
 
     def geom_occ(self):
-        from ada.occ.geom import geom_to_occ_geom
+        # Build through the active CAD backend (construction seam) rather than
+        # the OCC-only geom_to_occ_geom, so this works under adacpp too.
+        from ada.cad import active_backend
 
-        return geom_to_occ_geom(self.solid_geom())
+        return active_backend().build(self.solid_geom())
 
     def solid_geom(self) -> Geometry:
         from ada.geom.points import Point

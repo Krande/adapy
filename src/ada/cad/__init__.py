@@ -66,6 +66,10 @@ class CadBackend(Protocol):
 
     def build(self, geometry: "Geometry") -> ShapeHandle: ...
     def make_wire(self, points: "list") -> ShapeHandle: ...
+    def loft_profiles(
+        self, profiles: "list[list[tuple[float, float, float]]]", ruled: bool = True, solid: bool = True
+    ) -> ShapeHandle: ...
+    def section_with_plane(self, shape: ShapeHandle, origin, normal, size: float = 1000.0) -> ShapeHandle: ...
     def make_box(self, dx: float, dy: float, dz: float) -> ShapeHandle: ...
     def make_cylinder(self, radius: float, height: float) -> ShapeHandle: ...
     def make_sphere(self, radius: float) -> ShapeHandle: ...
@@ -76,6 +80,9 @@ class CadBackend(Protocol):
     def obb(self, shape: ShapeHandle) -> "tuple[tuple[float, float, float], tuple[float, float, float]]": ...
     def read_step_bytes(self, data: bytes) -> ShapeHandle: ...
     def write_glb_bytes(self, shape: ShapeHandle, linear_deflection: float = 0.1) -> bytes: ...
+    def write_step(
+        self, shapes: list, names: list, colors: list, filename: str, unit: str = "m", schema: str = "AP214"
+    ) -> None: ...
     def is_handle(self, obj: Any) -> bool: ...
     def boolean(self, op: "BoolOpEnum", a: ShapeHandle, b: ShapeHandle) -> ShapeHandle: ...
     def transform(self, shape: ShapeHandle, matrix: "np.ndarray", copy: bool = True) -> ShapeHandle: ...
@@ -83,6 +90,10 @@ class CadBackend(Protocol):
     def serialize(self, shape: ShapeHandle) -> str: ...
     def is_valid(self, shape: ShapeHandle) -> bool: ...
     def volume(self, shape: ShapeHandle) -> float: ...
+    def area(self, shape: ShapeHandle) -> float: ...
+    def shape_type(self, shape: ShapeHandle) -> str: ...
+    def face_surface_type(self, shape: ShapeHandle) -> str: ...
+    def extrude_face_along_normal(self, face: ShapeHandle, thickness: float) -> ShapeHandle: ...
     def faces(self, shape: ShapeHandle) -> list[ShapeHandle]: ...
     def solids(self, shape: ShapeHandle) -> list[ShapeHandle]: ...
     def edges(self, shape: ShapeHandle) -> list[ShapeHandle]: ...
@@ -155,6 +166,26 @@ class AdacppBackend:
         elif isinstance(g, so.Cone):
             p = g.position
             shape = self._cad.build_cone(list(p.location), _axis(p.axis, (0, 0, 1)), g.bottom_radius, g.height)
+        elif isinstance(g, so.ExtrudedAreaSolidTapered):
+            # Must precede ExtrudedAreaSolid (subclass). Loft between the start
+            # and end profiles' outer wires — matches OccBackend's
+            # make_extruded_area_shape_tapered_from_geom (ThruSections).
+            area = g.swept_area
+            end_area = g.end_swept_area
+            if not isinstance(area, su.ArbitraryProfileDef) or not isinstance(end_area, su.ArbitraryProfileDef):
+                raise NotImplementedError(
+                    f"AdacppBackend.build: ExtrudedAreaSolidTapered swept_area "
+                    f"{type(area).__name__!r}/{type(end_area).__name__!r} not yet ported to adacpp."
+                )
+            p = g.position
+            shape = self._cad.build_extruded_area_solid_tapered(
+                self._encode_curve(area.outer_curve),
+                self._encode_curve(end_area.outer_curve),
+                self._xyz(p.location),
+                _axis(p.axis, (0, 0, 1)),
+                _axis(p.ref_direction, (1, 0, 0)),
+                g.depth,
+            )
         elif isinstance(g, so.ExtrudedAreaSolid):
             area = g.swept_area
             if not isinstance(area, su.ArbitraryProfileDef):
@@ -244,6 +275,29 @@ class AdacppBackend:
                         )
                     polygons.append([self._xyz(p) for p in fb.bound.polygon])
             shape = self._cad.build_face_based_surface_model(polygons)
+        elif isinstance(g, su.AdvancedFace):
+            # B-spline (PlateCurved / loft-derived) faces: build the surface and
+            # take its natural-UV trimmed face. The full SAT/STEP supplied-pcurve
+            # trimming (OccBackend.make_face_from_geom) is import-fidelity only and
+            # not ported; analytic surfaces (plane/cyl/cone/...) not yet either.
+            surf = g.face_surface
+            if not isinstance(surf, su.BSplineSurfaceWithKnots):
+                raise NotImplementedError(
+                    f"AdacppBackend.build: AdvancedFace surface {type(surf).__name__!r} "
+                    "not yet ported to adacpp (only BSplineSurfaceWithKnots)."
+                )
+            cps = [[self._xyz(p) for p in row] for row in surf.control_points_list]
+            weights = list(surf.weights_data) if isinstance(surf, su.RationalBSplineSurfaceWithKnots) else []
+            shape = self._cad.build_bspline_surface_face(
+                surf.u_degree,
+                surf.v_degree,
+                cps,
+                list(surf.u_knots),
+                list(surf.v_knots),
+                list(surf.u_multiplicities),
+                list(surf.v_multiplicities),
+                weights,
+            )
         else:
             raise NotImplementedError(
                 f"AdacppBackend.build: ada.geom type {type(g).__name__!r} is not yet ported to "
@@ -284,6 +338,16 @@ class AdacppBackend:
     def make_wire(self, points: "list") -> ShapeHandle:
         return self._cad.make_wire([[float(c) for c in self._xyz(p)] for p in points])
 
+    def loft_profiles(
+        self, profiles: "list[list[tuple[float, float, float]]]", ruled: bool = True, solid: bool = True
+    ) -> ShapeHandle:
+        return self._cad.loft_profiles(
+            [[[float(c) for c in self._xyz(p)] for p in prof] for prof in profiles], ruled, solid
+        )
+
+    def section_with_plane(self, shape: ShapeHandle, origin, normal, size: float = 1000.0) -> ShapeHandle:
+        return self._cad.section_with_plane(shape, self._xyz(origin), list(normal), float(size))
+
     def make_box(self, dx: float, dy: float, dz: float) -> ShapeHandle:
         return self._cad.make_box(dx, dy, dz)
 
@@ -318,6 +382,13 @@ class AdacppBackend:
         # adacpp returns nb::bytes; bytes(...) coerces it cleanly to a CPython
         # bytes object so callers don't need to know about the underlying type.
         return bytes(self._cad.write_glb_bytes(shape, linear_deflection))
+
+    def write_step(
+        self, shapes: list, names: list, colors: list, filename: str, unit: str = "m", schema: str = "AP214"
+    ) -> None:
+        # OCAF/XCAF STEP write via adacpp's bundled OCCT — no pythonocc needed.
+        rgb = [[float(c[0]), float(c[1]), float(c[2])] for c in colors]
+        self._cad.write_step(list(shapes), [str(n) for n in names], rgb, str(filename), unit, schema)
 
     def is_handle(self, obj: Any) -> bool:
         # Recognise an adacpp-native shape so callers can keep handle-type
@@ -365,6 +436,30 @@ class AdacppBackend:
         if fn is None:
             raise NotImplementedError("adacpp.cad.volume is not available in this build")
         return fn(shape)
+
+    def area(self, shape: ShapeHandle) -> float:
+        fn = getattr(self._cad, "area", None)
+        if fn is None:
+            raise NotImplementedError("adacpp.cad.area is not available in this build")
+        return fn(shape)
+
+    def shape_type(self, shape: ShapeHandle) -> str:
+        fn = getattr(self._cad, "shape_type", None)
+        if fn is None:
+            raise NotImplementedError("adacpp.cad.shape_type is not available in this build")
+        return fn(shape)
+
+    def face_surface_type(self, shape: ShapeHandle) -> str:
+        fn = getattr(self._cad, "face_surface_type", None)
+        if fn is None:
+            raise NotImplementedError("adacpp.cad.face_surface_type is not available in this build")
+        return fn(shape)
+
+    def extrude_face_along_normal(self, face: ShapeHandle, thickness: float) -> ShapeHandle:
+        fn = getattr(self._cad, "extrude_face_along_normal", None)
+        if fn is None:
+            raise NotImplementedError("adacpp.cad.extrude_face_along_normal is not available in this build")
+        return fn(face, float(thickness))
 
     def faces(self, shape: ShapeHandle) -> list[ShapeHandle]:
         fn = getattr(self._cad, "faces", None)
@@ -608,9 +703,59 @@ class OccBackend:
         return geom_to_occ_geom(geometry)
 
     def make_wire(self, points: "list") -> ShapeHandle:
-        from ada.occ.utils import make_wire_from_points
+        # Polyline wire through all points (open). Mirrors adacpp.cad.make_wire;
+        # the old single-edge helper only handled 2 points.
+        from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_MakeEdge, BRepBuilderAPI_MakeWire
+        from OCC.Core.gp import gp_Pnt
 
-        return make_wire_from_points(list(points))
+        pts = []
+        for p in points:
+            c = list(p)
+            pts.append(gp_Pnt(float(c[0]), float(c[1]), float(c[2]) if len(c) > 2 else 0.0))
+        if len(pts) < 2:
+            raise ValueError("make_wire: need at least 2 points")
+        wm = BRepBuilderAPI_MakeWire()
+        for a, b in zip(pts, pts[1:]):
+            wm.Add(BRepBuilderAPI_MakeEdge(a, b).Edge())
+        wm.Build()
+        return wm.Wire()
+
+    def loft_profiles(
+        self, profiles: "list[list[tuple[float, float, float]]]", ruled: bool = True, solid: bool = True
+    ) -> ShapeHandle:
+        from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_MakeEdge, BRepBuilderAPI_MakeWire
+        from OCC.Core.BRepOffsetAPI import BRepOffsetAPI_ThruSections
+        from OCC.Core.gp import gp_Pnt
+
+        if len(profiles) < 2:
+            raise ValueError(f"loft_profiles needs at least 2 profiles, got {len(profiles)}")
+        ts = BRepOffsetAPI_ThruSections(solid, ruled)
+        for prof in profiles:
+            pts = [gp_Pnt(float(p[0]), float(p[1]), float(p[2])) for p in prof]
+            wm = BRepBuilderAPI_MakeWire()
+            for a, b in zip(pts, pts[1:] + pts[:1]):
+                wm.Add(BRepBuilderAPI_MakeEdge(a, b).Edge())
+            ts.AddWire(wm.Wire())
+        ts.Build()
+        if not ts.IsDone():
+            raise RuntimeError("BRepOffsetAPI_ThruSections.Build failed")
+        return ts.Shape()
+
+    def section_with_plane(self, shape: ShapeHandle, origin, normal, size: float = 1000.0) -> ShapeHandle:
+        from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Common
+        from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_MakeFace
+        from OCC.Core.gp import gp_Dir, gp_Pln, gp_Pnt
+
+        pln = gp_Pln(
+            gp_Pnt(float(origin[0]), float(origin[1]), float(origin[2])),
+            gp_Dir(float(normal[0]), float(normal[1]), float(normal[2])),
+        )
+        face = BRepBuilderAPI_MakeFace(pln, -size, size, -size, size).Face()
+        common = BRepAlgoAPI_Common(shape, face)
+        common.Build()
+        if not common.IsDone():
+            raise RuntimeError("BRepAlgoAPI_Common.Build failed")
+        return common.Shape()
 
     def make_box(self, dx: float, dy: float, dz: float) -> ShapeHandle:
         # Centered axis-aligned box: matches adacpp.cad.make_box semantics
@@ -696,6 +841,68 @@ class OccBackend:
         props = GProp_GProps()
         brepgprop.VolumeProperties(shape, props)
         return props.Mass()
+
+    def area(self, shape: ShapeHandle) -> float:
+        from OCC.Core.BRepGProp import brepgprop
+        from OCC.Core.GProp import GProp_GProps
+
+        props = GProp_GProps()
+        brepgprop.SurfaceProperties(shape, props)
+        return props.Mass()
+
+    def shape_type(self, shape: ShapeHandle) -> str:
+        from OCC.Core.TopAbs import (
+            TopAbs_COMPOUND,
+            TopAbs_COMPSOLID,
+            TopAbs_EDGE,
+            TopAbs_FACE,
+            TopAbs_SHELL,
+            TopAbs_SOLID,
+            TopAbs_VERTEX,
+            TopAbs_WIRE,
+        )
+
+        return {
+            TopAbs_COMPOUND: "compound",
+            TopAbs_COMPSOLID: "compsolid",
+            TopAbs_SOLID: "solid",
+            TopAbs_SHELL: "shell",
+            TopAbs_FACE: "face",
+            TopAbs_WIRE: "wire",
+            TopAbs_EDGE: "edge",
+            TopAbs_VERTEX: "vertex",
+        }.get(shape.ShapeType(), "shape")
+
+    def face_surface_type(self, shape: ShapeHandle) -> str:
+        from OCC.Core.BRep import BRep_Tool
+        from OCC.Core.TopAbs import TopAbs_FACE
+        from OCC.Core.TopExp import TopExp_Explorer
+        from OCC.Core.TopoDS import topods
+
+        if shape.ShapeType() == TopAbs_FACE:
+            face = topods.Face(shape)
+        else:
+            exp = TopExp_Explorer(shape, TopAbs_FACE)
+            if not exp.More():
+                raise ValueError("face_surface_type: shape has no face")
+            face = topods.Face(exp.Current())
+        name = BRep_Tool.Surface(face).DynamicType().Name()
+        return {
+            "Geom_Plane": "plane",
+            "Geom_CylindricalSurface": "cylinder",
+            "Geom_ConicalSurface": "cone",
+            "Geom_SphericalSurface": "sphere",
+            "Geom_ToroidalSurface": "torus",
+            "Geom_BSplineSurface": "bspline",
+            "Geom_BezierSurface": "bezier",
+            "Geom_SurfaceOfLinearExtrusion": "linear_extrusion",
+            "Geom_SurfaceOfRevolution": "revolution",
+        }.get(name, name)
+
+    def extrude_face_along_normal(self, face: ShapeHandle, thickness: float) -> ShapeHandle:
+        from ada.occ.plate_curved import extrude_face_along_normal
+
+        return extrude_face_along_normal(face, thickness)
 
     def faces(self, shape: ShapeHandle) -> list[ShapeHandle]:
         # Whole list of face sub-shapes — the boundary crosses once, not per
@@ -811,6 +1018,18 @@ class OccBackend:
                 return f.read()
         finally:
             os.unlink(path)
+
+    def write_step(
+        self, shapes: list, names: list, colors: list, filename: str, unit: str = "m", schema: str = "AP214"
+    ) -> None:
+        # OCAF/XCAF STEP write via pythonocc's STEPCAFControl_Writer.
+        from ada.base.units import Units
+        from ada.cadit.step.write.writer import StepSchema, StepWriter
+
+        sw = StepWriter("Assembly", units=Units.from_str(unit), schema=StepSchema(schema.upper()))
+        for shape, name, color in zip(shapes, names, colors):
+            sw.add_shape(shape, str(name), rgb_color=tuple(color))
+        sw.export(filename)
 
     def is_handle(self, obj: Any) -> bool:
         # Under this backend a ShapeHandle IS a TopoDS_Shape. Centralising

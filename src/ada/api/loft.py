@@ -15,23 +15,19 @@ from __future__ import annotations
 import math
 from typing import TYPE_CHECKING, Iterator, Sequence
 
-from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Common
-from OCC.Core.BRepBuilderAPI import (
-    BRepBuilderAPI_MakeEdge,
-    BRepBuilderAPI_MakeFace,
-    BRepBuilderAPI_MakeWire,
-    BRepBuilderAPI_Transform,
-)
-from OCC.Core.BRepOffsetAPI import BRepOffsetAPI_ThruSections
-from OCC.Core.gp import gp_Ax1, gp_Ax2, gp_Dir, gp_Pln, gp_Pnt, gp_Trsf, gp_Vec
-from OCC.Core.TopoDS import TopoDS_Face, TopoDS_Shape, TopoDS_Wire
-from OCC.Extend.TopologyUtils import TopologyExplorer
-
+from ada.cad import active_backend
 from ada.geom.curves import PolyLoop
 from ada.geom.direction import Direction
 from ada.geom.points import Point
 
+# Loft now routes through the active CAD backend (loft_profiles / section_with_plane
+# / faces / wires / wire_points), so it works under adacpp as well as pythonocc.
+# A couple of rarely-used helpers (planar_face_from_poly_loop, transform helpers)
+# still import OCC lazily and only require pythonocc when actually called.
+# See dap plan/v3 Phase 1/2.
 if TYPE_CHECKING:
+    from OCC.Core.TopoDS import TopoDS_Face, TopoDS_Shape, TopoDS_Wire
+
     from ada.api.spatial.part import Part
 
 
@@ -45,20 +41,17 @@ def wire_from_poly_loop(loop: PolyLoop) -> TopoDS_Wire:
     if len(pts) < 2:
         raise ValueError(f"PolyLoop needs at least 2 points, got {len(pts)}")
 
-    builder = BRepBuilderAPI_MakeWire()
-    occ_pts = [gp_Pnt(float(p.x), float(p.y), float(p.z)) for p in pts]
-    for a, b in zip(occ_pts, occ_pts[1:]):
-        builder.Add(BRepBuilderAPI_MakeEdge(a, b).Edge())
+    coords = [(float(p.x), float(p.y), float(p.z)) for p in pts]
+    # Close the loop if the last point doesn't coincide with the first.
     if not pts[0].is_equal(pts[-1]):
-        builder.Add(BRepBuilderAPI_MakeEdge(occ_pts[-1], occ_pts[0]).Edge())
-
-    if not builder.IsDone():
-        raise RuntimeError("BRepBuilderAPI_MakeWire failed — check that the points form a valid path")
-    return builder.Wire()
+        coords.append(coords[0])
+    return active_backend().make_wire(coords)
 
 
 def planar_face_from_poly_loop(loop: PolyLoop) -> TopoDS_Face:
     """Build a planar face bounded by ``loop``. Loop must be closed and planar."""
+    from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_MakeFace
+
     wire = wire_from_poly_loop(loop)
     builder = BRepBuilderAPI_MakeFace(wire, True)
     if not builder.IsDone():
@@ -69,19 +62,14 @@ def planar_face_from_poly_loop(loop: PolyLoop) -> TopoDS_Face:
 def loft_profiles(profiles: Sequence[PolyLoop], ruled: bool = True, is_solid: bool = True) -> TopoDS_Shape:
     """Build a lofted solid (or shell) through the given section profiles.
 
-    The wires built from each :class:`PolyLoop` are connected in section
-    order with ``BRepOffsetAPI_ThruSections``.
+    The profile polygons are connected in section order via the active
+    backend's ``loft_profiles`` (ThruSections under both OCC and adacpp).
     """
     if len(profiles) < 2:
         raise ValueError(f"loft_profiles needs at least 2 profiles, got {len(profiles)}")
 
-    ts = BRepOffsetAPI_ThruSections(is_solid, ruled)
-    for profile in profiles:
-        ts.AddWire(wire_from_poly_loop(profile))
-    ts.Build()
-    if not ts.IsDone():
-        raise RuntimeError("BRepOffsetAPI_ThruSections.Build failed")
-    return ts.Shape()
+    sections = [[(float(p.x), float(p.y), float(p.z)) for p in prof.polygon] for prof in profiles]
+    return active_backend().loft_profiles(sections, ruled, is_solid)
 
 
 def intersect_with_plane(
@@ -96,17 +84,9 @@ def intersect_with_plane(
     comfortably exceed the lateral extent of ``shape`` so the
     intersection is the full cross-section, not a clipped band.
     """
-    pln = gp_Pln(
-        gp_Pnt(float(plane_origin.x), float(plane_origin.y), float(plane_origin.z)),
-        gp_Dir(float(plane_normal[0]), float(plane_normal[1]), float(plane_normal[2])),
-    )
-    face = BRepBuilderAPI_MakeFace(pln, -plane_size, plane_size, -plane_size, plane_size).Face()
-
-    common = BRepAlgoAPI_Common(shape, face)
-    common.Build()
-    if not common.IsDone():
-        raise RuntimeError("BRepAlgoAPI_Common.Build failed")
-    return common.Shape()
+    origin = (float(plane_origin.x), float(plane_origin.y), float(plane_origin.z))
+    normal = (float(plane_normal[0]), float(plane_normal[1]), float(plane_normal[2]))
+    return active_backend().section_with_plane(shape, origin, normal, plane_size)
 
 
 def iter_face_poly_loops(shape: TopoDS_Shape) -> Iterator[PolyLoop]:
@@ -116,20 +96,13 @@ def iter_face_poly_loops(shape: TopoDS_Shape) -> Iterator[PolyLoop]:
     care about winding (eg. plate normal direction) should reverse the
     polygon themselves.
     """
-    from OCC.Core.BRep import BRep_Tool
-
-    explorer = TopologyExplorer(shape)
-    for face in explorer.faces():
-        face_explorer = TopologyExplorer(face)
-        wires = list(face_explorer.wires())
+    backend = active_backend()
+    for face in backend.faces(shape):
+        wires = backend.wires(face)
         if not wires:
             continue
         # First wire is the outer boundary; any further wires are holes.
-        wire = wires[0]
-        polygon: list[Point] = []
-        for vertex in TopologyExplorer(wire).vertices():
-            pnt = BRep_Tool.Pnt(vertex)
-            polygon.append(Point(pnt.X(), pnt.Y(), pnt.Z()))
+        polygon = [Point(*p) for p in backend.wire_points(wires[0])]
         if polygon:
             yield PolyLoop(polygon=polygon)
 
@@ -142,6 +115,9 @@ def loft_to_poly_loops(profiles: Sequence[PolyLoop], ruled: bool = True) -> list
 
 def translate_shape(shape: TopoDS_Shape, offset: Point | tuple[float, float, float]) -> TopoDS_Shape:
     """Return a new shape translated by ``offset``."""
+    from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_Transform
+    from OCC.Core.gp import gp_Trsf, gp_Vec
+
     vec = offset if isinstance(offset, Point) else Point(offset)
     trsf = gp_Trsf()
     trsf.SetTranslation(gp_Vec(float(vec.x), float(vec.y), float(vec.z)))
@@ -155,6 +131,9 @@ def rotate_shape(
     angle_deg: float,
 ) -> TopoDS_Shape:
     """Return a new shape rotated by ``angle_deg`` around the given axis."""
+    from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_Transform
+    from OCC.Core.gp import gp_Ax1, gp_Dir, gp_Pnt, gp_Trsf
+
     origin = axis_origin if isinstance(axis_origin, Point) else Point(axis_origin)
     direction = axis_direction if isinstance(axis_direction, Direction) else Direction(axis_direction)
     ax1 = gp_Ax1(
@@ -172,6 +151,9 @@ def mirror_shape(
     plane_normal: Direction | tuple[float, float, float],
 ) -> TopoDS_Shape:
     """Return a new shape mirrored across the plane defined by origin + normal."""
+    from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_Transform
+    from OCC.Core.gp import gp_Ax2, gp_Dir, gp_Pnt, gp_Trsf
+
     origin = plane_origin if isinstance(plane_origin, Point) else Point(plane_origin)
     normal = plane_normal if isinstance(plane_normal, Direction) else Direction(plane_normal)
     ax2 = gp_Ax2(

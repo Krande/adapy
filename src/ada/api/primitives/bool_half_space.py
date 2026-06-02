@@ -43,9 +43,9 @@ class BoolHalfSpace(Shape):
         return self._poly
 
     def solid_occ(self) -> ShapeHandle:
-        from ada.occ.geom import geom_to_occ_geom
+        from ada.cad import active_backend
 
-        return geom_to_occ_geom(self.solid_geom())
+        return active_backend().build(self.solid_geom())
 
     def solid_geom(self) -> Geometry[HalfSpaceSolid]:
         from ada.geom.placement import Axis2Placement3D

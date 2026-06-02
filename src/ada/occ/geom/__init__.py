@@ -1,14 +1,24 @@
-from OCC.Core.TopoDS import TopoDS_Shape, TopoDS_Solid
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 import ada.geom.solids as so
 import ada.geom.surfaces as su
-import ada.occ.geom.solids as geo_so
-import ada.occ.geom.surfaces as geo_su
 from ada.geom import Geometry
-from ada.occ.geom.boolean import apply_geom_booleans
+
+if TYPE_CHECKING:
+    from OCC.Core.TopoDS import TopoDS_Shape, TopoDS_Solid
 
 
 def geom_to_occ_geom(geom: Geometry) -> TopoDS_Shape | TopoDS_Solid:
+    # OCC builders imported lazily so importing this package (e.g. its sibling
+    # ada.occ.geom.cache, which routes through active_backend().build) does not
+    # require pythonocc. geom_to_occ_geom is OccBackend's builder and naturally
+    # needs OCC only when actually called. See dap plan/v3 Phase 2.
+    import ada.occ.geom.solids as geo_so
+    import ada.occ.geom.surfaces as geo_su
+    from ada.occ.geom.boolean import apply_geom_booleans
+
     geometry = geom.geometry
 
     # Solid models
