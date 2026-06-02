@@ -18,24 +18,28 @@ import pytest
 import ada
 from ada.api.loft import loft_profiles
 from ada.base.units import Units
+from ada.cad import active_backend
 from ada.geom.curves import PolyLoop
 from ada.geom.points import Point
 
+# The round-trip tests below exercise occ_face_to_ada_face — the pythonocc
+# SAT/STEP importer (face → AdvancedFace with supplied pcurves), which is not
+# ported to adacpp. They only make sense when the active backend is OCC (they
+# feed an OCC face into the OCC importer), so skip them under adacpp.
+occ_importer_only = pytest.mark.skipif(
+    active_backend().name == "adacpp",
+    reason="occ_face_to_ada_face (OCC SAT/STEP importer round-trip) is not ported to adacpp",
+)
+
 
 def _bspline_loft_face():
-    """Build a small mixed-cardinality loft and return the first
-    B-spline face produced by OCC's ThruSections in ruled mode.
+    """Build a small mixed-cardinality loft and return the first B-spline face
+    it produces (ThruSections in ruled mode), via the active CAD backend.
 
-    Mixing a 4-vertex profile with a 12-vertex profile guarantees OCC
-    emits B-spline transition faces at each corner — exactly the
-    surface kind PlateCurved needs to wrap in the loft pipeline.
+    Mixing a 4-vertex profile with a 12-vertex profile guarantees B-spline
+    transition faces at each corner — exactly the surface kind PlateCurved
+    needs to wrap in the loft pipeline. Returns an active-backend face handle.
     """
-    from OCC.Core.BRep import BRep_Tool
-    from OCC.Core.Geom import Geom_BSplineSurface
-    from OCC.Core.TopAbs import TopAbs_FACE
-    from OCC.Core.TopExp import TopExp_Explorer
-    from OCC.Core.TopoDS import topods
-
     sharp = PolyLoop(
         polygon=[
             Point(-1.0, -1.0, 0.0),
@@ -68,12 +72,10 @@ def _bspline_loft_face():
     ]
     rounded = PolyLoop(polygon=[Point(x, y, 1.0) for x, y in rounded_xy])
     shape = loft_profiles([sharp, rounded], ruled=True, is_solid=True)
-    explorer = TopExp_Explorer(shape, TopAbs_FACE)
-    while explorer.More():
-        face = topods.Face(explorer.Current())
-        if BRep_Tool.Surface(face).IsKind(Geom_BSplineSurface.get_type_descriptor()):
+    backend = active_backend()
+    for face in backend.faces(shape):
+        if backend.face_surface_type(face) == "bspline":
             return face
-        explorer.Next()
     raise RuntimeError("Mixed-cardinality loft did not produce a BSpline face")
 
 
@@ -109,26 +111,18 @@ def test_solid_occ_returns_valid_face(curved_plate):
     """``solid_occ`` is the raw face (no thickness) — the GLB
     tessellator and IFC writer both fall back to this when extrusion
     isn't available or wanted."""
-    from OCC.Core.TopAbs import TopAbs_FACE
-    from OCC.Core.TopExp import TopExp_Explorer
-
     shape = curved_plate.solid_occ()
     assert shape is not None
     # At least one face present.
-    assert TopExp_Explorer(shape, TopAbs_FACE).More()
+    assert len(active_backend().faces(shape)) >= 1
 
 
 def test_extruded_solid_occ_produces_volumetric_prism(curved_plate):
     """The streaming-viewer renderer prefers a prism so the plate
     carries thickness; verify the extrusion path yields a solid with
     non-zero volume."""
-    from OCC.Core.BRepGProp import brepgprop
-    from OCC.Core.GProp import GProp_GProps
-
     solid = curved_plate.extruded_solid_occ()
-    props = GProp_GProps()
-    brepgprop.VolumeProperties(solid, props)
-    assert props.Mass() > 0.0, "Extruded prism should have non-zero volume"
+    assert active_backend().volume(solid) > 0.0, "Extruded prism should have non-zero volume"
 
 
 def test_nodes_derived_from_outer_wire(curved_plate):
@@ -239,40 +233,20 @@ def test_add_plate_returns_same_instance(curved_plate):
 
 
 def _occ_face_area(shape) -> float:
-    from OCC.Core.BRepGProp import brepgprop
-    from OCC.Core.GProp import GProp_GProps
-
-    props = GProp_GProps()
-    brepgprop.SurfaceProperties(shape, props)
-    return float(props.Mass())
+    return float(active_backend().area(shape))
 
 
 def _occ_face_bbox(shape):
-    from OCC.Core.Bnd import Bnd_Box
-    from OCC.Core.BRepBndLib import brepbndlib
-
-    bbox = Bnd_Box()
-    brepbndlib.Add(shape, bbox)
-    xmin, ymin, zmin, xmax, ymax, zmax = bbox.Get()
-    return (xmin, ymin, zmin, xmax, ymax, zmax)
+    return active_backend().bbox(shape)
 
 
 def _count_topology(shape) -> tuple[int, int, int]:
-    """(n_faces, n_wires, n_edges) — counts via OCC explorers."""
-    from OCC.Core.TopAbs import TopAbs_EDGE, TopAbs_FACE, TopAbs_WIRE
-    from OCC.Core.TopExp import TopExp_Explorer
-
-    def _count(kind):
-        e = TopExp_Explorer(shape, kind)
-        n = 0
-        while e.More():
-            n += 1
-            e.Next()
-        return n
-
-    return _count(TopAbs_FACE), _count(TopAbs_WIRE), _count(TopAbs_EDGE)
+    """(n_faces, n_wires, n_edges) — counted via the active backend."""
+    backend = active_backend()
+    return len(backend.faces(shape)), len(backend.wires(shape)), len(backend.edges(shape))
 
 
+@occ_importer_only
 def test_round_trip_advanced_face_preserves_bspline_surface():
     """OCC face → AdvancedFace → OCC face round-trip — full integrity check.
 
@@ -349,20 +323,14 @@ def test_round_trip_advanced_face_preserves_bspline_surface():
 
 
 def _all_bspline_faces(shape):
-    """Iterate every face of ``shape`` whose surface is a Geom_BSplineSurface."""
-    from OCC.Core.BRep import BRep_Tool
-    from OCC.Core.TopAbs import TopAbs_FACE
-    from OCC.Core.TopExp import TopExp_Explorer
-    from OCC.Core.TopoDS import topods
-
-    e = TopExp_Explorer(shape, TopAbs_FACE)
-    while e.More():
-        face = topods.Face(e.Current())
-        if BRep_Tool.Surface(face).DynamicType().Name() == "Geom_BSplineSurface":
+    """Iterate every face of ``shape`` whose surface is a B-spline."""
+    backend = active_backend()
+    for face in backend.faces(shape):
+        if backend.face_surface_type(face) == "bspline":
             yield face
-        e.Next()
 
 
+@occ_importer_only
 def test_round_trip_every_bspline_face_in_a_mixed_loft():
     """Every B-spline face that comes out of a mixed-cardinality loft
     (4-pt sharp ↔ 12-pt rounded) must round-trip cleanly. Failure of
@@ -427,6 +395,7 @@ def test_round_trip_every_bspline_face_in_a_mixed_loft():
         )
 
 
+@occ_importer_only
 def test_round_trip_preserves_pcurve_for_every_edge_on_bspline_face():
     """Hard contract — every edge of a BSpline-surface face must carry a
     stored 2D pcurve in the AdvancedFace round-trip. A missing pcurve
@@ -530,6 +499,7 @@ def test_round_trip_pure_planar_loft_does_not_use_bspline_path():
     )
 
 
+@occ_importer_only
 def test_round_trip_via_plate_curved_renders_solid_with_volume():
     """End-to-end: a BSpline loft face wrapped in PlateCurved via the
     AdvancedFace round-trip should extrude into a prism with volume
@@ -576,12 +546,6 @@ def test_round_trip_occ_face_preserves_face_count():
     B-spline corner-transition face, so a regression here would
     silently break the floater / jacket renderings.
     """
-    from OCC.Core.BRep import BRep_Tool
-    from OCC.Core.Geom import Geom_BSplineSurface
-    from OCC.Core.TopAbs import TopAbs_FACE
-    from OCC.Core.TopExp import TopExp_Explorer
-    from OCC.Core.TopoDS import topods
-
     face_in = _bspline_loft_face()
     plate = ada.PlateCurved.from_occ_face("rt", face_in, t=0.01)
 
@@ -592,13 +556,7 @@ def test_round_trip_occ_face_preserves_face_count():
     # extruded_solid_occ should yield a face-bearing prism whose
     # underlying surface still classifies as a BSpline (the prism
     # inherits the swept surface kind from its source face).
+    backend = active_backend()
     extruded = plate.extruded_solid_occ()
-    explorer = TopExp_Explorer(extruded, TopAbs_FACE)
-    found_bspline = False
-    while explorer.More():
-        surf = BRep_Tool.Surface(topods.Face(explorer.Current()))
-        if surf.IsKind(Geom_BSplineSurface.get_type_descriptor()):
-            found_bspline = True
-            break
-        explorer.Next()
+    found_bspline = any(backend.face_surface_type(f) == "bspline" for f in backend.faces(extruded))
     assert found_bspline, "extruded prism lost its BSpline surface — round-trip dropped curvature"

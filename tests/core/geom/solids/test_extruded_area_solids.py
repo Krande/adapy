@@ -1,11 +1,9 @@
-from OCC.Core.TopoDS import TopoDS_Face, TopoDS_Solid
-
 import ada
+from ada.cad import active_backend
+from ada.cad.inspect import faces_with_normal, points_of
 from ada.core.utils import set_list_first_position_elem
 from ada.geom import solids as geo_so
 from ada.geom import surfaces as geo_su
-from ada.occ.geom import geom_to_occ_geom
-from ada.occ.utils import get_points_from_occ_shape, iter_faces_with_normal
 
 
 def test_ipe_beam():
@@ -16,8 +14,8 @@ def test_ipe_beam():
     assert geo.geometry.depth == 1.0
     assert isinstance(geo.geometry.swept_area, geo_su.ArbitraryProfileDef)
 
-    occ_shape = geom_to_occ_geom(geo)
-    assert isinstance(occ_shape, TopoDS_Solid)
+    occ_shape = active_backend().build(geo)
+    assert active_backend().shape_type(occ_shape) == "solid"
 
 
 def test_plate_xy():
@@ -26,13 +24,13 @@ def test_plate_xy():
     geo = pl.solid_geom()
     assert isinstance(geo.geometry, geo_so.ExtrudedAreaSolid)
 
-    occ_shape = geom_to_occ_geom(geo)
-    assert isinstance(occ_shape, TopoDS_Solid)
+    occ_shape = active_backend().build(geo)
+    assert active_backend().shape_type(occ_shape) == "solid"
 
-    occ_face = list(iter_faces_with_normal(occ_shape, pl.poly.normal, pl.poly.origin))[0]
-    assert isinstance(occ_face, TopoDS_Face)
+    occ_face = list(faces_with_normal(occ_shape, pl.poly.normal, pl.poly.origin))[0]
+    assert active_backend().shape_type(occ_face) == "face"
 
-    occ_face_verts = get_points_from_occ_shape(occ_face)
+    occ_face_verts = points_of(occ_face)
     occ_face_verts.index(tuple(pl.poly.origin))
     occ_face_verts_adjusted = set_list_first_position_elem(occ_face_verts, tuple(pl.poly.origin))
     assert len(occ_face_verts) == 5
@@ -48,13 +46,13 @@ def test_plate_xy_offset(tmp_path):
     geo = pl.solid_geom()
     assert isinstance(geo.geometry, geo_so.ExtrudedAreaSolid)
 
-    occ_shape = geom_to_occ_geom(geo)
-    assert isinstance(occ_shape, TopoDS_Solid)
+    occ_shape = active_backend().build(geo)
+    assert active_backend().shape_type(occ_shape) == "solid"
 
-    occ_face = list(iter_faces_with_normal(occ_shape, pl.poly.normal, pl.poly.origin))[0]
-    assert isinstance(occ_face, TopoDS_Face)
+    occ_face = list(faces_with_normal(occ_shape, pl.poly.normal, pl.poly.origin))[0]
+    assert active_backend().shape_type(occ_face) == "face"
 
-    occ_face_verts = get_points_from_occ_shape(occ_face)
+    occ_face_verts = points_of(occ_face)
     occ_face_verts.index(tuple(pl.poly.origin))
     occ_face_verts_adjusted = set_list_first_position_elem(occ_face_verts, tuple(pl.poly.origin))
     assert len(occ_face_verts) == 4
@@ -72,13 +70,13 @@ def test_plate_xz():
     geo = pl.solid_geom()
     assert isinstance(geo.geometry, geo_so.ExtrudedAreaSolid)
 
-    occ_shape = geom_to_occ_geom(geo)
-    assert isinstance(occ_shape, TopoDS_Solid)
+    occ_shape = active_backend().build(geo)
+    assert active_backend().shape_type(occ_shape) == "solid"
 
-    occ_face = list(iter_faces_with_normal(occ_shape, pl.poly.normal, pl.poly.origin))[0]
-    assert isinstance(occ_face, TopoDS_Face)
+    occ_face = list(faces_with_normal(occ_shape, pl.poly.normal, pl.poly.origin))[0]
+    assert active_backend().shape_type(occ_face) == "face"
 
-    occ_face_verts = get_points_from_occ_shape(occ_face)
+    occ_face_verts = points_of(occ_face)
     occ_face_verts.index(tuple(pl.poly.origin))
     occ_face_verts_adjusted = set_list_first_position_elem(occ_face_verts, tuple(pl.poly.origin))
     assert len(occ_face_verts) == 4
