@@ -18,9 +18,7 @@ import tempfile
 import pytest
 
 os.environ.setdefault("ADA_VIEWER_STORAGE_KIND", "local")
-os.environ.setdefault(
-    "ADA_VIEWER_LOCAL_PATH", tempfile.mkdtemp(prefix="ada-test-storage-")
-)
+os.environ.setdefault("ADA_VIEWER_LOCAL_PATH", tempfile.mkdtemp(prefix="ada-test-storage-"))
 
 from fastapi.testclient import TestClient  # noqa: E402
 
@@ -117,14 +115,7 @@ def _stage_manifest_blob(
     """Pre-populate a manifest.json in the shared scope (no DB needed)
     under the same versions/<branch>/<commit>/ key convention ada-build
     uses."""
-    target = (
-        tmp_path
-        / "shared"
-        / "versions"
-        / branch
-        / commit
-        / "manifest.json"
-    )
+    target = tmp_path / "shared" / "versions" / branch / commit / "manifest.json"
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(body))
 
@@ -140,9 +131,7 @@ def test_specs_returns_empty_when_nothing_published(app_client: TestClient):
     assert body["branch"] == "main"
 
 
-def test_specs_auto_discovers_shared_scope(
-    app_client: TestClient, tmp_path: pathlib.Path
-):
+def test_specs_auto_discovers_shared_scope(app_client: TestClient, tmp_path: pathlib.Path):
     """Auto-discovery walks the user's scopes and picks up whichever
     has a manifest — no scope param required."""
     manifest = {
@@ -170,24 +159,18 @@ def test_specs_auto_discovers_shared_scope(
     assert spec["priority"] == 10
 
 
-def test_specs_explicit_scope_override(
-    app_client: TestClient, tmp_path: pathlib.Path
-):
+def test_specs_explicit_scope_override(app_client: TestClient, tmp_path: pathlib.Path):
     """Legacy: an explicit scope param restricts the lookup to that
     one scope (no auto-discovery sweep)."""
     manifest = {"specs": {"only.here": {"preview_glb": "x.glb", "schema": {}, "defaults": {}}}}
     _stage_manifest_blob(tmp_path, "main", "abc123", manifest)
 
-    r = app_client.get(
-        "/api/components/specs", params={"scope": "shared", "branch": "main"}
-    )
+    r = app_client.get("/api/components/specs", params={"scope": "shared", "branch": "main"})
     assert r.status_code == 200, r.text
     assert "only.here" in r.json()["specs"]
 
 
-def test_specs_picks_latest_commit_by_mtime(
-    app_client: TestClient, tmp_path: pathlib.Path
-):
+def test_specs_picks_latest_commit_by_mtime(app_client: TestClient, tmp_path: pathlib.Path):
     """When multiple commits have published manifests on the same
     branch, the latest by mtime wins."""
     import time

@@ -238,11 +238,7 @@ class BatchTessellator:
             if isinstance(obj, BackendGeom):
                 ada_obj = obj
                 geom_repr = render_override.get(obj.guid, GeomRepr.SOLID)
-                node_ref = (
-                    graph_store.hash_map.get(obj.guid)
-                    if graph_store is not None
-                    else getattr(obj, "guid", None)
-                )
+                node_ref = graph_store.hash_map.get(obj.guid) if graph_store is not None else getattr(obj, "guid", None)
 
                 # PlateCurved: prism-extrude the BSpline face by
                 # thickness so the GLB ships a solid (matching what
@@ -284,6 +280,7 @@ class BatchTessellator:
                             if fb_pts and len(fb_pts) >= 3:
                                 try:
                                     import numpy as _np
+
                                     verts = _np.asarray(pos, dtype=float).reshape(-1, 3)
                                     flat_arr = _np.array([list(p)[:3] for p in fb_pts])
                                     flat_ext = flat_arr.max(axis=0) - flat_arr.min(axis=0)
@@ -302,8 +299,10 @@ class BatchTessellator:
                                             "PlateCurved %r: mesh extent %.1f m on axis %d vs flat %.2f m"
                                             " (limit %.2f m) — using flat representation",
                                             getattr(ada_obj, "name", "?"),
-                                            float(mesh_ext[worst]), worst,
-                                            float(flat_ext[worst]), float(limit[worst]),
+                                            float(mesh_ext[worst]),
+                                            worst,
+                                            float(flat_ext[worst]),
+                                            float(limit[worst]),
                                         )
                                         mesh_ok = False
                                 except Exception:
@@ -317,19 +316,26 @@ class BatchTessellator:
                     if fallback_pts:
                         try:
                             from ada import Plate
-                            from ada.cadit.gxml.read.helpers import _project_to_best_fit_plane
+                            from ada.cadit.gxml.read.helpers import (
+                                _project_to_best_fit_plane,
+                            )
+
                             fb = Plate.from_3d_points(
                                 getattr(ada_obj, "name", "fallback"),
                                 _project_to_best_fit_plane(fallback_pts),
                                 getattr(ada_obj, "t", None) or 0.0,
                                 mat=getattr(ada_obj, "material", None),
-                                metadata=dict(props=dict(
-                                    gxml_flat_fallback_for=getattr(ada_obj, "name", None),
-                                )),
+                                metadata=dict(
+                                    props=dict(
+                                        gxml_flat_fallback_for=getattr(ada_obj, "name", None),
+                                    )
+                                ),
                                 parent=getattr(ada_obj, "parent", None),
                             )
                             yield self.tessellate_geom(
-                                fb.solid_geom(), ada_obj, graph_store=graph_store,
+                                fb.solid_geom(),
+                                ada_obj,
+                                graph_store=graph_store,
                             )
                             logger.warning(
                                 "PlateCurved %r: BSpline tessellation failed, rendered as flat fallback",
@@ -338,7 +344,8 @@ class BatchTessellator:
                         except Exception as fb_err:
                             logger.error(
                                 "PlateCurved %r: flat fallback also failed (%s); plate dropped",
-                                getattr(ada_obj, "name", "?"), fb_err,
+                                getattr(ada_obj, "name", "?"),
+                                fb_err,
                             )
                     continue
 
@@ -411,7 +418,9 @@ class BatchTessellator:
                     continue
                 logger.error(
                     "PlateCurved %r: tessellation produced empty mesh (pos=%d idx=%d)",
-                    getattr(ada_obj, "name", "?"), pos_n, idx_n,
+                    getattr(ada_obj, "name", "?"),
+                    pos_n,
+                    idx_n,
                 )
 
             # PlateCurved → flat-plate fallback. The gxml reader
@@ -432,14 +441,17 @@ class BatchTessellator:
             try:
                 from ada import Plate
                 from ada.cadit.gxml.read.helpers import _project_to_best_fit_plane
+
                 fallback = Plate.from_3d_points(
                     getattr(ada_obj, "name", "fallback"),
                     _project_to_best_fit_plane(fallback_pts),
                     getattr(ada_obj, "t", None) or 0.0,
                     mat=getattr(ada_obj, "material", None),
-                    metadata=dict(props=dict(
-                        gxml_flat_fallback_for=getattr(ada_obj, "name", None),
-                    )),
+                    metadata=dict(
+                        props=dict(
+                            gxml_flat_fallback_for=getattr(ada_obj, "name", None),
+                        )
+                    ),
                     parent=getattr(ada_obj, "parent", None),
                 )
                 fallback_geom = fallback.solid_geom()
@@ -451,7 +463,8 @@ class BatchTessellator:
             except Exception as fb_err:
                 logger.error(
                     "PlateCurved %r: flat fallback also failed (%s); plate dropped",
-                    getattr(ada_obj, "name", "?"), fb_err,
+                    getattr(ada_obj, "name", "?"),
+                    fb_err,
                 )
 
     def meshes_to_trimesh(

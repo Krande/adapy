@@ -693,6 +693,7 @@ def _serialize_occ_shape(shape) -> str:
         if "WriteToString" not in str(exc):
             raise
         from OCC.Core import BRepTools
+
         ss = BRepTools.BRepTools_ShapeSet()
         ss.SetFormatNb(2)
         # Some OCC builds want both Add() and WriteToString(shape);

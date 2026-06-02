@@ -51,8 +51,9 @@ _THIS_DIR = pathlib.Path(__file__).resolve().parent
 if str(_THIS_DIR) not in sys.path:
     sys.path.insert(0, str(_THIS_DIR))
 
+import utils as ru  # noqa: E402 — verification's private helpers
+from paradoc.db.models import ThreeDData  # noqa: E402
 from paradoc.tasks import (  # noqa: E402
-    BuildContext,
     FilterOutcome,
     PlotOutcome,
     TableOutcome,
@@ -66,8 +67,8 @@ from ada.api.fem_tasks import (  # noqa: E402
     eig_case_name,
     is_eig_skip,
     mesh_cantilever,
-    run_eig as run_eig_helper,
 )
+from ada.api.fem_tasks import run_eig as run_eig_helper  # noqa: E402
 from ada.fem.exceptions.fea_software import FEASolverNotInstalled  # noqa: E402
 from ada.fem.results.docs import (  # noqa: E402
     FeaCaseFilter,
@@ -75,10 +76,6 @@ from ada.fem.results.docs import (  # noqa: E402
     collect_fea_bundles,
     to_paradoc_rows,
 )
-
-from paradoc.db.models import ThreeDData  # noqa: E402
-
-import utils as ru  # noqa: E402 — verification's private helpers
 
 logger = logging.getLogger(__name__)
 
@@ -94,6 +91,7 @@ _ASSETS_DIR.mkdir(parents=True, exist_ok=True)
 # without making python-dotenv a hard import requirement.
 try:
     from dotenv import load_dotenv as _load_dotenv  # noqa: E402
+
     _load_dotenv()
 except ImportError:
     pass
@@ -105,8 +103,8 @@ _COMPARISON_SPECS = [
     ("eig_compare_solid_o2", "solid", 2, None, "Eigenfrequency comparison (Hz) — solid, 2nd order."),
     ("eig_compare_shell_o1", "shell", 1, True, "Eigenfrequency comparison (Hz) — shell, 1st order."),
     ("eig_compare_shell_o2", "shell", 2, True, "Eigenfrequency comparison (Hz) — shell, 2nd order."),
-    ("eig_compare_line_o1",  "line",  1, False, "Eigenfrequency comparison (Hz) — line, 1st order."),
-    ("eig_compare_line_o2",  "line",  2, False, "Eigenfrequency comparison (Hz) — line, 2nd order."),
+    ("eig_compare_line_o1", "line", 1, False, "Eigenfrequency comparison (Hz) — line, 1st order."),
+    ("eig_compare_line_o2", "line", 2, False, "Eigenfrequency comparison (Hz) — line, 2nd order."),
 ]
 
 
@@ -118,6 +116,8 @@ try:
     from ada.fem.formats.abaqus.config import AbaqusSetup as _AbaqusSetup
     from ada.fem.formats.abaqus.post_processing import (
         get_odb_dump_exe as _get_odb_dump_exe,
+    )
+    from ada.fem.formats.abaqus.post_processing import (
         post_processing_abaqus as _post_processing_abaqus,
     )
 
@@ -289,9 +289,7 @@ def beam_glb(assembly: ada.Assembly):
     poster is best-effort (frontend has its own fallback) so it's not
     declared in outputs=.
     """
-    beam = next(
-        b for b in assembly.get_all_physical_objects() if isinstance(b, ada.Beam)
-    )
+    beam = next(b for b in assembly.get_all_physical_objects() if isinstance(b, ada.Beam))
     dest = _ASSETS_DIR / "beam.glb"
     regen = os.environ.get("ADAPY_VERIFICATION_REGEN_ASSETS", "0") == "1"
     if regen or not dest.exists():
@@ -305,6 +303,7 @@ def beam_glb(assembly: ada.Assembly):
             logger.info(f"wrote beam GLB → {dest}")
             try:
                 from ada.visit.rendering.pygfx_offscreen_utils import glb_to_image
+
                 glb_to_image(dest).save(str(dest.with_suffix(".png")))
             except Exception as exc:
                 logger.warning(f"beam poster PNG failed: {exc}")
@@ -390,19 +389,24 @@ def freq_plot(results: list):
     rows = []
     for r in results:
         for m in r.eig_data.modes:
-            rows.append({
-                "case": r.name,
-                "solver": r.fem_format,
-                "geom": r.metadata.get("geo"),
-                "order": r.metadata.get("elo"),
-                "mode": int(m.no),
-                "f_hz": float(m.f_hz),
-            })
+            rows.append(
+                {
+                    "case": r.name,
+                    "solver": r.fem_format,
+                    "geom": r.metadata.get("geo"),
+                    "order": r.metadata.get("elo"),
+                    "mode": int(m.no),
+                    "f_hz": float(m.f_hz),
+                }
+            )
     if not rows:
         return None
     df = pd.DataFrame(rows)
     fig = px.line(
-        df, x="mode", y="f_hz", color="case",
+        df,
+        x="mode",
+        y="f_hz",
+        color="case",
         markers=True,
         labels={"mode": "Mode number", "f_hz": "Frequency [Hz]"},
         title="Eigenfrequency vs. mode number, per FEA case",
@@ -455,6 +459,7 @@ def versions_filter(results: list):
         get_sestra_default_exe_path,
         get_sestra_version,
     )
+
     if get_abaqus_exe() is not None:
         try:
             versions["abaqus"] = get_abaqus_version()

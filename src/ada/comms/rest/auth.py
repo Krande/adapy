@@ -134,20 +134,12 @@ class _JWKSVerifier:
 
     async def _jwks(self, force_refresh: bool = False) -> PyJWKClient:
         now = time.monotonic()
-        if (
-            not force_refresh
-            and self._jwks_client is not None
-            and now - self._jwks_at < _JWKS_TTL
-        ):
+        if not force_refresh and self._jwks_client is not None and now - self._jwks_at < _JWKS_TTL:
             return self._jwks_client
         async with self._lock:
             # Recheck under the lock — another task may have refreshed
             # while we were waiting.
-            if (
-                not force_refresh
-                and self._jwks_client is not None
-                and time.monotonic() - self._jwks_at < _JWKS_TTL
-            ):
+            if not force_refresh and self._jwks_client is not None and time.monotonic() - self._jwks_at < _JWKS_TTL:
                 return self._jwks_client
             doc = await self._discovery_doc()
             jwks_uri = doc["jwks_uri"]
@@ -212,10 +204,7 @@ def _claims_to_user(claims: dict[str, Any], admin_group: str) -> User:
         # back to either of the above.
         email=str(claims.get("email") or claims.get("preferred_username") or ""),
         display_name=str(
-            claims.get("name")
-            or claims.get("preferred_username")
-            or claims.get("email")
-            or claims.get("sub")
+            claims.get("name") or claims.get("preferred_username") or claims.get("email") or claims.get("sub")
         ),
         groups=groups,
         is_admin=is_admin,
@@ -328,9 +317,7 @@ async def _verify_cli_token(request: Request, token: str, config: AuthConfig) ->
     return User(
         sub=str(claims["sub"]),
         email=str(claims.get("email") or ""),
-        display_name=str(
-            claims.get("name") or claims.get("email") or claims["sub"]
-        ),
+        display_name=str(claims.get("name") or claims.get("email") or claims["sub"]),
         groups=frozenset(str(g) for g in raw_groups),
         is_admin=bool(claims.get("is_admin")),
     )
@@ -376,9 +363,7 @@ async def revoke_cli_tokens(pool, user: User) -> int:
     from . import db as db_module
 
     now = int(time.time())
-    await db_module.set_setting(
-        pool, _revoke_setting_key(user.sub), str(now), updated_by=user.sub
-    )
+    await db_module.set_setting(pool, _revoke_setting_key(user.sub), str(now), updated_by=user.sub)
     return now
 
 

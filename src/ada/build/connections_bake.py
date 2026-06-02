@@ -28,7 +28,6 @@ from __future__ import annotations
 import importlib
 import json
 import logging
-import pathlib
 from dataclasses import asdict, is_dataclass
 from typing import Any
 

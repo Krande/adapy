@@ -9,8 +9,6 @@ from __future__ import annotations
 
 import asyncio
 
-import pytest
-
 from ada.comms.rest import audit_issue
 from ada.comms.rest.audit_issue import (
     comment_body,
@@ -24,19 +22,22 @@ from ada.comms.rest.audit_issue import (
     sync_run_issues,
 )
 
-
 # ── fingerprint ─────────────────────────────────────────────────────
 
 
 def test_fingerprint_is_deterministic():
     """Same inputs → same hash, every time."""
     fp1 = fingerprint(
-        source_ext=".step", target_format="glb",
-        error_msg="UnsupportedFormat", traceback="Traceback...\nFile a.py:1",
+        source_ext=".step",
+        target_format="glb",
+        error_msg="UnsupportedFormat",
+        traceback="Traceback...\nFile a.py:1",
     )
     fp2 = fingerprint(
-        source_ext=".step", target_format="glb",
-        error_msg="UnsupportedFormat", traceback="Traceback...\nFile a.py:1",
+        source_ext=".step",
+        target_format="glb",
+        error_msg="UnsupportedFormat",
+        traceback="Traceback...\nFile a.py:1",
     )
     assert fp1 == fp2
     assert len(fp1) == 16
@@ -52,8 +53,10 @@ def test_fingerprint_changes_on_real_diffs():
     b = fingerprint(source_ext=".ifc", target_format="glb", **base)
     c = fingerprint(source_ext=".step", target_format="ifc", **base)
     d = fingerprint(
-        source_ext=".step", target_format="glb",
-        error_msg="DifferentError", traceback="frame",
+        source_ext=".step",
+        target_format="glb",
+        error_msg="DifferentError",
+        traceback="frame",
     )
     assert len({a, b, c, d}) == 4
 
@@ -63,12 +66,14 @@ def test_fingerprint_strips_volatile_substrings():
     collapse so the same root cause produces the same fingerprint
     across runs — the dedup invariant the issue bot relies on."""
     fp1 = fingerprint(
-        source_ext=".step", target_format="glb",
+        source_ext=".step",
+        target_format="glb",
         error_msg="Failed at /tmp/abc123/x.step",
         traceback='File "module.py":42 in convert',
     )
     fp2 = fingerprint(
-        source_ext=".step", target_format="glb",
+        source_ext=".step",
+        target_format="glb",
         error_msg="Failed at /tmp/zxy999/x.step",
         traceback='File "module.py":777 in convert',
     )
@@ -77,12 +82,14 @@ def test_fingerprint_strips_volatile_substrings():
 
 def test_fingerprint_strips_iso_timestamps():
     fp1 = fingerprint(
-        source_ext=".step", target_format="glb",
+        source_ext=".step",
+        target_format="glb",
         error_msg="error at 2026-05-27T14:23:11+00:00",
         traceback=None,
     )
     fp2 = fingerprint(
-        source_ext=".step", target_format="glb",
+        source_ext=".step",
+        target_format="glb",
         error_msg="error at 2025-01-01T00:00:00Z",
         traceback=None,
     )
@@ -93,8 +100,10 @@ def test_fingerprint_tolerates_none_inputs():
     """A row with only an error message (no traceback) still
     hashes deterministically."""
     fp = fingerprint(
-        source_ext=".step", target_format="glb",
-        error_msg=None, traceback=None,
+        source_ext=".step",
+        target_format="glb",
+        error_msg=None,
+        traceback=None,
     )
     assert len(fp) == 16
 
@@ -154,7 +163,8 @@ def test_scope_of_recovers_wire_format():
 def test_issue_body_includes_fingerprint_and_sanitized_source():
     body = issue_body(
         fp="abc1234567890def",
-        source_ext=".step", target_format="glb",
+        source_ext=".step",
+        target_format="glb",
         sanitized_source="corpus:x/file-1234567890",
         error_msg="UnsupportedFormat",
         traceback="trace1\ntrace2\ntrace3",
@@ -169,7 +179,9 @@ def test_issue_body_includes_fingerprint_and_sanitized_source():
 
 def test_comment_body_is_short_and_includes_run_id():
     body = comment_body(
-        fp="abc", run_id="r1", sanitized_source="corpus:x/file-xx",
+        fp="abc",
+        run_id="r1",
+        sanitized_source="corpus:x/file-xx",
         run_started_at=None,
     )
     assert "r1" in body
@@ -209,8 +221,9 @@ class _StubClient:
     async def create_issue(self, *, title: str, body: str, labels):
         rec = {"title": title, "body": body, "labels": list(labels)}
         self.created.append(rec)
-        return _FakeIssue(number=len(self.created), title=title, body=body,
-                          html_url=None, labels=list(labels), state="open")
+        return _FakeIssue(
+            number=len(self.created), title=title, body=body, html_url=None, labels=list(labels), state="open"
+        )
 
     async def comment_issue(self, number: int, *, body: str):
         self.commented.append((number, body))
@@ -220,8 +233,7 @@ class _StubClient:
 
 
 class _FakeIssue:
-    def __init__(self, *, number, title, body=None, html_url=None,
-                 labels=None, state="open"):
+    def __init__(self, *, number, title, body=None, html_url=None, labels=None, state="open"):
         self.number = number
         self.title = title
         self.body = body
@@ -232,8 +244,12 @@ class _FakeIssue:
 
 def _job(key, target, error="boom", tb=None, scope_kind="corpus", scope_id="x"):
     return {
-        "key": key, "target_format": target, "error": error,
-        "traceback": tb, "scope_kind": scope_kind, "scope_id": scope_id,
+        "key": key,
+        "target_format": target,
+        "error": error,
+        "traceback": tb,
+        "scope_kind": scope_kind,
+        "scope_id": scope_id,
         "status": "failed",
     }
 
@@ -244,9 +260,13 @@ def test_sync_run_issues_opens_a_new_issue_per_fingerprint():
         _job("a.step", "glb", error="UnsupportedFormat"),
         _job("b.step", "ifc", error="OtherError"),
     ]
-    summary = asyncio.run(sync_run_issues(
-        client, run={"id": "r1", "started_at": None}, failed_jobs=jobs,
-    ))
+    summary = asyncio.run(
+        sync_run_issues(
+            client,
+            run={"id": "r1", "started_at": None},
+            failed_jobs=jobs,
+        )
+    )
     assert summary["opened"] == 2
     assert summary["commented"] == 0
     assert summary["unique_failures"] == 2
@@ -260,9 +280,13 @@ def test_sync_run_issues_dedups_same_fingerprint_within_one_run():
         _job("a.step", "glb", error="UnsupportedFormat"),
         _job("a2.step", "glb", error="UnsupportedFormat"),  # same fp
     ]
-    summary = asyncio.run(sync_run_issues(
-        client, run={"id": "r1", "started_at": None}, failed_jobs=jobs,
-    ))
+    summary = asyncio.run(
+        sync_run_issues(
+            client,
+            run={"id": "r1", "started_at": None},
+            failed_jobs=jobs,
+        )
+    )
     assert summary["opened"] == 1
     assert summary["unique_failures"] == 1
 
@@ -272,18 +296,24 @@ def test_sync_run_issues_comments_on_existing_label():
     don't reopen."""
     # Pre-seed an "open" issue under the audit-fp label.
     sample_fp = fingerprint(
-        source_ext=".step", target_format="glb",
-        error_msg="UnsupportedFormat", traceback=None,
+        source_ext=".step",
+        target_format="glb",
+        error_msg="UnsupportedFormat",
+        traceback=None,
     )
     label = fp_label(sample_fp)
-    client = _StubClient(existing={
-        label: [{"number": 7, "title": "audit: .step → glb", "labels": [label]}],
-    })
-    summary = asyncio.run(sync_run_issues(
-        client,
-        run={"id": "r2", "started_at": "2026-05-27T00:00:00Z"},
-        failed_jobs=[_job("a.step", "glb", error="UnsupportedFormat")],
-    ))
+    client = _StubClient(
+        existing={
+            label: [{"number": 7, "title": "audit: .step → glb", "labels": [label]}],
+        }
+    )
+    summary = asyncio.run(
+        sync_run_issues(
+            client,
+            run={"id": "r2", "started_at": "2026-05-27T00:00:00Z"},
+            failed_jobs=[_job("a.step", "glb", error="UnsupportedFormat")],
+        )
+    )
     assert summary["opened"] == 0
     assert summary["commented"] == 1
     assert client.commented[0][0] == 7  # commented on issue #7
@@ -295,10 +325,14 @@ def test_sync_run_issues_per_failure_error_doesnt_abort_run():
 
     class _BrokenLookupClient(_StubClient):
         async def list_issues_by_label(self, label, *, state="open"):
-            if label == fp_label(fingerprint(
-                source_ext=".step", target_format="glb",
-                error_msg="UnsupportedFormat", traceback=None,
-            )):
+            if label == fp_label(
+                fingerprint(
+                    source_ext=".step",
+                    target_format="glb",
+                    error_msg="UnsupportedFormat",
+                    traceback=None,
+                )
+            ):
                 raise RuntimeError("simulated transport blip")
             return []
 
@@ -307,9 +341,13 @@ def test_sync_run_issues_per_failure_error_doesnt_abort_run():
         _job("a.step", "glb", error="UnsupportedFormat"),
         _job("b.step", "ifc", error="OtherError"),
     ]
-    summary = asyncio.run(sync_run_issues(
-        client, run={"id": "r3", "started_at": None}, failed_jobs=jobs,
-    ))
+    summary = asyncio.run(
+        sync_run_issues(
+            client,
+            run={"id": "r3", "started_at": None},
+            failed_jobs=jobs,
+        )
+    )
     # One failure → opened issue; the broken one is counted as an error.
     assert summary["opened"] == 1
     assert len(summary["errors"]) == 1
@@ -317,9 +355,13 @@ def test_sync_run_issues_per_failure_error_doesnt_abort_run():
 
 def test_sync_run_issues_handles_no_failures():
     """Empty failed_jobs is a no-op summary, not an error."""
-    summary = asyncio.run(sync_run_issues(
-        _StubClient(), run={"id": "r4"}, failed_jobs=[],
-    ))
+    summary = asyncio.run(
+        sync_run_issues(
+            _StubClient(),
+            run={"id": "r4"},
+            failed_jobs=[],
+        )
+    )
     assert summary == {"opened": 0, "commented": 0, "errors": [], "unique_failures": 0}
 
 
@@ -328,18 +370,28 @@ def test_sync_run_issues_handles_no_failures():
 
 def test_issue_body_default_label_says_audit_run():
     body = issue_body(
-        fp="abc", source_ext=".step", target_format="glb",
-        sanitized_source="shared/x.step", error_msg="boom",
-        traceback=None, run_id="r1", run_started_at=None,
+        fp="abc",
+        source_ext=".step",
+        target_format="glb",
+        sanitized_source="shared/x.step",
+        error_msg="boom",
+        traceback=None,
+        run_id="r1",
+        run_started_at=None,
     )
     assert "First seen in audit run" in body
 
 
 def test_issue_body_custom_label_for_user_conversion():
     body = issue_body(
-        fp="abc", source_ext=".step", target_format="glb",
-        sanitized_source="user/me/x.step", error_msg="boom",
-        traceback=None, run_id="audit-row-42", run_started_at=None,
+        fp="abc",
+        source_ext=".step",
+        target_format="glb",
+        sanitized_source="user/me/x.step",
+        error_msg="boom",
+        traceback=None,
+        run_id="audit-row-42",
+        run_started_at=None,
         source_label="user conversion",
     )
     assert "First seen in user conversion" in body
@@ -348,8 +400,10 @@ def test_issue_body_custom_label_for_user_conversion():
 
 def test_comment_body_uses_source_label():
     body = comment_body(
-        fp="abc", run_id="audit-row-42",
-        sanitized_source="shared/x.step", run_started_at=None,
+        fp="abc",
+        run_id="audit-row-42",
+        sanitized_source="shared/x.step",
+        run_started_at=None,
         source_label="user conversion",
     )
     assert "Reproduced in user conversion" in body
@@ -361,28 +415,39 @@ def test_sync_run_issues_forwards_source_label_to_create():
     'user conversion', not 'audit run'."""
     client = _StubClient()
     job = _job("a.step", "glb", error="UnsupportedFormat")
-    asyncio.run(sync_run_issues(
-        client, run={"id": "audit-row-42", "started_at": None},
-        failed_jobs=[job], source_label="user conversion",
-    ))
+    asyncio.run(
+        sync_run_issues(
+            client,
+            run={"id": "audit-row-42", "started_at": None},
+            failed_jobs=[job],
+            source_label="user conversion",
+        )
+    )
     assert client.created, "expected one issue created"
     assert "user conversion" in client.created[0]["body"]
 
 
 def test_sync_run_issues_forwards_source_label_to_comment():
     sample_fp = fingerprint(
-        source_ext=".step", target_format="glb",
-        error_msg="UnsupportedFormat", traceback=None,
+        source_ext=".step",
+        target_format="glb",
+        error_msg="UnsupportedFormat",
+        traceback=None,
     )
     label = fp_label(sample_fp)
-    client = _StubClient(existing={
-        label: [{"number": 9, "title": "audit: .step → glb", "labels": [label]}],
-    })
-    asyncio.run(sync_run_issues(
-        client, run={"id": "audit-row-9", "started_at": None},
-        failed_jobs=[_job("b.step", "glb", error="UnsupportedFormat")],
-        source_label="user conversion",
-    ))
+    client = _StubClient(
+        existing={
+            label: [{"number": 9, "title": "audit: .step → glb", "labels": [label]}],
+        }
+    )
+    asyncio.run(
+        sync_run_issues(
+            client,
+            run={"id": "audit-row-9", "started_at": None},
+            failed_jobs=[_job("b.step", "glb", error="UnsupportedFormat")],
+            source_label="user conversion",
+        )
+    )
     assert client.commented, "expected one comment"
     _, comment_text = client.commented[0]
     assert "user conversion" in comment_text

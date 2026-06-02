@@ -18,6 +18,7 @@ tessellate + pyocc bridge). Grow as the migration progresses; do not
 add operations here that don't have a working implementation in at
 least one backend.
 """
+
 from __future__ import annotations
 
 import os
@@ -54,7 +55,7 @@ class Mesh(Protocol):
     """Triangle mesh produced by tessellation."""
 
     positions: Any  # flat float buffer, length = 3 * num_vertices
-    indices: Any    # flat int buffer,   length = 3 * num_triangles
+    indices: Any  # flat int buffer,   length = 3 * num_triangles
 
 
 class CadBackend(Protocol):
@@ -72,9 +73,7 @@ class CadBackend(Protocol):
     def bbox(
         self, shape: ShapeHandle, optimal: bool = True, use_mesh: bool = False
     ) -> tuple[float, float, float, float, float, float]: ...
-    def obb(
-        self, shape: ShapeHandle
-    ) -> "tuple[tuple[float, float, float], tuple[float, float, float]]": ...
+    def obb(self, shape: ShapeHandle) -> "tuple[tuple[float, float, float], tuple[float, float, float]]": ...
     def read_step_bytes(self, data: bytes) -> ShapeHandle: ...
     def write_glb_bytes(self, shape: ShapeHandle, linear_deflection: float = 0.1) -> bytes: ...
     def is_handle(self, obj: Any) -> bool: ...
@@ -94,10 +93,13 @@ class CadBackend(Protocol):
     def adopt_occ_shape(self, occ_shape: Any) -> ShapeHandle: ...
     def make_halfspace(self, origin, normal, flip: bool) -> ShapeHandle: ...
     def cut_surfaces(self, solid: ShapeHandle, cutters: list, deflection: float, tol: float) -> list: ...
+
     # --- topology-kernel verbs (the non-manifold core for ada.topology) ---
     def make_volumes_from_faces(self, faces: list[ShapeHandle], tolerance: float = 1e-6) -> list[ShapeHandle]: ...
     def merge_cells(self, solids: list[ShapeHandle], tolerance: float = 0.0) -> list[ShapeHandle]: ...
-    def non_manifold_merge(self, shapes: list[ShapeHandle], tolerance: float = 1e-6, glue: bool = True) -> ShapeHandle: ...
+    def non_manifold_merge(
+        self, shapes: list[ShapeHandle], tolerance: float = 1e-6, glue: bool = True
+    ) -> ShapeHandle: ...
     def free_faces(self, solids: list[ShapeHandle]) -> list[ShapeHandle]: ...
     def point_in_solid(self, solid: ShapeHandle, point, tolerance: float = 1e-6) -> "Containment": ...
     def center_of_mass(self, shape: ShapeHandle) -> "Point": ...
@@ -117,6 +119,7 @@ class AdacppBackend:
 
     def __init__(self) -> None:
         from adacpp import cad
+
         self._cad = cad
 
     def build(self, geometry: "Geometry") -> ShapeHandle:
@@ -137,8 +140,12 @@ class AdacppBackend:
         if isinstance(g, so.Box):
             p = g.position
             shape = self._cad.build_box(
-                list(p.location), _axis(p.axis, (0, 0, 1)), _axis(p.ref_direction, (1, 0, 0)),
-                g.x_length, g.y_length, g.z_length,
+                list(p.location),
+                _axis(p.axis, (0, 0, 1)),
+                _axis(p.ref_direction, (1, 0, 0)),
+                g.x_length,
+                g.y_length,
+                g.z_length,
             )
         elif isinstance(g, so.Cylinder):
             p = g.position
@@ -160,8 +167,13 @@ class AdacppBackend:
             inners = [self._encode_curve(c) for c in area.inner_curves]
             p = g.position
             shape = self._cad.build_extruded_area_solid(
-                outer, inners, self._xyz(p.location),
-                _axis(p.axis, (0, 0, 1)), _axis(p.ref_direction, (1, 0, 0)), g.depth, is_area,
+                outer,
+                inners,
+                self._xyz(p.location),
+                _axis(p.axis, (0, 0, 1)),
+                _axis(p.ref_direction, (1, 0, 0)),
+                g.depth,
+                is_area,
             )
         elif isinstance(g, so.RevolvedAreaSolid):
             area = g.swept_area
@@ -175,9 +187,15 @@ class AdacppBackend:
             inners = [self._encode_curve(c) for c in area.inner_curves]
             p = g.position
             shape = self._cad.build_revolved_area_solid(
-                outer, inners, self._xyz(p.location),
-                _axis(p.axis, (0, 0, 1)), _axis(p.ref_direction, (1, 0, 0)),
-                self._xyz(g.axis.location), _axis(g.axis.axis, (0, 0, 1)), float(g.angle), is_area,
+                outer,
+                inners,
+                self._xyz(p.location),
+                _axis(p.axis, (0, 0, 1)),
+                _axis(p.ref_direction, (1, 0, 0)),
+                self._xyz(g.axis.location),
+                _axis(g.axis.axis, (0, 0, 1)),
+                float(g.angle),
+                is_area,
             )
         elif isinstance(g, so.FixedReferenceSweptAreaSolid):
             area = g.swept_area
@@ -191,7 +209,9 @@ class AdacppBackend:
             directrix = self._encode_curve(g.directrix)
             outer = self._encode_curve(area.outer_curve)
             shape = self._cad.build_fixed_reference_swept_area_solid(
-                directrix, outer, self._xyz(g.position.location),
+                directrix,
+                outer,
+                self._xyz(g.position.location),
             )
         elif isinstance(g, su.CurveBoundedPlane):
             import ada.geom.curves as cu
@@ -205,8 +225,11 @@ class AdacppBackend:
             inners = [self._encode_curve(c) for c in g.inner_boundaries]
             pos = g.basis_surface.position
             shape = self._cad.build_planar_face(
-                outer, inners, self._xyz(pos.location),
-                _axis(pos.axis, (0, 0, 1)), _axis(pos.ref_direction, (1, 0, 0)),
+                outer,
+                inners,
+                self._xyz(pos.location),
+                _axis(pos.axis, (0, 0, 1)),
+                _axis(pos.ref_direction, (1, 0, 0)),
             )
         elif isinstance(g, su.FaceBasedSurfaceModel):
             import ada.geom.curves as cu
@@ -511,7 +534,11 @@ class OccBackend:
         from OCC.Core.Bnd import Bnd_Box
         from OCC.Core.BRep import BRep_Tool
         from OCC.Core.BRepAdaptor import BRepAdaptor_Surface
-        from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Common, BRepAlgoAPI_Cut, BRepAlgoAPI_Fuse
+        from OCC.Core.BRepAlgoAPI import (
+            BRepAlgoAPI_Common,
+            BRepAlgoAPI_Cut,
+            BRepAlgoAPI_Fuse,
+        )
         from OCC.Core.BRepBndLib import brepbndlib
         from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_Transform
         from OCC.Core.BRepCheck import BRepCheck_Analyzer
@@ -524,18 +551,21 @@ class OccBackend:
         from OCC.Core.RWGltf import RWGltf_CafWriter, RWGltf_WriterTrsfFormat
         from OCC.Core.RWMesh import RWMesh_CoordinateSystem_Zup
         from OCC.Core.STEPControl import STEPControl_Reader
-        from OCC.Core.TopoDS import TopoDS_Shape
-        from OCC.Core.TCollection import TCollection_AsciiString, TCollection_ExtendedString
+        from OCC.Core.TCollection import (
+            TCollection_AsciiString,
+            TCollection_ExtendedString,
+        )
         from OCC.Core.TColStd import TColStd_IndexedDataMapOfStringString
         from OCC.Core.TDocStd import TDocStd_Document
+        from OCC.Core.TopoDS import TopoDS_Shape
         from OCC.Core.XCAFDoc import XCAFDoc_DocumentTool
         from OCC.Extend.TopologyUtils import TopologyExplorer
+
         from ada.occ.tessellating import tessellate_shape
-        from ada.occ.utils import (
-            make_box_by_points,
-            make_cylinder as _occ_make_cylinder,
-            make_sphere as _occ_make_sphere,
-        )
+        from ada.occ.utils import make_box_by_points
+        from ada.occ.utils import make_cylinder as _occ_make_cylinder
+        from ada.occ.utils import make_sphere as _occ_make_sphere
+
         self._Bnd_Box = Bnd_Box
         self._brepbndlib = brepbndlib
         self._BRepAlgoAPI_Common = BRepAlgoAPI_Common
@@ -586,8 +616,7 @@ class OccBackend:
         # Centered axis-aligned box: matches adacpp.cad.make_box semantics
         # (corner at -d/2, opposite corner at +d/2). adapy's helper expects
         # tuple/list/ndarray, not gp_Pnt.
-        return self._make_box_by_points((-dx / 2, -dy / 2, -dz / 2),
-                                        (dx / 2, dy / 2, dz / 2))
+        return self._make_box_by_points((-dx / 2, -dy / 2, -dz / 2), (dx / 2, dy / 2, dz / 2))
 
     def make_cylinder(self, radius: float, height: float) -> ShapeHandle:
         # adapy's helper takes (origin point, axis vec, height, radius).
@@ -727,7 +756,9 @@ class OccBackend:
         # implementation (which uses MEMFS). Native /tmp is real disk; cost
         # is a single file write+read of the input buffer.
         import tempfile
+
         from OCC.Core.TopoDS import TopoDS_Shape
+
         with tempfile.NamedTemporaryFile(suffix=".step", delete=False) as f:
             f.write(data)
             path = f.name
@@ -742,6 +773,7 @@ class OccBackend:
             return shape
         finally:
             import os
+
             os.unlink(path)
 
     def write_glb_bytes(self, shape: ShapeHandle, linear_deflection: float = 0.1) -> bytes:
@@ -750,6 +782,7 @@ class OccBackend:
         # slurp the bytes back. Output identical between backends.
         import os
         import tempfile
+
         if linear_deflection <= 0.0:
             linear_deflection = 0.1
         self._BRepMesh_IncrementalMesh(shape, linear_deflection, False, 0.5, True)
@@ -764,9 +797,7 @@ class OccBackend:
             writer = self._RWGltf_CafWriter(self._TCollection_AsciiString(path), True)
             # Z-up source + compact transforms — same as adapy's ada.occ.gltf_writer.to_gltf
             # so output is byte-compatible with the viewer's existing assumptions.
-            writer.ChangeCoordinateSystemConverter().SetInputCoordinateSystem(
-                self._RWMesh_CoordinateSystem_Zup
-            )
+            writer.ChangeCoordinateSystemConverter().SetInputCoordinateSystem(self._RWMesh_CoordinateSystem_Zup)
             writer.SetTransformationFormat(self._RWGltf_WriterTrsfFormat_Compact)
             file_info = self._TColStd_IndexedDataMapOfStringString()
             file_info.Add(
@@ -812,9 +843,18 @@ class OccBackend:
         m = matrix
         trsf = gp_Trsf()
         trsf.SetValues(
-            float(m[0][0]), float(m[0][1]), float(m[0][2]), float(m[0][3]),
-            float(m[1][0]), float(m[1][1]), float(m[1][2]), float(m[1][3]),
-            float(m[2][0]), float(m[2][1]), float(m[2][2]), float(m[2][3]),
+            float(m[0][0]),
+            float(m[0][1]),
+            float(m[0][2]),
+            float(m[0][3]),
+            float(m[1][0]),
+            float(m[1][1]),
+            float(m[1][2]),
+            float(m[1][3]),
+            float(m[2][0]),
+            float(m[2][1]),
+            float(m[2][2]),
+            float(m[2][3]),
         )
         return self._BRepBuilderAPI_Transform(shape, trsf, copy).Shape()
 
@@ -968,6 +1008,7 @@ class OccBackend:
             TopAbs_SHELL,
             TopAbs_SOLID,
         )
+
         from ada.geom.points import Point
 
         props = GProp_GProps()

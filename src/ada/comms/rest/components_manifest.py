@@ -21,7 +21,6 @@ from dataclasses import dataclass
 from ada.comms.rest.scope import Scope
 from ada.comms.rest.storage import Storage
 
-
 _VERSIONS_PREFIX = "versions/"
 
 
@@ -51,11 +50,7 @@ async def resolve_latest_manifest(
         prefix = f"{_VERSIONS_PREFIX}{branch}/"
     files = await storage.list(scope)
 
-    candidates = [
-        f
-        for f in files
-        if f.key.startswith(prefix) and f.key.endswith("/manifest.json")
-    ]
+    candidates = [f for f in files if f.key.startswith(prefix) and f.key.endswith("/manifest.json")]
     if not candidates:
         return None
 
@@ -109,10 +104,7 @@ def expose_manifest(
     one (legacy bakes) — the build endpoint treats that as "let the
     default-pool router pick".
     """
-    base = (
-        f"/api/scopes/{_scope_url_segment(scope)}/blobs/"
-        f"versions/{resolved.branch}/{resolved.commit}/"
-    )
+    base = f"/api/scopes/{_scope_url_segment(scope)}/blobs/" f"versions/{resolved.branch}/{resolved.commit}/"
     manifest_capability = resolved.body.get("capability")
     out_specs: dict[str, dict] = {}
     for name, entry in (resolved.body.get("specs") or {}).items():

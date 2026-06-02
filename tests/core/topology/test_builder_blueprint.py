@@ -4,6 +4,7 @@ A trivial blueprint turns each cell into a part (one plate per external face)
 and registers it under the cell's area; the builder runs the lifecycle and folds
 the area map into the output part.
 """
+
 from __future__ import annotations
 
 import ada
@@ -53,8 +54,14 @@ def test_blueprint_area_grouping_and_output_assembly():
     from ada.topology import CellGraph
 
     pairs = [
-        (ada.PrimBox("RoomA", (0, 0, 0), (1, 1, 1)).solid_occ(), TopoSpace(NAME="RoomA", X=0, Y=0, Z=0, DX=1, DY=1, DZ=1, AREA="DeckA")),
-        (ada.PrimBox("RoomB", (1, 0, 0), (2, 1, 1)).solid_occ(), TopoSpace(NAME="RoomB", X=1, Y=0, Z=0, DX=1, DY=1, DZ=1, AREA="DeckB")),
+        (
+            ada.PrimBox("RoomA", (0, 0, 0), (1, 1, 1)).solid_occ(),
+            TopoSpace(NAME="RoomA", X=0, Y=0, Z=0, DX=1, DY=1, DZ=1, AREA="DeckA"),
+        ),
+        (
+            ada.PrimBox("RoomB", (1, 0, 0), (2, 1, 1)).solid_occ(),
+            TopoSpace(NAME="RoomB", X=1, Y=0, Z=0, DX=1, DY=1, DZ=1, AREA="DeckB"),
+        ),
     ]
     cg = CellGraph.from_cell_solids(pairs, merge=True)
     builder = TopologyBuilder(blueprint=_PlateBlueprint(), cell_graph=cg)

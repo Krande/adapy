@@ -77,9 +77,7 @@ class FeaVerificationResult(FeaCaseResult):
         self.eig_data = eig
 
 
-def postprocess_result(
-    result: Union[FEAResult, FEAResultV2], metadata: dict
-) -> FeaVerificationResult:
+def postprocess_result(result: Union[FEAResult, FEAResultV2], metadata: dict) -> FeaVerificationResult:
     """Build a FeaVerificationResult from a freshly-executed FEA case."""
     from ada.fem.formats.general import FEATypes
 
@@ -97,9 +95,7 @@ def postprocess_result(
     )
 
 
-def retrieve_cached_results(
-    results: list[FeaVerificationResult], cache_dir: pathlib.Path
-) -> None:
+def retrieve_cached_results(results: list[FeaVerificationResult], cache_dir: pathlib.Path) -> None:
     """Augment ``results`` in-place with cached cases from ``cache_dir``.
 
     The cache-walk + decode itself is generic (lives in

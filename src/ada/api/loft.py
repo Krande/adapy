@@ -9,11 +9,11 @@ needs: building a wire from a poly loop, intersecting the resulting
 solid with a plane to extract a cross-section, and iterating the face
 boundaries back out as poly loops for downstream plate construction.
 """
+
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Iterator, Sequence
-
 import math
+from typing import TYPE_CHECKING, Iterator, Sequence
 
 from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Common
 from OCC.Core.BRepBuilderAPI import (

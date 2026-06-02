@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import collections
 import traceback
 from typing import Iterable
 
@@ -139,7 +138,7 @@ class SatStore:
                 j = i + 1
                 while j < n and s[j] in " \t\n\r":
                     j += 1
-                if s[j:j + 4] == "ref ":
+                if s[j : j + 4] == "ref ":
                     # Skip past the closing brace of this reference.
                     end = s.find("}", j)
                     if end < 0:
@@ -163,7 +162,7 @@ class SatStore:
                 if depth != 0:
                     # Unbalanced — bail on this record.
                     break
-                inner = s[i + 1:k].strip()
+                inner = s[i + 1 : k].strip()
                 # AcisSubType.from_string expects a trailing ``}``;
                 # historic ``get_sub_type_str`` produces ``<content> }``.
                 ref_store[next_idx] = AcisSubType.from_string(inner + " }", record)
@@ -275,6 +274,7 @@ class SatReaderFactory:
             succeeds here."""
             try:
                 from ada.cadit.sat.read.advanced_face import get_face_bound
+
                 bounds = get_face_bound(face_record)
                 if not bounds:
                     return None
@@ -329,23 +329,25 @@ class SatReaderFactory:
                 "attempted": attempted,
                 "succeeded": succeeded,
                 "failed": attempted - succeeded,
-                "by_reason": {f"{etype}: {msg}": (cnt, examples)
-                              for (etype, msg), (cnt, examples) in fail_stats.items()},
+                "by_reason": {
+                    f"{etype}: {msg}": (cnt, examples) for (etype, msg), (cnt, examples) in fail_stats.items()
+                },
             }
             failed = attempted - succeeded
             if attempted > 0 and failed > 0:
                 pct = 100.0 * failed / attempted
                 top_lines = []
-                for (etype, msg), (cnt, examples) in sorted(
-                    fail_stats.items(), key=lambda kv: -kv[1][0]
-                )[:5]:
+                for (etype, msg), (cnt, examples) in sorted(fail_stats.items(), key=lambda kv: -kv[1][0])[:5]:
                     sample = ", ".join(examples[:3])
                     top_lines.append(f"    [{etype}] {msg} — {cnt} faces (e.g. {sample})")
                 top_str = "\n".join(top_lines) if top_lines else ""
                 logger.warning(
                     "SAT advanced-face conversion: %d/%d (%.1f%%) failed and fell "
                     "back to flat polygons. Top failure modes:\n%s",
-                    failed, attempted, pct, top_str,
+                    failed,
+                    attempted,
+                    pct,
+                    top_str,
                 )
 
     def iter_curved_face(self) -> Iterable[tuple[AcisRecord, Geometry]]:

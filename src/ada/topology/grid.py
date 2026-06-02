@@ -3,6 +3,7 @@
 Pure Python (bisect over coordinate lists) — no CAD kernel involved. Used to
 register geometry against the cell graph's structural grid lines.
 """
+
 from __future__ import annotations
 
 import bisect

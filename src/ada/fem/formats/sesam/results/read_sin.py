@@ -10,10 +10,11 @@ adapter via the unchanged :class:`Sif2Mesh` consumer.
 A separate :mod:`sin_to_sif` module still emits SIF text for
 debugging / interop, but isn't on the read path.
 """
+
 from __future__ import annotations
 
 import pathlib
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -58,9 +59,7 @@ _RESULT_CARDS = (
 _TEXT_CARDS = {"TDSECT", "TDSETNAM", "TDMATER", "TDRESREF"}
 
 
-def _records_for(
-    sin: SinFile, card, *, step: int | None = None
-) -> list[list]:
+def _records_for(sin: SinFile, card, *, step: int | None = None) -> list[list]:
     """Pull every record of one type into the SifReader-compatible
     list shape.
 
@@ -152,10 +151,7 @@ class SinReader(SifReader):
         )
         gelmnt_rows = _records_for(self.sin, cards.GELMNT1)
         if gelmnt_rows:
-            self.elements = [
-                (row[eltyp_idx], row[elno_idx], row[nids_idx:])
-                for row in gelmnt_rows
-            ]
+            self.elements = [(row[eltyp_idx], row[elno_idx], row[nids_idx:]) for row in gelmnt_rows]
         gelref_rows = _records_for(self.sin, cards.GELREF1)
         if gelref_rows:
             self._gelref1 = gelref_rows
@@ -189,9 +185,7 @@ class SinReader(SifReader):
             # present as a type-block but empty (no record rows) in
             # certain super-elements, so without this guard the whole
             # convert fails.
-            super_header = [-float(block.ndim), float(block.ndim)] + [
-                float(d) for d in block.dims
-            ]
+            super_header = [-float(block.ndim), float(block.ndim)] + [float(d) for d in block.dims]
             rows = [super_header, *rows]
             self.results.append((card.name, rows))
 
@@ -274,9 +268,7 @@ def read_sin_metadata(sin_file: str | pathlib.Path) -> SinMetadata:
         sin.close()
 
 
-def read_sin_file(
-    sin_file: str | pathlib.Path, *, step: int | None = None
-) -> "FEAResult":
+def read_sin_file(sin_file: str | pathlib.Path, *, step: int | None = None) -> "FEAResult":
     """Read a Sesam ``.sin`` (Norsam binary) result file → :class:`FEAResult`.
 
     Pure-Python — no Prepost.exe shell-out, no on-disk SIF

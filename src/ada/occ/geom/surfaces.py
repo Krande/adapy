@@ -1,3 +1,5 @@
+import math
+
 from OCC.Core.BRep import BRep_Builder, BRep_Tool
 from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Cut, BRepAlgoAPI_Fuse
 from OCC.Core.BRepBuilderAPI import (
@@ -36,7 +38,7 @@ from OCC.Core.TColStd import (
     TColStd_Array1OfReal,
     TColStd_Array2OfReal,
 )
-from OCC.Core.TopAbs import TopAbs_EDGE, TopAbs_FACE, TopAbs_REVERSED
+from OCC.Core.TopAbs import TopAbs_FACE, TopAbs_REVERSED
 from OCC.Core.TopExp import TopExp_Explorer
 from OCC.Core.TopLoc import TopLoc_Location
 from OCC.Core.TopoDS import TopoDS_Face, TopoDS_Shape, TopoDS_Shell
@@ -46,7 +48,10 @@ from ada.geom import curves as geo_cu
 from ada.geom import surfaces as geo_su
 from ada.geom.curves import PolyLoop
 from ada.geom.surfaces import FaceBasedSurfaceModel
-from ada.occ.exceptions import UnableToCreateTesselationFromSolidOCCGeom
+from ada.occ.exceptions import (  # noqa: F401 — used by lockstep wire build
+    UnableToCreateCurveOCCGeom,
+    UnableToCreateTesselationFromSolidOCCGeom,
+)
 from ada.occ.geom.curves import (
     make_edge_from_edge,
     make_wire_from_circle,
@@ -56,9 +61,7 @@ from ada.occ.geom.curves import (
     make_wire_from_indexed_poly_curve_geom,
     make_wire_from_poly_loop,
 )
-from ada.occ.exceptions import UnableToCreateCurveOCCGeom  # noqa: F401 — used by lockstep wire build
 from ada.occ.utils import point3d, transform_shape_to_pos
-import math
 
 
 def make_face_from_poly_loop(poly_loop: PolyLoop) -> TopoDS_Shape:
@@ -267,12 +270,19 @@ def _build_geom2d_bspline(pcurve_geom):
             for i, w in enumerate(pcurve_geom.weights, start=1):
                 weights_arr.SetValue(i, float(w))
             return Geom2d_BSplineCurve(
-                poles, weights_arr, knots_arr, mults_arr,
-                int(pcurve_geom.degree), bool(pcurve_geom.closed),
+                poles,
+                weights_arr,
+                knots_arr,
+                mults_arr,
+                int(pcurve_geom.degree),
+                bool(pcurve_geom.closed),
             )
         return Geom2d_BSplineCurve(
-            poles, knots_arr, mults_arr,
-            int(pcurve_geom.degree), bool(pcurve_geom.closed),
+            poles,
+            knots_arr,
+            mults_arr,
+            int(pcurve_geom.degree),
+            bool(pcurve_geom.closed),
         )
     except Exception as ex:
         logger.warning(f"Geom2d_BSplineCurve construction failed: {ex}")
@@ -361,6 +371,7 @@ def _attach_supplied_pcurve(builder, edge, pcurve_geom, face_surface, identity_l
     # Debug: print UV bounds for the first few attaches so we can spot
     # ACIS↔OCCT domain mismatches. Toggle via ADA_PCURVE_PROBE=N.
     import os as _os
+
     global _pcurve_probe_count
     probe_n = int(_os.environ.get("ADA_PCURVE_PROBE") or 0)
     cps = pcurve_geom.control_points_2d
@@ -399,8 +410,12 @@ def _attach_supplied_pcurve(builder, edge, pcurve_geom, face_surface, identity_l
     if probe_n > 0 and _pcurve_probe_count < probe_n:
         logger.warning(
             "[pcurve probe %d edge_param] edge=[%.4f,%.4f] pcurve=[%.4f,%.4f] reparam=%s",
-            _pcurve_probe_count, float(edge_first), float(edge_last),
-            pcurve_first, pcurve_last, reparam_applied,
+            _pcurve_probe_count,
+            float(edge_first),
+            float(edge_last),
+            pcurve_first,
+            pcurve_last,
+            reparam_applied,
         )
 
     n_poles = len(cps)
@@ -421,9 +436,7 @@ def _attach_supplied_pcurve(builder, edge, pcurve_geom, face_surface, identity_l
                 poles, weights_arr, knots_arr, mults_arr, int(pcurve_geom.degree), bool(pcurve_geom.closed)
             )
         else:
-            c2d = Geom2d_BSplineCurve(
-                poles, knots_arr, mults_arr, int(pcurve_geom.degree), bool(pcurve_geom.closed)
-            )
+            c2d = Geom2d_BSplineCurve(poles, knots_arr, mults_arr, int(pcurve_geom.degree), bool(pcurve_geom.closed))
     except Exception as ex:
         logger.warning(f"supplied SAT pcurve failed Geom2d_BSplineCurve construction: {ex}")
         return False
@@ -456,8 +469,16 @@ def _attach_supplied_pcurve(builder, edge, pcurve_geom, face_surface, identity_l
                 samples.append((t, None, None))
         logger.warning(
             "[pcurve probe %d] surface_uv=[%.4f,%.4f]x[%.4f,%.4f] pcurve_param=[%.4f,%.4f] cp_uv_first=%s cp_uv_last=%s samples=%s",
-            _pcurve_probe_count, u0, u1, v0, v1, first_param, last_param,
-            tuple(cps[0]), tuple(cps[-1]), samples,
+            _pcurve_probe_count,
+            u0,
+            u1,
+            v0,
+            v1,
+            first_param,
+            last_param,
+            tuple(cps[0]),
+            tuple(cps[-1]),
+            samples,
         )
         _pcurve_probe_count += 1
     builder.UpdateEdge(edge, c2d, face_surface, identity_location, 1e-6)
@@ -807,11 +828,12 @@ def make_face_from_geom(advanced_face: geo_su.AdvancedFace) -> TopoDS_Face:
             occ_edges.append(occ_edge)
             pcurves.append(supplied_pc)
         if not occ_edges:
-            raise UnableToCreateTesselationFromSolidOCCGeom(
-                "BSpline-surface bound produced no usable edges"
-            )
+            raise UnableToCreateTesselationFromSolidOCCGeom("BSpline-surface bound produced no usable edges")
         n_updated, n_total = update_edges_uv_gen(
-            occ_edges, builder, face_surface, supplied_pcurves=pcurves,
+            occ_edges,
+            builder,
+            face_surface,
+            supplied_pcurves=pcurves,
         )
         # First attempt: default OCC vertex-snap tolerance.
         wire_maker = BRepBuilderAPI_MakeWire()
@@ -829,6 +851,7 @@ def make_face_from_geom(advanced_face: geo_su.AdvancedFace) -> TopoDS_Face:
             # geometries we see and matches OCC's own tolerance bumps in
             # ShapeFix_Wire when it sees gaps below that.
             from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_MakeWire as _MW
+
             wire_maker = _MW()
             try:
                 wire_maker.SetTolerance(1.0e-3)
@@ -838,9 +861,7 @@ def make_face_from_geom(advanced_face: geo_su.AdvancedFace) -> TopoDS_Face:
                 wire_maker.Add(e)
             wire_maker.Build()
         if not wire_maker.IsDone():
-            raise UnableToCreateTesselationFromSolidOCCGeom(
-                "BRepBuilderAPI_MakeWire failed for BSpline-surface bound"
-            )
+            raise UnableToCreateTesselationFromSolidOCCGeom("BRepBuilderAPI_MakeWire failed for BSpline-surface bound")
         return wire_maker.Wire(), n_updated, n_total
 
     if is_bspline_surface:
@@ -893,6 +914,7 @@ def make_face_from_geom(advanced_face: geo_su.AdvancedFace) -> TopoDS_Face:
     # conventions, undoing the consistency we just established.
     # ADA_SKIP_SHAPEFIX=true forces a skip even on the regen path.
     import os as _os_sf
+
     skip_shapefix = (_os_sf.environ.get("ADA_SKIP_SHAPEFIX") or "").strip().lower() in {"1", "true", "yes", "on"}
     use_pcurves_env_sf = (_os_sf.environ.get("ADA_USE_SAT_PCURVES") or "").strip().lower()
     # Default: use_pcurves is ON. ShapeFix should fire only when
@@ -1178,26 +1200,18 @@ def make_face_from_wire_filled(wff: geo_su.WireFilledFace) -> TopoDS_Face:
     consumers that sample the face (BRepMesh, prism extrusion) can hit
     the unbounded region.
     """
-    from OCC.Core.BRepBuilderAPI import (
-        BRepBuilderAPI_MakeFace,
-        BRepBuilderAPI_MakeWire,
-    )
+    from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_MakeFace, BRepBuilderAPI_MakeWire
     from OCC.Core.BRepOffsetAPI import BRepOffsetAPI_MakeFilling
     from OCC.Core.GeomAbs import GeomAbs_C0
-    from OCC.Core.ShapeAnalysis import ShapeAnalysis_Surface
     from OCC.Core.ShapeFix import ShapeFix_Face
 
     if not wff.bounds:
-        raise UnableToCreateTesselationFromSolidOCCGeom(
-            "WireFilledFace has no bounds"
-        )
+        raise UnableToCreateTesselationFromSolidOCCGeom("WireFilledFace has no bounds")
 
     primary = wff.bounds[0]
     edge_list = getattr(primary.bound, "edge_list", None) or []
     if len(edge_list) < 3:
-        raise UnableToCreateTesselationFromSolidOCCGeom(
-            f"WireFilledFace needs ≥3 boundary edges, got {len(edge_list)}"
-        )
+        raise UnableToCreateTesselationFromSolidOCCGeom(f"WireFilledFace needs ≥3 boundary edges, got {len(edge_list)}")
 
     occ_edges: list = []
     for oe in edge_list:
@@ -1206,9 +1220,7 @@ def make_face_from_wire_filled(wff: geo_su.WireFilledFace) -> TopoDS_Face:
         except Exception as ex:
             logger.debug("WireFilledFace: dropped degenerate edge: %s", ex)
     if len(occ_edges) < 3:
-        raise UnableToCreateTesselationFromSolidOCCGeom(
-            "WireFilledFace: <3 usable edges after conversion"
-        )
+        raise UnableToCreateTesselationFromSolidOCCGeom("WireFilledFace: <3 usable edges after conversion")
 
     # Step 1: stitch edges into a single closed wire. SAT-derived edge
     # endpoints can land on subtly-different vertex hashes (sub-mm
@@ -1228,9 +1240,7 @@ def make_face_from_wire_filled(wff: geo_su.WireFilledFace) -> TopoDS_Face:
             wire_maker.Add(e)
         wire_maker.Build()
         if not wire_maker.IsDone():
-            raise UnableToCreateTesselationFromSolidOCCGeom(
-                "WireFilledFace: failed to assemble wire from edges"
-            )
+            raise UnableToCreateTesselationFromSolidOCCGeom("WireFilledFace: failed to assemble wire from edges")
     wire = wire_maker.Wire()
 
     # Step 2: build a fitted surface from the boundary edges. Adding
@@ -1243,13 +1253,9 @@ def make_face_from_wire_filled(wff: geo_su.WireFilledFace) -> TopoDS_Face:
     try:
         fill.Build()
     except Exception as ex:
-        raise UnableToCreateTesselationFromSolidOCCGeom(
-            f"BRepOffsetAPI_MakeFilling failed: {ex}"
-        )
+        raise UnableToCreateTesselationFromSolidOCCGeom(f"BRepOffsetAPI_MakeFilling failed: {ex}")
     if not fill.IsDone():
-        raise UnableToCreateTesselationFromSolidOCCGeom(
-            "BRepOffsetAPI_MakeFilling did not complete"
-        )
+        raise UnableToCreateTesselationFromSolidOCCGeom("BRepOffsetAPI_MakeFilling did not complete")
     fill_shape = fill.Shape()
 
     # The shape returned by MakeFilling is already a TopoDS_Face, but
@@ -1260,9 +1266,7 @@ def make_face_from_wire_filled(wff: geo_su.WireFilledFace) -> TopoDS_Face:
     # with our wire as the explicit boundary.
     exp = TopExp_Explorer(fill_shape, TopAbs_FACE)
     if not exp.More():
-        raise UnableToCreateTesselationFromSolidOCCGeom(
-            "MakeFilling produced no face"
-        )
+        raise UnableToCreateTesselationFromSolidOCCGeom("MakeFilling produced no face")
     fitted_face = exp.Current()
     fitted_surf = BRep_Tool.Surface(fitted_face)
 

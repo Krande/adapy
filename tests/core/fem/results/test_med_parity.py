@@ -13,7 +13,6 @@ import pytest
 
 from ada.fem.formats.code_aster.read.med_reader import med_to_mesh_data
 
-
 # All RMED fixtures we have on disk. Covers the cell-type matrix
 # (SEG2, QU4, TR3, TE4, HE8, ...) plus the eigen vs static
 # split (multi-step vs single-step field naming).

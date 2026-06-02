@@ -155,9 +155,25 @@ GPIPE = DataCard("GPIPE", ("geono", "di", "dy", "t", "sfy", "sfz"))
 GBEAMG = DataCard(
     "GBEAMG",
     (
-        "geono", "comp", "area", "ix", "iy", "iz", "iyz",
-        "wxmin", "wymin", "wzmin", "shary", "sharz",
-        "shceny", "shcenz", "sy", "sz", "wy|", "wz|", "fabr|",
+        "geono",
+        "comp",
+        "area",
+        "ix",
+        "iy",
+        "iz",
+        "iyz",
+        "wxmin",
+        "wymin",
+        "wzmin",
+        "shary",
+        "sharz",
+        "shceny",
+        "shcenz",
+        "sy",
+        "sz",
+        "wy|",
+        "wz|",
+        "fabr|",
     ),
 )
 re_gbox = GBOX.to_ff_re()

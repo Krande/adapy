@@ -387,10 +387,7 @@ def get_nodes_from_inp(bulk_str, parent: FEM) -> Nodes:
         # node section when all nodes live at part level). Strip
         # those lines before handing the buffer to ``np.fromstring``
         # so the parser doesn't choke on non-numeric tokens.
-        raw_members = "\n".join(
-            line for line in d["members"].splitlines()
-            if not line.lstrip().startswith("**")
-        )
+        raw_members = "\n".join(line for line in d["members"].splitlines() if not line.lstrip().startswith("**"))
         res = np.fromstring(list_cleanup(raw_members), sep=",", dtype=np.float64)
         # 3D nodes are ``id, x, y, z``; 2D models (plane-stress /
         # plane-strain / axisymmetric / membrane decks) drop the z
@@ -402,13 +399,10 @@ def get_nodes_from_inp(bulk_str, parent: FEM) -> Nodes:
             members = [Node(n[1:4], int(n[0]), parent=parent) for n in res_]
         elif res.size % 3 == 0:
             res_ = res.reshape(int(res.size / 3), 3)
-            members = [
-                Node((n[1], n[2], 0.0), int(n[0]), parent=parent) for n in res_
-            ]
+            members = [Node((n[1], n[2], 0.0), int(n[0]), parent=parent) for n in res_]
         else:
             raise ValueError(
-                f"Abaqus *Node block has {res.size} values; "
-                f"not divisible by 4 (3D) or 3 (2D) — malformed?"
+                f"Abaqus *Node block has {res.size} values; " f"not divisible by 4 (3D) or 3 (2D) — malformed?"
             )
         if d["nset"] is not None:
             parent.sets.add(FemSet(d["nset"], members, "nset", parent=parent))
@@ -470,11 +464,7 @@ def get_sets_from_bulk(bulk_str, fem: FEM) -> FemSets:
         metadata = dict(instance=instance, internal=internal, generate=generate, gen_mem=gen_mem)
         parent_instance = get_parent_instance(instance)
 
-        from_id_fn = (
-            parent_instance.elements.from_id
-            if set_type_l == "elset"
-            else parent_instance.nodes.from_id
-        )
+        from_id_fn = parent_instance.elements.from_id if set_type_l == "elset" else parent_instance.nodes.from_id
 
         resolved: list = []
         for ref in raw_members:
@@ -497,7 +487,8 @@ def get_sets_from_bulk(bulk_str, fem: FEM) -> FemSets:
                 if composed is None:
                     logger.warning(
                         "abaqus read: set %r references unknown sub-set %r — skipping that member",
-                        name, ref,
+                        name,
+                        ref,
                     )
                     continue
                 resolved.extend(composed.members)
@@ -507,7 +498,9 @@ def get_sets_from_bulk(bulk_str, fem: FEM) -> FemSets:
             except ValueError as exc:
                 logger.warning(
                     "abaqus read: set %r references unknown id %r — skipping (%s)",
-                    name, ref, exc,
+                    name,
+                    ref,
+                    exc,
                 )
 
         fem_set = FemSet(

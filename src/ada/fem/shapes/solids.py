@@ -47,17 +47,32 @@ from ada.fem.shapes.definitions import SolidShapes
 # Straight corner-to-corner matches the shell-O2 treatment in
 # shells.py.
 _HEX_CORNER_EDGES = [
-    (0, 1), (1, 2), (2, 3), (3, 0),  # bottom face
-    (4, 5), (5, 6), (6, 7), (7, 4),  # top face
-    (0, 4), (1, 5), (2, 6), (3, 7),  # vertical
+    (0, 1),
+    (1, 2),
+    (2, 3),
+    (3, 0),  # bottom face
+    (4, 5),
+    (5, 6),
+    (6, 7),
+    (7, 4),  # top face
+    (0, 4),
+    (1, 5),
+    (2, 6),
+    (3, 7),  # vertical
 ]
 
 # 9 physical edges of a wedge — 3 bottom triangle, 3 top triangle,
 # 3 vertical. Reused for WEDGE15.
 _WEDGE_CORNER_EDGES = [
-    (0, 1), (1, 2), (2, 0),  # bottom triangle
-    (3, 4), (4, 5), (5, 3),  # top triangle
-    (0, 3), (1, 4), (2, 5),  # vertical
+    (0, 1),
+    (1, 2),
+    (2, 0),  # bottom triangle
+    (3, 4),
+    (4, 5),
+    (5, 3),  # top triangle
+    (0, 3),
+    (1, 4),
+    (2, 5),  # vertical
 ]
 
 # 6 physical edges of a tet — reused for TETRA10.

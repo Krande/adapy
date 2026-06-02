@@ -71,14 +71,15 @@ def test_assets_for_docs_from_fea_result_populates_solver(rmed_path, tmp_path):
 
     pytest.importorskip("pygfx")
     pytest.importorskip("trimesh")
-    from ada.fem.formats.code_aster.results.read_rmed_results import (
-        read_rmed_file,
-    )
+    from ada.fem.formats.code_aster.results.read_rmed_results import read_rmed_file
     from ada.fem.results.docs import assets_for_docs
 
     res = read_rmed_file(rmed_path)
     assets = assets_for_docs(
-        res, key="ca_bm", out_dir=tmp_path / "bundle", modes=1,
+        res,
+        key="ca_bm",
+        out_dir=tmp_path / "bundle",
+        modes=1,
     )
     # FEATypes enum's `.value`.
     assert assets.solver == "code_aster"
@@ -96,7 +97,10 @@ def test_to_paradoc_rows_emits_canonical_plus_mode_views(rmed_path, tmp_path):
 
     base = tmp_path
     assets = assets_for_docs(
-        rmed_path, key="ca_bm", out_dir=base / "ca_bm", modes=3,
+        rmed_path,
+        key="ca_bm",
+        out_dir=base / "ca_bm",
+        modes=3,
     )
     rows = to_paradoc_rows(assets, base_dir=base)
 
@@ -138,7 +142,7 @@ def test_feacase_filter_lazy_bake_and_modes(rmed_path, tmp_path):
 
     pytest.importorskip("pygfx")
     pytest.importorskip("trimesh")
-    from ada.fem.results.docs import FeaCaseFilter, _MAX_MODE_ATTRS
+    from ada.fem.results.docs import _MAX_MODE_ATTRS, FeaCaseFilter
 
     case = FeaCaseFilter("ca_bm", rmed_path, tmp_path / "bundle", modes=2)
     assert case._assets is None  # lazy

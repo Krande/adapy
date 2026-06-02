@@ -182,6 +182,7 @@ def get_edge(coedge: AcisRecord) -> geo_cu.OrientedEdge:
                         # disagrees with (edge.sense XOR coedge.sense)".
                         # Set ADA_PCURVE_REVERSE=never|always|auto|pcurve_only.
                         import os as _os
+
                         mode = (_os.environ.get("ADA_PCURVE_REVERSE") or "auto").strip().lower()
                         pcurve_sense = "forward"
                         if len(pcurve_record.chunks) > 7 and pcurve_record.chunks[7] in ("forward", "reversed"):
@@ -192,11 +193,11 @@ def get_edge(coedge: AcisRecord) -> geo_cu.OrientedEdge:
                         elif mode == "always":
                             do_reverse = True
                         elif mode == "pcurve_only":
-                            do_reverse = (pcurve_sense == "reversed")
+                            do_reverse = pcurve_sense == "reversed"
                         else:  # auto
-                            occ_edge_along_intcurve = (edge_direction == coedge_direction)
-                            pcurve_along_intcurve = (pcurve_sense == "forward")
-                            do_reverse = (occ_edge_along_intcurve != pcurve_along_intcurve)
+                            occ_edge_along_intcurve = edge_direction == coedge_direction
+                            pcurve_along_intcurve = pcurve_sense == "forward"
+                            do_reverse = occ_edge_along_intcurve != pcurve_along_intcurve
                         if do_reverse:
                             pcurve_geom = _reverse_pcurve_2d(pcurve_geom)
                 except Exception as ex:
@@ -225,8 +226,13 @@ def get_edge(coedge: AcisRecord) -> geo_cu.OrientedEdge:
         t_start, t_end = t_end, t_start
 
     return geo_cu.OrientedEdge(
-        p1, p2, edge_element, ori,
-        pcurve=pcurve_geom, t_start=t_start, t_end=t_end,
+        p1,
+        p2,
+        edge_element,
+        ori,
+        pcurve=pcurve_geom,
+        t_start=t_start,
+        t_end=t_end,
     )
 
 

@@ -47,13 +47,7 @@ from PIL import Image
 logger = logging.getLogger(__name__)
 
 
-_EMBED_BUNDLE = (
-    Path(__file__).resolve().parents[4]
-    / "src"
-    / "frontend"
-    / "dist-embed"
-    / "index.js"
-)
+_EMBED_BUNDLE = Path(__file__).resolve().parents[4] / "src" / "frontend" / "dist-embed" / "index.js"
 
 
 _HTML_PAGE = """\
@@ -226,8 +220,7 @@ def glb_to_image_via_browser(
         from playwright.sync_api import sync_playwright
     except ImportError as exc:  # pragma: no cover
         raise RuntimeError(
-            "playwright not installed — `pixi install -e tests` or add "
-            "playwright to whatever env is calling this."
+            "playwright not installed — `pixi install -e tests` or add " "playwright to whatever env is calling this."
         ) from exc
 
     glb_path = Path(glb_path)
@@ -237,8 +230,7 @@ def glb_to_image_via_browser(
     embed = Path(embed_bundle) if embed_bundle else _EMBED_BUNDLE
     if not embed.exists():
         raise FileNotFoundError(
-            f"embed bundle not found at {embed}; run `npm run build:embed` "
-            f"in src/frontend first."
+            f"embed bundle not found at {embed}; run `npm run build:embed` " f"in src/frontend first."
         )
 
     glb_bytes = glb_path.read_bytes()
@@ -302,9 +294,7 @@ def glb_to_image_via_browser(
                 raise RuntimeError(f"embed mount failed: {err}")
             # One extra animation frame so the first WebGL draw has
             # actually landed in the swap chain before we grab pixels.
-            page.evaluate(
-                "new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))"
-            )
+            page.evaluate("new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))")
             png_bytes = page.screenshot(type="png", omit_background=False)
             browser.close()
 
@@ -317,28 +307,37 @@ def _cli() -> None:
     )
     p.add_argument("glb", type=Path, help="Path to the GLB file.")
     p.add_argument(
-        "--out", type=Path, default=None,
+        "--out",
+        type=Path,
+        default=None,
         help="Output PNG path (default: <glb>.chromium.png).",
     )
     p.add_argument(
-        "--width", type=int, default=640,
+        "--width",
+        type=int,
+        default=640,
         help="Viewport width in CSS pixels (default 640).",
     )
     p.add_argument(
-        "--height", type=int, default=480,
+        "--height",
+        type=int,
+        default=480,
         help="Viewport height in CSS pixels (default 480).",
     )
     p.add_argument(
-        "--preset", type=str, default=None,
-        help='JSON dict overriding the camera preset, e.g. '
-             '\'{"azimuth_deg": 45, "margin": 1.15}\'.',
+        "--preset",
+        type=str,
+        default=None,
+        help="JSON dict overriding the camera preset, e.g. " '\'{"azimuth_deg": 45, "margin": 1.15}\'.',
     )
     args = p.parse_args()
 
     preset = json.loads(args.preset) if args.preset else None
     out = args.out or args.glb.with_suffix(".chromium.png")
     img = glb_to_image_via_browser(
-        args.glb, size=(args.width, args.height), preset=preset,
+        args.glb,
+        size=(args.width, args.height),
+        preset=preset,
     )
     img.save(str(out))
     print(f"wrote {out}")

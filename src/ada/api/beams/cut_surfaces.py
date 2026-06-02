@@ -115,10 +115,7 @@ def extract_cut_surfaces(
         surfaces.append(
             CutSurface(
                 surface_type=surface_type,
-                outer_edges=[
-                    CutEdge(edge_type=et, points=[Point(*p) for p in pts])
-                    for et, pts in outer_edges
-                ],
+                outer_edges=[CutEdge(edge_type=et, points=[Point(*p) for p in pts]) for et, pts in outer_edges],
                 outer_polyline=[Point(*p) for p in outer],
                 inner_polylines=[[Point(*p) for p in poly] for poly in inners],
                 sample_normal=Direction(*sample_normal),

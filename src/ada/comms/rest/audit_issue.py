@@ -110,9 +110,7 @@ def fingerprint(
     norm_msg = strip_volatile((error_msg or "").strip())
     norm_top = strip_volatile(_last_traceback_frame(traceback))
     payload = (
-        f"{(source_ext or '').strip().lower()}|"
-        f"{(target_format or '').strip().lower()}|"
-        f"{norm_msg}|{norm_top}"
+        f"{(source_ext or '').strip().lower()}|" f"{(target_format or '').strip().lower()}|" f"{norm_msg}|{norm_top}"
     )
     digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
     return digest[:16]
@@ -136,7 +134,7 @@ def sanitize_corpus_key(scope: str, key: str) -> str:
     """
     if not scope.startswith("corpus:"):
         return f"{scope}/{key}" if scope and key else (key or scope)
-    slug = scope[len("corpus:"):]
+    slug = scope[len("corpus:") :]
     file_hash = hashlib.sha256(key.encode("utf-8")).hexdigest()[:10]
     return f"corpus:{slug}/file-{file_hash}"
 
@@ -280,7 +278,9 @@ def dashboard_body(
     lines.append(f"**Open audit regressions:** {len(open_fingerprints)}")
     lines.append("")
     sorted_fps = sorted(
-        open_fingerprints, key=lambda f: f.get("count", 0), reverse=True,
+        open_fingerprints,
+        key=lambda f: f.get("count", 0),
+        reverse=True,
     )
     for f in sorted_fps:
         title = f.get("title") or f.get("fp", "")
@@ -373,7 +373,8 @@ async def sync_run_issues(
         ext = _ext_of(job.get("key"))
         target = (job.get("target_format") or "").strip().lower()
         fp = fingerprint(
-            source_ext=ext, target_format=target,
+            source_ext=ext,
+            target_format=target,
             error_msg=job.get("error"),
             traceback=job.get("traceback"),
         )
@@ -403,7 +404,8 @@ async def sync_run_issues(
                 await client.comment_issue(
                     issue.number,
                     body=comment_body(
-                        fp=fp, run_id=run["id"],
+                        fp=fp,
+                        run_id=run["id"],
                         sanitized_source=ctx["sanitized_source"],
                         run_started_at=run.get("started_at"),
                         source_label=source_label,
@@ -473,20 +475,22 @@ async def rebuild_dashboard_issue(
         fp = None
         for lab in issue.labels:
             if lab and lab.startswith("audit-fp:"):
-                fp = lab[len("audit-fp:"):]
+                fp = lab[len("audit-fp:") :]
                 break
         if fp is None:
             continue
-        open_fps.append({
-            "fp": fp,
-            "title": issue.title,
-            "url": issue.html_url,
-            # Without a per-issue comments call we approximate count
-            # as 1 — the body has the latest reproduction and the
-            # comments timeline holds the rest, so the user sees the
-            # full reproduction count by clicking through.
-            "count": 1,
-        })
+        open_fps.append(
+            {
+                "fp": fp,
+                "title": issue.title,
+                "url": issue.html_url,
+                # Without a per-issue comments call we approximate count
+                # as 1 — the body has the latest reproduction and the
+                # comments timeline holds the rest, so the user sees the
+                # full reproduction count by clicking through.
+                "count": 1,
+            }
+        )
 
     body = dashboard_body(
         open_fingerprints=open_fps,
@@ -505,7 +509,8 @@ async def rebuild_dashboard_issue(
             await client.update_issue_body(existing.number, body=body)
             return {"updated": True, "created": False, "tracked": len(open_fps)}
         await client.create_issue(
-            title=title, body=body,
+            title=title,
+            body=body,
             labels=[_DASHBOARD_LABEL, _AUDIT_LABEL],
         )
         return {"updated": True, "created": True, "tracked": len(open_fps)}

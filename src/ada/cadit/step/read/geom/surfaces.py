@@ -37,9 +37,7 @@ def occ_face_to_ada_face(face: TopoDS_Face) -> geo_su.AdvancedFace | None:
             # to construct OCC edges in the same order as the source
             # wire, so an EdgeLoop-with-OrientedEdges chain is exactly
             # what it expects.
-            bounds = [
-                geo_su.FaceBound(bound=el, orientation=True) for el in edge_loops
-            ]
+            bounds = [geo_su.FaceBound(bound=el, orientation=True) for el in edge_loops]
             return geo_su.AdvancedFace(bounds=bounds, face_surface=bspline_surf)
         else:
             raise NotImplementedError("Failed to retrieve B-Spline surface with knots")

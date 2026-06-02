@@ -53,12 +53,12 @@ logger = logging.getLogger("ada")
 
 @dataclasses.dataclass
 class ConvertSample:
-    ts: float           # epoch seconds (sample wall-clock time)
-    elapsed_s: float    # seconds since job start (parent's monotonic clock)
+    ts: float  # epoch seconds (sample wall-clock time)
+    elapsed_s: float  # seconds since job start (parent's monotonic clock)
     cpu_user_ms: int
     cpu_sys_ms: int
-    rss_kb: int         # current resident set size
-    peak_rss_kb: int    # high-water mark (VmHWM)
+    rss_kb: int  # current resident set size
+    peak_rss_kb: int  # high-water mark (VmHWM)
     read_bytes: int
     write_bytes: int
 
@@ -66,12 +66,12 @@ class ConvertSample:
 @dataclasses.dataclass
 class IsolatedConvertResult:
     out_bytes: Optional[bytes]
-    error: Optional[str]            # exception message from child, when present
-    traceback: Optional[str]        # python traceback string from child
-    exit_code: int                  # 0 success; >0 clean error; <0 = -signal
-    signal_name: Optional[str]      # e.g. "SIGABRT" when killed by signal
+    error: Optional[str]  # exception message from child, when present
+    traceback: Optional[str]  # python traceback string from child
+    exit_code: int  # 0 success; >0 clean error; <0 = -signal
+    signal_name: Optional[str]  # e.g. "SIGABRT" when killed by signal
     samples: list[ConvertSample]
-    final_metrics: dict             # {cpu_user_ms, cpu_sys_ms, peak_rss_kb, read_bytes, write_bytes}
+    final_metrics: dict  # {cpu_user_ms, cpu_sys_ms, peak_rss_kb, read_bytes, write_bytes}
     profile_bytes: Optional[bytes] = None  # cProfile dump from child, when enabled
 
 
@@ -95,7 +95,7 @@ def _proc_stats(pid: int, started_at: float) -> Optional[ConvertSample]:
     # The comm field can contain spaces and parens. Split fields after the
     # last ')' to dodge that.
     rparen = stat.rfind(")")
-    rest = stat[rparen + 1:].split()
+    rest = stat[rparen + 1 :].split()
     # Fields after comm in /proc/PID/stat (man 5 proc):
     #   state(0) ppid(1) ... utime(11) stime(12) ...
     try:
@@ -219,6 +219,7 @@ async def run_isolated_convert(
             profiler = None
             if profile_in_child:
                 import cProfile
+
                 profiler = cProfile.Profile()
 
             try:
@@ -242,9 +243,7 @@ async def run_isolated_convert(
                 if out is None:
                     out = b""
                 if not isinstance(out, (bytes, bytearray, memoryview)):
-                    raise TypeError(
-                        f"convert returned {type(out).__name__}, expected bytes"
-                    )
+                    raise TypeError(f"convert returned {type(out).__name__}, expected bytes")
                 result_path.write_bytes(bytes(out))
                 os._exit(0)
             except BaseException as exc:  # noqa: BLE001 — propagate verbatim
@@ -312,9 +311,7 @@ async def run_isolated_convert(
     # ``GRACE_S`` later if the child still hasn't exited. ``timed_out``
     # records that we triggered so the result can carry a specific
     # signal_name regardless of which signal actually reaped the child.
-    deadline: Optional[float] = (
-        started_at + timeout_s if (timeout_s and timeout_s > 0) else None
-    )
+    deadline: Optional[float] = started_at + timeout_s if (timeout_s and timeout_s > 0) else None
     GRACE_S = 30.0
     sigterm_sent_at: Optional[float] = None
     sigkill_sent = False
@@ -346,7 +343,8 @@ async def run_isolated_convert(
                 sigterm_sent_at = now
                 logger.warning(
                     "convert: timeout %.0fs exceeded for %s; sent SIGTERM",
-                    timeout_s, source_key,
+                    timeout_s,
+                    source_key,
                 )
             elif not sigkill_sent and (now - sigterm_sent_at) >= GRACE_S:
                 try:
@@ -450,10 +448,7 @@ async def run_isolated_convert(
     if exit_code < 0 and error_msg is None:
         if timed_out:
             mins = (timeout_s or 0) / 60.0
-            error_msg = (
-                f"conversion exceeded the configured timeout "
-                f"of {mins:.1f} minutes and was terminated."
-            )
+            error_msg = f"conversion exceeded the configured timeout " f"of {mins:.1f} minutes and was terminated."
         else:
             error_msg = (
                 f"convert subprocess killed by {sig_name or f'signal {-exit_code}'} "

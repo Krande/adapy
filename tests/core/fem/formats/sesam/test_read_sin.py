@@ -15,6 +15,7 @@ Fixture is the cantilever shell static analysis
 (``files/fem_files/cantilever/sesam/static/shell/STATIC_SHELL_CANTILEVER_SESAMR1.SIN``)
 regenerable from its SIF sibling via ``scripts/regen_sin_fixtures.py``.
 """
+
 from __future__ import annotations
 
 import pathlib
@@ -25,9 +26,7 @@ import pytest
 # Test fixture: a small cantilever static analysis with 403 nodes,
 # 360 shell elements (FQUS, ELTYP=24), 1 material, displacement +
 # stress results — small enough to keep the test fast (<1 s).
-_FIXTURE = pathlib.Path(__file__).resolve().parents[5] / (
-    "files/fem_files/cantilever/sesam/static/shell"
-)
+_FIXTURE = pathlib.Path(__file__).resolve().parents[5] / ("files/fem_files/cantilever/sesam/static/shell")
 SIN_PATH = _FIXTURE / "STATIC_SHELL_CANTILEVER_SESAMR1.SIN"
 SIF_PATH = _FIXTURE / "STATIC_SHELL_CANTILEVER_SESAMR1.SIF"
 
@@ -35,6 +34,7 @@ SIF_PATH = _FIXTURE / "STATIC_SHELL_CANTILEVER_SESAMR1.SIF"
 @pytest.fixture
 def sin_file():
     from ada.fem.formats.sesam.results.sin_reader import open_sin
+
     return open_sin(SIN_PATH)
 
 
@@ -48,9 +48,21 @@ def test_sin_reader_decodes_all_known_types(sin_file):
     """The cantilever fixture is known to contain at least these
     data types; regression guard against silent block-detection drift."""
     expected = {
-        "GNODE", "GCOORD", "GELMNT1", "GELREF1", "GELTH", "MISOSEL",
-        "BNBCD", "RDPOINTS", "RDSTRESS", "RDIELCOR",
-        "RVNODDIS", "RVSTRESS", "RDRESREF", "TDMATER", "TDRESREF",
+        "GNODE",
+        "GCOORD",
+        "GELMNT1",
+        "GELREF1",
+        "GELTH",
+        "MISOSEL",
+        "BNBCD",
+        "RDPOINTS",
+        "RDSTRESS",
+        "RDIELCOR",
+        "RVNODDIS",
+        "RVSTRESS",
+        "RDRESREF",
+        "TDMATER",
+        "TDRESREF",
     }
     assert expected.issubset(set(sin_file.types))
 
@@ -58,10 +70,10 @@ def test_sin_reader_decodes_all_known_types(sin_file):
 def test_sin_reader_decodes_block_metadata(sin_file):
     """NFIELD / dims / count line up with what dnv-sifio reports for the same file."""
     cases = {
-        "GNODE":    (5, 1, (403,), 403),    # NFIELD, ndim, dims, count
-        "GCOORD":   (5, 1, (403,), 403),
-        "GELMNT1":  (5, 1, (360,), 360),
-        "BNBCD":    (5, 1, (200,), 13),     # capacity 200, populated 13
+        "GNODE": (5, 1, (403,), 403),  # NFIELD, ndim, dims, count
+        "GCOORD": (5, 1, (403,), 403),
+        "GELMNT1": (5, 1, (360,), 360),
+        "BNBCD": (5, 1, (200,), 13),  # capacity 200, populated 13
         "RVNODDIS": (7, 2, (1, 403), 403),
         "RVSTRESS": (7, 2, (1, 360), 360),
     }
@@ -83,7 +95,8 @@ def test_sin_iter_records_matches_sif_for_gnode_gcoord(sin_file):
         out: list[list[float]] = []
         for m in re.finditer(
             rf"^{type_name}\b(.*?)(?=^[A-Z])",
-            sif_text, flags=re.MULTILINE | re.DOTALL,
+            sif_text,
+            flags=re.MULTILINE | re.DOTALL,
         ):
             out.append([float(x) for x in m.group(1).split()])
             if len(out) >= n:
@@ -107,20 +120,29 @@ def test_sin_header_control_fields_decoded(sin_file):
     relies on, so guard it explicitly."""
     expected_flags = {
         # Norsam type-class enum (see TypeBlock.type_flag docstring).
-        "GNODE": 31, "GELMNT1": 31,
-        "GCOORD": 21, "GELREF1": 21, "GELTH": 21, "BNBCD": 21,
+        "GNODE": 31,
+        "GELMNT1": 31,
+        "GCOORD": 21,
+        "GELREF1": 21,
+        "GELTH": 21,
+        "BNBCD": 21,
         "MISOSEL": 20,
-        "RDPOINTS": 2, "RVNODDIS": 2, "RVSTRESS": 2,
-        "RDSTRESS": 1, "RDIELCOR": 1, "RDRESREF": 1,
-        "TDMATER": 41, "TDRESREF": 41,
+        "RDPOINTS": 2,
+        "RVNODDIS": 2,
+        "RVSTRESS": 2,
+        "RDSTRESS": 1,
+        "RDIELCOR": 1,
+        "RDRESREF": 1,
+        "TDMATER": 41,
+        "TDRESREF": 41,
     }
     for name, flag in expected_flags.items():
         b = sin_file.type_blocks[name]
         assert b.type_flag == flag, f"{name}: type_flag"
         # ptr_table_word cross-check anchors the pointer table.
-        assert b.ptr_table_word * 8 == b.pointer_table_offset + 4, (
-            f"{name}: ptr_table_word inconsistent with pointer_table_offset"
-        )
+        assert (
+            b.ptr_table_word * 8 == b.pointer_table_offset + 4
+        ), f"{name}: ptr_table_word inconsistent with pointer_table_offset"
 
 
 def test_sin_iter_text_records_decodes_material_name(sin_file):
@@ -134,10 +156,7 @@ def test_sin_iter_text_records_decodes_material_name(sin_file):
 def test_read_sin_file_equals_read_sif_file():
     """End-to-end: SIN-direct path and SIF-text path produce
     byte-identical FEAResult on the same model."""
-    from ada.fem.formats.sesam.results.read_sif import (
-        read_sif_file,
-        read_sin_file,
-    )
+    from ada.fem.formats.sesam.results.read_sif import read_sif_file, read_sin_file
 
     sin_res = read_sin_file(SIN_PATH)
     sif_res = read_sif_file(SIF_PATH)
@@ -156,9 +175,7 @@ def test_read_sin_file_equals_read_sif_file():
     for sn, sf in zip(sin_res.results, sif_res.results):
         assert sn.name == sf.name
         assert sn.values.shape == sf.values.shape
-        assert np.allclose(sn.values, sf.values, equal_nan=True), (
-            f"result {sn.name!r}: SIN/SIF value drift"
-        )
+        assert np.allclose(sn.values, sf.values, equal_nan=True), f"result {sn.name!r}: SIN/SIF value drift"
 
 
 def test_read_sin_metadata_cantilever():
@@ -169,36 +186,26 @@ def test_read_sin_metadata_cantilever():
     this is the regression guard that the IRES extraction matches
     what the full reader sees. Million-record-scale assertions live
     in the memory-bounded test below."""
-    from ada.fem.formats.sesam.results.read_sin import (
-        read_sin_file,
-        read_sin_metadata,
-    )
+    from ada.fem.formats.sesam.results.read_sin import read_sin_file, read_sin_metadata
 
     meta = read_sin_metadata(SIN_PATH)
 
     # Mesh-shape cross-check against the full read.
     full = read_sin_file(SIN_PATH)
     assert meta.node_count == len(full.mesh.nodes.coords)
-    assert meta.element_count == sum(
-        len(b.identifiers) for b in full.mesh.elements
-    )
+    assert meta.element_count == sum(len(b.identifiers) for b in full.mesh.elements)
 
     # Every RV* type that has values should show up in field_steps,
     # and the union of steps should match what the picker would see
     # from the full FEAResult.
     grouped = full.get_results_grouped_by_field_value()
-    full_steps_per_field = {
-        name: sorted({int(d.step) for d in datas})
-        for name, datas in grouped.items()
-    }
+    full_steps_per_field = {name: sorted({int(d.step) for d in datas}) for name, datas in grouped.items()}
     # The metadata uses SIN type names (RVNODDIS, …) while FEAResult
     # uses field display names — cross-check that the *set* of
     # available step IDs matches in aggregate.
     meta_step_set = set(meta.steps)
     full_step_set = {s for steps in full_steps_per_field.values() for s in steps}
-    assert meta_step_set == full_step_set, (
-        f"metadata steps {sorted(meta_step_set)} != full {sorted(full_step_set)}"
-    )
+    assert meta_step_set == full_step_set, f"metadata steps {sorted(meta_step_set)} != full {sorted(full_step_set)}"
 
 
 def test_iter_records_step_filter(sin_file):
@@ -251,7 +258,7 @@ def test_truncate_pointer_table_finds_cutoff():
     buf = bytearray(64)
     nfield_bytes = np.array([11.0, 11.0], dtype=np.float32).tobytes()
     np_buf_writable = bytearray(buf)
-    np_buf_writable[0:4] = nfield_bytes[0:4]   # NFIELD at byte 0
+    np_buf_writable[0:4] = nfield_bytes[0:4]  # NFIELD at byte 0
     np_buf_writable[16:20] = nfield_bytes[4:8]  # NFIELD at byte 16
     # bytes 32..35 left zero → float 0.0, not in [1, 1024]
     data = bytes(np_buf_writable)
@@ -290,8 +297,6 @@ def test_sin_registered_in_stream_readers():
         geom = reader.read_mesh_geometry()
         assert geom.points.shape[0] > 0
         specs = reader.field_specs()
-        assert any(s.support == "nodal" for s in specs), (
-            "no nodal field surfaced for the streaming bake"
-        )
+        assert any(s.support == "nodal" for s in specs), "no nodal field surfaced for the streaming bake"
     finally:
         reader.close()

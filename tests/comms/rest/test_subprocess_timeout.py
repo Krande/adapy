@@ -18,7 +18,6 @@ test stays under 5 s by setting a 1 s timeout.
 
 from __future__ import annotations
 
-import os
 import pathlib
 import sys
 import time
@@ -28,7 +27,6 @@ import pytest
 # subprocess_convert imports adapy heavily; gate the module-level
 # import so a missing dep doesn't crash collection.
 from ada.comms.rest.subprocess_convert import run_isolated_convert
-
 
 pytestmark = pytest.mark.skipif(
     sys.platform.startswith("win"),
@@ -65,8 +63,7 @@ async def test_watchdog_kills_long_running_convert(tmp_path: pathlib.Path):
     elapsed = time.monotonic() - started
 
     assert result.signal_name == "TIMEOUT", (
-        f"expected signal_name='TIMEOUT', got {result.signal_name!r} "
-        f"(exit_code={result.exit_code})"
+        f"expected signal_name='TIMEOUT', got {result.signal_name!r} " f"(exit_code={result.exit_code})"
     )
     assert result.out_bytes is None
     assert result.error is not None

@@ -1,5 +1,3 @@
-import pytest
-
 from ada import Beam, Plate, Weld
 from ada.api.connections import Connection
 from ada.api.spatial.part import Part

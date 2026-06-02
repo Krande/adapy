@@ -11,6 +11,7 @@ S3-direct without pinning an API worker for the duration of the
 transfer. Local-storage deployments respond 503 to the presign request,
 in which case we fall back to streaming through ``GET /blobs/{key}``.
 """
+
 from __future__ import annotations
 
 import argparse

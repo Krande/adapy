@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field as dc_field
+from dataclasses import dataclass
+from dataclasses import field as dc_field
 
 import numpy as np
 
@@ -71,9 +72,7 @@ def get_mesh_topology(mesh: MeshData) -> MeshTopology:
             for elem_i in range(cell_block.data.shape[0]):
                 fallback_idx += 1
                 label = int(block_ids[elem_i]) if block_ids is not None else fallback_idx
-                topo.element_ranges.append(
-                    ElementRange(label=label, tri_start=len(topo.faces) // 3, tri_count=0)
-                )
+                topo.element_ranges.append(ElementRange(label=label, tri_start=len(topo.faces) // 3, tri_count=0))
             continue
         el_type = str_to_ada_type[cell_block.type]
         for elem_i, elem in enumerate(cell_block.data):
@@ -91,9 +90,7 @@ def get_mesh_topology(mesh: MeshData) -> MeshTopology:
                 # Record a zero-tri range so the frontend can still
                 # report element identity for them later (selection
                 # on lines needs an edge-buffer path, not yet wired).
-                topo.element_ranges.append(
-                    ElementRange(label=label, tri_start=len(topo.faces) // 3, tri_count=0)
-                )
+                topo.element_ranges.append(ElementRange(label=label, tri_start=len(topo.faces) // 3, tri_count=0))
                 continue
 
             tri_start = len(topo.faces) // 3
@@ -106,9 +103,7 @@ def get_mesh_topology(mesh: MeshData) -> MeshTopology:
             elem_faces = elem_shape.get_faces()
             topo.faces += elem_faces
             tri_count = len(elem_faces) // 3
-            topo.element_ranges.append(
-                ElementRange(label=label, tri_start=tri_start, tri_count=tri_count)
-            )
+            topo.element_ranges.append(ElementRange(label=label, tri_start=tri_start, tri_count=tri_count))
 
     return topo
 

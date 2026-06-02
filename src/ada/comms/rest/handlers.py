@@ -68,16 +68,25 @@ _EXT_TO_TYPE: dict[str, FileTypeDC] = {
 # rather than the wire type.
 _CONVERTABLE_AS_IFC: frozenset[str] = frozenset(
     {
-        ".step", ".stp", ".xml", ".inp", ".fem", ".sat", ".acis",
-        ".obj", ".stl", ".ply", ".dae", ".off",
-        ".sif", ".rmed",
+        ".step",
+        ".stp",
+        ".xml",
+        ".inp",
+        ".fem",
+        ".sat",
+        ".acis",
+        ".obj",
+        ".stl",
+        ".ply",
+        ".dae",
+        ".off",
+        ".sif",
+        ".rmed",
     }
 )
 
 
-def _infer_file_type(
-    key: str, extra_source_exts: frozenset[str] | None = None
-) -> FileTypeDC | None:
+def _infer_file_type(key: str, extra_source_exts: frozenset[str] | None = None) -> FileTypeDC | None:
     ext = PurePosixPath(key).suffix.lower()
     if ext in _EXT_TO_TYPE:
         return _EXT_TO_TYPE[ext]

@@ -18,6 +18,7 @@ stdlib-only: only ``struct`` + ``pathlib`` are needed. Holds the whole
 file in memory (typical Sesam result files are <100 MB and the layout
 is random-access by design).
 """
+
 from __future__ import annotations
 
 import mmap
@@ -119,6 +120,7 @@ def _truncate_pointer_table(data: Any, ptrs: Any) -> int:
     second without per-entry Python overhead.
     """
     import numpy as np
+
     if ptrs.size == 0:
         return 0
     file_end = len(data)
@@ -191,6 +193,7 @@ def _find_preamble_chunked(data: Any, start: int, stop: int) -> int:
             new_pos = win_end
         pos = new_pos
     return -1
+
 
 # Names of the four file-header records (in order) that open every
 # SIN file. They aren't "data" types — pure control directives.
@@ -308,6 +311,7 @@ class TypeBlock:
         """Number of populated (non-zero pointer) records."""
         # numpy fast path; falls back to Python iteration for lists.
         import numpy as np
+
         if isinstance(self.pointer_table, np.ndarray):
             return int((self.pointer_table != 0).sum())
         return sum(1 for p in self.pointer_table if p != 0)
@@ -318,9 +322,7 @@ class TypeBlock:
         return self.nfield + (self.nfield & 1)
 
 
-def _decode_type_block(
-    data: bytes, preamble_off: int, next_preamble: int | None
-) -> TypeBlock:
+def _decode_type_block(data: bytes, preamble_off: int, next_preamble: int | None) -> TypeBlock:
     """Decode one per-type block. ``next_preamble`` clamps the pointer
     table walk so a malformed header can't read past the next block."""
     name = data[preamble_off + 4 : preamble_off + 4 + NAME_LEN].decode("ascii").rstrip()
@@ -385,9 +387,7 @@ def _decode_type_block(
     # A junk u32 read can put 2^31 in a dim slot; allocating a list of
     # 2 billion Python ints is what froze the host machine.
     if any(d > _MAX_DIM_VALUE for d in dims):
-        raise ValueError(
-            f"dim value > {_MAX_DIM_VALUE} in block {name!r}: {dims} — likely junk header"
-        )
+        raise ValueError(f"dim value > {_MAX_DIM_VALUE} in block {name!r}: {dims} — likely junk header")
 
     total_records = 1
     for d in dims:
@@ -411,6 +411,7 @@ def _decode_type_block(
     # node/element per SE — and the missing element references a
     # node that then looks out-of-bounds to the trimesh builder.
     import numpy as np
+
     file_end = len(data)
     slot_count = total_records + 1
     n_words = slot_count * 2  # 2 u32 per slot
@@ -422,7 +423,10 @@ def _decode_type_block(
     total_records = slot_count
     if n_words > 0:
         u32_pairs = np.frombuffer(
-            data, dtype=np.uint32, count=n_words, offset=pointer_table_offset,
+            data,
+            dtype=np.uint32,
+            count=n_words,
+            offset=pointer_table_offset,
         )
         pointer_table = u32_pairs[1::2].astype(np.int64).copy()
     else:
@@ -594,9 +598,7 @@ class SinFile:
                 continue
             if struct.unpack_from("<I", data, ptab_byte)[0] != PREAMBLE:
                 continue
-            name = bytes(data[ptab_byte + 4 : ptab_byte + 12]).decode(
-                "ascii", errors="replace"
-            ).rstrip()
+            name = bytes(data[ptab_byte + 4 : ptab_byte + 12]).decode("ascii", errors="replace").rstrip()
             if name != "PTAB":
                 continue
             payload = ptab_byte + 4 + NAME_LEN
@@ -621,9 +623,7 @@ class SinFile:
         type-block. Caller is responsible for memory bookkeeping —
         each call materialises that super-element's per-block pointer
         tables (numpy int64 arrays, ~8 B per entry)."""
-        ptab_byte = next(
-            (b for ir, b in self.super_element_refs if ir == iref), None
-        )
+        ptab_byte = next((b for ir, b in self.super_element_refs if ir == iref), None)
         if ptab_byte is None:
             raise KeyError(f"super-element IREF={iref} not in this SIN")
         data = self._data
@@ -727,9 +727,14 @@ class SinFile:
             return []
         if struct.unpack_from("<I", data, ptab_byte)[0] != PREAMBLE:
             return []
-        name = bytes(data[ptab_byte + 4 : ptab_byte + 4 + NAME_LEN]).decode(
-            "ascii", errors="replace",
-        ).rstrip()
+        name = (
+            bytes(data[ptab_byte + 4 : ptab_byte + 4 + NAME_LEN])
+            .decode(
+                "ascii",
+                errors="replace",
+            )
+            .rstrip()
+        )
         if name != "PTAB":
             return []
         payload = ptab_byte + 4 + NAME_LEN
@@ -827,9 +832,7 @@ class SinFile:
         as_f32 = np.frombuffer(self._data, dtype=np.float32)
         return as_f32[ptrs].copy()
 
-    def iter_records(
-        self, name: str, *, where_first_word: int | None = None
-    ) -> Iterator[tuple[float, ...]]:
+    def iter_records(self, name: str, *, where_first_word: int | None = None) -> Iterator[tuple[float, ...]]:
         """Yield one tuple of float32 values per populated record (the
         SIF "data" fields).
 
@@ -922,15 +925,18 @@ class SinFile:
                 )
                 continue
             numeric_prefix = struct.unpack_from(
-                f"<{n_numeric_prefix}f", self._data, data_byte,
+                f"<{n_numeric_prefix}f",
+                self._data,
+                data_byte,
             )
             len_word = struct.unpack_from(
-                "<I", self._data, data_byte + n_numeric_prefix * 4,
+                "<I",
+                self._data,
+                data_byte + n_numeric_prefix * 4,
             )[0]
             n_chars = (len_word >> 8) & 0xFFFFFF
             text_bytes = self._data[
-                data_byte + (n_numeric_prefix + 1) * 4
-                : data_byte + (n_numeric_prefix + 1) * 4 + n_text_words * 4
+                data_byte + (n_numeric_prefix + 1) * 4 : data_byte + (n_numeric_prefix + 1) * 4 + n_text_words * 4
             ]
             if n_chars and n_chars <= len(text_bytes):
                 text = text_bytes[:n_chars].decode("ascii", errors="replace").rstrip()

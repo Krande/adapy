@@ -246,7 +246,5 @@ def occ_cut_surfaces(solid: TopoDS_Shape, cutters, deflection: float, tol: float
             continue
         if len(outer) < 3:
             continue
-        surfaces.append(
-            (_surface_type_name(rf), _face_normal(rf), outer_edges, outer, inners)
-        )
+        surfaces.append((_surface_type_name(rf), _face_normal(rf), outer_edges, outer, inners))
     return surfaces

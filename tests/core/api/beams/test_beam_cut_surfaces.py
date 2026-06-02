@@ -8,12 +8,10 @@ import numpy as np
 import pytest
 
 import ada
-from ada.api.beams.cut_surfaces import CutEdge, CutSurface, extract_cut_surfaces
+from ada.api.beams.cut_surfaces import CutEdge, extract_cut_surfaces
 
 
-def _polyline_lies_on_plane(
-    polyline, plane_origin, plane_normal, tol: float = 1e-6
-) -> bool:
+def _polyline_lies_on_plane(polyline, plane_origin, plane_normal, tol: float = 1e-6) -> bool:
     n = np.asarray(plane_normal, dtype=float)
     n /= np.linalg.norm(n)
     o = np.asarray(plane_origin, dtype=float)
@@ -41,9 +39,7 @@ def test_no_booleans_returns_empty():
 
 def test_method_on_beam_matches_function():
     bm = ada.Beam("b1", (0, 0, 0), (1, 0, 0), "BOX300x300x10x10")
-    bm.add_boolean(
-        ada.BoolHalfSpace(origin=(0.5, 0, 0.0), normal=(0, 0, -1), flip=True)
-    )
+    bm.add_boolean(ada.BoolHalfSpace(origin=(0.5, 0, 0.0), normal=(0, 0, -1), flip=True))
     via_method = bm.get_cut_surfaces()
     via_function = extract_cut_surfaces(bm)
     assert len(via_method) == len(via_function) > 0
@@ -56,9 +52,7 @@ def test_halfspace_cut_through_hollow_box_slices_both_side_walls():
     cut_z = 0.05
     plane_origin = (0.5, 0.0, cut_z)
     plane_normal = (0.0, 0.0, -1.0)
-    bm.add_boolean(
-        ada.BoolHalfSpace(origin=plane_origin, normal=plane_normal, flip=True)
-    )
+    bm.add_boolean(ada.BoolHalfSpace(origin=plane_origin, normal=plane_normal, flip=True))
 
     surfs = extract_cut_surfaces(bm)
     assert len(surfs) == 2
@@ -67,9 +61,7 @@ def test_halfspace_cut_through_hollow_box_slices_both_side_walls():
         assert surf.surface_type == "Plane"
         assert len(surf.outer_polyline) == 4
 
-        assert _polyline_lies_on_plane(
-            surf.outer_polyline, plane_origin, plane_normal
-        )
+        assert _polyline_lies_on_plane(surf.outer_polyline, plane_origin, plane_normal)
 
         ext = _polyline_axis_extents(surf.outer_polyline)
         assert ext["x"][0] == pytest.approx(0.0, abs=1e-6)
@@ -89,16 +81,12 @@ def test_halfspace_cut_through_solid_circular_yields_single_surface():
     cut_z = 0.0
     plane_origin = (0.5, 0.0, cut_z)
     plane_normal = (0.0, 0.0, -1.0)
-    bm.add_boolean(
-        ada.BoolHalfSpace(origin=plane_origin, normal=plane_normal, flip=True)
-    )
+    bm.add_boolean(ada.BoolHalfSpace(origin=plane_origin, normal=plane_normal, flip=True))
 
     surfs = extract_cut_surfaces(bm)
     assert len(surfs) == 1
     assert surfs[0].surface_type == "Plane"
-    assert _polyline_lies_on_plane(
-        surfs[0].outer_polyline, plane_origin, plane_normal
-    )
+    assert _polyline_lies_on_plane(surfs[0].outer_polyline, plane_origin, plane_normal)
 
 
 def test_overlapping_halfspaces_do_not_double_count():
@@ -107,18 +95,12 @@ def test_overlapping_halfspaces_do_not_double_count():
     bm1 = ada.Beam("b1", (0, 0, 0), (1, 0, 0), "BOX300x300x10x10")
     plane_origin = (0.5, 0.0, 0.05)
     plane_normal = (0.0, 0.0, -1.0)
-    bm1.add_boolean(
-        ada.BoolHalfSpace(origin=plane_origin, normal=plane_normal, flip=True)
-    )
+    bm1.add_boolean(ada.BoolHalfSpace(origin=plane_origin, normal=plane_normal, flip=True))
     n_single = len(extract_cut_surfaces(bm1))
 
     bm2 = ada.Beam("b2", (0, 0, 0), (1, 0, 0), "BOX300x300x10x10")
-    bm2.add_boolean(
-        ada.BoolHalfSpace(origin=plane_origin, normal=plane_normal, flip=True)
-    )
-    bm2.add_boolean(
-        ada.BoolHalfSpace(origin=plane_origin, normal=plane_normal, flip=True)
-    )
+    bm2.add_boolean(ada.BoolHalfSpace(origin=plane_origin, normal=plane_normal, flip=True))
+    bm2.add_boolean(ada.BoolHalfSpace(origin=plane_origin, normal=plane_normal, flip=True))
     n_double = len(extract_cut_surfaces(bm2))
 
     assert n_double == n_single
@@ -129,23 +111,15 @@ def test_two_perpendicular_halfspace_cuts_yield_distinct_normals():
     perpendicular normals."""
     bm = ada.Beam("b1", (0, 0, 0), (1, 0, 0), "BOX300x300x10x10")
 
-    bm.add_boolean(
-        ada.BoolHalfSpace(origin=(0.5, 0.0, 0.05), normal=(0, 0, -1), flip=True)
-    )
-    bm.add_boolean(
-        ada.BoolHalfSpace(origin=(0.5, 0.05, 0.0), normal=(0, -1, 0), flip=True)
-    )
+    bm.add_boolean(ada.BoolHalfSpace(origin=(0.5, 0.0, 0.05), normal=(0, 0, -1), flip=True))
+    bm.add_boolean(ada.BoolHalfSpace(origin=(0.5, 0.05, 0.0), normal=(0, -1, 0), flip=True))
 
     surfs = extract_cut_surfaces(bm)
     assert len(surfs) >= 2
 
     normals = [tuple(round(float(c), 3) for c in s.sample_normal) for s in surfs]
-    has_z_aligned = any(
-        abs(n[2]) > 0.99 and abs(n[0]) < 1e-3 and abs(n[1]) < 1e-3 for n in normals
-    )
-    has_y_aligned = any(
-        abs(n[1]) > 0.99 and abs(n[0]) < 1e-3 and abs(n[2]) < 1e-3 for n in normals
-    )
+    has_z_aligned = any(abs(n[2]) > 0.99 and abs(n[0]) < 1e-3 and abs(n[1]) < 1e-3 for n in normals)
+    has_y_aligned = any(abs(n[1]) > 0.99 and abs(n[0]) < 1e-3 and abs(n[2]) < 1e-3 for n in normals)
     assert has_z_aligned and has_y_aligned
 
 
@@ -168,9 +142,7 @@ def test_cut_outside_solid_returns_empty():
     """A cutter that doesn't intersect the beam should produce no cut surfaces."""
     bm = ada.Beam("b1", (0, 0, 0), (1, 0, 0), "BOX300x300x10x10")
 
-    bm.add_boolean(
-        ada.BoolHalfSpace(origin=(0.5, 0.0, 10.0), normal=(0, 0, 1), flip=False)
-    )
+    bm.add_boolean(ada.BoolHalfSpace(origin=(0.5, 0.0, 10.0), normal=(0, 0, 1), flip=False))
 
     assert extract_cut_surfaces(bm) == []
 
@@ -180,9 +152,7 @@ def test_outer_edges_classify_lines_and_arcs_separately():
     with both straight edges (walls, cut transitions) and arc edges (corner
     radii). The outer_edges list should preserve this distinction."""
     bm = ada.Beam("b1", (0, 0, 0), (1, 0, 0), "BOX300x300x10x10")
-    bm.add_boolean(
-        ada.BoolHalfSpace(origin=(0.5, 0.0, 0.0), normal=(1, 0, 0), flip=True)
-    )
+    bm.add_boolean(ada.BoolHalfSpace(origin=(0.5, 0.0, 0.0), normal=(1, 0, 0), flip=True))
 
     surfs = extract_cut_surfaces(bm)
     assert len(surfs) >= 1
@@ -202,9 +172,7 @@ def test_outer_edges_classify_lines_and_arcs_separately():
 def test_outer_edges_endpoints_match_polyline():
     """The outer_polyline should be the concatenation of edge points (deduped)."""
     bm = ada.Beam("b1", (0, 0, 0), (1, 0, 0), "BOX300x300x10x10")
-    bm.add_boolean(
-        ada.BoolHalfSpace(origin=(0.5, 0.0, 0.05), normal=(0, 0, -1), flip=True)
-    )
+    bm.add_boolean(ada.BoolHalfSpace(origin=(0.5, 0.0, 0.05), normal=(0, 0, -1), flip=True))
 
     surfs = extract_cut_surfaces(bm)
     for surf in surfs:
@@ -240,9 +208,7 @@ def test_outer_edges_endpoints_match_polyline():
 def test_polyline_points_are_unique():
     """The outer polyline should not contain consecutive duplicate points."""
     bm = ada.Beam("b1", (0, 0, 0), (1, 0, 0), "BOX300x300x10x10")
-    bm.add_boolean(
-        ada.BoolHalfSpace(origin=(0.5, 0.0, 0.05), normal=(0, 0, -1), flip=True)
-    )
+    bm.add_boolean(ada.BoolHalfSpace(origin=(0.5, 0.0, 0.05), normal=(0, 0, -1), flip=True))
 
     surfs = extract_cut_surfaces(bm)
     for s in surfs:
@@ -250,7 +216,5 @@ def test_polyline_points_are_unique():
             j = (i + 1) % len(s.outer_polyline)
             a = s.outer_polyline[i]
             b = s.outer_polyline[j]
-            d = math.sqrt(
-                (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2
-            )
+            d = math.sqrt((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2)
             assert d > 1e-6, f"consecutive duplicate at index {i}: {a} == {b}"

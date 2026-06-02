@@ -202,7 +202,6 @@ class FemElements:
         (``_build_sim_stats`` cost on large meshes was ~160 s of a
         210 s convert before batching).
         """
-        from collections import defaultdict
         from itertools import chain
 
         from ada.core.vector_transforms import rotation_matrix_csys_rotate
@@ -216,7 +215,8 @@ class FemElements:
             rm = rot_cache.get(key)
             if rm is None:
                 rm = rotation_matrix_csys_rotate(
-                    global_csys, [fem_sec.local_x, fem_sec.local_y],
+                    global_csys,
+                    [fem_sec.local_x, fem_sec.local_y],
                 )
                 rot_cache[key] = rm
             return rm
@@ -445,9 +445,7 @@ class FemElements:
             # Materialize the groupby into {key: [Elem, ...]}. The raw
             # iterator isn't picklable (3.14 drops itertools pickle support
             # entirely) and would also exhaust on first read.
-            grouped = groupby(
-                sorted(self._elements, key=attrgetter("type")), key=attrgetter("type", SetTypes.ELSET)
-            )
+            grouped = groupby(sorted(self._elements, key=attrgetter("type")), key=attrgetter("type", SetTypes.ELSET))
             self._by_types = {k: list(v) for k, v in grouped}
         else:
             self._by_types = dict()

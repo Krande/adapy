@@ -39,12 +39,15 @@ def _node_matrix(node: dict) -> np.ndarray:
     s = node.get("scale", [1.0, 1.0, 1.0])
     qx, qy, qz, qw = r
     # Quaternion → rotation matrix.
-    rx = np.array([
-        [1 - 2 * (qy * qy + qz * qz), 2 * (qx * qy - qz * qw), 2 * (qx * qz + qy * qw), 0.0],
-        [2 * (qx * qy + qz * qw), 1 - 2 * (qx * qx + qz * qz), 2 * (qy * qz - qx * qw), 0.0],
-        [2 * (qx * qz - qy * qw), 2 * (qy * qz + qx * qw), 1 - 2 * (qx * qx + qy * qy), 0.0],
-        [0.0, 0.0, 0.0, 1.0],
-    ], dtype=np.float64)
+    rx = np.array(
+        [
+            [1 - 2 * (qy * qy + qz * qz), 2 * (qx * qy - qz * qw), 2 * (qx * qz + qy * qw), 0.0],
+            [2 * (qx * qy + qz * qw), 1 - 2 * (qx * qx + qz * qz), 2 * (qy * qz - qx * qw), 0.0],
+            [2 * (qx * qz - qy * qw), 2 * (qy * qz + qx * qw), 1 - 2 * (qx * qx + qy * qy), 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ],
+        dtype=np.float64,
+    )
     sx, sy, sz = s
     sm = np.diag([sx, sy, sz, 1.0])
     tm = np.eye(4, dtype=np.float64)
@@ -125,8 +128,13 @@ def _read_glb_primitives(glb_path: str | Path) -> list[dict]:
     # `buffer` index to be defensive.
     dtype_map = {5120: "i1", 5121: "u1", 5122: "i2", 5123: "u2", 5125: "u4", 5126: "f4"}
     elem_map = {
-        "SCALAR": 1, "VEC2": 2, "VEC3": 3, "VEC4": 4,
-        "MAT2": 4, "MAT3": 9, "MAT4": 16,
+        "SCALAR": 1,
+        "VEC2": 2,
+        "VEC3": 3,
+        "VEC4": 4,
+        "MAT2": 4,
+        "MAT3": 9,
+        "MAT4": 16,
     }
 
     def read_accessor(idx: int) -> np.ndarray:
@@ -162,11 +170,7 @@ def _read_glb_primitives(glb_path: str | Path) -> list[dict]:
                     continue
                 positions = read_accessor(attrs["POSITION"]).astype(np.float32, copy=False)
                 positions = transform_positions(positions, world)
-                indices = (
-                    read_accessor(prim["indices"]).astype(np.int32, copy=False)
-                    if "indices" in prim
-                    else None
-                )
+                indices = read_accessor(prim["indices"]).astype(np.int32, copy=False) if "indices" in prim else None
                 colors = None
                 if "COLOR_0" in attrs:
                     raw_colors = read_accessor(attrs["COLOR_0"])
@@ -232,16 +236,8 @@ def _read_glb_primitives(glb_path: str | Path) -> list[dict]:
                 if "POSITION" not in attrs:
                     continue
                 positions = read_accessor(attrs["POSITION"]).astype(np.float32, copy=False)
-                indices = (
-                    read_accessor(prim["indices"]).astype(np.int32, copy=False)
-                    if "indices" in prim
-                    else None
-                )
-                colors = (
-                    read_accessor(attrs["COLOR_0"]).astype(np.float32, copy=False)
-                    if "COLOR_0" in attrs
-                    else None
-                )
+                indices = read_accessor(prim["indices"]).astype(np.int32, copy=False) if "indices" in prim else None
+                colors = read_accessor(attrs["COLOR_0"]).astype(np.float32, copy=False) if "COLOR_0" in attrs else None
                 out.append(
                     {
                         "mode": prim.get("mode", 4),
@@ -296,18 +292,24 @@ def _apply_embed_preset_camera(
     az = math.radians(azimuth_deg)
     el = math.radians(elevation_deg)
     if z_up:
-        offset = np.array([
-            d * math.cos(el) * math.sin(az),
-            d * math.cos(el) * math.cos(az),
-            d * math.sin(el),
-        ], dtype=np.float64)
+        offset = np.array(
+            [
+                d * math.cos(el) * math.sin(az),
+                d * math.cos(el) * math.cos(az),
+                d * math.sin(el),
+            ],
+            dtype=np.float64,
+        )
         up = (0.0, 0.0, 1.0)
     else:
-        offset = np.array([
-            d * math.cos(el) * math.sin(az),
-            d * math.sin(el),
-            d * math.cos(el) * math.cos(az),
-        ], dtype=np.float64)
+        offset = np.array(
+            [
+                d * math.cos(el) * math.sin(az),
+                d * math.sin(el),
+                d * math.cos(el) * math.cos(az),
+            ],
+            dtype=np.float64,
+        )
         up = (0.0, 1.0, 0.0)
     position = center + offset
 
@@ -324,9 +326,7 @@ def _apply_embed_preset_camera(
     # `fov_deg=45` (vertical, embed-style) actually gets a 45°
     # vertical frustum out of pygfx.
     safe_aspect = max(aspect, 1e-3)
-    fov_pygfx = math.degrees(
-        2 * math.atan(math.tan(math.radians(fov_deg / 2)) * (1 + safe_aspect) / 2)
-    )
+    fov_pygfx = math.degrees(2 * math.atan(math.tan(math.radians(fov_deg / 2)) * (1 + safe_aspect) / 2))
 
     # `maintain_aspect=True` (the default) makes pygfx force
     # m[0][0] == m[1][1] regardless of aspect, which squashes the X-Y
@@ -334,7 +334,10 @@ def _apply_embed_preset_camera(
     # (m[1][1] = 1/tan(fov_v/2), m[0][0] = m[1][1] / aspect) so the
     # pygfx poster comes out at the same pixel ratio as Three.js'.
     cam = gfx.PerspectiveCamera(
-        fov_pygfx, safe_aspect, depth_range=(near, far), maintain_aspect=False,
+        fov_pygfx,
+        safe_aspect,
+        depth_range=(near, far),
+        maintain_aspect=False,
     )
     # `cam.look_at(target)` recomputes the up vector to be orthogonal
     # to the forward direction, so a Z-up scene loses its world-vertical
@@ -480,9 +483,7 @@ def glb_to_image(
                 continue
             try:
                 geometry = gfx.Geometry(positions=line_positions.reshape(-1, 3))
-                material = gfx.LineSegmentMaterial(
-                    color=line_color, thickness=line_thickness
-                )
+                material = gfx.LineSegmentMaterial(color=line_color, thickness=line_thickness)
                 group.add(gfx.Line(geometry, material))
                 drew_any = True
             except Exception:
@@ -512,9 +513,7 @@ def glb_to_image(
 
     width, height = canvas.get_logical_size()
     aspect = (width / height) if height else 4.0 / 3.0
-    positions_all = (
-        np.concatenate(all_positions, axis=0) if all_positions else np.zeros((0, 3), dtype=np.float32)
-    )
+    positions_all = np.concatenate(all_positions, axis=0) if all_positions else np.zeros((0, 3), dtype=np.float32)
     gfx_cam = _apply_embed_preset_camera(
         positions_all,
         aspect,

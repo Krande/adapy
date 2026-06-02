@@ -15,19 +15,19 @@ class COG(BaseModel):
     x: float
     y: float
     z: float
-    total_mass: Optional[confloat(ge=0.0)] = Field(None, description='Sum of contributing masses.')
-    total_volume: Optional[confloat(ge=0.0)] = Field(None, description='Sum of contributing volumes.')
+    total_mass: Optional[confloat(ge=0.0)] = Field(None, description="Sum of contributing masses.")
+    total_volume: Optional[confloat(ge=0.0)] = Field(None, description="Sum of contributing volumes.")
 
 
 class DesignNodeReference(BaseModel):
-    faces: Optional[List[str]] = Field(None, description='node reference of Faces mesh')
+    faces: Optional[List[str]] = Field(None, description="node reference of Faces mesh")
 
 
 class Group(BaseModel):
-    name: Optional[str] = Field(None, description='Name of group')
-    members: Optional[List[str]] = Field(None, description='Name of group objects')
-    description: Optional[str] = Field(None, description='Description of Group')
-    parent_name: Optional[str] = Field(None, description='Name of the parent design object')
+    name: Optional[str] = Field(None, description="Name of group")
+    members: Optional[List[str]] = Field(None, description="Name of group objects")
+    description: Optional[str] = Field(None, description="Description of Group")
+    parent_name: Optional[str] = Field(None, description="Name of the parent design object")
 
 
 class ConnectionInfo(BaseModel):
@@ -48,9 +48,9 @@ class ConnectionInfo(BaseModel):
         description="Map of role name ('incoming', 'landing', ...) to member node names — lets the inspector show 'incoming: <beam>' rows that select the right member.",
     )
     beam_names: Optional[List[str]] = Field(
-        None, description='All beam member names this Connection groups (including any roles).'
+        None, description="All beam member names this Connection groups (including any roles)."
     )
-    plate_names: Optional[List[str]] = Field(None, description='Stiffener plate names this Connection contributes.')
+    plate_names: Optional[List[str]] = Field(None, description="Stiffener plate names this Connection contributes.")
     weld_names: Optional[List[str]] = Field(
         None,
         description="Weld names this Connection owns. The inspector renders one 'select all welds (N)' link rather than the per-weld dump.",
@@ -59,34 +59,34 @@ class ConnectionInfo(BaseModel):
 
 class DesignStats(BaseModel):
     cog_volume: Optional[COG] = Field(
-        None, description='Volume-weighted centroid. Populated whenever any geometry contributes a non-zero volume.'
+        None, description="Volume-weighted centroid. Populated whenever any geometry contributes a non-zero volume."
     )
     cog_mass: Optional[COG] = Field(
         None,
-        description='Mass-weighted centroid. Only populated when every physical object has a material density defined.',
+        description="Mass-weighted centroid. Only populated when every physical object has a material density defined.",
     )
     object_counts: Optional[Dict[str, conint(ge=0)]] = Field(
         None,
-        description='Number of physical objects per type, keyed by lowercase class name (e.g. beam, plate, shape, pipe, wall).',
+        description="Number of physical objects per type, keyed by lowercase class name (e.g. beam, plate, shape, pipe, wall).",
     )
 
 
 class DesignDataExtension(BaseModel):
-    name: str = Field(..., description='Name of the design object')
-    description: Optional[str] = Field(None, description='Optional description of the design object')
-    groups: Optional[List[Group]] = Field(None, description='Named groups and their member objects')
-    node_references: Optional[DesignNodeReference] = Field(None, description='References to GLTF node names')
+    name: str = Field(..., description="Name of the design object")
+    description: Optional[str] = Field(None, description="Optional description of the design object")
+    groups: Optional[List[Group]] = Field(None, description="Named groups and their member objects")
+    node_references: Optional[DesignNodeReference] = Field(None, description="References to GLTF node names")
     object_guids: Optional[Dict[str, str]] = Field(
         None,
-        description='Map of physical object name (Beam/Plate/etc.) to its adapy guid. Used by the viewer to resolve a clicked CAD object to its stable lineage id, so a derived FEA model can be matched without name lookups.',
+        description="Map of physical object name (Beam/Plate/etc.) to its adapy guid. Used by the viewer to resolve a clicked CAD object to its stable lineage id, so a derived FEA model can be matched without name lookups.",
     )
     object_metadata: Optional[Dict[str, Dict[str, Any]]] = Field(
         None,
-        description='Optional per-object structured metadata (type, section, material, thickness) keyed by object name. When present, the viewer reads it directly from the GLB and skips the server round-trip back to the source IFC for the Properties panel.',
+        description="Optional per-object structured metadata (type, section, material, thickness) keyed by object name. When present, the viewer reads it directly from the GLB and skips the server round-trip back to the source IFC for the Properties panel.",
     )
     stats: Optional[DesignStats] = Field(
         None,
-        description='Aggregate metrics for this design model (centre of gravity, object counts). Computed at bake time so the viewer can show per-model info without reloading source.',
+        description="Aggregate metrics for this design model (centre of gravity, object counts). Computed at bake time so the viewer can show per-model info without reloading source.",
     )
     connections: Optional[List[ConnectionInfo]] = Field(
         None,

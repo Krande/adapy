@@ -87,6 +87,7 @@ profile) are skipped at write time — the viewer-side reader can't
 tessellate them anyway. Beams without ``fem_sec.section`` or
 ``fem_sec.local_z`` are dropped for the same reason.
 """
+
 from __future__ import annotations
 
 import json

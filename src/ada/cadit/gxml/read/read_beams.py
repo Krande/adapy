@@ -93,10 +93,7 @@ def apply_offsets_and_alignments(name: str, bm_el: ET.Element, segs: list["Beam"
             # adapy's flange-up storage that edge sits at -h/2, i.e.
             # FLUSH_BOTTOM. Swap the justification so OffsetHelper
             # produces the right eccentricity vector.
-            flange_down = bool(
-                seg.section.metadata
-                and seg.section.metadata.get("gxml_flange_down")
-            )
+            flange_down = bool(seg.section.metadata and seg.section.metadata.get("gxml_flange_down"))
             effective = alignment_str
             if flange_down:
                 if alignment_str == "flush_top":

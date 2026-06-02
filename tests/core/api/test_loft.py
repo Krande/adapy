@@ -18,12 +18,14 @@ from ada.geom.points import Point
 
 def _square(side: float, z: float) -> PolyLoop:
     half = side / 2.0
-    return PolyLoop(polygon=[
-        Point(-half, -half, z),
-        Point(half, -half, z),
-        Point(half, half, z),
-        Point(-half, half, z),
-    ])
+    return PolyLoop(
+        polygon=[
+            Point(-half, -half, z),
+            Point(half, -half, z),
+            Point(half, half, z),
+            Point(-half, half, z),
+        ]
+    )
 
 
 def _circle(radius: float, z: float, segments: int = 24) -> PolyLoop:

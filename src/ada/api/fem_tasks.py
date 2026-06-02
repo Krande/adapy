@@ -79,16 +79,12 @@ def mesh_cantilever(
     p = a.get_part(PART_NAME)
     bm = next(b for b in p.get_all_physical_objects() if b.name == BEAM_NAME)
 
-    props: dict = (
-        dict(use_hex=use_hex_quad) if geom_repr == GeomRepr.SOLID else dict(use_quads=use_hex_quad)
-    )
+    props: dict = dict(use_hex=use_hex_quad) if geom_repr == GeomRepr.SOLID else dict(use_quads=use_hex_quad)
     props["options"] = GmshOptions(Mesh_ElementOrder=elem_order)
 
     p.fem = bm.to_fem_obj(mesh_size, geom_repr, **props)
 
-    fix_set = p.fem.add_set(
-        ada.fem.FemSet("bc_nodes", bm.bbox().sides.back(return_fem_nodes=True, fem=p.fem))
-    )
+    fix_set = p.fem.add_set(ada.fem.FemSet("bc_nodes", bm.bbox().sides.back(return_fem_nodes=True, fem=p.fem)))
     a.fem.add_bc(ada.fem.Bc("Fixed", fix_set, [1, 2, 3, 4, 5, 6]))
 
     for part in a.get_all_parts_in_assembly():
@@ -202,8 +198,9 @@ def run_eig(
     """
     fem_format = FEA.from_str(fem_format) if isinstance(fem_format, str) else fem_format
     a.fem.add_step(ada.fem.StepEigen("Eigen", num_eigen_modes=eigen_modes))
-    return _invoke_solver(a, name=name, fem_format=fem_format, scratch_dir=scratch_dir,
-                          overwrite=overwrite, execute=execute)
+    return _invoke_solver(
+        a, name=name, fem_format=fem_format, scratch_dir=scratch_dir, overwrite=overwrite, execute=execute
+    )
 
 
 def run_lin_static(
@@ -225,8 +222,9 @@ def run_lin_static(
         ada.fem.StepImplicitStatic("gravity", nl_geom=nl_geom, init_incr=init_incr, total_time=total_time)
     )
     step.add_load(ada.fem.LoadGravity("grav", gravity_factor))
-    return _invoke_solver(a, name=name, fem_format=fem_format, scratch_dir=scratch_dir,
-                          overwrite=overwrite, execute=execute)
+    return _invoke_solver(
+        a, name=name, fem_format=fem_format, scratch_dir=scratch_dir, overwrite=overwrite, execute=execute
+    )
 
 
 def _invoke_solver(
@@ -250,8 +248,12 @@ def _invoke_solver(
 
     try:
         res = a.to_fem(
-            name, fem_format, overwrite=overwrite, execute=execute,
-            scratch_dir=scratch_dir, exit_on_complete=False,
+            name,
+            fem_format,
+            overwrite=overwrite,
+            execute=execute,
+            scratch_dir=scratch_dir,
+            exit_on_complete=False,
         )
     except IncompatibleElements as e:
         logger.error(e)

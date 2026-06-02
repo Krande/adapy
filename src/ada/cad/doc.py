@@ -16,6 +16,7 @@ the ``"xcaf_doc"`` capability and steers callers to the portable per-shape
 
 See dap plan/v3 notes_occ_backend_abstraction (Phase 6).
 """
+
 from __future__ import annotations
 
 import os
@@ -89,8 +90,7 @@ def select_doc_backend(prefer: str | None = None) -> DocBackend:
         return OccDocBackend()
     except ImportError as e:
         raise ImportError(
-            "No document backend available — install `pythonocc-core` for "
-            f"OCAF/XCAF assembly I/O. Last error: {e}"
+            "No document backend available — install `pythonocc-core` for " f"OCAF/XCAF assembly I/O. Last error: {e}"
         )
 
 

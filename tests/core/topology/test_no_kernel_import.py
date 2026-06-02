@@ -5,6 +5,7 @@ kernel-agnostic. Importing OCC.* (or adacpp) anywhere under ada/topology would
 re-couple it to a specific kernel, so we assert the source is clean and that
 the package imports without any kernel present in sys.modules.
 """
+
 from __future__ import annotations
 
 import pathlib

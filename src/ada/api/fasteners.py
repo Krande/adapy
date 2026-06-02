@@ -8,7 +8,7 @@ from ada.base.types import BaseEnum
 from ada.core.vector_utils import unit_vector
 
 if TYPE_CHECKING:
-    from ada import Beam, Node, Plate, PrimExtrude, PrimSweep
+    from ada import Node, PrimExtrude, PrimSweep
     from ada.geom.curves import CurveOpen3d
 
 
@@ -78,9 +78,7 @@ class WeldType(BaseEnum):
         for member in cls:
             if member.value == key:
                 return member
-        raise ValueError(
-            f"Unknown weld type {value!r}; expected one of: {sorted(m.value for m in cls)}"
-        )
+        raise ValueError(f"Unknown weld type {value!r}; expected one of: {sorted(m.value for m in cls)}")
 
 
 # Back-compat alias for the previous, much smaller enum.
@@ -121,8 +119,7 @@ def build_profile(
         return [(0, 0), (-l1, 0), (0, l2)]
 
     raise NotImplementedError(
-        f"build_profile not implemented for weld_type={weld_type.name}; "
-        "pass profile= explicitly to Weld(...)"
+        f"build_profile not implemented for weld_type={weld_type.name}; " "pass profile= explicitly to Weld(...)"
     )
 
 
@@ -208,18 +205,14 @@ class Weld(BackendGeom):
                 raise ValueError("Weld requires either `sweep_curve=` or both `p1` and `p2`")
             p1_node = Node(p1) if not isinstance(p1, Node) else p1
             p2_node = Node(p2) if not isinstance(p2, Node) else p2
-            geom = PrimExtrude.from_2points_and_curve(
-                f"{self.name}_geom", p1_node.p, p2_node.p, profile, xdir
-            )
+            geom = PrimExtrude.from_2points_and_curve(f"{self.name}_geom", p1_node.p, p2_node.p, profile, xdir)
             geom.parent = self
 
         if groove is not None and p1_node is not None and p2_node is not None:
             vec = unit_vector(p2_node.p - p1_node.p)
             p_start = p1_node.p - p1_node.p * vec * 0.02
             p_end = p2_node.p + p2_node.p * vec * 0.02
-            groove = PrimExtrude.from_2points_and_curve(
-                f"{self.name}_groove", p_start, p_end, groove, xdir
-            )
+            groove = PrimExtrude.from_2points_and_curve(f"{self.name}_groove", p_start, p_end, groove, xdir)
             groove.parent = self
         elif groove is not None:
             raise NotImplementedError("Groove geometry on swept welds not implemented yet")

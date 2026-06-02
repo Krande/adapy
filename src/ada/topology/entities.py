@@ -14,16 +14,18 @@ provides ``get_space(name, structure_name)``); domain layers attach their own
 config there. Nothing here imports that config type, so the entities stay
 domain-neutral.
 """
+
 from __future__ import annotations
 
 from functools import cached_property
 from typing import Annotated, Any, ClassVar, Literal, Optional, get_args
 
+from pydantic import BaseModel, Field, PrivateAttr, ValidationError, field_validator
+
 import ada
 from ada.api.spatial.eq_types import EquipRepr
 from ada.config import logger
 from ada.sections.categories import BaseTypes
-from pydantic import BaseModel, Field, PrivateAttr, ValidationError, field_validator
 
 __all__ = [
     "EquipRepr",

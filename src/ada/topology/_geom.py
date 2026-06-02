@@ -3,6 +3,7 @@
 These are domain-neutral utilities used by the cell graph: a deterministic
 in-plane x-direction for a planar face, and a face/box overlap test.
 """
+
 from __future__ import annotations
 
 from functools import lru_cache

@@ -11,65 +11,65 @@ from pydantic import BaseModel, Field, RootModel, conint
 
 
 class Vec3(RootModel[List[float]]):
-    root: List[float] = Field(..., description='An [x, y, z] triple in model units.', max_length=3, min_length=3)
+    root: List[float] = Field(..., description="An [x, y, z] triple in model units.", max_length=3, min_length=3)
 
 
 class MassGlyph(BaseModel):
-    name: Optional[str] = Field(None, description='Mass point name.')
-    position: Vec3 = Field(..., description='Mass centre of gravity.')
-    mass: float = Field(..., description='Mass magnitude (drives glyph size).')
+    name: Optional[str] = Field(None, description="Mass point name.")
+    position: Vec3 = Field(..., description="Mass centre of gravity.")
+    mass: float = Field(..., description="Mass magnitude (drives glyph size).")
 
 
 class BcGlyph(BaseModel):
-    name: Optional[str] = Field(None, description='Boundary condition name.')
-    positions: List[Vec3] = Field(..., description='Restrained node positions.')
+    name: Optional[str] = Field(None, description="Boundary condition name.")
+    positions: List[Vec3] = Field(..., description="Restrained node positions.")
     dofs: List[conint(ge=1, le=6)] = Field(
-        ..., description='Restrained degrees of freedom, 1..6 (1-3 translation, 4-6 rotation).'
+        ..., description="Restrained degrees of freedom, 1..6 (1-3 translation, 4-6 rotation)."
     )
-    bc_type: Optional[str] = Field(None, description='Boundary condition type (e.g. displacement).')
+    bc_type: Optional[str] = Field(None, description="Boundary condition type (e.g. displacement).")
 
 
 class Type(Enum):
-    point = 'point'
-    line = 'line'
-    surface = 'surface'
-    accel = 'accel'
+    point = "point"
+    line = "line"
+    surface = "surface"
+    accel = "accel"
 
 
 class LoadGlyph(BaseModel):
-    name: Optional[str] = Field(None, description='Load name.')
-    type: Type = Field(..., description='Load arrangement type.')
-    position: Optional[Vec3] = Field(None, description='Point load location / line start / acceleration anchor.')
-    end_position: Optional[Vec3] = Field(None, description='Line load end point.')
-    points: Optional[List[Vec3]] = Field(None, description='Surface load polygon vertices.')
-    direction: Optional[Vec3] = Field(None, description='Normalized force / acceleration direction.')
+    name: Optional[str] = Field(None, description="Load name.")
+    type: Type = Field(..., description="Load arrangement type.")
+    position: Optional[Vec3] = Field(None, description="Point load location / line start / acceleration anchor.")
+    end_position: Optional[Vec3] = Field(None, description="Line load end point.")
+    points: Optional[List[Vec3]] = Field(None, description="Surface load polygon vertices.")
+    direction: Optional[Vec3] = Field(None, description="Normalized force / acceleration direction.")
     magnitude: Optional[float] = Field(
-        None, description='Force magnitude / pressure / acceleration magnitude (drives arrow color/label).'
+        None, description="Force magnitude / pressure / acceleration magnitude (drives arrow color/label)."
     )
-    moment: Optional[Vec3] = Field(None, description='Applied moment vector, if any.')
+    moment: Optional[Vec3] = Field(None, description="Applied moment vector, if any.")
 
 
 class Kind(Enum):
-    case = 'case'
-    combination = 'combination'
+    case = "case"
+    combination = "combination"
 
 
 class LoadScenario(BaseModel):
-    name: str = Field(..., description='Load case or combination name.')
+    name: str = Field(..., description="Load case or combination name.")
     kind: Optional[Kind] = Field(
-        None, description='Whether this scenario is a single load case or a (factored) combination.'
+        None, description="Whether this scenario is a single load case or a (factored) combination."
     )
-    loads: Optional[List[LoadGlyph]] = Field(None, description='Resolved load glyphs for this scenario.')
+    loads: Optional[List[LoadGlyph]] = Field(None, description="Resolved load glyphs for this scenario.")
 
 
 class FemConcepts(BaseModel):
     masses: Optional[List[MassGlyph]] = Field(
-        None, description='Point masses (e.g. lumped equipment mass at deck feet).'
+        None, description="Point masses (e.g. lumped equipment mass at deck feet)."
     )
     bcs: Optional[List[BcGlyph]] = Field(
-        None, description='Boundary conditions: a set of restrained node positions and which dofs are fixed.'
+        None, description="Boundary conditions: a set of restrained node positions and which dofs are fixed."
     )
     scenarios: Optional[List[LoadScenario]] = Field(
         None,
-        description='Load scenarios (one per load case AND per load combination), each pre-resolved to a flat list of load glyphs so the viewer can cycle through them and render scenario[i].loads directly.',
+        description="Load scenarios (one per load case AND per load combination), each pre-resolved to a flat list of load glyphs so the viewer can cycle through them and render scenario[i].loads directly.",
     )

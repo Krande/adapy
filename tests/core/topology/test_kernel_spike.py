@@ -7,6 +7,7 @@ centroids, and point containment. Runs against whatever backend
 as the cross-backend parity gate for make_volumes_from_faces /
 non_manifold_merge / free_faces / point_in_solid / center_of_mass.
 """
+
 from __future__ import annotations
 
 import ada
@@ -48,11 +49,7 @@ def test_make_volumes_l_of_three_boxes():
     # A(0..1,0..1) | B(1..2,0..1) share x=1; B | C(1..2,1..2) share y=1.
     # 3 cells, 2 shared faces -> 18 - 2*2 = 14 free faces.
     be = active_backend()
-    soup = (
-        _box_faces((0, 0, 0), (1, 1, 1))
-        + _box_faces((1, 0, 0), (2, 1, 1))
-        + _box_faces((1, 1, 0), (2, 2, 1))
-    )
+    soup = _box_faces((0, 0, 0), (1, 1, 1)) + _box_faces((1, 0, 0), (2, 1, 1)) + _box_faces((1, 1, 0), (2, 2, 1))
     cells = be.make_volumes_from_faces(soup, tolerance=1e-6)
     assert len(cells) == 3
     assert len(be.free_faces(cells)) == 14

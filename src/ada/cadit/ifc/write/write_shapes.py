@@ -124,9 +124,9 @@ def write_ifc_shape(ifc_store: IfcStore, shape: Shape):
             # user still sees the geometry in viewers / queries
             # that don't care about the parametric details.
             logger.warning(
-                "ifc-write: parametric path failed for %s (%s); "
-                "falling back to tesselation",
-                shape.name, exc,
+                "ifc-write: parametric path failed for %s (%s); " "falling back to tesselation",
+                shape.name,
+                exc,
             )
             use_tesselation = True
     if use_tesselation:

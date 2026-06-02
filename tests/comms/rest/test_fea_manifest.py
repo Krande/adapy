@@ -21,9 +21,7 @@ import pytest
 # evaluates a module-level create_app() that needs a writable storage
 # root. Point it at a temp dir so import succeeds in CI sandboxes.
 os.environ.setdefault("ADA_VIEWER_STORAGE_KIND", "local")
-os.environ.setdefault(
-    "ADA_VIEWER_LOCAL_PATH", tempfile.mkdtemp(prefix="ada-test-storage-")
-)
+os.environ.setdefault("ADA_VIEWER_LOCAL_PATH", tempfile.mkdtemp(prefix="ada-test-storage-"))
 
 from fastapi.testclient import TestClient  # noqa: E402
 

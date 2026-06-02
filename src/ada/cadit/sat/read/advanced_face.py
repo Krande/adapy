@@ -22,7 +22,7 @@ def _face_world_bbox(face_record: AcisRecord) -> tuple[float, float, float, floa
         idx = chunks.index("T")
     except ValueError:
         return None
-    nums = chunks[idx + 1: idx + 7]
+    nums = chunks[idx + 1 : idx + 7]
     if len(nums) != 6:
         return None
     try:
@@ -39,7 +39,9 @@ def _spline_surface_cp_bbox(surface) -> tuple[float, float, float, float, float,
     xs, ys, zs = [], [], []
     for row in cps:
         for cp in row:
-            xs.append(cp[0]); ys.append(cp[1]); zs.append(cp[2])
+            xs.append(cp[0])
+            ys.append(cp[1])
+            zs.append(cp[2])
     if not xs:
         return None
     return (min(xs), min(ys), min(zs), max(xs), max(ys), max(zs))
@@ -53,9 +55,12 @@ def _bboxes_disjoint(a, b, tol: float = 1e-3) -> bool:
     to the face's perimeter).
     """
     return (
-        a[3] < b[0] - tol or b[3] < a[0] - tol
-        or a[4] < b[1] - tol or b[4] < a[1] - tol
-        or a[5] < b[2] - tol or b[5] < a[2] - tol
+        a[3] < b[0] - tol
+        or b[3] < a[0] - tol
+        or a[4] < b[1] - tol
+        or b[4] < a[1] - tol
+        or a[5] < b[2] - tol
+        or b[5] < a[2] - tol
     )
 
 
@@ -90,8 +95,7 @@ def get_face_surface(face_record: AcisRecord) -> geo_su.SURFACE_GEOM_TYPES | geo
         surf_bbox = _spline_surface_cp_bbox(face_surface)
         if face_bbox is not None and surf_bbox is not None and _bboxes_disjoint(surf_bbox, face_bbox):
             raise ACISReferenceDataError(
-                "spline surface CP bbox disjoint from face bbox "
-                "(exppc peel landed on neighbouring surface)"
+                "spline surface CP bbox disjoint from face bbox " "(exppc peel landed on neighbouring surface)"
             )
     elif face_surface_record.type == "plane-surface":
         pos = Point(*[float(x) for x in face_surface_record.chunks[6:9]])

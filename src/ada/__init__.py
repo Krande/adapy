@@ -22,6 +22,12 @@ from ada.api.beams import (
     BeamTapered,
 )
 from ada.api.boolean import Boolean
+
+# Connection depends on Part, so import it after spatial is loaded
+# (it lives in ada.api.connections but circularly references
+# ada.api.spatial.part — imports earlier in this file would trip
+# the partial-init guard when spatial.part re-imports from ada).
+from ada.api.connections import Connection
 from ada.api.curves import ArcSegment, CurvePoly2d, CurveRevolve, LineSegment
 from ada.api.fasteners import Bolts, IntermittentSpec, Weld, WeldType
 from ada.api.groups import Group
@@ -41,12 +47,6 @@ from ada.api.primitives import (
 )
 from ada.api.primitives.bool_half_space import BoolHalfSpace
 from ada.api.spatial import Assembly, Part
-
-# Connection depends on Part, so import it after spatial is loaded
-# (it lives in ada.api.connections but circularly references
-# ada.api.spatial.part — imports earlier in this file would trip
-# the partial-init guard when spatial.part re-imports from ada).
-from ada.api.connections import Connection
 from ada.api.spatial.equipment import Equipment
 from ada.api.transforms import Instance, Placement, Transform
 from ada.api.user import User

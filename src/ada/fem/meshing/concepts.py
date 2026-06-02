@@ -412,10 +412,12 @@ def import_into_gmsh_use_nativepointer(obj: BackendGeom | Shape, geom_repr: Geom
         if Placement() != abs_place:
             o = abs_place.origin
             mat = np.array(
-                [[1.0, 0.0, 0.0, float(o[0])],
-                 [0.0, 1.0, 0.0, float(o[1])],
-                 [0.0, 0.0, 1.0, float(o[2])],
-                 [0.0, 0.0, 0.0, 1.0]]
+                [
+                    [1.0, 0.0, 0.0, float(o[0])],
+                    [0.0, 1.0, 0.0, float(o[1])],
+                    [0.0, 0.0, 1.0, float(o[2])],
+                    [0.0, 0.0, 0.0, 1.0],
+                ]
             )
             geo = backend.transform(geo, mat, copy=True)
         return geo

@@ -38,7 +38,7 @@ import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from functools import cached_property
-from typing import TYPE_CHECKING, Any, ClassVar, Iterable, Optional, Union
+from typing import TYPE_CHECKING, ClassVar, Iterable, Optional, Union
 
 from ada.fem.results.common import FEAResult
 
@@ -150,9 +150,7 @@ class FeaCaseResult:
     #: own well-known non-result filenames to this set via the
     #: ``skip_stems=`` argument; the class default covers the names
     #: adapy reports have historically reserved.
-    CACHE_SKIP_STEMS: ClassVar[frozenset[str]] = frozenset(
-        {"software_versions", "debug"}
-    )
+    CACHE_SKIP_STEMS: ClassVar[frozenset[str]] = frozenset({"software_versions", "debug"})
 
     def save_to_json(self, cache_filepath: "pathlib.Path | str") -> None:
         """Persist a JSON snapshot of this case for offline replay.
@@ -257,9 +255,7 @@ def walk_cached_case_results(
         try:
             entry = case_cls.from_json(path)
         except (KeyError, json.JSONDecodeError, TypeError) as exc:
-            logger.info(
-                f"skipping {path.name}: not a {case_cls.__name__} cache ({exc})"
-            )
+            logger.info(f"skipping {path.name}: not a {case_cls.__name__} cache ({exc})")
             continue
         if entry.name in skip:
             continue

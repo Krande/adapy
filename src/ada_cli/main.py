@@ -15,6 +15,7 @@ Subcommand layout:
     ada files list|download           list / download blobs from a scope
     ada serve api|worker              run the REST API / worker process
 """
+
 from __future__ import annotations
 
 import argparse

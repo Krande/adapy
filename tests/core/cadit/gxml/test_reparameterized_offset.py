@@ -19,7 +19,6 @@ import xml.etree.ElementTree as ET
 import numpy as np
 import pytest
 
-import ada
 from ada.cadit.gxml.read.read_beams import get_offsets
 
 
@@ -132,8 +131,7 @@ def test_inverted_t_beam_section_lands_with_web_tip_on_wire():
     from ada.cadit.gxml.read.read_beams import el_to_beam
     from ada.cadit.gxml.read.read_sections import unsymm_isec
 
-    sec_attrib = dict(h="1.0", bfbot="0.4", bftop="0.025",
-                      tw="0.025", tftop="0.0001", tfbot="0.03")
+    sec_attrib = dict(h="1.0", bfbot="0.4", bftop="0.025", tw="0.025", tftop="0.0001", tfbot="0.03")
     sec = unsymm_isec("T1000x400x25x30", ET.Element("unsymmetrical_i_section", attrib=sec_attrib))
 
     parent = Part("p")
@@ -215,8 +213,7 @@ def test_inverted_t_beam_flips_up_vector():
     from ada.cadit.gxml.read.read_beams import el_to_beam
     from ada.cadit.gxml.read.read_sections import unsymm_isec
 
-    sec_attrib = dict(h="1.0", bfbot="0.4", bftop="0.025",
-                      tw="0.025", tftop="0.0001", tfbot="0.03")
+    sec_attrib = dict(h="1.0", bfbot="0.4", bftop="0.025", tw="0.025", tftop="0.0001", tfbot="0.03")
     sec_el = ET.Element("unsymmetrical_i_section", attrib=sec_attrib)
     sec = unsymm_isec("T_FLIPPED", sec_el)
     assert sec.metadata.get("gxml_flange_down") is True

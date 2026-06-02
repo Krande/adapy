@@ -7,8 +7,8 @@ from ifcopenshell import ifcopenshell_wrapper
 
 import ada
 from ada.base.units import Units
-from ada.cadit.ifc.utils import add_colour, create_local_placement
 from ada.cad.doc import active_doc_backend
+from ada.cadit.ifc.utils import add_colour, create_local_placement
 from ada.cadit.ifc.write.write_ifc import IfcWriter
 from ada.config import logger
 from ada.core.guid import create_guid

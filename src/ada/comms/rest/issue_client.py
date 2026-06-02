@@ -62,13 +62,20 @@ class GitForgeClient(Protocol):
     satisfy this protocol so the dispatch loop stays forge-agnostic."""
 
     async def list_issues_by_label(
-        self, label: str, *, state: str = "open",
+        self,
+        label: str,
+        *,
+        state: str = "open",
     ) -> list[IssueRef]: ...
 
     async def find_issue_by_title(self, title: str) -> IssueRef | None: ...
 
     async def create_issue(
-        self, *, title: str, body: str, labels: Iterable[str],
+        self,
+        *,
+        title: str,
+        body: str,
+        labels: Iterable[str],
     ) -> IssueRef: ...
 
     async def comment_issue(self, number: int, *, body: str) -> None: ...
@@ -103,12 +110,18 @@ class _BaseClient:
         return "/".join(p.strip("/") for p in parts)
 
     async def _request(
-        self, method: str, url: str, **kwargs,
+        self,
+        method: str,
+        url: str,
+        **kwargs,
     ) -> httpx.Response:
         async with httpx.AsyncClient(timeout=self._timeout) as client:
             try:
                 r = await client.request(
-                    method, url, headers=self._headers(), **kwargs,
+                    method,
+                    url,
+                    headers=self._headers(),
+                    **kwargs,
                 )
             except httpx.HTTPError as exc:
                 raise IssueClientError(
@@ -123,14 +136,18 @@ class _BaseClient:
         return r
 
     async def list_issues_by_label(
-        self, label: str, *, state: str = "open",
+        self,
+        label: str,
+        *,
+        state: str = "open",
     ) -> list[IssueRef]:
         # Both forges return a JSON array; pagination is per_page=100
         # by default which suffices — the audit panel won't have
         # thousands of open fingerprints (if it does, we have bigger
         # problems than pagination).
         r = await self._request(
-            "GET", self._issues_url(),
+            "GET",
+            self._issues_url(),
             params={"labels": label, "state": state, "per_page": 100},
         )
         return [_parse_issue(d) for d in r.json()]
@@ -141,7 +158,8 @@ class _BaseClient:
         # so a manually-closed dashboard still gets re-found and
         # reopened by the body-update path.
         r = await self._request(
-            "GET", self._issues_url(),
+            "GET",
+            self._issues_url(),
             params={"state": "all", "per_page": 100},
         )
         for d in r.json():
@@ -150,7 +168,11 @@ class _BaseClient:
         return None
 
     async def create_issue(
-        self, *, title: str, body: str, labels: Iterable[str],
+        self,
+        *,
+        title: str,
+        body: str,
+        labels: Iterable[str],
     ) -> IssueRef:
         payload = {
             "title": title,
@@ -169,7 +191,9 @@ class _BaseClient:
 
     async def update_issue_body(self, number: int, *, body: str) -> None:
         await self._request(
-            "PATCH", self._issues_url(str(number)), json={"body": body},
+            "PATCH",
+            self._issues_url(str(number)),
+            json={"body": body},
         )
 
 
@@ -179,10 +203,7 @@ def _parse_issue(d: dict) -> IssueRef:
         title=d.get("title") or "",
         body=d.get("body"),
         html_url=d.get("html_url"),
-        labels=[
-            (lab.get("name") if isinstance(lab, dict) else str(lab))
-            for lab in (d.get("labels") or [])
-        ],
+        labels=[(lab.get("name") if isinstance(lab, dict) else str(lab)) for lab in (d.get("labels") or [])],
         state=d.get("state") or "",
     )
 
@@ -198,7 +219,10 @@ class GitHubClient(_BaseClient):
     """
 
     def __init__(
-        self, *, repo: str, token: str,
+        self,
+        *,
+        repo: str,
+        token: str,
         base_url: str = "https://api.github.com",
     ):
         super().__init__(base_url=base_url, repo=repo, token=token)
@@ -238,7 +262,11 @@ class ForgejoClient(_BaseClient):
 
 
 def build_client(
-    kind: str, *, repo: str, token: str, base_url: str | None = None,
+    kind: str,
+    *,
+    repo: str,
+    token: str,
+    base_url: str | None = None,
 ) -> GitForgeClient:
     """Construct the right client for the configured forge kind.
 
@@ -251,14 +279,14 @@ def build_client(
     k = kind.strip().lower()
     if k == "github":
         return GitHubClient(
-            repo=repo, token=token,
+            repo=repo,
+            token=token,
             base_url=base_url or "https://api.github.com",
         )
     if k == "forgejo" or k == "gitea":
         if not base_url:
             raise ValueError(
-                "forgejo client requires base_url "
-                "(e.g. https://git.example.com/api/v1)",
+                "forgejo client requires base_url " "(e.g. https://git.example.com/api/v1)",
             )
         return ForgejoClient(repo=repo, token=token, base_url=base_url)
     raise ValueError(f"unknown issue target kind {kind!r}")

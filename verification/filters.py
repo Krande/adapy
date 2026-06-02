@@ -39,9 +39,6 @@ import pathlib  # noqa: F401  (kept for type/path manipulation in render helpers
 from typing import TYPE_CHECKING, Literal, Optional
 
 import numpy as np
-from pydantic import Field
-
-from ada.fem.results.docs import FeaDocAssets, assets_from_bundle_dir
 from paradoc.figure_sources.filters.base import (
     FigureSourceFilter,
     MarkdownChunk,
@@ -49,11 +46,15 @@ from paradoc.figure_sources.filters.base import (
     register_filter,
 )
 from paradoc.figure_sources.models import BaseFigureSource, register_spec
-from paradoc.filters import Filter, FigureView, TableView, ThreeDView, attr
+from paradoc.filters import FigureView, Filter, TableView, ThreeDView, attr
+from pydantic import Field
+
+from ada.fem.results.docs import FeaDocAssets, assets_from_bundle_dir
 
 if TYPE_CHECKING:
-    import ada
     from utils import FeaVerificationResult
+
+    import ada
 
 _eig_logger = logging.getLogger(__name__)
 
@@ -84,11 +85,7 @@ class Beam(Filter):
         import ada as _ada
 
         assembly = self.task.results()[0]
-        return next(
-            b
-            for b in assembly.get_all_physical_objects()
-            if isinstance(b, _ada.Beam)
-        )
+        return next(b for b in assembly.get_all_physical_objects() if isinstance(b, _ada.Beam))
 
     @attr
     def length_m(self) -> float:
@@ -306,6 +303,7 @@ eig = Eig(name="eig", task=TaskHandle.unbound("run_eig"))
 # (@task functions that produce data).
 # ---------------------------------------------------------------------
 
+
 class EigModesSection(BaseFigureSource):
     """Spec for ``figure_source: eig_modes_section``.
 
@@ -398,10 +396,7 @@ class EigModesSectionFilter(FigureSourceFilter):
 
     def render(self, spec, *, key):  # type: ignore[override]
         if not isinstance(spec, EigModesSection):
-            raise TypeError(
-                f"EigModesSectionFilter received non-EigModesSection spec: "
-                f"{type(spec).__name__}"
-            )
+            raise TypeError(f"EigModesSectionFilter received non-EigModesSection spec: " f"{type(spec).__name__}")
 
         solver_tag = _SOLVER_NAME_TAG[spec.solver]
         # Source FEA bundles live under doc_root (the dir containing
@@ -414,27 +409,15 @@ class EigModesSectionFilter(FigureSourceFilter):
 
         if not assets_root.is_dir():
             _eig_logger.warning(
-                "eig_modes_section: assets_dir %s does not exist under "
-                "doc_root; emitting placeholder.",
+                "eig_modes_section: assets_dir %s does not exist under " "doc_root; emitting placeholder.",
                 assets_root,
             )
-            return [
-                MarkdownChunk(
-                    text=f"_No FEA bundles found under `{spec.assets_dir}`._"
-                )
-            ]
+            return [MarkdownChunk(text=f"_No FEA bundles found under `{spec.assets_dir}`._")]
 
-        case_dirs = sorted(
-            d for d in assets_root.iterdir()
-            if d.is_dir() and _case_matches_solver(d.name, solver_tag)
-        )
+        case_dirs = sorted(d for d in assets_root.iterdir() if d.is_dir() and _case_matches_solver(d.name, solver_tag))
 
         if not case_dirs:
-            return [
-                MarkdownChunk(
-                    text=f"_No cases for solver `{spec.solver}`._"
-                )
-            ]
+            return [MarkdownChunk(text=f"_No cases for solver `{spec.solver}`._")]
 
         entries: list = []
         for case_dir in case_dirs:
@@ -446,29 +429,21 @@ class EigModesSectionFilter(FigureSourceFilter):
             # posters are absent. Emit the placeholder so the report
             # reader sees the case exists but has no figures yet.
             if not manifest.is_file():
-                entries.append(
-                    MarkdownChunk(text=f"\n### {case_name}\n\n{self._PLACEHOLDER}\n")
-                )
+                entries.append(MarkdownChunk(text=f"\n### {case_name}\n\n{self._PLACEHOLDER}\n"))
                 continue
 
             try:
                 assets = assets_from_bundle_dir(case_dir, key=case_name)
             except Exception as exc:
-                _eig_logger.warning(
-                    "eig_modes_section: failed to load %s: %s", case_dir, exc
-                )
-                entries.append(
-                    MarkdownChunk(text=f"\n### {case_name}\n\n{self._PLACEHOLDER}\n")
-                )
+                _eig_logger.warning("eig_modes_section: failed to load %s: %s", case_dir, exc)
+                entries.append(MarkdownChunk(text=f"\n### {case_name}\n\n{self._PLACEHOLDER}\n"))
                 continue
 
             entries.extend(self._render_case(assets, layout=spec.layout))
 
         return entries or [MarkdownChunk(text="_No baked FEA cases found._")]
 
-    def _render_case(
-        self, assets: FeaDocAssets, *, layout: str
-    ) -> list:
+    def _render_case(self, assets: FeaDocAssets, *, layout: str) -> list:
         """Build chunks + RenderResults for one case.
 
         ``layout='gallery'`` falls back to a flat sequence of figures

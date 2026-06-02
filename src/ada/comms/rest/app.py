@@ -1,18 +1,24 @@
 from __future__ import annotations
 
 import asyncio
-import functools
 import json
 import os
 import pathlib
 import re
-import shutil
 import tempfile
 import time
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 
-from fastapi import APIRouter, BackgroundTasks, Depends, FastAPI, HTTPException, Request, Response
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    FastAPI,
+    HTTPException,
+    Request,
+    Response,
+)
 from fastapi.responses import (
     FileResponse,
     JSONResponse,
@@ -26,15 +32,13 @@ from . import auth as auth_module
 from . import db as db_module
 from .auth import User
 from .config import Settings, load_settings
-from .scope import Scope, can_access as scope_can_access
 from .converter import (
-    ConverterRegistry,
     LEGACY_CONVERT_EXTS,
     TARGET_FORMATS,
+    ConverterRegistry,
     UnsupportedFormat,
     derived_key_for,
     fea_artefact_manifest_key_for,
-    fea_artefact_prefix_for,
     fea_meta_key_for,
     is_fea_artefact_source,
     is_fea_result_key,
@@ -43,6 +47,8 @@ from .converter import (
 )
 from .handlers import dispatch
 from .queue import JobQueue
+from .scope import Scope
+from .scope import can_access as scope_can_access
 from .storage import Storage
 
 # Text-heavy CAD/FEM formats compress 5–10× with gzip; binary mesh
@@ -130,7 +136,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # doesn't try to use a pool / queue that's about to be torn
         # down.
         for attr in (
-            "scheduler_task", "issue_bot_task", "profile_parser_task",
+            "scheduler_task",
+            "issue_bot_task",
+            "profile_parser_task",
         ):
             task = getattr(app.state, attr, None)
             if task is not None and not task.done():
@@ -210,7 +218,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             return []
         out: set[str] = set()
         for w in workers:
-            for raw in (w.get("source_exts") or []):
+            for raw in w.get("source_exts") or []:
                 if not isinstance(raw, str):
                     continue
                 ext = raw.strip().lower()
@@ -247,7 +255,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             return []
         merged: dict[str, set[str]] = {}
         for w in workers:
-            for entry in (w.get("conversions") or []):
+            for entry in w.get("conversions") or []:
                 if not isinstance(entry, dict):
                     continue
                 frm = (entry.get("from") or "").strip().lower()
@@ -262,10 +270,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 for t in tos:
                     if isinstance(t, str) and t.strip():
                         bucket.add(t.strip().lstrip(".").lower())
-        return [
-            {"from": frm, "to": sorted(merged[frm])}
-            for frm in sorted(merged)
-        ]
+        return [{"from": frm, "to": sorted(merged[frm])} for frm in sorted(merged)]
 
     async def _worker_advertised_utilities() -> list[dict]:
         """Merged utility specs across every currently-registered worker.
@@ -285,7 +290,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             return []
         by_name: dict[str, dict] = {}
         for w in workers:
-            for spec in (w.get("utilities") or []):
+            for spec in w.get("utilities") or []:
                 if isinstance(spec, dict) and isinstance(spec.get("name"), str):
                     by_name.setdefault(spec["name"], spec)
         return [by_name[n] for n in sorted(by_name)]
@@ -315,9 +320,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # 415. .sif is stream-readable AND legacy-convertable so it
         # falls out of this set and continues to get the eager GLB
         # preview path.
-        streaming_only_exts = sorted(
-            e for e in extra_source_exts if e not in LEGACY_CONVERT_EXTS
-        )
+        streaming_only_exts = sorted(e for e in extra_source_exts if e not in LEGACY_CONVERT_EXTS)
         # Merged conversion matrix across live workers. The /convert
         # page reads this to populate the target dropdown per source
         # extension. Empty in dev / desktop mode (queue disabled) or
@@ -326,25 +329,27 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         conversion_matrix = await _worker_advertised_conversions()
         # Worker-advertised utilities (Utilities panel in the scene component).
         utilities = await _worker_advertised_utilities()
-        return JSONResponse({
-            "transport": "rest",
-            "apiBase": "/api",
-            "convertEnabled": queue.enabled,
-            "utilities": utilities,
-            "auth": {
-                "enabled": settings.auth.enabled,
-                "issuer": settings.auth.issuer,
-                "clientId": settings.auth.client_id,
-                # Audience usually = clientId; expose it so the SPA can
-                # request the right token from Azure-style providers.
-                "audience": settings.auth.audience,
-            },
-            "viewerImageTag": viewer_tag,
-            "workerImageTag": worker_tag,
-            "extraSourceExts": extra_source_exts,
-            "streamingOnlyExts": streaming_only_exts,
-            "conversionMatrix": conversion_matrix,
-        })
+        return JSONResponse(
+            {
+                "transport": "rest",
+                "apiBase": "/api",
+                "convertEnabled": queue.enabled,
+                "utilities": utilities,
+                "auth": {
+                    "enabled": settings.auth.enabled,
+                    "issuer": settings.auth.issuer,
+                    "clientId": settings.auth.client_id,
+                    # Audience usually = clientId; expose it so the SPA can
+                    # request the right token from Azure-style providers.
+                    "audience": settings.auth.audience,
+                },
+                "viewerImageTag": viewer_tag,
+                "workerImageTag": worker_tag,
+                "extraSourceExts": extra_source_exts,
+                "streamingOnlyExts": streaming_only_exts,
+                "conversionMatrix": conversion_matrix,
+            }
+        )
 
     # Every /api/* below this line requires a verified user. The dep is
     # attached to the router so individual routes don't have to repeat
@@ -377,12 +382,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 detail="use 'user:me' for personal scope",
             )
         if s.startswith("project:"):
-            pid = s[len("project:"):].strip()
+            pid = s[len("project:") :].strip()
             if not pid:
                 raise HTTPException(status_code=400, detail="missing project id")
             return Scope.project(pid)
         if s.startswith("corpus:"):
-            slug = s[len("corpus:"):].strip()
+            slug = s[len("corpus:") :].strip()
             if not slug:
                 raise HTTPException(status_code=400, detail="missing corpus slug")
             # Admin-only gate fires in scope_can_access; here we just
@@ -515,9 +520,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             logger.exception("rpc: failed to read worker-advertised exts")
             extra_source_exts = frozenset()
         try:
-            reply = await dispatch(
-                payload, storage, scope, extra_source_exts=extra_source_exts
-            )
+            reply = await dispatch(payload, storage, scope, extra_source_exts=extra_source_exts)
         except Exception as exc:
             logger.exception("rpc dispatch failed")
             raise HTTPException(status_code=500, detail=str(exc)) from exc
@@ -570,14 +573,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if pool is None:
             return JSONResponse({"projects": []})
         rows = await db_module.list_user_projects(pool, user.sub)
-        return JSONResponse(
-            {
-                "projects": [
-                    {"id": p.id, "slug": p.slug, "name": p.name, "role": p.role}
-                    for p in rows
-                ]
-            }
-        )
+        return JSONResponse({"projects": [{"id": p.id, "slug": p.slug, "name": p.name, "role": p.role} for p in rows]})
 
     # ── Scope-shaped storage + conversion routes ─────────────────────
 
@@ -596,11 +592,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             # surfaces them explicitly when needed.
             return JSONResponse(
                 {
-                    "files": [
-                        {"key": f.key, "size": f.size}
-                        for f in files
-                        if not is_derived_key(f.key)
-                    ],
+                    "files": [{"key": f.key, "size": f.size} for f in files if not is_derived_key(f.key)],
                 }
             )
 
@@ -666,6 +658,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # latter happen for every /api/rpc VIEW_FILE_OBJECT cycle and
         # would drown the log.
         from .converter import is_derived_key
+
         if not is_derived_key(key):
             await _audit(request, user, scope_obj, "download", key=key, status="ok")
         headers: dict[str, str] = {}
@@ -673,9 +666,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             # See storage.py: gzipped sources/derived round-trip via
             # Content-Encoding so the browser auto-decompresses.
             headers["Content-Encoding"] = result.content_encoding
-        return StreamingResponse(
-            result.stream, media_type="application/octet-stream", headers=headers
-        )
+        return StreamingResponse(result.stream, media_type="application/octet-stream", headers=headers)
 
     @api.put("/scopes/{scope}/blobs/{key:path}")
     async def api_scope_blob_put(
@@ -684,7 +675,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         scope_obj: Scope = Depends(_scope_from_path),
         user: User = Depends(auth_module.current_user),
     ) -> JSONResponse:
-        from .converter import is_derived_key, is_supported_source, is_versions_artefact_key
+        from .converter import is_derived_key, is_versions_artefact_key
 
         clean = key.lstrip("/")
         if not clean:
@@ -760,7 +751,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         Query: ``source`` (existing source key in the scope), ``target``
         (default ``glb``).
         """
-        from .converter import derived_key_for, is_supported_source
+        from .converter import derived_key_for
 
         source = (request.query_params.get("source") or "").strip().lstrip("/")
         target = (request.query_params.get("target") or "glb").strip().lstrip(".").lower()
@@ -808,13 +799,24 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except Exception as exc:
             logger.exception("derived upload failed for %s", derived_key)
             await _audit(
-                request, user, scope_obj, "convert",
-                key=source, target_format=target, status="error", error=str(exc),
+                request,
+                user,
+                scope_obj,
+                "convert",
+                key=source,
+                target_format=target,
+                status="error",
+                error=str(exc),
             )
             raise HTTPException(status_code=500, detail=str(exc)) from exc
         await _audit(
-            request, user, scope_obj, "convert",
-            key=source, target_format=target, status="done",
+            request,
+            user,
+            scope_obj,
+            "convert",
+            key=source,
+            target_format=target,
+            status="done",
         )
         return JSONResponse({"key": derived_key, "size": len(data)}, status_code=201)
 
@@ -835,7 +837,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         Returns 503 on local-backed deployments — operator must provide
         an S3-compatible backend with CORS configured for browser PUTs.
         """
-        from .converter import is_derived_key, is_supported_source, is_versions_artefact_key
+        from .converter import is_derived_key, is_versions_artefact_key
 
         if not storage.supports_presigned_uploads:
             raise HTTPException(
@@ -889,7 +891,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         succeeds; if it doesn't, the file lands but no audit / convert
         happens (storage list still surfaces it).
         """
-        from .converter import is_derived_key, is_supported_source, is_versions_artefact_key
+        from .converter import is_derived_key, is_versions_artefact_key
 
         body = await request.json()
         key = (body.get("key") or "").strip().lstrip("/")
@@ -1041,8 +1043,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=415, detail=str(exc)) from exc
         if await storage.exists(scope_obj, derived_key):
             await _audit(
-                request, user, scope_obj, "convert",
-                key=source_key, target_format=target_format, status="done",
+                request,
+                user,
+                scope_obj,
+                "convert",
+                key=source_key,
+                target_format=target_format,
+                status="done",
             )
             return JSONResponse(
                 {
@@ -1072,15 +1079,25 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except Exception as exc:
             logger.exception("enqueue failed")
             await _audit(
-                request, user, scope_obj, "convert",
-                key=source_key, target_format=target_format,
-                status="error", error=str(exc),
+                request,
+                user,
+                scope_obj,
+                "convert",
+                key=source_key,
+                target_format=target_format,
+                status="error",
+                error=str(exc),
             )
             raise HTTPException(status_code=503, detail=f"enqueue failed: {exc}") from exc
 
         await _audit(
-            request, user, scope_obj, "convert",
-            key=source_key, target_format=target_format, status="queued",
+            request,
+            user,
+            scope_obj,
+            "convert",
+            key=source_key,
+            target_format=target_format,
+            status="queued",
             job_id=job.job_id,
         )
         payload = asdict(job)
@@ -1092,9 +1109,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         source_key: str,
         scope_obj: Scope = Depends(_scope_from_path),  # auth + access check
     ) -> JSONResponse:
-        return JSONResponse(
-            {"source_key": source_key, "targets": supported_targets_for(source_key)}
-        )
+        return JSONResponse({"source_key": source_key, "targets": supported_targets_for(source_key)})
 
     @api.post("/scopes/{scope}/utility")
     async def api_scope_utility(
@@ -1150,14 +1165,26 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except Exception as exc:
             logger.exception("utility enqueue failed")
             await _audit(
-                request, user, scope_obj, "utility",
-                key=source_key, target_format="utility", status="error", error=str(exc),
+                request,
+                user,
+                scope_obj,
+                "utility",
+                key=source_key,
+                target_format="utility",
+                status="error",
+                error=str(exc),
             )
             raise HTTPException(status_code=503, detail=f"enqueue failed: {exc}") from exc
 
         await _audit(
-            request, user, scope_obj, "utility",
-            key=source_key, target_format="utility", status="queued", job_id=job.job_id,
+            request,
+            user,
+            scope_obj,
+            "utility",
+            key=source_key,
+            target_format="utility",
+            status="queued",
+            job_id=job.job_id,
         )
         payload = asdict(job)
         payload["utility_name"] = utility_name
@@ -1189,12 +1216,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         """
         pool = _require_pool(request)
         cancelled = await db_module.cancel_audit_by_job(
-            pool, job_id=job_id, user_sub=user.sub,
+            pool,
+            job_id=job_id,
+            user_sub=user.sub,
         )
         if not cancelled:
             return JSONResponse(
-                {"job_id": job_id, "cancelled": False,
-                 "reason": "not owned, missing, or already terminal"},
+                {"job_id": job_id, "cancelled": False, "reason": "not owned, missing, or already terminal"},
                 status_code=404,
             )
         # Best-effort: nudge the KV bucket so /api/convert/{job_id}
@@ -1206,7 +1234,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if queue is not None:
             try:
                 await queue.update(
-                    job_id, status="cancelled", error="cancelled by user",
+                    job_id,
+                    status="cancelled",
+                    error="cancelled by user",
                 )
             except Exception:
                 # Queue update is decorative; the audit row is what
@@ -1330,14 +1360,24 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except Exception as exc:
             logger.exception("result-meta: enqueue failed for %s", source_key)
             await _audit(
-                request, user, scope_obj, "fea_meta",
-                key=source_key, status="error", error=str(exc),
+                request,
+                user,
+                scope_obj,
+                "fea_meta",
+                key=source_key,
+                status="error",
+                error=str(exc),
             )
             raise HTTPException(status_code=503, detail=f"enqueue failed: {exc}") from exc
 
         await _audit(
-            request, user, scope_obj, "fea_meta",
-            key=source_key, status="queued", job_id=job.job_id,
+            request,
+            user,
+            scope_obj,
+            "fea_meta",
+            key=source_key,
+            status="queued",
+            job_id=job.job_id,
         )
         return JSONResponse(
             {
@@ -1407,9 +1447,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             try:
                 return JSONResponse(json.loads(cached.decode("utf-8")))
             except Exception:
-                logger.exception(
-                    "fea-manifest: cache parse failed for %s; rebuilding", manifest_key
-                )
+                logger.exception("fea-manifest: cache parse failed for %s; rebuilding", manifest_key)
 
         # Cache miss — enqueue a worker bake and return 202. Frontend
         # polls /convert/{job_id} via the existing route and re-fetches
@@ -1433,14 +1471,24 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except Exception as exc:
             logger.exception("fea-manifest: enqueue failed for %s", source_key)
             await _audit(
-                request, user, scope_obj, "fea_bake",
-                key=source_key, status="error", error=str(exc),
+                request,
+                user,
+                scope_obj,
+                "fea_bake",
+                key=source_key,
+                status="error",
+                error=str(exc),
             )
             raise HTTPException(status_code=503, detail=f"enqueue failed: {exc}") from exc
 
         await _audit(
-            request, user, scope_obj, "fea_bake",
-            key=source_key, status="queued", job_id=job.job_id,
+            request,
+            user,
+            scope_obj,
+            "fea_bake",
+            key=source_key,
+            status="queued",
+            job_id=job.job_id,
         )
         return JSONResponse(
             {
@@ -1473,9 +1521,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if job.scope_kind == "shared"
             else Scope(kind=job.scope_kind, id=job.scope_id)  # type: ignore[arg-type]
         )
-        if not await scope_can_access(
-            user, job_scope, getattr(request.app.state, "db_pool", None)
-        ):
+        if not await scope_can_access(user, job_scope, getattr(request.app.state, "db_pool", None)):
             raise HTTPException(status_code=403, detail="forbidden")
         return JSONResponse(asdict(job))
 
@@ -1507,6 +1553,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         try:
             from ada.sections.profile_lookup import (
                 list_categories as _list_section_categories,
+            )
+            from ada.sections.profile_lookup import (
                 load_profiles_by_category as _load_profiles_by_category,
             )
         except ImportError as exc:
@@ -1573,9 +1621,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if resolved is None:
                 continue
             scope_str = _scope_url_segment(cand)
-            sources.append(
-                {"scope": scope_str, "branch": resolved.branch, "commit": resolved.commit}
-            )
+            sources.append({"scope": scope_str, "branch": resolved.branch, "commit": resolved.commit})
             exposed = expose_manifest(resolved, cand)
             for name, entry in exposed["specs"].items():
                 if name in all_specs:
@@ -1585,9 +1631,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 spec_entry["branch"] = resolved.branch
                 all_specs[name] = spec_entry
 
-        return JSONResponse(
-            {"branch": branch, "sources": sources, "specs": all_specs}
-        )
+        return JSONResponse({"branch": branch, "sources": sources, "specs": all_specs})
 
     @api.post("/components/build")
     async def api_components_build(
@@ -1604,9 +1648,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         ``GET /api/scopes/{scope}/blobs/{derived_key}``.
         """
         if not queue.enabled:
-            raise HTTPException(
-                status_code=503, detail="component build disabled (no NATS configured)"
-            )
+            raise HTTPException(status_code=503, detail="component build disabled (no NATS configured)")
         body = await request.json()
         spec_name = body.get("spec_name")
         if not isinstance(spec_name, str) or not spec_name:
@@ -1620,12 +1662,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail="extra_handler_kwargs must be a dict")
 
         scope_obj = _parse_scope(scope, user)
-        scope_obj = await _resolve_project_scope(
-            getattr(request.app.state, "db_pool", None), scope_obj
-        )
-        if not await scope_can_access(
-            user, scope_obj, getattr(request.app.state, "db_pool", None)
-        ):
+        scope_obj = await _resolve_project_scope(getattr(request.app.state, "db_pool", None), scope_obj)
+        if not await scope_can_access(user, scope_obj, getattr(request.app.state, "db_pool", None)):
             raise HTTPException(status_code=403, detail="forbidden")
 
         # No source file for component_build — use a synthetic source_key
@@ -1634,9 +1672,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # twice should not double-build). derived_key is the produced
         # GLB blob.
         import hashlib as _hashlib
-        inputs_hash = _hashlib.sha256(
-            json.dumps(inputs, sort_keys=True).encode("utf-8")
-        ).hexdigest()[:16]
+
+        inputs_hash = _hashlib.sha256(json.dumps(inputs, sort_keys=True).encode("utf-8")).hexdigest()[:16]
         source_key = f"_synthetic/component_build/{spec_name}/{inputs_hash}"
         derived_key = f"_derived/component_builds/{spec_name}/{inputs_hash}.glb"
 
@@ -1695,6 +1732,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     def _validate_uuid(value: str, what: str = "id") -> str:
         import uuid as _uuid
+
         try:
             return str(_uuid.UUID(value))
         except (ValueError, AttributeError, TypeError) as exc:
@@ -1784,10 +1822,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             state["last_update"] = time.time()
             await _save_compression_state(scope_label)
             return
-        candidates = [
-            e for e in entries
-            if _content_encoding_for(e.key) == "gzip" and not _is_derived_key(e.key)
-        ]
+        candidates = [e for e in entries if _content_encoding_for(e.key) == "gzip" and not _is_derived_key(e.key)]
         state["total"] = len(candidates)
         state["last_update"] = time.time()
         await _save_compression_state(scope_label)
@@ -1806,16 +1841,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     raw_path = pathlib.Path(tmpdir) / "raw"
                     gz_path = pathlib.Path(tmpdir) / "gz"
                     await storage.stream_to_path_raw(
-                        scope_obj, entry.key, raw_path,
+                        scope_obj,
+                        entry.key,
+                        raw_path,
                     )
                     with open(raw_path, "rb") as fh:
                         magic = fh.read(2)
                     if magic == b"\x1f\x8b":
                         state["already_gzipped"] += 1
                         continue
-                    with open(raw_path, "rb") as fin, _gzip.open(
-                        gz_path, "wb", compresslevel=6
-                    ) as fout:
+                    with open(raw_path, "rb") as fin, _gzip.open(gz_path, "wb", compresslevel=6) as fout:
                         _shutil.copyfileobj(fin, fout, length=1 << 20)
                     # The gzipped result is typically ~5–10× smaller
                     # than the raw payload — safely fits in memory for
@@ -1824,8 +1859,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     # limit, switch to a streaming put.
                     gzipped = gz_path.read_bytes()
                 await storage.put_bytes(
-                    scope_obj, entry.key, gzipped,
-                    content_encoding="gzip", pre_compressed=True,
+                    scope_obj,
+                    entry.key,
+                    gzipped,
+                    content_encoding="gzip",
+                    pre_compressed=True,
                 )
                 state["compressed"] += 1
                 state["bytes_before"] += entry.size or 0
@@ -1889,7 +1927,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         await _save_compression_state(scope_label)
         background_tasks.add_task(_compression_sweep, scope_obj, scope_label)
         return JSONResponse(
-            {"scope": scope_label, "status": "started"}, status_code=202,
+            {"scope": scope_label, "status": "started"},
+            status_code=202,
         )
 
     @admin.get("/storage/compression-status")
@@ -1948,9 +1987,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         for w in workers:
             hb = w.get("last_heartbeat")
             try:
-                w["online"] = (
-                    isinstance(hb, (int, float)) and (now - hb) <= stale_after_s
-                )
+                w["online"] = isinstance(hb, (int, float)) and (now - hb) <= stale_after_s
             except TypeError:
                 w["online"] = False
         # Newest registration first; offline rows sink to the bottom so
@@ -1958,9 +1995,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         workers.sort(
             key=lambda w: (not w.get("online"), -float(w.get("last_heartbeat") or 0)),
         )
-        return JSONResponse(
-            {"workers": workers, "now": now, "stale_after_s": stale_after_s}
-        )
+        return JSONResponse({"workers": workers, "now": now, "stale_after_s": stale_after_s})
 
     # ── Audit runs (M1 admin audit panel) ─────────────────────────────
     #
@@ -1988,7 +2023,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         cleaned form on success; raises HTTPException(400) on a
         malformed input so the REST handler can surface a useful
         message instead of a 500."""
-        from croniter import croniter, CroniterBadCronError  # type: ignore
+        from croniter import CroniterBadCronError, croniter  # type: ignore
 
         cleaned = cron_expr.strip()
         if not cleaned:
@@ -2007,6 +2042,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         now). Returns a timezone-aware UTC datetime — Postgres
         ``TIMESTAMPTZ`` round-trips it without conversion surprises."""
         from datetime import datetime, timezone
+
         from croniter import croniter  # type: ignore
 
         base = after or datetime.now(timezone.utc)
@@ -2051,7 +2087,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                             # next_fire_at based on the row's expr.
                             placeholder_next = now  # overwritten below
                             row = await db_module.claim_due_audit_schedule(
-                                pool, now=now, next_fire_at=placeholder_next,
+                                pool,
+                                now=now,
+                                next_fire_at=placeholder_next,
                             )
                         except Exception:
                             logger.exception("audit scheduler: claim failed")
@@ -2066,7 +2104,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                         try:
                             real_next = _next_fire(row["cron_expr"], after=now)
                             await db_module.update_audit_schedule(
-                                pool, row["id"],
+                                pool,
+                                row["id"],
                                 next_fire_at=real_next,
                                 next_fire_at_set=True,
                             )
@@ -2076,7 +2115,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                                 row["id"],
                             )
                             await db_module.set_audit_schedule_skip_reason(
-                                pool, row["id"],
+                                pool,
+                                row["id"],
                                 f"cron parse failed: {exc}",
                             )
                             continue
@@ -2104,14 +2144,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             s = await _resolve_project_scope(pool, s)
         except HTTPException as exc:
             await db_module.set_audit_schedule_skip_reason(
-                pool, sched_id,
+                pool,
+                sched_id,
                 f"scope resolution failed ({exc.status_code}): {exc.detail}",
             )
             return
         except Exception as exc:
             logger.exception("audit scheduler: scope resolution crashed")
             await db_module.set_audit_schedule_skip_reason(
-                pool, sched_id, f"scope resolution crashed: {exc}",
+                pool,
+                sched_id,
+                f"scope resolution crashed: {exc}",
             )
             return
 
@@ -2121,14 +2164,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # pool load and confuse the per-cell grid.
         try:
             in_flight = await db_module.audit_run_exists_for_key(
-                pool, scope_str, worker_pool,
+                pool,
+                scope_str,
+                worker_pool,
             )
         except Exception:
             logger.exception("audit scheduler: concurrent-fire check failed")
             return
         if in_flight:
             await db_module.set_audit_schedule_skip_reason(
-                pool, sched_id,
+                pool,
+                sched_id,
                 "skipped: previous audit run still in-flight",
             )
             return
@@ -2145,7 +2191,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except Exception as exc:
             logger.exception("audit scheduler: create_audit_run failed")
             await db_module.set_audit_schedule_skip_reason(
-                pool, sched_id, f"create_audit_run failed: {exc}",
+                pool,
+                sched_id,
+                f"create_audit_run failed: {exc}",
             )
             return
 
@@ -2206,14 +2254,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         ('done' / 'skipped' / 'failed'). Catches and records every
         exception so a single bad run can't kill the poller.
         """
-        from . import audit_issue
-        from . import issue_client
+        from . import audit_issue, issue_client
 
         run_id = run["id"]
         cfg = await _load_issue_target_config(pool)
         if cfg is None:
             await db_module.mark_audit_run_issue_bot(
-                pool, run_id, status="skipped",
+                pool,
+                run_id,
+                status="skipped",
                 error="issue target disabled or token env var unset",
             )
             return
@@ -2223,7 +2272,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except Exception as exc:
             logger.exception("issue-bot: list_failed_audit_run_jobs failed")
             await db_module.mark_audit_run_issue_bot(
-                pool, run_id, status="failed",
+                pool,
+                run_id,
+                status="failed",
                 error=f"db read failed: {exc}",
             )
             return
@@ -2233,12 +2284,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # open regressions".
         try:
             client = issue_client.build_client(
-                cfg["kind"], repo=cfg["repo"], token=cfg["token"],
+                cfg["kind"],
+                repo=cfg["repo"],
+                token=cfg["token"],
                 base_url=cfg["base_url"],
             )
         except Exception as exc:
             await db_module.mark_audit_run_issue_bot(
-                pool, run_id, status="failed",
+                pool,
+                run_id,
+                status="failed",
                 error=f"client init failed: {exc}",
             )
             return
@@ -2247,12 +2302,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if failed:
             try:
                 summary = await audit_issue.sync_run_issues(
-                    client, run=run, failed_jobs=failed,
+                    client,
+                    run=run,
+                    failed_jobs=failed,
                 )
             except Exception as exc:
                 logger.exception("issue-bot: sync_run_issues failed")
                 await db_module.mark_audit_run_issue_bot(
-                    pool, run_id, status="failed",
+                    pool,
+                    run_id,
+                    status="failed",
                     error=f"sync failed: {exc}",
                 )
                 return
@@ -2268,24 +2327,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if summary["errors"] or not dash.get("updated", False):
             note_parts: list[str] = []
             if summary["errors"]:
-                note_parts.append(
-                    f"{len(summary['errors'])} per-issue errors: "
-                    + "; ".join(summary["errors"][:3])
-                )
+                note_parts.append(f"{len(summary['errors'])} per-issue errors: " + "; ".join(summary["errors"][:3]))
             if not dash.get("updated", False) and dash.get("error"):
                 note_parts.append(f"dashboard: {dash['error']}")
             await db_module.mark_audit_run_issue_bot(
-                pool, run_id, status="failed",
+                pool,
+                run_id,
+                status="failed",
                 error=" | ".join(note_parts) or "unknown",
             )
             return
 
-        note = (
-            f"opened={summary['opened']} commented={summary['commented']} "
-            f"unique={summary['unique_failures']}"
-        )
+        note = f"opened={summary['opened']} commented={summary['commented']} " f"unique={summary['unique_failures']}"
         await db_module.mark_audit_run_issue_bot(
-            pool, run_id,
+            pool,
+            run_id,
             status="done" if failed else "skipped",
             error=None if failed else "no failures to report",
         )
@@ -2301,9 +2357,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         Failures get stamped on the audit_log row's
         ``profile_stats_error`` so the operator can debug, but the
         loop continues — one bad blob mustn't stop the queue."""
-        import pstats
-        import tempfile
         import pathlib as _pl
+        import pstats
 
         audit_id = int(claimed["id"])
         try:
@@ -2316,10 +2371,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         except Exception as exc:
             logger.warning(
                 "profile parser: storage read failed for audit %s: %s",
-                audit_id, exc,
+                audit_id,
+                exc,
             )
             await db_module.mark_profile_stats_failed(
-                pool, audit_id, f"storage read failed: {exc}",
+                pool,
+                audit_id,
+                f"storage read failed: {exc}",
             )
             return
 
@@ -2333,10 +2391,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             except Exception as exc:
                 logger.warning(
                     "profile parser: pstats failed for audit %s: %s",
-                    audit_id, exc,
+                    audit_id,
+                    exc,
                 )
                 await db_module.mark_profile_stats_failed(
-                    pool, audit_id, f"pstats parse failed: {exc}",
+                    pool,
+                    audit_id,
+                    f"pstats parse failed: {exc}",
                 )
                 return
         finally:
@@ -2347,26 +2408,32 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         rows: list[dict] = []
         for (fn, line, name), (cc, nc, tt, ct, _callers) in stats.stats.items():
-            rows.append({
-                "func": name or "",
-                "file": fn or "",
-                "line": int(line) if line is not None else 0,
-                "ncalls": int(nc),
-                "primitive_calls": int(cc),
-                "tottime": float(tt),
-                "cumtime": float(ct),
-            })
+            rows.append(
+                {
+                    "func": name or "",
+                    "file": fn or "",
+                    "line": int(line) if line is not None else 0,
+                    "ncalls": int(nc),
+                    "primitive_calls": int(cc),
+                    "tottime": float(tt),
+                    "cumtime": float(ct),
+                }
+            )
         rows.sort(key=lambda r: r["cumtime"], reverse=True)
         rows = rows[:_PROFILE_TOP_K]
 
         try:
             await db_module.insert_profile_function_stats(
-                pool, audit_id, rows,
+                pool,
+                audit_id,
+                rows,
             )
         except Exception as exc:
             logger.exception("profile parser: insert failed for audit %s", audit_id)
             await db_module.mark_profile_stats_failed(
-                pool, audit_id, f"insert failed: {exc}",
+                pool,
+                audit_id,
+                f"insert failed: {exc}",
             )
 
     async def _profile_parser_loop(pool) -> None:
@@ -2382,7 +2449,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         BATCH_PER_TICK = 5
         logger.info(
             "profile parser: starting (tick every %ss, batch %d)",
-            TICK_INTERVAL_S, BATCH_PER_TICK,
+            TICK_INTERVAL_S,
+            BATCH_PER_TICK,
         )
         try:
             while True:
@@ -2411,26 +2479,31 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         audit-run bot pass; rebuilding on every single user
         failure would hammer the forge needlessly.
         """
-        from . import audit_issue
-        from . import issue_client
+        from . import audit_issue, issue_client
 
         audit_id = int(row["id"])
         cfg = await _load_issue_target_config(pool)
         if cfg is None:
             await db_module.mark_audit_log_issue_bot(
-                pool, audit_id, status="skipped",
+                pool,
+                audit_id,
+                status="skipped",
                 error="issue target disabled or token env var unset",
             )
             return
 
         try:
             client = issue_client.build_client(
-                cfg["kind"], repo=cfg["repo"], token=cfg["token"],
+                cfg["kind"],
+                repo=cfg["repo"],
+                token=cfg["token"],
                 base_url=cfg["base_url"],
             )
         except Exception as exc:
             await db_module.mark_audit_log_issue_bot(
-                pool, audit_id, status="failed",
+                pool,
+                audit_id,
+                status="failed",
                 error=f"client init failed: {exc}",
             )
             return
@@ -2441,33 +2514,44 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         }
         try:
             summary = await audit_issue.sync_run_issues(
-                client, run=run_wrapper, failed_jobs=[row],
+                client,
+                run=run_wrapper,
+                failed_jobs=[row],
                 source_label="user conversion",
             )
         except Exception as exc:
             logger.exception(
-                "issue-bot: sync_run_issues failed for audit row %s", audit_id,
+                "issue-bot: sync_run_issues failed for audit row %s",
+                audit_id,
             )
             await db_module.mark_audit_log_issue_bot(
-                pool, audit_id, status="failed",
+                pool,
+                audit_id,
+                status="failed",
                 error=f"sync failed: {exc}",
             )
             return
 
         if summary["errors"]:
             await db_module.mark_audit_log_issue_bot(
-                pool, audit_id, status="failed",
+                pool,
+                audit_id,
+                status="failed",
                 error="; ".join(summary["errors"][:3]),
             )
             return
 
         await db_module.mark_audit_log_issue_bot(
-            pool, audit_id, status="done",
+            pool,
+            audit_id,
+            status="done",
             error=None,
         )
         logger.info(
             "issue-bot: synced user conversion %s — opened=%d commented=%d",
-            audit_id, summary["opened"], summary["commented"],
+            audit_id,
+            summary["opened"],
+            summary["commented"],
         )
 
     async def _issue_bot_loop(pool) -> None:
@@ -2485,7 +2569,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         USER_BATCH_PER_TICK = 10
         logger.info(
             "issue-bot poller: starting (tick every %ss, user batch %d)",
-            TICK_INTERVAL_S, USER_BATCH_PER_TICK,
+            TICK_INTERVAL_S,
+            USER_BATCH_PER_TICK,
         )
         try:
             while True:
@@ -2578,10 +2663,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 # grid surfaces it instead of silently shrinking the
                 # cell count.
                 await _audit(
-                    None, synthetic_user, scope_obj, "convert",
-                    key=source_key, target_format=target_format,
-                    status="error", error=str(exc),
-                    audit_run_id=run_id, pool=pool,
+                    None,
+                    synthetic_user,
+                    scope_obj,
+                    "convert",
+                    key=source_key,
+                    target_format=target_format,
+                    status="error",
+                    error=str(exc),
+                    audit_run_id=run_id,
+                    pool=pool,
                 )
                 continue
 
@@ -2593,7 +2684,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 except Exception:
                     logger.exception(
                         "audit run %s: storage.exists failed for %s",
-                        run_id, derived_key,
+                        run_id,
+                        derived_key,
                     )
                     cached = False
 
@@ -2602,9 +2694,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 # The audit row carries the run id; insert_audit bumps
                 # the run's ok counter inline (see db.insert_audit).
                 await _audit(
-                    None, synthetic_user, scope_obj, "convert",
-                    key=source_key, target_format=target_format,
-                    status="done", audit_run_id=run_id, pool=pool,
+                    None,
+                    synthetic_user,
+                    scope_obj,
+                    "convert",
+                    key=source_key,
+                    target_format=target_format,
+                    status="done",
+                    audit_run_id=run_id,
+                    pool=pool,
                 )
                 continue
 
@@ -2620,21 +2718,35 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             except Exception as exc:
                 logger.exception(
                     "audit run %s: enqueue failed for %s -> %s",
-                    run_id, source_key, target_format,
+                    run_id,
+                    source_key,
+                    target_format,
                 )
                 await _audit(
-                    None, synthetic_user, scope_obj, "convert",
-                    key=source_key, target_format=target_format,
-                    status="error", error=str(exc),
-                    audit_run_id=run_id, pool=pool,
+                    None,
+                    synthetic_user,
+                    scope_obj,
+                    "convert",
+                    key=source_key,
+                    target_format=target_format,
+                    status="error",
+                    error=str(exc),
+                    audit_run_id=run_id,
+                    pool=pool,
                 )
                 continue
 
             await _audit(
-                None, synthetic_user, scope_obj, "convert",
-                key=source_key, target_format=target_format,
-                status="queued", job_id=job.job_id,
-                audit_run_id=run_id, pool=pool,
+                None,
+                synthetic_user,
+                scope_obj,
+                "convert",
+                key=source_key,
+                target_format=target_format,
+                status="queued",
+                job_id=job.job_id,
+                audit_run_id=run_id,
+                pool=pool,
             )
 
     @admin.post("/audit/runs")
@@ -2684,7 +2796,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             force_rebuild=force_rebuild,
         )
         background_tasks.add_task(
-            _audit_dispatch, run["id"], s, worker_pool, user.sub, pool,
+            _audit_dispatch,
+            run["id"],
+            s,
+            worker_pool,
+            user.sub,
+            pool,
             force_rebuild,
         )
         return JSONResponse(run, status_code=202)
@@ -2707,17 +2824,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     ) -> JSONResponse:
         pool = _require_pool(request)
         runs = await db_module.list_audit_runs(
-            pool, limit=limit, before_started_at=before_started_at,
+            pool,
+            limit=limit,
+            before_started_at=before_started_at,
         )
-        next_before = (
-            runs[-1]["started_at"]
-            if len(runs) >= max(1, min(limit, 200)) else None
-        )
+        next_before = runs[-1]["started_at"] if len(runs) >= max(1, min(limit, 200)) else None
         return JSONResponse({"runs": runs, "next_before_started_at": next_before})
 
     @admin.get("/audit/runs/{run_id}")
     async def admin_audit_run_get(
-        run_id: str, request: Request,
+        run_id: str,
+        request: Request,
     ) -> JSONResponse:
         pool = _require_pool(request)
         run = await db_module.get_audit_run(pool, run_id)
@@ -2728,7 +2845,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @admin.post("/audit/runs/{run_id}/cancel")
     async def admin_audit_run_cancel(
-        run_id: str, request: Request,
+        run_id: str,
+        request: Request,
     ) -> JSONResponse:
         """Abort a running audit. Flips ``status='aborted'`` and
         cancels every queued / running child cell. No-op (404) if
@@ -2790,17 +2908,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if not slug or not _SLUG_RE.match(slug):
             raise HTTPException(
                 status_code=400,
-                detail=(
-                    "slug must be lowercase ASCII with hyphen separators "
-                    "(e.g. 'cad-baseline')"
-                ),
+                detail=("slug must be lowercase ASCII with hyphen separators " "(e.g. 'cad-baseline')"),
             )
         if not name:
             raise HTTPException(status_code=400, detail="name required")
         try:
             row = await db_module.create_corpus(
                 pool,
-                slug=slug, name=name, description=description,
+                slug=slug,
+                name=name,
+                description=description,
                 created_by=user.sub,
             )
         except Exception as exc:
@@ -2881,9 +2998,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         try:
             row = await db_module.create_audit_schedule(
                 pool,
-                name=name, cron_expr=cron_expr, scope=scope_str,
-                worker_pool=worker_pool, next_fire_at=next_fire,
-                enabled=enabled, created_by=user.sub,
+                name=name,
+                cron_expr=cron_expr,
+                scope=scope_str,
+                worker_pool=worker_pool,
+                next_fire_at=next_fire,
+                enabled=enabled,
+                created_by=user.sub,
             )
         except Exception as exc:
             if exc.__class__.__name__ == "UniqueViolationError":
@@ -2946,7 +3067,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @admin.delete("/audit/schedules/{schedule_id}")
     async def admin_audit_schedules_archive(
-        schedule_id: str, request: Request,
+        schedule_id: str,
+        request: Request,
     ) -> JSONResponse:
         pool = _require_pool(request)
         ok = await db_module.archive_audit_schedule(pool, schedule_id)
@@ -2992,13 +3114,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             )
         run = await db_module.create_audit_run(
             pool,
-            scope=scope_str, worker_pool=worker_pool,
+            scope=scope_str,
+            worker_pool=worker_pool,
             trigger="manual",  # operator-initiated even though it's a schedule
             note=f"fire-now: {row['name']}",
             created_by=user.sub,
         )
         background_tasks.add_task(
-            _audit_dispatch, run["id"], s, worker_pool, user.sub, pool,
+            _audit_dispatch,
+            run["id"],
+            s,
+            worker_pool,
+            user.sub,
+            pool,
         )
         return JSONResponse(run, status_code=202)
 
@@ -3024,13 +3152,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # would disagree here — that's fine, the UI label is "as
         # seen by this API process".
         token_present = bool(token_env and os.environ.get(token_env))
-        return JSONResponse({
-            "kind": kind,
-            "repo": repo,
-            "base_url": base_url,
-            "token_env_name": token_env,
-            "token_present": token_present,
-        })
+        return JSONResponse(
+            {
+                "kind": kind,
+                "repo": repo,
+                "base_url": base_url,
+                "token_env_name": token_env,
+                "token_present": token_present,
+            }
+        )
 
     @admin.put("/audit/issue-target")
     async def admin_issue_target_set(
@@ -3067,10 +3197,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if kind == "forgejo" and not base_url:
                 raise HTTPException(
                     status_code=400,
-                    detail=(
-                        "base_url required for forgejo "
-                        "(e.g. https://git.example.com/api/v1)"
-                    ),
+                    detail=("base_url required for forgejo " "(e.g. https://git.example.com/api/v1)"),
                 )
             if not token_env:
                 raise HTTPException(
@@ -3082,10 +3209,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         await db_module.set_setting(pool, _ISSUE_BASE_URL_KEY, base_url, updated_by=user.sub)
         await db_module.set_setting(pool, _ISSUE_TOKEN_ENV_KEY, token_env, updated_by=user.sub)
         token_present = bool(token_env and os.environ.get(token_env))
-        return JSONResponse({
-            "kind": kind, "repo": repo, "base_url": base_url,
-            "token_env_name": token_env, "token_present": token_present,
-        })
+        return JSONResponse(
+            {
+                "kind": kind,
+                "repo": repo,
+                "base_url": base_url,
+                "token_env_name": token_env,
+                "token_present": token_present,
+            }
+        )
 
     @admin.post("/audit/runs/{run_id}/sync-issues")
     async def admin_audit_run_sync_issues(
@@ -3109,6 +3241,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         ok = await db_module.reset_audit_run_issue_bot(pool, run_id)
         if not ok:
             raise HTTPException(status_code=409, detail="reset failed (race?)")
+
         # Kick the bot immediately for snappier feedback. The poller
         # would catch it on its next tick anyway, but the user just
         # clicked a button and waiting 30s is unfriendly.
@@ -3172,10 +3305,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         stored as JSON-encoded floats so a typo'd string can't sneak
         through to the classifier."""
         from . import audit_perf
+
         overrides: dict[str, float] = {}
         for key in audit_perf.DEFAULT_THRESHOLDS:
             raw = await db_module.get_setting(
-                pool, f"audit.perf.thresholds.{key}",
+                pool,
+                f"audit.perf.thresholds.{key}",
             )
             if raw is None:
                 continue
@@ -3215,6 +3350,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         render the badge without an extra round trip.
         """
         from datetime import datetime, timezone
+
         from . import audit_perf
 
         pool = _require_pool(request)
@@ -3235,16 +3371,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         thresholds = await _load_perf_thresholds(pool)
         annotated = audit_perf.annotate(cells, thresholds=thresholds)
-        return JSONResponse({
-            "cells": annotated,
-            "thresholds": thresholds,
-            "signal_reasons": audit_perf.SIGNAL_REASONS,
-            "since_days": max(1, min(365, since)),
-            "trigger": trig,
-            "audit_run_id": run_id,
-            "worker_image_tag": worker_tag,
-            "generated_at": datetime.now(timezone.utc).isoformat(),
-        })
+        return JSONResponse(
+            {
+                "cells": annotated,
+                "thresholds": thresholds,
+                "signal_reasons": audit_perf.SIGNAL_REASONS,
+                "since_days": max(1, min(365, since)),
+                "trigger": trig,
+                "audit_run_id": run_id,
+                "worker_image_tag": worker_tag,
+                "generated_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
 
     @admin.get("/audit/perf/workers")
     async def admin_audit_perf_workers(
@@ -3289,11 +3427,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         admin overrides). Returned alongside the per-key defaults so
         the editor can show "reset to default" deltas."""
         from . import audit_perf
+
         pool = _require_pool(request)
-        return JSONResponse({
-            "thresholds": await _load_perf_thresholds(pool),
-            "defaults": audit_perf.DEFAULT_THRESHOLDS,
-        })
+        return JSONResponse(
+            {
+                "thresholds": await _load_perf_thresholds(pool),
+                "defaults": audit_perf.DEFAULT_THRESHOLDS,
+            }
+        )
 
     @admin.put("/audit/perf/thresholds")
     async def admin_perf_thresholds_set(
@@ -3309,6 +3450,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         settings use.
         """
         from . import audit_perf
+
         pool = _require_pool(request)
         body = await request.json() if await request.body() else {}
         unknown = sorted(set(body.keys()) - set(audit_perf.DEFAULT_THRESHOLDS))
@@ -3325,7 +3467,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 # coercion fails. Cleanest path without adding a
                 # dedicated delete helper.
                 await db_module.set_setting(
-                    pool, setting_key, "", updated_by=user.sub,
+                    pool,
+                    setting_key,
+                    "",
+                    updated_by=user.sub,
                 )
                 continue
             try:
@@ -3336,12 +3481,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     detail=f"{key}: must be a number ({exc})",
                 ) from exc
             await db_module.set_setting(
-                pool, setting_key, str(val), updated_by=user.sub,
+                pool,
+                setting_key,
+                str(val),
+                updated_by=user.sub,
             )
-        return JSONResponse({
-            "thresholds": await _load_perf_thresholds(pool),
-            "defaults": audit_perf.DEFAULT_THRESHOLDS,
-        })
+        return JSONResponse(
+            {
+                "thresholds": await _load_perf_thresholds(pool),
+                "defaults": audit_perf.DEFAULT_THRESHOLDS,
+            }
+        )
 
     @admin.get("/audit/perf/hotspots")
     async def admin_audit_perf_hotspots(
@@ -3374,11 +3524,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             since_days=since,
             limit=limit,
         )
-        return JSONResponse({
-            "source_ext": source_ext,
-            "target_format": target_format,
-            **out,
-        })
+        return JSONResponse(
+            {
+                "source_ext": source_ext,
+                "target_format": target_format,
+                **out,
+            }
+        )
 
     @admin.get("/audit/{audit_id}")
     async def admin_audit_get(
@@ -3427,9 +3579,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         }
         if result.content_encoding:
             headers["Content-Encoding"] = result.content_encoding
-        return StreamingResponse(
-            result.stream, media_type="application/octet-stream", headers=headers
-        )
+        return StreamingResponse(result.stream, media_type="application/octet-stream", headers=headers)
 
     @admin.get("/audit/{audit_id}/profile")
     async def admin_audit_profile(
@@ -3462,9 +3612,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         }
         if result.content_encoding:
             headers["Content-Encoding"] = result.content_encoding
-        return StreamingResponse(
-            result.stream, media_type="application/octet-stream", headers=headers
-        )
+        return StreamingResponse(result.stream, media_type="application/octet-stream", headers=headers)
 
     @admin.get("/audit/{audit_id}/metrics-history")
     async def admin_audit_metrics_history(
@@ -3521,18 +3669,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             data = await storage.get_bytes(scope, profile_key)
         except FileNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
-        import pstats
-        import tempfile
         import pathlib as _pl
+        import pstats
+
         tmp = _pl.Path(tempfile.mkstemp(suffix=".prof")[1])
         try:
             tmp.write_bytes(data)
             try:
                 stats = pstats.Stats(str(tmp))
             except Exception as exc:
-                raise HTTPException(
-                    status_code=500, detail=f"failed to parse profile: {exc}"
-                ) from exc
+                raise HTTPException(status_code=500, detail=f"failed to parse profile: {exc}") from exc
         finally:
             try:
                 tmp.unlink()
@@ -3543,27 +3689,31 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         total_tt = 0.0
         for (fn, line, name), (cc, nc, tt, ct, _callers) in stats.stats.items():
             total_tt += tt
-            rows.append({
-                "func": name,
-                "file": fn,
-                "line": line,
-                "ncalls": nc,
-                "primitive_calls": cc,
-                "tottime": tt,
-                "percall_tot": (tt / nc) if nc else 0.0,
-                "cumtime": ct,
-                "percall_cum": (ct / cc) if cc else 0.0,
-            })
+            rows.append(
+                {
+                    "func": name,
+                    "file": fn,
+                    "line": line,
+                    "ncalls": nc,
+                    "primitive_calls": cc,
+                    "tottime": tt,
+                    "percall_tot": (tt / nc) if nc else 0.0,
+                    "cumtime": ct,
+                    "percall_cum": (ct / cc) if cc else 0.0,
+                }
+            )
         # Default presentation sort: cumtime desc — same as pstats default.
         rows.sort(key=lambda r: r["cumtime"], reverse=True)
         if limit and len(rows) > limit:
             rows = rows[:limit]
-        return JSONResponse({
-            "audit_id": audit_id,
-            "total_tottime": total_tt,
-            "row_count": len(rows),
-            "rows": rows,
-        })
+        return JSONResponse(
+            {
+                "audit_id": audit_id,
+                "total_tottime": total_tt,
+                "row_count": len(rows),
+                "rows": rows,
+            }
+        )
 
     @admin.delete("/audit/metrics")
     async def admin_clear_metrics(request: Request) -> JSONResponse:
@@ -3590,14 +3740,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             except Exception as exc:
                 logger.warning(
                     "clear_metrics: failed to delete %s: %s",
-                    entry["profile_key"], exc,
+                    entry["profile_key"],
+                    exc,
                 )
                 blob_errors.append(f"{entry['profile_key']}: {exc}")
-        return JSONResponse({
-            "rows_cleared": result["rows_cleared"],
-            "profiles_deleted": deleted_blobs,
-            "errors": blob_errors,
-        })
+        return JSONResponse(
+            {
+                "rows_cleared": result["rows_cleared"],
+                "profiles_deleted": deleted_blobs,
+                "errors": blob_errors,
+            }
+        )
 
     @admin.get("/audit")
     async def admin_audit(
@@ -3643,6 +3796,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # Slug shape: lowercase, alnum + hyphens. Keeps URLs / on-disk
         # prefixes predictable; doesn't otherwise constrain the name.
         import re
+
         if not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,62}", slug):
             raise HTTPException(
                 status_code=400,
@@ -3682,9 +3836,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         pid = _validate_uuid(project_id, "project_id")
         if not await db_module.project_exists(pool, pid):
             raise HTTPException(status_code=404, detail="project not found")
-        return JSONResponse(
-            {"members": await db_module.list_project_members(pool, pid)}
-        )
+        return JSONResponse({"members": await db_module.list_project_members(pool, pid)})
 
     @admin.post("/projects/{project_id}/members")
     async def admin_project_members_add(
@@ -3837,7 +3989,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         if not is_derived_key(derived_key):
             return None
-        stripped = derived_key[len("_derived/"):]
+        stripped = derived_key[len("_derived/") :]
 
         # Streaming-FEA artefact tree: `<src>.fea/<filename>`. The
         # ".fea/" infix is anchored to the source's extension; finding
@@ -3845,7 +3997,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         fea_idx = stripped.find(".fea/")
         if fea_idx >= 0:
             src_key = stripped[:fea_idx]
-            filename = stripped[fea_idx + len(".fea/"):]
+            filename = stripped[fea_idx + len(".fea/") :]
             return src_key, f"fea/{filename}"
 
         # Legacy result-meta cache.
@@ -3944,7 +4096,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         scope_obj: Scope = Depends(_scope_from_path),
         user: User = Depends(auth_module.current_user),
     ) -> JSONResponse:
-        from .converter import TARGET_FORMATS, derived_key_for, is_derived_key
+        from .converter import is_derived_key
 
         clean = key.lstrip("/")
         if not clean:
@@ -3979,12 +4131,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                             continue
                         logger.warning(
                             "admin: failed to delete %s in fea-tree reap: %s",
-                            k, exc,
+                            k,
+                            exc,
                         )
                         tree_errors.append(f"{k}: {exc}")
                 await _audit(
-                    request, user, scope_obj, "delete",
-                    key=clean, status="ok",
+                    request,
+                    user,
+                    scope_obj,
+                    "delete",
+                    key=clean,
+                    status="ok",
                     error="; ".join(tree_errors) or None,
                 )
                 return JSONResponse({"deleted": deleted_tree, "errors": tree_errors})
@@ -4040,8 +4197,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 errors.append(f"{k}: {exc}")
 
         await _audit(
-            request, user, scope_obj, "delete",
-            key=clean, status="ok",
+            request,
+            user,
+            scope_obj,
+            "delete",
+            key=clean,
+            status="ok",
             error="; ".join(errors) or None,
         )
         return JSONResponse({"deleted": deleted, "errors": errors})
@@ -4080,9 +4241,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if not folder:
             raise HTTPException(status_code=400, detail="folder required")
         if any(not isinstance(k, str) or not k.strip() for k in raw_keys):
-            raise HTTPException(
-                status_code=400, detail="every key must be a non-empty string"
-            )
+            raise HTTPException(status_code=400, detail="every key must be a non-empty string")
 
         # Dedup while preserving order.
         seen: set[str] = set()
@@ -4117,7 +4276,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             """
             if not derived_key.startswith("_derived/"):
                 return None
-            inner = derived_key[len("_derived/"):]
+            inner = derived_key[len("_derived/") :]
             best: str | None = None
             for src in candidates:
                 if inner.startswith(src + ".") or inner.startswith(src + "/"):
@@ -4129,9 +4288,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         failed: list[dict] = []
         for old_src in keys:
             if is_derived_key(old_src):
-                failed.append(
-                    {"key": old_src, "reason": "cannot move derived blobs directly"}
-                )
+                failed.append({"key": old_src, "reason": "cannot move derived blobs directly"})
                 continue
             basename = old_src.rsplit("/", 1)[-1]
             new_src = f"{folder}/{basename}"
@@ -4139,9 +4296,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 failed.append({"key": old_src, "reason": "destination matches source"})
                 continue
             if new_src in live_keys:
-                failed.append(
-                    {"key": old_src, "reason": f"target already exists: {new_src}"}
-                )
+                failed.append({"key": old_src, "reason": f"target already exists: {new_src}"})
                 continue
             if old_src not in live_keys:
                 failed.append({"key": old_src, "reason": "source not found"})
@@ -4183,7 +4338,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 # stolen as a sibling of `wall.rmed`.
                 if _owning_source(k, candidates) != old_src:
                     continue
-                rest = k[len(old_prefix):]
+                rest = k[len(old_prefix) :]
                 sibling_pairs.append((k, new_prefix + rest))
 
             sibling_errors: list[str] = []
@@ -4244,9 +4399,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             except Exception:
                 logger.exception("config.js: failed to read worker image tag")
         extra_source_exts = await _worker_advertised_exts()
-        streaming_only_exts = sorted(
-            e for e in extra_source_exts if e not in LEGACY_CONVERT_EXTS
-        )
+        streaming_only_exts = sorted(e for e in extra_source_exts if e not in LEGACY_CONVERT_EXTS)
         conversion_matrix = await _worker_advertised_conversions()
 
         a = settings.auth

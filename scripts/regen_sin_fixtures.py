@@ -18,6 +18,7 @@ The script walks every ``.SIF`` under ``files/fem_files/`` and writes
 a sibling ``.SIN`` next to it. Existing SINs are overwritten only when
 the SIF is newer (idempotent for unchanged inputs).
 """
+
 from __future__ import annotations
 
 import sys
@@ -31,20 +32,47 @@ _DEFAULT_TREE = Path(__file__).resolve().parent.parent / "files" / "fem_files"
 # directly via GetTabDimensions; we just propagate those.
 _TYPES_TO_COPY = [
     # Mesh
-    "GNODE", "GCOORD", "GELMNT1", "GELREF1",
+    "GNODE",
+    "GCOORD",
+    "GELMNT1",
+    "GELREF1",
     # Sections / materials
-    "GBEAMG", "GBOX", "GIORH", "GUSYI", "GELTH", "GPIPE",
-    "MISOSEL", "MORSMEL",
+    "GBEAMG",
+    "GBOX",
+    "GIORH",
+    "GUSYI",
+    "GELTH",
+    "GPIPE",
+    "MISOSEL",
+    "MORSMEL",
     # BCs / loads
-    "BNBCD", "BLDEP", "BEUSLO", "BNDOF",
+    "BNBCD",
+    "BLDEP",
+    "BEUSLO",
+    "BNDOF",
     # Result definitions
-    "RDPOINTS", "RDSTRESS", "RDIELCOR", "RDFORCES", "RDRESREF",
-    "RDSERIES", "RDTRANS",
+    "RDPOINTS",
+    "RDSTRESS",
+    "RDIELCOR",
+    "RDFORCES",
+    "RDRESREF",
+    "RDSERIES",
+    "RDTRANS",
     # Result values
-    "RVNODDIS", "RVNODVEL", "RVNODACC", "RVNODREA",
-    "RVSTRESS", "RVSTRAIN", "RVFORCES",
+    "RVNODDIS",
+    "RVNODVEL",
+    "RVNODACC",
+    "RVNODREA",
+    "RVSTRESS",
+    "RVSTRAIN",
+    "RVFORCES",
     # Text records
-    "TDNODE", "TDELEM", "TDMATER", "TDSECT", "TDRESREF", "TDSUPNAM",
+    "TDNODE",
+    "TDELEM",
+    "TDMATER",
+    "TDSECT",
+    "TDRESREF",
+    "TDSUPNAM",
 ]
 
 

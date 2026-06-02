@@ -6,6 +6,7 @@ hung off topology handles, so the graph layer carries no kernel dependency for
 metadata. Domain layers (e.g. structural models) can subclass or wrap this to
 expose typed accessors without the generic core knowing about them.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field

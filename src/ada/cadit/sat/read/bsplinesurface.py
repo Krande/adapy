@@ -45,7 +45,7 @@ def _peel_exppc_to_inner_surface(data_lines: list[str]) -> tuple[list[str] | Non
         s = line.strip()
         if not s.startswith("spline ") or "{" not in s:
             continue
-        inner = s[s.index("{") + 1:].strip()
+        inner = s[s.index("{") + 1 :].strip()
         # Strip the trailing ``}`` if it sits on the same line so the
         # ``ref N`` branch below sees a clean tail.
         inner = inner.rstrip("}").strip()
@@ -55,7 +55,7 @@ def _peel_exppc_to_inner_surface(data_lines: list[str]) -> tuple[list[str] | Non
             return None, parts[1]
         if not inner.startswith("exactsur"):
             return None, None
-        new_lines = [inner] + [l.strip() for l in data_lines[i + 1:]]
+        new_lines = [inner] + [l.strip() for l in data_lines[i + 1 :]]
         # Trim the closing brace + any trailing F/T flag tail that
         # follows the control-point block. The exactsur parser stops
         # after reading ctrl_pts_u * ctrl_pts_v lines so trailing
@@ -69,9 +69,7 @@ def _peel_exppc_to_inner_surface(data_lines: list[str]) -> tuple[list[str] | Non
     return None, None
 
 
-def _resolve_exppc_chain(
-    sub_type, max_steps: int = 8
-) -> list[str]:
+def _resolve_exppc_chain(sub_type, max_steps: int = 8) -> list[str]:
     """Walk an ``exppc`` chain to its terminal inline surface block.
 
     Some exppc records embed the surface directly (``spline { exactsur ... }``);
@@ -99,15 +97,11 @@ def _resolve_exppc_chain(
             if inner_lines is not None:
                 return inner_lines
             if ref_id is None:
-                raise ACISReferenceDataError(
-                    "exppc subtype with no inner exactsur or ref N (unknown shape)"
-                )
+                raise ACISReferenceDataError("exppc subtype with no inner exactsur or ref N (unknown shape)")
             try:
                 sub_type = sub_type.parent_record.sat_store.get_ref(ref_id)
             except (KeyError, AttributeError) as exc:
-                raise ACISReferenceDataError(
-                    f"exppc ref {ref_id} did not resolve to a SAT record"
-                ) from exc
+                raise ACISReferenceDataError(f"exppc ref {ref_id} did not resolve to a SAT record") from exc
             continue
         # Reached a non-exppc record after one or more ref hops. Only
         # ``exactsur`` is parseable as a surface here; everything else
@@ -120,9 +114,7 @@ def _resolve_exppc_chain(
             f"exppc chain terminates at {sub_type.type!r}, not exactsur "
             f"(implies swept/ruled surface from base curve — not yet supported)"
         )
-    raise ACISReferenceDataError(
-        f"exppc chain did not terminate within {max_steps} hops"
-    )
+    raise ACISReferenceDataError(f"exppc chain did not terminate within {max_steps} hops")
 
 
 def create_bsplinesurface_from_sat(

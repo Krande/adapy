@@ -11,6 +11,7 @@ Run via::
 
 Pure stdlib; no adapy or DNV dependency.
 """
+
 from __future__ import annotations
 
 import struct
@@ -115,9 +116,7 @@ def _decode_type_block(data: bytes, off: int, next_off: int) -> dict:
         rec_words = nfield + (nfield & 1)
         rec_byte = ptrs[0] * 4
         if rec_byte + rec_words * 4 <= len(data):
-            first_record = list(
-                struct.unpack_from(f"<{rec_words}f", data, rec_byte)
-            )
+            first_record = list(struct.unpack_from(f"<{rec_words}f", data, rec_byte))
     return {
         "offset": off,
         "name": name,
@@ -150,15 +149,9 @@ def probe(path: Path) -> None:
 
     print("\nPer-type blocks (count, NFIELD, dims, first record):")
     for idx, (off, name) in enumerate(type_blocks):
-        next_off = (
-            type_blocks[idx + 1][0] if idx + 1 < len(type_blocks) else len(data)
-        )
+        next_off = type_blocks[idx + 1][0] if idx + 1 < len(type_blocks) else len(data)
         info = _decode_type_block(data, off, next_off)
-        rec_preview = (
-            ", ".join(f"{v:g}" for v in info["first_record"][:6])
-            if info["first_record"]
-            else "—"
-        )
+        rec_preview = ", ".join(f"{v:g}" for v in info["first_record"][:6]) if info["first_record"] else "—"
         print(
             f"  0x{info['offset']:08x}  {info['name']:9s}  "
             f"NFIELD={info['nfield']:>3d}  count={info['count']:>5d}  "

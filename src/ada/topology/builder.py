@@ -8,6 +8,7 @@ output helpers (assemble, show, export IFC→SQLite).
 Domain builders subclass this and add their config-driven ``build_grid`` and
 construction entry points; nothing here references a domain concept.
 """
+
 from __future__ import annotations
 
 import pathlib
@@ -63,7 +64,9 @@ class TopologyBuilder:
             a.ifc_store.sync()
         return a.show(stream_from_ifc_store=stream_from_ifc_store)
 
-    def show_output_model(self, web3d_output_glb: str | pathlib.Path | None = None, stream_from_ifc_store: bool = False):
+    def show_output_model(
+        self, web3d_output_glb: str | pathlib.Path | None = None, stream_from_ifc_store: bool = False
+    ):
         from ada.visit.render_params import RenderParams
 
         if self.blueprint.output_part is None:

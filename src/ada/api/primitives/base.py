@@ -67,6 +67,7 @@ class Shape(BackendGeom):
         if geom is not None:
             try:
                 from OCC.Core.TopoDS import TopoDS_Shape as _TopoDS_Shape
+
                 _occ_avail = True
             except ImportError:
                 _TopoDS_Shape = None  # type: ignore[assignment]

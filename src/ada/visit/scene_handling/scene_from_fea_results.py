@@ -165,9 +165,7 @@ def _load_fem_concepts_from_sidecar(fea_res: FEAResult):
     if results_path is None:
         return None
     try:
-        from ada.fem.formats.code_aster.read.beams_sidecar import (
-            try_load_fem_concepts,
-        )
+        from ada.fem.formats.code_aster.read.beams_sidecar import try_load_fem_concepts
 
         raw = try_load_fem_concepts(pathlib.Path(results_path))
     except Exception as e:  # noqa: BLE001 — concepts are best-effort decoration

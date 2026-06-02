@@ -17,7 +17,6 @@ from pathlib import Path
 _VERIFICATION_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_VERIFICATION_DIR))
 
-import ada  # noqa: E402
 from ada.api.fem_tasks import (  # noqa: E402
     design_cantilever,
     eig_case_name,

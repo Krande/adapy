@@ -1,4 +1,5 @@
 """Tests for the diff viewer-utility: GLB element parsing + the 4 diff modes."""
+
 from __future__ import annotations
 
 import io
@@ -132,8 +133,12 @@ def test_diff_handler_end_to_end(tmp_path):
     storage = _FakeStorage(ref_glb)
 
     payload = diffmod.diff(
-        str(sp), storage=storage, scope=None, on_progress=lambda *_: None,
-        compare_ref="main", diff_type="byName",
+        str(sp),
+        storage=storage,
+        scope=None,
+        on_progress=lambda *_: None,
+        compare_ref="main",
+        diff_type="byName",
     )
     assert payload["ops"][0]["op"] == "color_elements"
     assert payload["summary"]["removed"] == 1  # bx

@@ -185,12 +185,7 @@ class ElemShape:
             # sides). Mixed-arity face lists are fine — triangles
             # pass through unchanged.
             if faces_seq is not None:
-                faces_seq = list(
-                    chain.from_iterable(
-                        quad_face_to_tris(f) if len(f) == 4 else [f]
-                        for f in faces_seq
-                    )
-                )
+                faces_seq = list(chain.from_iterable(quad_face_to_tris(f) if len(f) == 4 else [f] for f in faces_seq))
         else:
             faces_seq = self.faces_seq
 

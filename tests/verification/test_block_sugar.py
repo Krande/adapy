@@ -120,15 +120,9 @@ def test_skips_cases_for_other_solvers(tmp_path):
         solver="code_aster",
         layout="mode_per_section",
     )
-    out = EigModesSectionFilter(bundle_root=tmp_path, doc_root=tmp_path).render(
-        spec, key="eig_modes_section_1"
-    )
+    out = EigModesSectionFilter(bundle_root=tmp_path, doc_root=tmp_path).render(spec, key="eig_modes_section_1")
 
-    case_keys = {
-        e.metadata["fea_bundle_key"]
-        for e in out
-        if isinstance(e, RenderResult)
-    }
+    case_keys = {e.metadata["fea_bundle_key"] for e in out if isinstance(e, RenderResult)}
     assert case_keys == {"cantilever_EIG_ca_solid_o1_hqFalse_riFalse"}
 
 
@@ -150,9 +144,7 @@ def test_no_matching_solver_returns_placeholder_chunk(tmp_path):
         solver="abaqus",
         layout="mode_per_section",
     )
-    out = EigModesSectionFilter(bundle_root=tmp_path, doc_root=tmp_path).render(
-        spec, key="eig_modes_section_1"
-    )
+    out = EigModesSectionFilter(bundle_root=tmp_path, doc_root=tmp_path).render(spec, key="eig_modes_section_1")
     assert len(out) == 1
     assert isinstance(out[0], MarkdownChunk)
     assert "abaqus" in out[0].text
@@ -176,9 +168,7 @@ def test_case_dir_without_manifest_emits_placeholder(tmp_path):
         solver="code_aster",
         layout="mode_per_section",
     )
-    out = EigModesSectionFilter(bundle_root=tmp_path, doc_root=tmp_path).render(
-        spec, key="eig_modes_section_1"
-    )
+    out = EigModesSectionFilter(bundle_root=tmp_path, doc_root=tmp_path).render(spec, key="eig_modes_section_1")
     # Single placeholder chunk: case heading + "_unavailable_" line.
     assert len(out) == 1
     assert isinstance(out[0], MarkdownChunk)
@@ -203,9 +193,7 @@ def test_gallery_layout_omits_per_mode_subsection_headings(tmp_path):
         solver="code_aster",
         layout="gallery",
     )
-    out = EigModesSectionFilter(bundle_root=tmp_path, doc_root=tmp_path).render(
-        spec, key="eig_modes_section_1"
-    )
+    out = EigModesSectionFilter(bundle_root=tmp_path, doc_root=tmp_path).render(spec, key="eig_modes_section_1")
 
     chunk_texts = [e.text for e in out if isinstance(e, MarkdownChunk)]
     results = [e for e in out if isinstance(e, RenderResult)]

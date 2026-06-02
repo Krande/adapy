@@ -78,6 +78,7 @@ def test_shape_constructed_with_occ_body_pickles():
         from OCC.Core.BRepPrimAPI import BRepPrimAPI_MakeBox
     except ImportError:
         import pytest
+
         pytest.skip("pythonocc not available")
 
     from ada import Shape

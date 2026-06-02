@@ -21,9 +21,7 @@ import tempfile
 import pytest
 
 os.environ.setdefault("ADA_VIEWER_STORAGE_KIND", "local")
-os.environ.setdefault(
-    "ADA_VIEWER_LOCAL_PATH", tempfile.mkdtemp(prefix="ada-test-storage-")
-)
+os.environ.setdefault("ADA_VIEWER_LOCAL_PATH", tempfile.mkdtemp(prefix="ada-test-storage-"))
 
 from fastapi.testclient import TestClient  # noqa: E402
 
@@ -83,9 +81,7 @@ def _put(client: TestClient, key: str, data: bytes) -> None:
                 break
         if storage is not None:
             break
-    asyncio.get_event_loop().run_until_complete(
-        storage.put_bytes(Scope.shared(), key, data)
-    )
+    asyncio.get_event_loop().run_until_complete(storage.put_bytes(Scope.shared(), key, data))
 
 
 @pytest.fixture
@@ -130,9 +126,7 @@ def test_admin_list_attributes_fea_artefacts_to_real_source(app_client: TestClie
 
     # No phantom orphans (misparsed `.fea/fea.mesh` etc.) leaking.
     orphan_keys = [f["key"] for f in files if f.get("orphan")]
-    assert not any(".fea/" in k or k.endswith(".fea") for k in orphan_keys), (
-        f"phantom orphans leaked: {orphan_keys}"
-    )
+    assert not any(".fea/" in k or k.endswith(".fea") for k in orphan_keys), f"phantom orphans leaked: {orphan_keys}"
 
 
 def test_delete_one_fea_artefact_reaps_whole_tree(app_client: TestClient):

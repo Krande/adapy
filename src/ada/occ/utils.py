@@ -19,12 +19,12 @@ from OCC.Core.BRepBuilderAPI import (
     BRepBuilderAPI_Transform,
 )
 from OCC.Core.BRepExtrema import BRepExtrema_DistShapeShape
-from OCC.Core.GeomAbs import GeomAbs_Plane
 from OCC.Core.BRepMesh import BRepMesh_IncrementalMesh
 from OCC.Core.BRepOffsetAPI import BRepOffsetAPI_MakePipe
 from OCC.Core.BRepPrimAPI import BRepPrimAPI_MakeCylinder
 from OCC.Core.ChFi2d import ChFi2d_AnaFilletAlgo
 from OCC.Core.GC import GC_MakeArcOfCircle
+from OCC.Core.GeomAbs import GeomAbs_Plane
 from OCC.Core.gp import (
     gp_Ax1,
     gp_Ax2,
@@ -300,6 +300,7 @@ def iter_faces_with_normal(shape, normal, point_in_plane: Iterable | Point = Non
         def _face_normal(f):
             res = backend.face_plane(f)
             return res if res is not None else (None, None)
+
     else:
         faces = TopologyExplorer(shape).faces()
         _face_normal = get_face_normal

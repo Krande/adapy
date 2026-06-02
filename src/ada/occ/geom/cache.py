@@ -37,7 +37,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Dict
 
-from OCC.Core.TopoDS import TopoDS_Shape, TopoDS_Solid
+from OCC.Core.TopoDS import TopoDS_Shape
 
 from ada.cad import active_backend
 

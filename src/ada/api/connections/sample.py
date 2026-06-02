@@ -58,9 +58,7 @@ def build_sample(spec: ConnectionSpec, inputs: dict[str, dict[str, Any]]) -> dic
     members: dict[MemberRole, Beam] = {}
     for role_crit in spec.roles:
         if role_crit.kind is MemberKind.PLATE:
-            raise NotImplementedError(
-                f"role {role_crit.role.value!r}: plate sample synthesis not implemented yet"
-            )
+            raise NotImplementedError(f"role {role_crit.role.value!r}: plate sample synthesis not implemented yet")
 
         role_inputs = _require_role_inputs(inputs, role_crit)
         section = _resolve_section(role_inputs, role_crit)
@@ -76,7 +74,10 @@ def build_sample(spec: ConnectionSpec, inputs: dict[str, dict[str, Any]]) -> dic
             n2 = (_SAMPLE_LENGTH_M, 0.0, 0.0)
         else:
             angle_deg = _resolve_angle_to_anchor(
-                spec, inputs, role_crit, anchor_role,
+                spec,
+                inputs,
+                role_crit,
+                anchor_role,
             )
             direction = _direction_in_xy_plane(angle_deg)
             # Incoming starts at the joint point and extends OUTWARD;
@@ -140,9 +141,7 @@ def _resolve_section(role_inputs: dict[str, Any], role_crit: MemberCriteria) -> 
     if section is None:
         raise ValueError(f"role {role_crit.role.value!r}: missing 'section' in inputs")
     if not isinstance(section, str):
-        raise ValueError(
-            f"role {role_crit.role.value!r}: 'section' must be a string, got {type(section).__name__}"
-        )
+        raise ValueError(f"role {role_crit.role.value!r}: 'section' must be a string, got {type(section).__name__}")
     return section
 
 
@@ -153,14 +152,11 @@ def _resolve_angle(role_inputs: dict[str, Any], role_crit: MemberCriteria) -> fl
     if angle is None:
         raise ValueError(f"role {role_crit.role.value!r}: missing 'angle_deg' in inputs")
     if not isinstance(angle, (int, float)):
-        raise ValueError(
-            f"role {role_crit.role.value!r}: 'angle_deg' must be numeric, got {type(angle).__name__}"
-        )
+        raise ValueError(f"role {role_crit.role.value!r}: 'angle_deg' must be numeric, got {type(angle).__name__}")
     if role_crit.angle_range is not None and not role_crit.angle_range.contains(float(angle)):
         rng = role_crit.angle_range
         raise ValueError(
-            f"role {role_crit.role.value!r}: angle {angle}° outside angle_range "
-            f"[{rng.min_deg}°, {rng.max_deg}°]"
+            f"role {role_crit.role.value!r}: angle {angle}° outside angle_range " f"[{rng.min_deg}°, {rng.max_deg}°]"
         )
     return float(angle)
 

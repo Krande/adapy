@@ -72,9 +72,7 @@ class FEAResultV2:
         return EigenDataSummary(modes)
 
 
-def post_processing_abaqus(
-    odb_file: pathlib.Path, overwrite: bool = False
-) -> FEAResultV2:
+def post_processing_abaqus(odb_file: pathlib.Path, overwrite: bool = False) -> FEAResultV2:
     """Dump an Abaqus `.odb` to SQLite, return a `FEAResultV2` over it.
 
     Wires into `AbaqusSetup.set_default_post_processor(...)` so adapy's
@@ -83,9 +81,7 @@ def post_processing_abaqus(
     """
     odb_dump_exe = get_odb_dump_exe()
     if odb_dump_exe is None:
-        raise FileNotFoundError(
-            "ODBDump executable not found on PATH or via ODB_DUMP_EXE env var"
-        )
+        raise FileNotFoundError("ODBDump executable not found on PATH or via ODB_DUMP_EXE env var")
     sqlite_file = odb_file.with_suffix(".sqlite")
     if not sqlite_file.exists() or overwrite:
         proc = subprocess.run(

@@ -31,7 +31,6 @@ from nats.js.errors import BadRequestError, BucketNotFoundError, KeyNotFoundErro
 from .config import QueueConfig
 from .converter import derived_key_for
 
-
 JOB_STATUS_QUEUED = "queued"
 JOB_STATUS_RUNNING = "running"
 JOB_STATUS_DONE = "done"
@@ -276,6 +275,7 @@ class JobQueue:
         operator sees what's wrong instead of a silently-stuck job.
         """
         import pathlib
+
         ext = pathlib.PurePosixPath(source_key).suffix.lower()
         try:
             workers = await self.list_workers()
@@ -284,7 +284,7 @@ class JobQueue:
         for w in workers:
             if not w.get("online"):
                 continue
-            for src in (w.get("source_exts") or []):
+            for src in w.get("source_exts") or []:
                 if not isinstance(src, str):
                     continue
                 if src.strip().lower() == ext:
@@ -368,9 +368,7 @@ class JobQueue:
         # JSON payload.
         return scope_label.replace(":", "__")
 
-    async def set_compress_sweep_state(
-        self, scope_label: str, state: dict
-    ) -> None:
+    async def set_compress_sweep_state(self, scope_label: str, state: dict) -> None:
         if self._kv is None:
             return
         payload = dict(state)
@@ -426,7 +424,7 @@ class JobQueue:
             # Prefer the canonical scope from the payload; fall back to
             # the un-slugged key tail for forward compat with entries
             # written before this field existed.
-            label = payload.get("scope") or key[len(self._COMPRESS_SWEEP_KEY_PREFIX):]
+            label = payload.get("scope") or key[len(self._COMPRESS_SWEEP_KEY_PREFIX) :]
             out[label] = payload
         return out
 

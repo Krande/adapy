@@ -93,11 +93,15 @@ def _classify_family(files: Iterable[pathlib.Path]) -> str:
     has_genie = bool(exts & _GENIE_STRONG)
     has_sesam = bool(exts & _SESAM_STRONG)
 
-    families = [name for name, present in (
-        ("abaqus", has_abaqus),
-        ("genie", has_genie),
-        ("sesam_fem", has_sesam),
-    ) if present]
+    families = [
+        name
+        for name, present in (
+            ("abaqus", has_abaqus),
+            ("genie", has_genie),
+            ("sesam_fem", has_sesam),
+        )
+        if present
+    ]
 
     if len(families) > 1:
         raise BundleError(
@@ -105,9 +109,7 @@ def _classify_family(files: Iterable[pathlib.Path]) -> str:
             "A bundle must contain files for one analysis stack only."
         )
     if not families:
-        raise BundleError(
-            f"bundle contains no recognised source files (saw {sorted(exts)})"
-        )
+        raise BundleError(f"bundle contains no recognised source files (saw {sorted(exts)})")
 
     fam = families[0]
     # Reject any extension that doesn't fit the chosen family — a stray
@@ -122,18 +124,13 @@ def _classify_family(files: Iterable[pathlib.Path]) -> str:
 
     stray = exts - allowed
     if stray:
-        raise BundleError(
-            f"bundle contains files that don't belong to the {fam} stack: "
-            f"{sorted(stray)}"
-        )
+        raise BundleError(f"bundle contains files that don't belong to the {fam} stack: " f"{sorted(stray)}")
 
     if fam != "abaqus":
         # Initial scope: Abaqus only. Don't pretend to support the
         # others until the entry-point detection logic actually exists
         # for them.
-        raise BundleError(
-            f"only Abaqus bundles are supported; detected: {fam}"
-        )
+        raise BundleError(f"only Abaqus bundles are supported; detected: {fam}")
     return fam
 
 
@@ -157,10 +154,7 @@ def _parse_includes(content: str) -> list[str]:
     out: list[str] = []
     # Strip out comment lines so a `**` describing an *INCLUDE doesn't
     # match. Faster than building a comment-aware regex.
-    lines = [
-        ln for ln in content.splitlines()
-        if not ln.lstrip().startswith("**")
-    ]
+    lines = [ln for ln in content.splitlines() if not ln.lstrip().startswith("**")]
     cleaned = "\n".join(lines)
     for m in _INCLUDE_RE.finditer(cleaned):
         out.append(m.group(2).strip())
@@ -193,19 +187,15 @@ def _validate_relative(filename: str) -> str:
         raise BundleError("empty INCLUDE filename")
     if "\\" in filename:
         raise BundleError(
-            f"INCLUDE filename {filename!r} uses backslashes; "
-            "use forward slashes so the bundle is portable"
+            f"INCLUDE filename {filename!r} uses backslashes; " "use forward slashes so the bundle is portable"
         )
     p = pathlib.PurePosixPath(filename)
     if p.is_absolute() or (len(filename) > 1 and filename[1] == ":"):
         raise BundleError(
-            f"INCLUDE filename {filename!r} is absolute; "
-            "bundles must use paths relative to the entry-point"
+            f"INCLUDE filename {filename!r} is absolute; " "bundles must use paths relative to the entry-point"
         )
     if any(part == ".." for part in p.parts):
-        raise BundleError(
-            f"INCLUDE filename {filename!r} traverses outside the bundle"
-        )
+        raise BundleError(f"INCLUDE filename {filename!r} traverses outside the bundle")
     return filename
 
 
@@ -221,9 +211,7 @@ def _abaqus_entry(root: pathlib.Path, files: list[pathlib.Path]) -> tuple[pathli
 
     # Map relative-from-root → absolute, so INCLUDE strings (which are
     # relative) can be resolved without guessing.
-    by_rel: dict[str, pathlib.Path] = {
-        str(p.relative_to(root)).replace("\\", "/"): p for p in files
-    }
+    by_rel: dict[str, pathlib.Path] = {str(p.relative_to(root)).replace("\\", "/"): p for p in files}
 
     # Build the "is included by another" set. INCLUDE filenames are
     # relative to the file that contains the directive, so resolve
@@ -236,10 +224,7 @@ def _abaqus_entry(root: pathlib.Path, files: list[pathlib.Path]) -> tuple[pathli
             rel = str((src.parent / raw).resolve().relative_to(root.resolve())).replace("\\", "/")
             target = by_rel.get(rel)
             if target is None:
-                raise BundleError(
-                    f"include not found: {raw!r} (referenced by "
-                    f"{src.relative_to(root)})"
-                )
+                raise BundleError(f"include not found: {raw!r} (referenced by " f"{src.relative_to(root)})")
             included.add(target.resolve())
 
     candidates = [p for p in inp_files if p.resolve() not in included]
@@ -277,10 +262,7 @@ def _walk_includes(
             rel = str((cur.parent / raw).resolve().relative_to(root.resolve())).replace("\\", "/")
             target = by_rel.get(rel)
             if target is None:
-                raise BundleError(
-                    f"include not found: {raw!r} (referenced by "
-                    f"{cur.relative_to(root)})"
-                )
+                raise BundleError(f"include not found: {raw!r} (referenced by " f"{cur.relative_to(root)})")
             if target.resolve() not in seen:
                 seen.add(target.resolve())
                 stack.append(target)

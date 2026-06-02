@@ -12,7 +12,6 @@ from __future__ import annotations
 import json
 import time
 
-import httpx
 import jwt
 import pytest
 from cryptography.hazmat.primitives import serialization
@@ -101,9 +100,7 @@ def stub_jwks(monkeypatch, signing_key):
     async def _stub_discovery(self):
         return discovery
 
-    monkeypatch.setattr(
-        auth_module._JWKSVerifier, "_discovery_doc", _stub_discovery, raising=True
-    )
+    monkeypatch.setattr(auth_module._JWKSVerifier, "_discovery_doc", _stub_discovery, raising=True)
 
     # Patch PyJWKClient's HTTP fetcher.
     import urllib.request

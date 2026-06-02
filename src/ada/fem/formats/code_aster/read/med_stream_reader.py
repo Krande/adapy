@@ -77,10 +77,7 @@ class RmedStreamReader:
             for med_short, med_group in self._mesh_group["MAI"].items():
                 cell_type = _MED_SHORT_TO_STR.get(med_short)
                 if cell_type is None:
-                    raise ValueError(
-                        f"Unknown MED cell-type code {med_short!r}; "
-                        f"add it to _MED_SHORT_TO_STR."
-                    )
+                    raise ValueError(f"Unknown MED cell-type code {med_short!r}; " f"add it to _MED_SHORT_TO_STR.")
                 nod = med_group["NOD"]
                 n_cells = int(nod.attrs["NBR"])
                 conn = np.asarray(nod[()]).reshape((n_cells, -1), order="F") - 1
@@ -92,11 +89,7 @@ class RmedStreamReader:
                     identifiers = np.asarray(med_group["NUM"][()], dtype=np.int64)
                 else:
                     identifiers = np.arange(1, n_cells + 1, dtype=np.int64)
-                cell_blocks.append(
-                    CellBlockData(
-                        cell_type=cell_type, data=conn, identifiers=identifiers
-                    )
-                )
+                cell_blocks.append(CellBlockData(cell_type=cell_type, data=conn, identifiers=identifiers))
 
         self._geom = MeshGeometry(points=points, cell_blocks=cell_blocks)
         return self._geom
@@ -165,8 +158,7 @@ class RmedStreamReader:
             # Phase 1 streams nodal fields only. Bake skips non-nodal
             # via FieldSpec.support; if a caller asks anyway, surface it.
             raise NotImplementedError(
-                f"streaming non-nodal field {field_name!r} (support={spec.support}) "
-                f"not implemented in Phase 1"
+                f"streaming non-nodal field {field_name!r} (support={spec.support}) " f"not implemented in Phase 1"
             )
 
         field_group = self._f["CHA"][field_name]
@@ -219,9 +211,7 @@ class RmedStreamReader:
         or None when the sidecar is absent / pre-v5. The frontend feeds it
         to the same FemConceptsController overlay as a CAD/FEM GLB's
         embedded concepts."""
-        from ada.fem.formats.code_aster.read.beams_sidecar import (
-            try_load_fem_concepts,
-        )
+        from ada.fem.formats.code_aster.read.beams_sidecar import try_load_fem_concepts
 
         return try_load_fem_concepts(self._path)
 
@@ -233,9 +223,7 @@ class RmedStreamReader:
         # needs to tessellate. Look for it next to the .rmed; if it
         # isn't there (third-party .rmed, manual rename, ...) the
         # bake gracefully falls back to line-only beam rendering.
-        from ada.fem.formats.code_aster.read.beams_sidecar import (
-            try_load_beams_sidecar,
-        )
+        from ada.fem.formats.code_aster.read.beams_sidecar import try_load_beams_sidecar
         from ada.fem.results.artefacts import tessellate_beams_to_solid_mesh
 
         beams, extra_skip = try_load_beams_sidecar(self._path, self._nmap_for_beams())
@@ -292,16 +280,12 @@ def _locate_mesh(f):
     if "NOE" not in mesh:
         ts_keys = list(mesh.keys())
         if len(ts_keys) != 1:
-            raise ValueError(
-                f"Expected exactly 1 time-step on mesh, found {len(ts_keys)}."
-            )
+            raise ValueError(f"Expected exactly 1 time-step on mesh, found {len(ts_keys)}.")
         mesh = mesh[ts_keys[0]]
     return mesh, dim
 
 
-def _read_nodal_step(
-    step_group, profiles, n_points_mesh: int, n_components: int
-) -> np.ndarray:
+def _read_nodal_step(step_group, profiles, n_points_mesh: int, n_components: int) -> np.ndarray:
     """Read one step's nodal payload. Back-fills profile-restricted
     fields with NaN so the array is always shape ``(n_points_mesh,
     n_components)``."""
@@ -321,8 +305,7 @@ def _read_nodal_step(
         if raw.shape[0] != n_points_mesh:
             # Should match the mesh; if it doesn't, something's odd.
             raise ValueError(
-                f"Nodal field has {raw.shape[0]} values but mesh has "
-                f"{n_points_mesh} points; profile={profile!r}."
+                f"Nodal field has {raw.shape[0]} values but mesh has " f"{n_points_mesh} points; profile={profile!r}."
             )
         values = raw
     else:
@@ -333,7 +316,5 @@ def _read_nodal_step(
         values[index_profile] = raw
 
     if values.shape[1] != n_components:
-        raise ValueError(
-            f"Field has {values.shape[1]} components but spec expected {n_components}."
-        )
+        raise ValueError(f"Field has {values.shape[1]} components but spec expected {n_components}.")
     return values

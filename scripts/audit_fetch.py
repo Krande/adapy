@@ -25,8 +25,7 @@ def _env(name: str) -> str:
     val = os.environ.get(name, "").strip()
     if not val:
         sys.stderr.write(
-            f"error: {name} is unset. Mint a token from the admin panel "
-            f"(CLI token button) and export it.\n"
+            f"error: {name} is unset. Mint a token from the admin panel " f"(CLI token button) and export it.\n"
         )
         sys.exit(2)
     return val
@@ -92,9 +91,7 @@ def fetch(audit_id: int, dest_root: pathlib.Path) -> pathlib.Path:
     # `Content-Encoding: gzip`). Browsers decompress transparently;
     # urllib doesn't, so do it here so the on-disk file is always
     # the real source the converter will see — not a gzip wrapper.
-    source_bytes, headers = _api_get(
-        f"{base}/api/admin/audit/{audit_id}/source", token
-    )
+    source_bytes, headers = _api_get(f"{base}/api/admin/audit/{audit_id}/source", token)
     if (headers.get("content-encoding") or "").lower() == "gzip":
         source_bytes = gzip.decompress(source_bytes)
     name = (
@@ -111,7 +108,8 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("audit_id", type=int)
     ap.add_argument(
-        "--out", default="./audit_repro",
+        "--out",
+        default="./audit_repro",
         help="Root directory for downloaded sources (default: ./audit_repro)",
     )
     args = ap.parse_args()

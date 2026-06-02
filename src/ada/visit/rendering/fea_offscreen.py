@@ -44,7 +44,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal, Optional
 
 if TYPE_CHECKING:
-    import numpy as np
     from PIL.Image import Image as PILImage
 
     from ada.fem.results.common import FEAResult
@@ -97,9 +96,16 @@ def _parse_afeg(buf: bytes):
     expected = 16 + n_edges * 2 * 4
     if len(buf) < expected:
         return None
-    return np.frombuffer(
-        buf, dtype=np.uint32, count=n_edges * 2, offset=16,
-    ).reshape(n_edges, 2).copy()
+    return (
+        np.frombuffer(
+            buf,
+            dtype=np.uint32,
+            count=n_edges * 2,
+            offset=16,
+        )
+        .reshape(n_edges, 2)
+        .copy()
+    )
 
 
 def _parse_afbl(buf: bytes):
@@ -117,9 +123,16 @@ def _parse_afbl(buf: bytes):
     n_steps = header["n_steps"]
     n_points = header["n_points"]
     n_comp = header["n_components"]
-    arr = np.frombuffer(
-        buf, dtype=np.float32, count=n_steps * n_points * n_comp, offset=1024,
-    ).reshape(n_steps, n_points, n_comp).copy()
+    arr = (
+        np.frombuffer(
+            buf,
+            dtype=np.float32,
+            count=n_steps * n_points * n_comp,
+            offset=1024,
+        )
+        .reshape(n_steps, n_points, n_comp)
+        .copy()
+    )
     return header, arr
 
 
@@ -134,13 +147,16 @@ def _abaqus_rgba(magnitudes):
         return np.zeros((0, 4), dtype=np.uint8)
     m_max = float(magnitudes.max())
     t = magnitudes / m_max if m_max > 0 else np.zeros_like(magnitudes)
-    stops = np.array([
-        (0.00, 0.0, 0.0, 1.0),
-        (0.25, 0.0, 1.0, 1.0),
-        (0.50, 0.0, 1.0, 0.0),
-        (0.75, 1.0, 1.0, 0.0),
-        (1.00, 1.0, 0.0, 0.0),
-    ], dtype=np.float32)
+    stops = np.array(
+        [
+            (0.00, 0.0, 0.0, 1.0),
+            (0.25, 0.0, 1.0, 1.0),
+            (0.50, 0.0, 1.0, 0.0),
+            (0.75, 1.0, 1.0, 0.0),
+            (1.00, 1.0, 0.0, 0.0),
+        ],
+        dtype=np.float32,
+    )
     out = np.empty((len(t), 4), dtype=np.float32)
     for i, ti in enumerate(t):
         for k in range(1, len(stops)):
@@ -191,9 +207,7 @@ def render_fea_mode_from_bundle(
     if not entries:
         raise ValueError(f"no displacement fields in {manifest_path}")
     if mode_index < 0 or mode_index >= len(entries):
-        raise IndexError(
-            f"mode_index {mode_index} out of range (have {len(entries)} modes)"
-        )
+        raise IndexError(f"mode_index {mode_index} out of range (have {len(entries)} modes)")
 
     blob_url, step_idx = entries[mode_index]
     header, steps = _parse_afbl((case_dir / blob_url).read_bytes())
@@ -209,9 +223,7 @@ def render_fea_mode_from_bundle(
     base_positions = np.asarray(mesh.vertices, dtype=np.float32).copy()
     n_verts = base_positions.shape[0]
     if header["n_points"] != n_verts:
-        raise ValueError(
-            f"vertex count mismatch: mesh has {n_verts}, field has {header['n_points']}"
-        )
+        raise ValueError(f"vertex count mismatch: mesh has {n_verts}, field has {header['n_points']}")
 
     # Same warp logic the embed's assembleAnimatedFeaGlb runs:
     # delta = step[:, :3], position = base + delta. Scale 1.0 —
@@ -263,8 +275,10 @@ def render_fea_mode_from_bundle(
         except Exception as exc:
             # Wireframe is decorative — log + fall through to mesh-only.
             import logging as _logging
+
             _logging.getLogger(__name__).warning(
-                "fea_offscreen: edge wireframe load failed (%s); rendering mesh only", exc,
+                "fea_offscreen: edge wireframe load failed (%s); rendering mesh only",
+                exc,
             )
 
     with tempfile.TemporaryDirectory(prefix="fea_render_") as tmp:
@@ -275,13 +289,18 @@ def render_fea_mode_from_bundle(
             from ada.visit.rendering.chromium_offscreen_utils import (
                 glb_to_image_via_browser,
             )
+
             return glb_to_image_via_browser(out_glb, preset=preset, size=size)
         from ada.visit.rendering.pygfx_offscreen_utils import glb_to_image
 
         # Translate paradoc-style preset dict into glb_to_image kwargs.
         allowed = {
-            "azimuth_deg", "elevation_deg", "fov_deg", "distance",
-            "margin", "z_up",
+            "azimuth_deg",
+            "elevation_deg",
+            "fov_deg",
+            "distance",
+            "margin",
+            "z_up",
         }
         kwargs = {k: v for k, v in (preset or {}).items() if k in allowed}
         return glb_to_image(out_glb, size=size, **kwargs)

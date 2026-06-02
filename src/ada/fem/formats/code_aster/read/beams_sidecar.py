@@ -7,6 +7,7 @@ tessellate beams the same way it does for SIF / Abaqus, and
 surfaces the per-element CAD lineage to the bake's manifest. See
 :mod:`ada.fem.formats.code_aster.write.beams_sidecar` for the schema.
 """
+
 from __future__ import annotations
 
 import json
@@ -114,9 +115,7 @@ def try_load_beams_sidecar(
         try:
             section = _reconstruct_section(section_dict)
         except Exception:  # noqa: BLE001 — defensive
-            extra_skip["section-reconstruct-failed"] = (
-                extra_skip.get("section-reconstruct-failed", 0) + 1
-            )
+            extra_skip["section-reconstruct-failed"] = extra_skip.get("section-reconstruct-failed", 0) + 1
             continue
 
         local_z = entry.get("local_z")
@@ -138,9 +137,7 @@ def try_load_beams_sidecar(
                 up=local_z,
             )
         except Exception:  # noqa: BLE001 — defensive
-            extra_skip["beam-construct-failed"] = (
-                extra_skip.get("beam-construct-failed", 0) + 1
-            )
+            extra_skip["beam-construct-failed"] = extra_skip.get("beam-construct-failed", 0) + 1
             continue
 
         beams.append((beam, int(entry["elem_id"]), n0_idx, n1_idx, n0_pos, n1_pos))

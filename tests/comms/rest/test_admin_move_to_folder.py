@@ -7,7 +7,6 @@ test_fea_manifest.py.
 
 from __future__ import annotations
 
-import json
 import os
 import pathlib
 import tempfile
@@ -15,9 +14,7 @@ import tempfile
 import pytest
 
 os.environ.setdefault("ADA_VIEWER_STORAGE_KIND", "local")
-os.environ.setdefault(
-    "ADA_VIEWER_LOCAL_PATH", tempfile.mkdtemp(prefix="ada-test-storage-")
-)
+os.environ.setdefault("ADA_VIEWER_LOCAL_PATH", tempfile.mkdtemp(prefix="ada-test-storage-"))
 
 from fastapi.testclient import TestClient  # noqa: E402
 
@@ -93,9 +90,7 @@ def _put(client: TestClient, key: str, data: bytes) -> None:
                 break
         client.app.state._test_storage = storage
 
-    asyncio.get_event_loop().run_until_complete(
-        storage.put_bytes(Scope.shared(), key, data)
-    )
+    asyncio.get_event_loop().run_until_complete(storage.put_bytes(Scope.shared(), key, data))
 
 
 def test_move_to_folder_renames_source_and_derived_siblings(

@@ -60,7 +60,5 @@ def get_abaqus_version(exe: Optional[pathlib.Path] = None) -> str:
     )
     match = pattern.search(proc.stdout)
     if match is None:
-        raise RuntimeError(
-            f"abaqus version probe returned unparseable output:\n{proc.stdout}"
-        )
+        raise RuntimeError(f"abaqus version probe returned unparseable output:\n{proc.stdout}")
     return f"{match.group('version')} ({match.group('release')})"

@@ -72,13 +72,9 @@ def scene_from_part_or_assembly(part_or_assembly: Part | Assembly, converter: Sc
             object_guids[obj.name] = obj.guid
         if object_metadata is not None and obj.name:
             if isinstance(obj, Beam):
-                object_metadata[obj.name] = beam_metadata(
-                    obj.name, obj.section, obj.material
-                )
+                object_metadata[obj.name] = beam_metadata(obj.name, obj.section, obj.material)
             elif isinstance(obj, Plate):
-                object_metadata[obj.name] = plate_metadata(
-                    obj.name, obj.t, obj.material
-                )
+                object_metadata[obj.name] = plate_metadata(obj.name, obj.t, obj.material)
 
     # Welds are owned per-Part (`Part._welds`) rather than emitted by
     # get_all_physical_objects; iterate the part tree ourselves to
@@ -142,7 +138,7 @@ def _build_connection_entries(part_or_assembly):
             if beam.name:
                 beam_names.append(beam.name)
                 if beam.name.startswith("sample_"):
-                    role = beam.name[len("sample_"):]
+                    role = beam.name[len("sample_") :]
                     member_roles.setdefault(role, []).append(beam.name)
 
         plate_names = [p.name for p in subp.plates if p.name]
@@ -254,16 +250,12 @@ def _build_design_stats(part_or_assembly):
     cog_volume = None
     if vol_total > 0:
         c = cog_vol_accum / vol_total
-        cog_volume = design_ext.COG(
-            x=float(c[0]), y=float(c[1]), z=float(c[2]), total_volume=vol_total
-        )
+        cog_volume = design_ext.COG(x=float(c[0]), y=float(c[1]), z=float(c[2]), total_volume=vol_total)
 
     cog_mass = None
     if all_have_mass and mass_total > 0:
         c = cog_mass_accum / mass_total
-        cog_mass = design_ext.COG(
-            x=float(c[0]), y=float(c[1]), z=float(c[2]), total_mass=mass_total
-        )
+        cog_mass = design_ext.COG(x=float(c[0]), y=float(c[1]), z=float(c[2]), total_mass=mass_total)
 
     return design_ext.DesignStats(
         cog_volume=cog_volume,

@@ -10,6 +10,7 @@ a raw OCC shape (``ada.api.loft``), so it is OCC-only and its section inputs are
 domain-specific — a domain layer can loft to solids and call
 ``CellGraph.from_cell_solids`` directly.
 """
+
 from __future__ import annotations
 
 from ada.topology.graph import CellGraph
@@ -61,8 +62,7 @@ def from_assembly(assembly, ifc_types=("IfcSpace", "IfcRoom", "IfcZone")) -> Cel
 
     if not pairs:
         raise ValueError(
-            "from_assembly: no matching shape solids found "
-            "(check ifc_types, or that geometry was imported)"
+            "from_assembly: no matching shape solids found " "(check ifc_types, or that geometry was imported)"
         )
     return CellGraph.from_cell_solids(pairs, merge=True)
 

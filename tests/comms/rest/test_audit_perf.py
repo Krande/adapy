@@ -91,7 +91,8 @@ def test_multiple_signals_collect_all():
     )
     verdict = classify_streaming_candidate(cell)
     assert set(verdict["signals"]) == {
-        "rss_per_source_mb_p95", "duration_s_p95",
+        "rss_per_source_mb_p95",
+        "duration_s_p95",
     }
 
 
@@ -99,7 +100,8 @@ def test_threshold_overrides_can_disable_a_signal():
     """A relaxed threshold should suppress an otherwise-firing signal."""
     cell = _cell(peak_rss_per_source_mb_p95=25.0)
     verdict = classify_streaming_candidate(
-        cell, thresholds={"rss_per_source_mb_p95": 100.0},
+        cell,
+        thresholds={"rss_per_source_mb_p95": 100.0},
     )
     assert "rss_per_source_mb_p95" not in verdict["signals"]
     assert verdict["is_candidate"] is False
@@ -108,7 +110,8 @@ def test_threshold_overrides_can_disable_a_signal():
 def test_threshold_overrides_can_tighten_a_signal():
     cell = _cell(failure_rate=0.02)  # 2% — well below default 5%
     verdict = classify_streaming_candidate(
-        cell, thresholds={"failure_rate": 0.01},
+        cell,
+        thresholds={"failure_rate": 0.01},
     )
     assert "failure_rate" in verdict["signals"]
 
@@ -138,8 +141,7 @@ def test_merged_thresholds_ignores_unparseable_strings():
 def test_annotate_attaches_streaming_field_per_cell():
     cells = [
         _cell(source_ext=".step", target_format="glb"),
-        _cell(source_ext=".ifc", target_format="glb",
-              peak_rss_per_source_mb_p95=30.0),
+        _cell(source_ext=".ifc", target_format="glb", peak_rss_per_source_mb_p95=30.0),
     ]
     out = annotate(cells)
     assert out[0]["streaming"] == {"is_candidate": False, "signals": []}
@@ -190,6 +192,7 @@ def test_cpu_fraction_threshold_overridable():
     """Same override mechanism as the other thresholds."""
     cell = _cell(cpu_fraction=0.50)  # default would not fire
     verdict = classify_streaming_candidate(
-        cell, thresholds={"cpu_fraction_max": 0.60},
+        cell,
+        thresholds={"cpu_fraction_max": 0.60},
     )
     assert "cpu_fraction_max" in verdict["signals"]

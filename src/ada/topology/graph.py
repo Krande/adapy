@@ -10,6 +10,7 @@ typed accessors) and overriding the small neutral hooks — ``GraphFace.should_s
 (default ``False``) and ``CellGraph._priority`` (default reads
 ``metadata['PRIORITY']`` or 0). Inspired by topologic.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field

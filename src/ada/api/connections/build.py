@@ -51,9 +51,7 @@ def build_component(
     role_keys = set(handler_kwargs)
     collision = role_keys & set(extra_handler_kwargs)
     if collision:
-        raise TypeError(
-            f"extra handler kwargs collide with role names: {sorted(collision)}"
-        )
+        raise TypeError(f"extra handler kwargs collide with role names: {sorted(collision)}")
     handler_kwargs.update(extra_handler_kwargs)
     result = reg.fn(**handler_kwargs)
 

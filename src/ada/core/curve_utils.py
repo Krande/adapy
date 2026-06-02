@@ -787,7 +787,7 @@ def intersect_line_circle(line, center, radius, tol=1e-1):
     if len(res) < 2:
         raise ValueError(
             f'Line "{line}" yielded only {len(res)} real intersection root(s) with sphere '
-            f'({center=}, {radius=}); cannot compute midpoint.'
+            f"({center=}, {radius=}); cannot compute midpoint."
         )
 
     for pa, pb in zip(p1 + res[1] * vec, p1 + res[1] * vec):

@@ -14,6 +14,7 @@ Three producers share this so they emit byte-identical concepts:
   holds none of these inputs; the sidecar is the only place they
   survive round-tripping through the solver.
 """
+
 from __future__ import annotations
 
 import math
@@ -65,17 +66,22 @@ def resolve_load_glyph(load, factor: float = 1.0):
         direction, mag = _norm_mag(load.force)
         moment = [float(c) * factor for c in load.moment] if any(load.moment) else None
         return fem_ext.LoadGlyph(
-            name=load.name, type="point",
+            name=load.name,
+            type="point",
             position=[float(c) for c in load.position],
-            direction=direction, magnitude=mag * factor, moment=moment,
+            direction=direction,
+            magnitude=mag * factor,
+            moment=moment,
         )
     if isinstance(load, LoadConceptLine):
         direction, mag = _norm_mag(load.intensity_start)
         return fem_ext.LoadGlyph(
-            name=load.name, type="line",
+            name=load.name,
+            type="line",
             position=[float(c) for c in load.start_point],
             end_position=[float(c) for c in load.end_point],
-            direction=direction, magnitude=mag * factor,
+            direction=direction,
+            magnitude=mag * factor,
         )
     if isinstance(load, LoadConceptSurface):
         points = None
@@ -84,7 +90,9 @@ def resolve_load_glyph(load, factor: float = 1.0):
         elif load.points is not None:
             points = [[float(c) for c in p] for p in load.points]
         return fem_ext.LoadGlyph(
-            name=load.name, type="surface", points=points,
+            name=load.name,
+            type="surface",
+            points=points,
             magnitude=float(load.pressure) * factor if load.pressure is not None else None,
         )
     if isinstance(load, LoadConceptAccelerationField):
@@ -137,9 +145,7 @@ def build_bc_glyphs(fem: "FEM"):
         fset = getattr(bc, "fem_set", None)
         if fset is None:
             continue
-        positions = [
-            [float(m.p[0]), float(m.p[1]), float(m.p[2])] for m in fset.members if isinstance(m, Node)
-        ]
+        positions = [[float(m.p[0]), float(m.p[1]), float(m.p[2])] for m in fset.members if isinstance(m, Node)]
         if not positions:
             continue
         bcs.append(

@@ -32,7 +32,7 @@ import io
 import pathlib
 import re
 import tempfile
-from typing import Callable, Iterable, TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable, Iterable
 
 if TYPE_CHECKING:
     from ada.fem.results.common import FEAResult
@@ -205,7 +205,7 @@ class ConverterRegistry:
         without testing for the key.
         """
         by_from: dict[str, set[str]] = {}
-        for (f, t) in cls._entries:
+        for f, t in cls._entries:
             by_from.setdefault(f, set()).add(t)
         rows: list[dict] = []
         for f in sorted(by_from):
@@ -267,30 +267,21 @@ def converter(
     # Legacy positional form: @converter(".step", ".stl")
     if args:
         if accepts is not None or exports is not None:
-            raise TypeError(
-                "@converter: pass either positional (from, to) OR "
-                "accepts/exports, not both"
-            )
+            raise TypeError("@converter: pass either positional (from, to) OR " "accepts/exports, not both")
         if len(args) != 2:
-            raise TypeError(
-                "@converter(positional) expects exactly (from_ext, to_ext)"
-            )
+            raise TypeError("@converter(positional) expects exactly (from_ext, to_ext)")
         accepts = [args[0]]
         exports = [args[1]]
 
     if not accepts or not exports:
-        raise TypeError(
-            "@converter: need at least one accepts and one exports entry"
-        )
+        raise TypeError("@converter: need at least one accepts and one exports entry")
 
     # Source extensions are stored WITH a leading dot to match
     # ``_ext()`` output; target extensions are stored WITHOUT
     # (mirrors the ``target_format`` convention everywhere else in
     # the module — ``"glb"``, not ``".glb"``). Normalise the inputs
     # here so caller can pass either form.
-    accepts_norm = [
-        ("." + a.lstrip(".").lower()) for a in accepts
-    ]
+    accepts_norm = [("." + a.lstrip(".").lower()) for a in accepts]
     exports_norm = [e.lstrip(".").lower() for e in exports]
 
     def deco(fn: ConverterFn) -> ConverterFn:
@@ -315,13 +306,18 @@ def converter(
                 # typically does suffix-based dispatch.
                 def _adapter(src, on_progress, *, _s=src_ext, _t=tgt_ext, **kw):
                     return fn(
-                        src, on_progress,
-                        source_ext=_s, target_ext=f".{_t}",
+                        src,
+                        on_progress,
+                        source_ext=_s,
+                        target_ext=f".{_t}",
                         **kw,
                     )
 
                 ConverterRegistry.register(
-                    src_ext, tgt_ext, _adapter, options=options,
+                    src_ext,
+                    tgt_ext,
+                    _adapter,
+                    options=options,
                 )
         return fn
 
@@ -336,9 +332,7 @@ _TRIMESH_EXTS: frozenset[str] = frozenset({".obj", ".stl", ".ply", ".dae", ".off
 _PASSTHROUGH_EXTS: frozenset[str] = frozenset({".glb"})
 
 # Source formats that ada-py can load. Required for any non-GLB target.
-_ADA_LOADABLE_EXTS: frozenset[str] = frozenset(
-    {".ifc", ".step", ".stp", ".xml", ".inp", ".fem", ".sat", ".acis"}
-)
+_ADA_LOADABLE_EXTS: frozenset[str] = frozenset({".ifc", ".step", ".stp", ".xml", ".inp", ".fem", ".sat", ".acis"})
 
 # Multi-file analysis bundles, packaged as zip. Currently only Abaqus
 # (`.inp` with `*INCLUDE` chains) is supported; bundle.py rejects other
@@ -386,6 +380,7 @@ def is_fea_artefact_source(src_key_or_path) -> bool:
 
     suffix = pathlib.PurePosixPath(str(src_key_or_path)).suffix.lower()
     return suffix in FEA_ARTEFACT_SOURCE_EXTS
+
 
 # ``TARGET_FORMATS`` is computed at the bottom of this module from
 # :class:`ConverterRegistry.all_targets` once every ``@converter``
@@ -479,11 +474,7 @@ def is_versions_artefact_key(key: str) -> bool:
 
 def is_supported_source(key: str) -> bool:
     ext = _ext(key)
-    return (
-        ext in ConverterRegistry.all_sources()
-        or ext in _BUNDLE_EXTS
-        or ext in _STREAMING_FEA_EXTS
-    )
+    return ext in ConverterRegistry.all_sources() or ext in _BUNDLE_EXTS or ext in _STREAMING_FEA_EXTS
 
 
 def supported_targets_for(source_key: str) -> list[str]:
@@ -568,8 +559,9 @@ def _export_with_ada(
         buf = io.BytesIO()
         if merge_meshes is None:
             import os as _os
+
             merge_env = (_os.environ.get("ADA_GLB_MERGE_MESHES") or "").strip().lower()
-            merge_meshes = not (merge_env in {"0", "false", "no", "off"})
+            merge_meshes = merge_env not in {"0", "false", "no", "off"}
         model.to_gltf(buf, merge_meshes=merge_meshes)
         on_progress("ready", 1.0)
         return buf.getvalue()
@@ -607,7 +599,10 @@ def _via_ada(
     try:
         model = _load_with_ada(src_path, source_ext)
         return _export_with_ada(
-            model, target_format, out_path, on_progress,
+            model,
+            target_format,
+            out_path,
+            on_progress,
             merge_meshes=merge_meshes,
         )
     finally:
@@ -655,7 +650,10 @@ def _via_bundle(
         out_path = pathlib.Path(tempfile.mkstemp(suffix=suffix)[1])
         try:
             return _export_with_ada(
-                model, target_format, out_path, on_progress,
+                model,
+                target_format,
+                out_path,
+                on_progress,
                 merge_meshes=opts.get("merge_meshes"),
             )
         finally:
@@ -747,9 +745,7 @@ def _via_fea_result(
     upload time still produces something viewable.
     """
     if target_format != "glb":
-        raise UnsupportedFormat(
-            f"Sesam results can only target glb, got {target_format!r}"
-        )
+        raise UnsupportedFormat(f"Sesam results can only target glb, got {target_format!r}")
 
     on_progress("parsing", 0.10)
     is_sin = src_path.suffix.lower() == ".sin"
@@ -767,9 +763,7 @@ def _via_fea_result(
         if step is None or field is None:
             meta = read_sin_metadata(str(src_path))
             if not meta.fields or not meta.steps:
-                raise UnsupportedFormat(
-                    f"SIN {src_path.name} has no RV* result fields"
-                )
+                raise UnsupportedFormat(f"SIN {src_path.name} has no RV* result fields")
             if step is None:
                 step = meta.steps[0]
             if field is None:
@@ -798,14 +792,10 @@ def _via_fea_result(
             if is_sin and available:
                 field = next(iter(available))
             else:
-                raise UnsupportedFormat(
-                    f"field {field!r} not in SIF; available: {sorted(available)}"
-                )
+                raise UnsupportedFormat(f"field {field!r} not in SIF; available: {sorted(available)}")
         if int(step) not in {int(d.step) for d in available[field]}:
             avail_steps = sorted({int(d.step) for d in available[field]})
-            raise UnsupportedFormat(
-                f"field {field!r} has no data at step {step}; available: {avail_steps}"
-            )
+            raise UnsupportedFormat(f"field {field!r} has no data at step {step}; available: {avail_steps}")
 
     on_progress("tessellating", 0.65)
     out_path = pathlib.Path(tempfile.mkstemp(suffix=".glb")[1])
@@ -839,8 +829,6 @@ def _via_ada_to_trimesh(
     works.
     """
 
-    import trimesh
-
     on_progress("parsing", 0.15)
     model = _load_with_ada(src_path, source_ext)
     on_progress("tessellating", 0.55)
@@ -872,6 +860,7 @@ def _strip_unexportable_for(scene, target_ext: str) -> None:
     the GLB output if the user needs them.
     """
     import trimesh
+
     ext = target_ext.lower()
     if not ext.startswith("."):
         ext = "." + ext
@@ -899,8 +888,9 @@ def _seed_empty_scene(scene) -> None:
     line-only FEA models: seed a degenerate ``PointCloud`` of a
     single origin point so trimesh has *something* to serialise.
     """
-    import trimesh
     import numpy as np
+    import trimesh
+
     if len(scene.geometry) > 0:
         return
     placeholder = trimesh.PointCloud(vertices=np.zeros((1, 3), dtype=np.float64))
@@ -987,13 +977,9 @@ def _inline_abaqus_includes(top_inp: pathlib.Path, max_depth: int = 4) -> bytes:
             inc_rel = m.group(1).replace("\\", "/").strip().strip('"')
             inc_path = (path.parent / inc_rel).resolve()
             if not inc_path.is_file():
-                out_lines.append(
-                    f"** [/convert: missing include {inc_rel}]\n"
-                )
+                out_lines.append(f"** [/convert: missing include {inc_rel}]\n")
                 continue
-            out_lines.append(
-                f"** ─── inlined: {inc_rel} ───\n"
-            )
+            out_lines.append(f"** ─── inlined: {inc_rel} ───\n")
             out_lines.append(_walk(inc_path, depth + 1))
             if not out_lines[-1].endswith("\n"):
                 out_lines.append("\n")
@@ -1043,9 +1029,7 @@ def _via_fea_to_fem(
     # how to resolve (``"abaqus"`` / ``"sesam"`` / ``"code_aster"``).
     fmt = _FEM_TARGET_TO_FORMAT.get(target_ext.lower())
     if fmt is None:
-        raise UnsupportedFormat(
-            f"no FEA writer for target {target_ext!r}"
-        )
+        raise UnsupportedFormat(f"no FEA writer for target {target_ext!r}")
 
     out_dir = pathlib.Path(tempfile.mkdtemp(prefix="ada-convert-"))
     name = "model"
@@ -1070,8 +1054,7 @@ def _via_fea_to_fem(
         #   case-insensitively against ``*{target_ext}`` covers both
         #   the suffix and the case difference without hard-coding
         #   either.
-        deck = _find_writer_output(out_dir / name, name, target_ext) \
-            or _find_writer_output(out_dir, name, target_ext)
+        deck = _find_writer_output(out_dir / name, name, target_ext) or _find_writer_output(out_dir, name, target_ext)
         if deck is None:
             raise UnsupportedFormat(
                 f"FEA writer ran but no {target_ext} appeared under "
@@ -1290,19 +1273,28 @@ def _register_ada_loadable() -> None:
     # writers.
     for ext in _ADA_LOADABLE_EXTS:
         for tgt in ("glb", "ifc", "xml"):
+
             def _h(
-                src, on_progress, *,
-                _ext=ext, _tgt=tgt,
+                src,
+                on_progress,
+                *,
+                _ext=ext,
+                _tgt=tgt,
                 merge_meshes=None,
                 **_kw,
             ):
                 return _via_ada(
-                    src, _ext, _tgt, on_progress,
+                    src,
+                    _ext,
+                    _tgt,
+                    on_progress,
                     merge_meshes=merge_meshes,
                 )
 
             ConverterRegistry.register(
-                ext, tgt, _h,
+                ext,
+                tgt,
+                _h,
                 options=(glb_options if tgt == "glb" else None),
             )
 
@@ -1312,6 +1304,7 @@ def _register_ada_loadable() -> None:
     # loader returned, and to_stp re-exports through OCC.
     for ext in _ADA_LOADABLE_EXTS:
         for tgt in ("stl", "obj"):
+
             def _h(src, on_progress, *, _ext=ext, _tgt=tgt, **_kw):
                 return _via_ada_to_trimesh(src, _ext, f".{_tgt}", on_progress)
 
@@ -1325,9 +1318,14 @@ def _register_ada_loadable() -> None:
 
 def _register_fea_result_to_glb() -> None:
     for ext in _FEA_RESULT_EXTS:
+
         def _h(src, on_progress, *, _ext=ext, step=None, field=None, **_kw):
             return _via_fea_result(
-                src, "glb", on_progress, step=step, field=field,
+                src,
+                "glb",
+                on_progress,
+                step=step,
+                field=field,
             )
 
         ConverterRegistry.register(ext, "glb", _h)
@@ -1338,6 +1336,7 @@ def _register_glb_to_mesh() -> None:
     # no ada Assembly is materialised — the user came in with a mesh
     # and wants a mesh out, in a different container.
     for tgt in ("stl", "obj"):
+
         def _h(src, on_progress, *, _tgt=tgt, **_kw):
             return _via_glb_to_trimesh(src, f".{_tgt}", on_progress)
 

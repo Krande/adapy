@@ -27,6 +27,7 @@ slim worker. The GLB structure produced by adapy is::
     extensions.ADA_EXT_data.design_objects[*].object_guids    : {name: guid}
     extensions.ADA_EXT_data.design_objects[*].object_metadata : {name: {type, ...}}
 """
+
 from __future__ import annotations
 
 import io
@@ -265,6 +266,7 @@ def _by_coverage(scene, ref, grid_size: float) -> dict:
     count delta even though area is unchanged — the signal the identity modes
     miss for the topologic cut.
     """
+
     def cell(c):
         return (int(c[0] // grid_size), int(c[1] // grid_size), int(c[2] // grid_size))
 
@@ -291,10 +293,7 @@ def _by_coverage(scene, ref, grid_size: float) -> dict:
             r, g, b = int(200 * (1 + t)), int(200 * (1 + t)), 255
         return f"#{r:02x}{g:02x}{b:02x}"
 
-    colors = [
-        {"key": e.node_id or n, "color": heat(deltas.get(cell(e.centroid), 0))}
-        for n, e in scene.items()
-    ]
+    colors = [{"key": e.node_id or n, "color": heat(deltas.get(cell(e.centroid), 0))} for n, e in scene.items()]
     changed_cells = sum(1 for v in deltas.values() if v != 0)
     summary = {
         "grid_size": grid_size,
@@ -331,10 +330,16 @@ def _write_simple_glb(verts: np.ndarray, color_rgba: tuple[float, float, float, 
         "scenes": [{"nodes": [0]}],
         "nodes": [{"mesh": 0, "name": "diff_removed"}],
         "meshes": [{"primitives": [{"attributes": {"POSITION": 0}, "indices": 1, "material": 0}]}],
-        "materials": [{
-            "pbrMetallicRoughness": {"baseColorFactor": list(color_rgba), "metallicFactor": 0.0, "roughnessFactor": 1.0},
-            "doubleSided": True,
-        }],
+        "materials": [
+            {
+                "pbrMetallicRoughness": {
+                    "baseColorFactor": list(color_rgba),
+                    "metallicFactor": 0.0,
+                    "roughnessFactor": 1.0,
+                },
+                "doubleSided": True,
+            }
+        ],
         "buffers": [{"byteLength": len(bin_blob)}],
         "bufferViews": [
             {"buffer": 0, "byteOffset": 0, "byteLength": len(vbytes), "target": 34962},
@@ -408,21 +413,40 @@ def build_removed_overlay_glb(ref_glb: bytes, removed_names: list[str]) -> bytes
 @utility(
     name="diff",
     description=(
-        "Compare the loaded scene against another git branch/SHA build and "
-        "colour the elements to show what changed."
+        "Compare the loaded scene against another git branch/SHA build and " "colour the elements to show what changed."
     ),
     kwargs=[
-        {"name": "compare_ref", "type": "ref", "default": "",
-         "description": "Published build (branch/commit) to compare against."},
-        {"name": "diff_type", "type": "enum", "default": "byCentroid",
-         "enum": ["byCentroid", "byName", "byProperty", "byCoverage"],
-         "description": "How to match/compare elements between the two models."},
-        {"name": "tolerance", "type": "float", "default": 0.001,
-         "description": "Centroid rounding tolerance for byCentroid/byProperty."},
-        {"name": "grid_size", "type": "float", "default": 1.0,
-         "description": "Cell size for byCoverage region binning (model units)."},
-        {"name": "show_removed_overlay", "type": "bool", "default": True,
-         "description": "Add removed elements (present in ref, not in scene) as a red overlay."},
+        {
+            "name": "compare_ref",
+            "type": "ref",
+            "default": "",
+            "description": "Published build (branch/commit) to compare against.",
+        },
+        {
+            "name": "diff_type",
+            "type": "enum",
+            "default": "byCentroid",
+            "enum": ["byCentroid", "byName", "byProperty", "byCoverage"],
+            "description": "How to match/compare elements between the two models.",
+        },
+        {
+            "name": "tolerance",
+            "type": "float",
+            "default": 0.001,
+            "description": "Centroid rounding tolerance for byCentroid/byProperty.",
+        },
+        {
+            "name": "grid_size",
+            "type": "float",
+            "default": 1.0,
+            "description": "Cell size for byCoverage region binning (model units).",
+        },
+        {
+            "name": "show_removed_overlay",
+            "type": "bool",
+            "default": True,
+            "description": "Add removed elements (present in ref, not in scene) as a red overlay.",
+        },
     ],
 )
 def diff(
@@ -450,16 +474,22 @@ def diff(
     on_progress("diffing", 0.6)
     ops: list[dict] = []
     legend: list[dict] = []
-    summary: dict = {"compare_ref": compare_ref, "diff_type": diff_type,
-                     "scene_elements": len(scene), "ref_elements": len(ref)}
+    summary: dict = {
+        "compare_ref": compare_ref,
+        "diff_type": diff_type,
+        "scene_elements": len(scene),
+        "ref_elements": len(ref),
+    }
 
     if diff_type == "byCoverage":
         res = _by_coverage(scene, ref, grid_size)
         ops.append({"op": "color_elements", "elements": res["colors"]})
         summary.update(res["summary"])
-        legend = [{"label": "more in scene", "color": "#ff0000"},
-                  {"label": "equal", "color": COLOR_UNCHANGED},
-                  {"label": "more in ref", "color": "#0000ff"}]
+        legend = [
+            {"label": "more in scene", "color": "#ff0000"},
+            {"label": "equal", "color": COLOR_UNCHANGED},
+            {"label": "more in ref", "color": "#0000ff"},
+        ]
     else:
         nd = max(0, int(round(-np.log10(tolerance)))) if tolerance > 0 else 3
         compare_props = diff_type == "byProperty"
@@ -483,10 +513,13 @@ def diff(
             if overlay is not None:
                 # The worker uploads viewops JSON at job.derived_key; the overlay
                 # GLB rides alongside it under a deterministic sibling key.
-                overlay_key = f"_derived/diff_overlays/{abs(hash((compare_ref, diff_type))) & 0xFFFFFFFF:08x}.removed.glb"
+                overlay_key = (
+                    f"_derived/diff_overlays/{abs(hash((compare_ref, diff_type))) & 0xFFFFFFFF:08x}.removed.glb"
+                )
                 storage.put_bytes(overlay_key, overlay)
-                ops.append({"op": "add_overlay_geometry", "blob_key": overlay_key,
-                            "label": "removed", "color": COLOR_REMOVED})
+                ops.append(
+                    {"op": "add_overlay_geometry", "blob_key": overlay_key, "label": "removed", "color": COLOR_REMOVED}
+                )
 
     on_progress("done", 1.0)
     return {"ops": ops, "legend": legend, "summary": summary}

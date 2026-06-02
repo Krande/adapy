@@ -229,7 +229,7 @@ def _peel_exppc_curve_to_inner(data_lines: list[str]) -> tuple[list[str] | None,
         s = line.strip()
         if not s.startswith("spline ") or "{" not in s:
             continue
-        inner = s[s.index("{") + 1:].strip()
+        inner = s[s.index("{") + 1 :].strip()
         inner = inner.rstrip("}").strip()
         parts = inner.split()
         if len(parts) >= 2 and parts[0] == "ref":
@@ -237,7 +237,7 @@ def _peel_exppc_curve_to_inner(data_lines: list[str]) -> tuple[list[str] | None,
         # Curves: only exactcur / lawintcur are downstream-parseable.
         if not (inner.startswith("exactcur") or inner.startswith("lawintcur")):
             return None, None
-        new_lines = [inner] + [l.strip() for l in data_lines[i + 1:]]
+        new_lines = [inner] + [l.strip() for l in data_lines[i + 1 :]]
         # Trim trailing brace block.
         for j, l in enumerate(new_lines):
             if "}" in l:
@@ -248,9 +248,7 @@ def _peel_exppc_curve_to_inner(data_lines: list[str]) -> tuple[list[str] | None,
     return None, None
 
 
-def _resolve_exppc_curve_chain(
-    sub_type: AcisSubType, max_steps: int = 8
-) -> list[str]:
+def _resolve_exppc_curve_chain(sub_type: AcisSubType, max_steps: int = 8) -> list[str]:
     """Walk an ``exppc`` curve chain to its terminal inline 3D curve block.
 
     Mirrors ``_resolve_exppc_chain`` on the surface side. Accepts inline
@@ -265,25 +263,18 @@ def _resolve_exppc_curve_chain(
             if inner_lines is not None:
                 return inner_lines
             if ref_id is None:
-                raise ACISUnsupportedCurveType(
-                    "exppc curve subtype with no inner exactcur/lawintcur or ref N"
-                )
+                raise ACISUnsupportedCurveType("exppc curve subtype with no inner exactcur/lawintcur or ref N")
             try:
                 sub_type = sub_type.parent_record.sat_store.get_ref(ref_id)
             except (KeyError, AttributeError) as exc:
-                raise ACISReferenceDataError(
-                    f"exppc curve ref {ref_id} did not resolve"
-                ) from exc
+                raise ACISReferenceDataError(f"exppc curve ref {ref_id} did not resolve") from exc
             continue
         if sub_type.type in ("exactcur", "lawintcur"):
             return sub_type.get_as_string().splitlines()
         raise ACISUnsupportedCurveType(
-            f"exppc curve chain terminates at {sub_type.type!r}, "
-            f"expected exactcur or lawintcur"
+            f"exppc curve chain terminates at {sub_type.type!r}, " f"expected exactcur or lawintcur"
         )
-    raise ACISUnsupportedCurveType(
-        f"exppc curve chain did not terminate within {max_steps} hops"
-    )
+    raise ACISUnsupportedCurveType(f"exppc curve chain did not terminate within {max_steps} hops")
 
 
 def create_pcurve_from_exppc(exppc_sub_type: AcisSubType):
@@ -309,9 +300,7 @@ def create_pcurve_from_exppc(exppc_sub_type: AcisSubType):
         return create_bspline_curve_from_exactcur(inner_lines)
     if spl_type == "lawintcur":
         return create_bspline_curve_from_lawintcur(inner_lines)
-    raise ACISUnsupportedCurveType(
-        f"exppc curve resolved to unsupported inner type: {spl_type!r}"
-    )
+    raise ACISUnsupportedCurveType(f"exppc curve resolved to unsupported inner type: {spl_type!r}")
 
 
 def create_2d_pcurve_from_acis_pcurve(acis_pcurve) -> geo_cu.Pcurve2dBSpline | None:
@@ -366,7 +355,10 @@ def create_2d_pcurve_from_acis_pcurve(acis_pcurve) -> geo_cu.Pcurve2dBSpline | N
         # late. Bail to regen rather than feed a malformed curve to OCCT.
         logger.debug(
             "pcurve cp/knot mismatch: expected %d poles, got %d (degree=%d, mults=%s)",
-            expected_n_poles, len(cps_2d), sd.degree, mults,
+            expected_n_poles,
+            len(cps_2d),
+            sd.degree,
+            mults,
         )
         return None
     return geo_cu.Pcurve2dBSpline(
@@ -506,7 +498,10 @@ def create_pcurve_2d_from_sat_record(pcurve_record: AcisRecord) -> geo_cu.Pcurve
     if len(cps) != expected_n_poles:
         logger.debug(
             "pcurve cp/knot mismatch: expected %d poles, got %d (degree=%d, mults=%s)",
-            expected_n_poles, len(cps), degree, mults,
+            expected_n_poles,
+            len(cps),
+            degree,
+            mults,
         )
         return None
 

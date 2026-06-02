@@ -111,9 +111,7 @@ async def test_user_upsert_and_project_listing(tmp_path):
         assert await dbm.is_project_member(pool, str(proj_id), "stranger") is False
 
         # Archived projects drop out of the listing.
-        await pool.execute(
-            "UPDATE projects SET archived_at = NOW() WHERE id=$1", proj_id
-        )
+        await pool.execute("UPDATE projects SET archived_at = NOW() WHERE id=$1", proj_id)
         assert await dbm.list_user_projects(pool, sub) == []
 
         # …and out of membership checks (so callers can't access via stale URLs).

@@ -10,6 +10,7 @@ The serialization pattern mirrors ``ada.fem.formats.code_aster.write.beams_sidec
 broadened to also cover plates and to drop the GENBEAM filter — the viewer
 still wants to show what data exists even if the section can't be tessellated.
 """
+
 from __future__ import annotations
 
 import pathlib

@@ -39,7 +39,6 @@ from obstore.store import LocalStore, S3Store
 from .config import Settings
 from .scope import Scope
 
-
 # gzip RFC 1952: every member starts with 0x1F 0x8B. Used as a portable
 # encoding marker that doesn't depend on backend metadata support.
 _GZIP_MAGIC = b"\x1f\x8b"
@@ -188,7 +187,7 @@ class Storage:
         propagate."""
         try:
             await self._store.delete_async(self._full_key(scope, key))
-        except Exception as exc:
+        except Exception:
             # obstore raises a generic error that may include "not found"
             # in the message; let callers translate to 404 if they want
             # a clean separation. We don't try to introspect — different
@@ -252,9 +251,7 @@ class Storage:
 
         await obs.put_async(self._store, full, data)
 
-    async def stream_to_path_raw(
-        self, scope: Scope, key: str, dest_path: pathlib.Path
-    ) -> None:
+    async def stream_to_path_raw(self, scope: Scope, key: str, dest_path: pathlib.Path) -> None:
         """Stream an object to a local file *without* decompressing
         gzipped bodies (in contrast to ``stream_to_path`` which
         transparently un-gzips on the fly).
@@ -304,9 +301,7 @@ class Storage:
         # so this collapses to the original check.
         return isinstance(self._presign_store, S3Store)
 
-    async def presigned_put_url(
-        self, scope: Scope, key: str, expires_in_seconds: int = 3600
-    ) -> str:
+    async def presigned_put_url(self, scope: Scope, key: str, expires_in_seconds: int = 3600) -> str:
         """Mint a presigned PUT URL the browser can use to upload bytes
         directly to the object store, bypassing the API's request body
         path. Used for files past the regular-upload size cap so we
@@ -321,10 +316,7 @@ class Storage:
         ``supports_presigned_uploads`` first.
         """
         if not self.supports_presigned_uploads:
-            raise NotImplementedError(
-                "presigned uploads require an HTTP object store; "
-                "LocalStore is not supported"
-            )
+            raise NotImplementedError("presigned uploads require an HTTP object store; " "LocalStore is not supported")
         return await obs.sign_async(
             self._presign_store,
             "PUT",
@@ -332,9 +324,7 @@ class Storage:
             timedelta(seconds=expires_in_seconds),
         )
 
-    async def presigned_get_url(
-        self, scope: Scope, key: str, expires_in_seconds: int = 900
-    ) -> str:
+    async def presigned_get_url(self, scope: Scope, key: str, expires_in_seconds: int = 900) -> str:
         """Mint a presigned GET URL for direct download from the object
         store. Mirrors ``presigned_put_url`` — same gating, same signing.
 
@@ -346,8 +336,7 @@ class Storage:
         """
         if not self.supports_presigned_uploads:
             raise NotImplementedError(
-                "presigned downloads require an HTTP object store; "
-                "LocalStore is not supported"
+                "presigned downloads require an HTTP object store; " "LocalStore is not supported"
             )
         return await obs.sign_async(
             self._presign_store,
@@ -376,9 +365,7 @@ class Storage:
             return False
         return True
 
-    async def stream_to_path(
-        self, scope: Scope, key: str, dest_path: pathlib.Path
-    ) -> None:
+    async def stream_to_path(self, scope: Scope, key: str, dest_path: pathlib.Path) -> None:
         """Stream an object to a local file, decompressing gzip on the fly.
 
         Used by the worker for sources where loading the whole payload

@@ -1,10 +1,11 @@
 """Golden tests for the ada.topology cell graph (both backends)."""
+
 from __future__ import annotations
 
 import ada
-from ada.topology import CellGraph, TopologyMetadata
-from ada.topology.entities import TopoSpace
 from ada.cad import active_backend
+from ada.topology import CellGraph
+from ada.topology.entities import TopoSpace
 
 
 def _cell_solids(*specs):

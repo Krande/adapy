@@ -1,4 +1,5 @@
 """Unit tests for the worker @utility registry (auto-announce backbone)."""
+
 from __future__ import annotations
 
 import pytest

@@ -13,15 +13,15 @@ from . import design_extension_schema, simulation_extension_schema
 
 class AdaDesignAndAnalysisExtension(BaseModel):
     model_config = ConfigDict(
-        extra='forbid',
+        extra="forbid",
     )
     simulation_objects: Optional[List[simulation_extension_schema.SimulationDataExtensionMetadata]] = Field(
-        [], description='Array containing Simulation Data objects'
+        [], description="Array containing Simulation Data objects"
     )
     design_objects: Optional[List[design_extension_schema.DesignDataExtension]] = Field(
-        [], description='Array containing Design Data objects'
+        [], description="Array containing Design Data objects"
     )
-    version: Optional[str] = Field('1.2.0', description='Version of the ADA GLTF extension schema')
+    version: Optional[str] = Field("1.2.0", description="Version of the ADA GLTF extension schema")
     assembly_guid: Optional[str] = Field(
         None,
         description="Stable lineage anchor: the source Assembly's guid. CAD and FEA exports derived from the same Assembly share this value so a viewer can match them without name lookups.",

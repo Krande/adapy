@@ -14,6 +14,7 @@ on a TopoDS_Solid and exploded.
 The fix routes raw-OCC shapes directly to ``tessellate_occ_geom``,
 skipping the Geometry → OCC step that has nothing to convert from.
 """
+
 from __future__ import annotations
 
 import ada

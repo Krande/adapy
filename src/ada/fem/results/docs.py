@@ -37,7 +37,8 @@ import json
 import logging
 import pathlib
 import shutil
-from dataclasses import dataclass, field as dc_field
+from dataclasses import dataclass
+from dataclasses import field as dc_field
 from typing import TYPE_CHECKING, Any, Iterable
 
 from paradoc.db.models import ThreeDData
@@ -134,9 +135,7 @@ def _extract_solver_and_freqs(
         # enum) and the parsed version string as `software_version`.
         # Older code paths called it `fem_format`; check both so a
         # future rename doesn't silently zero this out.
-        fmt = getattr(fea_result, "software", None) or getattr(
-            fea_result, "fem_format", None
-        )
+        fmt = getattr(fea_result, "software", None) or getattr(fea_result, "fem_format", None)
         if fmt is not None:
             solver = str(getattr(fmt, "value", fmt))
         ver = getattr(fea_result, "software_version", None)
@@ -161,9 +160,7 @@ def _extract_solver_and_freqs(
             # Code Aster ships N fields × 1 step, others ship 1 field
             # × N steps. Concatenation gives the unified mode list
             # the embed + FeaCaseFilter both index by global mode.
-            frequencies = (frequencies or []) + [
-                float(s.get("value", 0.0)) for s in steps
-            ]
+            frequencies = (frequencies or []) + [float(s.get("value", 0.0)) for s in steps]
 
     return solver, solver_version, frequencies
 
@@ -283,14 +280,22 @@ def assets_for_docs(
     elif hasattr(src, "read_mesh_geometry"):
         # FEAStreamReader (Protocol).
         bake = bake_with_posters(
-            src, out_dir, src=key, modes=modes, poster_backend=poster_backend,
+            src,
+            out_dir,
+            src=key,
+            modes=modes,
+            poster_backend=poster_backend,
         )
     elif hasattr(src, "results"):
         # FEAResult — keep the reference so we can pull fem_format +
         # software_version below.
         fea_result = src
         bake = bake_with_posters(
-            src, out_dir, src=key, modes=modes, poster_backend=poster_backend,
+            src,
+            out_dir,
+            src=key,
+            modes=modes,
+            poster_backend=poster_backend,
         )
     else:
         raise TypeError(
@@ -299,7 +304,8 @@ def assets_for_docs(
         )
 
     solver, solver_version, frequencies = _extract_solver_and_freqs(
-        bake, fea_result,
+        bake,
+        fea_result,
     )
 
     return FeaDocAssets(
@@ -356,9 +362,7 @@ def to_paradoc_rows(
         "fea_manifest_path": str(assets.manifest_path.relative_to(base)),
     }
     if assets.canonical_poster_path and assets.canonical_poster_path.is_file():
-        canonical_metadata["image_path"] = str(
-            assets.canonical_poster_path.relative_to(base)
-        )
+        canonical_metadata["image_path"] = str(assets.canonical_poster_path.relative_to(base))
     rows.append(
         ThreeDData(
             key=assets.key,
@@ -444,27 +448,22 @@ def bake_fea_bundles(
     for case in cases:
         fea_result = getattr(case, "results", None)
         if fea_result is None:
-            logger.info(
-                f"{case.name}: no FEAResult attached (cache-only) — "
-                "skipping FEA artefact bake"
-            )
+            logger.info(f"{case.name}: no FEAResult attached (cache-only) — " "skipping FEA artefact bake")
             continue
         case_dir = out_dir / case.name
         if case_dir.exists():
             shutil.rmtree(case_dir)
         try:
             assets = assets_for_docs(
-                fea_result, key=case.name, out_dir=case_dir, modes=modes,
+                fea_result,
+                key=case.name,
+                out_dir=case_dir,
+                modes=modes,
             )
             out[case.name] = assets
-            logger.info(
-                f"{case.name}: baked FEA artefacts → {case_dir.name}/ "
-                f"(n_modes={assets.n_modes})"
-            )
+            logger.info(f"{case.name}: baked FEA artefacts → {case_dir.name}/ " f"(n_modes={assets.n_modes})")
         except Exception as exc:
-            logger.warning(
-                f"{case.name}: FEA artefact bake failed: {exc}", exc_info=True
-            )
+            logger.warning(f"{case.name}: FEA artefact bake failed: {exc}", exc_info=True)
     return out
 
 
@@ -592,8 +591,7 @@ class FeaCaseFilter(Filter):
         super().__init__(name=name)
         if assets is None and (src is None or out_dir is None):
             raise ValueError(
-                "FeaCaseFilter: must supply either `assets=…` (pre-baked) "
-                "or both `src` + `out_dir` (lazy-bake)."
+                "FeaCaseFilter: must supply either `assets=…` (pre-baked) " "or both `src` + `out_dir` (lazy-bake)."
             )
         self._src = src
         self._out_dir = pathlib.Path(out_dir) if out_dir is not None else None
@@ -754,13 +752,9 @@ def register_paradoc_block_sugar(dispatcher: Any) -> None:
     from pathlib import Path
     from typing import Literal, Optional
 
-    from pydantic import Field
-
-    from paradoc.figure_sources.filters.base import (
-        FigureSourceFilter,
-        RenderResult,
-    )
+    from paradoc.figure_sources.filters.base import FigureSourceFilter, RenderResult
     from paradoc.figure_sources.models import BaseFigureSource
+    from pydantic import Field
 
     class FeaArtefactBundle(BaseFigureSource):
         """Block-sugar spec for ``figure_source: fea_artefact_bundle``.
@@ -826,18 +820,13 @@ def register_paradoc_block_sugar(dispatcher: Any) -> None:
 
         def render(self, spec, *, key):  # type: ignore[override]
             if not isinstance(spec, FeaArtefactBundle):
-                raise TypeError(
-                    f"FeaArtefactBundleFilter received non-FEA spec: "
-                    f"{type(spec).__name__}"
-                )
+                raise TypeError(f"FeaArtefactBundleFilter received non-FEA spec: " f"{type(spec).__name__}")
 
             source_path = Path(spec.source_inp)
             if not source_path.is_absolute():
                 source_path = (self.bundle_root / source_path).resolve()
             if not source_path.exists():
-                raise FileNotFoundError(
-                    f"FEA source file not found: {source_path}"
-                )
+                raise FileNotFoundError(f"FEA source file not found: {source_path}")
 
             # Bake into a per-key directory under the bundle's 3D assets
             # tree. Layout mirrors the cad_model_file source so paradoc's
@@ -873,12 +862,8 @@ def register_paradoc_block_sugar(dispatcher: Any) -> None:
             # canonical mesh GLB is shared across all per-mode rows —
             # the embed picks the right mode via ``fea_mode_index`` in
             # metadata.
-            mesh_glb_rel = str(
-                assets.mesh_glb_path.relative_to(self.bundle_root)
-            )
-            mesh_sha = hashlib.sha256(
-                assets.mesh_glb_path.read_bytes()
-            ).hexdigest()
+            mesh_glb_rel = str(assets.mesh_glb_path.relative_to(self.bundle_root))
+            mesh_sha = hashlib.sha256(assets.mesh_glb_path.read_bytes()).hexdigest()
             mesh_size = assets.mesh_glb_path.stat().st_size
 
             results: list[RenderResult] = []
@@ -902,11 +887,7 @@ def register_paradoc_block_sugar(dispatcher: Any) -> None:
                             "image_path": png_rel,
                             "fea_bundle_key": key,
                             "fea_mode_index": mode_idx,
-                            "fea_manifest_path": str(
-                                assets.manifest_path.relative_to(
-                                    self.bundle_root
-                                )
-                            ),
+                            "fea_manifest_path": str(assets.manifest_path.relative_to(self.bundle_root)),
                         },
                     )
                 )

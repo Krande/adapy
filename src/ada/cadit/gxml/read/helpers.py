@@ -86,6 +86,7 @@ def _project_to_best_fit_plane(pts):
     fallbacks (exppc → exactcur / parcur / unresolvable ref chains).
     """
     import numpy as _np
+
     arr = _np.asarray([list(p)[:3] for p in pts], dtype=float)
     if arr.shape[0] < 3:
         return list(pts)
@@ -170,6 +171,7 @@ def yield_plate_elems_to_plate(plate_elem, parent, sat_ref_d, thick_map, flat_fa
                 if fallback_pts is not None and len(fallback_pts) >= 3:
                     try:
                         import numpy as _np
+
                         flat_arr = _np.array([list(p)[:3] for p in fallback_pts])
                         flat_min = flat_arr.min(axis=0)
                         flat_max = flat_arr.max(axis=0)
@@ -199,11 +201,7 @@ def yield_plate_elems_to_plate(plate_elem, parent, sat_ref_d, thick_map, flat_fa
                         surf = getattr(sat_data.geometry, "face_surface", None)
                         cps = getattr(surf, "control_points_list", None)
                         if cps:
-                            cp_arr = _np.array([
-                                [cp[0], cp[1], cp[2]]
-                                for row in cps
-                                for cp in row
-                            ])
+                            cp_arr = _np.array([[cp[0], cp[1], cp[2]] for row in cps for cp in row])
                             surf_centre = cp_arr.mean(axis=0)
                             surf_extent = cp_arr.max(axis=0) - cp_arr.min(axis=0)
                             # Per-axis tolerance: max(25% of flat
@@ -217,8 +215,7 @@ def yield_plate_elems_to_plate(plate_elem, parent, sat_ref_d, thick_map, flat_fa
                             if bool(outside.any()):
                                 axes = [a for a, o in enumerate(outside) if o]
                                 offsets = [
-                                    float(max(flat_min[a] - surf_centre[a], surf_centre[a] - flat_max[a]))
-                                    for a in axes
+                                    float(max(flat_min[a] - surf_centre[a], surf_centre[a] - flat_max[a])) for a in axes
                                 ]
                                 mismatch = (
                                     f"surface centre outside flat bbox on axis {axes} "
@@ -241,10 +238,14 @@ def yield_plate_elems_to_plate(plate_elem, parent, sat_ref_d, thick_map, flat_fa
                             if mismatch:
                                 logger.warning(
                                     "PlateCurved %r: %s — using flat representation",
-                                    name, mismatch,
+                                    name,
+                                    mismatch,
                                 )
                                 yield Plate.from_3d_points(
-                                    name, _project_to_best_fit_plane(fallback_pts), t, mat=mat,
+                                    name,
+                                    _project_to_best_fit_plane(fallback_pts),
+                                    t,
+                                    mat=mat,
                                     metadata=dict(props=dict(gxml_face_ref=face_ref)),
                                     parent=parent,
                                 )
@@ -291,7 +292,10 @@ def yield_plate_elems_to_plate(plate_elem, parent, sat_ref_d, thick_map, flat_fa
                     try:
                         projected = _project_to_best_fit_plane(fb)
                         yield Plate.from_3d_points(
-                            name, projected, t, mat=mat,
+                            name,
+                            projected,
+                            t,
+                            mat=mat,
                             metadata=dict(props=dict(gxml_face_ref=face_ref)),
                             parent=parent,
                         )

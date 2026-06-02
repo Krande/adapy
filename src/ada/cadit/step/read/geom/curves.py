@@ -1,6 +1,6 @@
 from OCC.Core.BRep import BRep_Tool
 from OCC.Core.Geom import Geom_BSplineCurve, Geom_Circle, Geom_Line, Geom_Surface
-from OCC.Core.Geom2d import Geom2d_BSplineCurve, Geom2d_TrimmedCurve
+from OCC.Core.Geom2d import Geom2d_TrimmedCurve
 from OCC.Core.Geom2dConvert import geom2dconvert
 from OCC.Core.gp import gp_Dir, gp_Pnt
 from OCC.Core.TopAbs import TopAbs_EDGE, TopAbs_FORWARD, TopAbs_WIRE
@@ -67,24 +67,15 @@ def _extract_pcurve(edge: TopoDS_Edge, face: TopoDS_Face) -> geo_cu.Pcurve2dBSpl
         control_points.append((float(p.X()), float(p.Y())))
 
     knots_array = bsp2d.Knots()
-    knots = [
-        float(knots_array.Value(i))
-        for i in range(knots_array.Lower(), knots_array.Upper() + 1)
-    ]
+    knots = [float(knots_array.Value(i)) for i in range(knots_array.Lower(), knots_array.Upper() + 1)]
 
     mults_array = bsp2d.Multiplicities()
-    mults = [
-        int(mults_array.Value(i))
-        for i in range(mults_array.Lower(), mults_array.Upper() + 1)
-    ]
+    mults = [int(mults_array.Value(i)) for i in range(mults_array.Lower(), mults_array.Upper() + 1)]
 
     weights: list[float] | None = None
     if bsp2d.IsRational():
         w_array = bsp2d.Weights()
-        weights = [
-            float(w_array.Value(i))
-            for i in range(w_array.Lower(), w_array.Upper() + 1)
-        ]
+        weights = [float(w_array.Value(i)) for i in range(w_array.Lower(), w_array.Upper() + 1)]
 
     return geo_cu.Pcurve2dBSpline(
         degree=int(bsp2d.Degree()),
@@ -139,7 +130,9 @@ def _edge_endpoints(edge: TopoDS_Edge) -> tuple[Point, Point]:
 
 # Function to process the wire and retrieve the boundary curves
 def process_wire(
-    wire: TopoDS_Wire, face: TopoDS_Face, surface: Geom_Surface | None = None,
+    wire: TopoDS_Wire,
+    face: TopoDS_Face,
+    surface: Geom_Surface | None = None,
 ) -> geo_cu.EdgeLoop | None:
     """Build a proper :class:`EdgeLoop` from a TopoDS_Wire.
 
@@ -242,9 +235,7 @@ def process_wire(
 
                 bsp = geomconvert.CurveToBSplineCurve(curve_handle)
                 if bsp is None:
-                    raise NotImplementedError(
-                        "Failed to convert Geom_BezierCurve to BSpline form."
-                    )
+                    raise NotImplementedError("Failed to convert Geom_BezierCurve to BSpline form.")
                 degree = bsp.Degree()
                 poles = array1_to_point_list(bsp.Poles())
                 knots = array1_to_list(bsp.Knots())
@@ -255,17 +246,26 @@ def process_wire(
                 if bsp.IsRational():
                     weights = array1_to_list(bsp.Weights())
                     curve = geo_cu.RationalBSplineCurveWithKnots(
-                        degree=degree, control_points_list=poles,
-                        curve_form=curve_form, closed_curve=closed,
-                        self_intersect=False, knot_multiplicities=mults,
-                        knots=knots, knot_spec=knot_spec, weights_data=weights,
+                        degree=degree,
+                        control_points_list=poles,
+                        curve_form=curve_form,
+                        closed_curve=closed,
+                        self_intersect=False,
+                        knot_multiplicities=mults,
+                        knots=knots,
+                        knot_spec=knot_spec,
+                        weights_data=weights,
                     )
                 else:
                     curve = geo_cu.BSplineCurveWithKnots(
-                        degree=degree, control_points_list=poles,
-                        curve_form=curve_form, closed_curve=closed,
-                        self_intersect=False, knot_multiplicities=mults,
-                        knots=knots, knot_spec=knot_spec,
+                        degree=degree,
+                        control_points_list=poles,
+                        curve_form=curve_form,
+                        closed_curve=closed,
+                        self_intersect=False,
+                        knot_multiplicities=mults,
+                        knots=knots,
+                        knot_spec=knot_spec,
                     )
             else:
                 raise NotImplementedError(f"Edge geometry type {curve_handle.DynamicType().Name()} not implemented.")

@@ -33,13 +33,7 @@ def test_clean_abaqus_bundle(tmp_path):
     """Single .inp with two INCLUDEs → entry is the top-level deck."""
     data = _make_zip(
         {
-            "job.inp": (
-                "*HEADING\n"
-                "test\n"
-                "*INCLUDE, INPUT=mesh.inp\n"
-                "*INCLUDE, INPUT=materials.inp\n"
-                "*END\n"
-            ),
+            "job.inp": ("*HEADING\n" "test\n" "*INCLUDE, INPUT=mesh.inp\n" "*INCLUDE, INPUT=materials.inp\n" "*END\n"),
             "mesh.inp": "*NODE\n1, 0., 0., 0.\n",
             "materials.inp": "*MATERIAL, NAME=steel\n",
         }
@@ -171,10 +165,7 @@ def test_comments_dont_match_include():
     in comments."""
     data = _make_zip(
         {
-            "job.inp": (
-                "** Note: we used to *INCLUDE, INPUT=old.inp here\n"
-                "*INCLUDE, INPUT=mesh.inp\n"
-            ),
+            "job.inp": ("** Note: we used to *INCLUDE, INPUT=old.inp here\n" "*INCLUDE, INPUT=mesh.inp\n"),
             "mesh.inp": "*NODE\n",
         }
     )

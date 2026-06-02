@@ -5,6 +5,7 @@ module just lazy-imports the helpers it needs so the heavy OCC dep is
 only pulled when a render / boundary-node / extrusion call is actually
 made.
 """
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
@@ -13,10 +14,10 @@ from OCC.Core.BRep import BRep_Tool
 from OCC.Core.BRepPrimAPI import BRepPrimAPI_MakePrism
 from OCC.Core.BRepTools import breptools
 from OCC.Core.GeomLProp import GeomLProp_SLProps
+from OCC.Core.gp import gp_Vec
 from OCC.Core.TopAbs import TopAbs_FACE
 from OCC.Core.TopExp import TopExp_Explorer
 from OCC.Core.TopoDS import TopoDS_Shape, topods
-from OCC.Core.gp import gp_Vec
 from OCC.Extend.TopologyUtils import TopologyExplorer
 
 from ada.api.nodes import Node
@@ -60,9 +61,7 @@ def boundary_nodes_of(face_geom: "Geometry") -> list[Node]:
     return boundary_nodes_of_face(geom_to_occ_geom(face_geom))
 
 
-def extrude_face_along_normal(
-    face_shape: TopoDS_Shape, thickness: float
-) -> TopoDS_Shape:
+def extrude_face_along_normal(face_shape: TopoDS_Shape, thickness: float) -> TopoDS_Shape:
     """Prism-extrude a TopoDS_Face by ``thickness`` along its surface
     normal at the face centre. Falls back to the bare face shape when
     thickness is zero, the normal can't be evaluated at the parametric
@@ -92,9 +91,7 @@ def extrude_face_along_normal(
     return prism.Shape()
 
 
-def extrude_face_geom_along_normal(
-    face_geom: "Geometry", thickness: float
-) -> TopoDS_Shape:
+def extrude_face_geom_along_normal(face_geom: "Geometry", thickness: float) -> TopoDS_Shape:
     """Same as :func:`extrude_face_along_normal`, but takes an adapy
     :class:`~ada.geom.Geometry` and converts to OCC first.
 

@@ -23,20 +23,41 @@ ada_to_abaqus_format = {
     # CPS* = plane stress, CPE* = plane strain, CAX* = axisymmetric,
     # M3D* = membrane.
     sh.TRI: (
-        "S3", "S3R", "R3D3", "S3RS",
-        "CPS3", "CPE3", "CAX3", "M3D3",
+        "S3",
+        "S3R",
+        "R3D3",
+        "S3RS",
+        "CPS3",
+        "CPE3",
+        "CAX3",
+        "M3D3",
     ),
     sh.TRI6: ("STRI65", "CPS6", "CPE6", "CAX6", "M3D6"),
     sh.TRI7: ("S7",),
     sh.QUAD: (
-        "S4", "S4R", "R3D4",
-        "CPS4", "CPS4R", "CPE4", "CPE4R",
-        "CAX4", "CAX4R", "M3D4", "M3D4R",
+        "S4",
+        "S4R",
+        "R3D4",
+        "CPS4",
+        "CPS4R",
+        "CPE4",
+        "CPE4R",
+        "CAX4",
+        "CAX4R",
+        "M3D4",
+        "M3D4R",
     ),
     sh.QUAD8: (
-        "S8", "S8R",
-        "CPS8", "CPS8R", "CPE8", "CPE8R",
-        "CAX8", "CAX8R", "M3D8", "M3D8R",
+        "S8",
+        "S8R",
+        "CPS8",
+        "CPS8R",
+        "CPE8",
+        "CPE8R",
+        "CAX8",
+        "CAX8R",
+        "M3D8",
+        "M3D8R",
     ),
     so.HEX8: ("C3D8", "C3D8R", "C3D8H"),
     so.HEX20: ("C3D20", "C3D20R", "C3D20RH"),
@@ -69,6 +90,4 @@ def abaqus_el_type_to_ada(el_type):
     for key, val in ada_to_abaqus_format.items():
         if el_type in val:
             return key
-    raise UnsupportedAbaqusElementType(
-        f'Element type "{el_type}" has not been added to conversion to ada map yet'
-    )
+    raise UnsupportedAbaqusElementType(f'Element type "{el_type}" has not been added to conversion to ada map yet')

@@ -29,8 +29,7 @@ def _env(name: str) -> str:
     val = os.environ.get(name, "").strip()
     if not val:
         sys.stderr.write(
-            f"error: {name} is unset. Mint a token from the admin panel "
-            f"(CLI token button) and export it.\n"
+            f"error: {name} is unset. Mint a token from the admin panel " f"(CLI token button) and export it.\n"
         )
         sys.exit(2)
     return val
@@ -81,10 +80,7 @@ def upload(local: pathlib.Path, scope: str, key: str) -> str:
         sys.exit(2)
 
     body = local.read_bytes()
-    url = (
-        f"{base}/api/scopes/{urllib.parse.quote(scope, safe=':')}"
-        f"/blobs/{urllib.parse.quote(key)}"
-    )
+    url = f"{base}/api/scopes/{urllib.parse.quote(scope, safe=':')}" f"/blobs/{urllib.parse.quote(key)}"
     req = urllib.request.Request(
         url,
         data=body,
@@ -109,11 +105,14 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("path", type=pathlib.Path, help="Local file to upload")
     ap.add_argument(
-        "--as", dest="key", default=None,
+        "--as",
+        dest="key",
+        default=None,
         help="Remote key (default: local filename). Supports nested paths.",
     )
     ap.add_argument(
-        "--scope", default="user:me",
+        "--scope",
+        default="user:me",
         help="Target scope: shared, user:me, or project:<id> (default: user:me)",
     )
     args = ap.parse_args()
@@ -127,10 +126,7 @@ def main() -> None:
 
     key = args.key or args.path.name
     size = args.path.stat().st_size
-    sys.stdout.write(
-        f"uploading {args.path} ({size / 1024 / 1024:.2f} MiB) → "
-        f"scope={args.scope} key={key}\n"
-    )
+    sys.stdout.write(f"uploading {args.path} ({size / 1024 / 1024:.2f} MiB) → " f"scope={args.scope} key={key}\n")
     sys.stdout.flush()
 
     url = upload(args.path, args.scope, key)
@@ -140,7 +136,6 @@ def main() -> None:
 # Late import — argparse usage strings shouldn't pay the urllib.parse
 # import cost twice.
 import urllib.parse  # noqa: E402
-
 
 if __name__ == "__main__":
     main()

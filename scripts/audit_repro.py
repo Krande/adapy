@@ -44,11 +44,13 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("audit_id", type=int)
     ap.add_argument(
-        "--out", default="./audit_repro",
+        "--out",
+        default="./audit_repro",
         help="Root directory for downloaded sources (default: ./audit_repro)",
     )
     ap.add_argument(
-        "--target", default=None,
+        "--target",
+        default=None,
         help="Override the target_format from the audit row.",
     )
     args = ap.parse_args()
@@ -61,9 +63,7 @@ def main() -> None:
     # import-time cost of the converter (and its FEM stack).
     from ada.comms.rest.converter import convert
 
-    sys.stdout.write(
-        f"repro audit_id={args.audit_id} src={src} target={target}\n"
-    )
+    sys.stdout.write(f"repro audit_id={args.audit_id} src={src} target={target}\n")
     sys.stdout.write(f"original status={meta.get('status')} error={meta.get('error')!r}\n")
     sys.stdout.flush()
 

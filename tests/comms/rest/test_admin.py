@@ -23,9 +23,7 @@ import uuid
 # which materializes a local Storage. Point it at a temp dir so the
 # import succeeds in environments without `./viewer-data`.
 os.environ.setdefault("ADA_VIEWER_STORAGE_KIND", "local")
-os.environ.setdefault(
-    "ADA_VIEWER_LOCAL_PATH", tempfile.mkdtemp(prefix="ada-test-storage-")
-)
+os.environ.setdefault("ADA_VIEWER_LOCAL_PATH", tempfile.mkdtemp(prefix="ada-test-storage-"))
 
 import pytest
 from fastapi.testclient import TestClient
@@ -33,13 +31,7 @@ from fastapi.testclient import TestClient
 from ada.comms.rest import auth as auth_module
 from ada.comms.rest import db as dbm
 from ada.comms.rest.app import create_app
-from ada.comms.rest.config import (
-    AuthConfig,
-    LocalConfig,
-    QueueConfig,
-    Settings,
-)
-
+from ada.comms.rest.config import AuthConfig, LocalConfig, QueueConfig, Settings
 
 POSTGRES_URL = os.environ.get("ADA_TEST_POSTGRES_URL", "").strip()
 needs_postgres = pytest.mark.skipif(
@@ -229,9 +221,7 @@ def test_admin_ci_bot_provision_lifecycle(tmp_path):
     app = create_app(settings)
     with TestClient(app) as client:
         slug = f"ci-{uuid.uuid4().hex[:12]}"
-        r = client.post(
-            "/api/admin/projects", json={"slug": slug, "name": "CI Test"}
-        )
+        r = client.post("/api/admin/projects", json={"slug": slug, "name": "CI Test"})
         assert r.status_code == 201, r.text
         body = r.json()
         pid = body["id"]
@@ -242,10 +232,7 @@ def test_admin_ci_bot_provision_lifecycle(tmp_path):
         r = client.get(f"/api/admin/projects/{pid}/members")
         assert r.status_code == 200
         creator_members = r.json()["members"]
-        assert any(
-            m["user_sub"] == "local-dev" and m["role"] == "owner"
-            for m in creator_members
-        ), creator_members
+        assert any(m["user_sub"] == "local-dev" and m["role"] == "owner" for m in creator_members), creator_members
 
         # First provision.
         r = client.post(f"/api/admin/projects/{pid}/ci-bot")
@@ -259,12 +246,8 @@ def test_admin_ci_bot_provision_lifecycle(tmp_path):
         r = client.get(f"/api/admin/projects/{pid}/members")
         assert r.status_code == 200
         members = r.json()["members"]
-        assert any(
-            m["user_sub"] == f"ci:{slug}" and m["role"] == "ci" for m in members
-        )
-        assert any(
-            m["user_sub"] == "local-dev" and m["role"] == "owner" for m in members
-        )
+        assert any(m["user_sub"] == f"ci:{slug}" and m["role"] == "ci" for m in members)
+        assert any(m["user_sub"] == "local-dev" and m["role"] == "owner" for m in members)
 
         # Re-provisioning rotates the token.
         # Sleep 1s so the new token's iat strictly exceeds the revoke
@@ -312,9 +295,7 @@ async def test_audit_job_lifecycle():
         assert rows[0]["status"] == "queued"
 
         # Worker happy path → done + duration set, error stays NULL.
-        await dbm.update_audit_by_job(
-            pool, job_id=job_id, status="done", error=None, duration_ms=4321
-        )
+        await dbm.update_audit_by_job(pool, job_id=job_id, status="done", error=None, duration_ms=4321)
         rows = await dbm.list_audit(pool, user_sub=sub)
         assert rows[0]["status"] == "done"
         assert rows[0]["duration_ms"] == 4321
@@ -339,9 +320,7 @@ async def test_audit_job_lifecycle():
         assert rows[0]["error"] == "conversion crashed"
 
         # Update for an unknown job_id is a no-op (doesn't insert, doesn't raise).
-        await dbm.update_audit_by_job(
-            pool, job_id="never-existed", status="error", error="x"
-        )
+        await dbm.update_audit_by_job(pool, job_id="never-existed", status="error", error="x")
     finally:
         await dbm.close_pool(pool)
 
@@ -387,9 +366,7 @@ async def test_admin_audit_filters(tmp_path):
         # Keyset pagination: ask for one row, then continue from there.
         page1 = await dbm.list_audit(pool, user_sub=sub_a, limit=1)
         assert len(page1) == 1
-        page2 = await dbm.list_audit(
-            pool, user_sub=sub_a, limit=1, before_id=page1[0]["id"]
-        )
+        page2 = await dbm.list_audit(pool, user_sub=sub_a, limit=1, before_id=page1[0]["id"])
         assert len(page2) == 1
         assert page2[0]["id"] < page1[0]["id"]
 
@@ -399,9 +376,7 @@ async def test_admin_audit_filters(tmp_path):
         # doesn't re-pop already-finished work.
         running = await dbm.list_audit(pool, statuses=["running"], user_sub=sub_b)
         assert len(running) == 0  # sub_b's row was inserted as 'queued'
-        queued = await dbm.list_audit(
-            pool, statuses=["queued", "running"], user_sub=sub_b
-        )
+        queued = await dbm.list_audit(pool, statuses=["queued", "running"], user_sub=sub_b)
         assert len(queued) == 1
         assert queued[0]["status"] == "queued"
     finally:
@@ -430,6 +405,7 @@ async def test_cancel_audit_by_job_marks_only_owned_inflight(tmp_path):
         # Insert: one queued (mine), one running (mine), one done
         # (mine), one queued (someone else's).
         from ada.comms.rest import queue as queue_module
+
         mine_queued = uuid.uuid4().hex
         mine_running = uuid.uuid4().hex
         mine_done = uuid.uuid4().hex
@@ -452,9 +428,7 @@ async def test_cancel_audit_by_job_marks_only_owned_inflight(tmp_path):
             )
 
         async def fetch_by_job(jid: str) -> dict | None:
-            row = await pool.fetchrow(
-                "SELECT status, error FROM audit_log WHERE job_id = $1", jid
-            )
+            row = await pool.fetchrow("SELECT status, error FROM audit_log WHERE job_id = $1", jid)
             return dict(row) if row else None
 
         # Happy path on a queued row.
@@ -480,7 +454,9 @@ async def test_cancel_audit_by_job_marks_only_owned_inflight(tmp_path):
 
         # Unknown job_id is a clean False, not a raise.
         assert not await dbm.cancel_audit_by_job(
-            pool, job_id="never-existed", user_sub=owner,
+            pool,
+            job_id="never-existed",
+            user_sub=owner,
         )
         # touch queue_module so the import isn't flagged unused.
         assert queue_module.JOB_STATUS_QUEUED == "queued"
@@ -550,7 +526,7 @@ async def test_audit_schedule_lifecycle():
     Walks the dbm helpers directly so we can drive the FOR UPDATE
     SKIP LOCKED claim path without spinning up a TestClient (matches
     the pattern test_admin_project_lifecycle uses)."""
-    from datetime import datetime, timezone, timedelta
+    from datetime import datetime, timedelta, timezone
 
     pool = await dbm.init_pool(POSTGRES_URL)
     assert pool is not None
@@ -559,8 +535,12 @@ async def test_audit_schedule_lifecycle():
         past = datetime.now(timezone.utc) - timedelta(minutes=1)
         sched = await dbm.create_audit_schedule(
             pool,
-            name=name, cron_expr="0 2 * * *", scope="shared",
-            worker_pool=None, next_fire_at=past, enabled=True,
+            name=name,
+            cron_expr="0 2 * * *",
+            scope="shared",
+            worker_pool=None,
+            next_fire_at=past,
+            enabled=True,
             created_by="test",
         )
         assert sched["name"] == name
@@ -571,7 +551,9 @@ async def test_audit_schedule_lifecycle():
 
         # Toggle enabled off via partial update.
         updated = await dbm.update_audit_schedule(
-            pool, sched["id"], enabled=False,
+            pool,
+            sched["id"],
+            enabled=False,
         )
         assert updated["enabled"] is False
 
@@ -581,7 +563,9 @@ async def test_audit_schedule_lifecycle():
         now = datetime.now(timezone.utc)
         next_at = now + timedelta(hours=1)
         claimed = await dbm.claim_due_audit_schedule(
-            pool, now=now, next_fire_at=next_at,
+            pool,
+            now=now,
+            next_fire_at=next_at,
         )
         assert claimed is not None and claimed["id"] == sched["id"]
         # last_fired_at is set; next_fire_at advanced; skip-reason cleared.
@@ -591,12 +575,16 @@ async def test_audit_schedule_lifecycle():
         # Second claim with same ``now`` finds nothing — the row has
         # been advanced past it.
         claimed2 = await dbm.claim_due_audit_schedule(
-            pool, now=now, next_fire_at=next_at,
+            pool,
+            now=now,
+            next_fire_at=next_at,
         )
         assert claimed2 is None
 
         await dbm.set_audit_schedule_skip_reason(
-            pool, sched["id"], "test skip reason",
+            pool,
+            sched["id"],
+            "test skip reason",
         )
         again = await dbm.get_audit_schedule(pool, sched["id"])
         assert again["last_skipped_reason"] == "test skip reason"

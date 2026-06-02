@@ -1,4 +1,5 @@
 """Phase 3 ingest tests: build a CellGraph from adapy models / IFC."""
+
 from __future__ import annotations
 
 import ada

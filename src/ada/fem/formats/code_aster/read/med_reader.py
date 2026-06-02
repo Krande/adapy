@@ -152,7 +152,8 @@ def _read_fields(fields_group, profiles, cell_types_str, point_data, cell_data):
                     if step_name not in cell_data:
                         cell_data[step_name] = [None] * len(cell_types_str)
                     cell_data[step_name][block_idx] = _read_element_values(
-                        step_group[support], profiles,
+                        step_group[support],
+                        profiles,
                     )
 
 
@@ -186,10 +187,12 @@ def _read_element_values(supp_group, profiles) -> np.ndarray:
         n_data = int(profiles[profile].attrs["NBR"])
         index_profile = np.asarray(profiles[profile]["PFL"][()]) - 1
         values_profile = np.asarray(data_profile["CO"][()]).reshape(
-            (n_data, n_gauss, -1), order="F",
+            (n_data, n_gauss, -1),
+            order="F",
         )
         values = np.full(
-            (n_cells, values_profile.shape[1], values_profile.shape[2]), np.nan,
+            (n_cells, values_profile.shape[1], values_profile.shape[2]),
+            np.nan,
         )
         values[index_profile] = values_profile
 

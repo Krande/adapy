@@ -18,6 +18,7 @@ field layout, super-headers, multi-line continuation, etc.). Going
 through SIF text means we get all of that for free, and any future
 SIF schema additions land automatically in the SIN path too.
 """
+
 from __future__ import annotations
 
 import pathlib
@@ -75,11 +76,7 @@ def write_sif(sin: SinFile, out: TextIO) -> None:
                 -float(block.ndim),
                 float(block.ndim),
             ) + tuple(float(d) for d in block.dims)
-            out.write(
-                f"{type_name:<8s} "
-                + "".join(f" {v:14.8E}" for v in super_vals)
-                + "\n"
-            )
+            out.write(f"{type_name:<8s} " + "".join(f" {v:14.8E}" for v in super_vals) + "\n")
         for record in sin.iter_records(type_name):
             for line in _format_record_line(type_name, record):
                 out.write(line + "\n")

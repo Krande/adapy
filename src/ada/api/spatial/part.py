@@ -1222,7 +1222,9 @@ class Part(BackendGeom):
                     )
 
                     return glb_to_image_via_browser(
-                        tmp_path, preset=preset, size=size,
+                        tmp_path,
+                        preset=preset,
+                        size=size,
                     )
                 # backend == "pygfx" and no Camera arg → embed-port path.
                 from ada.visit.rendering.pygfx_offscreen_utils import glb_to_image
@@ -1231,8 +1233,12 @@ class Part(BackendGeom):
                 # (it takes the same fields, no nesting). Fall through to
                 # function defaults for any key the caller didn't supply.
                 allowed = {
-                    "azimuth_deg", "elevation_deg", "fov_deg", "distance",
-                    "margin", "z_up",
+                    "azimuth_deg",
+                    "elevation_deg",
+                    "fov_deg",
+                    "distance",
+                    "margin",
+                    "z_up",
                 }
                 kwargs = {k: v for k, v in preset_kwargs.items() if k in allowed}
                 return glb_to_image(tmp_path, size=size, **kwargs)

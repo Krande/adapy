@@ -21,7 +21,6 @@ import pathlib
 
 from ada.sections.categories import SectionCat
 
-
 _PROFILE_DB_PATH = pathlib.Path(__file__).parent / "resources" / "ProfileDB.json"
 
 
@@ -34,9 +33,7 @@ def _load_profile_db() -> dict[str, dict]:
 def list_categories() -> list[str]:
     """Return the names of all SectionCat categories."""
     return sorted(
-        attr
-        for attr in dir(SectionCat)
-        if not attr.startswith("_") and isinstance(getattr(SectionCat, attr), list)
+        attr for attr in dir(SectionCat) if not attr.startswith("_") and isinstance(getattr(SectionCat, attr), list)
     )
 
 

@@ -22,8 +22,8 @@ from ada.fem.results.artefacts import (
     BLOB_HEADER_BYTES,
     BLOB_MAGIC,
     BLOB_VERSION,
-    FEAResultStreamAdapter,
     MANIFEST_VERSION,
+    FEAResultStreamAdapter,
     bake_artefacts,
     bake_fea_artefacts_from_source,
     is_fea_artefact_source,
@@ -31,7 +31,6 @@ from ada.fem.results.artefacts import (
     read_blob_header,
     read_blob_step,
 )
-
 
 RMED_FIXTURES = [
     "code_aster/Cantilever_CA_EIG_bm.rmed",
@@ -193,12 +192,8 @@ def _assert_picker_contract(manifest: dict, *, fixture_label: str) -> None:
     assert isinstance(mesh.get("n_cells"), int) and mesh["n_cells"] >= 0, fixture_label
     # Selection sidecar — drives userdata.id_hierarchy +
     # userdata.draw_ranges_<meshName> on the frontend.
-    assert isinstance(mesh.get("elements_url"), str) and mesh["elements_url"], (
-        f"{fixture_label}: missing elements_url"
-    )
-    assert isinstance(mesh.get("n_elements"), int) and mesh["n_elements"] >= 0, (
-        f"{fixture_label}: bad n_elements"
-    )
+    assert isinstance(mesh.get("elements_url"), str) and mesh["elements_url"], f"{fixture_label}: missing elements_url"
+    assert isinstance(mesh.get("n_elements"), int) and mesh["n_elements"] >= 0, f"{fixture_label}: bad n_elements"
 
     fields = manifest.get("fields")
     assert isinstance(fields, list) and fields, f"{fixture_label}: no fields"
@@ -229,44 +224,49 @@ def _assert_picker_contract(manifest: dict, *, fixture_label: str) -> None:
             assert required in field, f"{fixture_label}: field missing {required}"
 
         assert field["category"] in {
-            "displacement", "reaction", "stress", "strain", "other"
+            "displacement",
+            "reaction",
+            "stress",
+            "strain",
+            "other",
         }, f"{fixture_label}: bad category={field['category']!r}"
 
-        assert isinstance(field["name_canonical"], str) and field["name_canonical"], (
-            f"{fixture_label}: empty name_canonical"
-        )
+        assert (
+            isinstance(field["name_canonical"], str) and field["name_canonical"]
+        ), f"{fixture_label}: empty name_canonical"
         assert isinstance(field["kind"], str) and field["kind"], fixture_label
-        assert field["support"] in {"nodal", "element_nodal", "gauss"}, (
-            f"{fixture_label}: bad support={field['support']!r}"
-        )
+        assert field["support"] in {
+            "nodal",
+            "element_nodal",
+            "gauss",
+        }, f"{fixture_label}: bad support={field['support']!r}"
         # Drives the deformation-scale slider range in the picker:
         # static = [0, 1], eigen = [-1, +1].
-        assert field.get("analysis_kind") in {"static", "eigen"}, (
-            f"{fixture_label}: bad analysis_kind={field.get('analysis_kind')!r}"
-        )
+        assert field.get("analysis_kind") in {
+            "static",
+            "eigen",
+        }, f"{fixture_label}: bad analysis_kind={field.get('analysis_kind')!r}"
         assert isinstance(field["components"], list), fixture_label
         assert all(isinstance(c, str) and c for c in field["components"]), fixture_label
-        assert isinstance(field["n_steps"], int) and field["n_steps"] >= 1, (
-            f"{fixture_label}: n_steps={field['n_steps']}"
-        )
+        assert (
+            isinstance(field["n_steps"], int) and field["n_steps"] >= 1
+        ), f"{fixture_label}: n_steps={field['n_steps']}"
         assert isinstance(field["steps"], list), fixture_label
-        assert len(field["steps"]) == field["n_steps"], (
-            f"{fixture_label}: steps len {len(field['steps'])} != n_steps {field['n_steps']}"
-        )
+        assert (
+            len(field["steps"]) == field["n_steps"]
+        ), f"{fixture_label}: steps len {len(field['steps'])} != n_steps {field['n_steps']}"
         for i, step in enumerate(field["steps"]):
             assert step.get("i") == i, f"{fixture_label}: step[{i}].i mismatch"
-            assert "value" in step and isinstance(step["value"], (int, float)), (
-                f"{fixture_label}: step[{i}].value missing or wrong type"
-            )
-            assert isinstance(step.get("label"), str) and step["label"], (
-                f"{fixture_label}: step[{i}].label missing"
-            )
+            assert "value" in step and isinstance(
+                step["value"], (int, float)
+            ), f"{fixture_label}: step[{i}].value missing or wrong type"
+            assert isinstance(step.get("label"), str) and step["label"], f"{fixture_label}: step[{i}].label missing"
 
         if is_element_field:
             per_type = field["per_type"]
-            assert isinstance(per_type, list) and per_type, (
-                f"{fixture_label}: empty per_type on element field {field['name_canonical']}"
-            )
+            assert (
+                isinstance(per_type, list) and per_type
+            ), f"{fixture_label}: empty per_type on element field {field['name_canonical']}"
             for pt in per_type:
                 assert isinstance(pt.get("elem_type"), str) and pt["elem_type"], fixture_label
                 assert isinstance(pt.get("n_elements"), int) and pt["n_elements"] >= 0, fixture_label
@@ -280,29 +280,19 @@ def _assert_picker_contract(manifest: dict, *, fixture_label: str) -> None:
         else:
             blob = field["blob"]
             assert isinstance(blob.get("url"), str) and blob["url"], fixture_label
-            assert isinstance(blob.get("header_bytes"), int) and blob["header_bytes"] > 0, (
-                fixture_label
-            )
-            assert isinstance(blob.get("stride_bytes"), int) and blob["stride_bytes"] > 0, (
-                fixture_label
-            )
+            assert isinstance(blob.get("header_bytes"), int) and blob["header_bytes"] > 0, fixture_label
+            assert isinstance(blob.get("stride_bytes"), int) and blob["stride_bytes"] > 0, fixture_label
             assert isinstance(blob.get("dtype"), str) and blob["dtype"], fixture_label
             assert blob.get("byte_order") in {"little", "big"}, fixture_label
 
         scalar_range = field["scalar_range"]
-        assert isinstance(scalar_range, dict) and scalar_range, (
-            f"{fixture_label}: scalar_range empty"
-        )
+        assert isinstance(scalar_range, dict) and scalar_range, f"{fixture_label}: scalar_range empty"
         for comp in field["components"]:
-            assert comp in scalar_range, (
-                f"{fixture_label}: missing scalar_range for component {comp!r}"
-            )
+            assert comp in scalar_range, f"{fixture_label}: missing scalar_range for component {comp!r}"
             lo, hi = scalar_range[comp]
             assert lo <= hi, f"{fixture_label}: bad range for {comp}"
         if field["kind"].startswith("vector"):
-            assert "magnitude" in scalar_range, (
-                f"{fixture_label}: vector field missing magnitude range"
-            )
+            assert "magnitude" in scalar_range, f"{fixture_label}: vector field missing magnitude range"
 
         default_view = field["default_view"]
         assert default_view.get("colormap"), fixture_label
@@ -336,9 +326,12 @@ def test_write_beam_solids_edges_keeps_perimeter_and_element_seams(tmp_path):
     # and (3,4) for B — interior to their elements and dropped.
     points = np.array(
         [
-            [0.0, 0.0, 0.0], [1.0, 0.0, 0.0],
-            [0.0, 1.0, 0.0], [1.0, 1.0, 0.0],
-            [0.0, 2.0, 0.0], [1.0, 2.0, 0.0],
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [1.0, 1.0, 0.0],
+            [0.0, 2.0, 0.0],
+            [1.0, 2.0, 0.0],
         ],
         dtype=np.float64,
     )
@@ -413,12 +406,12 @@ def test_write_beam_solids_edges_buckets_coincident_vertices(tmp_path):
     # they collapse into one same-element group → dropped.
     points = np.array(
         [
-            [0.0, 0.0, 0.0],   # 0
-            [1.0, 0.0, 0.0],   # 1 — duplicate of 3
-            [0.5, 1.0, 0.0],   # 2 — duplicate of 4
-            [1.0, 0.0, 0.0],   # 3 — duplicate of 1
-            [0.5, 1.0, 0.0],   # 4 — duplicate of 2
-            [1.5, 0.0, 0.0],   # 5
+            [0.0, 0.0, 0.0],  # 0
+            [1.0, 0.0, 0.0],  # 1 — duplicate of 3
+            [0.5, 1.0, 0.0],  # 2 — duplicate of 4
+            [1.0, 0.0, 0.0],  # 3 — duplicate of 1
+            [0.5, 1.0, 0.0],  # 4 — duplicate of 2
+            [1.5, 0.0, 0.0],  # 5
         ],
         dtype=np.float64,
     )
@@ -466,12 +459,10 @@ def test_write_beam_solids_edges_buckets_coincident_vertices(tmp_path):
         got_position_pairs.add(frozenset({pa, pb}))
 
     assert forbidden_position_pair not in got_position_pairs, (
-        "the within-element face seam edge was emitted — bucketing "
-        "is not collapsing duplicate-position vertices"
+        "the within-element face seam edge was emitted — bucketing " "is not collapsing duplicate-position vertices"
     )
     assert got_position_pairs == expected_position_pairs, (
-        f"unexpected edge set; got {got_position_pairs}, "
-        f"expected {expected_position_pairs}"
+        f"unexpected edge set; got {got_position_pairs}, " f"expected {expected_position_pairs}"
     )
 
 
@@ -492,12 +483,12 @@ def test_dedup_beam_tessellation_collapses_coincident_vertices():
     # distinct vertex indices — mimics OCC's per-face emission.
     verts = np.array(
         [
-            [0.0, 0.0, 0.0],   # 0
-            [1.0, 0.0, 0.0],   # 1 → bucket-mate of 3
-            [0.5, 1.0, 0.0],   # 2 → bucket-mate of 4
-            [1.0, 0.0, 0.0],   # 3
-            [0.5, 1.0, 0.0],   # 4
-            [1.5, 0.0, 0.0],   # 5
+            [0.0, 0.0, 0.0],  # 0
+            [1.0, 0.0, 0.0],  # 1 → bucket-mate of 3
+            [0.5, 1.0, 0.0],  # 2 → bucket-mate of 4
+            [1.0, 0.0, 0.0],  # 3
+            [0.5, 1.0, 0.0],  # 4
+            [1.5, 0.0, 0.0],  # 5
         ],
         dtype=np.float64,
     )
@@ -517,7 +508,8 @@ def test_dedup_beam_tessellation_collapses_coincident_vertices():
     for ti in range(tris.shape[0]):
         for vi in range(3):
             np.testing.assert_array_almost_equal(
-                out_verts[out_tris[ti, vi]], verts[tris[ti, vi]],
+                out_verts[out_tris[ti, vi]],
+                verts[tris[ti, vi]],
             )
     # Bucket-mates of (1.0, 0.0, 0.0) and (0.5, 1.0, 0.0) must share
     # one t value each — verifies the lossless merge claim.
@@ -562,6 +554,7 @@ def test_bake_emits_mesh_edges_sidecar(fem_files, tmp_path):
     surface and edges from a single buffer."""
 
     import struct
+
     from ada.fem.results.artefacts import EDGE_HEADER_BYTES, EDGE_MAGIC
 
     rmed = fem_files / "cantilever/code_aster/eigen_solid_cantilever_code_aster.rmed"
@@ -621,12 +614,10 @@ def test_bake_emits_mesh_elements_sidecar(fem_files, tmp_path, kind, rel):
     assert data[:4] == ELEM_MAGIC, f"{rel}: bad AFEM magic"
     version, n_elements = struct.unpack("<II", data[4:12])
     assert version == 1, f"{rel}: AFEM version={version}"
-    assert n_elements == n_elements_manifest, (
-        f"{rel}: header n_elements {n_elements} vs manifest {n_elements_manifest}"
-    )
-    assert len(data) == ELEM_HEADER_BYTES + n_elements * ELEM_ENTRY_BYTES, (
-        f"{rel}: AFEM payload size mismatch (n_elements={n_elements})"
-    )
+    assert n_elements == n_elements_manifest, f"{rel}: header n_elements {n_elements} vs manifest {n_elements_manifest}"
+    assert (
+        len(data) == ELEM_HEADER_BYTES + n_elements * ELEM_ENTRY_BYTES
+    ), f"{rel}: AFEM payload size mismatch (n_elements={n_elements})"
 
     if n_elements == 0:
         return
@@ -643,16 +634,12 @@ def test_bake_emits_mesh_elements_sidecar(fem_files, tmp_path, kind, rel):
 
     cursor = 0
     for i in range(n_elements):
-        assert int(starts[i]) == cursor, (
-            f"{rel}: element[{i}] tri_start={starts[i]} expected {cursor}"
-        )
+        assert int(starts[i]) == cursor, f"{rel}: element[{i}] tri_start={starts[i]} expected {cursor}"
         cursor += int(counts[i])
 
     # Labels must be non-zero (real labels are 1-based in RMED/SIF; the
     # fallback positional counter starts at 1 too).
-    assert int(labels.min()) >= 1, (
-        f"{rel}: AFEM labels include 0 ({labels[labels == 0].size} zero labels)"
-    )
+    assert int(labels.min()) >= 1, f"{rel}: AFEM labels include 0 ({labels[labels == 0].size} zero labels)"
 
 
 @pytest.mark.parametrize("rmed_rel", RMED_FIXTURES)
@@ -676,9 +663,7 @@ def test_afem_labels_round_trip_against_source_rmed(fem_files, tmp_path, rmed_re
     if n_elements == 0:
         pytest.skip(f"{rmed_rel}: no elements emitted")
 
-    afem_labels = np.frombuffer(
-        data[16:], dtype=np.uint32
-    ).reshape(n_elements, 3)[:, 0]
+    afem_labels = np.frombuffer(data[16:], dtype=np.uint32).reshape(n_elements, 3)[:, 0]
 
     # Pull labels from the source RMED. The bake's iteration order is:
     # cell-block iteration order × per-block element order. Solid
@@ -707,17 +692,16 @@ def test_afem_labels_round_trip_against_source_rmed(fem_files, tmp_path, rmed_re
                     nums = np.arange(1, n_cells + 1, dtype=np.int64)
                 expected.extend(int(x) for x in nums)
 
-    assert len(expected) == n_elements, (
-        f"{rmed_rel}: expected {len(expected)} labels but got {n_elements}"
-    )
-    assert list(afem_labels.astype(np.int64)) == expected, (
-        f"{rmed_rel}: AFEM labels diverge from RMED MAI/<type>/NUM"
-    )
+    assert len(expected) == n_elements, f"{rmed_rel}: expected {len(expected)} labels but got {n_elements}"
+    assert list(afem_labels.astype(np.int64)) == expected, f"{rmed_rel}: AFEM labels diverge from RMED MAI/<type>/NUM"
 
 
 @pytest.mark.parametrize("kind,rel", ALL_FEA_FIXTURES)
 def test_bake_satisfies_picker_contract_for_every_fixture(
-    fem_files, tmp_path, kind, rel,
+    fem_files,
+    tmp_path,
+    kind,
+    rel,
 ):
     """End-to-end: every RMED + SIF fixture in the test corpus produces
     a manifest the picker UI can render without a "Cannot read
@@ -741,19 +725,17 @@ def test_bake_satisfies_picker_contract_for_every_fixture(
             for pt in field["per_type"]:
                 bp = bake.out_dir / pt["blob"]["url"]
                 assert bp.exists(), f"{rel}: missing element blob {pt['blob']['url']}"
-                assert bp.stat().st_size > pt["blob"]["header_bytes"], (
-                    f"{rel}: element blob {bp.name} smaller than declared header"
-                )
+                assert (
+                    bp.stat().st_size > pt["blob"]["header_bytes"]
+                ), f"{rel}: element blob {bp.name} smaller than declared header"
         else:
             blob_path = bake.out_dir / field["blob"]["url"]
             assert blob_path.exists(), f"{rel}: missing blob {field['blob']['url']}"
-            assert blob_path.stat().st_size > field["blob"]["header_bytes"], (
-                f"{rel}: blob {blob_path.name} smaller than declared header"
-            )
+            assert (
+                blob_path.stat().st_size > field["blob"]["header_bytes"]
+            ), f"{rel}: blob {blob_path.name} smaller than declared header"
     mesh_path = bake.out_dir / manifest["mesh"]["url"]
-    assert mesh_path.exists() and mesh_path.stat().st_size > 0, (
-        f"{rel}: mesh GLB missing or empty"
-    )
+    assert mesh_path.exists() and mesh_path.stat().st_size > 0, f"{rel}: mesh GLB missing or empty"
 
 
 @pytest.mark.parametrize("sif_rel", SIF_FIXTURES)
@@ -984,9 +966,7 @@ def test_build_history_payload_serialises_records_to_manifest_shape():
     # display_name falls back to label when not set.
     assert payload["regions"][1]["display_name"] == "Assembly"
     assert payload["variables"][0]["name_canonical"] == "U1"
-    assert payload["steps"] == [
-        {"i": 0, "name": "Step-1", "procedure": "", "domain": "time"}
-    ]
+    assert payload["steps"] == [{"i": 0, "name": "Step-1", "procedure": "", "domain": "time"}]
     ser = payload["series"][0]
     assert ser["times"] == [0.5, 1.0]
     assert ser["values"] == [0.5, 1.1]
@@ -1000,8 +980,8 @@ def test_build_manifest_omits_history_when_empty(monkeypatch):
     have no history output."""
 
     from ada.fem.results.artefacts import (
-        HistoryRecords,
         MANIFEST_VERSION,
+        HistoryRecords,
         MeshGeometry,
         build_manifest,
     )
@@ -1080,9 +1060,7 @@ def test_bake_writes_element_field_blob_per_type(fem_files, tmp_path):
             assert header["n_components"] == len(field["components"])
             # First-step round-trip — shape must match the header.
             arr = read_elem_field_blob_step(blob_path, 0)
-            assert arr.shape == (
-                pt["n_elements"], pt["n_ips"], len(field["components"])
-            )
+            assert arr.shape == (pt["n_elements"], pt["n_ips"], len(field["components"]))
             # Element labels list aligns with the bucket's row order.
             assert len(pt["element_labels"]) == pt["n_elements"]
 
@@ -1150,8 +1128,7 @@ def test_bake_emits_beam_solid_mesh_for_sif_line(fem_files, tmp_path):
     n_verts = mesh_meta["n_beam_solid_verts"]
     assert n_verts > 0, "AFBV must accompany the beam-solid mesh"
     assert n_verts <= n_tris * 2, (
-        f"beam-solid vertex count {n_verts} suggests dedup didn't fire "
-        f"(n_tris × 3 = {n_tris * 3})"
+        f"beam-solid vertex count {n_verts} suggests dedup didn't fire " f"(n_tris × 3 = {n_tris * 3})"
     )
 
 
@@ -1234,9 +1211,7 @@ def test_bake_emits_beam_solid_warp_sidecar(fem_files, tmp_path):
     assert len(data) == BEAM_WARP_HEADER_BYTES + n_verts * BEAM_WARP_ENTRY_BYTES
 
     # Decode the interleaved (n0, n1, t) records.
-    raw_u32 = np.frombuffer(data[BEAM_WARP_HEADER_BYTES:], dtype=np.uint32).reshape(
-        n_verts, 3
-    )
+    raw_u32 = np.frombuffer(data[BEAM_WARP_HEADER_BYTES:], dtype=np.uint32).reshape(n_verts, 3)
     n0 = raw_u32[:, 0]
     n1 = raw_u32[:, 1]
     t = raw_u32[:, 2].view(np.float32)
@@ -1498,17 +1473,12 @@ def test_bake_with_posters_renders_requested_modes(fem_files, tmp_path):
     # The two posters must NOT be identical — modes 0 and 1 are
     # different shapes, the previous bake-then-loop-on-FEAResult bug
     # silently produced the same image for every mode.
-    assert (
-        result.poster_paths[0].read_bytes()
-        != result.poster_paths[1].read_bytes()
-    )
+    assert result.poster_paths[0].read_bytes() != result.poster_paths[1].read_bytes()
 
     # Iterable selection — only the indices listed appear, with the
     # canonical poster sitting wherever mode 0 lands (filename, not
     # iteration order). Mode 4 → ``fea.mesh.mode_5.png``.
-    result2 = bake_with_posters_from_source(
-        rmed, tmp_path / "picked", modes=[0, 4]
-    )
+    result2 = bake_with_posters_from_source(rmed, tmp_path / "picked", modes=[0, 4])
     assert set(result2.poster_paths.keys()) == {0, 4}
     assert result2.poster_paths[4].name == "fea.mesh.mode_5.png"
 

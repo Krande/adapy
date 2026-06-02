@@ -23,7 +23,9 @@ import signal
 import tempfile
 import time
 import traceback as tb_module
-from concurrent.futures import ThreadPoolExecutor  # noqa: F401 — kept for the legacy _process_one signature
+from concurrent.futures import (  # noqa: F401 — kept for the legacy _process_one signature
+    ThreadPoolExecutor,
+)
 from typing import Awaitable, Callable
 
 import asyncpg
@@ -31,16 +33,9 @@ import asyncpg
 from ada.config import logger
 
 from . import db as db_module
-from .bundle import BundleError
 from .config import load_settings
 from .converter import LEGACY_CONVERT_EXTS, ConverterRegistry, convert
-from .queue import (
-    JOB_STATUS_DONE,
-    JOB_STATUS_ERROR,
-    JOB_STATUS_RUNNING,
-    Job,
-    JobQueue,
-)
+from .queue import JOB_STATUS_DONE, JOB_STATUS_ERROR, JOB_STATUS_RUNNING, Job, JobQueue
 from .scope import Scope
 from .storage import Storage
 from .subprocess_convert import (
@@ -182,13 +177,9 @@ async def _run_fea_artefact_bake(
         async def _heartbeat() -> None:
             while not heartbeat_stop.is_set():
                 try:
-                    await asyncio.wait_for(
-                        heartbeat_stop.wait(), timeout=HEARTBEAT_SECONDS
-                    )
+                    await asyncio.wait_for(heartbeat_stop.wait(), timeout=HEARTBEAT_SECONDS)
                 except asyncio.TimeoutError:
-                    heartbeat_progress["value"] = min(
-                        HEARTBEAT_MAX, heartbeat_progress["value"] + HEARTBEAT_INC
-                    )
+                    heartbeat_progress["value"] = min(HEARTBEAT_MAX, heartbeat_progress["value"] + HEARTBEAT_INC)
                     try:
                         await _on_progress("baking", heartbeat_progress["value"])
                     except Exception:
@@ -212,11 +203,14 @@ async def _run_fea_artefact_bake(
             trace = tb_module.format_exc()
             heartbeat_stop.set()
             await heartbeat_task
-            await queue.update(
-                job_id, status=JOB_STATUS_ERROR, stage="convert", error=str(exc)
-            )
+            await queue.update(job_id, status=JOB_STATUS_ERROR, stage="convert", error=str(exc))
             await _audit_done(
-                db_pool, job_id, "error", str(exc), started_at, traceback=trace,
+                db_pool,
+                job_id,
+                "error",
+                str(exc),
+                started_at,
+                traceback=trace,
             )
             return
         finally:
@@ -237,9 +231,7 @@ async def _run_fea_artefact_bake(
                 # Compression policy mirrors the API-side endpoint:
                 # gzip the manifest JSON and field blobs (compress
                 # well), skip the mesh GLB (already binary-packed).
-                content_encoding = (
-                    "gzip" if produced.suffix.lower() in {".json", ".bin"} else None
-                )
+                content_encoding = "gzip" if produced.suffix.lower() in {".json", ".bin"} else None
                 await storage.put_bytes(
                     scope,
                     target_key,
@@ -250,15 +242,27 @@ async def _run_fea_artefact_bake(
             logger.exception("worker: fea artefact upload failed for %s", job.source_key)
             trace = tb_module.format_exc()
             await queue.update(
-                job_id, status=JOB_STATUS_ERROR, stage="upload", error=str(exc),
+                job_id,
+                status=JOB_STATUS_ERROR,
+                stage="upload",
+                error=str(exc),
             )
             await _audit_done(
-                db_pool, job_id, "error", str(exc), started_at, traceback=trace,
+                db_pool,
+                job_id,
+                "error",
+                str(exc),
+                started_at,
+                traceback=trace,
             )
             return
 
         await queue.update(
-            job_id, status=JOB_STATUS_DONE, stage="ready", progress=1.0, error=None,
+            job_id,
+            status=JOB_STATUS_DONE,
+            stage="ready",
+            progress=1.0,
+            error=None,
         )
         await _audit_done(db_pool, job_id, "done", None, started_at)
     finally:
@@ -299,11 +303,14 @@ async def _run_fea_meta_compute(
     except Exception as exc:
         logger.exception("worker: fea_meta compute failed for %s", job.source_key)
         trace = tb_module.format_exc()
-        await queue.update(
-            job_id, status=JOB_STATUS_ERROR, stage="convert", error=str(exc)
-        )
+        await queue.update(job_id, status=JOB_STATUS_ERROR, stage="convert", error=str(exc))
         await _audit_done(
-            db_pool, job_id, "error", str(exc), started_at, traceback=trace,
+            db_pool,
+            job_id,
+            "error",
+            str(exc),
+            started_at,
+            traceback=trace,
         )
         return
 
@@ -321,15 +328,27 @@ async def _run_fea_meta_compute(
         logger.exception("worker: fea_meta upload failed for %s", job.source_key)
         trace = tb_module.format_exc()
         await queue.update(
-            job_id, status=JOB_STATUS_ERROR, stage="upload", error=str(exc),
+            job_id,
+            status=JOB_STATUS_ERROR,
+            stage="upload",
+            error=str(exc),
         )
         await _audit_done(
-            db_pool, job_id, "error", str(exc), started_at, traceback=trace,
+            db_pool,
+            job_id,
+            "error",
+            str(exc),
+            started_at,
+            traceback=trace,
         )
         return
 
     await queue.update(
-        job_id, status=JOB_STATUS_DONE, stage="ready", progress=1.0, error=None,
+        job_id,
+        status=JOB_STATUS_DONE,
+        stage="ready",
+        progress=1.0,
+        error=None,
     )
     await _audit_done(db_pool, job_id, "done", None, started_at)
 
@@ -362,7 +381,9 @@ async def _run_component_build(
 
     if not spec_name:
         await queue.update(
-            job_id, status=JOB_STATUS_ERROR, stage="build",
+            job_id,
+            status=JOB_STATUS_ERROR,
+            stage="build",
             error="conversion_options.spec_name is required for component_build",
         )
         await _audit_done(db_pool, job_id, "error", "missing spec_name", started_at)
@@ -393,10 +414,18 @@ async def _run_component_build(
         logger.exception("worker: component_build failed for %s", spec_name)
         trace = tb_module.format_exc()
         await queue.update(
-            job_id, status=JOB_STATUS_ERROR, stage="build", error=str(exc),
+            job_id,
+            status=JOB_STATUS_ERROR,
+            stage="build",
+            error=str(exc),
         )
         await _audit_done(
-            db_pool, job_id, "error", str(exc), started_at, traceback=trace,
+            db_pool,
+            job_id,
+            "error",
+            str(exc),
+            started_at,
+            traceback=trace,
         )
         return
 
@@ -407,15 +436,27 @@ async def _run_component_build(
         logger.exception("worker: component_build upload failed for %s", spec_name)
         trace = tb_module.format_exc()
         await queue.update(
-            job_id, status=JOB_STATUS_ERROR, stage="upload", error=str(exc),
+            job_id,
+            status=JOB_STATUS_ERROR,
+            stage="upload",
+            error=str(exc),
         )
         await _audit_done(
-            db_pool, job_id, "error", str(exc), started_at, traceback=trace,
+            db_pool,
+            job_id,
+            "error",
+            str(exc),
+            started_at,
+            traceback=trace,
         )
         return
 
     await queue.update(
-        job_id, status=JOB_STATUS_DONE, stage="ready", progress=1.0, error=None,
+        job_id,
+        status=JOB_STATUS_DONE,
+        stage="ready",
+        progress=1.0,
+        error=None,
     )
     await _audit_done(db_pool, job_id, "done", None, started_at)
 
@@ -479,7 +520,9 @@ async def _run_utility_job(
     ukwargs = opts.get("kwargs") or {}
     if not uname:
         await queue.update(
-            job_id, status=JOB_STATUS_ERROR, stage="utility",
+            job_id,
+            status=JOB_STATUS_ERROR,
+            stage="utility",
             error="conversion_options.utility_name is required for a utility job",
         )
         await _audit_done(db_pool, job_id, "error", "missing utility_name", started_at)
@@ -490,9 +533,12 @@ async def _run_utility_job(
 
     def _invoke() -> dict:
         return run_utility(
-            uname, src_path,
-            storage=sync_storage, scope=scope,
-            on_progress=_on_progress, kwargs=ukwargs,
+            uname,
+            src_path,
+            storage=sync_storage,
+            scope=scope,
+            on_progress=_on_progress,
+            kwargs=ukwargs,
         )
 
     try:
@@ -550,7 +596,11 @@ async def _process_one(
         )
         logger.warning("worker: job %s gave up after %d attempts", job_id, delivery_count)
         await queue.update(
-            job_id, status=JOB_STATUS_ERROR, stage="aborted", progress=0.0, error=msg,
+            job_id,
+            status=JOB_STATUS_ERROR,
+            stage="aborted",
+            progress=0.0,
+            error=msg,
         )
         await _audit_done(db_pool, job_id, "error", msg, started_at)
         return
@@ -584,7 +634,9 @@ async def _process_one(
     if db_pool is not None:
         try:
             await db_module.mark_audit_running(
-                db_pool, job_id=job_id, worker_image_tag=_WORKER_IMAGE_TAG,
+                db_pool,
+                job_id=job_id,
+                worker_image_tag=_WORKER_IMAGE_TAG,
             )
         except Exception:
             logger.exception("worker: audit running-mark failed for job %s", job_id)
@@ -618,9 +670,7 @@ async def _process_one(
             await storage.stream_to_path(scope, job.source_key, src_path)
         except FileNotFoundError as exc:
             logger.warning("worker: source %s missing for job %s", job.source_key, job_id)
-            await queue.update(
-                job_id, status=JOB_STATUS_ERROR, stage="loading", error=str(exc)
-            )
+            await queue.update(job_id, status=JOB_STATUS_ERROR, stage="loading", error=str(exc))
             await _audit_done(db_pool, job_id, "error", str(exc), started_at)
             return
 
@@ -643,7 +693,8 @@ async def _process_one(
             except Exception:
                 logger.exception(
                     "worker: failed fetching sibling %s for job %s (non-fatal)",
-                    sib_key, job_id,
+                    sib_key,
+                    job_id,
                 )
 
         # Conversion settings flip via the admin panel and are read
@@ -659,6 +710,7 @@ async def _process_one(
         profile_enabled = False
         env_overrides: dict[str, str] = {}
         if db_pool is not None:
+
             async def _read_bool_setting(key: str) -> str | None:
                 try:
                     return await db_module.get_setting(db_pool, key)
@@ -723,9 +775,7 @@ async def _process_one(
             # profile is passed as a kwarg to run_isolated_convert
             # rather than as an env var.
             if "profile_conversions" in per_job and per_job["profile_conversions"] is not None:
-                profile_enabled = str(per_job["profile_conversions"]).strip().lower() in {
-                    "1", "true", "yes", "on"
-                }
+                profile_enabled = str(per_job["profile_conversions"]).strip().lower() in {"1", "true", "yes", "on"}
 
         # Forward progress from the converter to the KV-backed queue,
         # throttled so a chatty stage doesn't spam writes.
@@ -887,9 +937,7 @@ async def _process_one(
             # lost track of it; treat as a worker error.
             logger.exception("worker: subprocess wrapper failed for %s", job_id)
             trace = tb_module.format_exc()
-            await queue.update(
-                job_id, status=JOB_STATUS_ERROR, stage="convert", error=str(exc)
-            )
+            await queue.update(job_id, status=JOB_STATUS_ERROR, stage="convert", error=str(exc))
             await _audit_done(db_pool, job_id, "error", str(exc), started_at, traceback=trace)
             return
 
@@ -906,19 +954,27 @@ async def _process_one(
             elif iresult.signal_name:
                 logger.warning(
                     "worker: convert child for %s killed by %s",
-                    job.source_key, iresult.signal_name,
+                    job.source_key,
+                    iresult.signal_name,
                 )
             else:
-                logger.error("worker: conversion failed for %s -> %s: %s",
-                             job.source_key, job.target_format, err_msg)
+                logger.error("worker: conversion failed for %s -> %s: %s", job.source_key, job.target_format, err_msg)
             await queue.update(
-                job_id, status=JOB_STATUS_ERROR, stage="convert", error=err_msg,
+                job_id,
+                status=JOB_STATUS_ERROR,
+                stage="convert",
+                error=err_msg,
             )
             metrics = dict(iresult.final_metrics)
             metrics["profile_key"] = await _maybe_upload_profile_bytes(iresult.profile_bytes)
             await _audit_done(
-                db_pool, job_id, "error", err_msg, started_at,
-                traceback=trace, metrics=metrics,
+                db_pool,
+                job_id,
+                "error",
+                err_msg,
+                started_at,
+                traceback=trace,
+                metrics=metrics,
             )
             return
 
@@ -934,14 +990,17 @@ async def _process_one(
         except Exception as exc:
             logger.exception("worker: upload failed for %s", job.derived_key)
             trace = tb_module.format_exc()
-            await queue.update(
-                job_id, status=JOB_STATUS_ERROR, stage="upload", error=str(exc)
-            )
+            await queue.update(job_id, status=JOB_STATUS_ERROR, stage="upload", error=str(exc))
             metrics = dict(iresult.final_metrics)
             metrics["profile_key"] = await _maybe_upload_profile_bytes(iresult.profile_bytes)
             await _audit_done(
-                db_pool, job_id, "error", str(exc), started_at,
-                traceback=trace, metrics=metrics,
+                db_pool,
+                job_id,
+                "error",
+                str(exc),
+                started_at,
+                traceback=trace,
+                metrics=metrics,
             )
             return
 
@@ -950,9 +1009,7 @@ async def _process_one(
         metrics = dict(iresult.final_metrics)
         metrics["profile_key"] = await _maybe_upload_profile_bytes(iresult.profile_bytes)
 
-        await queue.update(
-            job_id, status=JOB_STATUS_DONE, stage="ready", progress=1.0, error=None
-        )
+        await queue.update(job_id, status=JOB_STATUS_DONE, stage="ready", progress=1.0, error=None)
         await _audit_done(db_pool, job_id, "done", None, started_at, metrics=metrics)
     finally:
         try:
@@ -981,6 +1038,7 @@ async def _run() -> None:
     preload_env = os.environ.get("ADA_WORKER_PRELOAD", "").strip()
     if preload_env:
         import importlib as _importlib
+
         for mod_name in (m.strip() for m in preload_env.split(",") if m.strip()):
             logger.info("worker: preloading %s", mod_name)
             _importlib.import_module(mod_name)
@@ -1002,12 +1060,8 @@ async def _run() -> None:
     # onto every audit_log row without threading through callers.
     global _WORKER_IMAGE_TAG
     _WORKER_IMAGE_TAG = image_tag or None
-    worker_id = (os.environ.get("HOSTNAME", "").strip() or f"local-{os.getpid()}")
-    capabilities = [
-        c.strip()
-        for c in os.environ.get("ADA_WORKER_CAPABILITIES", "base").split(",")
-        if c.strip()
-    ]
+    worker_id = os.environ.get("HOSTNAME", "").strip() or f"local-{os.getpid()}"
+    capabilities = [c.strip() for c in os.environ.get("ADA_WORKER_CAPABILITIES", "base").split(",") if c.strip()]
     # Source extensions this worker can handle. Pulled from adapy's
     # stream-reader registry — whatever plug-ins ran before this point
     # (e.g. a capability worker's entrypoint that registered an extra
@@ -1017,6 +1071,7 @@ async def _run() -> None:
     # upload picker stays in sync without anyone having to repeat the
     # suffix list outside the plug-in that owns it.
     from ada.fem.results.artefacts import fea_artefact_extensions
+
     registered_exts = {e.lower() for e in fea_artefact_extensions()}
     # Optional per-pod allowlist. Capability workers (e.g. asa-abacpp)
     # FROM the base image and so inherit its full stream-reader
@@ -1029,9 +1084,7 @@ async def _run() -> None:
     allow_env = os.environ.get("ADA_WORKER_EXT_ALLOW", "").strip()
     if allow_env:
         ext_allow_set: set[str] | None = {
-            ("." + e.strip().lstrip(".")) .lower()
-            for e in allow_env.split(",")
-            if e.strip()
+            ("." + e.strip().lstrip(".")).lower() for e in allow_env.split(",") if e.strip()
         }
         registered_exts &= ext_allow_set
         logger.info(
@@ -1101,7 +1154,8 @@ async def _run() -> None:
     await _publish_registration()
     logger.info(
         "worker: registered id=%s capabilities=%s",
-        worker_id, ",".join(capabilities),
+        worker_id,
+        ",".join(capabilities),
     )
 
     # Optional DB pool — only used to flip audit_log rows from 'queued'
@@ -1209,9 +1263,7 @@ async def _run() -> None:
                         ext = ""
                     else:
                         ext = pathlib.PurePosixPath(peeked.source_key).suffix.lower()
-                        legacy_ok = ext in LEGACY_CONVERT_EXTS and (
-                            ext_allow_set is None or ext in ext_allow_set
-                        )
+                        legacy_ok = ext in LEGACY_CONVERT_EXTS and (ext_allow_set is None or ext in ext_allow_set)
                         can_handle = ext in source_ext_set or legacy_ok
                     if not can_handle:
                         misroute_msg = (
@@ -1220,16 +1272,24 @@ async def _run() -> None:
                             f"(supported here: {sorted(source_ext_set) or ['legacy convert']})"
                         )
                         logger.warning(
-                            "worker: %s — job %s", misroute_msg, job_id,
+                            "worker: %s — job %s",
+                            misroute_msg,
+                            job_id,
                         )
                         try:
                             await queue.update(
-                                job_id, status=JOB_STATUS_ERROR,
-                                stage="misrouted", progress=0.0,
+                                job_id,
+                                status=JOB_STATUS_ERROR,
+                                stage="misrouted",
+                                progress=0.0,
                                 error=misroute_msg,
                             )
                             await _audit_done(
-                                db_pool, job_id, "error", misroute_msg, time.monotonic(),
+                                db_pool,
+                                job_id,
+                                "error",
+                                misroute_msg,
+                                time.monotonic(),
                             )
                         except Exception:
                             logger.exception(
@@ -1241,11 +1301,17 @@ async def _run() -> None:
 
                 logger.info(
                     "worker: picked up job %s (delivery %d/%d)",
-                    job_id, delivery_count, MAX_DELIVERIES,
+                    job_id,
+                    delivery_count,
+                    MAX_DELIVERIES,
                 )
                 try:
                     await _process_one(
-                        job_id, queue, storage, None, db_pool,
+                        job_id,
+                        queue,
+                        storage,
+                        None,
+                        db_pool,
                         delivery_count=delivery_count,
                     )
                 finally:

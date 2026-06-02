@@ -42,8 +42,6 @@ class OCCStore:
         geom_repr: GeomRepr = GeomRepr.SOLID,
         render_override: dict[str, GeomRepr] = None,
     ) -> tuple[BackendGeom, TopoDS_Shape]:
-        from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_Transform
-        from OCC.Core.gp import gp_Trsf, gp_Vec
 
         from ada.cadit.step.store import StepStore
 

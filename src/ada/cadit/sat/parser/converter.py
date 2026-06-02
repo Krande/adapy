@@ -328,7 +328,11 @@ class AcisToAdaConverter:
         pcurve = self._resolve_coedge_pcurve(coedge)
 
         return geo_cu.OrientedEdge(
-            start=p1, end=p2, edge_element=edge_curve, orientation=orientation, pcurve=pcurve,
+            start=p1,
+            end=p2,
+            edge_element=edge_curve,
+            orientation=orientation,
+            pcurve=pcurve,
         )
 
     def _resolve_coedge_pcurve(self, coedge: AcisCoedge) -> Optional[geo_cu.Pcurve2dBSpline]:

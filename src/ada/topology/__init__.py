@@ -11,6 +11,7 @@ Lazily importable: importing ``ada.topology`` pulls in no CAD kernel, and the
 geometry verbs resolve a backend only when first used, so OCC-less environments
 (slim / wasm) can import it without error.
 """
+
 from __future__ import annotations
 
 from ada.cad import Containment

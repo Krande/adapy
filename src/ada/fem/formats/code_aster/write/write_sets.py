@@ -79,6 +79,7 @@ def _add_cell_sets(cells_group, part: "Part", families):
             # readers emit plain ``Elem`` instances that only carry
             # ``.nodes``. Single helper handles both.
             from .write_med import _mass_or_spring_attach_id
+
             cells = np.array([_mass_or_spring_attach_id(el) for el in elements_list])
         else:
             cells = np.array(list(map(get_node_ids_from_element, elements_list)))

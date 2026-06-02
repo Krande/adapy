@@ -390,8 +390,7 @@ class PlateCurved(BackendGeom):
         BackendGeom.__init__(instance, name, **kwargs)
         instance._geom = None
         instance._material = (
-            mat if isinstance(mat, Material)
-            else Material(mat, mat_model=CarbonSteel(mat), parent=instance)
+            mat if isinstance(mat, Material) else Material(mat, mat_model=CarbonSteel(mat), parent=instance)
         )
         instance._material.refs.append(instance)
         instance._t = t
@@ -469,7 +468,7 @@ class PlateCurved(BackendGeom):
         if self._nodes_cache is not None:
             return self._nodes_cache
         try:
-            from ada.occ.plate_curved import boundary_nodes_of_face, boundary_nodes_of
+            from ada.occ.plate_curved import boundary_nodes_of, boundary_nodes_of_face
 
             if self._occ_face_override is not None:
                 nodes = boundary_nodes_of_face(self._occ_face_override)
@@ -551,8 +550,16 @@ class Surface(Plate):
         **kwargs,
     ):
         super().__init__(
-            name, points, t=0.0, mat=mat, origin=origin, xdir=xdir,
-            normal=normal, orientation=orientation, pl_id=pl_id, tol=tol,
+            name,
+            points,
+            t=0.0,
+            mat=mat,
+            origin=origin,
+            xdir=xdir,
+            normal=normal,
+            orientation=orientation,
+            pl_id=pl_id,
+            tol=tol,
             **kwargs,
         )
 
@@ -587,8 +594,11 @@ class SurfaceCurved(PlateCurved):
     """
 
     def __init__(
-        self, name: str, face_geom: Geometry,
-        mat: str | Material = "S420", **kwargs,
+        self,
+        name: str,
+        face_geom: Geometry,
+        mat: str | Material = "S420",
+        **kwargs,
     ):
         super().__init__(name, face_geom, t=0.0, mat=mat, **kwargs)
 

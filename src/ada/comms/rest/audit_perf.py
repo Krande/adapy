@@ -25,7 +25,6 @@ from __future__ import annotations
 
 from typing import Iterable
 
-
 # Defaults — match the plan's numbers. Each value is a *threshold*;
 # the classifier flags a cell when the corresponding metric STRICTLY
 # exceeds it (so a converter sitting exactly at 20× isn't called a

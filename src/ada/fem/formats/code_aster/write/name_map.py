@@ -18,6 +18,7 @@ Round-trip semantics: a re-run on an already-shortened assembly is a
 no-op (names ≤ 24 chars are left alone), so the JSON sidecar is the
 authoritative long-name source.
 """
+
 from __future__ import annotations
 
 import hashlib

@@ -60,6 +60,7 @@ async def init_pool(database_url: str) -> Optional[asyncpg.Pool]:
         logger.info("db: DATABASE_URL not set — running in shared-only mode")
         return None
     import asyncio as _asyncio
+
     delay = 1.0
     deadline = 60.0
     waited = 0.0
@@ -79,12 +80,16 @@ async def init_pool(database_url: str) -> Optional[asyncpg.Pool]:
             if waited >= deadline:
                 logger.error(
                     "db: pool init still failing after %.0fs — giving up: %s",
-                    waited, exc,
+                    waited,
+                    exc,
                 )
                 raise
             logger.warning(
                 "db: pool init failed (%s); retry in %.1fs (waited %.1fs/%.0fs)",
-                exc, delay, waited, deadline,
+                exc,
+                delay,
+                waited,
+                deadline,
             )
             await _asyncio.sleep(delay)
             waited += delay
@@ -110,9 +115,7 @@ async def _apply_migrations(pool: asyncpg.Pool) -> None:
     discover the migrations are already applied and become a no-op.
     """
     files = sorted(
-        p
-        for p in importlib.resources.files("ada.comms.rest.migrations").iterdir()
-        if p.name.endswith(".sql")
+        p for p in importlib.resources.files("ada.comms.rest.migrations").iterdir() if p.name.endswith(".sql")
     )
 
     async with pool.acquire() as conn:
@@ -126,10 +129,7 @@ async def _apply_migrations(pool: asyncpg.Pool) -> None:
                 )
                 """
             )
-            applied = {
-                r["version"]
-                for r in await conn.fetch("SELECT version FROM schema_version")
-            }
+            applied = {r["version"] for r in await conn.fetch("SELECT version FROM schema_version")}
             for path in files:
                 version = path.stem
                 if version in applied:
@@ -138,9 +138,7 @@ async def _apply_migrations(pool: asyncpg.Pool) -> None:
                 sql = path.read_text(encoding="utf-8")
                 async with conn.transaction():
                     await conn.execute(sql)
-                    await conn.execute(
-                        "INSERT INTO schema_version(version) VALUES ($1)", version
-                    )
+                    await conn.execute("INSERT INTO schema_version(version) VALUES ($1)", version)
         finally:
             await conn.execute("SELECT pg_advisory_unlock($1)", _MIGRATION_LOCK_ID)
 
@@ -148,9 +146,7 @@ async def _apply_migrations(pool: asyncpg.Pool) -> None:
 # ── Repository helpers ────────────────────────────────────────────────
 
 
-async def upsert_user(
-    pool: asyncpg.Pool, sub: str, email: str, display_name: str
-) -> None:
+async def upsert_user(pool: asyncpg.Pool, sub: str, email: str, display_name: str) -> None:
     """Lazy user upsert on first authenticated request. Bumps last_seen_at."""
     await pool.execute(
         """
@@ -178,15 +174,10 @@ async def list_user_projects(pool: asyncpg.Pool, user_sub: str) -> list[Project]
         """,
         user_sub,
     )
-    return [
-        Project(id=str(r["id"]), slug=r["slug"], name=r["name"], role=r["role"])
-        for r in rows
-    ]
+    return [Project(id=str(r["id"]), slug=r["slug"], name=r["name"], role=r["role"]) for r in rows]
 
 
-async def is_project_member(
-    pool: asyncpg.Pool, project_id: str, user_sub: str
-) -> bool:
+async def is_project_member(pool: asyncpg.Pool, project_id: str, user_sub: str) -> bool:
     row = await pool.fetchrow(
         """
         SELECT 1
@@ -233,11 +224,7 @@ async def insert_audit(
     total.
     """
 
-    counter_col = (
-        _AUDIT_RUN_COUNTER_FOR_STATUS.get(status)
-        if audit_run_id is not None and status is not None
-        else None
-    )
+    counter_col = _AUDIT_RUN_COUNTER_FOR_STATUS.get(status) if audit_run_id is not None and status is not None else None
     if counter_col is None:
         # Hot path — single INSERT, no transaction overhead. Covers
         # every user-driven action and the audit dispatcher's
@@ -250,8 +237,18 @@ async def insert_audit(
                  traceback, audit_run_id)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
             """,
-            user_sub, scope_kind, scope_id, action, key, target_format,
-            status, error, duration_ms, job_id, traceback, audit_run_id,
+            user_sub,
+            scope_kind,
+            scope_id,
+            action,
+            key,
+            target_format,
+            status,
+            error,
+            duration_ms,
+            job_id,
+            traceback,
+            audit_run_id,
         )
         return
 
@@ -268,9 +265,18 @@ async def insert_audit(
                      traceback, audit_run_id)
                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
                 """,
-                user_sub, scope_kind, scope_id, action, key,
-                target_format, status, error, duration_ms, job_id,
-                traceback, audit_run_id,
+                user_sub,
+                scope_kind,
+                scope_id,
+                action,
+                key,
+                target_format,
+                status,
+                error,
+                duration_ms,
+                job_id,
+                traceback,
+                audit_run_id,
             )
             await _bump_audit_run_counter(conn, audit_run_id, status)
 
@@ -422,7 +428,9 @@ _AUDIT_RUN_COUNTER_FOR_STATUS = {
 
 
 async def _bump_audit_run_counter(
-    conn: asyncpg.Connection, run_id, terminal_status: str,
+    conn: asyncpg.Connection,
+    run_id,
+    terminal_status: str,
 ) -> None:
     """Increment one of the run's terminal counters and finish the
     run when all enqueued jobs have landed. Connection-bound (not
@@ -515,9 +523,8 @@ async def active_audit_summary(pool: asyncpg.Pool) -> dict:
         elapsed_ms = None
         if ts is not None:
             from datetime import datetime, timezone
-            elapsed_ms = int(
-                (datetime.now(timezone.utc) - ts).total_seconds() * 1000
-            )
+
+            elapsed_ms = int((datetime.now(timezone.utc) - ts).total_seconds() * 1000)
         current_cell = {
             "key": current_row["key"],
             "target_format": current_row["target_format"],
@@ -533,7 +540,8 @@ async def active_audit_summary(pool: asyncpg.Pool) -> dict:
 
 
 async def abort_audit_run(
-    pool: asyncpg.Pool, run_id: str,
+    pool: asyncpg.Pool,
+    run_id: str,
 ) -> dict | None:
     """Stop a running audit. Sets the run's status to ``'aborted'``
     and cancels every queued / running child audit_log row in the
@@ -580,7 +588,8 @@ async def abort_audit_run(
                     SET skipped = skipped + $2
                     WHERE id = $1
                     """,
-                    run_id, n_cancel,
+                    run_id,
+                    n_cancel,
                 )
     return _audit_run_row(run)
 
@@ -701,10 +710,7 @@ async def list_audit(
             "audit_run_id": str(r["audit_run_id"]) if r["audit_run_id"] else None,
             "worker_image_tag": r["worker_image_tag"],
             "issue_bot_status": r["issue_bot_status"],
-            "issue_bot_synced_at": (
-                r["issue_bot_synced_at"].isoformat()
-                if r["issue_bot_synced_at"] else None
-            ),
+            "issue_bot_synced_at": (r["issue_bot_synced_at"].isoformat() if r["issue_bot_synced_at"] else None),
             "issue_bot_last_error": r["issue_bot_last_error"],
         }
         for r in rows
@@ -755,10 +761,7 @@ async def get_audit_by_id(pool: asyncpg.Pool, audit_id: int) -> dict | None:
         "metrics_samples": samples,
         "audit_run_id": str(row["audit_run_id"]) if row["audit_run_id"] else None,
         "issue_bot_status": row["issue_bot_status"],
-        "issue_bot_synced_at": (
-            row["issue_bot_synced_at"].isoformat()
-            if row["issue_bot_synced_at"] else None
-        ),
+        "issue_bot_synced_at": (row["issue_bot_synced_at"].isoformat() if row["issue_bot_synced_at"] else None),
         "issue_bot_last_error": row["issue_bot_last_error"],
     }
 
@@ -767,15 +770,11 @@ async def get_audit_by_id(pool: asyncpg.Pool, audit_id: int) -> dict | None:
 
 
 async def get_setting(pool: asyncpg.Pool, key: str) -> str | None:
-    row = await pool.fetchrow(
-        "SELECT value FROM app_settings WHERE key = $1", key
-    )
+    row = await pool.fetchrow("SELECT value FROM app_settings WHERE key = $1", key)
     return row["value"] if row else None
 
 
-async def set_setting(
-    pool: asyncpg.Pool, key: str, value: str, *, updated_by: str | None
-) -> None:
+async def set_setting(pool: asyncpg.Pool, key: str, value: str, *, updated_by: str | None) -> None:
     """Upsert a setting. ``value`` is a string — caller serializes
     booleans / numbers as appropriate (we keep this small and avoid
     type-tagging columns)."""
@@ -933,9 +932,7 @@ async def list_project_members(pool: asyncpg.Pool, project_id: str) -> list[dict
     ]
 
 
-async def add_project_member(
-    pool: asyncpg.Pool, project_id: str, user_sub: str, role: str = "member"
-) -> bool:
+async def add_project_member(pool: asyncpg.Pool, project_id: str, user_sub: str, role: str = "member") -> bool:
     """Idempotent membership add. Returns True on insert, False on duplicate.
 
     Inserts a placeholder ``users`` row when the sub hasn't been seen
@@ -962,9 +959,7 @@ async def add_project_member(
     return row is not None
 
 
-async def remove_project_member(
-    pool: asyncpg.Pool, project_id: str, user_sub: str
-) -> bool:
+async def remove_project_member(pool: asyncpg.Pool, project_id: str, user_sub: str) -> bool:
     row = await pool.fetchrow(
         "DELETE FROM project_members WHERE project_id = $1 AND user_sub = $2 RETURNING user_sub",
         project_id,
@@ -1004,14 +999,14 @@ def _corpus_row(r) -> dict:
         "description": r["description"],
         "created_at": r["created_at"].isoformat() if r["created_at"] else None,
         "created_by": r["created_by"],
-        "archived_at": (
-            r["archived_at"].isoformat() if r["archived_at"] else None
-        ),
+        "archived_at": (r["archived_at"].isoformat() if r["archived_at"] else None),
     }
 
 
 async def list_corpora(
-    pool: asyncpg.Pool, *, include_archived: bool = False,
+    pool: asyncpg.Pool,
+    *,
+    include_archived: bool = False,
 ) -> list[dict]:
     """Newest-first corpora list. Archived rows hidden by default; the
     admin panel never needs them and the audit-form picker would
@@ -1048,13 +1043,17 @@ async def create_corpus(
         RETURNING id, slug, name, description, created_at,
                   created_by, archived_at
         """,
-        slug, name, description, created_by,
+        slug,
+        name,
+        description,
+        created_by,
     )
     return _corpus_row(row)
 
 
 async def get_corpus_by_slug(
-    pool: asyncpg.Pool, slug: str,
+    pool: asyncpg.Pool,
+    slug: str,
 ) -> dict | None:
     """Look up one corpus by its public slug. Returns the live row
     only; archived corpora are treated as absent."""
@@ -1096,6 +1095,7 @@ def _audit_run_row(r) -> dict:
     them (it always does post-migration 009, but the helper tolerates
     rows from a SELECT that omits those columns by falling back to
     ``None``)."""
+
     def _opt(col: str):
         try:
             return r[col]
@@ -1120,10 +1120,7 @@ def _audit_run_row(r) -> dict:
         "force_rebuild": _opt("force_rebuild") or False,
         "issue_bot_status": _opt("issue_bot_status"),
         "issue_bot_last_error": _opt("issue_bot_last_error"),
-        "issue_bot_synced_at": (
-            issue_bot_synced_at.isoformat()
-            if issue_bot_synced_at else None
-        ),
+        "issue_bot_synced_at": (issue_bot_synced_at.isoformat() if issue_bot_synced_at else None),
     }
 
 
@@ -1154,13 +1151,20 @@ async def create_audit_run(
         VALUES ($1, $2, $3, $4, $5, $6)
         RETURNING *
         """,
-        scope, worker_pool, trigger, note, created_by, force_rebuild,
+        scope,
+        worker_pool,
+        trigger,
+        note,
+        created_by,
+        force_rebuild,
     )
     return _audit_run_row(row)
 
 
 async def set_audit_run_total(
-    pool: asyncpg.Pool, run_id: str, total: int,
+    pool: asyncpg.Pool,
+    run_id: str,
+    total: int,
 ) -> None:
     """Set the dispatched-job count after enqueue completes. If
     ``total`` is 0 (no jobs to run — empty scope or no viable cells),
@@ -1174,7 +1178,8 @@ async def set_audit_run_total(
             finished_at = CASE WHEN $2 = 0 THEN NOW() ELSE finished_at END
         WHERE id = $1
         """,
-        run_id, total,
+        run_id,
+        total,
     )
 
 
@@ -1224,7 +1229,8 @@ async def get_audit_run(pool: asyncpg.Pool, run_id: str) -> dict | None:
 
 
 async def list_audit_run_jobs(
-    pool: asyncpg.Pool, run_id: str,
+    pool: asyncpg.Pool,
+    run_id: str,
 ) -> list[dict]:
     """Every audit_log row tied to one audit_run. Returned in
     insert order (ascending id) so the per-run grid in the admin
@@ -1263,7 +1269,9 @@ async def list_audit_run_jobs(
 
 
 async def audit_run_exists_for_key(
-    pool: asyncpg.Pool, scope: str, worker_pool: str | None,
+    pool: asyncpg.Pool,
+    scope: str,
+    worker_pool: str | None,
 ) -> bool:
     """Concurrent-fire guard for the scheduler tick (M4). Returns True
     when an ``audit_runs`` row with the same (scope, worker_pool) is
@@ -1290,7 +1298,8 @@ async def audit_run_exists_for_key(
               AND worker_pool = $2
             LIMIT 1
             """,
-            scope, worker_pool,
+            scope,
+            worker_pool,
         )
     return row is not None
 
@@ -1307,18 +1316,12 @@ def _audit_schedule_row(r) -> dict:
         "scope": r["scope"],
         "worker_pool": r["worker_pool"],
         "enabled": r["enabled"],
-        "last_fired_at": (
-            r["last_fired_at"].isoformat() if r["last_fired_at"] else None
-        ),
-        "next_fire_at": (
-            r["next_fire_at"].isoformat() if r["next_fire_at"] else None
-        ),
+        "last_fired_at": (r["last_fired_at"].isoformat() if r["last_fired_at"] else None),
+        "next_fire_at": (r["next_fire_at"].isoformat() if r["next_fire_at"] else None),
         "last_skipped_reason": r["last_skipped_reason"],
         "created_at": r["created_at"].isoformat() if r["created_at"] else None,
         "created_by": r["created_by"],
-        "archived_at": (
-            r["archived_at"].isoformat() if r["archived_at"] else None
-        ),
+        "archived_at": (r["archived_at"].isoformat() if r["archived_at"] else None),
     }
 
 
@@ -1330,21 +1333,21 @@ _SCHEDULE_COLS = (
 
 
 async def list_audit_schedules(
-    pool: asyncpg.Pool, *, include_archived: bool = False,
+    pool: asyncpg.Pool,
+    *,
+    include_archived: bool = False,
 ) -> list[dict]:
     """Newest-first audit_schedules listing. Archived rows hidden by
     default — the admin panel's primary view should only see live
     schedules."""
     where = "" if include_archived else " WHERE archived_at IS NULL"
-    rows = await pool.fetch(
-        f"SELECT {_SCHEDULE_COLS} FROM audit_schedules{where} "
-        "ORDER BY created_at DESC"
-    )
+    rows = await pool.fetch(f"SELECT {_SCHEDULE_COLS} FROM audit_schedules{where} " "ORDER BY created_at DESC")
     return [_audit_schedule_row(r) for r in rows]
 
 
 async def get_audit_schedule(
-    pool: asyncpg.Pool, schedule_id: str,
+    pool: asyncpg.Pool,
+    schedule_id: str,
 ) -> dict | None:
     row = await pool.fetchrow(
         f"SELECT {_SCHEDULE_COLS} FROM audit_schedules WHERE id = $1",
@@ -1375,7 +1378,13 @@ async def create_audit_schedule(
         VALUES ($1, $2, $3, $4, $5, $6, $7)
         RETURNING {_SCHEDULE_COLS}
         """,
-        name, cron_expr, scope, worker_pool, enabled, next_fire_at, created_by,
+        name,
+        cron_expr,
+        scope,
+        worker_pool,
+        enabled,
+        next_fire_at,
+        created_by,
     )
     return _audit_schedule_row(row)
 
@@ -1433,20 +1442,23 @@ async def update_audit_schedule(
 
 
 async def archive_audit_schedule(
-    pool: asyncpg.Pool, schedule_id: str,
+    pool: asyncpg.Pool,
+    schedule_id: str,
 ) -> bool:
     """Soft-delete one schedule. The tick query filters on
     ``archived_at IS NULL`` so the row stops firing immediately."""
     result = await pool.execute(
-        "UPDATE audit_schedules SET archived_at = NOW() "
-        "WHERE id = $1 AND archived_at IS NULL",
+        "UPDATE audit_schedules SET archived_at = NOW() " "WHERE id = $1 AND archived_at IS NULL",
         schedule_id,
     )
     return result.endswith(" 1")
 
 
 async def claim_due_audit_schedule(
-    pool: asyncpg.Pool, *, now, next_fire_at,
+    pool: asyncpg.Pool,
+    *,
+    now,
+    next_fire_at,
 ):
     """Atomically claim ONE due schedule.
 
@@ -1479,13 +1491,16 @@ async def claim_due_audit_schedule(
         )
         RETURNING {_SCHEDULE_COLS}
         """,
-        now, next_fire_at,
+        now,
+        next_fire_at,
     )
     return _audit_schedule_row(row) if row else None
 
 
 async def set_audit_schedule_skip_reason(
-    pool: asyncpg.Pool, schedule_id: str, reason: str,
+    pool: asyncpg.Pool,
+    schedule_id: str,
+    reason: str,
 ) -> None:
     """Record why a tick decided not to dispatch (concurrent-fire
     guard, scope resolution failure, etc.). Stamped after the atomic
@@ -1494,7 +1509,8 @@ async def set_audit_schedule_skip_reason(
     next slot rather than re-trying the missed one."""
     await pool.execute(
         "UPDATE audit_schedules SET last_skipped_reason = $2 WHERE id = $1",
-        schedule_id, reason,
+        schedule_id,
+        reason,
     )
 
 
@@ -1554,12 +1570,15 @@ async def mark_audit_run_issue_bot(
             issue_bot_synced_at = NOW()
         WHERE id = $1
         """,
-        run_id, status, error,
+        run_id,
+        status,
+        error,
     )
 
 
 async def reset_audit_run_issue_bot(
-    pool: asyncpg.Pool, run_id: str,
+    pool: asyncpg.Pool,
+    run_id: str,
 ) -> bool:
     """Clear the issue-bot status so the next tick picks the run up
     again. Used by the admin "retry sync" button. Returns True on a
@@ -1643,12 +1662,15 @@ async def mark_audit_log_issue_bot(
             issue_bot_synced_at = NOW()
         WHERE id = $1
         """,
-        audit_id, status, error,
+        audit_id,
+        status,
+        error,
     )
 
 
 async def reset_audit_log_issue_bot(
-    pool: asyncpg.Pool, audit_id: int,
+    pool: asyncpg.Pool,
+    audit_id: int,
 ) -> bool:
     """Clear the bot status on one audit_log row so the next tick
     re-syncs it. Used by the admin "retry sync" button. Returns
@@ -1802,27 +1824,27 @@ async def aggregate_conversion_metrics(
     for r in rows:
         sample_count = r["sample_count"] or 0
         fail_count = r["fail_count"] or 0
-        cells.append({
-            "source_ext": r["source_ext"] or "",
-            "target_format": r["target_format"] or "",
-            "sample_count": sample_count,
-            "fail_count": fail_count,
-            "ok_count": r["ok_count"] or 0,
-            "failure_rate": (
-                fail_count / sample_count if sample_count > 0 else 0.0
-            ),
-            "duration_ms_p50": _i(r["duration_ms_p50"]),
-            "duration_ms_p95": _i(r["duration_ms_p95"]),
-            "duration_ms_max": _i(r["duration_ms_max"]),
-            "peak_rss_kb_p50": _i(r["peak_rss_kb_p50"]),
-            "peak_rss_kb_p95": _i(r["peak_rss_kb_p95"]),
-            "peak_rss_max_kb": _i(r["peak_rss_max_kb"]),
-            "peak_rss_per_source_mb_p95": _f(r["peak_rss_per_source_mb_p95"]),
-            "write_bytes_p50": _i(r["write_bytes_p50"]),
-            "write_bytes_p95": _i(r["write_bytes_p95"]),
-            "read_bytes_avg": _i(r["read_bytes_avg"]),
-            "cpu_fraction": _f(r["cpu_fraction"]),
-        })
+        cells.append(
+            {
+                "source_ext": r["source_ext"] or "",
+                "target_format": r["target_format"] or "",
+                "sample_count": sample_count,
+                "fail_count": fail_count,
+                "ok_count": r["ok_count"] or 0,
+                "failure_rate": (fail_count / sample_count if sample_count > 0 else 0.0),
+                "duration_ms_p50": _i(r["duration_ms_p50"]),
+                "duration_ms_p95": _i(r["duration_ms_p95"]),
+                "duration_ms_max": _i(r["duration_ms_max"]),
+                "peak_rss_kb_p50": _i(r["peak_rss_kb_p50"]),
+                "peak_rss_kb_p95": _i(r["peak_rss_kb_p95"]),
+                "peak_rss_max_kb": _i(r["peak_rss_max_kb"]),
+                "peak_rss_per_source_mb_p95": _f(r["peak_rss_per_source_mb_p95"]),
+                "write_bytes_p50": _i(r["write_bytes_p50"]),
+                "write_bytes_p95": _i(r["write_bytes_p95"]),
+                "read_bytes_avg": _i(r["read_bytes_avg"]),
+                "cpu_fraction": _f(r["cpu_fraction"]),
+            }
+        )
     return cells
 
 
@@ -1878,7 +1900,9 @@ async def claim_unprocessed_profile_row(
 
 
 async def insert_profile_function_stats(
-    pool: asyncpg.Pool, audit_id: int, rows: list[dict],
+    pool: asyncpg.Pool,
+    audit_id: int,
+    rows: list[dict],
 ) -> None:
     """Insert the parsed top-K function stats for one audit row.
 
@@ -1891,9 +1915,15 @@ async def insert_profile_function_stats(
         return
     values = [
         (
-            audit_id, idx, r["func"], r["file"], r["line"],
-            int(r["ncalls"]), int(r["primitive_calls"]),
-            float(r["tottime"]), float(r["cumtime"]),
+            audit_id,
+            idx,
+            r["func"],
+            r["file"],
+            r["line"],
+            int(r["ncalls"]),
+            int(r["primitive_calls"]),
+            float(r["tottime"]),
+            float(r["cumtime"]),
         )
         for idx, r in enumerate(rows)
     ]
@@ -1909,7 +1939,9 @@ async def insert_profile_function_stats(
 
 
 async def mark_profile_stats_failed(
-    pool: asyncpg.Pool, audit_id: int, error: str,
+    pool: asyncpg.Pool,
+    audit_id: int,
+    error: str,
 ) -> None:
     """Stamp a parse failure on the audit_log row. The timestamp is
     already set by :func:`claim_unprocessed_profile_row` (the
@@ -1918,7 +1950,8 @@ async def mark_profile_stats_failed(
     so the admin UI can show what went wrong."""
     await pool.execute(
         "UPDATE audit_log SET profile_stats_error = $2 WHERE id = $1",
-        audit_id, error,
+        audit_id,
+        error,
     )
 
 
@@ -1957,9 +1990,7 @@ async def aggregate_profile_hotspots(
         # pattern that already excludes it.
         ext_no_dot = ext.lstrip(".")
         args.append(ext_no_dot)
-        where.append(
-            f"LOWER(SUBSTRING(al.key FROM '\\.([^.]+)$')) = ${len(args)}"
-        )
+        where.append(f"LOWER(SUBSTRING(al.key FROM '\\.([^.]+)$')) = ${len(args)}")
     if target_format:
         args.append(target_format.lower())
         where.append(f"LOWER(al.target_format) = ${len(args)}")
@@ -2023,7 +2054,8 @@ async def aggregate_profile_hotspots(
 
 
 async def list_failed_audit_run_jobs(
-    pool: asyncpg.Pool, run_id: str,
+    pool: asyncpg.Pool,
+    run_id: str,
 ) -> list[dict]:
     """All ``audit_log`` rows in ``run_id`` whose status indicates a
     failure ('error' or 'failed'). Returns the columns the issue-bot

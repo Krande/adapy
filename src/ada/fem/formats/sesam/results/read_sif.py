@@ -12,7 +12,6 @@ from ada.core.utils import Counter
 from ada.fem.formats.sesam.common import sesam_eltype_2_general
 from ada.fem.formats.sesam.read import cards
 from ada.fem.formats.sesam.results.get_version_from_mlg import extract_sestra_version
-from ada.fem.formats.sesam.results.sin2sif import convert_sin_to_sif
 
 if TYPE_CHECKING:
     from ada import Material, Section
@@ -230,7 +229,8 @@ class SifReader:
         gbeamg_rows = self._other.get("GBEAMG", []) or []
         for s in gbeamg_rows:
             res = cards.GBEAMG.get_data_map_from_names(
-                ["geono", "area"], s,
+                ["geono", "area"],
+                s,
             )
             try:
                 sec_id = int(float(res["geono"]))
@@ -246,9 +246,7 @@ class SifReader:
                 continue
             r = math.sqrt(area / math.pi)
             sec_tdsect = td_sect_map.get(sec_id)
-            sec_name_str = (
-                sec_tdsect[-1] if sec_tdsect is not None else f"GBEAMG{sec_id}"
-            )
+            sec_name_str = sec_tdsect[-1] if sec_tdsect is not None else f"GBEAMG{sec_id}"
             sections[sec_id] = Section(
                 name=sec_name_str,
                 sec_id=sec_id,
@@ -277,7 +275,7 @@ class SifReader:
 
     def get_materials(self) -> dict[int, Material]:
         from ada import Material
-        from ada.materials.metals import CarbonSteel, Metal
+        from ada.materials.metals import CarbonSteel
 
         mat_map = {int(x[1]): x[-1] for x in self._other.get("TDMATER", [])}
         isotrop_mats = {int(x[0]): x for x in self._other.get("MISOSEL", [])}
@@ -372,8 +370,8 @@ class SifReader:
         token = stripped if space_idx < 0 else stripped[:space_idx]
 
         is_skipped_flag = True  # default; cleared by the GCOORD /
-                                # GNODE / GELMNT1 / RESULT_CARDS
-                                # branches to match original semantics
+        # GNODE / GELMNT1 / RESULT_CARDS
+        # branches to match original semantics
 
         # First-block exclusive cards (Nodes, Elements).
         if token == cards.GCOORD.name:
@@ -438,9 +436,7 @@ class SifReader:
             if rows:
                 width = len(rows[0])
                 uniform = all(
-                    isinstance(r, list) and len(r) == width
-                    and not any(isinstance(v, str) for v in r)
-                    for r in rows
+                    isinstance(r, list) and len(r) == width and not any(isinstance(v, str) for v in r) for r in rows
                 )
                 if uniform:
                     try:
@@ -707,8 +703,7 @@ class Sif2Mesh:
             # part of normal triage for unfamiliar SIF files. Format
             # tries to be greppable: "sesam-eltype histogram: {...}".
             summary = ", ".join(
-                f"{etyp}({_SESAM_ELTYPE_LABELS.get(etyp, '?')})={n}"
-                for etyp, n in sorted(eltype_counts.items())
+                f"{etyp}({_SESAM_ELTYPE_LABELS.get(etyp, '?')})={n}" for etyp, n in sorted(eltype_counts.items())
             )
             logger.info("sesam-eltype histogram: %s", summary)
 

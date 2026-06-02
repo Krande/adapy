@@ -4,6 +4,7 @@ These are pure pydantic value objects — most assertions need no CAD kernel. On
 test builds a CellGraph carrying a TopoSpace as cell metadata to prove the
 duck-typed ``name``/``get`` surface works in the generic graph.
 """
+
 from __future__ import annotations
 
 import subprocess
@@ -115,8 +116,14 @@ def test_cellgraph_carries_topospace_metadata():
     # A TopoSpace can be the cell's metadata: the graph reads .name / .get off it.
     be = active_backend()
     pairs = [
-        (ada.PrimBox("RoomA", (0, 0, 0), (1, 1, 1)).solid_occ(), TopoSpace(NAME="RoomA", X=0, Y=0, Z=0, DX=1, DY=1, DZ=1, PRIORITY=1)),
-        (ada.PrimBox("RoomB", (1, 0, 0), (2, 1, 1)).solid_occ(), TopoSpace(NAME="RoomB", X=1, Y=0, Z=0, DX=1, DY=1, DZ=1, PRIORITY=2)),
+        (
+            ada.PrimBox("RoomA", (0, 0, 0), (1, 1, 1)).solid_occ(),
+            TopoSpace(NAME="RoomA", X=0, Y=0, Z=0, DX=1, DY=1, DZ=1, PRIORITY=1),
+        ),
+        (
+            ada.PrimBox("RoomB", (1, 0, 0), (2, 1, 1)).solid_occ(),
+            TopoSpace(NAME="RoomB", X=1, Y=0, Z=0, DX=1, DY=1, DZ=1, PRIORITY=2),
+        ),
     ]
     cg = CellGraph.from_cell_solids(pairs, merge=True)
     assert sorted(c.name for c in cg.cells) == ["RoomA", "RoomB"]

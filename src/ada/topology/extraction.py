@@ -6,6 +6,7 @@ cell centroids are de-duplicated (highest priority wins), faces sharing a
 centroid are linked as a shared connection, and edges sharing a centroid record
 their neighbouring faces. Inspired by topologic's cell-complex extraction.
 """
+
 from __future__ import annotations
 
 from collections import defaultdict
@@ -15,7 +16,13 @@ import numpy as np
 
 import ada
 from ada.cad import active_backend
-from ada.topology.graph import FaceConnectionInfo, GraphCell, GraphEdge, GraphFace, _round_key
+from ada.topology.graph import (
+    FaceConnectionInfo,
+    GraphCell,
+    GraphEdge,
+    GraphFace,
+    _round_key,
+)
 
 
 @dataclass

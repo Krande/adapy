@@ -133,8 +133,7 @@ def load_settings() -> Settings:
     )
     if auth.enabled and (not auth.issuer or not auth.client_id):
         raise ValueError(
-            "ADA_VIEWER_AUTH_ENABLED=true requires ADA_VIEWER_AUTH_ISSUER "
-            "and ADA_VIEWER_AUTH_CLIENT_ID to be set"
+            "ADA_VIEWER_AUTH_ENABLED=true requires ADA_VIEWER_AUTH_ISSUER " "and ADA_VIEWER_AUTH_CLIENT_ID to be set"
         )
 
     # Standard env name (DATABASE_URL) so the viewer plays nicely with
@@ -151,9 +150,7 @@ def load_settings() -> Settings:
             access_key_id=os.environ.get("ADA_VIEWER_S3_ACCESS_KEY_ID"),
             secret_access_key=os.environ.get("ADA_VIEWER_S3_SECRET_ACCESS_KEY"),
             prefix=os.environ.get("ADA_VIEWER_S3_PREFIX", "").strip("/"),
-            virtual_hosted_style=_bool(
-                os.environ.get("ADA_VIEWER_S3_VIRTUAL_HOSTED_STYLE"), default=False
-            ),
+            virtual_hosted_style=_bool(os.environ.get("ADA_VIEWER_S3_VIRTUAL_HOSTED_STYLE"), default=False),
         )
         return Settings(
             storage_kind="s3",

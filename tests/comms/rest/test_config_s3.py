@@ -13,8 +13,6 @@ from __future__ import annotations
 import os
 from contextlib import contextmanager
 
-import pytest
-
 from ada.comms.rest.config import load_settings
 
 

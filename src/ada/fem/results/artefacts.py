@@ -24,7 +24,8 @@ import json
 import os
 import pathlib
 import struct
-from dataclasses import dataclass, field as dc_field
+from dataclasses import dataclass
+from dataclasses import field as dc_field
 from typing import Callable, Iterable, Iterator, Literal, Protocol
 
 import numpy as np
@@ -76,7 +77,7 @@ EDGE_HEADER_BYTES = 16  # magic + version + n_edges + 4-byte pad
 ELEM_MAGIC = b"AFEM"
 ELEM_VERSION = 1
 ELEM_HEADER_BYTES = 16  # magic + version + n_elements + 4-byte pad
-ELEM_ENTRY_BYTES = 12   # uint32 label, uint32 tri_start, uint32 tri_count
+ELEM_ENTRY_BYTES = 12  # uint32 label, uint32 tri_start, uint32 tri_count
 
 # Beam-solid mesh — optional parallel mesh emitted by readers that
 # have section + axis info per beam element (currently SIF only via
@@ -97,7 +98,7 @@ ELEM_ENTRY_BYTES = 12   # uint32 label, uint32 tri_start, uint32 tri_count
 BEAM_WARP_MAGIC = b"AFBV"
 BEAM_WARP_VERSION = 1
 BEAM_WARP_HEADER_BYTES = 16  # magic + version + n_verts + 4-byte pad
-BEAM_WARP_ENTRY_BYTES = 12   # uint32 n0, uint32 n1, float32 t
+BEAM_WARP_ENTRY_BYTES = 12  # uint32 n0, uint32 n1, float32 t
 
 
 @dataclass
@@ -144,15 +145,9 @@ class SolidBeamMesh:
     # module import-light; ``write_beam_solids_elements`` does the
     # structural validation at write time.
     element_ranges: list = dc_field(default_factory=list)
-    vertex_node0: np.ndarray = dc_field(
-        default_factory=lambda: np.empty(0, dtype=np.uint32)
-    )
-    vertex_node1: np.ndarray = dc_field(
-        default_factory=lambda: np.empty(0, dtype=np.uint32)
-    )
-    vertex_t: np.ndarray = dc_field(
-        default_factory=lambda: np.empty(0, dtype=np.float32)
-    )
+    vertex_node0: np.ndarray = dc_field(default_factory=lambda: np.empty(0, dtype=np.uint32))
+    vertex_node1: np.ndarray = dc_field(default_factory=lambda: np.empty(0, dtype=np.uint32))
+    vertex_t: np.ndarray = dc_field(default_factory=lambda: np.empty(0, dtype=np.float32))
     # Coverage telemetry — populated by ``try_solid_beams`` so the
     # caller (and tests) can see how complete the solid-beam render
     # is without parsing worker logs. ``total_beams`` is the count
@@ -378,9 +373,7 @@ class FEAStreamReader(Protocol):
 
     def element_field_specs(self) -> list[ElementFieldSpec]: ...
 
-    def iter_element_field_steps(
-        self, spec: ElementFieldSpec
-    ) -> Iterator[ElementStepValues]: ...
+    def iter_element_field_steps(self, spec: ElementFieldSpec) -> Iterator[ElementStepValues]: ...
 
     def try_solid_beams(self) -> "SolidBeamMesh | None":
         """Optional: tessellate beam elements as 3D extruded solids.
@@ -584,6 +577,7 @@ def tessellate_beams_to_solid_mesh(
     """
 
     from collections import defaultdict
+
     from ada.config import get_logger
     from ada.occ.tessellating import BatchTessellator
     from ada.visit.rendering.femviz import ElementRange
@@ -613,7 +607,9 @@ def tessellate_beams_to_solid_mesh(
         except Exception as e:  # noqa: BLE001 — defensive
             skip_reasons[f"occ-error[{type(e).__name__}]"] += 1
             get_logger().debug(
-                "beam-solid OCC failure elem %s: %s", elem_id, e,
+                "beam-solid OCC failure elem %s: %s",
+                elem_id,
+                e,
             )
             continue
 
@@ -638,7 +634,9 @@ def tessellate_beams_to_solid_mesh(
             t_vals_raw = np.clip(rel @ axis / axis_sq, 0.0, 1.0).astype(np.float32)
 
         verts, tris_local_dedup, t_vals = _dedup_beam_tessellation(
-            verts_raw, tris_local, t_vals_raw,
+            verts_raw,
+            tris_local,
+            t_vals_raw,
         )
         tris = tris_local_dedup + vertex_offset
 
@@ -661,10 +659,7 @@ def tessellate_beams_to_solid_mesh(
         success_count += 1
 
     if total_beams:
-        skip_summary = (
-            ", ".join(f"{k}={v}" for k, v in sorted(skip_reasons.items()))
-            or "none"
-        )
+        skip_summary = ", ".join(f"{k}={v}" for k, v in sorted(skip_reasons.items())) or "none"
         get_logger().info(
             "beam-solid coverage: %d of %d beams tessellated (skip: %s)",
             success_count,
@@ -746,8 +741,7 @@ class FEAResultStreamAdapter:
                 # surface explicitly so the source data error is
                 # obvious.
                 raise ValueError(
-                    f"Element block of type {cell_type_str!r} references "
-                    f"unknown node id {e.args[0]}."
+                    f"Element block of type {cell_type_str!r} references " f"unknown node id {e.args[0]}."
                 ) from None
             # ElementBlock.identifiers is the per-element label as it
             # appeared in the source FEA file. Forward verbatim so the
@@ -765,11 +759,7 @@ class FEAResultStreamAdapter:
                     )
             else:
                 identifiers = None
-            cell_blocks.append(
-                CellBlockData(
-                    cell_type=cell_type_str, data=data_0, identifiers=identifiers
-                )
-            )
+            cell_blocks.append(CellBlockData(cell_type=cell_type_str, data=data_0, identifiers=identifiers))
 
         self._geom = MeshGeometry(points=points, cell_blocks=cell_blocks)
         return self._geom
@@ -808,10 +798,7 @@ class FEAResultStreamAdapter:
             # index. Static analysis stores the time directly in
             # .step. The picker just wants a monotonic label per
             # step, so either works.
-            step_values = [
-                float(r.eigen_freq if r.eigen_freq is not None else r.step)
-                for r in sorted_results
-            ]
+            step_values = [float(r.eigen_freq if r.eigen_freq is not None else r.step) for r in sorted_results]
             components = list(first.components) or [first.name]
 
             specs.append(
@@ -858,6 +845,7 @@ class FEAResultStreamAdapter:
         geometry for it so colouring it would have nowhere to land."""
 
         from collections import defaultdict
+
         from ada.fem.results.field_data import ElementFieldData
         from ada.fem.shapes.mesh_types import ada_to_str_type
 
@@ -905,8 +893,7 @@ class FEAResultStreamAdapter:
                 # IP indices are 1-based in the SIF reader; a non-positive
                 # max means the source data is malformed for this field.
                 raise ValueError(
-                    f"element field {name!r} ({elem_type_str}) has non-positive "
-                    f"IP indices; cannot determine n_ips."
+                    f"element field {name!r} ({elem_type_str}) has non-positive " f"IP indices; cannot determine n_ips."
                 )
             if vals.shape[0] % n_ips != 0:
                 raise ValueError(
@@ -921,10 +908,7 @@ class FEAResultStreamAdapter:
             # frontend can map ``label → bucket index``.
             labels = vals[::n_ips, 0].astype(int).tolist()
 
-            step_values = [
-                float(r.eigen_freq if r.eigen_freq is not None else r.step)
-                for r in sorted_items
-            ]
+            step_values = [float(r.eigen_freq if r.eigen_freq is not None else r.step) for r in sorted_items]
             ip_layout = _ip_layout_from_int_positions(getattr(first, "int_positions", None))
 
             specs.append(
@@ -1281,9 +1265,7 @@ def write_beam_solids_warp(mesh: SolidBeamMesh, out_path: os.PathLike) -> int:
     t = np.asarray(mesh.vertex_t, dtype=np.float32)
     n_verts = int(n0.shape[0])
     if not (n0.shape == n1.shape == t.shape):
-        raise ValueError(
-            f"AFBV shape mismatch: n0={n0.shape}, n1={n1.shape}, t={t.shape}"
-        )
+        raise ValueError(f"AFBV shape mismatch: n0={n0.shape}, n1={n1.shape}, t={t.shape}")
 
     with open(out_path, "wb") as f:
         prefix = BEAM_WARP_MAGIC + struct.pack("<II", BEAM_WARP_VERSION, n_verts)
@@ -1432,9 +1414,7 @@ def write_beam_solids_edges(
     is_new_group[1:] = key_sorted[1:] != key_sorted[:-1]
     group_starts = np.flatnonzero(is_new_group)
     # Append n so np.diff gives the size of the final group.
-    group_starts_ext = np.concatenate(
-        [group_starts, np.array([key_sorted.shape[0]], dtype=group_starts.dtype)]
-    )
+    group_starts_ext = np.concatenate([group_starts, np.array([key_sorted.shape[0]], dtype=group_starts.dtype)])
     group_sizes = np.diff(group_starts_ext)
 
     # Vectorized "does any label in this group differ from the first?":
@@ -1550,9 +1530,7 @@ def write_field_blob_streaming(
             seen += 1
 
     if seen != spec.n_steps:
-        raise ValueError(
-            f"Field {spec.name!r} streamed {seen} steps but spec says {spec.n_steps}."
-        )
+        raise ValueError(f"Field {spec.name!r} streamed {seen} steps but spec says {spec.n_steps}.")
 
     range_per_comp: dict[str, tuple[float, float]] = {}
     for c, name in enumerate(spec.components):
@@ -1592,9 +1570,7 @@ class ElementFieldArtefactMeta:
     scalar_range_magnitude: tuple[float, float]
 
 
-def _encode_elem_field_blob_header(
-    spec: ElementFieldSpec, stride_bytes: int
-) -> bytes:
+def _encode_elem_field_blob_header(spec: ElementFieldSpec, stride_bytes: int) -> bytes:
     """Binary header for the AFEL blob — same 12-byte (magic + version
     + json_len) prefix shape as AFBL, zero-padded to 1 KB. JSON
     payload carries only O(1) shape metadata; ``element_labels`` and
@@ -1617,11 +1593,7 @@ def _encode_elem_field_blob_header(
             f"AFEL header for {spec.name!r}/{spec.elem_type} doesn't fit in "
             f"{ELEM_FIELD_HEADER_BYTES} bytes (needs {12 + len(json_bytes)})."
         )
-    prefix = (
-        ELEM_FIELD_MAGIC
-        + struct.pack("<II", ELEM_FIELD_VERSION, len(json_bytes))
-        + json_bytes
-    )
+    prefix = ELEM_FIELD_MAGIC + struct.pack("<II", ELEM_FIELD_VERSION, len(json_bytes)) + json_bytes
     return prefix + b"\x00" * (ELEM_FIELD_HEADER_BYTES - len(prefix))
 
 
@@ -1684,8 +1656,7 @@ def write_element_field_blob_streaming(
 
     if seen != spec.n_steps:
         raise ValueError(
-            f"Element field {spec.name!r}/{spec.elem_type} streamed {seen} "
-            f"steps but spec says {spec.n_steps}."
+            f"Element field {spec.name!r}/{spec.elem_type} streamed {seen} " f"steps but spec says {spec.n_steps}."
         )
 
     range_per_comp: dict[str, tuple[float, float]] = {}
@@ -1752,10 +1723,7 @@ def _infer_analysis_kind(spec: FieldSpec) -> str:
         # when we have a clear modal signature: multi-step ascending
         # positives.
         if spec.n_steps >= 2:
-            ascending = all(
-                spec.step_values[i + 1] > spec.step_values[i]
-                for i in range(spec.n_steps - 1)
-            )
+            ascending = all(spec.step_values[i + 1] > spec.step_values[i] for i in range(spec.n_steps - 1))
             if ascending:
                 return "eigen"
         else:
@@ -1820,8 +1788,7 @@ def build_manifest(
         scalar_range = {k: list(v) for k, v in scalar_range.items()}
 
         steps = [
-            {"i": i, "value": float(v), "label": _format_step_label(spec, i, v)}
-            for i, v in enumerate(spec.step_values)
+            {"i": i, "value": float(v), "label": _format_step_label(spec, i, v)} for i, v in enumerate(spec.step_values)
         ]
 
         fields_payload.append(
@@ -1854,6 +1821,7 @@ def build_manifest(
     # sets for all element types) — surface a hard error otherwise so
     # the frontend doesn't silently de-sync per-type animation.
     from collections import defaultdict
+
     elem_by_name: dict[str, list[ElementFieldArtefactMeta]] = defaultdict(list)
     for em in elem_field_metas or []:
         elem_by_name[em.spec.name].append(em)
@@ -1886,9 +1854,7 @@ def build_manifest(
                     roll_comp[cname] = (lo, hi)
             mlo, mhi = em.scalar_range_magnitude
             roll_mag = (min(roll_mag[0], mlo), max(roll_mag[1], mhi))
-        if not (
-            roll_mag[0] != float("inf") and roll_mag[1] != float("-inf")
-        ):
+        if not (roll_mag[0] != float("inf") and roll_mag[1] != float("-inf")):
             roll_mag = (0.0, 0.0)
 
         scalar_range_payload = {k: list(v) for k, v in roll_comp.items()}
@@ -1917,9 +1883,7 @@ def build_manifest(
                         "dtype": es.dtype.name,
                         "byte_order": "little",
                     },
-                    "scalar_range": {
-                        k: list(v) for k, v in em.scalar_range_per_component.items()
-                    },
+                    "scalar_range": {k: list(v) for k, v in em.scalar_range_per_component.items()},
                 }
             )
 
@@ -2008,9 +1972,7 @@ def build_manifest(
         if n_beam_total:
             mesh_meta["n_beam_total"] = int(n_beam_total)
         if beam_solids_skip_reasons:
-            mesh_meta["beam_solids_skip_reasons"] = {
-                str(k): int(v) for k, v in beam_solids_skip_reasons.items()
-            }
+            mesh_meta["beam_solids_skip_reasons"] = {str(k): int(v) for k, v in beam_solids_skip_reasons.items()}
 
     manifest: dict = {
         "version": MANIFEST_VERSION,
@@ -2018,13 +1980,9 @@ def build_manifest(
         "mesh": mesh_meta,
         "fields": fields_payload,
     }
-    if history is not None and (
-        history.regions or history.variables or history.series
-    ):
+    if history is not None and (history.regions or history.variables or history.series):
         manifest["history"] = build_history_payload(history)
-    if lineage is not None and (
-        lineage.get("assembly_guid") or lineage.get("groups")
-    ):
+    if lineage is not None and (lineage.get("assembly_guid") or lineage.get("groups")):
         manifest["lineage"] = lineage
     # FEA input concepts (masses / BCs / load scenarios), carried from
     # adapy's deck-write sidecar. Same shape as the ``fem_concepts``
@@ -2190,8 +2148,7 @@ def make_stream_reader(src_path: os.PathLike) -> FEAStreamReader:
     factory = _STREAM_READERS.get(ext)
     if factory is None:
         raise ValueError(
-            f"no streaming reader for FEA source extension {ext!r}; "
-            f"registered: {sorted(_STREAM_READERS)}"
+            f"no streaming reader for FEA source extension {ext!r}; " f"registered: {sorted(_STREAM_READERS)}"
         )
     return factory(src_path)
 
@@ -2281,9 +2238,7 @@ def bake_artefacts(
     # FEA mesh enters the existing CustomBatchedMesh pick + highlight
     # pipeline without a parallel selection path.
     mesh_elements_path = out_dir / "fea.mesh.elements.bin"
-    n_elements = write_mesh_elements(
-        geom, mesh_elements_path, element_ranges=topology.element_ranges
-    )
+    n_elements = write_mesh_elements(geom, mesh_elements_path, element_ranges=topology.element_ranges)
 
     # Beam-solid mesh — optional, depends on whether the reader has
     # section + axis info per beam (SIF via FEAResultStreamAdapter
@@ -2312,16 +2267,12 @@ def bake_artefacts(
         # always does, but a future reader might omit it).
         if solid_beams.vertex_node0.size:
             beam_solids_warp_path = out_dir / "fea.beam_solids.warp.bin"
-            n_beam_solid_verts = write_beam_solids_warp(
-                solid_beams, beam_solids_warp_path
-            )
+            n_beam_solid_verts = write_beam_solids_warp(solid_beams, beam_solids_warp_path)
         # AFEG element-boundary wireframe for the solid mesh. Without
         # this the beam solids render as one continuous tube — see the
         # writer docstring for the boundary-edge rules.
         beam_solids_edges_path = out_dir / "fea.beam_solids.edges.bin"
-        n_beam_solid_edges = write_beam_solids_edges(
-            solid_beams, beam_solids_edges_path
-        )
+        n_beam_solid_edges = write_beam_solids_edges(solid_beams, beam_solids_edges_path)
 
     field_metas: list[FieldArtefactMeta] = []
     blob_paths: list[pathlib.Path] = []
@@ -2347,9 +2298,7 @@ def bake_artefacts(
         for es in elem_specs:
             # Filename includes elem_type so each (field, type) bucket
             # gets a distinct file the frontend can range-fetch.
-            blob_path = (
-                out_dir / f"fea.{es.name}.{es.elem_type}.elements.bin"
-            )
+            blob_path = out_dir / f"fea.{es.name}.{es.elem_type}.elements.bin"
             em = write_element_field_blob_streaming(reader, es, blob_path)
             elem_field_metas.append(em)
             blob_paths.append(blob_path)
@@ -2394,25 +2343,15 @@ def bake_artefacts(
         mesh_elements_filename=mesh_elements_path.name,
         n_elements=n_elements,
         history=history,
-        beam_solids_glb_filename=(
-            beam_solids_glb_path.name if beam_solids_glb_path else None
-        ),
-        beam_solids_elements_filename=(
-            beam_solids_elements_path.name if beam_solids_elements_path else None
-        ),
-        beam_solids_warp_filename=(
-            beam_solids_warp_path.name if beam_solids_warp_path else None
-        ),
-        beam_solids_edges_filename=(
-            beam_solids_edges_path.name if beam_solids_edges_path else None
-        ),
+        beam_solids_glb_filename=(beam_solids_glb_path.name if beam_solids_glb_path else None),
+        beam_solids_elements_filename=(beam_solids_elements_path.name if beam_solids_elements_path else None),
+        beam_solids_warp_filename=(beam_solids_warp_path.name if beam_solids_warp_path else None),
+        beam_solids_edges_filename=(beam_solids_edges_path.name if beam_solids_edges_path else None),
         n_beam_solid_edges=n_beam_solid_edges,
         n_beam_solids=n_beam_solids,
         n_beam_solid_verts=n_beam_solid_verts,
         n_beam_total=(solid_beams.total_beams if solid_beams is not None else 0),
-        beam_solids_skip_reasons=(
-            solid_beams.skip_reasons if solid_beams is not None else None
-        ),
+        beam_solids_skip_reasons=(solid_beams.skip_reasons if solid_beams is not None else None),
         lineage=lineage,
         fem_concepts=fem_concepts,
         legacy_glb_url_template=legacy_glb_url_template,
@@ -2584,9 +2523,7 @@ def bake_with_posters(
             dest_png = bake.mesh_glb_path.with_suffix(".png")
             canonical = dest_png
         else:
-            dest_png = bake.mesh_glb_path.with_name(
-                f"fea.mesh.mode_{mode_n}.png"
-            )
+            dest_png = bake.mesh_glb_path.with_name(f"fea.mesh.mode_{mode_n}.png")
         try:
             img = render_fea_mode_from_bundle(
                 bake.out_dir,
@@ -2696,9 +2633,7 @@ def read_elem_field_blob_header(path: os.PathLike) -> dict:
         raise ValueError(f"{path}: not an AFEL blob (magic {prefix[:4]!r}).")
     version, json_len = struct.unpack("<II", prefix[4:12])
     if version != ELEM_FIELD_VERSION:
-        raise ValueError(
-            f"{path}: AFEL version {version}, expected {ELEM_FIELD_VERSION}."
-        )
+        raise ValueError(f"{path}: AFEL version {version}, expected {ELEM_FIELD_VERSION}.")
     return json.loads(prefix[12 : 12 + json_len].decode("utf-8"))
 
 

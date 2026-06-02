@@ -8,6 +8,7 @@ IndexError, aborting the entire conversion. The fix routes that case
 through the same ``ACISInsufficientPointsError`` the surrounding code
 already handles with a per-face skip-and-warn.
 """
+
 from __future__ import annotations
 
 import pytest

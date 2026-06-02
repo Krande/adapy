@@ -112,10 +112,7 @@ class UtilityRegistry:
     def lookup(cls, name: str) -> UtilityFn:
         fn = cls._entries.get(name)
         if fn is None:
-            raise UnknownUtility(
-                f"no utility registered for {name!r}; "
-                f"available: {sorted(cls._entries) or 'none'}"
-            )
+            raise UnknownUtility(f"no utility registered for {name!r}; " f"available: {sorted(cls._entries) or 'none'}")
         return fn
 
     @classmethod
@@ -203,8 +200,7 @@ def run_utility(
     )
     if not isinstance(payload, dict) or "ops" not in payload:
         raise ValueError(
-            f"utility {name!r} returned a malformed viewer-ops payload "
-            f"(expected a dict with an 'ops' key)"
+            f"utility {name!r} returned a malformed viewer-ops payload " f"(expected a dict with an 'ops' key)"
         )
     payload.setdefault("version", VIEWOPS_VERSION)
     return payload

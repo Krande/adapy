@@ -8,6 +8,7 @@ domain-specific and supplied by subclasses.
 This base names no structural-engineering concept; domain layers subclass it and
 add their design logic (loads, constraints, sections, …).
 """
+
 from __future__ import annotations
 
 import abc

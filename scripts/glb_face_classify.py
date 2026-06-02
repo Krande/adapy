@@ -37,7 +37,6 @@ import sys
 import numpy as np
 import trimesh
 
-
 # ─────────────────── geometry helpers ───────────────────
 
 
@@ -145,8 +144,7 @@ class GridHash:
 # ─────────────────── classification ───────────────────
 
 
-def classify(centroid_offset: float, normal_angle_deg: float,
-             pos_tol: float, ang_tol: float) -> str:
+def classify(centroid_offset: float, normal_angle_deg: float, pos_tol: float, ang_tol: float) -> str:
     pos_ok = centroid_offset <= pos_tol
     rot_ok = normal_angle_deg <= ang_tol
     if pos_ok and rot_ok:
@@ -165,21 +163,21 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("reference", type=pathlib.Path)
     ap.add_argument("subject", type=pathlib.Path)
-    ap.add_argument("--pos-tol", type=float, default=10.0,
-                    help="Centroid-distance threshold (mm) for POS_OK (default 10).")
-    ap.add_argument("--ang-tol", type=float, default=10.0,
-                    help="Normal-angle threshold (deg) for ROT_OK (default 10).")
-    ap.add_argument("--ref-tol", type=float, default=5.0,
-                    help="Reference-triangle search/cell tolerance (mm, default 5).")
-    ap.add_argument("--out", type=pathlib.Path, default=None,
-                    help="Optional dir to write per-bucket GLBs and a JSON report.")
+    ap.add_argument(
+        "--pos-tol", type=float, default=10.0, help="Centroid-distance threshold (mm) for POS_OK (default 10)."
+    )
+    ap.add_argument("--ang-tol", type=float, default=10.0, help="Normal-angle threshold (deg) for ROT_OK (default 10).")
+    ap.add_argument(
+        "--ref-tol", type=float, default=5.0, help="Reference-triangle search/cell tolerance (mm, default 5)."
+    )
+    ap.add_argument(
+        "--out", type=pathlib.Path, default=None, help="Optional dir to write per-bucket GLBs and a JSON report."
+    )
     args = ap.parse_args()
 
     print(f"[load] reference: {args.reference}")
     ref_scene = trimesh.load(args.reference, force="scene")
-    ref_concat = trimesh.util.concatenate(
-        [g for g in ref_scene.geometry.values() if isinstance(g, trimesh.Trimesh)]
-    )
+    ref_concat = trimesh.util.concatenate([g for g in ref_scene.geometry.values() if isinstance(g, trimesh.Trimesh)])
     ref_tris = triangles(ref_concat)
     ref_centroids = tri_centroids(ref_tris)
     ref_normals, ref_areas = tri_normals_areas(ref_tris)
@@ -199,8 +197,7 @@ def main() -> None:
     grid = GridHash(ref_centroids, ref_normals, args.ref_tol)
     normal_min_dot = float(np.cos(np.deg2rad(args.ang_tol)))
 
-    print(f"[query] {n_geoms} subject faces vs reference  "
-          f"(pos_tol={args.pos_tol} mm, ang_tol={args.ang_tol}°)")
+    print(f"[query] {n_geoms} subject faces vs reference  " f"(pos_tol={args.pos_tol} mm, ang_tol={args.ang_tol}°)")
 
     rows = []
     bucket_counts: dict[str, int] = collections.Counter()
@@ -212,8 +209,7 @@ def main() -> None:
         centroid, normal, area = face_centroid_normal_area(geom)
         if area <= 0:
             continue
-        d, dot, ref_idx = grid.query_aligned(centroid, normal, normal_min_dot,
-                                             max_search_radius_cells=2)
+        d, dot, ref_idx = grid.query_aligned(centroid, normal, normal_min_dot, max_search_radius_cells=2)
         normal_angle_deg = float(np.degrees(np.arccos(np.clip(dot, 0.0, 1.0))))
 
         # plane_offset: how far the subject centroid sits OUT of the
@@ -230,17 +226,19 @@ def main() -> None:
         bucket = classify(d, normal_angle_deg, args.pos_tol, args.ang_tol)
         bucket_counts[bucket] += 1
         bucket_geoms[bucket].append(name)
-        rows.append(dict(
-            name=name,
-            centroid=centroid.tolist(),
-            normal=normal.tolist(),
-            area_mm2=area,
-            tris=int(geom.faces.shape[0]),
-            ref_centroid_offset_mm=d,
-            ref_normal_angle_deg=normal_angle_deg,
-            plane_offset_mm=plane_offset,
-            bucket=bucket,
-        ))
+        rows.append(
+            dict(
+                name=name,
+                centroid=centroid.tolist(),
+                normal=normal.tolist(),
+                area_mm2=area,
+                tris=int(geom.faces.shape[0]),
+                ref_centroid_offset_mm=d,
+                ref_normal_angle_deg=normal_angle_deg,
+                plane_offset_mm=plane_offset,
+                bucket=bucket,
+            )
+        )
 
     print()
     print("=== bucket counts ===")
@@ -256,9 +254,11 @@ def main() -> None:
     print("=== worst 20 by normal-angle deviation ===")
     print(f"{'name':<22s}  {'tris':>5s}  {'area':>8s}  {'pos_off':>8s}  {'normal°':>8s}  {'plane°':>8s}  bucket")
     for r in rows[:20]:
-        print(f"{r['name']:<22s}  {r['tris']:>5d}  {r['area_mm2']:>8.0f}  "
-              f"{r['ref_centroid_offset_mm']:>8.2f}  {r['ref_normal_angle_deg']:>8.2f}  "
-              f"{r['plane_offset_mm']:>8.2f}  {r['bucket']}")
+        print(
+            f"{r['name']:<22s}  {r['tris']:>5d}  {r['area_mm2']:>8.0f}  "
+            f"{r['ref_centroid_offset_mm']:>8.2f}  {r['ref_normal_angle_deg']:>8.2f}  "
+            f"{r['plane_offset_mm']:>8.2f}  {r['bucket']}"
+        )
 
     # Cluster POS_OK_ROT_BAD by approximate normal-flip pattern. If
     # most rotated faces share a similar centroid-relative offset
