@@ -276,10 +276,11 @@ class AdacppBackend:
                     polygons.append([self._xyz(p) for p in fb.bound.polygon])
             shape = self._cad.build_face_based_surface_model(polygons)
         elif isinstance(g, su.AdvancedFace):
-            # B-spline (PlateCurved / loft-derived) faces: build the surface and
-            # take its natural-UV trimmed face. The full SAT/STEP supplied-pcurve
-            # trimming (OccBackend.make_face_from_geom) is import-fidelity only and
-            # not ported; analytic surfaces (plane/cyl/cone/...) not yet either.
+            # B-spline (PlateCurved / loft-derived / SAT) faces. With bounds, the
+            # surface is trimmed to the boundary wire(s) — each OrientedEdge with
+            # a supplied pcurve drives its edge from surface(pcurve(t)) (the
+            # SAT-pcurve path of OccBackend.make_face_from_geom). Without bounds,
+            # the natural-UV face. Analytic surfaces aren't ported yet.
             surf = g.face_surface
             if not isinstance(surf, su.BSplineSurfaceWithKnots):
                 raise NotImplementedError(
@@ -288,7 +289,7 @@ class AdacppBackend:
                 )
             cps = [[self._xyz(p) for p in row] for row in surf.control_points_list]
             weights = list(surf.weights_data) if isinstance(surf, su.RationalBSplineSurfaceWithKnots) else []
-            shape = self._cad.build_bspline_surface_face(
+            surf_args = (
                 surf.u_degree,
                 surf.v_degree,
                 cps,
@@ -298,6 +299,11 @@ class AdacppBackend:
                 list(surf.v_multiplicities),
                 weights,
             )
+            if g.bounds:
+                bounds = [self._encode_face_bound(fb) for fb in g.bounds]
+                shape = self._cad.build_advanced_face_bspline(*surf_args, bounds)
+            else:
+                shape = self._cad.build_bspline_surface_face(*surf_args)
         elif isinstance(g, su.WireFilledFace):
             # Interpolate a smooth surface through the boundary edges
             # (BRepOffsetAPI_MakeFilling) — the SAT exppc fallback face.
@@ -394,6 +400,35 @@ class AdacppBackend:
             return rec
         # Line, no geometry, or unsupported → straight segment.
         return [0.0, *start, *end]
+
+    @staticmethod
+    def _encode_pcurve(pc) -> list[float]:
+        """Encode a Pcurve2dBSpline (2D UV curve on the face surface) as a
+        kind-6 edge record for adacpp.cad.build_advanced_face_bspline."""
+        cps = pc.control_points_2d
+        knots = [float(k) for k in pc.knots]
+        mults = [float(m) for m in pc.knot_multiplicities]
+        rational = bool(pc.weights)
+        rec = [6.0, float(pc.degree), 1.0 if rational else 0.0, 1.0 if pc.closed else 0.0, float(len(cps))]
+        for cp in cps:
+            rec += [float(cp[0]), float(cp[1])]
+        rec += [float(len(knots)), *knots, *mults]
+        if rational:
+            rec += [float(w) for w in pc.weights]
+        return rec
+
+    def _encode_face_bound(self, fb) -> list[list[float]]:
+        """Encode a FaceBound's edge loop: each OrientedEdge with a supplied
+        pcurve → a kind-6 (pcurve-on-surface) record; otherwise its 3D edge."""
+        import ada.geom.curves as cu
+
+        bound = fb.bound
+        edge_list = bound.edge_list if isinstance(bound, cu.EdgeLoop) else []
+        out = []
+        for oe in edge_list:
+            pc = getattr(oe, "pcurve", None)
+            out.append(self._encode_pcurve(pc) if pc is not None else self._encode_oriented_edge(oe))
+        return out
 
     def make_wire(self, points: "list") -> ShapeHandle:
         return self._cad.make_wire([[float(c) for c in self._xyz(p)] for p in points])
