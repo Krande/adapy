@@ -566,8 +566,18 @@ export async function load_fea_streaming(args: {
             }
         }
 
+        // Captured from the prepareHook so the mesh lookups below are
+        // scoped to the GLB we just loaded — NOT the whole scene. The
+        // fem_concepts overlay (and any other helper) registers its own
+        // meshes as direct scene children, so findFirstMesh(scene) could
+        // otherwise grab a glyph mesh as the "FEA mesh" and the field
+        // apply would crash on a vertex-count mismatch. gltf_scene is the
+        // same object setupModelLoader adds to the scene, so it stays
+        // valid after replace_model resolves.
+        let feaRoot: THREE.Object3D | null = null;
         try {
             await replace_model(url, async (gltf_scene) => {
+                feaRoot = gltf_scene;
                 if (afemEntries.length > 0) {
                     installAfemUserData(gltf_scene, afemEntries);
                 }
@@ -583,8 +593,8 @@ export async function load_fea_streaming(args: {
             // beam without going through the server.
             if (manifest.lineage && manifest.lineage.assembly_guid) {
                 const sceneRoot = sceneRef.current;
-                const meshRoot = sceneRoot ? findFirstMesh(sceneRoot) : null;
-                const root = (meshRoot ?? sceneRoot) as THREE.Object3D | null;
+                const meshRoot = feaRoot ? findFirstMesh(feaRoot) : null;
+                const root = (meshRoot ?? feaRoot ?? sceneRoot) as THREE.Object3D | null;
                 if (root) {
                     const materials = manifest.lineage.materials ?? {};
                     const sections = manifest.lineage.sections ?? {};
@@ -656,7 +666,10 @@ export async function load_fea_streaming(args: {
 
         const scene = sceneRef.current;
         if (!scene) throw new Error("scene not ready");
-        const mesh = findFirstMesh(scene);
+        // Scope to the loaded GLB root, not the whole scene — a
+        // fem_concepts glyph or other overlay mesh would otherwise be
+        // picked up as active.mesh and crash applyFieldToMesh.
+        const mesh = findFirstMesh(feaRoot ?? scene);
         if (!mesh) throw new Error("loaded GLB has no mesh");
         const basePositions = snapshotBasePositions(mesh.geometry);
 
@@ -1063,7 +1076,7 @@ export async function load_fea_with_defaults(sourceName: string): Promise<void> 
     // The 202 response from feaManifest fills in the real jobId on
     // the next tick.
     convStore.setJob(storeKey, {
-        sourceKey: sourceName,
+        sourceKey: storeKey,
         jobId: "",
         derivedKey: "",
         status: "queued",
@@ -1109,7 +1122,7 @@ export async function load_fea_with_defaults(sourceName: string): Promise<void> 
                 // poll loop, don't resurrect it.
                 if (!useConversionStore.getState().jobs[storeKey]) return;
                 convStore.setJob(storeKey, {
-                    sourceKey: sourceName,
+                    sourceKey: storeKey,
                     jobId,
                     derivedKey: "",
                     status,
@@ -1157,7 +1170,7 @@ export async function load_fea_with_defaults(sourceName: string): Promise<void> 
                     MANIFEST_PROGRESS_CEILING
                     + progress * (1 - MANIFEST_PROGRESS_CEILING);
                 convStore.setJob(storeKey, {
-                    sourceKey: sourceName,
+                    sourceKey: storeKey,
                     jobId: "",
                     derivedKey: "",
                     status: "running",
@@ -1171,7 +1184,7 @@ export async function load_fea_with_defaults(sourceName: string): Promise<void> 
         // Mark done so the toast self-removes (ConversionProgress
         // filters out done jobs). All three phases completed.
         convStore.setJob(storeKey, {
-            sourceKey: sourceName,
+            sourceKey: storeKey,
             jobId: "",
             derivedKey: "",
             status: "done",
@@ -1190,7 +1203,7 @@ export async function load_fea_with_defaults(sourceName: string): Promise<void> 
         }
         const msg = err instanceof Error ? err.message : String(err);
         convStore.setJob(storeKey, {
-            sourceKey: sourceName,
+            sourceKey: storeKey,
             jobId: "",
             derivedKey: "",
             status: "error",

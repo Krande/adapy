@@ -209,6 +209,16 @@ function init(scene: THREE.Scene): () => void {
     const rebuild = () => {
         if (!sceneRef.current) return;
         disposeContainer();
+        // Glyph positions are raw model coordinates (m.cog / node.p from
+        // the producer). setupModelLoader recenters the loaded model by
+        // ``modelStore.translation`` (gltf_scene.position += translation),
+        // but this container is a direct scene child at the origin — so
+        // without mirroring that offset the masses/BCs/loads float away
+        // from the recentered mesh. Copy the model translation onto the
+        // container so the overlay tracks the geometry.
+        const translation = useModelState.getState().translation;
+        if (translation) container.position.copy(translation);
+        else container.position.set(0, 0, 0);
         const st = useFemConceptsStore.getState();
         const glyph = glyphScale();
         if (st.showMasses) addMasses(st.masses, glyph);
@@ -232,8 +242,12 @@ function init(scene: THREE.Scene): () => void {
         if (s.loadedSourceNames !== prev.loadedSourceNames) {
             reparse();
             rebuild();
-        } else if (s.boundingBox !== prev.boundingBox) {
-            rebuild(); // glyph scale follows the model bbox
+        } else if (
+            s.boundingBox !== prev.boundingBox ||
+            s.translation !== prev.translation
+        ) {
+            // bbox → glyph scale; translation → overlay recenter offset.
+            rebuild();
         }
     });
 
