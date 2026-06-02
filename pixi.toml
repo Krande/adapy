@@ -70,30 +70,60 @@ pyprofile-html-all = { cmd = "pyinstrument -r html -o profile_all_tests.html -m 
 
 
 [environments]
-prod = { features = ["prod", "desktop"], solve-group = "prod", no-default-feature = true }
+prod = { features = ["prod", "pyocc", "desktop"], solve-group = "prod", no-default-feature = true }
 lint = { features = ["lint"], no-default-feature = true }
-profile = { features = ["profile", "prod", "desktop"], solve-group = "prod", no-default-feature = true }
+profile = { features = ["profile", "prod", "pyocc", "desktop"], solve-group = "prod", no-default-feature = true }
 frontend = { features = ["frontend"], no-default-feature = true }
 jupyterlite = { features = ["jupyterlite"], no-default-feature = true }
 tests-core = { features = ["tests-core"], no-default-feature = true }
 test-pyodide = { features = ["test-pyodide"], no-default-feature = true }
-tests = { features = ["tests", "tests-core", "prod", "desktop"], solve-group = "prod", no-default-feature = true }
-fem-deps = { features = ["fem-deps", "prod", "tests-core"], no-default-feature = true }
-fem = { features = ["fem", "prod", "desktop", "tests-core", "fem-deps"], no-default-feature = true }
-docs = { features = ["docs", "prod", "desktop", "fem-deps", "tests-core"], no-default-feature = true }
-viewer-api = { features = ["viewer-api", "prod"], solve-group = "prod", no-default-feature = true }
+tests = { features = ["tests", "tests-core", "prod", "pyocc", "desktop"], solve-group = "prod", no-default-feature = true }
+# Same as `tests` but swaps the pythonocc CAD backend (`pyocc`) for the
+# native ada-cpp backend (`adacpp`), which sets ADAPY_CAD_BACKEND=adacpp.
+# Own solve-group: ada-cpp's occt closure must not be forced onto the
+# pythonocc-pinned `prod` group. Run with: pixi run -e tests-adacpp test
+tests-adacpp = { features = ["adacpp", "tests", "tests-core", "prod", "desktop"], solve-group = "adacpp", no-default-feature = true }
+fem-deps = { features = ["fem-deps", "prod", "pyocc", "tests-core"], no-default-feature = true }
+fem = { features = ["fem", "prod", "pyocc", "desktop", "tests-core", "fem-deps"], no-default-feature = true }
+docs = { features = ["docs", "prod", "pyocc", "desktop", "fem-deps", "tests-core"], no-default-feature = true }
+viewer-api = { features = ["viewer-api", "prod", "pyocc"], solve-group = "prod", no-default-feature = true }
 # Slim runtime for the Dockerfile.viewer image — no `prod` so the
 # occt/pythonocc/numpy closure stays out.
 viewer-api-slim = { features = ["viewer-api"], no-default-feature = true }
-viewer-api-tests = { features = ["viewer-api", "tests-core", "prod"], solve-group = "prod", no-default-feature = true }
-meshio-bridge = { features = ["meshio-bridge", "prod", "desktop"], solve-group = "prod", no-default-feature = true }
-meshio-bridge-tests = { features = ["meshio-bridge", "tests-core", "prod", "desktop"], solve-group = "prod", no-default-feature = true }
+viewer-api-tests = { features = ["viewer-api", "tests-core", "prod", "pyocc"], solve-group = "prod", no-default-feature = true }
+meshio-bridge = { features = ["meshio-bridge", "prod", "pyocc", "desktop"], solve-group = "prod", no-default-feature = true }
+meshio-bridge-tests = { features = ["meshio-bridge", "tests-core", "prod", "pyocc", "desktop"], solve-group = "prod", no-default-feature = true }
 
 [feature.jupyterlite.dependencies]
 jupyterlite-core = "*"
 
 [feature.meshio-bridge.dependencies]
 meshio = "*"
+
+# pythonocc-core CAD backend (OccBackend). Factored out of `prod` so a
+# single environment can swap it for the `adacpp` feature — see
+# `tests-adacpp` below. Every environment that historically got the OCC
+# backend via `prod` now lists `pyocc` explicitly.
+# novtk: default occt builds link VTK + X libs we don't render through.
+# pythonocc-core's build string must match occt's or the solver picks the
+# vtk-enabled occt. Pinned to 7.9.3 to share the exact OCCT version with
+# ada-cpp (which links the same conda-forge occt) — identical TopoDS ABI
+# makes the from_topods_pointer bridge between the two backends safe.
+# See dap plan/v3 Phase 7.
+[feature.pyocc.dependencies]
+pythonocc-core = { version = "7.9.3.*", build = "novtk_*" }
+occt = { version = "7.9.3.*", build = "novtk_*" }
+
+# ada-cpp CAD backend (AdacppBackend) — native CPython build of the
+# wasm-capable kernel. Brings its own occt 7.9.3 + gmsh + ifcopenshell,
+# and deliberately does NOT pull pythonocc-core, so an environment with
+# `adacpp` and without `pyocc` exercises adacpp as the sole CAD backend
+# (no pythonocc fallback by design).
+[feature.adacpp.dependencies]
+ada-cpp = "0.4.0.*"
+
+[feature.adacpp.activation.env]
+ADAPY_CAD_BACKEND = "adacpp"
 
 [feature.prod.dependencies]
 python = "3.12.*"
@@ -102,17 +132,9 @@ numpy = "*"
 hdf5 = "*"
 h5py = "*"
 ifcopenshell = "*"
-# novtk: default occt builds link VTK + X libs we don't render through.
-# pythonocc-core build string must match occt's or the solver picks the
-# vtk-enabled occt.
-# Pinned to 7.9.3 to share the exact OCCT version with adacpp (which links
-# OCCT statically) — identical TopoDS ABI makes the from_topods_pointer
-# bridge between the two backends safe. See dap plan/v3 Phase 7.
-pythonocc-core = { version = "7.9.3.*", build = "novtk_*" }
 python-gmsh = "*"
 pyquaternion = "*"
 trimesh = "*"
-occt = { version = "7.9.3.*", build = "novtk_*" }
 websockets = ">=14"
 pyparsing = "*"
 flatbuffers = "*"
