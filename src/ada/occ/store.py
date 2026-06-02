@@ -19,20 +19,20 @@ if TYPE_CHECKING:
     from OCC.Core.TopoDS import TopoDS_Shape
 
     from ada.base.physical_objects import BackendGeom
-    from ada.cadit.step.store import StepStore
-    from ada.cadit.step.write.writer import StepWriter
+    from ada.occ.step.store import StepStore
+    from ada.occ.step.writer import StepWriter
 
 
 class OCCStore:
     @staticmethod
     def get_step_writer() -> StepWriter:
-        from ada.cadit.step.write.writer import StepWriter
+        from ada.occ.step.writer import StepWriter
 
         return StepWriter("AdaStep")
 
     @staticmethod
     def get_reader(step_filepath) -> StepStore:
-        from ada.cadit.step.store import StepStore
+        from ada.occ.step.store import StepStore
 
         return StepStore(step_filepath)
 
@@ -43,7 +43,7 @@ class OCCStore:
         render_override: dict[str, GeomRepr] = None,
     ) -> tuple[BackendGeom, TopoDS_Shape]:
 
-        from ada.cadit.step.store import StepStore
+        from ada.occ.step.store import StepStore
 
         if render_override is None:
             render_override = {}

@@ -1055,7 +1055,7 @@ class OccBackend:
         return extrude_face_along_normal(face, thickness)
 
     def face_to_advanced_face(self, shape: ShapeHandle):
-        from ada.cadit.step.read.geom.surfaces import occ_face_to_ada_face
+        from ada.occ.step.geom.surfaces import occ_face_to_ada_face
 
         return occ_face_to_ada_face(shape)
 
@@ -1179,7 +1179,7 @@ class OccBackend:
     ) -> None:
         # OCAF/XCAF STEP write via pythonocc's STEPCAFControl_Writer.
         from ada.base.units import Units
-        from ada.cadit.step.write.writer import StepSchema, StepWriter
+        from ada.occ.step.writer import StepSchema, StepWriter
 
         sw = StepWriter("Assembly", units=Units.from_str(unit), schema=StepSchema(schema.upper()))
         for shape, name, color in zip(shapes, names, colors):

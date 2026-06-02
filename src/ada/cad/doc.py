@@ -23,8 +23,8 @@ import os
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
-    from ada.cadit.step.store import StepStore
-    from ada.cadit.step.write.writer import StepWriter
+    from ada.occ.step.store import StepStore
+    from ada.occ.step.writer import StepWriter
 
 # Capability tokens (string-keyed so a backend can advertise a subset).
 XCAF_DOC = "xcaf_doc"
