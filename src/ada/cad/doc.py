@@ -82,20 +82,20 @@ class AdacppDocBackend:
     export run with no pythonocc installed — the native adacpp build links the
     full OCCT, so OCAF names/colors are available (unlike the wasm build).
 
-    STEP *read* (named/colored OCAF reader) and the RWGltf XCAF writer are not
-    routed here yet; callers needing those should use the portable per-shape
-    ``CadBackend.write_glb_bytes`` path or the OCC doc backend."""
+    The RWGltf XCAF writer is not routed here yet; callers needing it should use
+    the portable per-shape ``CadBackend.write_glb_bytes`` path or the OCC doc
+    backend."""
 
     name = "adacpp-xcaf"
     capabilities = frozenset({XCAF_DOC})
 
     def __init__(self) -> None:
-        # Probe that adacpp + its STEP writer are importable so selection fails
-        # cleanly where the native adacpp build isn't present.
+        # Probe that adacpp + its STEP read/write are importable so selection
+        # fails cleanly where the native adacpp build isn't present.
         from adacpp import cad as _cad  # noqa: F401
 
-        if not hasattr(_cad, "write_step"):
-            raise ImportError("adacpp build lacks cad.write_step (upgrade ada-cpp)")
+        if not hasattr(_cad, "write_step") or not hasattr(_cad, "read_step_shapes"):
+            raise ImportError("adacpp build lacks cad.write_step / read_step_shapes (upgrade ada-cpp)")
 
     def step_writer(self) -> "StepWriter":
         from ada.cadit.step.write.adacpp_writer import AdacppStepWriter
@@ -103,10 +103,9 @@ class AdacppDocBackend:
         return AdacppStepWriter("AdaStep")
 
     def step_reader(self, filepath: Any) -> "StepStore":
-        raise NotImplementedError(
-            "AdacppDocBackend.step_reader: named/colored OCAF STEP read is not yet "
-            "routed through adacpp — use the OCC doc backend for STEP import."
-        )
+        from ada.cadit.step.read.adacpp_store import AdacppStepStore
+
+        return AdacppStepStore(filepath)
 
     def write_gltf(self, *args: Any, **kwargs: Any) -> Any:
         raise NotImplementedError(
