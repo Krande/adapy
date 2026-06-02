@@ -6,13 +6,15 @@ import pathlib
 from itertools import chain
 from typing import TYPE_CHECKING, Any, BinaryIO, Callable, Iterable, Literal
 
-from ada import Node, Pipe, PrimBox, PrimCyl, PrimExtrude, PrimRevolve, Shape
 from ada.api.beams.base_bm import Beam
 from ada.api.beams.beam_tapered import BeamTapered
 from ada.api.containers import Beams, Connections, Materials, Nodes, Plates, Sections
 from ada.api.groups import Group
+from ada.api.nodes import Node
+from ada.api.piping import Pipe
 from ada.api.plates import PlateCurved
 from ada.api.presentation_layers import PresentationLayers
+from ada.api.primitives import PrimBox, PrimCyl, PrimExtrude, PrimRevolve, Shape
 from ada.api.spatial.eq_types import EquipRepr
 from ada.api.transforms import Placement
 from ada.base.changes import ChangeAction
