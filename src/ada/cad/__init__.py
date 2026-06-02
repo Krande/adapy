@@ -298,6 +298,18 @@ class AdacppBackend:
                 list(surf.v_multiplicities),
                 weights,
             )
+        elif isinstance(g, su.WireFilledFace):
+            # Interpolate a smooth surface through the boundary edges
+            # (BRepOffsetAPI_MakeFilling) — the SAT exppc fallback face.
+            import ada.geom.curves as cu
+
+            if not g.bounds:
+                raise NotImplementedError("AdacppBackend.build: WireFilledFace has no bounds")
+            bound = g.bounds[0].bound
+            edge_list = bound.edge_list if isinstance(bound, cu.EdgeLoop) else []
+            if len(edge_list) < 3:
+                raise NotImplementedError("AdacppBackend.build: WireFilledFace needs >=3 boundary edges")
+            shape = self._cad.build_filled_face([self._encode_oriented_edge(oe) for oe in edge_list])
         else:
             raise NotImplementedError(
                 f"AdacppBackend.build: ada.geom type {type(g).__name__!r} is not yet ported to "
@@ -334,6 +346,54 @@ class AdacppBackend:
         raise NotImplementedError(
             f"AdacppBackend.build: profile curve {type(curve).__name__!r} not yet ported to adacpp."
         )
+
+    def _encode_oriented_edge(self, oe) -> list[float]:
+        """Encode an OrientedEdge / Edge as an adacpp edge record (the layout
+        adacpp's edge_from_record consumes). Mirrors OccBackend's
+        make_edge_from_edge: line / circle (full|trimmed) / ellipse / B-spline
+        (rational, full|trimmed). Straight-line fallback when the underlying
+        3D curve geometry isn't one of those."""
+        import ada.geom.curves as cu
+
+        start, end = self._xyz(oe.start), self._xyz(oe.end)
+        closed = all(abs(a - b) <= 1e-6 for a, b in zip(start, end))
+        t_start = getattr(oe, "t_start", None)
+        t_end = getattr(oe, "t_end", None)
+        has_trim = t_start is not None and t_end is not None and not closed
+
+        ee = getattr(oe, "edge_element", None)
+        curve = ee.edge_geometry if isinstance(ee, cu.EdgeCurve) else None
+
+        if isinstance(curve, cu.Circle):
+            loc, axis = self._xyz(curve.position.location), self._xyz(curve.position.axis)
+            r = float(curve.radius)
+            if closed:
+                return [2.0, *loc, *axis, r]
+            if has_trim:
+                return [5.0, *loc, *axis, r, float(t_start), float(t_end)]
+            return [0.0, *start, *end]  # no trim params recoverable → chord
+        if isinstance(curve, cu.Ellipse):
+            pos = curve.position
+            loc, axis, ref = self._xyz(pos.location), self._xyz(pos.axis), self._xyz(pos.ref_direction)
+            s1, s2 = float(curve.semi_axis1), float(curve.semi_axis2)
+            if closed:
+                return [4.0, *loc, *axis, *ref, s1, s2, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+            return [4.0, *loc, *axis, *ref, s1, s2, 1.0, *start, *end]
+        if isinstance(curve, (cu.BSplineCurveWithKnots, cu.RationalBSplineCurveWithKnots)):
+            poles = [self._xyz(p) for p in curve.control_points_list]
+            knots = [float(k) for k in curve.knots]
+            mults = [float(m) for m in curve.knot_multiplicities]
+            rational = isinstance(curve, cu.RationalBSplineCurveWithKnots)
+            rec = [3.0, float(curve.degree), 1.0 if rational else 0.0, 1.0 if has_trim else 0.0,
+                   float(t_start or 0.0), float(t_end or 0.0), float(len(poles))]
+            for p in poles:
+                rec += p
+            rec += [float(len(knots)), *knots, *mults]
+            if rational:
+                rec += [float(w) for w in curve.weights_data]
+            return rec
+        # Line, no geometry, or unsupported → straight segment.
+        return [0.0, *start, *end]
 
     def make_wire(self, points: "list") -> ShapeHandle:
         return self._cad.make_wire([[float(c) for c in self._xyz(p)] for p in points])
