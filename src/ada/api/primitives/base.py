@@ -65,14 +65,13 @@ class Shape(BackendGeom):
         self._geom = None
         self._occ_cache = None
         if geom is not None:
-            try:
-                from OCC.Core.TopoDS import TopoDS_Shape as _TopoDS_Shape
+            # A raw backend CAD body (the STEP/SAT read path passes one) goes to
+            # the transient ``_occ_cache`` slot; ``_geom`` stays an
+            # ``ada.geom.Geometry`` or None. Detect via the active backend so an
+            # adacpp ShapeHandle is recognised the same as a pythonocc TopoDS.
+            from ada.cad import is_shape_handle
 
-                _occ_avail = True
-            except ImportError:
-                _TopoDS_Shape = None  # type: ignore[assignment]
-                _occ_avail = False
-            if _occ_avail and isinstance(geom, _TopoDS_Shape):
+            if is_shape_handle(geom):
                 self._occ_cache = geom
             else:
                 self._geom = geom

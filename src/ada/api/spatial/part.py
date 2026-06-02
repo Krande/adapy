@@ -574,14 +574,30 @@ class Part(BackendGeom):
         :param opacity: Assign Opacity upon import
         :param source_units: Unit of the imported STEP file. Default is 'm'
         """
-        from ada.occ.utils import extract_occ_shapes
+        if scale is None and transform is None and rotate is None:
+            # Backend-neutral path: route through the active document backend's
+            # OCAF reader (works under adacpp as well as pythonocc). Carries the
+            # per-shape name/colour the OCAF reader recovers.
+            from ada.cad.doc import active_doc_backend
 
-        shapes = extract_occ_shapes(step_path, scale, transform, rotate, include_shells=include_shells)
+            shapes = [
+                (s.shape, s.color, s.name)
+                for s in active_doc_backend().step_reader(step_path).iter_all_shapes(include_colors=True)
+            ]
+        else:
+            # Scale / transform / rotate on import is still the OCC-only path
+            # (gp_Trsf via extract_occ_shapes); names/colours aren't recovered.
+            from ada.occ.utils import extract_occ_shapes
+
+            shapes = [
+                (shp, None, None)
+                for shp in extract_occ_shapes(step_path, scale, transform, rotate, include_shells=include_shells)
+            ]
 
         if len(shapes) > 0:
             ada_name = name if name is not None else "CAD" + str(len(self.shapes) + 1)
-            for i, shp in enumerate(shapes):
-                ada_shape = Shape(ada_name + "_" + str(i), shp, colour, opacity, units=source_units)
+            for i, (shp, shp_color, shp_name) in enumerate(shapes):
+                ada_shape = Shape(ada_name + "_" + str(i), shp, colour or shp_color, opacity, units=source_units)
                 self.add_shape(ada_shape)
 
     def calculate_cog(self) -> COG:

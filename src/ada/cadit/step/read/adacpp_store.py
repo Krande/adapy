@@ -41,7 +41,7 @@ class AdacppStepStore:
         if self._cache is None:
             from adacpp import cad
 
-            self._cache = list(cad.read_step_shapes(self.filepath.read_bytes()))
+            self._cache = list(cad.read_step_shapes(self.filepath.read_bytes(), self.store_units.value.upper()))
         return self._cache
 
     def iter_all_shapes(self, include_colors: bool = False):
@@ -62,4 +62,16 @@ class AdacppStepStore:
     def get_bbox(self):
         from ada.cad import active_backend
 
-        return active_backend().bbox(self.get_root_shape())
+        # Union the per-shape bboxes (already unit-converted by read_step_shapes)
+        # and return the nested ((xmin,ymin,zmin),(xmax,ymax,zmax)) shape that
+        # StepStore.get_bbox produces. (get_root_shape/read_step_bytes does not
+        # apply the cascade unit, so we don't use it here.)
+        backend = active_backend()
+        mins = [float("inf")] * 3
+        maxs = [float("-inf")] * 3
+        for d in self._shapes():
+            bb = backend.bbox(d.shape)
+            for i in range(3):
+                mins[i] = min(mins[i], bb[i])
+                maxs[i] = max(maxs[i], bb[i + 3])
+        return (tuple(mins), tuple(maxs))
