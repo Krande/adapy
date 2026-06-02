@@ -1,16 +1,20 @@
 import pytest
-from OCC.Core.BRepCheck import BRepCheck_Analyzer
 
 import ada
 from ada.cadit.sat.parser import AcisSatParser, AcisToAdaConverter
-from ada.cadit.step.read.geom.surfaces import occ_shell_to_ada_faces
 from ada.geom import Geometry
 from ada.geom.surfaces import AdvancedFace
-from ada.occ.utils import extract_occ_shapes
 
 
 @pytest.mark.skip(reason="Not yet implemented")
 def test_read_b_spline_surf_w_knots_2_sat(example_files, tmp_path, monkeypatch):
+    # OCC-only SAT/STEP read + validity check (lazy-imported so the module
+    # collects without pythonocc; the test itself is skipped).
+    from OCC.Core.BRepCheck import BRepCheck_Analyzer
+
+    from ada.cadit.step.read.geom.surfaces import occ_shell_to_ada_faces
+    from ada.occ.utils import extract_occ_shapes
+
     # First read the STEP file
     step_path = example_files / "sat_files/hullskin_face_0.stp"
     shapes = extract_occ_shapes(step_path, scale=1.0, transform=None, rotate=None, include_shells=True)

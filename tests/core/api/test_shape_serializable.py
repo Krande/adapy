@@ -67,26 +67,20 @@ def test_prim_box_pickles_after_units_change():
     _assert_picklable(b)
 
 
-def test_shape_constructed_with_occ_body_pickles():
-    """The Shape constructor's OCC-detect branch routes a raw
-    ``TopoDS_Shape`` to ``_occ_cache`` so the object stays
-    picklable. The parametric ``_geom`` is None — that's the
-    honest answer (we don't have a parametric description), but
-    the OBJECT must still survive a pickle round trip so it can
-    be sent to a worker."""
-    try:
-        from OCC.Core.BRepPrimAPI import BRepPrimAPI_MakeBox
-    except ImportError:
-        import pytest
-
-        pytest.skip("pythonocc not available")
-
+def test_shape_constructed_with_cad_body_pickles():
+    """The Shape constructor's CAD-body detect branch routes a raw backend
+    shape handle to ``_occ_cache`` so the object stays picklable. The
+    parametric ``_geom`` is None — the honest answer (no parametric
+    description), but the OBJECT must still survive a pickle round trip so it
+    can be sent to a worker. Built via the active backend so the invariant holds
+    under pythonocc and adacpp alike."""
     from ada import Shape
+    from ada.cad import active_backend
 
-    occ_body = BRepPrimAPI_MakeBox(1.0, 1.0, 1.0).Shape()
-    shape = Shape("from-step", geom=occ_body)
-    # Sanity: the OCC body should be in the transient slot, not _geom.
-    assert shape._occ_cache is occ_body
+    body = active_backend().make_box(1.0, 1.0, 1.0)
+    shape = Shape("from-step", geom=body)
+    # Sanity: the raw body should be in the transient slot, not _geom.
+    assert shape._occ_cache is body
     assert shape._geom is None
     # The actual invariant: pickling succeeds.
     _assert_picklable(shape)
