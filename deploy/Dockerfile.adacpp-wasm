@@ -26,8 +26,10 @@
 # apt sources are http://. Curl-install pixi to drive the OCCT cross
 # compile via the wasm env in adacpp's pixi.toml.
 FROM python:3.12 AS build
+# Pin to a tagged adacpp release (not a moving branch) so the wasm wheel is
+# reproducible. Bump ADACPP_REF when adapy adopts a newer ada-cpp release.
 ARG ADACPP_REPO=https://github.com/Krande/adacpp.git
-ARG ADACPP_REF=feat/cad-handler
+ARG ADACPP_REF=v0.4.1
 ARG PIXI_VERSION=0.68.0
 RUN curl -fsSL https://pixi.sh/install.sh | PIXI_VERSION=v${PIXI_VERSION} bash \
  && ln -s /root/.pixi/bin/pixi /usr/local/bin/pixi

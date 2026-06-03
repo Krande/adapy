@@ -16,9 +16,9 @@ json-code-gen-py = { cmd = [
 [feature.docs.tasks]
 docs = { cmd = "cd docs && sphinx-build -b html -v -D nbsphinx_execute=auto . _build/html", depends-on = ["fea-doc"], env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 serve = { cmd = "python docs/main.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" }, depends-on = ["docs"] }
-fea-doc = { cmd = "python -m paradoc.cli_app build verification --no-cache", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src:$PIXI_PROJECT_ROOT/../paradoc/src", "ADAPY_VERIFICATION_REGEN_ASSETS" = "1" } }
-fea-doc-cached = { cmd = "python -m paradoc.cli_app build verification", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src:$PIXI_PROJECT_ROOT/../paradoc/src" } }
-fea-doc-inspect = { cmd = "python -m paradoc.cli_app build verification --inspect --no-compile", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src:$PIXI_PROJECT_ROOT/../paradoc/src" } }
+fea-doc = { cmd = "python -m paradoc.cli_app build verification --no-cache", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src", "ADAPY_VERIFICATION_REGEN_ASSETS" = "1" } }
+fea-doc-cached = { cmd = "python -m paradoc.cli_app build verification", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+fea-doc-inspect = { cmd = "python -m paradoc.cli_app build verification --inspect --no-compile", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 serve-fea = { cmd = "python -m http.server 8765 --bind 127.0.0.1 --directory docs/_static/fea-report" }
 
 [feature.tests.tasks]
@@ -188,7 +188,7 @@ pytest-benchmark = "*"
 pytest-asyncio = "*"
 pytest-timeout = "*"
 pytest-cov = "*"
-paradoc = "*"
+paradoc = ">=0.6.0"
 python-dotenv = "*"
 watchdog = "*"
 

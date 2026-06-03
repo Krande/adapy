@@ -496,36 +496,15 @@ jobs:
       - name: Build and push docs image
         env:
           REGISTRY_IMAGE: ${{ secrets.DOCS_REGISTRY_IMAGE }}
-          # Sibling paradoc clone — URL + ref live in secrets so this
-          # workflow file carries no host information. paradoc-clone is
-          # public-readable over HTTPS so no token is needed; this is
-          # also why we don't use SSH (port 2222 is blocked from inside
-          # the build sandbox — verified empirically).
-          PARADOC_GIT_URL: ${{ secrets.PARADOC_GIT_URL }}
-          PARADOC_REF: ${{ secrets.PARADOC_REF }}
         run: |
           if [ -z "$REGISTRY_IMAGE" ]; then
             echo "::error::DOCS_REGISTRY_IMAGE secret is not set on this repo. Configure it (and REGISTRY_DOCKER_CONFIG) under Settings → Actions → Secrets before re-running."
             exit 1
           fi
-          if [ -z "$PARADOC_GIT_URL" ]; then
-            echo "::error::PARADOC_GIT_URL secret is not set. Set it to the HTTPS clone URL of the paradoc repo (public-readable; no token required)."
-            exit 1
-          fi
           TAG="sha-${GITHUB_SHA::7}"
           BRANCH_TAG="branch-$(printf '%s' "$GITHUB_REF_NAME" | tr '/' '-')"
-          # Resolve paradoc HEAD up-front so the Dockerfile's
-          # ``ARG PARADOC_SHA`` binds the clone-layer cache key to it.
-          # paradoc no-op pushes keep the cached clone (and the
-          # downstream pixi+docs layers); paradoc tip-changes
-          # invalidate just the clone layer and what follows.
-          # Replaces the prior ``CACHE_BUST=$GITHUB_RUN_ID`` always-bust.
-          PARADOC_SHA=$(git ls-remote "$PARADOC_GIT_URL" "${PARADOC_REF:-main}" | cut -f1)
-          if [ -z "$PARADOC_SHA" ]; then
-            echo "::error::failed to resolve paradoc HEAD for ref ${PARADOC_REF:-main}"
-            exit 1
-          fi
-          echo "Resolved paradoc ${PARADOC_REF:-main} -> $PARADOC_SHA"
+          # paradoc is now a regular conda-forge dep in the docs pixi env
+          # (pixi.toml, >=0.6.0) — no clone, no PARADOC_* build-args.
           # Resolve release + commit date here so the docs build can
           # skip `COPY .git/` — that copy used to invalidate every
           # downstream layer on every commit. checkout@v4 was already
@@ -535,9 +514,6 @@ jobs:
           docker build \
             -f deploy/Dockerfile.docs \
             --build-arg "IMAGE_TAG=${TAG}" \
-            --build-arg "PARADOC_GIT_URL=${PARADOC_GIT_URL}" \
-            --build-arg "PARADOC_REF=${PARADOC_REF:-main}" \
-            --build-arg "PARADOC_SHA=${PARADOC_SHA}" \
             --build-arg "ADA_DOCS_RELEASE=${ADA_DOCS_RELEASE}" \
             --build-arg "ADA_DOCS_DATE=${ADA_DOCS_DATE}" \
             -t "${REGISTRY_IMAGE}:${TAG}" \

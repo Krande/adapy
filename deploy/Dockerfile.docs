@@ -17,12 +17,10 @@ ARG IMAGE_TAG=dev
 
 FROM ghcr.io/prefix-dev/pixi:${PIXI_VERSION} AS builder
 
-# git is needed for the HTTPS clone of the sibling paradoc repo below.
 # The Forgejo runner's build sandbox blocks plain-HTTP egress, so
-# rewrite the deb822 mirror URLs to https before fetching (matches the
-# parametric_models Dockerfile.build pattern). SSH on the source-host's
-# alternate port (e.g. 2222) is also blocked by the sandbox — that's
-# why we clone over HTTPS rather than SSH.
+# rewrite the deb822 mirror URLs to https before fetching the
+# headless-browser GUI closure (matches the parametric_models
+# Dockerfile.build pattern).
 #
 # BuildKit cache mounts on /var/cache/apt + /var/lib/apt persist the
 # downloaded .debs (140 s of installs for the headless-browser GUI
@@ -38,7 +36,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     && sed -i 's|http://archive.ubuntu.com|https://archive.ubuntu.com|g; s|http://security.ubuntu.com|https://security.ubuntu.com|g' /etc/apt/sources.list.d/*.sources \
     && apt-get update \
     && apt-get install -y --no-install-recommends \
-        git ca-certificates \
+        ca-certificates \
         libnss3 libatk-bridge2.0-0 libcups2 libxcomposite1 libxdamage1 \
         libxfixes3 libxrandr2 libgbm1 libxkbcommon0 libpango-1.0-0 libcairo2 \
         libasound2t64 \
@@ -57,13 +55,10 @@ RUN --mount=type=cache,target=/root/.cache/rattler,sharing=locked \
     --mount=type=cache,target=/root/.cache/pip,sharing=locked \
     pixi install --environment docs --locked
 
-# Sibling paradoc checkout — used by the FEA verification report's
-# compile-time stack. Conda-forge `paradoc` lags everything in this
-# list, so `pixi.toml`'s `fea-doc` task overlays this clone via
-# PYTHONPATH=$PIXI_PROJECT_ROOT/../paradoc/src (matches the local-dev
-# sibling layout). The URL comes from a workflow secret so the source
-# host doesn't appear here; the repo is public-readable so no token
-# is required.
+# The FEA verification report's compile-time stack (paradoc) comes from the
+# conda-forge ``paradoc`` package in the ``docs`` pixi env (pinned ``>=0.6.0`` in
+# pixi.toml) — no external clone, no build-time secret. ``fea-doc`` invokes
+# ``python -m paradoc.cli_app`` directly from that env.
 #
 # Capabilities the report depends on (current as of paradoc f99b6c0 +
 # adapy c6d41f43):
@@ -127,21 +122,6 @@ RUN --mount=type=cache,target=/root/.cache/rattler,sharing=locked \
 #     explicit pixel height (set by Interactive3DFigure to match the
 #     poster) propagates down to the mountViewer host without
 #     collapsing through an ``auto``-height intermediate div.
-ARG PARADOC_GIT_URL
-ARG PARADOC_REF=main
-# PARADOC_SHA is the runner-resolved HEAD of PARADOC_REF at
-# build-launch time. Declaring it as an ARG referenced by the clone
-# RUN below binds the layer's cache key to its value — when paradoc
-# advances upstream the SHA changes and the clone layer
-# invalidates (a fresh clone runs). When it doesn't, the cache hit
-# avoids a redundant ~30s clone every CI run. Replaces the prior
-# ``CACHE_BUST=$GITHUB_RUN_ID`` strategy which always-busted.
-ARG PARADOC_SHA=unset
-RUN test -n "$PARADOC_GIT_URL" \
-        || (echo "::error::PARADOC_GIT_URL build-arg is required" >&2; exit 1) \
-    && echo "paradoc ref=$PARADOC_REF sha=$PARADOC_SHA" \
-    && git clone --depth 1 --branch "$PARADOC_REF" "$PARADOC_GIT_URL" /work/paradoc
-
 # autodoc imports ``ada`` at build time, so src/ must be present.
 # verification/ is needed by the fea-doc task that the `docs` pixi
 # task depends on. The .git directory is intentionally NOT copied —
