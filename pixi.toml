@@ -68,7 +68,6 @@ pyprofile-all = { cmd = "pyinstrument -m pytest ./tests", env = { "PYTHONPATH" =
 pyprofile-html = { cmd = "pyinstrument -r html -o profile_profiling_tests.html -m pytest ./tests/profiling", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 pyprofile-html-all = { cmd = "pyinstrument -r html -o profile_all_tests.html -m pytest ./tests", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 
-
 [environments]
 prod = { features = ["prod", "pyocc", "desktop"], solve-group = "prod", no-default-feature = true }
 lint = { features = ["lint"], no-default-feature = true }
@@ -120,7 +119,7 @@ occt = { version = "7.9.3.*", build = "novtk_*" }
 # `adacpp` and without `pyocc` exercises adacpp as the sole CAD backend
 # (no pythonocc fallback by design).
 [feature.adacpp.dependencies]
-ada-cpp = "0.4.0.*"
+ada-cpp = "0.4.1.*"
 
 [feature.adacpp.activation.env]
 ADAPY_CAD_BACKEND = "adacpp"

@@ -73,3 +73,24 @@ jobs:
 
       - name: Run Tests
         run: pixi run test-fem
+
+  test-adacpp:
+    name: Test ada-cpp integration
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash -l {0}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+
+      - uses: prefix-dev/setup-pixi@v0.9.6
+        with:
+          pixi-version: v0.68.0
+          environments: >-
+            tests-adacpp
+          cache: true
+
+      - name: Run Tests
+        run: pixi run -e tests-adacpp test-core

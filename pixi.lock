@@ -7525,7 +7525,7 @@ environments:
     packages:
       linux-64:
       - conda: https://conda.anaconda.org/conda-forge/linux-64/_openmp_mutex-4.5-20_gnu.conda
-      - conda: https://conda.anaconda.org/conda-forge/linux-64/ada-cpp-0.4.0-py312h29cc896_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/linux-64/ada-cpp-0.4.1-py312h29cc896_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/aiohttp-3.13.5-py312h5d8c7f2_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/alsa-lib-1.2.16-hb03c661_0.conda
       - conda: https://conda.anaconda.org/conda-forge/linux-64/aom-3.9.1-hac33072_0.conda
@@ -8154,7 +8154,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/xsdata-26.2-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/zipp-4.1.0-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/_openmp_mutex-4.5-7_kmp_llvm.conda
-      - conda: https://conda.anaconda.org/conda-forge/osx-64/ada-cpp-0.4.0-py312h9b4feea_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/osx-64/ada-cpp-0.4.1-py312h9b4feea_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/aiohttp-3.13.5-py312h0b1c2f0_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/aom-3.9.1-hf036a51_0.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-64/argon2-cffi-bindings-25.1.0-py312h80b0991_2.conda
@@ -8552,7 +8552,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/xsdata-26.2-pyhd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/zipp-4.1.0-pyhcf101f3_0.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/_openmp_mutex-4.5-20_gnu.conda
-      - conda: https://conda.anaconda.org/conda-forge/win-64/ada-cpp-0.4.0-py312h710a262_0.conda
+      - conda: https://conda.anaconda.org/conda-forge/win-64/ada-cpp-0.4.1-py312h710a262_0.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/aiohttp-3.13.5-py312h6b91d65_0.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/aom-3.9.1-he0c23c2_0.conda
       - conda: https://conda.anaconda.org/conda-forge/win-64/argon2-cffi-bindings-25.1.0-py312he06e257_2.conda
@@ -10581,25 +10581,25 @@ packages:
   license_family: BSD
   size: 8244
   timestamp: 1764092331208
-- conda: https://conda.anaconda.org/conda-forge/linux-64/ada-cpp-0.4.0-py312h29cc896_0.conda
-  sha256: 633f4ecb65e4306bb22598416917dcc41b16c03d68b8a8590c6d5baba66a8d3f
-  md5: 064ce5177f13fc4f332da10194e97343
+- conda: https://conda.anaconda.org/conda-forge/linux-64/ada-cpp-0.4.1-py312h29cc896_0.conda
+  sha256: 031e6cafbe744a466639f4def3e1537cffe848da34ad67aade6dfde4ba5d0896
+  md5: effc2db6874da5a0c82e586c7073490e
   depends:
   - python
   - gmsh >=4.15.2,<4.16.0a0
-  - libstdcxx >=14
-  - libgcc >=14
   - __glibc >=2.17,<3.0.a0
+  - libgcc >=14
+  - libstdcxx >=14
+  - ifcopenshell >=0.8.5,<0.8.6.0a0
   - rocksdb >=10.6.2,<10.7.0a0
   - occt >=7.9.3,<7.9.4.0a0
   - libzlib >=1.3.2,<2.0a0
-  - ifcopenshell >=0.8.5,<0.8.6.0a0
   - python_abi 3.12.* *_cp312
   license: GPL-3.0-or-later
   purls:
-  - pkg:pypi/ada-cpp?source=compressed-mapping
-  size: 11522300
-  timestamp: 1780400895564
+  - pkg:pypi/ada-cpp?source=hash-mapping
+  size: 11558341
+  timestamp: 1780468547706
 - conda: https://conda.anaconda.org/conda-forge/linux-64/aiohttp-3.13.5-py312h5d8c7f2_0.conda
   sha256: 52f4d07b10fe4a1ded570b0708594d2d9075223e1dd94d0c5988eb71f724a5f2
   md5: 68edaee7692efb8bbef5e95375090189
@@ -19769,24 +19769,24 @@ packages:
   purls: []
   size: 8328
   timestamp: 1764092562779
-- conda: https://conda.anaconda.org/conda-forge/osx-64/ada-cpp-0.4.0-py312h9b4feea_0.conda
-  sha256: 6b27492f7c81db28f9e13099f4650827b8ce6c302abe18ec80eaae297cb7929a
-  md5: 90258073f81cba96105ae338e3bfb0ed
+- conda: https://conda.anaconda.org/conda-forge/osx-64/ada-cpp-0.4.1-py312h9b4feea_0.conda
+  sha256: 991f29c76f7fd666a9be57946c70ee85e770b33cc0cf2363e111d7d91abf2907
+  md5: 94c392e04051c474bb38f206afbf1fb3
   depends:
   - python
   - gmsh >=4.15.2,<4.16.0a0
-  - libcxx >=19
   - __osx >=11.0
+  - libcxx >=19
+  - ifcopenshell >=0.8.5,<0.8.6.0a0
   - rocksdb >=10.6.2,<10.7.0a0
   - python_abi 3.12.* *_cp312
   - libzlib >=1.3.2,<2.0a0
-  - ifcopenshell >=0.8.5,<0.8.6.0a0
   - occt >=7.9.3,<7.9.4.0a0
   license: GPL-3.0-or-later
   purls:
   - pkg:pypi/ada-cpp?source=compressed-mapping
-  size: 9733859
-  timestamp: 1780400927013
+  size: 9764290
+  timestamp: 1780468653571
 - conda: https://conda.anaconda.org/conda-forge/osx-64/aiohttp-3.13.5-py312h0b1c2f0_0.conda
   sha256: feec9338ff6d56c28c06ec8176b90019d545d902c45132a218ca2320133f5538
   md5: 88eef704008ae051b5a8c54119eab94e
@@ -23497,25 +23497,25 @@ packages:
   purls: []
   size: 52252
   timestamp: 1770943776666
-- conda: https://conda.anaconda.org/conda-forge/win-64/ada-cpp-0.4.0-py312h710a262_0.conda
-  sha256: e8056db1c16727b9aa6bdcfcfe269556bfa160c21358ccd0aabfaeb8e4ea3503
-  md5: 475fe9266064d5ac6363205126ad37a0
+- conda: https://conda.anaconda.org/conda-forge/win-64/ada-cpp-0.4.1-py312h710a262_0.conda
+  sha256: 55b74db3295cb7a7d738abc645e41dd5fd3e43d605dd1aafcfb725c85f9f223c
+  md5: 8f9eb274c4c674628a1bd4e4738f9e15
   depends:
   - python
   - gmsh >=4.15.2,<4.16.0a0
   - vc >=14.3,<15
   - vc14_runtime >=14.44.35208
   - ucrt >=10.0.20348.0
-  - occt >=7.9.3,<7.9.4.0a0
+  - python_abi 3.12.* *_cp312
   - ifcopenshell >=0.8.5,<0.8.6.0a0
   - rocksdb >=10.6.2,<10.7.0a0
-  - python_abi 3.12.* *_cp312
+  - occt >=7.9.3,<7.9.4.0a0
   - libzlib >=1.3.2,<2.0a0
   license: GPL-3.0-or-later
   purls:
   - pkg:pypi/ada-cpp?source=compressed-mapping
-  size: 4925559
-  timestamp: 1780400918237
+  size: 4954579
+  timestamp: 1780468576046
 - conda: https://conda.anaconda.org/conda-forge/win-64/aiohttp-3.13.5-py312h6b91d65_0.conda
   sha256: 539e8fba2b4835ee4437fa8b51056be2cf033ac4155f64a19e87855c2ae2af94
   md5: f5474e6e952ff964319851b1c68b7301
