@@ -34,6 +34,34 @@ def rmed_path(fem_files):
     return p
 
 
+def _require_render_adapter():
+    """Skip when the host has no usable offscreen render adapter.
+
+    GH Actions runners ship pygfx + trimesh but no graphics adapter
+    (no vulkan/dx12/metal/gl driver, no lavapipe). The poster render
+    then raises ``'Shared' object has no attribute '_device'`` deep in
+    wgpu and ``bake_with_posters`` swallows it as a non-fatal warning,
+    leaving an empty ``poster_paths`` — so a test that asserts on baked
+    posters fails with a misleading ``0 == N``. Probe the offscreen
+    renderer with a 1×1 canvas up front and skip instead. Mirrors the
+    guard in ``test_fea_artefacts.py``'s
+    ``test_bake_with_posters_renders_requested_modes``.
+    """
+    pytest.importorskip("pygfx")
+    pytest.importorskip("trimesh")
+    import pygfx as gfx
+
+    try:
+        from rendercanvas.offscreen import OffscreenRenderCanvas as _ProbeCanvas
+    except ImportError:  # legacy wgpu < 0.20
+        from wgpu.gui.offscreen import WgpuCanvas as _ProbeCanvas
+    try:
+        gfx.renderers.WgpuRenderer(_ProbeCanvas(size=(1, 1)))
+    except Exception as exc:  # noqa: BLE001 — any wgpu/adapter init
+        # failure means offscreen rendering is impossible on this host.
+        pytest.skip(f"no usable render adapter on this host: {exc}")
+
+
 def test_assets_for_docs_from_path_collects_frequencies(rmed_path, tmp_path):
     """Path-driven entry point bakes the bundle, renders posters
     (here ``modes=2`` for speed), and pulls per-mode frequencies out of
@@ -41,8 +69,7 @@ def test_assets_for_docs_from_path_collects_frequencies(rmed_path, tmp_path):
     bake-from-path path doesn't carry an in-memory FEAResult to read
     them off — those populate via the FEAResult-driven test below."""
 
-    pytest.importorskip("pygfx")
-    pytest.importorskip("trimesh")
+    _require_render_adapter()
     from ada.fem.results.docs import assets_for_docs
 
     out = tmp_path / "bundle"
@@ -91,8 +118,7 @@ def test_to_paradoc_rows_emits_canonical_plus_mode_views(rmed_path, tmp_path):
     rows carry the right ``fea_mode_index`` so the embed picks the
     correct displacement step at mount time."""
 
-    pytest.importorskip("pygfx")
-    pytest.importorskip("trimesh")
+    _require_render_adapter()
     from ada.fem.results.docs import assets_for_docs, to_paradoc_rows
 
     base = tmp_path
@@ -140,8 +166,7 @@ def test_feacase_filter_lazy_bake_and_modes(rmed_path, tmp_path):
     matching ``ThreeDData`` row isn't registered.
     """
 
-    pytest.importorskip("pygfx")
-    pytest.importorskip("trimesh")
+    _require_render_adapter()
     from ada.fem.results.docs import _MAX_MODE_ATTRS, FeaCaseFilter
 
     case = FeaCaseFilter("ca_bm", rmed_path, tmp_path / "bundle", modes=2)
@@ -181,18 +206,39 @@ def test_feacase_filter_lazy_bake_and_modes(rmed_path, tmp_path):
     assert getattr(raw, "__paradoc_attr__", False) is True
 
 
-def test_register_paradoc_block_sugar_is_callable():
-    """The entry-point target must exist and be callable so paradoc's
-    discovery hook (step 6) doesn't fail at startup. The function is
-    a no-op stub until step 6 wires the block sugar in."""
+def test_register_paradoc_block_sugar_registers_spec_and_filter():
+    """The ``paradoc.figure_sources`` entry-point target registers the
+    ``fea_artefact_bundle`` spec + its filter on the dispatcher paradoc
+    hands it (``register_spec`` / ``register_filter`` — see
+    ``paradoc.figure_sources.Dispatcher``). We stand in a recording
+    fake for that dispatcher and assert both registrations fire with
+    the expected discriminator."""
+
+    # The function imports paradoc's figure-source plumbing lazily;
+    # skip cleanly on a paradoc too old to carry it.
+    pytest.importorskip("paradoc.figure_sources.models")
+    pytest.importorskip("paradoc.figure_sources.filters.base")
 
     from ada.fem.results.docs import register_paradoc_block_sugar
 
-    class _Dispatcher:
-        pass
+    class _RecordingDispatcher:
+        def __init__(self):
+            self.specs: dict = {}
+            self.filters: list = []
 
-    # No-op stub today — must not raise.
-    register_paradoc_block_sugar(_Dispatcher())
+        def register_spec(self, figure_source, spec_cls):
+            self.specs[figure_source] = spec_cls
+
+        def register_filter(self, filter_cls):
+            self.filters.append(filter_cls)
+
+    disp = _RecordingDispatcher()
+    register_paradoc_block_sugar(disp)
+
+    assert "fea_artefact_bundle" in disp.specs
+    assert disp.specs["fea_artefact_bundle"].__name__ == "FeaArtefactBundle"
+    assert len(disp.filters) == 1
+    assert disp.filters[0].figure_source == "fea_artefact_bundle"
 
 
 def test_paradoc_figure_sources_entry_point_registered():
