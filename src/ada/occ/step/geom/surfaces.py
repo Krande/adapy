@@ -7,15 +7,15 @@ from OCC.Core.TopAbs import TopAbs_FACE
 from OCC.Core.TopExp import TopExp_Explorer
 from OCC.Core.TopoDS import TopoDS_Compound, TopoDS_Face, TopoDS_Shell, topods
 
+from ada.config import logger
+from ada.geom import curves as geo_cu
+from ada.geom import surfaces as geo_su
 from ada.occ.step.geom.curves import get_wires_from_face
 from ada.occ.step.geom.helpers import (
     array1_to_int_list,
     array1_to_list,
     array2_to_point_list,
 )
-from ada.config import logger
-from ada.geom import curves as geo_cu
-from ada.geom import surfaces as geo_su
 
 # Assuming occ_geom is your TopoDS_Compound
 # Helper functions to convert OCC arrays to Python lists

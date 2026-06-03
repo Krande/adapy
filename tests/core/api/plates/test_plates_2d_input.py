@@ -6,9 +6,9 @@ from ifcopenshell.validate import validate
 
 import ada
 from ada import Placement
+from ada.cad.inspect import faces_with_normal, points_of
 from ada.core.utils import set_list_first_position_elem
 from ada.geom import solids as geo_so
-from ada.cad.inspect import faces_with_normal, points_of
 
 
 @pytest.fixture

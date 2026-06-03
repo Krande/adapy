@@ -23,7 +23,9 @@ import os
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
-    from ada.occ.doc_backend import OccDocBackend  # re-exported at runtime via __getattr__
+    from ada.occ.doc_backend import (
+        OccDocBackend,  # re-exported at runtime via __getattr__
+    )
     from ada.occ.step.store import StepStore
     from ada.occ.step.writer import StepWriter
 

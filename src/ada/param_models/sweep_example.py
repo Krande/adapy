@@ -149,9 +149,7 @@ def _profile_frame(
 def _embed_profile_3d(poly2d, origin, x, y) -> List[Tuple[float, float, float]]:
     """Embed 2D profile points in the plane (origin, x, y) → absolute 3D points."""
     ox, oy, oz = origin
-    return [
-        (ox + u * x[0] + v * y[0], oy + u * x[1] + v * y[1], oz + u * x[2] + v * y[2]) for (u, v) in poly2d
-    ]
+    return [(ox + u * x[0] + v * y[0], oy + u * x[1] + v * y[1], oz + u * x[2] + v * y[2]) for (u, v) in poly2d]
 
 
 def make_wire_from_points(pts):

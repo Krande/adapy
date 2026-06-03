@@ -392,8 +392,15 @@ class AdacppBackend:
             knots = [float(k) for k in curve.knots]
             mults = [float(m) for m in curve.knot_multiplicities]
             rational = isinstance(curve, cu.RationalBSplineCurveWithKnots)
-            rec = [3.0, float(curve.degree), 1.0 if rational else 0.0, 1.0 if has_trim else 0.0,
-                   float(t_start or 0.0), float(t_end or 0.0), float(len(poles))]
+            rec = [
+                3.0,
+                float(curve.degree),
+                1.0 if rational else 0.0,
+                1.0 if has_trim else 0.0,
+                float(t_start or 0.0),
+                float(t_end or 0.0),
+                float(len(poles)),
+            ]
             for p in poles:
                 rec += p
             rec += [float(len(knots)), *knots, *mults]

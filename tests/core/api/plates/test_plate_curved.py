@@ -23,7 +23,6 @@ from ada.geom.curves import PolyLoop
 from ada.geom.points import Point
 
 
-
 def _bspline_loft_face():
     """Build a small mixed-cardinality loft and return the first B-spline face
     it produces (ThruSections in ruled mode), via the active CAD backend.

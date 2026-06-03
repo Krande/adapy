@@ -8,15 +8,15 @@ from OCC.Core.TopExp import TopExp_Explorer, topexp
 from OCC.Core.TopoDS import TopoDS_Edge, TopoDS_Face, TopoDS_Wire, topods
 
 from ada import Direction
+from ada.config import logger
+from ada.geom import curves as geo_cu
+from ada.geom.placement import Axis2Placement3D
+from ada.geom.points import Point
 from ada.occ.step.geom.helpers import (
     array1_to_int_list,
     array1_to_list,
     array1_to_point_list,
 )
-from ada.config import logger
-from ada.geom import curves as geo_cu
-from ada.geom.placement import Axis2Placement3D
-from ada.geom.points import Point
 
 
 def _extract_pcurve(edge: TopoDS_Edge, face: TopoDS_Face) -> geo_cu.Pcurve2dBSpline | None:

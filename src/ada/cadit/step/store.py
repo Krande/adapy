@@ -2,10 +2,7 @@
 CAD backend's home); this shim keeps the historical import path working without
 itself importing OCC. See dap plan/v3 Phase 2 (STEP-IO relocation)."""
 
-from ada.occ.step.store import (
-    StepStore,
-    EntityProps,
-)
+from ada.occ.step.store import EntityProps, StepStore
 
 __all__ = [
     "StepStore",

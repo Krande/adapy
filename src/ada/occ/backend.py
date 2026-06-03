@@ -113,7 +113,10 @@ class OccBackend:
     def make_wire(self, points: "list") -> ShapeHandle:
         # Polyline wire through all points (open). Mirrors adacpp.cad.make_wire;
         # the old single-edge helper only handled 2 points.
-        from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_MakeEdge, BRepBuilderAPI_MakeWire
+        from OCC.Core.BRepBuilderAPI import (
+            BRepBuilderAPI_MakeEdge,
+            BRepBuilderAPI_MakeWire,
+        )
         from OCC.Core.gp import gp_Pnt
 
         pts = []
@@ -131,7 +134,10 @@ class OccBackend:
     def loft_profiles(
         self, profiles: "list[list[tuple[float, float, float]]]", ruled: bool = True, solid: bool = True
     ) -> ShapeHandle:
-        from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_MakeEdge, BRepBuilderAPI_MakeWire
+        from OCC.Core.BRepBuilderAPI import (
+            BRepBuilderAPI_MakeEdge,
+            BRepBuilderAPI_MakeWire,
+        )
         from OCC.Core.BRepOffsetAPI import BRepOffsetAPI_ThruSections
         from OCC.Core.gp import gp_Pnt
 

@@ -14,8 +14,8 @@ from OCC.Core.XCAFDoc import XCAFDoc_DocumentTool
 from OCC.Extend.TopologyUtils import TopologyExplorer, list_of_shapes_to_compound
 
 from ada.base.units import Units
-from ada.occ.step.reader_utils import read_step_file_with_names_colors
 from ada.config import logger
+from ada.occ.step.reader_utils import read_step_file_with_names_colors
 from ada.occ.store import OccShape
 from ada.occ.utils import get_boundingbox
 from ada.visit.colors import Color
