@@ -208,6 +208,48 @@ def _case_label(res: FeaVerificationResult) -> str:
     return f"{short_name_map[res.fem_format]}_{geo}_o{elo}{s_str}{uri_str}"
 
 
+_EFF_MASS_DIR_ATTR = {"X": "efx", "Y": "efy", "Z": "efz"}
+
+
+def create_eff_mass_comparison_df(
+    results: list[FeaVerificationResult], geom_repr: str, el_order: int, direction: str
+) -> pd.DataFrame | None:
+    """Cross-solver comparison of per-mode effective modal mass [kg] in one
+    global direction — the effective-mass analogue of
+    :func:`create_df_of_data`. Rows are modes, columns are the matching
+    cases (same ``solver[_tag][R]`` convention as the frequency tables).
+
+    Returns None when no matching case carries effective mass for this
+    direction, or when every value is ~0 (e.g. an out-of-plane direction
+    a planar cantilever never excites) — so the caller skips empty tables.
+    """
+    attr = _EFF_MASS_DIR_ATTR[direction]
+    df_main = None
+
+    for res in results:
+        geo = res.metadata["geo"]
+        elo = res.metadata["elo"]
+        if geom_repr != geo or el_order != elo:
+            continue
+        modes = res.eig_data.modes if res.eig_data is not None else []
+        if not modes or all(getattr(m, attr) is None for m in modes):
+            continue
+
+        value_col = _case_label(res).replace(f"_{geo}_o{elo}", "")  # solver[_tag][R]
+        df_current = pd.DataFrame(
+            [(m.no, getattr(m, attr)) for m in modes], columns=["Mode", value_col]
+        )
+        new_col = df_current[value_col] if df_main is not None else df_current
+        df_main = append_df(df_main, new_col)
+
+    if df_main is None or df_main.empty:
+        return None
+    value_cols = [c for c in df_main.columns if c != "Mode"]
+    if not value_cols or df_main[value_cols].abs().to_numpy().max() < 1e-6:
+        return None
+    return df_main.round(1)
+
+
 def create_eff_mass_summary_df(results: list[FeaVerificationResult]) -> pd.DataFrame | None:
     """Summary of effective modal mass [kg] per case: one row per case,
     summed over its captured modes in the global X/Y/Z directions.
