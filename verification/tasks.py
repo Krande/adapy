@@ -356,6 +356,29 @@ def eig_tables(results: list) -> list:
 
 
 @task(parent=postprocess)
+def eff_mass_table(results: list) -> list:
+    """Summary table of effective modal mass [kg] per case (summed over
+    the captured modes, global X/Y/Z). Skipped when no solver in the run
+    reported effective mass."""
+    df = ru.create_eff_mass_summary_df(results)
+    if df is None or df.empty:
+        logger.info("no effective-mass data in any case, skipping summary table")
+        return []
+    return [
+        TableOutcome(
+            key="eff_mass_summary",
+            df=df,
+            caption=(
+                "Effective modal mass [kg] per case, summed over the captured modes "
+                "in the global X/Y/Z directions. Code_Aster reports translational "
+                "effective mass only."
+            ),
+            show_index=False,
+        )
+    ]
+
+
+@task(parent=postprocess)
 def modal_tables(results: list) -> list:
     """Per-case modal TableOutcomes + JSON cache write side effect."""
     save_cache = os.environ.get("ADA_FEM_DO_NOT_SAVE_CACHE") is None

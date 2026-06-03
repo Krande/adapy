@@ -386,6 +386,11 @@ class FEAResult:
     step_name_map: dict[int | float, str] = None
     description: str = None
     software_version: str = None
+    # Per-mode modal parameters (participation factors + effective modal
+    # mass, in the global axes) that don't live in the field-result stream.
+    # Populated by solver readers when available (e.g. Calculix .dat,
+    # Code_Aster NORM_MODE table); surfaced through get_eig_summary.
+    eigen_mode_data: EigenDataSummary | None = None
 
     def __post_init__(self):
         if self.results is None:
@@ -628,7 +633,17 @@ class FEAResult:
         return renderer_instance
 
     def get_eig_summary(self) -> EigenDataSummary:
-        """If the results are eigenvalue results, this method will return a summary of the eigenvalues and modes"""
+        """If the results are eigenvalue results, this method will return a summary of the eigenvalues and modes.
+
+        When the solver reader captured the per-mode modal parameters
+        (participation factors + effective modal mass in the global axes)
+        into ``eigen_mode_data``, that richer summary is returned as-is.
+        Otherwise we fall back to a frequency-only summary built from the
+        displacement field results.
+        """
+        if self.eigen_mode_data is not None:
+            return self.eigen_mode_data
+
         from ada.fem.results.eigenvalue import EigenDataSummary, EigenMode
 
         modes = []

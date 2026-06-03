@@ -38,6 +38,15 @@ def read_rmed_file(rmed_file: str | pathlib.Path) -> FEAResult:
     if mess_file.exists():
         software_version = get_code_aster_version_from_mess(mess_file)
 
+    # Eigen runs: pull mode frequencies + the effective modal mass /
+    # participation factors (global axes) the writer dumped next to the
+    # .rmed, so they surface through FEAResult.get_eig_summary.
+    eigen_mode_data = None
+    if mr.is_eigen_analysis:
+        from ada.fem.formats.code_aster.results.results import get_eigen_data
+
+        eigen_mode_data = get_eigen_data(rmed_file)
+
     return FEAResult(
         rmed_file.stem,
         software=FEATypes.CODE_ASTER,
@@ -45,6 +54,7 @@ def read_rmed_file(rmed_file: str | pathlib.Path) -> FEAResult:
         mesh=mr.mesh,
         results_file_path=rmed_file,
         software_version=software_version,
+        eigen_mode_data=eigen_mode_data,
     )
 
 
