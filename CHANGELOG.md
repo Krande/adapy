@@ -2,6 +2,15 @@
 
 
 
+## v0.8.0 (2026-06-03)
+
+### Feature
+
+* feat: v0.8 — Backend abstraction, topology, and viewer overhaul (#190)
+
+Co-authored-by: Claude Opus 4.7 &lt;noreply@anthropic.com&gt; ([`2b5cfa3`](https://github.com/Krande/adapy/commit/2b5cfa38b2e1f09f969adb57a86a10340c2be460))
+
+
 ## v0.7.12 (2026-04-15)
 
 ### Chore
