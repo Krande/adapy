@@ -758,3 +758,24 @@ def from_pointer(pointer: int) -> TopoDS_Shape:
     from OCC.Core.TopoDS import TopoDS_Shape
 
     return TopoDS_Shape(pointer)
+
+
+def serialize_shape_via_shapeset(shape) -> str:
+    """Serialize a single OCC shape with ``BRepTools_ShapeSet`` (BREP text).
+
+    The fallback the IFC writer uses when ``ifcopenshell.geom.occ_utils.
+    serialize_shape`` hits the ``WriteToString(self, shape)`` signature drift.
+    Kept here so the IFC subsystem carries no direct ``OCC`` import."""
+    from OCC.Core import BRepTools
+
+    ss = BRepTools.BRepTools_ShapeSet()
+    ss.SetFormatNb(2)
+    # Some OCC builds want both Add() and WriteToString(shape); others let
+    # WriteToString do the work alone. Try the combination that matches
+    # upstream's original intent (Add registers the shape, WriteToString emits it).
+    try:
+        ss.Add(shape)
+        return ss.WriteToString(shape)
+    except TypeError:
+        # Last resort: skip Add (some bindings have WriteToString take ownership).
+        return ss.WriteToString(shape)

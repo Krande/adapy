@@ -2,9 +2,10 @@
 
 These wrap the ``CadBackend`` verbs (``faces``/``face_plane``/``vertex_points``/
 ``shape_type``/``face_surface_type``) so callers and tests can introspect a
-built shape without importing ``OCC.Core`` directly — they work under adacpp as
+built shape without importing the kernel directly — they work under adacpp as
 well as pythonocc. A raw (non-handle) pythonocc ``TopoDS_Shape`` is still
-accepted via a lazily-imported OCC fallback, for construction-internal callers.
+accepted, for construction-internal callers, via the OCC fallbacks in
+:mod:`ada.occ.inspect` — so this module itself carries no ``OCC`` import.
 """
 
 from __future__ import annotations
@@ -22,15 +23,10 @@ def points_of(shape) -> list[tuple[float, float, float]]:
     if is_shape_handle(shape):
         return active_backend().vertex_points(shape)
 
-    # Raw pythonocc shape (construction-internal) — OCC fallback.
-    from OCC.Core.BRep import BRep_Tool
-    from OCC.Extend.TopologyUtils import TopologyExplorer
+    # Raw pythonocc shape (construction-internal) — OCC fallback lives in ada.occ.
+    from ada.occ.inspect import raw_vertex_points
 
-    points = []
-    for v in TopologyExplorer(shape).vertices():
-        apt = BRep_Tool.Pnt(v)
-        points.append((apt.X(), apt.Y(), apt.Z()))
-    return points
+    return raw_vertex_points(shape)
 
 
 def boundary_points(shape) -> list[tuple[float, float, float]]:
@@ -67,10 +63,11 @@ def faces_with_normal(shape, normal, point_in_plane: Iterable | Point = None) ->
             return res if res is not None else (None, None)
 
     else:
+        # Raw pythonocc shape (construction-internal) — OCC fallback in ada.occ.
+        from ada.occ.inspect import raw_faces
         from ada.occ.utils import get_face_normal
-        from OCC.Extend.TopologyUtils import TopologyExplorer
 
-        faces = TopologyExplorer(shape).faces()
+        faces = raw_faces(shape)
         _face_normal = get_face_normal
 
     for face in faces:

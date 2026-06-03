@@ -692,21 +692,10 @@ def _serialize_occ_shape(shape) -> str:
     except TypeError as exc:
         if "WriteToString" not in str(exc):
             raise
-        from OCC.Core import BRepTools
+        # ShapeSet fallback lives in ada.occ so this module carries no OCC import.
+        from ada.occ.utils import serialize_shape_via_shapeset
 
-        ss = BRepTools.BRepTools_ShapeSet()
-        ss.SetFormatNb(2)
-        # Some OCC builds want both Add() and WriteToString(shape);
-        # others let WriteToString do the work alone. Try the
-        # combination that matches upstream's original intent
-        # (Add registers the shape, WriteToString emits it).
-        try:
-            ss.Add(shape)
-            return ss.WriteToString(shape)
-        except TypeError:
-            # Last resort: skip Add (some bindings have WriteToString
-            # take ownership).
-            return ss.WriteToString(shape)
+        return serialize_shape_via_shapeset(shape)
 
 
 def tesselate_shape(shape, schema, tol):

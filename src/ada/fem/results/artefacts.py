@@ -525,8 +525,8 @@ def _dedup_beam_tessellation(
     if verts.shape[0] == 0:
         return verts, tris.astype(np.uint32, copy=False), t_vals
 
-    # Round to a fixed grid so floating-point jitter from OCC doesn't
-    # cause coincident vertices to land in different buckets.
+    # Round to a fixed grid so floating-point jitter from the CAD kernel
+    # doesn't cause coincident vertices to land in different buckets.
     rounded = np.round(verts / position_tolerance).astype(np.int64)
     _, inverse = np.unique(rounded, axis=0, return_inverse=True)
     n_unique = int(inverse.max()) + 1

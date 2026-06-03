@@ -24,9 +24,8 @@ from ada.geom.points import Point
 from ada.geom.surfaces import ArbitraryProfileDef, ProfileType
 
 if TYPE_CHECKING:
-    from OCC.Core.TopoDS import TopoDS_Edge, TopoDS_Wire
-
     from ada import Beam
+    from ada.cad import ShapeHandle
     from ada.geom.curves import ArcLine, Edge, IndexedPolyCurve
 
 
@@ -273,7 +272,7 @@ class CurveOpen2d:
     def ydir(self) -> Direction:
         return self.orientation.ydir
 
-    def occ_edges(self) -> list[TopoDS_Edge]:
+    def occ_edges(self) -> list[ShapeHandle]:
         from ada.occ.utils import segments_to_edges
 
         return segments_to_edges(self.segments3d)
@@ -299,7 +298,7 @@ class CurveOpen2d:
 
         return IndexedPolyCurve(segments)
 
-    def occ_wire(self) -> TopoDS_Wire:
+    def occ_wire(self) -> ShapeHandle:
         from ada.occ.utils import make_wire
 
         return make_wire(self.occ_edges())
@@ -485,7 +484,7 @@ class LineSegment:
         self._direction = self.calc_direction()
 
     @property
-    def edge_geom(self) -> TopoDS_Edge:
+    def edge_geom(self) -> ShapeHandle:
         return self._edge_geom
 
     @property

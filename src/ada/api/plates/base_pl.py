@@ -19,8 +19,6 @@ from ada.materials import Material
 from ada.materials.metals import CarbonSteel
 
 if TYPE_CHECKING:
-    from OCC.Core.TopoDS import TopoDS_Shape
-
     from ada import Placement
     from ada.cad import ShapeHandle
 
@@ -496,14 +494,14 @@ class PlateCurved(BackendGeom):
 
         return active_backend().build(self.solid_geom())
 
-    def extruded_solid_occ(self) -> TopoDS_Shape:
+    def extruded_solid_occ(self) -> ShapeHandle:
         """Prism-extrude the curved face by ``t`` along its normal so
         the rendered plate carries thickness like a planar
         ``Plate.from_3d_points`` does.
 
-        Returns a ``TopoDS_Shape`` (Solid) ready for the tessellator's
-        raw-OCC fast path. Falls back to the bare face shape on any
-        prism failure so the caller still gets *something* to render.
+        Returns a backend ``ShapeHandle`` (Solid) ready for the tessellator.
+        Falls back to the bare face shape on any prism failure so the caller
+        still gets *something* to render.
         """
         # t=0 (SurfaceCurved): the "extruded" representation is just the bare
         # face — return the exact solid_occ() object so callers relying on the

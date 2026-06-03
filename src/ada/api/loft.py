@@ -15,23 +15,25 @@ from __future__ import annotations
 import math
 from typing import TYPE_CHECKING, Iterator, Sequence
 
+import numpy as np
+
 from ada.cad import active_backend
 from ada.geom.curves import PolyLoop
 from ada.geom.direction import Direction
 from ada.geom.points import Point
 
-# Loft now routes through the active CAD backend (loft_profiles / section_with_plane
-# / faces / wires / wire_points), so it works under adacpp as well as pythonocc.
-# A couple of rarely-used helpers (planar_face_from_poly_loop, transform helpers)
-# still import OCC lazily and only require pythonocc when actually called.
-# See dap plan/v3 Phase 1/2.
+# Loft is fully backend-neutral: every operation routes through the active CAD
+# backend (loft_profiles / section_with_plane / transform / build / faces / wires
+# / wire_points), so it works under adacpp as well as pythonocc with no OCC import
+# anywhere in this module. The transform helpers compose a 4x4 affine matrix and
+# hand it to ``CadBackend.transform``; ``planar_face_from_poly_loop`` builds a
+# ``CurveBoundedPlane`` through ``CadBackend.build``. See dap plan/v3 Phase 1/2.
 if TYPE_CHECKING:
-    from OCC.Core.TopoDS import TopoDS_Face, TopoDS_Shape, TopoDS_Wire
-
     from ada.api.spatial.part import Part
+    from ada.cad import ShapeHandle
 
 
-def wire_from_poly_loop(loop: PolyLoop) -> TopoDS_Wire:
+def wire_from_poly_loop(loop: PolyLoop) -> ShapeHandle:
     """Build a closed wire from a :class:`PolyLoop`.
 
     The loop is connected with straight edges. If the polygon's last
@@ -48,18 +50,26 @@ def wire_from_poly_loop(loop: PolyLoop) -> TopoDS_Wire:
     return active_backend().make_wire(coords)
 
 
-def planar_face_from_poly_loop(loop: PolyLoop) -> TopoDS_Face:
-    """Build a planar face bounded by ``loop``. Loop must be closed and planar."""
-    from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_MakeFace
+def planar_face_from_poly_loop(loop: PolyLoop) -> ShapeHandle:
+    """Build a planar face bounded by ``loop``. Loop must be closed and planar.
 
-    wire = wire_from_poly_loop(loop)
-    builder = BRepBuilderAPI_MakeFace(wire, True)
-    if not builder.IsDone():
-        raise RuntimeError("BRepBuilderAPI_MakeFace failed — loop may not be closed or planar")
-    return builder.Face()
+    Routes through ``CadBackend.build`` of a :class:`CurveBoundedPlane` — the
+    plane basis (origin/normal/x-dir) is derived from the loop points — so it
+    works under adacpp and pythonocc alike with no kernel import here.
+    """
+    from ada.api.curves import CurvePoly2d
+    from ada.geom import Geometry
+    from ada.geom.placement import Axis2Placement3D
+    from ada.geom.surfaces import CurveBoundedPlane, Plane
+
+    pts = [(float(p.x), float(p.y), float(p.z)) for p in loop.polygon]
+    poly = CurvePoly2d.from_3d_points(pts)
+    place = Axis2Placement3D(poly.origin, axis=poly.normal, ref_direction=poly.xdir)
+    surface = CurveBoundedPlane(Plane(place), poly.curve_geom())
+    return active_backend().build(Geometry("planar_face", surface))
 
 
-def loft_profiles(profiles: Sequence[PolyLoop], ruled: bool = True, is_solid: bool = True) -> TopoDS_Shape:
+def loft_profiles(profiles: Sequence[PolyLoop], ruled: bool = True, is_solid: bool = True) -> ShapeHandle:
     """Build a lofted solid (or shell) through the given section profiles.
 
     The profile polygons are connected in section order via the active
@@ -73,11 +83,11 @@ def loft_profiles(profiles: Sequence[PolyLoop], ruled: bool = True, is_solid: bo
 
 
 def intersect_with_plane(
-    shape: TopoDS_Shape,
+    shape: ShapeHandle,
     plane_origin: Point,
     plane_normal: Direction = Direction(0.0, 0.0, 1.0),
     plane_size: float = 1000.0,
-) -> TopoDS_Shape:
+) -> ShapeHandle:
     """Boolean-intersect ``shape`` with a finite planar face.
 
     ``plane_size`` is the half-extent of the cutting face — must
@@ -89,7 +99,7 @@ def intersect_with_plane(
     return active_backend().section_with_plane(shape, origin, normal, plane_size)
 
 
-def iter_face_poly_loops(shape: TopoDS_Shape) -> Iterator[PolyLoop]:
+def iter_face_poly_loops(shape: ShapeHandle) -> Iterator[PolyLoop]:
     """Yield the outer-wire vertex loop of every face in ``shape``.
 
     Vertex order follows the wire's natural orientation; callers that
@@ -113,56 +123,59 @@ def loft_to_poly_loops(profiles: Sequence[PolyLoop], ruled: bool = True) -> list
     return list(iter_face_poly_loops(shape))
 
 
-def translate_shape(shape: TopoDS_Shape, offset: Point | tuple[float, float, float]) -> TopoDS_Shape:
-    """Return a new shape translated by ``offset``."""
-    from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_Transform
-    from OCC.Core.gp import gp_Trsf, gp_Vec
+def _affine_about_point(linear: np.ndarray, fixed: np.ndarray) -> np.ndarray:
+    """Compose a 4x4 affine whose 3x3 linear part is ``linear`` and that holds
+    ``fixed`` invariant: ``p' = linear @ (p - fixed) + fixed``. The translation
+    column becomes ``fixed - linear @ fixed``."""
+    m = np.eye(4)
+    m[:3, :3] = linear
+    m[:3, 3] = fixed - linear @ fixed
+    return m
 
+
+def translate_shape(shape: ShapeHandle, offset: Point | tuple[float, float, float]) -> ShapeHandle:
+    """Return a new shape translated by ``offset`` (backend-neutral)."""
     vec = offset if isinstance(offset, Point) else Point(offset)
-    trsf = gp_Trsf()
-    trsf.SetTranslation(gp_Vec(float(vec.x), float(vec.y), float(vec.z)))
-    return BRepBuilderAPI_Transform(shape, trsf, True).Shape()
+    m = np.eye(4)
+    m[:3, 3] = (float(vec.x), float(vec.y), float(vec.z))
+    return active_backend().transform(shape, m, True)
 
 
 def rotate_shape(
-    shape: TopoDS_Shape,
+    shape: ShapeHandle,
     axis_origin: Point | tuple[float, float, float],
     axis_direction: Direction | tuple[float, float, float],
     angle_deg: float,
-) -> TopoDS_Shape:
-    """Return a new shape rotated by ``angle_deg`` around the given axis."""
-    from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_Transform
-    from OCC.Core.gp import gp_Ax1, gp_Dir, gp_Pnt, gp_Trsf
-
+) -> ShapeHandle:
+    """Return a new shape rotated by ``angle_deg`` around the given axis
+    (backend-neutral; Rodrigues rotation about the axis through ``axis_origin``)."""
     origin = axis_origin if isinstance(axis_origin, Point) else Point(axis_origin)
     direction = axis_direction if isinstance(axis_direction, Direction) else Direction(axis_direction)
-    ax1 = gp_Ax1(
-        gp_Pnt(float(origin.x), float(origin.y), float(origin.z)),
-        gp_Dir(float(direction[0]), float(direction[1]), float(direction[2])),
-    )
-    trsf = gp_Trsf()
-    trsf.SetRotation(ax1, math.radians(angle_deg))
-    return BRepBuilderAPI_Transform(shape, trsf, True).Shape()
+
+    d = np.array([float(direction[0]), float(direction[1]), float(direction[2])])
+    d = d / np.linalg.norm(d)
+    theta = math.radians(angle_deg)
+    k = np.array([[0.0, -d[2], d[1]], [d[2], 0.0, -d[0]], [-d[1], d[0], 0.0]])
+    linear = np.eye(3) + math.sin(theta) * k + (1.0 - math.cos(theta)) * (k @ k)
+    fixed = np.array([float(origin.x), float(origin.y), float(origin.z)])
+    return active_backend().transform(shape, _affine_about_point(linear, fixed), True)
 
 
 def mirror_shape(
-    shape: TopoDS_Shape,
+    shape: ShapeHandle,
     plane_origin: Point | tuple[float, float, float],
     plane_normal: Direction | tuple[float, float, float],
-) -> TopoDS_Shape:
-    """Return a new shape mirrored across the plane defined by origin + normal."""
-    from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_Transform
-    from OCC.Core.gp import gp_Ax2, gp_Dir, gp_Pnt, gp_Trsf
-
+) -> ShapeHandle:
+    """Return a new shape mirrored across the plane defined by origin + normal
+    (backend-neutral; Householder reflection about the plane through ``plane_origin``)."""
     origin = plane_origin if isinstance(plane_origin, Point) else Point(plane_origin)
     normal = plane_normal if isinstance(plane_normal, Direction) else Direction(plane_normal)
-    ax2 = gp_Ax2(
-        gp_Pnt(float(origin.x), float(origin.y), float(origin.z)),
-        gp_Dir(float(normal[0]), float(normal[1]), float(normal[2])),
-    )
-    trsf = gp_Trsf()
-    trsf.SetMirror(ax2)
-    return BRepBuilderAPI_Transform(shape, trsf, True).Shape()
+
+    n = np.array([float(normal[0]), float(normal[1]), float(normal[2])])
+    n = n / np.linalg.norm(n)
+    linear = np.eye(3) - 2.0 * np.outer(n, n)
+    fixed = np.array([float(origin.x), float(origin.y), float(origin.z)])
+    return active_backend().transform(shape, _affine_about_point(linear, fixed), True)
 
 
 def loft_to_part(
