@@ -12,14 +12,17 @@ class EigenDataSummary:
     tot_eff_mass: List[float] = None
 
     def calc_tot_eff_mass(self):
+        # Sum per-mode effective modal mass over the 6 global DOF. Some
+        # solvers only report translational effective mass (e.g. Code_Aster
+        # gives DX/DY/DZ, no rotational terms), so missing components are
+        # treated as 0 rather than crashing the sum.
         tem = np.zeros(6)
+        dofs = ("efx", "efy", "efz", "efrx", "efry", "efrz")
         for m in self.modes:
-            tem[0] += m.efx
-            tem[1] += m.efy
-            tem[2] += m.efz
-            tem[3] += m.efrx
-            tem[4] += m.efry
-            tem[5] += m.efrz
+            for i, dof in enumerate(dofs):
+                val = getattr(m, dof, None)
+                if val is not None:
+                    tem[i] += val
         return tem.tolist()
 
     def to_dict(self) -> dict:

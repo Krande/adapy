@@ -44,8 +44,13 @@ def run_code_aster(
         metadata=metadata,
         auto_execute=execute,
     )
+    # Declare the modal-mass table output only when the .comm emits it
+    # (eigen steps write IMPR_TABLE(... UNITE=81 ...)); avoids declaring a
+    # result file the run never produces for non-eigen analyses.
+    comm_path = pathlib.Path(inp_path).with_suffix(".comm")
+    emits_modal_mass = comm_path.exists() and "UNITE=81" in comm_path.read_text(encoding="utf-8", errors="ignore")
     with open(inp_path, "w") as f:
-        f.write(write_export_file(name, cpus))
+        f.write(write_export_file(name, cpus, emits_modal_mass=emits_modal_mass))
 
     return ca.run(exit_on_complete=exit_on_complete)
 
@@ -63,7 +68,7 @@ class CodeAsterExecute(LocalExecute):
         return out
 
 
-def write_export_file(name: str, cpus: int):
+def write_export_file(name: str, cpus: int, emits_modal_mass: bool = False):
     export_str = f"""P actions make_etude
 P memory_limit 1274
 P time_limit 900
@@ -75,6 +80,12 @@ F comm {name}.comm D 1
 F mmed {name}.med D 20
 F mess {name}.mess R 6
 F rmed {name}.rmed R 80"""
+
+    if emits_modal_mass:
+        # Eigen runs dump effective modal mass + participation factors to a
+        # CSV on unit 81 (see write/steps/eigen.py); the reader picks it up
+        # next to the .rmed.
+        export_str += f"\nF libr {name}.modalmass.csv R 81"
 
     return export_str
 
