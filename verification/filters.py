@@ -256,6 +256,43 @@ class Eig(Filter):
         # modes (global X/Y/Z); registered by the eff_mass_table task.
         return TableView(table_key="eff_mass_summary")
 
+    # Per-mode cross-solver effective modal mass comparison, one table per
+    # (geom, order, direction), registered by eff_mass_compare_tables.
+    # Only the solid/shell × o1/o2 × Y/Z set is surfaced — those run two
+    # solvers and carry real bending mass; the report references keys
+    # statically and paradoc errors on an unresolved one.
+    @attr
+    def meff_solid_o1_y(self) -> TableView:
+        return TableView(table_key="eig_compare_solid_o1_meff_y")
+
+    @attr
+    def meff_solid_o1_z(self) -> TableView:
+        return TableView(table_key="eig_compare_solid_o1_meff_z")
+
+    @attr
+    def meff_solid_o2_y(self) -> TableView:
+        return TableView(table_key="eig_compare_solid_o2_meff_y")
+
+    @attr
+    def meff_solid_o2_z(self) -> TableView:
+        return TableView(table_key="eig_compare_solid_o2_meff_z")
+
+    @attr
+    def meff_shell_o1_y(self) -> TableView:
+        return TableView(table_key="eig_compare_shell_o1_meff_y")
+
+    @attr
+    def meff_shell_o1_z(self) -> TableView:
+        return TableView(table_key="eig_compare_shell_o1_meff_z")
+
+    @attr
+    def meff_shell_o2_y(self) -> TableView:
+        return TableView(table_key="eig_compare_shell_o2_meff_y")
+
+    @attr
+    def meff_shell_o2_z(self) -> TableView:
+        return TableView(table_key="eig_compare_shell_o2_meff_z")
+
     @attr
     def freq_vs_mode_plot(self) -> FigureView:
         return FigureView(

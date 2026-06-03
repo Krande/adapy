@@ -68,6 +68,32 @@ structure's total mass in each direction.
 
 ${ eig.eff_mass_summary }{tbl:sortby:Case:asc;index:no}
 
+##### Per-mode comparison
+
+Per-mode effective modal mass [kg] compared across solvers, for the two
+transverse (bending) directions. Solid and shell meshes are shown — the
+directions a transverse cantilever actually excites.
+
+Global Y:
+
+${ eig.meff_solid_o1_y }{tbl:sortby:Mode:asc;index:no}
+
+${ eig.meff_solid_o2_y }{tbl:sortby:Mode:asc;index:no}
+
+${ eig.meff_shell_o1_y }{tbl:sortby:Mode:asc;index:no}
+
+${ eig.meff_shell_o2_y }{tbl:sortby:Mode:asc;index:no}
+
+Global Z:
+
+${ eig.meff_solid_o1_z }{tbl:sortby:Mode:asc;index:no}
+
+${ eig.meff_solid_o2_z }{tbl:sortby:Mode:asc;index:no}
+
+${ eig.meff_shell_o1_z }{tbl:sortby:Mode:asc;index:no}
+
+${ eig.meff_shell_o2_z }{tbl:sortby:Mode:asc;index:no}
+
 
 
 Short description:

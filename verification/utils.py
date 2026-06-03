@@ -219,9 +219,12 @@ def create_eff_mass_comparison_df(
     :func:`create_df_of_data`. Rows are modes, columns are the matching
     cases (same ``solver[_tag][R]`` convention as the frequency tables).
 
-    Returns None when no matching case carries effective mass for this
-    direction, or when every value is ~0 (e.g. an out-of-plane direction
-    a planar cantilever never excites) — so the caller skips empty tables.
+    Returns None only when no matching case carries effective mass for
+    this (geom, order). A table that happens to be all-zero (an
+    out-of-plane direction the cantilever never excites) is still
+    returned so its key is registered — the report references specific
+    keys statically, and paradoc errors on an unresolved reference, so a
+    registered-but-zero table is safer than a skipped one.
     """
     attr = _EFF_MASS_DIR_ATTR[direction]
     df_main = None
@@ -243,9 +246,6 @@ def create_eff_mass_comparison_df(
         df_main = append_df(df_main, new_col)
 
     if df_main is None or df_main.empty:
-        return None
-    value_cols = [c for c in df_main.columns if c != "Mode"]
-    if not value_cols or df_main[value_cols].abs().to_numpy().max() < 1e-6:
         return None
     return df_main.round(1)
 
