@@ -59,6 +59,16 @@ ${ eig.compare_line_o1 }{tbl:sortby:Mode:asc;index:no}
 ${ eig.compare_line_o2 }{tbl:sortby:Mode:asc;index:no}
 
 
+#### Effective modal mass
+
+Effective modal mass [kg] per case, summed over the captured modes in the
+global X / Y / Z directions (Calculix and Code Aster report it; Code Aster
+gives translational mass only). Summing over enough modes approaches the
+structure's total mass in each direction.
+
+${ eig.eff_mass_summary }{tbl:sortby:Case:asc;index:no}
+
+
 
 Short description:
 

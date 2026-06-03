@@ -251,6 +251,12 @@ class Eig(Filter):
         return TableView(table_key="eig_compare_line_o2")
 
     @attr
+    def eff_mass_summary(self) -> TableView:
+        # Per-case effective modal mass [kg] summed over the captured
+        # modes (global X/Y/Z); registered by the eff_mass_table task.
+        return TableView(table_key="eff_mass_summary")
+
+    @attr
     def freq_vs_mode_plot(self) -> FigureView:
         return FigureView(
             plot_key="eig_freq_vs_mode",
