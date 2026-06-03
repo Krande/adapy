@@ -411,14 +411,20 @@ class EquationOfPlane:
 
         return abs(point.dot(self.normal) + self.d) / np.linalg.norm(self.normal)
 
-    def return_points_in_plane(self, points: np.ndarray) -> np.ndarray:
-        return points[points.dot(self.normal) + self.d == 0]
+    def return_points_in_plane(self, points: np.ndarray, tol: float = 1e-6) -> np.ndarray:
+        # Tolerant membership test: a corner that geometrically lies in the plane
+        # rarely satisfies ``dot+d == 0`` to bit-exactness once it has been through a
+        # placement transform, so an exact comparison silently drops valid points.
+        # Compare the signed distance (normalized as in ``calc_distance_to_point``).
+        norm = np.linalg.norm(self.normal)
+        dist = np.abs(points.dot(self.normal) + self.d) / norm
+        return points[dist <= tol]
 
-    def is_point_in_plane(self, point: Iterable) -> bool:
+    def is_point_in_plane(self, point: Iterable, tol: float = 1e-6) -> bool:
         if isinstance(point, np.ndarray) is False:
             point = np.array(point)
 
-        return bool(point.dot(self.normal) + self.d == 0)
+        return bool(abs(point.dot(self.normal) + self.d) / np.linalg.norm(self.normal) <= tol)
 
     def get_lcsys(self):
         if self.yvec is None:
