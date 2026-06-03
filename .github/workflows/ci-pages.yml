@@ -3,8 +3,25 @@ name: ci-docs
 on:
   workflow_dispatch:
   push:
+    # Republish to Pages when the docs/report sources land on main —
+    # previously this only happened on a version tag, so verification/
+    # changes (e.g. new report tables) didn't show up until the next
+    # release. Tags still publish (release footer / git-describe string).
+    # NOTE: GitHub applies this `paths` filter to the tag pushes in this
+    # same block too; release commits normally touch src/ada or
+    # pyproject, but if one doesn't, republish via workflow_dispatch.
+    branches:
+      - main
     tags:
       - 'v*.*.*'
+    paths:
+      - 'docs/**'
+      - 'verification/**'
+      - 'src/ada/**'
+      - 'pixi.toml'
+      - 'pixi.lock'
+      - 'pyproject.toml'
+      - '.github/workflows/ci-pages.yml'
   pull_request:
     branches:
       - main

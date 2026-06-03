@@ -356,6 +356,34 @@ def eig_tables(results: list) -> list:
 
 
 @task(parent=postprocess)
+def eff_mass_compare_tables(results: list) -> list:
+    """Cross-solver effective modal mass comparison, mirroring the
+    eigenfrequency comparison tables: one table per (geom, order, global
+    direction). Directions with no excited mass (e.g. out-of-plane for a
+    planar cantilever) are skipped, as are groups with no solver that
+    reported effective mass."""
+    out: list = []
+    for key, geo, order, _hq, _caption in _COMPARISON_SPECS:
+        for direction in ("X", "Y", "Z"):
+            df = ru.create_eff_mass_comparison_df(results, geo, order, direction)
+            if df is None or df.empty:
+                continue
+            out.append(
+                TableOutcome(
+                    key=f"{key}_meff_{direction.lower()}",
+                    df=df,
+                    caption=(
+                        f"Effective modal mass [kg], global {direction} — "
+                        f"{geo}, order {order}."
+                    ),
+                    show_index=False,
+                    default_sort=("Mode", True),
+                )
+            )
+    return out
+
+
+@task(parent=postprocess)
 def eff_mass_table(results: list) -> list:
     """Summary table of effective modal mass [kg] per case (summed over
     the captured modes, global X/Y/Z). Skipped when no solver in the run
