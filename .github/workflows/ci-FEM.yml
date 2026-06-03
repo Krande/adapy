@@ -47,7 +47,7 @@ jobs:
 
       - name: Create Verification Report
         run: |
-          pixi run fem-doc
+          pixi run fea-doc
 
       - uses: actions/upload-artifact@v7
         if: failure()
