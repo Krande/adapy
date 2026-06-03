@@ -36,7 +36,11 @@ concurrency:
 on:
   workflow_dispatch:
   push:
-    branches: [feat/v0_8]
+    # Build (and gitops-deploy) on a push to ANY branch — not just the
+    # integration branch — so feature branches get their images built and
+    # the latest deployed. The per-image detect + fast/full selection and
+    # the paths filter below still gate what actually rebuilds.
+    branches: ['**']
     paths:
       # Union of viewer and worker rebuild scopes. The detect job
       # below splits per-image so a parser-only change rebuilds only
