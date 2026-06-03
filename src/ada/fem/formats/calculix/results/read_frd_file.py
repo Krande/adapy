@@ -143,6 +143,15 @@ class CcxResultModel:
             else:
                 break
 
+        # Each element is appended when the NEXT element's ``-1`` header
+        # arrives. The final element has no following header — the loop
+        # exits on the block terminator (``-3``) instead — so flush the
+        # last accumulated element here or it's silently dropped. This
+        # lost exactly one element per mesh (e.g. a corner element of the
+        # Calculix shell→solid expansion), leaving a hole in the render.
+        if len(curr_element) != 0:
+            elements.append(tuple(curr_element))
+
         self.elements = np.asarray(elements)
         self.eval_flags(data)
 
