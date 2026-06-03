@@ -1,0 +1,27 @@
+# syntax=docker/dockerfile:1.7
+#
+# Fast worker rebuild. When a push changes ONLY adapy Python source
+# (src/ada/**) — not pixi.toml/lock, pyproject.toml or the worker
+# Dockerfile — the CI workflow builds this instead of Dockerfile.worker,
+# skipping the pixi env solve/materialize (the slow part). It overlays
+# the new source onto the previously-published worker image.
+#
+# The base is passed as BASE_IMAGE (the prior `:branch-<ref>` tag). The
+# workflow falls back to the full Dockerfile.worker when no base exists
+# yet (first build on a branch) or when env/Dockerfile inputs changed.
+#
+# The worker runs adapy off PYTHONPATH=/app/src (not pip-installed), so
+# a plain overlay of the source tree is all that's required — env, CMD
+# and the rest of the ENV block are inherited from the base image.
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
+ARG IMAGE_TAG=dev
+
+# Mirrors Dockerfile.worker's `COPY src/ ./src/` (WORKDIR /app). Note an
+# overlay doesn't delete files removed since the base was built; the full
+# build (triggered by any non-source change) reconciles that.
+COPY src/ /app/src/
+
+# Refresh the image-identity tag the worker publishes to the shared NATS
+# KV bucket on startup so /api/config shows the new tag.
+ENV ADA_IMAGE_TAG=${IMAGE_TAG}

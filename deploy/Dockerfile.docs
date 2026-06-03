@@ -15,7 +15,14 @@ ARG PIXI_VERSION=0.68.0
 # local builds.
 ARG IMAGE_TAG=dev
 
-FROM ghcr.io/prefix-dev/pixi:${PIXI_VERSION} AS builder
+# `docs-env` = the heavy, source-independent base: the headless-browser
+# GUI + wgpu/Vulkan apt closure plus the solved `docs` pixi env. It's
+# split into its own stage so CI can publish it as a reusable base image
+# that Dockerfile.docs-fast FROMs — a source-only docs change then skips
+# this whole stage and just re-runs fea-doc + sphinx. Building the full
+# image here still produces an identical result (the split is a no-op for
+# the final image).
+FROM ghcr.io/prefix-dev/pixi:${PIXI_VERSION} AS docs-env
 
 # The Forgejo runner's build sandbox blocks plain-HTTP egress, so
 # rewrite the deb822 mirror URLs to https before fetching the
@@ -131,6 +138,9 @@ RUN --mount=type=cache,target=/root/.cache/rattler,sharing=locked \
 # / ADA_DOCS_DATE from env first; the workflow runs `git describe`
 # / `git show` in the host checkout (depth: 0 there is mandatory)
 # and passes them as build args wired into ENV below.
+# Source + doc-generation stage on top of the env base. Dockerfile.docs-fast
+# mirrors everything from here down, FROM the published docs-env base.
+FROM docs-env AS builder
 ARG ADA_DOCS_RELEASE=""
 ARG ADA_DOCS_DATE=""
 ENV ADA_DOCS_RELEASE=$ADA_DOCS_RELEASE \
