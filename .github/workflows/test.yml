@@ -26,7 +26,7 @@ jobs:
           cache: true
 
       - name: Runs Tests
-        run: pixi run test-core
+        run: pixi run -e tests test-core
 
   test-full:
     name: Test ada-py-full
@@ -51,7 +51,7 @@ jobs:
         run: pixi run wbuild
 
       - name: Run Tests
-        run: pixi run test-full
+        run: pixi run -e tests test-full
 
   test-fem:
     name: Test ada-py-fem
