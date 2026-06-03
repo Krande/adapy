@@ -189,3 +189,53 @@ def create_df_of_data(
         df_main = append_df(df_main, new_col)
 
     return df_main
+
+
+def _case_label(res: FeaVerificationResult) -> str:
+    """Compact ``solver_geom_oN[_tag][R]`` label matching the comparison
+    tables' column convention."""
+    geo = res.metadata["geo"]
+    elo = res.metadata["elo"]
+    hq = res.metadata["hexquad"]
+    uri = res.metadata.get("reduced_integration", False)
+    uri_str = "R" if uri is True else ""
+    if geo.upper() == "SOLID":
+        s_str = "_TET" if hq is False else "_HEX"
+    elif geo.upper() == "SHELL":
+        s_str = "_TRI" if hq is False else "_QUAD"
+    else:
+        s_str = ""
+    return f"{short_name_map[res.fem_format]}_{geo}_o{elo}{s_str}{uri_str}"
+
+
+def create_eff_mass_summary_df(results: list[FeaVerificationResult]) -> pd.DataFrame | None:
+    """Summary of effective modal mass [kg] per case: one row per case,
+    summed over its captured modes in the global X/Y/Z directions.
+
+    Only cases whose reader populated effective mass are included
+    (Calculix + Code_Aster today); returns None if none did, so the
+    caller skips registering an empty table. Note Code_Aster reports
+    translational effective mass only — there is no rotational column.
+    """
+    rows = []
+    for res in results:
+        modes = res.eig_data.modes if res.eig_data is not None else []
+        if not modes or all(m.efx is None for m in modes):
+            continue
+
+        def _s(dof: str) -> float:
+            return float(sum(getattr(m, dof) or 0.0 for m in modes))
+
+        rows.append(
+            {
+                "Case": _case_label(res),
+                "Modes": len(modes),
+                "ΣMeff X": round(_s("efx"), 1),
+                "ΣMeff Y": round(_s("efy"), 1),
+                "ΣMeff Z": round(_s("efz"), 1),
+            }
+        )
+
+    if not rows:
+        return None
+    return pd.DataFrame(rows).sort_values("Case").reset_index(drop=True)
