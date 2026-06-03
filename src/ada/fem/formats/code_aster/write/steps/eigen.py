@@ -75,4 +75,24 @@ IMPR_RESU(
     RESU=_F(RESULTAT=modes, TOUT_CHAM='OUI'),
     UNITE=80
 )
+
+# Effective modal mass + participation factors (global axes). These live
+# as scalar parameters on the mode_meca concept, not in the MED field
+# output, so we normalise (which (re)computes them — see Code_Aster doc
+# U4.52.11) and dump them to a CSV the reader picks up next to the .rmed.
+# Code_Aster reports effective mass along the global translational axes
+# DX/DY/DZ only (no rotational terms). The ``UNITE=81`` token here is also
+# what the .export writer keys on to declare the output file.
+modes = NORM_MODE(reuse=modes, MODE=modes, NORME='MASS_GENE')
+
+tab_modes = RECU_TABLE(
+    CO=modes,
+    NOM_PARA=(
+        'NUME_MODE', 'FREQ',
+        'MASS_EFFE_DX', 'MASS_EFFE_DY', 'MASS_EFFE_DZ',
+        'FACT_PARTICI_DX', 'FACT_PARTICI_DY', 'FACT_PARTICI_DZ',
+    ),
+)
+
+IMPR_TABLE(TABLE=tab_modes, UNITE=81, SEPARATEUR=',', FORMAT='TABLEAU')
 """

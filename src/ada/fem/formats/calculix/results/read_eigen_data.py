@@ -42,8 +42,8 @@ def get_eigen_data(dat_file: str | os.PathLike) -> EigenDataSummary:
             f_hz=float(freq_cycl),
             f_imag_rad=float(freq_imag_rad),
         )
-        participation_data = {pn: p for pn, p in zip(part_factor_names, part[1:])}
-        eff_mass_data = {pn: p for pn, p in zip(eff_mass_names, part[1:])}
-        eigen_modes.append(EigenMode(no=mode, **eig_output, **participation_data, **eff_mass_data))
+        participation_data = {pn: float(p) for pn, p in zip(part_factor_names, part[1:])}
+        eff_mass_data = {pn: float(p) for pn, p in zip(eff_mass_names, modal[1:])}
+        eigen_modes.append(EigenMode(no=int(float(mode)), **eig_output, **participation_data, **eff_mass_data))
 
-    return EigenDataSummary(eigen_modes, tot_eff_mass)
+    return EigenDataSummary(eigen_modes, [float(x) for x in tot_eff_mass])

@@ -143,6 +143,15 @@ class CcxResultModel:
             else:
                 break
 
+        # Each element is appended when the NEXT element's ``-1`` header
+        # arrives. The final element has no following header — the loop
+        # exits on the block terminator (``-3``) instead — so flush the
+        # last accumulated element here or it's silently dropped. This
+        # lost exactly one element per mesh (e.g. a corner element of the
+        # Calculix shell→solid expansion), leaving a hole in the render.
+        if len(curr_element) != 0:
+            elements.append(tuple(curr_element))
+
         self.elements = np.asarray(elements)
         self.eval_flags(data)
 
@@ -309,6 +318,12 @@ def to_fea_result_obj(ccx_results: CcxResultModel, frd_file) -> FEAResult:
     mesh = Mesh(elements=[elem_block], nodes=nodes)
 
     software_version = extract_calculix_version(frd_file)
+
+    # Eigen analyses: the participation factors + effective modal mass
+    # (global axes, 6 DOF) live in the sibling .dat, not the .frd field
+    # stream. Parse them when present so they surface via get_eig_summary.
+    eigen_mode_data = _read_eigen_mode_data(ccx_results, frd_file)
+
     return FEAResult(
         frd_file.name,
         FEATypes.CALCULIX,
@@ -317,7 +332,31 @@ def to_fea_result_obj(ccx_results: CcxResultModel, frd_file) -> FEAResult:
         results_file_path=frd_file,
         description=description,
         software_version=software_version,
+        eigen_mode_data=eigen_mode_data,
     )
+
+
+def _read_eigen_mode_data(ccx_results: CcxResultModel, frd_file: pathlib.Path):
+    """Return the EigenDataSummary from the sibling ``.dat`` for an eigen
+    run, or ``None``. Calculix writes the modal parameters to the ``.dat``;
+    a frequency step is signalled by per-mode ``eigen_freq`` on the field
+    results."""
+    is_eigen = any(getattr(r, "eigen_freq", None) is not None for r in ccx_results.results)
+    if not is_eigen:
+        return None
+    dat_file = frd_file.with_suffix(".dat")
+    if not dat_file.exists():
+        return None
+    from ada.fem.formats.calculix.results.read_eigen_data import get_eigen_data
+
+    try:
+        summary = get_eigen_data(dat_file)
+    except Exception as exc:  # noqa: BLE001 — modal mass is supplementary
+        from ada.config import logger
+
+        logger.warning(f"Could not read eigen modal data from {dat_file.name}: {exc}")
+        return None
+    return summary if summary.modes else None
 
 
 def to_mesh_data(ccx_results: CcxResultModel) -> MeshData:
