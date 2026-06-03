@@ -1,0 +1,168 @@
+# syntax=docker/dockerfile:1.7
+#
+# Sphinx docs site for adapy. Build stage runs the ``docs`` pixi env
+# (sphinx + furo + autodoc imports of ``ada``) and the FEA verification
+# report bundle (``fea-doc`` task → ``docs/_static/fea-report/``); runtime
+# stage serves the rendered HTML via nginx-unprivileged on :8080.
+#
+# Triggered by docs/**, verification/**, pixi.toml/lock,
+# this Dockerfile, or the workflow itself — see the ``docs`` filter in
+# .forgejo/workflows/build.yaml.
+
+ARG PIXI_VERSION=0.68.0
+# CI passes --build-arg IMAGE_TAG=sha-XXXXXXX so the rendered footer can
+# carry the release tag if conf.py ever wants it. Defaults to "dev" for
+# local builds.
+ARG IMAGE_TAG=dev
+
+FROM ghcr.io/prefix-dev/pixi:${PIXI_VERSION} AS builder
+
+# The Forgejo runner's build sandbox blocks plain-HTTP egress, so
+# rewrite the deb822 mirror URLs to https before fetching the
+# headless-browser GUI closure (matches the parametric_models
+# Dockerfile.build pattern).
+#
+# BuildKit cache mounts on /var/cache/apt + /var/lib/apt persist the
+# downloaded .debs (140 s of installs for the headless-browser GUI
+# closure: libnss3, libcups2, etc.) across base-image bumps. The
+# default docker-clean apt hook wipes the cache, so disable it first
+# — without that the mount is empty on every run. Drop the trailing
+# ``rm -rf /var/lib/apt/lists/*`` for the same reason: the mount
+# IS the cache, no need to scrub it inside the layer (the cache
+# directory isn't copied into the image).
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    rm -f /etc/apt/apt.conf.d/docker-clean \
+    && sed -i 's|http://archive.ubuntu.com|https://archive.ubuntu.com|g; s|http://security.ubuntu.com|https://security.ubuntu.com|g' /etc/apt/sources.list.d/*.sources \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ca-certificates \
+        libnss3 libatk-bridge2.0-0 libcups2 libxcomposite1 libxdamage1 \
+        libxfixes3 libxrandr2 libgbm1 libxkbcommon0 libpango-1.0-0 libcairo2 \
+        libasound2t64 \
+        mesa-vulkan-drivers libvulkan1
+
+WORKDIR /work/adapy
+
+# Solve the docs env first — fat closure (prod + desktop + fem-deps +
+# tests-core + sphinx/furo) dominates the cold build. Cache the layer
+# across source-only edits by COPYing manifests separately, and
+# persist the conda package cache via a BuildKit mount so the first
+# build after a base bump doesn't re-download ~500 MB of channels
+# every time.
+COPY pixi.toml pixi.lock pyproject.toml ./
+RUN --mount=type=cache,target=/root/.cache/rattler,sharing=locked \
+    --mount=type=cache,target=/root/.cache/pip,sharing=locked \
+    pixi install --environment docs --locked
+
+# The FEA verification report's compile-time stack (paradoc) comes from the
+# conda-forge ``paradoc`` package in the ``docs`` pixi env (pinned ``>=0.6.0`` in
+# pixi.toml) — no external clone, no build-time secret. ``fea-doc`` invokes
+# ``python -m paradoc.cli_app`` directly from that env.
+#
+# Capabilities the report depends on (current as of paradoc f99b6c0 +
+# adapy c6d41f43):
+#   * FEA edge segments rendered (camera layer 1 + GLB-direct reader
+#     in pygfx_offscreen_utils — `mode: 1` LINES respected the way
+#     Three.js does, no more trimesh-Path3D mis-interpretation)
+#   * Offscreen poster framing math ported verbatim from
+#     `embed/index.ts:applyCameraPreset` (azimuth/elevation/distance/
+#     margin) so the poster and live viewer line up to the pixel
+#   * Embed `showControls` exposes SimulationControls (mode slider,
+#     deformation scale, play/pause for animated GLBs)
+#   * Viewer keyboard shortcuts bundled + scoped to the mount
+#   * IndexedDB 4→5 bump + per-docId auto-invalidation:
+#     DocManifest carries `published_at` so `fetchManifest` wipes
+#     cached sections / images / plots / tables / 3d-meta whenever
+#     it changes — bundle rebuild needs no Clear-cache click.
+#   * DocManifest now also carries the full `git` block (branch,
+#     short_commit, full commit, dirty flag, remote URL); About
+#     panel surfaces it in embed/static mode where there's no
+#     /api/info to query.
+# rebuilt frontend.zip with the cog menu / dark mode / landing page /
+# scoped embed CSS / h-dvh / clean static-mode topbar; pygfx 0.16 +
+# wgpu-py 0.31 + rendercanvas 2.6 pins matching adapy's own bump so
+# the FEA report's edge-aware offscreen poster renderer (now using
+# `rendercanvas.offscreen.OffscreenRenderCanvas` in both adapy
+# helpers — generic and edge-aware) actually runs at build time.
+#   * Filter / DbManager / ThreeDView API
+#   * Vendored ada-viewer (Z-up, CameraControls refresh, embed CSS now
+#     `@scope (.ada-viewer-scope)` so it no longer leaks into host
+#     pages — adapy commits 7fdb6506 + 493dd9f6)
+#   * static-export presets.json wiring, canvas-fits-container fix,
+#     mobile-drawer translate-x + h-dvh fix, single-flight signIn,
+#     `${ key }` substitution syntax (the legacy `{{__key__}}` form
+#     now emits a deprecation warning on every compile)
+#   * Bundle manifest v2 — `published_at` + git provenance baked in at
+#     compile time so the landing page can render `branch@short_sha`
+#   * `/api/docs/{id}/files/{path}` route + auth-aware AsyncImage —
+#     plain `![](files/x.png)` markdown refs in the report no longer
+#     need the IndexedDB-embedding round-trip.
+#   * Static export ships images as files (not a 10 MB base64
+#     `images.json`): absolute build-container paths get flattened to
+#     `_images/<sha8>-<basename>` and the bundle's Image srcs are
+#     rewritten in-place. `<img loading="lazy">` lets the browser
+#     defer off-screen fetches; replaces the legacy bulk preload that
+#     gated first paint at ~2 s desktop / 10–30 s mobile cellular.
+#   * Morph-aware camera framing in `applyCameraPreset` — FEA mode-shape
+#     bundles (which display at morphTargetInfluences=[1] on load) no
+#     longer clip the cantilever tip against the viewer's bottom edge.
+#     Live framing now matches the offscreen poster's framing pose.
+#   * Camera re-fits AFTER `onReady` so FEA-session activation (which
+#     writes the [1.0] morph influence) is in scope when the bbox is
+#     computed — the previous attempt had the timing inverted.
+#   * Interactive3DFigure viewerSize auto-measure no longer locks to
+#     the poster's placeholder height — the wrapper now grows to
+#     match the loaded image so the canvas isn't overflow-clipped at
+#     the bottom by its own ``overflow: hidden`` ancestor.
+#   * mountViewer skips its 400 px min-height floor when the host has
+#     an explicit ``style.height`` — fixes mobile clipping where the
+#     poster-sized wrapper (~322 px) was shorter than the floor.
+#   * ThreeDRenderer outer wrapper now ``h-full`` so the wrapper's
+#     explicit pixel height (set by Interactive3DFigure to match the
+#     poster) propagates down to the mountViewer host without
+#     collapsing through an ``auto``-height intermediate div.
+# autodoc imports ``ada`` at build time, so src/ must be present.
+# verification/ is needed by the fea-doc task that the `docs` pixi
+# task depends on. The .git directory is intentionally NOT copied —
+# every commit appends to it, so `COPY .git/` would invalidate this
+# layer (and every layer below) on every CI run, defeating the
+# per-directory cache granularity. docs/conf.py reads ADA_DOCS_RELEASE
+# / ADA_DOCS_DATE from env first; the workflow runs `git describe`
+# / `git show` in the host checkout (depth: 0 there is mandatory)
+# and passes them as build args wired into ENV below.
+ARG ADA_DOCS_RELEASE=""
+ARG ADA_DOCS_DATE=""
+ENV ADA_DOCS_RELEASE=$ADA_DOCS_RELEASE \
+    ADA_DOCS_DATE=$ADA_DOCS_DATE
+COPY src/ ./src/
+COPY docs/ ./docs/
+COPY verification/ ./verification/
+
+# Runs fea-doc (FEA verification report bundle into docs/_static/fea-report/)
+# then sphinx, via the `depends-on` chain in pixi.toml. Cache mounts:
+#
+#   * /root/.cache/rattler — conda packages, in case fea-doc / docs
+#     trigger another solve.
+#   * /work/adapy/docs/_build/doctrees — sphinx incremental compile
+#     cache (the .doctrees pickle tree). Lets sphinx skip
+#     re-rendering unchanged pages on subsequent builds; the rendered
+#     HTML at docs/_build/html/ is NOT a cache mount because the
+#     final ``COPY --from=builder`` needs it baked into the layer.
+RUN --mount=type=cache,target=/root/.cache/rattler,sharing=locked \
+    --mount=type=cache,target=/work/adapy/docs/_build/doctrees,sharing=locked \
+    pixi run --environment docs docs
+
+FROM nginxinc/nginx-unprivileged:1.27-alpine
+ARG IMAGE_TAG
+LABEL org.opencontainers.image.title="ada-docs" \
+      org.opencontainers.image.version="${IMAGE_TAG}"
+
+# Custom default.conf with gzip on (`text/*`, `application/json`,
+# `application/octet-stream`, `model/gltf-binary`) so the FEA bundle's
+# multi-MB index.html and per-(case, mode) GLBs are wire-compressed.
+COPY deploy/nginx-docs.conf /etc/nginx/conf.d/default.conf
+
+COPY --from=builder /work/adapy/docs/_build/html/ /usr/share/nginx/html/
+
+EXPOSE 8080

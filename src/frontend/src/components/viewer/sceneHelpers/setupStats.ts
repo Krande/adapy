@@ -22,7 +22,12 @@ export function setupStats(
       top: `${i * 48}px`,
       left: "auto",
       right: "0px",
-      zIndex: "20",
+      // Sit below the Menu wrapper (Menu.tsx, z-10) so the mobile
+      // options drawer's close button isn't covered by the stats
+      // panels when both are visible. Stats.js's default cssText
+      // sets z-index:10000 inline — overriding here with an explicit
+      // low value is what actually wins, not merely omitting the key.
+      zIndex: "1",
     });
     statsArray.push(stats);
   }
@@ -38,7 +43,12 @@ export function setupStats(
       top: `${3 * 48}px`,
       left: "auto",
       right: "0px",
-      zIndex: "20",
+      // Sit below the Menu wrapper (Menu.tsx, z-10) so the mobile
+      // options drawer's close button isn't covered by the stats
+      // panels when both are visible. Stats.js's default cssText
+      // sets z-index:10000 inline — overriding here with an explicit
+      // low value is what actually wins, not merely omitting the key.
+      zIndex: "1",
     });
     statsArray.push(stats);
   }
@@ -54,7 +64,12 @@ export function setupStats(
       top: `${4 * 48}px`,
       left: "auto",
       right: "0px",
-      zIndex: "20",
+      // Sit below the Menu wrapper (Menu.tsx, z-10) so the mobile
+      // options drawer's close button isn't covered by the stats
+      // panels when both are visible. Stats.js's default cssText
+      // sets z-index:10000 inline — overriding here with an explicit
+      // low value is what actually wins, not merely omitting the key.
+      zIndex: "1",
     });
     statsArray.push(stats);
   }

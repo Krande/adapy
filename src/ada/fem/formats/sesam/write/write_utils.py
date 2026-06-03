@@ -25,11 +25,18 @@ def write_ff(flag: str, data):
 
 
 def format_data(d):
-    if type(d) in (np.float64, float, int, np.uint64, np.int32) and d >= 0:
+    # ``isinstance`` against the numpy ABCs (``np.integer`` /
+    # ``np.floating``) covers every int / float numpy dtype the
+    # downstream readers might produce — int32 / int64 / uint64 /
+    # float32 / float64 — without needing to enumerate. Plain
+    # Python ``int`` / ``float`` are covered by the
+    # ``numbers``-shaped ``Real`` ABCs that ``isinstance`` honours,
+    # but we test them explicitly for clarity since they're the
+    # common case.
+    if isinstance(d, (float, int, np.integer, np.floating)) and not isinstance(d, bool):
         d = make_zero(d)
-        return f"  {d:<14.8E}"
-    elif type(d) in (np.float64, float, int, np.uint64, np.int32) and d < 0:
-        d = make_zero(d)
+        if d >= 0:
+            return f"  {d:<14.8E}"
         return f" {d:<15.8E}"
     elif isinstance(d, str):
         return d

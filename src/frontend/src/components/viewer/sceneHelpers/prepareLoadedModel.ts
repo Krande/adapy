@@ -1,17 +1,17 @@
 // sceneHelpers/prepareLoadedModel.ts
 import * as THREE from "three";
-import {convert_to_custom_batch_mesh} from "../../../utils/scene/convert_to_custom_batch_mesh";
-import {replaceBlackMaterials} from "../../../utils/scene/assignDefaultMaterial";
-import {useModelState} from "../../../state/modelState";
-import {useOptionsStore} from "../../../state/optionsStore";
-import {adaExtensionRef, rendererRef} from "../../../state/refs";
-import {useAnimationStore} from "../../../state/animationStore";
-import {assignMorphToEdgeAlso} from "../../../utils/scene/animations/assignMorphToEdgeAlso";
-import {assignMorphToPointsAlso} from "../../../utils/scene/animations/assignMorphToPointsAlso";
-import {DesignDataExtension, SimulationDataExtensionMetadata} from "../../../extensions/design_and_analysis_extension";
-import {applySphericalImpostor} from "../../../utils/scene/pointsImpostor";
-import {updateAllPointsSize} from "../../../utils/scene/updatePointSizes";
-import {gpuPointPicker} from "../../../utils/mesh_select/GpuPointPicker";
+import {convert_to_custom_batch_mesh} from "@/utils/scene/convert_to_custom_batch_mesh";
+import {replaceBlackMaterials} from "@/utils/scene/assignDefaultMaterial";
+import {useModelState} from "@/state/modelState";
+import {useOptionsStore} from "@/state/optionsStore";
+import {adaExtensionRef, rendererRef} from "@/state/refs";
+import {useAnimationStore} from "@/state/animationStore";
+import {assignMorphToEdgeAlso} from "@/utils/scene/animations/assignMorphToEdgeAlso";
+import {assignMorphToPointsAlso} from "@/utils/scene/animations/assignMorphToPointsAlso";
+import {DesignDataExtension, SimulationDataExtensionMetadata} from "@/extensions/design_and_analysis_extension";
+import {applySphericalImpostor} from "@/utils/scene/pointsImpostor";
+import {updateAllPointsSize} from "@/utils/scene/updatePointSizes";
+import {gpuPointPicker} from "@/utils/mesh_select/GpuPointPicker";
 
 interface PrepareLoadedModelParams {
     gltf_scene: THREE.Object3D;
@@ -47,11 +47,15 @@ async function get_ada_ext_design_data(mesh: THREE.Mesh): Promise<DesignDataExte
 
     if (ada_ext.design_objects) {
         for (const design_obj of ada_ext.design_objects) {
-            const design_face_node_ref = design_obj.node_references?.faces;
-            if (mesh.name == design_face_node_ref) {
+            // DesignNodeReference.faces is string[] (vs the single
+            // string on SimNodeReference) — match by membership.
+            const design_face_node_refs = design_obj.node_references?.faces;
+            if (!design_face_node_refs || design_face_node_refs.length === 0) continue;
+            if (design_face_node_refs.includes(mesh.name)) {
                 return design_obj;
             }
-            if (mesh.userData?.name == design_face_node_ref) {
+            const userName = mesh.userData?.name;
+            if (typeof userName === "string" && design_face_node_refs.includes(userName)) {
                 return design_obj;
             }
         }
@@ -112,15 +116,63 @@ export async function prepareLoadedModel({gltf_scene, hash}: PrepareLoadedModelP
         if (!drawRangesData && node_id) {
             drawRangesData = gltf_scene.userData[`draw_ranges_node${node_id}`] as Record<string, [number, number]>;
         }
-        if (!drawRangesData) {
-            console.warn(`No draw ranges found for mesh: ${meshName}, node_id: ${node_id}`);
-            console.warn(`Available userData keys:`, Object.keys(gltf_scene.userData));
-        }
 
         const drawRanges = new Map<string, [number, number]>();
         if (drawRangesData) {
             for (const [rangeId, [start, count]] of Object.entries(drawRangesData)) {
                 drawRanges.set(rangeId, [start, count]);
+            }
+        } else {
+            // No adapy GLTF extras — common for hand-built diff/debug
+            // GLBs (e.g. trimesh's Scene.export). Fall back to a
+            // single whole-mesh range keyed by the mesh's node name
+            // so selection + edge-overlay still work, just at
+            // mesh-primitive granularity instead of per-face.
+            const geom = original.geometry as THREE.BufferGeometry;
+            const indexCount = geom.index?.array.length ?? 0;
+            if (indexCount > 0) {
+                const rangeId = meshName || `node_${node_id ?? "anon"}`;
+                drawRanges.set(rangeId, [0, indexCount]);
+                // Also publish into gltf_scene.userData so
+                // cacheAndBuildTree (run by the caller right after
+                // this function) picks it up for the worker cache.
+                // Without this the in-memory CustomBatchedMesh has
+                // ranges but ``queryMeshDrawRange`` against the
+                // worker returns null — clicks on the model
+                // resolve to "selected mesh has no draw range".
+                //
+                // Cache filter requires the key to start with
+                // ``draw_ranges_node``. Trimesh-exported meshes are
+                // named ``node0``, ``node0_<i>``, etc., so the
+                // prefix matches. For non-conforming names we still
+                // synthesise the in-memory range (edges work) but
+                // skip the userData publish (selection won't be
+                // wired through the worker cache for those — same
+                // as the legacy "no extras" path).
+                if (meshName && meshName.startsWith("node")) {
+                    const userDataKey = `draw_ranges_${meshName}`;
+                    const ranges = (gltf_scene.userData[userDataKey] ?? {}) as Record<
+                        string, [number, number]
+                    >;
+                    ranges[rangeId] = [0, indexCount];
+                    gltf_scene.userData[userDataKey] = ranges;
+                    // id_hierarchy: rangeId → [displayName, parentId].
+                    // Caller's tree view + object-info both look up
+                    // here, so populating it (even with a flat root)
+                    // gets us name resolution after a click.
+                    const hier = (gltf_scene.userData["id_hierarchy"] ?? {}) as Record<
+                        string, [string, string | number]
+                    >;
+                    hier[rangeId] = [meshName, "0"];
+                    gltf_scene.userData["id_hierarchy"] = hier;
+                }
+                console.info(
+                    `prepareLoadedModel: synthesizing draw range for "${meshName}" ` +
+                    `(${indexCount} indices) — no adapy GLTF extras present`,
+                );
+            } else {
+                console.warn(`No draw ranges and no indexed geometry for mesh: ${meshName}, node_id: ${node_id}`);
+                console.warn(`Available userData keys:`, Object.keys(gltf_scene.userData));
             }
         }
 
@@ -139,7 +191,14 @@ export async function prepareLoadedModel({gltf_scene, hash}: PrepareLoadedModelP
 
         const customMesh = convert_to_custom_batch_mesh(original, drawRanges, hash, is_design, ada_ext_data);
 
-        if (optionsStore.showEdges && drawRanges.size && is_design) {
+        // Skip the design-side edge overlay for FEA streaming meshes:
+        // it bakes a static applyMatrix4 from the un-deformed geometry
+        // and doesn't share morph attribute / influences, so it'd be
+        // pinned to the base shape while the mesh + AFEM-derived
+        // wireframe morph. The streaming loader installs its own
+        // morph-aware LineSegments overlay separately.
+        const isFeaStreaming = !!original.userData?.feaStreaming;
+        if (optionsStore.showEdges && drawRanges.size && is_design && !isFeaStreaming) {
             if (rendererRef.current)
                 parent.add(customMesh.getEdgeOverlay(rendererRef.current));
         }
@@ -207,15 +266,27 @@ export async function prepareLoadedModel({gltf_scene, hash}: PrepareLoadedModelP
             }
         }
 
-        // Transfer all children from original mesh to customMesh before removing original
-        // This is important because the original mesh may have child nodes (not just Points/LineSegments)
-        // that we need to preserve
+        // Transfer all children from original mesh to customMesh before removing original.
+        //
+        // LineSegments under the original are the FEA writer's
+        // per-element wireframe (mode-1 LINES primitive parented to
+        // the TRIANGLES mesh node, per `_assets/.../mode_*.glb`).
+        // Skipping them here used to drop the wireframe entirely as
+        // soon as `parent.remove(original)` ran below — the
+        // "coarse / sparse wireframe" symptom on FEA mode shapes
+        // came from only the *sibling* LINES sub-meshes surviving,
+        // while every LINES child rode along into the GC.
+        //
+        // Transfer them onto `customMesh` (same local transform, so
+        // positions stay correct), keep the layer 1 assignment the
+        // traverse pass set above so they remain non-pickable, and
+        // let `original` go.
         const childrenToTransfer = [...original.children];
         for (const child of childrenToTransfer) {
-            // Skip Points and LineSegments as they're already handled above
-            if (!(child instanceof THREE.Points) && !(child instanceof THREE.LineSegments)) {
-                customMesh.add(child);
-            }
+            // Skip Points (they were re-parented onto `parent` above
+            // for the streaming-loader morph path).
+            if (child instanceof THREE.Points) continue;
+            customMesh.add(child);
         }
 
         parent.remove(original);

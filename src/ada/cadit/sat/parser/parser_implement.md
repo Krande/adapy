@@ -3,8 +3,8 @@
 This document tracks the implementation status of converting ACIS geometry entities to adapy's STEP-based geometry definitions.
 
 ## Test File
-- **SAT File**: `C:\Downloads\OP1_v1007_hullskin.sat`
-- **Test Command**: `pixi run -e tests python C:\code\adapy\src\ada\cli_convert.py "C:\Downloads\OP1_v1007_hullskin.sat" "C:\Downloads\OP1_v1007_hullskin.stp"`
+- **Checked-in fixture**: `files/sat_files/hullskin_face_0.sat`
+- **Test Command**: `pixi run -e tests ada convert path/to/model.sat path/to/model.stp`
 
 ## Curve Conversions (ACIS → adapy)
 
@@ -182,9 +182,9 @@ This document tracks the implementation status of converting ACIS geometry entit
    - `convert_all_bodies()` - Organizes geometry by body structure
 
 ### Test Results
-- **Test File**: `OP1_v1007_hullskin.sat` (128,332 entities)
+- **Largest reference model**: ~130k entities
 - **Parse Success**: ✅ All entities parsed
-- **Conversion Success**: ✅ 2,500 faces converted successfully
+- **Conversion Success**: ✅ ~2.5k faces converted successfully
 - **Export Success**: ✅ STEP file generated
 
 ### Coverage Summary

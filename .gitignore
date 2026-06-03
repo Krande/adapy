@@ -1,8 +1,9 @@
 # Pycharm
 .idea
 # Packaging
-build/
+/build/
 dist/
+dist-embed/
 *.pyc
 docs/_build/
 output/
@@ -25,3 +26,7 @@ pyproject_test.toml
 node_modules/
 *.html
 .pixi/
+audit_repro/
+audit_repro_*/
+# pytest-benchmark timing baselines — machine-specific, regenerate locally
+.benchmarks/

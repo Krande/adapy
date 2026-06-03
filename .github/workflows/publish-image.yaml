@@ -1,0 +1,201 @@
+name: Publish images
+
+# Builds the adapy deploy images and pushes them to this repo's GitHub
+# Container Registry namespace (ghcr.io/<owner>/adapy-<name>). Auth is the
+# built-in GITHUB_TOKEN — no external secrets required (mirrors the paradoc
+# publish-image.yaml pattern).
+#
+# Images:
+#   adapy-adacpp-wasm-base  deploy/Dockerfile.adacpp-wasm  (OCCT→wasm wheel)
+#   adapy-viewer            deploy/Dockerfile.viewer       (FROM the wasm base)
+#   adapy-worker            deploy/Dockerfile.worker
+#   adapy-docs              deploy/Dockerfile.docs
+#
+# We only push on tag: a tag push `v1.2.3` publishes :1.2.3, :1.2, :latest and
+# :sha-<short> for every image. workflow_dispatch is available for manual
+# re-runs but is not part of the normal release flow.
+
+on:
+  push:
+    tags: ['v*.*.*']
+  workflow_dispatch:
+
+concurrency:
+  group: publish-image-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  # OCCT cross-compiled to a pyodide wasm wheel. Pinned to a tagged adacpp
+  # release via the Dockerfile's ADACPP_REF default. The viewer FROMs this,
+  # so it builds first and exports the resolved image reference.
+  adacpp-wasm:
+    runs-on: ubuntu-latest
+    outputs:
+      base_image: ${{ steps.ref.outputs.base_image }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute image tags + labels
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}-adacpp-wasm-base
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,prefix=sha-
+
+      - name: Resolve base image reference for the viewer build
+        id: ref
+        run: |
+          repo=$(printf '%s' "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          echo "base_image=ghcr.io/${repo}-adacpp-wasm-base:${{ steps.meta.outputs.version }}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./deploy/Dockerfile.adacpp-wasm
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=adacpp-wasm
+          cache-to: type=gha,mode=max,scope=adacpp-wasm
+
+  viewer:
+    needs: adacpp-wasm
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute image tags + labels
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}-viewer
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,prefix=sha-
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./deploy/Dockerfile.viewer
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            IMAGE_TAG=${{ steps.meta.outputs.version }}
+            ADACPP_BASE_IMAGE=${{ needs.adacpp-wasm.outputs.base_image }}
+          cache-from: type=gha,scope=viewer
+          cache-to: type=gha,mode=max,scope=viewer
+
+  worker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute image tags + labels
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}-worker
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,prefix=sha-
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./deploy/Dockerfile.worker
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            IMAGE_TAG=${{ steps.meta.outputs.version }}
+          cache-from: type=gha,scope=worker
+          cache-to: type=gha,mode=max,scope=worker
+
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # docs/conf.py derives the footer release string from git describe,
+          # so the build needs tags (passed in as ADA_DOCS_RELEASE/_DATE).
+          fetch-depth: 0
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute image tags + labels
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}-docs
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,prefix=sha-
+
+      - name: Resolve docs release metadata
+        id: docsmeta
+        run: |
+          echo "release=$(git describe --tags --always)" >> "$GITHUB_OUTPUT"
+          echo "date=$(git show -s --format=%ad --date=short)" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./deploy/Dockerfile.docs
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            IMAGE_TAG=${{ steps.meta.outputs.version }}
+            ADA_DOCS_RELEASE=${{ steps.docsmeta.outputs.release }}
+            ADA_DOCS_DATE=${{ steps.docsmeta.outputs.date }}
+          cache-from: type=gha,scope=docs
+          cache-to: type=gha,mode=max,scope=docs

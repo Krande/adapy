@@ -1,19 +1,32 @@
 import * as THREE from "three";
 import {prepareLoadedModel} from "./prepareLoadedModel";
-import {useModelState} from "../../../state/modelState";
-import {useOptionsStore} from "../../../state/optionsStore";
-import {useAnimationStore} from "../../../state/animationStore";
-import {animationControllerRef, modelKeyMapRef, sceneRef, simulationDataRef, adaExtensionRef} from "../../../state/refs";
-import {SimulationDataExtensionMetadata} from "../../../extensions/design_and_analysis_extension";
-import {FilePurpose} from "../../../flatbuffers/base/file-purpose";
-import {cacheAndBuildTree} from "../../../state/model_worker/cacheModelUtils";
-import {mapAnimationTargets} from "../../../utils/scene/animations/mapAnimationTargets";
+import {useModelState} from "@/state/modelState";
+import {useOptionsStore} from "@/state/optionsStore";
+import {useAnimationStore} from "@/state/animationStore";
+import {animationControllerRef, modelKeyMapRef, sceneRef, simulationDataRef, adaExtensionRef} from "@/state/refs";
+import {SimulationDataExtensionMetadata} from "@/extensions/design_and_analysis_extension";
+import {requestRender} from "@/state/perfStore";
+import {FilePurpose} from "@/flatbuffers/base/file-purpose";
+import {cacheAndBuildTree} from "@/state/model_worker/cacheModelUtils";
+import {mapAnimationTargets} from "@/utils/scene/animations/mapAnimationTargets";
 import {loadGLTF} from "./asyncModelLoader";
-import {AnimationController} from "../../../utils/scene/animations/AnimationController";
-import {updateAllPointsSize} from "../../../utils/scene/updatePointSizes";
+import {AnimationController} from "@/utils/scene/animations/AnimationController";
+import {updateAllPointsSize} from "@/utils/scene/updatePointSizes";
+
+/** Optional hook to mutate the freshly-loaded gltf scene (typically
+ * to inject ``userData["draw_ranges_<meshName>"]`` and
+ * ``userData["id_hierarchy"]``) before ``prepareLoadedModel`` walks
+ * it. Used by the FEA streaming loader to hydrate per-element draw
+ * ranges from the AFEM sidecar — without this hook the FEA mesh
+ * would land in the scene as a single-range CustomBatchedMesh and
+ * miss the per-element pick + highlight pipeline. */
+export type SetupModelPrepareHook = (gltf_scene: THREE.Group) => Promise<void>;
 
 export async function setupModelLoaderAsync(
-    modelUrl: string | null, translate: boolean = true
+    modelUrl: string | null,
+    translate: boolean = true,
+    prepareHook?: SetupModelPrepareHook,
+    sourceName?: string,
 ): Promise<THREE.Group> {
     if (sceneRef.current == null) {
         console.error("Scene reference is null");
@@ -42,6 +55,15 @@ export async function setupModelLoaderAsync(
         if (ada_ext_data.simulation_objects.length > 0){
             simulationDataRef.current = ada_ext_data.simulation_objects[0];
         }
+        // Stash the extension + gltf parser on the group so the caller
+        // (update_scene_from_message etc.) can call
+        // ``registerLineageFromExtension`` once it knows the source
+        // file name. The setLoadedSourceName / registerLoadedSource
+        // flips happen AFTER setupModelLoaderAsync returns, so we
+        // can't register lineage here without race-conditioning
+        // against the wrong (previous) file name.
+        gltf_scene.userData.__adaExt = ada_ext_data;
+        gltf_scene.userData.__adaGltf = gltf;
     }
     animationControllerRef.current = new AnimationController(main_scene);
     // Handle animations - clear previous state first
@@ -71,6 +93,10 @@ export async function setupModelLoaderAsync(
     // create a unique hash string
     const model_hash = gltf_scene.name + "_" + gltf_scene.uuid;
 
+    if (prepareHook) {
+        await prepareHook(gltf_scene);
+    }
+
     await prepareLoadedModel({gltf_scene: gltf_scene, hash: model_hash});
     // once userData is on the scene:
     const rawUD = (gltf_scene.userData ?? {}) as Record<
@@ -78,8 +104,8 @@ export async function setupModelLoaderAsync(
         any
     >;
 
-    // delegate all the caching to our helper
-    await cacheAndBuildTree(model_hash, rawUD);
+    // delegate all the caching to our helper (sourceName -> the tree root label)
+    await cacheAndBuildTree(model_hash, rawUD, sourceName);
 
     if (modelStore.translation && translate) {
         console.log("Model already translated");
@@ -110,6 +136,11 @@ export async function setupModelLoaderAsync(
     modelGroup.add(gltf_scene);
 
     main_scene.add(modelGroup);
+    // The render loop only fires on OrbitControls 'change' events
+    // or explicit ``requestRender()`` calls (ThreeCanvas.tsx:158).
+    // Without this kick the freshly-added model only paints once the
+    // user rotates / pans the camera.
+    requestRender();
 
     // Ensure point sizes and sizing mode are applied after the model is in the scene,
     // so points are visible immediately without needing the Options panel.

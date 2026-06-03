@@ -4,11 +4,45 @@ from typing import Iterable
 
 from ada import Direction, Point
 from ada.cadit.sat.exceptions import ACISReferenceDataError, ACISUnsupportedCurveType
-from ada.cadit.sat.read.bsplinecurves import create_bspline_curve_from_sat
+from ada.cadit.sat.read.bsplinecurves import (
+    create_bspline_curve_from_sat,
+    create_pcurve_2d_from_sat_record,
+)
 from ada.cadit.sat.read.sat_entities import AcisRecord
-from ada.config import Config
+from ada.config import Config, logger
 from ada.geom import curves as geo_cu
 from ada.geom.placement import Axis2Placement3D
+
+
+def _reverse_pcurve_2d(pc: geo_cu.Pcurve2dBSpline) -> geo_cu.Pcurve2dBSpline:
+    """Return a reversed copy of a 2D B-spline pcurve.
+
+    Reversal: reverse the control-point sequence (and weights, if
+    rational), then reflect the knot vector around its midpoint
+    (``new_knots[i] = first + last - knots[n-1-i]``) with multiplicities
+    in the same reversed order. This preserves curve shape while
+    flipping its parameterization direction — the right transform for
+    bringing an ACIS pcurve into alignment with an OCC edge that
+    traverses the 3D curve in the opposite direction.
+    """
+    knots = list(pc.knots)
+    mults = list(pc.knot_multiplicities)
+    if not knots:
+        return pc
+    a = knots[0]
+    b = knots[-1]
+    new_knots = [a + b - k for k in reversed(knots)]
+    new_mults = list(reversed(mults))
+    new_cps = list(reversed(pc.control_points_2d))
+    new_weights = list(reversed(pc.weights)) if pc.weights else None
+    return geo_cu.Pcurve2dBSpline(
+        degree=pc.degree,
+        control_points_2d=new_cps,
+        knots=new_knots,
+        knot_multiplicities=new_mults,
+        weights=new_weights,
+        closed=pc.closed,
+    )
 
 
 def get_ellipse_curve(ellipse_record: AcisRecord) -> geo_cu.Ellipse | geo_cu.Circle:
@@ -118,7 +152,88 @@ def get_edge(coedge: AcisRecord) -> geo_cu.OrientedEdge:
     else:
         ori = False
 
-    return geo_cu.OrientedEdge(p1, p2, edge_element, ori)
+    # Resolve the per-coedge UV-space p-curve when the SAT file provides
+    # one. The pcurve ref sits in coedge.chunks[12] (after edge=9, sense=10,
+    # loop=11). Carrying it forward lets the OCCT face-builder skip the
+    # lossy reproject-and-fit fallback in update_edges_uv_gen.
+    #
+    # Sense composition: the OCC edge runs along the underlying 3D
+    # intcurve iff edge.sense == coedge.sense (each ``reversed`` flips
+    # the direction). The pcurve as authored runs along the intcurve
+    # when its own sense=forward. Reverse the 2D curve at parse time
+    # whenever the two disagree, so the consumer can attach as-is.
+    pcurve_geom: geo_cu.Pcurve2dBSpline | None = None
+    chunks = coedge.chunks
+    if len(chunks) > 12:
+        pcurve_chunk = chunks[12]
+        if pcurve_chunk and pcurve_chunk.startswith("$") and pcurve_chunk != "$-1":
+            try:
+                pcurve_record = sat_store.get(pcurve_chunk)
+            except Exception:
+                pcurve_record = None
+            if pcurve_record is not None and getattr(pcurve_record, "type", None) == "pcurve":
+                try:
+                    pcurve_geom = create_pcurve_2d_from_sat_record(pcurve_record)
+                    if pcurve_geom is not None:
+                        # Pcurve sense: chunks[7] is forward/reversed.
+                        # Reverse strategy is tunable via env var while
+                        # we sort out the right composition; "auto" uses
+                        # the conservative rule "reverse iff pcurve sense
+                        # disagrees with (edge.sense XOR coedge.sense)".
+                        # Set ADA_PCURVE_REVERSE=never|always|auto|pcurve_only.
+                        import os as _os
+
+                        mode = (_os.environ.get("ADA_PCURVE_REVERSE") or "auto").strip().lower()
+                        pcurve_sense = "forward"
+                        if len(pcurve_record.chunks) > 7 and pcurve_record.chunks[7] in ("forward", "reversed"):
+                            pcurve_sense = pcurve_record.chunks[7]
+                        do_reverse = False
+                        if mode == "never":
+                            do_reverse = False
+                        elif mode == "always":
+                            do_reverse = True
+                        elif mode == "pcurve_only":
+                            do_reverse = pcurve_sense == "reversed"
+                        else:  # auto
+                            occ_edge_along_intcurve = edge_direction == coedge_direction
+                            pcurve_along_intcurve = pcurve_sense == "forward"
+                            do_reverse = occ_edge_along_intcurve != pcurve_along_intcurve
+                        if do_reverse:
+                            pcurve_geom = _reverse_pcurve_2d(pcurve_geom)
+                except Exception as ex:
+                    logger.debug("pcurve %s not usable: %s", pcurve_chunk, ex)
+                    pcurve_geom = None
+
+    # SAT edge stores the underlying curve's parameters at the start
+    # and end vertices (chunks[7]=t1, chunks[9]=t2). Carrying them
+    # forward lets the OCC builder use parameter-trim instead of 3D-
+    # point trim — which is critical for closed curves like circles
+    # where two arcs connect the same two points (the point-trim
+    # overload picks one of them and gets it wrong on the long-arc
+    # half of the time).
+    t_start: float | None = None
+    t_end: float | None = None
+    try:
+        t_start = float(edge.chunks[7])
+        t_end = float(edge.chunks[9])
+    except (ValueError, IndexError, TypeError):
+        pass
+    # Coedge orientation: when the coedge runs the edge backwards we
+    # already swapped p1/p2 above — also swap t_start/t_end so the OCC
+    # edge runs from p1 (at t_start) to p2 (at t_end) along the
+    # curve's natural direction.
+    if not coedge_dir_bool and t_start is not None and t_end is not None:
+        t_start, t_end = t_end, t_start
+
+    return geo_cu.OrientedEdge(
+        p1,
+        p2,
+        edge_element,
+        ori,
+        pcurve=pcurve_geom,
+        t_start=t_start,
+        t_end=t_end,
+    )
 
 
 def iter_loop_coedges(loop_record: AcisRecord) -> Iterable[geo_cu.OrientedEdge]:

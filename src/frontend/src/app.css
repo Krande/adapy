@@ -1,14 +1,59 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import 'tailwindcss';
 
+@config '../tailwind.config.js';
+
+/*
+  The default border color has changed to `currentcolor` in Tailwind CSS v4,
+  so we've added these compatibility styles to make sure everything still
+  looks the same as it did with Tailwind CSS v3.
+
+  If we ever want to remove these styles, we need to add an explicit border
+  color utility to any element that depends on these defaults.
+*/
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--color-gray-200, currentcolor);
+  }
+
+  /*
+    Tailwind CSS v4's Preflight sets interactive elements to `cursor: default`
+    to match the native browser default. Restore the pointer cursor on
+    enabled buttons/links-as-buttons so every clickable control (nav bar,
+    auth sign-in, etc.) reads as interactive on hover.
+  */
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+}
+
+/* Indeterminate progress bar — slides a 1/3-width fill back and forth.
+   Used by StorageBrowser while waiting for a job before any percentage
+   is reported. */
+@keyframes indeterminate {
+    0%   { transform: translateX(-100%); }
+    100% { transform: translateX(300%); }
+}
+
+/* Use dvh so the canvas fills the *visible* viewport on mobile, where
+   the URL bar shrinks the visible area below the layout viewport that
+   `100%`/`100vh` reports. Without this the gizmo at bottom-right ends
+   up under the address bar. Fallback to vh for browsers without dvh. */
 html, body {
-    height: 100%;
+    height: 100vh;
+    height: 100dvh;
     margin: 0;
+    overflow: hidden;
+    overscroll-behavior: none;
 }
 
 #root {
-    height: 100%;
+    height: 100vh;
+    height: 100dvh;
 }
 
 body {

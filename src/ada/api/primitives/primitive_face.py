@@ -9,7 +9,7 @@ from ada.geom.booleans import BooleanOperation
 from ada.geom.surfaces import CurveBoundedPlane, Plane
 
 if TYPE_CHECKING:
-    from OCC.Core.TopoDS import TopoDS_Shape
+    from ada.cad import ShapeHandle
 
 
 class PrimFace(Shape):
@@ -34,10 +34,10 @@ class PrimFace(Shape):
     def poly(self) -> CurvePoly2d:
         return self._poly
 
-    def solid_occ(self) -> TopoDS_Shape:
-        from ada.occ.geom import geom_to_occ_geom
+    def solid_occ(self) -> ShapeHandle:
+        from ada.occ.geom.cache import get_solid_occ
 
-        return geom_to_occ_geom(self.solid_geom())
+        return get_solid_occ(self)
 
     def solid_geom(self) -> Geometry:
         from ada.geom.curves import IndexedPolyCurve

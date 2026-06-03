@@ -25,10 +25,9 @@ from ada.sections import Section
 from ada.sections.string_to_section import interpret_section_str
 
 if TYPE_CHECKING:
-    from OCC.Core.TopoDS import TopoDS_Shape
-
     from ada import Plate
     from ada.api.beams.helpers import BeamConnectionProps
+    from ada.cad import ShapeHandle
 
 
 section_counter = Counter(1)
@@ -309,21 +308,19 @@ class Beam(BackendGeom):
         return self._bbox
 
     def line_occ(self):
-        from ada.occ.utils import make_wire_from_points
+        from ada.cad import active_backend
 
-        points = [self.n1.p, self.n2.p]
+        return active_backend().make_wire([self.n1.p, self.n2.p])
 
-        return make_wire_from_points(points)
+    def shell_occ(self) -> ShapeHandle:
+        from ada.occ.geom.cache import get_shell_occ
 
-    def shell_occ(self) -> TopoDS_Shape:
-        from ada.occ.geom import geom_to_occ_geom
+        return get_shell_occ(self)
 
-        return geom_to_occ_geom(self.shell_geom())
+    def solid_occ(self) -> ShapeHandle:
+        from ada.occ.geom.cache import get_solid_occ
 
-    def solid_occ(self) -> TopoDS_Shape:
-        from ada.occ.geom import geom_to_occ_geom
-
-        return geom_to_occ_geom(self.solid_geom())
+        return get_solid_occ(self)
 
     def solid_geom(self) -> Geometry:
         return geo_conv.straight_beam_to_geom(self)
@@ -331,6 +328,11 @@ class Beam(BackendGeom):
     def shell_geom(self) -> Geometry:
         geom = geo_conv.straight_beam_to_geom(self, is_solid=False)
         return geom
+
+    def get_cut_surfaces(self, deflection: float = 1e-3, tol: float = 1e-4):
+        from ada.api.beams.cut_surfaces import extract_cut_surfaces
+
+        return extract_cut_surfaces(self, deflection=deflection, tol=tol)
 
     def _add_beam_to_node_refs(self) -> None:
         """Add beam to refs on nodes"""

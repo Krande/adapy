@@ -53,7 +53,6 @@ from ada.core.utils import roundoff
 from ada.core.vector_transforms import normal_to_points_in_plane
 from ada.core.vector_utils import is_parallel, unit_vector, vector_length
 from ada.fem.shapes import ElemType
-from ada.geom.booleans import BoolOpEnum
 from ada.geom.direction import Direction
 from ada.geom.points import Point
 
@@ -87,6 +86,9 @@ def extract_occ_shapes(
 def transform_shape(
     shape: TopoDS_Shape, scale=None, transform: Placement | tuple | list = None, rotate: Rotation = None
 ) -> TopoDS_Shape:
+    # OCC-internal helper (construction / STEP-import / FEM): operates on raw
+    # pythonocc TopoDS shapes, so it uses OCC directly rather than the active
+    # CAD backend (which under adacpp would receive an incompatible handle).
     trsf = gp_Trsf()
     if scale is not None:
         trsf.SetScaleFactor(scale)
@@ -238,6 +240,16 @@ def divide_edge_by_nr_of_points(edg, n_pts):
 
 
 def get_points_from_occ_shape(occ_shape: TopoDS_Shape | TopoDS_Vertex | TopoDS_Edge | TopoDS_Face):
+    # Dual-use helper: callers pass either a *final* backend handle (e.g.
+    # plate.shell_occ()) or a *construction-internal* raw pythonocc shape
+    # (fillet/arc building). For a final handle, route to the active backend's
+    # vertex_points verb so adacpp handles work too; for a raw TopoDS shape
+    # (not an active-backend handle) fall back to OCC directly.
+    from ada.cad import active_backend, is_shape_handle
+
+    if is_shape_handle(occ_shape):
+        return active_backend().vertex_points(occ_shape)
+
     t = TopologyExplorer(occ_shape)
     points = []
     for v in t.vertices():
@@ -249,13 +261,11 @@ def get_points_from_occ_shape(occ_shape: TopoDS_Shape | TopoDS_Vertex | TopoDS_E
 def get_face_normal(a_face: TopoDS_Face) -> tuple[Point, Direction] | tuple[None, None]:
     """Based on core_geometry_face_recognition_from_stepfile.py in pythonocc-demos"""
     surf = BRepAdaptor_Surface(a_face, True)
-    surf_type = surf.GetType()
-    if surf_type != GeomAbs_Plane:
+    if surf.GetType() != GeomAbs_Plane:
         return None, None
-
     gp_pln = surf.Plane()
-    location = gp_pln.Location().XYZ().Coord()  # a point of the plane
-    normal = gp_pln.Axis().Direction()  # the plane normal
+    location = gp_pln.Location().XYZ().Coord()
+    normal = gp_pln.Axis().Direction()
     return Point(*location), Direction(normal.X(), normal.Y(), normal.Z())
 
 
@@ -273,14 +283,30 @@ def get_face_debug_params(face: TopoDS_Face) -> TopoDSFaceDebug:
 
 
 def iter_faces_with_normal(shape, normal, point_in_plane: Iterable | Point = None):
+    # Operates on a *final* shape handle. Route face enumeration and per-face
+    # plane extraction through the active backend so adacpp handles work too;
+    # for a raw construction TopoDS shape (not a backend handle) use OCC.
+    from ada.cad import active_backend, is_shape_handle
+
     normal = Direction(*normal)
     eop = None
     if point_in_plane is not None:
         eop = EquationOfPlane(point_in_plane, normal)
 
-    t = TopologyExplorer(shape)
-    for face in t.faces():
-        point, n = get_face_normal(face)
+    if is_shape_handle(shape):
+        backend = active_backend()
+        faces = backend.faces(shape)
+
+        def _face_normal(f):
+            res = backend.face_plane(f)
+            return res if res is not None else (None, None)
+
+    else:
+        faces = TopologyExplorer(shape).faces()
+        _face_normal = get_face_normal
+
+    for face in faces:
+        point, n = _face_normal(face)
         if n is None:
             continue
         if not is_parallel(n, normal):
@@ -555,9 +581,7 @@ def rotate_shp_3_axis(shape, revolve_axis, rotation):
     """
     alpha = gp_Trsf()
     alpha.SetRotation(revolve_axis, np.deg2rad(rotation))
-    brep_trns = BRepBuilderAPI_Transform(shape, alpha, False)
-    shp = brep_trns.Shape()
-    return shp
+    return BRepBuilderAPI_Transform(shape, alpha, False).Shape()
 
 
 def compute_minimal_distance_between_shapes(shp1, shp2) -> BRepExtrema_DistShapeShape:
@@ -570,7 +594,7 @@ def compute_minimal_distance_between_shapes(shp1, shp2) -> BRepExtrema_DistShape
 
     assert dss.IsDone()
 
-    logger.info("Minimal distance between shapes: ", dss.Value())
+    logger.debug("Minimal distance between shapes: %s", dss.Value())
 
     return dss
 
@@ -629,6 +653,8 @@ def sweep_geom(sweep_wire: TopoDS_Wire, wire_face: TopoDS_Wire):
 
 
 def apply_booleans(geom: TopoDS_Shape, booleans: list[Boolean]) -> TopoDS_Shape:
+    from ada.geom.booleans import BoolOpEnum
+
     for boolean in booleans:
         if boolean.bool_op == BoolOpEnum.DIFFERENCE:
             geom = BRepAlgoAPI_Cut(geom, boolean.primitive.solid_occ()).Shape()
@@ -638,7 +664,6 @@ def apply_booleans(geom: TopoDS_Shape, booleans: list[Boolean]) -> TopoDS_Shape:
             geom = BRepAlgoAPI_Common(geom, boolean.primitive.solid_occ()).Shape()
         else:
             raise NotImplementedError(f"Boolean operation {boolean.bool_op} not implemented")
-
     return geom
 
 
@@ -733,3 +758,24 @@ def from_pointer(pointer: int) -> TopoDS_Shape:
     from OCC.Core.TopoDS import TopoDS_Shape
 
     return TopoDS_Shape(pointer)
+
+
+def serialize_shape_via_shapeset(shape) -> str:
+    """Serialize a single OCC shape with ``BRepTools_ShapeSet`` (BREP text).
+
+    The fallback the IFC writer uses when ``ifcopenshell.geom.occ_utils.
+    serialize_shape`` hits the ``WriteToString(self, shape)`` signature drift.
+    Kept here so the IFC subsystem carries no direct ``OCC`` import."""
+    from OCC.Core import BRepTools
+
+    ss = BRepTools.BRepTools_ShapeSet()
+    ss.SetFormatNb(2)
+    # Some OCC builds want both Add() and WriteToString(shape); others let
+    # WriteToString do the work alone. Try the combination that matches
+    # upstream's original intent (Add registers the shape, WriteToString emits it).
+    try:
+        ss.Add(shape)
+        return ss.WriteToString(shape)
+    except TypeError:
+        # Last resort: skip Add (some bindings have WriteToString take ownership).
+        return ss.WriteToString(shape)

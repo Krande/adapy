@@ -2,12 +2,12 @@ import React from 'react';
 import {Rnd} from 'react-rnd';
 import {Background, Controls, MiniMap, ReactFlow} from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import {request_list_of_nodes} from "../../utils/node_editor/comms/request_list_of_nodes";
-import {useNodeEditorStore} from '../../state/useNodeEditorStore'; // Import the Zustand store
+import {request_list_of_nodes} from "@/utils/node_editor/handlers/request_list_of_nodes";
+import {useNodeEditorStore} from '@/state/useNodeEditorStore'; // Import the Zustand store
 import ProcedureNode from './nodes/procedure_node/ProcedureNode';
-import CustomFileObjectNode from './nodes/file_node/customFileObjectNode';
-import {onDelete} from "../../utils/node_editor/comms/on_delete";
-import {start_new_node_editor} from "../../utils/node_editor/comms/start_new_node_editor";
+import CustomFileObjectNode from './nodes/file_node/CustomFileObjectNode';
+import {onDelete} from "@/utils/node_editor/handlers/on_delete";
+import {start_new_node_editor} from "@/utils/node_editor/handlers/start_new_node_editor";
 import ReloadIcon from "../icons/ReloadIcon";
 import PopOutIcon from "../icons/PopOutIcon";
 
@@ -68,18 +68,18 @@ const NodeEditorComponent: React.FC = () => {
                 <div className={"flex flex-row"}>
                     <div className={"flex p-1"}>Node Editor</div>
                     <button
-                        className={"flex relative bg-blue-700 hover:bg-blue-700/50 text-white p-1 ml-2 rounded"}
+                        className={"flex relative bg-blue-700 hover:bg-blue-700/50 text-white p-1 ml-2 rounded-sm"}
                         onClick={() => request_list_of_nodes()}
                     >
                         <ReloadIcon />
                     </button>
                     <button
-                        className={"flex relative bg-blue-700 hover:bg-blue-700/50 text-white p-1 ml-2 rounded"}
+                        className={"flex relative bg-blue-700 hover:bg-blue-700/50 text-white p-1 ml-2 rounded-sm"}
                         onClick={() => start_new_node_editor()}
                     >
                         <PopOutIcon />
                     </button>
-                    {/*<div className={"flex relative bg-blue-700 hover:bg-blue-700/50 text-white p-1 ml-2 rounded"}>*/}
+                    {/*<div className={"flex relative bg-blue-700 hover:bg-blue-700/50 text-white p-1 ml-2 rounded-sm"}>*/}
                     {/*    <input type="file" onChange={handleFileUpload}/>*/}
                     {/*</div>*/}
                 </div>

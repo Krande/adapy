@@ -1,10 +1,6 @@
 import inspect
 
-import ipywidgets as widgets
 import numpy as np
-import plotly.graph_objs as go
-import scipy.optimize
-from IPython.display import display
 
 from ada.config import get_logger
 from ada.visit.plots import easy_plotly
@@ -138,6 +134,8 @@ class Calibrate:
         return resid.flatten()
 
     def _build_test_data(self, eng_plot=True):
+        import plotly.graph_objs as go
+
         test_data = self.mat_data.eng_dict if eng_plot else self.mat_data.true_dict
         traces = []
         for key, data in test_data.items():
@@ -145,6 +143,8 @@ class Calibrate:
         return traces
 
     def _build_plot(self, model, params, eng_plot=True):
+        import plotly.graph_objs as go
+
         from .utils import S_from_sig, e_from_eps
 
         model_name = model.__name__
@@ -202,6 +202,8 @@ class Calibrate:
         :param eng_plot: Plot using engineering stress and strain.
         :return:
         """
+        import plotly.graph_objs as go
+
         model_name = model.__name__
         coeff = [x for x in inspect.getfullargspec(model)[0] if x not in ["strain", "load_type"]]
         name = "".join([f"{c}:{x:>15.4E}<br>" for c, x in zip(coeff, params)])
@@ -372,6 +374,9 @@ class Calibrate:
         self._fig.layout["title"] = "ADA OpenSim: " + self._model.__name__
 
     def _repr_html_(self):
+        import ipywidgets as widgets
+        from IPython.display import display
+
         self._fig = easy_plotly("ADA OpenSim", ([], []), return_widget=True)
         opt_models = list(self._models_d.keys())
         self._selected_models = ["Yeoh"]
@@ -468,6 +473,8 @@ def uniaxial_stress(model, true_strain, params):
 
         # calc_s22_abs = lambda x: abs(model([lam1, x, x], params)[1, 1])
         # search for transverse stretch that gives S22=0
+        import scipy.optimize
+
         x0 = 1.0 / np.sqrt(lam1)
         lam2 = scipy.optimize.fmin(calc_s22_abs, x0=x0, xtol=1e-9, ftol=1e-9, disp=False)
         stress[i] = model([lam1, lam2, lam2], params)[0, 0]
@@ -485,6 +492,8 @@ def biaxial_stress(model, trueStrainVec, params):
             abs(model([lam1, lam1, x], params)[2, 2])
 
         # search for transverse stretch that gives S33=0
+        import scipy.optimize
+
         lam3 = scipy.optimize.fmin(calc_s33_abs, x0=1 / np.sqrt(lam1), xtol=1e-9, ftol=1e-9, disp=False)
 
         stress[i] = model([lam1, lam1, lam3], params)[0, 0]
@@ -501,6 +510,8 @@ def planar_stress(model, trueStrainVec, params):
             abs(model([lam1, 1.0, x], params)[2, 2])
 
         # search for transverse stretch that gives S33=0
+        import scipy.optimize
+
         lam3 = scipy.optimize.fmin(calc_s33_abs, x0=1 / np.sqrt(lam1), xtol=1e-9, ftol=1e-9, disp=False)
         stress[i] = model([lam1, 1.0, lam3], params)[0, 0]
     return stress

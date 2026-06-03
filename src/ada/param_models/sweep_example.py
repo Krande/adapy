@@ -1,9 +1,15 @@
-# Sweep example
-# Build swept solids from point arrays using pythonocc-core, with consistent profile alignment.
+# Sweep example — backend-neutral reference implementation.
+# Builds swept solids from point arrays with consistent profile alignment by
+# constructing an ada.geom FixedReferenceSweptAreaSolid and building it through
+# the active CAD backend (works under pythonocc AND adacpp). It is an independent
+# reference (own profile-orientation math, not ada.PrimSweep's placement code) that
+# the swept-area tests cross-check ada.PrimSweep against. No OCC import here.
 # Run this file directly to visualize the 3 sweeps if you have a GUI environment.
-from typing import Iterable, List, Optional, Tuple
+from __future__ import annotations
 
-from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_RoundCorner
+from typing import List, Optional, Tuple
+
+from ada.geom.points import Point
 
 wt = 8e-3
 # 2D profile (triangle/fillet) in local profile coordinates
@@ -86,7 +92,7 @@ sweep3_pts = [
 
 
 # ----------------------
-# OCC-based sweep construction
+# Backend-neutral sweep construction
 # ----------------------
 
 
@@ -112,17 +118,46 @@ def _dot(a: Tuple[float, float, float], b: Tuple[float, float, float]) -> float:
     return ax * bx + ay * by + az * bz
 
 
-def make_wire_from_points(pts: List[Iterable[float]]):
-    from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_MakeEdge, BRepBuilderAPI_MakeWire
-    from OCC.Core.gp import gp_Pnt
+def _profile_frame(
+    normal: Tuple[float, float, float],
+    ydir: Optional[Tuple[float, float, float]] = None,
+    xdir: Optional[Tuple[float, float, float]] = None,
+) -> Tuple[Tuple[float, float, float], Tuple[float, float, float], Tuple[float, float, float]]:
+    """Orthonormal (x, y, n) frame for embedding a 2D profile in 3D.
+
+    - If xdir is provided, it is used as the X of the local frame.
+    - Else if ydir is provided, X is computed as cross(ydir, normal).
+    - Y is recomputed as cross(normal, X) to ensure orthonormality.
+    """
+    n = _normalize(normal)
+    if xdir is not None:
+        x = _normalize(xdir)
+        if abs(_dot(x, n)) > 0.999:
+            raise ValueError("profile_xdir nearly parallel to profile_normal")
+        y = _cross(n, x)
+    else:
+        if ydir is None:
+            ydir = (0.0, 0.0, 1.0)
+        y0 = _normalize(ydir)
+        if abs(_dot(y0, n)) > 0.999:
+            y0 = (1.0, 0.0, 0.0)
+        x = _normalize(_cross(y0, n))
+        y = _normalize(_cross(n, x))
+    return x, y, n
+
+
+def _embed_profile_3d(poly2d, origin, x, y) -> List[Tuple[float, float, float]]:
+    """Embed 2D profile points in the plane (origin, x, y) → absolute 3D points."""
+    ox, oy, oz = origin
+    return [(ox + u * x[0] + v * y[0], oy + u * x[1] + v * y[1], oz + u * x[2] + v * y[2]) for (u, v) in poly2d]
+
+
+def make_wire_from_points(pts):
+    """Open polyline wire through the given 3D points (backend-neutral)."""
+    from ada.cad import active_backend
 
     assert len(pts) >= 2, "Need at least two points for a wire"
-    mk_wire = BRepBuilderAPI_MakeWire()
-    for i in range(len(pts) - 1):
-        p1 = gp_Pnt(*pts[i])
-        p2 = gp_Pnt(*pts[i + 1])
-        mk_wire.Add(BRepBuilderAPI_MakeEdge(p1, p2).Edge())
-    return mk_wire.Wire()
+    return active_backend().make_wire([[float(c) for c in p] for p in pts])
 
 
 def make_profile_wire(
@@ -132,77 +167,58 @@ def make_profile_wire(
     ydir: Optional[Tuple[float, float, float]] = None,
     xdir: Optional[Tuple[float, float, float]] = None,
 ):
+    """Closed profile wire from 2D points embedded in a plane at ``origin``.
+
+    Returns ``(wire_handle, x, y, n)``. The wire is built through the active CAD
+    backend, so the result is a backend shape handle (not an OCC wire).
     """
-    Build a 3D profile wire from 2D points by embedding them in a plane at origin with
-    the provided normal and an orientation controlled by ydir/xdir.
+    from ada.cad import active_backend
 
-    - If xdir is provided, it is used as the X of the local frame.
-    - Else if ydir is provided, X is computed as cross(ydir, normal).
-    - Y is recomputed as cross(normal, X) to ensure orthonormality.
-    """
-    from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_MakePolygon
-    from OCC.Core.gp import gp_Pnt
-
-    n = _normalize(normal)
-    if xdir is not None:
-        x = _normalize(xdir)
-        # Ensure x is not parallel to n
-        if abs(_dot(x, n)) > 0.999:
-            raise ValueError("profile_xdir nearly parallel to profile_normal")
-        y = _cross(n, x)
-    else:
-        if ydir is None:
-            # Default up direction if nothing provided
-            ydir = (0.0, 0.0, 1.0)
-        y0 = _normalize(ydir)
-        # Make sure y0 is not parallel to normal
-        if abs(_dot(y0, n)) > 0.999:
-            # pick another helper
-            y0 = (1.0, 0.0, 0.0)
-        x = _normalize(_cross(y0, n))
-        y = _normalize(_cross(n, x))
-
-    ox, oy, oz = origin
-
-    mk = BRepBuilderAPI_MakePolygon()
-    for i, (u, v) in enumerate(poly2d + [poly2d[0]]):  # ensure closed
-        px = ox + u * x[0] + v * y[0]
-        py = oy + u * x[1] + v * y[1]
-        pz = oz + u * x[2] + v * y[2]
-        mk.Add(gp_Pnt(px, py, pz))
-    mk.Close()
-    return mk.Wire(), x, y, n
+    x, y, n = _profile_frame(normal, ydir=ydir, xdir=xdir)
+    pts3d = _embed_profile_3d(poly2d, origin, x, y)
+    closed = pts3d + [pts3d[0]]  # ensure closed
+    return active_backend().make_wire([list(p) for p in closed]), x, y, n
 
 
 def sweep_profile_along_path(
-    path_pts: List[Iterable[float]],
+    path_pts,
     profile2d: List[Tuple[float, float]],
     profile_normal: Tuple[float, float, float],
     profile_ydir: Optional[Tuple[float, float, float]] = None,
     profile_xdir: Optional[Tuple[float, float, float]] = None,
 ):
-    from OCC.Core.BRepOffsetAPI import BRepOffsetAPI_MakePipeShell
+    """Sweep a 2D profile along a 3D path, returning a backend solid handle.
 
-    # Build a smooth C1 spine wire for consistent section transport
-    # spine = make_bspline_wire_from_points(path_pts)
-    spine = make_wire_from_points(path_pts)
+    Builds an ada.geom ``FixedReferenceSweptAreaSolid`` (profile embedded in 3D at
+    the path start, swept along the directrix) and realises it through the active
+    backend. Under pythonocc this is the same MakePipeShell(RoundCorner)+MakeSolid
+    pipeline as the historical OCC reference; under adacpp it uses the native
+    swept-area builder.
+    """
+    from ada.cad import active_backend
+    from ada.geom import Geometry
+    from ada.geom.curves import Edge, IndexedPolyCurve
+    from ada.geom.placement import Axis2Placement3D
+    from ada.geom.solids import FixedReferenceSweptAreaSolid
+    from ada.geom.surfaces import ArbitraryProfileDef, ProfileType
 
-    # Define frame at first point using provided profile orientation
-    p0 = tuple(path_pts[0])
-    profile_wire, x, y, n = make_profile_wire(profile2d, p0, profile_normal, ydir=profile_ydir, xdir=profile_xdir)
+    p0 = tuple(float(c) for c in path_pts[0])
+    x, y, n = _profile_frame(profile_normal, ydir=profile_ydir, xdir=profile_xdir)
+    pts3d = [Point(*p) for p in _embed_profile_3d(profile2d, p0, x, y)]
 
-    mkpipe = BRepOffsetAPI_MakePipeShell(spine)
-    mkpipe.SetTransitionMode(BRepBuilderAPI_RoundCorner)
-    # mkpipe.SetMode(ax2)  # fixed reference trihedron, avoids flipping w.r.t different path directions
-    # Add the profile with contact, without correction, to keep a constant cross-section
-    mkpipe.Add(profile_wire, True, False)
-    mkpipe.Build()
+    # Closed profile outer curve (line edges) in absolute 3D.
+    ring = pts3d + [pts3d[0]]
+    outer_curve = IndexedPolyCurve([Edge(ring[i], ring[i + 1]) for i in range(len(ring) - 1)])
+    profile = ArbitraryProfileDef(ProfileType.AREA, outer_curve, [])
 
-    # Create a solid (caps are created by MakeSolid if profile is a face)
-    if not mkpipe.IsDone():
-        raise RuntimeError("PipeShell build failed")
-    mkpipe.MakeSolid()
-    return mkpipe.Shape()
+    # Directrix: polyline spine through the path points (absolute 3D).
+    dpts = [Point(*[float(c) for c in p]) for p in path_pts]
+    directrix = IndexedPolyCurve([Edge(dpts[i], dpts[i + 1]) for i in range(len(dpts) - 1)])
+
+    # Identity position — profile and directrix already carry absolute coordinates.
+    position = Axis2Placement3D(Point(0.0, 0.0, 0.0))
+    solid = FixedReferenceSweptAreaSolid(profile, position, directrix)
+    return active_backend().build(Geometry("sweep_ref", solid))
 
 
 def build_three_sweeps():
@@ -239,20 +255,6 @@ def get_three_sweeps_mesh_data():
     return data
 
 
-def _try_display(shapes):
-    try:
-        from OCC.Display.SimpleGui import init_display
-    except Exception:
-        print("pythonocc-core viewer not available; skipping display.")
-        return
-
-    display, start_display, add_menu, add_function_to_menu = init_display()
-    for sh in shapes:
-        display.DisplayShape(sh, update=False)
-    display.FitAll()
-    start_display()
-
-
 def adapy_viewer(shapes_):
     import trimesh
 
@@ -277,6 +279,5 @@ if __name__ == "__main__":
     except Exception as e:
         print("Failed to build sweeps:", e)
     else:
-        print("Successfully built 3 swept solids. Launching viewer (if available)...")
-        _try_display(shapes)
-        # adapy_viewer(shapes)
+        print("Successfully built 3 swept solids. Launching viewer...")
+        adapy_viewer(shapes)

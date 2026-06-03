@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import {sceneRef, rendererRef, cameraRef} from "../../state/refs";
+import {sceneRef, rendererRef, cameraRef} from "@/state/refs";
 
 export function updateAllPointsSize(size: number, absolute?: boolean) {
     const scene = sceneRef.current;

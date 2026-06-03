@@ -1,4 +1,4 @@
-import {TreeNode} from "../../state/treeViewStore";
+import {TreeNode} from "@/state/treeViewStore";
 
 export function findNodeById(node: TreeNode, id: string): TreeNode | null {
     if (node.name === id) {

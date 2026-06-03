@@ -1,272 +1,155 @@
-import React, {useCallback, useEffect, useState} from 'react';
-import {Rnd} from 'react-rnd';
-import {useOptionsStore} from "../state/optionsStore";
-import {useColorStore} from "../state/colorLegendStore";
-import {takeScreenshot} from "../utils/takeScreenshot";
-import {loadRobot} from "../utils/robots";
-import {useModelState} from "../state/modelState";
-import {debug_print} from "../utils/debug_print";
-import {updateAllPointsSize} from "../utils/scene/updatePointSizes";
+import React, {Suspense, useEffect, useState} from "react";
+import {runtime} from "@/runtime/config";
+import {useOptionsStore} from "@/state/optionsStore";
+import PointSizeOptions from "./options/PointSizeOptions";
+import DisplayOptions from "./options/DisplayOptions";
+import ExperimentalOptions from "./options/ExperimentalOptions";
+import PerformanceOptions from "./options/PerformanceOptions";
+import ShortcutsModal from "./options/ShortcutsModal";
 
-function OptionsComponent() {
-    const {
-        showPerf,
-        setShowPerf,
-        showEdges,
-        setShowEdges,
-        lockTranslation,
-        setLockTranslation,
-        setEnableWebsocket,
-        enableWebsocket,
-        enableNodeEditor,
-        setEnableNodeEditor,
-        pointSize,
-        setPointSize,
-        pointSizeAbsolute,
-        setPointSizeAbsolute,
-    } = useOptionsStore();
-    const {showLegend, setShowLegend} = useColorStore();
-    const {zIsUp, setZIsUp, defaultOrbitController, setDefaultOrbitController} = useModelState();
+// REST-only controls (scope picker, signed-in row, admin button) live
+// here so they're reachable on phones and don't crowd the top bar.
+// Lazy-loaded so the desktop bundle stays slim.
+const RestSection = React.lazy(() => import("./options/RestSection"));
 
-    const [size] = useState({width: 300, height: 460});
-    const [position, setPosition] = useState({x: 0, y: 0});
-    const [isModalOpen, setIsModalOpen] = useState(false);
+const MOBILE_QUERY = "(max-width: 767px)";
 
-    const unique_version_id = (window as any).UNIQUE_VERSION_ID || 0;
-
-    const clampPosition = useCallback((pos: { x: number; y: number }) => {
-        const clampedX = Math.min(Math.max(0, pos.x), window.innerWidth - size.width);
-        const clampedY = Math.min(Math.max(0, pos.y), window.innerHeight - size.height);
-        return {x: clampedX, y: clampedY};
-    }, [size]);
-
-    const centerWindow = useCallback(() => {
-        const centerX = (window.innerWidth - size.width) / 2;
-        const centerY = (window.innerHeight - size.height) / 2;
-        setPosition(clampPosition({x: centerX, y: centerY}));
-    }, [size, clampPosition]);
-
-    useEffect(() => {
-        centerWindow();
-        window.addEventListener('resize', centerWindow);
-        return () => {
-            window.removeEventListener('resize', centerWindow);
-        };
-    }, [centerWindow]);
-
-    // Update point sizes in the scene whenever the option changes
-    useEffect(() => {
-        updateAllPointsSize(pointSize, pointSizeAbsolute);
-    }, [pointSize, pointSizeAbsolute]);
-
-    // Keep absolute sizing correct on viewport resize
-    useEffect(() => {
-        const onResize = () => updateAllPointsSize(pointSize, pointSizeAbsolute);
-        window.addEventListener('resize', onResize);
-        return () => window.removeEventListener('resize', onResize);
-    }, [pointSize, pointSizeAbsolute]);
-
-    // Clamp point size into valid UI range upon toggling mode to avoid out-of-range values
-    useEffect(() => {
-        if (pointSizeAbsolute) {
-            if (pointSize > 0.1 || pointSize < 0.005) {
-                setPointSize(0.01);
-            }
-        } else {
-            if (pointSize < 5 || pointSize > 30) {
-                setPointSize(10);
-            }
-        }
-    }, [pointSizeAbsolute]);
-
+// Lightweight disclosure. State is local — these sections are leaf-y
+// enough that no other component cares whether they're open. Defaults
+// to closed; click the header to toggle.
+const CollapsibleSection: React.FC<{title: string; children: React.ReactNode}> = ({
+    title,
+    children,
+}) => {
+    const [open, setOpen] = useState(false);
     return (
-        <Rnd
-            default={{
-                width: 300,
-                height: 460,
-                x: (window.innerWidth - 300) / 2,
-                y: (window.innerHeight - 460) / 2,
-            }}
-            minWidth={250}
-            bounds="window"
-            enableResizing={{
-                right: true,
-                bottomRight: true,
-            }}
-            dragHandleClassName="options-drag-handle"
-            cancel="input, button, select, textarea, .no-drag"
-            onDragStop={(e, d) => setPosition({x: d.x, y: d.y})}
-            onResizeStop={(e, direction, ref, delta, position) => {
-                setPosition(position);
-            }}
-        >
-            <div
-                className="flex flex-col space-y-4 p-4 bg-gray-800 rounded shadow-lg h-full text-white text-sm"
-                style={{
-                    height: 'auto',
-                    maxHeight: '640px',
-                    overflowY: 'auto',
-                    width: '100%', // take the width set by Rnd
-                    boxSizing: 'border-box',
-                }}
-
+        <div>
+            <button
+                type="button"
+                className="w-full flex items-center justify-between py-1 text-left font-semibold"
+                onClick={() => setOpen((v) => !v)}
+                aria-expanded={open}
             >
-                <div className="options-drag-handle font-bold text-base cursor-move select-none">Options Panel</div>
-                <div className="text-xs text-gray-400">Version: {unique_version_id}</div>
+                <span>{title}</span>
+                <span className="text-gray-300 text-xs">{open ? "▾" : "▸"}</span>
+            </button>
+            {open && <div className="mt-2">{children}</div>}
+        </div>
+    );
+};
 
-                <div className="space-y-2">
+// Two layouts:
+// * Mobile: full-height slide-in drawer from the left edge. There
+//   isn't enough room on a phone for an inline box; the drawer takes
+//   over so the user can scroll through the options.
+// * Desktop: an inline panel in the menu's info-box column, styled
+//   like ObjectInfoBox / SceneInfoBox / StorageBrowser — same
+//   semi-transparent gray, same rounded corners. The ☰ button toggles
+//   it; nothing else needs to.
+function OptionsComponent() {
+    const [isMobile, setIsMobile] = useState(
+        () => typeof window !== "undefined" && window.matchMedia(MOBILE_QUERY).matches,
+    );
+    const setIsOptionsVisible = useOptionsStore((s) => s.setIsOptionsVisible);
+
+    const unique_version_id = runtime.uniqueVersionId();
+    const viewer_image_tag = runtime.viewerImageTag();
+    const worker_image_tag = runtime.workerImageTag();
+    const show_image_tags = runtime.isRestMode() && (viewer_image_tag || worker_image_tag);
+
+    useEffect(() => {
+        const mq = window.matchMedia(MOBILE_QUERY);
+        const onChange = (e: MediaQueryListEvent) => setIsMobile(e.matches);
+        mq.addEventListener("change", onChange);
+        return () => mq.removeEventListener("change", onChange);
+    }, []);
+
+    const sections = (
+        <>
+            {runtime.isRestMode() && (
+                <>
+                    <Suspense fallback={null}>
+                        <RestSection/>
+                    </Suspense>
+                    <hr className="border-gray-600"/>
+                </>
+            )}
+            {/* Same idea for the scene-config knobs. The defaults are
+                tuned for the common case; tucking the controls behind a
+                disclosure keeps the drawer from feeling overwhelming. */}
+            <CollapsibleSection title="Scene config">
+                <div className="space-y-4">
+                    <PointSizeOptions/>
+                    <DisplayOptions/>
+                </div>
+            </CollapsibleSection>
+            <hr className="border-gray-600"/>
+            <CollapsibleSection title="Performance">
+                <PerformanceOptions/>
+            </CollapsibleSection>
+            <hr className="border-gray-600"/>
+            <ExperimentalOptions/>
+            <hr className="border-gray-600"/>
+            <ShortcutsModal/>
+        </>
+    );
+
+    if (isMobile) {
+        // Drawer pinned to the left edge, full visible-viewport height.
+        return (
+            <div className="fixed inset-y-0 left-0 z-40 w-[85vw] max-w-sm bg-gray-800 text-white text-sm shadow-xl flex flex-col">
+                <div className="flex items-center justify-between p-3 border-b border-gray-700">
+                    <span className="font-bold text-base">Options</span>
                     <button
-                        className="bg-blue-700 hover:bg-blue-600 text-white font-semibold py-1 px-2 rounded w-full"
-                        onClick={() => debug_print()}
+                        type="button"
+                        onClick={() => setIsOptionsVisible(false)}
+                        className="text-gray-300 hover:text-white text-xl leading-none px-2"
+                        aria-label="Close options"
+                        title="Close"
                     >
-                        Debug print
-                    </button>
-                    <button
-                        className="bg-blue-700 hover:bg-blue-600 text-white font-semibold py-1 px-2 rounded w-full"
-                        onClick={loadRobot}
-                    >
-                        Load URDF Model
-                    </button>
-                    <button
-                        className="bg-blue-700 hover:bg-blue-600 text-white font-semibold py-1 px-2 rounded w-full"
-                        onClick={async () => {
-                            try {
-                                await takeScreenshot();
-                            } catch (error) {
-                                console.error("Error taking screenshot:", error);
-                            }
-                        }}
-                    >
-                        Take Screenshot
+                        ×
                     </button>
                 </div>
-
-                <hr className="border-gray-600"/>
-
-                <div className="space-y-2">
-                    <label className="flex items-center space-x-2">
-                        <span className="w-32">Point Size</span>
-                        <input
-                            type="range"
-                            min={pointSizeAbsolute ? 0.005 : 5}
-                            max={pointSizeAbsolute ? 0.1 : 30}
-                            step={pointSizeAbsolute ? 0.005 : 1}
-                            value={pointSize}
-                            onChange={(e) => setPointSize(parseFloat(e.target.value))}
-                            className="flex-1 no-drag"
-                        />
-                        <input
-                            type="number"
-                            min={pointSizeAbsolute ? 0.005 : 5}
-                            max={pointSizeAbsolute ? 0.1 : 30}
-                            step={pointSizeAbsolute ? 0.005 : 1}
-                            value={pointSize}
-                            onChange={(e) => setPointSize(parseFloat(e.target.value) || 0)}
-                            className="w-24 bg-gray-700 text-white p-1 rounded no-drag"
-                        />
-                    </label>
-                    <label className="flex items-center space-x-2">
-                        <input
-                            type="checkbox"
-                            className="no-drag"
-                            checked={pointSizeAbsolute}
-                            onChange={() => setPointSizeAbsolute(!pointSizeAbsolute)}
-                        />
-                        <span>Absolute point size (world units)</span>
-                    </label>
-                </div>
-
-                <hr className="border-gray-600"/>
-
-                <div className="space-y-2">
-                    <label className="flex items-center space-x-2">
-                        <input
-                            type="checkbox"
-                            checked={showPerf}
-                            onChange={() => setShowPerf(!showPerf)}
-                        />
-                        <span>Show Stats (Perf)</span>
-                    </label>
-                    <label className="flex items-center space-x-2">
-                        <input
-                            type="checkbox"
-                            checked={showLegend}
-                            onChange={() => setShowLegend(!showLegend)}
-                        />
-                        <span>Show Color Legend</span>
-                    </label>
-                    <label className="flex items-center space-x-2">
-                        <input
-                            type="checkbox"
-                            checked={showEdges}
-                            onChange={() => setShowEdges(!showEdges)}
-                        />
-                        <span>Geometry Edges</span>
-                    </label>
-                    <label className="flex items-center space-x-2">
-                        <input
-                            type="checkbox"
-                            checked={lockTranslation}
-                            onChange={() => setLockTranslation(!lockTranslation)}
-                        />
-                        <span>Lock Translation</span>
-                    </label>
-                    <label className="flex items-center space-x-2">
-                        <input
-                            type="checkbox"
-                            checked={enableNodeEditor}
-                            onChange={() => setEnableNodeEditor(!enableNodeEditor)}
-                        />
-                        <span>Enable Node Editor</span>
-                    </label>
-                                        <label className="flex items-center space-x-2">
-                        <input
-                            type="checkbox"
-                            checked={enableWebsocket}
-                            onChange={() => setEnableWebsocket(!enableWebsocket)}
-                        />
-                        <span>Enable Websocket</span>
-                    </label>
-                    <label className="flex items-center space-x-2">
-                        <input
-                            type="checkbox"
-                            checked={zIsUp}
-                            onChange={() => setZIsUp(!zIsUp)}
-                        />
-                        <span>Z is UP</span>
-                    </label>
-                    <label className="flex items-center space-x-2">
-                        <input
-                            type="checkbox"
-                            checked={defaultOrbitController}
-                            onChange={() => setDefaultOrbitController(!defaultOrbitController)}
-                        />
-                        <span>Use Default Orbitcontroller</span>
-                    </label>
-                </div>
-
-                <hr className="border-gray-600"/>
-
-                <div>
-                    <button
-                        className="bg-blue-700 hover:bg-blue-600 text-white font-semibold py-1 px-2 rounded w-full"
-                        onClick={() => setIsModalOpen(!isModalOpen)}
-                    >
-                        Shortcut Keys
-                    </button>
-                    {isModalOpen && (
-                        <div className="mt-2 bg-gray-700 p-2 rounded text-xs space-y-1">
-                            <p><kbd>Shift + H</kbd>: Hide</p>
-                            <p><kbd>Shift + U</kbd>: Unhide All</p>
-                            <p><kbd>Shift + F</kbd>: Center on Selection</p>
-                            <p><kbd>Shift + A</kbd>: Zoom to All</p>
-                            <p><kbd>Shift + Q</kbd>: Toggle Options Menu</p>
-                            <p><kbd>Shift + C</kbd>: Copy Selection to Clipboard</p>
+                <div className="flex-1 overflow-y-auto p-4 flex flex-col space-y-4">
+                    <div className="text-xs text-gray-300">Version: {unique_version_id}</div>
+                    {show_image_tags && (
+                        <div className="text-xs text-gray-300 space-y-0.5">
+                            {viewer_image_tag && (
+                                <div>Viewer: <span className="font-mono">{viewer_image_tag}</span></div>
+                            )}
+                            {worker_image_tag && (
+                                <div>Worker: <span className="font-mono">{worker_image_tag}</span></div>
+                            )}
                         </div>
                     )}
+                    {sections}
                 </div>
             </div>
-        </Rnd>
+        );
+    }
+
+    // Desktop: matches the other info boxes (Info / Group / Storage)
+    // visually so the user reads the menu-bar column as one consistent
+    // pattern. Cap max-height so a long Options list doesn't push the
+    // page; scroll inside instead.
+    return (
+        <div
+            className="bg-gray-400 bg-opacity-50 rounded-sm p-2 min-w-80 max-w-sm text-white text-sm space-y-3 max-h-[70vh] overflow-y-auto"
+        >
+            <h2 className="font-bold">Options</h2>
+            <div className="text-xs text-gray-300">Version: {unique_version_id}</div>
+            {show_image_tags && (
+                <div className="text-xs text-gray-300 space-y-0.5">
+                    {viewer_image_tag && (
+                        <div>Viewer: <span className="font-mono">{viewer_image_tag}</span></div>
+                    )}
+                    {worker_image_tag && (
+                        <div>Worker: <span className="font-mono">{worker_image_tag}</span></div>
+                    )}
+                </div>
+            )}
+            {sections}
+        </div>
     );
 }
 

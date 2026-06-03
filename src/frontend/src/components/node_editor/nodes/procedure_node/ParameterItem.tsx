@@ -1,5 +1,5 @@
 import React from 'react';
-import {ParameterT, ParameterType, ValueT} from "../../../../flatbuffers/base";
+import {ParameterT, ParameterType, ValueT} from "@/flatbuffers/base";
 
 
 export function ParameterItem({
@@ -23,7 +23,7 @@ export function ParameterItem({
                     {paramOptions && paramOptions.length > 0 ? (
                         <select
                             defaultValue={defaultStringValue}
-                            className="nodrag m-auto ml-0 mr-0 text-gray-800 text-xs w-24 border border-gray-400 rounded"
+                            className="nodrag m-auto ml-0 mr-0 text-gray-800 text-xs w-24 border border-gray-400 rounded-sm"
                         >
                             {paramOptions.map((option: ValueT, index: number) => (
                                 <option key={index} value={option.stringValue as string}>
@@ -35,7 +35,7 @@ export function ParameterItem({
                         <input
                             type="text"
                             defaultValue={defaultStringValue}
-                            className="nodrag m-auto ml-0 mr-0 text-gray-200 text-xs w-20 border border-gray-400 rounded bg-gray-800 p-0.5"
+                            className="nodrag m-auto ml-0 mr-0 text-gray-200 text-xs w-20 border border-gray-400 rounded-sm bg-gray-800 p-0.5"
                         />
                     )}
                     <span className="pl-2 text-xs text-gray-300">{paramName}</span>
@@ -49,7 +49,7 @@ export function ParameterItem({
                         <select
                             defaultValue={defaultFloatValue}
 
-                            className="nodrag m-auto ml-0 mr-0 text-xs text-gray-200 bg-gray-800 p-0.5 w-24 border border-gray-400 rounded"
+                            className="nodrag m-auto ml-0 mr-0 text-xs text-gray-200 bg-gray-800 p-0.5 w-24 border border-gray-400 rounded-sm"
                         >
                             {paramOptions.map((option: ValueT, index: number) => (
                                 <option key={index} value={option.floatValue as number}>
@@ -61,7 +61,7 @@ export function ParameterItem({
                         <input
                             type="number"
                             defaultValue={defaultFloatValue != null ? defaultFloatValue.toFixed(4) : ''}
-                            className="flex flex-1 nodrag m-auto ml-0 mr-0 text-xs text-gray-200 bg-gray-800 p-0.5 w-20 border border-gray-400 rounded"
+                            className="flex flex-1 nodrag m-auto ml-0 mr-0 text-xs text-gray-200 bg-gray-800 p-0.5 w-20 border border-gray-400 rounded-sm"
                         />
                     )}
                     <span className="flex-1 pl-2 text-xs text-gray-300">{paramName}</span>
@@ -87,7 +87,7 @@ export function ParameterItem({
                                 key={idx}
                                 type="number"
                                 defaultValue={typeof val === 'number' ? val.toFixed(3) : ''}
-                                className="nodrag flex m-auto text-gray-800 border text-xs border-gray-400 rounded max-w-8"
+                                className="nodrag flex m-auto text-gray-800 border text-xs border-gray-400 rounded-sm max-w-8"
                             />
                         ))}
                         <span className="flex flex-1 pl-2 text-xs text-gray-300">{paramName}</span>
@@ -110,7 +110,7 @@ export function ParameterItem({
                             pattern="[0-9]+(\.[0-9]+)?(;\s*[0-9]+(\.[0-9]+)?)*"
                             defaultValue={paramDefaultValue?.stringValue()}
                             placeholder={placeholder}
-                            className="nodrag m-auto ml-0 mr-0 text-gray-800 text-xs w-24 border border-gray-400 rounded"
+                            className="nodrag m-auto ml-0 mr-0 text-gray-800 text-xs w-24 border border-gray-400 rounded-sm"
                         />
                         <span className="pl-2 text-xs text-gray-300">{paramName}</span>
                     </div>

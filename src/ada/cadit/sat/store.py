@@ -93,12 +93,82 @@ class SatStore:
             yield sat_record
 
     def _create_ref_store(self):
-        ref_store = dict()
-        i = 1
+        """Build the SAT subtype-reference table.
+
+        Per the ACIS SAT Format v4.0 spec (Chapter 4 "Subtypes and
+        References" + Chapter 9 example): subtype definitions are
+        numbered sequentially starting at 0 as they appear in the save
+        file. A subtype definition is any ``{ ... }`` pair that is
+        *not* a back-reference (``{ ref n }``). **Nested subtypes get
+        their own indices** — the example in Chapter 9 explicitly
+        shows a ``surfintcur`` (#8) containing a nested ``exactsur``
+        (#9) inside the same record.
+
+        The previous implementation counted *records* with any braces
+        (starting at 1) and assigned one index per record. That broke
+        in two ways:
+
+          * Off-by-one (started at 1 instead of 0).
+          * Records with nested or multiple subtypes only contributed
+            one index, so every reference past the first nested case
+            in the file resolved to the wrong subtype.
+
+        On large DNV/Genie-style models this mis-resolved thousands
+        of ``ref N`` lookups onto neighbouring or completely unrelated
+        records — the source of the "exppc surface peel landed on a
+        different geometric region" symptom we tried to paper over
+        with bbox-disjoint guards. Walking ``{`` / ``}`` brace pairs
+        per spec resolves the same refs to the correct exactsurs.
+        """
+        from ada.cadit.sat.read.sat_entities import AcisSubType
+
+        ref_store: dict[int, AcisSubType] = {}
+        next_idx = 0
         for record in self.sat_records.values():
-            rstr = record.get_as_string()
-            if "{" in rstr and "}" in rstr:
-                ref_store[i] = record.get_sub_type()
+            s = record.get_as_string()
+            i, n = 0, len(s)
+            while i < n:
+                c = s[i]
+                if c != "{":
+                    i += 1
+                    continue
+                # Inspect what follows the brace: skip whitespace and
+                # check for the ``ref`` keyword (back-reference, not a
+                # new definition).
+                j = i + 1
+                while j < n and s[j] in " \t\n\r":
+                    j += 1
+                if s[j : j + 4] == "ref ":
+                    # Skip past the closing brace of this reference.
+                    end = s.find("}", j)
+                    if end < 0:
+                        break
+                    i = end + 1
+                    continue
+                # New subtype definition. Find matching ``}`` while
+                # respecting nested braces — those become further
+                # subtype definitions on subsequent loop iterations.
+                depth = 1
+                k = i + 1
+                while k < n and depth > 0:
+                    ck = s[k]
+                    if ck == "{":
+                        depth += 1
+                    elif ck == "}":
+                        depth -= 1
+                        if depth == 0:
+                            break
+                    k += 1
+                if depth != 0:
+                    # Unbalanced — bail on this record.
+                    break
+                inner = s[i + 1 : k].strip()
+                # AcisSubType.from_string expects a trailing ``}``;
+                # historic ``get_sub_type_str`` produces ``<content> }``.
+                ref_store[next_idx] = AcisSubType.from_string(inner + " }", record)
+                next_idx += 1
+                # Step into the subtype so nested definitions get
+                # registered with their own (later) indices.
                 i += 1
 
         return ref_store
@@ -164,30 +234,121 @@ class SatReaderFactory:
 
     def iter_advanced_faces(self) -> Iterable[tuple[AcisRecord, geo_su.AdvancedFace]]:
         conf = Config()
-        for face_record in self.iter_faces():
-            face_surface = self.sat_store.get(face_record.chunks[10])
-            if face_surface.type != "spline-surface":
-                continue
+        # Aggregate failure stats per call. Counts and a small set of
+        # example face names per (exception_type, message_head) are kept
+        # so the caller can surface a single summary log at the end of
+        # iteration instead of one debug-line per face (which gets
+        # buried — historically the user perception was "everything
+        # converted fine" while >50% of spline-surface faces silently
+        # fell back to flat polygons).
+        attempted = 0
+        succeeded = 0
+        # key: (exc_type_name, short_message) → (count, [example names])
+        fail_stats: dict[tuple[str, str], tuple[int, list[str]]] = {}
+
+        def _record_failure(name: str, e: BaseException) -> None:
+            short = str(e).split(". ")[0][:80]
+            key = (type(e).__name__, short)
+            cnt, examples = fail_stats.get(key, (0, []))
+            if len(examples) < 5:
+                examples = examples + [name]
+            fail_stats[key] = (cnt + 1, examples)
+
+        # When ``gxml.curved_fallback_via_fill`` is on, surface-peel
+        # failures fall through to a wire-only ``WireFilledFace`` —
+        # OCC's BRepOffsetAPI_MakeFilling builds a smooth surface from
+        # the boundary edges. The wire data (loop's coedges + 3D
+        # BSpline edge curves) is independent of the surface peel, so
+        # it's available even when ``get_face_surface`` raises. This
+        # eliminates the rotated-flat fallback for the ~2700 plates
+        # whose ACIS spline-surface records use the
+        # ``{ ref → exppc → ... }`` procedural form we don't synthesise.
+        use_fill = Config().gxml_curved_fallback_via_fill
+
+        def _try_wire_filled(face_record):
+            """Build a WireFilledFace from the loop's coedges. Returns
+            None on any failure — caller treats that as "fallback path
+            also failed, log + skip" rather than re-raising. The bounds
+            extraction is the same primitive ``create_advanced_face_from_sat``
+            uses, so any wire that succeeds for a *successful* face also
+            succeeds here."""
             try:
-                yield face_record, create_advanced_face_from_sat(face_record)
-            except (ACISReferenceDataError, ACISUnsupportedCurveType) as e:
-                name = face_record.get_name()
-                err_msg = f"Unable to create face record {name}. Fallback to flat Plate due to: {e}"
-                if conf.general_add_trace_to_exception:
-                    trace_msg = traceback.format_exc()
-                    err_msg += f"\n{trace_msg}"
-                logger.debug(err_msg)
-                if Config().sat_import_raise_exception_on_failed_advanced_face:
-                    raise e
-            except BaseException as e:  # Let's catch ALL other exceptions here for now
-                name = face_record.get_name()
-                err_msg = f"Unable to create face record {name}. Fallback to flat Plate due to: {e}"
-                if conf.general_add_trace_to_exception:
-                    trace_msg = traceback.format_exc()
-                    err_msg += f"\n{trace_msg}"
-                logger.debug(err_msg)
-                if Config().sat_import_raise_exception_on_failed_advanced_face:
-                    raise e
+                from ada.cadit.sat.read.advanced_face import get_face_bound
+
+                bounds = get_face_bound(face_record)
+                if not bounds:
+                    return None
+                return geo_su.WireFilledFace(bounds=bounds)
+            except Exception as ex:
+                logger.debug("WireFilledFace fallback failed: %s", ex)
+                return None
+
+        try:
+            for face_record in self.iter_faces():
+                face_surface = self.sat_store.get(face_record.chunks[10])
+                if face_surface.type != "spline-surface":
+                    continue
+                attempted += 1
+                try:
+                    advanced = create_advanced_face_from_sat(face_record)
+                except (ACISReferenceDataError, ACISUnsupportedCurveType) as e:
+                    name = face_record.get_name()
+                    _record_failure(name, e)
+                    err_msg = f"Unable to create face record {name}. Fallback to flat Plate due to: {e}"
+                    if conf.general_add_trace_to_exception:
+                        err_msg += f"\n{traceback.format_exc()}"
+                    logger.debug(err_msg)
+                    if Config().sat_import_raise_exception_on_failed_advanced_face:
+                        raise e
+                    if use_fill:
+                        wff = _try_wire_filled(face_record)
+                        if wff is not None:
+                            succeeded += 1
+                            yield face_record, wff
+                    continue
+                except BaseException as e:  # Let's catch ALL other exceptions here for now
+                    name = face_record.get_name()
+                    _record_failure(name, e)
+                    err_msg = f"Unable to create face record {name}. Fallback to flat Plate due to: {e}"
+                    if conf.general_add_trace_to_exception:
+                        err_msg += f"\n{traceback.format_exc()}"
+                    logger.debug(err_msg)
+                    if Config().sat_import_raise_exception_on_failed_advanced_face:
+                        raise e
+                    if use_fill:
+                        wff = _try_wire_filled(face_record)
+                        if wff is not None:
+                            succeeded += 1
+                            yield face_record, wff
+                    continue
+                succeeded += 1
+                yield face_record, advanced
+        finally:
+            # Persist + log even if the consumer aborts iteration early.
+            self.advanced_face_stats = {
+                "attempted": attempted,
+                "succeeded": succeeded,
+                "failed": attempted - succeeded,
+                "by_reason": {
+                    f"{etype}: {msg}": (cnt, examples) for (etype, msg), (cnt, examples) in fail_stats.items()
+                },
+            }
+            failed = attempted - succeeded
+            if attempted > 0 and failed > 0:
+                pct = 100.0 * failed / attempted
+                top_lines = []
+                for (etype, msg), (cnt, examples) in sorted(fail_stats.items(), key=lambda kv: -kv[1][0])[:5]:
+                    sample = ", ".join(examples[:3])
+                    top_lines.append(f"    [{etype}] {msg} — {cnt} faces (e.g. {sample})")
+                top_str = "\n".join(top_lines) if top_lines else ""
+                logger.warning(
+                    "SAT advanced-face conversion: %d/%d (%.1f%%) failed and fell "
+                    "back to flat polygons. Top failure modes:\n%s",
+                    failed,
+                    attempted,
+                    pct,
+                    top_str,
+                )
 
     def iter_curved_face(self) -> Iterable[tuple[AcisRecord, Geometry]]:
         for i, (record, advanced_face) in enumerate(self.iter_advanced_faces()):

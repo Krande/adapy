@@ -1,6 +1,10 @@
 {
   "compilerOptions": {
     "rootDirs": ["./src"],
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"]
+    },
     "target": "ESNext",
     "lib": ["DOM", "DOM.Iterable", "ESNext", "WebWorker"],
     "allowJs": false,

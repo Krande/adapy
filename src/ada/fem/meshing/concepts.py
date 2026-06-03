@@ -398,36 +398,44 @@ def import_into_gmsh_using_step(
 
 
 def import_into_gmsh_use_nativepointer(obj: BackendGeom | Shape, geom_repr: GeomRepr, model: gmsh.model) -> List[tuple]:
-    from OCC.Extend.TopologyUtils import TopologyExplorer
-
+    # gmsh consumes raw OCCT shapes via native pointers. We go through the
+    # active CAD backend (sub-shape iteration + the to_topods_pointer bridge)
+    # so this works on either backend without kernel mixing: under adacpp the
+    # pointer is to its OCCT 7.9.x TopoDS_Shape, ABI-valid for gmsh's OCCT.
     from ada import Placement, PrimBox
-    from ada.occ.utils import transform_shape
+    from ada.cad import active_backend
 
+    backend = active_backend()
     abs_place = obj.placement.get_absolute_placement()
 
     def transform_occ(geo):
-
         if Placement() != abs_place:
-            geo = transform_shape(geo, transform=abs_place)
+            o = abs_place.origin
+            mat = np.array(
+                [
+                    [1.0, 0.0, 0.0, float(o[0])],
+                    [0.0, 1.0, 0.0, float(o[1])],
+                    [0.0, 0.0, 1.0, float(o[2])],
+                    [0.0, 0.0, 0.0, 1.0],
+                ]
+            )
+            geo = backend.transform(geo, mat, copy=True)
         return geo
 
-    ents = []
     if geom_repr == GeomRepr.SOLID:
         geom = transform_occ(obj.solid_occ())
-        t = TopologyExplorer(geom)
-        geom_iter = t.solids()
+        sub_shapes = backend.solids(geom)
     elif geom_repr == GeomRepr.SHELL:
         geom = obj.shell_occ() if type(obj) not in (PrimBox,) else obj.solid_occ()
         geom = transform_occ(geom)
-        t = TopologyExplorer(geom)
-        geom_iter = t.faces()
+        sub_shapes = backend.faces(geom)
     else:
         geom = transform_occ(obj.line_occ())
-        t = TopologyExplorer(geom)
-        geom_iter = t.edges()
+        sub_shapes = backend.edges(geom)
 
-    for shp in geom_iter:
-        ents += model.occ.importShapesNativePointer(int(shp.this))
+    ents = []
+    for shp in sub_shapes:
+        ents += model.occ.importShapesNativePointer(backend.to_topods_pointer(shp))
 
     if len(ents) == 0:
         raise ValueError("No entities found")

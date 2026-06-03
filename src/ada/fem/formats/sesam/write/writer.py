@@ -168,6 +168,14 @@ def univec_str(fem: FEM) -> str:
         return trans_no, write_ff("GUNIVEC", data)
 
     for el in fem.elements.stru_elements:
+        # GUNIVEC is per-element local-z (line/shell direction
+        # convention). Elements without a bound FemSection (e.g.
+        # mesh-only FEMs coming through the cross-format converter)
+        # carry no local_z to emit — skip them rather than crash.
+        # Sesam-native runs always bind sections, so this guard is
+        # a no-op there.
+        if el.fem_sec is None:
+            continue
         local_z = el.fem_sec.local_z
         transno, res_str = write_local_z(local_z)
         if res_str is None:

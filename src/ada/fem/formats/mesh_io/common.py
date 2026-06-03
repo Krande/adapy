@@ -1,25 +1,12 @@
-from ada.fem.shapes import ElemShape
+"""Bridge-only translation tables for the meshio adapter.
 
-sh = ElemShape.TYPES.shell
-so = ElemShape.TYPES.solids
-li = ElemShape.TYPES.lines
+The canonical string-name dicts live in `ada.fem.shapes.mesh_types`
+(`ada_to_str_type` / `str_to_ada_type`). This module re-exports
+them under the historical `ada_to_meshio` / `meshio_to_ada` names
+so the meshio bridge code keeps working unchanged.
+"""
 
-ada_to_meshio = {
-    sh.TRI: "triangle",
-    sh.TRI6: "triangle6",
-    sh.TRI7: "triangle7",
-    sh.QUAD: "quad",
-    sh.QUAD8: "quad8",
-    so.HEX8: "hexahedron",
-    so.HEX20: "hexahedron20",
-    so.HEX27: "hexahedron27",
-    so.TETRA: "tetra",
-    so.TETRA10: "tetra10",
-    so.PYRAMID5: "pyramid5",
-    so.WEDGE: "wedge",
-    so.WEDGE15: "wedge15",
-    li.LINE: "line",
-    li.LINE3: "line3",
-}
+from ada.fem.shapes.mesh_types import ada_to_str_type, str_to_ada_type
 
-meshio_to_ada = {val: key for key, val in ada_to_meshio.items()}
+ada_to_meshio = ada_to_str_type
+meshio_to_ada = str_to_ada_type

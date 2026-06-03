@@ -6,9 +6,9 @@ from ifcopenshell.validate import validate
 
 import ada
 from ada import Placement
+from ada.cad.inspect import faces_with_normal, points_of
 from ada.core.utils import set_list_first_position_elem
 from ada.geom import solids as geo_so
-from ada.occ.utils import get_points_from_occ_shape, iter_faces_with_normal
 
 
 @pytest.fixture
@@ -29,7 +29,7 @@ def place3() -> Placement:
 def test_flat_xy_plate_shell(place1):
     pl2 = ada.Plate("MyPl2", [(0, 0), (0, 5), (5, 5), (5, 0)], 20e-3, orientation=place1)
 
-    occ_verts_sh2 = get_points_from_occ_shape(pl2.shell_occ())
+    occ_verts_sh2 = points_of(pl2.shell_occ())
     origin_index = occ_verts_sh2.index(tuple(place1.origin))
 
     # shift the list so that the origin is the first point
@@ -54,7 +54,7 @@ def test_flat_xz_plate_shell(place2):
     pl2 = ada.Plate("MyPl2", [(0, 0), (0, 5), (5, 5), (5, 0)], 20e-3, orientation=place2)
     place = pl2.poly
 
-    occ_verts_sh2 = get_points_from_occ_shape(pl2.shell_occ())
+    occ_verts_sh2 = points_of(pl2.shell_occ())
     occ_verts_sh2 = set_list_first_position_elem(occ_verts_sh2, tuple(pl2.poly.origin))
 
     # Feed the points back to the Plate constructor and assert that the plate is the same
@@ -75,8 +75,8 @@ def test_flat_xz_plate_shell(place2):
 def test_flat_xz_plate_solid(place2):
     pl2 = ada.Plate("MyPl2", [(0, 0), (0, 5), (5, 5), (5, 0)], 20e-3, orientation=place2)
 
-    occ_faces = list(iter_faces_with_normal(pl2.solid_occ(), pl2.poly.normal, point_in_plane=pl2.poly.origin))
-    occ_verts_sh2 = get_points_from_occ_shape(occ_faces[0])
+    occ_faces = list(faces_with_normal(pl2.solid_occ(), pl2.poly.normal, point_in_plane=pl2.poly.origin))
+    occ_verts_sh2 = points_of(occ_faces[0])
     occ_verts_sh2 = set_list_first_position_elem(occ_verts_sh2, tuple(pl2.poly.origin))
 
     # Feed the points back to the Plate constructor and assert that the plate is the same
@@ -106,8 +106,8 @@ def test_flat_xz_plate_solid(place2):
 def test_flat_yz_plate_solid(place3):
     pl2 = ada.Plate("MyPl2", [(0, 0), (0, 5), (5, 5), (5, 0)], 20e-3, orientation=place3)
 
-    occ_faces = list(iter_faces_with_normal(pl2.solid_occ(), pl2.poly.normal, point_in_plane=pl2.poly.origin))
-    occ_verts_sh2 = get_points_from_occ_shape(occ_faces[0])
+    occ_faces = list(faces_with_normal(pl2.solid_occ(), pl2.poly.normal, point_in_plane=pl2.poly.origin))
+    occ_verts_sh2 = points_of(occ_faces[0])
     occ_verts_sh2 = set_list_first_position_elem(occ_verts_sh2, tuple(pl2.poly.origin))
 
     # Feed the points back to the Plate constructor and assert that the plate is the same
@@ -139,7 +139,7 @@ def test_flat_xy_offset_plate_shell(place1):
     pl2 = ada.Plate("MyPl2", [(0, 0), (0, 5), (5, 5), (5, 0)], 20e-3, orientation=place1)
     place = pl2.poly.orientation
 
-    occ_verts_sh2 = get_points_from_occ_shape(pl2.shell_occ())
+    occ_verts_sh2 = points_of(pl2.shell_occ())
     occ_verts_sh2 = set_list_first_position_elem(occ_verts_sh2, tuple(place1.origin))
 
     # Feed the points back to the Plate constructor and assert that the plate is the same
@@ -162,7 +162,7 @@ def test_flat_xz_offset_plate_shell(place2):
     pl2 = ada.Plate("MyPl2", [(0, 0), (0, 5), (5, 5), (5, 0)], 20e-3, orientation=place2)
     place = pl2.poly.orientation
 
-    occ_verts_sh2 = get_points_from_occ_shape(pl2.shell_occ())
+    occ_verts_sh2 = points_of(pl2.shell_occ())
     occ_verts_sh2 = set_list_first_position_elem(occ_verts_sh2, tuple(place2.origin))
 
     # Feed the points back to the Plate constructor and assert that the plate is the same
@@ -187,7 +187,7 @@ def test_oriented_plate():
     )
     place = pl2.poly.orientation
 
-    occ_verts_sh2 = get_points_from_occ_shape(pl2.shell_occ())
+    occ_verts_sh2 = points_of(pl2.shell_occ())
     occ_verts_sh2 = set_list_first_position_elem(occ_verts_sh2, tuple(place.origin))
 
     # Feed the points back to the Plate constructor and assert that the plate is the same
@@ -222,8 +222,8 @@ def test_roundtrip_fillets(place1, place2):
     occ_geo1_sh = pl1.shell_occ()
     occ_geo2_sh = pl2.shell_occ()
 
-    occ_verts_sh1 = get_points_from_occ_shape(occ_geo1_sh)
-    occ_verts_sh2 = get_points_from_occ_shape(occ_geo2_sh)
+    occ_verts_sh1 = points_of(occ_geo1_sh)
+    occ_verts_sh2 = points_of(occ_geo2_sh)
     ada.Plate.from_3d_points("MyPl", occ_verts_sh1, 20e-3)
     ada.Plate.from_3d_points("MyPl2", occ_verts_sh2, 20e-3)
     fp = a.to_ifc(file_obj_only=True)

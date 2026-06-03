@@ -4,13 +4,14 @@ import pathlib
 from typing import TYPE_CHECKING
 
 import h5py
-import meshio
 import numpy as np
 
 from ada.config import logger
 from ada.fem import StepEigen
 from ada.fem.elements import ElemShape
+from ada.fem.formats.code_aster.read.med_reader import med_to_mesh_data
 from ada.fem.formats.code_aster.read.reader import med_to_fem
+from ada.fem.results.common import MeshData
 
 if TYPE_CHECKING:
     from ada.fem.results import Results
@@ -52,17 +53,17 @@ def get_eigen_frequency_deformed_meshes(rmed_file):
     return fem, eig_deformed_meshes
 
 
-def read_code_aster_results(results: "Results", file_ref: pathlib.Path, overwrite):
+def read_code_aster_results(results: "Results", file_ref: pathlib.Path, overwrite) -> MeshData | None:
     if results.assembly is not None and isinstance(results.assembly.fem.steps[0], StepEigen):
         results.eigen_mode_data = get_eigen_data(file_ref)
 
     fem = med_to_fem(file_ref, "temp")
     if any([x.type == ElemShape.TYPES.shell.TRI7 for x in fem.elements.shell]):
-        logger.error("Meshio does not support 7 node Triangle elements yet")
+        logger.error("7 node Triangle elements are not yet supported")
         return None
 
     if any([x.type == ElemShape.TYPES.shell.QUAD9 for x in fem.elements.shell]):
-        logger.error("Meshio does not support 9 node QUAD elements yet")
+        logger.error("9 node QUAD elements are not yet supported")
         return None
 
-    return meshio.read(file_ref, "med")
+    return med_to_mesh_data(file_ref)

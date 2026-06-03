@@ -281,14 +281,52 @@ class Edge:
 
 
 @dataclass
+class Pcurve2dBSpline:
+    """A 2D B-spline curve in the parameter space (UV) of a surface — the
+    p-curve attached to a coedge in ACIS / STEP / IFC. Carrying the
+    pcurve as authored upstream avoids the lossy "sample 3D points,
+    project back to UV" reprojection that breaks on degenerate or
+    near-singular surface parameterizations.
+
+    Control points are 2D ``[u, v]`` pairs. Optional ``weights`` makes
+    the curve rational; ``None`` means non-rational.
+    """
+
+    degree: int
+    control_points_2d: list[tuple[float, float]] | list[list[float]]
+    knots: list[float]
+    knot_multiplicities: list[int]
+    weights: list[float] | None = None
+    closed: bool = False
+
+
+@dataclass
 class OrientedEdge(Edge):
     """
     IFC4x3 (https://standards.buildingsmart.org/IFC/RELEASE/IFC4_3/HTML/lexical/IfcOrientedEdge.htm)
     STEP (https://www.steptools.com/stds/stp_aim/html/t_oriented_edge.html)
+
+    ``pcurve`` is the optional UV-space curve on the parent face's
+    surface (one per coedge in ACIS). When present, downstream OCCT
+    construction skips reprojection and attaches the curve directly via
+    ``BRep_Builder.UpdateEdge``.
+
+    ``t_start`` / ``t_end`` are the underlying curve's parameter values
+    at the edge's start and end vertices. SAT records them explicitly
+    on every edge. Without them, ``BRepBuilderAPI_MakeEdge(curve, p1,
+    p2)`` recovers parameters from 3D points — ambiguous for closed
+    curves (a circle has two arcs between any two non-coincident
+    points) and for self-intersecting BSplines, so OCC may pick the
+    *long* arc instead of the SAT-intended short one. Threading the
+    parameters lets the OCC builder use the explicit-parameter
+    overload and trim correctly.
     """
 
     edge_element: Edge | EdgeCurve
     orientation: bool
+    pcurve: Pcurve2dBSpline | None = None
+    t_start: float | None = None
+    t_end: float | None = None
 
 
 @dataclass

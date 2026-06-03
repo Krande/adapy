@@ -211,16 +211,307 @@ def create_bspline_curve_from_exactcur(data_lines: list[str]) -> geo_cu.BSplineC
     return curve
 
 
-def create_pcurve_from_exppc(exppc_sub_type: AcisSubType) -> geo_cu.PCurve:
-    """Defines a pcurve from explicit parameter-space curve data."""
-    basis_surface = None
-    reference_curve = None
-    if basis_surface is None or reference_curve is None:
-        raise ACISUnsupportedCurveType("PCurve is not yet supported from SAT data")
+def _peel_exppc_curve_to_inner(data_lines: list[str]) -> tuple[list[str] | None, str | None]:
+    """Same idea as the surface-side peel, but for curves. ``exppc`` curve
+    records carry 2D pcurve data on lines 0-3, then a wrapped 3D space
+    curve on a later line as either:
 
-    return geo_cu.PCurve(
-        basis_surface=basis_surface,
-        reference_curve=reference_curve,
+      * ``spline <sense> { exactcur ... }``  / ``{ lawintcur ... }`` inline,
+      * ``spline <sense> { ref N }`` — another level of indirection.
+
+    Returns ``(inner_data_lines, ref_id)`` — exactly one is non-None on
+    success. The inner data starts at the inline curve type token
+    (``exactcur`` / ``lawintcur``) so the existing
+    ``create_bspline_curve_from_exactcur`` / ``…_lawintcur`` parsers
+    can consume it directly.
+    """
+    for i, line in enumerate(data_lines):
+        s = line.strip()
+        if not s.startswith("spline ") or "{" not in s:
+            continue
+        inner = s[s.index("{") + 1 :].strip()
+        inner = inner.rstrip("}").strip()
+        parts = inner.split()
+        if len(parts) >= 2 and parts[0] == "ref":
+            return None, parts[1]
+        # Curves: only exactcur / lawintcur are downstream-parseable.
+        if not (inner.startswith("exactcur") or inner.startswith("lawintcur")):
+            return None, None
+        new_lines = [inner] + [l.strip() for l in data_lines[i + 1 :]]
+        # Trim trailing brace block.
+        for j, l in enumerate(new_lines):
+            if "}" in l:
+                head = l[: l.index("}")].strip()
+                new_lines = new_lines[:j] + ([head] if head else [])
+                break
+        return (new_lines or None), None
+    return None, None
+
+
+def _resolve_exppc_curve_chain(sub_type: AcisSubType, max_steps: int = 8) -> list[str]:
+    """Walk an ``exppc`` curve chain to its terminal inline 3D curve block.
+
+    Mirrors ``_resolve_exppc_chain`` on the surface side. Accepts inline
+    ``exactcur`` / ``lawintcur``; raises ``ACISUnsupportedCurveType`` for
+    chains that terminate on something else (typically a curve type we
+    haven't taught the parser yet).
+    """
+    for step in range(max_steps):
+        if sub_type.type == "exppc":
+            data_lines = sub_type.get_as_string().splitlines()
+            inner_lines, ref_id = _peel_exppc_curve_to_inner(data_lines)
+            if inner_lines is not None:
+                return inner_lines
+            if ref_id is None:
+                raise ACISUnsupportedCurveType("exppc curve subtype with no inner exactcur/lawintcur or ref N")
+            try:
+                sub_type = sub_type.parent_record.sat_store.get_ref(ref_id)
+            except (KeyError, AttributeError) as exc:
+                raise ACISReferenceDataError(f"exppc curve ref {ref_id} did not resolve") from exc
+            continue
+        if sub_type.type in ("exactcur", "lawintcur"):
+            return sub_type.get_as_string().splitlines()
+        raise ACISUnsupportedCurveType(
+            f"exppc curve chain terminates at {sub_type.type!r}, " f"expected exactcur or lawintcur"
+        )
+    raise ACISUnsupportedCurveType(f"exppc curve chain did not terminate within {max_steps} hops")
+
+
+def create_pcurve_from_exppc(exppc_sub_type: AcisSubType):
+    """Resolve an ``exppc`` edge-curve to its underlying 3D BSpline curve.
+
+    The ``exppc`` subtype on an ``intcurve-curve`` is a parameter-space
+    wrapper around a 3D space curve (typically ``exactcur`` — exact 3D
+    BSpline — or ``lawintcur`` — law-defined intersection curve). The 2D
+    parameter-space data on lines 0-3 of the record is used elsewhere
+    (per-coedge UV-curve attach via ``create_pcurve_2d_from_sat_record``);
+    here we want the 3D space curve so the caller can build an OCC edge
+    geometry from it.
+
+    Was a stub until now: every exppc-typed edge curve raised
+    ``PCurve is not yet supported`` and the face fell back to a flat
+    polygon. On a large reference model that path failed for ~16% of
+    spline-surface faces.
+    """
+    inner_lines = _resolve_exppc_curve_chain(exppc_sub_type)
+    head = inner_lines[0].split()
+    spl_type = head[0] if head else ""
+    if spl_type == "exactcur":
+        return create_bspline_curve_from_exactcur(inner_lines)
+    if spl_type == "lawintcur":
+        return create_bspline_curve_from_lawintcur(inner_lines)
+    raise ACISUnsupportedCurveType(f"exppc curve resolved to unsupported inner type: {spl_type!r}")
+
+
+def create_2d_pcurve_from_acis_pcurve(acis_pcurve) -> geo_cu.Pcurve2dBSpline | None:
+    """Translate a parsed ``AcisPCurve`` into a ``Pcurve2dBSpline``.
+
+    The exppc subtype carries the surface-space (UV) BSpline directly:
+    degree, knots+multiplicities, and 2D control points. This is the
+    representation downstream OCCT face-construction uses, replacing
+    the lossy reproject-and-fit fallback in ``update_edges_uv_gen``.
+
+    Returns ``None`` when the underlying spline data is unusable (missing
+    knots / control points, or degenerate dimensions). Caller falls back
+    to reprojection in that case.
+    """
+    sd = getattr(acis_pcurve, "spline_data", None)
+    if sd is None:
+        return None
+    if sd.subtype != "exppc":
+        # Non-exppc pcurves (rare in practice) carry only references; we
+        # don't support those today and the regenerative path handles them.
+        return None
+    cps = sd.control_points or []
+    if len(cps) < 2 or not sd.knots:
+        return None
+    # ``rational`` here means "stored as nurbs"; weights live in the third
+    # column of each cp row when present.
+    cps_2d: list[list[float]] = []
+    weights: list[float] | None = []
+    for row in cps:
+        if len(row) < 2:
+            return None
+        if len(row) >= 3:
+            cps_2d.append([row[0], row[1]])
+            if weights is not None:
+                weights.append(float(row[2]))
+        else:
+            cps_2d.append([float(row[0]), float(row[1])])
+            weights = None  # downgrade to non-rational the moment any row lacks a weight
+    knots = list(sd.knots)
+    mults = [int(round(m)) for m in (sd.knot_multiplicities or [])]
+    if len(mults) != len(knots) or not mults:
+        return None
+    # Bump end multiplicities to ``degree + 1`` for open curves — same
+    # IFC normalisation the 3D path applies in ``create_bspline_curve_from_exactcur``.
+    closed = sd.closure_u.value != "open" if hasattr(sd.closure_u, "value") else False
+    if not closed:
+        mults[0] = max(mults[0], sd.degree + 1)
+        mults[-1] = max(mults[-1], sd.degree + 1)
+    expected_n_poles = sum(mults) - sd.degree - 1
+    if expected_n_poles != len(cps_2d):
+        # Mismatch — usually means the parser stopped too early or too
+        # late. Bail to regen rather than feed a malformed curve to OCCT.
+        logger.debug(
+            "pcurve cp/knot mismatch: expected %d poles, got %d (degree=%d, mults=%s)",
+            expected_n_poles,
+            len(cps_2d),
+            sd.degree,
+            mults,
+        )
+        return None
+    return geo_cu.Pcurve2dBSpline(
+        degree=int(sd.degree),
+        control_points_2d=cps_2d,
+        knots=knots,
+        knot_multiplicities=mults,
+        weights=weights if weights else None,
+        closed=closed,
+    )
+
+
+def create_pcurve_2d_from_sat_record(pcurve_record: AcisRecord) -> geo_cu.Pcurve2dBSpline | None:
+    """Parse an ACIS ``pcurve`` record into a 2D BSpline curve in surface UV.
+
+    The exppc subtype carries the surface-space curve directly:
+    degree, (knot, multiplicity) pairs, then 2D control points. Using
+    this authored UV curve avoids the lossy 3D→reprojection→fit path
+    that crashes on near-singular surface points (the source of the
+    audit-29 ``double free`` heap corruption).
+
+    Returns None for unsupported subtypes or malformed data so callers
+    can fall back to reprojection cleanly.
+    """
+    try:
+        sub_type = pcurve_record.get_sub_type()
+    except Exception as ex:
+        logger.debug("pcurve record had no parseable sub-type block: %s", ex)
+        return None
+    if sub_type is None:
+        return None
+    if getattr(sub_type, "type", None) == "ref":
+        try:
+            sub_type = get_ref_type(sub_type)
+        except Exception:
+            return None
+
+    try:
+        data_lines = extract_data_lines(sub_type.get_as_string())
+    except Exception:
+        return None
+    if not data_lines:
+        return None
+
+    header = data_lines[0].split()
+    if not header or header[0] != "exppc":
+        # Other pcurve subtypes (rare in practice) carry only references
+        # to the parent intcurve's pcurve; we don't reconstruct those.
+        return None
+
+    # Header: exppc [opt_int] nubs|nurbs <degree> [open|periodic|closed] <n_knot_pairs>
+    type_idx = -1
+    for i, t in enumerate(header):
+        if t in ("nubs", "nurbs"):
+            type_idx = i
+            break
+    if type_idx == -1:
+        return None
+    rational = header[type_idx] == "nurbs"
+    try:
+        degree = int(header[type_idx + 1])
+    except (IndexError, ValueError):
+        return None
+    closure_token = None
+    n_knot_pairs = None
+    for i in range(type_idx + 2, len(header)):
+        if header[i] in ("open", "periodic", "closed"):
+            closure_token = header[i]
+            try:
+                n_knot_pairs = int(header[i + 1])
+            except (IndexError, ValueError):
+                n_knot_pairs = None
+            break
+    closed = closure_token != "open" if closure_token else False
+
+    # Knots line(s) — flatten to a single list of floats then split
+    # into (knot, multiplicity) pairs. Stop once we have the expected
+    # number; remainder is control points.
+    nums: list[float] = []
+    knot_end_idx = 1
+    for i in range(1, len(data_lines)):
+        if n_knot_pairs is not None and len(nums) >= 2 * n_knot_pairs:
+            knot_end_idx = i
+            break
+        toks = data_lines[i].split()
+        try:
+            row = [float(t) for t in toks]
+        except ValueError:
+            knot_end_idx = i
+            break
+        # An exppc 2D control point row is 2 (nubs) or 3 (nurbs+weight)
+        # floats; bail before consuming it as knots when we don't know
+        # the expected count.
+        if n_knot_pairs is None and len(row) in (2, 3):
+            knot_end_idx = i
+            break
+        nums.extend(row)
+        knot_end_idx = i + 1
+    if not nums:
+        return None
+    knots: list[float] = []
+    mults: list[int] = []
+    for j in range(0, len(nums) - 1, 2):
+        knots.append(nums[j])
+        mults.append(int(round(nums[j + 1])))
+    if not mults:
+        return None
+    # IFC normalisation: bump end multiplicities to ``degree + 1`` for
+    # open curves so OCCT accepts them.
+    if not closed:
+        mults[0] = max(mults[0], degree + 1)
+        mults[-1] = max(mults[-1], degree + 1)
+    expected_n_poles = sum(mults) - degree - 1
+    if expected_n_poles <= 0:
+        return None
+
+    # 2D control points — collect 2-or-3-float rows up to expected count.
+    cps: list[list[float]] = []
+    weights: list[float] | None = []
+    for i in range(knot_end_idx, len(data_lines)):
+        if len(cps) >= expected_n_poles:
+            break
+        toks = data_lines[i].split()
+        try:
+            row = [float(t) for t in toks]
+        except ValueError:
+            break
+        if len(row) == 2:
+            cps.append(row)
+            weights = None
+        elif len(row) == 3:
+            cps.append([row[0], row[1]])
+            if weights is not None:
+                weights.append(row[2])
+        else:
+            break
+    if len(cps) != expected_n_poles:
+        logger.debug(
+            "pcurve cp/knot mismatch: expected %d poles, got %d (degree=%d, mults=%s)",
+            expected_n_poles,
+            len(cps),
+            degree,
+            mults,
+        )
+        return None
+
+    return geo_cu.Pcurve2dBSpline(
+        degree=degree,
+        control_points_2d=cps,
+        knots=knots,
+        knot_multiplicities=mults,
+        weights=weights if (rational and weights) else None,
+        closed=closed,
     )
 
 

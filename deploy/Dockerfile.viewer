@@ -1,0 +1,108 @@
+# syntax=docker/dockerfile:1.7
+
+# Stage 0: pull the prebuilt adacpp pyodide wheel from a separately-
+# built base image (see deploy/Dockerfile.adacpp-wasm and the
+# build-adacpp-base workflow). The base image carries
+# /out/ada_cpp-<ver>-cp312-cp312-emscripten_3_1_58_wasm32.whl plus
+# /out/manifest.json — exactly what this stage used to emit when it
+# was an inline OCCT cross-compile. The 30-min OCCT build now runs
+# only on adacpp changes, not on every viewer change.
+#
+# CI passes the full image reference as a build-arg from a secret so
+# this Dockerfile stays registry-agnostic. Pin a different adacpp by
+# pointing the build-arg at a different ``adacpp-<sha7>`` tag.
+ARG ADACPP_BASE_IMAGE=adacpp-wasm-base:latest
+FROM ${ADACPP_BASE_IMAGE} AS adacpp-wheel
+
+# Stage 1: build the SPA bundle.
+FROM node:20-slim AS frontend-build
+WORKDIR /build
+COPY src/frontend/package.json src/frontend/package-lock.json ./
+RUN npm ci
+COPY src/frontend/ ./
+# `build:serve` uses vite.config.serve.ts — split chunks (three/react/flow)
+# without the embed-script inlining step (that's reserved for `build`,
+# which produces the singlefile bundle baked into the Python package).
+RUN npm run build:serve
+
+# After Vite produces dist/, layer in the static assets the pyodide
+# worker fetches at runtime: the adacpp wheel and the minimal adapy
+# source closure (just ada/__init__.py + ada/cad/__init__.py — these
+# are the only files imported under pyodide). The real
+# src/ada/__init__.py imports adapy's full native-dep surface and can't
+# run under wasm, so we stage the pyodide-only entrypoint in its place
+# (see deploy/pyodide-ada-init.py).
+COPY --from=adacpp-wheel /out/ /build/dist/wheels/
+COPY deploy/pyodide-ada-init.py /build/dist/adapy_src/ada/__init__.py
+COPY src/ada/cad/__init__.py    /build/dist/adapy_src/ada/cad/__init__.py
+
+# Stage 2a: pixi env solver — installs the viewer-api-slim environment
+# from pixi.toml/pixi.lock so the runtime stack stays in lockstep with
+# what's solved locally. Replaces a hand-curated ``pip install`` list
+# that drifted from the rest of the project's dep management and
+# couldn't share a lockfile.
+FROM ghcr.io/prefix-dev/pixi:0.68.0 AS env-builder
+WORKDIR /work
+COPY pixi.toml pixi.lock pyproject.toml ./
+RUN --mount=type=cache,target=/root/.cache/rattler,sharing=locked \
+    pixi install --environment viewer-api-slim --locked
+
+# Stage 2b: runtime — copy the resolved env into a slim base and run
+# its python directly. The env is self-contained (conda-managed glibc,
+# python, deps), so no pixi binary needed at runtime.
+FROM debian:bookworm-slim AS runtime
+ARG IMAGE_TAG=dev
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    ADA_IMAGE_TAG=${IMAGE_TAG}
+WORKDIR /app
+
+COPY --from=env-builder /work/.pixi/envs/viewer-api-slim /env
+ENV PATH="/env/bin:$PATH"
+# conda's openssl bakes its CA path (OPENSSLDIR) to the absolute build
+# prefix (/work/.pixi/envs/viewer-api-slim/ssl), which no longer exists
+# after the env is COPY'd to /env. urllib (used by PyJWKClient for the
+# JWKS fetch) honours OpenSSL's default path, so without this it can't
+# verify TLS to authentik.krande.no and every token check 401s — while
+# httpx-based discovery still works via certifi, hence callback-OK but
+# /api/me-401. Point OpenSSL/urllib at the CA bundle in its new location.
+ENV SSL_CERT_FILE=/env/ssl/cert.pem \
+    SSL_CERT_DIR=/env/ssl/certs
+
+COPY deploy/viewer-ada-init.py /app/src/ada/__init__.py
+COPY src/ada/config.py /app/src/ada/config.py
+COPY src/ada/comms/ /app/src/ada/comms/
+
+# ada.sections subset — required by /api/components/profiles. Only the
+# stdlib-only files (categories + profile_lookup + the ProfileDB.json
+# resource) ship here; the package __init__ that imports Section /
+# GeneralProperties (numpy-dependent) is replaced with a slim stub
+# below so importing ada.sections.profile_lookup doesn't drag the
+# whole CAD stack into the viewer image.
+COPY src/ada/sections/categories.py        /app/src/ada/sections/categories.py
+COPY src/ada/sections/profile_lookup.py    /app/src/ada/sections/profile_lookup.py
+COPY src/ada/sections/resources/ProfileDB.json /app/src/ada/sections/resources/ProfileDB.json
+RUN printf '%s\n' \
+    '"""Slim shim — see deploy/Dockerfile.viewer for context."""' \
+    'from .categories import SectionCat' \
+    '' \
+    '__all__ = ["SectionCat"]' \
+    > /app/src/ada/sections/__init__.py
+
+# Static SPA bundle from the first stage.
+COPY --from=frontend-build /build/dist /app/static
+
+ENV PYTHONPATH=/app/src \
+    ADA_VIEWER_HOST=0.0.0.0 \
+    ADA_VIEWER_PORT=8080 \
+    ADA_VIEWER_STATIC_PATH=/app/static \
+    ADA_VIEWER_STORAGE_KIND=local \
+    ADA_VIEWER_LOCAL_PATH=/data
+
+EXPOSE 8080
+
+# Healthcheck hits the API liveness endpoint.
+HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
+    CMD python -c "import urllib.request, sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=2).status == 200 else 1)"
+
+CMD ["python", "-m", "ada.comms.rest"]

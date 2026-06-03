@@ -91,8 +91,15 @@ compressed():boolean {
   return offset ? !!this.bb!.readInt8(this.bb_pos + offset) : false;
 }
 
+lastModified():string|null
+lastModified(optionalEncoding:flatbuffers.Encoding):string|Uint8Array|null
+lastModified(optionalEncoding?:any):string|Uint8Array|null {
+  const offset = this.bb!.__offset(this.bb_pos, 24);
+  return offset ? this.bb!.__string(this.bb_pos + offset, optionalEncoding) : null;
+}
+
 static startFileObject(builder:flatbuffers.Builder) {
-  builder.startObject(10);
+  builder.startObject(11);
 }
 
 static addName(builder:flatbuffers.Builder, nameOffset:flatbuffers.Offset) {
@@ -147,6 +154,10 @@ static addCompressed(builder:flatbuffers.Builder, compressed:boolean) {
   builder.addFieldInt8(9, +compressed, +false);
 }
 
+static addLastModified(builder:flatbuffers.Builder, lastModifiedOffset:flatbuffers.Offset) {
+  builder.addFieldOffset(10, lastModifiedOffset, 0);
+}
+
 static endFileObject(builder:flatbuffers.Builder):flatbuffers.Offset {
   const offset = builder.endObject();
   return offset;
@@ -164,7 +175,8 @@ unpack(): FileObjectT {
     (this.ifcsqliteFile() !== null ? this.ifcsqliteFile()!.unpack() : null),
     this.isProcedureOutput(),
     (this.procedureParent() !== null ? this.procedureParent()!.unpack() : null),
-    this.compressed()
+    this.compressed(),
+    this.lastModified()
   );
 }
 
@@ -180,6 +192,7 @@ unpackTo(_o: FileObjectT): void {
   _o.isProcedureOutput = this.isProcedureOutput();
   _o.procedureParent = (this.procedureParent() !== null ? this.procedureParent()!.unpack() : null);
   _o.compressed = this.compressed();
+  _o.lastModified = this.lastModified();
 }
 }
 
@@ -194,7 +207,8 @@ constructor(
   public ifcsqliteFile: FileObjectT|null = null,
   public isProcedureOutput: boolean = false,
   public procedureParent: ProcedureStartT|null = null,
-  public compressed: boolean = false
+  public compressed: boolean = false,
+  public lastModified: string|Uint8Array|null = null
 ){}
 
 
@@ -205,6 +219,7 @@ pack(builder:flatbuffers.Builder): flatbuffers.Offset {
   const glbFile = (this.glbFile !== null ? this.glbFile!.pack(builder) : 0);
   const ifcsqliteFile = (this.ifcsqliteFile !== null ? this.ifcsqliteFile!.pack(builder) : 0);
   const procedureParent = (this.procedureParent !== null ? this.procedureParent!.pack(builder) : 0);
+  const lastModified = (this.lastModified !== null ? builder.createString(this.lastModified!) : 0);
 
   FileObject.startFileObject(builder);
   FileObject.addName(builder, name);
@@ -217,6 +232,7 @@ pack(builder:flatbuffers.Builder): flatbuffers.Offset {
   FileObject.addIsProcedureOutput(builder, this.isProcedureOutput);
   FileObject.addProcedureParent(builder, procedureParent);
   FileObject.addCompressed(builder, this.compressed);
+  FileObject.addLastModified(builder, lastModified);
 
   return FileObject.endFileObject(builder);
 }

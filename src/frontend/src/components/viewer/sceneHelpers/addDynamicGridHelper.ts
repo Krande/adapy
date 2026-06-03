@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import {useModelState} from "../../../state/modelState"; // assuming correct path
+import {useModelState} from "@/state/modelState"; // assuming correct path
 
 export function addDynamicGridHelper(scene: THREE.Scene): THREE.GridHelper {
     const {zIsUp} = useModelState.getState();

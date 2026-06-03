@@ -1,5 +1,5 @@
 import React from 'react';
-import {useColorStore} from '../../state/colorLegendStore';
+import {useColorStore} from '@/state/colorLegendStore';
 
 const ColorLegend = () => {
     const {min, max, step, colorPalette, showLegend} = useColorStore();

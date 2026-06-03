@@ -1,8 +1,9 @@
 // ThreeCanvas.tsx
 import React, {useEffect, useRef} from "react";
 import * as THREE from "three";
-import {useModelState} from "../../state/modelState";
-import {useOptionsStore} from "../../state/optionsStore";
+import {useModelState} from "@/state/modelState";
+import {useOptionsStore} from "@/state/optionsStore";
+import {runtime} from "@/runtime/config";
 import {OrientationGizmo} from "./sceneHelpers/OrientationGizmo";
 import {setupCameraControlsHandlers} from "./sceneHelpers/setupCameraControlsHandlers";
 import {setupCamera} from "./sceneHelpers/setupCamera";
@@ -13,10 +14,13 @@ import {setupGizmo} from "./sceneHelpers/setupGizmo";
 import {setupStats} from "./sceneHelpers/setupStats";
 import {setupResizeHandler} from "./sceneHelpers/setupResizeHandler";
 import {setupPointerHandler} from "./sceneHelpers/setupPointerHandler";
-import {animationControllerRef, cameraRef, controlsRef, rendererRef, sceneRef, updatelightRef} from "../../state/refs";
+import {animationControllerRef, cameraRef, controlsRef, rendererRef, sceneRef, updatelightRef} from "@/state/refs";
 import {OrbitControls} from "three/examples/jsm/controls/OrbitControls";
-import {AnimationController} from "../../utils/scene/animations/AnimationController";
-import {replace_model} from "../../utils/scene/comms/update_scene_from_message";
+import {AnimationController} from "@/utils/scene/animations/AnimationController";
+import {replace_model} from "@/utils/scene/handlers/update_scene_from_message";
+import {tickFeaAnimation} from "@/utils/scene/fea/feaAnimationDriver";
+import {consumeDirty, requestRender, usePerfStore} from "@/state/perfStore";
+import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 
 
 const ThreeCanvas: React.FC = () => {
@@ -74,13 +78,25 @@ const ThreeCanvas: React.FC = () => {
 
 
         // === Renderer ===
+        // Antialias is decided at construction time only; toggling the
+        // perfStore.antialias flag requires a reload (the Performance
+        // panel surfaces this). Pixel ratio + shadowMap are driven by
+        // separate live effects below so flipping them mid-session
+        // takes effect without a reload.
         if (!rendererRef.current) {
-            const renderer = new THREE.WebGLRenderer({antialias: true});
+            const initialPerf = usePerfStore.getState();
+            // `stencil: true` is required for the section-plane caps (three r163+
+            // defaults stencil OFF; without the buffer the NotEqual(0) cap test
+            // always passes and the cut cross-section renders as a full plane).
+            const renderer = new THREE.WebGLRenderer({antialias: initialPerf.antialias, stencil: true});
             renderer.setSize(
                 containerRef.current.clientWidth,
                 containerRef.current.clientHeight,
             );
-            renderer.shadowMap.enabled = true;
+            renderer.setPixelRatio(
+                Math.min(window.devicePixelRatio, initialPerf.pixelRatioCap),
+            );
+            renderer.shadowMap.enabled = !initialPerf.disableShadowMap;
             containerRef.current.appendChild(renderer.domElement);
             rendererRef.current = renderer;
         }
@@ -121,13 +137,50 @@ const ThreeCanvas: React.FC = () => {
         if (modelUrl) {
             replace_model(modelUrl)
             // delete the B64GLTF from the window object (if it exists)
-            if ((window as any).B64GLTF) {
-                delete (window as any).B64GLTF;
+            if (runtime.b64Gltf()) {
+                runtime.clearB64Gltf();
             }
         }
         if (modelGroupRef.current) {
             // If a model is already loaded, add it to the scene
             scene.add(modelGroupRef.current);
+        }
+
+        // === Controls events for on-demand render + adaptive DPR ===
+        // OrbitControls emits 'change'/'start'/'end'; CameraControls
+        // uses 'update'/'controlstart'/'controlend'. Both extend the
+        // same EventDispatcher so the listener attachment shape is the
+        // same; only the event names differ.
+        let interactingTimer: ReturnType<typeof setTimeout> | null = null;
+        const applyPixelRatio = (interacting: boolean) => {
+            const p = usePerfStore.getState();
+            const cap = interacting && p.adaptivePixelRatio ? 1.0 : p.pixelRatioCap;
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, cap));
+            requestRender();
+        };
+        const onControlChange = () => requestRender();
+        const onControlStart = () => {
+            if (interactingTimer) {
+                clearTimeout(interactingTimer);
+                interactingTimer = null;
+            }
+            applyPixelRatio(true);
+        };
+        const onControlEnd = () => {
+            // Wait a beat after the user lets go before pushing DPR back
+            // up; damping/momentum keeps moving and we want the cheap
+            // pass to cover those frames too.
+            if (interactingTimer) clearTimeout(interactingTimer);
+            interactingTimer = setTimeout(() => applyPixelRatio(false), 200);
+        };
+        if (controls instanceof OrbitControls) {
+            controls.addEventListener("change", onControlChange);
+            controls.addEventListener("start", onControlStart);
+            controls.addEventListener("end", onControlEnd);
+        } else {
+            (controls as any).addEventListener("update", onControlChange);
+            (controls as any).addEventListener("controlstart", onControlStart);
+            (controls as any).addEventListener("controlend", onControlEnd);
         }
 
         // === Render loop ===
@@ -136,29 +189,54 @@ const ThreeCanvas: React.FC = () => {
             // 1) start all stats timers
             statsArray.forEach((s) => s.begin());
 
+            // ``clock.getDelta`` is destructive — calling it more
+            // than once per frame eats time from later consumers.
+            // Snapshot it here and let everything below share.
+            const frameDelta = clock.getDelta();
+
             // Fix: Always use the current reference, not the captured one
-            if (animationControllerRef.current && animationControllerRef.current.currentAction) {
-                const deltaTime = clock.getDelta();
-                animationControllerRef.current.update(deltaTime);
+            const animActive = !!(
+                animationControllerRef.current && animationControllerRef.current.currentAction
+            );
+            if (animActive) {
+                animationControllerRef.current!.update(frameDelta);
             }
+
+            // Streaming-FEA mode-shape oscillation. No-op when no
+            // session is active or play isn't pressed.
+            tickFeaAnimation(frameDelta);
+            const feaPlaying = useFeaAnimationStore.getState().isPlaying;
 
             if (controls instanceof OrbitControls) {
                 controls.update();
             } else {
                 // snip
-                const frame_delta = clock.getDelta();
-                controls.update(frame_delta);
+                controls.update(frameDelta);
             }
             updateCameraLight?.(); // ← Keep the light tracking the camera
             gizmo?.update(); // <-- keep the gizmo synced with the camera
-            renderer.render(scene, camera);
 
-            // 4) update custom panels from renderer.info
-            if (callsPanel) {
-                callsPanel.update(renderer.info.render.calls, 200);
-            }
-            if (trisPanel) {
-                trisPanel.update(renderer.info.render.triangles, 500_000);
+            // On-demand render: skip the expensive renderer.render when
+            // nothing visible has changed and no animation is in flight.
+            // ``consumeDirty`` clears the global flag set by controls
+            // events / requestRender() callers. Stats panels still tick
+            // so the FPS overlay reflects real frame cadence.
+            const perfNow = usePerfStore.getState();
+            const dirty = consumeDirty();
+            const shouldRender =
+                !perfNow.onDemandRender || dirty || animActive || feaPlaying;
+            if (shouldRender) {
+                renderer.render(scene, camera);
+
+                // 4) update custom panels from renderer.info — only
+                // updates when we actually rendered, otherwise the
+                // panel would flatline at zero.
+                if (callsPanel) {
+                    callsPanel.update(renderer.info.render.calls, 200);
+                }
+                if (trisPanel) {
+                    trisPanel.update(renderer.info.render.triangles, 500_000);
+                }
             }
 
             // 5) end all stats timers
@@ -168,7 +246,7 @@ const ThreeCanvas: React.FC = () => {
         animate();
 
         const cleanupResizeHandler = setupResizeHandler(containerRef.current, camera, renderer);
-        const cleanupPointerHandler = setupPointerHandler(containerRef.current, camera, scene, renderer);
+        const cleanupPointerHandler = setupPointerHandler(containerRef.current, camera, scene, renderer, controls);
 
         return () => {
             // cleanupResizeHandler();
@@ -181,6 +259,18 @@ const ThreeCanvas: React.FC = () => {
             grid_helper.dispose();
             scene.remove(grid_helper);
             removeKeyHandlers?.(); // cleanup key listeners
+            if (interactingTimer) clearTimeout(interactingTimer);
+            // Detach control-event listeners so they don't pile up on
+            // re-mount (zIsUp / defaultOrbitController flips).
+            if (controls instanceof OrbitControls) {
+                controls.removeEventListener("change", onControlChange);
+                controls.removeEventListener("start", onControlStart);
+                controls.removeEventListener("end", onControlEnd);
+            } else {
+                (controls as any).removeEventListener("update", onControlChange);
+                (controls as any).removeEventListener("controlstart", onControlStart);
+                (controls as any).removeEventListener("controlend", onControlEnd);
+            }
             // Clean up model scene from main scene
             // scene.clear();
 
@@ -195,6 +285,27 @@ const ThreeCanvas: React.FC = () => {
             }
         };
     }, [defaultOrbitController, zIsUp]);
+
+    // ——— Live-subscribe perf flags that don't need a renderer rebuild ———
+    // Shadow map + pixel ratio cap can be flipped on the existing
+    // WebGLRenderer without recreating it. Reading them via individual
+    // selectors makes the effect rerun only when that specific flag
+    // changes; we also call requestRender() so the user sees the
+    // change immediately under on-demand mode.
+    const disableShadowMap = usePerfStore((s) => s.disableShadowMap);
+    const pixelRatioCap = usePerfStore((s) => s.pixelRatioCap);
+    useEffect(() => {
+        const r = rendererRef.current;
+        if (!r) return;
+        r.shadowMap.enabled = !disableShadowMap;
+        requestRender();
+    }, [disableShadowMap]);
+    useEffect(() => {
+        const r = rendererRef.current;
+        if (!r) return;
+        r.setPixelRatio(Math.min(window.devicePixelRatio, pixelRatioCap));
+        requestRender();
+    }, [pixelRatioCap]);
 
     // ——— Separate effect for toggling performance panels only ———
     useEffect(() => {

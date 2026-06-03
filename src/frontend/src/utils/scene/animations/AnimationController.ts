@@ -1,9 +1,9 @@
 // AnimationController.ts
 import * as THREE from 'three';
 import {colorVerticesBasedOnDeformation} from "../analysis/colorize_vector_data";
-import {sceneRef} from "../../../state/refs";
-import {AnimationState, useAnimationStore} from "../../../state/animationStore";
-import {CustomBatchedMesh} from "../../mesh_select/CustomBatchedMesh";
+import {sceneRef} from "@/state/refs";
+import {AnimationState, useAnimationStore} from "@/state/animationStore";
+import {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
 
 export class AnimationController {
     private mixer: THREE.AnimationMixer;

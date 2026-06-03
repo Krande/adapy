@@ -134,9 +134,16 @@ class FileObject(object):
             return bool(self._tab.Get(flatbuffers.number_types.BoolFlags, o + self._tab.Pos))
         return False
 
+    # FileObject
+    def LastModified(self):
+        o = flatbuffers.number_types.UOffsetTFlags.py_type(self._tab.Offset(24))
+        if o != 0:
+            return self._tab.String(o + self._tab.Pos)
+        return None
+
 
 def FileObjectStart(builder):
-    builder.StartObject(10)
+    builder.StartObject(11)
 
 
 def Start(builder):
@@ -229,6 +236,14 @@ def FileObjectAddCompressed(builder, compressed):
 
 def AddCompressed(builder, compressed):
     FileObjectAddCompressed(builder, compressed)
+
+
+def FileObjectAddLastModified(builder, lastModified):
+    builder.PrependUOffsetTRelativeSlot(10, flatbuffers.number_types.UOffsetTFlags.py_type(lastModified), 0)
+
+
+def AddLastModified(builder, lastModified):
+    FileObjectAddLastModified(builder, lastModified)
 
 
 def FileObjectEnd(builder):

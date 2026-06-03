@@ -48,6 +48,17 @@ class SceneConverter:
     ada_ext: AdaDesignAndAnalysisExtension = field(init=False)
     graph: GraphStore = field(init=False)
 
+    # Staged uint32 bufferViews for SimGroup.members_buffer_view. Each
+    # tuple holds (placeholder_index_set_on_simgroup, raw bytes). The
+    # placeholder is rewritten to a real bufferView index in
+    # ``buffer_postprocessor`` once trimesh has assigned real indices.
+    _lineage_buffer_queue: list = field(default_factory=list, init=False, repr=False)
+    # Sentinel base for placeholder values: members_buffer_view fields
+    # carry ``_LINEAGE_PLACEHOLDER_BASE + queue_index`` before resolution.
+    # Picked well above any plausible real bufferView count so the
+    # postprocessor can detect them unambiguously.
+    _LINEAGE_PLACEHOLDER_BASE = 2_000_000_000
+
     def __post_init__(self):
         from ada.extension.design_and_analysis_extension_schema import (
             AdaDesignAndAnalysisExtension,
@@ -74,7 +85,7 @@ class SceneConverter:
         if self.source is None:
             raise ValueError("No source object set")
 
-        is_part = type(self.source) is Part or type(self.source) is Assembly
+        is_part = isinstance(self.source, (Part, Assembly))
 
         root_id = 0
         if is_part:
@@ -109,8 +120,29 @@ class SceneConverter:
         if not has_meta:
             self._scene.metadata.update(self.graph.to_json_hierarchy())
 
-        if self.params.embed_ada_extension:
-            self.add_extension("ADA_EXT_data", self.ada_ext.model_dump(mode="json"))
+        # Stamp the source Assembly's guid on the extension so derived
+        # files (CAD GLB + FEA GLBs) carry a stable lineage anchor. The
+        # frontend matches them by this value instead of by name.
+        if is_part:
+            self.ada_ext.assembly_guid = self.source.get_assembly().guid
+
+        # Connection-component lineage (spec_name, spec_inputs,
+        # member roles) is intentionally NOT written into the GLB
+        # extension here — the bake's manifest.json (sibling to the
+        # GLB) is the source of truth for those fields, and the
+        # extension would just duplicate them per-GLB with no link
+        # to mesh content. The viewer fetches manifest.json once and
+        # joins by spec name. For real-model connection grouping
+        # (which mesh nodes belong to which Connection part), the
+        # design extension's per-part DesignDataExtension already
+        # carries that — Connection's Part subtree gets the same
+        # treatment as any other Part.
+
+        # The extension is dumped from ``self.ada_ext`` inside
+        # ``tree_postprocessor`` (after ``buffer_postprocessor`` has
+        # resolved any SimGroup.members_buffer_view placeholders). That
+        # keeps the dump and the bufferView indices in sync for the
+        # large-FEA hybrid encoding.
 
         return self._scene
 
@@ -192,9 +224,64 @@ class SceneConverter:
             if extension_name not in tree["extensions"].keys():
                 tree["extensions"][extension_name] = extension
 
+    def queue_lineage_buffer(self, raw_bytes: bytes) -> int:
+        """Stage a binary payload for emission as a glTF bufferView.
+
+        Returns a placeholder integer to store on the SimGroup's
+        ``members_buffer_view`` field; the placeholder is rewritten to
+        the real bufferView index in ``buffer_postprocessor`` once
+        trimesh has assigned indices to all buffer items."""
+        self._lineage_buffer_queue.append(raw_bytes)
+        return self._LINEAGE_PLACEHOLDER_BASE + len(self._lineage_buffer_queue) - 1
+
     def buffer_postprocessor(self, buffer_items, tree):
         for idx, animation in enumerate(self.animations):
             animation.process(buffer_items, tree, morph_target_index=idx, num_morph_targets=len(self.animations))
+        self._consume_lineage_buffers(buffer_items)
+
+    def _consume_lineage_buffers(self, buffer_items) -> None:
+        """Append queued lineage payloads to the GLB binary and rewrite
+        the corresponding SimGroup placeholders to real bufferView
+        indices.
+
+        Trimesh creates one bufferView per ``buffer_items`` entry in
+        insertion order (see ``_build_views`` in trimesh.exchange.gltf),
+        so the new bufferView's index equals the new key's position in
+        the dict. Adding a unique string key avoids collisions with
+        mesh-derived items."""
+        if not self._lineage_buffer_queue:
+            return
+        base_idx = len(buffer_items)
+        placeholder_to_real: dict[int, int] = {}
+        for i, payload in enumerate(self._lineage_buffer_queue):
+            key = f"_lineage_members_{i}"
+            # Defensive: in the unlikely case of a name collision, pick
+            # the next free suffix. Trimesh keys are mesh-derived so
+            # collisions shouldn't happen, but the dict insertion order
+            # is load-bearing here.
+            suffix = 0
+            while key in buffer_items:
+                suffix += 1
+                key = f"_lineage_members_{i}_{suffix}"
+            buffer_items[key] = payload
+            placeholder = self._LINEAGE_PLACEHOLDER_BASE + i
+            placeholder_to_real[placeholder] = base_idx + i
+        self._rewrite_lineage_placeholders(placeholder_to_real)
+        # Drop the queue so a subsequent re-export of the same converter
+        # doesn't double-write.
+        self._lineage_buffer_queue.clear()
+
+    def _rewrite_lineage_placeholders(self, mapping: dict[int, int]) -> None:
+        """Walk every SimGroup in the staged extension and replace
+        ``members_buffer_view`` placeholder values with the real bufferView
+        indices."""
+        for sim in self.ada_ext.simulation_objects or []:
+            for grp in sim.groups or []:
+                pv = grp.members_buffer_view
+                if pv is None:
+                    continue
+                if pv in mapping:
+                    grp.members_buffer_view = mapping[pv]
 
     def tree_postprocessor(self, tree: OrderedDict):
         for material in tree["materials"]:
@@ -202,6 +289,10 @@ class SceneConverter:
 
         self._update_animations(tree)
         if self.params.embed_ada_extension:
+            # Dump the extension now (post-buffer-postprocessor) so the
+            # JSON contains the resolved bufferView indices for any
+            # SimGroup that took the large-element binary path.
+            self.add_extension("ADA_EXT_data", self.ada_ext.model_dump(mode="json"))
             self._update_extensions(tree)
 
         if self.params.gltf_asset_extras_dict is not None:

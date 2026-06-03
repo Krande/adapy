@@ -41,26 +41,26 @@ jobs:
 
       - uses: prefix-dev/setup-pixi@v0.9.5 # https://github.com/prefix-dev/setup-pixi
         with:
-          pixi-version: v0.55.0
+          pixi-version: v0.68.0
           environments: docs
           cache: true
 
       - name: Create Verification Report
         run: |
-          pixi run fem-doc
+          pixi run fea-doc
 
       - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: ADA-FEA-res-debug
-          path: tests/fem/verification_report/temp
+          path: verification/temp
 
       - name: Upload Zip file to release
         if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
         uses: svenstaro/upload-release-action@v2
         with:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: tests/fem/verification_report/temp/_dist/ADA-FEA-verification.docx
+          file: verification/temp/_dist/ADA-FEA-verification.docx
           asset_name: ADA-FEA-verification-${{ env.DATE }}.docx
           tag: "ADA-FEA-Verification-Report-${{ env.DATE }}"
           overwrite: true

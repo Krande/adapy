@@ -82,6 +82,7 @@ class FileObjectDC:
     is_procedure_output: bool = None
     procedure_parent: Optional[ProcedureStartDC] = None
     compressed: bool = False
+    last_modified: str = ""
 
 
 @dataclass

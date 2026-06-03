@@ -330,7 +330,7 @@ class Spring(Elem):
 
 class MassTypes:
     MASS = shape_def.MassTypes.MASS
-    NONSTRU = "NONSTRUCTURAL MASS"
+    NONSTRU = shape_def.MassTypes.NONSTRUCTURAL
     ROT_INERTIA = shape_def.MassTypes.ROTARYI
 
     all = [MASS, NONSTRU, ROT_INERTIA]

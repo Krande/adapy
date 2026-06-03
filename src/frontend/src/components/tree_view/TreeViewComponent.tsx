@@ -1,21 +1,20 @@
 import React, {useEffect, useRef, useState} from 'react';
-import {useTreeViewStore} from '../../state/treeViewStore';
+import {useViewerStores} from '@/state/AdaViewerContext';
 import {NodeApi, Tree} from "react-arborist";
 import {CustomNode} from './CustomNode';
-import {handleTreeSelectionChange} from "../../utils/tree_view/handleClickedNode";
+import {handleTreeSelectionChange} from "@/utils/tree_view/handleClickedNode";
 
 const TreeViewComponent: React.FC = () => {
-    const {treeData, setTree, searchTerm} = useTreeViewStore();
+    const {useTreeViewStore} = useViewerStores();
+    const {treeData, setTree, searchTerm, scopeNodeId, scopeNodeName, setScope} = useTreeViewStore();
     const [treeHeight, setTreeHeight] = useState<number>(800); // Default height
     const treeRef = useRef<any>(null);  // Use 'any' to allow custom properties
     const containerRef = useRef<HTMLDivElement | null>(null);
     const headerRef = useRef<HTMLDivElement | null>(null);
 
-    const treeNodes = treeData ? [{id: 'root', name: 'scene', children: [treeData]}] : [{
-        id: 'root',
-        name: 'scene',
-        children: []
-    }];
+    // Top level = one root per loaded model (labelled by GLB filename). The
+    // store keeps them under a synthetic container; render its children.
+    const treeNodes = treeData?.children ?? [];
 
     // Update the tree height based on the container size using ResizeObserver
     useEffect(() => {
@@ -61,13 +60,30 @@ const TreeViewComponent: React.FC = () => {
         <div ref={containerRef} className="h-full w-full flex flex-col max-h-screen pl-1 pr-2">
             <div ref={headerRef} className={"w-full pr-1 pt-1"}>
                 <input
-                    className={"w-full bg-gray-600 text-white rounded pl-1"}
-                    placeholder={"Search here"}
+                    className={"w-full bg-gray-600 text-white rounded-sm pl-1"}
+                    placeholder={scopeNodeId ? `Search in ${scopeNodeName ?? "selection"}` : "Search here"}
                     onInput={
                     (event) => {
                         useTreeViewStore.getState().setSearchTerm((event.target as HTMLInputElement).value);
                     }
                 }/>
+                {scopeNodeId && (
+                    <div className="mt-1 flex items-center">
+                        <span
+                            className="inline-flex items-center max-w-full text-xs bg-blue-700 text-white rounded-full px-2 py-0.5"
+                            title={`Search scoped to ${scopeNodeName ?? "selection"}`}
+                        >
+                            <span className="truncate">scope: {scopeNodeName ?? "selection"}</span>
+                            <button
+                                className="ml-1 font-bold hover:text-red-300"
+                                onClick={() => setScope(null, null)}
+                                aria-label="Clear search scope"
+                            >
+                                ×
+                            </button>
+                        </span>
+                    </div>
+                )}
             </div>
             <div>
                 <Tree
@@ -85,25 +101,25 @@ const TreeViewComponent: React.FC = () => {
                     searchTerm={searchTerm}
                     searchMatch={
                         (node, term) => {
-                            // Robustly handle both string and RegExp search terms and names that may be undefined
-                            const name = (node?.data?.name ?? '').toString().toLowerCase();
-                            let t: string;
-                            if (typeof term === 'string') {
-                                t = term;
-                            } else if (term instanceof RegExp) {
-                                // Use the regex source so special chars like ' don't cause toLowerCase errors
-                                t = term.source;
-                            } else {
-                                t = String(term ?? '');
+                            // Scope to the selected node's subtree when one is
+                            // selected; otherwise search all roots (matches stay
+                            // under their root, so hits group per root).
+                            if (scopeNodeId) {
+                                let inScope = false;
+                                let n: NodeApi | null = node;
+                                while (n) {
+                                    if (n.id === scopeNodeId) { inScope = true; break; }
+                                    n = n.parent;
+                                }
+                                if (!inScope) return false;
                             }
-                            const raw = t.toLowerCase();
-                            // Build candidate terms to match against
+                            const name = (node?.data?.name ?? '').toString().toLowerCase();
+                            const raw = (term ?? '').toString().toLowerCase();
                             const candidates: string[] = [raw];
                             // If user wrapped the term in single quotes, also search for the inner text
                             if (raw.length >= 2 && raw.startsWith("'") && raw.endsWith("'")) {
                                 candidates.push(raw.slice(1, -1));
                             }
-                            // Return true if any candidate is contained in the node name
                             return candidates.some((c) => c !== '' && name.includes(c));
                         }
                     }

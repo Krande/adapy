@@ -4,16 +4,17 @@ import io
 import os
 import pathlib
 from itertools import chain
-from typing import TYPE_CHECKING, Any, BinaryIO, Callable, Iterable
+from typing import TYPE_CHECKING, Any, BinaryIO, Callable, Iterable, Literal
 
-from ada import Node, Pipe, PrimBox, PrimCyl, PrimExtrude, PrimRevolve, Shape
 from ada.api.beams.base_bm import Beam
 from ada.api.beams.beam_tapered import BeamTapered
-from ada.api.connections import JointBase
 from ada.api.containers import Beams, Connections, Materials, Nodes, Plates, Sections
 from ada.api.groups import Group
+from ada.api.nodes import Node
+from ada.api.piping import Pipe
 from ada.api.plates import PlateCurved
 from ada.api.presentation_layers import PresentationLayers
+from ada.api.primitives import PrimBox, PrimCyl, PrimExtrude, PrimRevolve, Shape
 from ada.api.spatial.eq_types import EquipRepr
 from ada.api.transforms import Placement
 from ada.base.changes import ChangeAction
@@ -30,6 +31,7 @@ from ada.visit.scene_converter import SceneConverter
 
 if TYPE_CHECKING:
     import trimesh
+    from PIL.Image import Image
 
     from ada import (  # Placement,
         FEM,
@@ -42,10 +44,12 @@ if TYPE_CHECKING:
         Wall,
         Weld,
     )
+    from ada.api.connections import JointBase
     from ada.api.mass import MassPoint
     from ada.cadit.ifc.store import IfcStore
     from ada.fem.containers import COG
     from ada.fem.meshing import GmshOptions
+    from ada.visit.rendering.camera import Camera
 
 
 class Part(BackendGeom):
@@ -84,6 +88,7 @@ class Part(BackendGeom):
         self._instances: dict[Any, Instance] = dict()
         self._shapes = []
         self._welds = []
+        self._welds_for_cache: dict[int, list[Weld]] = {}
         self._parts = dict()
         self._groups: dict[str, Group] = dict()
         self._ifc_class = ifc_class
@@ -227,7 +232,7 @@ class Part(BackendGeom):
         try:
             part._on_import()
         except NotImplementedError:
-            logger.info(f'Part "{part}" has not defined its "on_import()" method')
+            logger.debug(f'Part "{part}" has not defined its "on_import()" method')
 
         part.change_type = part.change_type.ADDED
         if add_to_layer is not None:
@@ -256,8 +261,29 @@ class Part(BackendGeom):
     def add_weld(self, weld: Weld) -> Weld:
         weld.parent = self
         self._welds.append(weld)
+        self._invalidate_welds_for_cache()
 
         return weld
+
+    def _invalidate_welds_for_cache(self) -> None:
+        for ancestor in self.get_ancestors():
+            cache = getattr(ancestor, "_welds_for_cache", None)
+            if cache is not None:
+                cache.clear()
+
+    def welds_for(self, member) -> list[Weld]:
+        """Return every Weld at or below this Part whose members include `member`."""
+        key = id(member)
+        cached = self._welds_for_cache.get(key)
+        if cached is not None:
+            return cached
+        result: list[Weld] = []
+        for part in self.get_all_subparts(include_self=True):
+            for weld in part._welds:
+                if any(m is member for m in weld.members):
+                    result.append(weld)
+        self._welds_for_cache[key] = result
+        return result
 
     def add_material(self, material: Material) -> Material:
         if material.units != self.units:
@@ -285,7 +311,12 @@ class Part(BackendGeom):
 
         if isinstance(obj, Beam):
             return self.add_beam(obj)
-        elif isinstance(obj, Plate):
+        elif isinstance(obj, (Plate, PlateCurved)):
+            # ``add_plate`` accepts both Plate and PlateCurved; this
+            # makes ``part /= [Plate(...), PlateCurved(...)]`` work
+            # for callers that build mixed plate lists (e.g. lofting
+            # corner-transition faces as curved BSpline plates while
+            # keeping flat side panels as standard Plates).
             return self.add_plate(obj)
         elif isinstance(obj, Pipe):
             return self.add_pipe(obj)
@@ -543,15 +574,30 @@ class Part(BackendGeom):
         :param opacity: Assign Opacity upon import
         :param source_units: Unit of the imported STEP file. Default is 'm'
         """
-        from ada.occ.utils import extract_occ_shapes
+        if scale is None and transform is None and rotate is None:
+            # Backend-neutral path: route through the active document backend's
+            # OCAF reader (works under adacpp as well as pythonocc). Carries the
+            # per-shape name/colour the OCAF reader recovers.
+            from ada.cad.doc import active_doc_backend
 
-        shapes = extract_occ_shapes(step_path, scale, transform, rotate, include_shells=include_shells)
+            shapes = [
+                (s.shape, s.color, s.name)
+                for s in active_doc_backend().step_reader(step_path).iter_all_shapes(include_colors=True)
+            ]
+        else:
+            # Scale / transform / rotate on import is still the OCC-only path
+            # (gp_Trsf via extract_occ_shapes); names/colours aren't recovered.
+            from ada.occ.utils import extract_occ_shapes
+
+            shapes = [
+                (shp, None, None)
+                for shp in extract_occ_shapes(step_path, scale, transform, rotate, include_shells=include_shells)
+            ]
 
         if len(shapes) > 0:
             ada_name = name if name is not None else "CAD" + str(len(self.shapes) + 1)
-            for i, shp in enumerate(shapes):
-
-                ada_shape = Shape(ada_name + "_" + str(i), shp, colour, opacity, units=source_units)
+            for i, (shp, shp_color, shp_name) in enumerate(shapes):
+                ada_shape = Shape(ada_name + "_" + str(i), shp, colour or shp_color, opacity, units=source_units)
                 self.add_shape(ada_shape)
 
     def calculate_cog(self) -> COG:
@@ -786,19 +832,25 @@ class Part(BackendGeom):
 
         num_elem_changed = 0
         new_materials = Materials(parent=self)
+        _reassignable = (Beam, Plate, FemSection, PipeSegStraight, PipeSegElbow, Pipe)
         for mat in self.get_all_materials(include_self=include_self):
             res = new_materials.add(mat)
             if res.guid == mat.guid:
                 continue
-            refs = [r for r in mat.refs]
-            for elem in refs:
-                mat.refs.pop(mat.refs.index(elem))
-                if elem not in res.refs:
-                    res.refs.append(elem)
-                if isinstance(elem, (Beam, Plate, FemSection, PipeSegStraight, PipeSegElbow, Pipe)):
-                    elem.material = res
-                    num_elem_changed += 1
-                elif issubclass(type(elem), Shape):
+            # ``Materials.add`` above already merged ``mat.refs`` into
+            # ``res.refs`` via the ``_ref_id_set`` cache (O(N) amortised).
+            # All the outer loop needs to do is flip the source
+            # elements' ``.material`` pointer at ``res`` and clear the
+            # now-orphaned source list. The pre-fix loop used
+            # ``mat.refs.pop(mat.refs.index(elem))`` (two O(N) ops per
+            # element) plus ``elem not in res.refs`` (O(N) list
+            # membership) — O(N²) overall, and the dominant cost in
+            # large FEM → IFC / XML conversions where ``res.refs``
+            # grew into the tens of thousands.
+            refs_snapshot = list(mat.refs)
+            mat.refs.clear()
+            for elem in refs_snapshot:
+                if isinstance(elem, _reassignable) or issubclass(type(elem), Shape):
                     elem.material = res
                     num_elem_changed += 1
                 else:
@@ -869,6 +921,21 @@ class Part(BackendGeom):
             res = filter(lambda x: x.guid in filter_by_guids, res)
 
         return res
+
+    def get_all_welds(self) -> Iterable[Weld]:
+        """Single source of truth for iterating welds across the part tree.
+
+        Welds live in ``Part._welds`` — a container intentionally
+        separate from ``get_all_physical_objects`` because the IFC /
+        FEM / GXML writers can't process them (no `.material`, no
+        ``solid_geom`` until the Weld.solid_geom delegation, etc.).
+        The GLB pipeline composes both iterators explicitly: tessellation
+        + GraphStore add welds via this method on top of the physical
+        objects. Avoids scattering ``include_welds=False`` opt-outs
+        across every non-GLB caller.
+        """
+        for p in self.get_all_subparts(include_self=True):
+            yield from p._welds
 
     def get_graph_store(self) -> GraphStore:
         nid = 0
@@ -1065,6 +1132,7 @@ class Part(BackendGeom):
         filter_by_guids=None,
         merge_meshes=True,
         stream_from_ifc=False,
+        embed_object_metadata: bool = True,
         params: RenderParams = None,
     ):
         if params is None:
@@ -1073,6 +1141,7 @@ class Part(BackendGeom):
                 merge_meshes=merge_meshes,
                 render_override=render_override,
                 filter_by_guids=filter_by_guids,
+                embed_object_metadata=embed_object_metadata,
             )
 
         converter = SceneConverter(self, params)
@@ -1119,6 +1188,88 @@ class Part(BackendGeom):
 
         return scene
 
+    def render_offscreen(
+        self,
+        camera: Camera | None = None,
+        *,
+        backend: Literal["pygfx", "chromium"] = "pygfx",
+        preset: dict | None = None,
+        size: tuple[int, int] = (640, 480),
+    ) -> Image:
+        """Render the part to a PIL Image.
+
+        Parameters
+        ----------
+        camera
+            Legacy pygfx camera. When supplied with ``backend="pygfx"``,
+            the trimesh-scene render path is used (kept for callers that
+            already pass a hand-built ``Camera``). When ``None``, both
+            backends route through the embed's ``applyCameraPreset``
+            math so pygfx, chromium, and the live 3D viewer all use
+            identical camera setup.
+        backend
+            ``"pygfx"`` (default) — fast offscreen render via wgpu.
+            ``"chromium"`` drives the production adapy embed in headless
+            Chromium via Playwright. ``camera`` is ignored by chromium;
+            pass ``preset`` to override the embed's ``CameraPreset``.
+        preset
+            Camera preset dict (azimuth_deg, elevation_deg, fov_deg,
+            distance, margin, …). Honored by *both* backends when
+            ``camera`` is None — same field names as
+            ``paradoc.camera.presets.CameraPreset`` so the three
+            render paths read from a single source of truth.
+        size
+            Viewport size (also the output PNG size at DPR=1).
+        """
+        # Both default-path branches roundtrip via a temp GLB then call
+        # one of the two glb_to_image* helpers. That keeps the pygfx
+        # and chromium framing identical (same math, same defaults).
+        # Custom camera arg keeps the legacy trimesh path so existing
+        # callers don't have to re-rig.
+        if backend == "chromium" or (backend == "pygfx" and camera is None):
+            import tempfile
+
+            with tempfile.NamedTemporaryFile(suffix=".glb", delete=False) as tmp:
+                tmp_path = pathlib.Path(tmp.name)
+            try:
+                self.to_gltf(tmp_path)
+                preset_kwargs: dict = dict(preset or {})
+                if backend == "chromium":
+                    from ada.visit.rendering.chromium_offscreen_utils import (
+                        glb_to_image_via_browser,
+                    )
+
+                    return glb_to_image_via_browser(
+                        tmp_path,
+                        preset=preset,
+                        size=size,
+                    )
+                # backend == "pygfx" and no Camera arg → embed-port path.
+                from ada.visit.rendering.pygfx_offscreen_utils import glb_to_image
+
+                # Translate paradoc-style preset keys into glb_to_image kwargs
+                # (it takes the same fields, no nesting). Fall through to
+                # function defaults for any key the caller didn't supply.
+                allowed = {
+                    "azimuth_deg",
+                    "elevation_deg",
+                    "fov_deg",
+                    "distance",
+                    "margin",
+                    "z_up",
+                }
+                kwargs = {k: v for k, v in preset_kwargs.items() if k in allowed}
+                return glb_to_image(tmp_path, size=size, **kwargs)
+            finally:
+                tmp_path.unlink(missing_ok=True)
+
+        # Legacy pygfx path: trimesh scene + hand-built Camera. Kept for
+        # callers that already supply a Camera; new code should drop the
+        # arg and use the preset-driven path above.
+        from ada.visit.rendering.pygfx_offscreen_utils import trimesh_scene_to_image
+
+        return trimesh_scene_to_image(self.to_trimesh_scene(), camera=camera)
+
     def to_stp(
         self,
         destination_file,
@@ -1129,9 +1280,10 @@ class Part(BackendGeom):
         ] = None,
         geom_repr_override: dict[str, GeomRepr] = None,
     ):
+        from ada.cad.doc import active_doc_backend
         from ada.occ.store import OCCStore
 
-        step_writer = OCCStore.get_step_writer()
+        step_writer = active_doc_backend().step_writer()
 
         num_shapes = len(list(self.get_all_physical_objects()))
         shape_iter = OCCStore.shape_iterator(self, geom_repr=geom_repr, render_override=geom_repr_override)
@@ -1229,6 +1381,11 @@ class Part(BackendGeom):
     @property
     def welds(self) -> list[Weld]:
         return self._welds
+
+    @welds.setter
+    def welds(self, value: list[Weld]):
+        self._welds = list(value)
+        self._invalidate_welds_for_cache()
 
     @property
     def walls(self) -> list[Wall]:

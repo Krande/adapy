@@ -1,0 +1,98 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Fem Concepts",
+  "description": "FEA input concepts for viewer visualization: masses, boundary conditions, and load scenarios. Purely geometric (positions, vectors, scalars, labels) — the viewer draws glyphs from these, it carries no FEA solver semantics.",
+  "type": "object",
+  "properties": {
+    "masses": {
+      "type": "array",
+      "description": "Point masses (e.g. lumped equipment mass at deck feet).",
+      "items": { "$ref": "#/definitions/MassGlyph" }
+    },
+    "bcs": {
+      "type": "array",
+      "description": "Boundary conditions: a set of restrained node positions and which dofs are fixed.",
+      "items": { "$ref": "#/definitions/BcGlyph" }
+    },
+    "scenarios": {
+      "type": "array",
+      "description": "Load scenarios (one per load case AND per load combination), each pre-resolved to a flat list of load glyphs so the viewer can cycle through them and render scenario[i].loads directly.",
+      "items": { "$ref": "#/definitions/LoadScenario" }
+    }
+  },
+  "definitions": {
+    "Vec3": {
+      "type": "array",
+      "description": "An [x, y, z] triple in model units.",
+      "items": { "type": "number" },
+      "minItems": 3,
+      "maxItems": 3
+    },
+    "MassGlyph": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "description": "Mass point name." },
+        "position": { "$ref": "#/definitions/Vec3", "description": "Mass centre of gravity." },
+        "mass": { "type": "number", "description": "Mass magnitude (drives glyph size)." }
+      },
+      "required": ["position", "mass"]
+    },
+    "BcGlyph": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "description": "Boundary condition name." },
+        "positions": {
+          "type": "array",
+          "description": "Restrained node positions.",
+          "items": { "$ref": "#/definitions/Vec3" }
+        },
+        "dofs": {
+          "type": "array",
+          "description": "Restrained degrees of freedom, 1..6 (1-3 translation, 4-6 rotation).",
+          "items": { "type": "integer", "minimum": 1, "maximum": 6 }
+        },
+        "bc_type": { "type": "string", "description": "Boundary condition type (e.g. displacement)." }
+      },
+      "required": ["positions", "dofs"]
+    },
+    "LoadGlyph": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "description": "Load name." },
+        "type": {
+          "type": "string",
+          "enum": ["point", "line", "surface", "accel"],
+          "description": "Load arrangement type."
+        },
+        "position": { "$ref": "#/definitions/Vec3", "description": "Point load location / line start / acceleration anchor." },
+        "end_position": { "$ref": "#/definitions/Vec3", "description": "Line load end point." },
+        "points": {
+          "type": "array",
+          "description": "Surface load polygon vertices.",
+          "items": { "$ref": "#/definitions/Vec3" }
+        },
+        "direction": { "$ref": "#/definitions/Vec3", "description": "Normalized force / acceleration direction." },
+        "magnitude": { "type": "number", "description": "Force magnitude / pressure / acceleration magnitude (drives arrow color/label)." },
+        "moment": { "$ref": "#/definitions/Vec3", "description": "Applied moment vector, if any." }
+      },
+      "required": ["type"]
+    },
+    "LoadScenario": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "description": "Load case or combination name." },
+        "kind": {
+          "type": "string",
+          "enum": ["case", "combination"],
+          "description": "Whether this scenario is a single load case or a (factored) combination."
+        },
+        "loads": {
+          "type": "array",
+          "description": "Resolved load glyphs for this scenario.",
+          "items": { "$ref": "#/definitions/LoadGlyph" }
+        }
+      },
+      "required": ["name"]
+    }
+  }
+}

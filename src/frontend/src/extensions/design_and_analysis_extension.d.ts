@@ -6,6 +6,49 @@
  */
 
 /**
+ * Mass centre of gravity.
+ *
+ * @minItems 3
+ * @maxItems 3
+ */
+export type Vec3 = [number, number, number];
+/**
+ * An [x, y, z] triple in model units.
+ *
+ * @minItems 3
+ * @maxItems 3
+ */
+export type Vec31 = [number, number, number];
+/**
+ * An [x, y, z] triple in model units.
+ *
+ * @minItems 3
+ * @maxItems 3
+ */
+export type Vec32 = [number, number, number];
+/**
+ * An [x, y, z] triple in model units.
+ *
+ * @minItems 3
+ * @maxItems 3
+ */
+export type Vec33 = [number, number, number];
+/**
+ * An [x, y, z] triple in model units.
+ *
+ * @minItems 3
+ * @maxItems 3
+ */
+export type Vec34 = [number, number, number];
+/**
+ * An [x, y, z] triple in model units.
+ *
+ * @minItems 3
+ * @maxItems 3
+ */
+export type Vec35 = [number, number, number];
+
+/**
  * GLTF extension for design and analysis objects
  */
 export interface ADADesignAndAnalysisExtension {
@@ -21,6 +64,10 @@ export interface ADADesignAndAnalysisExtension {
    * Version of the ADA GLTF extension schema
    */
   version?: string;
+  /**
+   * Stable lineage anchor: the source Assembly's guid. CAD and FEA exports derived from the same Assembly share this value so a viewer can match them without name lookups.
+   */
+  assembly_guid?: string;
 }
 export interface SimulationDataExtensionMetadata {
   /**
@@ -48,6 +95,8 @@ export interface SimulationDataExtensionMetadata {
    * Named groups and their member objects
    */
   groups?: SimGroup[];
+  stats?: SimStats;
+  fem_concepts?: FemConcepts;
   [k: string]: unknown;
 }
 export interface StepObject {
@@ -112,9 +161,17 @@ export interface SimGroup {
    */
   name?: string;
   /**
-   * Name of group objects
+   * Inline list of element/node names. Used for small groups (default threshold <256); large groups switch to members_buffer_view to keep the JSON chunk size bounded.
    */
   members?: string[];
+  /**
+   * Index of a glTF bufferView holding the packed uint32 member IDs. Mutually exclusive with `members`. Used for large element groups so the JSON chunk doesn't balloon. The IDs are reconstructed into names by prepending `members_prefix`.
+   */
+  members_buffer_view?: number;
+  /**
+   * String prepended to each uint32 ID in members_buffer_view to reconstruct the element/node name (e.g. "EL", "Li", "P"). Required when members_buffer_view is set.
+   */
+  members_prefix?: string;
   /**
    * Description of Group
    */
@@ -124,9 +181,142 @@ export interface SimGroup {
    */
   parent_name?: string;
   /**
+   * adapy guid of the CAD-side Beam/Plate this SimGroup was meshed from. Lets the viewer link FEA elements back to their CAD parent without name matching. Populated from FemSection.refs[0].guid.
+   */
+  parent_object_guid?: string;
+  /**
    * Type of finite element model objects in this group (nodes or elements)
    */
   fe_object_type?: "node" | "element";
+  [k: string]: unknown;
+}
+/**
+ * Aggregate metrics for this simulation model (centre of gravity, element counts). Computed at bake time so the viewer can show per-model info without reloading source.
+ */
+export interface SimStats {
+  cog?: COG;
+  /**
+   * Number of finite elements per category.
+   */
+  element_counts?: {
+    /**
+     * Line / beam elements.
+     */
+    beam?: number;
+    /**
+     * Shell elements.
+     */
+    shell?: number;
+    /**
+     * Solid elements.
+     */
+    solid?: number;
+    [k: string]: unknown;
+  };
+  [k: string]: unknown;
+}
+/**
+ * Mass-weighted centre of gravity. total_mass and total_volume are zero when elements have no material assigned.
+ */
+export interface COG {
+  x: number;
+  y: number;
+  z: number;
+  /**
+   * Sum of contributing masses.
+   */
+  total_mass?: number;
+  /**
+   * Sum of contributing volumes.
+   */
+  total_volume?: number;
+  [k: string]: unknown;
+}
+/**
+ * FEA input concepts (boundary conditions) attached to this simulation model, for the viewer's FEM visualization mode.
+ */
+export interface FemConcepts {
+  /**
+   * Point masses (e.g. lumped equipment mass at deck feet).
+   */
+  masses?: MassGlyph[];
+  /**
+   * Boundary conditions: a set of restrained node positions and which dofs are fixed.
+   */
+  bcs?: BcGlyph[];
+  /**
+   * Load scenarios (one per load case AND per load combination), each pre-resolved to a flat list of load glyphs so the viewer can cycle through them and render scenario[i].loads directly.
+   */
+  scenarios?: LoadScenario[];
+  [k: string]: unknown;
+}
+export interface MassGlyph {
+  /**
+   * Mass point name.
+   */
+  name?: string;
+  position: Vec3;
+  /**
+   * Mass magnitude (drives glyph size).
+   */
+  mass: number;
+  [k: string]: unknown;
+}
+export interface BcGlyph {
+  /**
+   * Boundary condition name.
+   */
+  name?: string;
+  /**
+   * Restrained node positions.
+   */
+  positions: Vec31[];
+  /**
+   * Restrained degrees of freedom, 1..6 (1-3 translation, 4-6 rotation).
+   */
+  dofs: number[];
+  /**
+   * Boundary condition type (e.g. displacement).
+   */
+  bc_type?: string;
+  [k: string]: unknown;
+}
+export interface LoadScenario {
+  /**
+   * Load case or combination name.
+   */
+  name: string;
+  /**
+   * Whether this scenario is a single load case or a (factored) combination.
+   */
+  kind?: "case" | "combination";
+  /**
+   * Resolved load glyphs for this scenario.
+   */
+  loads?: LoadGlyph[];
+  [k: string]: unknown;
+}
+export interface LoadGlyph {
+  /**
+   * Load name.
+   */
+  name?: string;
+  /**
+   * Load arrangement type.
+   */
+  type: "point" | "line" | "surface" | "accel";
+  position?: Vec32;
+  end_position?: Vec33;
+  /**
+   * Surface load polygon vertices.
+   */
+  points?: Vec31[];
+  direction?: Vec34;
+  /**
+   * Force magnitude / pressure / acceleration magnitude (drives arrow color/label).
+   */
+  magnitude?: number;
+  moment?: Vec35;
   [k: string]: unknown;
 }
 /**
@@ -146,6 +336,26 @@ export interface DesignDataExtension {
    */
   groups?: Group[];
   node_references?: DesignNodeReference;
+  /**
+   * Map of physical object name (Beam/Plate/etc.) to its adapy guid. Used by the viewer to resolve a clicked CAD object to its stable lineage id, so a derived FEA model can be matched without name lookups.
+   */
+  object_guids?: {
+    [k: string]: string;
+  };
+  /**
+   * Optional per-object structured metadata (type, section, material, thickness) keyed by object name. When present, the viewer reads it directly from the GLB and skips the server round-trip back to the source IFC for the Properties panel.
+   */
+  object_metadata?: {
+    [k: string]: {
+      [k: string]: unknown;
+    };
+  };
+  stats?: DesignStats;
+  /**
+   * Per-Connection metadata (one entry per ada.Connection Part in this design model). Lets the inspector show a 'Connections (N)' rollup when a beam/plate is selected — each entry carries spec lineage + the member/weld names that belong to it, so the panel can group otherwise-flat weld lists by their parent Connection without walking the THREE scene graph.
+   */
+  connections?: ConnectionInfo[];
+  fem_concepts?: FemConcepts1;
   [k: string]: unknown;
 }
 export interface Group {
@@ -175,5 +385,109 @@ export interface DesignNodeReference {
    * node reference of Faces mesh
    */
   faces?: string[];
+  [k: string]: unknown;
+}
+/**
+ * Aggregate metrics for this design model (centre of gravity, object counts). Computed at bake time so the viewer can show per-model info without reloading source.
+ */
+export interface DesignStats {
+  cog_volume?: COG1;
+  cog_mass?: COG2;
+  /**
+   * Number of physical objects per type, keyed by lowercase class name (e.g. beam, plate, shape, pipe, wall).
+   */
+  object_counts?: {
+    [k: string]: number;
+  };
+  [k: string]: unknown;
+}
+/**
+ * Volume-weighted centroid. Populated whenever any geometry contributes a non-zero volume.
+ */
+export interface COG1 {
+  x: number;
+  y: number;
+  z: number;
+  /**
+   * Sum of contributing masses.
+   */
+  total_mass?: number;
+  /**
+   * Sum of contributing volumes.
+   */
+  total_volume?: number;
+  [k: string]: unknown;
+}
+/**
+ * Mass-weighted centroid. Only populated when every physical object has a material density defined.
+ */
+export interface COG2 {
+  x: number;
+  y: number;
+  z: number;
+  /**
+   * Sum of contributing masses.
+   */
+  total_mass?: number;
+  /**
+   * Sum of contributing volumes.
+   */
+  total_volume?: number;
+  [k: string]: unknown;
+}
+/**
+ * Spec lineage + member roster for one ada.Connection Part inside this design model. Names are the same identifiers used as keys in object_metadata / object_guids on this DesignDataExtension, so the inspector joins by name with no extra lookups.
+ */
+export interface ConnectionInfo {
+  /**
+   * The Connection Part's name — used as a stable id when the inspector cross-links from a member back to its parent connection.
+   */
+  name: string;
+  /**
+   * Registered ConnectionSpec name (e.g. 'box.box_to_box') when the Connection was built from one. Absent on ad-hoc Connections.
+   */
+  spec_name?: string;
+  /**
+   * The build_component inputs dict the spec was evaluated with (per-role sections, angles, etc.). Absent when the Connection isn't spec-derived.
+   */
+  spec_inputs?: {
+    [k: string]: unknown;
+  };
+  /**
+   * Map of role name ('incoming', 'landing', ...) to member node names — lets the inspector show 'incoming: <beam>' rows that select the right member.
+   */
+  member_roles?: {
+    [k: string]: string[];
+  };
+  /**
+   * All beam member names this Connection groups (including any roles).
+   */
+  beam_names?: string[];
+  /**
+   * Stiffener plate names this Connection contributes.
+   */
+  plate_names?: string[];
+  /**
+   * Weld names this Connection owns. The inspector renders one 'select all welds (N)' link rather than the per-weld dump.
+   */
+  weld_names?: string[];
+  [k: string]: unknown;
+}
+/**
+ * FEA input concepts (masses + load scenarios) attached to this design model, for the viewer's FEM visualization mode.
+ */
+export interface FemConcepts1 {
+  /**
+   * Point masses (e.g. lumped equipment mass at deck feet).
+   */
+  masses?: MassGlyph[];
+  /**
+   * Boundary conditions: a set of restrained node positions and which dofs are fixed.
+   */
+  bcs?: BcGlyph[];
+  /**
+   * Load scenarios (one per load case AND per load combination), each pre-resolved to a flat list of load glyphs so the viewer can cycle through them and render scenario[i].loads directly.
+   */
+  scenarios?: LoadScenario[];
   [k: string]: unknown;
 }

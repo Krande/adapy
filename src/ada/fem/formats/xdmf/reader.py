@@ -2,9 +2,23 @@ import pathlib
 from xml.etree import ElementTree as ET
 
 import numpy
-from meshio.xdmf.common import CellBlock, translate_mixed_cells, xdmf_to_meshio_type
+
+from ada.fem.exceptions import MeshioNotAvailable
 
 from .common import ReadError, cell_data_from_raw, xdmf_to_numpy_type
+
+
+def _import_meshio_xdmf():
+    """Lazy import of meshio.xdmf.common — XDMF I/O is a meshio-bridge feature."""
+    try:
+        from meshio.xdmf.common import (
+            CellBlock,
+            translate_mixed_cells,
+            xdmf_to_meshio_type,
+        )
+    except ImportError as e:
+        raise MeshioNotAvailable("XDMF reader") from e
+    return CellBlock, translate_mixed_cells, xdmf_to_meshio_type
 
 
 class XdmfReader:
@@ -100,6 +114,8 @@ class XdmfReader:
         return field_data
 
     def read_xdmf3(self, root):
+        CellBlock, translate_mixed_cells, xdmf_to_meshio_type = _import_meshio_xdmf()
+
         domains = list(root)
         if len(domains) != 1:
             raise ReadError()

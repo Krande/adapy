@@ -1,8 +1,6 @@
-from OCC.Core.TopoDS import TopoDS_Solid
-
 import ada
+from ada.cad import active_backend
 from ada.geom import solids as geo_so
-from ada.occ.geom import geom_to_occ_geom
 
 
 def test_ipe_beam_taper():
@@ -15,5 +13,5 @@ def test_ipe_beam_taper():
     assert isinstance(geo.geometry, geo_so.ExtrudedAreaSolidTapered)
     assert geo.geometry.depth == 1.0
 
-    occ_shape = geom_to_occ_geom(geo)
-    assert isinstance(occ_shape, TopoDS_Solid)
+    occ_shape = active_backend().build(geo)
+    assert active_backend().shape_type(occ_shape) == "solid"

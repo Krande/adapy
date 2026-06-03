@@ -1,0 +1,5 @@
+_assets/
+report/data.db
+temp/
+__pycache__/
+.paradoc-cache/

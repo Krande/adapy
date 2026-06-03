@@ -445,6 +445,10 @@ class AcisSatParser:
             loop_ref=self._parse_ref(parts[9]) if len(parts) > 9 else None,
             edge_ref=self._parse_ref(parts[7]) if len(parts) > 7 else None,
             sense=self._parse_sense(parts[8]) if len(parts) > 8 else SenseType.FORWARD,
+            # parts[10] is the per-coedge pcurve ref. It can be ``$-1``
+            # (no pcurve, e.g. coedges on planar faces) or a positive
+            # ref into the AcisPCurve table.
+            pcurve_ref=self._parse_ref(parts[10]) if len(parts) > 10 else None,
         )
 
     def _parse_edge(self, index: int, data: str) -> AcisEdge:

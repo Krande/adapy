@@ -9,7 +9,6 @@ from ada.api.user import User
 from ada.base.ifc_types import SpatialTypes
 from ada.base.types import GeomRepr
 from ada.base.units import Units
-from ada.cache.store import CacheStore
 from ada.config import Config, logger
 from ada.fem import (
     Connector,
@@ -49,9 +48,6 @@ class Assembly(Part):
         schema="IFC4X3_add2",
         metadata=None,
         units: Units | str = Units.M,
-        enable_cache: bool = False,
-        clear_cache: bool = False,
-        cache_dir: str | pathlib.Path = None,
         ifc_class: SpatialTypes = SpatialTypes.IfcSite,
     ):
         metadata = dict() if metadata is None else metadata
@@ -69,25 +65,23 @@ class Assembly(Part):
         self._ifc_materials = None
         self._source_ifc_files = dict()
 
-        self._cache_store = None
-        if enable_cache:
-            self._cache_store = CacheStore(name, cache_dir=cache_dir)
-            self.cache_store.sync(self, clear_cache=clear_cache)
+    def __getstate__(self):
+        # ifcopenshell.file and ifcopenshell.geom.settings are C-bound and
+        # don't pickle. Both _ifc_store and _source_ifc_files are caches over
+        # lazily generated state; clearing them lets the assembly cross a
+        # process boundary cleanly and the caches rebuild on next access.
+        state = self.__dict__.copy()
+        state["_ifc_store"] = None
+        state["_ifc_file"] = None
+        state["_source_ifc_files"] = {}
+        return state
 
-    def read_ifc(
-        self, ifc_file: str | os.PathLike | ifcopenshell.file, data_only=False, elements2part=None, create_cache=False
-    ):
+    def __setstate__(self, state):
+        self.__dict__.update(state)
+
+    def read_ifc(self, ifc_file: str | os.PathLike | ifcopenshell.file, data_only=False, elements2part=None):
         """Import from IFC file."""
-        import ifcopenshell
-
-        if self.cache_store is not None and isinstance(ifc_file, ifcopenshell.file) is False:
-            if self.cache_store.from_cache(self, ifc_file) is True:
-                return None
-
         self.ifc_store.load_ifc_content_from_file(ifc_file, data_only=data_only, elements2part=elements2part)
-
-        if self.cache_store is not None:
-            self.cache_store.to_cache(self, ifc_file, create_cache)
 
     def read_fem(
         self,
@@ -95,7 +89,6 @@ class Assembly(Part):
         fem_format: FEATypes | str = None,
         name: str = None,
         fem_converter: FemConverters | str = "default",
-        cache_model_now=False,
     ):
         """Import a Finite Element model. Currently supported FEM formats: Abaqus, Sesam and Calculix"""
         from ada.fem.formats.general import get_fem_converters
@@ -104,10 +97,6 @@ class Assembly(Part):
         if fem_file.exists() is False:
             raise FileNotFoundError(fem_file)
 
-        if self.cache_store is not None:
-            if self.cache_store.from_cache(self, fem_file) is True:
-                return None
-
         fem_importer, _ = get_fem_converters(fem_file, fem_format, fem_converter)
         if fem_importer is None:
             suffix = fem_file.suffix
@@ -115,9 +104,6 @@ class Assembly(Part):
 
         temp_assembly: Assembly = fem_importer(fem_file, name)
         self.__add__(temp_assembly)
-
-        if self.cache_store is not None:
-            self.cache_store.to_cache(self, fem_file, cache_model_now)
 
     def to_fem(
         self,
@@ -215,9 +201,15 @@ class Assembly(Part):
                 name, fem_format, scratch_dir, cpus, gpus, run_ext, metadata, execute, exit_on_complete, run_in_shell
             )
 
+        # Honor return_fea_results=False even when the solver DID produce a
+        # result file: callers that pass it (e.g. a build that only publishes the
+        # .rmed) don't want the in-memory read, and postprocessing here would
+        # force a result-parse they never asked for (and can trip an unsupported
+        # field-profile branch on an otherwise-successful solve).
+        if return_fea_results is False:
+            return None
+
         if res_path.exists() is False:
-            if return_fea_results is False:
-                return None
             if execute:
                 raise FileNotFoundError(f"FEM result file does not exist: {res_path}")
             logger.info(f"FEM result file does not exist: {res_path}")
@@ -298,10 +290,6 @@ class Assembly(Part):
     @property
     def user(self) -> User:
         return self._user
-
-    @property
-    def cache_store(self) -> CacheStore:
-        return self._cache_store
 
     def __add__(self, other: Assembly | Part):
         if other.units != self.units:

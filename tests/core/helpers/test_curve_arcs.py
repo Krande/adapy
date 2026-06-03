@@ -2,14 +2,24 @@ import numpy as np
 import pytest
 
 from ada import ArcSegment, Placement
+from ada.cad import active_backend
 from ada.core.curve_utils import intersect_line_circle, make_arc_segment
 from ada.core.utils import roundoff
 from ada.core.vector_transforms import linear_2dtransform_rotate, local_2_global_points
 from ada.core.vector_utils import angle_between, intersection_point, unit_vector
-from ada.occ.utils import make_arc_segment_using_occ
+
+# make_arc_segment_using_occ is the pythonocc arc tool; these cross-validate it
+# against the pure-python make_arc_segment. Skip under adacpp (OCC-only tool).
+_occ_arc_only = pytest.mark.skipif(
+    active_backend().name == "adacpp",
+    reason="make_arc_segment_using_occ is pythonocc-only",
+)
 
 
+@_occ_arc_only
 def test_make_arc_tool_2d():
+    from ada.occ.utils import make_arc_segment_using_occ
+
     start = (0, 5)
     center = (0, 0)
     end = (5, 0)
@@ -29,7 +39,10 @@ def test_make_arc_tool_2d():
             assert seg_a.p2.is_equal(seg_b.p2)
 
 
+@_occ_arc_only
 def test_make_arc_tool_3d_xy_offset():
+    from ada.occ.utils import make_arc_segment_using_occ
+
     start = (0, 5)
     center = (0, 0)
     end = (5, 0)
@@ -56,7 +69,10 @@ def test_make_arc_tool_3d_xy_offset():
             assert seg_a.p2.is_equal(seg_b.p2)
 
 
+@_occ_arc_only
 def test_make_arc_tool_3d_xz_offset():
+    from ada.occ.utils import make_arc_segment_using_occ
+
     start = (0, 5)
     center = (0, 0)
     end = (5, 0)
@@ -83,7 +99,10 @@ def test_make_arc_tool_3d_xz_offset():
             assert seg_a.p2.is_equal(seg_b.p2)
 
 
+@_occ_arc_only
 def test_make_arc_3d_xyz_offset2():
+    from ada.occ.utils import make_arc_segment_using_occ
+
     start, center, end = [[2.0, 1.5, 3.0], [2.2, 1.7, 3.2], [2.5, 1.7, 3.2]]
     radius = 0.3979375
 

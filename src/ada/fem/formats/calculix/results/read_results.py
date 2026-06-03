@@ -3,9 +3,8 @@ from __future__ import annotations
 import pathlib
 from typing import TYPE_CHECKING
 
-import meshio
-
 from ada.fem import StepEigen
+from ada.fem.results.common import MeshData
 
 from .read_eigen_data import get_eigen_data
 
@@ -15,7 +14,7 @@ if TYPE_CHECKING:
 USE_FRDCONVERT = True
 
 
-def read_calculix_results(results: Results, file_ref: pathlib.Path, overwrite) -> meshio.Mesh:
+def read_calculix_results(results: Results, file_ref: pathlib.Path, overwrite) -> MeshData:
     from .read_frd_file import read_from_frd_file
 
     mesh = read_from_frd_file(file_ref)

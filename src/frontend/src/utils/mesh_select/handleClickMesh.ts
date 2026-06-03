@@ -1,19 +1,21 @@
 // utils/mesh_select/handleClickMesh.ts
 import * as THREE from "three";
 import {CustomBatchedMesh} from "./CustomBatchedMesh";
-import {useModelState} from "../../state/modelState";
-import {useObjectInfoStore} from "../../state/objectInfoStore";
+import {useModelState} from "@/state/modelState";
+import {useObjectInfoStore} from "@/state/objectInfoStore";
 import {queryMeshDrawRange, queryNameFromRangeId} from "./queryMeshDrawRange";
 import {perform_selection} from "./perform_selection";
-import {useTreeViewStore} from "../../state/treeViewStore";
-import {useSelectedObjectStore} from "../../state/useSelectedObjectStore";
+import {query_ws_server_mesh_info} from "./handlers/send_mesh_selected_info_callback";
+import {useTreeViewStore} from "@/state/treeViewStore";
+import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
 import {findNodeById} from "../tree_view/findNodeById";
-import {simulationDataRef} from "../../state/refs";
-import {SimulationDataExtensionMetadata} from "../../extensions/design_and_analysis_extension";
+import {simulationDataRef} from "@/state/refs";
+import {SimulationDataExtensionMetadata} from "@/extensions/design_and_analysis_extension";
 
 export async function handleClickMesh(
     intersect: THREE.Intersection,
-    event: MouseEvent
+    event: MouseEvent,
+    prefilledRangeId?: string,
 ): Promise<void> {
     if (event.button === 2) return;
 
@@ -31,19 +33,27 @@ export async function handleClickMesh(
         simulationDataRef.current = (mesh.ada_ext_data as SimulationDataExtensionMetadata);
     }
 
-    // ← await the worker lookup
-    const meshName = mesh.name; // e.g. "node0"
-    let drawRange = await queryMeshDrawRange(mesh.unique_key, meshName, faceIndex);
-    if (!drawRange) {
-        if (mesh.userData?.node_id) {
-            drawRange = await queryMeshDrawRange(mesh.unique_key, `node${mesh.userData?.node_id}`, faceIndex);
-        }
+    // GPU-pick path supplies the rangeId directly so we skip the
+    // faceIndex → rangeId worker round-trip entirely; the raycast
+    // fallback still uses it.
+    let rangeId: string;
+    if (prefilledRangeId !== undefined) {
+        rangeId = prefilledRangeId;
+    } else {
+        // ← await the worker lookup
+        const meshName = mesh.name; // e.g. "node0"
+        let drawRange = await queryMeshDrawRange(mesh.unique_key, meshName, faceIndex);
         if (!drawRange) {
-            console.warn("selected mesh has no draw range");
-            return;
+            if (mesh.userData?.node_id) {
+                drawRange = await queryMeshDrawRange(mesh.unique_key, `node${mesh.userData?.node_id}`, faceIndex);
+            }
+            if (!drawRange) {
+                console.warn("selected mesh has no draw range");
+                return;
+            }
         }
+        [rangeId] = drawRange;
     }
-    const [rangeId] = drawRange;
 
     await perform_selection(mesh, shiftKey, rangeId);
 
@@ -54,6 +64,16 @@ export async function handleClickMesh(
         return;
     }
     useObjectInfoStore.getState().setName(last_selected_name);
+
+    // Fire-and-forget the metadata request so the Properties panel
+    // populates without blocking the rest of the click handler. The
+    // active file name scopes the backend's lookup so overlay loads
+    // don't collide on name; ``loadedSourceName`` carries the most
+    // recently activated source.
+    const activeFile = useModelState.getState().loadedSourceName;
+    useObjectInfoStore.getState().setFileName(activeFile);
+    useObjectInfoStore.getState().setJsonData(null);
+    void query_ws_server_mesh_info(last_selected_name, faceIndex, activeFile);
 
     // update tree selection
     const treeViewStore = useTreeViewStore.getState();

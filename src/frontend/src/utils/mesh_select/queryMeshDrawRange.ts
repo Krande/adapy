@@ -1,4 +1,4 @@
-import {modelStore} from "../../state/model_worker/modelStore";
+import {modelStore} from "@/state/model_worker/modelStore";
 
 // an async helper—still off the main thread:
 export async function queryMeshDrawRange(

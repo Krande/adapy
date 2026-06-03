@@ -88,7 +88,7 @@ class Wall(BackendGeom):
             self._offset = offset
 
     def add_insert(self, insert: "WallInsert", wall_segment: int, off_x, off_z):
-        from OCC.Extend.ShapeFactory import get_oriented_boundingbox
+        from ada.cad import active_backend
 
         xvec, yvec, zvec = self.get_segment_props(wall_segment)
         p1, p2 = self._segments[wall_segment]
@@ -99,8 +99,8 @@ class Wall(BackendGeom):
 
         frame = insert.shapes[0]
         occ_shape = frame.solid_occ()
-        center, dim, oobb_shp = get_oriented_boundingbox(occ_shape)
-        x, y, z = center.X(), center.Y(), center.Z()
+        center, dim = active_backend().obb(occ_shape)
+        x, y, z = center
         dx, dy, dz = dim[0], dim[1], dim[2]
 
         x0 = x - abs(dx / 2)
@@ -249,9 +249,9 @@ class Wall(BackendGeom):
         return poly.entity()
 
     def solid_occ(self):
-        from ada.occ.geom import geom_to_occ_geom
+        from ada.occ.geom.cache import get_solid_occ
 
-        return geom_to_occ_geom(self.solid_geom())
+        return get_solid_occ(self)
 
     def solid_geom(self) -> Geometry:
         poly = CurvePoly2d.from_3d_points(self.extrusion_area(), parent=self)

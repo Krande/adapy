@@ -1,13 +1,13 @@
 import React, {memo} from 'react';
 import {ProcedureHeader} from "./ProcedureHeader";
-import {ParameterList} from "./Parameterlist";
+import {ParameterList} from "./ParameterList";
 import DynamicHandle from "../DynamicHandle";
-import {run_procedure} from "../../../../utils/node_editor/comms/run_procedure";
-import {ProcedureT} from "../../../../flatbuffers/procedures/procedure";
+import {run_procedure} from "@/utils/node_editor/handlers/run_procedure";
+import {ProcedureT} from "@/flatbuffers/procedures/procedure";
 
 export function ProcedureNode({id, data}: { id: string; data: Record<string, any | ProcedureT> }) {
     return (
-        <div className="bg-bl-background text-gray-200 rounded min-w-40 h-30">
+        <div className="bg-bl-background text-gray-200 rounded-sm min-w-40 h-30">
             {/* Header Row */}
             <ProcedureHeader is_component={data.procedure.isComponent} label={data.label as string} onRun={() => run_procedure({id, data})}/>
 

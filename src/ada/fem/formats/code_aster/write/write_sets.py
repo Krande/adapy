@@ -37,21 +37,52 @@ def _add_cell_sets(cells_group, part: "Part", families):
 
     res_data = resolve_ids_in_multiple(tags, tags_data, True)
 
+    # Materialise the element groups + per-group id→index maps once
+    # up front. The old loop re-filtered every res_data member by the
+    # current ``group`` on each outer iteration — O(G·M·N) where G is
+    # the number of element-type groups, M the number of tags, N the
+    # members per tag. On large FEM → MED conversions that quadratic-
+    # ish term dominated the hot path. Single pre-pass bucketing
+    # collapses it to O(total members) overall.
+    groups: list = []
+    elements_by_group: dict = {}
+    cell_ids_by_group: dict = {}
     for group, elements in part.fem.elements.group_by_type():
-        elements = list(elements)
-        cell_ids = {el.id: i for i, el in enumerate(elements)}
+        elements_list = list(elements)
+        groups.append(group)
+        elements_by_group[group] = elements_list
+        cell_ids_by_group[group] = {el.id: i for i, el in enumerate(elements_list)}
 
-        cell_data = np.zeros(len(elements), dtype=np.int32)
+    # Per-group sparse assignment: ``index_in_group → tag_int``. Built
+    # by a single walk over res_data members instead of a nested
+    # filter per group.
+    pending: dict = {g: [] for g in groups}  # list[tuple[index, tag]]
+    for t, mem in res_data.items():
+        for el in mem:
+            cmap = cell_ids_by_group.get(el.type)
+            if cmap is None:
+                continue
+            idx = cmap.get(el.id)
+            if idx is not None:
+                pending[el.type].append((idx, t))
 
-        for t, mem in res_data.items():
-            list_filtered = [cell_ids[el.id] for el in filter(lambda x: x.type == group, mem)]
-            for index in list_filtered:
-                cell_data[index] = t
+    for group in groups:
+        elements_list = elements_by_group[group]
+        cell_data = np.zeros(len(elements_list), dtype=np.int32)
+        for idx, t in pending[group]:
+            cell_data[idx] = t
 
         if isinstance(group, (shape_def.MassTypes, shape_def.SpringTypes)):
-            cells = np.array([el.members[0].id for el in elements])
+            # Mirror the ``.members`` → ``.nodes`` fallback in
+            # :mod:`write_med` — Mass/Spring proper subclasses populate
+            # ``.members`` via ``fem_set`` assignment; cross-format
+            # readers emit plain ``Elem`` instances that only carry
+            # ``.nodes``. Single helper handles both.
+            from .write_med import _mass_or_spring_attach_id
+
+            cells = np.array([_mass_or_spring_attach_id(el) for el in elements_list])
         else:
-            cells = np.array(list(map(get_node_ids_from_element, elements)))
+            cells = np.array(list(map(get_node_ids_from_element, elements_list)))
 
         med_type = ada_to_med_type(group, part.fem.options.CODE_ASTER.use_reduced_integration)
         med_cells = cells_group.get(med_type)
@@ -146,9 +177,25 @@ def _set_to_tags(sets, data, tag_start_int, tags, id_map=None):
     return tagged_data
 
 
+_MED_NAME_SIZE = 64  # libmed MED_NAME_SIZE — family group name must fit in this many bytes
+
+
 def _family_name(set_id, name):
-    """Return the FAM object name corresponding to the unique set id and a list of subset names"""
-    return "FAM" + "_" + str(set_id) + "_" + "_".join(name)
+    """Return the FAM object name corresponding to the unique set id and a list of subset names.
+
+    Defensive: dedupes the name list (preserving order) and truncates
+    the joined result so the full group name stays under libmed's
+    ``MED_NAME_SIZE`` cap. The leading ``FAM_<id>_`` already guarantees
+    uniqueness via the numeric id, so truncating the joined names
+    portion can't cause name collisions.
+    """
+    deduped = list(dict.fromkeys(name))
+    prefix = "FAM_" + str(set_id) + "_"
+    budget = _MED_NAME_SIZE - len(prefix)
+    joined = "_".join(deduped)
+    if len(joined) > budget:
+        joined = joined[:budget]
+    return prefix + joined
 
 
 def _write_families(fm_group, tags):

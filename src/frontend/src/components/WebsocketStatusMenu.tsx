@@ -1,6 +1,6 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {useWebsocketStatusStore} from '../state/websocketStatusStore';
-import {webSocketAsyncHandler} from '../utils/websocket/websocket_connector_async';
+import {comms} from '../utils/comms';
 import {requestServerInfo} from '../utils/websocket/requestServerInfo';
 import {requestConnectedClients} from '../utils/websocket/requestConnectedClients';
 import {requestShutdownServer} from '../utils/websocket/requestShutdownServer';
@@ -63,7 +63,7 @@ export function WebsocketStatusBox() {
         }
     }, [editingId]);
 
-    const currentId = frontendId || webSocketAsyncHandler.instance_id;
+    const currentId = frontendId || comms.getInstanceId();
 
     const startEdit = useCallback(() => {
         setTempId(String(currentId ?? ''));
@@ -81,7 +81,7 @@ export function WebsocketStatusBox() {
             return;
         }
         try {
-            await webSocketAsyncHandler.setInstanceId(Math.trunc(parsed), true);
+            await comms.setInstanceId(Math.trunc(parsed), true);
             // Server info will refresh after reconnect in handler.connect()
             setEditingId(false);
         } catch (e: any) {
@@ -100,7 +100,7 @@ export function WebsocketStatusBox() {
     }, [saveEdit, cancelEdit]);
 
     return (
-        <div className="bg-gray-400 bg-opacity-50 rounded p-2 min-w-80 pointer-events-auto">
+        <div className="bg-gray-400 bg-opacity-50 rounded-sm p-2 min-w-80">
             <h2 className="font-bold">WebSocket Status</h2>
             <div className="text-xs text-gray-800 space-y-2 mb-2">
                 <div className="border-b border-gray-300 pb-2">
@@ -112,7 +112,7 @@ export function WebsocketStatusBox() {
                                     ID: {currentId}
                                 </span>
                                 <button
-                                    className="cursor-pointer text-white bg-blue-600 hover:bg-blue-700 text-xs px-2 py-1 rounded"
+                                    className="cursor-pointer text-white bg-blue-600 hover:bg-blue-700 text-xs px-2 py-1 rounded-sm"
                                     title="Edit Instance ID"
                                     onClick={startEdit}
                                 >
@@ -123,21 +123,21 @@ export function WebsocketStatusBox() {
                             <div className="flex items-center gap-2 flex-1">
                                 <input
                                     ref={inputRef}
-                                    className="flex-1 text-xs font-mono px-2 py-1 border rounded outline-none focus:ring-2 focus:ring-blue-300"
+                                    className="flex-1 text-xs font-mono px-2 py-1 border rounded-sm outline-hidden focus:ring-2 focus:ring-blue-300"
                                     value={tempId}
                                     onChange={(e) => setTempId(e.target.value)}
                                     onKeyDown={onKeyDown}
                                     aria-label="Frontend Instance ID"
                                 />
                                 <button
-                                    className="cursor-pointer text-white bg-blue-600 hover:bg-blue-700 text-xs px-2 py-1 rounded"
+                                    className="cursor-pointer text-white bg-blue-600 hover:bg-blue-700 text-xs px-2 py-1 rounded-sm"
                                     onClick={saveEdit}
                                     title="Save"
                                 >
                                     Save
                                 </button>
                                 <button
-                                    className="cursor-pointer text-gray-700 hover:text-gray-900 text-xs px-2 py-1 border border-gray-300 rounded"
+                                    className="cursor-pointer text-gray-700 hover:text-gray-900 text-xs px-2 py-1 border border-gray-300 rounded-sm"
                                     onClick={cancelEdit}
                                     title="Cancel"
                                 >
@@ -178,13 +178,13 @@ export function WebsocketStatusBox() {
                                 <div
                                     key={client.instanceId}
                                     className={`text-xs font-mono px-2 py-1 rounded mb-1 ${
-                                        client.instanceId === webSocketAsyncHandler.instance_id
+                                        client.instanceId === comms.getInstanceId()
                                             ? 'bg-blue-200 text-blue-900 font-semibold'
                                             : 'bg-gray-200 text-gray-800'
                                     }`}
                                     title={String(client.instanceId)}
                                 >
-                                    {client.instanceId === webSocketAsyncHandler.instance_id && (
+                                    {client.instanceId === comms.getInstanceId() && (
                                         <span className="text-blue-700 mr-1">●</span>
                                     )}
                                     {client.name || `Client ${client.instanceId}`}
@@ -211,7 +211,7 @@ export function WebsocketStatusBox() {
                 {(logFilePath || processInfo?.logFilePath) && (
                     <div className="border-b border-gray-300 pb-2">
                         <div className="font-medium mb-1">Log File Path</div>
-                        <div className="text-xs font-mono text-gray-800 break-words">
+                        <div className="text-xs font-mono text-gray-800 wrap-break-word">
                             {logFilePath || processInfo?.logFilePath || 'N/A'}
                         </div>
                     </div>
@@ -219,7 +219,7 @@ export function WebsocketStatusBox() {
             </div>
             {connected && (
                 <button
-                    className="cursor-pointer w-full text-xs font-medium px-3 py-2 rounded bg-red-600 text-white hover:bg-red-700 transition"
+                    className="cursor-pointer w-full text-xs font-medium px-3 py-2 rounded-sm bg-red-600 text-white hover:bg-red-700 transition"
                     onClick={handleKillServer}
                 >
                     Shutdown Server

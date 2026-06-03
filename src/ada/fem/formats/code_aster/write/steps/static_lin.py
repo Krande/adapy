@@ -35,9 +35,13 @@ def step_static_lin_str(step: StepImplicitStatic, part: Part) -> str:
     for bc in all_boundary_conditions:
         bc_str += f"_F(CHARGE={bc.name}),"
 
-    sec_str = ""
-    if len(part.fem.sections.lines) > 0 or len(part.fem.sections.shells) > 0:
-        sec_str = "\n    CARA_ELEM=element,"
+    has_shells_or_beams = len(part.fem.sections.lines) > 0 or len(part.fem.sections.shells) > 0
+    sec_str = "\n    CARA_ELEM=element," if has_shells_or_beams else ""
+    # MECA_STATIQUE auto-populates SIEF_ELGA, which carries sub-points on
+    # shell/beam elements (DKT, POU_D_E, ...). IMPR_RESU then needs
+    # CARA_ELEM in the RESU block to print those fields to MED — without it
+    # Code Aster raises MED2_14 the moment it tries to dump SIEF_ELGA.
+    resu_cara_str = ", CARA_ELEM=element" if has_shells_or_beams else ""
 
     field_str = create_field_output_str(step, part)
 
@@ -53,7 +57,7 @@ result = MECA_STATIQUE(
 {field_str}
 
 IMPR_RESU(
-    RESU=_F(RESULTAT=result),
+    RESU=_F(RESULTAT=result{resu_cara_str}),
     UNITE=80
 )
 

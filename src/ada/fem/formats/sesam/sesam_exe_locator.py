@@ -1,5 +1,6 @@
 import os
 import pathlib
+import re
 import xml.etree.ElementTree as ET
 
 
@@ -53,3 +54,26 @@ def get_prepost_default_exe_path() -> str | None:
     if prepost_exe_env_var:
         return prepost_exe_env_var
     return _get_default_exe_path("Prepost")
+
+
+_SESTRA_VERSION_RE = re.compile(r"V(?P<version>\d+\.\d+-\d+)")
+
+
+def get_sestra_version(exe_path: str | None = None) -> str:
+    """Extract the Sestra version from the executable path.
+
+    Sestra's installation layout embeds the version in the path
+    (eg `.../Sestra V10.16-02/sestra.exe`), so a path-string parse
+    is cheaper than spawning the process.
+
+    Raises FileNotFoundError if the path can't be resolved, ValueError
+    if the path doesn't match the expected `Vxx.yy-zz` shape.
+    """
+    if exe_path is None:
+        exe_path = get_sestra_default_exe_path()
+    if exe_path is None:
+        raise FileNotFoundError("ADA_SESTRA_EXE is unset and no default install found")
+    match = _SESTRA_VERSION_RE.search(exe_path)
+    if match is None:
+        raise ValueError(f"could not parse sestra version from path: {exe_path!r}")
+    return match.group("version")

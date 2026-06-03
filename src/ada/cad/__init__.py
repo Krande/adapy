@@ -1,0 +1,863 @@
+"""Backend-agnostic CAD operations.
+
+A thin abstraction layer that lets adapy swap between pythonocc-core
+(native CPython) and adacpp's wasm-compatible kernel (pyodide). Each
+backend is lazy-loaded — importing this module does not pull in either
+kernel — so the same module file works in environments where only one
+of the two is installable.
+
+Selection order (in `select_backend()`):
+1. Explicit `prefer` argument
+2. `ADAPY_CAD_BACKEND` env var ("adacpp" or "occ")
+3. adacpp if importable
+4. pythonocc-core if importable
+5. raise ImportError
+
+Surface kept intentionally narrow — mirrors `adacpp.cad` (primitives +
+tessellate + pyocc bridge). Grow as the migration progresses; do not
+add operations here that don't have a working implementation in at
+least one backend.
+"""
+
+from __future__ import annotations
+
+import os
+from enum import Enum
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+
+if TYPE_CHECKING:
+    import numpy as np
+
+    from ada.geom import Geometry
+    from ada.geom.booleans import BoolOpEnum
+    from ada.geom.direction import Direction
+    from ada.geom.points import Point
+    from ada.occ.backend import OccBackend  # re-exported at runtime via __getattr__
+
+
+class Containment(Enum):
+    """Backend-neutral result of a point-in-solid classification.
+
+    Mirrors OCCT's TopAbs_State without exposing the kernel enum."""
+
+    IN = "in"
+    OUT = "out"
+    ON = "on"
+    UNKNOWN = "unknown"
+
+
+@runtime_checkable
+class ShapeHandle(Protocol):
+    """Opaque CAD shape handle. Concrete type is backend-private."""
+
+
+@runtime_checkable
+class Mesh(Protocol):
+    """Triangle mesh produced by tessellation."""
+
+    positions: Any  # flat float buffer, length = 3 * num_vertices
+    indices: Any  # flat int buffer,   length = 3 * num_triangles
+
+
+class CadBackend(Protocol):
+    """Backend contract. Each method returns a kernel-native value; callers
+    treat the returned ShapeHandle as opaque and only consume Mesh fields."""
+
+    name: str
+
+    def build(self, geometry: "Geometry") -> ShapeHandle: ...
+    def make_wire(self, points: "list") -> ShapeHandle: ...
+    def loft_profiles(
+        self, profiles: "list[list[tuple[float, float, float]]]", ruled: bool = True, solid: bool = True
+    ) -> ShapeHandle: ...
+    def section_with_plane(self, shape: ShapeHandle, origin, normal, size: float = 1000.0) -> ShapeHandle: ...
+    def make_box(self, dx: float, dy: float, dz: float) -> ShapeHandle: ...
+    def make_cylinder(self, radius: float, height: float) -> ShapeHandle: ...
+    def make_sphere(self, radius: float) -> ShapeHandle: ...
+    def tessellate(self, shape: ShapeHandle, linear_deflection: float = -1.0) -> Mesh: ...
+    def bbox(
+        self, shape: ShapeHandle, optimal: bool = True, use_mesh: bool = False
+    ) -> tuple[float, float, float, float, float, float]: ...
+    def obb(self, shape: ShapeHandle) -> "tuple[tuple[float, float, float], tuple[float, float, float]]": ...
+    def read_step_bytes(self, data: bytes) -> ShapeHandle: ...
+    def write_glb_bytes(self, shape: ShapeHandle, linear_deflection: float = 0.1) -> bytes: ...
+    def write_step(
+        self, shapes: list, names: list, colors: list, filename: str, unit: str = "m", schema: str = "AP214"
+    ) -> None: ...
+    def is_handle(self, obj: Any) -> bool: ...
+    def boolean(self, op: "BoolOpEnum", a: ShapeHandle, b: ShapeHandle) -> ShapeHandle: ...
+    def transform(self, shape: ShapeHandle, matrix: "np.ndarray", copy: bool = True) -> ShapeHandle: ...
+    def distance(self, a: ShapeHandle, b: ShapeHandle) -> float: ...
+    def serialize(self, shape: ShapeHandle) -> str: ...
+    def is_valid(self, shape: ShapeHandle) -> bool: ...
+    def volume(self, shape: ShapeHandle) -> float: ...
+    def area(self, shape: ShapeHandle) -> float: ...
+    def shape_type(self, shape: ShapeHandle) -> str: ...
+    def face_surface_type(self, shape: ShapeHandle) -> str: ...
+    def extrude_face_along_normal(self, face: ShapeHandle, thickness: float) -> ShapeHandle: ...
+    def face_to_advanced_face(self, shape: ShapeHandle): ...
+    def faces(self, shape: ShapeHandle) -> list[ShapeHandle]: ...
+    def solids(self, shape: ShapeHandle) -> list[ShapeHandle]: ...
+    def edges(self, shape: ShapeHandle) -> list[ShapeHandle]: ...
+    def vertex_points(self, shape: ShapeHandle) -> list[tuple[float, float, float]]: ...
+    def face_plane(self, face: ShapeHandle) -> "tuple[Point, Direction] | None": ...
+    def to_topods_pointer(self, shape: ShapeHandle) -> int: ...
+    def face_id(self, shape: ShapeHandle) -> "int | None": ...
+    def adopt_occ_shape(self, occ_shape: Any) -> ShapeHandle: ...
+    def make_halfspace(self, origin, normal, flip: bool) -> ShapeHandle: ...
+    def cut_surfaces(self, solid: ShapeHandle, cutters: list, deflection: float, tol: float) -> list: ...
+
+    # --- topology-kernel verbs (the non-manifold core for ada.topology) ---
+    def make_volumes_from_faces(self, faces: list[ShapeHandle], tolerance: float = 1e-6) -> list[ShapeHandle]: ...
+    def merge_cells(self, solids: list[ShapeHandle], tolerance: float = 0.0) -> list[ShapeHandle]: ...
+    def non_manifold_merge(
+        self, shapes: list[ShapeHandle], tolerance: float = 1e-6, glue: bool = True
+    ) -> ShapeHandle: ...
+    def free_faces(self, solids: list[ShapeHandle]) -> list[ShapeHandle]: ...
+    def point_in_solid(self, solid: ShapeHandle, point, tolerance: float = 1e-6) -> "Containment": ...
+    def center_of_mass(self, shape: ShapeHandle) -> "Point": ...
+    def shells(self, shape: ShapeHandle) -> list[ShapeHandle]: ...
+    def wires(self, shape: ShapeHandle) -> list[ShapeHandle]: ...
+    def wire_points(self, shape: ShapeHandle) -> list[tuple[float, float, float]]: ...
+    def unify_coplanar_faces(self, shape: ShapeHandle) -> ShapeHandle: ...
+
+
+class AdacppBackend:
+    """Backend backed by adacpp.cad — works in native CPython AND pyodide.
+    The wasm build is the only path that works under pyodide today; the
+    native build links real OCCT and is functionally equivalent to OccBackend
+    for the operations we support so far."""
+
+    name = "adacpp"
+
+    def __init__(self) -> None:
+        from adacpp import cad
+
+        self._cad = cad
+
+    def build(self, geometry: "Geometry") -> ShapeHandle:
+        # Native adacpp construction — NO pythonocc fallback. adacpp and the
+        # pythonocc backend must work independently (adacpp also targets wasm,
+        # where pythonocc does not exist). The ada.geom construction funnel is
+        # being ported to adacpp C++ incrementally; types not yet ported raise
+        # NotImplementedError rather than borrowing pythonocc. End goal: full
+        # parity with OccBackend. See dap plan/v3 Phase 7.
+        import ada.geom.solids as so
+        import ada.geom.surfaces as su
+
+        g = geometry.geometry
+
+        def _axis(d, default):
+            return list(d) if d is not None else list(default)
+
+        if isinstance(g, so.Box):
+            p = g.position
+            shape = self._cad.build_box(
+                list(p.location),
+                _axis(p.axis, (0, 0, 1)),
+                _axis(p.ref_direction, (1, 0, 0)),
+                g.x_length,
+                g.y_length,
+                g.z_length,
+            )
+        elif isinstance(g, so.Cylinder):
+            p = g.position
+            shape = self._cad.build_cylinder(list(p.location), _axis(p.axis, (0, 0, 1)), g.radius, g.height)
+        elif isinstance(g, so.Sphere):
+            shape = self._cad.build_sphere(list(g.center), g.radius)
+        elif isinstance(g, so.Cone):
+            p = g.position
+            shape = self._cad.build_cone(list(p.location), _axis(p.axis, (0, 0, 1)), g.bottom_radius, g.height)
+        elif isinstance(g, so.ExtrudedAreaSolidTapered):
+            # Must precede ExtrudedAreaSolid (subclass). Loft between the start
+            # and end profiles' outer wires — matches OccBackend's
+            # make_extruded_area_shape_tapered_from_geom (ThruSections).
+            area = g.swept_area
+            end_area = g.end_swept_area
+            if not isinstance(area, su.ArbitraryProfileDef) or not isinstance(end_area, su.ArbitraryProfileDef):
+                raise NotImplementedError(
+                    f"AdacppBackend.build: ExtrudedAreaSolidTapered swept_area "
+                    f"{type(area).__name__!r}/{type(end_area).__name__!r} not yet ported to adacpp."
+                )
+            p = g.position
+            shape = self._cad.build_extruded_area_solid_tapered(
+                self._encode_curve(area.outer_curve),
+                self._encode_curve(end_area.outer_curve),
+                self._xyz(p.location),
+                _axis(p.axis, (0, 0, 1)),
+                _axis(p.ref_direction, (1, 0, 0)),
+                g.depth,
+            )
+        elif isinstance(g, so.ExtrudedAreaSolid):
+            area = g.swept_area
+            if not isinstance(area, su.ArbitraryProfileDef):
+                raise NotImplementedError(
+                    f"AdacppBackend.build: ExtrudedAreaSolid swept_area {type(area).__name__!r} "
+                    f"not yet ported to adacpp."
+                )
+            is_area = area.profile_type == su.ProfileType.AREA
+            outer = self._encode_curve(area.outer_curve)
+            inners = [self._encode_curve(c) for c in area.inner_curves]
+            p = g.position
+            shape = self._cad.build_extruded_area_solid(
+                outer,
+                inners,
+                self._xyz(p.location),
+                _axis(p.axis, (0, 0, 1)),
+                _axis(p.ref_direction, (1, 0, 0)),
+                g.depth,
+                is_area,
+            )
+        elif isinstance(g, so.RevolvedAreaSolid):
+            area = g.swept_area
+            if not isinstance(area, su.ArbitraryProfileDef):
+                raise NotImplementedError(
+                    f"AdacppBackend.build: RevolvedAreaSolid swept_area {type(area).__name__!r} "
+                    f"not yet ported to adacpp."
+                )
+            is_area = area.profile_type == su.ProfileType.AREA
+            outer = self._encode_curve(area.outer_curve)
+            inners = [self._encode_curve(c) for c in area.inner_curves]
+            p = g.position
+            shape = self._cad.build_revolved_area_solid(
+                outer,
+                inners,
+                self._xyz(p.location),
+                _axis(p.axis, (0, 0, 1)),
+                _axis(p.ref_direction, (1, 0, 0)),
+                self._xyz(g.axis.location),
+                _axis(g.axis.axis, (0, 0, 1)),
+                float(g.angle),
+                is_area,
+            )
+        elif isinstance(g, so.FixedReferenceSweptAreaSolid):
+            area = g.swept_area
+            if not isinstance(area, su.ArbitraryProfileDef):
+                raise NotImplementedError(
+                    f"AdacppBackend.build: FixedReferenceSweptAreaSolid swept_area "
+                    f"{type(area).__name__!r} not yet ported to adacpp."
+                )
+            # MakePipeShell sweeps the profile *wire* (already positioned in 3D
+            # at the directrix start) along the directrix spine.
+            directrix = self._encode_curve(g.directrix)
+            outer = self._encode_curve(area.outer_curve)
+            shape = self._cad.build_fixed_reference_swept_area_solid(
+                directrix,
+                outer,
+                self._xyz(g.position.location),
+            )
+        elif isinstance(g, su.CurveBoundedPlane):
+            import ada.geom.curves as cu
+
+            if not isinstance(g.outer_boundary, cu.IndexedPolyCurve):
+                raise NotImplementedError(
+                    f"AdacppBackend.build: CurveBoundedPlane outer_boundary "
+                    f"{type(g.outer_boundary).__name__!r} not yet ported to adacpp."
+                )
+            outer = self._encode_curve(g.outer_boundary)
+            inners = [self._encode_curve(c) for c in g.inner_boundaries]
+            pos = g.basis_surface.position
+            shape = self._cad.build_planar_face(
+                outer,
+                inners,
+                self._xyz(pos.location),
+                _axis(pos.axis, (0, 0, 1)),
+                _axis(pos.ref_direction, (1, 0, 0)),
+            )
+        elif isinstance(g, su.FaceBasedSurfaceModel):
+            import ada.geom.curves as cu
+
+            polygons = []
+            for cfs in g.fbsm_faces:
+                for fb in cfs.cfs_faces:
+                    if not isinstance(fb.bound, cu.PolyLoop):
+                        raise NotImplementedError(
+                            f"AdacppBackend.build: FaceBasedSurfaceModel bound "
+                            f"{type(fb.bound).__name__!r} not yet ported to adacpp."
+                        )
+                    polygons.append([self._xyz(p) for p in fb.bound.polygon])
+            shape = self._cad.build_face_based_surface_model(polygons)
+        elif isinstance(g, su.AdvancedFace):
+            # B-spline (PlateCurved / loft-derived / SAT) faces. With bounds, the
+            # surface is trimmed to the boundary wire(s) — each OrientedEdge with
+            # a supplied pcurve drives its edge from surface(pcurve(t)) (the
+            # SAT-pcurve path of OccBackend.make_face_from_geom). Without bounds,
+            # the natural-UV face. Analytic surfaces aren't ported yet.
+            surf = g.face_surface
+            if not isinstance(surf, su.BSplineSurfaceWithKnots):
+                raise NotImplementedError(
+                    f"AdacppBackend.build: AdvancedFace surface {type(surf).__name__!r} "
+                    "not yet ported to adacpp (only BSplineSurfaceWithKnots)."
+                )
+            cps = [[self._xyz(p) for p in row] for row in surf.control_points_list]
+            weights = list(surf.weights_data) if isinstance(surf, su.RationalBSplineSurfaceWithKnots) else []
+            surf_args = (
+                surf.u_degree,
+                surf.v_degree,
+                cps,
+                list(surf.u_knots),
+                list(surf.v_knots),
+                list(surf.u_multiplicities),
+                list(surf.v_multiplicities),
+                weights,
+            )
+            if g.bounds:
+                bounds = [self._encode_face_bound(fb) for fb in g.bounds]
+                shape = self._cad.build_advanced_face_bspline(*surf_args, bounds)
+            else:
+                shape = self._cad.build_bspline_surface_face(*surf_args)
+        elif isinstance(g, su.WireFilledFace):
+            # Interpolate a smooth surface through the boundary edges
+            # (BRepOffsetAPI_MakeFilling) — the SAT exppc fallback face.
+            import ada.geom.curves as cu
+
+            if not g.bounds:
+                raise NotImplementedError("AdacppBackend.build: WireFilledFace has no bounds")
+            bound = g.bounds[0].bound
+            edge_list = bound.edge_list if isinstance(bound, cu.EdgeLoop) else []
+            if len(edge_list) < 3:
+                raise NotImplementedError("AdacppBackend.build: WireFilledFace needs >=3 boundary edges")
+            shape = self._cad.build_filled_face([self._encode_oriented_edge(oe) for oe in edge_list])
+        else:
+            raise NotImplementedError(
+                f"AdacppBackend.build: ada.geom type {type(g).__name__!r} is not yet ported to "
+                "adacpp (no pythonocc fallback by design). Use ADAPY_CAD_BACKEND=occ for it, or "
+                "extend adacpp.cad."
+            )
+
+        # Apply booleans natively (operands built recursively in adacpp).
+        for op in geometry.bool_operations:
+            shape = self.boolean(op.operator, shape, self.build(op.second_operand))
+        return shape
+
+    @staticmethod
+    def _xyz(p) -> list[float]:
+        c = list(p)
+        return [float(c[0]), float(c[1]), float(c[2]) if len(c) > 2 else 0.0]
+
+    def _encode_curve(self, curve) -> list[list[float]]:
+        # Encode an ada.geom profile curve as adacpp edge records:
+        #   line=[0, p1, p2], arc=[1, start, mid, end], circle=[2, centre, axis, r].
+        import ada.geom.curves as cu
+
+        if isinstance(curve, cu.IndexedPolyCurve):
+            edges = []
+            for seg in curve.segments:
+                if isinstance(seg, cu.ArcLine):
+                    edges.append([1.0, *self._xyz(seg.start), *self._xyz(seg.midpoint), *self._xyz(seg.end)])
+                else:  # Edge — straight line
+                    edges.append([0.0, *self._xyz(seg.start), *self._xyz(seg.end)])
+            return edges
+        if isinstance(curve, cu.Circle):
+            axis = self._xyz(curve.position.axis) if curve.position.axis is not None else [0.0, 0.0, 1.0]
+            return [[2.0, *self._xyz(curve.position.location), *axis, float(curve.radius)]]
+        raise NotImplementedError(
+            f"AdacppBackend.build: profile curve {type(curve).__name__!r} not yet ported to adacpp."
+        )
+
+    def _encode_oriented_edge(self, oe) -> list[float]:
+        """Encode an OrientedEdge / Edge as an adacpp edge record (the layout
+        adacpp's edge_from_record consumes). Mirrors OccBackend's
+        make_edge_from_edge: line / circle (full|trimmed) / ellipse / B-spline
+        (rational, full|trimmed). Straight-line fallback when the underlying
+        3D curve geometry isn't one of those."""
+        import ada.geom.curves as cu
+
+        start, end = self._xyz(oe.start), self._xyz(oe.end)
+        closed = all(abs(a - b) <= 1e-6 for a, b in zip(start, end))
+        t_start = getattr(oe, "t_start", None)
+        t_end = getattr(oe, "t_end", None)
+        has_trim = t_start is not None and t_end is not None and not closed
+
+        ee = getattr(oe, "edge_element", None)
+        curve = ee.edge_geometry if isinstance(ee, cu.EdgeCurve) else None
+
+        if isinstance(curve, cu.Circle):
+            loc, axis = self._xyz(curve.position.location), self._xyz(curve.position.axis)
+            r = float(curve.radius)
+            if closed:
+                return [2.0, *loc, *axis, r]
+            if has_trim:
+                return [5.0, *loc, *axis, r, float(t_start), float(t_end)]
+            return [0.0, *start, *end]  # no trim params recoverable → chord
+        if isinstance(curve, cu.Ellipse):
+            pos = curve.position
+            loc, axis, ref = self._xyz(pos.location), self._xyz(pos.axis), self._xyz(pos.ref_direction)
+            s1, s2 = float(curve.semi_axis1), float(curve.semi_axis2)
+            if closed:
+                return [4.0, *loc, *axis, *ref, s1, s2, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+            return [4.0, *loc, *axis, *ref, s1, s2, 1.0, *start, *end]
+        if isinstance(curve, (cu.BSplineCurveWithKnots, cu.RationalBSplineCurveWithKnots)):
+            poles = [self._xyz(p) for p in curve.control_points_list]
+            knots = [float(k) for k in curve.knots]
+            mults = [float(m) for m in curve.knot_multiplicities]
+            rational = isinstance(curve, cu.RationalBSplineCurveWithKnots)
+            rec = [
+                3.0,
+                float(curve.degree),
+                1.0 if rational else 0.0,
+                1.0 if has_trim else 0.0,
+                float(t_start or 0.0),
+                float(t_end or 0.0),
+                float(len(poles)),
+            ]
+            for p in poles:
+                rec += p
+            rec += [float(len(knots)), *knots, *mults]
+            if rational:
+                rec += [float(w) for w in curve.weights_data]
+            return rec
+        # Line, no geometry, or unsupported → straight segment.
+        return [0.0, *start, *end]
+
+    @staticmethod
+    def _encode_pcurve(pc) -> list[float]:
+        """Encode a Pcurve2dBSpline (2D UV curve on the face surface) as a
+        kind-6 edge record for adacpp.cad.build_advanced_face_bspline."""
+        cps = pc.control_points_2d
+        knots = [float(k) for k in pc.knots]
+        mults = [float(m) for m in pc.knot_multiplicities]
+        rational = bool(pc.weights)
+        rec = [6.0, float(pc.degree), 1.0 if rational else 0.0, 1.0 if pc.closed else 0.0, float(len(cps))]
+        for cp in cps:
+            rec += [float(cp[0]), float(cp[1])]
+        rec += [float(len(knots)), *knots, *mults]
+        if rational:
+            rec += [float(w) for w in pc.weights]
+        return rec
+
+    def _encode_face_bound(self, fb) -> list[list[float]]:
+        """Encode a FaceBound's edge loop: each OrientedEdge with a supplied
+        pcurve → a kind-6 (pcurve-on-surface) record; otherwise its 3D edge."""
+        import ada.geom.curves as cu
+
+        bound = fb.bound
+        edge_list = bound.edge_list if isinstance(bound, cu.EdgeLoop) else []
+        out = []
+        for oe in edge_list:
+            pc = getattr(oe, "pcurve", None)
+            out.append(self._encode_pcurve(pc) if pc is not None else self._encode_oriented_edge(oe))
+        return out
+
+    def make_wire(self, points: "list") -> ShapeHandle:
+        return self._cad.make_wire([[float(c) for c in self._xyz(p)] for p in points])
+
+    def loft_profiles(
+        self, profiles: "list[list[tuple[float, float, float]]]", ruled: bool = True, solid: bool = True
+    ) -> ShapeHandle:
+        return self._cad.loft_profiles(
+            [[[float(c) for c in self._xyz(p)] for p in prof] for prof in profiles], ruled, solid
+        )
+
+    def section_with_plane(self, shape: ShapeHandle, origin, normal, size: float = 1000.0) -> ShapeHandle:
+        return self._cad.section_with_plane(shape, self._xyz(origin), list(normal), float(size))
+
+    def make_box(self, dx: float, dy: float, dz: float) -> ShapeHandle:
+        return self._cad.make_box(dx, dy, dz)
+
+    def make_cylinder(self, radius: float, height: float) -> ShapeHandle:
+        return self._cad.make_cylinder(radius, height)
+
+    def make_sphere(self, radius: float) -> ShapeHandle:
+        return self._cad.make_sphere(radius)
+
+    def tessellate(self, shape: ShapeHandle, linear_deflection: float = -1.0) -> Mesh:
+        return self._cad.tessellate(shape, linear_deflection)
+
+    def bbox(
+        self, shape: ShapeHandle, optimal: bool = True, use_mesh: bool = False
+    ) -> tuple[float, float, float, float, float, float]:
+        # adacpp.cad.bbox is analytic only; the optimal/use_mesh OCC-accuracy
+        # knobs don't apply and are ignored.
+        return tuple(self._cad.bbox(shape))
+
+    def obb(self, shape: ShapeHandle) -> "tuple[tuple[float, float, float], tuple[float, float, float]]":
+        fn = getattr(self._cad, "obb", None)
+        if fn is None:
+            raise NotImplementedError("adacpp.cad.obb is not available in this build")
+        # adacpp returns (center3, half_dims3) mirroring brepbndlib::AddOBB.
+        center, half_dims = fn(shape)
+        return tuple(center), tuple(half_dims)
+
+    def read_step_bytes(self, data: bytes) -> ShapeHandle:
+        return self._cad.read_step_bytes(data)
+
+    def write_glb_bytes(self, shape: ShapeHandle, linear_deflection: float = 0.1) -> bytes:
+        # adacpp returns nb::bytes; bytes(...) coerces it cleanly to a CPython
+        # bytes object so callers don't need to know about the underlying type.
+        return bytes(self._cad.write_glb_bytes(shape, linear_deflection))
+
+    def write_step(
+        self, shapes: list, names: list, colors: list, filename: str, unit: str = "m", schema: str = "AP214"
+    ) -> None:
+        # OCAF/XCAF STEP write via adacpp's bundled OCCT — no pythonocc needed.
+        rgb = [[float(c[0]), float(c[1]), float(c[2])] for c in colors]
+        self._cad.write_step(list(shapes), [str(n) for n in names], rgb, str(filename), unit, schema)
+
+    def is_handle(self, obj: Any) -> bool:
+        # Recognise an adacpp-native shape so callers can keep handle-type
+        # introspection out of their own code (e.g. the tessellator's
+        # raw-import fast path). adacpp.cad exposes the concrete type as
+        # `ShapeHandle`; if a build omits it we conservatively report False.
+        handle_t = getattr(self._cad, "ShapeHandle", None)
+        return handle_t is not None and isinstance(obj, handle_t)
+
+    def boolean(self, op: "BoolOpEnum", a: ShapeHandle, b: ShapeHandle) -> ShapeHandle:
+        fn = getattr(self._cad, "boolean", None)
+        if fn is None:
+            raise NotImplementedError("adacpp.cad.boolean is not available in this build")
+        return fn(op.value, a, b)
+
+    def transform(self, shape: ShapeHandle, matrix: "np.ndarray", copy: bool = True) -> ShapeHandle:
+        fn = getattr(self._cad, "transform", None)
+        if fn is None:
+            raise NotImplementedError("adacpp.cad.transform is not available in this build")
+        # adacpp.cad.transform takes the top 3 rows of the 4x4 as 12 row-major
+        # doubles (implicit bottom row [0,0,0,1]).
+        m = [float(matrix[i][j]) for i in range(3) for j in range(4)]
+        return fn(shape, m, copy)
+
+    def distance(self, a: ShapeHandle, b: ShapeHandle) -> float:
+        fn = getattr(self._cad, "distance", None)
+        if fn is None:
+            raise NotImplementedError("adacpp.cad.distance is not available in this build")
+        return fn(a, b)
+
+    def serialize(self, shape: ShapeHandle) -> str:
+        fn = getattr(self._cad, "serialize", None)
+        if fn is None:
+            raise NotImplementedError("adacpp.cad.serialize is not available in this build")
+        return fn(shape)
+
+    def is_valid(self, shape: ShapeHandle) -> bool:
+        fn = getattr(self._cad, "is_valid", None)
+        if fn is None:
+            raise NotImplementedError("adacpp.cad.is_valid is not available in this build")
+        return fn(shape)
+
+    def volume(self, shape: ShapeHandle) -> float:
+        fn = getattr(self._cad, "volume", None)
+        if fn is None:
+            raise NotImplementedError("adacpp.cad.volume is not available in this build")
+        return fn(shape)
+
+    def area(self, shape: ShapeHandle) -> float:
+        fn = getattr(self._cad, "area", None)
+        if fn is None:
+            raise NotImplementedError("adacpp.cad.area is not available in this build")
+        return fn(shape)
+
+    def shape_type(self, shape: ShapeHandle) -> str:
+        fn = getattr(self._cad, "shape_type", None)
+        if fn is None:
+            raise NotImplementedError("adacpp.cad.shape_type is not available in this build")
+        return fn(shape)
+
+    def face_surface_type(self, shape: ShapeHandle) -> str:
+        fn = getattr(self._cad, "face_surface_type", None)
+        if fn is None:
+            raise NotImplementedError("adacpp.cad.face_surface_type is not available in this build")
+        return fn(shape)
+
+    def extrude_face_along_normal(self, face: ShapeHandle, thickness: float) -> ShapeHandle:
+        fn = getattr(self._cad, "extrude_face_along_normal", None)
+        if fn is None:
+            raise NotImplementedError("adacpp.cad.extrude_face_along_normal is not available in this build")
+        return fn(face, float(thickness))
+
+    def face_to_advanced_face(self, shape: ShapeHandle):
+        """Decompose a B-spline face handle into an ada.geom AdvancedFace
+        (surface + FaceBound/EdgeLoop/OrientedEdge with supplied pcurves) —
+        reconstructed from adacpp's AdvancedFaceData. Inverse of build()."""
+        import ada.geom.curves as cu
+        import ada.geom.surfaces as su
+        from ada.geom.points import Point
+
+        fn = getattr(self._cad, "face_to_advanced_face", None)
+        if fn is None:
+            raise NotImplementedError("adacpp.cad.face_to_advanced_face is not available in this build")
+        d = fn(shape)
+
+        common = dict(
+            u_degree=d.u_degree,
+            v_degree=d.v_degree,
+            control_points_list=[[Point(*p) for p in row] for row in d.poles],
+            surface_form=su.BSplineSurfaceForm.UNSPECIFIED,
+            u_closed=d.u_closed,
+            v_closed=d.v_closed,
+            self_intersect=False,
+            u_multiplicities=list(d.u_multiplicities),
+            v_multiplicities=list(d.v_multiplicities),
+            u_knots=list(d.u_knots),
+            v_knots=list(d.v_knots),
+            knot_spec=cu.KnotType.UNSPECIFIED,
+        )
+        if d.weights:
+            surface = su.RationalBSplineSurfaceWithKnots(weights_data=[list(r) for r in d.weights], **common)
+        else:
+            surface = su.BSplineSurfaceWithKnots(**common)
+
+        bounds = []
+        for wire in d.bounds:
+            edges = []
+            for pc in wire:
+                s, e = Point(*pc.start), Point(*pc.end)
+                pcurve = None
+                if pc.has_pcurve:
+                    pcurve = cu.Pcurve2dBSpline(
+                        degree=pc.degree,
+                        control_points_2d=[tuple(c) for c in pc.control_points],
+                        knots=list(pc.knots),
+                        knot_multiplicities=list(pc.multiplicities),
+                        weights=list(pc.weights) or None,
+                        closed=pc.closed,
+                    )
+                # edge_element is a placeholder 3D edge — the rebuild path uses
+                # the pcurve when present (matches OccBackend's drive-from-pcurve).
+                oe = cu.OrientedEdge(s, e, edge_element=cu.Edge(s, e), orientation=True, pcurve=pcurve)
+                edges.append(oe)
+            bounds.append(su.FaceBound(bound=cu.EdgeLoop(edge_list=edges), orientation=True))
+        return su.AdvancedFace(bounds=bounds, face_surface=surface)
+
+    def faces(self, shape: ShapeHandle) -> list[ShapeHandle]:
+        fn = getattr(self._cad, "faces", None)
+        if fn is None:
+            raise NotImplementedError("adacpp.cad.faces is not available in this build")
+        return list(fn(shape))
+
+    def solids(self, shape: ShapeHandle) -> list[ShapeHandle]:
+        fn = getattr(self._cad, "solids", None)
+        if fn is None:
+            raise NotImplementedError("adacpp.cad.solids is not available in this build")
+        return list(fn(shape))
+
+    def edges(self, shape: ShapeHandle) -> list[ShapeHandle]:
+        fn = getattr(self._cad, "edges", None)
+        if fn is None:
+            raise NotImplementedError("adacpp.cad.edges is not available in this build")
+        return list(fn(shape))
+
+    def to_topods_pointer(self, shape: ShapeHandle) -> int:
+        fn = getattr(self._cad, "to_topods_pointer", None)
+        if fn is None:
+            raise NotImplementedError("adacpp.cad.to_topods_pointer is not available in this build")
+        return fn(shape)
+
+    def face_id(self, shape: ShapeHandle) -> "int | None":
+        # Orientation-independent topological identity (see OccBackend.face_id).
+        # Returns None when the native build lacks it, so the cell-graph extractor
+        # falls back to geometric face matching.
+        fn = getattr(self._cad, "face_id", None)
+        return fn(shape) if fn is not None else None
+
+    def vertex_points(self, shape: ShapeHandle) -> list[tuple[float, float, float]]:
+        fn = getattr(self._cad, "vertex_points", None)
+        if fn is None:
+            raise NotImplementedError("adacpp.cad.vertex_points is not available in this build")
+        return [tuple(p) for p in fn(shape)]
+
+    def face_plane(self, face: ShapeHandle) -> "tuple[Point, Direction] | None":
+        fn = getattr(self._cad, "face_plane", None)
+        if fn is None:
+            raise NotImplementedError("adacpp.cad.face_plane is not available in this build")
+        res = fn(face)
+        if res is None:
+            return None
+        # adacpp returns ((ox,oy,oz),(nx,ny,nz)); wrap into ada.geom types to
+        # match OccBackend.face_plane.
+        from ada.geom.direction import Direction
+        from ada.geom.points import Point
+
+        origin, normal = res
+        return Point(*origin), Direction(*normal)
+
+    def from_topods_pointer(self, ptr: int) -> ShapeHandle:
+        """Wrap an OCCT TopoDS_Shape addressed by a raw pointer.
+        Native-only; wasm builds do not expose this — adacpp.cad surface
+        omits the function entirely there."""
+        bridge = getattr(self._cad, "from_topods_pointer", None)
+        if bridge is None:
+            raise NotImplementedError(
+                "from_topods_pointer is unavailable in this adacpp build "
+                "(typical for wasm/pyodide — no OCCT to bridge to)"
+            )
+        return bridge(ptr)
+
+    def adopt_occ_shape(self, occ_shape: Any) -> ShapeHandle:
+        """Bring a raw pythonocc-core TopoDS_Shape (produced by the OCC
+        DocBackend's STEP/SAT reader) into an adacpp handle. Safe because both
+        kernels are the same OCCT version — the TopoDS_Shape ABI is identical,
+        so the SWIG pointer can be re-wrapped natively."""
+        return self.from_topods_pointer(int(occ_shape.this))
+
+    def make_halfspace(self, origin, normal, flip: bool) -> ShapeHandle:
+        fn = getattr(self._cad, "make_halfspace", None)
+        if fn is None:
+            raise NotImplementedError("adacpp.cad.make_halfspace is not available in this build")
+        return fn([float(c) for c in origin], [float(c) for c in normal], bool(flip))
+
+    def cut_surfaces(self, solid: ShapeHandle, cutters: list, deflection: float, tol: float) -> list:
+        # Native adacpp cut + face/edge extraction (its own OCCT, no pythonocc).
+        # Returns the same plain-data contract as OccBackend.cut_surfaces.
+        fn = getattr(self._cad, "cut_surfaces", None)
+        if fn is None:
+            raise NotImplementedError("adacpp.cad.cut_surfaces is not available in this build")
+        return fn(solid, list(cutters), float(deflection), float(tol))
+
+    # --- topology-kernel verbs (native adacpp, its own OCCT) ---------------
+
+    def make_volumes_from_faces(self, faces: list[ShapeHandle], tolerance: float = 1e-6) -> list[ShapeHandle]:
+        fn = getattr(self._cad, "make_volumes_from_faces", None)
+        if fn is None:
+            raise NotImplementedError("adacpp.cad.make_volumes_from_faces is not available in this build")
+        return list(fn(list(faces), float(tolerance)))
+
+    def merge_cells(self, solids: list[ShapeHandle], tolerance: float = 0.0) -> list[ShapeHandle]:
+        fn = getattr(self._cad, "merge_cells", None)
+        if fn is None:
+            raise NotImplementedError("adacpp.cad.merge_cells is not available in this build")
+        return list(fn(list(solids), float(tolerance)))
+
+    def non_manifold_merge(self, shapes: list[ShapeHandle], tolerance: float = 1e-6, glue: bool = True) -> ShapeHandle:
+        fn = getattr(self._cad, "non_manifold_merge", None)
+        if fn is None:
+            raise NotImplementedError("adacpp.cad.non_manifold_merge is not available in this build")
+        return fn(list(shapes), float(tolerance), bool(glue))
+
+    def free_faces(self, solids: list[ShapeHandle]) -> list[ShapeHandle]:
+        fn = getattr(self._cad, "free_faces", None)
+        if fn is None:
+            raise NotImplementedError("adacpp.cad.free_faces is not available in this build")
+        return list(fn(list(solids)))
+
+    def point_in_solid(self, solid: ShapeHandle, point, tolerance: float = 1e-6) -> "Containment":
+        fn = getattr(self._cad, "point_in_solid", None)
+        if fn is None:
+            raise NotImplementedError("adacpp.cad.point_in_solid is not available in this build")
+        # adacpp returns an int matching OCCT TopAbs_State (IN=0, OUT=1, ON=2, UNKNOWN=3).
+        state = fn(solid, [float(point[0]), float(point[1]), float(point[2])], float(tolerance))
+        return (Containment.IN, Containment.OUT, Containment.ON, Containment.UNKNOWN)[int(state)]
+
+    def center_of_mass(self, shape: ShapeHandle) -> "Point":
+        fn = getattr(self._cad, "center_of_mass", None)
+        if fn is None:
+            raise NotImplementedError("adacpp.cad.center_of_mass is not available in this build")
+        from ada.geom.points import Point
+
+        return Point(*fn(shape))
+
+    def shells(self, shape: ShapeHandle) -> list[ShapeHandle]:
+        fn = getattr(self._cad, "shells", None)
+        if fn is None:
+            raise NotImplementedError("adacpp.cad.shells is not available in this build")
+        return list(fn(shape))
+
+    def wires(self, shape: ShapeHandle) -> list[ShapeHandle]:
+        fn = getattr(self._cad, "wires", None)
+        if fn is None:
+            raise NotImplementedError("adacpp.cad.wires is not available in this build")
+        return list(fn(shape))
+
+    def wire_points(self, shape: ShapeHandle) -> list[tuple[float, float, float]]:
+        fn = getattr(self._cad, "wire_points", None)
+        if fn is None:
+            raise NotImplementedError("adacpp.cad.wire_points is not available in this build")
+        return [tuple(p) for p in fn(shape)]
+
+    def unify_coplanar_faces(self, shape: ShapeHandle) -> ShapeHandle:
+        fn = getattr(self._cad, "unify_coplanar_faces", None)
+        if fn is None:
+            raise NotImplementedError("adacpp.cad.unify_coplanar_faces is not available in this build")
+        return fn(shape)
+
+
+def select_backend(prefer: str | None = None) -> CadBackend:
+    """Pick a CAD backend.
+
+    `prefer` overrides everything; "adacpp" or "occ"/"pythonocc-core".
+    Otherwise consults ADAPY_CAD_BACKEND, then auto-detects (adacpp first
+    because pyodide-capable; pythonocc-core as native fallback)."""
+    # OccBackend lives in ada.occ (the OCC backend's home); import lazily so
+    # ada.cad never pulls the OCC closure at module load.
+    from ada.occ.backend import OccBackend
+
+    choice = prefer or os.environ.get("ADAPY_CAD_BACKEND")
+    if choice in ("adacpp",):
+        return AdacppBackend()
+    if choice in ("occ", "pythonocc-core", "pyocc"):
+        return OccBackend()
+    if choice is not None:
+        raise ValueError(f"Unknown ADAPY_CAD_BACKEND: {choice!r}")
+
+    last_err: Exception | None = None
+    for cls in (AdacppBackend, OccBackend):
+        try:
+            return cls()
+        except ImportError as e:
+            last_err = e
+    raise ImportError(
+        "No CAD backend available — install `adacpp` (preferred for "
+        "pyodide) or `pythonocc-core`. "
+        f"Last error: {last_err}"
+    )
+
+
+_ACTIVE_BACKEND: CadBackend | None = None
+
+
+def active_backend() -> CadBackend:
+    """Return the process-wide CAD backend, selecting and memoizing one on
+    first use via :func:`select_backend`.
+
+    Call sites that build or convert geometry should go through this rather
+    than re-selecting a backend each time. Override the selection up front
+    with the ``ADAPY_CAD_BACKEND`` env var, or call
+    :func:`reset_active_backend` after changing it at runtime."""
+    global _ACTIVE_BACKEND
+    if _ACTIVE_BACKEND is None:
+        _ACTIVE_BACKEND = select_backend()
+    return _ACTIVE_BACKEND
+
+
+def reset_active_backend() -> None:
+    """Drop the memoized backend so the next :func:`active_backend` call
+    re-selects. For tests and for switching ``ADAPY_CAD_BACKEND`` at
+    runtime."""
+    global _ACTIVE_BACKEND
+    _ACTIVE_BACKEND = None
+
+
+def is_shape_handle(obj: Any) -> bool:
+    """True if ``obj`` is a shape handle produced by the active backend.
+
+    The portable way to ask "does this object carry a pre-built CAD body?"
+    without importing kernel types — the type check lives inside the
+    backend (``CadBackend.is_handle``). Under the OCC backend this is an
+    ``isinstance(obj, TopoDS_Shape)``; under adacpp it checks the native
+    shape type."""
+    return active_backend().is_handle(obj)
+
+
+def __getattr__(name: str):
+    # Back-compat: OccBackend moved to ada.occ.backend. Re-export it lazily on
+    # attribute access so ``from ada.cad import OccBackend`` still works without
+    # ada.cad eagerly importing the OCC closure (which would also be circular —
+    # ada.occ.backend imports ada.cad for the Containment enum).
+    if name == "OccBackend":
+        from ada.occ.backend import OccBackend
+
+        return OccBackend
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+__all__ = [
+    "AdacppBackend",
+    "CadBackend",
+    "Mesh",
+    "OccBackend",
+    "ShapeHandle",
+    "active_backend",
+    "is_shape_handle",
+    "reset_active_backend",
+    "select_backend",
+]

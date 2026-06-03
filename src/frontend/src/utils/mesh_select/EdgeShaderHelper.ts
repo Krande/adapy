@@ -1,6 +1,7 @@
 // utils/mesh_select/EdgeShader.ts
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { useOptionsStore } from '@/state/optionsStore';
 
 /**
  * Build one big LineSegments geometry where each vertex gets a 'rangeId' attribute.
@@ -14,6 +15,17 @@ export function buildEdgeGeometryWithRangeIds(
   let idx = 0;
   const posAttr = baseGeo.attributes.position as THREE.BufferAttribute;
 
+  // ``EdgesGeometry``'s ``thresholdAngle`` controls which adjacent
+  // triangles emit a shared edge. The Three.js default of 1° emits
+  // an edge for every tessellated triangle pair on a curved surface,
+  // so a cylindrical or spherical face shows its full triangulation
+  // grid. 30° keeps real feature edges (corners, silhouettes) while
+  // dropping the near-coplanar tessellation lines. Smaller edge
+  // geometry also means fewer line-segments rendered each frame —
+  // strictly a perf win, no shader changes.
+  const hideTess = useOptionsStore.getState().hideTessellationEdges;
+  const thresholdAngle = hideTess ? 30 : 1;
+
   drawRanges.forEach(([start,count], rangeId) => {
     const slice = (baseGeo.index!.array as Uint16Array|Uint32Array)
       .slice(start, start+count);
@@ -22,7 +34,7 @@ export function buildEdgeGeometryWithRangeIds(
     sub.setIndex(Array.from(slice));
 
     // EdgesGeometry is already non-indexed, so we can skip toNonIndexed()
-    const edges = new THREE.EdgesGeometry(sub);
+    const edges = new THREE.EdgesGeometry(sub, thresholdAngle);
 
     // attach a constant rangeId per-vertex
     const verts = edges.attributes.position.count;
@@ -64,12 +76,17 @@ export function makeEdgeShaderMaterial(
     uHighlighted:{ value: -1 }
   };
 
+  // Clipping chunks let section planes cut the edge overlay too (needs
+  // `clipping: true` on the material + a per-frame mvPosition for vClipPosition).
   const vs = `
     attribute float rangeId;
     varying float vRangeId;
+    #include <clipping_planes_pars_vertex>
     void main() {
       vRangeId = rangeId;
-      gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0);
+      vec4 mvPosition = modelViewMatrix * vec4(position,1.0);
+      gl_Position = projectionMatrix * mvPosition;
+      #include <clipping_planes_vertex>
     }
   `;
 
@@ -79,7 +96,9 @@ export function makeEdgeShaderMaterial(
     uniform sampler2D uVisibleTex;
     uniform vec2 uTexSize;
     uniform int uHighlighted;
+    #include <clipping_planes_pars_fragment>
     void main(){
+      #include <clipping_planes_fragment>
       int rid = int(vRangeId + 0.5);
       int x = rid % int(uTexSize.x);
       int y = rid / int(uTexSize.x);
@@ -91,5 +110,5 @@ export function makeEdgeShaderMaterial(
     }
   `;
 
-  return new THREE.ShaderMaterial({ uniforms, vertexShader:vs, fragmentShader:fs });
+  return new THREE.ShaderMaterial({ uniforms, vertexShader:vs, fragmentShader:fs, clipping: true });
 }

@@ -1,11 +1,46 @@
 import {CustomBatchedMesh} from "../mesh_select/CustomBatchedMesh";
 import * as THREE from "three";
-import {DesignDataExtension, SimulationDataExtensionMetadata} from "../../extensions/design_and_analysis_extension";
+import {DesignDataExtension, SimulationDataExtensionMetadata} from "@/extensions/design_and_analysis_extension";
+import {usePerfStore} from "@/state/perfStore";
+import {gpuMeshPicker} from "../mesh_select/GpuMeshPicker";
 
 export function convert_to_custom_batch_mesh(original: THREE.Mesh, drawRanges: Map<string, [number, number]>, unique_key: string, is_design: boolean = true, ada_ext_data: SimulationDataExtensionMetadata | DesignDataExtension | null = null) {
+    // CustomBatchedMesh holds a single base material; if the source was
+    // a multi-material mesh, take the first one. Multi-material support
+    // would need a wider refactor (per-group materials).
+    const sourceMaterial = Array.isArray(original.material)
+        ? original.material[0]
+        : original.material;
+    const perf = usePerfStore.getState();
+    const isBeamSolid = original.userData?.feaBeamSolids === true;
+
+    // Material substitution: if the perf store asks for Lambert, swap
+    // the FEA-baked MeshStandardMaterial for a MeshLambertMaterial.
+    // Lambert drops the full PBR fragment shader (metallic/roughness/
+    // IBL) which is the dominant cost on Intel iGPUs for ~M-fragment
+    // scenes. Copy across only the bits that survive a Standard→Lambert
+    // swap (colour, transparency, vertex-colour flag). When the toggle
+    // is "standard" we keep the original material untouched.
+    const baseMaterial = (() => {
+        if (perf.materialMode !== "lambert") return sourceMaterial;
+        if (sourceMaterial instanceof THREE.MeshStandardMaterial) {
+            const lam = new THREE.MeshLambertMaterial({
+                color: sourceMaterial.color.clone(),
+                map: sourceMaterial.map ?? null,
+                transparent: sourceMaterial.transparent,
+                opacity: sourceMaterial.opacity,
+                vertexColors: sourceMaterial.vertexColors,
+                side: sourceMaterial.side,
+            });
+            lam.name = sourceMaterial.name;
+            return lam;
+        }
+        return sourceMaterial;
+    })();
+
     const customMesh = new CustomBatchedMesh(
         original.geometry,
-        original.material,
+        baseMaterial,
         drawRanges,
         unique_key,
         is_design,
@@ -25,26 +60,48 @@ export function convert_to_custom_batch_mesh(original: THREE.Mesh, drawRanges: M
     customMesh.renderOrder = original.renderOrder;
     customMesh.layers.mask = original.layers.mask;
 
-    // Set materials to double-sided and enable flat shading
-    if (Array.isArray(customMesh.material)) {
-        customMesh.material.forEach((mat) => {
-            if (mat instanceof THREE.MeshStandardMaterial) {
-                mat.side = THREE.DoubleSide;
-                mat.flatShading = true;
-                mat.needsUpdate = true;
-            } else {
-                console.warn(`Material is not an instance of MeshStandardMaterial. Type: ${typeof mat}`);
-            }
-        });
-    } else {
-        if (customMesh.material instanceof THREE.MeshStandardMaterial) {
-            customMesh.material.side = THREE.DoubleSide;
-            customMesh.material.flatShading = true;
-            customMesh.material.needsUpdate = true;
+    // Decide side + shading based on perf-store toggles. Solid beams
+    // are watertight extrusions and benefit most from FrontSide-only
+    // rendering (halves rasterised fragments). Shells genuinely need
+    // DoubleSide because they may be drawn from either side. The
+    // smooth-shading toggle only applies to beam solids — keeping
+    // shells flat-shaded preserves the existing visual.
+    const wantsBackfaceCull = perf.solidsBackfaceCull && isBeamSolid;
+    const wantsFlatShading = !(perf.solidsSmoothShading && isBeamSolid);
+    const targetSide = wantsBackfaceCull ? THREE.FrontSide : THREE.DoubleSide;
+
+    const applyFlags = (mat: THREE.Material) => {
+        if (mat instanceof THREE.MeshStandardMaterial) {
+            mat.side = targetSide;
+            mat.flatShading = wantsFlatShading;
+            mat.needsUpdate = true;
+        } else if (mat instanceof THREE.MeshLambertMaterial) {
+            // Lambert has no flatShading prop (it's per-vertex by
+            // construction), so only side is meaningful here.
+            mat.side = targetSide;
+            mat.needsUpdate = true;
         } else {
-            console.warn(`Material is not an instance of MeshStandardMaterial. Type: ${typeof customMesh.material}`);
+            console.warn(`Unexpected base material type: ${mat.type}`);
         }
+    };
+
+    if (Array.isArray(customMesh.material)) {
+        customMesh.material.forEach(applyFlags);
+    } else {
+        applyFlags(customMesh.material);
     }
+
+    // Eager picker registration. The worker build runs off the main
+    // thread, so kicking it off here doesn't delay the model showing
+    // up — by the time the user makes their first selection, the
+    // picker is typically already installed. For FEA streaming meshes
+    // that wire morphAttributes after construction, the picker first
+    // builds with zero morph slots; once applyWarp adds the morph,
+    // ``refreshMorphIfStale`` detects the count change on the next
+    // pick and triggers a fresh worker rebuild. That rebuild costs
+    // one extra worker round-trip per FEA mesh, but lazy registration
+    // would cost the same round-trip on every first-click anyway.
+    gpuMeshPicker.registerMesh(customMesh);
 
     return customMesh;
 }

@@ -1,11 +1,9 @@
-from typing import Iterable
+"""Back-compat re-export. The OCC implementation moved to `ada.occ.step.geom.geom_reader` (the pythonocc
+CAD backend's home); this shim keeps the historical import path working without
+itself importing OCC. See dap plan/v3 Phase 2 (STEP-IO relocation)."""
 
-from OCC.Core.TopoDS import TopoDS_Compound, TopoDS_Shape
+from ada.occ.step.geom.geom_reader import import_geometry_from_step_geom
 
-from ada.geom import surfaces as geo_su
-
-from .surfaces import iter_faces
-
-
-def import_geometry_from_step_geom(geom_repr: TopoDS_Compound | TopoDS_Shape) -> Iterable[geo_su.SURFACE_GEOM_TYPES]:
-    yield from iter_faces(geom_repr)
+__all__ = [
+    "import_geometry_from_step_geom",
+]

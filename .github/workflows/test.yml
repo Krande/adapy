@@ -21,12 +21,12 @@ jobs:
 
       - uses: prefix-dev/setup-pixi@v0.9.5 # https://github.com/prefix-dev/setup-pixi
         with:
-          pixi-version: v0.55.0
+          pixi-version: v0.68.0
           environments: tests
           cache: true
 
       - name: Runs Tests
-        run: pixi run test-core
+        run: pixi run -e tests test-core
 
   test-full:
     name: Test ada-py-full
@@ -41,7 +41,7 @@ jobs:
 
       - uses: prefix-dev/setup-pixi@v0.9.5
         with:
-          pixi-version: v0.44.0
+          pixi-version: v0.68.0
           environments: >-
             tests
             frontend
@@ -51,7 +51,7 @@ jobs:
         run: pixi run wbuild
 
       - name: Run Tests
-        run: pixi run test-full
+        run: pixi run -e tests test-full
 
   test-fem:
     name: Test ada-py-fem
@@ -66,10 +66,31 @@ jobs:
 
       - uses: prefix-dev/setup-pixi@v0.9.5
         with:
-          pixi-version: v0.44.0
+          pixi-version: v0.68.0
           environments: >-
             fem
           cache: true
 
       - name: Run Tests
         run: pixi run test-fem
+
+  test-adacpp:
+    name: Test ada-cpp integration
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash -l {0}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+
+      - uses: prefix-dev/setup-pixi@v0.9.6
+        with:
+          pixi-version: v0.68.0
+          environments: >-
+            tests-adacpp
+          cache: true
+
+      - name: Run Tests
+        run: pixi run -e tests-adacpp test-core

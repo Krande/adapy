@@ -4,6 +4,14 @@ import os
 import pathlib
 from typing import TYPE_CHECKING
 
+# NOTE: this module imports adapy's full surface eagerly, which pulls in
+# native-only deps (pythonocc-core, python-gmsh, ifcopenshell-cpp). It is
+# therefore NOT importable under pyodide/wasm, where those deps don't
+# exist. Builds that stage adapy for pyodide copy deploy/pyodide-ada-init.py
+# in over this file instead (see deploy/Dockerfile.viewer and
+# tools/pyodide-test/test_pyodide_cad.js); that variant exposes only the
+# lazy `ada.cad` subpackage. Keep the two in sync where it matters
+# (e.g. the jupyter extension hooks at the bottom).
 from ada import fem
 from ada.api.beams import (
     Beam,
@@ -14,13 +22,14 @@ from ada.api.beams import (
     BeamTapered,
 )
 from ada.api.boolean import Boolean
+from ada.api.connections import Connection
 from ada.api.curves import ArcSegment, CurvePoly2d, CurveRevolve, LineSegment
-from ada.api.fasteners import Bolts, Weld
+from ada.api.fasteners import Bolts, IntermittentSpec, Weld, WeldType
 from ada.api.groups import Group
 from ada.api.mass import MassPoint
 from ada.api.nodes import Node
 from ada.api.piping import Pipe, PipeSegElbow, PipeSegStraight
-from ada.api.plates import Plate, PlateCurved
+from ada.api.plates import Plate, PlateCurved, Surface, SurfaceCurved
 from ada.api.primitives import (
     PrimBox,
     PrimCone,
@@ -201,7 +210,6 @@ def from_fem(
     fem_file: str | list | pathlib.Path,
     fem_format: str | list = None,
     name: str | list = None,
-    enable_cache=False,
     source_units=Units.M,
     fem_converter="default",
     create_concept_objects=False,
@@ -209,7 +217,7 @@ def from_fem(
     convert_skip_beams=False,
 ) -> Assembly:
     """Create an Assembly object from a FEM file."""
-    a = Assembly(enable_cache=enable_cache, units=source_units)
+    a = Assembly(units=source_units)
     if isinstance(fem_file, str) or issubclass(type(fem_file), pathlib.Path):
         a.read_fem(fem_file, fem_format, name, fem_converter=fem_converter)
     elif isinstance(fem_file, list):
@@ -251,6 +259,7 @@ def from_genie_xml(xml_path, ifc_schema="IFC4", name: str = None, extract_joints
 __all__ = [
     "Assembly",
     "Part",
+    "Connection",
     "FEM",
     "from_ifc",
     "from_fem",
@@ -286,6 +295,8 @@ __all__ = [
     "MassPoint",
     "Plate",
     "PlateCurved",
+    "Surface",
+    "SurfaceCurved",
     "Pipe",
     "PipeSegStraight",
     "PipeSegElbow",
@@ -312,7 +323,9 @@ __all__ = [
     "Instance",
     "User",
     "Bolts",
+    "IntermittentSpec",
     "Weld",
+    "WeldType",
     "Units",
     "fem",
     "set_jupyter_part_renderer",

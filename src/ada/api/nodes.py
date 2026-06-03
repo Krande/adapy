@@ -38,6 +38,24 @@ class Node:
         self._refs = [] if refs is None else refs
         self._precision = Config().general_precision
 
+    def __getstate__(self):
+        # Node._refs back-points to every Elem / Beam / Csys that
+        # references this node, and Elem._nodes points back to Node —
+        # a graph cycle. Pickle's memo deduplicates objects by id() but
+        # only after the recursion has unrolled to find the cycle.
+        # For meshes with 8k+ nodes the recursion depth blows past
+        # Python's default limit. Clear _refs on pickle; consumers
+        # that need backrefs after a round-trip can rebuild them by
+        # walking Elem.__init__'s `node.add_obj_to_refs(self)` pattern
+        # (which the FEM input-deck writers do not, so this is a no-op
+        # for the typical run_eig hot path).
+        state = self.__dict__.copy()
+        state["_refs"] = []
+        return state
+
+    def __setstate__(self, state):
+        self.__dict__.update(state)
+
     @property
     def id(self) -> int:
         return self._id

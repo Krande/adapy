@@ -60,7 +60,12 @@ class GraphStore:
         """Add nodes from Part/Assembly"""
         from itertools import chain
 
-        objects = part.get_all_physical_objects(pipe_to_segments=True)
+        # Welds compose in via Part.get_all_welds() — see
+        # tessellate_part for the rationale (single-source iterator).
+        objects = chain(
+            part.get_all_physical_objects(pipe_to_segments=True),
+            part.get_all_welds(),
+        )
         containers = part.get_all_parts_in_assembly()
         root_node = self.hash_map.get(part.guid)
 

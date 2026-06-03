@@ -12,7 +12,10 @@ from ada.config import logger
 from ada.core.utils import Counter
 from ada.fem import Connector, Elem
 from ada.fem.containers import FemElements
-from ada.fem.formats.abaqus.elem_shapes import abaqus_el_type_to_ada
+from ada.fem.formats.abaqus.elem_shapes import (
+    UnsupportedAbaqusElementType,
+    abaqus_el_type_to_ada,
+)
 from ada.fem.formats.utils import str_to_int
 from ada.fem.shapes.definitions import ShapeResolver, SolidShapes
 
@@ -46,7 +49,17 @@ def grab_elements(match, fem: "FEM"):
     if eltype in ("MASS", "ROTARYI"):
         logger.info(f'Importing Mass type "{eltype}"')
 
-    ada_el_type = abaqus_el_type_to_ada(eltype)
+    try:
+        ada_el_type = abaqus_el_type_to_ada(eltype)
+    except UnsupportedAbaqusElementType as exc:
+        # User-defined (``U1``, ``U2``, ...) and other element types
+        # we haven't mapped yet shouldn't abort the entire deck. Skip
+        # the block — the rest of the file still loads, and the audit
+        # log line tells the operator which element type we dropped.
+        # Returning ``None`` here is filtered out by
+        # ``get_elem_from_bulk_str`` so no half-built elements leak.
+        logger.warning("abaqus read: skipping element block — %s", exc)
+        return None
     elset = d["elset"]
     el_type_members_str = d["members"]
     res = re.search("[a-zA-Z]", el_type_members_str)

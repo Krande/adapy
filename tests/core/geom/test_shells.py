@@ -1,10 +1,9 @@
 import math
 
 import pytest
-from OCC.Core.TopoDS import TopoDS_Compound
 
 from ada import Beam
-from ada.occ.geom import geom_to_occ_geom
+from ada.cad import active_backend
 
 
 def test_ipe_beam():
@@ -35,5 +34,5 @@ def test_ipe_beam():
     assert pytest.approx(p2.y) == w / 2
     assert pytest.approx(p2.z) == z
 
-    topo_ds = geom_to_occ_geom(geo_xyz)
-    assert isinstance(topo_ds, TopoDS_Compound)
+    topo_ds = active_backend().build(geo_xyz)
+    assert active_backend().shape_type(topo_ds) == "compound"

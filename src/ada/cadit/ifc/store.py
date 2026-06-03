@@ -34,6 +34,27 @@ class IfcStore:
     reader: IfcReader = None
     callback: Callable[[int, int], None] | None = None
 
+    def __getstate__(self):
+        # ifcopenshell.file, ifcopenshell.geom.settings and entity_instance
+        # are C-bound and don't pickle. Drop them on serialize; consumers
+        # that unpickle an IfcStore directly get a stub and must reattach
+        # via from_ifc() or by reading their assembly's .ifc_store. When
+        # pickled through Assembly, Assembly.__getstate__ clears _ifc_store
+        # before this is ever reached.
+        state = self.__dict__.copy()
+        state["f"] = None
+        state["owner_history"] = None
+        state["writer"] = None
+        state["reader"] = None
+        state["callback"] = None
+        state["settings"] = None
+        return state
+
+    def __setstate__(self, state):
+        self.__dict__.update(state)
+        if self.settings is None:
+            self.settings = default_settings()
+
     def __post_init__(self):
         if self.f is None:
             if self.ifc_file_path is not None:
@@ -166,6 +187,24 @@ class IfcStore:
             raise ValueError("Assembly must be attached before loading IFC content")
 
         self.reader = IfcReader(self)
+
+        # Rebind the Assembly's guid to the IfcProject's stable GlobalId
+        # so re-exports keep the same lineage anchor across roundtrips.
+        # Without this, every IFC read mints a fresh Assembly.guid and a
+        # derived GLB would have no stable id matching a previously
+        # exported sibling.
+        #
+        # Assign through ``_guid`` directly rather than the property
+        # setter: the setter assumes the assembly's current guid maps to
+        # a real IFC entity and tries to rewrite that entity's GlobalId
+        # (root.py:62-72). On a fresh read the auto-generated assembly
+        # guid isn't in the file yet, so the setter's ``by_guid()``
+        # lookup raises. We don't need that side-effect — the IFC
+        # already carries the correct IfcProject.GlobalId; we're just
+        # mirroring it onto the Assembly.
+        projects = self.f.by_type("IfcProject")
+        if projects and getattr(projects[0], "GlobalId", None):
+            self.assembly._guid = projects[0].GlobalId
 
         unit_type = get_unit_type(self.f)
 

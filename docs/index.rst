@@ -64,6 +64,7 @@ IFC and various Finite Element formats.
     :caption: FEA
 
     documents/fea/fea_software
+    documents/fea/fea_verification
 
 
 .. toctree::

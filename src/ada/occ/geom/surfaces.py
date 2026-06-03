@@ -1,3 +1,5 @@
+import math
+
 from OCC.Core.BRep import BRep_Builder, BRep_Tool
 from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Cut, BRepAlgoAPI_Fuse
 from OCC.Core.BRepBuilderAPI import (
@@ -13,7 +15,7 @@ from OCC.Core.Geom import (
     Geom_SphericalSurface,
     Geom_ToroidalSurface,
 )
-from OCC.Core.Geom2d import Geom2d_Line, Geom2d_TrimmedCurve
+from OCC.Core.Geom2d import Geom2d_BSplineCurve, Geom2d_Line, Geom2d_TrimmedCurve
 from OCC.Core.Geom2dAPI import Geom2dAPI_PointsToBSpline
 from OCC.Core.GeomAPI import GeomAPI_ProjectPointOnSurf
 from OCC.Core.gp import (
@@ -36,7 +38,7 @@ from OCC.Core.TColStd import (
     TColStd_Array1OfReal,
     TColStd_Array2OfReal,
 )
-from OCC.Core.TopAbs import TopAbs_EDGE, TopAbs_REVERSED
+from OCC.Core.TopAbs import TopAbs_FACE, TopAbs_REVERSED
 from OCC.Core.TopExp import TopExp_Explorer
 from OCC.Core.TopLoc import TopLoc_Location
 from OCC.Core.TopoDS import TopoDS_Face, TopoDS_Shape, TopoDS_Shell
@@ -46,7 +48,12 @@ from ada.geom import curves as geo_cu
 from ada.geom import surfaces as geo_su
 from ada.geom.curves import PolyLoop
 from ada.geom.surfaces import FaceBasedSurfaceModel
+from ada.occ.exceptions import (  # noqa: F401 — used by lockstep wire build
+    UnableToCreateCurveOCCGeom,
+    UnableToCreateTesselationFromSolidOCCGeom,
+)
 from ada.occ.geom.curves import (
+    make_edge_from_edge,
     make_wire_from_circle,
     make_wire_from_curve,
     make_wire_from_edge_loop,
@@ -235,11 +242,292 @@ def update_edges_4corners(edges, builder, face_surface):
         builder.UpdateEdge(edge, c2d_edges[i], face_surface, identity_location, 1e-6)
 
 
-def update_edges_uv_gen(edges, builder, face_surface):
-    # Create corresponding 2D curves in the parametric space (u-v space) of the B-Spline surface
-    # Generate c2d_edges dynamically
+_pcurve_probe_count = 0
+
+
+def _build_geom2d_bspline(pcurve_geom):
+    """Construct a Geom2d_BSplineCurve from a Pcurve2dBSpline dataclass.
+
+    Returns None on construction failure; the caller can fall back to
+    the regenerative path."""
+    cps = pcurve_geom.control_points_2d
+    knots = list(pcurve_geom.knots)
+    mults = list(pcurve_geom.knot_multiplicities)
+    if not cps or not knots or len(knots) != len(mults):
+        return None
+    n_poles = len(cps)
+    poles = TColgp_Array1OfPnt2d(1, n_poles)
+    for i, cp in enumerate(cps, start=1):
+        poles.SetValue(i, gp_Pnt2d(float(cp[0]), float(cp[1])))
+    knots_arr = TColStd_Array1OfReal(1, len(knots))
+    mults_arr = TColStd_Array1OfInteger(1, len(mults))
+    for i, (k, m) in enumerate(zip(knots, mults), start=1):
+        knots_arr.SetValue(i, float(k))
+        mults_arr.SetValue(i, int(m))
+    try:
+        if pcurve_geom.weights:
+            weights_arr = TColStd_Array1OfReal(1, len(pcurve_geom.weights))
+            for i, w in enumerate(pcurve_geom.weights, start=1):
+                weights_arr.SetValue(i, float(w))
+            return Geom2d_BSplineCurve(
+                poles,
+                weights_arr,
+                knots_arr,
+                mults_arr,
+                int(pcurve_geom.degree),
+                bool(pcurve_geom.closed),
+            )
+        return Geom2d_BSplineCurve(
+            poles,
+            knots_arr,
+            mults_arr,
+            int(pcurve_geom.degree),
+            bool(pcurve_geom.closed),
+        )
+    except Exception as ex:
+        logger.warning(f"Geom2d_BSplineCurve construction failed: {ex}")
+        return None
+
+
+def _make_edge_from_pcurve(pcurve_geom, face_surface):
+    """Build an OCC edge from a 2D BSpline pcurve + the face's surface.
+
+    The 3D parametrization is derived implicitly by OCCT from
+    surface(pcurve(t)), so 2D and 3D are guaranteed-consistent.
+    Returns None on any failure so the caller falls back to building
+    from the SAT-supplied 3D BSpline + reparam.
+    """
+    c2d = _build_geom2d_bspline(pcurve_geom)
+    if c2d is None:
+        return None
+    try:
+        first = float(c2d.FirstParameter())
+        last = float(c2d.LastParameter())
+        maker = BRepBuilderAPI_MakeEdge(c2d, face_surface, first, last)
+        if not maker.IsDone():
+            return None
+        return maker.Edge()
+    except Exception as ex:
+        logger.warning(f"BRepBuilderAPI_MakeEdge(c2d, surface) failed: {ex}")
+        return None
+
+
+def _attach_supplied_pcurve(builder, edge, pcurve_geom, face_surface, identity_location) -> bool:
+    """Attach a SAT-supplied 2D BSpline pcurve to ``edge`` on ``face_surface``.
+
+    Returns True on success, False on any structural problem (in which
+    case the caller should fall back to the regenerative path).
+
+    KNOWN BUG — pcurve trim, not affine remap (2026-05-03):
+    The current code AFFINELY REMAPS the pcurve's knot range onto the
+    OCC edge's 3D parameter range. That's wrong when the SAT pcurve
+    covers more of its 2D curve than the edge actually uses (which is
+    common — multi-edge wires on a single UV side share the underlying
+    UV trajectory, with each edge picking a sub-range).
+
+    Symptom: face has 0 m² area, BRepMesh produces 2-3 degenerate
+    triangles, plate appears as a hole. Reproduced on plate-shaped
+    faces with a 6-edge wire — two short (0.4 m) and two long (2.7 m)
+    vertical segments along the plate's right and left UV sides. The
+    vertical pcurves all carry CPs at the surface's full v-extent
+    (-3.1, 0) even when their edge only spans 0.4 m or 2.7 m of it.
+    Affine remap stretches the FULL pcurve onto each edge's parameter
+    range, so all four vertical edges trace the entire UV side — the
+    resulting wire self-intersects in UV and encloses zero area.
+
+    Per ACIS SAT v4.0 spec (Chapter 6 "pcurve type", page 6-61):
+    "a parameter-space curve must always have the same parameter range
+    as its associated object-space curve, and its internal
+    parameterization must be similar". The fix is to TRIM the pcurve to
+    the edge's t-range (not remap), with the trim points found by
+    mapping the SAT edge's parameters into the pcurve's parameter
+    space. ``OrientedEdge.t_start`` / ``t_end`` (threaded in 57b9ad48)
+    carry the SAT-recorded edge parameters; the pcurve's knot range is
+    its native [s_min, s_max]. Some pcurves additionally run in the
+    OPPOSITE direction to the 3D curve — detectable by evaluating each
+    pcurve endpoint through the surface and comparing to the 3D curve's
+    endpoints, then reversing the trim if they disagree.
+
+    Implementation outline for the next session:
+      1. Compute t→s mapping (forward or reversed) by checking which
+         pcurve endpoint matches which 3D-curve endpoint (via
+         surface(pcurve(s_first)) ≈ 3D-curve(t_first)).
+      2. Map [edge.t_start, edge.t_end] → [s_a, s_b] in pcurve space.
+      3. Build ``Geom2d_TrimmedCurve(c2d, min(s_a, s_b), max(s_a, s_b),
+         sense=...)`` and use that as the attached pcurve, OR
+         re-knot/re-CP a fresh ``Geom2d_BSplineCurve`` covering exactly
+         that sub-range.
+      4. Optionally use ``BRepBuilderAPI_MakeEdge(c2d, surface, t1, t2)``
+         to build the OCC edge directly from the trimmed pcurve so the
+         3D parameterisation is derived as ``surface(c2d(t))`` and is
+         guaranteed-consistent.
+
+    Affected env knobs: ``ADA_USE_SAT_PCURVES`` (skip pcurves entirely
+    — falls back to OCC's reproject-and-fit, which on this dataset
+    produces NEGATIVE surface area, so the issue isn't purely the
+    affine remap — the wire 3D-projection itself has a direction
+    problem that ``ADA_PCURVE_REVERSE`` may also need to address).
+    """
+    # Debug: print UV bounds for the first few attaches so we can spot
+    # ACIS↔OCCT domain mismatches. Toggle via ADA_PCURVE_PROBE=N.
+    import os as _os
+
+    global _pcurve_probe_count
+    probe_n = int(_os.environ.get("ADA_PCURVE_PROBE") or 0)
+    cps = pcurve_geom.control_points_2d
+    knots = pcurve_geom.knots
+    mults = pcurve_geom.knot_multiplicities
+    if not cps or not knots or len(knots) != len(mults):
+        return False
+
+    # OCCT requires the 2D pcurve parameter range to match the OCC
+    # edge's 3D parameter range (the SameRange / SameParameter flags
+    # default to True after BRepBuilderAPI_MakeEdge). ACIS pcurves
+    # carry their own knot range, totally unrelated to whatever range
+    # OCCT picked for the 3D edge — we *must* affinely remap our knots
+    # to the edge's [first, last] before the attach, otherwise OCCT
+    # silently evaluates the 2D curve at the wrong parameters and the
+    # face lands somewhere else on the surface.
+    try:
+        edge_curve_handle, edge_first, edge_last = BRep_Tool.Curve(edge)
+    except Exception:
+        edge_curve_handle = None
+        edge_first = edge_last = 0.0
+    pcurve_first = float(knots[0])
+    pcurve_last = float(knots[-1])
+    pcurve_span = pcurve_last - pcurve_first
+    edge_span = float(edge_last) - float(edge_first)
+    reparam_applied = False
+    if (
+        edge_curve_handle is not None
+        and pcurve_span > 0.0
+        and edge_span > 0.0
+        and (abs(pcurve_first - edge_first) > 1e-9 or abs(pcurve_last - edge_last) > 1e-9)
+    ):
+        scale = edge_span / pcurve_span
+        knots = [float(edge_first) + (float(k) - pcurve_first) * scale for k in knots]
+        reparam_applied = True
+    if probe_n > 0 and _pcurve_probe_count < probe_n:
+        logger.warning(
+            "[pcurve probe %d edge_param] edge=[%.4f,%.4f] pcurve=[%.4f,%.4f] reparam=%s",
+            _pcurve_probe_count,
+            float(edge_first),
+            float(edge_last),
+            pcurve_first,
+            pcurve_last,
+            reparam_applied,
+        )
+
+    n_poles = len(cps)
+    poles = TColgp_Array1OfPnt2d(1, n_poles)
+    for i, cp in enumerate(cps, start=1):
+        poles.SetValue(i, gp_Pnt2d(float(cp[0]), float(cp[1])))
+    knots_arr = TColStd_Array1OfReal(1, len(knots))
+    mults_arr = TColStd_Array1OfInteger(1, len(mults))
+    for i, (k, m) in enumerate(zip(knots, mults), start=1):
+        knots_arr.SetValue(i, float(k))
+        mults_arr.SetValue(i, int(m))
+    try:
+        if pcurve_geom.weights:
+            weights_arr = TColStd_Array1OfReal(1, len(pcurve_geom.weights))
+            for i, w in enumerate(pcurve_geom.weights, start=1):
+                weights_arr.SetValue(i, float(w))
+            c2d = Geom2d_BSplineCurve(
+                poles, weights_arr, knots_arr, mults_arr, int(pcurve_geom.degree), bool(pcurve_geom.closed)
+            )
+        else:
+            c2d = Geom2d_BSplineCurve(poles, knots_arr, mults_arr, int(pcurve_geom.degree), bool(pcurve_geom.closed))
+    except Exception as ex:
+        logger.warning(f"supplied SAT pcurve failed Geom2d_BSplineCurve construction: {ex}")
+        return False
+    # Sanity-check the constructed curve at endpoints — same defence the
+    # regenerative path uses.
+    try:
+        first_p = c2d.Value(c2d.FirstParameter())
+        last_p = c2d.Value(c2d.LastParameter())
+    except Exception:
+        return False
+    for s in (first_p, last_p):
+        if not (math.isfinite(s.X()) and math.isfinite(s.Y())):
+            return False
+    if probe_n > 0 and _pcurve_probe_count < probe_n:
+        try:
+            u0, u1, v0, v1 = face_surface.Bounds()
+        except Exception:
+            u0 = u1 = v0 = v1 = float("nan")
+        first_param = c2d.FirstParameter()
+        last_param = c2d.LastParameter()
+        # Sample 3 pcurve points; print 2D and corresponding 3D via
+        # face_surface.Value(u, v).
+        samples = []
+        for t in (first_param, (first_param + last_param) * 0.5, last_param):
+            try:
+                p2 = c2d.Value(t)
+                p3 = face_surface.Value(p2.X(), p2.Y())
+                samples.append((t, (p2.X(), p2.Y()), (p3.X(), p3.Y(), p3.Z())))
+            except Exception:
+                samples.append((t, None, None))
+        logger.warning(
+            "[pcurve probe %d] surface_uv=[%.4f,%.4f]x[%.4f,%.4f] pcurve_param=[%.4f,%.4f] cp_uv_first=%s cp_uv_last=%s samples=%s",
+            _pcurve_probe_count,
+            u0,
+            u1,
+            v0,
+            v1,
+            first_param,
+            last_param,
+            tuple(cps[0]),
+            tuple(cps[-1]),
+            samples,
+        )
+        _pcurve_probe_count += 1
+    builder.UpdateEdge(edge, c2d, face_surface, identity_location, 1e-6)
+    return True
+
+
+def update_edges_uv_gen(edges, builder, face_surface, supplied_pcurves=None) -> tuple[int, int]:
+    """Attach UV-space (p-curve) BSpline curves to each edge of a wire
+    on a Geom_BSplineSurface. Returns (n_updated, n_total).
+
+    When ``supplied_pcurves`` is provided (one entry per edge, ``None``
+    where unavailable), each non-None pcurve is attached directly via
+    ``BRep_Builder.UpdateEdge`` — this is the SAT-authored UV curve, no
+    reprojection. Edges without a supplied pcurve fall through to the
+    regenerative sampling path, which is fragile and gated by several
+    sanity checks to avoid OCCT heap corruption (``double free`` /
+    ``Knots interval values too close``).
+
+    Edges where the construction fails are left without a p-curve; the
+    caller (``make_face_from_geom``) treats any incomplete update as a
+    degenerate face and skips it.
+    """
     identity_location = TopLoc_Location()  # No transformation (identity)
-    for edge in edges:
+    n_total = 0
+    n_updated = 0
+    for idx, edge in enumerate(edges):
+        # Edges where ``supplied_pcurves[idx] is None`` were built by
+        # ``_make_edge_from_pcurve`` (drive_edge path) — the OCC edge
+        # already carries a consistent 2D pcurve from the
+        # ``BRepBuilderAPI_MakeEdge(c2d, surface, t1, t2)`` constructor.
+        # Don't re-process them: regen would (a) overwrite the
+        # authored pcurve with a noisier one or (b) fail one of the
+        # safety pre-screens and be counted as a failed update,
+        # falsely tripping the strict ``n_updated < n_total`` guard
+        # in ``_build_bspline_wire``. They're not in scope for this
+        # function's "make sure every edge has a pcurve" purpose, so
+        # skip them entirely (don't count toward n_total either).
+        if supplied_pcurves is not None and idx < len(supplied_pcurves):
+            if supplied_pcurves[idx] is None:
+                continue
+        n_total += 1
+        # Fast path: the file already gave us the UV curve for this coedge.
+        if supplied_pcurves is not None and idx < len(supplied_pcurves):
+            supplied = supplied_pcurves[idx]
+            if supplied is not None:
+                if _attach_supplied_pcurve(builder, edge, supplied, face_surface, identity_location):
+                    n_updated += 1
+                    continue
+                # If the supplied pcurve was structurally bad, fall through to regen.
         try:
             # Get the 3D curve of the edge
             edge_curve_handle, first, last = BRep_Tool.Curve(edge)
@@ -252,14 +540,51 @@ def update_edges_uv_gen(edges, builder, face_surface):
             points_3d = [edge_curve_handle.Value(u) for u in parameters]
             # Project points onto the surface to get (u,v) parameters
             array_2d_points = TColgp_Array1OfPnt2d(1, num_samples)
+            projection_failed = False
             for i, pt in enumerate(points_3d):
                 projector = GeomAPI_ProjectPointOnSurf(pt, face_surface)
                 if projector.NbPoints() == 0:
-                    # Try with extended search if default fails, or just log/raise
-                    # For now, raise to be caught by outer loop/logger
-                    raise Exception("Failed to project point onto surface")
+                    projection_failed = True
+                    break
                 u, v = projector.LowerDistanceParameters()
+                if not (math.isfinite(u) and math.isfinite(v)):
+                    projection_failed = True
+                    break
                 array_2d_points.SetValue(i + 1, gp_Pnt2d(u, v))
+            if projection_failed:
+                logger.warning("Failed to project edge sample onto BSpline surface; skipping p-curve update")
+                continue
+            # Pre-screen inputs before handing to Geom2dAPI_PointsToBSpline.
+            # The constructor with chord-length parametrisation panics on
+            # near-duplicate samples and the failure path is what corrupts
+            # the OCCT heap (observed: ``double free or corruption`` even
+            # when we discarded the output curve). Refusing the result
+            # downstream is too late — we must avoid the call itself when
+            # the inputs would trigger ``Knots interval values too close``.
+            CHORD_TOL = 1.0e-9
+            UV_INPUT_LIMIT = 1.0e6
+            uv_pts = [array_2d_points.Value(i + 1) for i in range(num_samples)]
+            # Reject huge UV magnitudes — these mean the projection landed on
+            # an unbounded extension of the surface and the BSpline build
+            # multiplies the magnitude further before reporting failure.
+            if any(abs(p.X()) > UV_INPUT_LIMIT or abs(p.Y()) > UV_INPUT_LIMIT for p in uv_pts):
+                logger.warning("UV samples grossly out of range; skipping p-curve update")
+                continue
+            chord_total = 0.0
+            min_chord = float("inf")
+            for i in range(1, num_samples):
+                a, b = uv_pts[i - 1], uv_pts[i]
+                d = math.hypot(b.X() - a.X(), b.Y() - a.Y())
+                chord_total += d
+                if d < min_chord:
+                    min_chord = d
+            if not math.isfinite(chord_total) or chord_total < CHORD_TOL or min_chord < CHORD_TOL:
+                logger.warning(
+                    "UV samples are near-duplicates "
+                    f"(chord_total={chord_total:.3e}, min_chord={min_chord:.3e}); "
+                    "skipping p-curve update to avoid Geom2dAPI_PointsToBSpline heap corruption"
+                )
+                continue
             # Build a Geom2d_BSplineCurve from the (u,v) points
             # 3rd param is Approx_ChordLength (1) or Approx_Centripetal (2) or Approx_IsoParametric (3)
             # We use default (Approx_ChordLength) which is usually fine for ordered points
@@ -269,14 +594,81 @@ def update_edges_uv_gen(edges, builder, face_surface):
                 continue
 
             c2d_edge = interpolator.Curve()
+            # Sanity-check the constructed curve. IsDone() can return True
+            # for garbage geometry (degenerate inputs producing a curve
+            # whose Value() returns 1e+13-magnitude points). Such curves
+            # crash BRepBuilderAPI_MakeFace / ShapeFix later. Sample three
+            # parameters (start, mid, end) and reject anything non-finite
+            # or grossly out of range — UV is normally [0, 1]^2.
+            UV_SANITY_LIMIT = 1.0e6
+            try:
+                c2d_first = c2d_edge.FirstParameter()
+                c2d_last = c2d_edge.LastParameter()
+                samples = (
+                    c2d_edge.Value(c2d_first),
+                    c2d_edge.Value((c2d_first + c2d_last) * 0.5),
+                    c2d_edge.Value(c2d_last),
+                )
+            except Exception:
+                logger.warning("constructed p-curve threw on Value(); treating as failed")
+                continue
+            bad_curve = False
+            for s in samples:
+                if not (math.isfinite(s.X()) and math.isfinite(s.Y())):
+                    bad_curve = True
+                    break
+                if abs(s.X()) > UV_SANITY_LIMIT or abs(s.Y()) > UV_SANITY_LIMIT:
+                    bad_curve = True
+                    break
+            if bad_curve:
+                logger.warning("constructed p-curve produced out-of-range UV; treating as failed")
+                continue
             # Now assign the 2D curve to the edge
             builder.UpdateEdge(edge, c2d_edge, face_surface, identity_location, 1e-6)
+            n_updated += 1
         except Exception as ex:
+            # Standard_ConstructionError ("Knots interval values too close")
+            # comes through here. Leaving the edge un-updated is OK; the
+            # caller raises if any edge failed so the whole face is
+            # skipped rather than passed half-built into MakeFace.
             logger.warning(f"Error updating edge p-curve: {ex}")
+    return n_updated, n_total
+
+
+def _curve_on_surface(edge, face_surface):
+    """Wrap BRep_Tool.CurveOnSurface so we tolerate both pythonocc return
+    shapes seen in the wild: ``[curve, first, last]`` (3-tuple, common)
+    and ``[first, last]`` (2-tuple, where the curve handle is omitted on
+    NULL — observed on the prod worker's pythonocc build). Returns
+    ``(curve_or_None, first, last)`` and never raises ValueError on
+    unpack."""
+    result = BRep_Tool.CurveOnSurface(edge, face_surface, TopLoc_Location())
+    if not isinstance(result, (list, tuple)):
+        return None, 0.0, 0.0
+    if len(result) >= 3:
+        # Standard shape; ignore any trailing optional fields.
+        return result[0], float(result[1]), float(result[2])
+    if len(result) == 2:
+        a, b = result
+        # Some pythonocc builds collapse the NULL curve handle and
+        # return just the parameter range. Recognise that as "no
+        # p-curve here" and let the caller skip the edge.
+        if isinstance(a, (int, float)) and isinstance(b, (int, float)):
+            return None, float(a), float(b)
+        # Other rarer shape: (curve, (first, last)).
+        if isinstance(b, (list, tuple)) and len(b) == 2:
+            return a, float(b[0]), float(b[1])
+    return None, 0.0, 0.0
 
 
 def is_wire_cw(wire, face_surface):
-    # Calculate signed area of the polygon formed by edge endpoints in UV space
+    # Calculate signed area of the polygon formed by edge endpoints in UV space.
+    # Raises UnableToCreateTesselationFromSolidOCCGeom when any p-curve sample
+    # is non-finite or the resulting area is unreasonable — these are the
+    # tells that an upstream Geom2dAPI_PointsToBSpline produced garbage and
+    # feeding the wire into MakeFace/ShapeFix would corrupt the OCCT heap
+    # (observed crash: ``double free or corruption`` mid-tessellation).
+    AREA_SANITY_LIMIT = 1.0e10  # UV is normally in [0, 1]^2 — anything past this is garbage.
     area = 0.0
     exp = (
         BRepTools_WireExplorer(wire, face_surface)
@@ -287,7 +679,7 @@ def is_wire_cw(wire, face_surface):
     while exp.More():
         edge = exp.Current()
         # Get p-curve
-        curve, first, last = BRep_Tool.CurveOnSurface(edge, face_surface, TopLoc_Location())
+        curve, first, last = _curve_on_surface(edge, face_surface)
         if curve:
             # Note: WireExplorer handles orientation. If edge is REVERSED in wire,
             # it still returns the edge with REVERSED orientation.
@@ -295,6 +687,12 @@ def is_wire_cw(wire, face_surface):
 
             p1 = curve.Value(first)
             p2 = curve.Value(last)
+
+            for pt in (p1, p2):
+                if not (math.isfinite(pt.X()) and math.isfinite(pt.Y())):
+                    raise UnableToCreateTesselationFromSolidOCCGeom(
+                        "BSpline-surface p-curve returned non-finite UV — degenerate face, skipping."
+                    )
 
             # Handle orientation
             if edge.Orientation() == TopAbs_REVERSED:
@@ -312,9 +710,14 @@ def is_wire_cw(wire, face_surface):
 
         exp.Next()
 
+    if not math.isfinite(area) or abs(area) > AREA_SANITY_LIMIT:
+        raise UnableToCreateTesselationFromSolidOCCGeom(
+            f"Wire signed area {area!r} is non-finite or out of range — degenerate face, skipping."
+        )
+
     # Area > 0 means CW (for standard UV coords where U=Right, V=Up)
     # Area < 0 means CCW
-    logger.warning(f"Wire signed area: {area}")
+    logger.debug(f"Wire signed area: {area}")
     return area > 0
 
 
@@ -325,7 +728,11 @@ def create_wire_from_bounds(bounds, face_surface, builder: BRep_Builder):
             occ_edge = BRepBuilderAPI_MakeEdge(point3d(para_edge.start), point3d(para_edge.end)).Edge()
             edges.append(occ_edge)
 
-    update_edges_uv_gen(edges, builder, face_surface)
+    n_updated, n_total = update_edges_uv_gen(edges, builder, face_surface)
+    if n_updated < n_total:
+        raise UnableToCreateTesselationFromSolidOCCGeom(
+            f"create_wire_from_bounds: p-curve update incomplete ({n_updated}/{n_total})"
+        )
 
     # if len(edges) == 4:
     #     update_edges_4corners(edges, builder, face_surface)
@@ -352,21 +759,127 @@ def make_face_from_geom(advanced_face: geo_su.AdvancedFace) -> TopoDS_Face:
     if not advanced_face.bounds:
         raise ValueError("AdvancedFace must have at least one bound")
 
-    outer_wire = make_wire_from_face_bound(advanced_face.bounds[0])
+    is_bspline_surface = isinstance(face_surface, Geom_BSplineSurface)
 
-    if isinstance(face_surface, Geom_BSplineSurface):
+    def _build_bspline_wire(face_bound, builder) -> tuple:
+        """Build an OCC wire for a BSpline-surface face by walking
+        ``face_bound.bound.edge_list`` directly (rather than via
+        ``make_wire_from_face_bound`` + post-hoc TopExp_Explorer match).
+
+        Constructing the OCC edges in the same order as the source
+        ``OrientedEdge`` list lets us pass ``supplied_pcurves`` 1:1 to
+        ``update_edges_uv_gen`` without endpoint-matching guesswork.
+        Pcurves are attached BEFORE adding the edge to the wire builder,
+        so any reordering ``BRepBuilderAPI_MakeWire`` does internally
+        cannot decouple them — pcurves travel with the OCC edge handle.
+
+        Returns (wire, n_updated, n_total).
+        """
+        # SAT-supplied UV pcurves are now consumed by default. The fix
+        # that made this work: when a coedge has a pcurve, build the
+        # OCC edge via ``BRepBuilderAPI_MakeEdge(c2d, surface, t1, t2)``
+        # so OCCT derives the 3D parametrization from
+        # ``surface(pcurve(t))`` — guaranteed-consistent with the 2D
+        # curve. SAT also stores a separate 3D BSpline curve per edge,
+        # but its parameterization is independent of the pcurve's, and
+        # for many OP1 faces the two take different *paths* between the
+        # same endpoints. Using both together produced visually-stretched
+        # faces; using only the pcurve+surface (the path STEP imports
+        # take naturally) produces ~96% byte-for-byte agreement with the
+        # regen baseline at ~5x the speed.
+        #
+        # Override knobs (default both ON):
+        #   ADA_USE_SAT_PCURVES=false    skip SAT pcurves entirely → regen
+        #   ADA_PCURVE_DRIVE_EDGE=false  attach pcurve via UpdateEdge
+        #                                instead of building edge from it
+        #                                (the older, broken approach;
+        #                                left for diagnostics)
+        import os as _os
+
+        def _env_truthy(name: str, default: bool) -> bool:
+            v = (_os.environ.get(name) or "").strip().lower()
+            if v in {"1", "true", "yes", "on"}:
+                return True
+            if v in {"0", "false", "no", "off"}:
+                return False
+            return default
+
+        use_pcurves = _env_truthy("ADA_USE_SAT_PCURVES", True)
+        drive_edge_from_pcurve = _env_truthy("ADA_PCURVE_DRIVE_EDGE", True)
+        edge_list = getattr(face_bound.bound, "edge_list", None) or []
+        occ_edges: list = []
+        pcurves: list = []
+        for oe in edge_list:
+            supplied_pc = getattr(oe, "pcurve", None) if use_pcurves else None
+            occ_edge = None
+            if drive_edge_from_pcurve and supplied_pc is not None:
+                occ_edge = _make_edge_from_pcurve(supplied_pc, face_surface)
+                if occ_edge is not None:
+                    # Edge already carries a consistent 2D pcurve from
+                    # the constructor; no UpdateEdge needed.
+                    occ_edges.append(occ_edge)
+                    pcurves.append(None)
+                    continue
+            try:
+                occ_edge = make_edge_from_edge(oe)
+            except (RuntimeError, UnableToCreateCurveOCCGeom) as ex:
+                logger.debug("dropped degenerate edge in BSpline-surface bound: %s", ex)
+                continue
+            occ_edges.append(occ_edge)
+            pcurves.append(supplied_pc)
+        if not occ_edges:
+            raise UnableToCreateTesselationFromSolidOCCGeom("BSpline-surface bound produced no usable edges")
+        n_updated, n_total = update_edges_uv_gen(
+            occ_edges,
+            builder,
+            face_surface,
+            supplied_pcurves=pcurves,
+        )
+        # First attempt: default OCC vertex-snap tolerance.
+        wire_maker = BRepBuilderAPI_MakeWire()
+        for e in occ_edges:
+            wire_maker.Add(e)
+        wire_maker.Build()
+        if not wire_maker.IsDone():
+            # Relaxed pass. The default tolerance is a few microns,
+            # which fails when SAT-derived edge endpoints land on
+            # subtly-different vertex hash bins (drive_edge picks
+            # endpoints from the surface's pcurve evaluation;
+            # make_edge_from_edge picks them from the 3D-curve
+            # endpoint snap — the two can differ by 0.1-1 mm). 1 mm
+            # is well below structural feature size on the SAT plate
+            # geometries we see and matches OCC's own tolerance bumps in
+            # ShapeFix_Wire when it sees gaps below that.
+            from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_MakeWire as _MW
+
+            wire_maker = _MW()
+            try:
+                wire_maker.SetTolerance(1.0e-3)
+            except Exception:
+                pass
+            for e in occ_edges:
+                wire_maker.Add(e)
+            wire_maker.Build()
+        if not wire_maker.IsDone():
+            raise UnableToCreateTesselationFromSolidOCCGeom("BRepBuilderAPI_MakeWire failed for BSpline-surface bound")
+        return wire_maker.Wire(), n_updated, n_total
+
+    if is_bspline_surface:
         builder = BRep_Builder()
-        # Extract edges from the wire and update them with p-curves
-        wire_edges = []
-        exp = TopExp_Explorer(outer_wire, TopAbs_EDGE)
-        while exp.More():
-            wire_edges.append(exp.Current())
-            exp.Next()
-        update_edges_uv_gen(wire_edges, builder, face_surface)
+        outer_wire, n_updated, n_total = _build_bspline_wire(advanced_face.bounds[0], builder)
+        if n_updated < n_total:
+            # Any failed p-curve update on a BSpline-surface wire is a
+            # crash trigger downstream — bail rather than feed the
+            # half-attached wire into MakeFace/ShapeFix.
+            raise UnableToCreateTesselationFromSolidOCCGeom(
+                f"p-curve update incomplete ({n_updated}/{n_total}); skipping degenerate BSpline face."
+            )
 
         if is_wire_cw(outer_wire, face_surface):
             logger.info("Reversing CW wire to CCW for B-Spline surface")
             outer_wire = outer_wire.Reversed()
+    else:
+        outer_wire = make_wire_from_face_bound(advanced_face.bounds[0])
 
     face_maker = BRepBuilderAPI_MakeFace(face_surface, outer_wire)
 
@@ -374,16 +887,19 @@ def make_face_from_geom(advanced_face: geo_su.AdvancedFace) -> TopoDS_Face:
     if len(advanced_face.bounds) > 1:
         for inner_fb in advanced_face.bounds[1:]:
             try:
-                inner_wire = make_wire_from_face_bound(inner_fb)
-                if isinstance(face_surface, Geom_BSplineSurface):
-                    # Extract edges from the inner wire and update them with p-curves
-                    wire_edges = []
-                    exp = TopExp_Explorer(inner_wire, TopAbs_EDGE)
-                    while exp.More():
-                        wire_edges.append(exp.Current())
-                        exp.Next()
-                    update_edges_uv_gen(wire_edges, builder, face_surface)
+                if is_bspline_surface:
+                    inner_wire, n_updated, n_total = _build_bspline_wire(inner_fb, builder)
+                    if n_updated < n_total:
+                        raise UnableToCreateTesselationFromSolidOCCGeom(
+                            f"inner bound p-curve update incomplete ({n_updated}/{n_total})"
+                        )
+                else:
+                    inner_wire = make_wire_from_face_bound(inner_fb)
                 face_maker.Add(inner_wire)
+            except UnableToCreateTesselationFromSolidOCCGeom:
+                # Bubble the skip up — partial inner bounds on a degenerate
+                # BSpline face would crash the same as the outer case.
+                raise
             except Exception as ex:
                 logger.warning(f"Skipping inner bound due to error creating wire: {ex}")
 
@@ -392,8 +908,20 @@ def make_face_from_geom(advanced_face: geo_su.AdvancedFace) -> TopoDS_Face:
 
     face = face_maker.Face()
 
-    # Fix the face (p-curves, orientation, etc.) using ShapeFix
-    if isinstance(face_surface, Geom_BSplineSurface):
+    # ShapeFix runs only on the regenerative-pcurve path — the
+    # SAT-pcurve path produces clean topology and ShapeFix would
+    # otherwise rebuild our authored p-curves to match its own
+    # conventions, undoing the consistency we just established.
+    # ADA_SKIP_SHAPEFIX=true forces a skip even on the regen path.
+    import os as _os_sf
+
+    skip_shapefix = (_os_sf.environ.get("ADA_SKIP_SHAPEFIX") or "").strip().lower() in {"1", "true", "yes", "on"}
+    use_pcurves_env_sf = (_os_sf.environ.get("ADA_USE_SAT_PCURVES") or "").strip().lower()
+    # Default: use_pcurves is ON. ShapeFix should fire only when
+    # pcurves are explicitly OFF (regen path) AND the user hasn't set
+    # ADA_SKIP_SHAPEFIX.
+    use_pcurves_sf = use_pcurves_env_sf not in {"0", "false", "no", "off"}
+    if isinstance(face_surface, Geom_BSplineSurface) and not (skip_shapefix or use_pcurves_sf):
         fixer = ShapeFix_Face(face)
         fixer.Perform()
         # Explicitly run wire fixes
@@ -658,3 +1186,105 @@ def make_profile_from_geom(area: geo_su.ProfileDef) -> TopoDS_Shape | TopoDS_Fac
         profile = BRepAlgoAPI_Cut(profile, inner_wire).Shape()
 
     return profile
+
+
+def make_face_from_wire_filled(wff: geo_su.WireFilledFace) -> TopoDS_Face:
+    """Build an OCC face from a wire-only ``WireFilledFace``.
+
+    Uses ``BRepFill_Filling`` (via ``BRepOffsetAPI_MakeFilling``) to
+    interpolate a smooth surface through the boundary edges, then trims
+    the surface to the boundary wire. Without explicit trimming, the
+    surface generated by MakeFilling can extend several metres past the
+    wire — even though the *face* should be clipped to the wire, the
+    underlying surface's parameter domain isn't bounded, so downstream
+    consumers that sample the face (BRepMesh, prism extrusion) can hit
+    the unbounded region.
+    """
+    from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_MakeFace, BRepBuilderAPI_MakeWire
+    from OCC.Core.BRepOffsetAPI import BRepOffsetAPI_MakeFilling
+    from OCC.Core.GeomAbs import GeomAbs_C0
+    from OCC.Core.ShapeFix import ShapeFix_Face
+
+    if not wff.bounds:
+        raise UnableToCreateTesselationFromSolidOCCGeom("WireFilledFace has no bounds")
+
+    primary = wff.bounds[0]
+    edge_list = getattr(primary.bound, "edge_list", None) or []
+    if len(edge_list) < 3:
+        raise UnableToCreateTesselationFromSolidOCCGeom(f"WireFilledFace needs ≥3 boundary edges, got {len(edge_list)}")
+
+    occ_edges: list = []
+    for oe in edge_list:
+        try:
+            occ_edges.append(make_edge_from_edge(oe))
+        except Exception as ex:
+            logger.debug("WireFilledFace: dropped degenerate edge: %s", ex)
+    if len(occ_edges) < 3:
+        raise UnableToCreateTesselationFromSolidOCCGeom("WireFilledFace: <3 usable edges after conversion")
+
+    # Step 1: stitch edges into a single closed wire. SAT-derived edge
+    # endpoints can land on subtly-different vertex hashes (sub-mm
+    # gaps), so retry with a relaxed tolerance — same trick the
+    # AdvancedFace builder uses.
+    wire_maker = BRepBuilderAPI_MakeWire()
+    for e in occ_edges:
+        wire_maker.Add(e)
+    wire_maker.Build()
+    if not wire_maker.IsDone():
+        wire_maker = BRepBuilderAPI_MakeWire()
+        try:
+            wire_maker.SetTolerance(1.0e-3)
+        except Exception:
+            pass
+        for e in occ_edges:
+            wire_maker.Add(e)
+        wire_maker.Build()
+        if not wire_maker.IsDone():
+            raise UnableToCreateTesselationFromSolidOCCGeom("WireFilledFace: failed to assemble wire from edges")
+    wire = wire_maker.Wire()
+
+    # Step 2: build a fitted surface from the boundary edges. Adding
+    # edges individually with GeomAbs_C0 lets MakeFilling solve the
+    # least-squares system that minimises bending under the boundary
+    # constraints.
+    fill = BRepOffsetAPI_MakeFilling()
+    for e in occ_edges:
+        fill.Add(e, GeomAbs_C0)
+    try:
+        fill.Build()
+    except Exception as ex:
+        raise UnableToCreateTesselationFromSolidOCCGeom(f"BRepOffsetAPI_MakeFilling failed: {ex}")
+    if not fill.IsDone():
+        raise UnableToCreateTesselationFromSolidOCCGeom("BRepOffsetAPI_MakeFilling did not complete")
+    fill_shape = fill.Shape()
+
+    # The shape returned by MakeFilling is already a TopoDS_Face, but
+    # its outer wire is what MakeFilling derived from the constraint
+    # edges — which can wander beyond the input wire when the constraint
+    # solver projects edges onto the fitted surface. Re-trim by
+    # extracting the underlying Geom_Surface and rebuilding the face
+    # with our wire as the explicit boundary.
+    exp = TopExp_Explorer(fill_shape, TopAbs_FACE)
+    if not exp.More():
+        raise UnableToCreateTesselationFromSolidOCCGeom("MakeFilling produced no face")
+    fitted_face = exp.Current()
+    fitted_surf = BRep_Tool.Surface(fitted_face)
+
+    try:
+        face_maker = BRepBuilderAPI_MakeFace(fitted_surf, wire, True)
+        face_maker.Build()
+        if face_maker.IsDone():
+            rebuilt = face_maker.Face()
+            # Apply ShapeFix to clean up any 2D pcurve issues that
+            # the MakeFace-with-wire path introduces (rare, but
+            # cheap insurance against malformed faces).
+            fixer = ShapeFix_Face(rebuilt)
+            fixer.Perform()
+            return fixer.Face()
+    except Exception as ex:
+        logger.debug("WireFilledFace: re-trim failed (%s); using fitted face", ex)
+
+    # Re-trim failed — return the original fitted face. Worst case,
+    # the bbox is larger than the wire, but the face is still a valid
+    # G0-continuous interpolation through the boundary.
+    return fitted_face

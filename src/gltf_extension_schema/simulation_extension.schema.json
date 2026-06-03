@@ -39,6 +39,15 @@
         "$ref": "#/definitions/SimGroup"
       },
       "additionalProperties": false
+    },
+    "stats": {
+      "type": "object",
+      "description": "Aggregate metrics for this simulation model (centre of gravity, element counts). Computed at bake time so the viewer can show per-model info without reloading source.",
+      "$ref": "#/definitions/SimStats"
+    },
+    "fem_concepts": {
+      "description": "FEA input concepts (boundary conditions) attached to this simulation model, for the viewer's FEM visualization mode.",
+      "$ref": "./fem_concepts.schema.json"
     }
   },
   "required": [
@@ -49,6 +58,56 @@
     "steps"
   ],
   "definitions": {
+    "SimStats": {
+      "type": "object",
+      "properties": {
+        "cog": {
+          "description": "Mass-weighted centre of gravity. total_mass and total_volume are zero when elements have no material assigned.",
+          "$ref": "#/definitions/COG"
+        },
+        "element_counts": {
+          "type": "object",
+          "description": "Number of finite elements per category.",
+          "properties": {
+            "beam": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Line / beam elements."
+            },
+            "shell": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Shell elements."
+            },
+            "solid": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Solid elements."
+            }
+          }
+        }
+      }
+    },
+    "COG": {
+      "type": "object",
+      "description": "Point + aggregate mass/volume. Coordinates in model units; mass and volume are summed across contributing elements/objects.",
+      "properties": {
+        "x": { "type": "number" },
+        "y": { "type": "number" },
+        "z": { "type": "number" },
+        "total_mass": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Sum of contributing masses."
+        },
+        "total_volume": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Sum of contributing volumes."
+        }
+      },
+      "required": ["x", "y", "z"]
+    },
     "StepObject": {
       "type": "object",
       "properties": {
@@ -145,10 +204,19 @@
         },
         "members": {
           "type": "array",
-          "description": "Name of group objects",
+          "description": "Inline list of element/node names. Used for small groups (default threshold <256); large groups switch to members_buffer_view to keep the JSON chunk size bounded.",
           "items": {
             "type": "string"
           }
+        },
+        "members_buffer_view": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Index of a glTF bufferView holding the packed uint32 member IDs. Mutually exclusive with `members`. Used for large element groups so the JSON chunk doesn't balloon. The IDs are reconstructed into names by prepending `members_prefix`."
+        },
+        "members_prefix": {
+          "type": "string",
+          "description": "String prepended to each uint32 ID in members_buffer_view to reconstruct the element/node name (e.g. \"EL\", \"Li\", \"P\"). Required when members_buffer_view is set."
         },
         "description": {
           "type": "string",
@@ -157,6 +225,10 @@
         "parent_name": {
           "type": "string",
           "description": "Name of the parent simulation object"
+        },
+        "parent_object_guid": {
+          "type": "string",
+          "description": "adapy guid of the CAD-side Beam/Plate this SimGroup was meshed from. Lets the viewer link FEA elements back to their CAD parent without name matching. Populated from FemSection.refs[0].guid."
         },
         "fe_object_type": {
           "type": "string",

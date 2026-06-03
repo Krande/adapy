@@ -4,16 +4,32 @@ import * as THREE from "three";
 import {Object3D} from "three";
 import {clearPointSelectionMask} from "../utils/scene/pointsImpostor";
 
+// Map keys are typed as Object3D (rather than CustomBatchedMesh) because
+// the store also accepts Points and plain meshes; the body dispatches
+// via ``instanceof CustomBatchedMesh`` to pick the right code path.
 type SelectedObjectState = {
-    selectedObjects: Map<CustomBatchedMesh, Set<string>>;
-    addSelectedObject: (mesh: CustomBatchedMesh, drawRangeId: string) => void;
-    removeSelectedObject: (mesh: CustomBatchedMesh, drawRangeId: string) => void;
+    selectedObjects: Map<Object3D, Set<string>>;
+    addSelectedObject: (mesh: Object3D, drawRangeId: string) => void;
+    removeSelectedObject: (mesh: Object3D, drawRangeId: string) => void;
     clearSelectedObjects: () => void;
-    addBatchofMeshes: (batch: [CustomBatchedMesh, string][]) => void;
+    addBatchofMeshes: (batch: [Object3D, string][]) => void;
+    // Sticky additive-select mode. When true, every scene tap behaves
+    // like a shift+click (toggles membership instead of replacing the
+    // selection). Lets mobile users build a multi-selection without a
+    // Shift key. Tapping the toggle in the Object Info panel flips
+    // this; the kbd Shift modifier still works independently and
+    // produces the same effect ad-hoc.
+    additiveMode: boolean;
+    setAdditiveMode: (v: boolean) => void;
+    toggleAdditiveMode: () => void;
 };
 
 export const useSelectedObjectStore = create<SelectedObjectState>((set) => ({
     selectedObjects: new Map(),
+
+    additiveMode: false,
+    setAdditiveMode: (v) => set({additiveMode: v}),
+    toggleAdditiveMode: () => set((state) => ({additiveMode: !state.additiveMode})),
 
     addSelectedObject: (mesh, drawRangeId) =>
         set((state) => {
@@ -105,7 +121,7 @@ export const useSelectedObjectStore = create<SelectedObjectState>((set) => ({
     addBatchofMeshes: (batch) =>
         set((state) => {
             const newMap = new Map(state.selectedObjects);
-            const drawRangeGroups = new Map<CustomBatchedMesh, Set<string>>();
+            const drawRangeGroups = new Map<Object3D, Set<string>>();
 
             // Group ranges by mesh
             batch.forEach(([mesh, drawRangeId]) => {

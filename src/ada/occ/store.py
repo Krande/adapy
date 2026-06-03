@@ -19,20 +19,20 @@ if TYPE_CHECKING:
     from OCC.Core.TopoDS import TopoDS_Shape
 
     from ada.base.physical_objects import BackendGeom
-    from ada.cadit.step.store import StepStore
-    from ada.cadit.step.write.writer import StepWriter
+    from ada.occ.step.store import StepStore
+    from ada.occ.step.writer import StepWriter
 
 
 class OCCStore:
     @staticmethod
     def get_step_writer() -> StepWriter:
-        from ada.cadit.step.write.writer import StepWriter
+        from ada.occ.step.writer import StepWriter
 
         return StepWriter("AdaStep")
 
     @staticmethod
     def get_reader(step_filepath) -> StepStore:
-        from ada.cadit.step.store import StepStore
+        from ada.occ.step.store import StepStore
 
         return StepStore(step_filepath)
 
@@ -42,10 +42,15 @@ class OCCStore:
         geom_repr: GeomRepr = GeomRepr.SOLID,
         render_override: dict[str, GeomRepr] = None,
     ) -> tuple[BackendGeom, TopoDS_Shape]:
-        from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_Transform
-        from OCC.Core.gp import gp_Trsf, gp_Vec
 
-        from ada.cadit.step.store import StepStore
+        # StepStore lives behind the OCC kernel; under a pure-adacpp env (no
+        # pythonocc) it is unimportable. It is only needed for the
+        # ``isinstance(part, StepStore)`` branch below — the per-object handle
+        # path is backend-neutral — so degrade gracefully when OCC is absent.
+        try:
+            from ada.occ.step.store import StepStore
+        except ImportError:
+            StepStore = None
 
         if render_override is None:
             render_override = {}
@@ -81,9 +86,23 @@ class OCCStore:
             position = obj.parent.placement.to_axis2placement3d(use_absolute_placement=True)
 
             try:
-                trsf = gp_Trsf()
-                trsf.SetTranslation(gp_Vec(*position.location))
-                occ_geom = BRepBuilderAPI_Transform(occ_geom, trsf, True).Shape()
+                # Final-handle placement: route through the active backend so
+                # adacpp handles transform too (occ_geom is a backend handle,
+                # not necessarily a raw TopoDS_Shape).
+                import numpy as np
+
+                from ada.cad import active_backend
+
+                loc = position.location
+                mat = np.array(
+                    [
+                        [1.0, 0.0, 0.0, float(loc[0])],
+                        [0.0, 1.0, 0.0, float(loc[1])],
+                        [0.0, 0.0, 1.0, float(loc[2])],
+                        [0.0, 0.0, 0.0, 1.0],
+                    ]
+                )
+                occ_geom = active_backend().transform(occ_geom, mat, True)
             except (RuntimeError, BaseException) as e:
                 exc = traceback.format_exc()
                 err_msg = f"Failed to transform geometry for {obj.name} due to {e} from {name_ref} in {exc}"
@@ -94,7 +113,7 @@ class OCCStore:
 
             return occ_geom
 
-        if isinstance(part, StepStore):
+        if StepStore is not None and isinstance(part, StepStore):
             for shape in part.iter_all_shapes(include_colors=True):
                 yield shape
 

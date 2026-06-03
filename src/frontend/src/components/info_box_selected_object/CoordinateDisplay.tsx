@@ -1,6 +1,6 @@
 import React from "react";
-import { useModelState } from "../../state/modelState";
-import CopyIcon from "../icons/copyIcon";
+import { useModelState } from "@/state/modelState";
+import CopyIcon from "../icons/CopyIcon";
 
 interface ClickCoordinate {
   x: number;
@@ -43,7 +43,7 @@ const CoordinateDisplay: React.FC<CoordinateDisplayProps> = ({
     : `(${x}, ${z}, ${y})`;
 
   return (
-    <div className="table-cell w-48 flex items-center pointer-events-auto">
+    <div className="table-cell w-48 flex items-center">
       <span>{displayText}</span>
       {/*<CopyIcon*/}
       {/*  onClick={handleCopy}*/}

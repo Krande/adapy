@@ -10,12 +10,24 @@ export function addOrientationGizmo(
     customElements.define("orientation-gizmo", OrientationGizmo);
   }
 
-  const gizmo = new OrientationGizmo(camera, {});
-  gizmo.style.position = "absolute";
-  gizmo.style.bottom = "8px";
-  gizmo.style.right = "8px";
-  gizmo.style.pointerEvents = "auto";
-  gizmo.style.zIndex = "10";
+  // The gizmo class now self-positions in connectedCallback (display,
+  // size, position:fixed, anchor → top/right/bottom/left). Caller just
+  // picks the size, anchor, and margins.
+  const isNarrow = window.matchMedia("(max-width: 767px)").matches;
+  const size = isNarrow ? 80 : 150;
+
+  const gizmo = new OrientationGizmo(camera, {
+    size,
+    bubbleSizePrimary: isNarrow ? 6 : 10,
+    bubbleSizeSeconday: isNarrow ? 6 : 10,
+    fontSize: isNarrow ? "8px" : "10px",
+    anchor: "bottom-right",
+    anchorMarginX: 8,
+    // Slightly bigger Y margin on phones to clear the Android
+    // gesture-nav pill — safe-area-inset-bottom (added on top inside
+    // the gizmo) is not reliably populated by Chrome on Android.
+    anchorMarginY: isNarrow ? 20 : 8,
+  });
 
   container.appendChild(gizmo);
 

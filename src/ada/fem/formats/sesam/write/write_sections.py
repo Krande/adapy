@@ -34,7 +34,13 @@ def sections_str(fem: FEM, thick_map) -> str:
     names_str = ""
     concept_str = ""
     tdsconc_str, sconcept_str, scon_mesh = "", "", ""
-    shid.set_i(max(fem.sections.id_map.keys()) + 1)
+    # Inputs without a populated sections table (e.g. mesh-only FEMs
+    # coming from a Code_Aster ``.med`` reader, or minimal test
+    # fixtures) keep id_map empty. The shell-section counter just
+    # needs the next free integer ID; with no prior IDs to advance
+    # past, ``1`` is the right starting point. ``default=0`` + the
+    # ``+ 1`` below gives us that without a separate branch.
+    shid.set_i(max(fem.sections.id_map.keys(), default=0) + 1)
     sec_names = []
     for sh_sec in fem.sections.shells:
         sec_str += create_shell_section_str(sh_sec, thick_map)

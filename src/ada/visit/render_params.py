@@ -46,6 +46,16 @@ class RenderParams:
     render_override: dict[str, GeomRepr | str] = None
     filter_by_guids: list[str] = None
     embed_ada_extension: bool = True
+    # When True, emit per-Beam/Plate section + material dicts into
+    # ``DesignDataExtension.object_metadata`` so the viewer's Properties
+    # panel populates without a server round-trip back to the source
+    # IFC. On by default because the viewer is the primary consumer and
+    # the size cost is negligible over HTTP gzip — measured on
+    # mini-example (1100 objects): raw GLB +335 KB (+17.8 %), gzipped
+    # only +7.7 KB (+3.1 %) since repeated material dicts compress to
+    # ~7 B amortised. Flip off only for raw-bytes consumers that don't
+    # need the Properties panel and skip HTTP gzip.
+    embed_object_metadata: bool = True
     force_y_is_up: bool = False
 
     def __post_init__(self):

@@ -1,4 +1,5 @@
 import datetime
+import os
 
 # -- Project information -----------------------------------------------------
 
@@ -7,17 +8,26 @@ html_title = "ADA - Assembly for Design & Analysis"
 author = "Kristoffer H. Andersen"
 copyright = f"{datetime.datetime.now().year}, {author}"
 # -- Get version information and date from Git ----------------------------
+#
+# In CI the workflow resolves these from `git describe` and `git show`
+# in the host checkout and passes them through as build args / env
+# vars. That lets the docs Dockerfile skip the (large, per-commit-
+# invalidating) `COPY .git/` and keep the per-source layer cache live
+# across docs-irrelevant commits. Local builds with a real .git fall
+# back to the subprocess path.
+release = os.environ.get("ADA_DOCS_RELEASE", "").strip()
+today = os.environ.get("ADA_DOCS_DATE", "").strip()
+if not release or not today:
+    try:
+        from subprocess import check_output
 
-try:
-    from subprocess import check_output
-
-    release = check_output(["git", "describe", "--tags", "--always"])
-    release = release.decode().strip()
-    today = check_output(["git", "show", "-s", "--format=%ad", "--date=short"])
-    today = today.decode().strip()
-except Exception:
-    release = "<unknown>"
-    today = "<unknown date>"
+        if not release:
+            release = check_output(["git", "describe", "--tags", "--always"]).decode().strip()
+        if not today:
+            today = check_output(["git", "show", "-s", "--format=%ad", "--date=short"]).decode().strip()
+    except Exception:
+        release = release or "<unknown>"
+        today = today or "<unknown date>"
 
 # -- General configuration ---------------------------------------------------
 
@@ -76,9 +86,7 @@ nbsphinx_prolog = r"""
     <div class="admonition note">
       This page was generated from
       <a class="reference external" href="https://github.com/Krande/adapy/blob/{{ env.config.release|e }}/{{ docname|e }}">{{ docname|e }}</a>.<br>
-      Interactive online version:
-      <span style="white-space: nowrap;"><a href="https://mybinder.org/v2/gh/Krande/adapy/{{ env.config.release|e }}?filepath={{ docname|e }}"><img alt="Binder badge" src="https://mybinder.org/badge_logo.svg" style="vertical-align:text-bottom"></a> - </span>
-      <a href="{{ env.docname.split('/')|last|e + '.ipynb' }}" class="reference download internal" download>Download notebook</a> - 
+      <a href="{{ env.docname.split('/')|last|e + '.ipynb' }}" class="reference download internal" download>Download notebook</a> -
       <script>
         if (document.location.host) {
           let nbviewer_link = document.createElement('a');

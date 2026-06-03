@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from operator import attrgetter
 from typing import TYPE_CHECKING, Iterable
 
 from ada.api.containers.base import IndexedCollection
@@ -11,11 +12,13 @@ if TYPE_CHECKING:
 
 class Plates(IndexedCollection[Plate, str, int]):
     def __init__(self, plates: Iterable[Plate] = (), parent: Part = None):
+        # attrgetter rather than lambdas so the collection round-trips
+        # through pickle; closure-scoped lambdas have no qualified name.
         super().__init__(
             items=plates,
-            sort_key=lambda p: p.name,
-            id_key=lambda p: p.guid,
-            name_key=lambda p: p.name,
+            sort_key=attrgetter("name"),
+            id_key=attrgetter("guid"),
+            name_key=attrgetter("name"),
         )
         self._parent = parent
 

@@ -18,7 +18,17 @@ export interface TreeViewState {
     setTree: (tree: TreeApi<any>) => void;
     searchTerm: string;
     setSearchTerm: (searchTerm: string) => void;
+    /** Id of the currently-selected tree node. Search is scoped to this node's
+     *  subtree; when null, search spans all roots (hits group per root). */
+    scopeNodeId: string | null;
+    scopeNodeName: string | null;
+    setScope: (id: string | null, name: string | null) => void;
     max_id: number
+    /** Width of the floating tree panel in pixels. Lifted out of
+     *  ResizableTreeView's local state so the menu bar can shift to
+     *  the right of it on desktop without overlapping. */
+    treeViewWidth: number;
+    setTreeViewWidth: (w: number) => void;
 
     setMaxId(max_id: number): void;
 }
@@ -27,6 +37,9 @@ export const useTreeViewStore = create<TreeViewState>((set) => ({
     treeData: null,
     tree: null,
     searchTerm: '',
+    scopeNodeId: null,
+    scopeNodeName: null,
+    setScope: (id, name) => set({scopeNodeId: id, scopeNodeName: name}),
     max_id: 0,
     setSearchTerm: (searchTerm) => set({searchTerm: searchTerm}),
     setTree: (tree) => set({tree: tree}),
@@ -34,5 +47,7 @@ export const useTreeViewStore = create<TreeViewState>((set) => ({
     clearTreeData: () => set({treeData: null}),
     isTreeCollapsed: true,
     setIsTreeCollapsed: (collapsed) => set({isTreeCollapsed: collapsed}),
+    treeViewWidth: 256,
+    setTreeViewWidth: (w) => set({treeViewWidth: w}),
     setMaxId: (max_id) => set({max_id: max_id}),
 }));

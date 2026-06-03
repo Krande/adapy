@@ -1,13 +1,14 @@
-// useOptionsStore.ts
 import {create} from "zustand";
-import {webSocketAsyncHandler} from "../utils/websocket/websocket_connector_async";
-import {useWebSocketStore} from "./webSocketStore";
-import {handleWebSocketMessage} from "../utils/websocket/handleWebSocketMessage";
+
+// Pure UI / behaviour flags. Side-effects (e.g. opening or tearing
+// down the transport when enableWebsocket toggles) live in
+// services/transport.ts so the store has no transport coupling.
 
 export type OptionsState = {
     isOptionsVisible: boolean;
     showPerf: boolean;
     showEdges: boolean;
+    hideTessellationEdges: boolean;
     lockTranslation: boolean;
     enableWebsocket: boolean;
     enableNodeEditor: boolean;
@@ -18,8 +19,9 @@ export type OptionsState = {
     setIsOptionsVisible: (value: boolean) => void;
     setShowPerf: (value: boolean) => void;
     setShowEdges: (value: boolean) => void;
+    setHideTessellationEdges: (value: boolean) => void;
     setLockTranslation: (value: boolean) => void;
-    setEnableWebsocket: (value: boolean) => void; // we’ll make this async internally
+    setEnableWebsocket: (value: boolean) => void;
     setEnableNodeEditor: (value: boolean) => void;
     setPointSize: (value: number) => void;
     setPointSizeAbsolute: (value: boolean) => void;
@@ -30,6 +32,7 @@ export const useOptionsStore = create<OptionsState>((set) => ({
     isOptionsVisible: false,
     showPerf: false,
     showEdges: true,
+    hideTessellationEdges: true,
     lockTranslation: false,
     enableWebsocket: true,
     enableNodeEditor: false,
@@ -40,35 +43,11 @@ export const useOptionsStore = create<OptionsState>((set) => ({
     setIsOptionsVisible: (v) => set({isOptionsVisible: v}),
     setShowPerf: (v) => set({showPerf: v}),
     setShowEdges: (v) => set({showEdges: v}),
+    setHideTessellationEdges: (v) => set({hideTessellationEdges: v}),
     setLockTranslation: (v) => set({lockTranslation: v}),
+    setEnableWebsocket: (v) => set({enableWebsocket: v}),
     setEnableNodeEditor: (v) => set({enableNodeEditor: v}),
     setPointSize: (v) => set({pointSize: v}),
     setPointSizeAbsolute: (v) => set({pointSizeAbsolute: v}),
     setUseGpuPointPicking: (v) => set({useGpuPointPicking: v}),
-
-    // toggle WS on/off
-    setEnableWebsocket: async (enable: boolean) => {
-        // 1) flip the UI state right away
-        set({enableWebsocket: enable});
-
-        try {
-            if (enable) {
-                const url = useWebSocketStore.getState().webSocketAddress;
-                await webSocketAsyncHandler.connect(url);
-
-                (async () => {
-                    for await (const evt of webSocketAsyncHandler.messages()) {
-                        await handleWebSocketMessage(evt);
-                    }
-                })().catch(err => {
-                    console.error("Error in WS message loop:", err);
-                });
-            } else {
-                // gracefully tear down
-                await webSocketAsyncHandler.disconnect();
-            }
-        } catch (err) {
-            console.error("Error toggling WebSocket:", err);
-        }
-    },
 }));

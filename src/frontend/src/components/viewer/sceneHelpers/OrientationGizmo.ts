@@ -48,7 +48,15 @@ export class OrientationGizmo extends HTMLElement {
                     x: ["#f73c3c", "#942424"],
                     y: ["#6ccb26", "#417a17"],
                     z: ["#178cf0", "#0e5490"]
-                }
+                },
+                // Self-positioning. Anchored to the viewport via
+                // `position: fixed` so the gizmo can't drift even if the
+                // canvas container has unexpected layout. Defaults pin
+                // it to the bottom-right with margins generous enough to
+                // clear an Android gesture-nav pill / iOS home indicator.
+                anchor: "bottom-right",
+                anchorMarginX: 8,
+                anchorMarginY: 8,
             },
             options
         );
@@ -125,9 +133,62 @@ export class OrientationGizmo extends HTMLElement {
         this.canvas = this.querySelector("canvas");
         this.context = this.canvas.getContext("2d");
 
+        // Force deterministic layout. The host element is a custom
+        // HTMLElement which defaults to display:inline with no intrinsic
+        // size; without these the inner <canvas> overflows from a
+        // zero-sized anchor box and right/bottom positioning lands the
+        // *centre* of the gizmo on the corner instead of its edge.
+        this.style.display = "block";
+        this.style.boxSizing = "border-box";
+        this.style.width = `${this.options.size}px`;
+        this.style.height = `${this.options.size}px`;
+        this.style.position = "fixed";
+        this.style.zIndex = this.style.zIndex || "10";
+        this.style.pointerEvents = "auto";
+        // Inline-default canvas adds a baseline descender gap below it;
+        // block kills that. 100% lets it follow the host size.
+        this.canvas.style.display = "block";
+        this.canvas.style.width = "100%";
+        this.canvas.style.height = "100%";
+
+        this.applyAnchor();
+
         this.canvas.addEventListener("mousemove", this.onMouseMove, false);
         this.canvas.addEventListener("mouseout", this.onMouseOut, false);
         this.canvas.addEventListener("click", this.onMouseClick, false);
+    }
+
+    applyAnchor() {
+        // Translate the (anchor, marginX, marginY) trio into top/right/
+        // bottom/left so the host pins itself relative to the viewport.
+        // Margins compose with safe-area insets so we clear iOS home
+        // indicator / Android gesture pill where reported.
+        const mx = `calc(env(safe-area-inset-right, 0px) + ${this.options.anchorMarginX}px)`;
+        const my = `calc(env(safe-area-inset-bottom, 0px) + ${this.options.anchorMarginY}px)`;
+        // Reset all four — caller may have changed the anchor.
+        this.style.top = "auto";
+        this.style.right = "auto";
+        this.style.bottom = "auto";
+        this.style.left = "auto";
+        switch (this.options.anchor) {
+            case "top-left":
+                this.style.top = `calc(env(safe-area-inset-top, 0px) + ${this.options.anchorMarginY}px)`;
+                this.style.left = `calc(env(safe-area-inset-left, 0px) + ${this.options.anchorMarginX}px)`;
+                break;
+            case "top-right":
+                this.style.top = `calc(env(safe-area-inset-top, 0px) + ${this.options.anchorMarginY}px)`;
+                this.style.right = mx;
+                break;
+            case "bottom-left":
+                this.style.bottom = my;
+                this.style.left = `calc(env(safe-area-inset-left, 0px) + ${this.options.anchorMarginX}px)`;
+                break;
+            case "bottom-right":
+            default:
+                this.style.bottom = my;
+                this.style.right = mx;
+                break;
+        }
     }
 
     disconnectedCallback() {

@@ -2,11 +2,18 @@
 <html lang="en">
     <head>
         <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+        <link rel="icon" type="image/svg+xml" href="/favicon.svg">
         <title>ADA-PY Viewer</title>
     </head>
     <body>
         <div id="root" class=""></div>
+        <!--
+          Hosted viewer mode injects window.COMMS_MODE / window.API_BASE
+          via /config.js. In Vite dev or embedded mode the request 404s
+          and the comms picker falls back to the WS default.
+        -->
+        <script src="/config.js" onerror="this.remove()"></script>
         <script type="module" src="index.tsx"></script>
         <!-- Inject the startup config placeholder into a script -->
         <!--STARTUP_CONFIG_PLACEHOLDER-->

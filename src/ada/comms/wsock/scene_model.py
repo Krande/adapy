@@ -14,6 +14,12 @@ class SceneBackend:
     ifc_sql_store: IfcSqlModel = None
     mesh_meta: dict = None
 
+    # Per-file structured metadata for the viewer's selected-object panel.
+    # Outer key is the file_name (FileObjectDC.name); inner key is the
+    # object's logical name (Beam.name / Plate.name / FEA element label) —
+    # the same string the click pipeline puts into ``objectInfoStore.name``.
+    object_meta: dict = field(default_factory=dict)
+
     def get_file_object(self, name: str) -> FileObjectDC | None:
         for fo in self.file_objects:
             if fo.name == name:
@@ -33,6 +39,9 @@ class SceneBackend:
 
     def delete_file_object(self, name: str):
         logger.info(f"Deleting file object: {name}")
+        # Drop this file's metadata first so a click against a stale
+        # name during teardown can't resurrect the entry.
+        self.object_meta.pop(name, None)
         remove_existing_idx = None
         for i, fo in enumerate(self.file_objects):
             if fo.name == name:

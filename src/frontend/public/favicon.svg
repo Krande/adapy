@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+  <style>
+    .fg { fill: #101113; }
+    @media (prefers-color-scheme: dark) {
+      .fg { fill: #e7e8ea; }
+    }
+  </style>
+  <!-- Filled I-beam (W-shape) silhouette: top flange, web, bottom flange.
+       Single path traces the outer outline; solid fill keeps the icon
+       unambiguous at 16x16 and visually distinct from the shelf favicon
+       (which is a stroked outline of a book on a shelf). -->
+  <path class="fg" d="M4 4 H20 V8 H14 V16 H20 V20 H4 V16 H10 V8 H4 Z"/>
+</svg>

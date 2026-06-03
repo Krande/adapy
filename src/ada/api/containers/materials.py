@@ -174,15 +174,31 @@ class Materials(NumericMapped):
         # 1) Fast-path existing: use dict.get instead of “in self” or keys()
         existing = name_map.get(material.name)
         if existing is not None:
-            # merge refs in one pass, avoiding O(n²) list lookups
             existing_refs = existing.refs
-            # build a set for O(1) membership tests
-            seen = set(existing_refs)
-            # only append the new ones
+            # ``consolidate_materials`` calls add() once per source
+            # material — for a large FEM that's tens of thousands of
+            # calls funneling into the same ``existing`` material.
+            # Rebuilding ``set(existing_refs)`` on every call was the
+            # dominant O(N²) cost (5.8 BILLION FemSection.__hash__
+            # calls on the JackethybridFEM → Genie XML conversion).
+            # Cache an ``id()``-keyed set on the material itself so:
+            #   * membership tests are pointer-equality, no __hash__
+            #     overhead on FemSection / Beam / Plate refs
+            #   * the cache survives across calls — amortised O(N)
+            #     instead of O(N²)
+            ref_ids = getattr(existing, "_ref_id_set", None)
+            # Cache may be stale if external code removed entries
+            # from ``existing.refs`` (the consolidate loop pops from
+            # the SOURCE material's refs but not the target's, so
+            # in practice we're safe — this check is defensive).
+            if ref_ids is None or len(ref_ids) != len(existing_refs):
+                ref_ids = {id(r) for r in existing_refs}
+                existing._ref_id_set = ref_ids
             for ref in material.refs:
-                if ref not in seen:
+                rid = id(ref)
+                if rid not in ref_ids:
                     existing_refs.append(ref)
-                    seen.add(ref)
+                    ref_ids.add(rid)
             return existing
 
         # 2) Assign a fresh id if needed

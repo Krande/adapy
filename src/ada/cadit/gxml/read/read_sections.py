@@ -73,6 +73,24 @@ def isec(name, sec_prop) -> Section:
     )
 
 
+_DEGENERATE_FLANGE_EPS = 1e-3  # 1 mm (sections stored in metres)
+
+
+def _flange_absent(t_flange: float, w_flange: float, t_w: float) -> bool:
+    """A flange counts as absent when it has no real overhang past the
+    web or near-paper thickness. Captures the two Genie idioms for
+    hiding a T-section inside an ``unsymmetrical_i_section``:
+
+    * Adapy's TPROFILE round-trip: ``w_flange == t_w`` (flange flush
+      with the web, zero overhang).
+    * Manual T in Genie: ``t_flange`` ~ 0 with ``w_flange`` ~ ``t_w``
+      (audit-#5256 dataset, ``t_ftop=0.0001, w_top=t_w``).
+    """
+    no_overhang = (w_flange - t_w) <= _DEGENERATE_FLANGE_EPS
+    paper_thin = t_flange <= _DEGENERATE_FLANGE_EPS
+    return no_overhang or paper_thin
+
+
 def unsymm_isec(name, sec_prop) -> Section:
 
     h = float(sec_prop.attrib["h"])
@@ -82,10 +100,27 @@ def unsymm_isec(name, sec_prop) -> Section:
     t_ftop = float(sec_prop.attrib["tftop"])
     t_fbtn = float(sec_prop.attrib["tfbot"])
 
-    # Detect unsymmetric I as Tprofile. Genie does not have support for Tprofile. On export from ada, Tprofile will be unsymm_isec in Genie. Now when we import the unsymm_isec from Genie, its time to pick up that, and read it as a Tprofile in ada again.
-    is_t_disguised = (t_fbtn == t_ftop) and (t_w == w_btn)
+    # Genie has no native T-section, so T-shapes are encoded as
+    # ``unsymmetrical_i_section`` with one flange collapsed onto the
+    # web. Two encodings show up in real data:
+    #
+    # 1. Top flange real, bottom collapsed — adapy's TPROFILE export
+    #    pattern. Maps straight to adapy TPROFILE.
+    # 2. Bottom flange real, top collapsed — flange-down T authored
+    #    natively in Genie (audit-#5256 has 280 of these). Adapy has
+    #    no flange-down orientation today, so we re-encode with the
+    #    real flange swapped to the top. The rendered shape ends up
+    #    visually flipped vs. the Genie source, but every beam now
+    #    tessellates instead of getting silently dropped from the GLB
+    #    because ``iprofiles`` produced duplicate vertices.
+    #
+    # Genuine asymmetric I (both flanges with real overhang) falls
+    # through to IPROFILE unchanged.
+    top_absent = _flange_absent(t_ftop, w_top, t_w)
+    btn_absent = _flange_absent(t_fbtn, w_btn, t_w)
 
-    if is_t_disguised:
+    if btn_absent and not top_absent:
+        # Adapy convention — flange up.
         return Section(
             name=name,
             sec_type=Section.TYPES.TPROFILE,
@@ -97,18 +132,36 @@ def unsymm_isec(name, sec_prop) -> Section:
             t_ftop=t_ftop,
             t_fbtn=t_fbtn,
         )
-    else:
+    if top_absent and not btn_absent:
+        # Inverted T — re-encode into adapy convention (flange-up)
+        # AND mark the section so the beam reader flips the local-z
+        # vector. The geometry then renders flange-down, matching
+        # the Genie source. Without the flip every beam carrying an
+        # inverted T would point its flange the wrong way — the
+        # user would see them upside-down.
         return Section(
             name=name,
-            sec_type=Section.TYPES.IPROFILE,
+            sec_type=Section.TYPES.TPROFILE,
             sec_str=name,
             h=h,
-            w_btn=w_btn,
-            w_top=w_top,
+            w_btn=w_top,
+            w_top=w_btn,
             t_w=t_w,
-            t_ftop=t_ftop,
-            t_fbtn=t_fbtn,
+            t_ftop=t_fbtn,
+            t_fbtn=t_ftop,
+            metadata={"gxml_flange_down": True},
         )
+    return Section(
+        name=name,
+        sec_type=Section.TYPES.IPROFILE,
+        sec_str=name,
+        h=h,
+        w_btn=w_btn,
+        w_top=w_top,
+        t_w=t_w,
+        t_ftop=t_ftop,
+        t_fbtn=t_fbtn,
+    )
 
 
 def pipe_section(name, sec_prop) -> Section:

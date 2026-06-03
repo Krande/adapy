@@ -10,7 +10,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import List, Optional, Union
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class AcisVersion(BaseModel):
@@ -78,11 +78,10 @@ class NurbsType(str, Enum):
 class AcisEntity(BaseModel):
     """Base class for all ACIS entities."""
 
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
     index: int = Field(..., description="Entity index in SAT file")
     entity_type: str = Field(..., description="ACIS entity type name")
-
-    class Config:
-        arbitrary_types_allowed = True
 
 
 class AcisGeometricEntity(AcisEntity):
@@ -173,6 +172,11 @@ class AcisCoedge(AcisEntity):
     loop_ref: Optional[int] = None
     edge_ref: Optional[int] = None
     sense: SenseType = SenseType.FORWARD
+    # Per-coedge UV-space curve on the parent face's surface — the
+    # 2D p-curve. Stored alongside the coedge (not the underlying edge)
+    # because two coedges of the same shared edge can have different
+    # pcurves for their respective faces.
+    pcurve_ref: Optional[int] = None
 
 
 class AcisEdge(AcisEntity):

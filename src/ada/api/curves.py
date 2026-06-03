@@ -24,9 +24,8 @@ from ada.geom.points import Point
 from ada.geom.surfaces import ArbitraryProfileDef, ProfileType
 
 if TYPE_CHECKING:
-    from OCC.Core.TopoDS import TopoDS_Edge, TopoDS_Wire
-
     from ada import Beam
+    from ada.cad import ShapeHandle
     from ada.geom.curves import ArcLine, Edge, IndexedPolyCurve
 
 
@@ -65,6 +64,20 @@ class CurveRevolve:
 
             self._radius = radius
             self._rot_origin = center
+
+            # Compute the profile frame here too — the BeamRevolve
+            # solid-geom path reads ``profile_normal`` /
+            # ``profile_perpendicular`` regardless of which branch
+            # constructed the curve. Without these set the
+            # downstream ``get_normalized()`` chain crashes when
+            # the curve came in via the (p1, point_on, p2) form
+            # (IFC import path). xvec is the radial direction from
+            # rot_origin to p1 at the start of the arc; the
+            # placement frame ties it to ``rot_axis``.
+            xvec1 = Direction(center - p1).get_normalized()
+            place = Placement(p1, xdir=xvec1, zdir=rot_axis)
+            self._profile_normal = place.xdir
+            self._profile_perpendicular = place.ydir
         else:
             if self._radius is not None and self._rot_origin is None:
                 center1, center2 = calc_center_from_start_end_radius(p1, p2, self._radius)
@@ -259,7 +272,7 @@ class CurveOpen2d:
     def ydir(self) -> Direction:
         return self.orientation.ydir
 
-    def occ_edges(self) -> list[TopoDS_Edge]:
+    def occ_edges(self) -> list[ShapeHandle]:
         from ada.occ.utils import segments_to_edges
 
         return segments_to_edges(self.segments3d)
@@ -285,7 +298,7 @@ class CurveOpen2d:
 
         return IndexedPolyCurve(segments)
 
-    def occ_wire(self) -> TopoDS_Wire:
+    def occ_wire(self) -> ShapeHandle:
         from ada.occ.utils import make_wire
 
         return make_wire(self.occ_edges())
@@ -471,7 +484,7 @@ class LineSegment:
         self._direction = self.calc_direction()
 
     @property
-    def edge_geom(self) -> TopoDS_Edge:
+    def edge_geom(self) -> ShapeHandle:
         return self._edge_geom
 
     @property

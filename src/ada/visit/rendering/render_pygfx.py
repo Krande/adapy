@@ -16,7 +16,6 @@ from ada.config import logger
 from ada.core.guid import create_guid
 from ada.core.vector_utils import unit_vector
 from ada.geom import Geometry
-from ada.occ.tessellating import BatchTessellator
 from ada.visit.colors import Color
 from ada.visit.render_params import RenderParams
 from ada.visit.rendering.render_backend import (
@@ -97,6 +96,10 @@ class RendererPyGFX:
             yield mesh
 
     def add_geom(self, geom: Geometry, name: str, guid: str, tag=create_guid(), metadata=None):
+        # Lazy import: ada.occ.tessellating pulls OCC, which need not be present
+        # under a non-OCC CAD backend. See dap plan/v3 Phase 1.
+        from ada.occ.tessellating import BatchTessellator
+
         bt = BatchTessellator()
 
         geom_mesh = bt.tessellate_geom(geom)

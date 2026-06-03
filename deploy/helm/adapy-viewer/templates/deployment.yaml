@@ -1,0 +1,128 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "adapy-viewer.fullname" . }}
+  labels:
+    {{- include "adapy-viewer.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+spec:
+  replicas: {{ .Values.replicaCount }}
+  {{- with .Values.strategy }}
+  strategy: {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "adapy-viewer.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: api
+  template:
+    metadata:
+      labels:
+        {{- include "adapy-viewer.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: api
+      {{- with .Values.podAnnotations }}
+      annotations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.hostAliases }}
+      hostAliases: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.podSecurityContext }}
+      securityContext: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: viewer
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            {{- with .Values.timezone }}
+            - name: TZ
+              value: {{ . | quote }}
+            {{- end }}
+            - name: ADA_VIEWER_STORAGE_KIND
+              value: {{ .Values.storage.kind | quote }}
+            {{- if eq .Values.storage.kind "s3" }}
+            - name: ADA_VIEWER_S3_BUCKET
+              value: {{ .Values.storage.s3.bucket | quote }}
+            - name: ADA_VIEWER_S3_ENDPOINT
+              value: {{ include "adapy-viewer.s3Endpoint" . | quote }}
+            {{- with .Values.storage.s3.endpointPublic }}
+            - name: ADA_VIEWER_S3_ENDPOINT_PUBLIC
+              value: {{ . | quote }}
+            {{- end }}
+            - name: ADA_VIEWER_S3_REGION
+              value: {{ .Values.storage.s3.region | quote }}
+            - name: ADA_VIEWER_S3_PREFIX
+              value: {{ .Values.storage.s3.prefix | quote }}
+            - name: ADA_VIEWER_S3_VIRTUAL_HOSTED_STYLE
+              value: {{ .Values.storage.s3.virtualHostedStyle | quote }}
+            - name: ADA_VIEWER_S3_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "adapy-viewer.s3SecretName" . }}
+                  key: {{ .Values.storage.s3.existingSecretKeyId | default "AWS_ACCESS_KEY_ID" }}
+            - name: ADA_VIEWER_S3_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "adapy-viewer.s3SecretName" . }}
+                  key: {{ .Values.storage.s3.existingSecretSecretKey | default "AWS_SECRET_ACCESS_KEY" }}
+            {{- else if eq .Values.storage.kind "local" }}
+            - name: ADA_VIEWER_LOCAL_PATH
+              value: /data
+            {{- end }}
+            {{- $natsUrl := include "adapy-viewer.natsUrl" . }}
+            {{- if $natsUrl }}
+            - name: ADA_VIEWER_NATS_URL
+              value: {{ $natsUrl | quote }}
+            {{- end }}
+            {{- include "adapy-viewer.authEnv" . | nindent 12 }}
+            {{- include "adapy-viewer.databaseEnv" . | nindent 12 }}
+          {{- if eq .Values.storage.kind "local" }}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 10
+          # Sleep on shutdown so kube-proxy / Traefik have time to drop the
+          # endpoint before uvicorn stops listening. Without this, in-flight
+          # connections during a rollout get a 502/Bad Gateway from the proxy
+          # even though strategy.maxUnavailable=0 keeps the new pod ready.
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sleep", "5"]
+          resources: {{- toYaml .Values.resources | nindent 12 }}
+          {{- with .Values.securityContext }}
+          securityContext: {{- toYaml . | nindent 12 }}
+          {{- end }}
+      {{- if eq .Values.storage.kind "local" }}
+      volumes:
+        - name: data
+          {{- if .Values.storage.local.existingClaim }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.storage.local.existingClaim }}
+          {{- else if .Values.storage.local.hostPath }}
+          hostPath:
+            path: {{ .Values.storage.local.hostPath | quote }}
+            type: DirectoryOrCreate
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+      {{- end }}

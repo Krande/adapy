@@ -1,0 +1,13 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "outDir": "./dist-embed",
+    "rootDir": "./embed",
+    "jsx": "preserve"
+  },
+  "include": ["embed/**/*.ts"],
+  "exclude": ["node_modules", "src", "dist"]
+}

@@ -9,8 +9,11 @@ type ObjectInfoState = {
     setClickCoordinate: (clickCoordinate: { x: number; y: number, z: number } | null) => void;
     jsonData: any | null;
     setJsonData: (jsonData: any | null) => void;
-    isJsonViewVisible: boolean;
-    setIsJsonViewVisible: (visible: boolean) => void;
+    // Source file owning the currently-selected object. Passed back
+    // with MESH_INFO_REQUEST so the backend's per-file metadata index
+    // can be scoped without ambiguity when multiple files are overlaid.
+    fileName: string | null;
+    setFileName: (fileName: string | null) => void;
     show_info_box: boolean;
     toggle: () => void;
 };
@@ -24,8 +27,8 @@ export const useObjectInfoStore = create<ObjectInfoState>((set) => ({
     setClickCoordinate: (clickCoordinate) => set(() => ({clickCoordinate})),
     jsonData: null,
     setJsonData: (jsonData) => set(() => ({jsonData})),
-    isJsonViewVisible: false,
-    setIsJsonViewVisible: (visible) => set(() => ({isJsonViewVisible: visible})),
+    fileName: null,
+    setFileName: (fileName) => set(() => ({fileName})),
     show_info_box: false,
     toggle: () => set((state) => ({show_info_box: !state.show_info_box})),
 }));

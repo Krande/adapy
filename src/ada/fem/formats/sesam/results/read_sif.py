@@ -12,14 +12,35 @@ from ada.core.utils import Counter
 from ada.fem.formats.sesam.common import sesam_eltype_2_general
 from ada.fem.formats.sesam.read import cards
 from ada.fem.formats.sesam.results.get_version_from_mlg import extract_sestra_version
-from ada.fem.formats.sesam.results.sin2sif import convert_sin_to_sif
 
 if TYPE_CHECKING:
     from ada import Material, Section
     from ada.fem.formats.sesam.read.cards import DataCard
     from ada.fem.results.common import ElementFieldData, FEAResult, Mesh, NodalFieldData
+    from ada.materials.metals import Metal
 
 FEM_SEC_NAME = Counter(prefix="FS")
+
+# Short, lossy mapping from Sesam GELMNT1 eltyp codes to their
+# canonical Sesam names. Used purely for the eltype-histogram info
+# log emitted from ``get_sif_mesh`` — gives an unfamiliar SIF an
+# at-a-glance breakdown ("oh, the model is 50% BTSS curved beams,
+# that explains the spiderweb"). Mirror of ``sesam_el_map`` in
+# ``formats/sesam/common.py`` plus the source-software names; kept
+# local so the log doesn't drag a dependency on the writer side.
+_SESAM_ELTYPE_LABELS = {
+    2: "BEAS",
+    11: "BMASS",
+    15: "BEPS",
+    18: "BSPRNGC",
+    23: "BTSS",
+    24: "FQUS",
+    25: "FTRS",
+    26: "FTRS6",
+    28: "FQUS8",
+    31: "ITET10",
+    40: "GSPRNGC",
+}
 
 STRESS_MAP = {
     1: ("SIGXX", "Normal Stress x-direction"),
@@ -74,8 +95,15 @@ OTHER_CARDS = [
     cards.TDSETNAM,
     cards.GSETMEMB,
     cards.TDRESREF,
+    # Generic beam properties. Parsed alongside the named-section
+    # cards so ``get_sections`` can synthesise a CIRCULAR fallback
+    # for elements whose sec_id has only GBEAMG data and no real
+    # profile geometry. SESAM's Genie writes these for every beam
+    # in a model, so without the fallback ~30% of solid-beam render
+    # coverage was being silently dropped.
+    cards.GBEAMG,
 ]
-SECTION_CARDS = [cards.GIORH, cards.GBOX]
+SECTION_CARDS = [cards.GIORH, cards.GBOX, cards.GPIPE]
 RESULT_CARDS = [
     cards.RVNODDIS,
     cards.RVSTRESS,
@@ -153,7 +181,10 @@ class SifReader:
             yield data
 
     def get_sections(self) -> dict[int, Section]:
+        import math
+
         from ada import Section
+        from ada.sections.categories import BaseTypes
 
         sec_map: dict[str, cards.DataCard] = {s.name: s for s in SECTION_CARDS}
         td_sect_map = self.get_tdsect_map()
@@ -168,12 +199,60 @@ class SifReader:
                 res = sec_card.get_data_map_from_names(["geono", *keys], s)
                 sec_id = int(float(res["geono"]))
                 prop_map = {ada_n: res[ses_n] for ses_n, ada_n in sm[1]}
+                # GPIPE field 'dy' is the outer DIAMETER; ada Section
+                # TUBULAR stores the outer RADIUS in ``r``. Halve here
+                # rather than wedging arithmetic into SEC_MAP.
+                if sec_name == "GPIPE" and "r" in prop_map:
+                    prop_map["r"] = float(prop_map["r"]) / 2.0
                 sec_tdsect = td_sect_map.get(sec_id)
+                # TDSECT is the named-section card; not every profile
+                # card has one in the wild (observed: GPIPE entries
+                # written by SESAM Genie without a paired TDSECT).
+                # Treat the missing-name case as "anonymous section"
+                # rather than failing the whole bake — the geometry
+                # is still extractable from the profile card.
                 if sec_tdsect is None:
-                    raise ValueError(f"TDSECT is not set for section ID {sec_id}")
-                sec_name = sec_tdsect[-1]
-                sec = Section(name=sec_name, sec_id=sec_id, sec_type=sec_type, **prop_map)
+                    sec_name_str = f"S{sec_id}"
+                else:
+                    sec_name_str = sec_tdsect[-1]
+                sec = Section(name=sec_name_str, sec_id=sec_id, sec_type=sec_type, **prop_map)
                 sections[sec_id] = sec
+
+        # GBEAMG fallback. For sec_ids that only have generic beam
+        # properties (area + Iy/Iz/...) and no profile card, synthesise
+        # a CIRCULAR section with radius matching the area so beam-
+        # as-solid render fills these in instead of dropping them.
+        # The visual is a round bar of the right cross-sectional
+        # area — accurate at-a-glance but doesn't reflect the real
+        # profile shape. Marked as such in ``name`` so users browsing
+        # the tree see it isn't a real profile.
+        gbeamg_rows = self._other.get("GBEAMG", []) or []
+        for s in gbeamg_rows:
+            res = cards.GBEAMG.get_data_map_from_names(
+                ["geono", "area"],
+                s,
+            )
+            try:
+                sec_id = int(float(res["geono"]))
+                area = float(res["area"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if sec_id in sections:
+                continue
+            if not (area > 0):
+                # Zero / negative / NaN — can't back out a radius.
+                # Skip; the beam falls into ``no-section`` and we
+                # surface it in the bake's skip-reasons tally.
+                continue
+            r = math.sqrt(area / math.pi)
+            sec_tdsect = td_sect_map.get(sec_id)
+            sec_name_str = sec_tdsect[-1] if sec_tdsect is not None else f"GBEAMG{sec_id}"
+            sections[sec_id] = Section(
+                name=sec_name_str,
+                sec_id=sec_id,
+                sec_type=BaseTypes.CIRCULAR,
+                r=r,
+            )
 
         return sections
 
@@ -213,8 +292,19 @@ class SifReader:
             res = cards.MISOSEL.get_data_map_from_names(isotropic_keys, mat_data)
             mat_name = mat_map[mat_id]
             prop_map = {ada_n: res[ses_n] for ses_n, ada_n in sm_isotropic}
+            # MISOSEL is generic linear-elastic isotropic — Sesam doesn't
+            # tell us the material is steel. Bucket sig_y against the two
+            # canonical steel grades; if it matches, emit a CarbonSteel
+            # so downstream EC3 / steel-specific helpers light up.
+            # Otherwise (S275 / S460 / S690 / aluminium / anything else),
+            # emit a plain Metal so we don't fabricate a steel grade we
+            # don't know is correct — and so CarbonSteel.GRADES["NA"]
+            # doesn't crash mid-conversion.
             grade = get_grade(prop_map["sig_y"])
-            model = CarbonSteel(grade=grade, **prop_map)
+            if grade in CarbonSteel.GRADES:
+                model = CarbonSteel(grade=grade, **prop_map)
+            else:
+                model = _build_metal(prop_map)
             mat = Material(name=mat_name, mat_id=mat_id, mat_model=model)
             materials[mat_id] = mat
 
@@ -222,8 +312,11 @@ class SifReader:
             res = cards.MORSMEL.get_data_map_from_names(anisotropic_keys, mat_data)
             mat_name = mat_map[mat_id]
             prop_map = {ada_n: res[ses_n] for ses_n, ada_n in sm_anisotropic}
-            grade = get_grade(prop_map["sig_y"])
-            model = CarbonSteel(grade=grade, **prop_map)
+            # MORSMEL is the orthotropic counterpart and carries no
+            # yield stress at all. Calling get_grade() here used to
+            # KeyError on the missing "sig_y" key — emit a plain Metal
+            # with zero sig_y/sig_u (sentinel "unknown yield") instead.
+            model = _build_metal(prop_map)
             mat = Material(name=mat_name, mat_id=mat_id, mat_model=model)
             materials[mat_id] = mat
 
@@ -238,51 +331,124 @@ class SifReader:
     def get_gelref(self):
         return self._gelref1
 
+    # Card-name → DataCard dispatch maps. Built lazily on first
+    # ``eval_flags`` call so the dataclass default-factory dance
+    # stays simple. Replacing the original ``startswith`` chain
+    # (one comparison per card per line × ~15 cards × 1.1M lines)
+    # with O(1) dict lookups is the hot-path win — SIF profiling
+    # showed ``eval_flags`` was 38 s of a 67 s SIF→GLB conversion,
+    # dominated by chained ``str.startswith`` calls on every line.
+    _other_map: dict | None = None
+    _section_map: dict | None = None
+    _result_map: dict | None = None
+
+    def _build_dispatch_maps(self) -> None:
+        self._other_map = {c.name: c for c in OTHER_CARDS}
+        self._section_map = {c.name: c for c in SECTION_CARDS}
+        self._result_map = {c.name: c for c in RESULT_CARDS}
+
     def eval_flags(self, line: str):
+        if self._other_map is None:
+            self._build_dispatch_maps()
+
         stripped = line.strip()
-        is_skipped_flag = False
+        if not stripped:
+            return
 
-        # Nodes
-        if stripped.startswith(cards.GCOORD.name):
+        # Continuation lines (numeric or signed-numeric prefix) don't
+        # carry a card name; they're consumed by the parent
+        # ``iter_card`` call. The first-block elif in the original
+        # used ``isnumeric()`` for this same gate.
+        first = stripped[0]
+        if first.isdigit() or first == "-":
+            return
+
+        # Single tokenisation: take everything up to the first space
+        # as the card name. SIF cards always start at column 0 with
+        # the card name immediately followed by whitespace.
+        space_idx = stripped.find(" ")
+        token = stripped if space_idx < 0 else stripped[:space_idx]
+
+        is_skipped_flag = True  # default; cleared by the GCOORD /
+        # GNODE / GELMNT1 / RESULT_CARDS
+        # branches to match original semantics
+
+        # First-block exclusive cards (Nodes, Elements).
+        if token == cards.GCOORD.name:
             self.nodes = np.array(list(self.read_gcoords(stripped)))
-        elif stripped.startswith(cards.GNODE.name):
+            is_skipped_flag = False
+        elif token == cards.GNODE.name:
             self.node_ids = np.array(list(self.read_gnodes(stripped)))
-
-        # Elements
-        elif stripped.startswith(cards.GELMNT1.name):
+            is_skipped_flag = False
+        elif token == cards.GELMNT1.name:
             self.elements = list(self.read_gelmnts(stripped))
+            is_skipped_flag = False
 
-        elif stripped[0].isnumeric() is False and stripped[0] != "-":
-            is_skipped_flag = True
-
-        # Sections
-        if stripped.startswith(cards.GELREF1.name):
+        # Sections (GELREF1 is independent in the original).
+        if token == cards.GELREF1.name:
             self._gelref1 = list(self.iter_card(cards.GELREF1, self.file, stripped))
 
-        for other_card in OTHER_CARDS:
-            if stripped.startswith(other_card.name):
-                if other_card.name in self._other.keys():
-                    self._other[other_card.name] += list(self.iter_card(other_card, self.file, stripped))
-                else:
-                    self._other[other_card.name] = list(self.iter_card(other_card, self.file, stripped))
+        other_card = self._other_map.get(token)
+        if other_card is not None:
+            new_rows = list(self.iter_card(other_card, self.file, stripped))
+            existing = self._other.get(token)
+            if existing is None:
+                self._other[token] = new_rows
+            else:
+                existing.extend(new_rows)
 
-        for sec_card in SECTION_CARDS:
-            if stripped.startswith(sec_card.name):
-                self._sections[sec_card.name] = list(self.iter_card(sec_card, self.file, stripped))
+        sec_card = self._section_map.get(token)
+        if sec_card is not None:
+            # SIF files emit section cards in non-contiguous blocks —
+            # GIORH records can appear, then a GBEAMG / TDSECT block,
+            # then more GIORH later in the file. Each ``iter_card``
+            # call only consumes the *current* contiguous block, so
+            # we accumulate across encounters rather than overwrite.
+            new_rows = list(self.iter_card(sec_card, self.file, stripped))
+            existing = self._sections.get(token)
+            if existing is None:
+                self._sections[token] = new_rows
+            else:
+                existing.extend(new_rows)
 
-        # if len(self._other) > 0 and self._gelref1 is not None and len(self._sections) > 0:
-        #     self.read_fem_sections()
-
-        # Results
-        for res_card in RESULT_CARDS:
-            if stripped.startswith(res_card.name):
-                self.results.append((res_card.name, list(self.read_results(res_card.name, stripped))))
-                is_skipped_flag = False
+        res_card = self._result_map.get(token)
+        if res_card is not None:
+            rows = list(self.read_results(token, stripped))
+            # SIF result cards (RVNODDIS / RVSTRESS / RVFORCES / etc.)
+            # commonly hold 100k–10M rows. Each row as a Python
+            # ``list[float]`` carries ~136 bytes of list overhead +
+            # 24 bytes per float — ~376 B / row total. A typical
+            # Sesam result file's 1.8 M rows blow that out to
+            # ~675 MB just in list-of-list overhead during parse,
+            # then again in the rebuilt ndarray during conversion.
+            #
+            # Convert to a contiguous float64 ndarray here as soon
+            # as we have all rows, so the per-row lists are
+            # released before the next card runs. Each row drops
+            # from ~376 B to 80 B (one ndarray row), and downstream
+            # consumers iterate / index the same way they did
+            # against list-of-lists.
+            #
+            # Only convert when every row has the same width AND
+            # contains only numeric scalars — some cards (e.g.
+            # those with a trailing name string) are intentionally
+            # heterogeneous and stay as lists.
+            if rows:
+                width = len(rows[0])
+                uniform = all(
+                    isinstance(r, list) and len(r) == width and not any(isinstance(v, str) for v in r) for r in rows
+                )
+                if uniform:
+                    try:
+                        rows = np.asarray(rows, dtype=np.float64)
+                    except (ValueError, TypeError):
+                        pass  # fall back to list-of-lists
+            self.results.append((token, rows))
+            is_skipped_flag = False
 
         if is_skipped_flag:
-            flag = stripped.split()[0]
-            if flag not in self.skipped_flags:
-                self.skipped_flags.append(flag)
+            if token not in self.skipped_flags:
+                self.skipped_flags.append(token)
 
     def iter_card(self, datacard: DataCard, f: Iterator, curr_line: str):
         curr_elements = [float(x) for x in curr_line.split()[1:]]
@@ -386,7 +552,12 @@ class SifReader:
         return {int(x[1]): x for x in res}
 
 
-def read_sif_file(sif_file) -> FEAResult:
+def read_sif_file(sif_file: str | pathlib.Path) -> FEAResult:
+    # Sif2Mesh.convert() calls sif_file.parent to find sibling
+    # SESTRA.MLG / SESTRA.LIS files; coerce here so callers passing a
+    # plain string (e.g. the legacy converter pipeline's
+    # `read_sif_file(str(src_path))`) don't trip an AttributeError.
+    sif_file = pathlib.Path(sif_file)
     with open(sif_file, "r") as f:
         sif = SifReader(f)
         sif.load()
@@ -398,14 +569,37 @@ def read_sif_file(sif_file) -> FEAResult:
 
 
 def read_sin_file(sin_file: str | pathlib.Path, overwrite=False) -> FEAResult:
-    if isinstance(sin_file, str):
-        sin_file = pathlib.Path(sin_file)
-    sif_file = sin_file.with_suffix(".SIF")
+    """Read a Sesam SIN / SIF result file → :class:`FEAResult`.
 
-    if not sif_file.exists() or overwrite:
-        convert_sin_to_sif(sin_file)
+    Despite the name, this is the Sesam-side post-processor entry
+    point (``SesamSetup.default_post_processor``) — ``from_fem_res``
+    funnels both ``.sif`` (text) and ``.sin`` (Norsam binary) here.
 
-    return read_sif_file(sif_file)
+    Routes by extension:
+
+    * ``.sif`` → :func:`read_sif_file` (existing text-parser path).
+    * ``.sin`` → :func:`ada.fem.formats.sesam.results.read_sin.read_sin_file`
+      — pure-Python direct path: SIN bytes → :class:`SinReader` (mirrors
+      SifReader's internal state) → :class:`Sif2Mesh` → FEAResult.
+      No Prepost.exe shell-out, no SIF text intermediate, no .NET
+      dependency. A standalone SIN-to-SIF text path lives in
+      :mod:`sin_to_sif` for debugging / interop only — not on the
+      streaming-bake hot path.
+
+    ``overwrite=True`` (legacy callers) materialises a SIF file next
+    to the SIN and routes through :func:`read_sif_file` for back-compat.
+    """
+    sin_file = pathlib.Path(sin_file)
+    if sin_file.suffix.lower() == ".sif":
+        return read_sif_file(sin_file)
+    if overwrite:
+        from ada.fem.formats.sesam.results.sin_to_sif import convert_sin_to_sif_file
+
+        sif_path = convert_sin_to_sif_file(sin_file)
+        return read_sif_file(sif_path)
+    from ada.fem.formats.sesam.results.read_sin import read_sin_file as _native_read_sin
+
+    return _native_read_sin(sin_file)
 
 
 @dataclass
@@ -459,13 +653,19 @@ class Sif2Mesh:
             FemNodes,
             Mesh,
         )
-        from ada.fem.shapes.definitions import ShapeResolver
+        from ada.fem.shapes.definitions import LineShapes, ShapeResolver
+        from ada.fem.shapes.mesh_types import gmsh_to_meshio_ordering
 
         sif = self.sif
 
         nodes = FemNodes(coords=sif.nodes[:, 1:], identifiers=np.asarray(sif.node_ids[:, 0], dtype=int))
         sorted_elem_data = sorted(sif.elements, key=lambda x: x[0])
         elem_blocks = []
+        # Per-element-type histogram, logged below. Helps diagnose
+        # vis bugs (spiderweb / floating segments) without the source
+        # file — the user can grep the conversion log for the line and
+        # tell us what their model actually contains.
+        eltype_counts: dict[int, int] = {}
         for eltype, elements in groupby(sorted_elem_data, key=lambda x: x[0]):
             elem_type = int(eltype)
             elem_data = list(elements)
@@ -474,10 +674,38 @@ class Sif2Mesh:
             elem_identifiers = np.array([x[1] for x in elem_data], dtype=int)
             elem_node_refs = np.array([x[2][:num_nodes] for x in elem_data], dtype=int)
 
+            # Node-ordering reconciliation. Sesam's BTSS (eltyp 23 →
+            # LINE3) writes the three nodes as (end1, end2, mid) —
+            # the GMSH convention. adapy's ElemShape machinery and
+            # the line_edges table both assume Abaqus ordering
+            # (end1, mid, end2): without the permutation,
+            # ``line_edges[LINE3] = [[0, 2]]`` resolves to "end1 →
+            # mid" and every curved beam visualises as half a
+            # segment, producing the spiderweb effect on ship-FE
+            # models. The same gmsh→meshio permutation is already
+            # codified in mesh_types.gmsh_to_meshio_ordering — reuse
+            # it here rather than hardcoding the indices a second
+            # time.
+            if general_elem_type is LineShapes.LINE3:
+                perm = gmsh_to_meshio_ordering.get(LineShapes.LINE3)
+                if perm is not None:
+                    elem_node_refs = elem_node_refs[:, perm]
+
             elem_info = ElementInfo(type=general_elem_type, source_software=FEATypes.SESAM, source_type=elem_type)
             elem_blocks.append(
                 ElementBlock(elem_info=elem_info, node_refs=elem_node_refs, identifiers=elem_identifiers)
             )
+            eltype_counts[elem_type] = elem_identifiers.size
+
+        if eltype_counts:
+            # INFO so it shows up in the worker logs without needing a
+            # debug-level switch — diagnosing a "spiderweb" vis bug is
+            # part of normal triage for unfamiliar SIF files. Format
+            # tries to be greppable: "sesam-eltype histogram: {...}".
+            summary = ", ".join(
+                f"{etyp}({_SESAM_ELTYPE_LABELS.get(etyp, '?')})={n}" for etyp, n in sorted(eltype_counts.items())
+            )
+            logger.info("sesam-eltype histogram: %s", summary)
 
         sets = self.sif.get_sets()
         sections = self.sif.get_sections()
@@ -530,6 +758,13 @@ class Sif2Mesh:
         nsp_i, eltyp_i = cards.RDPOINTS.get_indices_from_names(["nsp", "ieltyp"])
 
         rdpoints_map = self.sif.get_rdpoints_map()
+        # No element result-point geometry → no per-element force
+        # visualisation we can construct. Some eigen decks ship
+        # RDPOINTS as an empty type-block in every super-element;
+        # the nodal field path still works and is the primary bake
+        # output.
+        if not rdpoints_map:
+            return []
 
         def keyfunc(x):
             iielno = x[ielno_i]
@@ -738,3 +973,29 @@ def get_grade(sig_y, tol=1):
         grade = "NA"
 
     return grade
+
+
+def _build_metal(prop_map: dict) -> "Metal":
+    """Build a plain ``Metal`` from a MISOSEL / MORSMEL prop dict.
+
+    Used when the SIF material doesn't match a canonical steel grade
+    (where we'd promote it to ``CarbonSteel``) or when the source card
+    is orthotropic and carries no yield info at all. ``Metal``
+    requires sig_y / sig_u positionally; for the orthotropic case
+    those aren't on the card, so we fall back to 0.0 — a sentinel
+    meaning "yield unknown" rather than a real value the downstream
+    code should believe.
+    """
+    from ada.materials.metals import Metal
+
+    sig_y = prop_map.get("sig_y", 0.0)
+    sig_u = prop_map.get("sig_u", sig_y)
+    return Metal(
+        E=prop_map["E"],
+        rho=prop_map["rho"],
+        sig_y=sig_y,
+        sig_u=sig_u,
+        v=prop_map["v"],
+        zeta=prop_map["zeta"],
+        alpha=prop_map["alpha"],
+    )

@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "adapy-viewer.fullname" . }}
+  labels: {{- include "adapy-viewer.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - name: http
+      port: {{ .Values.service.port }}
+      targetPort: {{ .Values.service.targetPort }}
+      protocol: TCP
+  selector:
+    {{- include "adapy-viewer.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: api

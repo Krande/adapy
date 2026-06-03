@@ -1,7 +1,7 @@
 // state/modelCache.worker.ts
 import Dexie, {Table} from "dexie";
 import * as Comlink from "comlink";
-import {TreeNodeData} from "../../components/tree_view/CustomNode";
+import {TreeNodeData} from "@/components/tree_view/CustomNode";
 
 export interface ModelData {
     key: string;

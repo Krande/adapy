@@ -2,7 +2,7 @@
 import * as THREE from 'three';
 import {selectedMaterial} from '../default_materials';
 import {buildEdgeGeometryWithRangeIds, makeEdgeShaderMaterial} from './EdgeShaderHelper';
-import {DesignDataExtension, SimulationDataExtensionMetadata} from "../../extensions/design_and_analysis_extension";
+import {DesignDataExtension, SimulationDataExtensionMetadata} from "@/extensions/design_and_analysis_extension";
 
 
 export class CustomBatchedMesh extends THREE.Mesh {
@@ -16,6 +16,25 @@ export class CustomBatchedMesh extends THREE.Mesh {
 
     private selectedRanges = new Set<string>();
     private hiddenRanges = new Set<string>();
+    /** Bumped on every hide/unhide. Lets external consumers (e.g.
+     *  GpuMeshPicker) cheaply detect that they need to re-sync the
+     *  hidden set without exposing its identity. */
+    public hiddenChangeCounter = 0;
+
+    /** Lazy cache of drawRanges sorted by start offset, stored as
+     *  parallel arrays so we walk by index (no per-entry object
+     *  allocation, fewer GC pauses).
+     *
+     *  Both ``updateGroups`` and the GPU picker's hidden-range sync
+     *  need this same sorted view, and FEA meshes can have 48k+
+     *  drawRanges — re-sorting on every hide/select used to dominate
+     *  the hide-click frame. ``drawRanges`` is only mutated at
+     *  construction by the loader, so a one-shot build is safe; the
+     *  cache is invalidated if anyone ever mutates it post-hoc by
+     *  calling ``invalidateSortedSegments``. */
+    private _sortedSegIds?: string[];
+    private _sortedSegStarts?: Uint32Array;
+    private _sortedSegCounts?: Uint32Array;
 
     private edgeMesh?: THREE.LineSegments;
     private rangeIdToIndex?: Map<string, number>;
@@ -69,6 +88,67 @@ export class CustomBatchedMesh extends THREE.Mesh {
         this.updateGroups();
     }
 
+    /** Build (or rebuild) the sorted-segments cache. O(N log N) once.
+     *  Stores parallel typed arrays + a string id array — Uint32 starts
+     *  and counts are ~12 bytes/segment vs. ~64 bytes/segment for the
+     *  object-wrapper layout, so for a 48k-range mesh this is ~600 KB
+     *  rather than ~3 MB. */
+    private buildSortedSegments(): void {
+        const n = this.drawRanges.size;
+        const order = new Array<number>(n);
+        const ids = new Array<string>(n);
+        const starts = new Uint32Array(n);
+        const counts = new Uint32Array(n);
+        let i = 0;
+        for (const [id, [s, c]] of this.drawRanges) {
+            ids[i] = id;
+            starts[i] = s;
+            counts[i] = c;
+            order[i] = i;
+            i++;
+        }
+        // Sort indices into ``order`` rather than zipped objects to
+        // avoid 48k tiny object allocations on big FEA meshes.
+        order.sort((a, b) => starts[a] - starts[b]);
+        const sortedIds = new Array<string>(n);
+        const sortedStarts = new Uint32Array(n);
+        const sortedCounts = new Uint32Array(n);
+        for (let j = 0; j < n; j++) {
+            const k = order[j];
+            sortedIds[j] = ids[k];
+            sortedStarts[j] = starts[k];
+            sortedCounts[j] = counts[k];
+        }
+        this._sortedSegIds = sortedIds;
+        this._sortedSegStarts = sortedStarts;
+        this._sortedSegCounts = sortedCounts;
+    }
+
+    /** Read-only view of drawRanges sorted by start offset. Builds
+     *  the cache on first access. Returned arrays are owned by the
+     *  mesh — do not mutate. */
+    public getSortedSegments(): {
+        ids: ReadonlyArray<string>;
+        starts: Uint32Array;
+        counts: Uint32Array;
+    } {
+        if (!this._sortedSegIds) this.buildSortedSegments();
+        return {
+            ids: this._sortedSegIds!,
+            starts: this._sortedSegStarts!,
+            counts: this._sortedSegCounts!,
+        };
+    }
+
+    /** Drop the cache. Call after any external mutation to
+     *  ``drawRanges`` — the loader currently never does this
+     *  post-construction, but defensive in case that changes. */
+    public invalidateSortedSegments(): void {
+        this._sortedSegIds = undefined;
+        this._sortedSegStarts = undefined;
+        this._sortedSegCounts = undefined;
+    }
+
     private updateGroups() {
         const idxCount = this.geometry.index!.count;
         this.geometry.clearGroups();
@@ -85,20 +165,69 @@ export class CustomBatchedMesh extends THREE.Mesh {
             this._matSelected!,
             this._matInvisible!
         ];
-        const segs = Array.from(this.drawRanges.entries())
-            .map(([id, [s, c]]) => ({id, s, c}))
-            .sort((a, b) => a.s - b.s);
 
+        // THREE renders one draw call PER geometry.group, regardless of
+        // material count. The previous implementation added one group per
+        // drawRange unconditionally — for a Ship1T1.FEM-style mesh with
+        // ~48k selectable elements that's 48k draw calls and ~10 FPS,
+        // even with nothing selected. Coalesce consecutive same-material
+        // ranges into one group: in the common case (nothing selected,
+        // no vertex-colour selection mode) the whole index buffer
+        // collapses to a single draw call. Picking still works because
+        // the ``drawRanges`` Map is the identity-of-element source of
+        // truth (raycast hit → faceIndex → range lookup); THREE's
+        // groups only carry material assignment.
+
+        // Fast path: nothing diverges from the default material. One
+        // group, one draw call. Vertex-colour selection is visualised
+        // via the selection overlay, so it doesn't need per-range
+        // groups either.
+        const hasOverrides =
+            this.hiddenRanges.size > 0 ||
+            (!this._usesVertexColorsFlag && this.selectedRanges.size > 0);
+        if (!hasOverrides) {
+            this.geometry.addGroup(0, idxCount, 0);
+            return;
+        }
+
+        const segs = this.getSortedSegments();
+        const n = segs.ids.length;
+
+        // Walk segments, merging default-material runs (including any
+        // gaps between segments) into a single addGroup at flush time.
+        // Only selected/hidden ranges produce their own groups.
         let cur = 0;
-        for (const {id, s, c} of segs) {
-            if (s > cur) this.geometry.addGroup(cur, s - cur, 0);
-            let mi: 0 | 1 | 2 = 0;
-            if (this.hiddenRanges.has(id)) mi = 2;
-            else if (this.selectedRanges.has(id)) mi = (this._usesVertexColorsFlag ? 0 : 1);
-            this.geometry.addGroup(s, c, mi);
+        let runStart: number | null = null;
+        const flushRun = (end: number) => {
+            if (runStart !== null && end > runStart) {
+                this.geometry.addGroup(runStart, end - runStart, 0);
+            }
+            runStart = null;
+        };
+
+        for (let i = 0; i < n; i++) {
+            const id = segs.ids[i];
+            const s = segs.starts[i];
+            const c = segs.counts[i];
+            if (s > cur && runStart === null) {
+                runStart = cur;
+            }
+            const mi: 0 | 1 | 2 = this.hiddenRanges.has(id)
+                ? 2
+                : this.selectedRanges.has(id)
+                    ? (this._usesVertexColorsFlag ? 0 : 1)
+                    : 0;
+            if (mi === 0) {
+                if (runStart === null) runStart = s;
+            } else {
+                flushRun(s);
+                this.geometry.addGroup(s, c, mi);
+            }
             cur = s + c;
         }
-        if (cur < idxCount) this.geometry.addGroup(cur, idxCount - cur, 0);
+        // Trailing default region or open run extends to idxCount.
+        if (cur < idxCount && runStart === null) runStart = cur;
+        flushRun(idxCount);
     }
 
     /** call this when you have a renderer and want the overlay in the scene */
@@ -160,6 +289,47 @@ export class CustomBatchedMesh extends THREE.Mesh {
     /** Reapply current selection highlighting on top of base colors */
     public reapplySelectionHighlight(): void {
         this.updateSelectionGroups(Array.from(this.selectedRanges));
+    }
+
+    /** Colour specific draw-ranges (by rangeId) via per-vertex colours.
+     *
+     *  Used by viewer utilities (e.g. diff) to recolour elements in place. Ranges
+     *  not present in ``colorByRangeId`` keep ``baseColor`` (a neutral grey by
+     *  default) so the diff result reads cleanly. Coexists with selection
+     *  highlighting (vertex-colour path); call
+     *  :meth:`disableVertexColorsAndResetMaterial` to reset to the original look.
+     */
+    public setRangeColors(
+        colorByRangeId: Map<string, THREE.Color>,
+        baseColor: THREE.Color = new THREE.Color(0.62, 0.62, 0.62),
+    ): void {
+        const index = this.geometry.index;
+        const pos = this.geometry.getAttribute('position');
+        if (!index || !pos) return;
+        let attr = this.geometry.getAttribute('color') as THREE.BufferAttribute | undefined;
+        if (!attr) {
+            const arr = new Float32Array(pos.count * 3);
+            for (let i = 0; i < pos.count; i++) {
+                arr[i * 3] = baseColor.r;
+                arr[i * 3 + 1] = baseColor.g;
+                arr[i * 3 + 2] = baseColor.b;
+            }
+            attr = new THREE.BufferAttribute(arr, 3);
+            this.geometry.setAttribute('color', attr);
+        }
+        for (const [rangeId, col] of colorByRangeId) {
+            const rng = this.drawRanges.get(rangeId);
+            if (!rng) continue;
+            const [start, count] = rng;
+            for (let j = start; j < start + count; j++) {
+                const vid = index.getX(j);
+                attr.setXYZ(vid, col.r, col.g, col.b);
+            }
+        }
+        attr.needsUpdate = true;
+        this.setBaseColorsFromCurrent();
+        this.updateGroups();
+        this.reapplySelectionHighlight();
     }
 
     /** Disable vertex colors and restore original material behavior for non-vertex-colored mode */
@@ -393,6 +563,7 @@ export class CustomBatchedMesh extends THREE.Mesh {
         for (const id of rangeIds) {
             this.hiddenRanges.add(id);
         }
+        this.hiddenChangeCounter++;
 
         // 2) Rebuild all groups just once
         this.updateGroups();
@@ -400,22 +571,28 @@ export class CustomBatchedMesh extends THREE.Mesh {
         // 3) Update the edge-overlay texture in one shot
         if (this.edgeMaterial && this.rangeIdToIndex) {
             const tex = this.edgeMaterial.uniforms.uVisibleTex.value as THREE.DataTexture;
+            const data = tex.image.data as Uint8Array;
             for (const id of rangeIds) {
                 const idx = this.rangeIdToIndex.get(id);
                 if (idx !== undefined) {
-                    tex.image.data[idx] = 0;
+                    data[idx] = 0;
                 }
             }
             tex.needsUpdate = true;
         }
     }
 
+    public getHiddenRanges(): ReadonlySet<string> {
+        return this.hiddenRanges;
+    }
+
     public unhideAllDrawRanges() {
         this.hiddenRanges.clear();
+        this.hiddenChangeCounter++;
         this.updateGroups();
         if (this.edgeMaterial) {
             const tex = this.edgeMaterial.uniforms.uVisibleTex.value as THREE.DataTexture;
-            tex.image.data.fill(255);
+            (tex.image.data as Uint8Array).fill(255);
             this.edgeMaterial.uniforms.uHighlighted.value = -1;
             tex.needsUpdate = true;
         }
@@ -470,7 +647,7 @@ export class CustomBatchedMesh extends THREE.Mesh {
     private raycastGroup(
         localRay: THREE.Ray,
         raycaster: THREE.Raycaster,
-        group: { start: number; count: number; materialIndex: number },
+        group: { start: number; count: number; materialIndex?: number },
         material: THREE.Material,
         intersects: THREE.Intersection[]
     ): void {
@@ -604,7 +781,7 @@ export class CustomBatchedMesh extends THREE.Mesh {
         a: number,
         b: number,
         c: number,
-        materialIndex: number
+        materialIndex: number | undefined
     ): THREE.Intersection | null {
         const _vA = vA; // use provided morphed vertices
         const _vB = vB;
@@ -637,9 +814,15 @@ export class CustomBatchedMesh extends THREE.Mesh {
         let uv: THREE.Vector2 | undefined;
 
         if (uvAttribute) {
-            const uvA = this._raycast_uvA.fromBufferAttribute(uvAttribute, a);
-            const uvB = this._raycast_uvB.fromBufferAttribute(uvAttribute, b);
-            const uvC = this._raycast_uvC.fromBufferAttribute(uvAttribute, c);
+            // ``geometry.attributes.uv`` is typed as
+            // ``BufferAttribute | InterleavedBufferAttribute``; both have
+            // identical fromBufferAttribute behaviour at runtime, but
+            // Vector2.fromBufferAttribute's signature only declares
+            // ``BufferAttribute``. Cast through to satisfy the typing.
+            const uvAttr = uvAttribute as THREE.BufferAttribute;
+            const uvA = this._raycast_uvA.fromBufferAttribute(uvAttr, a);
+            const uvB = this._raycast_uvB.fromBufferAttribute(uvAttr, b);
+            const uvC = this._raycast_uvC.fromBufferAttribute(uvAttr, c);
 
             // Compute the UV coordinates at the intersection point
             uv = this._uvIntersection(_vA, _vB, _vC, uvA, uvB, uvC, intersectionPoint);
@@ -675,6 +858,10 @@ export class CustomBatchedMesh extends THREE.Mesh {
             this._raycast_barycoord
         );
         const uv = new THREE.Vector2();
+        // getBarycoord returns null when the point is degenerate (zero-
+        // area triangle); fall back to an empty UV in that case rather
+        // than throwing.
+        if (barycoord === null) return uv;
         uvA.multiplyScalar(barycoord.x);
         uvB.multiplyScalar(barycoord.y);
         uvC.multiplyScalar(barycoord.z);

@@ -775,9 +775,6 @@ def intersect_line_circle(line, center, radius, tol=1e-1):
     vec = p2 - p1
     p = []
 
-    for pa, pb in zip(p1 + res[1] * vec, p1 + res[1] * vec):
-        p.append(roundoff((pa + pb) / 2, 5))
-
     # It's not necessarily practical to use a 1mm point tolerance for this. Will increase tol to 3mm for now
     if tol == 1:
         tol = 5
@@ -786,6 +783,15 @@ def intersect_line_circle(line, center, radius, tol=1e-1):
         raise ValueError(f'Line "{line}" does not intersect sphere ({center=}, {radius=}) {abs(ev)=}>{tol=}')
     elif ev > 0.0 and abs(ev) > tol:
         raise ValueError(f'Line "{line}" intersects sphere ({center=}, {radius=}) at multiple points {abs(ev)=}>{tol=}')
+
+    if len(res) < 2:
+        raise ValueError(
+            f'Line "{line}" yielded only {len(res)} real intersection root(s) with sphere '
+            f"({center=}, {radius=}); cannot compute midpoint."
+        )
+
+    for pa, pb in zip(p1 + res[1] * vec, p1 + res[1] * vec):
+        p.append(roundoff((pa + pb) / 2, 5))
 
     return p
 

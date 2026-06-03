@@ -19,9 +19,8 @@ from ada.materials import Material
 from ada.materials.metals import CarbonSteel
 
 if TYPE_CHECKING:
-    from OCC.Core.TopoDS import TopoDS_Compound, TopoDS_Shape, TopoDS_Solid
-
     from ada import Placement
+    from ada.cad import ShapeHandle
 
 _NTYPE: TypeAlias = Union[int, float]
 # Define coordinate types
@@ -127,7 +126,7 @@ class Plate(BackendGeom):
 
         return get_shell_occ(self)
 
-    def solid_occ(self) -> TopoDS_Solid:
+    def solid_occ(self) -> ShapeHandle:
         from ada.occ.geom.cache import get_solid_occ
 
         return get_solid_occ(self)
@@ -330,11 +329,86 @@ class Plate(BackendGeom):
 
 
 class PlateCurved(BackendGeom):
+    """Plate built on a non-planar face (typically a B-spline patch).
+
+    Used by readers that surface a curved surface — the gxml importer
+    for advanced SAT faces, and the loft tool for ruled corner-
+    transition surfaces between sharp and rounded profiles. Carries
+    the underlying :class:`~ada.geom.Geometry` directly; rendering
+    paths convert it via :func:`ada.occ.geom.geom_to_occ_geom` and the
+    GLB tessellator's PlateCurved branch.
+
+    Quacks like :class:`Plate` for the parts of the Part-attachment
+    contract that ``add_plate`` exercises: exposes ``nodes`` (derived
+    from the face's outer wire), accepts a same-value ``units``
+    re-assignment, and inherits ``change_type`` from
+    :class:`Root`. Cross-unit conversion isn't implemented yet — set
+    the right units before constructing the plate.
+    """
+
     def __init__(self, name, face_geom: Geometry, t: float, mat: str | Material = "S420", **kwargs):
         super().__init__(name, **kwargs)
         self._geom = face_geom
         self._material = mat if isinstance(mat, Material) else Material(mat, mat_model=CarbonSteel(mat), parent=self)
+        self._material.refs.append(self)
         self._t = t
+        self._nodes_cache: list[Node] | None = None
+        self._bbox = None
+        self._hash = None
+        # Optional raw-OCC-face override; populated by
+        # :meth:`from_occ_face` when the plate was constructed straight
+        # from a TopoDS_Face (e.g. the loft tool's corner-transition
+        # B-spline surfaces). When set, the OCC-bound methods bypass
+        # the Geometry → OCC conversion entirely.
+        self._occ_face_override = None
+
+    @classmethod
+    def from_occ_face(cls, name: str, occ_face, t: float, mat: str | Material = "S420", **kwargs) -> "PlateCurved":
+        """Construct a PlateCurved from a raw OCC ``TopoDS_Face``.
+
+        Bypasses the :class:`~ada.geom.Geometry` →
+        :class:`~ada.geom.surfaces.AdvancedFace` round-trip that the
+        regular ``__init__`` path relies on. The loft tool uses this
+        when it already has the OCC face from
+        ``BRepOffsetAPI_ThruSections`` — going via AdvancedFace would
+        only re-decode the same surface back into OCC, and the
+        ``occ_face_to_ada_face`` → ``make_face_from_geom`` round-trip
+        currently has a bounds-structure mismatch (the STEP reader
+        emits raw curve types as ``AdvancedFace.bounds`` while the
+        OCC builder expects ``FaceBound`` wrappers around
+        ``EdgeLoop``s).
+
+        Behaviour: ``solid_occ`` returns the wrapped face directly;
+        ``extruded_solid_occ`` extrudes it along its normal; ``nodes``
+        walks the face's outer wire. The ``geom`` / ``solid_geom``
+        accessors return ``None`` — callers that need an adapy
+        ``Geometry`` must use the ``__init__`` constructor instead.
+        """
+        instance = cls.__new__(cls)
+        BackendGeom.__init__(instance, name, **kwargs)
+        instance._geom = None
+        instance._material = (
+            mat if isinstance(mat, Material) else Material(mat, mat_model=CarbonSteel(mat), parent=instance)
+        )
+        instance._material.refs.append(instance)
+        instance._t = t
+        instance._nodes_cache = None
+        instance._bbox = None
+        instance._hash = None
+        instance._occ_face_override = occ_face
+        return instance
+
+    def __hash__(self):
+        if self._hash is None:
+            self._hash = hash(self.guid)
+        return self._hash
+
+    def __eq__(self, other) -> bool:
+        if self is other:
+            return True
+        if not isinstance(other, PlateCurved):
+            return NotImplemented
+        return self.guid == other.guid
 
     @property
     def t(self) -> float:
@@ -352,10 +426,189 @@ class PlateCurved(BackendGeom):
     def geom(self) -> Geometry:
         return self._geom
 
+    @property
+    def units(self) -> Units:
+        return self._units
+
+    @units.setter
+    def units(self, value: Units | str):
+        # Cross-unit scaling on the wrapped AdvancedFace / BSpline data
+        # isn't implemented (would need to rescale every control point
+        # in the geometry tree); for now accept a no-op same-value
+        # assignment so ``Part.add_plate`` works, and reject any actual
+        # unit change with a clear message.
+        if isinstance(value, str):
+            value = Units.from_str(value)
+        if value == self._units:
+            return
+        raise NotImplementedError(
+            f"PlateCurved {self.name!r}: cross-unit conversion not "
+            f"implemented ({self._units!r} -> {value!r}). Construct "
+            f"the plate in the target units instead."
+        )
+
+    @property
+    def nodes(self) -> list[Node]:
+        """Boundary nodes from the outer wire of the wrapped face.
+
+        ``Part.add_plate`` registers these into the parent Part's
+        node container so the curved plate participates in node-based
+        lookups (selection, FEM mesh anchors) the same way a planar
+        ``Plate.nodes`` would. Cached on first access; the underlying
+        geometry isn't expected to mutate post-construction.
+
+        Falls back to an empty list when the geometry can't be
+        converted to an OCC face — the gxml importer flags some
+        advanced faces with a flat-fallback path, and we'd rather
+        let the plate attach with zero boundary nodes than blow up
+        the caller.
+        """
+        if self._nodes_cache is not None:
+            return self._nodes_cache
+        try:
+            from ada.api.nodes import Node
+            from ada.cad import active_backend
+            from ada.cad.inspect import boundary_points
+
+            shape = self._occ_face_override
+            if shape is None:
+                shape = active_backend().build(self.solid_geom())
+            nodes = [Node(p) for p in boundary_points(shape)]
+        except Exception:
+            nodes = []
+        self._nodes_cache = nodes
+        return nodes
+
+    def bbox(self) -> BoundingBox:
+        if self._bbox is None:
+            self._bbox = BoundingBox(self)
+        return self._bbox
+
     def solid_geom(self) -> Geometry:
         return self.geom
 
-    def solid_occ(self) -> TopoDS_Shape | TopoDS_Compound:
-        from ada.occ.geom import geom_to_occ_geom
+    def solid_occ(self) -> ShapeHandle:
+        if self._occ_face_override is not None:
+            return self._occ_face_override
+        from ada.cad import active_backend
 
-        return geom_to_occ_geom(self.solid_geom())
+        return active_backend().build(self.solid_geom())
+
+    def extruded_solid_occ(self) -> ShapeHandle:
+        """Prism-extrude the curved face by ``t`` along its normal so
+        the rendered plate carries thickness like a planar
+        ``Plate.from_3d_points`` does.
+
+        Returns a backend ``ShapeHandle`` (Solid) ready for the tessellator.
+        Falls back to the bare face shape on any prism failure so the caller
+        still gets *something* to render.
+        """
+        # t=0 (SurfaceCurved): the "extruded" representation is just the bare
+        # face — return the exact solid_occ() object so callers relying on the
+        # short-circuit identity hold under any backend.
+        if not self.t:
+            return self.solid_occ()
+        try:
+            from ada.cad import active_backend
+
+            backend = active_backend()
+            face = self._occ_face_override if self._occ_face_override is not None else backend.build(self.solid_geom())
+            return backend.extrude_face_along_normal(face, self.t)
+        except Exception:
+            # Conversion failures (gxml flat-fallback faces, malformed
+            # control-net data) — defer to ``solid_occ`` so the caller
+            # at least sees the underlying face.
+            return self.solid_occ()
+
+
+class Surface(Plate):
+    """Planar surface — :class:`Plate` without thickness.
+
+    Same geometry contract as Plate (planar polygon bounded by a
+    ``CurvePoly2d``) but rendered as a 2D face rather than an
+    extruded prism. Useful for visualisation-only output or for
+    pipelines that supply thickness separately (FEM shell elements
+    where the thickness lives on the section, not the geometry).
+
+    Subclasses Plate so every Plate-dispatching consumer (the GLB
+    tessellator, IFC writer, ``Part.add_plate``, BoundingBox) picks
+    it up automatically. ``solid_occ`` is overridden to return the
+    planar face shape instead of attempting a zero-thickness prism
+    extrusion (which would otherwise crash in
+    ``BRepPrimAPI_MakePrism``).
+    """
+
+    def __init__(
+        self,
+        name: str,
+        points: CurvePoly2d | CoordinateSequence,
+        mat: str | Material = "S420",
+        origin: Iterable | Point = None,
+        xdir: Iterable | Direction = None,
+        normal: Iterable | Direction = None,
+        orientation: Placement = None,
+        pl_id=None,
+        tol=None,
+        **kwargs,
+    ):
+        super().__init__(
+            name,
+            points,
+            t=0.0,
+            mat=mat,
+            origin=origin,
+            xdir=xdir,
+            normal=normal,
+            orientation=orientation,
+            pl_id=pl_id,
+            tol=tol,
+            **kwargs,
+        )
+
+    @staticmethod
+    def from_3d_points(
+        name, points, mat="S420", xdir=None, color=None, metadata=None, flip_normal=False, **kwargs
+    ) -> Surface:
+        poly = CurvePoly2d.from_3d_points(points, xdir=xdir, flip_n=flip_normal, **kwargs)
+        return Surface(name, poly, mat=mat, color=color, metadata=metadata, **kwargs)
+
+    def solid_occ(self) -> ShapeHandle:
+        # Override the extrusion-based path on Plate; a Surface has no
+        # thickness so the "solid" representation is simply the
+        # bounded face. Reuses the existing shell builder.
+        return self.shell_occ()
+
+    def solid_geom(self) -> Geometry:
+        # Same idea for the geometry side: emit the bounded planar
+        # face (CurveBoundedPlane) rather than an ExtrudedAreaSolid
+        # with zero depth.
+        return self.shell_geom()
+
+
+class SurfaceCurved(PlateCurved):
+    """Non-planar surface — :class:`PlateCurved` without thickness.
+
+    Same underlying B-spline / advanced face data as PlateCurved but
+    rendered as a 2D face. The PlateCurved render path already
+    short-circuits to the bare face when ``t == 0`` (in
+    ``extruded_solid_occ``), so subclassing with a forced zero
+    thickness is the entire change.
+    """
+
+    def __init__(
+        self,
+        name: str,
+        face_geom: Geometry,
+        mat: str | Material = "S420",
+        **kwargs,
+    ):
+        super().__init__(name, face_geom, t=0.0, mat=mat, **kwargs)
+
+    @classmethod
+    def from_occ_face(cls, name: str, occ_face, mat: str | Material = "S420", **kwargs) -> SurfaceCurved:
+        """Construct a thickness-less curved surface from a raw OCC face.
+
+        Mirrors :meth:`PlateCurved.from_occ_face` but pins thickness to
+        zero so downstream rendering emits the bare face.
+        """
+        return super().from_occ_face(name, occ_face, t=0.0, mat=mat, **kwargs)

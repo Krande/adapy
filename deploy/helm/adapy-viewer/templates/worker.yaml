@@ -1,0 +1,19 @@
+{{- /*
+Base worker pool Deployment. Renders only when
+``.Values.worker.enabled`` is true.
+
+Extra pools (capacity / capability variants) live in worker-extras.yaml.
+The body is duplicated rather than DRY'd through a range / helper —
+both attempted shapes hit corner-case rendering bugs in helm v3 /
+argocd's renderer where one pool would silently drop out of the
+output. Explicit per-file beats clever every time on a config we
+can't comprehensively test.
+*/ -}}
+{{- if .Values.worker.enabled -}}
+{{- include "adapy-viewer.workerDeployment" (dict
+    "ctx"        .
+    "w"          .Values.worker
+    "name"       (include "adapy-viewer.workerFullname" .)
+    "component"  "worker"
+) }}
+{{- end }}

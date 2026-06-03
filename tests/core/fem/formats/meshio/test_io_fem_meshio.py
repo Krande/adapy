@@ -1,4 +1,10 @@
+import pytest
+
 import ada
+
+# meshio is now an optional bridge dep — skip the whole module when
+# the meshio-bridge extras aren't installed.
+pytest.importorskip("meshio")
 
 
 def test_read_write_code_aster_to_xdmf(example_files, tmp_path):

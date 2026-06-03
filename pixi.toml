@@ -1,0 +1,257 @@
+[workspace]
+channels = ["conda-forge"]
+platforms = ["win-64", "linux-64", "osx-64"]
+
+[feature.lint.tasks]
+lint = "black . --config pyproject.toml && ruff check . --fix && isort ."
+flat = { cmd = "python src/flatbuffers/update_flatbuffers.py && pixi run lint", cwd = "./" }
+
+json-code-gen-py = { cmd = [
+    "datamodel-codegen",
+    "--input", "src/gltf_extension_schema",
+    "--input-file-type", "jsonschema",
+    "--output", "src/ada/extension",
+    "--output-model-type", "pydantic_v2.BaseModel"], cwd = "./" }
+
+[feature.docs.tasks]
+docs = { cmd = "cd docs && sphinx-build -b html -v -D nbsphinx_execute=auto . _build/html", depends-on = ["fea-doc"], env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+serve = { cmd = "python docs/main.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" }, depends-on = ["docs"] }
+fea-doc = { cmd = "python -m paradoc.cli_app build verification --no-cache", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src", "ADAPY_VERIFICATION_REGEN_ASSETS" = "1" } }
+fea-doc-cached = { cmd = "python -m paradoc.cli_app build verification", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+fea-doc-inspect = { cmd = "python -m paradoc.cli_app build verification --inspect --no-compile", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+serve-fea = { cmd = "python -m http.server 8765 --bind 127.0.0.1 --directory docs/_static/fea-report" }
+
+[feature.tests.tasks]
+# `--with-deps` omitted on purpose — it shells out to `sudo apt` and
+# breaks in non-interactive shells. Run `pixi run -e tests playwright
+# install-deps chromium` once by hand if a test reports a missing lib.
+pre-install = { cmd = "mkdir -p $PIXI_PROJECT_ROOT/.temp && playwright install chromium && touch $PIXI_PROJECT_ROOT/.temp/playwright-browsers.stamp", outputs = [".temp/playwright-browsers.stamp"] }
+
+test = { cmd = "pytest tests --ignore=tests/profiling --ignore=tests/fem --ignore=tests/comms/rest --durations=0", depends-on = ["pre-install"], env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+test-core = { cmd = "pytest tests/core --durations=0", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+test-full = { cmd = "pytest tests/full --durations=0", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+test-cov = { cmd = "pytest tests --ignore=tests/profiling --ignore=tests/fem --ignore=tests/comms/rest --cov=src/ada --cov-report=html --cov-report=term --durations=0", depends-on = ["pre-install"], env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+
+# CAD-backend abstraction regression gate (dap plan/v3). bench-cad-save
+# captures a baseline before Phase 1; bench-cad-compare re-runs after and
+# fails on a >10% mean regression. Baselines live in .benchmarks/.
+bench-cad = { cmd = "pytest tests/profiling/test_cad_backend_bench.py --benchmark-only -q", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+bench-cad-save = { cmd = "pytest tests/profiling/test_cad_backend_bench.py --benchmark-only --benchmark-save=phase0 -q", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+bench-cad-compare = { cmd = "pytest tests/profiling/test_cad_backend_bench.py --benchmark-only --benchmark-compare --benchmark-compare-fail=mean:10% -q", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+
+[feature.fem.tasks]
+test-all = { cmd = "pytest tests --ignore=tests/comms/rest --durations=0", depends-on = ["pre-install"], env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+test-fem = { cmd = "pytest tests/fem --durations=0", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+test-basic-fem = { cmd = "python basic_fem.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" }, cwd = "examples" }
+test-fem-viz = { cmd = "pytest tests/fem/visualization --durations=0", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+
+print-paths = { cmd = "python -c \"import sys, os; print('\\n'.join(sys.path + os.environ.get('PYTHONPATH', '').split(os.pathsep)))\"" }
+
+[feature.frontend.tasks]
+npm = { cmd = "npm", cwd = "./src/frontend" }
+winstall = { cmd = "npm install", cwd = "./src/frontend", outputs = ["$PIXI_PROJECT_ROOT/src/frontend/node_modules"] }
+wdev = { cmd = "npm run dev", cwd = "./src/frontend", depends-on = ["winstall"] }
+wbuild = { cmd = "npm run build", cwd = "./src/frontend", depends-on = ["winstall"] }
+fdepcheck = { cmd = "depcheck", cwd = "./src/frontend", depends-on = ["winstall"] }
+
+json-code-gen-ts = { cmd = [
+    "npx", "--yes", "-p", "json-schema-to-typescript", "json2ts",
+    "--input","design_and_analysis_extension.schema.json",
+    "--output","$PIXI_PROJECT_ROOT/src/frontend/src/extensions/design_and_analysis_extension.d.ts"], depends-on = ["json-code-gen-py"], env = { "npm_config_cache" = "$PIXI_PROJECT_ROOT/temp/npm_config" }, cwd="src/gltf_extension_schema/" }
+
+[feature.profile.tasks]
+benchmark-profile = { cmd = "python scripts/benchmark_profile.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+scalene = { cmd = "scalene --json -m pytest ./tests/profiling --outfile=profile.json", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+cprofile = { cmd = "python -m cProfile -o profile.prof -m pytest ./tests/profiling", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+pyprofile = { cmd = "pyinstrument -m pytest ./tests/profiling", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+pyprofile-all = { cmd = "pyinstrument -m pytest ./tests", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+pyprofile-html = { cmd = "pyinstrument -r html -o profile_profiling_tests.html -m pytest ./tests/profiling", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+pyprofile-html-all = { cmd = "pyinstrument -r html -o profile_all_tests.html -m pytest ./tests", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+
+[environments]
+prod = { features = ["prod", "pyocc", "desktop"], solve-group = "prod", no-default-feature = true }
+lint = { features = ["lint"], no-default-feature = true }
+profile = { features = ["profile", "prod", "pyocc", "desktop"], solve-group = "prod", no-default-feature = true }
+frontend = { features = ["frontend"], no-default-feature = true }
+jupyterlite = { features = ["jupyterlite"], no-default-feature = true }
+tests-core = { features = ["tests-core"], no-default-feature = true }
+test-pyodide = { features = ["test-pyodide"], no-default-feature = true }
+tests = { features = ["tests", "tests-core", "prod", "pyocc", "desktop"], solve-group = "prod", no-default-feature = true }
+# Same as `tests` but swaps the pythonocc CAD backend (`pyocc`) for the
+# native ada-cpp backend (`adacpp`), which sets ADAPY_CAD_BACKEND=adacpp.
+# Own solve-group: ada-cpp's occt closure must not be forced onto the
+# pythonocc-pinned `prod` group. Run with: pixi run -e tests-adacpp test
+tests-adacpp = { features = ["adacpp", "tests", "tests-core", "prod", "desktop"], solve-group = "adacpp", no-default-feature = true }
+fem-deps = { features = ["fem-deps", "prod", "pyocc", "tests-core"], no-default-feature = true }
+fem = { features = ["fem", "prod", "pyocc", "desktop", "tests-core", "fem-deps"], no-default-feature = true }
+docs = { features = ["docs", "prod", "pyocc", "desktop", "fem-deps", "tests-core"], no-default-feature = true }
+viewer-api = { features = ["viewer-api", "prod", "pyocc"], solve-group = "prod", no-default-feature = true }
+# Slim runtime for the Dockerfile.viewer image — no `prod` so the
+# occt/pythonocc/numpy closure stays out.
+viewer-api-slim = { features = ["viewer-api"], no-default-feature = true }
+viewer-api-tests = { features = ["viewer-api", "tests-core", "prod", "pyocc"], solve-group = "prod", no-default-feature = true }
+meshio-bridge = { features = ["meshio-bridge", "prod", "pyocc", "desktop"], solve-group = "prod", no-default-feature = true }
+meshio-bridge-tests = { features = ["meshio-bridge", "tests-core", "prod", "pyocc", "desktop"], solve-group = "prod", no-default-feature = true }
+
+[feature.jupyterlite.dependencies]
+jupyterlite-core = "*"
+
+[feature.meshio-bridge.dependencies]
+meshio = "*"
+
+# pythonocc-core CAD backend (OccBackend). Factored out of `prod` so a
+# single environment can swap it for the `adacpp` feature — see
+# `tests-adacpp` below. Every environment that historically got the OCC
+# backend via `prod` now lists `pyocc` explicitly.
+# novtk: default occt builds link VTK + X libs we don't render through.
+# pythonocc-core's build string must match occt's or the solver picks the
+# vtk-enabled occt. Pinned to 7.9.3 to share the exact OCCT version with
+# ada-cpp (which links the same conda-forge occt) — identical TopoDS ABI
+# makes the from_topods_pointer bridge between the two backends safe.
+# See dap plan/v3 Phase 7.
+[feature.pyocc.dependencies]
+pythonocc-core = { version = "7.9.3.*", build = "novtk_*" }
+occt = { version = "7.9.3.*", build = "novtk_*" }
+
+# ada-cpp CAD backend (AdacppBackend) — native CPython build of the
+# wasm-capable kernel. Brings its own occt 7.9.3 + gmsh + ifcopenshell,
+# and deliberately does NOT pull pythonocc-core, so an environment with
+# `adacpp` and without `pyocc` exercises adacpp as the sole CAD backend
+# (no pythonocc fallback by design).
+[feature.adacpp.dependencies]
+ada-cpp = "0.4.1.*"
+
+[feature.adacpp.activation.env]
+ADAPY_CAD_BACKEND = "adacpp"
+
+[feature.prod.dependencies]
+python = "3.12.*"
+bcf-client = "*"
+numpy = "*"
+hdf5 = "*"
+h5py = "*"
+ifcopenshell = "*"
+python-gmsh = "*"
+pyquaternion = "*"
+trimesh = "*"
+websockets = ">=14"
+pyparsing = "*"
+flatbuffers = "*"
+python-flatbuffers = "*"
+lark = "*"
+pillow = "*"
+pydantic = "*"
+
+# Notebook / rendering / static-export deps. Held separate from `prod`
+# so the slim viewer-api / worker images don't ship the
+# pygfx→wgpu→imgui→libopencv→ffmpeg closure (~260 MiB).
+[feature.desktop.dependencies]
+notebook = "*"
+ipywidgets = "*"
+jupyterlab = "*"
+plotly = "*"
+python-kaleido = ">=1.0.0"
+pygfx = ">=0.16"
+# pygfx 0.16 needs wgpu ≥ 0.21 (no more `wgpu.gui.offscreen`) and
+# rendercanvas ≥ 2.0 for our offscreen path.
+wgpu-py = ">=0.31"
+rendercanvas = ">=2.6"
+glfw = "==3.4"
+pyglfw = "*"
+send2trash = "*"
+
+[feature.prod.target.win-64.activation.env]
+PYTHONPATH="%PIXI_PROJECT_ROOT%/src"
+
+[feature.fem-deps]
+channels = ["conda-forge"]
+[feature.fem]
+channels = ["conda-forge"]
+[feature.docs]
+channels = ["conda-forge"]
+
+[feature.fem-deps.dependencies]
+calculix = "*"
+
+[feature.fem-deps.target.linux-64.dependencies]
+code-aster = ">=17.3.16"
+
+[feature.tests-core.dependencies]
+pytest = "*"
+pytest-benchmark = "*"
+pytest-asyncio = "*"
+pytest-timeout = "*"
+pytest-cov = "*"
+paradoc = ">=0.6.0"
+python-dotenv = "*"
+watchdog = "*"
+
+[feature.profile.dependencies]
+pytest = "*"
+pytest-benchmark = "*"
+pytest-asyncio = "*"
+pyinstrument = "*"
+
+# Editable installs
+[feature.tests.pypi-dependencies]
+pytest-playwright = "*"
+
+[feature.lint.dependencies]
+black = "==24.4.2"
+isort = "==5.13.2"
+ruff = "==0.12.8"
+
+flatbuffers = "==25.2.10"
+python-flatbuffers = "==25.2.10"
+datamodel-code-generator = "==0.30.1"
+
+[feature.docs.dependencies]
+sphinx = "*"
+furo = "*"
+myst-parser = "*"
+nbsphinx = "*"
+scipy = "*"
+fastapi = "*"  # For the API docs
+pandas = "*"
+
+[feature.viewer-api.dependencies]
+fastapi = "*"
+uvicorn = "*"
+obstore = "*"
+nats-py = "*"
+pydantic = "*"
+python-flatbuffers = "*"
+pyjwt = "*"
+cryptography = "*"
+httpx = "*"
+asyncpg = "*"
+psutil = "*"
+croniter = "*"
+
+[feature.viewer-api.tasks]
+viewer-api = { cmd = "python -m ada.comms.rest", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+viewer-worker = { cmd = "python -m ada.comms.rest.worker", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+test-rest = { cmd = "pytest tests/comms/rest --durations=0", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+audit-fetch = { cmd = "python scripts/audit_fetch.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+audit-repro = { cmd = "python scripts/audit_repro.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+viewer-upload = { cmd = "python scripts/viewer_upload.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+glb-face-classify = { cmd = "python scripts/glb_face_classify.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+
+[feature.frontend.dependencies]
+nodejs = "*"
+flatbuffers = "==25.2.10"
+
+[feature.test-pyodide.dependencies]
+nodejs = "*"
+
+[feature.test-pyodide.tasks]
+install-pyodide = { cmd = "npm install", cwd = "tools/pyodide-test", outputs = ["tools/pyodide-test/node_modules"] }
+test-pyodide-cad = { cmd = "node test_pyodide_cad.js", cwd = "tools/pyodide-test", depends-on = ["install-pyodide"] }
+
+[dependencies]
+pixi-pycharm = ">=0.0.8,<0.0.9"
+
+[feature.jupyterlite.tasks]
+jl-init = { cmd = "jupyter lite init", cwd = "./src/jupyterlite" }
+jl-build = { cmd = "jupyter lite build --output-dir=dist", cwd = "./src/jupyterlite" }
+jl-serve = { cmd = "jupyter lite serve --output-dir=dist --port=8899", cwd = "./src/jupyterlite" }

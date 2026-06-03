@@ -2,10 +2,9 @@ from __future__ import annotations
 
 import os
 import pathlib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Callable, Iterable, Literal
 
-import meshio
 import numpy as np
 
 from ada.comms.fb_wrap_model_gen import FilePurposeDC
@@ -13,7 +12,7 @@ from ada.config import logger
 from ada.core.guid import create_guid
 from ada.fem.formats.general import FEATypes
 from ada.fem.results.field_data import ElementFieldData, NodalFieldData, NodalFieldType
-from ada.fem.shapes.definitions import LineShapes, MassTypes, ShellShapes, SolidShapes
+from ada.fem.shapes.definitions import LineShapes, ShellShapes, SolidShapes
 from ada.visit.gltf.graph import GraphNode, GraphStore
 from ada.visit.gltf.meshes import GroupReference, MergedMesh, MeshType
 from ada.visit.render_params import FEARenderParams, RenderParams
@@ -25,6 +24,47 @@ if TYPE_CHECKING:
     from ada.fem import Elem, FemSet
     from ada.fem.results.concepts import EigenDataSummary
     from ada.visit.colors import Color
+
+
+@dataclass
+class CellBlockData:
+    """A block of cells (elements) of one type. Native equivalent of meshio.CellBlock.
+
+    ``cell_type`` carries the canonical meshio-style type name
+    ('hexahedron', 'tetra10', 'triangle', etc.) so existing
+    consumers of cell-type strings keep working.
+
+    ``identifiers`` is the per-element label array as it appears in
+    the source FEA file (RMED ``MAI/<type>/NUM``, SIF/FRD element
+    ids, etc.). ``None`` means the source didn't carry labels —
+    consumers fall back to a 0-based positional index. Length must
+    equal ``data.shape[0]`` when not ``None``.
+    """
+
+    cell_type: str
+    data: np.ndarray  # (n_cells, n_nodes_per_cell), node indices
+    identifiers: np.ndarray | None = None  # (n_cells,) source-file element labels
+
+    # Match meshio.CellBlock's older positional-attr name so that
+    # sites using `cell_block.type` keep reading without churn.
+    @property
+    def type(self) -> str:
+        return self.cell_type
+
+
+@dataclass
+class MeshData:
+    """A FEA result mesh in canonical form. Native equivalent of meshio.Mesh.
+
+    Holds vertex coords, cell connectivity in per-type blocks, and
+    per-step result fields keyed by name. Per meshio convention,
+    ``cell_data`` values are lists with one entry per cell block.
+    """
+
+    points: np.ndarray  # (n_points, 3)
+    cells: list[CellBlockData] = field(default_factory=list)
+    point_data: dict[str, np.ndarray] = field(default_factory=dict)
+    cell_data: dict[str, list[np.ndarray]] = field(default_factory=dict)
 
 
 @dataclass
@@ -152,14 +192,18 @@ class Mesh:
         faces = []
         for cell_block in self.elements:
             el_type = cell_block.elem_info.type
+            # Mass elements (point + nonstructural) don't contribute to
+            # vis. Skip at the block level so ElemShape construction
+            # never sees node-ref arrays bundled by an elset (e.g.
+            # *Nonstructural Mass) which would fail the 1-node check.
+            if isinstance(el_type, shape_def.MassTypes):
+                continue
 
             nodes_copy = cell_block.node_refs.copy()
             nodes_copy[np.isin(nodes_copy, keys)] = np.vectorize(nmap.get)(nodes_copy[np.isin(nodes_copy, keys)])
 
             for elem in nodes_copy:
                 elem_shape = ElemShape(el_type, elem)
-                if elem_shape.type in (MassTypes.MASS,):
-                    continue
                 try:
                     edges += elem_shape.edges
                 except IndexError as e:
@@ -223,6 +267,9 @@ class Mesh:
 
         for cell_block in self.elements:
             el_type = cell_block.elem_info.type
+            # Mass elements don't contribute to vis — see note above.
+            if isinstance(el_type, shape_def.MassTypes):
+                continue
 
             nodes_copy = cell_block.node_refs.copy()
             nodes_copy[np.isin(nodes_copy, keys)] = np.vectorize(nmap.get)(nodes_copy[np.isin(nodes_copy, keys)])
@@ -234,8 +281,6 @@ class Mesh:
             for elem_ref, elem in enumerate(nodes_copy, start=0):
                 elem_id = el_idmap[elem_ref]
                 elem_shape = ElemShape(el_type, elem)
-                if elem_shape.type in (MassTypes.MASS,):
-                    continue
 
                 new_edges = elem_shape.edges
                 edges += new_edges
@@ -419,16 +464,6 @@ class FEAResult:
 
         return field_data.get_all_values()
 
-    def _get_cell_blocks(self):
-        cells = []
-        for cb in self.mesh.elements:
-            cell_type = cb.elem_info.type.value.lower()
-            ncopy = cb.node_refs.copy()
-            for i, v in enumerate(self.mesh.nodes.identifiers):
-                ncopy[np.where(ncopy == v)] = i
-            cells += [meshio.CellBlock(cell_type=cell_type, data=ncopy)]
-        return cells
-
     def _get_point_and_cell_data(self) -> tuple[dict, dict]:
         from .field_data import ElementFieldData, NodalFieldData
 
@@ -458,7 +493,13 @@ class FEAResult:
 
         data = self.get_data(field, step)
         vertex_colors = DataColorizer.colorize_data(data, func=colorize_function)
-        return np.array([[i * 255 for i in x] + [1] for x in vertex_colors], dtype=np.int32)
+        # Append alpha = 255 (fully opaque). The earlier `+ [1]` looked
+        # like "opaque" in float space but lands as 1/255 ≈ 0 once GLB
+        # readers normalise uint8 VEC4 colours — which is what made
+        # pygfx posters render the middle of every FEA beam as white
+        # while Three.js' opaque material happened to ignore the
+        # bogus alpha and got away with it.
+        return np.array([[i * 255 for i in x] + [255] for x in vertex_colors], dtype=np.int32)
 
     def _warp_data(self, vertices: np.ndarray, field: str, step, scale: float = 1.0):
         data = self.get_data(field, step)
@@ -466,38 +507,12 @@ class FEAResult:
         result = vertices + data[:, :3] * scale
         return result
 
-    def to_meshio_mesh(self, make_3xn_dofs=True) -> meshio.Mesh:
-        cells = self._get_cell_blocks()
-        cell_data, point_data = self._get_point_and_cell_data()
-
-        mesh = meshio.Mesh(points=self.mesh.nodes.coords, cells=cells, cell_data=cell_data, point_data=point_data)
-
-        # RMED has 6xN DOF's vertex vectors, but VTU has 3xN DOF's vectors
-        if make_3xn_dofs:
-            new_fields = {}
-            for key, field in mesh.point_data.items():
-                if field.shape[1] == 6:
-                    new_fields[key] = np.array_split(field, 2, axis=1)[0]
-                else:
-                    new_fields[key] = field
-
-            mesh.point_data = new_fields
-
-        return mesh
-
     def to_vtu(self, filepath, make_3xn_dofs=True):
         from ada.fem.formats.vtu.write import write_to_vtu_file
 
         cell_data, point_data = self._get_point_and_cell_data()
 
         write_to_vtu_file(self.mesh.nodes, self.mesh.elements, point_data, cell_data, filepath)
-
-    def to_fem_file(self, fem_file: str | pathlib.Path):
-        if isinstance(fem_file, str):
-            fem_file = pathlib.Path(fem_file)
-
-        mesh = self.to_meshio_mesh()
-        mesh.write(fem_file)
 
     def to_trimesh(
         self, step: int, field: str, warp_field: str = None, warp_step: int = None, warp_scale: float = None, cfunc=None

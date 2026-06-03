@@ -9,6 +9,8 @@ from ada.geom.surfaces import HalfSpaceSolid, Plane
 
 
 def apply_geom_booleans(geom: TopoDS_Shape, booleans: list[BooleanOperation]) -> TopoDS_Shape:
+    # OCC-internal: part of the pythonocc construction funnel (geom_to_occ_geom),
+    # so it applies booleans with OCC directly rather than the active backend.
     from ada.occ.geom import geom_to_occ_geom
 
     for boolean in booleans:
@@ -41,12 +43,13 @@ def apply_geom_booleans(geom: TopoDS_Shape, booleans: list[BooleanOperation]) ->
             geom = BRepAlgoAPI_Cut(geom, half_space).Shape()
 
             continue
+        operand = geom_to_occ_geom(boolean.second_operand)
         if boolean.operator == BoolOpEnum.DIFFERENCE:
-            geom = BRepAlgoAPI_Cut(geom, geom_to_occ_geom(boolean.second_operand)).Shape()
+            geom = BRepAlgoAPI_Cut(geom, operand).Shape()
         elif boolean.operator == BoolOpEnum.UNION:
-            geom = BRepAlgoAPI_Fuse(geom, geom_to_occ_geom(boolean.second_operand)).Shape()
+            geom = BRepAlgoAPI_Fuse(geom, operand).Shape()
         elif boolean.operator == BoolOpEnum.INTERSECTION:
-            geom = BRepAlgoAPI_Common(geom, geom_to_occ_geom(boolean.second_operand)).Shape()
+            geom = BRepAlgoAPI_Common(geom, operand).Shape()
         else:
             raise NotImplementedError(f"Boolean operation {boolean.operator} not implemented")
 

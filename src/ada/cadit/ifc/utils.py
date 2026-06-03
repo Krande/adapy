@@ -135,6 +135,8 @@ def create_local_placement(f: ifcopenshell.file, origin=ifco.O, loc_z=ifco.Z, lo
 
 
 def assembly_to_ifc_file(a: "Assembly"):
+    import types
+
     schema = a.metadata["schema"]
     f = ifcopenshell.api.run("project.create_file", version=schema)
     project = ifcopenshell.api.run("root.create_entity", f, ifc_class="IfcProject", name=a.metadata["project"])
@@ -159,8 +161,15 @@ def assembly_to_ifc_file(a: "Assembly"):
     ifcopenshell.api.run(
         "context.add_context", f, context_type="Model", context_identifier="Body", target_view="MODEL_VIEW"
     )
-    f.wrapped_data.header.file_name.author = ("AdaUser",)
-    f.wrapped_data.header.file_name.organization = ("AdaOrg",)
+    header = f.wrapped_data.header
+    if isinstance(header, types.MethodType):
+        # ifcopenshell >= 0.8.4 made header a method; wrap it with file_header
+        from ifcopenshell.file import file_header
+
+        header = file_header(f, f.wrapped_data.header())
+
+    header.file_name.author = ("AdaUser",)
+
     return f
 
 
@@ -666,8 +675,31 @@ def scale_ifc_file(current_ifc, new_ifc):
         return new_file
 
 
+def _serialize_occ_shape(shape) -> str:
+    """Wrap ``ifcopenshell.geom.occ_utils.serialize_shape`` so the
+    pythonocc signature drift doesn't crash the whole IFC write.
+
+    Upstream's ``serialize_shape`` does
+    ``ss.Add(shape); ss.WriteToString()`` (no shape arg). The
+    OCC build we run against has ``BRepTools_ShapeSet.WriteToString``
+    as ``(self, shape)`` — so the unparameterised call raises
+    ``TypeError: missing 1 required positional argument: 'shape'``.
+    Fall back to calling ``WriteToString(shape)`` directly when
+    that happens; semantically equivalent for a single-shape set.
+    """
+    try:
+        return ifcopenshell.geom.occ_utils.serialize_shape(shape)
+    except TypeError as exc:
+        if "WriteToString" not in str(exc):
+            raise
+        # ShapeSet fallback lives in ada.occ so this module carries no OCC import.
+        from ada.occ.utils import serialize_shape_via_shapeset
+
+        return serialize_shape_via_shapeset(shape)
+
+
 def tesselate_shape(shape, schema, tol):
-    occ_string = ifcopenshell.geom.occ_utils.serialize_shape(shape)
+    occ_string = _serialize_occ_shape(shape)
     serialized_geom = ifcopenshell.geom.serialise(schema, occ_string)
 
     if serialized_geom is None:

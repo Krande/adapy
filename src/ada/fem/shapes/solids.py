@@ -39,93 +39,96 @@
 
 from ada.fem.shapes.definitions import SolidShapes
 
+# 12 physical edges of a hex; only corner nodes, so the same list
+# works for HEX8 / HEX20 / HEX27. Going through mid-side nodes
+# (HEX20's 24-segment trace) drew two visible segments per physical
+# edge whenever the midnode bowed out or sat slightly off-midpoint,
+# which looked like "extra lines on every O2 element" in the viewer.
+# Straight corner-to-corner matches the shell-O2 treatment in
+# shells.py.
+_HEX_CORNER_EDGES = [
+    (0, 1),
+    (1, 2),
+    (2, 3),
+    (3, 0),  # bottom face
+    (4, 5),
+    (5, 6),
+    (6, 7),
+    (7, 4),  # top face
+    (0, 4),
+    (1, 5),
+    (2, 6),
+    (3, 7),  # vertical
+]
+
+# 9 physical edges of a wedge — 3 bottom triangle, 3 top triangle,
+# 3 vertical. Reused for WEDGE15.
+_WEDGE_CORNER_EDGES = [
+    (0, 1),
+    (1, 2),
+    (2, 0),  # bottom triangle
+    (3, 4),
+    (4, 5),
+    (5, 3),  # top triangle
+    (0, 3),
+    (1, 4),
+    (2, 5),  # vertical
+]
+
+# 6 physical edges of a tet — reused for TETRA10.
+_TETRA_CORNER_EDGES = [(0, 1), (1, 3), (3, 0), (0, 2), (2, 3), (1, 2)]
+
+# 8 physical edges of a square pyramid — reused for PYRAMID13.
+_PYRAMID_CORNER_EDGES = [(0, 1), (1, 2), (2, 3), (3, 0), (0, 4), (1, 4), (2, 4), (3, 4)]
+
 solid_edges = {
-    SolidShapes.HEX8: [
-        [0, 1],
-        [1, 2],
-        [2, 3],
-        [3, 0],
-        [0, 4],
-        [4, 7],
-        [7, 3],
-        [3, 0],
-        [4, 5],
-        [5, 6],
-        [6, 7],
-        [1, 5],
-        [2, 6],
-    ],
-    SolidShapes.HEX20: [
-        (0, 8),
-        (8, 1),
-        (1, 17),
-        (17, 5),
-        (5, 12),
-        (12, 4),
-        (4, 15),
-        (15, 7),
-        (0, 11),
-        (11, 3),
-        (1, 9),
-        (9, 2),
-        (2, 18),
-        (18, 6),
-        (6, 14),
-        (14, 7),
-        (3, 19),
-        (19, 7),
-        (2, 10),
-        (10, 3),
-        (5, 13),
-        (13, 6),
-        (0, 16),
-        (16, 4),
-    ],
-    SolidShapes.TETRA: [(0, 1), (1, 3), (3, 0), (0, 2), (2, 3), (1, 2)],
-    SolidShapes.TETRA10: [
-        (0, 7),
-        (7, 3),
-        (3, 8),
-        (8, 1),
-        (1, 4),
-        (4, 0),
-        (0, 6),
-        (6, 2),
-        (2, 5),
-        (5, 1),
-        (3, 9),
-        (9, 2),
-    ],
-    SolidShapes.PYRAMID5: [(0, 1), (1, 2), (2, 3), (3, 0), (0, 4), (1, 4), (2, 4), (3, 4)],
-    SolidShapes.WEDGE: [(0, 1), (1, 2), (2, 0), (0, 3), (3, 5), (5, 4), (4, 3), (3, 0), (5, 2), (4, 1)],
+    SolidShapes.HEX8: _HEX_CORNER_EDGES,
+    SolidShapes.HEX20: _HEX_CORNER_EDGES,
+    SolidShapes.HEX27: _HEX_CORNER_EDGES,
+    SolidShapes.TETRA: _TETRA_CORNER_EDGES,
+    SolidShapes.TETRA10: _TETRA_CORNER_EDGES,
+    SolidShapes.PYRAMID5: _PYRAMID_CORNER_EDGES,
+    SolidShapes.PYRAMID13: _PYRAMID_CORNER_EDGES,
+    SolidShapes.WEDGE: _WEDGE_CORNER_EDGES,
+    SolidShapes.WEDGE15: _WEDGE_CORNER_EDGES,
 }
 
+# Higher-order solids reuse their first-order corner topology for
+# faces. Mid-side and centre nodes are ignored for visualization —
+# the bake's straight-edge wireframe + corner-triangulated faces
+# match what users expect to see (and what the underlying first-
+# order viz mesh shows). Without WEDGE15 / PYRAMID13 / PYRAMID5
+# entries, any of those elements crashed ``get_faces()`` or were
+# silently dropped — one missing wedge at a hex/tet transition
+# corner was enough to leave a hole at the top flange in the
+# audit-#5256 CalculiX O2 mesh.
+_HEX_CORNER_FACES = [
+    [0, 1, 2, 3],
+    [4, 5, 6, 7],
+    [0, 1, 5, 4],
+    [1, 2, 6, 5],
+    [2, 3, 7, 6],
+    [0, 3, 7, 4],
+]
+_TETRA_CORNER_FACES = [(0, 1, 2), (0, 3, 1), (1, 3, 2), (2, 3, 0)]
+_WEDGE_CORNER_FACES = [(0, 1, 2), (0, 2, 5), (0, 5, 3), (3, 4, 5), (0, 1, 4), (0, 4, 3)]
+# Square-base pyramid: one quad base + four triangular sides.
+_PYRAMID_CORNER_FACES = [
+    [0, 1, 2, 3],
+    (0, 1, 4),
+    (1, 2, 4),
+    (2, 3, 4),
+    (3, 0, 4),
+]
+
 solid_faces = {
-    SolidShapes.HEX8: [
-        [0, 1, 2, 3],
-        [4, 5, 6, 7],
-        [0, 1, 5, 4],
-        [1, 2, 6, 5],
-        [2, 3, 7, 6],
-        [0, 3, 7, 4],
-    ],
-    SolidShapes.HEX20: [
-        [0, 1, 2, 3],
-        [4, 5, 6, 7],
-        [0, 1, 5, 4],
-        [1, 2, 6, 5],
-        [2, 3, 7, 6],
-        [0, 3, 7, 4],
-    ],
-    SolidShapes.HEX27: [
-        [0, 1, 2, 3],
-        [4, 5, 6, 7],
-        [0, 1, 5, 4],
-        [1, 2, 6, 5],
-        [2, 3, 7, 6],
-        [0, 3, 7, 4],
-    ],
-    SolidShapes.TETRA: [(0, 1, 2), (0, 3, 1), (1, 3, 2), (2, 3, 0)],
-    SolidShapes.TETRA10: [(0, 1, 2), (0, 3, 1), (1, 3, 2), (2, 3, 0)],
-    SolidShapes.WEDGE: [(0, 1, 2), (0, 2, 5), (0, 5, 3), (3, 4, 5), (0, 1, 4), (0, 4, 3)],
+    SolidShapes.HEX8: _HEX_CORNER_FACES,
+    SolidShapes.HEX20: _HEX_CORNER_FACES,
+    SolidShapes.HEX27: _HEX_CORNER_FACES,
+    SolidShapes.TETRA: _TETRA_CORNER_FACES,
+    SolidShapes.TETRA10: _TETRA_CORNER_FACES,
+    SolidShapes.PYRAMID5: _PYRAMID_CORNER_FACES,
+    SolidShapes.PYRAMID13: _PYRAMID_CORNER_FACES,
+    SolidShapes.WEDGE: _WEDGE_CORNER_FACES,
+    SolidShapes.WEDGE15: _WEDGE_CORNER_FACES,
 }

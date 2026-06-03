@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-from OCC.Core.TopoDS import TopoDS_Shape
-
 from ada.api.curves import CurvePoly2d
 from ada.api.primitives.base import Shape
 from ada.base.units import Units
+from ada.cad import ShapeHandle
 from ada.config import Config
 from ada.geom import Geometry
 from ada.geom.booleans import BooleanOperation
@@ -66,10 +65,10 @@ class PrimRevolve(Shape):
         """Revolve angle in degrees"""
         return self._revolve_angle
 
-    def solid_occ(self) -> TopoDS_Shape:
-        from ada.occ.geom import geom_to_occ_geom
+    def solid_occ(self) -> ShapeHandle:
+        from ada.occ.geom.cache import get_solid_occ
 
-        return geom_to_occ_geom(self.solid_geom())
+        return get_solid_occ(self)
 
     def solid_geom(self) -> Geometry:
         from ada.geom.placement import Axis1Placement, Axis2Placement3D

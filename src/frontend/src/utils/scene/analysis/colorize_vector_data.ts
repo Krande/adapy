@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import {useColorStore} from "../../../state/colorLegendStore";
-import {CustomBatchedMesh} from "../../mesh_select/CustomBatchedMesh";
+import {useColorStore} from "@/state/colorLegendStore";
+import {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
 
 type Vector = number[];
 type Matrix = Vector[];
