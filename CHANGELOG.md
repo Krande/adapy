@@ -2,6 +2,27 @@
 
 
 
+## v0.9.0 (2026-06-03)
+
+### Chore
+
+* chore: consume adacpp-published wasm base; drop local OCCT compile + FEA CI (#192)
+
+Co-authored-by: Claude Opus 4.8 (1M context) &lt;noreply@anthropic.com&gt; ([`da7aebb`](https://github.com/Krande/adapy/commit/da7aebb631fcdd5414c8af646307ed0fe7020eba))
+
+* chore: bump the dependencies group across 1 directory with 6 updates (#191)
+
+Signed-off-by: dependabot[bot] &lt;support@github.com&gt;
+Co-authored-by: dependabot[bot] &lt;49699333+dependabot[bot]@users.noreply.github.com&gt;
+Co-authored-by: Kristoffer Andersen &lt;kristoffer_andersen@outlook.com&gt; ([`f9b5c62`](https://github.com/Krande/adapy/commit/f9b5c62ede529a1fbeaef8fdc34bbf098102b2c4))
+
+### Feature
+
+* feat: FEM 2nd-order element topology, Calculix FRD element-drop fix + effective modal mass (#193)
+
+Co-authored-by: Claude Opus 4.8 (1M context) &lt;noreply@anthropic.com&gt; ([`3eec771`](https://github.com/Krande/adapy/commit/3eec7711d02a1871798c1f0e0d91f03006c3bd79))
+
+
 ## v0.8.0 (2026-06-03)
 
 ### Feature
