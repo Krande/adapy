@@ -43,7 +43,14 @@ class OCCStore:
         render_override: dict[str, GeomRepr] = None,
     ) -> tuple[BackendGeom, TopoDS_Shape]:
 
-        from ada.occ.step.store import StepStore
+        # StepStore lives behind the OCC kernel; under a pure-adacpp env (no
+        # pythonocc) it is unimportable. It is only needed for the
+        # ``isinstance(part, StepStore)`` branch below — the per-object handle
+        # path is backend-neutral — so degrade gracefully when OCC is absent.
+        try:
+            from ada.occ.step.store import StepStore
+        except ImportError:
+            StepStore = None
 
         if render_override is None:
             render_override = {}
@@ -106,7 +113,7 @@ class OCCStore:
 
             return occ_geom
 
-        if isinstance(part, StepStore):
+        if StepStore is not None and isinstance(part, StepStore):
             for shape in part.iter_all_shapes(include_colors=True):
                 yield shape
 
