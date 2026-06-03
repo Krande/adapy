@@ -26,6 +26,18 @@ jobs:
           environments: docs
           cache: true
 
+      # The `docs` task chains `fea-doc`, which renders the FEA
+      # verification posters offscreen via wgpu/pygfx. A bare runner has
+      # no graphics adapter, so wgpu can't init a device and
+      # `bake_with_posters` swallows the failure — the published docs
+      # then ship without poster images. mesa-vulkan-drivers provides the
+      # lavapipe software Vulkan adapter (reports as "llvmpipe … via
+      # Vulkan") and libvulkan1 the loader; together they're the minimal
+      # closure for the pygfx offscreen backend (matches the Vulkan deps
+      # baked into deploy/Dockerfile.docs).
+      - name: Install offscreen render deps (wgpu software Vulkan)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends mesa-vulkan-drivers libvulkan1
+
       - name: Build Documentation
         run: pixi run docs
 

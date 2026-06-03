@@ -6,10 +6,14 @@ name: Publish images
 # publish-image.yaml pattern).
 #
 # Images:
-#   adapy-adacpp-wasm-base  deploy/Dockerfile.adacpp-wasm  (OCCT→wasm wheel)
-#   adapy-viewer            deploy/Dockerfile.viewer       (FROM the wasm base)
+#   adapy-viewer            deploy/Dockerfile.viewer       (FROM the adacpp wasm base)
 #   adapy-worker            deploy/Dockerfile.worker
 #   adapy-docs              deploy/Dockerfile.docs
+#
+# The OCCT→wasm wheel is no longer cross-compiled here. adacpp publishes its
+# own reusable base image on tag (ghcr.io/krande/adacpp-wasm-base:<ver>, wheel
+# + manifest under /out/); the viewer build FROMs it via the ADACPP_WASM_BASE
+# build-arg below. Bump that pin when adopting a newer adacpp release.
 #
 # We only push on tag: a tag push `v1.2.3` publishes :1.2.3, :1.2, :latest and
 # :sha-<short> for every image. workflow_dispatch is available for manual
@@ -28,55 +32,16 @@ permissions:
   contents: read
   packages: write
 
+# The prebuilt adacpp pyodide wasm base the viewer FROMs. Published by adacpp's
+# own publish-wasm-base workflow on tag (wheel + manifest under /out/). Pinned
+# to a release so viewer builds are reproducible — bump on adacpp adoption.
+# NOTE: this is a cross-repo ghcr package; it must be public (or grant the
+# adapy repo read access) for the GITHUB_TOKEN pull below to resolve it.
+env:
+  ADACPP_WASM_BASE: ghcr.io/krande/adacpp-wasm-base:0.4.2
+
 jobs:
-  # OCCT cross-compiled to a pyodide wasm wheel. Pinned to a tagged adacpp
-  # release via the Dockerfile's ADACPP_REF default. The viewer FROMs this,
-  # so it builds first and exports the resolved image reference.
-  adacpp-wasm:
-    runs-on: ubuntu-latest
-    outputs:
-      base_image: ${{ steps.ref.outputs.base_image }}
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: docker/setup-buildx-action@v4
-
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Compute image tags + labels
-        id: meta
-        uses: docker/metadata-action@v6
-        with:
-          images: ghcr.io/${{ github.repository }}-adacpp-wasm-base
-          tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=sha,prefix=sha-
-
-      - name: Resolve base image reference for the viewer build
-        id: ref
-        run: |
-          repo=$(printf '%s' "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
-          echo "base_image=ghcr.io/${repo}-adacpp-wasm-base:${{ steps.meta.outputs.version }}" >> "$GITHUB_OUTPUT"
-
-      - name: Build and push
-        uses: docker/build-push-action@v7
-        with:
-          context: .
-          file: ./deploy/Dockerfile.adacpp-wasm
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=adacpp-wasm
-          cache-to: type=gha,mode=max,scope=adacpp-wasm
-
   viewer:
-    needs: adacpp-wasm
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -110,7 +75,7 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             IMAGE_TAG=${{ steps.meta.outputs.version }}
-            ADACPP_BASE_IMAGE=${{ needs.adacpp-wasm.outputs.base_image }}
+            ADACPP_BASE_IMAGE=${{ env.ADACPP_WASM_BASE }}
           cache-from: type=gha,scope=viewer
           cache-to: type=gha,mode=max,scope=viewer
 
