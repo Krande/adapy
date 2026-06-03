@@ -664,5 +664,116 @@
         "duration": 2.4774253820000003
       }
     ]
+  },
+  {
+    "commit": "3eec7711d02a1871798c1f0e0d91f03006c3bd79",
+    "commit_short": "3eec771",
+    "message": "feat: FEM 2nd-order element topology, Calculix FRD element-drop fix + effective modal mass (#193)",
+    "author": "Kristoffer Andersen",
+    "date": "2026-06-03T16:37:02+02:00",
+    "total_duration": 133.9972,
+    "total_calls": 733657,
+    "stats": [
+      {
+        "function": "<built-in method builtins.exec> (~:0)",
+        "calls": 1974,
+        "duration": 24.408986631
+      },
+      {
+        "function": "<module> (<string>:1)",
+        "calls": 1,
+        "duration": 24.40894287
+      },
+      {
+        "function": "to_ifc (src/ada/api/spatial/assembly.py:220)",
+        "calls": 5,
+        "duration": 7.921265195
+      },
+      {
+        "function": "sync (src/ada/cadit/ifc/store.py:124)",
+        "calls": 5,
+        "duration": 7.790528930000001
+      },
+      {
+        "function": "sync_added_physical_objects (src/ada/cadit/ifc/write/write_ifc.py:92)",
+        "calls": 5,
+        "duration": 7.756703245000001
+      },
+      {
+        "function": "add (src/ada/cadit/ifc/write/write_ifc.py:465)",
+        "calls": 2200,
+        "duration": 7.6827396750000005
+      },
+      {
+        "function": "test_build_big_ifc_pipe (tests/profiling/test_ifc_creation.py:48)",
+        "calls": 1,
+        "duration": 7.58602545
+      },
+      {
+        "function": "__truediv__ (src/ada/api/spatial/part.py:1545)",
+        "calls": 8,
+        "duration": 4.9197105830000005
+      },
+      {
+        "function": "test_bench_batch_tessellate (tests/profiling/test_cad_backend_bench.py:63)",
+        "calls": 1,
+        "duration": 4.254624344000001
+      },
+      {
+        "function": "add_object (src/ada/api/spatial/part.py:309)",
+        "calls": 1201,
+        "duration": 3.9422576080000002
+      },
+      {
+        "function": "add_pipe (src/ada/api/spatial/part.py:164)",
+        "calls": 200,
+        "duration": 3.9247958030000003
+      },
+      {
+        "function": "run (tests/profiling/test_cad_backend_bench.py:73)",
+        "calls": 6,
+        "duration": 3.8403892020000003
+      },
+      {
+        "function": "batch_tessellate (src/ada/occ/tessellating.py:243)",
+        "calls": 1446,
+        "duration": 3.839187726
+      },
+      {
+        "function": "write_ifc_pipe (src/ada/cadit/ifc/write/write_pipe.py:23)",
+        "calls": 200,
+        "duration": 3.59156588
+      },
+      {
+        "function": "add_section (src/ada/api/spatial/part.py:294)",
+        "calls": 801,
+        "duration": 3.3045137390000003
+      },
+      {
+        "function": "add (src/ada/api/containers/sections.py:139)",
+        "calls": 805,
+        "duration": 3.300284726
+      },
+      {
+        "function": "write_pipe_segment (src/ada/cadit/ifc/write/write_pipe.py:44)",
+        "calls": 600,
+        "duration": 3.16166194
+      },
+      {
+        "function": "equal_props (src/ada/sections/concept.py:92)",
+        "calls": 241399,
+        "duration": 3.080165453
+      },
+      {
+        "function": "unique_props (src/ada/sections/concept.py:99)",
+        "calls": 482798,
+        "duration": 2.7605355940000003
+      },
+      {
+        "function": "test_build_big_ifc_beams (tests/profiling/test_ifc_creation.py:6)",
+        "calls": 1,
+        "duration": 2.522309041
+      }
+    ]
   }
 ]
