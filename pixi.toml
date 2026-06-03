@@ -161,10 +161,6 @@ glfw = "==3.4"
 pyglfw = "*"
 send2trash = "*"
 
-[feature.prod.target.win-64.dependencies]
-# pycharm-launched interpreters can't see llvm-openmp from pixi shell.
-intel-openmp = "*"
-
 [feature.prod.target.win-64.activation.env]
 PYTHONPATH="%PIXI_PROJECT_ROOT%/src"
 
@@ -174,7 +170,6 @@ channels = ["conda-forge"]
 channels = ["conda-forge"]
 [feature.docs]
 channels = ["conda-forge"]
-
 
 [feature.fem-deps.dependencies]
 calculix = "*"

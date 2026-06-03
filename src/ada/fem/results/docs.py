@@ -353,16 +353,16 @@ def to_paradoc_rows(
     base = pathlib.Path(base_dir)
     mesh_sha = hashlib.sha256(assets.mesh_glb_path.read_bytes()).hexdigest()
     mesh_size = assets.mesh_glb_path.stat().st_size
-    rel_glb = str(assets.mesh_glb_path.relative_to(base))
+    rel_glb = assets.mesh_glb_path.relative_to(base).as_posix()
 
     rows: list[ThreeDData] = []
 
     canonical_metadata: dict = {
-        "fea_bundle_dir": str(assets.bundle_dir.relative_to(base)),
-        "fea_manifest_path": str(assets.manifest_path.relative_to(base)),
+        "fea_bundle_dir": assets.bundle_dir.relative_to(base).as_posix(),
+        "fea_manifest_path": assets.manifest_path.relative_to(base).as_posix(),
     }
     if assets.canonical_poster_path and assets.canonical_poster_path.is_file():
-        canonical_metadata["image_path"] = str(assets.canonical_poster_path.relative_to(base))
+        canonical_metadata["image_path"] = assets.canonical_poster_path.relative_to(base).as_posix()
     rows.append(
         ThreeDData(
             key=assets.key,
@@ -384,7 +384,7 @@ def to_paradoc_rows(
             "fea_mode_index": mode_idx,
         }
         if poster.is_file():
-            metadata["image_path"] = str(poster.relative_to(base))
+            metadata["image_path"] = poster.relative_to(base).as_posix()
         mode_n = mode_idx + 1
         rows.append(
             ThreeDData(
@@ -862,7 +862,7 @@ def register_paradoc_block_sugar(dispatcher: Any) -> None:
             # canonical mesh GLB is shared across all per-mode rows —
             # the embed picks the right mode via ``fea_mode_index`` in
             # metadata.
-            mesh_glb_rel = str(assets.mesh_glb_path.relative_to(self.bundle_root))
+            mesh_glb_rel = assets.mesh_glb_path.relative_to(self.bundle_root).as_posix()
             mesh_sha = hashlib.sha256(assets.mesh_glb_path.read_bytes()).hexdigest()
             mesh_size = assets.mesh_glb_path.stat().st_size
 
@@ -871,7 +871,7 @@ def register_paradoc_block_sugar(dispatcher: Any) -> None:
                 poster = assets.poster_paths[mode_idx]
                 if not poster.is_file():
                     continue
-                png_rel = str(poster.relative_to(self.bundle_root))
+                png_rel = poster.relative_to(self.bundle_root).as_posix()
                 mode_n = mode_idx + 1
                 results.append(
                     RenderResult(
@@ -887,7 +887,7 @@ def register_paradoc_block_sugar(dispatcher: Any) -> None:
                             "image_path": png_rel,
                             "fea_bundle_key": key,
                             "fea_mode_index": mode_idx,
-                            "fea_manifest_path": str(assets.manifest_path.relative_to(self.bundle_root)),
+                            "fea_manifest_path": assets.manifest_path.relative_to(self.bundle_root).as_posix(),
                         },
                     )
                 )
