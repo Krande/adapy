@@ -1,0 +1,38 @@
+# syntax=docker/dockerfile:1.7
+#
+# Fast docs rebuild. When a push changes only the doc/report sources
+# (src/ada/**, docs/**, verification/**) — not pixi.toml/lock,
+# pyproject.toml or the docs Dockerfile — the CI workflow builds this
+# instead of Dockerfile.docs. It FROMs the prebuilt `docs-env` base (the
+# apt GUI/Vulkan closure + solved `docs` pixi env, published by the full
+# build as `<docs-image>:branch-<ref>-env`) and re-runs only fea-doc +
+# sphinx, skipping the ~140s apt install and the ~500 MB env solve.
+#
+# DOCS_ENV_IMAGE is that base ref; the workflow falls back to the full
+# Dockerfile.docs when it doesn't exist yet (first build on a branch) or
+# when an env/Dockerfile input changed. The builder stage below mirrors
+# Dockerfile.docs's builder stage exactly — keep them in sync.
+ARG DOCS_ENV_IMAGE
+FROM ${DOCS_ENV_IMAGE} AS builder
+ARG ADA_DOCS_RELEASE=""
+ARG ADA_DOCS_DATE=""
+ENV ADA_DOCS_RELEASE=$ADA_DOCS_RELEASE \
+    ADA_DOCS_DATE=$ADA_DOCS_DATE
+# WORKDIR (/work/adapy) is inherited from docs-env.
+COPY src/ ./src/
+COPY docs/ ./docs/
+COPY verification/ ./verification/
+
+RUN --mount=type=cache,target=/root/.cache/rattler,sharing=locked \
+    --mount=type=cache,target=/work/adapy/docs/_build/doctrees,sharing=locked \
+    pixi run --environment docs docs
+
+FROM nginxinc/nginx-unprivileged:1.27-alpine
+ARG IMAGE_TAG
+LABEL org.opencontainers.image.title="ada-docs" \
+      org.opencontainers.image.version="${IMAGE_TAG}"
+
+COPY deploy/nginx-docs.conf /etc/nginx/conf.d/default.conf
+COPY --from=builder /work/adapy/docs/_build/html/ /usr/share/nginx/html/
+
+EXPOSE 8080
