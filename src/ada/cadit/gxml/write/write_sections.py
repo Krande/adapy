@@ -26,6 +26,8 @@ def get_section_props(section: Section) -> ET.Element | None:
         return to_gxml_channel_section(section)
     elif section.type == section.TYPES.FLATBAR:
         return to_gxml_bar_section(section)
+    elif section.type == section.TYPES.GENERAL:
+        return to_gxml_general_section(section)
     else:
         logger.error(f"The profile type {section.type} is not yet supported for Genie XML export")
         return None
@@ -40,8 +42,13 @@ def add_sections(root: ET.Element, part: Part):
     root.append(sections_elem)
 
     for section in part.sections:
-        section_elem = ET.SubElement(sections_elem, "section", {"name": section.name, "description": ""})
         section_props = get_section_props(section)
+        if section_props is None:
+            # Unsupported section type (already logged by get_section_props).
+            # Skip it rather than appending None — a single unsupported
+            # section must not abort the whole export with a TypeError.
+            continue
+        section_elem = ET.SubElement(sections_elem, "section", {"name": section.name, "description": ""})
         section_elem.append(section_props)
 
     tapered_sections: list[tuple[Section, Section]] = []
@@ -53,6 +60,12 @@ def add_sections(root: ET.Element, part: Part):
             tapered_sections.append(profile_tup)
 
     for profile1, profile2 in tapered_sections:
+        sec1_props = get_section_props(profile1)
+        sec2_props = get_section_props(profile2)
+        if sec1_props is None or sec2_props is None:
+            # Either end uses an unsupported section type (already logged).
+            # Skip the tapered pair rather than aborting the export.
+            continue
         section_elem = ET.SubElement(
             sections_elem, "section", {"name": f"{profile1.name}_{profile2.name}", "description": ""}
         )
@@ -61,10 +74,8 @@ def add_sections(root: ET.Element, part: Part):
             "tapered_section",
             dict(fabrication="unknown", sfy="1", sfz="1", general_properties_method="computed"),
         )
-        sec1_props = get_section_props(profile1)
         section1 = ET.SubElement(tapered_section, "section1")
         section1.append(sec1_props)
-        sec2_props = get_section_props(profile2)
         section2 = ET.SubElement(tapered_section, "section2")
         section2.append(sec2_props)
 
@@ -181,5 +192,46 @@ def to_gxml_bar_section(section: Section) -> ET.Element:
             sfy="1",
             sfz="1",
             general_properties_method="computed",
+        ),
+    )
+
+
+def to_gxml_general_section(section: Section) -> ET.Element | None:
+    # Numeric (GENERAL) section — no named profile shape, just explicit
+    # cross-section properties (Sesam GBEAMG, IFC general profiles, …).
+    # Emit a Genie ``<general_section>`` carrying exactly the attributes
+    # the gxml reader (read_sections.general_section) parses back, so the
+    # section round-trips. ``general_properties_method="explicit"`` tells
+    # Genie to use the given numbers rather than recomputing from geometry
+    # (there is none).
+    gp = section.properties
+    if gp is None:
+        logger.error(f"GENERAL section {section.name!r} has no properties; skipping Genie XML export")
+        return None
+
+    def _v(value, default=0.0) -> str:
+        return str(default if value is None else value)
+
+    return ET.Element(
+        "general_section",
+        dict(
+            area=_v(gp.Ax),
+            ix=_v(gp.Ix),
+            iy=_v(gp.Iy),
+            iz=_v(gp.Iz),
+            iyz=_v(gp.Iyz),
+            wxmin=_v(gp.Wxmin),
+            wymin=_v(gp.Wymin),
+            wzmin=_v(gp.Wzmin),
+            shary=_v(gp.Shary),
+            sharz=_v(gp.Sharz),
+            shceny=_v(gp.Shceny),
+            shcenz=_v(gp.Shcenz),
+            sy=_v(gp.Sy),
+            sz=_v(gp.Sz),
+            sfy=_v(gp.Sfy, 1),
+            sfz=_v(gp.Sfz, 1),
+            fabrication="unknown",
+            general_properties_method="explicit",
         ),
     )
