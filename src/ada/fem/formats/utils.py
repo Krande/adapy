@@ -592,7 +592,7 @@ def line_elem_to_beam(elem: Elem, parent: Part, prefix="bm") -> Beam:
     )
 
 
-def convert_part_objects(p: Part, skip_plates, skip_beams, merge=True):
+def convert_part_objects(p: Part, skip_plates, skip_beams, merge=False):
     from ada.api.containers import Beams, Plates
 
     if skip_plates is False:

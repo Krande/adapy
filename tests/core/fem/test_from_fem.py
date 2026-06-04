@@ -46,6 +46,18 @@ def test_from_sesam_fem(sesam_fem_plate_shell_file):
 
 
 @pytest.mark.benchmark(group="fem")
+def test_from_sesam_fem_merge(sesam_fem_plate_shell_file):
+    # The 100 coplanar shells share material + thickness and tile a single
+    # flat region, so merge=True folds them into one plate.
+    a = ada.from_fem(sesam_fem_plate_shell_file)
+    p = a.get_all_subparts()[0]
+
+    p.create_objects_from_fem(merge=True)
+
+    assert len(p.plates) == 1
+
+
+@pytest.mark.benchmark(group="fem")
 def test_from_abaqus_fem(abaqus_fem_plate_shell_file):
     a = ada.from_fem(abaqus_fem_plate_shell_file)
 

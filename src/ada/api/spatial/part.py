@@ -691,13 +691,15 @@ class Part(BackendGeom):
             no_mass=node_masses_tot_mass,
         )
 
-    def create_objects_from_fem(self, skip_plates=False, skip_beams=False, merge=True) -> None:
+    def create_objects_from_fem(self, skip_plates=False, skip_beams=False, merge=False) -> None:
         """Build Beams and Plates from the contents of the local FEM object.
 
         ``merge`` folds the one-object-per-element output back down by
         merging coplanar shell plates (same material + thickness) and
         colinear beams (same section + material). Best-effort: a group is
         merged only when it collapses cleanly, else its elements are kept.
+        Defaults off here to keep the 1:1 element→object mapping callers
+        expect; the FEM→CAD conversion path opts in (``merge_fem_objects``).
         """
         from ada import Assembly
         from ada.fem.formats.utils import convert_part_objects
