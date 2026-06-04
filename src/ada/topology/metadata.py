@@ -27,6 +27,16 @@ class TopologyMetadata:
     def get(self, key: str, default: Any = None) -> Any:
         return self.properties.get(key, default)
 
+    def __getattr__(self, name: str) -> Any:
+        # Attribute-style read of a property (e.g. ``meta.STRUCTURE_NAME``),
+        # mirroring the topologic-era metadata domain layers were written
+        # against. Only fires for names not found as real fields/methods;
+        # underscored names stay AttributeError so copy/pickle/dataclass
+        # internals are unaffected. Missing keys read as None.
+        if name.startswith("_"):
+            raise AttributeError(name)
+        return self.properties.get(name)
+
     def __getitem__(self, key: str) -> Any:
         return self.properties[key]
 
