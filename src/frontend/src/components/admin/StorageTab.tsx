@@ -60,6 +60,99 @@ function buildConversionOptions(
     return any ? out : undefined;
 }
 
+// Desktop storage table columns. ``width`` is the default px width; the
+// user can drag the header borders to resize, and the choice persists in
+// localStorage (see useResizableColumns). "Derived products" gets the
+// widest default since it can hold several format badges per row.
+const STORAGE_COLUMNS: {key: string; label: string; width: number}[] = [
+    {key: "select", label: "", width: 40},
+    {key: "name", label: "Name", width: 352},
+    {key: "format", label: "Format", width: 128},
+    {key: "size", label: "Size", width: 112},
+    {key: "uploaded", label: "Uploaded", width: 176},
+    {key: "derived", label: "Derived products", width: 320},
+    {key: "actions", label: "", width: 256},
+];
+
+const STORAGE_COL_WIDTHS_KEY = "ada-storage-col-widths";
+const MIN_COL_WIDTH = 48;
+
+// Drag-to-resize column widths for a table-fixed table, persisted to
+// localStorage. Returns the live widths (feed into <col> + table width)
+// and a ``startResize(i)`` mousedown handler for the column's drag grip.
+function useResizableColumns(
+    columns: {key: string; width: number}[],
+    storageKey: string,
+) {
+    const [widths, setWidths] = useState<number[]>(() => {
+        try {
+            const raw = localStorage.getItem(storageKey);
+            if (raw) {
+                const arr = JSON.parse(raw);
+                if (
+                    Array.isArray(arr) &&
+                    arr.length === columns.length &&
+                    arr.every((n) => typeof n === "number" && n >= MIN_COL_WIDTH)
+                ) {
+                    return arr;
+                }
+            }
+        } catch {
+            /* corrupt entry — fall through to defaults */
+        }
+        return columns.map((c) => c.width);
+    });
+
+    const dragging = useRef<{index: number; startX: number; startW: number} | null>(null);
+
+    useEffect(() => {
+        const onMove = (e: MouseEvent) => {
+            const d = dragging.current;
+            if (!d) return;
+            const next = Math.max(MIN_COL_WIDTH, d.startW + (e.clientX - d.startX));
+            setWidths((w) => {
+                if (w[d.index] === next) return w;
+                const n = [...w];
+                n[d.index] = next;
+                return n;
+            });
+        };
+        const onUp = () => {
+            if (!dragging.current) return;
+            dragging.current = null;
+            document.body.style.cursor = "";
+            document.body.style.userSelect = "";
+        };
+        window.addEventListener("mousemove", onMove);
+        window.addEventListener("mouseup", onUp);
+        return () => {
+            window.removeEventListener("mousemove", onMove);
+            window.removeEventListener("mouseup", onUp);
+        };
+    }, []);
+
+    useEffect(() => {
+        try {
+            localStorage.setItem(storageKey, JSON.stringify(widths));
+        } catch {
+            /* storage full / blocked — resizing still works for the session */
+        }
+    }, [widths, storageKey]);
+
+    const startResize = (index: number) => (e: React.MouseEvent) => {
+        dragging.current = {index, startX: e.clientX, startW: widths[index]};
+        // Lock the cursor + kill text selection for the whole drag, not
+        // just while the pointer is over the 1.5px grip.
+        document.body.style.cursor = "col-resize";
+        document.body.style.userSelect = "none";
+        e.preventDefault();
+        e.stopPropagation();
+    };
+
+    const total = widths.reduce((a, b) => a + b, 0);
+    return {widths, startResize, total};
+}
+
 const StorageTab: React.FC = () => {
     const currentScope = useScopeStore((s) => s.current);
     const scope = scopeUrlPart(currentScope);
@@ -226,6 +319,12 @@ const StorageTab: React.FC = () => {
         initialNew?: string;
         onPick: (folder: string) => Promise<void> | void;
     } | null>(null);
+
+    // Drag-resizable, persisted column widths for the desktop table.
+    const {widths: colWidths, startResize, total: tableWidth} = useResizableColumns(
+        STORAGE_COLUMNS,
+        STORAGE_COL_WIDTHS_KEY,
+    );
 
     // Per-row "Move to folder…" — operates on one source key. Source-
     // only (orphans excluded; they don't survive the rename).
@@ -654,31 +753,36 @@ const StorageTab: React.FC = () => {
                 </div>
             )}
             <div className="flex-1 min-h-0 overflow-auto">
-                {/* Desktop table.
-                    Min-width keeps columns readable even when the
-                    parent shrinks (narrow window, tree panel open) —
-                    the surrounding overflow-auto then provides a
-                    horizontal scrollbar instead of squishing everything
-                    into unreadable mush. */}
-                <table className="hidden sm:table w-full text-sm table-fixed min-w-[1200px]">
+                {/* Desktop table. Columns are drag-resizable (grips on the
+                    header borders) with widths persisted to localStorage; the
+                    table width is the sum of the column widths, so the
+                    surrounding overflow-auto gives a horizontal scrollbar
+                    whenever the total exceeds the panel rather than squishing
+                    columns into unreadable mush. ``table-fixed`` makes the
+                    <col> widths authoritative for every body cell. */}
+                <table className="hidden sm:table text-sm table-fixed" style={{width: tableWidth}}>
                     <colgroup>
-                        <col className="w-10"/>
-                        <col className="w-[24rem]"/>
-                        <col className="w-40"/>
-                        <col className="w-28"/>
-                        <col className="w-48"/>
-                        <col/>
-                        <col className="w-[18rem]"/>
+                        {STORAGE_COLUMNS.map((c, i) => (
+                            <col key={c.key} style={{width: colWidths[i]}}/>
+                        ))}
                     </colgroup>
                     <thead className="sticky top-0 bg-gray-800 text-left">
                     <tr>
-                        <Th>{""}</Th>
-                        <Th>Name</Th>
-                        <Th>Format</Th>
-                        <Th>Size</Th>
-                        <Th>Uploaded</Th>
-                        <Th>Derived products</Th>
-                        <Th>{""}</Th>
+                        {STORAGE_COLUMNS.map((c, i) => (
+                            <th
+                                key={c.key}
+                                className="relative overflow-hidden px-3 py-2 font-medium text-gray-300 whitespace-nowrap"
+                            >
+                                {c.label}
+                                {i < STORAGE_COLUMNS.length - 1 && (
+                                    <span
+                                        onMouseDown={startResize(i)}
+                                        className="absolute top-0 right-0 z-10 h-full w-1.5 cursor-col-resize hover:bg-blue-500/60"
+                                        title="Drag to resize column"
+                                    />
+                                )}
+                            </th>
+                        ))}
                     </tr>
                     </thead>
                     <tbody>
@@ -1208,10 +1312,6 @@ const FolderCardRow: React.FC<FolderRowProps> = ({
             items={folderMenuItems(folder.path, onRename, onMoveInto, busyMoving)}
         />
     </li>
-);
-
-const Th: React.FC<{children: React.ReactNode}> = ({children}) => (
-    <th className="px-3 py-2 font-medium text-gray-300 whitespace-nowrap">{children}</th>
 );
 
 const Td: React.FC<{children: React.ReactNode; title?: string}> = ({children, title}) => (
