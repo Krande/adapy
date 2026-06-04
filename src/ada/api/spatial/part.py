@@ -824,10 +824,27 @@ class Part(BackendGeom):
         from ada import Beam, Pipe, PipeSegElbow, PipeSegStraight, Plate
         from ada.fem import FemSection
 
-        # Copy all materials assigned to fem sections objects to their parent parts
+        # Copy all materials assigned to fem section objects up to their
+        # parent parts. FEM-section materials are heavily shared — a ship
+        # model has tens of thousands of sections referencing a handful of
+        # Material objects — so dedup by object identity and call
+        # ``Materials.add`` once per distinct material rather than once per
+        # section. The per-section call was the dominant cost of large
+        # FEM → IFC / XML exports: every call re-scanned the target
+        # material's (growing, tens-of-thousands-long) ``refs`` list,
+        # turning consolidation into an O(sections × refs) blow-up
+        # (~7.4 billion id() calls, ~11 min on Ship1T1.FEM with 66k
+        # sections sharing 2 materials). One add per distinct material is
+        # identical in effect — repeat adds of an already-registered
+        # material are no-ops.
         for part in filter(lambda x: not x.fem.is_empty(), self.get_all_parts_in_assembly(include_self=include_self)):
+            consolidated_by_id = {}
             for sec in part.fem.sections:
-                ext_mat = part.materials.add(sec.material)
+                mat = sec.material
+                ext_mat = consolidated_by_id.get(id(mat))
+                if ext_mat is None:
+                    ext_mat = part.materials.add(mat)
+                    consolidated_by_id[id(mat)] = ext_mat
                 sec.material = ext_mat
 
         num_elem_changed = 0
