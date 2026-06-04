@@ -536,6 +536,32 @@ def _load_with_ada(src_path: pathlib.Path, ext: str):
     raise UnsupportedFormat(f"ada path does not handle {ext!r}")
 
 
+# FEM source extensions that carry a mesh (nodes + elements) rather than
+# concept geometry, and the CAD targets where rebuilding concept objects
+# from that mesh is worthwhile.
+_FEM_SOURCE_EXTS: frozenset[str] = frozenset({".inp", ".fem", ".sif"})
+_FEM_OBJECT_CAD_TARGETS: frozenset[str] = frozenset({"ifc", "xml", "step", "stp"})
+
+
+def _apply_fem_to_objects(model, source_ext: str, target_format: str, fem_to_objects: bool | None) -> None:
+    """Rebuild concept Beam/Plate objects from a FEM mesh before a CAD
+    export.
+
+    A Sesam/Abaqus FEM deck is a mesh (nodes + shell/line elements); the
+    IFC / Genie-XML / STEP writers only emit *concept* objects, so without
+    this step a FEM → CAD conversion produces almost-empty output. Gated by
+    the per-job ``fem_to_objects`` option (default ``True``). No-op for
+    non-FEM sources, mesh targets (glb/stl/obj), or an explicit opt-out.
+    """
+    if fem_to_objects is False:
+        return
+    if source_ext.lower() not in _FEM_SOURCE_EXTS:
+        return
+    if target_format not in _FEM_OBJECT_CAD_TARGETS:
+        return
+    model.create_objects_from_fem()
+
+
 def _export_with_ada(
     model,
     target_format: str,
@@ -584,6 +610,7 @@ def _via_ada(
     on_progress: ProgressFn,
     *,
     merge_meshes: bool | None = None,
+    fem_to_objects: bool | None = None,
 ) -> bytes:
     """Heavy path: load with ada, export to target format. Used for any
     non-trivial source/target combination that needs the full ada-py
@@ -598,6 +625,7 @@ def _via_ada(
     out_path = pathlib.Path(tempfile.mkstemp(suffix=suffix)[1])
     try:
         model = _load_with_ada(src_path, source_ext)
+        _apply_fem_to_objects(model, source_ext, target_format, fem_to_objects)
         return _export_with_ada(
             model,
             target_format,
@@ -645,7 +673,9 @@ def _via_bundle(
         # ada.from_fem reads the file at `info.entry`; the includes it
         # references are next to it under the same tempdir, so relative
         # resolution Just Works without us touching cwd.
-        model = _load_with_ada(info.entry, _ext(info.entry.name))
+        entry_ext = _ext(info.entry.name)
+        model = _load_with_ada(info.entry, entry_ext)
+        _apply_fem_to_objects(model, entry_ext, target_format, opts.get("fem_to_objects"))
         suffix = ".glb" if target_format == "glb" else f".{target_format}"
         out_path = pathlib.Path(tempfile.mkstemp(suffix=suffix)[1])
         try:
@@ -901,6 +931,8 @@ def _via_ada_to_step(
     src_path: pathlib.Path,
     source_ext: str,
     on_progress: ProgressFn,
+    *,
+    fem_to_objects: bool | None = None,
 ) -> bytes:
     """Ada-loadable source → STEP via the OCC writer.
 
@@ -912,6 +944,7 @@ def _via_ada_to_step(
 
     on_progress("parsing", 0.15)
     model = _load_with_ada(src_path, source_ext)
+    _apply_fem_to_objects(model, source_ext, "step", fem_to_objects)
     on_progress("writing-step", 0.55)
     out_path = pathlib.Path(tempfile.mkstemp(suffix=".step")[1])
     try:
@@ -1269,6 +1302,23 @@ def _register_ada_loadable() -> None:
         },
     ]
 
+    # Schema for FEM-source → CAD-target pairs. ``fem_to_objects`` rebuilds
+    # concept Beam/Plate objects from the mesh before export — without it a
+    # FEM → IFC/XML conversion is near-empty (the writers only emit concept
+    # geometry). Shown on IFC/XML rows for FEM sources only.
+    fem_to_objects_options = [
+        {
+            "name": "fem_to_objects",
+            "type": "bool",
+            "default": True,
+            "description": (
+                "Rebuild concept Beam/Plate objects from the FEM mesh "
+                "before export (recommended for CAD targets). Disable to "
+                "export only pre-existing concept geometry."
+            ),
+        },
+    ]
+
     # Original three targets (glb/ifc/xml) via the long-standing ada
     # writers.
     for ext in _ADA_LOADABLE_EXTS:
@@ -1281,6 +1331,7 @@ def _register_ada_loadable() -> None:
                 _ext=ext,
                 _tgt=tgt,
                 merge_meshes=None,
+                fem_to_objects=None,
                 **_kw,
             ):
                 return _via_ada(
@@ -1289,14 +1340,17 @@ def _register_ada_loadable() -> None:
                     _tgt,
                     on_progress,
                     merge_meshes=merge_meshes,
+                    fem_to_objects=fem_to_objects,
                 )
 
-            ConverterRegistry.register(
-                ext,
-                tgt,
-                _h,
-                options=(glb_options if tgt == "glb" else None),
-            )
+            if tgt == "glb":
+                row_options = glb_options
+            elif tgt in ("ifc", "xml") and ext in _FEM_SOURCE_EXTS:
+                row_options = fem_to_objects_options
+            else:
+                row_options = None
+
+            ConverterRegistry.register(ext, tgt, _h, options=row_options)
 
     # New M2 targets: stl / obj (via to_trimesh_scene) and step (via
     # to_stp). All eight ada-loadable sources support all three new
@@ -1310,10 +1364,15 @@ def _register_ada_loadable() -> None:
 
             ConverterRegistry.register(ext, tgt, _h)
 
-        def _step(src, on_progress, *, _ext=ext, **_kw):
-            return _via_ada_to_step(src, _ext, on_progress)
+        def _step(src, on_progress, *, _ext=ext, fem_to_objects=None, **_kw):
+            return _via_ada_to_step(src, _ext, on_progress, fem_to_objects=fem_to_objects)
 
-        ConverterRegistry.register(ext, "step", _step)
+        ConverterRegistry.register(
+            ext,
+            "step",
+            _step,
+            options=(fem_to_objects_options if ext in _FEM_SOURCE_EXTS else None),
+        )
 
 
 def _register_fea_result_to_glb() -> None:
