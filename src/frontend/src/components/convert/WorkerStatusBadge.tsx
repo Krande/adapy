@@ -2,13 +2,16 @@ import React from "react";
 import {runtime} from "@/runtime/config";
 
 // Compact status pill: "N formats" pulled from the runtime config.
-// The /api/config payload merges every live worker's source_exts into
-// EXTRA_SOURCE_EXTS, so a non-empty list here also implies at least one
-// worker is registered. Dev / desktop builds with no workers render a
-// muted "no workers" pill instead so the page doesn't look broken.
+// Counts every source format in the live conversion matrix (CONVERSION_MATRIX,
+// merged from every registered worker's advertised conversions) — not
+// EXTRA_SOURCE_EXTS, which is only the handful of "extra"/streaming FEA-result
+// extensions and badly under-counts (5 vs the full ~18). A non-empty matrix
+// also implies at least one worker is registered; dev / desktop builds with no
+// workers render a muted "no workers" pill instead so the page doesn't look
+// broken.
 
 const WorkerStatusBadge: React.FC = () => {
-    const exts = runtime.extraSourceExts();
+    const exts = Array.from(new Set(runtime.conversionMatrix().map((e) => e.from))).sort();
     const hasWorkers = exts.length > 0;
 
     return (
