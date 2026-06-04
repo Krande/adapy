@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pathlib
+import re
 import zipfile
 from typing import TYPE_CHECKING
 
@@ -71,6 +72,14 @@ class RendererReact:
         import base64
 
         html_content = self.local_html_path.read_text(encoding="utf-8")
+
+        # The built index.html references "/config.js" and "/favicon.svg" with
+        # absolute paths. Those endpoints only exist when the REST app serves the
+        # SPA over HTTP; the desktop/local path opens this single self-contained
+        # file via file:// (or serves it standalone), where both 404 noisily.
+        # Config is supplied through the placeholder below, so drop the tags.
+        html_content = re.sub(r"<script\b[^>]*\bsrc=\"/config\.js\"[^>]*>\s*</script>", "", html_content)
+        html_content = re.sub(r"<link\b[^>]*\bhref=\"/favicon\.svg\"[^>]*>", "", html_content)
 
         html_inject_str = ""
         if target_id is not None:
