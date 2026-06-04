@@ -543,7 +543,13 @@ _FEM_SOURCE_EXTS: frozenset[str] = frozenset({".inp", ".fem", ".sif"})
 _FEM_OBJECT_CAD_TARGETS: frozenset[str] = frozenset({"ifc", "xml", "step", "stp"})
 
 
-def _apply_fem_to_objects(model, source_ext: str, target_format: str, fem_to_objects: bool | None) -> None:
+def _apply_fem_to_objects(
+    model,
+    source_ext: str,
+    target_format: str,
+    fem_to_objects: bool | None,
+    merge_fem_objects: bool | None = None,
+) -> None:
     """Rebuild concept Beam/Plate objects from a FEM mesh before a CAD
     export.
 
@@ -552,6 +558,10 @@ def _apply_fem_to_objects(model, source_ext: str, target_format: str, fem_to_obj
     this step a FEM → CAD conversion produces almost-empty output. Gated by
     the per-job ``fem_to_objects`` option (default ``True``). No-op for
     non-FEM sources, mesh targets (glb/stl/obj), or an explicit opt-out.
+
+    ``merge_fem_objects`` (default ``True``) merges coplanar shell plates
+    and colinear beams of matching section/material so the export isn't a
+    cloud of one-object-per-element geometry.
     """
     if fem_to_objects is False:
         return
@@ -559,7 +569,8 @@ def _apply_fem_to_objects(model, source_ext: str, target_format: str, fem_to_obj
         return
     if target_format not in _FEM_OBJECT_CAD_TARGETS:
         return
-    model.create_objects_from_fem()
+    merge = True if merge_fem_objects is None else bool(merge_fem_objects)
+    model.create_objects_from_fem(merge=merge)
 
 
 def _export_with_ada(
@@ -611,6 +622,7 @@ def _via_ada(
     *,
     merge_meshes: bool | None = None,
     fem_to_objects: bool | None = None,
+    merge_fem_objects: bool | None = None,
 ) -> bytes:
     """Heavy path: load with ada, export to target format. Used for any
     non-trivial source/target combination that needs the full ada-py
@@ -625,7 +637,7 @@ def _via_ada(
     out_path = pathlib.Path(tempfile.mkstemp(suffix=suffix)[1])
     try:
         model = _load_with_ada(src_path, source_ext)
-        _apply_fem_to_objects(model, source_ext, target_format, fem_to_objects)
+        _apply_fem_to_objects(model, source_ext, target_format, fem_to_objects, merge_fem_objects)
         return _export_with_ada(
             model,
             target_format,
@@ -675,7 +687,9 @@ def _via_bundle(
         # resolution Just Works without us touching cwd.
         entry_ext = _ext(info.entry.name)
         model = _load_with_ada(info.entry, entry_ext)
-        _apply_fem_to_objects(model, entry_ext, target_format, opts.get("fem_to_objects"))
+        _apply_fem_to_objects(
+            model, entry_ext, target_format, opts.get("fem_to_objects"), opts.get("merge_fem_objects")
+        )
         suffix = ".glb" if target_format == "glb" else f".{target_format}"
         out_path = pathlib.Path(tempfile.mkstemp(suffix=suffix)[1])
         try:
@@ -933,6 +947,7 @@ def _via_ada_to_step(
     on_progress: ProgressFn,
     *,
     fem_to_objects: bool | None = None,
+    merge_fem_objects: bool | None = None,
 ) -> bytes:
     """Ada-loadable source → STEP via the OCC writer.
 
@@ -944,7 +959,7 @@ def _via_ada_to_step(
 
     on_progress("parsing", 0.15)
     model = _load_with_ada(src_path, source_ext)
-    _apply_fem_to_objects(model, source_ext, "step", fem_to_objects)
+    _apply_fem_to_objects(model, source_ext, "step", fem_to_objects, merge_fem_objects)
     on_progress("writing-step", 0.55)
     out_path = pathlib.Path(tempfile.mkstemp(suffix=".step")[1])
     try:
@@ -1317,6 +1332,16 @@ def _register_ada_loadable() -> None:
                 "export only pre-existing concept geometry."
             ),
         },
+        {
+            "name": "merge_fem_objects",
+            "type": "bool",
+            "default": True,
+            "description": (
+                "Merge coplanar shell plates (same material + thickness) "
+                "and colinear beams (same section + material) into single "
+                "objects. Disable to keep one object per FEM element."
+            ),
+        },
     ]
 
     # Original three targets (glb/ifc/xml) via the long-standing ada
@@ -1332,6 +1357,7 @@ def _register_ada_loadable() -> None:
                 _tgt=tgt,
                 merge_meshes=None,
                 fem_to_objects=None,
+                merge_fem_objects=None,
                 **_kw,
             ):
                 return _via_ada(
@@ -1341,6 +1367,7 @@ def _register_ada_loadable() -> None:
                     on_progress,
                     merge_meshes=merge_meshes,
                     fem_to_objects=fem_to_objects,
+                    merge_fem_objects=merge_fem_objects,
                 )
 
             if tgt == "glb":
@@ -1364,8 +1391,10 @@ def _register_ada_loadable() -> None:
 
             ConverterRegistry.register(ext, tgt, _h)
 
-        def _step(src, on_progress, *, _ext=ext, fem_to_objects=None, **_kw):
-            return _via_ada_to_step(src, _ext, on_progress, fem_to_objects=fem_to_objects)
+        def _step(src, on_progress, *, _ext=ext, fem_to_objects=None, merge_fem_objects=None, **_kw):
+            return _via_ada_to_step(
+                src, _ext, on_progress, fem_to_objects=fem_to_objects, merge_fem_objects=merge_fem_objects
+            )
 
         ConverterRegistry.register(
             ext,
