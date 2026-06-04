@@ -2,6 +2,25 @@
 
 
 
+## v0.10.0 (2026-06-04)
+
+### Chore
+
+* chore: FEA-docs effective-mass comparison tables + publish Pages on docs changes (#195)
+
+Co-authored-by: Claude Opus 4.8 (1M context) &lt;noreply@anthropic.com&gt; ([`301bf0b`](https://github.com/Krande/adapy/commit/301bf0bf6215c218b5bc19fcee3f445beb13fa82))
+
+### Feature
+
+* feat: Fem mesher fixes and topology graph stable identify feature (#198)
+
+Co-authored-by: Claude Opus 4.8 &lt;noreply@anthropic.com&gt; ([`a964110`](https://github.com/Krande/adapy/commit/a964110c8329700cd8b57c7fe946f416f02bb5d3))
+
+* feat: fast image builds for viewer/worker/docs (#197)
+
+Co-authored-by: Claude Opus 4.8 (1M context) &lt;noreply@anthropic.com&gt; ([`07c51e4`](https://github.com/Krande/adapy/commit/07c51e447e0d3629c4f40efc3d8d7490bdc6f48d))
+
+
 ## v0.9.0 (2026-06-03)
 
 ### Chore
