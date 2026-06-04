@@ -107,17 +107,16 @@ class NumericMapped(BaseCollections):
 
     def recreate_name_and_id_maps(self, collection):
         self._name_map = {n.name: n for n in collection}
-        self._id_map = {n.id: n for n in collection}
+        self._id_map = {n.id: n for n in collection if n.id is not None}
         # Invalidate max_id cache when maps are recreated
         if hasattr(self, "_max_id"):
             self._max_id = None
 
     @property
     def max_id(self):
-        if len(self._id_map.keys()) == 0:
-            return 0
         # Use cached value if available, otherwise calculate and cache
         if hasattr(self, "_max_id") and self._max_id is not None:
             return self._max_id
-        self._max_id = max(self._id_map.keys())
+        numeric_ids = [item_id for item_id in self._id_map.keys() if isinstance(item_id, int)]
+        self._max_id = max(numeric_ids, default=0)
         return self._max_id
