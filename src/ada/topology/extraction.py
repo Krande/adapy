@@ -124,6 +124,12 @@ class GraphCellExtractor:
                     ge.source_feature_id = face.source_feature_id
                     face.edges.append(ge)
                     edge_map[key].append(ge)
+                # Stable, kernel-independent edge index: sort the face's edges by
+                # midpoint so edge ids are fixed regardless of OCC enumeration order.
+                for sid, ge in enumerate(
+                    sorted(face.edges, key=lambda e: _round_key(np.asarray(be.vertex_points(e.handle)).mean(axis=0)))
+                ):
+                    ge.stable_edge_id = sid
 
         for edges in edge_map.values():
             if len(edges) == 1:

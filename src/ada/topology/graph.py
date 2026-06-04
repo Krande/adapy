@@ -68,6 +68,11 @@ class GraphEdge:
     # is inherited from the parent face's source feature (the box side it bounds).
     source_cell: "GraphCell | None" = field(default=None, repr=False)
     source_feature_id: str | None = None
+    # Stable, kernel-independent edge index within the parent face: face edges
+    # sorted by midpoint (lexicographic). Replaces the brittle enumeration ``index``
+    # in edge-beam names (the OCC/TopExp edge order differs from topologic's wire
+    # order). ``None`` until set during extraction.
+    stable_edge_id: int | None = None
 
     _points: list[ada.Point] | None = None
     _is_hor: bool | None = None
