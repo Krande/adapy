@@ -41,6 +41,16 @@ CUBE_INDEX_NORMAL_MAP = {
 SIDE_TO_INDEX = {"-Z": 0, "Z": 1, "-Y": 2, "Y": 3, "-X": 4, "X": 5}
 INDEX_TO_SIDE = {v: k for k, v in SIDE_TO_INDEX.items()}
 
+# Canonical face ordering for the stable, kernel-independent ``stable_face_id``.
+# It reproduces topologic's prism ``Cell.Faces()`` order (the golden numbering the
+# beam/plate names and Excel FACE_IDX configs were calibrated against): for an
+# axis-aligned box cell the sides come out -X, +Z, +Y, -Z, -Y, +X. Faces are sorted
+# by (this side rank, then centroid lexicographic) so split coplanar fragments of one
+# side take consecutive ids in centroid order — making f{id} mean a fixed physical
+# side regardless of the OCC/TopExp enumeration order. Distinct from SIDE_TO_INDEX
+# (adapy's own side-exclude convention, used by get_faces_from_index).
+GOLDEN_SIDE_ORDER = {"-X": 0, "Z": 1, "Y": 2, "-Z": 3, "-Y": 4, "X": 5}
+
 
 def _round_key(pt, ndigits: int = 4) -> tuple[float, float, float]:
     return (round(float(pt[0]), ndigits), round(float(pt[1]), ndigits), round(float(pt[2]), ndigits))
@@ -53,6 +63,16 @@ class GraphEdge:
     parent_cell: "GraphCell" = field(repr=False)
     parent_face: "GraphFace" = field(repr=False)
     connected_graph_faces: list["GraphFace"] = field(default_factory=list, repr=False)
+
+    # Ancestry: which source cell/feature this edge descends from. ``source_feature_id``
+    # is inherited from the parent face's source feature (the box side it bounds).
+    source_cell: "GraphCell | None" = field(default=None, repr=False)
+    source_feature_id: str | None = None
+    # Stable, kernel-independent edge index within the parent face: face edges
+    # sorted by midpoint (lexicographic). Replaces the brittle enumeration ``index``
+    # in edge-beam names (the OCC/TopExp edge order differs from topologic's wire
+    # order). ``None`` until set during extraction.
+    stable_edge_id: int | None = None
 
     _points: list[ada.Point] | None = None
     _is_hor: bool | None = None
@@ -116,6 +136,15 @@ class GraphFace:
     guid: str = field(default_factory=create_guid, init=False)
     build_props: dict = field(default_factory=dict)
 
+    # Ancestry + stable identity (set during extraction). ``source_cell`` is the cell
+    # this face belongs to; ``source_feature_id`` is the box side it descends from
+    # (e.g. "Z" — split coplanar fragments share it, linking them to one feature).
+    # ``stable_face_id`` is the kernel-independent face index (GOLDEN_SIDE_ORDER); it
+    # replaces the brittle enumeration ``index`` in names/lookups. ``None`` until set.
+    source_cell: "GraphCell | None" = field(default=None, repr=False)
+    source_feature_id: str | None = None
+    stable_face_id: int | None = None
+
     _name: str | None = None
     _points: list[ada.Point] | None = None
     _centroid: ada.Point | None = None
@@ -127,7 +156,10 @@ class GraphFace:
     _name_gen: "ada.Counter | None" = None
 
     def __post_init__(self):
-        self._name_gen = ada.Counter(prefix=self.name)
+        # Do NOT compute self.name here: stable_face_id is assigned later in
+        # extraction, and caching the name now would freeze it to the brittle
+        # enumeration index. _name_gen is created lazily once the name is stable.
+        pass
 
     def __hash__(self):
         return hash(self.guid)
@@ -263,13 +295,16 @@ class GraphFace:
         # metadata carries no structure/area (plain TopologyMetadata) the missing
         # parts render as ``None`` — callers that care attach a richer metadata.
         if self._name is None:
-            self._name = f"{self.get_stru_name()}_{self.get_area_name()}_{self.get_space_name()}_f{self.index}"
+            fid = self.stable_face_id if self.stable_face_id is not None else self.index
+            self._name = f"{self.get_stru_name()}_{self.get_area_name()}_{self.get_space_name()}_f{fid}"
         return self._name
 
     def get_name(self) -> str:
         return self.name
 
     def get_new_name(self) -> str:
+        if self._name_gen is None:
+            self._name_gen = ada.Counter(prefix=self.name)
         return next(self._name_gen)
 
     def should_skip(self) -> bool:

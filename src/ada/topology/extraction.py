@@ -17,6 +17,7 @@ import numpy as np
 import ada
 from ada.cad import active_backend
 from ada.topology.graph import (
+    GOLDEN_SIDE_ORDER,
     FaceConnectionInfo,
     GraphCell,
     GraphEdge,
@@ -78,6 +79,8 @@ class GraphCellExtractor:
                     fid = ("vtx",) + tuple(sorted(_round_key(p) for p in be.wire_points(fh)))
                 face_map[fid].append(gf)
 
+            self._assign_feature_ids(cell)
+
         for faces in face_map.values():
             if len(faces) == 2:
                 # A face shared with a cantilevered deck is NOT marked internal —
@@ -89,6 +92,25 @@ class GraphCellExtractor:
                 for f in faces:
                     f.shared_face_connection = conn
 
+    def _assign_feature_ids(self, cell: GraphCell) -> None:
+        # Kernel-independent face identity + ancestry. The outward normal of an
+        # axis-aligned box face names its source feature (the box side); split
+        # coplanar fragments share that side. Sorting by (golden side rank, centroid)
+        # reproduces topologic's prism face order, so ``stable_face_id`` is fixed per
+        # physical side regardless of OCC enumeration. Non-axis faces (loft cells)
+        # get side=None -> rank 6, ordered by centroid (deterministic fallback).
+        for f in cell.faces:
+            f.source_cell = cell
+            f.source_feature_id = f.get_side()
+
+        def sort_key(f: GraphFace):
+            rank = GOLDEN_SIDE_ORDER.get(f.source_feature_id, len(GOLDEN_SIDE_ORDER))
+            c = f.point_inside
+            return (rank, round(float(c[0]), 4), round(float(c[1]), 4), round(float(c[2]), 4))
+
+        for sid, f in enumerate(sorted(cell.faces, key=sort_key)):
+            f.stable_face_id = sid
+
     def extract_edges(self) -> None:
         be = active_backend()
         edge_map: dict[tuple, list[GraphEdge]] = defaultdict(list)
@@ -98,8 +120,16 @@ class GraphCellExtractor:
                     pts = np.asarray(be.vertex_points(eh), dtype=float)
                     key = _round_key(pts.mean(axis=0))
                     ge = GraphEdge(eh, j, cell, face)
+                    ge.source_cell = cell
+                    ge.source_feature_id = face.source_feature_id
                     face.edges.append(ge)
                     edge_map[key].append(ge)
+                # Stable, kernel-independent edge index: sort the face's edges by
+                # midpoint so edge ids are fixed regardless of OCC enumeration order.
+                for sid, ge in enumerate(
+                    sorted(face.edges, key=lambda e: _round_key(np.asarray(be.vertex_points(e.handle)).mean(axis=0)))
+                ):
+                    ge.stable_edge_id = sid
 
         for edges in edge_map.values():
             if len(edges) == 1:

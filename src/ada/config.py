@@ -148,6 +148,11 @@ class Config:
             "meshing",
             [
                 ConfigEntry("open_viewer_breakpoint_names", list[str], None, required=False),
+                # Post-mesh conformality guard: detect hanging (T-junction) nodes left
+                # when adjacent plates fail to imprint a shared edge. On by default
+                # (warns); set raise_on_hanging_nodes to escalate to an exception.
+                ConfigEntry("check_hanging_nodes", bool, True, required=False),
+                ConfigEntry("raise_on_hanging_nodes", bool, False, required=False),
             ],
         ),
         ConfigSection(

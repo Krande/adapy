@@ -23,7 +23,7 @@ from ada.base.physical_objects import BackendGeom
 from ada.base.types import GeomRepr
 from ada.base.units import Units
 from ada.comms.fb_wrap_model_gen import FileObjectDC, FilePurposeDC, FileTypeDC
-from ada.config import logger
+from ada.config import Config, logger
 from ada.fem.concept.base import ConceptFEM
 from ada.visit.gltf.graph import GraphNode, GraphStore
 from ada.visit.render_params import RenderParams
@@ -1122,6 +1122,11 @@ class Part(BackendGeom):
             fem.nodes.remove_standalones()
             n_after = len(fem.nodes)
             logger.info(f"Removed {n_before - n_after} standalone nodes")
+
+        if Config().meshing_check_hanging_nodes:
+            from ada.fem.conformality import check_conformal_mesh
+
+            check_conformal_mesh(fem, raise_on_fail=Config().meshing_raise_on_hanging_nodes)
 
         return fem
 

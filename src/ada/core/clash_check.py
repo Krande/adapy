@@ -284,15 +284,18 @@ def _classify_connection(
 ) -> None:
     """
     Decide whether `target` is an edge‐ or mid‐span connection of `source`,
-    and record it in the appropriate dict.
+    and record it in the appropriate dict. Kept in sync with the inlined
+    classifier in `find_edge_connected_perpendicular_plates` (which is what the
+    meshing pipeline actually calls); see the rationale there.
     """
-    # edge if they share exactly the two edge‐points (and either parallel,
-    # or their plane intersects exactly on those points)
-    if (parallel and len(clears) == 2) or (len(hits) == 2 and not clears):
-        edge_conn.setdefault(source, []).append(target)
-    # mid‐span if exactly two intersection pts lie strictly inside source
-    elif len(clears) == 2 and not parallel:
+    if not parallel and len(clears) == 2:
         mid_conn.setdefault(source, []).append(target)
+    elif (
+        (parallel and len(clears) == 2)
+        or (len(hits) == 2 and len(clears) == 0)
+        or (not parallel and len(hits) >= 2 and len(clears) == 1)
+    ):
+        edge_conn.setdefault(source, []).append(target)
 
 
 def find_edge_connected_perpendicular_plates(plates: list[Plate]) -> PlateConnections:
@@ -360,11 +363,22 @@ def find_edge_connected_perpendicular_plates(plates: list[Plate]) -> PlateConnec
                 if not any(np.allclose(pt, corner, atol=tol) for corner in pts1):
                     clears.append(pt)
 
-            # — exactly your two tests from the old code —
-            if (parallel and len(clears) == 2) or (len(hits) == 2 and len(clears) == 0):
-                edge_connected.setdefault(pl1, []).append(pl2)
-            elif len(clears) == 2 and not parallel:
+            # Classify the (touching) contact so it gets imprinted. ``hits`` are pl2
+            # corners lying in pl1's plane; ``clears`` are those NOT at a pl1 corner. A
+            # shared edge of nonzero length needs >= 2 in-plane corners whose endpoints
+            # are at pl1 corners (clears==0), strictly interior (clears==2), or a mix
+            # (clears==1, a T-junction). This is a strict superset of the original two
+            # tests plus the previously-dropped T-junction case, which fell through
+            # both branches and left coincident-but-distinct nodes along the edge. Both
+            # buckets imprint via occ.fragment; the split only orders the passes.
+            if not parallel and len(clears) == 2:
                 mid_span_connected.setdefault(pl1, []).append(pl2)
+            elif (
+                (parallel and len(clears) == 2)
+                or (len(hits) == 2 and len(clears) == 0)
+                or (not parallel and len(hits) >= 2 and len(clears) == 1)
+            ):
+                edge_connected.setdefault(pl1, []).append(pl2)
 
     return PlateConnections(mid_span_connected, edge_connected)
 

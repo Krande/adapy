@@ -131,6 +131,27 @@ class OccBackend:
         wm.Build()
         return wm.Wire()
 
+    def polygon_face(self, points: "list") -> ShapeHandle:
+        # Planar face from a closed polygon of points (auto-closed). Used to feed
+        # internal divider faces into make_volumes_from_faces so a single lofted
+        # solid partitions into one cell per section band.
+        from OCC.Core.BRepBuilderAPI import (
+            BRepBuilderAPI_MakeFace,
+            BRepBuilderAPI_MakePolygon,
+        )
+        from OCC.Core.gp import gp_Pnt
+
+        poly = BRepBuilderAPI_MakePolygon()
+        n = 0
+        for p in points:
+            c = list(p)
+            poly.Add(gp_Pnt(float(c[0]), float(c[1]), float(c[2]) if len(c) > 2 else 0.0))
+            n += 1
+        if n < 3:
+            raise ValueError("polygon_face: need at least 3 points")
+        poly.Close()
+        return BRepBuilderAPI_MakeFace(poly.Wire(), True).Face()
+
     def loft_profiles(
         self, profiles: "list[list[tuple[float, float, float]]]", ruled: bool = True, solid: bool = True
     ) -> ShapeHandle:
@@ -556,6 +577,13 @@ class OccBackend:
         # since CellsBuilder is order-independent — so we keep the cheaper one.
         from OCC.Core.BOPAlgo import BOPAlgo_CellsBuilder
         from OCC.Core.TopTools import TopTools_ListOfShape
+
+        # CellsBuilder is a general-fuse of >= 2 operands; handed a single solid
+        # (or none) it reports an error rather than a no-op. Merging one cell has
+        # nothing to fuse, so return the operands unchanged — this is what a
+        # single-space model (one PrimBox) needs.
+        if len(solids) <= 1:
+            return list(solids)
 
         cb = BOPAlgo_CellsBuilder()
         args = TopTools_ListOfShape()

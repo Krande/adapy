@@ -67,6 +67,7 @@ class CadBackend(Protocol):
 
     def build(self, geometry: "Geometry") -> ShapeHandle: ...
     def make_wire(self, points: "list") -> ShapeHandle: ...
+    def polygon_face(self, points: "list") -> ShapeHandle: ...
     def loft_profiles(
         self, profiles: "list[list[tuple[float, float, float]]]", ruled: bool = True, solid: bool = True
     ) -> ShapeHandle: ...
@@ -441,6 +442,9 @@ class AdacppBackend:
 
     def make_wire(self, points: "list") -> ShapeHandle:
         return self._cad.make_wire([[float(c) for c in self._xyz(p)] for p in points])
+
+    def polygon_face(self, points: "list") -> ShapeHandle:
+        return self._cad.polygon_face([[float(c) for c in self._xyz(p)] for p in points])
 
     def loft_profiles(
         self, profiles: "list[list[tuple[float, float, float]]]", ruled: bool = True, solid: bool = True
