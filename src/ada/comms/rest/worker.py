@@ -70,6 +70,16 @@ FETCH_BATCH = 1
 # message leaves the stream.
 MAX_DELIVERIES = 3
 
+# While a job runs we refresh the JetStream ack deadline with
+# ``msg.in_progress()`` on this cadence. A live worker keeps extending its
+# lease; the moment it dies (OOM-killed pod, node failure, crash) the refreshes
+# stop and JetStream redelivers within ~one ack_wait (see queue._ACK_WAIT_SECONDS)
+# instead of the old fixed 30 min — so a poison/OOM job is detected and
+# dead-lettered (MAX_DELIVERIES) in minutes, not ~80. Must be comfortably shorter
+# than ack_wait; the conversion runs in a child process so the parent event loop
+# stays free to fire these.
+IN_PROGRESS_REFRESH_SECONDS = 30
+
 # Per-source-suffix sidecar files that the worker co-downloads next to
 # the main payload so format-specific readers find them by basename.
 # Keep this conservative — a 404 on an absent sibling is silent, but
@@ -1305,6 +1315,27 @@ async def _run() -> None:
                     delivery_count,
                     MAX_DELIVERIES,
                 )
+
+                # Hold the JetStream lease while the job runs: refresh the ack
+                # deadline periodically so a long but healthy job is never
+                # redelivered, while a worker that dies mid-job (OOM-killed pod,
+                # crash) stops refreshing and the message is redelivered within
+                # ~one short ack_wait — not the previous fixed 30 min window.
+                ka_stop = asyncio.Event()
+
+                async def _keep_alive(m=msg, jid=job_id) -> None:
+                    while not ka_stop.is_set():
+                        try:
+                            await asyncio.wait_for(ka_stop.wait(), timeout=IN_PROGRESS_REFRESH_SECONDS)
+                        except asyncio.TimeoutError:
+                            try:
+                                await m.in_progress()
+                            except Exception:
+                                logger.debug("worker: in_progress refresh failed for %s", jid)
+                        else:
+                            return
+
+                ka_task = asyncio.create_task(_keep_alive())
                 try:
                     await _process_one(
                         job_id,
@@ -1315,6 +1346,11 @@ async def _run() -> None:
                         delivery_count=delivery_count,
                     )
                 finally:
+                    ka_stop.set()
+                    try:
+                        await ka_task
+                    except Exception:
+                        pass
                     await msg.ack()
     finally:
         heartbeat_task.cancel()

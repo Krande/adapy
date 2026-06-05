@@ -495,16 +495,17 @@ class JobQueue:
 
     # --- consumer side (called from worker) --------------------------
 
-    # JetStream's default ack_wait is 30 s — much shorter than a
-    # multi-GB-ODB → SQLite + bake pass can run (we've observed
-    # 4 min per step on a 4 GiB Abaqus job). Without a longer wait,
-    # NATS redelivers the same message while the worker is still
-    # working, the redelivery counter ticks past MAX_DELIVERIES, and
-    # the user sees ``worker exceeded N delivery attempts`` even
-    # though nothing has actually crashed. 30 min covers the largest
-    # bakes we've seen with margin; a real crash still surfaces
-    # within the new wait + the MAX_DELIVERIES cap.
-    _ACK_WAIT_SECONDS = 30 * 60
+    # ack_wait is the window after which JetStream redelivers an un-acked
+    # message — i.e. how long a *dead* worker's job sits stuck before retry.
+    # It used to be 30 min so a long bake wouldn't be redelivered mid-run, but
+    # that also meant an OOM-killed pod left its job stuck for 30 min × up to
+    # MAX_DELIVERIES (~80 min observed). The worker now refreshes the deadline
+    # with ``msg.in_progress()`` every IN_PROGRESS_REFRESH_SECONDS, so a healthy
+    # long job keeps its lease indefinitely and ack_wait only governs how fast a
+    # *crashed* worker is detected. Keep it a few minutes: long enough to absorb
+    # a brief event-loop stall, short enough that a poison/OOM job dead-letters
+    # in minutes. Must be comfortably larger than the worker's refresh cadence.
+    _ACK_WAIT_SECONDS = 3 * 60
 
     async def pull_subscribe(self, capability: str | None = None):
         """Create a per-pool durable pull-subscriber on the work-queue stream.
