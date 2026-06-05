@@ -22,6 +22,7 @@ least one backend.
 from __future__ import annotations
 
 import os
+from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
@@ -59,6 +60,59 @@ class Mesh(Protocol):
     indices: Any  # flat int buffer,   length = 3 * num_triangles
 
 
+@dataclass(frozen=True)
+class MeshGroup:
+    """One input shape's slice of a combined :class:`BatchMesh`."""
+
+    node_id: int  # index of the source shape in the batch
+    start: int  # offset into BatchMesh.indices
+    length: int  # number of indices (== 3 * triangles) for this shape
+
+
+@dataclass
+class BatchMesh:
+    """Several shapes tessellated into one combined buffer (``tessellate_batch``).
+
+    ``positions`` / ``indices`` are flat NumPy buffers covering every shape;
+    ``groups`` demarcates each source shape's triangle-index range so callers can
+    slice per-shape geometry out of the shared buffer (one GLB scene, etc.).
+    """
+
+    positions: Any  # flat float32, length = 3 * num_vertices
+    indices: Any  # flat uint32,  length = 3 * num_triangles
+    groups: "list[MeshGroup]"
+
+
+def tessellate_batch_via_loop(backend, shapes, linear_deflection: float = -1.0) -> "BatchMesh":
+    """Backend-neutral ``tessellate_batch`` fallback: tessellate each shape and
+    concatenate into one combined :class:`BatchMesh`. Used by backends without a
+    native batch path (OccBackend always; AdacppBackend when the loaded ada-cpp
+    build predates ``tessellate_batch``). Indices are offset by the running
+    vertex count so the merged buffer is self-consistent."""
+    import numpy as np
+
+    pos_chunks: list = []
+    idx_chunks: list = []
+    groups: list[MeshGroup] = []
+    vbase = 0  # running vertex offset
+    istart = 0  # running index offset
+    for i, sh in enumerate(shapes):
+        m = backend.tessellate(sh, linear_deflection)
+        pos = np.asarray(m.positions, dtype=np.float32)
+        raw = getattr(m, "indices", None)
+        if raw is None:
+            raw = m.faces  # OccBackend's TriangleMesh names it `faces`
+        idx = np.asarray(raw, dtype=np.uint32)
+        pos_chunks.append(pos)
+        idx_chunks.append(idx + np.uint32(vbase))
+        groups.append(MeshGroup(node_id=i, start=istart, length=int(idx.size)))
+        vbase += pos.size // 3
+        istart += int(idx.size)
+    positions = np.concatenate(pos_chunks) if pos_chunks else np.empty(0, np.float32)
+    indices = np.concatenate(idx_chunks) if idx_chunks else np.empty(0, np.uint32)
+    return BatchMesh(positions=positions, indices=indices, groups=groups)
+
+
 class CadBackend(Protocol):
     """Backend contract. Each method returns a kernel-native value; callers
     treat the returned ShapeHandle as opaque and only consume Mesh fields."""
@@ -76,6 +130,7 @@ class CadBackend(Protocol):
     def make_cylinder(self, radius: float, height: float) -> ShapeHandle: ...
     def make_sphere(self, radius: float) -> ShapeHandle: ...
     def tessellate(self, shape: ShapeHandle, linear_deflection: float = -1.0) -> Mesh: ...
+    def tessellate_batch(self, shapes: "list[ShapeHandle]", linear_deflection: float = -1.0) -> "BatchMesh": ...
     def bbox(
         self, shape: ShapeHandle, optimal: bool = True, use_mesh: bool = False
     ) -> tuple[float, float, float, float, float, float]: ...
@@ -468,6 +523,23 @@ class AdacppBackend:
 
     def tessellate(self, shape: ShapeHandle, linear_deflection: float = -1.0) -> Mesh:
         return self._cad.tessellate(shape, linear_deflection)
+
+    def tessellate_batch(self, shapes: "list[ShapeHandle]", linear_deflection: float = -1.0) -> "BatchMesh":
+        # Native single-call batch when the loaded ada-cpp build provides it
+        # (returns one combined Mesh with a GroupReference per shape); otherwise
+        # fall back to the per-shape loop so the API works on older builds.
+        fn = getattr(self._cad, "tessellate_batch", None)
+        if fn is None:
+            return tessellate_batch_via_loop(self, shapes, linear_deflection)
+        import numpy as np
+
+        mesh = fn(list(shapes), linear_deflection)
+        groups = [MeshGroup(node_id=g.node_id, start=g.start, length=g.length) for g in mesh.groups]
+        return BatchMesh(
+            positions=np.asarray(mesh.positions),
+            indices=np.asarray(mesh.indices),
+            groups=groups,
+        )
 
     def bbox(
         self, shape: ShapeHandle, optimal: bool = True, use_mesh: bool = False

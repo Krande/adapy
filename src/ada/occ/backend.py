@@ -213,6 +213,13 @@ class OccBackend:
             return self._tessellate_shape(shape)
         return self._tessellate_shape(shape, quality=linear_deflection)
 
+    def tessellate_batch(self, shapes: "list", linear_deflection: float = -1.0):
+        # No native batch path under pythonocc; concatenate per-shape meshes into
+        # one combined BatchMesh via the shared helper.
+        from ada.cad import tessellate_batch_via_loop
+
+        return tessellate_batch_via_loop(self, shapes, linear_deflection)
+
     def bbox(
         self, shape: ShapeHandle, optimal: bool = True, use_mesh: bool = False
     ) -> tuple[float, float, float, float, float, float]:
