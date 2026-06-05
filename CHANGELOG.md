@@ -2,6 +2,15 @@
 
 
 
+## v0.11.0 (2026-06-05)
+
+### Feature
+
+* feat: FEM→CAD export: O(N) performance, ~2× smaller/faster STEP, fem-to-objects + surface reconstruction, viewer/convert fixes (#199)
+
+Co-authored-by: Claude Opus 4.8 (1M context) &lt;noreply@anthropic.com&gt; ([`12ec05c`](https://github.com/Krande/adapy/commit/12ec05cb9b9fd2bd5f43f3fde004b241dff04e14))
+
+
 ## v0.10.0 (2026-06-04)
 
 ### Chore
