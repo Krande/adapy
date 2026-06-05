@@ -22,9 +22,22 @@ on:
       - 'pixi.lock'
       - 'pyproject.toml'
       - '.github/workflows/ci-pages.yml'
+  # PR builds don't deploy (see the gated upload step) — they just smoke-test
+  # that the docs/report build succeeds before merge.
   pull_request:
     branches:
       - main
+
+# Serialize gh-pages publishes. peaceiris force-pushes the branch, so two
+# overlapping deploys (e.g. the main push and the tag push of a release) race
+# the ref lock — the symptom is `cannot lock ref 'refs/heads/gh-pages': is at X
+# but expected Y`. All deploying runs (push to main + tags) share one group so
+# only one publishes at a time, and a newer run supersedes an in-flight one (it
+# carries the newer docs anyway). PR builds stay per-ref so a new commit cancels
+# the previous build without blocking on the deploy group.
+concurrency:
+  group: ci-docs-${{ github.event_name == 'pull_request' && github.ref || 'pages-deploy' }}
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -64,3 +77,6 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: ./docs/_build/html/
+          # Rewrite gh-pages as a single orphan commit each publish. The site
+          # is multi-MB; without this the branch history grows unbounded.
+          force_orphan: true

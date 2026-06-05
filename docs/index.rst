@@ -52,15 +52,6 @@ IFC and various Finite Element formats.
     :hidden:
     :maxdepth: 2
     :glob:
-    :caption: Simulation
-
-    documents/notebooks/analysis/simply_supported_beam_eigenvalue
-    documents/notebooks/analysis/simply_supported_beam_static_gravity
-
-.. toctree::
-    :hidden:
-    :maxdepth: 2
-    :glob:
     :caption: FEA
 
     documents/fea/fea_software
