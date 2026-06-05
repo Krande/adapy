@@ -1320,7 +1320,21 @@ class Part(BackendGeom):
         ] = None,
         geom_repr_override: dict[str, GeomRepr] = None,
         evict_solid_cache: bool = True,
+        writer: str = "occ",
+        schema: str = "AP242",
     ):
+        # The "stream" writer authors AP242 B-rep text directly from parametric
+        # geometry without building any OCC/adacpp shapes — constant memory, so
+        # it does not OOM on large FEM models the way the OCC XCAF path does. It
+        # covers extruded solids only (plates, straight beams, straight pipe
+        # segments); other geometry is skipped. See cadit.step.write.ap242_stream.
+        if writer == "stream":
+            from ada.cadit.step.write.ap242_stream import write_step_stream
+
+            return write_step_stream(self, destination_file, schema=schema, progress_callback=progress_callback)
+        if writer != "occ":
+            raise ValueError(f"unknown writer {writer!r}; expected 'occ' or 'stream'")
+
         from ada.cad.doc import active_doc_backend
         from ada.occ.geom.cache import invalidate
         from ada.occ.store import OCCStore
