@@ -1319,8 +1319,10 @@ class Part(BackendGeom):
             None,
         ] = None,
         geom_repr_override: dict[str, GeomRepr] = None,
+        evict_solid_cache: bool = True,
     ):
         from ada.cad.doc import active_doc_backend
+        from ada.occ.geom.cache import invalidate
         from ada.occ.store import OCCStore
 
         step_writer = active_doc_backend().step_writer()
@@ -1329,6 +1331,16 @@ class Part(BackendGeom):
         shape_iter = OCCStore.shape_iterator(self, geom_repr=geom_repr, render_override=geom_repr_override)
         for i, (obj, shape) in enumerate(shape_iter, start=1):
             step_writer.add_shape(shape, obj.name, rgb_color=obj.color.rgb)
+            # Drop this object's cached (untransformed) OCC solid now that the
+            # writer holds its own transformed copy. Otherwise the process-global
+            # occ_solid_cache retains every built solid for the whole export — on
+            # a 100k-solid model that doubles the geometry held in RAM (cache +
+            # writer compound) and can OOM a memory-constrained worker. The cache
+            # buys nothing for a one-shot export. Opt out with evict_solid_cache.
+            if evict_solid_cache:
+                guid = getattr(obj, "guid", None)
+                if guid is not None:
+                    invalidate(guid)
             if progress_callback is not None:
                 progress_callback(i, num_shapes)
 
