@@ -266,27 +266,30 @@ class OffsetHelper:
         off2 = abs_vec_to_local_components(off2_abs)
 
         # --- geometric centroid adjustments (these are LOCAL y/z tweaks) ---
+        # Only ANGULAR / TPROFILE actually consume the geometric centroid; every
+        # other section type (incl. GENERAL, whose Cgy/Cgz are frequently
+        # undefined in Sesam GBEAMG records) gets no centroid tweak, so don't
+        # demand a centroid it never uses.
         p = self.beam.section.properties
-        if getattr(p, "Cgy", None) is None or getattr(p, "Cgz", None) is None:
-            raise ValueError(
-                f"Section '{self.beam.section.name}', section type: {self.beam.section.type} missing geometric centroid (Cgy/Cgz). section.properties: {p}"
-            )
-
-        cgz = float(p.Cgz)
+        sec_type = self.beam.section.type
         h = float(self.beam.section.h) if self.beam.section.h is not None else None
 
-        if self.beam.section.type == BaseTypes.ANGULAR:
-            if h is None:
-                raise ValueError("ANGULAR requires h to compute flush offset.")
-            dz = cgz - h
+        if sec_type in (BaseTypes.ANGULAR, BaseTypes.TPROFILE):
+            if getattr(p, "Cgz", None) is None:
+                raise ValueError(
+                    f"Section '{self.beam.section.name}', section type: {sec_type} missing "
+                    f"geometric centroid (Cgz). section.properties: {p}"
+                )
+            cgz = float(p.Cgz)
+            if sec_type == BaseTypes.ANGULAR:
+                if h is None:
+                    raise ValueError("ANGULAR requires h to compute flush offset.")
+                dz = cgz - h
+            else:  # TPROFILE
+                if h is None:
+                    raise ValueError("TPROFILE requires h to compute offset.")
+                dz = cgz - h / 2.0
             dy = 0.0
-
-        elif self.beam.section.type == BaseTypes.TPROFILE:
-            if h is None:
-                raise ValueError("TPROFILE requires h to compute offset.")
-            dz = cgz - h / 2.0
-            dy = 0.0
-
         else:
             dz = 0.0
             dy = 0.0

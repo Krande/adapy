@@ -169,6 +169,14 @@ def section_to_arbitrary_profile_def_with_voids(section: Section, solid=True) ->
             inner_curves += [Circle(Axis2Placement3D(), section.r - section.wt)]
     elif section.type == section.TYPES.CIRCULAR:
         outer_curve = Circle(Axis2Placement3D(), section.r)
+    elif section.type == section.TYPES.GENERAL:
+        # GENERAL sections (e.g. Sesam GBEAMG) carry no cross-section curve, only
+        # integrated properties. Mirror the IFC profile-def fallback and draw an
+        # equivalent-area circle (r = sqrt(Ax/pi)) so the beam still gets a solid
+        # for visual inspection instead of crashing the whole export.
+        ax = getattr(section.properties, "Ax", None)
+        r = float(np.sqrt(ax / np.pi)) if ax not in (None, 0) else 0.05
+        outer_curve = Circle(Axis2Placement3D(), r)
     else:
         sec_profile = section.get_section_profile(is_solid=solid)
         outer_curve = sec_profile.outer_curve.curve_geom()
