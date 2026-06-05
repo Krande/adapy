@@ -1108,5 +1108,116 @@
         "duration": 2.574950266
       }
     ]
+  },
+  {
+    "commit": "12ec05cb9b9fd2bd5f43f3fde004b241dff04e14",
+    "commit_short": "12ec05c",
+    "message": "feat: FEM\u2192CAD export: O(N) performance, ~2\u00d7 smaller/faster STEP, fem-to-objects + surface reconstruction, viewer/convert fixes (#199)",
+    "author": "Kristoffer Andersen",
+    "date": "2026-06-05T16:12:01+02:00",
+    "total_duration": 118.5949,
+    "total_calls": 802426,
+    "stats": [
+      {
+        "function": "<built-in method builtins.exec> (~:0)",
+        "calls": 1983,
+        "duration": 22.258821216
+      },
+      {
+        "function": "<module> (<string>:1)",
+        "calls": 1,
+        "duration": 22.258780660000003
+      },
+      {
+        "function": "test_build_big_ifc_pipe (tests/profiling/test_ifc_creation.py:48)",
+        "calls": 1,
+        "duration": 6.505537172
+      },
+      {
+        "function": "to_ifc (src/ada/api/spatial/assembly.py:220)",
+        "calls": 5,
+        "duration": 6.034049685
+      },
+      {
+        "function": "sync (src/ada/cadit/ifc/store.py:158)",
+        "calls": 5,
+        "duration": 5.902773636
+      },
+      {
+        "function": "sync_added_physical_objects (src/ada/cadit/ifc/write/write_ifc.py:92)",
+        "calls": 5,
+        "duration": 5.866169793
+      },
+      {
+        "function": "add (src/ada/cadit/ifc/write/write_ifc.py:473)",
+        "calls": 2200,
+        "duration": 5.7916996350000005
+      },
+      {
+        "function": "__truediv__ (src/ada/api/spatial/part.py:1597)",
+        "calls": 8,
+        "duration": 4.846978245000001
+      },
+      {
+        "function": "test_bench_batch_tessellate (tests/profiling/test_cad_backend_bench.py:63)",
+        "calls": 1,
+        "duration": 4.172237819
+      },
+      {
+        "function": "add_object (src/ada/api/spatial/part.py:309)",
+        "calls": 1201,
+        "duration": 3.874384076
+      },
+      {
+        "function": "add_pipe (src/ada/api/spatial/part.py:164)",
+        "calls": 200,
+        "duration": 3.856594669
+      },
+      {
+        "function": "run (tests/profiling/test_cad_backend_bench.py:73)",
+        "calls": 6,
+        "duration": 3.7613293010000004
+      },
+      {
+        "function": "batch_tessellate (src/ada/occ/tessellating.py:243)",
+        "calls": 1446,
+        "duration": 3.760212702
+      },
+      {
+        "function": "add_section (src/ada/api/spatial/part.py:294)",
+        "calls": 801,
+        "duration": 3.2462672720000003
+      },
+      {
+        "function": "add (src/ada/api/containers/sections.py:139)",
+        "calls": 805,
+        "duration": 3.2419681660000004
+      },
+      {
+        "function": "equal_props (src/ada/sections/concept.py:92)",
+        "calls": 241399,
+        "duration": 3.0252951730000004
+      },
+      {
+        "function": "unique_props (src/ada/sections/concept.py:99)",
+        "calls": 482798,
+        "duration": 2.711119297
+      },
+      {
+        "function": "write_ifc_pipe (src/ada/cadit/ifc/write/write_pipe.py:23)",
+        "calls": 200,
+        "duration": 2.570414662
+      },
+      {
+        "function": "tessellate_geom (src/ada/occ/tessellating.py:210)",
+        "calls": 1440,
+        "duration": 2.4651787450000002
+      },
+      {
+        "function": "create_entity (.pixi/envs/profile/lib/python3.12/site-packages/ifcopenshell/file.py:693)",
+        "calls": 67921,
+        "duration": 2.445135208
+      }
+    ]
   }
 ]
