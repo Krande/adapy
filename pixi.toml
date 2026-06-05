@@ -40,7 +40,16 @@ bench-cad-save = { cmd = "pytest tests/profiling/test_cad_backend_bench.py --ben
 bench-cad-compare = { cmd = "pytest tests/profiling/test_cad_backend_bench.py --benchmark-only --benchmark-compare --benchmark-compare-fail=mean:10% -q", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 
 [feature.fem.tasks]
-test-all = { cmd = "pytest tests --ignore=tests/comms/rest --durations=0", depends-on = ["pre-install"], env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+# Full non-REST suite across BOTH CAD backends, report-both. Orchestrated by
+# scripts/run_test_all.sh: it runs the ada-cpp leg (`pixi run -e tests-adacpp
+# test-all`) and the pythonocc leg (pytest in this fem env) independently —
+# neither aborts the other — then exits non-zero if either had failures.
+# pyocc runs the entire non-REST suite incl. the playwright frontend e2e
+# tests (fem env now carries the `tests` feature). comms/rest is excluded:
+# it needs the viewer-api stack (its own `test-rest` task / env).
+# A plain pixi depends-on can't do report-both (it fails fast), hence the
+# wrapper. This `test-all` is gated to the fem env by feature membership.
+test-all = { cmd = "bash scripts/run_test_all.sh", depends-on = ["pre-install"], env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 test-fem = { cmd = "pytest tests/fem --durations=0", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 test-basic-fem = { cmd = "python basic_fem.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" }, cwd = "examples" }
 test-fem-viz = { cmd = "pytest tests/fem/visualization --durations=0", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
@@ -83,7 +92,10 @@ tests = { features = ["tests", "tests-core", "prod", "pyocc", "desktop"], solve-
 # pythonocc-pinned `prod` group. Run with: pixi run -e tests-adacpp test
 tests-adacpp = { features = ["adacpp", "tests", "tests-core", "prod", "desktop"], solve-group = "adacpp", no-default-feature = true }
 fem-deps = { features = ["fem-deps", "prod", "pyocc", "tests-core"], no-default-feature = true }
-fem = { features = ["fem", "prod", "pyocc", "desktop", "tests-core", "fem-deps"], no-default-feature = true }
+# `tests` feature added so the pyocc side of `test-all` can run the whole
+# non-REST suite, including the playwright frontend e2e tests (which live
+# only under tests/full/frontend and need the `tests` feature's playwright).
+fem = { features = ["fem", "tests", "prod", "pyocc", "desktop", "tests-core", "fem-deps"], no-default-feature = true }
 docs = { features = ["docs", "prod", "pyocc", "desktop", "fem-deps", "tests-core"], no-default-feature = true }
 viewer-api = { features = ["viewer-api", "prod", "pyocc"], solve-group = "prod", no-default-feature = true }
 # Slim runtime for the Dockerfile.viewer image — no `prod` so the
@@ -123,6 +135,16 @@ ada-cpp = "0.4.1.*"
 
 [feature.adacpp.activation.env]
 ADAPY_CAD_BACKEND = "adacpp"
+
+[feature.adacpp.tasks]
+# ada-cpp leg of `test-all`. Runs the whole non-REST suite against the native
+# ada-cpp CAD backend. Excludes tests/fem/visualization (needs medcoupling,
+# which is in fem-deps and not in the tests-adacpp env). This task is gated to
+# the tests-adacpp env by feature membership: that env carries `adacpp` but not
+# `fem`, while the fem env carries `fem` but not `adacpp`, so each env resolves
+# `test-all` to exactly one definition (no recursion). The fem-env orchestrator
+# chains into this via `pixi run -e tests-adacpp test-all`.
+test-all = { cmd = "pytest tests --ignore=tests/comms/rest --ignore=tests/fem/visualization --durations=0", depends-on = ["pre-install"], env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 
 [feature.prod.dependencies]
 python = "3.12.*"

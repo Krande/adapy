@@ -51,8 +51,6 @@ def write_pipe_segment(ifc_store: IfcStore, segment: PipeSegElbow | PipeSegStrai
     else:
         raise ValueError(f'Unrecognized Pipe Segment type "{type(segment)}"')
 
-    f = ifc_store.f
-
     beam_type = ifc_store.get_beam_type(segment.section)
     if beam_type is None:
         raise ValueError(f"No beam type found for section {segment.section}")
