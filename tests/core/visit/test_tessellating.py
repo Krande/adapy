@@ -64,3 +64,29 @@ def test_tessellate_batch_combined_mesh():
         cursor += g.length
     # combined indices stay in range of the combined vertex buffer
     assert int(bm.indices.max()) < bm.positions.size // 3
+
+
+def test_batch_tessellate_solids_matches_per_object():
+    # The batched fast path (one backend call, split back per object via group
+    # vertex ranges) must yield MeshStores equivalent to the per-object path,
+    # preserving each object's colour/material so the downstream per-colour merge
+    # is unchanged. Under pythonocc both paths go through the same tessellator, so
+    # the meshes are identical.
+    import numpy as np
+
+    import ada
+    from ada.occ.tessellating import BatchTessellator
+
+    objs = [ada.PrimBox(f"b{i}", (0, i, 0), (1, i + 1, 1)) for i in range(3)] + [
+        ada.Beam(f"bm{i}", (0, i, 2), (1, i, 2), "IPE300") for i in range(2)
+    ]
+
+    per = list(BatchTessellator().batch_tessellate(list(objs)))
+    bat = list(BatchTessellator().batch_tessellate_solids(list(objs)))
+
+    assert len(bat) == len(per)
+    for a, b in zip(per, bat):
+        assert np.allclose(np.asarray(a.position), np.asarray(b.position))
+        assert np.array_equal(np.asarray(a.indices), np.asarray(b.indices))
+        assert a.material == b.material
+        assert b.normal is not None and len(b.normal) == len(b.position)

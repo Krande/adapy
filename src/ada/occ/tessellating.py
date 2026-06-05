@@ -482,6 +482,49 @@ class BatchTessellator:
                     fb_err,
                 )
 
+    def batch_tessellate_solids(
+        self,
+        objects: Iterable[BackendGeom],
+        graph_store: GraphStore = None,
+        linear_deflection: float = -1.0,
+    ) -> Iterable[MeshStore]:
+        """Fast path for simple SOLID objects: tessellate them all in ONE backend
+        call (ada-cpp's native ``tessellate_batch`` when available, else a loop),
+        then split the combined mesh back into per-object ``MeshStore``s using each
+        group's vertex range — preserving each object's colour so the downstream
+        per-colour merge in :meth:`meshes_to_trimesh` is unchanged.
+
+        Scope: each object must expose ``solid_geom()`` that builds cleanly. Curved
+        plates, raw-OCC bodies and line geometry are NOT handled here — route those
+        through :meth:`batch_tessellate`. Yields nothing for an empty input.
+        """
+        backend = active_backend()
+        shapes = []
+        meta: list = []  # (color, node_ref) parallel to shapes
+        for obj in objects:
+            geom = obj.solid_geom()
+            shapes.append(backend.build(geom))
+            node_ref = graph_store.hash_map.get(obj.guid) if graph_store is not None else getattr(obj, "guid", None)
+            meta.append((geom.color, node_ref))
+
+        if not shapes:
+            return
+
+        bm = backend.tessellate_batch(shapes, linear_deflection)
+        for grp, (color, node_ref) in zip(bm.groups, meta):
+            mat_id = self.add_color(color)
+            pos = np.ascontiguousarray(bm.positions[grp.vstart * 3 : (grp.vstart + grp.vlength) * 3], dtype="float32")
+            # rebase the group's indices to this object's local vertex range
+            idx = np.ascontiguousarray(
+                bm.indices[grp.start : grp.start + grp.length].astype(np.uint32) - np.uint32(grp.vstart),
+                dtype="uint32",
+            )
+            if bm.normals is not None:
+                nrm = np.ascontiguousarray(bm.normals[grp.vstart * 3 : (grp.vstart + grp.vlength) * 3], dtype="float32")
+            else:
+                nrm = _vertex_normals(pos, idx)
+            yield MeshStore(node_ref, None, pos, idx, nrm, mat_id, MeshType.TRIANGLES, node_ref)
+
     def meshes_to_trimesh(
         self, shapes_tess_iter: Iterable[MeshStore], graph=None, merge_meshes: bool = True, apply_transform=False
     ) -> trimesh.Scene:
