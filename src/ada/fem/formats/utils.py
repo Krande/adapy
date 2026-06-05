@@ -592,16 +592,26 @@ def line_elem_to_beam(elem: Elem, parent: Part, prefix="bm") -> Beam:
     )
 
 
-def convert_part_objects(p: Part, skip_plates, skip_beams, merge=False):
+def convert_part_objects(p: Part, skip_plates, skip_beams, merge=False, reconstruct_surfaces=False):
     from ada.api.containers import Beams, Plates
 
     if skip_plates is False:
-        plates = convert_part_shell_elements_to_plates(p)
-        if merge:
-            from ada.fem.formats.concept_merge import merge_coplanar_plates
+        if reconstruct_surfaces:
+            # Recover smooth structured quad panels as single curved plates;
+            # non-reconstructable elements fall back to flat plates (coplanar-
+            # merged when ``merge`` is on). See surface_reconstruction.py.
+            from ada.fem.formats.surface_reconstruction import (
+                reconstruct_shell_surfaces,
+            )
 
-            plates = Plates(merge_coplanar_plates(list(plates), p), parent=p)
-        p._plates = plates
+            p._plates = Plates(reconstruct_shell_surfaces(p, merge_fallback=merge), parent=p)
+        else:
+            plates = convert_part_shell_elements_to_plates(p)
+            if merge:
+                from ada.fem.formats.concept_merge import merge_coplanar_plates
+
+                plates = Plates(merge_coplanar_plates(list(plates), p), parent=p)
+            p._plates = plates
     if skip_beams is False:
         beams = convert_part_elem_bm_to_beams(p)
         if merge:

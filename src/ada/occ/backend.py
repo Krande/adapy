@@ -344,6 +344,14 @@ class OccBackend:
 
         return occ_face_to_ada_face(shape)
 
+    def build_bspline_advanced_face_from_grid(self, grid: "list", tol: float):
+        # Fit a NURBS surface through a structured node grid and return it as a
+        # backend-neutral ada.geom AdvancedFace. The transient OCC face never
+        # leaves the fit helper — callers receive only serialised ada.geom.
+        from ada.occ.fem.surface_fit import fit_advanced_face_from_grid
+
+        return fit_advanced_face_from_grid(grid, tol)
+
     def faces(self, shape: ShapeHandle) -> list[ShapeHandle]:
         # Whole list of face sub-shapes — the boundary crosses once, not per
         # face, so callers iterate without re-entering the backend per element.

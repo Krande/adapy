@@ -691,7 +691,9 @@ class Part(BackendGeom):
             no_mass=node_masses_tot_mass,
         )
 
-    def create_objects_from_fem(self, skip_plates=False, skip_beams=False, merge=False) -> None:
+    def create_objects_from_fem(
+        self, skip_plates=False, skip_beams=False, merge=False, reconstruct_surfaces=False
+    ) -> None:
         """Build Beams and Plates from the contents of the local FEM object.
 
         ``merge`` folds the one-object-per-element output back down by
@@ -700,6 +702,12 @@ class Part(BackendGeom):
         merged only when it collapses cleanly, else its elements are kept.
         Defaults off here to keep the 1:1 element→object mapping callers
         expect; the FEM→CAD conversion path opts in (``merge_fem_objects``).
+
+        ``reconstruct_surfaces`` (opt-in) instead recovers smooth structured
+        quad panels as single curved plates (NURBS B-rep) — a large size/time
+        reduction for CAD export of meshes generated from curved panels.
+        Non-reconstructable elements fall back to flat plates (coplanar-merged
+        when ``merge`` is on). Beams are unaffected.
         """
         from ada import Assembly
         from ada.fem.formats.utils import convert_part_objects
@@ -707,10 +715,12 @@ class Part(BackendGeom):
         if isinstance(self, Assembly):
             for p_ in self.get_all_parts_in_assembly():
                 logger.info(f'Beginning conversion from fem to structural objects for "{p_.name}"')
-                convert_part_objects(p_, skip_plates, skip_beams, merge=merge)
+                convert_part_objects(
+                    p_, skip_plates, skip_beams, merge=merge, reconstruct_surfaces=reconstruct_surfaces
+                )
         else:
             logger.info(f'Beginning conversion from fem to structural objects for "{self.name}"')
-            convert_part_objects(self, skip_plates, skip_beams, merge=merge)
+            convert_part_objects(self, skip_plates, skip_beams, merge=merge, reconstruct_surfaces=reconstruct_surfaces)
         logger.info("Conversion complete")
 
     def get_part(self, name: str, search_all_parts_in_assembly=False) -> Part | None:

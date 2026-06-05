@@ -2,7 +2,6 @@ from typing import Iterable
 
 from OCC.Core.BRep import BRep_Tool
 from OCC.Core.Geom import Geom_BSplineSurface, Geom_Surface
-from OCC.Core.GeomAbs import GeomAbs_C0, GeomAbs_C1, GeomAbs_C2, GeomAbs_CN
 from OCC.Core.TopAbs import TopAbs_FACE
 from OCC.Core.TopExp import TopExp_Explorer
 from OCC.Core.TopoDS import TopoDS_Compound, TopoDS_Face, TopoDS_Shell, topods
@@ -99,18 +98,11 @@ def get_bsplinesurface_with_knots(surface: Geom_Surface) -> geo_su.BSplineSurfac
     u_multiplicities_list = array1_to_int_list(u_multiplicities)
     v_multiplicities_list = array1_to_int_list(v_multiplicities)
 
-    # Determine knot specification (C0, C1, etc.)
-    continuity = bspline_surface.Continuity()
-    if continuity == GeomAbs_C0:
-        knot_spec = "C0"
-    elif continuity == GeomAbs_C1:
-        knot_spec = "C1"
-    elif continuity == GeomAbs_C2:
-        knot_spec = "C2"
-    elif continuity == GeomAbs_CN:
-        knot_spec = "CN"
-    else:
-        knot_spec = geo_cu.KnotType.UNSPECIFIED
+    # KnotType is the knot-vector classification (IfcKnotType / STEP knot_type),
+    # not surface continuity. OCC does not expose it directly and the previous
+    # C0/C1/C2 strings here were both wrong (that's continuity) and un-enumerated
+    # (the IFC/STEP writers do ``knot_spec.value``). UNSPECIFIED is always valid.
+    knot_spec = geo_cu.KnotType.UNSPECIFIED
 
     # Construct and return the BSplineSurfaceWithKnots object
     return geo_su.BSplineSurfaceWithKnots(

@@ -346,12 +346,26 @@ class PlateCurved(BackendGeom):
     the right units before constructing the plate.
     """
 
-    def __init__(self, name, face_geom: Geometry, t: float, mat: str | Material = "S420", **kwargs):
+    def __init__(
+        self,
+        name,
+        face_geom: Geometry,
+        t: float,
+        mat: str | Material = "S420",
+        extrude_as_solid: bool = False,
+        **kwargs,
+    ):
         super().__init__(name, **kwargs)
         self._geom = face_geom
         self._material = mat if isinstance(mat, Material) else Material(mat, mat_model=CarbonSteel(mat), parent=self)
         self._material.refs.append(self)
         self._t = t
+        # When True, the SOLID representation (``solid_occ``) is the thickness
+        # extrusion rather than the bare face — used by FEM surface
+        # reconstruction so STEP export of a reconstructed panel is a real
+        # extruded B-rep solid. Default keeps the historical bare-face behaviour
+        # (loft tool / gxml advanced faces render as the surface).
+        self._extrude_as_solid = bool(extrude_as_solid)
         self._nodes_cache: list[Node] | None = None
         self._bbox = None
         self._hash = None
@@ -392,6 +406,7 @@ class PlateCurved(BackendGeom):
         )
         instance._material.refs.append(instance)
         instance._t = t
+        instance._extrude_as_solid = False
         instance._nodes_cache = None
         instance._bbox = None
         instance._hash = None
@@ -487,12 +502,22 @@ class PlateCurved(BackendGeom):
     def solid_geom(self) -> Geometry:
         return self.geom
 
-    def solid_occ(self) -> ShapeHandle:
+    def _face_occ(self) -> ShapeHandle:
+        """Bare curved face shape (override if present, else built from geom)."""
         if self._occ_face_override is not None:
             return self._occ_face_override
         from ada.cad import active_backend
 
         return active_backend().build(self.solid_geom())
+
+    def solid_occ(self) -> ShapeHandle:
+        # Reconstructed panels opt into a true thickness extrusion for the SOLID
+        # representation (so STEP/SOLID-repr export is a real solid); everything
+        # else keeps the historical bare-face behaviour. No recursion:
+        # extruded_solid_occ builds the face via _face_occ, not solid_occ.
+        if self._extrude_as_solid and self.t:
+            return self.extruded_solid_occ()
+        return self._face_occ()
 
     def extruded_solid_occ(self) -> ShapeHandle:
         """Prism-extrude the curved face by ``t`` along its normal so
@@ -504,21 +529,19 @@ class PlateCurved(BackendGeom):
         still gets *something* to render.
         """
         # t=0 (SurfaceCurved): the "extruded" representation is just the bare
-        # face — return the exact solid_occ() object so callers relying on the
-        # short-circuit identity hold under any backend.
+        # face.
         if not self.t:
-            return self.solid_occ()
+            return self._face_occ()
         try:
             from ada.cad import active_backend
 
-            backend = active_backend()
-            face = self._occ_face_override if self._occ_face_override is not None else backend.build(self.solid_geom())
-            return backend.extrude_face_along_normal(face, self.t)
+            return active_backend().extrude_face_along_normal(self._face_occ(), self.t)
         except Exception:
             # Conversion failures (gxml flat-fallback faces, malformed
-            # control-net data) — defer to ``solid_occ`` so the caller
-            # at least sees the underlying face.
-            return self.solid_occ()
+            # control-net data) — defer to the bare face so the caller at least
+            # sees the underlying surface. (Not solid_occ: that would recurse
+            # when _extrude_as_solid is set.)
+            return self._face_occ()
 
 
 class Surface(Plate):
