@@ -325,6 +325,7 @@ class IfcWriter:
                 write_mapped_instance(instance, self.ifc_store.f)
 
     def sync_sections(self):
+        added_any = False
         for sec in self.ifc_store.assembly.get_all_sections():
             if sec.change_type != ChangeAction.ADDED:
                 continue
@@ -332,6 +333,13 @@ class IfcWriter:
             self.create_ifc_profile_def(sec)
             self.create_ifc_beam_type(sec)
             sec.change_type = ChangeAction.NOCHANGE
+            added_any = True
+
+        if added_any:
+            # New IfcProfileDef / IfcBeamType entities exist now; force the
+            # lazy lookup caches to rebuild on next access.
+            self.ifc_store._profile_def_cache = None
+            self.ifc_store._beam_type_cache = None
 
     def sync_materials(self):
         all_mats = self.ifc_store.assembly.get_all_materials()

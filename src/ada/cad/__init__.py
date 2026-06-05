@@ -22,6 +22,7 @@ least one backend.
 from __future__ import annotations
 
 import os
+from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
@@ -59,6 +60,74 @@ class Mesh(Protocol):
     indices: Any  # flat int buffer,   length = 3 * num_triangles
 
 
+@dataclass(frozen=True)
+class MeshGroup:
+    """One input shape's slice of a combined :class:`BatchMesh`."""
+
+    node_id: int  # index of the source shape in the batch
+    start: int  # offset into BatchMesh.indices
+    length: int  # number of indices (== 3 * triangles) for this shape
+    vstart: int  # offset into BatchMesh.positions, in vertices (start*3 in floats)
+    vlength: int  # number of vertices for this shape
+
+
+@dataclass
+class BatchMesh:
+    """Several shapes tessellated into one combined buffer (``tessellate_batch``).
+
+    ``positions`` / ``indices`` (and ``normals`` when the backend supplies them)
+    are flat NumPy buffers covering every shape; ``groups`` demarcates each source
+    shape's index AND vertex range, so callers can slice per-shape geometry out of
+    the shared buffer — one GLB scene, or split back into per-object meshes while
+    keeping each shape's colour.
+    """
+
+    positions: Any  # flat float32, length = 3 * num_vertices
+    indices: Any  # flat uint32,  length = 3 * num_triangles
+    groups: "list[MeshGroup]"
+    normals: Any = None  # flat float32, len == positions, or None if not supplied
+
+
+def tessellate_batch_via_loop(backend, shapes, linear_deflection: float = -1.0) -> "BatchMesh":
+    """Backend-neutral ``tessellate_batch`` fallback: tessellate each shape and
+    concatenate into one combined :class:`BatchMesh`. Used by backends without a
+    native batch path (OccBackend always; AdacppBackend when the loaded ada-cpp
+    build predates ``tessellate_batch``). Indices are offset by the running
+    vertex count so the merged buffer is self-consistent. Normals are carried
+    through when every per-shape mesh has them."""
+    import numpy as np
+
+    pos_chunks: list = []
+    idx_chunks: list = []
+    nrm_chunks: list = []
+    groups: list[MeshGroup] = []
+    vbase = 0  # running vertex offset
+    istart = 0  # running index offset
+    have_normals = True
+    for i, sh in enumerate(shapes):
+        m = backend.tessellate(sh, linear_deflection)
+        pos = np.asarray(m.positions, dtype=np.float32)
+        raw = getattr(m, "indices", None)
+        if raw is None:
+            raw = m.faces  # OccBackend's TriangleMesh names it `faces`
+        idx = np.asarray(raw, dtype=np.uint32)
+        nrm = getattr(m, "normals", None)
+        if nrm is None or len(nrm) != pos.size:
+            have_normals = False
+        elif have_normals:
+            nrm_chunks.append(np.asarray(nrm, dtype=np.float32))
+        nverts = pos.size // 3
+        pos_chunks.append(pos)
+        idx_chunks.append(idx + np.uint32(vbase))
+        groups.append(MeshGroup(node_id=i, start=istart, length=int(idx.size), vstart=vbase, vlength=nverts))
+        vbase += nverts
+        istart += int(idx.size)
+    positions = np.concatenate(pos_chunks) if pos_chunks else np.empty(0, np.float32)
+    indices = np.concatenate(idx_chunks) if idx_chunks else np.empty(0, np.uint32)
+    normals = np.concatenate(nrm_chunks) if (have_normals and nrm_chunks) else None
+    return BatchMesh(positions=positions, indices=indices, groups=groups, normals=normals)
+
+
 class CadBackend(Protocol):
     """Backend contract. Each method returns a kernel-native value; callers
     treat the returned ShapeHandle as opaque and only consume Mesh fields."""
@@ -76,6 +145,7 @@ class CadBackend(Protocol):
     def make_cylinder(self, radius: float, height: float) -> ShapeHandle: ...
     def make_sphere(self, radius: float) -> ShapeHandle: ...
     def tessellate(self, shape: ShapeHandle, linear_deflection: float = -1.0) -> Mesh: ...
+    def tessellate_batch(self, shapes: "list[ShapeHandle]", linear_deflection: float = -1.0) -> "BatchMesh": ...
     def bbox(
         self, shape: ShapeHandle, optimal: bool = True, use_mesh: bool = False
     ) -> tuple[float, float, float, float, float, float]: ...
@@ -97,6 +167,7 @@ class CadBackend(Protocol):
     def face_surface_type(self, shape: ShapeHandle) -> str: ...
     def extrude_face_along_normal(self, face: ShapeHandle, thickness: float) -> ShapeHandle: ...
     def face_to_advanced_face(self, shape: ShapeHandle): ...
+    def build_bspline_advanced_face_from_grid(self, grid: "list", tol: float): ...
     def faces(self, shape: ShapeHandle) -> list[ShapeHandle]: ...
     def solids(self, shape: ShapeHandle) -> list[ShapeHandle]: ...
     def edges(self, shape: ShapeHandle) -> list[ShapeHandle]: ...
@@ -468,6 +539,28 @@ class AdacppBackend:
     def tessellate(self, shape: ShapeHandle, linear_deflection: float = -1.0) -> Mesh:
         return self._cad.tessellate(shape, linear_deflection)
 
+    def tessellate_batch(self, shapes: "list[ShapeHandle]", linear_deflection: float = -1.0) -> "BatchMesh":
+        # Native single-call batch when the loaded ada-cpp build provides it
+        # (returns one combined Mesh with a GroupReference per shape); otherwise
+        # fall back to the per-shape loop so the API works on older builds.
+        fn = getattr(self._cad, "tessellate_batch", None)
+        if fn is None:
+            return tessellate_batch_via_loop(self, shapes, linear_deflection)
+        import numpy as np
+
+        mesh = fn(list(shapes), linear_deflection)
+        groups = [
+            MeshGroup(node_id=g.node_id, start=g.start, length=g.length, vstart=g.vstart, vlength=g.vlength)
+            for g in mesh.groups
+        ]
+        nrm = np.asarray(mesh.normals)
+        return BatchMesh(
+            positions=np.asarray(mesh.positions),
+            indices=np.asarray(mesh.indices),
+            groups=groups,
+            normals=nrm if nrm.size else None,
+        )
+
     def bbox(
         self, shape: ShapeHandle, optimal: bool = True, use_mesh: bool = False
     ) -> tuple[float, float, float, float, float, float]:
@@ -568,6 +661,12 @@ class AdacppBackend:
         if fn is None:
             raise NotImplementedError("adacpp.cad.extrude_face_along_normal is not available in this build")
         return fn(face, float(thickness))
+
+    def build_bspline_advanced_face_from_grid(self, grid: "list", tol: float):
+        # Native grid→NURBS fit not yet ported to adacpp. Raising here makes the
+        # surface-reconstruction caller fall back to flat plates (the safe
+        # default) rather than borrowing pythonocc. See dap plan/v3 Phase 7.
+        raise NotImplementedError("adacpp.cad grid→bspline surface fit is not available yet")
 
     def face_to_advanced_face(self, shape: ShapeHandle):
         """Decompose a B-spline face handle into an ada.geom AdvancedFace

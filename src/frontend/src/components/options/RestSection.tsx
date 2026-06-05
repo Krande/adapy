@@ -74,7 +74,7 @@ const SignedInRow: React.FC = () => {
                 {sub && (
                     <div className="flex items-center gap-1 mt-0.5 text-gray-400">
                         <span className="shrink-0">ID:</span>
-                        <span className="truncate font-mono" title={sub}>{sub}</span>
+                        <span className="truncate font-mono min-w-0" title={sub}>{sub}</span>
                         <button
                             type="button"
                             onClick={() => void onCopy()}

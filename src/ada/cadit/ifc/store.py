@@ -48,12 +48,19 @@ class IfcStore:
         state["reader"] = None
         state["callback"] = None
         state["settings"] = None
+        # Query caches hold C-bound entity_instance refs (don't pickle).
+        state["_context_cache"] = {}
+        state["_profile_def_cache"] = None
+        state["_beam_type_cache"] = None
+        state["_rel_defines_by_type_cache"] = None
+        state["_rel_aggregates_cache"] = None
         return state
 
     def __setstate__(self, state):
         self.__dict__.update(state)
         if self.settings is None:
             self.settings = default_settings()
+        self.reset_query_caches()
 
     def __post_init__(self):
         if self.f is None:
@@ -70,6 +77,27 @@ class IfcStore:
                 self.assembly = Assembly()
                 self.f = assembly_to_ifc_file(self.assembly)
                 self.add_standard_contexts()
+
+        self.reset_query_caches()
+
+    def reset_query_caches(self):
+        # Per-sync memoization for what would otherwise be O(file) ``by_type``
+        # scans run *per element*. On a 50k-element ship model that turns the
+        # IFC export into an O(N²) crawl. Caches are keyed by the lookups the
+        # write path needs (context identifier, profile/beam-type name,
+        # relating entity id) and rebuilt lazily on first miss. ``sync()``
+        # clears them up front so incremental re-exports stay correct.
+        self._context_cache: dict = {}
+        self._profile_def_cache: dict | None = None
+        self._beam_type_cache: dict | None = None
+        self._rel_defines_by_type_cache: dict | None = None
+        self._rel_aggregates_cache: dict | None = None
+        # Deferred IfcRelDefinesByType membership: many elements share one
+        # relating type, and growing ``RelatedObjects`` per element re-walks
+        # the whole aggregate each time (O(N²)). Members accumulate here as
+        # plain Python lists and are written to the IFC aggregate once via
+        # flush_rel_defines_by_type().
+        self._rel_defines_pending: dict = {}
 
     def add_standard_contexts(self):
         contexts = list(self.f.by_type("IfcGeometricRepresentationContext"))
@@ -108,18 +136,24 @@ class IfcStore:
         self.owner_history = create_owner_history_from_user(user, self.f)
 
     def get_context(self, context_id):
+        cached = self._context_cache.get(context_id)
+        if cached is not None:
+            return cached
+
         contexts = list(self.f.by_type("IfcGeometricRepresentationContext"))
         subcontexts = list(self.f.by_type("IfcGeometricRepresentationSubContext"))
         if len(contexts) == 1 and len(subcontexts) == 0:
+            self._context_cache[context_id] = contexts[0]
             return contexts[0]
 
-        contexts = [x for x in contexts if x.ContextIdentifier == context_id and x.ContextType == "Model"]
-        if len(contexts) == 0:
+        matches = [x for x in contexts if x.ContextIdentifier == context_id and x.ContextType == "Model"]
+        if len(matches) == 0:
             raise ValueError(f'0 IfcGeometry Subcontexts found with "{context_id=}"')
-        if len(contexts) > 1:
+        if len(matches) > 1:
             raise ValueError(f'Multiple Subcontexts found with "{context_id=}"')
 
-        return contexts[0]
+        self._context_cache[context_id] = matches[0]
+        return matches[0]
 
     def sync(
         self,
@@ -132,6 +166,10 @@ class IfcStore:
         self.writer = IfcWriter(self)
         self.writer.callback = progress_callback
         a = self.assembly
+
+        # Drop any stale lookup caches from a previous sync; sections /
+        # contexts created below repopulate them lazily on first access.
+        self.reset_query_caches()
 
         a.consolidate_sections()
         a.consolidate_materials()
@@ -157,6 +195,9 @@ class IfcStore:
         self.writer.sync_presentation_layers()
 
         num_del = self.writer.sync_deleted_physical_objects()
+
+        # Write all deferred IfcRelDefinesByType memberships in one pass.
+        self.flush_rel_defines_by_type()
 
         add_str = f"Added {num_new_objects} objects and {num_new_spatial_objects} spatial elements"
         mod_str = f"Modified {num_mod} objects"
@@ -260,19 +301,105 @@ class IfcStore:
         return self.f.by_guid(guid)
 
     def get_beam_type(self, section: Section, match_description=False) -> ifcopenshell.entity_instance | None:
+        if self._beam_type_cache is None:
+            self._beam_type_cache = {}
+            for beam_type in self.f.by_type("IfcBeamType"):
+                # First registered wins, matching the original linear scan.
+                self._beam_type_cache.setdefault(beam_type.Name, beam_type)
 
-        for beam_type in self.f.by_type("IfcBeamType"):
-            if section.name == beam_type.Name:
-                return beam_type
-
-        logger.warning(f"Unable to find beam type for {section.name=}")
-        return None
+        beam_type = self._beam_type_cache.get(section.name)
+        if beam_type is None:
+            logger.warning(f"Unable to find beam type for {section.name=}")
+        return beam_type
 
     def get_profile_def(self, section: Section) -> ifcopenshell.entity_instance | None:
-        for p in self.f.by_type("IfcProfileDef"):
-            if getattr(p, "ProfileName", None) == section.name:
-                return p
-        return None
+        if self._profile_def_cache is None:
+            self._profile_def_cache = {}
+            for p in self.f.by_type("IfcProfileDef"):
+                name = getattr(p, "ProfileName", None)
+                if name is not None:
+                    self._profile_def_cache.setdefault(name, p)
+
+        return self._profile_def_cache.get(section.name)
+
+    def get_rel_defines_by_type(self, beam_type: ifcopenshell.entity_instance) -> ifcopenshell.entity_instance | None:
+        """Existing IfcRelDefinesByType whose RelatingType is ``beam_type`` (or None).
+
+        Callers that create a fresh rel must register it via
+        :meth:`register_rel_defines_by_type` so subsequent elements of the same
+        section reuse it instead of re-scanning the file.
+        """
+        if self._rel_defines_by_type_cache is None:
+            self._rel_defines_by_type_cache = {}
+            for ifcrel in self.f.by_type("IfcRelDefinesByType"):
+                rt = ifcrel.RelatingType
+                if rt is not None:
+                    self._rel_defines_by_type_cache.setdefault(rt.id(), ifcrel)
+
+        return self._rel_defines_by_type_cache.get(beam_type.id())
+
+    def register_rel_defines_by_type(
+        self, beam_type: ifcopenshell.entity_instance, ifcrel: ifcopenshell.entity_instance
+    ) -> None:
+        if self._rel_defines_by_type_cache is None:
+            self._rel_defines_by_type_cache = {}
+        self._rel_defines_by_type_cache[beam_type.id()] = ifcrel
+
+    def queue_rel_defines_by_type(
+        self, beam_type: ifcopenshell.entity_instance, ifc_elem: ifcopenshell.entity_instance, name: str
+    ) -> None:
+        """Defer attaching ``ifc_elem`` to its type's IfcRelDefinesByType.
+
+        Members are batched per relating type and written in one assignment by
+        :meth:`flush_rel_defines_by_type`, avoiding the O(N²) aggregate re-walk
+        of appending one element at a time.
+        """
+        entry = self._rel_defines_pending.get(beam_type.id())
+        if entry is None:
+            entry = {"beam_type": beam_type, "name": name, "elems": []}
+            self._rel_defines_pending[beam_type.id()] = entry
+        entry["elems"].append(ifc_elem)
+
+    def flush_rel_defines_by_type(self) -> None:
+        from ada.core.guid import create_guid
+
+        for entry in self._rel_defines_pending.values():
+            elems = entry["elems"]
+            if not elems:
+                continue
+            existing = self.get_rel_defines_by_type(entry["beam_type"])
+            if existing is not None:
+                existing.RelatedObjects = tuple([*existing.RelatedObjects, *elems])
+            else:
+                new_rel = self.f.create_entity(
+                    "IfcRelDefinesByType",
+                    GlobalId=create_guid(),
+                    OwnerHistory=self.owner_history,
+                    Name=entry["name"],
+                    Description=None,
+                    RelatedObjects=elems,
+                    RelatingType=entry["beam_type"],
+                )
+                self.register_rel_defines_by_type(entry["beam_type"], new_rel)
+        self._rel_defines_pending = {}
+
+    def get_rel_aggregates(self, relating_object: ifcopenshell.entity_instance) -> ifcopenshell.entity_instance | None:
+        """Existing IfcRelAggregates whose RelatingObject is ``relating_object`` (or None)."""
+        if self._rel_aggregates_cache is None:
+            self._rel_aggregates_cache = {}
+            for rel_agg in self.f.by_type("IfcRelAggregates"):
+                ro = rel_agg.RelatingObject
+                if ro is not None:
+                    self._rel_aggregates_cache.setdefault(ro.id(), rel_agg)
+
+        return self._rel_aggregates_cache.get(relating_object.id())
+
+    def register_rel_aggregates(
+        self, relating_object: ifcopenshell.entity_instance, rel_agg: ifcopenshell.entity_instance
+    ) -> None:
+        if self._rel_aggregates_cache is None:
+            self._rel_aggregates_cache = {}
+        self._rel_aggregates_cache[relating_object.id()] = rel_agg
 
     @staticmethod
     def from_ifc(ifc_file: str | os.PathLike | ifcopenshell.file, make_a_copy=True) -> IfcStore:

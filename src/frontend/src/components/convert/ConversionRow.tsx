@@ -262,7 +262,16 @@ const ConversionRow: React.FC<{row: ConvertRow}> = ({row}) => {
     const isDone = job?.status === "done";
     const isError = job?.status === "error";
     const pct = Math.round((job?.progress || 0) * 100);
-    const canPreview = isDone && (target === "glb" || job?.derivedKey?.endsWith(".glb") || job?.derivedKey?.endsWith(".gltf"));
+    // Viewable when the result is already GLB/glTF, or when the target is a
+    // format the converter can turn into GLB (IFC / XML / STEP / …) — the
+    // viewer converts the derived blob to GLB on demand. So a FEM→IFC or
+    // XML→IFC result is previewable, not just GLB outputs.
+    const canPreview =
+        isDone &&
+        (target === "glb" ||
+            job?.derivedKey?.endsWith(".glb") ||
+            job?.derivedKey?.endsWith(".gltf") ||
+            runtime.conversionTargetsFor(target).includes("glb"));
 
     return (
         <div className="rounded-md border border-gray-700 bg-gray-800/60 p-3 space-y-2">

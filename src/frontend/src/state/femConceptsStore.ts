@@ -25,8 +25,8 @@ export const useFemConceptsStore = create<FemConceptsState>((set) => ({
     masses: [],
     bcs: [],
     scenarios: [],
-    showMasses: true,
-    showBcs: true,
+    showMasses: false,
+    showBcs: false,
     selectedScenario: -1,
 
     setData: ({masses, bcs, scenarios}) =>
@@ -34,13 +34,12 @@ export const useFemConceptsStore = create<FemConceptsState>((set) => ({
             masses,
             bcs,
             scenarios,
-            // Keep the current selection if still valid, else default to the
-            // first scenario (or none when there are none).
-            selectedScenario: scenarios.length
-                ? s.selectedScenario >= 0 && s.selectedScenario < scenarios.length
+            // Keep the current selection if still valid, else default to
+            // "none" — FEM concepts start hidden and the user opts in.
+            selectedScenario:
+                s.selectedScenario >= 0 && s.selectedScenario < scenarios.length
                     ? s.selectedScenario
-                    : 0
-                : -1,
+                    : -1,
         })),
     setShowMasses: (showMasses) => set({showMasses}),
     setShowBcs: (showBcs) => set({showBcs}),

@@ -57,7 +57,22 @@ export async function overlay_file_in_scene(
     // (b) on a race could re-enqueue a conversion that just finished.
     let glbKey: string;
     if (explicitDerivedKey) {
-        glbKey = explicitDerivedKey;
+        // The caller may hand us a non-GLB derived product (e.g. an IFC or
+        // XML conversion result). The three.js loader only mounts GLB/glTF,
+        // so convert that blob to GLB on demand and load the result. The
+        // GLB-of-a-derived key lines up with the server's derived_key_for
+        // convention (``_derived/<derivedKey>.glb``).
+        const isGlbDerived = /\.(glb|gltf)$/i.test(explicitDerivedKey);
+        if (isGlbDerived) {
+            glbKey = explicitDerivedKey;
+        } else {
+            if (!runtime.convertEnabled()) {
+                console.warn("overlay_file_in_scene: non-GLB derived but conversion disabled");
+                return;
+            }
+            await ensureConvertedGlb(scope, explicitDerivedKey);
+            glbKey = derivedKeyForGlb(explicitDerivedKey);
+        }
     } else {
         const isGlb = sourceName.toLowerCase().endsWith(".glb");
         if (!isGlb) {

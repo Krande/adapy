@@ -3,6 +3,7 @@ import {AdminFileEntry, DerivedBlob, viewerApi} from "@/services/viewerApi";
 import {scopeUrlPart, useScopeStore} from "@/state/scopeStore";
 import {useConvertPageStore} from "@/state/convertPageStore";
 import {view_in_3d} from "@/utils/scene/handlers/view_in_3d";
+import {runtime} from "@/runtime/config";
 
 // Pre-existing source-and-derived list for the /convert page. The
 // upload widget above only shows files the user just dropped in this
@@ -27,7 +28,11 @@ function isViewable(d: DerivedBlob): boolean {
     // ``.gltf`` outputs are obviously viewable.
     if (d.format === "glb" || d.format === "gltf") return true;
     if (d.format.startsWith("fea/") && d.key.endsWith(".glb")) return true;
-    return false;
+    // Any derived product the converter can turn into GLB (IFC / XML /
+    // STEP / SAT / …) is viewable too — overlay_file_in_scene converts the
+    // derived blob to GLB on demand before mounting it. This lets you, e.g.,
+    // visualize an IFC that was converted from a FEM or XML source.
+    return runtime.conversionTargetsFor(d.format).includes("glb");
 }
 
 const DerivedRow: React.FC<{

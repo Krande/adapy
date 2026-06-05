@@ -359,7 +359,10 @@ def create_property_set(name, ifc_file, metadata_props, owner_history):
 
 
 def add_properties_to_elem(name, ifc_file, ifc_elem, elem_props, owner_history):
-    logger.info(f'Adding "{name}" properties to IFC Element "{ifc_elem}"')
+    # Lazy %-args + element id (not str(ifc_elem)): the f-string variant forced
+    # a full STEP-line serialisation of every element regardless of log level —
+    # pure overhead on large models. Demoted to debug as it is per-element.
+    logger.debug('Adding "%s" properties to IFC Element #%s', name, ifc_elem.id())
 
     props = create_property_set(name, ifc_file, elem_props, owner_history=owner_history)
     ifc_file.createIfcRelDefinesByProperties(

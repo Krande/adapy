@@ -691,18 +691,36 @@ class Part(BackendGeom):
             no_mass=node_masses_tot_mass,
         )
 
-    def create_objects_from_fem(self, skip_plates=False, skip_beams=False) -> None:
-        """Build Beams and Plates from the contents of the local FEM object"""
+    def create_objects_from_fem(
+        self, skip_plates=False, skip_beams=False, merge=False, reconstruct_surfaces=False
+    ) -> None:
+        """Build Beams and Plates from the contents of the local FEM object.
+
+        ``merge`` folds the one-object-per-element output back down by
+        merging coplanar shell plates (same material + thickness) and
+        colinear beams (same section + material). Best-effort: a group is
+        merged only when it collapses cleanly, else its elements are kept.
+        Defaults off here to keep the 1:1 element→object mapping callers
+        expect; the FEM→CAD conversion path opts in (``merge_fem_objects``).
+
+        ``reconstruct_surfaces`` (opt-in) instead recovers smooth structured
+        quad panels as single curved plates (NURBS B-rep) — a large size/time
+        reduction for CAD export of meshes generated from curved panels.
+        Non-reconstructable elements fall back to flat plates (coplanar-merged
+        when ``merge`` is on). Beams are unaffected.
+        """
         from ada import Assembly
         from ada.fem.formats.utils import convert_part_objects
 
         if isinstance(self, Assembly):
             for p_ in self.get_all_parts_in_assembly():
                 logger.info(f'Beginning conversion from fem to structural objects for "{p_.name}"')
-                convert_part_objects(p_, skip_plates, skip_beams)
+                convert_part_objects(
+                    p_, skip_plates, skip_beams, merge=merge, reconstruct_surfaces=reconstruct_surfaces
+                )
         else:
             logger.info(f'Beginning conversion from fem to structural objects for "{self.name}"')
-            convert_part_objects(self, skip_plates, skip_beams)
+            convert_part_objects(self, skip_plates, skip_beams, merge=merge, reconstruct_surfaces=reconstruct_surfaces)
         logger.info("Conversion complete")
 
     def get_part(self, name: str, search_all_parts_in_assembly=False) -> Part | None:
@@ -824,10 +842,27 @@ class Part(BackendGeom):
         from ada import Beam, Pipe, PipeSegElbow, PipeSegStraight, Plate
         from ada.fem import FemSection
 
-        # Copy all materials assigned to fem sections objects to their parent parts
+        # Copy all materials assigned to fem section objects up to their
+        # parent parts. FEM-section materials are heavily shared — a ship
+        # model has tens of thousands of sections referencing a handful of
+        # Material objects — so dedup by object identity and call
+        # ``Materials.add`` once per distinct material rather than once per
+        # section. The per-section call was the dominant cost of large
+        # FEM → IFC / XML exports: every call re-scanned the target
+        # material's (growing, tens-of-thousands-long) ``refs`` list,
+        # turning consolidation into an O(sections × refs) blow-up
+        # (~7.4 billion id() calls, ~11 min on Ship1T1.FEM with 66k
+        # sections sharing 2 materials). One add per distinct material is
+        # identical in effect — repeat adds of an already-registered
+        # material are no-ops.
         for part in filter(lambda x: not x.fem.is_empty(), self.get_all_parts_in_assembly(include_self=include_self)):
+            consolidated_by_id = {}
             for sec in part.fem.sections:
-                ext_mat = part.materials.add(sec.material)
+                mat = sec.material
+                ext_mat = consolidated_by_id.get(id(mat))
+                if ext_mat is None:
+                    ext_mat = part.materials.add(mat)
+                    consolidated_by_id[id(mat)] = ext_mat
                 sec.material = ext_mat
 
         num_elem_changed = 0
@@ -1284,8 +1319,10 @@ class Part(BackendGeom):
             None,
         ] = None,
         geom_repr_override: dict[str, GeomRepr] = None,
+        evict_solid_cache: bool = True,
     ):
         from ada.cad.doc import active_doc_backend
+        from ada.occ.geom.cache import invalidate
         from ada.occ.store import OCCStore
 
         step_writer = active_doc_backend().step_writer()
@@ -1294,6 +1331,16 @@ class Part(BackendGeom):
         shape_iter = OCCStore.shape_iterator(self, geom_repr=geom_repr, render_override=geom_repr_override)
         for i, (obj, shape) in enumerate(shape_iter, start=1):
             step_writer.add_shape(shape, obj.name, rgb_color=obj.color.rgb)
+            # Drop this object's cached (untransformed) OCC solid now that the
+            # writer holds its own transformed copy. Otherwise the process-global
+            # occ_solid_cache retains every built solid for the whole export — on
+            # a 100k-solid model that doubles the geometry held in RAM (cache +
+            # writer compound) and can OOM a memory-constrained worker. The cache
+            # buys nothing for a one-shot export. Opt out with evict_solid_cache.
+            if evict_solid_cache:
+                guid = getattr(obj, "guid", None)
+                if guid is not None:
+                    invalidate(guid)
             if progress_callback is not None:
                 progress_callback(i, num_shapes)
 

@@ -166,6 +166,16 @@ spec:
             - name: ADA_WORKER_EXT_ALLOW
               value: {{ . | join "," | quote }}
             {{- end }}
+            {{- with $w.convertMemLimitMb }}
+            # Per-job RSS ceiling (MB) for the conversion subprocess. The worker
+            # SIGKILLs a conversion that exceeds this and fails the job cleanly,
+            # rather than letting the kernel OOM-kill the whole pod — which would
+            # orphan the job into a slow NATS redelivery loop. Keep it below the
+            # container memory limit with headroom for the parent worker. Unset →
+            # the worker auto-derives ~85% of the cgroup memory limit.
+            - name: ADA_CONVERT_MEM_LIMIT_MB
+              value: {{ . | quote }}
+            {{- end }}
             {{- include "adapy-viewer.databaseEnv" $ctx | nindent 12 }}
           {{- if eq $ctx.Values.storage.kind "local" }}
           volumeMounts:

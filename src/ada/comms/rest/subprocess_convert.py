@@ -130,6 +130,52 @@ def _proc_stats(pid: int, started_at: float) -> Optional[ConvertSample]:
     )
 
 
+def _read_rss_kb(pid: int) -> Optional[int]:
+    """Cheap VmRSS-only read for the per-iteration memory watchdog (the full
+    ``_proc_stats`` reads three /proc files and only runs on the sample cadence)."""
+    try:
+        for line in pathlib.Path(f"/proc/{pid}/status").read_text().splitlines():
+            if line.startswith("VmRSS:"):
+                return int(line.split()[1])
+    except (FileNotFoundError, ProcessLookupError, ValueError):
+        return None
+    return None
+
+
+def _resolve_mem_limit_bytes() -> Optional[int]:
+    """RSS ceiling for the conversion child, or None to disable the watchdog.
+
+    Explicit ``ADA_CONVERT_MEM_LIMIT_MB`` wins; otherwise derive it from the
+    container's cgroup memory limit (v2 then v1) at 85% — leaving headroom for
+    the parent worker — so the child is reaped *before* it can OOM-kill the whole
+    pod. The point: an out-of-memory conversion dies in isolation, the parent
+    survives and acks the job as failed once, instead of taking down the pod and
+    triggering an ~80 min redelivery loop."""
+    env = os.environ.get("ADA_CONVERT_MEM_LIMIT_MB", "").strip()
+    if env:
+        try:
+            mb = int(env)
+            return mb * 1024 * 1024 if mb > 0 else None
+        except ValueError:
+            pass
+    for path in ("/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory/memory.limit_in_bytes"):
+        try:
+            raw = pathlib.Path(path).read_text().strip()
+        except (FileNotFoundError, PermissionError, OSError):
+            continue
+        if raw == "max":
+            continue
+        try:
+            limit = int(raw)
+        except ValueError:
+            continue
+        # Ignore the "effectively unlimited" sentinel cgroups use when uncapped.
+        if limit <= 0 or limit > (1 << 50):
+            continue
+        return int(limit * 0.85)
+    return None
+
+
 def _set_nonblocking(fd: int) -> None:
     fl = fcntl.fcntl(fd, fcntl.F_GETFL)
     fcntl.fcntl(fd, fcntl.F_SETFL, fl | os.O_NONBLOCK)
@@ -316,6 +362,11 @@ async def run_isolated_convert(
     sigterm_sent_at: Optional[float] = None
     sigkill_sent = False
     timed_out = False
+    # RSS ceiling for the child (None = disabled). When it breaches we SIGKILL
+    # immediately — unlike the timeout's graceful TERM-then-KILL — because the
+    # alternative is the kernel OOM-killing the whole pod a moment later.
+    mem_limit_bytes: Optional[int] = _resolve_mem_limit_bytes()
+    oomed = False
 
     while True:
         try:
@@ -354,6 +405,24 @@ async def run_isolated_convert(
                 sigkill_sent = True
                 logger.warning(
                     "convert: SIGTERM ignored for %s; sent SIGKILL",
+                    source_key,
+                )
+
+        # Memory watchdog: reap the child before it can OOM-kill the whole pod.
+        if mem_limit_bytes is not None and not sigkill_sent and not oomed:
+            rss_kb = _read_rss_kb(pid)
+            if rss_kb is not None and rss_kb * 1024 > mem_limit_bytes:
+                oomed = True
+                sigkill_sent = True
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except (ProcessLookupError, PermissionError):
+                    pass
+                logger.warning(
+                    "convert: RSS %.0f MB exceeded limit %.0f MB for %s; sent SIGKILL "
+                    "(out of memory — failing the job in isolation rather than OOM-killing the pod)",
+                    rss_kb / 1024.0,
+                    mem_limit_bytes / 1e6,
                     source_key,
                 )
 
@@ -405,7 +474,13 @@ async def run_isolated_convert(
     # was killed by the timeout watchdog, not that something else
     # crashed it. ``signal_name="TIMEOUT"`` is the contract the worker
     # checks against to write a specific error message.
-    if timed_out:
+    if oomed:
+        # Our memory watchdog reaped it — surface a specific reason rather than
+        # the native SIGKILL, so the operator sees "out of memory", not a crash.
+        sig_name = "OOM"
+        if exit_code == 0:
+            exit_code = -signal.SIGKILL
+    elif timed_out:
         sig_name = "TIMEOUT"
         if exit_code == 0:
             # ``exit_code=0`` would only happen if the child raced us
@@ -446,7 +521,14 @@ async def run_isolated_convert(
             pass
 
     if exit_code < 0 and error_msg is None:
-        if timed_out:
+        if oomed:
+            lim_mb = (mem_limit_bytes or 0) / 1e6
+            error_msg = (
+                f"conversion ran out of memory (exceeded the {lim_mb:.0f} MB per-job "
+                f"limit) and was terminated. The model is too large/heavy for this "
+                f"worker's memory budget — raise the limit or reduce the geometry."
+            )
+        elif timed_out:
             mins = (timeout_s or 0) / 60.0
             error_msg = f"conversion exceeded the configured timeout " f"of {mins:.1f} minutes and was terminated."
         else:

@@ -51,30 +51,13 @@ def write_pipe_segment(ifc_store: IfcStore, segment: PipeSegElbow | PipeSegStrai
     else:
         raise ValueError(f'Unrecognized Pipe Segment type "{type(segment)}"')
 
-    f = ifc_store.f
-
-    found_existing_relationship = False
-
     beam_type = ifc_store.get_beam_type(segment.section)
     if beam_type is None:
         raise ValueError(f"No beam type found for section {segment.section}")
 
-    for ifcrel in f.by_type("IfcRelDefinesByType"):
-        if ifcrel.RelatingType == beam_type:
-            ifcrel.RelatedObjects = tuple([*ifcrel.RelatedObjects, pipe_seg])
-            found_existing_relationship = True
-            break
-
-    if not found_existing_relationship:
-        f.create_entity(
-            "IfcRelDefinesByType",
-            GlobalId=create_guid(),
-            OwnerHistory=ifc_store.owner_history,
-            Name=segment.section.type.value,
-            Description=None,
-            RelatedObjects=[pipe_seg],
-            RelatingType=beam_type,
-        )
+    # Defer aggregate membership (see queue_rel_defines_by_type) to avoid the
+    # O(N²) per-segment re-walk of the shared IfcRelDefinesByType.
+    ifc_store.queue_rel_defines_by_type(beam_type, pipe_seg, segment.section.type.value)
 
     ifc_store.writer.associate_elem_with_material(segment.material, pipe_seg)
 

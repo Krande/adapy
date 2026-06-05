@@ -18,7 +18,10 @@ def get_server_info_func(server: WebSocketAsyncServer, client: ConnectedClient, 
     """Handles a request to get server process information."""
     logger.debug("Getting server info...")
     pid = os.getpid()
-    thread_id = threading.get_ident()
+    # threading.get_ident() returns a 64-bit value on most platforms (on Linux
+    # it's the pointer-sized pthread id), but the wire schema declares thread_id
+    # as int32. Mask to fit — mirrors the REST handler in comms/rest/handlers.py.
+    thread_id = threading.get_ident() & 0x7FFFFFFF
 
     # Get log file path if available
     log_file_path = None

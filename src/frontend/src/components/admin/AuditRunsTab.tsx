@@ -151,33 +151,38 @@ const RunGrid: React.FC<{
 }> = ({jobs, metric}) => {
     const grid = useMemo(() => buildGrid(jobs), [jobs]);
 
-    // For value-based metrics, compute percentile thresholds across
-    // every OK cell in the grid. Lets the colour bucket a cell
-    // relative to the rest of the run rather than against an
-    // absolute threshold that wouldn't generalise across vastly
-    // different scopes. ``p25 / p50 / p90`` split into the four
-    // METRIC_COLOR_BUCKETS — green / amber / orange / red.
-    const thresholds = useMemo(() => {
+    // For value-based metrics, colour each cell by its *magnitude*
+    // on a single scale spanning the whole grid's min→max, so the
+    // colour tracks the absolute value rather than the cell's rank.
+    //
+    // Earlier this bucketed by percentile (p25/p50/p90). That made
+    // colour mean "how does this cell rank against its peers", which
+    // collapsed wildly different magnitudes into the same bucket: in
+    // a run dominated by sub-second cached cells the 90th percentile
+    // sits below 1 s, so a 1 s cell and a 560 s cell both landed in
+    // the red (>p90) bucket and looked identical. Mapping position in
+    // [min, max] instead keeps 1 s green and 560 s red.
+    //
+    // Log scale because these metrics span orders of magnitude
+    // (sub-second to minutes; KB to GB) — a linear map would crush
+    // everything below the single slowest cell into the first bucket.
+    // Only successful cells feed the scale; failed cells keep the
+    // status palette so they stay visible regardless of metric.
+    const scale = useMemo(() => {
         if (metric === "status") return null;
-        const vals: number[] = [];
+        let min = Infinity;
+        let max = -Infinity;
         for (const j of jobs) {
             const status = j.status ?? "";
-            // Only successful runs feed the gradient — failed cells
-            // would otherwise skew the high end with sentinel /
-            // partial values. The failed cells themselves get the
-            // status palette so they're still visible.
             if (status !== "done" && status !== "ok") continue;
             const v = cellValue(metric, j);
-            if (v == null) continue;
-            vals.push(v);
+            if (v == null || v <= 0) continue;  // log scale needs positive values
+            if (v < min) min = v;
+            if (v > max) max = v;
         }
-        if (vals.length === 0) return null;
-        vals.sort((a, b) => a - b);
-        const q = (p: number) => {
-            const idx = Math.min(vals.length - 1, Math.floor(p * vals.length));
-            return vals[idx];
-        };
-        return {p25: q(0.25), p50: q(0.5), p90: q(0.9)};
+        if (!Number.isFinite(min) || !Number.isFinite(max)) return null;
+        const logMin = Math.log(min);
+        return {logMin, logSpan: Math.log(max) - logMin};
     }, [jobs, metric]);
 
     const cellClass = (job: AuditRunJob | undefined): string => {
@@ -189,17 +194,21 @@ const RunGrid: React.FC<{
         if (metric === "status" || status !== "done" && status !== "ok") {
             return STATUS_COLOR[status] || "bg-gray-900 border-gray-800 text-gray-500";
         }
-        if (!thresholds) {
+        if (!scale) {
             return "bg-gray-900 border-gray-800 text-gray-500";
         }
         const v = cellValue(metric, job);
-        if (v == null) {
+        if (v == null || v <= 0) {
             return "bg-gray-900 border-gray-800 text-gray-500";
         }
+        // Position in [min, max] on a log scale → 0..1 → one of four
+        // buckets. ``logSpan === 0`` means every cell shares the same
+        // value (or there's only one); they all read as the low bucket.
         let bucket = 0;
-        if (v > thresholds.p90) bucket = 3;
-        else if (v > thresholds.p50) bucket = 2;
-        else if (v > thresholds.p25) bucket = 1;
+        if (scale.logSpan > 0) {
+            const t = (Math.log(v) - scale.logMin) / scale.logSpan;
+            bucket = Math.min(3, Math.max(0, Math.floor(t * 4)));
+        }
         return METRIC_COLOR_BUCKETS[bucket].cls;
     };
 

@@ -472,14 +472,21 @@ def should_convert(res_path, overwrite):
         return False
 
 
-def convert_shell_elem_to_plates(elem: Elem, parent: Part) -> list[Plate]:
+def convert_shell_elem_to_plates(elem: Elem, parent: Part, mat_dict: dict | None = None) -> list[Plate]:
     from ada import Plate
     from ada.core.vector_utils import is_coplanar
 
     plates = []
     fem_sec = elem.fem_sec
     fem_sec.material.parent = parent
-    mat_dict = {}
+    # ``mat_dict`` (name -> consolidated material) must be shared across all
+    # shells of the part. A fresh dict per element made the cache useless,
+    # so ``materials.add`` was called once per shell — each call re-scans
+    # the target material's growing refs list, turning shell->plate
+    # conversion into an O(elements x refs) blow-up (the dominant cost of
+    # FEM->objects on large meshes; ~190M id() calls / 3000 plates).
+    if mat_dict is None:
+        mat_dict = {}
 
     new_mat = mat_dict.get(fem_sec.material.name, None)
     if new_mat is None:
@@ -529,8 +536,12 @@ def convert_shell_elem_to_plates(elem: Elem, parent: Part) -> list[Plate]:
 
 
 def convert_part_shell_elements_to_plates(p: Part) -> Plates:
+    # One shared material cache for every shell in the part — see the note
+    # in convert_shell_elem_to_plates on why a per-element dict was O(N²).
+    mat_dict: dict = {}
     return Plates(
-        list(chain.from_iterable([convert_shell_elem_to_plates(sh, p) for sh in p.fem.elements.shell])), parent=p
+        list(chain.from_iterable(convert_shell_elem_to_plates(sh, p, mat_dict) for sh in p.fem.elements.shell)),
+        parent=p,
     )
 
 
@@ -581,11 +592,33 @@ def line_elem_to_beam(elem: Elem, parent: Part, prefix="bm") -> Beam:
     )
 
 
-def convert_part_objects(p: Part, skip_plates, skip_beams):
+def convert_part_objects(p: Part, skip_plates, skip_beams, merge=False, reconstruct_surfaces=False):
+    from ada.api.containers import Beams, Plates
+
     if skip_plates is False:
-        p._plates = convert_part_shell_elements_to_plates(p)
+        if reconstruct_surfaces:
+            # Recover smooth structured quad panels as single curved plates;
+            # non-reconstructable elements fall back to flat plates (coplanar-
+            # merged when ``merge`` is on). See surface_reconstruction.py.
+            from ada.fem.formats.surface_reconstruction import (
+                reconstruct_shell_surfaces,
+            )
+
+            p._plates = Plates(reconstruct_shell_surfaces(p, merge_fallback=merge), parent=p)
+        else:
+            plates = convert_part_shell_elements_to_plates(p)
+            if merge:
+                from ada.fem.formats.concept_merge import merge_coplanar_plates
+
+                plates = Plates(merge_coplanar_plates(list(plates), p), parent=p)
+            p._plates = plates
     if skip_beams is False:
-        p._beams = convert_part_elem_bm_to_beams(p)
+        beams = convert_part_elem_bm_to_beams(p)
+        if merge:
+            from ada.fem.formats.concept_merge import merge_colinear_beams
+
+            beams = Beams(merge_colinear_beams(list(beams), p), parent=p)
+        p._beams = beams
 
 
 def default_fem_res_path(

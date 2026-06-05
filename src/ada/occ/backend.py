@@ -213,6 +213,13 @@ class OccBackend:
             return self._tessellate_shape(shape)
         return self._tessellate_shape(shape, quality=linear_deflection)
 
+    def tessellate_batch(self, shapes: "list", linear_deflection: float = -1.0):
+        # No native batch path under pythonocc; concatenate per-shape meshes into
+        # one combined BatchMesh via the shared helper.
+        from ada.cad import tessellate_batch_via_loop
+
+        return tessellate_batch_via_loop(self, shapes, linear_deflection)
+
     def bbox(
         self, shape: ShapeHandle, optimal: bool = True, use_mesh: bool = False
     ) -> tuple[float, float, float, float, float, float]:
@@ -343,6 +350,14 @@ class OccBackend:
         from ada.occ.step.geom.surfaces import occ_face_to_ada_face
 
         return occ_face_to_ada_face(shape)
+
+    def build_bspline_advanced_face_from_grid(self, grid: "list", tol: float):
+        # Fit a NURBS surface through a structured node grid and return it as a
+        # backend-neutral ada.geom AdvancedFace. The transient OCC face never
+        # leaves the fit helper — callers receive only serialised ada.geom.
+        from ada.occ.fem.surface_fit import fit_advanced_face_from_grid
+
+        return fit_advanced_face_from_grid(grid, tol)
 
     def faces(self, shape: ShapeHandle) -> list[ShapeHandle]:
         # Whole list of face sub-shapes — the boundary crosses once, not per
