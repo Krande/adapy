@@ -94,7 +94,7 @@ def import_revolved_beam(ifc_elem, axis, name, sec, mat, ifc_store: IfcStore) ->
     from ada import Placement
     from ada.core.vector_transforms import transform3d
 
-    logger.warning("Reading IFC Beams swept along IfcTrimmedCurve is WIP")
+    logger.debug("Reading revolved IFC beam (swept along IfcTrimmedCurve)")
 
     r = axis.BasisCurve.Radius
     curve_place = get_placement(axis.BasisCurve.Position)

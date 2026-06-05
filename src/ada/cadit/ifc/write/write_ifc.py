@@ -251,6 +251,26 @@ class IfcWriter:
 
                 group.change_type = ChangeAction.NOCHANGE
 
+    def prune_empty_relationships(self) -> int:
+        """Drop relationships whose required member set ended up empty.
+
+        ``IfcRelAssociatesMaterial`` is created eagerly per material (populated as
+        elements are written), and ``IfcRelAssignsToGroup`` per group — an unused
+        material or member-less group leaves an empty ``RelatedObjects`` set, which
+        violates the schema's ``[1:?]`` cardinality and fails ifcopenshell
+        validation. Removing the empty relationship is safe: the IfcMaterial /
+        IfcGroup it points at simply stays unassigned."""
+        f = self.ifc_store.f
+        removed = 0
+        for rel_type in ("IfcRelAssociatesMaterial", "IfcRelAssignsToGroup"):
+            for rel in list(f.by_type(rel_type)):
+                if not rel.RelatedObjects:
+                    f.remove(rel)
+                    removed += 1
+        if removed:
+            logger.debug("Pruned %d IFC relationship(s) with empty member sets", removed)
+        return removed
+
     def sync_presentation_layers(self) -> int:
         from ada import Boolean, Part, Pipe
 

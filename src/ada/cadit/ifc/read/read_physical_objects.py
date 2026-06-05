@@ -8,7 +8,7 @@ from .exceptions import NoIfcAxesAttachedError, UnableToConvertBoolResToBeamExce
 from .read_beams import import_ifc_beam
 from .read_pipe import import_pipe_segment
 from .read_plates import import_ifc_plate
-from .read_shapes import import_ifc_shape
+from .read_shapes import import_ifc_shape, import_ifc_sphere
 
 if TYPE_CHECKING:
     from ada.cadit.ifc.store import IfcStore
@@ -39,6 +39,11 @@ def import_physical_ifc_elem(product, name, ifc_store: IfcStore):
 
     if product.is_a("IfcPipeFitting"):
         logger.info('"IfcPipeFitting" is not yet added')
+
+    # Sphere-bodied products (e.g. node/support markers) -> parametric PrimSphere.
+    sphere = import_ifc_sphere(product, name, ifc_store)
+    if sphere is not None:
+        return sphere
 
     obj = import_ifc_shape(product, name, ifc_store)
 
