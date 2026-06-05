@@ -14,7 +14,7 @@ json-code-gen-py = { cmd = [
     "--output-model-type", "pydantic_v2.BaseModel"], cwd = "./" }
 
 [feature.docs.tasks]
-docs = { cmd = "cd docs && sphinx-build -b html -v -D nbsphinx_execute=auto . _build/html", depends-on = ["fea-doc"], env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+docs = { cmd = "cd docs && sphinx-build -b html -v -D nbsphinx_execute=auto -d _build/doctrees . _build/html", depends-on = ["fea-doc"], env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 serve = { cmd = "python docs/main.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" }, depends-on = ["docs"] }
 fea-doc = { cmd = "python -m paradoc.cli_app build verification --no-cache", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src", "ADAPY_VERIFICATION_REGEN_ASSETS" = "1" } }
 fea-doc-cached = { cmd = "python -m paradoc.cli_app build verification", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
@@ -260,7 +260,7 @@ viewer-upload = { cmd = "python scripts/viewer_upload.py", env = { "PYTHONPATH" 
 glb-face-classify = { cmd = "python scripts/glb_face_classify.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 
 [feature.frontend.dependencies]
-nodejs = "*"
+nodejs = "24.*"
 flatbuffers = "==25.2.10"
 
 [feature.test-pyodide.dependencies]

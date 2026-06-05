@@ -2,6 +2,9 @@
   "name": "ada-py-viewer",
   "version": "0.11.0",
   "type": "module",
+  "overrides": {
+    "qs": ">=6.15.2"
+  },
   "scripts": {
     "prebuild": "node clean.cjs",
     "build": "vite build --emptyOutDir && node embed-script.cjs",
@@ -33,7 +36,7 @@
     "pako": "2.1.0",
     "postcss": "8.5.14",
     "prettier": "3.5.3",
-    "qs": ">=6.14.2",
+    "qs": ">=6.15.2",
     "react": "19.1.0",
     "react-arborist": "3.4.3",
     "react-dom": "19.1.0",
