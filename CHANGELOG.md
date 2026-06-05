@@ -2,6 +2,21 @@
 
 
 
+## v0.12.0 (2026-06-05)
+
+### Chore
+
+* chore: drop oversized analysis notebooks from docs, fix gh-pages publish (#200)
+
+Co-authored-by: Claude Opus 4.8 (1M context) &lt;noreply@anthropic.com&gt; ([`7c98d48`](https://github.com/Krande/adapy/commit/7c98d48adb4d5811e8932d8734524ce8bfa2dbf2))
+
+### Feature
+
+* feat: cross-section + curved-plate + sphere round-trip; valid IFC (#201)
+
+Co-authored-by: Claude Opus 4.8 (1M context) &lt;noreply@anthropic.com&gt; ([`09efdd6`](https://github.com/Krande/adapy/commit/09efdd64f7a957f854d22334ba3ba8a95ba10b6a))
+
+
 ## v0.11.0 (2026-06-05)
 
 ### Feature
