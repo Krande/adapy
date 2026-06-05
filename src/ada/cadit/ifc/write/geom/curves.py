@@ -92,6 +92,11 @@ def b_spline_curve_with_knots(bs: geo_cu.BSplineCurveWithKnots, f: ifcopenshell.
     )
 
 
+def poly_line(pl: geo_cu.PolyLine, f: ifcopenshell.file) -> ifcopenshell.entity_instance:
+    """Converts a PolyLine to an IFC representation"""
+    return f.create_entity("IfcPolyline", Points=[cpt(f, p) for p in pl.points])
+
+
 def _edge_geometry_3d(edge_geometry, f: ifcopenshell.file) -> ifcopenshell.entity_instance:
     if isinstance(edge_geometry, geo_cu.RationalBSplineCurveWithKnots):
         return rational_b_spline_curve_with_knots(edge_geometry, f)
@@ -103,6 +108,10 @@ def _edge_geometry_3d(edge_geometry, f: ifcopenshell.file) -> ifcopenshell.entit
         return circle_curve(edge_geometry, f)
     elif isinstance(edge_geometry, geo_cu.Line):
         return create_line(edge_geometry, f)
+    elif isinstance(edge_geometry, geo_cu.PolyLine):
+        return poly_line(edge_geometry, f)
+    elif isinstance(edge_geometry, geo_cu.IndexedPolyCurve):
+        return indexed_poly_curve(edge_geometry, f)
     else:
         raise NotImplementedError(f"Unsupported edge geometry type: {type(edge_geometry)}")
 
