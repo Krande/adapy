@@ -2,9 +2,15 @@ import ifcopenshell
 
 from ada.geom import solids as geo_so
 from ada.geom.placement import Axis2Placement3D
+from ada.geom.points import Point
 
 from .placement import axis1placement, axis2placement, axis3d, ifc_direction
 from .surfaces import get_surface
+
+
+def ifc_sphere(ifc_entity: ifcopenshell.entity_instance) -> geo_so.Sphere:
+    center = Point(*ifc_entity.Position.Location.Coordinates)
+    return geo_so.Sphere(center=center, radius=ifc_entity.Radius)
 
 
 def extruded_solid_area(ifc_entity: ifcopenshell.entity_instance) -> geo_so.ExtrudedAreaSolid:
@@ -26,6 +32,16 @@ def revolved_solid_area(ifc_entity: ifcopenshell.entity_instance) -> geo_so.Revo
         axis=revolve_axis,
         angle=ifc_entity.Angle,
     )
+
+
+def ifc_cylinder(ifc_entity: ifcopenshell.entity_instance) -> geo_so.Cylinder:
+    position = axis2placement(ifc_entity.Position) if ifc_entity.Position is not None else Axis2Placement3D()
+    return geo_so.Cylinder(position=position, radius=ifc_entity.Radius, height=ifc_entity.Height)
+
+
+def ifc_cone(ifc_entity: ifcopenshell.entity_instance) -> geo_so.Cone:
+    position = axis2placement(ifc_entity.Position) if ifc_entity.Position is not None else Axis2Placement3D()
+    return geo_so.Cone(position=position, bottom_radius=ifc_entity.BottomRadius, height=ifc_entity.Height)
 
 
 def ifc_block(ifc_entity: ifcopenshell.entity_instance) -> geo_so.Box:

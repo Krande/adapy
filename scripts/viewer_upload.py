@@ -5,7 +5,8 @@ CLI so debug artifacts (intermediate GLBs, diagnostic STEP files, etc)
 can be dropped into a scope without going through the browser.
 
 Auth: ``ADAPY_API_TOKEN`` (a CLI token minted from the admin panel).
-Base URL: ``ADAPY_API_BASE`` (e.g. ``https://viewer.example.com``).
+Base URL: ``ADAPY_API_BASE`` *or* ``ADAPY_BASE_URL``
+(e.g. ``https://viewer.example.com``).
 
 Examples:
     pixi run viewer-upload ./debug.glb
@@ -33,6 +34,21 @@ def _env(name: str) -> str:
         )
         sys.exit(2)
     return val
+
+
+def _env_any(*names: str) -> str:
+    """First non-empty match among ``names``. Accepts either ``ADAPY_API_BASE``
+    or the more common ``ADAPY_BASE_URL`` — matching ``audit_fetch.py`` so folks
+    can reach for whichever they already have in their .env."""
+    for n in names:
+        val = os.environ.get(n, "").strip()
+        if val:
+            return val
+    sys.stderr.write(
+        f"error: none of {', '.join(names)} are set. Set the viewer base URL "
+        f"to (e.g.) https://viewer.example.com.\n"
+    )
+    sys.exit(2)
 
 
 def _normalize_base(raw: str) -> str:
@@ -69,7 +85,7 @@ def _content_type_for(path: pathlib.Path) -> str:
 
 
 def upload(local: pathlib.Path, scope: str, key: str) -> str:
-    base = _normalize_base(_env("ADAPY_API_BASE"))
+    base = _normalize_base(_env_any("ADAPY_API_BASE", "ADAPY_BASE_URL"))
     token = _env("ADAPY_API_TOKEN")
 
     # Strip leading slashes; the {key:path} matcher accepts subdirs

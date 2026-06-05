@@ -75,7 +75,14 @@ class IfcReader:
 
             logger.info(f"importing {name}")
 
-            obj = import_physical_ifc_elem(product, name, self.ifc_store)
+            try:
+                obj = import_physical_ifc_elem(product, name, self.ifc_store)
+            except Exception as e:
+                # A single unsupported/broken element must not abort import of the
+                # entire model — log it and keep going.
+                logger.warning(f'Skipping product "{name}" (#{product.id()}, {product.is_a()}): {e}')
+                continue
+
             if obj is None:
                 continue
 

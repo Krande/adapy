@@ -85,10 +85,10 @@ def bspline_surface_with_knots(
         )
 
 
-def face_bound(fb: geo_su.FaceBound, f: ifcopenshell.file) -> ifcopenshell.entity_instance:
+def face_bound(fb: geo_su.FaceBound, f: ifcopenshell.file, basis_surface=None) -> ifcopenshell.entity_instance:
     """Converts a FaceBound to an IFC representation"""
     if isinstance(fb.bound, geo_cu.EdgeLoop):
-        bound = edge_loop(fb.bound, f)
+        bound = edge_loop(fb.bound, f, basis_surface=basis_surface)
     else:
         raise NotImplementedError(f"Unsupported bound type: {type(fb.bound)}")
 
@@ -189,7 +189,8 @@ def advanced_face(af: geo_su.AdvancedFace, f: ifcopenshell.file) -> ifcopenshell
     bounds = []
     for bound in af.bounds:
         if isinstance(bound, geo_su.FaceBound):
-            bounds.append(face_bound(bound, f))
+            # Pass the face's surface so each edge's UV p-curve can be written.
+            bounds.append(face_bound(bound, f, basis_surface=face_surface))
         else:
             raise NotImplementedError(f"Unsupported bound type: {type(bound)}")
 

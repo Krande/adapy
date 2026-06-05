@@ -199,6 +199,10 @@ class IfcStore:
         # Write all deferred IfcRelDefinesByType memberships in one pass.
         self.flush_rel_defines_by_type()
 
+        # Drop relationships that ended up with no members (empty RelatedObjects
+        # violates the schema's [1:?] cardinality) so the output validates clean.
+        self.writer.prune_empty_relationships()
+
         add_str = f"Added {num_new_objects} objects and {num_new_spatial_objects} spatial elements"
         mod_str = f"Modified {num_mod} objects"
         del_str = f"Deleted {num_del} objects"

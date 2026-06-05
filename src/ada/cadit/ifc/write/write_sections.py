@@ -10,6 +10,7 @@ from ada.core.utils import to_real
 from ada.sections.categories import SectionCat
 from ada.sections.concept import Section
 
+from ..sections_props import write_profile_section_props
 from ..utils import create_ifcindexpolyline, create_ifcpolyline
 
 
@@ -55,6 +56,11 @@ def export_beam_section_profile_def(f: ifcopenshell.file, section: Section):
 
     ifc_sec_type = section_profile_instance.get_ifc_type()
     profile = f.create_entity(ifc_sec_type, **sec_props)
+
+    # Attach the parametric parameters to the profile so the section survives a
+    # round-trip even when it is written as a (non-parametric) polyline profile.
+    write_profile_section_props(f, profile, section)
+
     return profile
 
 

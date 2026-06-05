@@ -172,10 +172,11 @@ def add_to_assembly(assembly: Assembly, obj, ifc_parent, elements2part):
 
 def add_to_parent(parent: Part | Pipe, obj):
     from ada import Beam, Part, Pipe, PipeSegElbow, PipeSegStraight, Plate, Shape
+    from ada.api.plates.base_pl import PlateCurved
 
     if isinstance(obj, Beam):
         parent.add_beam(obj)
-    elif isinstance(obj, Plate):
+    elif isinstance(obj, (Plate, PlateCurved)):
         parent.add_plate(obj)
     elif issubclass(type(obj), Shape) and isinstance(parent, Part):
         parent.add_shape(obj)
