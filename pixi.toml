@@ -260,7 +260,7 @@ viewer-upload = { cmd = "python scripts/viewer_upload.py", env = { "PYTHONPATH" 
 glb-face-classify = { cmd = "python scripts/glb_face_classify.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 
 [feature.frontend.dependencies]
-nodejs = "*"
+nodejs = "24.*"
 flatbuffers = "==25.2.10"
 
 [feature.test-pyodide.dependencies]
