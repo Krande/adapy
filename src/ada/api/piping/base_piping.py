@@ -13,12 +13,7 @@ from ada.base.units import Units
 from ada.config import Config, logger
 from ada.core.exceptions import VectorNormalizeError
 from ada.core.utils import Counter, roundoff
-from ada.core.vector_utils import (
-    angle_between,
-    calc_zvec,
-    unit_vector,
-    vector_length,
-)
+from ada.core.vector_utils import angle_between, calc_zvec, unit_vector, vector_length
 from ada.geom import Geometry
 from ada.geom.direction import Direction
 from ada.geom.placement import Axis1Placement, Axis2Placement3D

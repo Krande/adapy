@@ -14,6 +14,7 @@ def _solid_volume(model) -> float:
 def test_revolved_beam_solid_geom_is_valid():
     """A from-scratch revolved beam produces a solid of the expected volume."""
     import numpy as np
+
     from ada.geom.solids import RevolvedAreaSolid
 
     bm = ada.BeamRevolve("bm", ada.CurveRevolve((0, 0, 0), (0, 1, 0), 1.3, (0, 0, 1)), "IPE200")
