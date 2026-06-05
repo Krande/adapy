@@ -75,6 +75,45 @@ async def test_watchdog_kills_long_running_convert(tmp_path: pathlib.Path):
     assert elapsed < 10.0, f"watchdog reap too slow: {elapsed:.1f}s"
 
 
+def _hog_memory_convert(src, source_key, target_format, on_progress, **_kw):
+    """Synthetic convert_fn that allocates well past the RSS limit and holds it,
+    so the memory watchdog has time to sample and reap it."""
+    on_progress("allocating", 0.1)
+    blobs = []
+    for _ in range(5):
+        b = bytearray(100 * 1024 * 1024)  # 100 MB
+        for i in range(0, len(b), 4096):  # touch every page so it's resident
+            b[i] = 1
+        blobs.append(b)
+        time.sleep(0.1)
+    time.sleep(5.0)  # hold so the watchdog reaps us before we'd return
+    return b"unreachable"
+
+
+@pytest.mark.asyncio
+async def test_memory_watchdog_kills_oom_convert(tmp_path: pathlib.Path, monkeypatch):
+    """A convert_fn that blows past the per-job RSS limit is SIGKILLed by the
+    memory watchdog, and the result carries ``signal_name == 'OOM'`` so the
+    worker writes a clear out-of-memory error (and acks the job once instead of
+    letting the kernel OOM-kill the whole pod)."""
+    monkeypatch.setenv("ADA_CONVERT_MEM_LIMIT_MB", "256")
+    src = tmp_path / "x.bin"
+    src.write_bytes(b"")
+    started = time.monotonic()
+    result = await run_isolated_convert(
+        _hog_memory_convert,
+        src_path=src,
+        source_key="x.bin",
+        target_format="glb",
+    )
+    elapsed = time.monotonic() - started
+
+    assert result.signal_name == "OOM", f"expected signal_name='OOM', got {result.signal_name!r} ({result.exit_code})"
+    assert result.out_bytes is None
+    assert result.error is not None and "memory" in result.error.lower()
+    assert elapsed < 10.0, f"memory watchdog reap too slow: {elapsed:.1f}s"
+
+
 @pytest.mark.asyncio
 async def test_no_timeout_lets_short_convert_finish(tmp_path: pathlib.Path):
     """Regression guard: a None timeout must not introduce any kill
