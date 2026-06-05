@@ -122,15 +122,11 @@ class SpatialWriter:
 
         ifc_elem = f.create_entity(part.ifc_class.value, **props)
 
-        existing_rel_agg = False
-        for rel_agg in f.by_type("IfcRelAggregates"):
-            if rel_agg.RelatingObject == parent:
-                rel_agg.RelatedObjects = tuple([*rel_agg.RelatedObjects, ifc_elem])
-                existing_rel_agg = True
-                break
-
-        if existing_rel_agg is False:
-            f.create_entity(
+        existing_rel_agg = self.ifc_store.get_rel_aggregates(parent)
+        if existing_rel_agg is not None:
+            existing_rel_agg.RelatedObjects = tuple([*existing_rel_agg.RelatedObjects, ifc_elem])
+        else:
+            new_rel_agg = f.create_entity(
                 "IfcRelAggregates",
                 GlobalId=create_guid(),
                 OwnerHistory=owner_history,
@@ -139,6 +135,7 @@ class SpatialWriter:
                 RelatingObject=parent,
                 RelatedObjects=[ifc_elem],
             )
+            self.ifc_store.register_rel_aggregates(parent, new_rel_agg)
 
         write_elem_property_sets(part.metadata, ifc_elem, f, owner_history)
 

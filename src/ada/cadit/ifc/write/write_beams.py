@@ -59,34 +59,20 @@ class IfcBeamWriter:
             Representation=prod_def_shp,
         )
 
-        found_existing_relationship = False
-
         beam_type = self.ifc_store.get_beam_type(beam.section)
         if beam_type is None:
             raise ValueError()
 
-        for ifcrel in f.by_type("IfcRelDefinesByType"):
-            if ifcrel.RelatingType == beam_type:
-                ifcrel.RelatedObjects = tuple([*ifcrel.RelatedObjects, ifc_beam])
-                found_existing_relationship = True
-                break
+        # Defer attaching to the shared IfcRelDefinesByType; growing the
+        # aggregate per beam re-walks all prior members (O(N²)). Flushed once
+        # after all physical objects are written.
+        self.ifc_store.queue_rel_defines_by_type(beam_type, ifc_beam, beam.section.type.value)
 
-        if found_existing_relationship is False:
-            f.create_entity(
-                "IfcRelDefinesByType",
-                GlobalId=create_guid(),
-                OwnerHistory=owner_history,
-                Name=beam.section.type.value,
-                Description=None,
-                RelatedObjects=[ifc_beam],
-                RelatingType=beam_type,
-            )
-
-        self.add_material_assignment(beam, ifc_beam)
+        self.add_material_assignment(beam, ifc_beam, ifc_profile=profile)
 
         return ifc_beam
 
-    def add_material_assignment(self, beam: Beam, ifc_beam):
+    def add_material_assignment(self, beam: Beam, ifc_beam, ifc_profile=None):
         sec = beam.section
         mat = beam.material
         ifc_store = self.ifc_store
@@ -98,7 +84,9 @@ class IfcBeamWriter:
 
         ifc_mat = ifc_mat_rel.RelatingMaterial
 
-        ifc_profile = ifc_store.get_profile_def(beam.section)
+        # Reuse the profile resolved in create_ifc_beam when available.
+        if ifc_profile is None:
+            ifc_profile = ifc_store.get_profile_def(beam.section)
 
         if ifc_profile is None:
             raise ValueError(f"get_profile_def returned None for section={sec!r} (sec.name={sec.name})")
