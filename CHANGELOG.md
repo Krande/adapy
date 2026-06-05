@@ -2,6 +2,15 @@
 
 
 
+## v0.13.0 (2026-06-05)
+
+### Feature
+
+* feat: streaming AP242 STEP writer to avoid FEM-to-STEP worker OOM (#202)
+
+Co-authored-by: Claude Opus 4.8 &lt;noreply@anthropic.com&gt; ([`a8933df`](https://github.com/Krande/adapy/commit/a8933df9818b532f9505931c149deef9c0239601))
+
+
 ## v0.12.0 (2026-06-05)
 
 ### Chore
