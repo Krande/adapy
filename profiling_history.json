@@ -1441,5 +1441,116 @@
         "duration": 1.7176533930000002
       }
     ]
+  },
+  {
+    "commit": "09efdd64f7a957f854d22334ba3ba8a95ba10b6a",
+    "commit_short": "09efdd6",
+    "message": "feat: cross-section + curved-plate + sphere round-trip; valid IFC (#201)",
+    "author": "Kristoffer Andersen",
+    "date": "2026-06-05T21:48:08+02:00",
+    "total_duration": 114.0268,
+    "total_calls": 802453,
+    "stats": [
+      {
+        "function": "<built-in method builtins.exec> (~:0)",
+        "calls": 1984,
+        "duration": 21.385420847000002
+      },
+      {
+        "function": "<module> (<string>:1)",
+        "calls": 1,
+        "duration": 21.385377401000003
+      },
+      {
+        "function": "test_build_big_ifc_pipe (tests/profiling/test_ifc_creation.py:48)",
+        "calls": 1,
+        "duration": 6.242958648
+      },
+      {
+        "function": "to_ifc (src/ada/api/spatial/assembly.py:220)",
+        "calls": 5,
+        "duration": 5.525452198
+      },
+      {
+        "function": "sync (src/ada/cadit/ifc/store.py:158)",
+        "calls": 5,
+        "duration": 5.402189667
+      },
+      {
+        "function": "sync_added_physical_objects (src/ada/cadit/ifc/write/write_ifc.py:92)",
+        "calls": 5,
+        "duration": 5.350769224
+      },
+      {
+        "function": "add (src/ada/cadit/ifc/write/write_ifc.py:493)",
+        "calls": 2200,
+        "duration": 5.279352959000001
+      },
+      {
+        "function": "__truediv__ (src/ada/api/spatial/part.py:1597)",
+        "calls": 8,
+        "duration": 4.8498227300000005
+      },
+      {
+        "function": "test_bench_batch_tessellate (tests/profiling/test_cad_backend_bench.py:63)",
+        "calls": 1,
+        "duration": 4.065197283
+      },
+      {
+        "function": "add_object (src/ada/api/spatial/part.py:309)",
+        "calls": 1201,
+        "duration": 3.9025969120000004
+      },
+      {
+        "function": "add_pipe (src/ada/api/spatial/part.py:164)",
+        "calls": 200,
+        "duration": 3.8844285760000004
+      },
+      {
+        "function": "run (tests/profiling/test_cad_backend_bench.py:73)",
+        "calls": 6,
+        "duration": 3.695844402
+      },
+      {
+        "function": "batch_tessellate (src/ada/occ/tessellating.py:243)",
+        "calls": 1446,
+        "duration": 3.694712533
+      },
+      {
+        "function": "add_section (src/ada/api/spatial/part.py:294)",
+        "calls": 801,
+        "duration": 3.301228415
+      },
+      {
+        "function": "add (src/ada/api/containers/sections.py:139)",
+        "calls": 805,
+        "duration": 3.296326236
+      },
+      {
+        "function": "equal_props (src/ada/sections/concept.py:92)",
+        "calls": 241399,
+        "duration": 3.07951298
+      },
+      {
+        "function": "unique_props (src/ada/sections/concept.py:99)",
+        "calls": 482798,
+        "duration": 2.7598255390000004
+      },
+      {
+        "function": "tessellate_geom (src/ada/occ/tessellating.py:210)",
+        "calls": 1440,
+        "duration": 2.402941051
+      },
+      {
+        "function": "write_ifc_pipe (src/ada/cadit/ifc/write/write_pipe.py:23)",
+        "calls": 200,
+        "duration": 2.2867674360000003
+      },
+      {
+        "function": "create_entity (.pixi/envs/profile/lib/python3.12/site-packages/ifcopenshell/file.py:693)",
+        "calls": 67947,
+        "duration": 2.2360728290000003
+      }
+    ]
   }
 ]
