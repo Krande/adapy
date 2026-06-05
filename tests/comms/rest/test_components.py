@@ -151,7 +151,7 @@ def test_specs_auto_discovers_shared_scope(app_client: TestClient, tmp_path: pat
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["branch"] == "main"
-    assert body["sources"] == [{"scope": "shared", "commit": "abc123"}]
+    assert body["sources"] == [{"scope": "shared", "branch": "main", "commit": "abc123"}]
     spec = body["specs"]["box.box_to_box"]
     assert spec["scope"] == "shared"
     assert spec["preview_url"] == "/api/scopes/shared/blobs/versions/main/abc123/box.box_to_box.glb"
@@ -185,7 +185,7 @@ def test_specs_picks_latest_commit_by_mtime(app_client: TestClient, tmp_path: pa
     r = app_client.get("/api/components/specs", params={"branch": "main"})
     assert r.status_code == 200, r.text
     body = r.json()
-    assert body["sources"] == [{"scope": "shared", "commit": "newer_commit"}]
+    assert body["sources"] == [{"scope": "shared", "branch": "main", "commit": "newer_commit"}]
     assert "new.spec" in body["specs"]
     assert "old.spec" not in body["specs"]
 
