@@ -35,7 +35,7 @@ def test_second_order_node_counts_resolve(el_type, n_nodes):
 @pytest.mark.parametrize(
     "el_type, n_nodes, n_corner_faces",
     [
-        (ShellShapes.TRI7, 7, 1),   # one corner triangle
+        (ShellShapes.TRI7, 7, 1),  # one corner triangle
         (ShellShapes.QUAD9, 9, 2),  # quad split into two triangles
     ],
 )

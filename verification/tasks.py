@@ -372,10 +372,7 @@ def eff_mass_compare_tables(results: list) -> list:
                 TableOutcome(
                     key=f"{key}_meff_{direction.lower()}",
                     df=df,
-                    caption=(
-                        f"Effective modal mass [kg], global {direction} — "
-                        f"{geo}, order {order}."
-                    ),
+                    caption=(f"Effective modal mass [kg], global {direction} — " f"{geo}, order {order}."),
                     show_index=False,
                     default_sort=("Mode", True),
                 )

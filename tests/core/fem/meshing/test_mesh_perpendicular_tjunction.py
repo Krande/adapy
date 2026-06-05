@@ -17,8 +17,12 @@ from ada.fem.shapes.definitions import ShellShapes
 
 def _tjunction_plates():
     pl_a = ada.Plate("pl_a", [(0, 0), (2, 0), (2, 1), (0, 1)], 0.01, origin=(0, 0, 0), normal=(0, 1, 0), xdir=(1, 0, 0))
-    pl_b1 = ada.Plate("pl_b1", [(0, 0), (1, 0), (1, 1), (0, 1)], 0.01, origin=(0, 0, 0), normal=(0, 0, 1), xdir=(1, 0, 0))
-    pl_b2 = ada.Plate("pl_b2", [(0, 0), (1, 0), (1, 1), (0, 1)], 0.01, origin=(1, 0, 0), normal=(0, 0, 1), xdir=(1, 0, 0))
+    pl_b1 = ada.Plate(
+        "pl_b1", [(0, 0), (1, 0), (1, 1), (0, 1)], 0.01, origin=(0, 0, 0), normal=(0, 0, 1), xdir=(1, 0, 0)
+    )
+    pl_b2 = ada.Plate(
+        "pl_b2", [(0, 0), (1, 0), (1, 1), (0, 1)], 0.01, origin=(1, 0, 0), normal=(0, 0, 1), xdir=(1, 0, 0)
+    )
     return pl_a, pl_b1, pl_b2
 
 

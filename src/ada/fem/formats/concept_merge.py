@@ -149,9 +149,7 @@ def _unit(v: np.ndarray) -> np.ndarray:
     return v / nrm if nrm > 0 else v
 
 
-def merge_colinear_beams(
-    beams: list["Beam"], parent: "Part", ndigits: int = 6, ang_tol: float = 1e-4
-) -> list["Beam"]:
+def merge_colinear_beams(beams: list["Beam"], parent: "Part", ndigits: int = 6, ang_tol: float = 1e-4) -> list["Beam"]:
     """Merge chains of colinear beams sharing section + material into one
     beam spanning the chain. A chain is broken at any node that branches
     (degree != 2) or bends (the two segments are not colinear)."""

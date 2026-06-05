@@ -239,9 +239,7 @@ def create_eff_mass_comparison_df(
             continue
 
         value_col = _case_label(res).replace(f"_{geo}_o{elo}", "")  # solver[_tag][R]
-        df_current = pd.DataFrame(
-            [(m.no, getattr(m, attr)) for m in modes], columns=["Mode", value_col]
-        )
+        df_current = pd.DataFrame([(m.no, getattr(m, attr)) for m in modes], columns=["Mode", value_col])
         new_col = df_current[value_col] if df_main is not None else df_current
         df_main = append_df(df_main, new_col)
 
