@@ -1,6 +1,7 @@
 """FEM shell → B-spline surface reconstruction (opt-in ``reconstruct_surfaces``)."""
 
 import numpy as np
+import pytest
 
 import ada
 from ada.api.plates.base_pl import PlateCurved
@@ -8,6 +9,26 @@ from ada.fem.formats.surface_reconstruction import reconstruct_shell_surfaces
 
 QUAD = ada.fem.Elem.EL_TYPES.SHELL_SHAPES.QUAD
 TRI = ada.fem.Elem.EL_TYPES.SHELL_SHAPES.TRI
+
+
+def _fit_supported() -> bool:
+    """True when the active CAD backend implements the grid→bspline fit.
+    Adacpp raises NotImplementedError (no native fit yet) → reconstruction
+    falls back to flat plates, so the "expect a curved panel" tests are skipped
+    there (the fallback path is covered by the dedicated fallback tests)."""
+    from ada.cad import active_backend
+
+    grid = [[(x, y, 0.0) for y in range(4)] for x in range(4)]
+    try:
+        active_backend().build_bspline_advanced_face_from_grid(grid, 1e-3)
+        return True
+    except NotImplementedError:
+        return False
+    except Exception:
+        return True
+
+
+requires_fit = pytest.mark.skipif(not _fit_supported(), reason="CAD backend has no grid→bspline surface fit (adacpp)")
 
 
 def _add_quad(p, eid, ring, mat="S355", th=12e-3):
@@ -57,6 +78,7 @@ def _split(objs):
     return curved, flat
 
 
+@requires_fit
 def test_structured_cylinder_collapses_to_one_curved_panel():
     nu, nv = 13, 8
     p = ada.Part("panel")
@@ -74,6 +96,7 @@ def test_structured_cylinder_collapses_to_one_curved_panel():
     assert type(af).__name__ in ("AdvancedFace",)
 
 
+@requires_fit
 def test_reconstructed_panel_round_trips_to_step_and_ifc(tmp_path):
     nu, nv = 13, 8
     p = ada.Part("panel")
@@ -125,6 +148,7 @@ def test_cutout_is_not_a_rectangle_falls_back():
     assert len(flat) > 0
 
 
+@requires_fit
 def test_fold_splits_into_two_panels():
     # Two flat panels meeting at 90° share an edge. Region growing stops at the
     # fold (normals differ by 90° > angle_tol), so each side reconstructs
@@ -187,6 +211,7 @@ def test_backend_without_fit_falls_back(monkeypatch):
     assert len(flat) > 0
 
 
+@requires_fit
 def test_min_patch_quads_keeps_small_patches_flat():
     # A NURBS B-rep solid is heavier than a few flat plates, so patches below
     # the threshold stay flat; at/above it they reconstruct.
