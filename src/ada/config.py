@@ -89,6 +89,14 @@ class Config:
                 ConfigEntry("home_dir", pathlib.Path, _home_dir),
                 ConfigEntry("tools_dir", pathlib.Path, _home_dir / "tools"),
                 ConfigEntry("occ_silent_fail", bool, False),
+                # Per-shape BRepCheck_Analyzer in the STEP/XCAF writer. Off by
+                # default: shapes come from adapy's own parametric builders, and
+                # genuinely-malformed ones already raise at build time (and are
+                # skipped). The full geometric check is ~17% of STEP export time
+                # on a 50k-plate model — pure redundant work in the hot loop.
+                # Enable for strict interop where a subtly-invalid (but non-null)
+                # shape must be dropped rather than written.
+                ConfigEntry("occ_step_check_shapes", bool, False),
                 ConfigEntry("add_trace_to_exception", bool, False),
                 # Controls caching of guids
                 ConfigEntry("guid_cache_num", int, 25000),

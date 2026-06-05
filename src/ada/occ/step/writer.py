@@ -63,6 +63,12 @@ class StepWriter:
         self.shape_tool = shape_tool
         self.units = units
 
+        # Read once, not per add_shape (hot loop over tens of thousands of
+        # shapes). See ConfigEntry("occ_step_check_shapes"): off by default.
+        from ada.config import Config
+
+        self.check_shapes = Config().general_occ_step_check_shapes
+
     def add_shape(self, shape: Any, name: str, rgb_color=None, parent=None):
         # This writer is the OCC/XCAF DocBackend — it operates on raw
         # TopoDS_Shape. When the active CAD backend is adacpp the incoming
@@ -103,14 +109,18 @@ class StepWriter:
             # Validate topology with BRepCheck. The STEP/XCAF writer is the
             # OCC/pythonocc DocBackend implementation — it operates on raw
             # TopoDS shapes, so it checks with OCC directly, not the active
-            # CAD backend. If invalid, skip with a warning.
-            try:
-                if not BRepCheck_Analyzer(shape, True).IsValid():
-                    logger.warning(f"Skipping invalid shape '{name}' (BRepCheck_Analyzer.IsValid == False)")
-                    return
-            except Exception as ex:
-                # If BRepCheck fails unexpectedly, log and continue without validation
-                logger.debug(f"BRepCheck_Analyzer failed for shape '{name}': {ex}")
+            # CAD backend. If invalid, skip with a warning. Off by default
+            # (occ_step_check_shapes): the full geometric check dominates STEP
+            # export time on large models and is redundant for adapy-built
+            # shapes (bad ones already raise at build time).
+            if self.check_shapes:
+                try:
+                    if not BRepCheck_Analyzer(shape, True).IsValid():
+                        logger.warning(f"Skipping invalid shape '{name}' (BRepCheck_Analyzer.IsValid == False)")
+                        return
+                except Exception as ex:
+                    # If BRepCheck fails unexpectedly, log and continue without validation
+                    logger.debug(f"BRepCheck_Analyzer failed for shape '{name}': {ex}")
 
             self.comp_builder.Add(self.comp, shape)
         except Exception as ex:
