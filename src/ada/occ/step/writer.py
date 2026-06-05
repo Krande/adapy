@@ -68,6 +68,7 @@ class StepWriter:
         from ada.config import Config
 
         self.check_shapes = Config().general_occ_step_check_shapes
+        self.write_pcurves = Config().general_occ_step_write_pcurves
 
     def add_shape(self, shape: Any, name: str, rgb_color=None, parent=None):
         # This writer is the OCC/XCAF DocBackend — it operates on raw
@@ -161,9 +162,16 @@ class StepWriter:
         writer.SetNameMode(True)
 
         SetCVal = OCCInterface.Interface_Static.SetCVal
+        SetIVal = OCCInterface.Interface_Static.SetIVal
 
         SetCVal("write.step.unit", self.units.value.upper())
         SetCVal("write.step.schema", self.schema.value.upper())
+
+        # Drop pcurves unless explicitly requested — they are redundant (CAD
+        # consumers recompute them) and roughly halve STEP size + write time on
+        # plate-heavy models. Set explicitly each export so the global static
+        # isn't left in an unexpected state by a prior call.
+        SetIVal("write.surfacecurve.mode", 1 if self.write_pcurves else 0)
 
         writer.Transfer(self.doc, STEPControl_AsIs)
         status = writer.Write(str(step_file))

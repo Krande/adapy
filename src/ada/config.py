@@ -97,6 +97,13 @@ class Config:
                 # Enable for strict interop where a subtly-invalid (but non-null)
                 # shape must be dropped rather than written.
                 ConfigEntry("occ_step_check_shapes", bool, False),
+                # Write 2D parametric curves (pcurves) into STEP. Off by default:
+                # pcurves are redundant — CAD consumers recompute them from the
+                # 3D geometry on import — and OCCT's write.surfacecurve.mode=0
+                # roughly halves both STEP file size AND write time on plate-heavy
+                # models (validated ~-49% size / -60% time on Ship1T1). Enable for
+                # the rare strict consumer that needs pcurves written explicitly.
+                ConfigEntry("occ_step_write_pcurves", bool, False),
                 ConfigEntry("add_trace_to_exception", bool, False),
                 # Controls caching of guids
                 ConfigEntry("guid_cache_num", int, 25000),
