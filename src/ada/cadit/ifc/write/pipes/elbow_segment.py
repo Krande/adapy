@@ -107,7 +107,7 @@ def alt_elbow_revolved_solid(elbow: PipeSegElbow, f, tol=1e-1):
 
 
 def elbow_revolved_solid(elbow: PipeSegElbow, f, tol=1e-1):
-    core_geom = elbow.solid_geom(ifc_impl=True)
+    core_geom = elbow.solid_geom()
     geom: geo_so.RevolvedAreaSolid = core_geom.geometry
 
     rev_area_solid = igeo_so.revolved_area_solid(geom, f)

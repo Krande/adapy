@@ -13,10 +13,8 @@ from ada.base.units import Units
 from ada.config import Config, logger
 from ada.core.exceptions import VectorNormalizeError
 from ada.core.utils import Counter, roundoff
-from ada.core.vector_transforms import global_2_local_nodes
 from ada.core.vector_utils import (
     angle_between,
-    calc_yvec,
     calc_zvec,
     unit_vector,
     vector_length,
@@ -316,9 +314,8 @@ class PipeSegElbow(BackendGeom):
 
         return get_solid_occ(self)
 
-    def solid_geom(self, ifc_impl=False) -> Geometry:
-        from ada import Direction, Point
-        from ada.core.constants import O
+    def solid_geom(self) -> Geometry:
+        from ada import Direction
         from ada.geom.booleans import BooleanOperation
         from ada.geom.solids import RevolvedAreaSolid
 
@@ -328,21 +325,10 @@ class PipeSegElbow(BackendGeom):
         xvec2 = Direction(self.arc_seg.e_normal).get_normalized()
         normal = Direction([x if abs(x) != 0.0 else 0.0 for x in calc_zvec(xvec2, xvec1)]).get_normalized()
 
-        # todo: update OCC handling so that this conditional no longer is needed, and always ifc_impl=True
-        if ifc_impl:
-            # Revolve Point
-            diff = self.arc_seg.center - self.arc_seg.p1
-            yvec = calc_yvec(normal, xvec1)
-            new_csys = (normal, yvec, xvec1)
-
-            diff_tra = global_2_local_nodes(new_csys, O, [diff])[0]
-            n_tra = global_2_local_nodes(new_csys, O, [normal])[0]
-
-            position = Axis2Placement3D(self.arc_seg.p1, xvec1, normal)
-            axis = Axis1Placement(location=Point(diff_tra), axis=Direction(n_tra).get_normalized())
-        else:
-            position = Axis2Placement3D(self.p1, xvec1, normal)
-            axis = Axis1Placement(location=self.arc_seg.center, axis=normal)
+        # Revolution axis is global (the convention both CAD backends build from);
+        # the IFC writer transforms it into the Position-local frame on export.
+        position = Axis2Placement3D(self.p1, xvec1, normal)
+        axis = Axis1Placement(location=self.arc_seg.center, axis=normal)
 
         revolve_angle = 180 - np.rad2deg(angle_between(xvec1, xvec2))
 

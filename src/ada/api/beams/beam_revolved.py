@@ -7,7 +7,6 @@ from ada.geom import Geometry
 from ada.geom.placement import Axis1Placement, Axis2Placement3D
 from ada.geom.solids import RevolvedAreaSolid
 
-from ...config import logger
 from .base_bm import Beam
 
 if TYPE_CHECKING:
@@ -34,33 +33,39 @@ class BeamRevolve(Beam):
         return self._curve
 
     def solid_geom(self) -> Geometry[RevolvedAreaSolid]:
-        # todo: This currently does not work as intended
-        logger.warning("BeamRevolve.solid_geom() is not yet implemented correctly")
+        """Revolve the section profile around the curve's rotation axis.
+
+        The profile is placed perpendicular to the arc at ``p1`` and revolved.
+        The placement frame is X = radial (p1 -> away from axis), Y = rotation
+        axis (the section "up"), Z = arc tangent (the profile normal).
+
+        The revolution ``axis`` is in global coordinates — the convention both CAD
+        backends build from. The IFC writer converts it to the Position-local frame
+        that ``IfcRevolvedAreaSolid.Axis`` requires.
+        """
+        import numpy as np
+
         from ada import Direction, Point
-        from ada.core.constants import O
-        from ada.core.vector_transforms import global_2_local_nodes
+        from ada.geom.booleans import BooleanOperation
         from ada.geom.solids import RevolvedAreaSolid
 
-        normal = self.curve.rot_axis.get_normalized()
-        xvec1 = self.curve.profile_normal.get_normalized()
-        yvec = self.curve.profile_perpendicular.get_normalized()
+        p1 = np.asarray(self.curve.p1, dtype=float)
+        rot_axis = np.asarray(self.curve.rot_axis, dtype=float)
+        rot_axis = rot_axis / np.linalg.norm(rot_axis)
+        rot_origin = np.asarray(self.curve.rot_origin, dtype=float)
 
-        new_csys = (normal, yvec, xvec1)
-
-        # Revolve Point
-        diff = self.curve.rot_origin - self.curve.p1
-        # diff_tra = sec_place.transform_array_from_other_place([diff],loc_place)[0]
-        # n_tra = Direction(sec_place.transform_array_from_other_place([normal],loc_place, ignore_translation=True)[0]).get_normalized()
-        diff_tra = Point(global_2_local_nodes(new_csys, O, [diff])[0])
-        n_tra = Direction(global_2_local_nodes(new_csys, O, [normal])[0]).get_normalized()
+        # Radial direction at p1 = component of (p1 - rot_origin) perpendicular to
+        # the rotation axis; the arc tangent (profile normal) is axis x radial.
+        radial = p1 - rot_origin
+        radial = radial - np.dot(radial, rot_axis) * rot_axis
+        radial = radial / np.linalg.norm(radial)
+        tangent = np.cross(rot_axis, radial)
+        tangent = tangent / np.linalg.norm(tangent)
 
         profile = geo_conv.section_to_arbitrary_profile_def_with_voids(self.section)
-
-        position = Axis2Placement3D(self.curve.p1, xvec1, normal)
-        axis = Axis1Placement(location=diff_tra, axis=n_tra)
-
-        # position = Placement(origin=Point(0, -0.1, 0.0)).to_axis2placement3d()
-        # axis = Axis1Placement(location=Point(-1.3, 0.1, 0.0), axis=Direction(0, -1, 0))
+        position = Axis2Placement3D(Point(*p1), Direction(*tangent), Direction(*radial))
+        axis = Axis1Placement(location=Point(*rot_origin), axis=Direction(*rot_axis))
 
         solid = RevolvedAreaSolid(profile, position, axis, self.curve.angle)
-        return Geometry(self.guid, solid, self.color)
+        booleans = [BooleanOperation(x.primitive.solid_geom(), x.bool_op) for x in self.booleans]
+        return Geometry(self.guid, solid, self.color, bool_operations=booleans)

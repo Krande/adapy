@@ -51,7 +51,13 @@ def extruded_area_solid_tapered(
 
 
 def revolved_area_solid(ras: geo_so.RevolvedAreaSolid, f: ifcopenshell.file) -> ifcopenshell.entity_instance:
-    """Converts a RevolvedAreaSolid to an IFC representation"""
+    """Converts a RevolvedAreaSolid to an IFC representation.
+
+    The geom carries the revolution axis in global coordinates (the convention
+    both CAD backends build from). ``IfcRevolvedAreaSolid.Axis`` is defined in the
+    ``Position`` coordinate system, so we transform global -> local here — keeping
+    the geom backend-native while emitting spec-correct IFC.
+    """
     import math
 
     axis3d = ifc_placement_from_axis3d(ras.position, f)
@@ -61,9 +67,29 @@ def revolved_area_solid(ras: geo_so.RevolvedAreaSolid, f: ifcopenshell.file) -> 
     else:
         raise NotImplementedError(f"Unsupported swept area type: {type(ras.swept_area)}")
 
-    revolve_point = point(ras.axis.location, f)
-    rev_axis_dir = direction(ras.axis.axis, f)
-    revolve_axis1 = f.create_entity("IfcAxis1Placement", revolve_point, rev_axis_dir)
+    loc_pt, loc_dir = _axis_global_to_position_local(ras)
+    revolve_axis1 = f.create_entity("IfcAxis1Placement", point(loc_pt, f), direction(loc_dir, f))
     angle = math.radians(ras.angle)
 
     return f.create_entity("IfcRevolvedAreaSolid", SweptArea=profile, Position=axis3d, Axis=revolve_axis1, Angle=angle)
+
+
+def _axis_global_to_position_local(ras: geo_so.RevolvedAreaSolid):
+    """Express the (global) revolution axis in ``ras.position``'s local frame."""
+    import numpy as np
+
+    pos = ras.position
+    xdir = np.asarray(pos.ref_direction, dtype=float)
+    zdir = np.asarray(pos.axis, dtype=float)
+    xdir = xdir / np.linalg.norm(xdir)
+    zdir = zdir / np.linalg.norm(zdir)
+    ydir = np.cross(zdir, xdir)
+    rot = np.column_stack([xdir, ydir, zdir])  # local -> global
+
+    origin = np.asarray(pos.location, dtype=float)
+    ax_loc = np.asarray(ras.axis.location, dtype=float)
+    ax_dir = np.asarray(ras.axis.axis, dtype=float)
+
+    local_loc = rot.T @ (ax_loc - origin)
+    local_dir = rot.T @ ax_dir
+    return tuple(float(x) for x in local_loc), tuple(float(x) for x in local_dir)
