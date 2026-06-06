@@ -329,7 +329,15 @@ class ArrayElements(FemElements):
 def to_array_backed(fem):
     """Swap a FEM's object-model ``nodes``/``elements`` for substrate-backed facades
     sharing one ``MeshArrays``. The proxies are transient, so after this the mesh is
-    held as packed arrays. Returns the same FEM for chaining."""
+    held as packed arrays. Returns the same FEM for chaining.
+
+    Any FemSet that still holds object members is flipped to id-backed first, so the
+    object Node/Elem become unreferenced and are reclaimed."""
+    # Flip sets to id-backed BEFORE building the store / dropping object containers,
+    # otherwise the sets keep the object mesh alive.
+    for fs in list(fem.sets):
+        fs.to_id_backed()
+
     store = MeshArrays.from_fem(fem)
     fem.nodes = ArrayNodes(store, parent=fem)
     fem.elements = ArrayElements(store, fem_obj=fem)
