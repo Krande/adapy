@@ -49,19 +49,27 @@ def stream_fem_mesh(path):
     other: list[str] = []
 
     cur_card = None
-    # current structural GELMNT1 being accumulated across continuation lines:
-    cur_struct = None  # (el_type, el_no, [node-id floats...])
+    # current GELMNT1 being accumulated across continuation lines. A single .FEM
+    # element record (structural, mass OR spring) can wrap onto continuation lines, so
+    # we accumulate every field and dispatch on flush — never leak continuation node
+    # ids into ``other``.
+    cur_gelmnt = None  # (kind, el_type, el_no, vals)  kind in {"struct","mass","spring"}
 
-    def flush_struct():
-        nonlocal cur_struct
-        if cur_struct is None:
+    def flush_gelmnt():
+        nonlocal cur_gelmnt
+        if cur_gelmnt is None:
             return
-        el_type, el_no, vals = cur_struct
-        nids = [n for n in (str_to_int(x) for x in vals[4:]) if n != 0]
-        ids, conns = by_type[el_type]
-        ids.append(el_no)
-        conns.append(nids)
-        cur_struct = None
+        kind, el_type, el_no, vals = cur_gelmnt
+        if kind == "struct":
+            nids = [n for n in (str_to_int(x) for x in vals[4:]) if n != 0]
+            ids, conns = by_type[el_type]
+            ids.append(el_no)
+            conns.append(nids)
+        elif kind == "mass":
+            mass_elem[el_no] = dict(gelmnt=_gelmnt_dict(vals))
+        else:  # spring
+            spring_elem[el_no] = dict(gelmnt=_gelmnt_dict(vals))
+        cur_gelmnt = None
 
     with open(path, "r") as f:
         for line in f:
@@ -72,17 +80,15 @@ def stream_fem_mesh(path):
 
             if first.isdigit() or first == "-":
                 # continuation line — belongs to the current card
-                if cur_card == "GELMNT1" and cur_struct is not None:
-                    cur_struct[2].extend(s.split())
-                elif cur_card == "GCOORD":
-                    other.append(line.rstrip("\n"))  # GCOORD shouldn't wrap, but be safe
+                if cur_card == "GELMNT1" and cur_gelmnt is not None:
+                    cur_gelmnt[3].extend(s.split())
                 else:
-                    other.append(line.rstrip("\n"))
+                    other.append(line.rstrip("\n"))  # continuation of a non-mesh card
                 continue
 
             tok = s.split(None, 1)[0]
             if cur_card == "GELMNT1" and tok != "GELMNT1":
-                flush_struct()
+                flush_gelmnt()
             cur_card = tok
 
             if tok == "GCOORD":
@@ -90,21 +96,21 @@ def stream_fem_mesh(path):
                 coord_ids.append(str_to_int(p[1]))
                 coord_xyz.append((float(p[2]), float(p[3]), float(p[4])))
             elif tok == "GELMNT1":
-                flush_struct()
+                flush_gelmnt()
                 vals = s.split()[1:]
                 el_no = str_to_int(vals[1])
                 ext_map[el_no] = str_to_int(vals[0])
                 el_type = sesam_eltype_2_general(str_to_int(vals[2]))
                 if isinstance(el_type, SpringTypes):
-                    spring_elem[el_no] = dict(gelmnt=_gelmnt_dict(vals))
+                    cur_gelmnt = ("spring", el_type, el_no, vals)
                 elif el_type == Elem.EL_TYPES.MASS_SHAPES.MASS:
-                    mass_elem[el_no] = dict(gelmnt=_gelmnt_dict(vals))
+                    cur_gelmnt = ("mass", el_type, el_no, vals)
                 else:
-                    cur_struct = (el_type, el_no, vals)
+                    cur_gelmnt = ("struct", el_type, el_no, vals)
             else:
                 other.append(line.rstrip("\n"))
 
-    flush_struct()
+    flush_gelmnt()
 
     coords = np.array(coord_xyz, dtype=np.float64) if coord_xyz else np.zeros((0, 3))
     node_ids = np.array(coord_ids, dtype=np.int64) if coord_ids else np.zeros((0,), dtype=np.int64)
