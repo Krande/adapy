@@ -36,6 +36,10 @@ def read_fem(fem_file: os.PathLike, fem_name: str = None) -> Assembly:
 
 def med_to_fem(fem_file, fem_name) -> FEM:
     from ada import FEM, Node
+    from ada.config import Config
+
+    if Config().meshing_array_backed:
+        return _med_to_fem_array(fem_file, fem_name)
 
     with h5py.File(fem_file, "r") as f:
         # Mesh ensemble
@@ -135,6 +139,73 @@ def med_to_fem(fem_file, fem_name) -> FEM:
 
     elsets = _element_set_dict_to_list_of_femset(element_sets, fem)
 
+    fem.sets = FemSets(elsets + point_sets, parent=fem)
+    return fem
+
+
+def _med_to_fem_array(fem_file, fem_name) -> FEM:
+    """Substrate-direct MED read: MED is already h5py array-based, so build a
+    MeshArrays straight from the COO / NOD datasets (no object Node/Elem)."""
+    from ada import FEM
+    from ada.api.mesh.containers import ArrayElements, ArrayNodes
+    from ada.api.mesh.store import MeshArrays
+
+    with h5py.File(fem_file, "r") as f:
+        mesh_ensemble = f["ENS_MAA"]
+        meshes = list(mesh_ensemble.keys())
+        if len(meshes) != 1:
+            raise ValueError(f"Must only contain exactly 1 mesh, found {len(meshes)}.")
+        mesh_name = meshes[0]
+        mesh = mesh_ensemble[mesh_name]
+        dim = mesh.attrs["ESP"]
+        fem_name = fem_name if fem_name is not None else mesh_name
+        if "NOE" not in mesh:
+            time_step = list(mesh.keys())
+            if len(time_step) != 1:
+                raise ValueError(f"Must only contain exactly 1 time-step, found {len(time_step)}.")
+            mesh = mesh[time_step[0]]
+
+        pts_dataset = mesh["NOE"]["COO"]
+        n_points = pts_dataset.attrs["NBR"]
+        points = pts_dataset[()].reshape((n_points, dim), order="F")
+        if dim == 2:
+            points = np.column_stack([points, np.zeros(n_points)])
+        if "NUM" in mesh["NOE"]:
+            point_num = np.asarray(mesh["NOE"]["NUM"], dtype=np.int64)
+        else:
+            logger.warning("No node information is found on MED file")
+            point_num = np.arange(1, len(points) + 1, dtype=np.int64)
+
+        store = MeshArrays(np.ascontiguousarray(points, dtype=np.float64), point_num)
+
+        tags = mesh["NOE"]["FAM"][()] if "FAM" in mesh["NOE"] else None
+        fas = mesh["FAS"] if "FAS" in mesh else f["FAS"][mesh_name]
+        point_tags = _read_families(fas["NOEUD"]) if "NOEUD" in fas else {}
+        cell_tags = _read_families(fas["ELEME"]) if "ELEME" in fas else {}
+
+        element_sets: dict = {}
+        for med_cell_type, grp in mesh["MAI"].items():
+            if med_cell_type == "PO1":
+                logger.warning("Point elements are still not supported")
+                continue
+            cell_type = med_to_ada_type(med_cell_type)
+            nod = grp["NOD"]
+            n_cells = nod.attrs["NBR"]
+            nodes_in = nod[()].reshape(n_cells, -1, order="F")
+            num = np.asarray(grp["NUM"], dtype=np.int64) if "NUM" in grp.keys() else np.arange(n_cells, dtype=np.int64)
+            store.add_elem_block_from_id_conn(cell_type, num, np.asarray(nodes_in, dtype=np.int64))
+            if "FAM" in grp:
+                cell_type_sets = _cell_tag_to_set(grp["FAM"][()], cell_tags)
+                for key, rows in cell_type_sets.items():
+                    element_sets.setdefault(key, [])
+                    element_sets[key] += [int(num[i]) for i in set(rows)]
+
+    fem = FEM(fem_name)
+    fem.nodes = ArrayNodes(store, parent=fem)
+    fem.elements = ArrayElements(store, fem_obj=fem)
+
+    point_sets = _point_tags_to_sets(tags, point_tags, fem) if tags is not None else []
+    elsets = _element_set_dict_to_list_of_femset(element_sets, fem)
     fem.sets = FemSets(elsets + point_sets, parent=fem)
     return fem
 
