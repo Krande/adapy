@@ -303,8 +303,23 @@ class ArrayElements(FemElements):
         return max(store_max, ov_max)
 
     def build_sets(self):
-        # element sets are built lazily/id-backed in the array path; no-op
-        pass
+        """Create id-backed element sets from each element's ``elset`` name (mirrors
+        the object FemElements.build_sets, which sections/masses reference by name)."""
+        from collections import defaultdict
+
+        from ada.fem import FemSet
+
+        by_elset: dict[str, list[int]] = defaultdict(list)
+        for e in self:
+            es = e.elset
+            if es is None:
+                continue
+            name = es if isinstance(es, str) else getattr(es, "name", None)
+            if name:
+                by_elset[name].append(e.id)
+        for name, ids in by_elset.items():
+            if self._fem_obj is not None:
+                self._fem_obj.sets.add(FemSet(name, ids, "elset", parent=self._fem_obj))
 
     @property
     def masses(self):
