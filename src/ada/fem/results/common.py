@@ -79,6 +79,10 @@ class ElementBlock:
     elem_info: ElementInfo
     node_refs: np.ndarray
     identifiers: np.ndarray
+    # When True, ``node_refs`` are already 0-based row indices into ``FemNodes.coords``
+    # (the array-substrate convention), so consumers skip the id->index remap. Default
+    # False keeps the historical id-based convention (object/SIF producers).
+    node_refs_are_indices: bool = False
 
 
 @dataclass
@@ -199,8 +203,11 @@ class Mesh:
             if isinstance(el_type, shape_def.MassTypes):
                 continue
 
-            nodes_copy = cell_block.node_refs.copy()
-            nodes_copy[np.isin(nodes_copy, keys)] = np.vectorize(nmap.get)(nodes_copy[np.isin(nodes_copy, keys)])
+            if cell_block.node_refs_are_indices:
+                nodes_copy = cell_block.node_refs
+            else:
+                nodes_copy = cell_block.node_refs.copy()
+                nodes_copy[np.isin(nodes_copy, keys)] = np.vectorize(nmap.get)(nodes_copy[np.isin(nodes_copy, keys)])
 
             for elem in nodes_copy:
                 elem_shape = ElemShape(el_type, elem)
@@ -271,8 +278,11 @@ class Mesh:
             if isinstance(el_type, shape_def.MassTypes):
                 continue
 
-            nodes_copy = cell_block.node_refs.copy()
-            nodes_copy[np.isin(nodes_copy, keys)] = np.vectorize(nmap.get)(nodes_copy[np.isin(nodes_copy, keys)])
+            if cell_block.node_refs_are_indices:
+                nodes_copy = cell_block.node_refs
+            else:
+                nodes_copy = cell_block.node_refs.copy()
+                nodes_copy[np.isin(nodes_copy, keys)] = np.vectorize(nmap.get)(nodes_copy[np.isin(nodes_copy, keys)])
             if use_solid_beams and isinstance(el_type, (shape_def.LineShapes, shape_def.ConnectorTypes)):
                 continue
 

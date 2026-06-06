@@ -199,16 +199,22 @@ def add_fem_without_assembly(bulk_str, assembly: Assembly) -> Part:
 
 def get_fem_from_bulk_str(name, bulk_str, assembly: Assembly, instance_data: InstanceData) -> "Part":
     from ada import FEM, Part
+    from ada.config import Config
 
     instance_name = name if instance_data.instance_name is None else instance_data.instance_name
     if name in assembly.parts.keys():
         name = instance_name
     part = assembly.add_part(Part(name, fem=FEM(name=instance_name)))
     fem = part.fem
-    fem.nodes = get_nodes_from_inp(bulk_str, fem)
-    fem.nodes.move(move=instance_data.transform.translation, rotate=instance_data.transform.rotation)
-    fem.elements = get_elem_from_bulk_str(bulk_str, fem)
+
+    if Config().meshing_array_backed:
+        _build_array_nodes_elements(bulk_str, fem)
+    else:
+        fem.nodes = get_nodes_from_inp(bulk_str, fem)
+        fem.elements = get_elem_from_bulk_str(bulk_str, fem)
     fem.elements.build_sets()
+
+    fem.nodes.move(move=instance_data.transform.translation, rotate=instance_data.transform.rotation)
     fem.sets += get_sets_from_bulk(bulk_str, fem)
     fem.sections = get_sections_from_inp(bulk_str, fem)
     fem.bcs += get_bcs_from_bulk(bulk_str, fem)
@@ -220,6 +226,79 @@ def get_fem_from_bulk_str(name, bulk_str, assembly: Assembly, instance_data: Ins
     print(8 * "-" + f'Imported "{part.fem.instance_name}"')
 
     return part
+
+
+def _build_array_nodes_elements(bulk_str, fem) -> None:
+    """Substrate-direct Abaqus node/element build: no object Node/Elem for the
+    structural mesh. Special blocks (mass/connector/cross-instance) fall back to the
+    object element parser as ArrayElements overflow."""
+    import numpy as np
+
+    from ada.api.mesh.containers import ArrayElements, ArrayNodes
+    from ada.api.mesh.store import MeshArrays
+
+    from .read_elements import get_elem_arrays, grab_elements
+
+    coords, node_ids, nsets = get_nodes_from_inp_arrays(bulk_str)
+    store = MeshArrays(coords, node_ids)
+    by_type, overflow = get_elem_arrays(bulk_str)
+    for ctype, (el_ids, conns, elsets) in by_type.items():
+        blk = store.add_elem_block_from_id_conn(
+            ctype, np.array(el_ids, dtype=np.int64), np.array(conns, dtype=np.int64)
+        )
+        if any(e is not None for e in elsets):
+            blk.elsets = elsets
+
+    fem.nodes = ArrayNodes(store, parent=fem)
+    fem.elements = ArrayElements(store, fem_obj=fem)
+
+    # node sets declared inline on *Node blocks (id-backed)
+    for set_name, ids in nsets:
+        fem.sets.add(FemSet(set_name, ids, "nset", parent=fem))
+
+    # special/cross-instance element blocks via the object parser -> overflow
+    for match in overflow:
+        elems = grab_elements(match, fem)
+        if elems:
+            for e in elems:
+                fem.elements.add(e)
+
+
+def get_nodes_from_inp_arrays(bulk_str):
+    """Parse *Node blocks into packed (coords (n,3), node_ids (n,)) arrays plus inline
+    nset declarations as ``(name, [ids])`` — no Node objects."""
+    import numpy as np
+
+    re_no = re.compile(
+        r"^\*Node\s*(?:,\s*nset=(?P<nset>.*?)\n|\n)(?P<members>(?:.*?)(?=\*|\Z))",
+        _re_in,
+    )
+    ids: list[int] = []
+    xyz: list = []
+    nsets: list = []
+    for m in re_no.finditer(bulk_str):
+        d = m.groupdict()
+        raw = "\n".join(line for line in d["members"].splitlines() if not line.lstrip().startswith("**"))
+        res = np.fromstring(list_cleanup(raw), sep=",", dtype=np.float64)
+        if res.size == 0:
+            continue
+        if res.size % 4 == 0:
+            res_ = res.reshape(int(res.size / 4), 4)
+            block_xyz = res_[:, 1:4]
+        elif res.size % 3 == 0:
+            res_ = res.reshape(int(res.size / 3), 3)
+            block_xyz = np.column_stack([res_[:, 1:3], np.zeros(res_.shape[0])])
+        else:
+            raise ValueError(f"Abaqus *Node block has {res.size} values; not divisible by 4 (3D) or 3 (2D)")
+        block_ids = [int(x) for x in res_[:, 0]]
+        ids.extend(block_ids)
+        xyz.extend(block_xyz.tolist())
+        if d["nset"] is not None:
+            nsets.append((d["nset"], block_ids))
+
+    coords = np.array(xyz, dtype=np.float64) if xyz else np.zeros((0, 3))
+    node_ids = np.array(ids, dtype=np.int64) if ids else np.zeros((0,), dtype=np.int64)
+    return coords, node_ids, nsets
 
 
 def get_initial_conditions_from_str(assembly: Assembly, bulk_str: str):

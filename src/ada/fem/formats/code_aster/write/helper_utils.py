@@ -58,14 +58,17 @@ def resolve_ids_in_multiple(tags, tags_data, is_elem):
                     rmap[key] = new_int
                     fin_data[new_int] = []
                     seen_ids[new_int] = set()
-                rid = id(mem)
+                # Value-based dedup key (member id) rather than id(mem): array-backed
+                # proxies are minted per access, so object identity isn't stable; the
+                # entity id is unique within a node/element set context either way.
+                rid = int(mem.id)
                 bucket_ids = seen_ids[new_int]
                 if rid not in bucket_ids:
                     fin_data[new_int].append(mem)
                     bucket_ids.add(rid)
             else:
                 fin_data[t].append(mem)
-                seen_ids[t].add(id(mem))
+                seen_ids[t].add(int(mem.id))
     to_be_removed = [i for i, f in fin_data.items() if len(f) == 0]
     for t in to_be_removed:
         fin_data.pop(t)

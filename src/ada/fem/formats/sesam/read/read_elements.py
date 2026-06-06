@@ -55,7 +55,47 @@ def get_elements(bulk_str: str, fem: FEM) -> tuple[FemElements, dict, dict, dict
     return elements, mass_elem, spring_elem, internal_external_element_map
 
 
-def get_mass(bulk_str: str, fem: FEM, mass_elem: dict) -> FemElements:
+def get_elements_arrays(bulk_str: str):
+    """Parse GELMNT1 into per-type connectivity (node ids) without building Elem
+    objects. Mass/spring elements are split out for separate handling.
+
+    Returns ``(by_type, mass_elem, spring_elem, ext_map)`` where ``by_type`` maps a
+    canonical element type to ``(el_ids: list[int], conn: list[list[int]])`` of node
+    ids."""
+    from collections import defaultdict
+
+    by_type: dict = defaultdict(lambda: ([], []))
+    mass_elem: dict = {}
+    spring_elem: dict = {}
+    ext_map: dict = {}
+
+    for match in cards.GELMNT1.to_ff_re().finditer(bulk_str):
+        d = match.groupdict()
+        el_no = str_to_int(d["elno"])
+        ext_map[el_no] = str_to_int(d["elnox"])
+        nids = [x for x in map(str_to_int, d["nids"].replace("\n", "").split()) if x != 0]
+        el_type = sesam_eltype_2_general(str_to_int(d["eltyp"]))
+        if isinstance(el_type, SpringTypes):
+            spring_elem[el_no] = dict(gelmnt=d)
+            continue
+        if el_type == Elem.EL_TYPES.MASS_SHAPES.MASS:
+            mass_elem[el_no] = dict(gelmnt=d)
+            continue
+        el_ids, conns = by_type[el_type]
+        el_ids.append(el_no)
+        conns.append(nids)
+
+    return by_type, mass_elem, spring_elem, ext_map
+
+
+def get_mass(bulk_str: str, fem: FEM, mass_elem: dict, renumber_map: dict | None = None) -> FemElements:
+    # Generated BNMASS element ids must clear BOTH the current (internal) element
+    # numbering AND the external ids structural elements will be renumbered into
+    # (renumber_map values) later — otherwise a generated mass id collides with a
+    # renumbered structural element. (Pre-existing: this bit both the object and array
+    # paths on decks whose external numbering reuses the internal-max+1 range.)
+    max_external = max(renumber_map.values()) if renumber_map else 0
+
     def checkEqual2(iterator):
         return len(set(iterator)) <= 1
 
@@ -80,7 +120,7 @@ def get_mass(bulk_str: str, fem: FEM, mass_elem: dict) -> FemElements:
 
         no = fem.nodes.from_id(nodeno)
         fem_set = fem.sets.add(FemSet(f"m{nodeno}", [no], FemSet.TYPES.NSET, parent=fem))
-        el_id = fem.elements.max_el_id + 1
+        el_id = max(fem.elements.max_el_id, max_external) + 1
         elem = fem.elements.add(Elem(el_id, [no], Elem.EL_TYPES.MASS_SHAPES.MASS, None, parent=fem), skip_grouping=True)
         mass = Mass(f"m{nodeno}", fem_set, masses, Mass.TYPES.MASS, ptype=mass_type, parent=fem, mass_id=el_id)
 

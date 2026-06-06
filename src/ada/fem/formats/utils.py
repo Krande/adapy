@@ -594,6 +594,16 @@ def line_elem_to_beam(elem: Elem, parent: Part, prefix="bm") -> Beam:
 
 def convert_part_objects(p: Part, skip_plates, skip_beams, merge=False, reconstruct_surfaces=False):
     from ada.api.containers import Beams, Plates
+    from ada.config import Config
+
+    # Hold the mesh as packed arrays during conversion (the peak-memory tier) when
+    # enabled, so a large FEM doesn't keep millions of Node/Elem objects resident
+    # alongside the Beams/Plates being built.
+    if Config().meshing_array_backed and p.fem is not None and len(p.fem.nodes) > 0:
+        from ada.api.mesh.containers import ArrayNodes, to_array_backed
+
+        if not isinstance(p.fem.nodes, ArrayNodes):
+            to_array_backed(p.fem)
 
     if skip_plates is False:
         if reconstruct_surfaces:

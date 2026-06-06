@@ -86,6 +86,50 @@ def grab_elements(match, fem: "FEM"):
         return elems
 
 
+def get_elem_arrays(bulk_str: str):
+    """Parse *Element blocks into per-type (el_ids, node-id conn) arrays without
+    building Elem objects. Blocks needing object handling (cross-instance node refs,
+    mass/rotaryi/connector) are returned as raw matches for the object fallback."""
+    from collections import defaultdict
+
+    by_type: dict = defaultdict(lambda: ([], [], []))  # ctype -> (el_ids, conns, elsets)
+    overflow: list = []
+
+    for match in cards.re_el.finditer(bulk_str):
+        d = match.groupdict()
+        eltype = d["eltype"]
+        try:
+            ada_el_type = abaqus_el_type_to_ada(eltype)
+        except UnsupportedAbaqusElementType as exc:
+            logger.warning("abaqus read: skipping element block — %s", exc)
+            continue
+
+        members = d["members"]
+        elset = d["elset"]
+        is_cubic = ada_el_type in [SolidShapes.HEX20, SolidShapes.HEX27]
+        has_letters = re.search("[a-zA-Z]", members) is not None
+        if eltype in ("MASS", "ROTARYI", "CONN3D2") or (has_letters and not is_cubic):
+            overflow.append(match)  # special / cross-instance -> object path
+            continue
+
+        if is_cubic:
+            elem_nodes_str = members.splitlines()
+            ntext = "".join(
+                [l1.strip() + "    " + l2.strip() + "\n" for l1, l2 in zip(elem_nodes_str[:-1:2], elem_nodes_str[1::2])]
+            )
+        else:
+            ntext = members
+        res = np.fromstring(ntext.replace("\n", ","), sep=",", dtype=int)
+        n = ShapeResolver.get_el_nodes_from_type(ada_el_type) + 1
+        res2d = res.reshape(int(res.size / n), n)
+        ids, conns, elsets = by_type[ada_el_type]
+        ids.extend(int(x) for x in res2d[:, 0])
+        conns.extend(res2d[:, 1:].tolist())
+        elsets.extend([elset] * res2d.shape[0])
+
+    return by_type, overflow
+
+
 def get_elem_nodes(elem_nodes_str, fem: "FEM"):
     elem_nodes = []
     for d in elem_nodes_str[1:]:
@@ -103,12 +147,12 @@ def get_elem_nodes(elem_nodes_str, fem: "FEM"):
             if par_ is None:
                 raise ValueError(f'Unable to find parent for "{par}"')
             r = par_.fem.nodes.from_id(str_to_int(setr))
-            if type(r) is not Node:
+            if not isinstance(r, Node):
                 raise ValueError("Node ID not found")
             elem_nodes.append(r)
         else:
             r = fem.nodes.from_id(str_to_int(d))
-            if type(r) is not Node:
+            if not isinstance(r, Node):
                 raise ValueError("Node ID not found")
             elem_nodes.append(r)
     return elem_nodes
