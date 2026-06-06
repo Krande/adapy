@@ -3,22 +3,7 @@ from operator import attrgetter
 import pytest
 
 import ada
-from ada.config import Config
 from ada.param_models.fem_models import beam_ex1
-
-
-@pytest.fixture(autouse=True)
-def _object_mode_for_med_write():
-    """These are read->write->read MED round-trips. The Code_Aster MED *writer*
-    detects multi-set membership via element.refs, which the array-backed (lazy
-    id-set) path does not populate — array-backed MED *write* is a follow-up
-    (writer migration). The substrate-direct MED *reader* is covered by
-    test_med_array_read.py. Force object mode so these writer tests are
-    flag-independent."""
-    prev = Config().meshing_array_backed
-    Config().meshing_array_backed = False
-    yield
-    Config().meshing_array_backed = prev
 
 
 def test_read_write_cylinder(example_files, tmp_path):

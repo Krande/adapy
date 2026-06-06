@@ -88,6 +88,10 @@ class MeshArrays:
         # Non-element refs (Beam/Csys/FemSet) that aren't derivable from
         # connectivity, keyed by node row. Element refs come from the CSR.
         self._extra_refs: dict[int, list] = {}
+        # Refs that point AT an element (FemSet/Beam/Plate...), keyed by
+        # (ctype, row). Connectivity edits don't move element rows, so these stay
+        # valid across node remove / renumber.
+        self._elem_refs: dict[tuple, list] = {}
 
     # ── node id <-> row index ────────────────────────────────────────────
     @property
@@ -358,6 +362,20 @@ class MeshArrays:
 
     def extra_refs(self, row: int) -> list:
         return self._extra_refs.get(int(row), [])
+
+    # element-level refs (things that reference an element, e.g. FemSet)
+    def add_elem_ref(self, ctype, row: int, item) -> None:
+        lst = self._elem_refs.setdefault((ctype, int(row)), [])
+        if item not in lst:
+            lst.append(item)
+
+    def remove_elem_ref(self, ctype, row: int, item) -> None:
+        lst = self._elem_refs.get((ctype, int(row)))
+        if lst and item in lst:
+            lst.remove(item)
+
+    def elem_refs(self, ctype, row: int) -> list:
+        return self._elem_refs.get((ctype, int(row)), [])
 
     # ── results-side bridge (zero-copy views) ────────────────────────────
     def to_fem_nodes(self) -> "FemNodes":

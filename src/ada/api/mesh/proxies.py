@@ -258,11 +258,51 @@ class ElemProxy(Elem):
         view[view.index(old_node)] = new_node
         self._shape = None
 
+    @property
+    def refs(self) -> "ElemRefsView":
+        return ElemRefsView(self._store, self._ctype, self._row)
+
+    def add_obj_to_refs(self, item) -> None:
+        self._store.add_elem_ref(self._ctype, self._row, item)
+
+    def remove_obj_from_refs(self, item) -> None:
+        self._store.remove_elem_ref(self._ctype, self._row, item)
+
     def __repr__(self):
         return f'ElemProxy(ID: {self.id}, Type: {self.type}, NodeIds: "{[n.id for n in self.nodes]}")'
 
     def __reduce__(self):
         return (_rebuild_elem_proxy, (self._store, self._ctype, self._row))
+
+
+class ElemRefsView:
+    """``Elem.refs`` backed by the store's element-refs side-table (FemSet/Beam/...)."""
+
+    def __init__(self, store: "MeshArrays", ctype, row: int):
+        self._store = store
+        self._ctype = ctype
+        self._row = row
+
+    def __iter__(self):
+        return iter(self._store.elem_refs(self._ctype, self._row))
+
+    def __len__(self) -> int:
+        return len(self._store.elem_refs(self._ctype, self._row))
+
+    def __contains__(self, item) -> bool:
+        return item in self._store.elem_refs(self._ctype, self._row)
+
+    def __getitem__(self, i):
+        return self._store.elem_refs(self._ctype, self._row)[i]
+
+    def append(self, item) -> None:
+        self._store.add_elem_ref(self._ctype, self._row, item)
+
+    def remove(self, item) -> None:
+        self._store.remove_elem_ref(self._ctype, self._row, item)
+
+    def copy(self) -> list:
+        return list(self)
 
 
 def _rebuild_elem_proxy(store: "MeshArrays", ctype, row: int) -> ElemProxy:

@@ -67,6 +67,23 @@ class FemSet(FemBase):
             raise ValueError(f'set type "{set_type}" is not valid')
         self._refs = []
 
+        if self._member_ids is not None:
+            self.register_member_refs()
+
+    def register_member_refs(self) -> None:
+        """Register this set in each member's ``refs`` (mirrors the object path's
+        ``m.refs.append(self)``). Needed so consumers that detect set membership via
+        ``member.refs`` (e.g. the Code_Aster MED writer) work with id-backed sets. The
+        ref is stored on the substrate side-table, not on a pinned proxy. Best-effort:
+        a no-op if the parent FEM can't resolve the members yet."""
+        if self._member_ids is None or self.parent is None:
+            return
+        try:
+            for m in self.members:
+                m.add_obj_to_refs(self)
+        except Exception:
+            pass
+
     def _resolve(self, mid: int):
         fem = self.parent
         return fem.nodes.from_id(mid) if self.type == SetTypes.NSET else fem.elements.from_id(mid)
@@ -79,6 +96,7 @@ class FemSet(FemBase):
             return
         self._member_ids = [m.id for m in self._members]
         self._members = None
+        self.register_member_refs()
 
     def __len__(self):
         return len(self._member_ids) if self._member_ids is not None else len(self._members)
