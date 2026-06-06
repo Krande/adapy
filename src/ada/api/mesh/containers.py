@@ -17,7 +17,7 @@ from ada.api.containers.nodes import Nodes
 from ada.api.mesh.store import MeshArrays
 from ada.config import Config, logger
 from ada.core.vector_utils import points_in_cylinder, vector_length
-from ada.fem.containers import FemElements
+from ada.fem.containers import FemElements, LazyElemSeq
 
 if TYPE_CHECKING:
     from ada.api.mesh.proxies import NodeProxy
@@ -332,13 +332,13 @@ class ArrayElements(FemElements):
     def masses(self):
         from ada.fem.elements import Mass
 
-        return (e for e in self._overflow if isinstance(e, Mass))
+        return LazyElemSeq(lambda: (e for e in self._overflow if isinstance(e, Mass)))
 
     @property
     def connectors(self):
         from ada.fem.elements import Connector
 
-        return (e for e in self._overflow if isinstance(e, Connector))
+        return LazyElemSeq(lambda: (e for e in self._overflow if isinstance(e, Connector)))
 
     @property
     def elements(self) -> list:
@@ -352,37 +352,41 @@ class ArrayElements(FemElements):
         for ctype, blk in self._store.blocks.items():
             yield ctype, [self._store.elem_proxy(ctype, r) for r in range(len(blk))]
 
-    # type-filtered views (mirror the object-model properties)
+    # type-filtered views (mirror the object-model properties): re-iterable +
+    # cheap len() from block sizes (no materialisation).
     def _of_group(self, group_cls):
-        from ada.fem.elements import Elem
-
         for ctype, blk in self._store.blocks.items():
             if isinstance(ctype, group_cls):
                 for r in range(len(blk)):
                     yield self._store.elem_proxy(ctype, r)
-        _ = Elem  # keep import local-safe
+
+    def _count_group(self, group_cls) -> int:
+        return sum(len(blk) for ctype, blk in self._store.blocks.items() if isinstance(ctype, group_cls))
+
+    def _group_view(self, group_cls) -> LazyElemSeq:
+        return LazyElemSeq(lambda: self._of_group(group_cls), counter=lambda: self._count_group(group_cls))
 
     @property
     def shell(self):
         from ada.fem.elements import Elem
 
-        return self._of_group(Elem.EL_TYPES.SHELL_SHAPES)
+        return self._group_view(Elem.EL_TYPES.SHELL_SHAPES)
 
     @property
     def lines(self):
         from ada.fem.elements import Elem
 
-        return self._of_group(Elem.EL_TYPES.LINE_SHAPES)
+        return self._group_view(Elem.EL_TYPES.LINE_SHAPES)
 
     @property
     def solids(self):
         from ada.fem.elements import Elem
 
-        return self._of_group(Elem.EL_TYPES.SOLID_SHAPES)
+        return self._group_view(Elem.EL_TYPES.SOLID_SHAPES)
 
     @property
     def stru_elements(self):
-        return iter(self)
+        return LazyElemSeq(lambda: iter(self), counter=lambda: len(self))
 
     def renumber(self, start_id=1, renumber_map: dict = None):
         self._store.renumber_elems(start_id=start_id, renumber_map=renumber_map)

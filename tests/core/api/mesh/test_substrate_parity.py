@@ -270,6 +270,34 @@ def test_local_proxy_elset_is_id_backed_no_pinning():
     assert all(fs in fem.elements.from_id(e.id).refs for e in elems)
 
 
+def test_type_filtered_views_are_reiterable_and_have_len():
+    """shell/lines/solids are lazy but re-iterable (not one-shot generators): two passes
+    give the same result, len()/bool/indexing work, and array == object counts."""
+    import ada
+    from ada.api.mesh.containers import to_array_backed
+
+    def _build():
+        pl = ada.Plate("pl", [(0, 0), (3, 0), (3, 2), (0, 2)], 0.02)
+        p = ada.Part("p") / pl
+        p.fem = pl.to_fem_obj(0.5, "shell")
+        return p.fem
+
+    obj = _build()
+    arr = to_array_backed(_build())
+    for fem in (obj, arr):
+        sh = fem.elements.shell
+        first = [e.id for e in sh]
+        second = [e.id for e in sh]  # must not be exhausted
+        assert first and first == second
+        assert len(sh) == len(first)  # len() works without exhausting
+        assert bool(sh) is True
+        assert sh[0].id == first[0]
+        assert len(fem.elements.lines) == 0  # empty view still supports len/bool
+        assert bool(fem.elements.lines) is False
+
+    assert len(obj.elements.shell) == len(arr.elements.shell)
+
+
 def test_eccpoint_id_backs_proxies_no_pinning():
     """EccPoint given an array-backed node proxy keeps only the id (no pinning) and
     resolves it lazily; an object node is held directly (object path unchanged)."""

@@ -37,6 +37,44 @@ class COG:
     no_mass: float = None
 
 
+class LazyElemSeq:
+    """A re-iterable, lazy sequence of elements.
+
+    Wraps a zero-arg ``factory`` that returns a *fresh* iterator, so unlike a bare
+    generator/``filter`` it can be iterated more than once, supports ``len()`` /
+    truthiness / indexing, and never silently exhausts. ``counter`` (optional) gives
+    ``len()`` without materialising — the array path passes one backed by block sizes.
+    """
+
+    __slots__ = ("_factory", "_counter")
+
+    def __init__(self, factory, counter=None):
+        self._factory = factory
+        self._counter = counter
+
+    def __iter__(self):
+        return iter(self._factory())
+
+    def __len__(self) -> int:
+        return self._counter() if self._counter is not None else sum(1 for _ in self._factory())
+
+    def __bool__(self) -> bool:
+        for _ in self._factory():
+            return True
+        return False
+
+    def __getitem__(self, index):
+        if isinstance(index, slice) or (isinstance(index, int) and index < 0):
+            return list(self._factory())[index]
+        for k, item in enumerate(self._factory()):
+            if k == index:
+                return item
+        raise IndexError(index)
+
+    def __repr__(self) -> str:
+        return f"LazyElemSeq({len(self)} elems)"
+
+
 class FemElements:
     """Container class for FEM elements"""
 
@@ -328,37 +366,37 @@ class FemElements:
         return self._elements
 
     @property
-    def solids(self) -> Iterable[Elem]:
-        return filter(lambda x: isinstance(x.type, Elem.EL_TYPES.SOLID_SHAPES), self.stru_elements)
+    def solids(self) -> LazyElemSeq:
+        return LazyElemSeq(lambda: filter(lambda x: isinstance(x.type, Elem.EL_TYPES.SOLID_SHAPES), self.stru_elements))
 
     @property
-    def shell(self) -> Iterable[Elem]:
-        return filter(lambda x: isinstance(x.type, Elem.EL_TYPES.SHELL_SHAPES), self.stru_elements)
+    def shell(self) -> LazyElemSeq:
+        return LazyElemSeq(lambda: filter(lambda x: isinstance(x.type, Elem.EL_TYPES.SHELL_SHAPES), self.stru_elements))
 
     @property
-    def lines(self) -> Iterable[Elem]:
-        return filter(lambda x: isinstance(x.type, Elem.EL_TYPES.LINE_SHAPES), self.stru_elements)
+    def lines(self) -> LazyElemSeq:
+        return LazyElemSeq(lambda: filter(lambda x: isinstance(x.type, Elem.EL_TYPES.LINE_SHAPES), self.stru_elements))
 
     @property
-    def lines_hinged(self) -> Iterable[Elem]:
-        return filter(lambda x: x.hinge_prop is not None, self.lines)
+    def lines_hinged(self) -> LazyElemSeq:
+        return LazyElemSeq(lambda: filter(lambda x: x.hinge_prop is not None, self.lines))
 
     @property
-    def lines_ecc(self) -> Iterable[Elem]:
-        return filter(lambda x: x.eccentricity is not None, self.lines)
+    def lines_ecc(self) -> LazyElemSeq:
+        return LazyElemSeq(lambda: filter(lambda x: x.eccentricity is not None, self.lines))
 
     @property
-    def connectors(self) -> Iterable[Connector]:
-        return filter(lambda x: isinstance(x, Connector), self.elements)
+    def connectors(self) -> LazyElemSeq:
+        return LazyElemSeq(lambda: filter(lambda x: isinstance(x, Connector), self.elements))
 
     @property
-    def masses(self) -> Iterable[Mass]:
-        return filter(lambda x: isinstance(x, Mass), self.elements)
+    def masses(self) -> LazyElemSeq:
+        return LazyElemSeq(lambda: filter(lambda x: isinstance(x, Mass), self.elements))
 
     @property
-    def stru_elements(self) -> Iterable[Elem]:
+    def stru_elements(self) -> LazyElemSeq:
         not_strus = (Mass, Connector)
-        return filter(lambda x: isinstance(x, not_strus) is False, self._elements)
+        return LazyElemSeq(lambda: filter(lambda x: isinstance(x, not_strus) is False, self._elements))
 
     def connector_by_name(self, name: str):
         """Get Connector by name"""
