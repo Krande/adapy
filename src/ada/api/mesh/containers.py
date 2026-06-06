@@ -257,6 +257,13 @@ class ArrayElements(FemElements):
     def __len__(self) -> int:
         return self._store.n_elems() + len(self._overflow)
 
+    def __repr__(self) -> str:
+        by_type = ", ".join(f'"{ctype}": {len(blk)}' for ctype, blk in self._store.blocks.items())
+        if self._overflow:
+            extra = f"overflow: {len(self._overflow)}"
+            by_type = f"{by_type}, {extra}" if by_type else extra
+        return f"ArrayElements(Elements: {len(self)}, By Type: {by_type or 'none'})"
+
     def __iter__(self):
         yield from self._store.iter_elem_proxies()
         yield from self._overflow

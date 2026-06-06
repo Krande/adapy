@@ -322,6 +322,10 @@ class MeshArrays:
     def n_elems(self) -> int:
         return sum(len(b) for b in self.blocks.values())
 
+    def __repr__(self) -> str:
+        by_type = ", ".join(f"{ctype}: {len(blk)}" for ctype, blk in self.blocks.items())
+        return f"MeshArrays(nodes: {self.n_nodes}, elems: {self.n_elems()}{', ' + by_type if by_type else ''})"
+
     def elem_proxy(self, ctype, row: int):
         key = (ctype, int(row))
         cached = self._elem_proxy_cache.get(key)

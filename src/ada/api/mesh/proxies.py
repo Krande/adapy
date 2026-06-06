@@ -122,6 +122,11 @@ class RefsView:
     def copy(self) -> list:
         return list(self)
 
+    def __repr__(self) -> str:
+        n_el = self._store.node_to_elem().degree(self._row)
+        n_extra = len(self._store.extra_refs(self._row))
+        return f"RefsView(node_row={self._row}: {n_el} elems, {n_extra} other)"
+
 
 class NodeListView:
     """``Elem.nodes`` backed by a block connectivity row; mints node proxies lazily
@@ -160,6 +165,9 @@ class NodeListView:
 
     def __eq__(self, other) -> bool:
         return list(self) == list(other)
+
+    def __repr__(self) -> str:
+        return f"NodeListView({[int(n.id) for n in self]})"
 
 
 class ElemProxy(Elem):
@@ -303,6 +311,9 @@ class ElemRefsView:
 
     def copy(self) -> list:
         return list(self)
+
+    def __repr__(self) -> str:
+        return f"ElemRefsView({self._ctype}#{self._row}: {len(self)} refs)"
 
 
 def _rebuild_elem_proxy(store: "MeshArrays", ctype, row: int) -> ElemProxy:
