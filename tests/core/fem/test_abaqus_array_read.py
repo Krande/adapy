@@ -10,8 +10,9 @@ from ada.config import Config
 
 @pytest.fixture
 def _restore_flag():
+    prev = Config().meshing_array_backed
     yield
-    Config().meshing_array_backed = False
+    Config().meshing_array_backed = prev
 
 
 def _abaqus_inp(tmp_path):
