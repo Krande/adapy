@@ -213,10 +213,41 @@ class HingeProp:
     beam_ref: Beam = None
 
 
-@dataclass
 class EccPoint:
-    node: Node
-    ecc_vector: np.ndarray
+    """An eccentricity end: a reference node + offset vector.
+
+    When given an array-backed node *proxy*, it stores only the node id (resolving the
+    proxy lazily via the store) so an eccentric element doesn't pin a Python object per
+    end. Object nodes are held directly (object path unchanged).
+    """
+
+    def __init__(self, node: Node = None, ecc_vector: np.ndarray = None):
+        self.ecc_vector = ecc_vector
+        self._store = None
+        self._node_id = None
+        self._node = None
+        self.node = node
+
+    @property
+    def node(self) -> Node:
+        if self._store is not None:
+            return self._store.node_proxy_by_id(self._node_id)
+        return self._node
+
+    @node.setter
+    def node(self, value):
+        store = getattr(value, "_store", None)
+        if store is not None:  # array-backed proxy -> keep the id only, not the proxy
+            self._store = store
+            self._node_id = int(value.id)
+            self._node = None
+        else:
+            self._store = None
+            self._node_id = None
+            self._node = value
+
+    def __repr__(self):
+        return f"EccPoint({self.node}, {self.ecc_vector})"
 
 
 @dataclass

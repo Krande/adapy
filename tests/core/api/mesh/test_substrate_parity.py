@@ -258,6 +258,29 @@ def test_local_proxy_elset_is_id_backed_no_pinning():
     assert all(fs in fem.elements.from_id(e.id).refs for e in elems)
 
 
+def test_eccpoint_id_backs_proxies_no_pinning():
+    """EccPoint given an array-backed node proxy keeps only the id (no pinning) and
+    resolves it lazily; an object node is held directly (object path unchanged)."""
+    import gc
+
+    import ada
+    from ada.api.mesh.containers import to_array_backed
+    from ada.fem.elements import EccPoint
+
+    fem = to_array_backed(_meshed_fem())
+    proxy = next(iter(fem.elements.shell)).nodes[0]
+    nid = proxy.id
+    ecc = EccPoint(proxy, np.array([0, 0, 0.1]))
+    assert ecc._node is None and ecc._node_id == nid  # id-backed, not the proxy
+    assert ecc.node == proxy
+    del proxy
+    gc.collect()
+    assert ecc.node.id == nid  # still resolves from the store after the proxy is gone
+
+    obj_node = ada.Node([0, 0, 0], 999)
+    assert EccPoint(obj_node, np.zeros(3))._node is obj_node  # object path: held directly
+
+
 def test_to_mesh_is_zero_copy_and_matches_object():
     """FEM.to_mesh() on an array-backed FEM shares the store's arrays (no copy) and
     produces the same edges/faces as the object path."""
