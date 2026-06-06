@@ -2,6 +2,15 @@
 
 
 
+## v0.14.0 (2026-06-06)
+
+### Feature
+
+* feat: fast FEM-shell plate path, FEM-&gt;STEP streaming, merged-plate guard (#203)
+
+Co-authored-by: Claude Opus 4.8 &lt;noreply@anthropic.com&gt; ([`e193126`](https://github.com/Krande/adapy/commit/e193126c4d86fd48c06b85c3d1e3b3c278762b97))
+
+
 ## v0.13.0 (2026-06-05)
 
 ### Feature
