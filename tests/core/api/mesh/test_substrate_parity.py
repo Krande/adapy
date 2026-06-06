@@ -160,15 +160,27 @@ def test_proxy_write_through():
 
 
 def _rss_mb():
-    with open(f"/proc/{os.getpid()}/status") as f:
-        for ln in f:
-            if ln.startswith("VmRSS:"):
-                return int(ln.split()[1]) / 1024.0
-    return 0.0
+    """Current process RSS in MB, or None if the platform doesn't expose it cheaply
+    (no /proc on macOS/Windows; psutil isn't a hard dependency)."""
+    proc_status = f"/proc/{os.getpid()}/status"
+    if os.path.exists(proc_status):
+        with open(proc_status) as f:
+            for ln in f:
+                if ln.startswith("VmRSS:"):
+                    return int(ln.split()[1]) / 1024.0
+    try:
+        import psutil
+
+        return psutil.Process().memory_info().rss / (1024.0 * 1024.0)
+    except Exception:
+        return None
 
 
 @pytest.mark.benchmark
 def test_substrate_is_much_lighter_than_object_model():
+    if _rss_mb() is None:
+        pytest.skip("RSS measurement unavailable on this platform (no /proc, no psutil)")
+
     from ada.api.containers.nodes import Nodes
     from ada.fem.containers import FemElements
     from ada.fem.elements import Elem
