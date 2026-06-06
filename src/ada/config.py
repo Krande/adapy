@@ -168,6 +168,11 @@ class Config:
                 # (warns); set raise_on_hanging_nodes to escalate to an exception.
                 ConfigEntry("check_hanging_nodes", bool, True, required=False),
                 ConfigEntry("raise_on_hanging_nodes", bool, False, required=False),
+                # Array-backed mesh substrate: store FEM nodes as packed numpy
+                # arrays with lazy Node proxies instead of millions of Python
+                # Node objects (~4-6x less memory on large meshes). Off by
+                # default while the substrate path is rolled out + parity-tested.
+                ConfigEntry("array_backed", bool, False, required=False),
             ],
         ),
         ConfigSection(
