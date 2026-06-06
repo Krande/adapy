@@ -250,3 +250,55 @@ def test_extra_refs_side_table():
     assert store.extra_refs(row) == [marker]
     store.remove_extra_ref(row, marker)
     assert store.extra_refs(row) == []
+
+
+# ── element proxies (ElemProxy / NodeListView / RefsView) ──────────────────
+
+
+def test_elem_proxy_attributes():
+    from ada.fem.elements import Elem
+
+    store = _two_quad_store()
+    store.blocks[ShellShapes.QUAD].fem_secs = ["secA", "secB"]
+    e = store.elem_proxy_by_id(1)
+    assert isinstance(e, Elem)
+    assert e.id == 1 and e.type == ShellShapes.QUAD
+    assert [n.id for n in e.nodes] == [10, 20, 30, 40]
+    assert e.fem_sec == "secA"
+    assert type(e.shape).__name__ == "ElemShape"
+    assert store.elem_proxy_by_id(1) is e  # identity stable
+
+
+def test_refsview_chains_elements_and_extras():
+    store = _two_quad_store()
+    n20 = store.node_proxy_by_id(20)  # shared by both quads
+    assert sorted(x.id for x in n20.refs) == [1, 2]
+    assert n20.has_refs
+
+    n10 = store.node_proxy_by_id(10)
+    n10.add_obj_to_refs("beamX")  # non-element ref -> side-table
+    refs = list(n10.refs)
+    assert refs[0].id == 1 and "beamX" in refs
+    n10.remove_obj_from_refs("beamX")
+    assert "beamX" not in list(n10.refs)
+
+
+def test_updating_nodes_rewires_adjacency():
+    store = _two_quad_store()
+    e1 = store.elem_proxy_by_id(1)
+    e1.updating_nodes(store.node_proxy_by_id(40), store.node_proxy_by_id(50))
+    assert [n.id for n in e1.nodes] == [10, 20, 30, 50]
+    assert [x.id for x in store.node_proxy_by_id(40).refs] == []  # 40 no longer referenced
+    assert sorted(x.id for x in store.node_proxy_by_id(50).refs) == [1, 2]
+
+
+def test_elem_node_setitem_write_through():
+    store = _two_quad_store()
+    e = store.elem_proxy_by_id(1)
+    e.nodes[3] = store.node_proxy_by_id(50)
+    assert store.blocks[ShellShapes.QUAD].conn[0].tolist() == [
+        store.node_index(10),
+        store.node_index(20),
+        store.node_index(30),
+        store.node_index(50),
+    ]

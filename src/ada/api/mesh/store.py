@@ -35,14 +35,21 @@ class ElemArrayBlock:
     ``conn`` rows are **node row-indices** into the owning store's ``coords``.
     """
 
-    __slots__ = ("ctype", "conn", "el_ids", "_eid2row")
+    __slots__ = ("ctype", "conn", "el_ids", "fem_secs", "elsets", "ecc", "hinge", "_eid2row")
 
-    def __init__(self, ctype, conn: np.ndarray, el_ids: np.ndarray):
+    def __init__(self, ctype, conn: np.ndarray, el_ids: np.ndarray, fem_secs=None, elsets=None):
         self.ctype = ctype
         self.conn = np.ascontiguousarray(conn, dtype=np.int32)
         self.el_ids = np.ascontiguousarray(el_ids, dtype=np.int64)
         if self.conn.ndim != 2 or self.conn.shape[0] != self.el_ids.shape[0]:
             raise ValueError("conn must be (m,k) and match el_ids length")
+        # Per-element attributes. Shared/heavy ones (FemSection, FemSet) are stored
+        # as parallel reference lists (a handful of distinct objects shared across
+        # rows); rare ones (eccentricity, hinge) as sparse row-keyed dicts.
+        self.fem_secs: list | None = fem_secs
+        self.elsets: list | None = elsets
+        self.ecc: dict[int, object] = {}
+        self.hinge: dict[int, object] = {}
         self._eid2row: dict[int, int] | None = None
 
     @property
@@ -74,6 +81,7 @@ class MeshArrays:
         # Identity: from_id(x) returns the same proxy while it's alive (held by an
         # element list or a transient caller). Weak so untouched proxies are freed.
         self._proxy_cache: "weakref.WeakValueDictionary[int, NodeProxy]" = weakref.WeakValueDictionary()
+        self._elem_proxy_cache: "weakref.WeakValueDictionary[tuple, object]" = weakref.WeakValueDictionary()
         # Node->element adjacency (lazy; rebuilt when connectivity changes).
         self._adjacency = None
         self._adj_epoch = 0
@@ -291,6 +299,26 @@ class MeshArrays:
 
     def n_elems(self) -> int:
         return sum(len(b) for b in self.blocks.values())
+
+    def elem_proxy(self, ctype, row: int):
+        key = (ctype, int(row))
+        cached = self._elem_proxy_cache.get(key)
+        if cached is not None:
+            return cached
+        from ada.api.mesh.proxies import ElemProxy
+
+        proxy = ElemProxy(self, ctype, int(row))
+        self._elem_proxy_cache[key] = proxy
+        return proxy
+
+    def elem_proxy_by_id(self, eid: int):
+        ctype, row = self.elem_loc(eid)
+        return self.elem_proxy(ctype, row)
+
+    def iter_elem_proxies(self):
+        for ctype, blk in self.blocks.items():
+            for row in range(len(blk)):
+                yield self.elem_proxy(ctype, row)
 
     # ── node->element adjacency + refs side-table ────────────────────────
     def node_to_elem(self):
