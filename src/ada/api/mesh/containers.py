@@ -27,6 +27,8 @@ class ArrayNodes(Nodes):
     def __init__(self, store: MeshArrays, parent=None):
         self._store = store
         self._parent = parent
+        if parent is not None:
+            store._fem = parent
         self._point_tol = Config().general_point_tol
         self._sorted = None  # lazy lexsorted row order (by x,y,z)
 
@@ -244,6 +246,8 @@ class ArrayElements(FemElements):
     def __init__(self, store: MeshArrays, fem_obj=None):
         self._store = store
         self._fem_obj = fem_obj
+        if fem_obj is not None:
+            store._fem = fem_obj
         self._sort_funcs = []
         # Special elements that don't sit in the array blocks (Mass / Spring /
         # Connector). Few in number, kept as objects; the millions of structural
@@ -279,6 +283,11 @@ class ArrayElements(FemElements):
         return list(self)[index]
 
     def __add__(self, other):
+        # Mirror FemElements.__add__: renumber the incoming elements above the current
+        # max so appended elements (e.g. mass objects, which share an id with the
+        # MASS-type Elem find_bnmass already added) don't collide.
+        if hasattr(other, "renumber"):
+            other.renumber(self.max_el_id + 1)
         for e in other:
             self.add(e)
         return self

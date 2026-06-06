@@ -35,7 +35,7 @@ class ElemArrayBlock:
     ``conn`` rows are **node row-indices** into the owning store's ``coords``.
     """
 
-    __slots__ = ("ctype", "conn", "el_ids", "fem_secs", "elsets", "ecc", "hinge", "_eid2row")
+    __slots__ = ("ctype", "conn", "el_ids", "fem_secs", "elsets", "ecc", "hinge", "metadata", "_eid2row")
 
     def __init__(self, ctype, conn: np.ndarray, el_ids: np.ndarray, fem_secs=None, elsets=None):
         self.ctype = ctype
@@ -50,6 +50,7 @@ class ElemArrayBlock:
         self.elsets: list | None = elsets
         self.ecc: dict[int, object] = {}
         self.hinge: dict[int, object] = {}
+        self.metadata: dict[int, dict] = {}
         self._eid2row: dict[int, int] | None = None
 
     @property
@@ -76,6 +77,11 @@ class MeshArrays:
             raise ValueError("node_ids length must match coords")
         self.blocks: dict = dict(blocks) if blocks else {}
 
+        # Owning FEM, set by the ArrayNodes/ArrayElements facades. Minted proxies get
+        # it as their ``parent`` so writers/consumers that read ``node.parent``/
+        # ``elem.parent`` (e.g. abaqus instance-name resolution) behave like the object
+        # path where every Node/Elem carries its parent FEM.
+        self._fem = None
         self._id2idx: dict[int, int] | None = None
         self._bbox = None
         # Identity: from_id(x) returns the same proxy while it's alive (held by an
@@ -124,7 +130,7 @@ class MeshArrays:
             return cached
         from ada.api.mesh.proxies import NodeProxy
 
-        proxy = NodeProxy(self, row)
+        proxy = NodeProxy(self, row, parent=self._fem)
         self._proxy_cache[row] = proxy
         return proxy
 
@@ -333,7 +339,7 @@ class MeshArrays:
             return cached
         from ada.api.mesh.proxies import ElemProxy
 
-        proxy = ElemProxy(self, ctype, int(row))
+        proxy = ElemProxy(self, ctype, int(row), parent=self._fem)
         self._elem_proxy_cache[key] = proxy
         return proxy
 

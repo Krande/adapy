@@ -88,7 +88,14 @@ def get_elements_arrays(bulk_str: str):
     return by_type, mass_elem, spring_elem, ext_map
 
 
-def get_mass(bulk_str: str, fem: FEM, mass_elem: dict) -> FemElements:
+def get_mass(bulk_str: str, fem: FEM, mass_elem: dict, renumber_map: dict | None = None) -> FemElements:
+    # Generated BNMASS element ids must clear BOTH the current (internal) element
+    # numbering AND the external ids structural elements will be renumbered into
+    # (renumber_map values) later — otherwise a generated mass id collides with a
+    # renumbered structural element. (Pre-existing: this bit both the object and array
+    # paths on decks whose external numbering reuses the internal-max+1 range.)
+    max_external = max(renumber_map.values()) if renumber_map else 0
+
     def checkEqual2(iterator):
         return len(set(iterator)) <= 1
 
@@ -113,7 +120,7 @@ def get_mass(bulk_str: str, fem: FEM, mass_elem: dict) -> FemElements:
 
         no = fem.nodes.from_id(nodeno)
         fem_set = fem.sets.add(FemSet(f"m{nodeno}", [no], FemSet.TYPES.NSET, parent=fem))
-        el_id = fem.elements.max_el_id + 1
+        el_id = max(fem.elements.max_el_id, max_external) + 1
         elem = fem.elements.add(Elem(el_id, [no], Elem.EL_TYPES.MASS_SHAPES.MASS, None, parent=fem), skip_grouping=True)
         mass = Mass(f"m{nodeno}", fem_set, masses, Mass.TYPES.MASS, ptype=mass_type, parent=fem, mass_id=el_id)
 

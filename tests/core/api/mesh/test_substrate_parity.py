@@ -298,6 +298,22 @@ def test_type_filtered_views_are_reiterable_and_have_len():
     assert len(obj.elements.shell) == len(arr.elements.shell)
 
 
+def test_proxies_carry_parent_and_writable_metadata():
+    """Minted proxies expose the owning FEM as ``.parent`` (writers read it, e.g. abaqus
+    instance-name resolution) and a writable per-element ``.metadata`` dict (the Sesam
+    writer mutates el.metadata in place) — both were missing and crashed FEM exports."""
+    from ada.api.mesh.containers import to_array_backed
+
+    fem = to_array_backed(_meshed_fem())
+    el = next(iter(fem.elements.shell))
+    node = el.nodes[0]
+    assert el.parent is fem
+    assert node.parent is fem
+    # per-element metadata is a real dict whose mutations persist on the substrate
+    el.metadata["transno"] = 7
+    assert fem.elements.from_id(el.id).metadata["transno"] == 7
+
+
 def test_eccpoint_id_backs_proxies_no_pinning():
     """EccPoint given an array-backed node proxy keeps only the id (no pinning) and
     resolves it lazily; an object node is held directly (object path unchanged)."""

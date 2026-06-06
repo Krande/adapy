@@ -54,7 +54,7 @@ def read_sesam_fem(bulk_str, part_name) -> Part:
     fem.elements.build_sets()
     part._materials = get_materials(bulk_str, part)
     fem.sections = get_sections(bulk_str, fem, mass_elem, spring_elem)
-    fem.elements += get_mass(bulk_str, part.fem, mass_elem)
+    fem.elements += get_mass(bulk_str, part.fem, mass_elem, el_id_map)
     fem.springs = get_springs(bulk_str, fem, spring_elem)
     fem.sets = part.fem.sets + get_sets(bulk_str, fem)
     fem.constraints.update(get_constraints(bulk_str, fem))
@@ -85,7 +85,7 @@ def _build_array_fem(part, coords, node_ids, by_type, mass_elem, spring_elem, ex
 
     part._materials = get_materials(reader_text, part)
     fem.sections = get_sections(reader_text, fem, mass_elem, spring_elem)
-    fem.elements += get_mass(reader_text, part.fem, mass_elem)
+    fem.elements += get_mass(reader_text, part.fem, mass_elem, ext_map)
     fem.springs = get_springs(reader_text, fem, spring_elem)
     fem.sets = part.fem.sets + get_sets(reader_text, fem)
     fem.constraints.update(get_constraints(reader_text, fem))

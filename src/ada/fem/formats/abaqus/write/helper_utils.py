@@ -6,7 +6,7 @@ def get_instance_name(obj, written_on_assembly_level: bool) -> str:
 
     parent: Union[FEM, Part] = obj.parent
     p = parent.parent if type(parent) is FEM else parent
-    obj_ref = obj.id if type(obj) is Node else obj.name
+    obj_ref = obj.id if isinstance(obj, Node) else obj.name
 
     if type(p) is Assembly:
         obj_on_assembly_level = True

@@ -238,6 +238,21 @@ class ElemProxy(Elem):
             self._block.ecc[self._row] = value
 
     @property
+    def metadata(self) -> dict:
+        # Per-element metadata dict, lazily materialised on the block's side-table so
+        # that in-place mutations (e.g. the Sesam writer's el.metadata["transno"]=...)
+        # persist. Elem stores this in self._metadata; the array path keeps it by row.
+        md = self._block.metadata.get(self._row)
+        if md is None:
+            md = {}
+            self._block.metadata[self._row] = md
+        return md
+
+    @metadata.setter
+    def metadata(self, value):
+        self._block.metadata[self._row] = value
+
+    @property
     def hinge_prop(self):
         return self._block.hinge.get(self._row)
 
