@@ -97,6 +97,17 @@ class Plate(BackendGeom):
         return Plate(name, poly, t, mat=mat, color=color, metadata=metadata, **kwargs)
 
     @staticmethod
+    def from_fem_shell(name, points, t, mat="S420", color=None, metadata=None, parent=None, **kwargs) -> Plate:
+        """Fast Plate constructor for flat FEM shell elements (no arcs/radii).
+
+        Equivalent geometry to ``from_3d_points`` but routed through
+        ``CurvePoly2d.from_fem_shell``, which skips ``build_polycurve`` and the
+        computed-placement LRU. See :meth:`CurvePoly2d.from_fem_shell`.
+        """
+        poly = CurvePoly2d.from_fem_shell(points, parent=parent)
+        return Plate(name, poly, t, mat=mat, color=color, metadata=metadata, parent=parent, **kwargs)
+
+    @staticmethod
     def from_extruded_area_solid(name, solid: ExtrudedAreaSolid): ...
 
     def __hash__(self):

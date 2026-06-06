@@ -116,6 +116,26 @@ class Placement:
         return Placement(origin=origin, xdir=xdir, ydir=ydir, zdir=n)
 
     @staticmethod
+    def from_dirs_precomputed(origin, xdir: Direction, ydir: Direction, zdir: Direction) -> Placement:
+        """Build a Placement whose ``ComputedPlacement`` is injected directly.
+
+        The lazy ``xdir``/``ydir``/``zdir`` getters short-circuit on a populated
+        ``_computed_placement`` (see :meth:`xdir`), so accessing the directions
+        never calls the global ``get_computed_placement_cached`` LRU. That cache
+        thrashes on FEM meshes (a distinct placement per element), so the fast
+        shell path computes the orientation once and injects it here.
+
+        The three directions must already be normalized and rounded to match the
+        output of ``compute_orientation_vec`` (i.e. what the LRU path would have
+        produced), otherwise geometry will not match the general construction.
+        """
+        from ada.api.computed_placement import ComputedPlacement
+
+        place = Placement(origin=origin, xdir=xdir, ydir=ydir, zdir=zdir)
+        place._computed_placement = ComputedPlacement(xdir=xdir, ydir=ydir, zdir=zdir)
+        return place
+
+    @staticmethod
     def from_axis3d(axis: Axis2Placement3D) -> Placement:
         return Placement(origin=axis.location, xdir=axis.ref_direction, zdir=axis.axis)
 

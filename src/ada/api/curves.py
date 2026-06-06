@@ -346,6 +346,84 @@ class CurvePoly2d(CurveOpen2d):
             points = [points[0]] + [p for p in reversed(points[1:])]
         return points
 
+    @classmethod
+    def from_fem_shell(cls, points3d, tol=1e-3, parent=None) -> CurvePoly2d:
+        """Fast constructor for flat FEM shell elements (3- or 4-gon, no arcs/radii).
+
+        Geometrically equivalent to ``from_3d_points`` for a radius-free polygon,
+        but it (a) computes the orientation once and injects it via
+        :meth:`Placement.from_dirs_precomputed`, so the computed-placement LRU is
+        never touched (it thrashes on per-element placements), and (b) builds the
+        closed line loop directly instead of running ``build_polycurve`` /
+        ``SegCreator``. Used only by the FEM shell -> Plate conversion; the general
+        ``from_3d_points`` path (arcs, fillets, radii) is unchanged.
+        """
+        from ada.core.vector_transforms import (
+            compute_orientation_vec,
+            normal_to_points_in_plane,
+            transform_3x3,
+        )
+        from ada.core.vector_utils import calc_yvec
+
+        pts = np.array([p[:3] for p in points3d], dtype=float)
+        if pts.shape[0] < 3:
+            raise ValueError("At least three points are required to define a shell plate.")
+        origin = pts[0]
+
+        # Orientation -- mirrors Placement.from_co_linear_points feeding the
+        # xdir/zdir-only orientation that CurveOpen2d builds. compute_orientation_vec
+        # is the pure function the LRU wraps, so calling it directly is byte-for-byte
+        # identical to the general path yet never touches get_computed_placement_cached.
+        n = normal_to_points_in_plane(pts)
+        xdir_raw = Direction(pts[1] - pts[0]).get_normalized()
+        ydir_raw = Direction(calc_yvec(xdir_raw, n)).get_normalized()
+        x1, y1, z1 = compute_orientation_vec(
+            tuple(map(float, xdir_raw)), tuple(map(float, ydir_raw)), tuple(map(float, n))
+        )
+        rot1 = np.array([x1, y1, z1])
+
+        # final orientation == Placement(origin, xdir=P1.xdir, zdir=P1.zdir)
+        xf, yf, zf = compute_orientation_vec(x1, None, z1)
+        xf, yf, zf = Direction(*xf), Direction(*yf), Direction(*zf)
+        orientation = Placement.from_dirs_precomputed(origin, xf, yf, zf)
+        rotf = np.array([xf, yf, zf])
+
+        # 3D -> 2D using P1 (== transform_global_points_to_local)
+        local = transform_3x3(rot1, pts - origin, inverse=False)[:, :2]
+
+        # winding (CurvePoly2d._points_fix): keep first point, reverse the rest if CCW
+        local_list = [p for p in local]
+        if is_clockwise(local_list) is False:
+            local_list = [local_list[0]] + list(reversed(local_list[1:]))
+
+        points2d = [Point(p[0], p[1]) for p in local_list]
+        # 3D points via the final orientation (== CurveOpen2d._points3d back-transform)
+        back = transform_3x3(rotf, np.array([np.asarray(p) for p in points2d]), inverse=True) + origin
+        points3d_pts = [Point(p) for p in back]
+
+        # Segment order matches build_polycurve: closing edge first
+        # ((p[-1]->p[0]), (p[0]->p[1]), ...), so seg_global_points / seg_index
+        # come out identical to the general from_3d_points path.
+        npts = len(points2d)
+        segs2d = [LineSegment(points2d[i - 1], points2d[i]) for i in range(npts)]
+        segs3d = [LineSegment(points3d_pts[i - 1], points3d_pts[i]) for i in range(npts)]
+        seg_global_points, seg_index = segments_to_indexed_lists(segs3d)
+
+        self = cls.__new__(cls)
+        self._tol = tol
+        self._parent = parent
+        self._orientation = orientation
+        self._placement = Placement()
+        self._radiis = {}
+        self._points2d = points2d
+        self._points3d = points3d_pts
+        self._segments = segs2d
+        self._segments3d = segs3d
+        self._seg_global_points = seg_global_points
+        self._seg_index = seg_index
+        self._nodes = [Node(p) for p in points3d_pts]
+        return self
+
     def get_face_geom(self) -> ArbitraryProfileDef:
         outer_curve = self.curve_geom()
         return ArbitraryProfileDef(ProfileType.AREA, outer_curve, [])

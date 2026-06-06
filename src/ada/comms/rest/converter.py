@@ -971,13 +971,25 @@ def _via_ada_to_step(
     through OCC's parser.
     """
 
+    from ada.config import logger
+
     on_progress("parsing", 0.15)
     model = _load_with_ada(src_path, source_ext)
     _apply_fem_to_objects(model, source_ext, "step", fem_to_objects, merge_fem_objects, reconstruct_surfaces)
     on_progress("writing-step", 0.55)
     out_path = pathlib.Path(tempfile.mkstemp(suffix=".step")[1])
     try:
-        model.to_stp(str(out_path))
+        if source_ext.lower() in _FEM_SOURCE_EXTS:
+            # A FEM mesh rebuilds into extruded plates/straight beams, which the
+            # streaming AP242 writer emits one-at-a-time at constant memory. The
+            # default OCC XCAF writer instead accumulates every solid plus a full
+            # entity-graph copy and OOMs the worker on large jackets/ships.
+            stats = model.to_stp(str(out_path), writer="stream")
+            skipped = (stats or {}).get("skipped", 0)
+            if skipped:
+                logger.warning(f"streaming STEP writer skipped {skipped} non-extrudable object(s)")
+        else:
+            model.to_stp(str(out_path))
         on_progress("ready", 1.0)
         return out_path.read_bytes()
     finally:
