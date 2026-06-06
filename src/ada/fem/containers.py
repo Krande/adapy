@@ -692,13 +692,13 @@ class FemSets:
         from ada.fem import Connector, Mass, Spring
 
         def get_nset(nref):
-            if type(nref) is Node:
+            if isinstance(nref, Node):
                 return nref
             else:
                 return fem_set.parent.nodes.from_id(nref)
 
         def get_elset(elref):
-            if type(elref) in (int, np.int32):
+            if type(elref) in (int, np.int32, np.int64):
                 return fem_set.parent.elements.from_id(elref)
             elif type(elref) is Elem:
                 if elref not in elref.parent.elements and len(elref.parent.elements) != 0:
@@ -706,6 +706,8 @@ class FemSets:
                 else:
                     return elref
             elif type(elref) in (Spring, Mass, Connector):
+                return elref
+            elif isinstance(elref, Elem):  # array-backed ElemProxy
                 return elref
             else:
                 raise ValueError(f"Elref type '{type(elref)}' is not recognized")
@@ -718,7 +720,7 @@ class FemSets:
                 el_type = Node
                 get_func = get_nset
 
-            res = list(filter(lambda x: type(x) is not el_type, fset.members))
+            res = list(filter(lambda x: not isinstance(x, el_type), fset.members))
             if len(res) > 0:
                 fset._members = [get_func(m) for m in fset.members]
 

@@ -245,29 +245,78 @@ class ArrayElements(FemElements):
         self._store = store
         self._fem_obj = fem_obj
         self._sort_funcs = []
+        # Special elements that don't sit in the array blocks (Mass / Spring /
+        # Connector). Few in number, kept as objects; the millions of structural
+        # elements live in the store's blocks.
+        self._overflow: list = []
 
     @property
     def store(self) -> MeshArrays:
         return self._store
 
     def __len__(self) -> int:
-        return self._store.n_elems()
+        return self._store.n_elems() + len(self._overflow)
 
     def __iter__(self):
-        return self._store.iter_elem_proxies()
+        yield from self._store.iter_elem_proxies()
+        yield from self._overflow
 
     def __contains__(self, item) -> bool:
         try:
             self._store.elem_loc(item.id)
             return True
         except ValueError:
-            return False
+            return any(e.id == item.id for e in self._overflow)
 
     def __getitem__(self, index):
         return list(self)[index]
 
+    def __add__(self, other):
+        for e in other:
+            self.add(e)
+        return self
+
     def from_id(self, el_id: int):
-        return self._store.elem_proxy_by_id(el_id)
+        try:
+            return self._store.elem_proxy_by_id(el_id)
+        except ValueError:
+            for e in self._overflow:
+                if e.id == el_id:
+                    return e
+            raise ValueError(f'The elem id "{el_id}" is not found')
+
+    def add(self, elem, skip_grouping=False):
+        if elem.id is None:
+            elem._el_id = self.max_el_id + 1
+        if elem.parent is None:
+            elem.parent = self._fem_obj
+        self._overflow.append(elem)
+        return elem
+
+    @property
+    def max_el_id(self) -> int:
+        store_max = 0
+        for blk in self._store.blocks.values():
+            if blk.el_ids.size:
+                store_max = max(store_max, int(blk.el_ids.max()))
+        ov_max = max((e.id for e in self._overflow if e.id is not None), default=0)
+        return max(store_max, ov_max)
+
+    def build_sets(self):
+        # element sets are built lazily/id-backed in the array path; no-op
+        pass
+
+    @property
+    def masses(self):
+        from ada.fem.elements import Mass
+
+        return (e for e in self._overflow if isinstance(e, Mass))
+
+    @property
+    def connectors(self):
+        from ada.fem.elements import Connector
+
+        return (e for e in self._overflow if isinstance(e, Connector))
 
     @property
     def elements(self) -> list:

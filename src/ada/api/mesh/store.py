@@ -217,11 +217,18 @@ class MeshArrays:
         return cls(coords, node_ids)
 
     def add_elem_block_from_id_conn(self, ctype, el_ids, id_conn: np.ndarray) -> ElemArrayBlock:
-        """Add a block whose connectivity is given as node *IDs*; converts to row indices."""
+        """Add a block whose connectivity is given as node *IDs*; converts to row indices
+        in bulk via ``searchsorted`` (vectorized — the reader hot path)."""
         id_conn = np.asarray(id_conn)
         flat = id_conn.reshape(-1)
-        idx = np.fromiter((self.node_index(int(x)) for x in flat), dtype=np.int32, count=flat.size)
-        conn = idx.reshape(id_conn.shape)
+        order = np.argsort(self.node_ids, kind="stable")
+        sorted_ids = self.node_ids[order]
+        pos = np.searchsorted(sorted_ids, flat)
+        # guard: every referenced id must exist
+        if np.any(pos >= sorted_ids.size) or np.any(sorted_ids[np.clip(pos, 0, sorted_ids.size - 1)] != flat):
+            missing = flat[(pos >= sorted_ids.size) | (sorted_ids[np.clip(pos, 0, sorted_ids.size - 1)] != flat)]
+            raise ValueError(f"element references unknown node id(s): {missing[:5].tolist()}")
+        conn = order[pos].astype(np.int32).reshape(id_conn.shape)
         blk = ElemArrayBlock(ctype, conn, np.asarray(el_ids, dtype=np.int64))
         self.blocks[ctype] = blk
         return blk
