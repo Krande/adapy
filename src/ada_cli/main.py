@@ -176,6 +176,12 @@ def _add_files(sub: argparse._SubParsersAction) -> None:
     dl.set_defaults(func=_cmd_files_download)
 
 
+def _add_audit(sub: argparse._SubParsersAction) -> None:
+    from ada_cli.audit import add_parser
+
+    add_parser(sub)
+
+
 def _add_serve(sub: argparse._SubParsersAction) -> None:
     serve = sub.add_parser("serve", help="Run a long-lived server process.")
     serve_sub = serve.add_subparsers(dest="serve_command", required=True)
@@ -203,12 +209,20 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_view(sub)
     _add_build(sub)
     _add_files(sub)
+    _add_audit(sub)
     _add_serve(sub)
 
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Pick up a .env in the CWD so remote commands (files/audit/build) find
+    # their URL/token without the caller having to export them first. Real
+    # environment variables always win.
+    from ada_cli import load_dotenv_cwd
+
+    load_dotenv_cwd()
+
     parser = _build_parser()
     args = parser.parse_args(argv)
 
