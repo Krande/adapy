@@ -242,6 +242,40 @@ def test_add_node_then_remove_keeps_connectivity_valid():
     assert resolved[1] == before[1]  # quad 1 still resolves to the same physical nodes
 
 
+def test_to_mesh_is_zero_copy_and_matches_object():
+    """FEM.to_mesh() on an array-backed FEM shares the store's arrays (no copy) and
+    produces the same edges/faces as the object path."""
+    import ada
+    from ada.api.mesh.containers import to_array_backed
+
+    def _build():
+        pl = ada.Plate("pl", [(0, 0), (3, 0), (3, 2), (0, 2)], 0.02)
+        p = ada.Part("p") / pl
+        p.fem = pl.to_fem_obj(0.4, "shell")
+        return p.fem
+
+    mesh_o = _build().to_mesh()
+    edges_o, faces_o = mesh_o.get_edges_and_faces_from_mesh()
+
+    fem_a = to_array_backed(_build())
+    mesh_a = fem_a.to_mesh()
+    store = fem_a.nodes.store
+
+    # zero-copy: the Mesh views share the store's buffers
+    assert np.shares_memory(mesh_a.nodes.coords, store.coords)
+    blk = mesh_a.elements[0]
+    assert blk.node_refs_are_indices
+    assert np.shares_memory(blk.node_refs, next(iter(store.blocks.values())).conn)
+
+    edges_a, faces_a = mesh_a.get_edges_and_faces_from_mesh()
+
+    def _norm(arr):
+        return set(tuple(sorted(int(x) for x in row)) for row in arr)
+
+    assert _norm(edges_o) == _norm(edges_a)
+    assert _norm(faces_o) == _norm(faces_a)
+
+
 def test_extra_refs_side_table():
     store = _two_quad_store()
     row = store.node_index(10)

@@ -386,7 +386,9 @@ class ArrayElements(FemElements):
         out = []
         for ctype, blk in self._store.blocks.items():
             info = ElementInfo(ctype, FEATypes.GMSH, None)
-            out.append(ElementBlock(info, blk.conn.copy(), blk.el_ids.copy()))
+            # Zero-copy: hand over the store's index connectivity + ids directly
+            # (node_refs are already 0-based row indices into FemNodes.coords).
+            out.append(ElementBlock(info, blk.conn, blk.el_ids, node_refs_are_indices=True))
         return out
 
 
