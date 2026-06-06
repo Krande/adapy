@@ -74,6 +74,12 @@ class MeshArrays:
         # Identity: from_id(x) returns the same proxy while it's alive (held by an
         # element list or a transient caller). Weak so untouched proxies are freed.
         self._proxy_cache: "weakref.WeakValueDictionary[int, NodeProxy]" = weakref.WeakValueDictionary()
+        # Node->element adjacency (lazy; rebuilt when connectivity changes).
+        self._adjacency = None
+        self._adj_epoch = 0
+        # Non-element refs (Beam/Csys/FemSet) that aren't derivable from
+        # connectivity, keyed by node row. Element refs come from the CSR.
+        self._extra_refs: dict[int, list] = {}
 
     # ── node id <-> row index ────────────────────────────────────────────
     @property
@@ -229,6 +235,83 @@ class MeshArrays:
             el_ids = np.array([e.id for e in elems], dtype=np.int64)
             store.add_elem_block_from_id_conn(el_type, el_ids, id_conn)
         return store
+
+    # ── structural edits (atomic across nodes + connectivity) ────────────
+    def add_node(self, p, nid: int | None = None) -> int:
+        """Append a node; returns its row. Connectivity (row-indexed) is unaffected."""
+        p = np.asarray(p, dtype=np.float64).reshape(3)
+        self.coords = np.vstack([self.coords, p]) if self.n_nodes else p.reshape(1, 3).copy()
+        if nid is None:
+            nid = int(self.node_ids.max()) + 1 if self.node_ids.size else 1
+        self.node_ids = np.append(self.node_ids, np.int64(nid))
+        self._id2idx = None
+        self._bbox = None
+        return self.coords.shape[0] - 1
+
+    def remove_nodes(self, rows) -> None:
+        """Remove node rows and remap every block's connectivity in one shot.
+
+        Removed rows must be unreferenced by any element (the caller — e.g.
+        ``merge_coincident`` after ``replace_node`` — guarantees this); otherwise
+        the dangling reference becomes ``-1``.
+        """
+        rows = np.atleast_1d(np.asarray(list(rows), dtype=np.int64))
+        if rows.size == 0:
+            return
+        keep = np.ones(self.n_nodes, dtype=bool)
+        keep[rows] = False
+        old2new = np.full(self.n_nodes, -1, dtype=np.int32)
+        old2new[keep] = np.arange(int(keep.sum()), dtype=np.int32)
+        self.coords = self.coords[keep]
+        self.node_ids = self.node_ids[keep]
+        for blk in self.blocks.values():
+            blk.conn = old2new[blk.conn].astype(np.int32)
+            blk._eid2row = None
+        self._id2idx = None
+        self._bbox = None
+        self._adjacency = None
+        self._adj_epoch += 1
+        # rows shifted -> any cached proxies now point at the wrong row.
+        self._proxy_cache.clear()
+        self._extra_refs = {}
+
+    def conn_changed(self) -> None:
+        """Signal that a block's connectivity was edited (invalidates adjacency)."""
+        self._adjacency = None
+        self._adj_epoch += 1
+
+    # ── element access ───────────────────────────────────────────────────
+    def elem_loc(self, eid: int):
+        """Return ``(ctype, row)`` for an element id, or raise ValueError."""
+        for ctype, blk in self.blocks.items():
+            row = blk.eid2row.get(int(eid))
+            if row is not None:
+                return ctype, row
+        raise ValueError(f'The elem id "{eid}" is not found')
+
+    def n_elems(self) -> int:
+        return sum(len(b) for b in self.blocks.values())
+
+    # ── node->element adjacency + refs side-table ────────────────────────
+    def node_to_elem(self):
+        from ada.api.mesh.adjacency import CSRAdjacency
+
+        if self._adjacency is None:
+            self._adjacency = CSRAdjacency.build(self)
+        return self._adjacency
+
+    def add_extra_ref(self, row: int, item) -> None:
+        lst = self._extra_refs.setdefault(int(row), [])
+        if item not in lst:
+            lst.append(item)
+
+    def remove_extra_ref(self, row: int, item) -> None:
+        lst = self._extra_refs.get(int(row))
+        if lst and item in lst:
+            lst.remove(item)
+
+    def extra_refs(self, row: int) -> list:
+        return self._extra_refs.get(int(row), [])
 
     # ── results-side bridge (zero-copy views) ────────────────────────────
     def to_fem_nodes(self) -> "FemNodes":

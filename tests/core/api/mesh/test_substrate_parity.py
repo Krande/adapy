@@ -208,3 +208,45 @@ def test_substrate_is_much_lighter_than_object_model():
     ratio = obj_mb / max(arr_mb, 0.5)
     print(f"\nobject={obj_mb:.0f}MB substrate={arr_mb:.0f}MB ratio={ratio:.1f}x")
     assert ratio >= 5.0, f"expected >=5x memory reduction, got {ratio:.1f}x"
+
+
+# ── structural edits + node->element adjacency ─────────────────────────────
+
+
+def _two_quad_store():
+    rows = np.array([[10, 0, 0, 0], [20, 1, 0, 0], [30, 1, 1, 0], [40, 0, 1, 0], [50, 2, 0, 0]], float)
+    store = MeshArrays.from_node_rows(rows)
+    store.add_elem_block_from_id_conn(ShellShapes.QUAD, [1, 2], [[10, 20, 30, 40], [20, 50, 30, 30]])
+    return store
+
+
+def test_csr_node_to_elem_adjacency():
+    store = _two_quad_store()
+    adj = store.node_to_elem()
+    blk = store.blocks[ShellShapes.QUAD]
+    # node 20 is shared by both quads
+    inc = [int(blk.el_ids[r]) for _, r in adj.incident(store.node_index(20))]
+    assert sorted(inc) == [1, 2]
+    assert adj.degree(store.node_index(50)) == 1  # node 50 only in quad 2
+
+
+def test_add_node_then_remove_keeps_connectivity_valid():
+    store = _two_quad_store()
+    before = {int(store.blocks[ShellShapes.QUAD].el_ids[0]): [10, 20, 30, 40]}
+    r = store.add_node([9, 9, 9], nid=60)
+    assert store.node_id(r) == 60 and store.has_node(60)
+    store.remove_nodes([store.node_index(60)])  # 60 is unreferenced
+    assert not store.has_node(60)
+    conn0 = store.blocks[ShellShapes.QUAD].conn[0]
+    resolved = {1: [store.node_id(x) for x in conn0]}
+    assert resolved[1] == before[1]  # quad 1 still resolves to the same physical nodes
+
+
+def test_extra_refs_side_table():
+    store = _two_quad_store()
+    row = store.node_index(10)
+    marker = object()
+    store.add_extra_ref(row, marker)
+    assert store.extra_refs(row) == [marker]
+    store.remove_extra_ref(row, marker)
+    assert store.extra_refs(row) == []
