@@ -302,3 +302,68 @@ def test_elem_node_setitem_write_through():
         store.node_index(30),
         store.node_index(50),
     ]
+
+
+# ── facade (ArrayNodes / ArrayElements) wired into a FEM ────────────────────
+
+
+def test_to_array_backed_swaps_facades_with_parity():
+    from ada.api.mesh.containers import ArrayElements, ArrayNodes, to_array_backed
+
+    fem = _meshed_fem()
+    obj_nodes = {n.id: tuple(round(float(x), 9) for x in n.p) for n in fem.nodes}
+    obj_shell = {e.id: tuple(n.id for n in e.nodes) for e in fem.elements.shell}
+
+    to_array_backed(fem)
+    assert isinstance(fem.nodes, ArrayNodes) and isinstance(fem.elements, ArrayElements)
+
+    assert {n.id: tuple(round(float(x), 9) for x in n.p) for n in fem.nodes} == obj_nodes
+    assert {e.id: tuple(n.id for n in e.nodes) for e in fem.elements.shell} == obj_shell
+    # a shell element resolves fem_sec (thickness) through the block
+    e0 = next(iter(fem.elements.shell))
+    assert e0.fem_sec is not None and e0.fem_sec.thickness == 0.02
+
+
+def test_array_backed_conversion_matches_object_path():
+    """create_objects_from_fem must yield identical plates on an array-backed FEM."""
+    import ada
+    from ada.api.mesh.containers import to_array_backed
+
+    def _plate_cogs(array_backed):
+        pl = ada.Plate("pl", [(0, 0), (4, 0), (4, 3), (0, 3)], 0.02)
+        p = ada.Part("p") / pl
+        p.fem = pl.to_fem_obj(0.5, "shell")
+        if array_backed:
+            to_array_backed(p.fem)
+        a = ada.Assembly("a") / p
+        a.create_objects_from_fem(merge=False)
+        plates = list(p.get_all_physical_objects(by_type=ada.Plate))
+        return sorted(tuple(round(float(x), 6) for x in pl.poly.get_centroid()) for pl in plates)
+
+    assert _plate_cogs(False) == _plate_cogs(True)
+
+
+def test_array_nodes_helpers_parity():
+    from ada.api.mesh.containers import to_array_backed
+
+    obj = _meshed_fem()
+    arr = to_array_backed(_meshed_fem())
+
+    # renumber (linear) -> same coord->id mapping
+    obj.nodes.renumber(start_id=1)
+    arr.nodes.renumber(start_id=1)
+    om = {tuple(round(float(x), 9) for x in n.p): n.id for n in obj.nodes}
+    am = {tuple(round(float(x), 9) for x in n.p): n.id for n in arr.nodes}
+    assert om == am
+
+    # move -> same coords
+    obj.nodes.move(move=[1, 2, 3])
+    arr.nodes.move(move=[1, 2, 3])
+    assert {n.id: tuple(round(float(x), 9) for x in n.p) for n in obj.nodes} == {
+        n.id: tuple(round(float(x), 9) for x in n.p) for n in arr.nodes
+    }
+
+    # box query -> same id set
+    obj_ids = {n.id for n in obj.nodes.get_by_volume((2, 3, 3), tol=1.0)}
+    arr_ids = {n.id for n in arr.nodes.get_by_volume((2, 3, 3), tol=1.0)}
+    assert obj_ids == arr_ids

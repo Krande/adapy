@@ -241,7 +241,18 @@ class MeshArrays:
             if id_conn.ndim != 2:
                 continue
             el_ids = np.array([e.id for e in elems], dtype=np.int64)
-            store.add_elem_block_from_id_conn(el_type, el_ids, id_conn)
+            blk = store.add_elem_block_from_id_conn(el_type, el_ids, id_conn)
+            # capture per-element attributes (shared ones as parallel lists,
+            # rare ones as sparse row dicts)
+            if any(getattr(e, "fem_sec", None) is not None for e in elems):
+                blk.fem_secs = [getattr(e, "fem_sec", None) for e in elems]
+            if any(getattr(e, "elset", None) is not None for e in elems):
+                blk.elsets = [getattr(e, "elset", None) for e in elems]
+            for i, e in enumerate(elems):
+                if getattr(e, "eccentricity", None) is not None:
+                    blk.ecc[i] = e.eccentricity
+                if getattr(e, "hinge_prop", None) is not None:
+                    blk.hinge[i] = e.hinge_prop
         return store
 
     # ── structural edits (atomic across nodes + connectivity) ────────────
