@@ -82,9 +82,67 @@ def _plate_plane_key(plate: "Plate", ndigits: int):
     return (plate.material.name, round(float(plate.t), ndigits), ncanon, offset)
 
 
+def _segments_cross(a1, a2, b1, b2, eps: float) -> bool:
+    """True if open segments a1a2 and b1b2 properly cross (share interior point)."""
+
+    def orient(p, q, r):
+        return (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0])
+
+    d1 = orient(b1, b2, a1)
+    d2 = orient(b1, b2, a2)
+    d3 = orient(a1, a2, b1)
+    d4 = orient(a1, a2, b2)
+    # Proper crossing only: each segment straddles the other's supporting line.
+    # Collinear / endpoint-touching cases are left to the degree-2/edge-length
+    # guards so we don't reject a legitimately-shared vertex.
+    return ((d1 > eps) != (d2 > eps)) and ((d3 > eps) != (d4 > eps)) and abs(d1) > eps and abs(d2) > eps
+
+
+def _loop_is_simple_2d(pts2d, tol: float = 1e-6) -> bool:
+    """True if a closed 2D polygon is non-degenerate and non-self-intersecting.
+
+    The edge-cancellation merge only guarantees a *topologically* single,
+    degree-2 boundary (at the rounding grid). Two edges can still cross
+    geometrically without sharing a rounded vertex — a non-simple polygon that
+    ``from_3d_points`` accepts but OCC's wire/face builder rejects ("Segments do
+    not form a closed loop"). This catches that before it corrupts the export.
+    """
+    n = len(pts2d)
+    if n < 3:
+        return False
+    xs = [p[0] for p in pts2d]
+    ys = [p[1] for p in pts2d]
+    scale = max(max(xs) - min(xs), max(ys) - min(ys), 1.0)
+    tol_len = tol * scale
+
+    for i in range(n):
+        a = pts2d[i]
+        b = pts2d[(i + 1) % n]
+        if ((b[0] - a[0]) ** 2 + (b[1] - a[1]) ** 2) ** 0.5 <= tol_len:
+            return False  # near-zero-length edge
+
+    area2 = sum(pts2d[i][0] * pts2d[(i + 1) % n][1] - pts2d[(i + 1) % n][0] * pts2d[i][1] for i in range(n))
+    if abs(area2) * 0.5 <= tol_len * scale:
+        return False  # degenerate / near-zero area
+
+    eps = (tol_len * scale) * 1e-3
+    for i in range(n):
+        a1, a2 = pts2d[i], pts2d[(i + 1) % n]
+        for j in range(i + 1, n):
+            if j == i or (j + 1) % n == i or (i + 1) % n == j:
+                continue  # adjacent edges share a vertex by construction
+            b1, b2 = pts2d[j], pts2d[(j + 1) % n]
+            if _segments_cross(a1, a2, b1, b2, eps):
+                return False
+    return True
+
+
 def _merge_coplanar_component(plates: list["Plate"], parent: "Part", ndigits: int) -> list["Plate"]:
     from ada import Plate
-    from ada.core.vector_utils import merge_coplanar_loops_by_edge_cancellation
+    from ada.core.vector_utils import (
+        merge_coplanar_loops_by_edge_cancellation,
+        project_points_to_local_2d,
+    )
 
     loops = [list(pl.poly.points3d) for pl in plates]
     merged = merge_coplanar_loops_by_edge_cancellation(loops, ndigits=ndigits)
@@ -92,6 +150,20 @@ def _merge_coplanar_component(plates: list["Plate"], parent: "Part", ndigits: in
         # Hole, non-manifold vertex, or multiple disjoint loops — not a
         # single clean boundary, so keep the originals.
         return list(plates)
+
+    # The topological merge can still yield a geometrically self-intersecting or
+    # degenerate boundary. Validate the projected 2D loop before building the
+    # plate; a bad merge silently produces geometry that crashes the STEP export
+    # downstream, so fall back to the originals instead (best-effort contract).
+    try:
+        pts2d, _ = project_points_to_local_2d(merged)
+    except Exception as exc:
+        logger.debug(f"coplanar merge skipped for {plates[0].name!r}: {exc}")
+        return list(plates)
+    if not _loop_is_simple_2d(pts2d):
+        logger.debug(f"coplanar merge skipped for {plates[0].name!r}: non-simple/degenerate merged loop")
+        return list(plates)
+
     ref = plates[0]
     try:
         return [Plate.from_3d_points(f"{ref.name}_m", merged, ref.t, mat=ref.material, parent=parent)]
