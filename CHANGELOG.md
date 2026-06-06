@@ -2,6 +2,15 @@
 
 
 
+## v0.15.0 (2026-06-06)
+
+### Feature
+
+* feat: array-backed FEM mesh substrate with lazy node/elem proxies (#204)
+
+Co-authored-by: Claude Opus 4.8 &lt;noreply@anthropic.com&gt; ([`7d18cc4`](https://github.com/Krande/adapy/commit/7d18cc42d34fc06d2bd58a90dce21dde3c39a454))
+
+
 ## v0.14.0 (2026-06-06)
 
 ### Feature
