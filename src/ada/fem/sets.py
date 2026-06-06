@@ -57,10 +57,19 @@ class FemSet(FemBase):
         else:
             if set_type is None:
                 set_type = eval_set_type_from_members(members)
-            for m in members:
-                if isinstance(m, (Elem, Node)):
-                    m.refs.append(self)
-            self._members = members
+            if members and self._members_are_local_proxies(members, parent, set_type):
+                # Array-backed proxies belonging to THIS FEM's store -> store ids, not
+                # the proxies, so a per-element elset doesn't pin a Python object per
+                # member (Sesam emits ~one elset per element). refs are registered via
+                # register_member_refs below. Cross-instance proxies (different store)
+                # fall through to the object path so their ids stay resolvable.
+                self._member_ids = [int(m.id) for m in members]
+                self._members = None
+            else:
+                for m in members:
+                    if isinstance(m, (Elem, Node)):
+                        m.refs.append(self)
+                self._members = members
 
         self._set_type = set_type
         if self.type not in SetTypes.all:
@@ -69,6 +78,20 @@ class FemSet(FemBase):
 
         if self._member_ids is not None:
             self.register_member_refs()
+
+    @staticmethod
+    def _members_are_local_proxies(members, parent, set_type) -> bool:
+        """True if every member is an array-backed *element* proxy belonging to
+        ``parent``'s own store — i.e. safe to store id-only and re-resolve via the
+        parent FEM. Scoped to elsets: Sesam emits ~one elset per element (the dominant
+        proxy-pinning source); nsets are few and kept as proxy-member to avoid the
+        cross-instance / generated-set re-resolution edge cases."""
+        if parent is None or set_type != SetTypes.ELSET:
+            return False
+        if any(getattr(m, "_store", None) is None for m in members):
+            return False
+        store = getattr(parent.elements, "store", None)
+        return store is not None and all(m._store is store for m in members)
 
     def register_member_refs(self) -> None:
         """Register this set in each member's ``refs`` (mirrors the object path's

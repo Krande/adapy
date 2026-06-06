@@ -242,6 +242,22 @@ def test_add_node_then_remove_keeps_connectivity_valid():
     assert resolved[1] == before[1]  # quad 1 still resolves to the same physical nodes
 
 
+def test_local_proxy_elset_is_id_backed_no_pinning():
+    """An elset built from the FEM's own element proxies stores ids, not the proxies
+    (so a per-element elset doesn't pin a Python object per element)."""
+    from ada.api.mesh.containers import to_array_backed
+    from ada.fem import FemSet
+
+    fem = to_array_backed(_meshed_fem())
+    elems = list(fem.elements.shell)[:4]
+    fs = FemSet("g", elems, "elset", parent=fem)
+    assert fs._member_ids is not None  # id-backed
+    assert fs._members is None
+    assert [m.id for m in fs.members] == [e.id for e in elems]
+    # the set registered itself in each member's (store-backed) refs
+    assert all(fs in fem.elements.from_id(e.id).refs for e in elems)
+
+
 def test_to_mesh_is_zero_copy_and_matches_object():
     """FEM.to_mesh() on an array-backed FEM shares the store's arrays (no copy) and
     produces the same edges/faces as the object path."""
