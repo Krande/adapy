@@ -90,8 +90,29 @@ def _build_array_fem(part, coords, node_ids, by_type, mass_elem, spring_elem, ex
     fem.sets = part.fem.sets + get_sets(reader_text, fem)
     fem.constraints.update(get_constraints(reader_text, fem))
     fem.bcs += get_bcs(reader_text, fem)
-    renumber_nodes(reader_text, fem)
+    node_map = renumber_nodes(reader_text, fem)
     fem.elements.renumber(renumber_map=ext_map)
+
+    # The substrate just renumbered nodes/elements from internal -> external ids,
+    # but the sets are id-backed (they captured the *internal* ids at read time, via
+    # ``from_id`` against the still-internal store). The object path stays correct for
+    # free because its sets hold Node/Elem objects whose ``.id`` is renumbered in place;
+    # the array path must remap the captured ids explicitly or every NSET/ELSET member
+    # resolves to a now-missing id (e.g. JacketHybrid elset member 787 -> external 3052).
+    _remap_id_backed_sets(fem, node_map, ext_map)
+
+
+def _remap_id_backed_sets(fem, node_map: dict[int, int], elem_map: dict[int, int]) -> None:
+    """Remap id-backed FemSet members through the internal->external renumber maps.
+
+    NSET members go through ``node_map``, ELSET members through ``elem_map``. Ids absent
+    from a map (e.g. mass/spring-derived sets created with already-final ids) pass through
+    unchanged, so the remap is idempotent and safe for the mixed set population."""
+    for fs in list(fem.sets):
+        if fs._member_ids is None:
+            continue
+        m = node_map if fs.type == "nset" else elem_map
+        fs._member_ids = [m.get(mid, mid) for mid in fs._member_ids]
 
 
 def _read_sesam_fem_array_stream(fem_file, part: Part) -> None:
