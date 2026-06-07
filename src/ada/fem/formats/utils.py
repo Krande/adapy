@@ -189,10 +189,16 @@ def get_fem_model_from_assembly(assembly: Assembly) -> Part:
     parts = list(filter(lambda p: p.fem.is_empty() is False, assembly.get_all_parts_in_assembly(True)))
 
     if len(parts) > 1:
-        raise ValueError(
-            "This method does not yet support multipart FEM. Please make sure your assembly only contain 1 FEM"
-        )
-    elif len(parts) == 0:
+        # Multi-instance model -> concatenate into one FEM (renumbered ids, instance-prefixed
+        # set names) so the single-part writers (Code_Aster/MED, Calculix) can emit it.
+        from ada.fem.concat import concatenate_fem_to_single_part
+
+        merged = concatenate_fem_to_single_part(assembly)
+        if merged is not None:
+            return merged
+        parts = list(filter(lambda p: p.fem.is_empty() is False, assembly.get_all_parts_in_assembly(True)))
+
+    if len(parts) == 0:
         raise ValueError("At least 1 part must have a FEM mesh ")
 
     return parts[0]

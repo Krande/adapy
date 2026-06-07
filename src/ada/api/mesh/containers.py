@@ -318,6 +318,15 @@ class ArrayElements(FemElements):
         ov_max = max((e.id for e in self._overflow if e.id is not None), default=0)
         return max(store_max, ov_max)
 
+    @property
+    def min_el_id(self) -> int:
+        # Mirror of max_el_id — the object FemElements.min_el_id reads self._idmap, which the
+        # array container doesn't have. Used by FEM.__add__ to decide whether to renumber.
+        mins = [int(blk.el_ids.min()) for blk in self._store.blocks.values() if blk.el_ids.size]
+        ov = [e.id for e in self._overflow if e.id is not None]
+        candidates = mins + ov
+        return min(candidates) if candidates else 0
+
     def build_sets(self):
         """Create id-backed element sets from each element's ``elset`` name (mirrors
         the object FemElements.build_sets, which sections/masses reference by name)."""
