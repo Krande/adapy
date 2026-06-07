@@ -223,16 +223,18 @@ def test_flat_sat_plate_renders_via_wire_fill(example_files):
     to render empty. make_closed_shell_from_geom now falls back to filling the boundary wire
     when the trimmed face is degenerate, so the plate tessellates.
 
-    OCC-backend only: the planar-AdvancedFace wire-fill path isn't ported to adacpp (its
-    bspline-boundary edge construction yields a wrong-extent face), so skip there."""
+    Runs on both backends: adacpp builds the planar AdvancedFace via
+    build_advanced_face_planar (plane inferred from the wire; the bspline boundary edge is
+    point-trimmed). Older adacpp builds lacking it skip."""
     import pytest
 
     import ada
     from ada.cad import active_backend
     from ada.occ.tessellating import BatchTessellator
 
-    if active_backend().name == "adacpp":
-        pytest.skip("planar-AdvancedFace wire-fill rendering not ported to adacpp")
+    backend = active_backend()
+    if backend.name == "adacpp" and not hasattr(getattr(backend, "_cad", None), "build_advanced_face_planar"):
+        pytest.skip("adacpp build in this env predates build_advanced_face_planar")
 
     a = ada.from_acis(example_files / "sat_files/plate_1_flat.sat")
     objects = list(a.get_all_physical_objects())

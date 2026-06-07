@@ -389,28 +389,40 @@ class AdacppBackend:
             # SAT-pcurve path of OccBackend.make_face_from_geom). Without bounds,
             # the natural-UV face. Analytic surfaces aren't ported yet.
             surf = g.face_surface
-            if not isinstance(surf, su.BSplineSurfaceWithKnots):
+            if isinstance(surf, su.Plane) and g.bounds:
+                # Planar AdvancedFace (flat SAT/IFC plates): plane inferred from the boundary
+                # wire. The bspline boundary edge now carries start/end so it's trimmed to the
+                # real segment (see _encode_oriented_edge), giving a correctly-bounded face.
+                pos = surf.position
+                shape = self._cad.build_advanced_face_planar(
+                    self._xyz(pos.location),
+                    _axis(pos.axis, (0, 0, 1)),
+                    _axis(pos.ref_direction, (1, 0, 0)),
+                    [self._encode_face_bound(fb) for fb in g.bounds],
+                )
+            elif not isinstance(surf, su.BSplineSurfaceWithKnots):
                 raise NotImplementedError(
                     f"AdacppBackend.build: AdvancedFace surface {type(surf).__name__!r} "
-                    "not yet ported to adacpp (only BSplineSurfaceWithKnots)."
+                    "not yet ported to adacpp (only BSplineSurfaceWithKnots / Plane)."
                 )
-            cps = [[self._xyz(p) for p in row] for row in surf.control_points_list]
-            weights = list(surf.weights_data) if isinstance(surf, su.RationalBSplineSurfaceWithKnots) else []
-            surf_args = (
-                surf.u_degree,
-                surf.v_degree,
-                cps,
-                list(surf.u_knots),
-                list(surf.v_knots),
-                list(surf.u_multiplicities),
-                list(surf.v_multiplicities),
-                weights,
-            )
-            if g.bounds:
-                bounds = [self._encode_face_bound(fb) for fb in g.bounds]
-                shape = self._cad.build_advanced_face_bspline(*surf_args, bounds)
             else:
-                shape = self._cad.build_bspline_surface_face(*surf_args)
+                cps = [[self._xyz(p) for p in row] for row in surf.control_points_list]
+                weights = list(surf.weights_data) if isinstance(surf, su.RationalBSplineSurfaceWithKnots) else []
+                surf_args = (
+                    surf.u_degree,
+                    surf.v_degree,
+                    cps,
+                    list(surf.u_knots),
+                    list(surf.v_knots),
+                    list(surf.u_multiplicities),
+                    list(surf.v_multiplicities),
+                    weights,
+                )
+                if g.bounds:
+                    bounds = [self._encode_face_bound(fb) for fb in g.bounds]
+                    shape = self._cad.build_advanced_face_bspline(*surf_args, bounds)
+                else:
+                    shape = self._cad.build_bspline_surface_face(*surf_args)
         elif isinstance(g, su.WireFilledFace):
             # Interpolate a smooth surface through the boundary edges
             # (BRepOffsetAPI_MakeFilling) — the SAT exppc fallback face.
@@ -504,6 +516,11 @@ class AdacppBackend:
                 1.0 if has_trim else 0.0,
                 float(t_start or 0.0),
                 float(t_end or 0.0),
+                # start/end points: when the edge carries no parametric trim, the curve is a
+                # full b-spline and these points define the segment to keep — adacpp trims by
+                # projecting them onto the curve (mirrors OccBackend.make_edge_from_edge).
+                *start,
+                *end,
                 float(len(poles)),
             ]
             for p in poles:
