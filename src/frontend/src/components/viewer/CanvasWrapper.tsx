@@ -4,6 +4,7 @@ import ColorLegend from "./ColorLegend";
 import ThreeCanvas from "./ThreeCanvas";
 import SectionPlanesController from "./SectionPlanesController";
 import FemConceptsController from "./FemConceptsController";
+import BeamSolidsController from "./BeamSolidsController";
 
 const CanvasWrapper: React.FC = () => {
   return (
@@ -19,6 +20,8 @@ const CanvasWrapper: React.FC = () => {
       <SectionPlanesController />
       {/* Headless: draws the FEM-concept glyph overlay (masses / BCs / loads). */}
       <FemConceptsController />
+      {/* Headless: lazy-loads + toggles the FEM beam-solids sidecar geometry. */}
+      <BeamSolidsController />
     </div>
   );
 };

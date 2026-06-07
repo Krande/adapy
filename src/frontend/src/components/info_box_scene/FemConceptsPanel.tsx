@@ -10,8 +10,8 @@ import {useModelState} from "@/state/modelState";
 const FemConceptsPanel = () => {
     const {
         masses, bcs, scenarios,
-        showMasses, showBcs, selectedScenario,
-        setShowMasses, setShowBcs, setSelectedScenario,
+        showMasses, showBcs, showBeamsSolid, selectedScenario,
+        setShowMasses, setShowBcs, setShowBeamsSolid, setSelectedScenario,
     } = useFemConceptsStore();
     const hasModel = !!useModelState((s) => s.boundingBox);
 
@@ -36,10 +36,14 @@ const FemConceptsPanel = () => {
                 <span>Masses</span>
                 <span className="ml-auto text-xs opacity-70">{masses.length}</span>
             </label>
-            <label className="flex items-center gap-2 mb-2">
+            <label className="flex items-center gap-2 mb-1">
                 <input type="checkbox" checked={showBcs} onChange={(e) => setShowBcs(e.target.checked)} />
                 <span>Boundary conditions</span>
                 <span className="ml-auto text-xs opacity-70">{bcs.length}</span>
+            </label>
+            <label className="flex items-center gap-2 mb-2" title="Render beam (line) elements as their solid cross-section geometry">
+                <input type="checkbox" checked={showBeamsSolid} onChange={(e) => setShowBeamsSolid(e.target.checked)} />
+                <span>Beams as solid</span>
             </label>
 
             {/* Load-scenario selector */}

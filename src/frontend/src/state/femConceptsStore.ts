@@ -13,11 +13,16 @@ interface FemConceptsState {
 
     showMasses: boolean;
     showBcs: boolean;
+    // Render FEM beam (line) elements as their solid swept-profile geometry. The geometry
+    // ships as a lazy-loaded beam_solids sidecar glb (BeamSolidsController fetches it); beams
+    // are line geometry by default.
+    showBeamsSolid: boolean;
     selectedScenario: number; // index into `scenarios`, or -1 for "none"
 
     setData: (d: {masses: MassGlyph[]; bcs: BcGlyph[]; scenarios: LoadScenario[]}) => void;
     setShowMasses: (v: boolean) => void;
     setShowBcs: (v: boolean) => void;
+    setShowBeamsSolid: (v: boolean) => void;
     setSelectedScenario: (i: number) => void;
 }
 
@@ -27,6 +32,7 @@ export const useFemConceptsStore = create<FemConceptsState>((set) => ({
     scenarios: [],
     showMasses: false,
     showBcs: false,
+    showBeamsSolid: false,
     selectedScenario: -1,
 
     setData: ({masses, bcs, scenarios}) =>
@@ -43,5 +49,6 @@ export const useFemConceptsStore = create<FemConceptsState>((set) => ({
         })),
     setShowMasses: (showMasses) => set({showMasses}),
     setShowBcs: (showBcs) => set({showBcs}),
+    setShowBeamsSolid: (showBeamsSolid) => set({showBeamsSolid}),
     setSelectedScenario: (selectedScenario) => set({selectedScenario}),
 }));
