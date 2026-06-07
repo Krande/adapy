@@ -422,13 +422,16 @@ def get_instance_data(inst_name, p_ref, inst_bulk) -> InstanceData:
             if "*" in content or j == 2 or content == "":
                 break
             if j == 0:
-                transform.move = (float(mo.group(1)), float(mo.group(2)), float(mo.group(3)))
+                # Transform's fields are translation/rotation — setting .move/.rotate created
+                # phantom attributes, so the instance placement was silently dropped (every
+                # instance landed at the part origin). This matters once instances are merged.
+                transform.translation = (float(mo.group(1)), float(mo.group(2)), float(mo.group(3)))
             if j == 1:
                 r = [float(x) for x in mo.group(3).split(",")]
                 origin = (float(mo.group(1)), float(mo.group(2)), r[0])
                 vector = (r[1], r[2], r[3])
                 angle = r[4]
-                transform.rotate = Rotation(origin, vector, angle)
+                transform.rotation = Rotation(origin, vector, angle)
 
     return InstanceData(p_ref, inst_name, inst_bulk, transform)
 
