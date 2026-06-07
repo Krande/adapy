@@ -1009,12 +1009,13 @@ export async function load_fea_streaming(args: {
     // the field's analysis_kind: static = [0, 1] (one-directional),
     // eigen = [-1, +1] (mode shape has no inherent sign).
     const animStore = useFeaAnimationStore.getState();
-    animStore.setSessionActive(true);
     animStore.setMesh(active.mesh);
     animStore.setSourceName(sourceName);
     animStore.setManifest(manifest);
     if (field) {
-        // Range follows the field's analysis_kind: static = [0, 1], eigen = [-1, +1].
+        // Results present -> activate the FEA session (SimulationControls: step slider / field
+        // selector / warp). Range follows analysis_kind: static = [0, 1], eigen = [-1, +1].
+        animStore.setSessionActive(true);
         const range: [number, number] = field.analysis_kind === "eigen" ? [-1, 1] : [0, 1];
         animStore.setRange(range);
         animStore.setFactor(displacementScale);
@@ -1024,13 +1025,14 @@ export async function load_fea_streaming(args: {
         if (reduction != null) animStore.setReduction(reduction);
         animStore.setColormap(colormap);
     } else {
-        // Field-less FEM mesh: no result animation/coloring. Keep the session active so the
-        // beam-solids toggle has a mesh to act on; clear field-specific state.
-        animStore.setRange([0, 1]);
-        animStore.setFactor(1);
-        animStore.setStepIndex(0);
-        animStore.setNSteps(1);
+        // Field-less FEM mesh (model only): no results -> NO simulation session, so
+        // SimulationControls + the results-only "show in data" action stay hidden. The
+        // beam-solids toggle acts on the module-level `active` mesh, not the session, so it
+        // still works from the Scene > FEM panel.
+        animStore.setSessionActive(false);
         animStore.setFieldName(null);
+        animStore.setNSteps(1);
+        animStore.setStepIndex(0);
     }
 
     // applyStep closure captures the *current* (sourceName, manifest,

@@ -700,6 +700,10 @@ class FEAResultStreamAdapter:
         self._geom: MeshGeometry | None = None
         self._field_specs: list[FieldSpec] | None = None
         self._elem_field_specs: list[ElementFieldSpec] | None = None
+        # Optional FEA input concepts (masses / BCs / load scenarios) as a manifest-shaped
+        # dict. SIF/SIN leave this None; the FEM reader (_make_fem_reader) scrapes it from the
+        # deck so the Scene > FEM panel can draw the glyph overlay.
+        self._fem_concepts: dict | None = None
 
         # Remap real node IDs → 0-based point indices. ElementBlock
         # stores arbitrary-id node references (1-based for RMED,
@@ -707,6 +711,9 @@ class FEAResultStreamAdapter:
         # 0-based indices into the points array.
         ids = result.mesh.nodes.identifiers
         self._nmap = {int(x): i for i, x in enumerate(ids)}
+
+    def try_fem_concepts(self) -> dict | None:
+        return self._fem_concepts
 
     # ----- protocol -------------------------------------------------------
 
@@ -2124,7 +2131,8 @@ def _make_fem_reader(path: pathlib.Path) -> "FEAStreamReader":
     from ada.fem.formats.utils import get_fem_model_from_assembly
     from ada.fem.results.common import ElementBlock, FEAResult
 
-    part = get_fem_model_from_assembly(ada.from_fem(path))
+    assembly = ada.from_fem(path)
+    part = get_fem_model_from_assembly(assembly)
     mesh = part.fem.to_mesh()
     # to_elem_blocks() emits row-index node_refs (array-substrate convention); the adapter +
     # geometry/field readers expect node IDs (they remap id->index). Convert once here.
@@ -2138,7 +2146,20 @@ def _make_fem_reader(path: pathlib.Path) -> "FEAStreamReader":
             rebuilt.append(b)
     mesh.elements = rebuilt
     result = FEAResult(name=part.fem.name or path.stem, software="adapy", results=[], mesh=mesh)
-    return FEAResultStreamAdapter(result)
+    reader = FEAResultStreamAdapter(result)
+    # Scrape FEA input concepts (masses / BCs / load scenarios) off the deck so the viewer's
+    # Scene > FEM panel can draw the glyph overlay — same manifest shape solver results carry.
+    try:
+        from ada.extension.fem_concepts_builder import build_combined_fem_concepts
+
+        fc = build_combined_fem_concepts(assembly)
+        if fc is not None:
+            reader._fem_concepts = fc.model_dump(mode="json", exclude_none=True)
+    except Exception as e:  # noqa: BLE001 — concepts are best-effort decoration
+        from ada.config import get_logger
+
+        get_logger().debug("FEM bake: fem_concepts scrape failed: %s", e)
+    return reader
 
 
 def _ensure_builtin_stream_readers() -> None:
