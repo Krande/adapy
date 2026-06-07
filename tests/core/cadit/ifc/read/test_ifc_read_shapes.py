@@ -1,4 +1,5 @@
 import ada
+from ada.geom.solids import ExtrudedAreaSolid
 from ada.geom.surfaces import AdvancedFace, OpenShell, ShellBasedSurfaceModel
 
 
@@ -56,3 +57,21 @@ def test_import_bspline_w_knots(example_files, monkeypatch, tmp_path):
     p.add_material(shape.material.copy_to("S355", p))
     p.add_shape(shape)
     b.to_ifc(tmp_path / "bsplinesurfacewithknots.ifc", validate=True)
+
+
+def test_import_half_space_beam(example_files, monkeypatch):
+    # An I-beam (IfcExtrudedAreaSolid w/ IfcIShapeProfileDef) clipped by two
+    # IfcHalfSpaceSolids via nested IfcBooleanClippingResults -- read natively, not via
+    # the IfcOpenShell kernel fallback.
+    monkeypatch.setenv("ADA_IFC_IMPORT_SHAPE_GEOM", "true")
+    ada.config.Config().reload_config()
+    a = ada.from_ifc(example_files / "ifc_files/half_space_beam.ifc")
+    objects = list(a.get_all_physical_objects())
+    assert len(objects) == 1
+    shape = objects[0]
+
+    assert shape._occ_cache is None  # native parametric path, no kernel body
+    assert isinstance(shape.geom.geometry, ExtrudedAreaSolid)
+    assert len(shape.geom.bool_operations) == 2  # the two half-space cuts
+
+    _assert_renders(shape)

@@ -169,10 +169,21 @@ class Shape(BackendGeom):
                 geo_so.Sphere,
                 geo_so.Cylinder,
                 geo_so.Cone,
+                geo_so.ExtrudedAreaSolid,
+                geo_so.ExtrudedAreaSolidTapered,
+                geo_so.RevolvedAreaSolid,
+                geo_so.FixedReferenceSweptAreaSolid,
             ),
         ):
 
-            self.geom.bool_operations = [BooleanOperation(x.primitive.solid_geom(), x.bool_op) for x in self.booleans]
+            # Only (re)derive bool_operations from the API-level Shape.booleans when there
+            # are any. IFC-imported shapes carry no API booleans but may already have
+            # geometry-level bool_operations on ``self.geom`` (e.g. IfcBooleanClippingResult
+            # cut by a half-space); overwriting with an empty list would drop those cuts.
+            if self.booleans:
+                self.geom.bool_operations = [
+                    BooleanOperation(x.primitive.solid_geom(), x.bool_op) for x in self.booleans
+                ]
             return self.geom
         else:
             raise NotImplementedError(f"solid_geom() not implemented for {self.geom=}")

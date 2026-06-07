@@ -81,7 +81,14 @@ def _read_shape_geometry(product: ifcopenshell.entity_instance, color):
     if geometries:
         if len(geometries) > 1:
             logger.warning(f"Multiple geometries on product {product}. Choosing geometry @ index=0")
-        return Geometry(product.GlobalId, geometries[0], color), None
+        geometry = geometries[0]
+        # A boolean result (e.g. IfcBooleanClippingResult) already comes back as a Geometry
+        # carrying its bool_operations — adopt the product's guid/color rather than re-wrap.
+        if isinstance(geometry, Geometry):
+            geometry.id = product.GlobalId
+            geometry.color = color
+            return geometry, None
+        return Geometry(product.GlobalId, geometry, color), None
 
     # Only fall back to the kernel for products that carry a *Body* representation, i.e. an
     # actual solid/surface to render. Curve-only products (e.g. IfcAlignmentSegment, whose

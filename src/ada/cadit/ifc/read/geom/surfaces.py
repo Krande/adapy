@@ -9,6 +9,23 @@ from ada.geom.points import Point
 from .curves import edge_loop, get_curve
 
 
+def plane(ifc_entity: ifcopenshell.entity_instance) -> geo_su.Plane:
+    from .placement import axis3d
+
+    return geo_su.Plane(position=axis3d(ifc_entity.Position))
+
+
+def half_space_solid(ifc_entity: ifcopenshell.entity_instance) -> geo_su.HalfSpaceSolid:
+    """IfcHalfSpaceSolid (and the IfcPolygonalBoundedHalfSpace subtype) -> the unbounded
+    HalfSpaceSolid adapy already knows how to cut with (see occ.geom.boolean). The polygonal
+    bound of the subtype is dropped: half-spaces only appear here as boolean cut operands,
+    where the unbounded plane gives the same trim for the clipped bodies in practice."""
+    base = ifc_entity.BaseSurface
+    if not base.is_a("IfcPlane"):
+        raise NotImplementedError(f"HalfSpaceSolid base surface {base.is_a()} is not implemented")
+    return geo_su.HalfSpaceSolid(base_surface=plane(base), agreement_flag=ifc_entity.AgreementFlag)
+
+
 def get_surface(ifc_entity: ifcopenshell.entity_instance) -> geo_su.SURFACE_GEOM_TYPES:
     if ifc_entity.is_a("IfcArbitraryProfileDefWithVoids") or ifc_entity.is_a("IfcArbitraryClosedProfileDef"):
         return arbitrary_closed_profile_def(ifc_entity)
