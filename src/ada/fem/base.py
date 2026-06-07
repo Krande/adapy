@@ -417,11 +417,44 @@ class FEM:
         return renderer_instance
 
     def to_mesh(self) -> Mesh:
+        import numpy as np
+
         from ada.fem.results.common import Mesh
 
         fem_nodes = self.nodes.to_fem_nodes()
         elem_blocks = self.elements.to_elem_blocks()
-        return Mesh(elem_blocks, fem_nodes)
+
+        # Section / material / local-z tables + an (el_id, mat_id, sec_id, vec_id) lookup so
+        # create_mesh_stores can render line elements as solid beams (its get_line_elems
+        # resolves each element's profile by id). Section/Material ids are unset on in-memory
+        # objects, so assign stable per-mesh ids here. Only line elements with both a section
+        # and material can become beams; the rest are left out of the lookup.
+        sec_map: dict[int, tuple[int, object]] = {}
+        mat_map: dict[int, tuple[int, object]] = {}
+        vec_map: dict[tuple | None, int] = {}
+        rows = []
+        for el in self.elements.lines:
+            fs = el.fem_sec
+            if fs is None or fs.section is None or fs.material is None:
+                continue
+            sid = sec_map.setdefault(id(fs.section), (len(sec_map) + 1, fs.section))[0]
+            mid = mat_map.setdefault(id(fs.material), (len(mat_map) + 1, fs.material))[0]
+            lz = fs.local_z
+            key = tuple(round(float(x), 9) for x in lz) if lz is not None else None
+            vid = vec_map.setdefault(key, len(vec_map))
+            rows.append((int(el.id), mid, sid, vid))
+
+        if not rows:
+            return Mesh(elem_blocks, fem_nodes)
+
+        return Mesh(
+            elem_blocks,
+            fem_nodes,
+            sections={sid: sec for sid, sec in sec_map.values()},
+            materials={mid: mat for mid, mat in mat_map.values()},
+            vectors={vid: (list(k) if k is not None else None) for k, vid in vec_map.items()},
+            elem_data=np.array(rows, dtype=np.int64),
+        )
 
     @property
     def instance_name(self):

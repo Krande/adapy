@@ -606,7 +606,10 @@ def _export_with_ada(
 
             merge_env = (_os.environ.get("ADA_GLB_MERGE_MESHES") or "").strip().lower()
             merge_meshes = merge_env not in {"0", "false", "no", "off"}
-        model.to_gltf(buf, merge_meshes=merge_meshes)
+        # Render FEM line/beam elements as their solid (swept-profile) geometry rather than
+        # bare centerlines — matching the FEA-results viewer and fem.show(). Harmless for CAD
+        # sources (no FEM line elements -> nothing to sweep).
+        model.to_gltf(buf, merge_meshes=merge_meshes, solid_beams=True)
         on_progress("ready", 1.0)
         return buf.getvalue()
     if target_format == "ifc":
