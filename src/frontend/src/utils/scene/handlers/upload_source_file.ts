@@ -126,6 +126,16 @@ function isStreamingOnlyExt(ext: string): boolean {
     return false;
 }
 
+// Design-model FEM meshes stream-load through the FEA bake (mesh + beam-solids + clickable +
+// tree), same as .sif. They're also legacy-convertible (ifc/xml/step on /convert), so they're
+// not "streaming-only" — but their VIEW preview should still bake, matching the load path
+// (StorageBrowser.isStreamingFEAResult). On-demand /convert handles the other targets.
+const FEM_STREAMING_EXTS = new Set([".inp", ".fem", ".med"]);
+
+function isStreamingViewExt(ext: string): boolean {
+    return isStreamingOnlyExt(ext) || FEM_STREAMING_EXTS.has(ext);
+}
+
 // Custom event the upload picker listens for; lets UI surfaces (menu
 // button, context menu) ask the picker to open without each one
 // owning its own hidden <input>.
@@ -187,12 +197,13 @@ export async function uploadFile(
     const convertEnabled = runtime.convertEnabled();
     if (autoConvert && convertEnabled && ext !== ".glb") {
         // Two pipelines, picked by extension:
-        //   * streaming-only sources (.rmed, .odb, ...) bake via
-        //     /fea/manifest — the legacy /convert path 415s for them.
+        //   * streaming-view sources (.rmed, .sif, FEM meshes .inp/.fem/.med, ...) bake via
+        //     /fea/manifest — the same path the viewer loads them through, so the upload
+        //     preview matches the view.
         //   * everything else takes the legacy single-GLB pipeline.
         // Both update the same useConversionStore so the bottom-right
         // toast tracks progress regardless of which path ran.
-        const baker = isStreamingOnlyExt(ext)
+        const baker = isStreamingViewExt(ext)
             ? ensureBakedFeaManifest(scope, key)
             : ensureConvertedGlb(scope, key);
         baker.catch((err) => {
