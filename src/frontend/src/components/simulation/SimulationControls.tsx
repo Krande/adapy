@@ -24,7 +24,7 @@ import {useTableNavStore} from "@/state/tableNavStore";
 import {animationControllerRef} from "@/state/refs";
 import {COLORMAP_NAMES} from "@/utils/scene/fea/colormaps";
 import {resetFeaAnimationPhase} from "@/utils/scene/fea/feaAnimationDriver";
-import {load_fea_streaming, setBeamSolidsVisible as setBeamSolidsVisibleScene} from "@/utils/scene/handlers/load_fea_streaming";
+import {load_fea_streaming} from "@/utils/scene/handlers/load_fea_streaming";
 import PlayPauseIcon from "../icons/PlayPauseIcon";
 import StopIcon from "../icons/StopIcon";
 import SimulationDataInfoPanel from "./SimulationDataInfoPanel";
@@ -86,7 +86,6 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
         layer,
         ipReduction,
         nodalAverage,
-        beamSolidsVisible,
         applyStep,
         setFactor,
         setPeriod,
@@ -98,7 +97,6 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
         setLayer,
         setIpReduction,
         setNodalAverage,
-        setBeamSolidsVisible,
     } = useFeaAnimationStore();
 
     // Options panel toggle — currently houses just the colormap
@@ -307,17 +305,6 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
             displacementScale: morphInfluence,
             colormap,
         });
-    };
-
-    // Beam-solid visibility — cheap toggle; the mesh is already
-    // loaded, we just flip its ``.visible`` flag. No re-fetch or
-    // re-apply needed because the AFEL colours (when any) are
-    // already on the mesh. ``setBeamSolidsVisible`` is the store
-    // action (persists across reloads); ``setBeamSolidsVisibleScene``
-    // is the scene setter (flips the active mesh).
-    const onBeamSolidsToggle = (next: boolean) => {
-        setBeamSolidsVisible(next);
-        setBeamSolidsVisibleScene(next);
     };
 
     const onColormapChange = (next: string) => {
@@ -568,23 +555,8 @@ const FeaModeControls: React.FC<ControlPanelProps> = ({onToggleData}) => {
                             <span className="text-gray-300">Smooth (nodal avg)</span>
                         </label>
                     )}
-                    {/* Beam-solid toggle — only when the manifest ships
-                        the parallel solid mesh (SIF bakes with section
-                        info today). Hidden for shell-only / RMED
-                        sources where there's nothing to render. */}
-                    {manifest?.mesh?.beam_solids_url && (
-                        <label
-                            className="flex items-center gap-1"
-                            title="Render beam (line) elements as extruded 3D solids using their cross-section. Disabled by default to preserve the line-only look."
-                        >
-                            <input
-                                type="checkbox"
-                                checked={beamSolidsVisible}
-                                onChange={(e) => onBeamSolidsToggle(e.target.checked)}
-                            />
-                            <span className="text-gray-300">Show beam solids</span>
-                        </label>
-                    )}
+                    {/* Beam-solid toggle moved to the Scene > FEM panel
+                        (single source of truth — FemConceptsPanel). */}
                     {/* Warp toggle. Disabled (and forced visually off)
                         for reaction-force fields — applying a force
                         vector as a morph would visualise force as

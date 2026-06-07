@@ -1014,32 +1014,6 @@ async def _process_one(
             )
             return
 
-        # FEM beam-solids sidecar: a second isolated convert producing a beam-solids-only glb
-        # the viewer lazy-loads for the FEM scene-menu "show beams as solid" toggle (beams
-        # ship as line geometry in the main glb by default). Only .inp/.fem -> glb jobs can
-        # carry FEM line elements. Best-effort: a failure (or empty result) never fails the
-        # main job. Stored at "<derived_key>.beam_solids.glb" — the convention the frontend
-        # derives from the main glb key.
-        if job.target_format == "glb" and src_suffix.lower() in {".inp", ".fem"}:
-            try:
-                side = await run_isolated_convert(
-                    convert,
-                    src_path,
-                    job.source_key,
-                    "glb_beam_solids",
-                    timeout_s=timeout_s,
-                )
-                if side.exit_code == 0 and side.out_bytes:
-                    await storage.put_bytes(
-                        scope, job.derived_key + ".beam_solids.glb", side.out_bytes
-                    )
-            except Exception:  # noqa: BLE001 — sidecar is best-effort
-                logger.warning(
-                    "worker: beam-solids sidecar failed for %s (non-fatal)",
-                    job.source_key,
-                    exc_info=True,
-                )
-
         # Conversion + upload succeeded — collect metrics and (optionally)
         # the cProfile dump from the child.
         metrics = dict(iresult.final_metrics)

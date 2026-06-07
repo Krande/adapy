@@ -1,7 +1,9 @@
 import React from "react";
 
 import {useFemConceptsStore} from "@/state/femConceptsStore";
+import {useFeaAnimationStore} from "@/state/feaAnimationStore";
 import {useModelState} from "@/state/modelState";
+import {setBeamSolidsVisible as setBeamSolidsVisibleScene} from "@/utils/scene/handlers/load_fea_streaming";
 
 // Scene-panel "FEM" mode: visualize the analysis inputs baked into the model —
 // masses, boundary conditions, and the applied load scenarios — as toggleable
@@ -10,10 +12,19 @@ import {useModelState} from "@/state/modelState";
 const FemConceptsPanel = () => {
     const {
         masses, bcs, scenarios,
-        showMasses, showBcs, showBeamsSolid, selectedScenario,
-        setShowMasses, setShowBcs, setShowBeamsSolid, setSelectedScenario,
+        showMasses, showBcs, selectedScenario,
+        setShowMasses, setShowBcs, setSelectedScenario,
     } = useFemConceptsStore();
     const hasModel = !!useModelState((s) => s.boundingBox);
+    // Beam-solids visibility lives in the FEA-streaming session store (the FE mesh — design
+    // model or results — loads through that path). The toggle persists the flag AND flips the
+    // loaded mesh's solid-beam child via the scene helper, mirroring SimulationControls.
+    const beamSolidsVisible = useFeaAnimationStore((s) => s.beamSolidsVisible);
+    const setBeamSolidsVisible = useFeaAnimationStore((s) => s.setBeamSolidsVisible);
+    const onToggleBeamsSolid = (next: boolean) => {
+        setBeamSolidsVisible(next);
+        setBeamSolidsVisibleScene(next);
+    };
 
     const nScen = scenarios.length;
     const cycle = (delta: number) => {
@@ -42,7 +53,7 @@ const FemConceptsPanel = () => {
                 <span className="ml-auto text-xs opacity-70">{bcs.length}</span>
             </label>
             <label className="flex items-center gap-2 mb-2" title="Render beam (line) elements as their solid cross-section geometry">
-                <input type="checkbox" checked={showBeamsSolid} onChange={(e) => setShowBeamsSolid(e.target.checked)} />
+                <input type="checkbox" checked={beamSolidsVisible} onChange={(e) => onToggleBeamsSolid(e.target.checked)} />
                 <span>Beams as solid</span>
             </label>
 
