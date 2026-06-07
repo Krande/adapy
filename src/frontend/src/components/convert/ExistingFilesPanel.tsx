@@ -80,6 +80,41 @@ const DerivedRow: React.FC<{
     );
 };
 
+// cProfile output blobs (one per profiled conversion) flood the derived list when
+// "Profile this run" is enabled — tuck them behind a collapsed chevron so the real
+// conversion outputs stay readable.
+function isProfileBlob(d: DerivedBlob): boolean {
+    return d.format === "prof" || d.key.endsWith(".prof");
+}
+
+const ProfileResultsGroup: React.FC<{
+    blobs: DerivedBlob[];
+    sourceKey: string;
+    scope: string;
+}> = ({blobs, sourceKey, scope}) => {
+    const [open, setOpen] = useState(false);
+    return (
+        <div>
+            <button
+                type="button"
+                onClick={() => setOpen((v) => !v)}
+                className="flex items-center gap-1 text-[11px] text-gray-400 hover:text-gray-200"
+                aria-expanded={open}
+            >
+                <span className={"inline-block transition-transform " + (open ? "rotate-90" : "")}>▸</span>
+                Profile results ({blobs.length})
+            </button>
+            {open && (
+                <div className="space-y-1 mt-1 pl-3">
+                    {blobs.map((d) => (
+                        <DerivedRow key={d.key} derived={d} sourceKey={sourceKey} scope={scope}/>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+};
+
 const ExistingSourceCard: React.FC<{
     entry: AdminFileEntry;
     scope: string;
@@ -130,7 +165,7 @@ const ExistingSourceCard: React.FC<{
             </div>
             {entry.derived.length > 0 ? (
                 <div className="space-y-1 pl-2 border-l border-gray-700/60">
-                    {entry.derived.map((d) => (
+                    {entry.derived.filter((d) => !isProfileBlob(d)).map((d) => (
                         <DerivedRow
                             key={d.key}
                             derived={d}
@@ -138,6 +173,13 @@ const ExistingSourceCard: React.FC<{
                             scope={scope}
                         />
                     ))}
+                    {entry.derived.some(isProfileBlob) && (
+                        <ProfileResultsGroup
+                            blobs={entry.derived.filter(isProfileBlob)}
+                            sourceKey={entry.key}
+                            scope={scope}
+                        />
+                    )}
                 </div>
             ) : (
                 <div className="text-[11px] text-gray-500 italic pl-2">
