@@ -1070,6 +1070,20 @@ def make_surface_from_geom(face_surface):
         raise NotImplementedError(f"Surface type {type(face_surface)} is not implemented")
 
 
+def _face_area(shape) -> float:
+    """Surface area of an OCC shape (0.0 if it can't be measured). Used to detect a
+    trimmed face that collapsed to nothing."""
+    from OCC.Core.BRepGProp import brepgprop
+    from OCC.Core.GProp import GProp_GProps
+
+    try:
+        props = GProp_GProps()
+        brepgprop.SurfaceProperties(shape, props)
+        return abs(props.Mass())
+    except Exception:
+        return 0.0
+
+
 def _add_cfs_faces_to_shell(builder: BRep_Builder, occ_shell: TopoDS_Shell, cfs_faces) -> None:
     """Build each connected-face-set face (AdvancedFace / FaceSurface) and add it to
     ``occ_shell``. Shared by the closed-shell, open-shell and shell-based-surface-model
@@ -1097,6 +1111,20 @@ def _add_cfs_faces_to_shell(builder: BRep_Builder, occ_shell: TopoDS_Shell, cfs_
                     continue
 
                 face = face_maker.Face()
+
+                # A trimmed surface can collapse to zero area even when MakeFace reports
+                # "done" — e.g. a planar SAT plate whose boundary mixes a b-spline edge that
+                # yields no valid p-curve on the plane, so the face has no interior and
+                # BRepMesh grids nothing. Fall back to filling the boundary wire directly
+                # (the WireFilledFace path), which reconstructs a real surface from the same
+                # closed wire.
+                if _face_area(face) <= 1e-9:
+                    try:
+                        filled = make_face_from_wire_filled(geo_su.WireFilledFace(bounds=cfs_face.bounds))
+                        if _face_area(filled) > 1e-9:
+                            face = filled
+                    except Exception as ex:
+                        logger.debug("AdvancedFace wire-fill fallback failed: %s", ex)
 
                 # Update the face tolerance
                 builder.UpdateFace(face, 1e-6)
