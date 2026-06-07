@@ -152,7 +152,9 @@ def build_bc_glyphs(fem: "FEM"):
             fem_ext.BcGlyph(
                 name=bc.name,
                 positions=positions,
-                dofs=[int(d) for d in bc.dofs],
+                # bc.dofs is a 6-slot list with None for unconstrained DOFs (e.g.
+                # [None, 2, None, 4, None, 6] for YSYMM) — keep only the constrained ones.
+                dofs=[int(d) for d in bc.dofs if d is not None],
                 bc_type=str(getattr(bc, "type", "") or "") or None,
             )
         )

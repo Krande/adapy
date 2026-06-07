@@ -476,6 +476,8 @@ def convert_shell_elem_to_plates(elem: Elem, parent: Part, mat_dict: dict | None
     from ada import Plate
     from ada.core.vector_utils import is_coplanar
 
+    from ada.base.types import GeomRepr
+
     plates = []
     fem_sec = elem.fem_sec
     # A shell element not covered by any *SHELL SECTION (e.g. rigid/auxiliary elements in
@@ -483,6 +485,12 @@ def convert_shell_elem_to_plates(elem: Elem, parent: Part, mat_dict: dict | None
     # material), so skip it rather than crashing the whole FEM->objects conversion.
     if fem_sec is None or fem_sec.material is None:
         logger.warning(f"Shell element {elem.id} has no section/material; skipping plate conversion")
+        return []
+    # 2D continuum elements (e.g. axisymmetric/plane CAX4P with a *Solid Section) share the
+    # QUAD/TRI shape with true shells, so they reach the shell iterator — but they carry a
+    # SOLID section with no thickness and are not plates. Skip them.
+    if fem_sec.type == GeomRepr.SOLID or getattr(fem_sec, "thickness", None) is None:
+        logger.warning(f"Shell-shaped element {elem.id} has a solid/thickness-less section; not a plate, skipping")
         return []
     fem_sec.material.parent = parent
     # ``mat_dict`` (name -> consolidated material) must be shared across all

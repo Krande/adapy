@@ -63,3 +63,21 @@ def test_abaqus_read_cax4p_continuation_and_named_bc(example_files):
     bcs = list(a.fem.bcs) + [b for p in a.get_all_parts_in_assembly() if p.fem for b in p.fem.bcs]
     assert bcs, "no boundary conditions parsed"
     assert any(set(d for d in bc.dofs if d) == {2, 4, 6} for bc in bcs if isinstance(bc.dofs, list))
+
+
+def test_material_without_elastic_keeps_model_defaults(example_files):
+    """A *Material with no *Elastic / *Density used to carry E=rho=v=None, which crashed
+    every downstream writer on float(None). The reader now leaves CarbonSteel's defaults."""
+    a = ada.from_fem(str(example_files / "fem_files/abaqus/UUea.inp"))
+    mats = [m for p in a.get_all_parts_in_assembly(include_self=True) for m in p.materials]
+    assert mats, "no materials read"
+    for m in mats:
+        assert m.model.E is not None and m.model.rho is not None and m.model.v is not None
+
+
+def test_med_export_with_part_and_assembly_nsets(example_files, tmp_path):
+    """box_rigid has both part- and assembly-level node sets; the MED writer used to create
+    the 'FAM' dataset twice (name-already-exists) and choke on None-padded BC dofs."""
+    a = ada.from_fem(str(example_files / "fem_files/abaqus/box_rigid.inp"))
+    a.to_fem("box_rigid_med", fem_format="code_aster", scratch_dir=tmp_path, overwrite=True)
+    assert next(tmp_path.rglob("*.med"), None) is not None

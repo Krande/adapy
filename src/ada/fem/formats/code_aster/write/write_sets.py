@@ -93,11 +93,18 @@ def _add_cell_sets(cells_group, part: "Part", families):
     _write_families(element, tags)
 
 
-def _add_node_sets(nodes_group, part: "Part", points, families):
+def _add_node_sets(nodes_group, fems, points, families):
+    """Write the node-set family table ("FAM") for one or more FEMs into ``nodes_group``.
+
+    Takes a list of FEMs (the part's plus, when distinct, the assembly's) and merges their
+    nsets so the single MED "FAM" dataset is created exactly once — creating it per-FEM
+    raised "dataset name already exists" for decks with both part- and assembly-level
+    node sets."""
     tags = dict()
     nsets = dict()
-    for key, val in part.fem.nsets.items():
-        nsets[key] = [int(p.id) for p in val]
+    for fem in fems:
+        for key, val in fem.nsets.items():
+            nsets[key] = [int(p.id) for p in val]
 
     points = _set_to_tags(nsets, points, 2, tags)
 

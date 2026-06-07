@@ -122,10 +122,12 @@ def med_nodes(part: "Part", time_step, profile, families):
         num.attrs.create("CGT", 1)
         num.attrs.create("NBR", len(points))
 
-    if len(part.fem.nsets.keys()) > 0:
-        _add_node_sets(nodes_group, part, points, families)
-
+    # Collect node sets from the part and (when distinct) the assembly, then write the
+    # single MED "FAM" node-family dataset once — a per-source call collided on "FAM".
     assembly = part.get_assembly()
-
+    fems = [part.fem]
     if assembly != part and len(assembly.fem.nsets.keys()) > 0:
-        _add_node_sets(nodes_group, assembly, points, families)
+        fems.append(assembly.fem)
+
+    if any(len(f.nsets.keys()) > 0 for f in fems):
+        _add_node_sets(nodes_group, fems, points, families)

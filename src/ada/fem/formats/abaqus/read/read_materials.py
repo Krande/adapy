@@ -61,12 +61,16 @@ def mat_str_to_mat_obj(mat_str) -> Material:
     else:
         zeta = 0.0
 
-    # Return material object
-    model = CarbonSteel(
-        rho=density,
-        E=young,
-        v=poisson,
-        zeta=zeta,
-        plasticity_model=PlasticityModel(eps_p=eps_p, sig_p=sig_p),
-    )
+    # Return material object. Only pass mechanical properties that the deck actually
+    # specified — a material with no *Elastic / *Density (e.g. a user-material or a deck
+    # that defines them elsewhere) then keeps CarbonSteel's defaults rather than carrying
+    # None, which would crash every downstream writer (IFC/Sesam materials) on float(None).
+    mat_kwargs = dict(zeta=zeta, plasticity_model=PlasticityModel(eps_p=eps_p, sig_p=sig_p))
+    if density is not None:
+        mat_kwargs["rho"] = density
+    if young is not None:
+        mat_kwargs["E"] = young
+    if poisson is not None:
+        mat_kwargs["v"] = poisson
+    model = CarbonSteel(**mat_kwargs)
     return Material(name=name, mat_model=model)
