@@ -478,6 +478,12 @@ def convert_shell_elem_to_plates(elem: Elem, parent: Part, mat_dict: dict | None
 
     plates = []
     fem_sec = elem.fem_sec
+    # A shell element not covered by any *SHELL SECTION (e.g. rigid/auxiliary elements in
+    # box_rigid / element_elset) has no fem_sec — it can't become a plate (no thickness or
+    # material), so skip it rather than crashing the whole FEM->objects conversion.
+    if fem_sec is None or fem_sec.material is None:
+        logger.warning(f"Shell element {elem.id} has no section/material; skipping plate conversion")
+        return []
     fem_sec.material.parent = parent
     # ``mat_dict`` (name -> consolidated material) must be shared across all
     # shells of the part. A fresh dict per element made the cache useless,

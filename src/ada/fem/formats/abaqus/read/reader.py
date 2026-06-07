@@ -606,6 +606,19 @@ def get_sets_from_bulk(bulk_str, fem: FEM) -> FemSets:
     # return FemSetsCollection(sets, parent)
 
 
+# Abaqus standard named boundary conditions -> the DOFs they fix (1..3 translations,
+# 4..6 rotations). ENCASTRE is handled separately (passed through as a string).
+_NAMED_BC_DOFS = {
+    "pinned": (1, 2, 3),
+    "xsymm": (1, 5, 6),
+    "ysymm": (2, 4, 6),
+    "zsymm": (3, 4, 5),
+    "xasymm": (2, 3, 4),
+    "yasymm": (1, 3, 5),
+    "zasymm": (1, 2, 6),
+}
+
+
 def get_bcs_from_bulk(bulk_str, fem: FEM) -> List[Bc]:
     bc_counter = Counter(1, "bc")
 
@@ -617,8 +630,14 @@ def get_bcs_from_bulk(bulk_str, fem: FEM) -> List[Bc]:
             temp = content.split(",")
             set_name = temp[0].strip()
             dof_in = temp[1].strip().replace("\n", "")
-            if dof_in.lower() == "encastre":
+            low = dof_in.lower()
+            if low == "encastre":
                 dofs = dof_in
+            elif low in _NAMED_BC_DOFS:
+                # Abaqus standard named restraints (symmetry / pinned): map to the DOFs they
+                # constrain instead of trying to parse the name as an integer DOF index.
+                constrained = _NAMED_BC_DOFS[low]
+                dofs = [x if x in constrained else None for x in range(1, 7)]
             else:
                 dof = str_to_int(temp[1])
                 if len(temp) == 2:

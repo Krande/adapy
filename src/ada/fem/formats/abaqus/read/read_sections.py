@@ -121,7 +121,15 @@ def get_beam_sections_from_inp(bulk_str: str, fem: FEM) -> Iterable[FemSection]:
 
     def grab_beam(match):
         d = match.groupdict()
-        elset = fem.elsets[d["elset"]]
+        elset_name = d["elset"]
+        elset = fem.elsets.get(elset_name)
+        if elset is None:
+            # The section references an elset that was never created — typically because all
+            # its elements are an unsupported type that got skipped during element read (e.g.
+            # CalculiX user elements `*ELEMENT, TYPE=U1, ELSET=Eall`). Skip the section
+            # rather than KeyError-ing out of the whole import.
+            logger.warning(f"Skipping beam section: elset {elset_name!r} not found (elements likely unsupported)")
+            return None
         name = elset.name
         profile_name = elset.name
         material = ass.materials.get_by_name(d["material"])
