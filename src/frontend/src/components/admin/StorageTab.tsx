@@ -62,15 +62,15 @@ function buildConversionOptions(
 
 // Desktop storage table columns. ``width`` is the default px width; the
 // user can drag the header borders to resize, and the choice persists in
-// localStorage (see useResizableColumns). "Derived products" gets the
-// widest default since it can hold several format badges per row.
+// localStorage (see useResizableColumns). Derived products are no longer a
+// column — they made every row tall and ate horizontal space; they now live
+// in a per-row expandable overview (click the name chevron).
 const STORAGE_COLUMNS: {key: string; label: string; width: number}[] = [
     {key: "select", label: "", width: 40},
-    {key: "name", label: "Name", width: 352},
+    {key: "name", label: "Name", width: 420},
     {key: "format", label: "Format", width: 128},
     {key: "size", label: "Size", width: 112},
     {key: "uploaded", label: "Uploaded", width: 176},
-    {key: "derived", label: "Derived products", width: 320},
     {key: "actions", label: "", width: 256},
 ];
 
@@ -813,6 +813,8 @@ const StorageTab: React.FC = () => {
                                 depth={entry.depth}
                                 busyKey={busyKey}
                                 scope={scope}
+                                expanded={expandedKey === f.key}
+                                onToggleExpand={() => setExpandedKey(expandedKey === f.key ? null : f.key)}
                                 selected={selectedKeys.has(f.key)}
                                 onToggleSelected={() => toggleKeySelection(f.key)}
                                 onConvert={onConvert}
@@ -906,7 +908,7 @@ interface RowProps {
     onMoveToFolder: (key: string) => void;
 }
 
-const SourceRow: React.FC<RowProps & {scope: string}> = ({
+const SourceRow: React.FC<RowProps & {scope: string; expanded: boolean; onToggleExpand: () => void}> = ({
     file,
     depth,
     busyKey,
@@ -918,6 +920,8 @@ const SourceRow: React.FC<RowProps & {scope: string}> = ({
     onDeleteDerived,
     onDeleteAllDerived,
     onMoveToFolder,
+    expanded,
+    onToggleExpand,
 }) => {
     const downloadable = file.available_targets.filter((t) => t !== "glb");
     // Convert / per-blob-derived-delete keys both start with file.key:: ;
@@ -931,7 +935,9 @@ const SourceRow: React.FC<RowProps & {scope: string}> = ({
     const busyDeleting = busyKey === `${file.key}::delete`;
     const busyDeletingAllDerived = busyKey === `${file.key}::delete-all-derived`;
     const busyMoving = busyKey === `${file.key}::move`;
+    const derivedCount = file.derived.length;
     return (
+        <>
         <tr className="border-t border-gray-800 align-top">
             <Td>
                 <input
@@ -944,61 +950,40 @@ const SourceRow: React.FC<RowProps & {scope: string}> = ({
                 />
             </Td>
             <Td title={file.key}>
-                <span style={{paddingLeft: `${depth * 1.25}rem`}}>
+                <div className="flex items-center gap-1" style={{paddingLeft: `${depth * 1.25}rem`}}>
+                    {/* Chevron toggles the derived-products overview below. Disabled (kept for
+                        alignment) when the source has no derived products. */}
+                    <button
+                        type="button"
+                        onClick={onToggleExpand}
+                        disabled={derivedCount === 0}
+                        aria-expanded={expanded}
+                        title={derivedCount === 0 ? "No derived products" : "Show derived products"}
+                        className={"shrink-0 w-4 text-gray-400 hover:text-gray-100 disabled:opacity-30 " +
+                            (derivedCount === 0 ? "cursor-default" : "cursor-pointer")}
+                    >
+                        <span className={"inline-block transition-transform " + (expanded ? "rotate-90" : "")}>▸</span>
+                    </button>
                     {file.orphan && (
-                        <span className="text-[10px] uppercase text-yellow-400 mr-1" title="Source missing">
+                        <span className="text-[10px] uppercase text-yellow-400" title="Source missing">
                             orphan
                         </span>
                     )}
                     {/* Filename only; the folder prefix is already shown
                         in the parent folder rows. Falls back to the full
                         key when the source is at the root (no slash). */}
-                    {file.key.includes("/") ? file.key.split("/").pop() : file.key}
-                </span>
+                    <span className="truncate">{file.key.includes("/") ? file.key.split("/").pop() : file.key}</span>
+                    {derivedCount > 0 && (
+                        <span className="shrink-0 text-[10px] text-gray-400 bg-gray-700/60 rounded-sm px-1">
+                            {derivedCount}
+                        </span>
+                    )}
+                </div>
             </Td>
             <Td>{file.format}</Td>
             <Td>{formatBytes(file.size)}</Td>
             <Td title={file.last_modified || ""}>
                 {fmtIsoLocal(file.last_modified)}
-            </Td>
-            <Td>
-                <div className="flex flex-wrap gap-1 items-center">
-                    {file.derived.length === 0 && <span className="text-gray-500">—</span>}
-                    {file.derived.map((d) => {
-                        const busyDerived = busyKey === `${d.key}::delete`;
-                        return (
-                            <span key={d.key} className="inline-flex rounded-sm overflow-hidden border border-gray-700">
-                                <button
-                                    className="bg-gray-800 hover:bg-gray-700 px-2 py-0.5 text-[11px]"
-                                    onClick={() => onDownload(d.key, suggestedName(file.key, d.format))}
-                                    title={`${d.key} (${formatBytes(d.size)})`}
-                                >
-                                    {d.format.toUpperCase()} ↓
-                                </button>
-                                <button
-                                    className="bg-red-900/70 hover:bg-red-800 px-1.5 text-[11px] text-gray-100 disabled:opacity-50"
-                                    onClick={() => onDeleteDerived(file.key, d.key, `${file.key} → ${d.format}`)}
-                                    disabled={busyDerived}
-                                    title="Delete cached derived blob (next Convert will regenerate it)"
-                                >
-                                    {busyDerived ? "…" : "×"}
-                                </button>
-                            </span>
-                        );
-                    })}
-                    {file.derived.length > 1 && (
-                        <button
-                            className="bg-red-900/70 hover:bg-red-800 px-2 py-0.5 rounded-sm text-[11px] text-gray-100 disabled:opacity-50"
-                            onClick={() => onDeleteAllDerived(file)}
-                            disabled={busyDeletingAllDerived}
-                            title="Delete every cached derived blob for this source"
-                        >
-                            {busyDeletingAllDerived
-                                ? `Deleting… (${file.derived.length})`
-                                : `Delete all (${file.derived.length})`}
-                        </button>
-                    )}
-                </div>
             </Td>
             <Td>
                 <div className="flex flex-wrap gap-1 justify-end">
@@ -1050,6 +1035,51 @@ const SourceRow: React.FC<RowProps & {scope: string}> = ({
                 </div>
             </Td>
         </tr>
+        {expanded && derivedCount > 0 && (
+            <tr className="bg-gray-900/40">
+                <td/>
+                <td colSpan={STORAGE_COLUMNS.length - 1} className="px-3 pb-2 pl-9">
+                    <div className="flex flex-wrap gap-1 items-center">
+                        <span className="text-[11px] text-gray-400 mr-1">Derived products:</span>
+                        {file.derived.map((d) => {
+                            const busyDerived = busyKey === `${d.key}::delete`;
+                            return (
+                                <span key={d.key} className="inline-flex rounded-sm overflow-hidden border border-gray-700">
+                                    <button
+                                        className="bg-gray-800 hover:bg-gray-700 px-2 py-0.5 text-[11px]"
+                                        onClick={() => onDownload(d.key, suggestedName(file.key, d.format))}
+                                        title={`${d.key} (${formatBytes(d.size)})`}
+                                    >
+                                        {d.format.toUpperCase()} ↓
+                                    </button>
+                                    <button
+                                        className="bg-red-900/70 hover:bg-red-800 px-1.5 text-[11px] text-gray-100 disabled:opacity-50"
+                                        onClick={() => onDeleteDerived(file.key, d.key, `${file.key} → ${d.format}`)}
+                                        disabled={busyDerived}
+                                        title="Delete cached derived blob (next Convert will regenerate it)"
+                                    >
+                                        {busyDerived ? "…" : "×"}
+                                    </button>
+                                </span>
+                            );
+                        })}
+                        {file.derived.length > 1 && (
+                            <button
+                                className="bg-red-900/70 hover:bg-red-800 px-2 py-0.5 rounded-sm text-[11px] text-gray-100 disabled:opacity-50"
+                                onClick={() => onDeleteAllDerived(file)}
+                                disabled={busyDeletingAllDerived}
+                                title="Delete every cached derived blob for this source"
+                            >
+                                {busyDeletingAllDerived
+                                    ? `Deleting… (${file.derived.length})`
+                                    : `Delete all (${file.derived.length})`}
+                            </button>
+                        )}
+                    </div>
+                </td>
+            </tr>
+        )}
+        </>
     );
 };
 
