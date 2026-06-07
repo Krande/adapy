@@ -220,6 +220,22 @@ def read_shell_section(elem: Elem, fem: FEM, mat: Material, elno, thicknesses, g
     return fem_sec
 
 
+def read_solid_section(elem: Elem, fem: FEM, mat: Material, elno):
+    # Solid (continuum) elements have no geometric cross-section — the GELREF1 record only
+    # binds a material (geono=0). Build a SOLID FemSection carrying just that material.
+    sec_name = f"so{elno}"
+    fem_set = FemSet(sec_name, [elem], "elset", parent=fem, metadata=dict(internal=True))
+    fem.sets.add(fem_set)
+    fem_sec = FemSection(
+        name=sec_name,
+        sec_type=ElemType.SOLID,
+        elset=fem_set,
+        material=mat,
+        parent=fem,
+    )
+    return fem_sec
+
+
 def get_femsecs(match, total_geo, curr_geom_num, lcsysd, hinges_global, ecc, thicknesses, fem, mass_elem, spring_elem):
     next(total_geo)
     d = match.groupdict()
@@ -246,6 +262,9 @@ def get_femsecs(match, total_geo, curr_geom_num, lcsysd, hinges_global, ecc, thi
     elif isinstance(elem.type, shape_def.ShellShapes):
         next(curr_geom_num)
         return read_shell_section(elem, fem, mat, elno, thicknesses, geono)
+    elif isinstance(elem.type, shape_def.SolidShapes):
+        next(curr_geom_num)
+        return read_solid_section(elem, fem, mat, elno)
     else:
         raise ValueError("Section not added to conversion")
 
