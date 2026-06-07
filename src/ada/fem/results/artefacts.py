@@ -2111,6 +2111,36 @@ def _make_sin_reader(path: pathlib.Path) -> "FEAStreamReader":
     return FEAResultStreamAdapter(read_sin_file(path))
 
 
+def _make_fem_reader(path: pathlib.Path) -> "FEAStreamReader":
+    """Stream-reader for a results-less FEM mesh (.inp / .fem).
+
+    A design-model FEM deck is a mesh with no solver results. Reading it through the same
+    streaming-artefact pipeline as real results (mesh + edges + beam-solids, just an empty
+    fields list) is what unifies FE-mesh visualisation onto one path. Multipart decks are
+    merged first; ``FEM.to_mesh()`` supplies the section/material tables the beam-solid
+    tessellation needs.
+    """
+    import ada
+    from ada.fem.formats.utils import get_fem_model_from_assembly
+    from ada.fem.results.common import ElementBlock, FEAResult
+
+    part = get_fem_model_from_assembly(ada.from_fem(path))
+    mesh = part.fem.to_mesh()
+    # to_elem_blocks() emits row-index node_refs (array-substrate convention); the adapter +
+    # geometry/field readers expect node IDs (they remap id->index). Convert once here.
+    ids = mesh.nodes.identifiers
+    rebuilt: list[ElementBlock] = []
+    for b in mesh.elements:
+        if b.node_refs_are_indices:
+            nref = ids[np.asarray(b.node_refs)]
+            rebuilt.append(ElementBlock(b.elem_info, nref, b.identifiers, node_refs_are_indices=False))
+        else:
+            rebuilt.append(b)
+    mesh.elements = rebuilt
+    result = FEAResult(name=part.fem.name or path.stem, software="adapy", results=[], mesh=mesh)
+    return FEAResultStreamAdapter(result)
+
+
 def _ensure_builtin_stream_readers() -> None:
     if getattr(_ensure_builtin_stream_readers, "_done", False):
         return
@@ -2118,6 +2148,12 @@ def _ensure_builtin_stream_readers() -> None:
     _STREAM_READERS.setdefault(".rmed", _make_rmed_reader)
     _STREAM_READERS.setdefault(".sif", _make_sif_reader)
     _STREAM_READERS.setdefault(".sin", _make_sin_reader)
+    # Design-model FEM meshes flow through the same streaming bake (mesh + beam-solids, no
+    # result fields) so FE-mesh visualisation has a single path. (.rmed keeps its native
+    # results streamer above; plain .med is a mesh-only deck read via from_fem.)
+    _STREAM_READERS.setdefault(".inp", _make_fem_reader)
+    _STREAM_READERS.setdefault(".fem", _make_fem_reader)
+    _STREAM_READERS.setdefault(".med", _make_fem_reader)
     _ensure_builtin_stream_readers._done = True  # type: ignore[attr-defined]
 
 
