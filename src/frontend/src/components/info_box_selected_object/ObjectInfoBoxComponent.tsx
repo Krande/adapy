@@ -3,6 +3,10 @@ import {useViewerStores} from '@/state/AdaViewerContext';
 import {copySelectionNames, writeToClipboard} from '@/utils/clipboard/copySelectionNames';
 import {hideSelectedRanges, unhideAllRanges} from '@/utils/scene/visibility';
 import {elementFirstNodeId} from '@/utils/scene/fea/goToNode';
+import {centerViewOnSelection} from '@/utils/scene/centerViewOnSelection';
+import {zoomToAll} from '@/components/viewer/sceneHelpers/setupCameraControlsHandlers';
+import {sceneRef, cameraRef, controlsRef} from '@/state/refs';
+import {requestRender} from '@/state/perfStore';
 import ObjectMetadataPanel from './ObjectMetadataPanel';
 
 // 1500 ms is the smallest hold that still feels intentional vs a
@@ -62,6 +66,23 @@ const ObjectInfoBox = () => {
         if (firstNodeId == null) return;
         setPanelOpen(true);
         setGoToTarget({kind: "node", id: firstNodeId});
+    };
+
+    // Camera actions — desktop has keyboard shortcuts (zoom-fit / center-on-selection), but
+    // mobile has no keyboard, so surface them as buttons in this panel.
+    const onFitAll = () => {
+        const s = sceneRef.current, c = cameraRef.current, ctl = controlsRef.current;
+        if (s && c && ctl) {
+            zoomToAll(s, c, ctl);
+            requestRender();
+        }
+    };
+    const onGoToObject = () => {
+        const c = cameraRef.current, ctl = controlsRef.current;
+        if (c && ctl) {
+            centerViewOnSelection(ctl, c);
+            requestRender();
+        }
     };
 
     return (
@@ -172,6 +193,27 @@ const ObjectInfoBox = () => {
                             Show in data
                         </button>
                     )}
+                    {/* Camera buttons — mobile-only (desktop has keyboard
+                        shortcuts). "Go to object" frames the current
+                        selection; "Fit all" frames the whole scene. */}
+                    <button
+                        type="button"
+                        onClick={onGoToObject}
+                        className="sm:hidden bg-gray-700 hover:bg-gray-600 active:bg-gray-800 text-white text-[11px] rounded-sm px-2 py-1 inline-flex items-center gap-1"
+                        title="Center the view on the selected object"
+                        aria-label="Center view on selected object"
+                    >
+                        Go to object
+                    </button>
+                    <button
+                        type="button"
+                        onClick={onFitAll}
+                        className="sm:hidden bg-gray-700 hover:bg-gray-600 active:bg-gray-800 text-white text-[11px] rounded-sm px-2 py-1 inline-flex items-center gap-1"
+                        title="Fit the whole model to the view"
+                        aria-label="Fit all to view"
+                    >
+                        Fit all
+                    </button>
                     {/* Additive selection toggle. Mobile-only: desktop
                         users have Shift+click for the same effect, and
                         adding a chrome button there would be redundant.

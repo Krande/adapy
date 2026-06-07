@@ -117,7 +117,7 @@ const isExcludedFromFit = (obj: THREE.Object3D): boolean => {
     return false;
 };
 
-const zoomToAll = (scene: THREE.Scene, camera: THREE.PerspectiveCamera, controls: OrbitControls | CameraControls) => {
+export const zoomToAll = (scene: THREE.Scene, camera: THREE.PerspectiveCamera, controls: OrbitControls | CameraControls) => {
     // Compute bounding box only from imported/visible meshes, excluding helpers
     // like GridHelper, the section caps/stencil and the transform gizmo.
     const overallBox = new THREE.Box3();

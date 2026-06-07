@@ -22,7 +22,15 @@ export function load_base64_model(){
 
 }
 
-export async function replace_model(url: string, prepareHook?: SetupModelPrepareHook, sourceName?: string) {
+export async function replace_model(
+    url: string,
+    prepareHook?: SetupModelPrepareHook,
+    sourceName?: string,
+    // Recenter the model to the scene origin from its bbox (like the CAD loader). FEA/FEM
+    // meshes can sit far from origin (real instance coordinates), so the streaming load passes
+    // true; the legacy WS-message caller keeps the old no-recenter behaviour.
+    translate: boolean = false,
+) {
         // Clear animation state first
     const animationStore = useAnimationStore.getState();
     animationStore.setHasAnimation(false);
@@ -61,7 +69,7 @@ export async function replace_model(url: string, prepareHook?: SetupModelPrepare
 
         }
     }
-    return await setupModelLoaderAsync(url, false, prepareHook, sourceName);
+    return await setupModelLoaderAsync(url, translate, prepareHook, sourceName);
 }
 
 export async function update_scene_from_message(message: Message) {

@@ -587,7 +587,7 @@ export async function load_fea_streaming(args: {
                 if (afemEntries.length > 0) {
                     installAfemUserData(gltf_scene, afemEntries);
                 }
-            });
+            }, undefined, /* translate */ true);
             const ms = useModelState.getState();
             ms.setModelUrl(url, SceneOperations.REPLACE);
             ms.setLoadedSourceName(sourceName);
