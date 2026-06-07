@@ -8,15 +8,18 @@ def _assert_renders(shape, occ_only=False):
     trimmed-surface bodies build a valid B-rep but used to grid to zero triangles until the
     ShapeFix p-curve retry (and, for with_arc, the ShellBasedSurfaceModel builder).
 
-    ``occ_only`` skips under the adacpp backend for types whose render parity isn't ported
-    there yet (ShellBasedSurfaceModel; bspline p-curve trimming) — see the adacpp gaps in
-    ada/cad/__init__.py AdacppBackend.build."""
+    ``occ_only`` skips under the adacpp backend for ShellBasedSurfaceModel and bspline
+    p-curve trimming. The adacpp backend now renders these (AdacppBackend.build sews the
+    faces; adacpp.cad.sew_faces + the tessellation ShapeFix p-curve retry), but only once
+    the adacpp build carrying those lands in the env — until then the conda adacpp lacks
+    sew_faces. Flip these to run under adacpp after that release."""
     import pytest
 
     from ada.cad import active_backend
 
-    if occ_only and active_backend().name == "adacpp":
-        pytest.skip("render parity for this type not yet ported to adacpp")
+    backend = active_backend()
+    if occ_only and backend.name == "adacpp" and not hasattr(getattr(backend, "_cad", None), "sew_faces"):
+        pytest.skip("adacpp build in this env predates sew_faces / the p-curve tessellation retry")
 
     from ada.occ.tessellating import BatchTessellator
 

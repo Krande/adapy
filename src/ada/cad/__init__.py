@@ -367,6 +367,21 @@ class AdacppBackend:
                         )
                     polygons.append([self._xyz(p) for p in fb.bound.polygon])
             shape = self._cad.build_face_based_surface_model(polygons)
+        elif isinstance(g, (su.ShellBasedSurfaceModel, su.OpenShell, su.ClosedShell)):
+            # Sew the member faces into one shell handle. Each face is built through the
+            # AdvancedFace path; open shells (IfcShellBasedSurfaceModel) don't bound a
+            # volume, so sew_faces (BRepBuilderAPI_Sewing) is used rather than
+            # make_volumes_from_faces. Mirrors OccBackend's make_shell_from_shell_based_
+            # surface_geom / make_open_shell_from_geom.
+            from ada.geom import Geometry as _Geometry
+
+            boundary_shells = g.sbsm_boundary if isinstance(g, su.ShellBasedSurfaceModel) else [g]
+            face_handles = [
+                self.build(_Geometry(geometry.id, face)) for sh in boundary_shells for face in sh.cfs_faces
+            ]
+            if not face_handles:
+                raise NotImplementedError("AdacppBackend.build: shell model has no faces")
+            shape = self._cad.sew_faces(face_handles)
         elif isinstance(g, su.AdvancedFace):
             # B-spline (PlateCurved / loft-derived / SAT) faces. With bounds, the
             # surface is trimmed to the boundary wire(s) — each OrientedEdge with
