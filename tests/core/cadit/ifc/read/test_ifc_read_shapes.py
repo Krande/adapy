@@ -2,6 +2,17 @@ import ada
 from ada.geom.surfaces import AdvancedFace, OpenShell, ShellBasedSurfaceModel
 
 
+def _assert_renders(shape):
+    """Tessellate the shape's OCC body and assert it produces triangles. Both these
+    trimmed-surface bodies build a valid B-rep but used to grid to zero triangles until
+    the ShapeFix p-curve retry (and, for with_arc, the ShellBasedSurfaceModel builder)."""
+    from ada.occ.tessellating import BatchTessellator
+
+    ms = BatchTessellator().tessellate_occ_geom(shape.solid_occ(), shape.guid, shape.color)
+    assert ms is not None and ms.position is not None and len(ms.position) > 0
+    assert ms.indices is not None and len(ms.indices) > 0
+
+
 def test_import_arc_boundary(example_files, monkeypatch):
     monkeypatch.setenv("ADA_IFC_IMPORT_SHAPE_GEOM", "true")
     ada.config.Config().reload_config()
@@ -22,6 +33,8 @@ def test_import_arc_boundary(example_files, monkeypatch):
     assert isinstance(boundary, OpenShell)
     assert len(boundary.cfs_faces) == 4
 
+    _assert_renders(shape)
+
 
 def test_import_bspline_w_knots(example_files, monkeypatch, tmp_path):
     monkeypatch.setenv("ADA_IFC_IMPORT_SHAPE_GEOM", "true")
@@ -35,6 +48,8 @@ def test_import_bspline_w_knots(example_files, monkeypatch, tmp_path):
     geom = shape.geom
 
     assert isinstance(geom.geometry, AdvancedFace)
+
+    _assert_renders(shape)
 
     b = ada.Assembly()
     p = b.add_part(ada.Part("MyPart"))

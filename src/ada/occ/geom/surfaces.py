@@ -41,7 +41,7 @@ from OCC.Core.TColStd import (
 from OCC.Core.TopAbs import TopAbs_FACE, TopAbs_REVERSED
 from OCC.Core.TopExp import TopExp_Explorer
 from OCC.Core.TopLoc import TopLoc_Location
-from OCC.Core.TopoDS import TopoDS_Face, TopoDS_Shape, TopoDS_Shell
+from OCC.Core.TopoDS import TopoDS_Compound, TopoDS_Face, TopoDS_Shape, TopoDS_Shell
 
 from ada.config import Config, logger
 from ada.geom import curves as geo_cu
@@ -1070,12 +1070,11 @@ def make_surface_from_geom(face_surface):
         raise NotImplementedError(f"Surface type {type(face_surface)} is not implemented")
 
 
-def make_closed_shell_from_geom(shell: geo_su.ClosedShell) -> TopoDS_Shell:
-    builder = BRep_Builder()
-    occ_shell = TopoDS_Shell()
-    builder.MakeShell(occ_shell)
-
-    for cfs_face in shell.cfs_faces:
+def _add_cfs_faces_to_shell(builder: BRep_Builder, occ_shell: TopoDS_Shell, cfs_faces) -> None:
+    """Build each connected-face-set face (AdvancedFace / FaceSurface) and add it to
+    ``occ_shell``. Shared by the closed-shell, open-shell and shell-based-surface-model
+    builders — a face that can't be built is logged and skipped rather than aborting."""
+    for cfs_face in cfs_faces:
         # Handle AdvancedFace
         if type(cfs_face) is geo_su.AdvancedFace:
             try:
@@ -1139,10 +1138,39 @@ def make_closed_shell_from_geom(shell: geo_su.ClosedShell) -> TopoDS_Shell:
                 f"Face type {type(cfs_face)} is not implemented (supported: AdvancedFace, FaceSurface)"
             )
 
-    # Set the shell as closed
-    occ_shell.Closed(True)
 
+def make_closed_shell_from_geom(shell: geo_su.ClosedShell) -> TopoDS_Shell:
+    builder = BRep_Builder()
+    occ_shell = TopoDS_Shell()
+    builder.MakeShell(occ_shell)
+    _add_cfs_faces_to_shell(builder, occ_shell, shell.cfs_faces)
+    occ_shell.Closed(True)
     return occ_shell
+
+
+def make_open_shell_from_geom(shell: geo_su.OpenShell) -> TopoDS_Shell:
+    """Open (non-watertight) shell — a surface patch set, not a closed solid. Same face
+    construction as the closed shell, but left un-flagged so downstream code renders/exports
+    it as a surface rather than attempting solid operations on it."""
+    builder = BRep_Builder()
+    occ_shell = TopoDS_Shell()
+    builder.MakeShell(occ_shell)
+    _add_cfs_faces_to_shell(builder, occ_shell, shell.cfs_faces)
+    return occ_shell
+
+
+def make_shell_from_shell_based_surface_geom(sbsm: geo_su.ShellBasedSurfaceModel) -> TopoDS_Shape:
+    """Build an IfcShellBasedSurfaceModel — a set of open/closed shells — into a single OCC
+    compound of shells, so a multi-shell wall/cladding surface renders and exports."""
+    builder = BRep_Builder()
+    compound = TopoDS_Compound()
+    builder.MakeCompound(compound)
+    for boundary in sbsm.sbsm_boundary:
+        occ_shell = make_closed_shell_from_geom(boundary) if isinstance(boundary, geo_su.ClosedShell) else (
+            make_open_shell_from_geom(boundary)
+        )
+        builder.Add(compound, occ_shell)
+    return compound
 
 
 def make_face_from_curve(outer_curve: geo_cu.CURVE_GEOM_TYPES):

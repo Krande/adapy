@@ -254,6 +254,7 @@ croniter = "*"
 viewer-api = { cmd = "python -m ada.comms.rest", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 viewer-worker = { cmd = "python -m ada.comms.rest.worker", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 test-rest = { cmd = "pytest tests/comms/rest --durations=0", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
+ada = { cmd = "python -m ada_cli.main", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 audit-fetch = { cmd = "python scripts/audit_fetch.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 audit-repro = { cmd = "python scripts/audit_repro.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }
 viewer-upload = { cmd = "python scripts/viewer_upload.py", env = { "PYTHONPATH" = "$PIXI_PROJECT_ROOT/src" } }

@@ -63,6 +63,11 @@ class OCCStore:
             if geo_repr == GeomRepr.SOLID:
                 try:
                     occ_geom = obj_.solid_occ()
+                except NotImplementedError as e:
+                    # No renderable geometry on this shape — skip it rather than abort the
+                    # whole export (a geometry-less object should never be fatal).
+                    logger.warning(f"Skipping {getattr(obj_, 'name', obj_)!r} in STEP export: {e}")
+                    return None
                 except (RuntimeError, BaseException) as e:
                     exc = traceback.format_exc()
                     err_msg = f'Failed to add shape {obj.name} due to "{e}" from {name_ref} in {exc}'
@@ -73,6 +78,9 @@ class OCCStore:
             elif geo_repr == GeomRepr.SHELL:
                 try:
                     occ_geom = obj_.shell_occ()
+                except NotImplementedError as e:
+                    logger.warning(f"Skipping {getattr(obj_, 'name', obj_)!r} in STEP export: {e}")
+                    return None
                 except (RuntimeError, BaseException) as e:
                     exc = traceback.format_exc()
                     err_msg = f"Failed to create shell geometry for {obj.name} due to {e} from {name_ref} in {exc}"

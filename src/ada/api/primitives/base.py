@@ -160,7 +160,16 @@ class Shape(BackendGeom):
 
         if isinstance(
             self.geom.geometry,
-            (geo_su.AdvancedFace, geo_su.ClosedShell, geo_so.Box, geo_so.Sphere, geo_so.Cylinder, geo_so.Cone),
+            (
+                geo_su.AdvancedFace,
+                geo_su.ClosedShell,
+                geo_su.OpenShell,
+                geo_su.ShellBasedSurfaceModel,
+                geo_so.Box,
+                geo_so.Sphere,
+                geo_so.Cylinder,
+                geo_so.Cone,
+            ),
         ):
 
             self.geom.bool_operations = [BooleanOperation(x.primitive.solid_geom(), x.bool_op) for x in self.booleans]
