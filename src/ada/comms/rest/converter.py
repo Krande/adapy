@@ -624,6 +624,65 @@ def _export_with_ada(
     return out_path.read_bytes()
 
 
+def _model_beam_solids_glb(model) -> bytes:
+    """Tessellate every FEM line/beam element in ``model`` into solid (swept-profile)
+    geometry and return a beam-solids-only GLB (single node named ``beam_solids``), or
+    ``b""`` when there's nothing swept-able. This is the lazy sidecar the viewer fetches when
+    the FEM scene-menu "show beams as solid" toggle is on — beams ship as line geometry in the
+    main glb by default. Mirrors the FEA bake's try_solid_beams minus the warp sidecar (a
+    static design model has no per-step deformation)."""
+    import pathlib as _pl
+    import tempfile as _tf
+
+    from ada import Part
+    from ada.fem.formats.utils import line_elem_to_beam
+    from ada.fem.results.artefacts import tessellate_beams_to_solid_mesh, write_beam_solids_glb
+
+    beams: list = []
+    total = 0
+    extra_skip: dict[str, int] = {}
+    for p in model.get_all_parts_in_assembly(include_self=True):
+        fem = getattr(p, "fem", None)
+        if fem is None or len(fem.nodes) == 0:
+            continue
+        mesh = fem.to_mesh()
+        if not getattr(mesh, "sections", None) or mesh.elem_data is None:
+            continue
+        line_elems = mesh.get_line_elems()
+        total += len(line_elems)
+        dummy = Part(p.name or "solid_beams")
+        for elem in line_elems:
+            sec = elem.fem_sec.section if elem.fem_sec is not None else None
+            if sec is None:
+                extra_skip["no-section"] = extra_skip.get("no-section", 0) + 1
+                continue
+            if getattr(sec, "type", None) == "GENBEAM":
+                extra_skip["genbeam-no-profile"] = extra_skip.get("genbeam-no-profile", 0) + 1
+                continue
+            if elem.fem_sec.material is None:
+                extra_skip["no-material"] = extra_skip.get("no-material", 0) + 1
+                continue
+            beam = line_elem_to_beam(elem, dummy, "BM")
+            # n0/n1 indices feed only the warp sidecar (not emitted here); endpoint positions
+            # feed the (also-unused) axial-t. Placeholders keep the static glb build happy.
+            beams.append((beam, int(elem.id), 0, 0, elem.nodes[0].p, elem.nodes[-1].p))
+
+    if not beams:
+        return b""
+    sbm = tessellate_beams_to_solid_mesh(beams, extra_skip_reasons=extra_skip, total_beams=total)
+    if sbm is None:
+        return b""
+    out = _pl.Path(_tf.mkstemp(suffix=".glb")[1])
+    try:
+        write_beam_solids_glb(sbm, out)
+        return out.read_bytes()
+    finally:
+        try:
+            out.unlink()
+        except OSError:
+            pass
+
+
 def _via_ada(
     src_path: pathlib.Path,
     source_ext: str,
@@ -1264,6 +1323,18 @@ def convert(
     src_ext = _ext(source_key)
     if not src_ext:
         raise UnsupportedFormat(f"missing extension on key {source_key!r}")
+
+    # Beam-solids sidecar: a beam-solids-only GLB for the viewer's "show beams as solid"
+    # toggle. Not a registry pair — it loads the same model as the main glb job and emits
+    # only the swept-beam geometry (b"" when there are no swept-able beams). The worker fires
+    # this as a second convert for .inp/.fem -> glb jobs and stores it next to the main glb.
+    if fmt == "glb_beam_solids":
+        progress("parsing", 0.15)
+        model = _load_with_ada(src_path, src_ext)
+        progress("tessellating", 0.55)
+        data = _model_beam_solids_glb(model)
+        progress("ready", 1.0)
+        return data
 
     # Multi-file analysis bundle: unpack, then re-enter the registry
     # via the inner entry-point's extension. The recursion stops one
