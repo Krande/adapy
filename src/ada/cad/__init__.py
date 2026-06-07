@@ -216,11 +216,17 @@ class AdacppBackend:
         # parity with OccBackend. See dap plan/v3 Phase 7.
         import ada.geom.solids as so
         import ada.geom.surfaces as su
+        from ada.api.beams.geom_beams import parametric_profile_to_arbitrary
 
         g = geometry.geometry
 
         def _axis(d, default):
             return list(d) if d is not None else list(default)
+
+        def _arbitrary(area):
+            # Parametric profile defs (I/T/...) -> buildable arbitrary outline. Shared with
+            # the OCC backend; leaves ArbitraryProfileDef untouched.
+            return parametric_profile_to_arbitrary(area) if isinstance(area, su.ProfileDef) else area
 
         if isinstance(g, so.Box):
             p = g.position
@@ -244,8 +250,8 @@ class AdacppBackend:
             # Must precede ExtrudedAreaSolid (subclass). Loft between the start
             # and end profiles' outer wires — matches OccBackend's
             # make_extruded_area_shape_tapered_from_geom (ThruSections).
-            area = g.swept_area
-            end_area = g.end_swept_area
+            area = _arbitrary(g.swept_area)
+            end_area = _arbitrary(g.end_swept_area)
             if not isinstance(area, su.ArbitraryProfileDef) or not isinstance(end_area, su.ArbitraryProfileDef):
                 raise NotImplementedError(
                     f"AdacppBackend.build: ExtrudedAreaSolidTapered swept_area "
@@ -261,7 +267,7 @@ class AdacppBackend:
                 g.depth,
             )
         elif isinstance(g, so.ExtrudedAreaSolid):
-            area = g.swept_area
+            area = _arbitrary(g.swept_area)
             if not isinstance(area, su.ArbitraryProfileDef):
                 raise NotImplementedError(
                     f"AdacppBackend.build: ExtrudedAreaSolid swept_area {type(area).__name__!r} "
@@ -281,7 +287,7 @@ class AdacppBackend:
                 is_area,
             )
         elif isinstance(g, so.RevolvedAreaSolid):
-            area = g.swept_area
+            area = _arbitrary(g.swept_area)
             if not isinstance(area, su.ArbitraryProfileDef):
                 raise NotImplementedError(
                     f"AdacppBackend.build: RevolvedAreaSolid swept_area {type(area).__name__!r} "
@@ -303,7 +309,7 @@ class AdacppBackend:
                 is_area,
             )
         elif isinstance(g, so.FixedReferenceSweptAreaSolid):
-            area = g.swept_area
+            area = _arbitrary(g.swept_area)
             if not isinstance(area, su.ArbitraryProfileDef):
                 raise NotImplementedError(
                     f"AdacppBackend.build: FixedReferenceSweptAreaSolid swept_area "
@@ -317,6 +323,18 @@ class AdacppBackend:
                 directrix,
                 outer,
                 self._xyz(g.position.location),
+            )
+        elif isinstance(g, su.HalfSpaceSolid):
+            # Infinite half-space cutter (boolean second operand, e.g. an IFC
+            # IfcHalfSpaceSolid clipping a beam). ``flip`` selects which side is the solid
+            # material that DIFFERENCE removes; verified against OccBackend (apply_geom_
+            # booleans) by solid-volume parity on half_space_beam -> flip == agreement_flag.
+            plane = g.base_surface
+            pos = plane.position
+            shape = self._cad.make_halfspace(
+                self._xyz(pos.location),
+                _axis(pos.axis, (0, 0, 1)),
+                bool(g.agreement_flag),
             )
         elif isinstance(g, su.CurveBoundedPlane):
             import ada.geom.curves as cu

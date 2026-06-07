@@ -191,6 +191,45 @@ def section_to_arbitrary_profile_def_with_voids(section: Section, solid=True) ->
     return geo_su.ArbitraryProfileDef(profile_type, outer_curve, inner_curves, profile_name=section.name)
 
 
+def parametric_profile_to_arbitrary(area: geo_su.ProfileDef) -> geo_su.ArbitraryProfileDef:
+    """Convert a parametric profile def (I/T/...) to a buildable ArbitraryProfileDef.
+
+    Backend-neutral: reuses the Section -> section_to_arbitrary_profile_def_with_voids path
+    so both CAD backends get a concrete outline for profile types their generic extruded-
+    solid builders don't handle directly. ``ArbitraryProfileDef`` is returned unchanged.
+    """
+    from ada import Section
+
+    if isinstance(area, geo_su.ArbitraryProfileDef):
+        return area
+
+    solid = area.profile_type == geo_su.ProfileType.AREA
+    if isinstance(area, geo_su.IShapeProfileDef):
+        sec = Section(
+            name=getattr(area, "profile_name", None) or "I",
+            sec_type=Section.TYPES.IPROFILE,
+            h=area.overall_depth,
+            w_top=area.overall_width,
+            w_btn=area.overall_width,
+            t_w=area.web_thickness,
+            t_ftop=area.flange_thickness,
+            t_fbtn=area.flange_thickness,
+        )
+    elif isinstance(area, geo_su.TShapeProfileDef):
+        sec = Section(
+            name=getattr(area, "profile_name", None) or "T",
+            sec_type=Section.TYPES.TPROFILE,
+            h=area.depth,
+            w_top=area.flange_width,
+            t_w=area.web_thickness,
+            t_ftop=area.flange_thickness,
+        )
+    else:
+        raise NotImplementedError(f"Profile def {type(area).__name__} is not implemented")
+
+    return section_to_arbitrary_profile_def_with_voids(sec, solid=solid)
+
+
 def arbitrary_section_profile_taper_to_geom(beam: BeamTapered) -> Geometry:
     profile1 = section_to_arbitrary_profile_def_with_voids(beam.section)
     profile2 = section_to_arbitrary_profile_def_with_voids(beam.taper)

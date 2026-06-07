@@ -1182,44 +1182,13 @@ def make_face_from_curve(outer_curve: geo_cu.CURVE_GEOM_TYPES):
         raise NotImplementedError("Only IndexedPolyCurve is implemented")
 
 
-def _parametric_profile_to_arbitrary(area: geo_su.ProfileDef) -> geo_su.ArbitraryProfileDef:
-    """Reuse adapy's Section -> ArbitraryProfileDef machinery to give a buildable outline
-    for parametric profile defs (I/T/...) that the generic extruded-solid builder would
-    otherwise reject. Keeps the geom-level representation parametric — only the OCC build
-    converts."""
-    from ada.api.beams.geom_beams import section_to_arbitrary_profile_def_with_voids
-    from ada.sections import Section
-
-    if isinstance(area, geo_su.IShapeProfileDef):
-        sec = Section(
-            name=getattr(area, "profile_name", None) or "I",
-            sec_type=Section.TYPES.IPROFILE,
-            h=area.overall_depth,
-            w_top=area.overall_width,
-            w_btn=area.overall_width,
-            t_w=area.web_thickness,
-            t_ftop=area.flange_thickness,
-            t_fbtn=area.flange_thickness,
-        )
-    elif isinstance(area, geo_su.TShapeProfileDef):
-        sec = Section(
-            name=getattr(area, "profile_name", None) or "T",
-            sec_type=Section.TYPES.TPROFILE,
-            h=area.depth,
-            w_top=area.flange_width,
-            t_w=area.web_thickness,
-            t_ftop=area.flange_thickness,
-        )
-    else:
-        raise NotImplementedError(f"Profile def {type(area).__name__} is not implemented")
-
-    return section_to_arbitrary_profile_def_with_voids(sec, solid=area.profile_type == geo_su.ProfileType.AREA)
-
-
 def make_profile_from_geom(area: geo_su.ProfileDef) -> TopoDS_Shape | TopoDS_Face:
     if isinstance(area, geo_su.ProfileDef) and not isinstance(area, geo_su.ArbitraryProfileDef):
-        # Parametric profile (I/T/...) -> derive a buildable arbitrary outline.
-        area = _parametric_profile_to_arbitrary(area)
+        # Parametric profile (I/T/...) -> derive a buildable arbitrary outline (shared with
+        # the adacpp backend; keeps the geom-level representation parametric).
+        from ada.api.beams.geom_beams import parametric_profile_to_arbitrary
+
+        area = parametric_profile_to_arbitrary(area)
 
     if not isinstance(area, geo_su.ArbitraryProfileDef):
         raise NotImplementedError("Only ArbitraryProfileDefWithVoids is implemented")
