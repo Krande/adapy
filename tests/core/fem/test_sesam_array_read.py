@@ -65,3 +65,18 @@ def test_sesam_array_read_shell(tmp_path, _restore_flag):
     a = ada.Assembly("a") / p
     a.to_fem("m", fem_format="sesam", scratch_dir=tmp_path)
     _parity(tmp_path / "m" / "mT1.FEM")
+
+
+def test_gbeamg_general_section_with_none_properties():
+    """A GENERAL beam section often supplies only AREA/IX/IY/IZ; the derived GBEAMG fields
+    (section moduli, shear areas/centers, static moments) are None. The Sesam writer must
+    emit them as 0.0 (per the Input Interface File spec) rather than crashing format_data."""
+    from ada import Section
+    from ada.fem.formats.sesam.write.write_bm_profiles import general_beam
+    from ada.sections.categories import BaseTypes
+    from ada.sections.concept import GeneralProperties
+
+    genprops = GeneralProperties(Ax=0.01, Ix=1e-6, Iy=2e-6, Iz=3e-6)  # derived fields stay None
+    sec = Section("GEN1", sec_type=BaseTypes.GENERAL, genprops=genprops)
+    card = general_beam(sec, 1)
+    assert "GBEAMG" in card  # wrote without raising on the None-valued derived fields

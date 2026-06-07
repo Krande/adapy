@@ -8,13 +8,22 @@ from .write_utils import write_ff
 def general_beam(sec: Section, sec_id) -> str:
     p = sec.properties
     comp = 1 if p.modified else 0
+
+    # GENERAL sections often supply only AREA/IX/IY/IZ; the derived GBEAMG fields (product
+    # of inertia, section moduli, shear areas/centers, static moments) are then None. The
+    # Sesam Input Interface File spec (p.6-50) treats these as optional and SHARY/SHARZ = 0
+    # explicitly as "shear not included"; 0.0 is the correct default and doesn't affect the
+    # geometry. Coerce None -> 0.0 so the card writes instead of crashing format_data.
+    def z(v):
+        return 0.0 if v is None else v
+
     return write_ff(
         "GBEAMG",
         [
-            (sec_id, comp, p.Ax, p.Ix),
-            (p.Iy, p.Iz, p.Iyz, p.Wxmin),
-            (p.Wymin, p.Wzmin, p.Shary, p.Sharz),
-            (p.Shceny, p.Shcenz, p.Sy, p.Sz),
+            (sec_id, comp, z(p.Ax), z(p.Ix)),
+            (z(p.Iy), z(p.Iz), z(p.Iyz), z(p.Wxmin)),
+            (z(p.Wymin), z(p.Wzmin), z(p.Shary), z(p.Sharz)),
+            (z(p.Shceny), z(p.Shcenz), z(p.Sy), z(p.Sz)),
         ],
     )
 

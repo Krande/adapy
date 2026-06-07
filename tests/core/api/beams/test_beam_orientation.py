@@ -34,3 +34,21 @@ def test_beam_rotation_by_angle():
     # # Visual Check
     # p.to_stp(test_dir / "my_angle_rotated_profiles.stp")
     # a.to_ifc(test_dir / "my_angle_rotated_profiles.ifc")
+
+
+def test_vertical_beam_orientation_no_zero_vector():
+    """A vertical beam axis is parallel to the default Z up-vector, which used to collapse
+    the local y-axis to zero ('Cannot normalize a zero-length vector') — e.g. columns in
+    aba_col. compute_orientation_vec must return a valid orthonormal frame instead."""
+    import numpy as np
+
+    from ada.core.vector_transforms import compute_orientation_vec
+
+    for axis in [(0, 0, 1.0), (0, 0, -1.0)]:
+        xv, yv, zv = compute_orientation_vec(axis, None, None)
+        for v in (xv, yv, zv):
+            assert abs(np.linalg.norm(np.asarray(v, dtype=float)) - 1.0) < 1e-9
+        # mutually orthogonal
+        assert abs(float(np.dot(xv, yv))) < 1e-9
+        assert abs(float(np.dot(xv, zv))) < 1e-9
+        assert abs(float(np.dot(yv, zv))) < 1e-9
