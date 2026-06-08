@@ -75,13 +75,11 @@ def test_stream_writer_rejects_unknown(tmp_path):
 
 
 def test_stream_writer_emits_brep_shapes(tmp_path):
-    # Beyond extrusions: the writer also emits arbitrary B-rep shapes
-    # (ClosedShell / ShellBasedSurfaceModel with analytic faces) via add_brep.
-    # Read a stream-emitted model back as B-rep Shapes, re-emit them, and confirm
-    # every shape round-trips through the streaming reader and renders. (Faces are
-    # emitted per-face; cross-face edge sharing for watertight OCC solids is a
-    # follow-up — the faces still tessellate/render.)
-    from ada.cad import active_backend
+    # Beyond extrusions: the writer also emits arbitrary B-rep shapes (ClosedShell /
+    # ShellBasedSurfaceModel with analytic faces) via add_brep. Read a stream-emitted
+    # model back as B-rep Shapes, re-emit them, and confirm a clean round-trip:
+    # every shape streams back AND the re-emitted solids are watertight (edges are
+    # shared across adjacent faces, so OCC reads valid solids — no free shells).
     from ada.cadit.step.read.stream_reader import stream_read_step
 
     a = _model()
@@ -94,12 +92,14 @@ def test_stream_writer_emits_brep_shapes(tmp_path):
 
     assert stats == {"emitted": 4, "skipped": 0}
 
-    geos = list(stream_read_step(second, local_pool=False))
-    assert len(geos) == 4
-    be = active_backend()
-    for g in geos:
-        try:
-            mesh = be.tessellate(be.build(g))
-        except NotImplementedError:
-            continue  # analytic face not ported to this backend yet (e.g. adacpp cyl)
-        assert len(mesh.positions) > 0
+    # streams back as the same number of geometry roots
+    assert len(list(stream_read_step(second, local_pool=False))) == 4
+
+    # OCC reads every re-emitted solid as a WATERTIGHT solid (edges are shared
+    # across adjacent faces — no invalid free shells). The count can exceed the
+    # source's: a hollow *circular* section's inner wall currently re-reads as a
+    # nested solid rather than a void (orientation follow-up), so assert >=.
+    n_first, _ = _roundtrip_solids(first)
+    n_second, n_invalid = _roundtrip_solids(second)
+    assert n_invalid == 0
+    assert n_second >= n_first

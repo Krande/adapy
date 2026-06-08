@@ -468,17 +468,18 @@ class Ap242StreamWriter:
         import ada.geom.surfaces as su
 
         self._t = (float(translate[0]), float(translate[1]), float(translate[2]))
-        vcache: dict = {}
+        self._vcache: dict = {}  # coord -> VERTEX_POINT id (shared across all faces)
+        self._ecache: dict = {}  # topological-edge key -> (EDGE_CURVE id, v0, v1) for edge sharing
         nm = (name or "shape").replace("'", "''")
 
         if isinstance(g, su.ClosedShell):
-            faces = self._brep_faces(g.cfs_faces, vcache)
+            faces = self._brep_faces(g.cfs_faces)
             if faces is None:
                 return None
             shell = self._w(f"CLOSED_SHELL('',{self._refs(faces)})")
             item = self._w(f"MANIFOLD_SOLID_BREP('{nm}',#{shell})")
         elif isinstance(g, su.OpenShell):
-            faces = self._brep_faces(g.cfs_faces, vcache)
+            faces = self._brep_faces(g.cfs_faces)
             if faces is None:
                 return None
             shell = self._w(f"OPEN_SHELL('',{self._refs(faces)})")
@@ -486,7 +487,7 @@ class Ap242StreamWriter:
         elif isinstance(g, su.ShellBasedSurfaceModel):
             shell_ids = []
             for sh in g.sbsm_boundary:
-                faces = self._brep_faces(sh.cfs_faces, vcache)
+                faces = self._brep_faces(sh.cfs_faces)
                 if faces is None:
                     return None
                 kw = "CLOSED_SHELL" if isinstance(sh, su.ClosedShell) else "OPEN_SHELL"
@@ -495,7 +496,7 @@ class Ap242StreamWriter:
                 return None
             item = self._w(f"SHELL_BASED_SURFACE_MODEL('{nm}',{self._refs(shell_ids)})")
         elif isinstance(g, su.AdvancedFace):
-            faces = self._brep_faces([g], vcache)
+            faces = self._brep_faces([g])
             if faces is None:
                 return None
             shell = self._w(f"OPEN_SHELL('',{self._refs(faces)})")
@@ -511,16 +512,16 @@ class Ap242StreamWriter:
             self._solids.append(item)
         return item
 
-    def _brep_faces(self, faces, vcache):
+    def _brep_faces(self, faces):
         out = []
         for f in faces:
-            fid = self._brep_face(f, vcache)
+            fid = self._brep_face(f)
             if fid is None:
                 return None  # unsupported face -> abort the whole shape
             out.append(fid)
         return out or None
 
-    def _brep_face(self, face, vcache):
+    def _brep_face(self, face):
         import ada.geom.surfaces as su
 
         if not isinstance(face, su.AdvancedFace):
@@ -530,7 +531,7 @@ class Ap242StreamWriter:
             return None
         bounds = []
         for i, fb in enumerate(face.bounds):
-            loop = self._brep_loop(fb.bound, vcache)
+            loop = self._brep_loop(fb.bound)
             if loop is None:
                 return None
             kw = "FACE_OUTER_BOUND" if i == 0 else "FACE_BOUND"
@@ -560,16 +561,16 @@ class Ap242StreamWriter:
             return self._toroidal(loc, axis, ref, s.major_radius, s.minor_radius)
         return None  # B-spline / profile surfaces not yet emitted kernel-free
 
-    def _brep_loop(self, loop, vcache):
+    def _brep_loop(self, loop):
         import ada.geom.curves as cu
 
         if isinstance(loop, cu.EdgeLoop):
             oriented = []
             for oe in loop.edge_list:
-                eid = self._brep_edge(oe, vcache)
-                if eid is None:
+                oid = self._brep_oriented(oe)
+                if oid is None:
                     return None
-                oriented.append(self._oriented(eid, getattr(oe, "orientation", True)))
+                oriented.append(oid)
             return self._edge_loop(oriented) if oriented else None
         if isinstance(loop, cu.PolyLoop):
             pts = loop.polygon
@@ -578,44 +579,79 @@ class Ap242StreamWriter:
             oriented = []
             n = len(pts)
             for i in range(n):
-                p0, p1 = pts[i], pts[(i + 1) % n]
-                e = self._line_edge(self._vfor(p0, vcache), self._tp(p0), self._vfor(p1, vcache), self._tp(p1))
-                oriented.append(self._oriented(e, True))
+                a, b = pts[i], pts[(i + 1) % n]
+                va, vb = self._vfor(a), self._vfor(b)
+                pa, pb = self._tp(a), self._tp(b)
+                oriented.append(
+                    self._shared_oriented(va, vb, va, pa, vb, pb, "L", lambda v0, p0, v1, p1: self._line_edge(v0, p0, v1, p1))
+                )
             return self._edge_loop(oriented)
         return None
 
-    def _brep_edge(self, oe, vcache):
+    def _brep_oriented(self, oe):
+        """Emit one ORIENTED_EDGE, sharing the underlying EDGE_CURVE with any
+        adjacent face that already emitted the same topological edge — what makes
+        the shell a watertight solid OCC accepts (each edge bounds exactly 2 faces).
+        Returns the ORIENTED_EDGE id, or None for an unsupported edge geometry."""
         import ada.geom.curves as cu
 
         ec = getattr(oe, "edge_element", oe)
         if not isinstance(ec, cu.EdgeCurve):
             return None
         g = ec.edge_geometry
-        v0, p0 = self._vfor(ec.start, vcache), self._tp(ec.start)
-        v1, p1 = self._vfor(ec.end, vcache), self._tp(ec.end)
+        # The EDGE_CURVE is emitted once in ec.start->ec.end direction; the per-face
+        # ORIENTED_EDGE flag is computed from the loop's traversal (oe.start->oe.end).
         if isinstance(g, cu.Line):
-            return self._line_edge(v0, p0, v1, p1)
-        if isinstance(g, cu.Circle):
-            pos = g.position
-            return self._arc_edge(
-                v0, p0, v1, p1, self._tp(pos.location), _axis_or(pos.ref_direction, (1, 0, 0)),
-                g.radius, ec.same_sense, _axis_or(pos.axis, (0, 0, 1)),
-            )
-        if isinstance(g, cu.Ellipse):
-            pos = g.position
-            return self._ellipse_edge(
-                v0, v1, self._tp(pos.location), _axis_or(pos.ref_direction, (1, 0, 0)),
-                _axis_or(pos.axis, (0, 0, 1)), g.semi_axis1, g.semi_axis2, ec.same_sense,
-            )
-        return None  # B-spline edge -> unsupported
+            tag = "L"
 
-    def _vfor(self, p, vcache):
+            def emit(v0, p0, v1, p1):
+                return self._line_edge(v0, p0, v1, p1)
+        elif isinstance(g, cu.Circle):
+            tag = ("C", round(float(g.radius), 6))
+            pos = g.position
+
+            def emit(v0, p0, v1, p1):
+                return self._arc_edge(v0, p0, v1, p1, self._tp(pos.location),
+                                      _axis_or(pos.ref_direction, (1, 0, 0)), g.radius, ec.same_sense,
+                                      _axis_or(pos.axis, (0, 0, 1)))
+        elif isinstance(g, cu.Ellipse):
+            tag = ("E", round(float(g.semi_axis1), 6), round(float(g.semi_axis2), 6))
+            pos = g.position
+
+            def emit(v0, p0, v1, p1):
+                return self._ellipse_edge(v0, v1, self._tp(pos.location), _axis_or(pos.ref_direction, (1, 0, 0)),
+                                          _axis_or(pos.axis, (0, 0, 1)), g.semi_axis1, g.semi_axis2, ec.same_sense)
+        else:
+            return None  # B-spline edge -> unsupported
+
+        return self._shared_oriented(
+            self._vfor(oe.start), self._vfor(oe.end),  # loop traversal direction
+            self._vfor(ec.start), self._tp(ec.start), self._vfor(ec.end), self._tp(ec.end),  # EDGE_CURVE emit dir
+            tag, emit,
+        )
+
+    def _shared_oriented(self, t0, t1, e0, pe0, e1, pe1, tag, emit):
+        """Reuse (or emit once) the EDGE_CURVE for the e0->e1 edge and wrap it in an
+        ORIENTED_EDGE. ``(t0, t1)`` is how THIS loop walks the edge; the flag is .T.
+        iff that matches the EDGE_CURVE's emitted direction. ``emit(v0,p0,v1,p1)``
+        writes a fresh EDGE_CURVE in e0->e1 direction."""
+        key = (min(e0, e1), max(e0, e1), tag)
+        cached = self._ecache.get(key)
+        if cached is None:
+            edge_id = emit(e0, pe0, e1, pe1)
+            self._ecache[key] = (edge_id, e0, e1)
+            ev0, ev1 = e0, e1
+        else:
+            edge_id, ev0, ev1 = cached
+        return self._oriented(edge_id, t0 == ev0 and t1 == ev1)
+
+    def _vfor(self, p):
         tp = self._tp(p)
         key = (round(tp[0], 9), round(tp[1], 9), round(tp[2], 9))
-        vid = vcache.get(key)
+        vid = self._vcache.get(key)
         if vid is None:
             vid = self._vertex(self._pt(tp))
-            vcache[key] = vid
+            self._vcache[key] = vid
         return vid
 
     def _tp(self, p):
