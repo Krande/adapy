@@ -214,7 +214,13 @@ def get_fem_from_bulk_str(name, bulk_str, assembly: Assembly, instance_data: Ins
         fem.elements = get_elem_from_bulk_str(bulk_str, fem)
     fem.elements.build_sets()
 
-    fem.nodes.move(move=instance_data.transform.translation, rotate=instance_data.transform.rotation)
+    # Abaqus applies the instance translation first, then rotates about the axis (whose two
+    # points are given in the already-translated/global frame — here point1 equals the
+    # translation offset). nodes.move() rotates-then-translates, so do the two steps in order.
+    if instance_data.transform.translation is not None:
+        fem.nodes.move(move=instance_data.transform.translation)
+    if instance_data.transform.rotation is not None:
+        fem.nodes.move(rotate=instance_data.transform.rotation)
     fem.sets += get_sets_from_bulk(bulk_str, fem)
     fem.sections = get_sections_from_inp(bulk_str, fem)
     fem.bcs += get_bcs_from_bulk(bulk_str, fem)
@@ -427,9 +433,14 @@ def get_instance_data(inst_name, p_ref, inst_bulk) -> InstanceData:
                 # instance landed at the part origin). This matters once instances are merged.
                 transform.translation = (float(mo.group(1)), float(mo.group(2)), float(mo.group(3)))
             if j == 1:
+                # Abaqus *Instance rotation line: a, b, c, d, e, f, angle — two points
+                # (a,b,c) and (d,e,f) defining the axis, plus the angle. The axis DIRECTION is
+                # point2 - point1; using point2 directly (a position ~1000 units off) rotated
+                # the instance about a bogus far axis, severely distorting + flinging it.
                 r = [float(x) for x in mo.group(3).split(",")]
-                origin = (float(mo.group(1)), float(mo.group(2)), r[0])
-                vector = (r[1], r[2], r[3])
+                x1, y1, z1 = float(mo.group(1)), float(mo.group(2)), r[0]
+                origin = (x1, y1, z1)
+                vector = (r[1] - x1, r[2] - y1, r[3] - z1)
                 angle = r[4]
                 transform.rotation = Rotation(origin, vector, angle)
 
