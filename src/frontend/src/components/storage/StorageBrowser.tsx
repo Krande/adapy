@@ -332,6 +332,12 @@ const StorageBrowser: React.FC = () => {
         title: string;
         onPick: (folder: string) => Promise<void> | void;
     } | null>(null);
+    // Download a stored blob with auth (REST mode). The suggested filename is the
+    // key's basename so nested keys don't save as "a/b/c.ifc".
+    const onDownloadFile = (key: string) => {
+        void viewerApi.downloadBlob(scopeKey, key, key.split("/").pop() ?? key);
+    };
+
     const onMoveSingleToFolder = (key: string) => {
         setPicker({
             title: `Move "${key}" to folder`,
@@ -692,6 +698,7 @@ const StorageBrowser: React.FC = () => {
                                                 onLongPress={toggleSelection}
                                                 onSelectToggle={toggleSelection}
                                                 onMoveToFolder={isAdmin ? onMoveSingleToFolder : undefined}
+                                                onDownload={runtime.isRestMode() ? onDownloadFile : undefined}
                                             />
                                         );
                                     }
@@ -741,6 +748,7 @@ const StorageBrowser: React.FC = () => {
                                     selection={selection}
                                     onLongPress={toggleSelection}
                                     onSelectToggle={toggleSelection}
+                                    onDownload={runtime.isRestMode() ? onDownloadFile : undefined}
                                 />
                             )}
                         </div>
@@ -867,13 +875,12 @@ const FolderRow: React.FC<FolderRowProps> = ({
             aria-label={`${expanded ? "Collapse" : "Expand"} folder ${folder.name}`}
         >
             {/* Chevron — single right-pointing icon rotated 90° on
-                expand. text-blue-300 picks up the same accent the
-                row's loaded-state and progress bar use, so the
-                affordance reads as part of the toolbar palette
-                rather than a stray gray triangle. */}
+                expand. text-blue-600 matches the progress bar accent
+                AND stays legible on the panel's light (bg-gray-400/50)
+                background, where the lighter blue-300 washed out. */}
             <ChevronRightIcon
                 className={
-                    "shrink-0 text-blue-300 transition-transform duration-150 " +
+                    "shrink-0 text-blue-600 transition-transform duration-150 " +
                     (expanded ? "rotate-90" : "")
                 }
             />
@@ -881,9 +888,9 @@ const FolderRow: React.FC<FolderRowProps> = ({
                 Same blue tone so eye + chevron read as one
                 composite control. */}
             {expanded ? (
-                <FolderOpenIcon className="shrink-0 text-blue-300"/>
+                <FolderOpenIcon className="shrink-0 text-blue-600"/>
             ) : (
-                <FolderClosedIcon className="shrink-0 text-blue-300"/>
+                <FolderClosedIcon className="shrink-0 text-blue-600"/>
             )}
             <span className="text-xs flex-1 min-w-0 truncate font-semibold">
                 {folder.name}/
@@ -936,8 +943,11 @@ interface FileRowProps {
     onLongPress: (name: string) => void;
     onSelectToggle: (name: string) => void;
     /** Admin-only: when present, the kebab on this row offers a
-     * "Move to folder…" item. Non-admins get no kebab. */
+     * "Move to folder…" item. */
     onMoveToFolder?: (key: string) => void;
+    /** When present (REST mode), the kebab offers a "Download" item that
+     * fetches the stored blob with auth and saves it. Available to any user. */
+    onDownload?: (key: string) => void;
 }
 
 const FileRow: React.FC<FileRowProps> = ({
@@ -956,6 +966,7 @@ const FileRow: React.FC<FileRowProps> = ({
     onLongPress,
     onSelectToggle,
     onMoveToFolder,
+    onDownload,
 }) => {
     const isViewing = viewingName === f.name;
     const otherViewing = viewingName !== null && !isViewing;
@@ -1131,17 +1142,22 @@ const FileRow: React.FC<FileRowProps> = ({
                         toggle checkbox now opens the streaming session
                         with defaults, and field / reduction / step
                         live in SimulationControls. */}
-                    {!selectionMode && onMoveToFolder && (
+                    {!selectionMode && (onMoveToFolder || onDownload) && (
                         <span onClick={(e) => e.stopPropagation()}>
                             <RowKebabMenu
-                                ariaLabel={`Organize ${displayName}`}
+                                ariaLabel={`Actions for ${displayName}`}
                                 buttonClassName="h-7 w-7 text-gray-200 hover:bg-gray-300/30"
                                 items={[
-                                    {
+                                    ...(onDownload ? [{
+                                        key: "download",
+                                        label: "Download",
+                                        onClick: () => onDownload(f.name),
+                                    }] : []),
+                                    ...(onMoveToFolder ? [{
                                         key: "move-to-folder",
                                         label: "Move to folder…",
                                         onClick: () => onMoveToFolder(f.name),
-                                    },
+                                    }] : []),
                                 ]}
                             />
                         </span>
@@ -1196,6 +1212,7 @@ interface VersionsTreeProps {
     selection: Set<string>;
     onLongPress: (name: string) => void;
     onSelectToggle: (name: string) => void;
+    onDownload?: (key: string) => void;
 }
 
 const VersionsTree: React.FC<VersionsTreeProps> = (props) => {
@@ -1348,6 +1365,7 @@ const VersionsTree: React.FC<VersionsTreeProps> = (props) => {
                                                                 isSelected={props.selection.has(leaf.file.name)}
                                                                 onLongPress={props.onLongPress}
                                                                 onSelectToggle={props.onSelectToggle}
+                                                                onDownload={props.onDownload}
                                                             />
                                                         ))}
                                                     </ul>
