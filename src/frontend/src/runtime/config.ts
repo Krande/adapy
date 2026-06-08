@@ -74,6 +74,10 @@ declare global {
         WEBSOCKET_PORT?: number | string;
         TARGET_INSTANCE_ID?: number | string;
         UNIQUE_VERSION_ID?: number;
+        // adapy package version (server-injected via config.js) + the frontend bundle's git
+        // sha (build-time, embed-script.cjs). Shown in the Options panel.
+        ADAPY_VERSION?: string;
+        FRONTEND_SHA?: string;
         NODE_EDITOR_ONLY?: boolean;
         DEACTIVATE_WS?: boolean;
         B64GLTF?: string;
@@ -156,6 +160,8 @@ export const runtime = {
 
     // Build / host metadata
     uniqueVersionId: (): number => Number(w().UNIQUE_VERSION_ID ?? 0),
+    adapyVersion: (): string => (w().ADAPY_VERSION || "").trim(),
+    frontendSha: (): string => (w().FRONTEND_SHA || "").trim(),
     nodeEditorOnly: (): boolean => Boolean(w().NODE_EDITOR_ONLY),
     inJupyter: (): boolean => Boolean(w().Jupyter),
     jupyter: (): any => w().Jupyter,

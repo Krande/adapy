@@ -21,10 +21,27 @@ const outputDir = '../ada/visit/rendering/resources';
 const SCRIPT_TAG_REGEX = /<script type="module" crossorigin src="(\.?\/assets\/(index-[^"]+\.js))"><\/script>/;
 const LINK_TAG_REGEX = /<link rel="stylesheet" crossorigin href="(\.?\/assets\/(index-[^"]+\.css))">/;
 
+function frontendSha() {
+    // Short git sha of the frontend at build time, shown in the viewer Options panel so a
+    // deployed bundle is traceable to a commit. Best-effort: empty string outside a git tree.
+    try {
+        const sha = require('child_process')
+            .execSync('git rev-parse --short HEAD', {cwd: __dirname, stdio: ['ignore', 'pipe', 'ignore']})
+            .toString().trim();
+        const dirty = require('child_process')
+            .execSync('git status --porcelain', {cwd: __dirname, stdio: ['ignore', 'pipe', 'ignore']})
+            .toString().trim().length > 0;
+        return dirty ? `${sha}-dirty` : sha;
+    } catch (_e) {
+        return '';
+    }
+}
+
 function replacePlaceholderWithTimestamp(content) {
     const timestamp = Date.now();
+    const sha = frontendSha();
     return content.replace(/<!--UNIQUE_VERSION_PLACEHOLDER-->/g,
-        `<script>window.UNIQUE_VERSION_ID = ${timestamp};</script>`);
+        `<script>window.UNIQUE_VERSION_ID = ${timestamp}; window.FRONTEND_SHA = ${JSON.stringify(sha)};</script>`);
 }
 
 let htmlContent = fs.readFileSync(htmlFilePath, 'utf8');

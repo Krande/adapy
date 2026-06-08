@@ -4402,6 +4402,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         streaming_only_exts = sorted(e for e in extra_source_exts if e not in LEGACY_CONVERT_EXTS)
         conversion_matrix = await _worker_advertised_conversions()
 
+        try:
+            from importlib.metadata import version as _pkg_version
+
+            adapy_version = _pkg_version("ada-py-core")
+        except Exception:  # noqa: BLE001 — version is display-only
+            try:
+                import ada as _ada
+
+                adapy_version = getattr(_ada, "__version__", "") or ""
+            except Exception:  # noqa: BLE001
+                adapy_version = ""
+
         a = settings.auth
         body = (
             'window.COMMS_MODE = "rest";\n'
@@ -4413,6 +4425,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             f"window.AUTH_AUDIENCE = {_json.dumps(a.audience)};\n"
             f"window.VIEWER_IMAGE_TAG = {_json.dumps(viewer_tag)};\n"
             f"window.WORKER_IMAGE_TAG = {_json.dumps(worker_tag)};\n"
+            f"window.ADAPY_VERSION = {_json.dumps(adapy_version)};\n"
             f"window.EXTRA_SOURCE_EXTS = {_json.dumps(extra_source_exts)};\n"
             f"window.STREAMING_ONLY_EXTS = {_json.dumps(streaming_only_exts)};\n"
             f"window.CONVERSION_MATRIX = {_json.dumps(conversion_matrix)};\n"

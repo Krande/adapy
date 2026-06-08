@@ -53,9 +53,25 @@ function OptionsComponent() {
     const setIsOptionsVisible = useOptionsStore((s) => s.setIsOptionsVisible);
 
     const unique_version_id = runtime.uniqueVersionId();
+    const adapy_version = runtime.adapyVersion();
+    const frontend_sha = runtime.frontendSha();
     const viewer_image_tag = runtime.viewerImageTag();
     const worker_image_tag = runtime.workerImageTag();
     const show_image_tags = runtime.isRestMode() && (viewer_image_tag || worker_image_tag);
+
+    // adapy package version (server) + frontend bundle sha (build-time), with the build id as
+    // a fallback line so there's always something to identify the build.
+    const versionInfo = (
+        <div className="text-xs text-gray-300 space-y-0.5">
+            {adapy_version && (
+                <div>adapy: <span className="font-mono">{adapy_version}</span></div>
+            )}
+            {frontend_sha && (
+                <div>frontend: <span className="font-mono">{frontend_sha}</span></div>
+            )}
+            <div>Build: <span className="font-mono">{unique_version_id}</span></div>
+        </div>
+    );
 
     useEffect(() => {
         const mq = window.matchMedia(MOBILE_QUERY);
@@ -118,7 +134,7 @@ function OptionsComponent() {
                     </button>
                 </div>
                 <div className="flex-1 overflow-y-auto p-4 flex flex-col space-y-4">
-                    <div className="text-xs text-gray-300">Version: {unique_version_id}</div>
+                    {versionInfo}
                     {show_image_tags && (
                         <div className="text-xs text-gray-300 space-y-0.5">
                             {viewer_image_tag && (
@@ -144,7 +160,7 @@ function OptionsComponent() {
             className="bg-gray-400 bg-opacity-50 rounded-sm p-2 min-w-80 max-w-sm text-white text-sm space-y-3 max-h-[70vh] overflow-y-auto"
         >
             <h2 className="font-bold">Options</h2>
-            <div className="text-xs text-gray-300">Version: {unique_version_id}</div>
+            {versionInfo}
             {show_image_tags && (
                 <div className="text-xs text-gray-300 space-y-0.5">
                     {viewer_image_tag && (
