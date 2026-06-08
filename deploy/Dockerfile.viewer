@@ -73,6 +73,10 @@ ENV SSL_CERT_FILE=/env/ssl/cert.pem \
 COPY deploy/viewer-ada-init.py /app/src/ada/__init__.py
 COPY src/ada/config.py /app/src/ada/config.py
 COPY src/ada/comms/ /app/src/ada/comms/
+# pyproject.toml is the single source of truth for the version. The viewer copies adapy source
+# (no installed-dist metadata) and a stripped ada/__init__ (no __version__), so config.js reads
+# the version from here for window.ADAPY_VERSION (see _resolve_adapy_version).
+COPY pyproject.toml /app/pyproject.toml
 
 # ada.sections subset — required by /api/components/profiles. Only the
 # stdlib-only files (categories + profile_lookup + the ProfileDB.json

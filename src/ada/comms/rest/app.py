@@ -76,6 +76,50 @@ def _content_encoding_for(key: str) -> str | None:
     return "gzip" if pathlib.PurePosixPath(key).suffix.lower() in _GZIP_UPLOAD_EXTS else None
 
 
+_ADAPY_VERSION: str | None = None
+
+
+def _resolve_adapy_version() -> str:
+    """adapy version for the viewer's config.js (window.ADAPY_VERSION). Resolved once.
+
+    The viewer image copies adapy *source* (no installed-distribution metadata) and runs a
+    stripped ``ada/__init__`` (no ``__version__``), so neither ``importlib.metadata`` nor
+    ``ada.__version__`` resolves there. Fall back to the shipped ``pyproject.toml`` — the single
+    source of truth. Order: explicit env, a real install's ``ada.__version__``, then pyproject.
+    """
+    global _ADAPY_VERSION
+    if _ADAPY_VERSION is not None:
+        return _ADAPY_VERSION
+
+    import re
+
+    version = (os.environ.get("ADAPY_VERSION") or "").strip()
+    if not version:
+        try:
+            import ada as _ada
+
+            v = (getattr(_ada, "__version__", "") or "").strip()
+            if v and v != "0.0.0":
+                version = v
+        except Exception:  # noqa: BLE001 — version is display-only
+            pass
+    if not version:
+        here = pathlib.Path(__file__).resolve()
+        for base in (pathlib.Path("/app"), *here.parents):
+            pp = base / "pyproject.toml"
+            try:
+                if pp.is_file():
+                    m = re.search(r'(?m)^version\s*=\s*["\']([^"\']+)["\']', pp.read_text(encoding="utf-8"))
+                    if m:
+                        version = m.group(1)
+                        break
+            except Exception:  # noqa: BLE001
+                pass
+
+    _ADAPY_VERSION = version
+    return version
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or load_settings()
     storage = Storage.from_settings(settings)
@@ -4402,12 +4446,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         streaming_only_exts = sorted(e for e in extra_source_exts if e not in LEGACY_CONVERT_EXTS)
         conversion_matrix = await _worker_advertised_conversions()
 
-        try:
-            import ada as _ada
-
-            adapy_version = getattr(_ada, "__version__", "") or ""
-        except Exception:  # noqa: BLE001 — version is display-only
-            adapy_version = ""
+        adapy_version = _resolve_adapy_version()
 
         a = settings.auth
         body = (
