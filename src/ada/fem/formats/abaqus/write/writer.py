@@ -27,9 +27,20 @@ __all__ = ["to_fem"]
 
 
 def to_fem(
-    assembly: Assembly, name, analysis_dir=None, metadata=None, writable_obj: StringIO = None, model_data_only=False
+    assembly: Assembly,
+    name,
+    analysis_dir=None,
+    metadata=None,
+    writable_obj: StringIO = None,
+    model_data_only=False,
+    bundle: bool = True,
 ):
-    """Build the Abaqus Analysis input deck"""
+    """Build the Abaqus Analysis input deck.
+
+    ``bundle`` (default True) inlines the ``*INCLUDE`` chain into a single self-contained
+    ``<name>.inp`` and removes the ``bulk_*/`` + ``core_input_files/`` sub-trees, so the deck is
+    one portable file. Pass ``bundle=False`` (or ``metadata={"abaqus_multifile": True}``) to keep
+    the legacy multi-file layout."""
 
     # Write part bulk files
     write_all_parts(assembly, analysis_dir)
@@ -108,5 +119,12 @@ def to_fem(
     # Analysis steps
     for step_in in afem.steps:
         write_step(step_in, analysis_dir)
+
+    # Default: collapse the *INCLUDE chain into a single self-contained <name>.inp so the deck
+    # is one portable file (a lone copy of the multi-file main .inp can't resolve its includes).
+    if bundle and not (metadata or {}).get("abaqus_multifile", False):
+        from .bundle import bundle_deck
+
+        bundle_deck(analysis_dir, name)
 
     print(f'Created an Abaqus input deck at "{analysis_dir}"')

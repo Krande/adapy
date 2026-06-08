@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react';
 
 // @ts-ignore
 import path from 'path';
+import {versionInjectPlugin} from './version-plugin';
 
 export default defineConfig({
     root: path.resolve(__dirname, 'src'), // Set the root directory to 'src'
@@ -13,7 +14,7 @@ export default defineConfig({
     // ./StorageBrowser-*.js against the page URL `/`, missing the
     // `/assets/` prefix where the chunks actually live → 404 + blank page.
     base: '/',
-    plugins: [react() ],// , visualizer({open: true, gzipSize: true, brotliSize: true})],
+    plugins: [react(), versionInjectPlugin()],// , visualizer({open: true, gzipSize: true, brotliSize: true})],
     resolve: {
         alias: {
             "@": path.resolve(__dirname, 'src'),

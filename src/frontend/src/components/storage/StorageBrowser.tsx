@@ -50,6 +50,10 @@ function isFEAResult(name: string): boolean {
 function isStreamingFEAResult(name: string): boolean {
     const lower = name.toLowerCase();
     if (lower.endsWith(".sif") || lower.endsWith(".sin") || lower.endsWith(".rmed")) return true;
+    // Design-model FEM meshes now load through the same streaming bake (mesh + beam-solids,
+    // clickable + tree), so FE-mesh viewing is one path. They stay legacy-convertible on the
+    // /convert page (like .sif).
+    if (lower.endsWith(".inp") || lower.endsWith(".fem") || lower.endsWith(".med")) return true;
     for (const e of runtime.streamingOnlyExts()) {
         const norm = e.startsWith(".") ? e.toLowerCase() : `.${e.toLowerCase()}`;
         if (lower.endsWith(norm)) return true;

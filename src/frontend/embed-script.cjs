@@ -21,11 +21,10 @@ const outputDir = '../ada/visit/rendering/resources';
 const SCRIPT_TAG_REGEX = /<script type="module" crossorigin src="(\.?\/assets\/(index-[^"]+\.js))"><\/script>/;
 const LINK_TAG_REGEX = /<link rel="stylesheet" crossorigin href="(\.?\/assets\/(index-[^"]+\.css))">/;
 
-function replacePlaceholderWithTimestamp(content) {
-    const timestamp = Date.now();
-    return content.replace(/<!--UNIQUE_VERSION_PLACEHOLDER-->/g,
-        `<script>window.UNIQUE_VERSION_ID = ${timestamp};</script>`);
-}
+// NOTE: the <!--UNIQUE_VERSION_PLACEHOLDER--> (build id + frontend sha) is replaced by the
+// shared `versionInjectPlugin` during `vite build` (version-plugin.ts), so it's injected for
+// every config — including the cloud `build:serve` path that never runs this script. By the
+// time we read dist/index.html here it's already substituted; nothing to do for versioning.
 
 let htmlContent = fs.readFileSync(htmlFilePath, 'utf8');
 
@@ -55,7 +54,6 @@ function escapeScriptClosers(content) {
     return content.replace(/<\/(script|style)/gi, '<\\/$1');
 }
 
-htmlContent = replacePlaceholderWithTimestamp(htmlContent);
 // Use the function form of replace so `$1`, `$2`, `$&` in the inlined
 // JS / CSS aren't interpreted as backreferences to the matched script
 // or link tag's capture groups. Minified user code (regex helpers,

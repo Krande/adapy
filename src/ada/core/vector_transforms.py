@@ -424,6 +424,18 @@ def compute_orientation_vec(
             xvec = Direction([1.0, 0.0, 0.0])
         yvec = Direction(calc_yvec(xvec, zvec))
 
+    # A reference up-vector parallel to the beam axis (e.g. a vertical column whose default
+    # or supplied Z-up coincides with its axis) collapses the in-plane axis to a zero
+    # vector. Whenever the beam axis is known and the derived yvec degenerated, rebuild the
+    # frame from a non-parallel global reference so normalization doesn't blow up.
+    if xvec is not None and (yvec is None or float(np.linalg.norm(np.asarray(yvec, dtype=float))) < 1e-9):
+        xref = Direction(xvec)
+        zref = Direction([0.0, 0.0, 1.0])
+        if xref.is_parallel(zref):
+            zref = Direction([0.0, 1.0, 0.0])
+        yvec = Direction(calc_yvec(xref, zref))
+        zvec = Direction(calc_zvec(xref, yvec))
+
     # Normalize vectors
     xvec = xvec.get_normalized()
     yvec = yvec.get_normalized()

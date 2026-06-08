@@ -216,11 +216,17 @@ class AdacppBackend:
         # parity with OccBackend. See dap plan/v3 Phase 7.
         import ada.geom.solids as so
         import ada.geom.surfaces as su
+        from ada.api.beams.geom_beams import parametric_profile_to_arbitrary
 
         g = geometry.geometry
 
         def _axis(d, default):
             return list(d) if d is not None else list(default)
+
+        def _arbitrary(area):
+            # Parametric profile defs (I/T/...) -> buildable arbitrary outline. Shared with
+            # the OCC backend; leaves ArbitraryProfileDef untouched.
+            return parametric_profile_to_arbitrary(area) if isinstance(area, su.ProfileDef) else area
 
         if isinstance(g, so.Box):
             p = g.position
@@ -244,8 +250,8 @@ class AdacppBackend:
             # Must precede ExtrudedAreaSolid (subclass). Loft between the start
             # and end profiles' outer wires — matches OccBackend's
             # make_extruded_area_shape_tapered_from_geom (ThruSections).
-            area = g.swept_area
-            end_area = g.end_swept_area
+            area = _arbitrary(g.swept_area)
+            end_area = _arbitrary(g.end_swept_area)
             if not isinstance(area, su.ArbitraryProfileDef) or not isinstance(end_area, su.ArbitraryProfileDef):
                 raise NotImplementedError(
                     f"AdacppBackend.build: ExtrudedAreaSolidTapered swept_area "
@@ -261,7 +267,7 @@ class AdacppBackend:
                 g.depth,
             )
         elif isinstance(g, so.ExtrudedAreaSolid):
-            area = g.swept_area
+            area = _arbitrary(g.swept_area)
             if not isinstance(area, su.ArbitraryProfileDef):
                 raise NotImplementedError(
                     f"AdacppBackend.build: ExtrudedAreaSolid swept_area {type(area).__name__!r} "
@@ -281,7 +287,7 @@ class AdacppBackend:
                 is_area,
             )
         elif isinstance(g, so.RevolvedAreaSolid):
-            area = g.swept_area
+            area = _arbitrary(g.swept_area)
             if not isinstance(area, su.ArbitraryProfileDef):
                 raise NotImplementedError(
                     f"AdacppBackend.build: RevolvedAreaSolid swept_area {type(area).__name__!r} "
@@ -303,7 +309,7 @@ class AdacppBackend:
                 is_area,
             )
         elif isinstance(g, so.FixedReferenceSweptAreaSolid):
-            area = g.swept_area
+            area = _arbitrary(g.swept_area)
             if not isinstance(area, su.ArbitraryProfileDef):
                 raise NotImplementedError(
                     f"AdacppBackend.build: FixedReferenceSweptAreaSolid swept_area "
@@ -317,6 +323,18 @@ class AdacppBackend:
                 directrix,
                 outer,
                 self._xyz(g.position.location),
+            )
+        elif isinstance(g, su.HalfSpaceSolid):
+            # Infinite half-space cutter (boolean second operand, e.g. an IFC
+            # IfcHalfSpaceSolid clipping a beam). ``flip`` selects which side is the solid
+            # material that DIFFERENCE removes; verified against OccBackend (apply_geom_
+            # booleans) by solid-volume parity on half_space_beam -> flip == agreement_flag.
+            plane = g.base_surface
+            pos = plane.position
+            shape = self._cad.make_halfspace(
+                self._xyz(pos.location),
+                _axis(pos.axis, (0, 0, 1)),
+                bool(g.agreement_flag),
             )
         elif isinstance(g, su.CurveBoundedPlane):
             import ada.geom.curves as cu
@@ -349,6 +367,19 @@ class AdacppBackend:
                         )
                     polygons.append([self._xyz(p) for p in fb.bound.polygon])
             shape = self._cad.build_face_based_surface_model(polygons)
+        elif isinstance(g, (su.ShellBasedSurfaceModel, su.OpenShell, su.ClosedShell)):
+            # Sew the member faces into one shell handle. Each face is built through the
+            # AdvancedFace path; open shells (IfcShellBasedSurfaceModel) don't bound a
+            # volume, so sew_faces (BRepBuilderAPI_Sewing) is used rather than
+            # make_volumes_from_faces. Mirrors OccBackend's make_shell_from_shell_based_
+            # surface_geom / make_open_shell_from_geom.
+            from ada.geom import Geometry as _Geometry
+
+            boundary_shells = g.sbsm_boundary if isinstance(g, su.ShellBasedSurfaceModel) else [g]
+            face_handles = [self.build(_Geometry(geometry.id, face)) for sh in boundary_shells for face in sh.cfs_faces]
+            if not face_handles:
+                raise NotImplementedError("AdacppBackend.build: shell model has no faces")
+            shape = self._cad.sew_faces(face_handles)
         elif isinstance(g, su.AdvancedFace):
             # B-spline (PlateCurved / loft-derived / SAT) faces. With bounds, the
             # surface is trimmed to the boundary wire(s) — each OrientedEdge with
@@ -356,28 +387,40 @@ class AdacppBackend:
             # SAT-pcurve path of OccBackend.make_face_from_geom). Without bounds,
             # the natural-UV face. Analytic surfaces aren't ported yet.
             surf = g.face_surface
-            if not isinstance(surf, su.BSplineSurfaceWithKnots):
+            if isinstance(surf, su.Plane) and g.bounds:
+                # Planar AdvancedFace (flat SAT/IFC plates): plane inferred from the boundary
+                # wire. The bspline boundary edge now carries start/end so it's trimmed to the
+                # real segment (see _encode_oriented_edge), giving a correctly-bounded face.
+                pos = surf.position
+                shape = self._cad.build_advanced_face_planar(
+                    self._xyz(pos.location),
+                    _axis(pos.axis, (0, 0, 1)),
+                    _axis(pos.ref_direction, (1, 0, 0)),
+                    [self._encode_face_bound(fb) for fb in g.bounds],
+                )
+            elif not isinstance(surf, su.BSplineSurfaceWithKnots):
                 raise NotImplementedError(
                     f"AdacppBackend.build: AdvancedFace surface {type(surf).__name__!r} "
-                    "not yet ported to adacpp (only BSplineSurfaceWithKnots)."
+                    "not yet ported to adacpp (only BSplineSurfaceWithKnots / Plane)."
                 )
-            cps = [[self._xyz(p) for p in row] for row in surf.control_points_list]
-            weights = list(surf.weights_data) if isinstance(surf, su.RationalBSplineSurfaceWithKnots) else []
-            surf_args = (
-                surf.u_degree,
-                surf.v_degree,
-                cps,
-                list(surf.u_knots),
-                list(surf.v_knots),
-                list(surf.u_multiplicities),
-                list(surf.v_multiplicities),
-                weights,
-            )
-            if g.bounds:
-                bounds = [self._encode_face_bound(fb) for fb in g.bounds]
-                shape = self._cad.build_advanced_face_bspline(*surf_args, bounds)
             else:
-                shape = self._cad.build_bspline_surface_face(*surf_args)
+                cps = [[self._xyz(p) for p in row] for row in surf.control_points_list]
+                weights = list(surf.weights_data) if isinstance(surf, su.RationalBSplineSurfaceWithKnots) else []
+                surf_args = (
+                    surf.u_degree,
+                    surf.v_degree,
+                    cps,
+                    list(surf.u_knots),
+                    list(surf.v_knots),
+                    list(surf.u_multiplicities),
+                    list(surf.v_multiplicities),
+                    weights,
+                )
+                if g.bounds:
+                    bounds = [self._encode_face_bound(fb) for fb in g.bounds]
+                    shape = self._cad.build_advanced_face_bspline(*surf_args, bounds)
+                else:
+                    shape = self._cad.build_bspline_surface_face(*surf_args)
         elif isinstance(g, su.WireFilledFace):
             # Interpolate a smooth surface through the boundary edges
             # (BRepOffsetAPI_MakeFilling) — the SAT exppc fallback face.
@@ -471,6 +514,11 @@ class AdacppBackend:
                 1.0 if has_trim else 0.0,
                 float(t_start or 0.0),
                 float(t_end or 0.0),
+                # start/end points: when the edge carries no parametric trim, the curve is a
+                # full b-spline and these points define the segment to keep — adacpp trims by
+                # projecting them onto the curve (mirrors OccBackend.make_edge_from_edge).
+                *start,
+                *end,
                 float(len(poles)),
             ]
             for p in poles:

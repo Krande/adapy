@@ -132,6 +132,13 @@ class FemSet(FemBase):
     def __getitem__(self, index):
         return self.members[index]
 
+    def __iter__(self):
+        # Resolve the member list ONCE per iteration. Without this, ``for x in fem_set`` falls
+        # back to __getitem__(0), __getitem__(1), … and the ``members`` property re-resolves the
+        # entire (id-backed) list on every index — O(N^2) per set, which dominated large MED
+        # exports.
+        return iter(self.members)
+
     def __add__(self, other: FemSet) -> FemSet:
         self.add_members(other.members)
         return self

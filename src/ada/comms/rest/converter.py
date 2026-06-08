@@ -359,7 +359,12 @@ _STREAMING_FEA_EXTS: frozenset[str] = frozenset({".rmed"})
 # module — it transitively pulls ada.fem.results.common which the
 # image doesn't carry. Keep both in sync; there's no shared parent
 # module both can import.
-FEA_ARTEFACT_SOURCE_EXTS: frozenset[str] = frozenset({".rmed", ".sif", ".sin"})
+FEA_ARTEFACT_SOURCE_EXTS: frozenset[str] = frozenset(
+    # .inp/.fem/.med are design-model FEM meshes — they bake through the same streaming path
+    # (mesh + beam-solids, no result fields) so FE-mesh viewing has a single pipeline. They
+    # remain legacy-convertible (ifc/xml/step/…) on the /convert page, like .sif.
+    {".rmed", ".sif", ".sin", ".inp", ".fem", ".med"}
+)
 
 # Union of source extensions the legacy /convert pipeline knows how
 # to handle (any target). Computed at the bottom of this module from
@@ -606,6 +611,9 @@ def _export_with_ada(
 
             merge_env = (_os.environ.get("ADA_GLB_MERGE_MESHES") or "").strip().lower()
             merge_meshes = merge_env not in {"0", "false", "no", "off"}
+        # FEM beam (line) elements render as line geometry by default; the solid (swept-
+        # profile) representation is delivered as a separate beam_solids sidecar the viewer
+        # lazy-loads when the "show beams as solid" toggle is on (mirrors the FEA-results path).
         model.to_gltf(buf, merge_meshes=merge_meshes)
         on_progress("ready", 1.0)
         return buf.getvalue()

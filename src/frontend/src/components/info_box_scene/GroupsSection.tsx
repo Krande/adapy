@@ -64,7 +64,11 @@ const GroupsSection = () => {
                 }
             }
 
-            setAvailableGroups(groups);
+            // Only overwrite when the ADA extension actually yielded groups. Streaming FEM/FEA
+            // models carry no ADA_EXT — their groups are pushed straight into this store by
+            // load_fea_streaming — so an empty collection here must NOT clobber them (the panel
+            // can mount after the model loads). Unload clears the store explicitly.
+            if (groups.length > 0) setAvailableGroups(groups);
         };
 
         collectGroups();

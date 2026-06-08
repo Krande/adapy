@@ -700,6 +700,13 @@ class FEAResultStreamAdapter:
         self._geom: MeshGeometry | None = None
         self._field_specs: list[FieldSpec] | None = None
         self._elem_field_specs: list[ElementFieldSpec] | None = None
+        # Optional FEA input concepts (masses / BCs / load scenarios) as a manifest-shaped
+        # dict. SIF/SIN leave this None; the FEM reader (_make_fem_reader) scrapes it from the
+        # deck so the Scene > FEM panel can draw the glyph overlay.
+        self._fem_concepts: dict | None = None
+        # Optional FEM node/element sets as manifest group dicts ({name, members, fe_object_type}).
+        # Populated by the FEM reader so the Scene > FEM groups picker works for design models.
+        self._groups: list[dict] | None = None
 
         # Remap real node IDs → 0-based point indices. ElementBlock
         # stores arbitrary-id node references (1-based for RMED,
@@ -707,6 +714,12 @@ class FEAResultStreamAdapter:
         # 0-based indices into the points array.
         ids = result.mesh.nodes.identifiers
         self._nmap = {int(x): i for i, x in enumerate(ids)}
+
+    def try_fem_concepts(self) -> dict | None:
+        return self._fem_concepts
+
+    def try_groups(self) -> list[dict] | None:
+        return self._groups
 
     # ----- protocol -------------------------------------------------------
 
@@ -1754,6 +1767,7 @@ def build_manifest(
     history: "HistoryRecords | None" = None,
     lineage: dict | None = None,
     fem_concepts: dict | None = None,
+    groups: list[dict] | None = None,
     legacy_glb_url_template: str | None = None,
 ) -> dict:
     """Compose the manifest dict from the bake outputs.
@@ -1990,6 +2004,10 @@ def build_manifest(
     # FemConceptsController overlay.
     if fem_concepts:
         manifest["fem_concepts"] = fem_concepts
+    # FEM node/element sets, for the Scene > FEM groups picker (the streaming mesh.glb carries
+    # no ADA_EXT, so the frontend feeds these into useSceneInfoStore directly).
+    if groups:
+        manifest["groups"] = groups
     if legacy_glb_url_template is not None:
         manifest["legacy_glb"] = {"url_template": legacy_glb_url_template}
     return manifest
@@ -2111,6 +2129,85 @@ def _make_sin_reader(path: pathlib.Path) -> "FEAStreamReader":
     return FEAResultStreamAdapter(read_sin_file(path))
 
 
+def _make_fem_reader(path: pathlib.Path) -> "FEAStreamReader":
+    """Stream-reader for a results-less FEM mesh (.inp / .fem).
+
+    A design-model FEM deck is a mesh with no solver results. Reading it through the same
+    streaming-artefact pipeline as real results (mesh + edges + beam-solids, just an empty
+    fields list) is what unifies FE-mesh visualisation onto one path. Multipart decks are
+    merged first; ``FEM.to_mesh()`` supplies the section/material tables the beam-solid
+    tessellation needs.
+    """
+    import ada
+    from ada.fem.concat import concatenate_fem_meshes
+    from ada.fem.results.common import ElementBlock, FEAResult
+
+    assembly = ada.from_fem(path)
+    parts = [
+        p for p in assembly.get_all_parts_in_assembly(include_self=True) if p.fem is not None and len(p.fem.nodes) > 0
+    ]
+    if not parts:
+        raise ValueError(f"no FEM mesh found in {path}")
+
+    # Non-destructive merge: keep each part's FEM in the assembly tree (concepts are scraped
+    # from the un-merged assembly below) while producing one merged Mesh for the viewer.
+    # FEM.to_mesh() per part supplies the section/material tables the beam-solid path needs.
+    mesh, part_offsets = concatenate_fem_meshes(parts)
+    # to_elem_blocks() emits row-index node_refs (array-substrate convention); the adapter +
+    # geometry/field readers expect node IDs (they remap id->index). Convert once here.
+    ids = mesh.nodes.identifiers
+    rebuilt: list[ElementBlock] = []
+    for b in mesh.elements:
+        if b.node_refs_are_indices:
+            nref = ids[np.asarray(b.node_refs)]
+            rebuilt.append(ElementBlock(b.elem_info, nref, b.identifiers, node_refs_are_indices=False))
+        else:
+            rebuilt.append(b)
+    mesh.elements = rebuilt
+    result = FEAResult(name=parts[0].fem.name or path.stem, software="adapy", results=[], mesh=mesh)
+    reader = FEAResultStreamAdapter(result)
+    # Scrape FEA input concepts (masses / BCs / load scenarios) so the Scene > FEM panel can
+    # draw the glyph overlay. Built from the (intact) assembly — positions are coordinates.
+    try:
+        from ada.extension.fem_concepts_builder import build_combined_fem_concepts
+
+        fc = build_combined_fem_concepts(assembly)
+        if fc is not None:
+            reader._fem_concepts = fc.model_dump(mode="json", exclude_none=True)
+    except Exception as e:  # noqa: BLE001 — concepts are best-effort decoration
+        from ada.config import get_logger
+
+        get_logger().debug("FEM bake: fem_concepts scrape failed: %s", e)
+
+    # Scrape each part's node/element sets into manifest groups for the Scene > FEM groups picker
+    # (the streaming mesh.glb carries no ADA_EXT). Member ids carry the same per-part offset as
+    # the merged mesh so EL{id}/P{id} resolve against the AFEM element ranges. Multi-part set
+    # names are prefixed with the part name to disambiguate.
+    try:
+        groups: list[dict] = []
+        multipart = len(parts) > 1
+        for p, (nid_off, elid_off) in zip(parts, part_offsets):
+            for fset in p.fem.sets:
+                is_nset = fset.type == fset.TYPES.NSET
+                off = nid_off if is_nset else elid_off
+                prefix = "P" if is_nset else "EL"
+                mids = getattr(fset, "_member_ids", None)
+                if mids is None:
+                    mids = [m.id for m in fset.members if getattr(m, "id", None) is not None]
+                members = [f"{prefix}{int(i) + off}" for i in mids]
+                if members:
+                    name = f"{p.name}_{fset.name}" if multipart else fset.name
+                    groups.append(
+                        {"name": name, "members": members, "fe_object_type": "node" if is_nset else "element"}
+                    )
+        reader._groups = groups or None
+    except Exception as e:  # noqa: BLE001 — groups are best-effort decoration
+        from ada.config import get_logger
+
+        get_logger().debug("FEM bake: groups scrape failed: %s", e)
+    return reader
+
+
 def _ensure_builtin_stream_readers() -> None:
     if getattr(_ensure_builtin_stream_readers, "_done", False):
         return
@@ -2118,6 +2215,12 @@ def _ensure_builtin_stream_readers() -> None:
     _STREAM_READERS.setdefault(".rmed", _make_rmed_reader)
     _STREAM_READERS.setdefault(".sif", _make_sif_reader)
     _STREAM_READERS.setdefault(".sin", _make_sin_reader)
+    # Design-model FEM meshes flow through the same streaming bake (mesh + beam-solids, no
+    # result fields) so FE-mesh visualisation has a single path. (.rmed keeps its native
+    # results streamer above; plain .med is a mesh-only deck read via from_fem.)
+    _STREAM_READERS.setdefault(".inp", _make_fem_reader)
+    _STREAM_READERS.setdefault(".fem", _make_fem_reader)
+    _STREAM_READERS.setdefault(".med", _make_fem_reader)
     _ensure_builtin_stream_readers._done = True  # type: ignore[attr-defined]
 
 
@@ -2332,6 +2435,13 @@ def bake_artefacts(
     except (AttributeError, NotImplementedError):
         fem_concepts = None
 
+    # FEM node/element sets -> manifest groups (Scene > FEM groups picker). Readers without the
+    # method (SIF/SIN/RMED) contribute nothing.
+    try:
+        groups = reader.try_groups()
+    except (AttributeError, NotImplementedError):
+        groups = None
+
     manifest = build_manifest(
         src=src,
         mesh_geom=geom,
@@ -2354,6 +2464,7 @@ def bake_artefacts(
         beam_solids_skip_reasons=(solid_beams.skip_reasons if solid_beams is not None else None),
         lineage=lineage,
         fem_concepts=fem_concepts,
+        groups=groups,
         legacy_glb_url_template=legacy_glb_url_template,
     )
     manifest_path = out_dir / "fea.manifest.json"

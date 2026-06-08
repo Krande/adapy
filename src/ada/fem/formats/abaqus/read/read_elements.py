@@ -27,6 +27,17 @@ if TYPE_CHECKING:
 _re_in = re.IGNORECASE | re.MULTILINE | re.DOTALL
 
 
+def _parse_int_grid(text: str) -> np.ndarray:
+    """Flat int array from an Abaqus element-data block, tolerant of line continuations.
+
+    An element whose connectivity is too long for one line continues on the next (the data
+    line ends in a comma): ``10, 11, 12, 18,\\n17``. Naively swapping newlines for commas
+    yields a ``,,`` and breaks ``np.fromstring``. Splitting on any run of commas/whitespace
+    and dropping empties parses both the one-line and continued forms."""
+    toks = [t for t in re.split(r"[,\s]+", text.strip()) if t]
+    return np.array(toks, dtype=int)
+
+
 def get_elem_from_bulk_str(bulk_str, fem: "FEM") -> FemElements:
     """Read and import all *Element flags"""
     elements = FemElements(
@@ -72,7 +83,7 @@ def grab_elements(match, fem: "FEM"):
             )
         else:
             ntext = d["members"]
-        res = np.fromstring(ntext.replace("\n", ","), sep=",", dtype=int)
+        res = _parse_int_grid(ntext)
         n = ShapeResolver.get_el_nodes_from_type(ada_el_type) + 1
         return numpy_array_to_list_of_elements(res.reshape(int(res.size / n), n), eltype, elset, ada_el_type, fem)
     else:
@@ -119,7 +130,7 @@ def get_elem_arrays(bulk_str: str):
             )
         else:
             ntext = members
-        res = np.fromstring(ntext.replace("\n", ","), sep=",", dtype=int)
+        res = _parse_int_grid(ntext)
         n = ShapeResolver.get_el_nodes_from_type(ada_el_type) + 1
         res2d = res.reshape(int(res.size / n), n)
         ids, conns, elsets = by_type[ada_el_type]

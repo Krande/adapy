@@ -1174,14 +1174,18 @@ class Part(BackendGeom):
         stream_from_ifc=False,
         embed_object_metadata: bool = True,
         params: RenderParams = None,
+        solid_beams: bool = False,
     ):
         if params is None:
+            from ada.visit.render_params import FEARenderParams
+
             params = RenderParams(
                 stream_from_ifc_store=stream_from_ifc,
                 merge_meshes=merge_meshes,
                 render_override=render_override,
                 filter_by_guids=filter_by_guids,
                 embed_object_metadata=embed_object_metadata,
+                fea_params=FEARenderParams(solid_beams=solid_beams),
             )
 
         converter = SceneConverter(self, params)

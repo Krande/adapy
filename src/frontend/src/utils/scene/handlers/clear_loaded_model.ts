@@ -1,6 +1,7 @@
 import {useModelState} from "@/state/modelState";
 import {useAnimationStore} from "@/state/animationStore";
 import {useTreeViewStore} from "@/state/treeViewStore";
+import {useSceneInfoStore} from "@/state/sceneInfoStore";
 import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
 import {animationControllerRef, modelKeyMapRef, sceneRef, simulationDataRef} from "@/state/refs";
 import {clearActiveFeaStreaming} from "./load_fea_streaming";
@@ -24,6 +25,7 @@ export async function clear_loaded_model(): Promise<void> {
     animationControllerRef.current?.clear();
 
     useTreeViewStore.getState().clearTreeData();
+    useSceneInfoStore.getState().setAvailableGroups([]); // drop streamed FEM/FEA groups
     useModelState.getState().translation = null;
 
     const three_scene = sceneRef.current;

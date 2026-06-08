@@ -4,7 +4,6 @@ from ada import FEM, Beam, Section
 from ada.config import logger
 from ada.core.utils import Counter, make_name_fem_ready
 from ada.fem import FemSection
-from ada.fem.exceptions.element_support import IncompatibleElements
 
 from .write_utils import write_ff
 
@@ -100,8 +99,12 @@ def create_line_section(fem_sec: FemSection, sec_names: list[str], sec_ids: list
     return ConceptSection(sec_str=sec_str, names_str=names_str)
 
 
-def create_solid_section(fem_sec: FemSection):
-    raise IncompatibleElements(f"Solid element type {fem_sec.type} is not yet supported for writing to Sesam")
+def create_solid_section(fem_sec: FemSection) -> str:
+    # Solid elements (HEXA/TETRA/PENTA) carry no geometric cross-section, so there is no
+    # section record to emit — unlike a shell (GELTH thickness) or a beam (profile). The
+    # element binds to its material via GELREF1's ``matno`` field (write_elem sets ``geono``
+    # to 0 for solids). Nothing to write here.
+    return ""
 
 
 def create_sconcept_str(fem_sec: FemSection) -> ConceptStructure:

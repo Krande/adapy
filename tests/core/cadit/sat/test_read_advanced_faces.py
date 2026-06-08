@@ -215,3 +215,32 @@ def test_read_plate_3_curved(example_files, tmp_path):
     a = ada.Assembly() / (shp1,)
 
     a.to_ifc(tmp_path / "plate_3_curved.ifc", validate=True)
+
+
+def test_flat_sat_plate_renders_via_wire_fill(example_files):
+    """A flat SAT plate is a planar AdvancedFace whose boundary mixes a b-spline edge that
+    yields no valid p-curve on the plane — the trimmed face collapses to zero area and used
+    to render empty. make_closed_shell_from_geom now falls back to filling the boundary wire
+    when the trimmed face is degenerate, so the plate tessellates.
+
+    Runs on both backends: adacpp builds the planar AdvancedFace via
+    build_advanced_face_planar (plane inferred from the wire; the bspline boundary edge is
+    point-trimmed). Older adacpp builds lacking it skip."""
+    import pytest
+
+    import ada
+    from ada.cad import active_backend
+    from ada.occ.tessellating import BatchTessellator
+
+    backend = active_backend()
+    if backend.name == "adacpp" and not hasattr(getattr(backend, "_cad", None), "build_advanced_face_planar"):
+        pytest.skip("adacpp build in this env predates build_advanced_face_planar")
+
+    a = ada.from_acis(example_files / "sat_files/plate_1_flat.sat")
+    objects = list(a.get_all_physical_objects())
+    assert len(objects) == 1
+    shape = objects[0]
+
+    ms = BatchTessellator().tessellate_occ_geom(shape.solid_occ(), shape.guid, shape.color)
+    assert ms is not None and ms.position is not None and len(ms.position) > 0
+    assert ms.indices is not None and len(ms.indices) > 0

@@ -41,7 +41,7 @@ from OCC.Core.TColStd import (
 from OCC.Core.TopAbs import TopAbs_FACE, TopAbs_REVERSED
 from OCC.Core.TopExp import TopExp_Explorer
 from OCC.Core.TopLoc import TopLoc_Location
-from OCC.Core.TopoDS import TopoDS_Face, TopoDS_Shape, TopoDS_Shell
+from OCC.Core.TopoDS import TopoDS_Compound, TopoDS_Face, TopoDS_Shape, TopoDS_Shell
 
 from ada.config import Config, logger
 from ada.geom import curves as geo_cu
@@ -1070,12 +1070,25 @@ def make_surface_from_geom(face_surface):
         raise NotImplementedError(f"Surface type {type(face_surface)} is not implemented")
 
 
-def make_closed_shell_from_geom(shell: geo_su.ClosedShell) -> TopoDS_Shell:
-    builder = BRep_Builder()
-    occ_shell = TopoDS_Shell()
-    builder.MakeShell(occ_shell)
+def _face_area(shape) -> float:
+    """Surface area of an OCC shape (0.0 if it can't be measured). Used to detect a
+    trimmed face that collapsed to nothing."""
+    from OCC.Core.BRepGProp import brepgprop
+    from OCC.Core.GProp import GProp_GProps
 
-    for cfs_face in shell.cfs_faces:
+    try:
+        props = GProp_GProps()
+        brepgprop.SurfaceProperties(shape, props)
+        return abs(props.Mass())
+    except Exception:
+        return 0.0
+
+
+def _add_cfs_faces_to_shell(builder: BRep_Builder, occ_shell: TopoDS_Shell, cfs_faces) -> None:
+    """Build each connected-face-set face (AdvancedFace / FaceSurface) and add it to
+    ``occ_shell``. Shared by the closed-shell, open-shell and shell-based-surface-model
+    builders — a face that can't be built is logged and skipped rather than aborting."""
+    for cfs_face in cfs_faces:
         # Handle AdvancedFace
         if type(cfs_face) is geo_su.AdvancedFace:
             try:
@@ -1098,6 +1111,20 @@ def make_closed_shell_from_geom(shell: geo_su.ClosedShell) -> TopoDS_Shell:
                     continue
 
                 face = face_maker.Face()
+
+                # A trimmed surface can collapse to zero area even when MakeFace reports
+                # "done" — e.g. a planar SAT plate whose boundary mixes a b-spline edge that
+                # yields no valid p-curve on the plane, so the face has no interior and
+                # BRepMesh grids nothing. Fall back to filling the boundary wire directly
+                # (the WireFilledFace path), which reconstructs a real surface from the same
+                # closed wire.
+                if _face_area(face) <= 1e-9:
+                    try:
+                        filled = make_face_from_wire_filled(geo_su.WireFilledFace(bounds=cfs_face.bounds))
+                        if _face_area(filled) > 1e-9:
+                            face = filled
+                    except Exception as ex:
+                        logger.debug("AdvancedFace wire-fill fallback failed: %s", ex)
 
                 # Update the face tolerance
                 builder.UpdateFace(face, 1e-6)
@@ -1139,10 +1166,41 @@ def make_closed_shell_from_geom(shell: geo_su.ClosedShell) -> TopoDS_Shell:
                 f"Face type {type(cfs_face)} is not implemented (supported: AdvancedFace, FaceSurface)"
             )
 
-    # Set the shell as closed
-    occ_shell.Closed(True)
 
+def make_closed_shell_from_geom(shell: geo_su.ClosedShell) -> TopoDS_Shell:
+    builder = BRep_Builder()
+    occ_shell = TopoDS_Shell()
+    builder.MakeShell(occ_shell)
+    _add_cfs_faces_to_shell(builder, occ_shell, shell.cfs_faces)
+    occ_shell.Closed(True)
     return occ_shell
+
+
+def make_open_shell_from_geom(shell: geo_su.OpenShell) -> TopoDS_Shell:
+    """Open (non-watertight) shell — a surface patch set, not a closed solid. Same face
+    construction as the closed shell, but left un-flagged so downstream code renders/exports
+    it as a surface rather than attempting solid operations on it."""
+    builder = BRep_Builder()
+    occ_shell = TopoDS_Shell()
+    builder.MakeShell(occ_shell)
+    _add_cfs_faces_to_shell(builder, occ_shell, shell.cfs_faces)
+    return occ_shell
+
+
+def make_shell_from_shell_based_surface_geom(sbsm: geo_su.ShellBasedSurfaceModel) -> TopoDS_Shape:
+    """Build an IfcShellBasedSurfaceModel — a set of open/closed shells — into a single OCC
+    compound of shells, so a multi-shell wall/cladding surface renders and exports."""
+    builder = BRep_Builder()
+    compound = TopoDS_Compound()
+    builder.MakeCompound(compound)
+    for boundary in sbsm.sbsm_boundary:
+        occ_shell = (
+            make_closed_shell_from_geom(boundary)
+            if isinstance(boundary, geo_su.ClosedShell)
+            else (make_open_shell_from_geom(boundary))
+        )
+        builder.Add(compound, occ_shell)
+    return compound
 
 
 def make_face_from_curve(outer_curve: geo_cu.CURVE_GEOM_TYPES):
@@ -1155,6 +1213,13 @@ def make_face_from_curve(outer_curve: geo_cu.CURVE_GEOM_TYPES):
 
 
 def make_profile_from_geom(area: geo_su.ProfileDef) -> TopoDS_Shape | TopoDS_Face:
+    if isinstance(area, geo_su.ProfileDef) and not isinstance(area, geo_su.ArbitraryProfileDef):
+        # Parametric profile (I/T/...) -> derive a buildable arbitrary outline (shared with
+        # the adacpp backend; keeps the geom-level representation parametric).
+        from ada.api.beams.geom_beams import parametric_profile_to_arbitrary
+
+        area = parametric_profile_to_arbitrary(area)
+
     if not isinstance(area, geo_su.ArbitraryProfileDef):
         raise NotImplementedError("Only ArbitraryProfileDefWithVoids is implemented")
 

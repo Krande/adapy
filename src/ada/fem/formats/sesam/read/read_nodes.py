@@ -31,9 +31,10 @@ def get_nodes_arrays(bulk_str: str) -> tuple[np.ndarray, np.ndarray]:
     return coords, node_ids
 
 
-def renumber_nodes(bulk_str: str, fem: "FEM") -> None:
+def renumber_nodes(bulk_str: str, fem: "FEM") -> dict[int, int]:
     node_map = {nodeno: nodex for nodex, nodeno in map(get_nodeno, cards.GNODE.to_ff_re().finditer(bulk_str))}
     fem.nodes.renumber(renumber_map=node_map)
+    return node_map
 
 
 def get_nodeno(m_gnod):

@@ -53,9 +53,27 @@ function OptionsComponent() {
     const setIsOptionsVisible = useOptionsStore((s) => s.setIsOptionsVisible);
 
     const unique_version_id = runtime.uniqueVersionId();
+    const adapy_version = runtime.adapyVersion();
+    const frontend_sha = runtime.frontendSha();
     const viewer_image_tag = runtime.viewerImageTag();
     const worker_image_tag = runtime.workerImageTag();
     const show_image_tags = runtime.isRestMode() && (viewer_image_tag || worker_image_tag);
+
+    // Build line: adapy package version (from config.js) + commit sha, e.g. "0.15.0 (43ae2883)".
+    // The sha is the frontend build-time git sha when present, else the deployed image's sha tag
+    // (VIEWER_IMAGE_TAG = "sha-XXXXXXX" on branch builds — the hosted viewer copies source, so the
+    // build-time git sha is unavailable there). Falls back to the numeric build id as a last resort.
+    const sha = frontend_sha || (viewer_image_tag.startsWith("sha-") ? viewer_image_tag.slice(4) : "");
+    const build_label = adapy_version
+        ? sha
+            ? `${adapy_version} (${sha})`
+            : adapy_version
+        : sha || String(unique_version_id);
+    const versionInfo = (
+        <div className="text-xs text-gray-300">
+            Build: <span className="font-mono">{build_label}</span>
+        </div>
+    );
 
     useEffect(() => {
         const mq = window.matchMedia(MOBILE_QUERY);
@@ -118,7 +136,7 @@ function OptionsComponent() {
                     </button>
                 </div>
                 <div className="flex-1 overflow-y-auto p-4 flex flex-col space-y-4">
-                    <div className="text-xs text-gray-300">Version: {unique_version_id}</div>
+                    {versionInfo}
                     {show_image_tags && (
                         <div className="text-xs text-gray-300 space-y-0.5">
                             {viewer_image_tag && (
@@ -144,7 +162,7 @@ function OptionsComponent() {
             className="bg-gray-400 bg-opacity-50 rounded-sm p-2 min-w-80 max-w-sm text-white text-sm space-y-3 max-h-[70vh] overflow-y-auto"
         >
             <h2 className="font-bold">Options</h2>
-            <div className="text-xs text-gray-300">Version: {unique_version_id}</div>
+            {versionInfo}
             {show_image_tags && (
                 <div className="text-xs text-gray-300 space-y-0.5">
                     {viewer_image_tag && (

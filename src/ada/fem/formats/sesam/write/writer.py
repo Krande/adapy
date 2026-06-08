@@ -32,6 +32,13 @@ def to_fem(assembly, name, analysis_dir=None, metadata=None, model_data_only=Fal
         metadata["control_file"] = None
 
     parts = list(filter(lambda x: len(x.fem.nodes) > 0, assembly.get_all_subparts(include_self=True)))
+    if len(parts) > 1:
+        # Multi-instance model -> concatenate into one FEM (renumbered ids, instance-prefixed
+        # set names) so the single-part Sesam writer can emit it.
+        from ada.fem.concat import concatenate_fem_to_single_part
+
+        concatenate_fem_to_single_part(assembly)
+        parts = list(filter(lambda x: len(x.fem.nodes) > 0, assembly.get_all_subparts(include_self=True)))
     if len(parts) != 1:
         raise DoesNotSupportMultiPart(
             f"Sesam writer currently only works for a single part. Currently found {len(parts)}"

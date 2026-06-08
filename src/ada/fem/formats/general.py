@@ -172,7 +172,21 @@ def write_to_fem(
         if fem_exporter is None:
             raise ValueError(f'FEM export for "{fem_format}" using "{fem_converter}" is currently not supported')
 
-        fem_exporter(assembly, name, analysis_dir, metadata, model_data_only)
+        # Multi-instance models: the single-part writers (Sesam/MED/Genie) need one merged FEM.
+        # Build a TEMPORARY single-part assembly from a non-destructive merge and export that,
+        # so the caller's assembly tree (and its per-part FEMs) is never mutated.
+        write_assembly = assembly
+        fem_parts = [p for p in assembly.get_all_parts_in_assembly(include_self=True) if len(p.fem.nodes) > 0]
+        if len(fem_parts) > 1:
+            from ada import Assembly
+            from ada.fem.concat import concatenate_fem_to_single_part
+
+            merged_part = concatenate_fem_to_single_part(assembly)
+            write_assembly = Assembly(assembly.name, units=assembly.units)
+            write_assembly.add_part(merged_part)
+            write_assembly.fem.steps = assembly.fem.steps  # carry analysis steps for the writer
+
+        fem_exporter(write_assembly, name, analysis_dir, metadata, model_data_only)
 
         if make_zip_file is True:
             import shutil

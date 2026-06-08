@@ -476,9 +476,11 @@ function snapshotBasePositions(geometry: THREE.BufferGeometry): Float32Array {
 export async function load_fea_streaming(args: {
     sourceName: string;
     manifest: FeaManifest;
-    fieldName: string;
+    /** null = field-less mesh (design-model FEM): load mesh + beam-solids only, no result
+     *  coloring / warp / step animation. */
+    fieldName: string | null;
     stepIndex: number;
-    reduction: string;
+    reduction: string | null;
     displacementScale?: number;
     /** Colormap ID — one of the keys in ``COLORMAPS``. Optional so
      * existing call-sites that don't care still work; we fall back to
@@ -516,14 +518,18 @@ export async function load_fea_streaming(args: {
             "load_fea_streaming: manifest is missing or has no fields array",
         );
     }
-    const field = manifest.fields.find((f) => f.name_canonical === fieldName);
-    if (!field) {
-        throw new Error(`field ${fieldName!} not found in manifest`);
-    }
-    if (stepIndex < 0 || stepIndex >= field.n_steps) {
-        throw new Error(
-            `step index ${stepIndex} out of range (0..${field.n_steps - 1})`,
-        );
+    // fieldName == null is the field-less mesh path (design-model FEM): no field to resolve.
+    const field =
+        fieldName == null ? null : manifest.fields.find((f) => f.name_canonical === fieldName) ?? null;
+    if (fieldName != null) {
+        if (!field) {
+            throw new Error(`field ${fieldName} not found in manifest`);
+        }
+        if (stepIndex < 0 || stepIndex >= field.n_steps) {
+            throw new Error(
+                `step index ${stepIndex} out of range (0..${field.n_steps - 1})`,
+            );
+        }
     }
 
     const scope = scopeUrlPart(useScopeStore.getState().current);
@@ -581,7 +587,7 @@ export async function load_fea_streaming(args: {
                 if (afemEntries.length > 0) {
                     installAfemUserData(gltf_scene, afemEntries);
                 }
-            });
+            }, undefined, /* translate */ true);
             const ms = useModelState.getState();
             ms.setModelUrl(url, SceneOperations.REPLACE);
             ms.setLoadedSourceName(sourceName);
@@ -658,6 +664,23 @@ export async function load_fea_streaming(args: {
                     bcs: fc.bcs ?? [],
                     scenarios: fc.scenarios ?? [],
                 });
+            }
+            // FEM node/element sets -> Scene > FEM groups picker. The streaming mesh.glb has no
+            // ADA_EXT (where GroupsSection normally reads groups), so feed the manifest groups
+            // straight into the scene-info store it renders from. Members (EL{id}/P{id}) resolve
+            // against the AFEM element ranges.
+            {
+                const {useSceneInfoStore} = await import("@/state/sceneInfoStore");
+                const mg = manifest.groups ?? [];
+                useSceneInfoStore.getState().setAvailableGroups(
+                    mg.map((g) => ({
+                        name: g.name,
+                        members: g.members,
+                        type: "simulation" as const,
+                        parent_name: sourceName,
+                        fe_object_type: g.fe_object_type,
+                    })),
+                );
             }
         } catch (err) {
             URL.revokeObjectURL(url);
@@ -842,6 +865,10 @@ export async function load_fea_streaming(args: {
     // with step 3 of the displacement field. If the displacement field
     // has fewer steps (unusual; happens when a user runs a sub-step
     // displacement output), we clamp to its last step and warn.
+    // Field-less FEM meshes (no results) skip all result coloring / warp / step handling —
+    // they only need geometry + beam-solids (loaded above). Everything below is field work.
+    if (field) {
+    const reductionStr = reduction ?? "magnitude"; // field present -> reduction is meaningful
     const warpEnabled = useFeaAnimationStore.getState().warpEnabled;
     const warpInfo = await resolveWarpSource(
         fetcher,
@@ -881,7 +908,7 @@ export async function load_fea_streaming(args: {
             perTypeStepValues,
             layer,
             ipReduction,
-            reduction,
+            reduction: reductionStr,
             warpField: warpInfo?.field,
             warpStepValues: warpInfo?.stepValues,
             displacementScale,
@@ -910,7 +937,7 @@ export async function load_fea_streaming(args: {
                 perTypeStepValues,
                 layer,
                 ipReduction,
-                reduction,
+                reduction: reductionStr,
                 colormap,
                 nodalAverage: false,
             });
@@ -934,7 +961,7 @@ export async function load_fea_streaming(args: {
             basePositions: active.basePositions,
             colorField: field,
             colorStepValues,
-            reduction,
+            reduction: reductionStr,
             warpField: warpInfo?.field,
             warpStepValues: warpInfo?.stepValues,
             displacementScale,
@@ -976,6 +1003,7 @@ export async function load_fea_streaming(args: {
             }
         }
     }
+    } // end if (field)
 
     stage("rendering", 0.9);
     throwIfAborted();
@@ -998,19 +1026,31 @@ export async function load_fea_streaming(args: {
     // the field's analysis_kind: static = [0, 1] (one-directional),
     // eigen = [-1, +1] (mode shape has no inherent sign).
     const animStore = useFeaAnimationStore.getState();
-    const range: [number, number] =
-        field.analysis_kind === "eigen" ? [-1, 1] : [0, 1];
-    animStore.setSessionActive(true);
     animStore.setMesh(active.mesh);
-    animStore.setRange(range);
-    animStore.setFactor(displacementScale);
-    animStore.setStepIndex(stepIndex);
-    animStore.setNSteps(field.n_steps);
     animStore.setSourceName(sourceName);
     animStore.setManifest(manifest);
-    animStore.setFieldName(fieldName);
-    animStore.setReduction(reduction);
-    animStore.setColormap(colormap);
+    if (field) {
+        // Results present -> activate the FEA session (SimulationControls: step slider / field
+        // selector / warp). Range follows analysis_kind: static = [0, 1], eigen = [-1, +1].
+        animStore.setSessionActive(true);
+        const range: [number, number] = field.analysis_kind === "eigen" ? [-1, 1] : [0, 1];
+        animStore.setRange(range);
+        animStore.setFactor(displacementScale);
+        animStore.setStepIndex(stepIndex);
+        animStore.setNSteps(field.n_steps);
+        animStore.setFieldName(fieldName);
+        if (reduction != null) animStore.setReduction(reduction);
+        animStore.setColormap(colormap);
+    } else {
+        // Field-less FEM mesh (model only): no results -> NO simulation session, so
+        // SimulationControls + the results-only "show in data" action stay hidden. The
+        // beam-solids toggle acts on the module-level `active` mesh, not the session, so it
+        // still works from the Scene > FEM panel.
+        animStore.setSessionActive(false);
+        animStore.setFieldName(null);
+        animStore.setNSteps(1);
+        animStore.setStepIndex(0);
+    }
 
     // applyStep closure captures the *current* (sourceName, manifest,
     // fieldName, reduction). SimulationControls calls this when the
@@ -1023,22 +1063,25 @@ export async function load_fea_streaming(args: {
     // arg is omitted) so a colormap change between apply and the next
     // step drag still picks up the latest selection without needing
     // to re-register the callback here.
-    animStore.setApplyStep(async (newStepIndex: number) => {
-        await load_fea_streaming({
-            sourceName,
-            manifest,
-            fieldName,
-            stepIndex: newStepIndex,
-            reduction,
+    if (field) {
+        animStore.setApplyStep(async (newStepIndex: number) => {
+            await load_fea_streaming({
+                sourceName,
+                manifest,
+                fieldName,
+                stepIndex: newStepIndex,
+                reduction,
+            });
         });
-    });
+    }
 
     // Auto-show the SimulationControls panel on first apply so the
     // user doesn't need to find a hidden toggle for a deformation
     // session they just kicked off. Idempotent — re-applying with a
-    // panel already open is a no-op.
+    // panel already open is a no-op. Field-less FEM meshes have nothing
+    // to drive there, so leave the panel as-is.
     const generalAnimStore = useAnimationStore.getState();
-    if (!generalAnimStore.isControlsVisible) {
+    if (field && !generalAnimStore.isControlsVisible) {
         generalAnimStore.setIsControlsVisible(true);
     }
 
@@ -1133,17 +1176,34 @@ export async function load_fea_with_defaults(sourceName: string): Promise<void> 
                 });
             },
         });
-        if (!manifest || !Array.isArray(manifest.fields) || manifest.fields.length === 0) {
-            // Bake produced a manifest but no fields — usually means
-            // the source has only non-nodal data and nodal_only=true
-            // filtered it all out. Surface as a console warning rather
-            // than a throw so the toggle doesn't get stuck in an
-            // error state, and self-clear the toast.
-            // eslint-disable-next-line no-console
-            console.warn(
-                `[fea-streaming] manifest for ${sourceName} has no nodal fields; nothing to load`,
-            );
+        if (!manifest) {
             convStore.clearJob(storeKey);
+            return;
+        }
+        if (!Array.isArray(manifest.fields) || manifest.fields.length === 0) {
+            // No result fields — a design-model FEM mesh (.inp/.fem/.med) or a results deck
+            // whose nodal output was all filtered out. Load the geometry field-lessly: mesh +
+            // beam-solids + selection wiring, no coloring / warp / step animation.
+            await load_fea_streaming({
+                sourceName,
+                manifest,
+                fieldName: null,
+                stepIndex: 0,
+                reduction: null,
+                onStage: (stage, progress) => {
+                    if (!useConversionStore.getState().jobs[storeKey]) return;
+                    const overall =
+                        MANIFEST_PROGRESS_CEILING + progress * (1 - MANIFEST_PROGRESS_CEILING);
+                    convStore.setJob(storeKey, {
+                        sourceKey: storeKey, jobId: "", derivedKey: "", status: "running",
+                        progress: overall, stage, error: null, startedAt,
+                    });
+                },
+            });
+            convStore.setJob(storeKey, {
+                sourceKey: storeKey, jobId: "", derivedKey: "", status: "done",
+                progress: 1, stage: "ready", error: null, startedAt,
+            });
             return;
         }
         // Prefer ``category === "displacement"`` so a fresh load opens

@@ -119,7 +119,7 @@ class Config:
                 ConfigEntry("export_props", bool, True),
                 ConfigEntry("import_props", bool, True),
                 ConfigEntry("export_include_ecc", bool, True),
-                ConfigEntry("import_shape_geom", bool, False),
+                ConfigEntry("import_shape_geom", bool, True),
                 ConfigEntry("include_plan_context", bool, False),
                 ConfigEntry("use_index_poly_curve_segments", bool, True),
             ],

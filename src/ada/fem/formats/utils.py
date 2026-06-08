@@ -189,10 +189,16 @@ def get_fem_model_from_assembly(assembly: Assembly) -> Part:
     parts = list(filter(lambda p: p.fem.is_empty() is False, assembly.get_all_parts_in_assembly(True)))
 
     if len(parts) > 1:
-        raise ValueError(
-            "This method does not yet support multipart FEM. Please make sure your assembly only contain 1 FEM"
-        )
-    elif len(parts) == 0:
+        # Multi-instance model -> concatenate into one FEM (renumbered ids, instance-prefixed
+        # set names) so the single-part writers (Code_Aster/MED, Calculix) can emit it.
+        from ada.fem.concat import concatenate_fem_to_single_part
+
+        merged = concatenate_fem_to_single_part(assembly)
+        if merged is not None:
+            return merged
+        parts = list(filter(lambda p: p.fem.is_empty() is False, assembly.get_all_parts_in_assembly(True)))
+
+    if len(parts) == 0:
         raise ValueError("At least 1 part must have a FEM mesh ")
 
     return parts[0]
@@ -474,10 +480,23 @@ def should_convert(res_path, overwrite):
 
 def convert_shell_elem_to_plates(elem: Elem, parent: Part, mat_dict: dict | None = None) -> list[Plate]:
     from ada import Plate
+    from ada.base.types import GeomRepr
     from ada.core.vector_utils import is_coplanar
 
     plates = []
     fem_sec = elem.fem_sec
+    # A shell element not covered by any *SHELL SECTION (e.g. rigid/auxiliary elements in
+    # box_rigid / element_elset) has no fem_sec — it can't become a plate (no thickness or
+    # material), so skip it rather than crashing the whole FEM->objects conversion.
+    if fem_sec is None or fem_sec.material is None:
+        logger.warning(f"Shell element {elem.id} has no section/material; skipping plate conversion")
+        return []
+    # 2D continuum elements (e.g. axisymmetric/plane CAX4P with a *Solid Section) share the
+    # QUAD/TRI shape with true shells, so they reach the shell iterator — but they carry a
+    # SOLID section with no thickness and are not plates. Skip them.
+    if fem_sec.type == GeomRepr.SOLID or getattr(fem_sec, "thickness", None) is None:
+        logger.warning(f"Shell-shaped element {elem.id} has a solid/thickness-less section; not a plate, skipping")
+        return []
     fem_sec.material.parent = parent
     # ``mat_dict`` (name -> consolidated material) must be shared across all
     # shells of the part. A fresh dict per element made the cache useless,

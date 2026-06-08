@@ -101,6 +101,17 @@ class FemNodes:
         node_indices = [np.where(self.identifiers == x)[0][0] for x in node_id]
         return [Node(x, int(node_id[i])) for i, x in enumerate(self.coords[node_indices])]
 
+    def get_node_by_index(self, row_indices) -> list[Node]:
+        """Resolve nodes from 0-based row indices into ``coords`` (the array-substrate
+        ``node_refs_are_indices`` convention), carrying the real node id from ``identifiers``."""
+        from typing import Iterable
+
+        from ada import Node
+
+        if isinstance(row_indices, Iterable) is False:
+            row_indices = [row_indices]
+        return [Node(self.coords[int(r)], int(self.identifiers[int(r)])) for r in row_indices]
+
 
 @dataclass
 class MeshStore:
@@ -324,6 +335,13 @@ class Mesh:
 
         bm_solid_mesh = None
         line_elems = self.get_line_elems() if self.elem_data is not None else []
+        # Only line elements with a resolved profile + material can be swept into a solid beam;
+        # skip the rest (sectionless centerlines) so line_elem_to_beam doesn't crash.
+        line_elems = [
+            e
+            for e in line_elems
+            if e.fem_sec is not None and e.fem_sec.section is not None and e.fem_sec.material is not None
+        ]
         if use_solid_beams and len(line_elems) > 0:
             from ada import Part
             from ada.fem.formats.utils import line_elem_to_beam
@@ -365,8 +383,12 @@ class Mesh:
             for idx_in_block, node_ids in enumerate(block.node_refs):
                 elem_id = int(block.identifiers[idx_in_block])
 
-                # Resolve nodes
-                nodes = self.nodes.get_node_by_id(node_ids)
+                # Resolve nodes — array-substrate blocks carry row indices, id-based producers
+                # (SIF/object) carry node ids.
+                if block.node_refs_are_indices:
+                    nodes = self.nodes.get_node_by_index(node_ids)
+                else:
+                    nodes = self.nodes.get_node_by_id(node_ids)
 
                 # Create element
                 el = Elem(elem_id, nodes, block.elem_info.type)

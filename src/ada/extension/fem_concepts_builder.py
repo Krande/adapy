@@ -40,7 +40,14 @@ def build_mass_glyphs(part_or_assembly):
     masses = []
     for subp in part_or_assembly.get_all_subparts(include_self=True):
         for m in getattr(subp, "masses", None) or []:
-            cog = m.cog
+            # Match where PrimSphere.solid_geom actually renders the mass sphere: the cog shifted
+            # by the placement's absolute origin (translation only). Using the raw cog left the
+            # amber overlay offset from the geometry whenever the mass carried a non-identity
+            # placement (e.g. parametric_models positions equipment via placement).
+            cog = m.cog.copy()
+            placement = getattr(m, "placement", None)
+            if placement is not None and placement.is_identity() is False:
+                cog = cog + placement.get_absolute_placement(include_rotations=False).origin
             masses.append(
                 fem_ext.MassGlyph(
                     name=m.name,
@@ -152,7 +159,9 @@ def build_bc_glyphs(fem: "FEM"):
             fem_ext.BcGlyph(
                 name=bc.name,
                 positions=positions,
-                dofs=[int(d) for d in bc.dofs],
+                # bc.dofs is a 6-slot list with None for unconstrained DOFs (e.g.
+                # [None, 2, None, 4, None, 6] for YSYMM) — keep only the constrained ones.
+                dofs=[int(d) for d in bc.dofs if d is not None],
                 bc_type=str(getattr(bc, "type", "") or "") or None,
             )
         )

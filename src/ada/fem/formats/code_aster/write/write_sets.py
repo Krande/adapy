@@ -93,11 +93,21 @@ def _add_cell_sets(cells_group, part: "Part", families):
     _write_families(element, tags)
 
 
-def _add_node_sets(nodes_group, part: "Part", points, families):
+def _add_node_sets(nodes_group, fems, points, families):
+    """Write the node-set family table ("FAM") for one or more FEMs into ``nodes_group``.
+
+    Takes a list of FEMs (the part's plus, when distinct, the assembly's) and merges their
+    nsets so the single MED "FAM" dataset is created exactly once — creating it per-FEM
+    raised "dataset name already exists" for decks with both part- and assembly-level
+    node sets."""
     tags = dict()
     nsets = dict()
-    for key, val in part.fem.nsets.items():
-        nsets[key] = [int(p.id) for p in val]
+    for fem in fems:
+        for key, val in fem.nsets.items():
+            # Read member ids straight off the id-backed set — resolving each id to a Node proxy
+            # only to read .id back is pure overhead (and was O(N^2) via FemSet iteration).
+            mids = getattr(val, "_member_ids", None)
+            nsets[key] = [int(i) for i in mids] if mids is not None else [int(p.id) for p in val.members]
 
     points = _set_to_tags(nsets, points, 2, tags)
 
@@ -110,69 +120,66 @@ def _add_node_sets(nodes_group, part: "Part", points, families):
     _write_families(node, tags)
 
 
-def _resolve_element_in_use_by_other_set(tagged_data, ind, tags, name, is_elem):
-    existing_id = int(tagged_data[ind])
-    current_tags = tags[existing_id]
-    all_tags = current_tags + [name]
-
-    if name in current_tags:
-        logger.error("Unexpected error. Name already exists in set during resolving set members.")
-
-    new_int = None
-    for i_, t_ in tags.items():
-        if all_tags == t_:
-            new_int = i_
-            break
-
-    if new_int is None:
-        new_int = int(min(tags.keys()) - 1) if is_elem else int(max(tags.keys()) + 1)
-        tags[new_int] = tags[existing_id] + [name]
-
-    tagged_data[ind] = new_int
-
-
 def _set_to_tags(sets, data, tag_start_int, tags, id_map=None):
-    """
+    """Tag each datum (node/element) with the family id for the combination of sets it belongs
+    to, allocating a new combined family the first time a given combination appears.
 
-    :param sets:
-    :param data:
-    :param tag_start_int:
-    :param
+    Combination lookup is O(1) via ``rmap`` (combination tuple -> family id) and new family ids
+    come from running min/max counters — mirroring :func:`resolve_ids_in_multiple` on the cell
+    side. The earlier version linear-scanned ``tags`` and re-aggregated ``min/max`` per
+    overlapping member, which went quadratic on decks with large overlapping node sets (e.g. a
+    merged multi-instance model), dominating the MED write.
+
     :return: The tagged data.
     """
     tagged_data = np.zeros(len(data), dtype=np.int32)
-    tag_int = 0 + tag_start_int
-
-    is_elem = False if tag_int > 0 else True
+    is_elem = tag_start_int <= 0
 
     tag_int = tag_start_int
     tag_map = dict()
-    # Generate basic tags upfront
+    # Generate basic (single-set) tags upfront
     for name in sets.keys():
         tags[tag_int] = [name]
         tag_map[name] = tag_int
-        if is_elem is True:
-            tag_int -= 1
-        else:
-            tag_int += 1
+        tag_int += -1 if is_elem else 1
+
+    # O(1) combination lookup + running extents for new-family allocation.
+    rmap = {tuple(v): r for r, v in tags.items()}
+    next_neg = (min(tags.keys()) - 1) if tags else -1
+    next_pos = (max(tags.keys()) + 1) if tags else 1
 
     for name, set_data in sets.items():
         if len(set_data) == 0:
             continue
 
         for index_ in set_data:
-            index = int(index_ - 1)
-
-            if id_map is not None:
-                index = id_map[index_]
+            index = id_map[index_] if id_map is not None else int(index_ - 1)
 
             if index > len(tagged_data) - 1:
                 raise IndexError()
 
-            if tagged_data[index] != 0:  # id is already defined in another set
-                _resolve_element_in_use_by_other_set(tagged_data, index, tags, name, is_elem)
-            else:
+            existing = int(tagged_data[index])
+            if existing == 0:  # first set to claim this datum
                 tagged_data[index] = tag_map[name]
+                continue
+
+            # Already in another set -> family for the combined membership.
+            current_tags = tags[existing]
+            if name in current_tags:
+                logger.error("Unexpected error. Name already exists in set during resolving set members.")
+            combo = current_tags + [name]
+            key = tuple(combo)
+            new_int = rmap.get(key)
+            if new_int is None:
+                if is_elem:
+                    new_int = next_neg
+                    next_neg -= 1
+                else:
+                    new_int = next_pos
+                    next_pos += 1
+                tags[new_int] = combo
+                rmap[key] = new_int
+            tagged_data[index] = new_int
 
     return tagged_data
 

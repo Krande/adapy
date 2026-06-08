@@ -43,6 +43,24 @@ def _is_topods_shape(shape) -> bool:
     return isinstance(shape, TopoDS_Shape)
 
 
+def _shapefix_for_mesh(occ_geom):
+    """Run ``ShapeFix_Shape`` on an OCC body so faces that lack p-curves become meshable,
+    returning the fixed shape (or ``None`` if pythonocc is absent / the fix fails or no-ops).
+    Used as a last-ditch retry when BRepMesh produced zero triangles."""
+    if not _is_topods_shape(occ_geom):
+        return None
+    try:
+        from OCC.Core.ShapeFix import ShapeFix_Shape
+
+        sf = ShapeFix_Shape(occ_geom)
+        sf.Perform()
+        fixed = sf.Shape()
+        return fixed if fixed is not None and not fixed.IsNull() else None
+    except Exception as e:  # OCC missing, or ShapeFix raised on a pathological body
+        logger.debug(f"ShapeFix mesh-retry unavailable/failed: {e}")
+        return None
+
+
 @dataclass
 class TriangleMesh:
     positions: np.ndarray
@@ -190,6 +208,18 @@ class BatchTessellator:
         else:
             tess_shape = tessellate_shape(occ_geom, self.quality, self.render_edges, self.parallel)
             indices = tess_shape.faces
+            # BRepMesh grids nothing when a face is missing its p-curves (the 2D
+            # parametric representation it needs to triangulate) — common for imported
+            # B-reps: a bspline/NURBS face trimmed by 3D-only boundary curves
+            # (IfcPolyline pcurves, IfcIntersectionCurve, SAT sheet bodies). The face is
+            # valid (it exports to STEP) but renders empty. ShapeFix builds the missing
+            # p-curves; retry the mesh once before giving up. Guarded so a non-OCC handle
+            # or a fix failure just falls through to the empty result.
+            if len(indices) == 0:
+                fixed = _shapefix_for_mesh(occ_geom)
+                if fixed is not None:
+                    tess_shape = tessellate_shape(fixed, self.quality, self.render_edges, self.parallel)
+                    indices = tess_shape.faces
 
         mat_id = self.material_store.get(geom_color, None)
         if mat_id is None:
@@ -394,15 +424,22 @@ class BatchTessellator:
                     except UnableToCreateTesselationFromSolidOCCGeom as e:
                         logger.error(e)
                     continue
-                if geom_repr == GeomRepr.SOLID:
-                    geom = obj.solid_geom()
-                    mesh_type = MeshType.TRIANGLES
-                elif geom_repr == GeomRepr.SHELL:
-                    geom = obj.shell_geom()
-                    mesh_type = MeshType.TRIANGLES
-                else:
-                    geom = obj.line_geom()
-                    mesh_type = MeshType.LINES
+                try:
+                    if geom_repr == GeomRepr.SOLID:
+                        geom = obj.solid_geom()
+                        mesh_type = MeshType.TRIANGLES
+                    elif geom_repr == GeomRepr.SHELL:
+                        geom = obj.shell_geom()
+                        mesh_type = MeshType.TRIANGLES
+                    else:
+                        geom = obj.line_geom()
+                        mesh_type = MeshType.LINES
+                except NotImplementedError as e:
+                    # A shape that carries no renderable geometry (e.g. an IFC product
+                    # imported without a body, or a type with no solid_geom mapping) must
+                    # not abort tessellation of the whole scene — skip it.
+                    logger.warning(f"Skipping {getattr(obj, 'name', obj)!r}: no tessellable geometry ({e})")
+                    continue
             else:
                 geom = obj
                 ada_obj = None
