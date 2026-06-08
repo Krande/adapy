@@ -363,6 +363,73 @@ async def _run_fea_meta_compute(
     await _audit_done(db_pool, job_id, "done", None, started_at)
 
 
+async def _run_parity_validation(
+    *,
+    job: Job,
+    src_path: pathlib.Path,
+    scope,
+    queue: "JobQueue",
+    db_pool: "asyncpg.Pool | None",
+    started_at: float,
+    _on_progress: Callable[[str, float], Awaitable[None]],
+) -> None:
+    """Cross-format visual-parity validation for one source (target_format=='parity').
+
+    Re-derives the source to each structure-preserving format, reloads, and
+    compares the visualized-element count (ada.cadit.visual_parity). Produces no
+    derived blob: the structured per-format result goes to the ``audit_parity``
+    table and the cell is audited done/error (a mismatch maps to ``error`` so it
+    surfaces in the run's failed cells). Never raises.
+
+    Re-deriving (rather than reading the stored GLB) is deliberate: the stored GLB
+    is mesh-merged, so its scene-entry count is not the object count — the parity
+    check must reload with merging off, which ``parity_for_source_file`` does.
+    """
+    job_id = job.job_id
+    suffix = pathlib.PurePosixPath(job.source_key).suffix.lower()
+    formats = tuple(t for t in ("ifc", "xml", "step") if t in ConverterRegistry.targets_for(suffix))
+
+    # Lazy import keeps the FEM/CAD stack out of the worker import path until
+    # a parity job actually runs (same pattern as _run_fea_meta_compute).
+    from ada.cadit.visual_parity import parity_for_source_file
+
+    await _on_progress("parity", 0.20)
+    loop = asyncio.get_running_loop()
+    try:
+        result = await loop.run_in_executor(
+            None, functools.partial(parity_for_source_file, src_path, formats)
+        )
+    except Exception as exc:
+        logger.exception("worker: parity validation failed for %s", job.source_key)
+        trace = tb_module.format_exc()
+        await queue.update(job_id, status=JOB_STATUS_ERROR, stage="parity", error=str(exc))
+        await _audit_done(db_pool, job_id, "error", str(exc), started_at, traceback=trace)
+        return
+
+    if db_pool is not None:
+        try:
+            await db_module.insert_audit_parity(
+                db_pool,
+                job_id=job_id,
+                source_key=job.source_key,
+                baseline=result.expected,
+                counts=result.counts,
+                consistent=result.consistent,
+                mismatches=result.mismatches,
+                errors=result.errors,
+            )
+        except Exception:
+            logger.exception("worker: insert_audit_parity failed for %s", job.source_key)
+
+    if result.consistent:
+        await queue.update(job_id, status=JOB_STATUS_DONE, stage="ready", progress=1.0, error=None)
+        await _audit_done(db_pool, job_id, "done", None, started_at)
+    else:
+        msg = result.summary()
+        await queue.update(job_id, status=JOB_STATUS_ERROR, stage="ready", progress=1.0, error=msg)
+        await _audit_done(db_pool, job_id, "error", msg, started_at)
+
+
 async def _run_component_build(
     *,
     job: Job,
@@ -888,6 +955,22 @@ async def _process_one(
                 src_path=src_path,
                 scope=scope,
                 storage=storage,
+                queue=queue,
+                db_pool=db_pool,
+                started_at=started_at,
+                _on_progress=_on_progress,
+            )
+            return
+
+        # Cross-format visual-parity validation — re-derives the source to the
+        # structure-preserving formats and compares visualized-element counts.
+        # Produces no derived blob; writes a row to audit_parity and audits the
+        # cell done/error (mismatch -> error, so it shows in the run's failures).
+        if job.target_format == "parity":
+            await _run_parity_validation(
+                job=job,
+                src_path=src_path,
+                scope=scope,
                 queue=queue,
                 db_pool=db_pool,
                 started_at=started_at,

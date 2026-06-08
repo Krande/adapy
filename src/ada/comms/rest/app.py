@@ -2691,14 +2691,61 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if not is_supported_source(f.key):
                 continue
             ext = pathlib.PurePosixPath(f.key).suffix.lower()
-            for target_format in ConverterRegistry.targets_for(ext):
+            targets = ConverterRegistry.targets_for(ext)
+            for target_format in targets:
                 cells.append((f.key, target_format))
+            # Cross-format visual-parity validation cell — only when the source
+            # can produce a structure-preserving format to compare against.
+            # Appended before set_audit_run_total so the run total accounts for it.
+            if any(t in ("ifc", "xml", "step") for t in targets):
+                cells.append((f.key, "parity"))
 
         await db_module.set_audit_run_total(pool, run_id, len(cells))
         if not cells:
             return
 
         for source_key, target_format in cells:
+            # Parity cells produce no derived blob, so there is nothing to cache
+            # against — always enqueue, and audit under action="validate".
+            if target_format == "parity":
+                try:
+                    job = await queue.enqueue(
+                        source_key,
+                        "parity",
+                        scope_kind=scope_obj.kind,
+                        scope_id=scope_obj.id,
+                        target_capability=worker_pool,
+                        force_rebuild=force_rebuild,
+                    )
+                except Exception as exc:
+                    logger.exception("audit run %s: parity enqueue failed for %s", run_id, source_key)
+                    await _audit(
+                        None,
+                        synthetic_user,
+                        scope_obj,
+                        "validate",
+                        key=source_key,
+                        target_format="parity",
+                        status="error",
+                        error=str(exc),
+                        audit_run_id=run_id,
+                        pool=pool,
+                    )
+                    continue
+                await _audit(
+                    None,
+                    synthetic_user,
+                    scope_obj,
+                    "validate",
+                    key=source_key,
+                    target_format="parity",
+                    status="queued",
+                    job_id=job.job_id,
+                    audit_run_id=run_id,
+                    pool=pool,
+                )
+                continue
+
             try:
                 derived_key = derived_key_for(source_key, target_format)
             except Exception as exc:
@@ -2886,6 +2933,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="audit run not found")
         jobs = await db_module.list_audit_run_jobs(pool, run_id)
         return JSONResponse({"run": run, "jobs": jobs})
+
+    @admin.get("/audit/runs/{run_id}/parity")
+    async def admin_audit_run_parity(
+        run_id: str,
+        request: Request,
+    ) -> JSONResponse:
+        pool = _require_pool(request)
+        rows = await db_module.list_audit_run_parity(pool, run_id)
+        return JSONResponse({"run_id": run_id, "parity": rows})
 
     @admin.post("/audit/runs/{run_id}/cancel")
     async def admin_audit_run_cancel(

@@ -368,6 +368,24 @@ def cmd_parity(args: argparse.Namespace) -> int:
     # source blob first (the parity analogue of `ada audit repro`).
     from dataclasses import asdict
 
+    # Remote mode: read persisted parity results for a finished audit run.
+    if getattr(args, "run", None):
+        d = _get_json(*_config(args), f"/api/admin/audit/runs/{args.run}/parity")
+        rows = d.get("parity", [])
+        if args.json:
+            print(json.dumps(d, indent=2))
+            return 0
+        bad = 0
+        for r in rows:
+            counts = r.get("counts") or {}
+            status = "OK" if r.get("consistent") else "MISMATCH"
+            bad += 0 if r.get("consistent") else 1
+            cells = " ".join(f"{k}={v}" for k, v in counts.items())
+            print(f"{status:8}  base={r.get('baseline')}  {r.get('source_key')}  {cells}")
+        if not rows:
+            print("(no parity results for this run)", file=sys.stderr)
+        return 0 if bad == 0 else 1
+
     from ada.cadit.visual_parity import parity_for_source_file
 
     formats = tuple(f.strip() for f in args.formats.split(",") if f.strip())
@@ -479,6 +497,9 @@ def add_parser(sub: argparse._SubParsersAction) -> None:
     parity.add_argument("path", nargs="?", help="Local source model file.")
     parity.add_argument(
         "--audit-id", type=int, default=None, help="Instead of PATH: fetch this audit's source blob first."
+    )
+    parity.add_argument(
+        "--run", default=None, help="Remote: print persisted parity results for this audit run id."
     )
     parity.add_argument(
         "--formats", default="ifc,xml,step", help="Comma-separated structure-preserving formats (default: ifc,xml,step)."

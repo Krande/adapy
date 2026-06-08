@@ -1268,6 +1268,65 @@ async def list_audit_run_jobs(
     ]
 
 
+async def insert_audit_parity(
+    pool: asyncpg.Pool,
+    *,
+    job_id: str | None,
+    source_key: str,
+    baseline: int,
+    counts: dict[str, int],
+    consistent: bool,
+    mismatches: dict[str, int],
+    errors: dict[str, str],
+) -> None:
+    """Record one cross-format parity result. The owning ``audit_run_id`` is
+    resolved from the parity job's audit_log row (the worker doesn't carry it)."""
+    await pool.execute(
+        """
+        INSERT INTO audit_parity
+            (audit_run_id, job_id, source_key, baseline, counts, consistent, mismatches, errors)
+        VALUES (
+            (SELECT audit_run_id FROM audit_log WHERE job_id = $1 ORDER BY id DESC LIMIT 1),
+            $1, $2, $3, $4::jsonb, $5, $6::jsonb, $7::jsonb
+        )
+        """,
+        job_id,
+        source_key,
+        baseline,
+        json.dumps(counts),
+        consistent,
+        json.dumps(mismatches),
+        json.dumps(errors),
+    )
+
+
+async def list_audit_run_parity(pool: asyncpg.Pool, run_id: str) -> list[dict]:
+    """Every parity result for one audit_run, newest first."""
+    rows = await pool.fetch(
+        """
+        SELECT id, ts, job_id, source_key, baseline, counts, consistent, mismatches, errors
+        FROM audit_parity
+        WHERE audit_run_id = $1
+        ORDER BY id DESC
+        """,
+        run_id,
+    )
+    return [
+        {
+            "id": r["id"],
+            "ts": r["ts"].isoformat() if r["ts"] else None,
+            "job_id": r["job_id"],
+            "source_key": r["source_key"],
+            "baseline": r["baseline"],
+            "counts": json.loads(r["counts"]) if isinstance(r["counts"], str) else r["counts"],
+            "consistent": r["consistent"],
+            "mismatches": json.loads(r["mismatches"]) if isinstance(r["mismatches"], str) else r["mismatches"],
+            "errors": json.loads(r["errors"]) if isinstance(r["errors"], str) else r["errors"],
+        }
+        for r in rows
+    ]
+
+
 async def audit_run_exists_for_key(
     pool: asyncpg.Pool,
     scope: str,
