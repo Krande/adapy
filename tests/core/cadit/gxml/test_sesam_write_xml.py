@@ -350,3 +350,47 @@ def test_basic_hinges(tmp_path):
     # from ada.cadit.gxml.utils import start_genie
     #
     # start_genie(dest, run_externally=True)
+
+
+def test_multi_node_bc_writes_per_node_support_points(tmp_path):
+    # A FEM Bc applied over a multi-node nset must write one support_point per node
+    # (mechanically exact, no rigid coupling). Single-node BCs keep the bare name;
+    # multi-node BCs get a 1-based suffix. Regression for the previously-raised
+    # NotImplementedError in add_fem_boundary_conditions.
+    from ada import Node
+    from ada.fem import Bc, FemSet
+
+    p = ada.Part("MyPart")
+    fem = p.fem
+    nodes = [Node([float(i), 0.0, 0.0], i + 1) for i in range(3)]
+    for n in nodes:
+        fem.nodes.add(n)
+
+    fs = fem.add_set(FemSet("BottomNodes", nodes, FemSet.TYPES.NSET))
+    fem.add_bc(Bc("Fix", fs, [1, 2, 3]))  # dx, dy, dz fixed; rotations free
+
+    a = ada.Assembly("a") / p
+    dest = a.to_genie_xml(tmp_path / "multi_node_bc.xml", embed_sat=False)
+
+    xml_root = ET.fromstring(dest.read_text())
+    support_points = xml_root.findall(".//support_point")
+    assert len(support_points) == 3, "One support_point per node in the BC's nset"
+
+    names = sorted(sp.get("name") for sp in support_points)
+    assert names == ["Fix_1", "Fix_2", "Fix_3"]
+
+    # Positions follow the node coordinates
+    positions = sorted(float(sp.find(".//position").get("x")) for sp in support_points)
+    assert positions == [0.0, 1.0, 2.0]
+
+    # DOFs match the BC ([1,2,3] fixed -> translations fixed, rotations free) on every point
+    for sp in support_points:
+        dofs = {bc.get("dof"): bc.get("constraint") for bc in sp.findall(".//boundary_condition")}
+        assert dofs == {
+            "dx": "fixed",
+            "dy": "fixed",
+            "dz": "fixed",
+            "rx": "free",
+            "ry": "free",
+            "rz": "free",
+        }

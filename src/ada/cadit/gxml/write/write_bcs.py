@@ -18,22 +18,28 @@ def add_fem_boundary_conditions(root: ET.Element, part: Part):
     all_bc_on_fem = list(part.fem.get_all_bcs())
     if len(all_bc_on_fem) > 0:
         for bc in all_bc_on_fem:
-            if len(bc.fem_set.members) != 1:
-                raise NotImplementedError()
-
             abs_place = bc.parent.parent.placement.get_absolute_placement()
             origin = abs_place.origin
-            p = origin + bc.fem_set.members[0].p.copy()
 
-            bc_stru = ET.SubElement(root, "structure")
-            sup_point = ET.SubElement(bc_stru, "support_point", {"name": bc.name})
-            sup_point.append(add_local_system(X, Y, Z))
-            geom = ET.SubElement(sup_point, "geometry")
-            ET.SubElement(geom, "position", {"x": str(p.x), "y": str(p.y), "z": str(p.z)})
-            bc_con = ET.SubElement(sup_point, "boundary_conditions")
-            for dof in range(1, 7):
-                ftyp = "fixed" if dof in bc.dofs else "free"
-                ET.SubElement(bc_con, "boundary_condition", dict(constraint=ftyp, dof=dof_map.get(dof)))
+            # A BC over a multi-node set is written as one support_point per node, all
+            # sharing the BC's DOFs. This is mechanically exact (each node constrained as
+            # in the source FEM) rather than introducing the rigid coupling a region/
+            # rigid-link support would add. Single-node sets keep the plain bc.name.
+            members = bc.fem_set.members
+            multi = len(members) > 1
+            for i, member in enumerate(members):
+                p = origin + member.p.copy()
+                name = f"{bc.name}_{i + 1}" if multi else bc.name
+
+                bc_stru = ET.SubElement(root, "structure")
+                sup_point = ET.SubElement(bc_stru, "support_point", {"name": name})
+                sup_point.append(add_local_system(X, Y, Z))
+                geom = ET.SubElement(sup_point, "geometry")
+                ET.SubElement(geom, "position", {"x": str(p.x), "y": str(p.y), "z": str(p.z)})
+                bc_con = ET.SubElement(sup_point, "boundary_conditions")
+                for dof in range(1, 7):
+                    ftyp = "fixed" if dof in bc.dofs else "free"
+                    ET.SubElement(bc_con, "boundary_condition", dict(constraint=ftyp, dof=dof_map.get(dof)))
 
 
 def add_dof_constraints(parent: ET.Element, dof_constraints: list[ConstraintConceptDofType | BeamHingeDofType]):
