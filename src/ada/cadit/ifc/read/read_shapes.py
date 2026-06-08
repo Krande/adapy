@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from typing import TYPE_CHECKING
 
 import ifcopenshell.geom
@@ -117,6 +118,20 @@ def _kernel_occ_shape(product: ifcopenshell.entity_instance):
     """Build a world-placed OCC ``TopoDS`` for a product via the IfcOpenShell geometry
     kernel. Universal fallback for representation types adapy has no native reader for.
     Returns ``None`` (logged) if the kernel can't process the product."""
+    import platform
+
+    # The IfcOpenShell OCC kernel (create_shape) aborts the whole process (SIGABRT) on macOS
+    # for some representations (e.g. mapped items) — an uncatchable native crash. Skip the
+    # kernel fallback there: products with no native reader come back without geometry instead
+    # of taking down the interpreter. Natively-read geometry never hits this path, so on macOS
+    # only kernel-only representations degrade to no-geom. Override with ADA_IFC_MACOS_KERNEL=1.
+    if platform.system() == "Darwin" and os.getenv("ADA_IFC_MACOS_KERNEL") not in ("1", "true", "True"):
+        logger.warning(
+            f"Skipping IfcOpenShell kernel geometry on macOS for {product} (known native crash; "
+            "set ADA_IFC_MACOS_KERNEL=1 to force)"
+        )
+        return None
+
     import ifcopenshell.geom
 
     settings = ifcopenshell.geom.settings()
