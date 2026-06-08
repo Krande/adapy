@@ -1194,8 +1194,10 @@ def make_shell_from_shell_based_surface_geom(sbsm: geo_su.ShellBasedSurfaceModel
     compound = TopoDS_Compound()
     builder.MakeCompound(compound)
     for boundary in sbsm.sbsm_boundary:
-        occ_shell = make_closed_shell_from_geom(boundary) if isinstance(boundary, geo_su.ClosedShell) else (
-            make_open_shell_from_geom(boundary)
+        occ_shell = (
+            make_closed_shell_from_geom(boundary)
+            if isinstance(boundary, geo_su.ClosedShell)
+            else (make_open_shell_from_geom(boundary))
         )
         builder.Add(compound, occ_shell)
     return compound

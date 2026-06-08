@@ -1,10 +1,13 @@
-from typing import Union
+from typing import TYPE_CHECKING, Union
 
 import ifcopenshell
 
 from ada.geom import curves as geo_cu
 from ada.geom import solids as geo_so
 from ada.geom import surfaces as geo_su
+
+if TYPE_CHECKING:
+    from ada.geom import Geometry
 
 from .solids import (
     extruded_solid_area,

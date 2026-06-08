@@ -376,9 +376,7 @@ class AdacppBackend:
             from ada.geom import Geometry as _Geometry
 
             boundary_shells = g.sbsm_boundary if isinstance(g, su.ShellBasedSurfaceModel) else [g]
-            face_handles = [
-                self.build(_Geometry(geometry.id, face)) for sh in boundary_shells for face in sh.cfs_faces
-            ]
+            face_handles = [self.build(_Geometry(geometry.id, face)) for sh in boundary_shells for face in sh.cfs_faces]
             if not face_handles:
                 raise NotImplementedError("AdacppBackend.build: shell model has no faces")
             shape = self._cad.sew_faces(face_handles)

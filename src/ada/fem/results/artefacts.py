@@ -2144,9 +2144,7 @@ def _make_fem_reader(path: pathlib.Path) -> "FEAStreamReader":
 
     assembly = ada.from_fem(path)
     parts = [
-        p
-        for p in assembly.get_all_parts_in_assembly(include_self=True)
-        if p.fem is not None and len(p.fem.nodes) > 0
+        p for p in assembly.get_all_parts_in_assembly(include_self=True) if p.fem is not None and len(p.fem.nodes) > 0
     ]
     if not parts:
         raise ValueError(f"no FEM mesh found in {path}")

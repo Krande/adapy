@@ -480,9 +480,8 @@ def should_convert(res_path, overwrite):
 
 def convert_shell_elem_to_plates(elem: Elem, parent: Part, mat_dict: dict | None = None) -> list[Plate]:
     from ada import Plate
-    from ada.core.vector_utils import is_coplanar
-
     from ada.base.types import GeomRepr
+    from ada.core.vector_utils import is_coplanar
 
     plates = []
     fem_sec = elem.fem_sec

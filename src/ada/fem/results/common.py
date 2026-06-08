@@ -337,7 +337,11 @@ class Mesh:
         line_elems = self.get_line_elems() if self.elem_data is not None else []
         # Only line elements with a resolved profile + material can be swept into a solid beam;
         # skip the rest (sectionless centerlines) so line_elem_to_beam doesn't crash.
-        line_elems = [e for e in line_elems if e.fem_sec is not None and e.fem_sec.section is not None and e.fem_sec.material is not None]
+        line_elems = [
+            e
+            for e in line_elems
+            if e.fem_sec is not None and e.fem_sec.section is not None and e.fem_sec.material is not None
+        ]
         if use_solid_beams and len(line_elems) > 0:
             from ada import Part
             from ada.fem.formats.utils import line_elem_to_beam
