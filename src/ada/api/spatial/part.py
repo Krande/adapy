@@ -578,11 +578,13 @@ class Part(BackendGeom):
             "stream" uses the kernel-free streaming reader (constant-memory parse,
             yields adapy geometry directly — see ada.cadit.step.read.stream_reader);
             "auto" tries the streaming reader first and falls back to OCC if the file
-            uses entities outside its analytic-B-rep scope.
+            uses any entity outside its scope; "tolerant" reads every supported solid
+            kernel-free and *skips* the unsupported ones (no whole-file OCC fallback) —
+            best for large mixed CAD that would OOM the OCC reader.
         """
-        if reader in ("stream", "auto"):
+        if reader in ("stream", "auto", "tolerant"):
             if self._read_step_streaming(
-                step_path, name, scale, transform, rotate, colour, opacity, source_units, strict=reader == "stream"
+                step_path, name, scale, transform, rotate, colour, opacity, source_units, reader=reader
             ):
                 return
             # auto-fallback: the file is outside the streaming reader's scope.
@@ -614,11 +616,11 @@ class Part(BackendGeom):
                 self.add_shape(ada_shape)
 
     def _read_step_streaming(
-        self, step_path, name, scale, transform, rotate, colour, opacity, source_units, strict: bool
+        self, step_path, name, scale, transform, rotate, colour, opacity, source_units, reader: str
     ) -> bool:
         """Read a STEP file via the kernel-free streaming reader, wrapping each
         yielded adapy ``Geometry`` in a ``Shape``. Returns True on success; False
-        (only when ``strict`` is False) if the file is outside the reader's scope,
+        (only for ``reader='auto'``) if the file is outside the reader's scope,
         signalling the caller to fall back to the OCC path.
 
         The streaming parse touches no CAD kernel, so it avoids the whole-model
@@ -628,31 +630,33 @@ class Part(BackendGeom):
         from ada.cadit.step.read.stream_reader import StepStreamUnsupported, stream_read_step
 
         if scale is not None or transform is not None or rotate is not None:
-            raise ValueError("reader='stream'/'auto' does not support scale/transform/rotate; use reader='occ'")
+            raise ValueError("reader='stream'/'auto'/'tolerant' does not support scale/transform/rotate; use 'occ'")
 
-        # strict ("stream"): constant-memory bottom-up parse (the adapy emitter's
-        # output — the large-file OOM case). auto: two-pass deferred resolution so
+        # "stream": constant-memory bottom-up parse (the adapy emitter's output — the
+        # large-file OOM case). "auto"/"tolerant": two-pass deferred resolution so
         # forward-referenced solids (OpenCASCADE and most other writers) read too.
-        local_pool = strict
+        # "tolerant" additionally skips unsupported solids instead of raising.
+        local_pool = reader == "stream"
+        tolerant = reader == "tolerant"
 
         ada_name = name if name is not None else "CAD" + str(len(self.shapes) + 1)
         new_shapes = []
         try:
-            for i, geometry in enumerate(stream_read_step(step_path, local_pool=local_pool)):
+            for i, geometry in enumerate(stream_read_step(step_path, local_pool=local_pool, tolerant=tolerant)):
                 shp_name = str(geometry.id) if geometry.id not in (None, "") else f"{ada_name}_{i}"
                 new_shapes.append(
                     Shape(shp_name, geom=geometry, color=colour or geometry.color, opacity=opacity, units=source_units)
                 )
         except StepStreamUnsupported:
-            if strict:
+            if reader != "auto":
                 raise
             logger.info("read_step_file: streaming reader hit an unsupported entity; falling back to OCC reader")
             return False
 
         # A zero-yield on a non-empty file means the streaming reader didn't
         # recognise the structure — fall back to OCC rather than silently
-        # importing nothing (auto only; strict honours the empty result).
-        if not new_shapes and not strict:
+        # importing nothing (auto only; stream/tolerant honour the result).
+        if not new_shapes and reader == "auto":
             logger.info("read_step_file: streaming reader produced no solids; falling back to OCC reader")
             return False
 

@@ -32,6 +32,7 @@ surface/curve types raise so the caller can fall back to the OCC reader.
 from __future__ import annotations
 
 import re
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterator
@@ -526,7 +527,7 @@ _ROOT_BUILDERS = {
 # --------------------------------------------------------------------------- #
 # Public entry point
 # --------------------------------------------------------------------------- #
-def stream_read_step(filepath: str | Path, *, local_pool: bool = True) -> Iterator[Geometry]:
+def stream_read_step(filepath: str | Path, *, local_pool: bool = True, tolerant: bool = False) -> Iterator[Geometry]:
     """Lazily stream a STEP file, yielding one :class:`Geometry` per solid.
 
     Each yielded ``Geometry`` wraps a :class:`~ada.geom.surfaces.ClosedShell`
@@ -548,11 +549,19 @@ def stream_read_step(filepath: str | Path, *, local_pool: bool = True) -> Iterat
         but correctly handles **forward references** — a ``MANIFOLD_SOLID_BREP``
         written before its shell/faces/points, which is how OpenCASCADE and most
         other writers emit STEP. Use ``False`` for arbitrary STEP.
+    tolerant:
+        When ``True`` a solid using an unsupported surface/curve (e.g. a spherical
+        or rational-B-spline face) is *skipped* and the reader keeps going, instead
+        of raising ``StepStreamUnsupported``. Lets a large mixed CAD file read its
+        supported solids kernel-free rather than dropping the whole file to OCC (and
+        OOM-ing); a one-line summary of what was skipped is logged at the end.
     """
     filepath = Path(filepath)
+    skipped: Counter = Counter()
 
     if not local_pool:
-        yield from _read_two_pass(filepath)
+        yield from _read_two_pass(filepath, tolerant=tolerant, skipped=skipped)
+        _log_skips(filepath, skipped)
         return
 
     pool: dict[int, _Rec] = {}
@@ -571,7 +580,7 @@ def stream_read_step(filepath: str | Path, *, local_pool: bool = True) -> Iterat
             root = _ROOT_BUILDERS.get(etype)
             if root is not None:
                 name = _solid_name(args, n_solids)
-                geom = _try_resolve_root(resolver, name, root, args)
+                geom = _try_resolve_root(resolver, name, root, args, tolerant=tolerant, skipped=skipped)
                 if geom is not None:
                     n_solids += 1
                     yield Geometry(id=name, geometry=geom)
@@ -580,6 +589,7 @@ def stream_read_step(filepath: str | Path, *, local_pool: bool = True) -> Iterat
                 continue
 
             pool[inst_id] = _Rec(etype, args)
+    _log_skips(filepath, skipped)
 
 
 def _parse_statement(stmt: str):
@@ -619,21 +629,51 @@ def _solid_name(args: list, n_solids: int) -> str:
     return args[0] if args and isinstance(args[0], str) and args[0] else f"solid_{n_solids + 1}"
 
 
-def _try_resolve_root(resolver: "_Resolver", name: str, root_builder, args: list):
-    """Build one root geometry (solid shell / surface model); return None (and log)
-    on a bad root. Re-raises StepStreamUnsupported so the caller can fall back to OCC."""
+def _short_reason(ex: Exception) -> str:
+    """A compact, groupable label for a skipped-solid summary."""
+    s = str(ex)
+    m = re.match(r"complex entity (\[[^\]]*\])", s)
+    if m:
+        return f"complex {m.group(1)}"
+    # leading ALL-CAPS entity token, e.g. "SPHERICAL_SURFACE not yet ..." or
+    # "entity type B_SPLINE_SURFACE ..."
+    m = re.match(r"(?:entity type )?([A-Z][A-Z_0-9]{2,})", s)
+    if m:
+        return m.group(1)
+    return s.split(" (")[0].split(";")[0][:40]
+
+
+def _try_resolve_root(resolver: "_Resolver", name: str, root_builder, args: list, *, tolerant, skipped):
+    """Build one root geometry (solid shell / surface model); return None on a bad
+    root. A StepStreamUnsupported root re-raises (so the caller can fall back to OCC)
+    unless ``tolerant`` — then it is tallied in ``skipped`` and dropped so the rest of
+    the file still reads kernel-free."""
     try:
         return root_builder(resolver, args)
-    except StepStreamUnsupported:
-        raise
+    except StepStreamUnsupported as ex:
+        if not tolerant:
+            raise
+        skipped[_short_reason(ex)] += 1
+        return None
     except Exception as ex:  # noqa: BLE001 - report and skip a bad root
         logger.warning(f"stream_read_step: skipping {name!r}: {ex}")
+        skipped["error"] += 1
         return None
 
 
-def _read_two_pass(filepath: Path):
+def _log_skips(filepath: Path, skipped) -> None:
+    if skipped:
+        total = sum(skipped.values())
+        logger.info(
+            "stream_read_step: %s: skipped %d unsupported solid(s) — %s", filepath.name, total, dict(skipped)
+        )
+
+
+def _read_two_pass(filepath: Path, *, tolerant: bool = False, skipped=None):
     """General STEP: load the full entity table, then resolve each solid — handles
     forward references (solid written before its shell), unlike the streaming path."""
+    if skipped is None:
+        skipped = Counter()
     pool: dict[int, _Rec] = {}
     root_ids: list[int] = []
     with filepath.open("r", encoding="utf-8", errors="replace") as fh:
@@ -652,7 +692,7 @@ def _read_two_pass(filepath: Path):
         rec = pool[rid]
         name = _solid_name(rec.args, n_solids)
         resolver.reset_cache()
-        geom = _try_resolve_root(resolver, name, _ROOT_BUILDERS[rec.type], rec.args)
+        geom = _try_resolve_root(resolver, name, _ROOT_BUILDERS[rec.type], rec.args, tolerant=tolerant, skipped=skipped)
         if geom is not None:
             n_solids += 1
             yield Geometry(id=name, geometry=geom)

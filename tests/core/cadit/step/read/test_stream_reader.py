@@ -283,3 +283,27 @@ def test_stream_reader_rational_bspline_falls_back(example_files):
 
     asm = ada.from_step(out, reader="auto")  # OCC fallback, no crash/empty
     assert len(list(asm.get_all_physical_objects())) >= 1
+
+
+def test_stream_reader_tolerant_skips_unsupported(tmp_path):
+    # tolerant mode reads every supported solid and SKIPS the unsupported ones
+    # (a sphere here) instead of raising — so a big mixed CAD file reads its
+    # supported solids kernel-free rather than dropping the whole file to OCC.
+    from ada.cadit.step.read.stream_reader import StepStreamUnsupported
+
+    pl = Plate("pl", [(0, 0), (2, 0), (2, 1), (0, 1)], 0.02)
+    box = Beam("box", (1, 0, 0), (1, 0, 3), Section("box", from_str="BOX400x400x20x20"))
+    sph = ada.PrimSphere("sph", (5, 0, 0), 0.5)
+    out = tmp_path / "mix.step"
+    (ada.Assembly("m") / (ada.Part("p") / [pl, box, sph])).to_stp(out)  # OCC writer; sphere present
+
+    # non-tolerant two-pass raises on the unsupported sphere
+    with pytest.raises(StepStreamUnsupported):
+        list(stream_read_step(out, local_pool=False))
+
+    # tolerant skips the sphere and reads the two analytic solids
+    assert len(list(stream_read_step(out, local_pool=False, tolerant=True))) == 2
+
+    # from_step(reader="tolerant"): no OCC fallback, sphere dropped, rest imported
+    a = ada.from_step(out, reader="tolerant")
+    assert len(list(a.get_all_physical_objects())) == 2
