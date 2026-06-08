@@ -562,6 +562,7 @@ class Part(BackendGeom):
         opacity=1.0,
         source_units=Units.M,
         include_shells=False,
+        reader: str = "occ",
     ):
         """
 
@@ -573,7 +574,19 @@ class Part(BackendGeom):
         :param colour: Assign a specific colour upon import
         :param opacity: Assign Opacity upon import
         :param source_units: Unit of the imported STEP file. Default is 'm'
+        :param reader: "occ" (default) reads via the OpenCASCADE STEPControl_Reader.
+            "stream" uses the kernel-free streaming reader (constant-memory parse,
+            yields adapy geometry directly — see ada.cadit.step.read.stream_reader);
+            "auto" tries the streaming reader first and falls back to OCC if the file
+            uses entities outside its analytic-B-rep scope.
         """
+        if reader in ("stream", "auto"):
+            if self._read_step_streaming(
+                step_path, name, scale, transform, rotate, colour, opacity, source_units, strict=reader == "stream"
+            ):
+                return
+            # auto-fallback: the file is outside the streaming reader's scope.
+
         if scale is None and transform is None and rotate is None:
             # Backend-neutral path: route through the active document backend's
             # OCAF reader (works under adacpp as well as pythonocc). Carries the
@@ -599,6 +612,41 @@ class Part(BackendGeom):
             for i, (shp, shp_color, shp_name) in enumerate(shapes):
                 ada_shape = Shape(ada_name + "_" + str(i), shp, colour or shp_color, opacity, units=source_units)
                 self.add_shape(ada_shape)
+
+    def _read_step_streaming(
+        self, step_path, name, scale, transform, rotate, colour, opacity, source_units, strict: bool
+    ) -> bool:
+        """Read a STEP file via the kernel-free streaming reader, wrapping each
+        yielded adapy ``Geometry`` in a ``Shape``. Returns True on success; False
+        (only when ``strict`` is False) if the file is outside the reader's scope,
+        signalling the caller to fall back to the OCC path.
+
+        The streaming parse touches no CAD kernel, so it avoids the whole-model
+        materialisation that makes ``STEPControl_Reader`` OOM on large files; the
+        per-object OCC body is built lazily only when an object is tessellated.
+        """
+        from ada.cadit.step.read.stream_reader import StepStreamUnsupported, stream_read_step
+
+        if scale is not None or transform is not None or rotate is not None:
+            raise ValueError("reader='stream'/'auto' does not support scale/transform/rotate; use reader='occ'")
+
+        ada_name = name if name is not None else "CAD" + str(len(self.shapes) + 1)
+        new_shapes = []
+        try:
+            for i, geometry in enumerate(stream_read_step(step_path)):
+                shp_name = str(geometry.id) if geometry.id not in (None, "") else f"{ada_name}_{i}"
+                new_shapes.append(
+                    Shape(shp_name, geom=geometry, color=colour or geometry.color, opacity=opacity, units=source_units)
+                )
+        except StepStreamUnsupported:
+            if strict:
+                raise
+            logger.info("read_step_file: streaming reader hit an unsupported entity; falling back to OCC reader")
+            return False
+
+        for shp in new_shapes:
+            self.add_shape(shp)
+        return True
 
     def calculate_cog(self) -> COG:
         import numpy as np
