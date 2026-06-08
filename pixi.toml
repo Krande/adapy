@@ -131,7 +131,7 @@ occt = { version = "7.9.3.*", build = "novtk_*" }
 # `adacpp` and without `pyocc` exercises adacpp as the sole CAD backend
 # (no pythonocc fallback by design).
 [feature.adacpp.dependencies]
-ada-cpp = "0.5.0.*"
+ada-cpp = "0.6.0.*"
 
 [feature.adacpp.activation.env]
 ADAPY_CAD_BACKEND = "adacpp"
