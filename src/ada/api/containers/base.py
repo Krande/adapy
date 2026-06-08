@@ -107,17 +107,36 @@ class NumericMapped(BaseCollections):
 
     def recreate_name_and_id_maps(self, collection):
         self._name_map = {n.name: n for n in collection}
-        self._id_map = {n.id: n for n in collection}
+        # Build a faithful id -> member map. Assign a fresh unique id to any member whose id is
+        # missing (None), non-integer, or a duplicate of one already taken. Otherwise multiple
+        # id-less members collapse onto a single ``{None: member}`` entry — silently dropping
+        # members from the map — and the numeric bookkeeping (max_id / renumber / add) blows up
+        # on ``None``. Members are referenced by id downstream (FEM material/section refs), so an
+        # id-less member is a real defect, not just a map nuisance: assign one rather than hide it.
+        id_map: dict = {}
+        taken = {n.id for n in collection if isinstance(getattr(n, "id", None), int)}
+        next_id = max(taken, default=0)
+        for n in collection:
+            nid = getattr(n, "id", None)
+            if not isinstance(nid, int) or nid in id_map:
+                next_id += 1
+                while next_id in taken:
+                    next_id += 1
+                nid = next_id
+                n.id = nid
+                taken.add(nid)
+            id_map[nid] = n
+        self._id_map = id_map
         # Invalidate max_id cache when maps are recreated
         if hasattr(self, "_max_id"):
             self._max_id = None
 
     @property
     def max_id(self):
-        if len(self._id_map.keys()) == 0:
-            return 0
-        # Use cached value if available, otherwise calculate and cache
+        # Use cached value if available, otherwise calculate and cache. Guard against any
+        # non-integer keys that slipped in (e.g. a member assigned a string id) so a stray
+        # value can't crash id allocation; empty -> 0.
         if hasattr(self, "_max_id") and self._max_id is not None:
             return self._max_id
-        self._max_id = max(self._id_map.keys())
+        self._max_id = max((k for k in self._id_map.keys() if isinstance(k, int)), default=0)
         return self._max_id

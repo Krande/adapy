@@ -201,14 +201,11 @@ class Materials(NumericMapped):
                     ref_ids.add(rid)
             return existing
 
-        # 2) Assign a fresh id if needed
+        # 2) Assign a fresh id if needed (None or colliding). max_id is cache-backed and
+        #    non-int-safe, so this can't blow up on a stray None/string id in the map.
         mat_id = material.id
-        if mat_id is None or mat_id in id_map:
-            # Use cached max_id if available, otherwise calculate efficiently
-            if hasattr(self, "_max_id") and self._max_id is not None:
-                mat_id = self._max_id + 1
-            else:
-                mat_id = max(id_map.keys()) + 1 if id_map else 1
+        if not isinstance(mat_id, int) or mat_id in id_map:
+            mat_id = self.max_id + 1
             material.id = mat_id
 
         # 3) Insert in O(1)
