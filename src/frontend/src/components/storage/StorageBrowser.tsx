@@ -524,28 +524,35 @@ const StorageBrowser: React.FC = () => {
     };
 
     const onFilePicked = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
+        const files = Array.from(e.target.files ?? []);
         e.target.value = "";
-        if (!file) return;
+        if (files.length === 0) return;
         setUploading(true);
-        setUploadName(file.name);
-        setUploadLoaded(0);
-        setUploadTotal(file.size);
-        try {
-            await uploadFile(file, {
-                onProgress: (loaded, total) => {
-                    setUploadLoaded(loaded);
-                    if (total) setUploadTotal(total);
-                },
-            });
-        } catch (err) {
-            console.error("upload failed", err);
-        } finally {
-            setUploading(false);
-            setUploadName(null);
+        // Upload sequentially (presigned PUT is per-file); a failed file is
+        // collected and reported at the end rather than aborting the batch.
+        const failures: string[] = [];
+        for (let i = 0; i < files.length; i++) {
+            const file = files[i];
+            setUploadName(files.length > 1 ? `${file.name} (${i + 1}/${files.length})` : file.name);
             setUploadLoaded(0);
-            setUploadTotal(0);
+            setUploadTotal(file.size);
+            try {
+                await uploadFile(file, {
+                    onProgress: (loaded, total) => {
+                        setUploadLoaded(loaded);
+                        if (total) setUploadTotal(total);
+                    },
+                });
+            } catch (err) {
+                console.error("upload failed", file.name, err);
+                failures.push(file.name);
+            }
         }
+        setUploading(false);
+        setUploadName(null);
+        setUploadLoaded(0);
+        setUploadTotal(0);
+        if (failures.length) window.alert(`Upload failed for: ${failures.join(", ")}`);
     };
 
     return (
@@ -576,6 +583,7 @@ const StorageBrowser: React.FC = () => {
                     <input
                         ref={fileInputRef}
                         type="file"
+                        multiple
                         accept={uploadAcceptAttr()}
                         style={{display: "none"}}
                         onChange={onFilePicked}

@@ -289,6 +289,25 @@ class Storage:
             return
         await obs.rename_async(self._store, full_src, full_dst, overwrite=overwrite)
 
+    async def copy(
+        self,
+        src_scope: Scope,
+        src_key: str,
+        dst_scope: Scope,
+        dst_key: str,
+        *,
+        overwrite: bool = False,
+    ) -> None:
+        """Server-side copy a stored key from one scope to another. Both scopes
+        live in the same bucket (distinguished by their key prefix), so this is a
+        single object-store CopyObject (Garage / S3 family) — no download/reupload.
+        ``overwrite=False`` raises if the destination key already exists."""
+        full_src = self._full_key(src_scope, src_key)
+        full_dst = self._full_key(dst_scope, dst_key)
+        if full_src == full_dst:
+            return
+        await obs.copy_async(self._store, full_src, full_dst, overwrite=overwrite)
+
     @property
     def supports_presigned_uploads(self) -> bool:
         """True for object-store backends that can vend a presigned PUT

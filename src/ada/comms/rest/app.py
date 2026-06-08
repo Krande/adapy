@@ -4488,6 +4488,75 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         return JSONResponse({"moved": moved, "failed": failed})
 
+    @admin.post("/scopes/{scope}/keys/copy-from")
+    async def admin_keys_copy_from(
+        request: Request,
+        scope_obj: Scope = Depends(_scope_from_path),  # destination scope (e.g. a corpus)
+        user: User = Depends(auth_module.current_user),
+    ) -> JSONResponse:
+        """Server-side copy source keys from another scope into this one.
+
+        Body: ``{"src_scope": "user:me", "keys": [...]}``. Each key is copied
+        (Garage / S3 CopyObject — no download/reupload) from ``src_scope`` to the
+        same key in the path scope. The caller must be able to read ``src_scope``.
+        Per-key reporting: ``{copied, failed}`` — a collision (target exists),
+        missing source, or backend error doesn't abort the batch.
+        """
+        from .converter import is_derived_key
+
+        pool = getattr(request.app.state, "db_pool", None)
+        body = await request.json()
+        src_raw = body.get("src_scope")
+        raw_keys = body.get("keys")
+        if not isinstance(src_raw, str) or not src_raw.strip():
+            raise HTTPException(status_code=400, detail="src_scope required")
+        if not isinstance(raw_keys, list) or not raw_keys:
+            raise HTTPException(status_code=400, detail="keys must be a non-empty list")
+        if any(not isinstance(k, str) or not k.strip() for k in raw_keys):
+            raise HTTPException(status_code=400, detail="every key must be a non-empty string")
+
+        src_scope = await _resolve_project_scope(pool, _parse_scope(src_raw.strip(), user))
+        if not await scope_can_access(user, src_scope, pool):
+            raise HTTPException(status_code=403, detail="forbidden: source scope")
+        if src_scope.prefix() == scope_obj.prefix():
+            raise HTTPException(status_code=400, detail="source and destination scope are the same")
+
+        # Dedup while preserving order.
+        seen: set[str] = set()
+        keys: list[str] = []
+        for raw in raw_keys:
+            cleaned = raw.strip().lstrip("/")
+            if cleaned and cleaned not in seen:
+                seen.add(cleaned)
+                keys.append(cleaned)
+
+        # Snapshot destination keys so we can skip collisions without a HEAD per file.
+        dst_keys = {f.key for f in await storage.list(scope_obj)}
+
+        copied: list[dict] = []
+        failed: list[dict] = []
+        for key in keys:
+            if is_derived_key(key):
+                failed.append({"key": key, "reason": "cannot copy derived blobs"})
+                continue
+            if key in dst_keys:
+                failed.append({"key": key, "reason": "target already exists"})
+                continue
+            try:
+                # overwrite=True for the same S3 reason as rename above (the safe
+                # default raises ``copy-if-not-exists not supported``); the
+                # application-layer dst_keys pre-check is the real collision guard.
+                await storage.copy(src_scope, key, scope_obj, key, overwrite=True)
+            except Exception as exc:
+                logger.exception("admin: copy failed for %s (%s -> %s)", key, src_raw, scope_obj.prefix())
+                failed.append({"key": key, "reason": str(exc)})
+                continue
+            dst_keys.add(key)
+            copied.append({"key": key})
+            await _audit(request, user, scope_obj, "copy", key=key, status="ok")
+
+        return JSONResponse({"copied": copied, "failed": failed})
+
     app.include_router(admin)
 
     @app.get("/config.js")
