@@ -38,11 +38,19 @@ from typing import Iterator
 
 from ada.config import logger
 from ada.geom import Geometry
-from ada.geom.curves import EdgeCurve, EdgeLoop, Line, Circle, OrientedEdge
+from ada.geom.curves import Circle, EdgeCurve, EdgeLoop, Ellipse, Line, OrientedEdge
 from ada.geom.direction import Direction
 from ada.geom.placement import Axis2Placement3D
 from ada.geom.points import Point
-from ada.geom.surfaces import AdvancedFace, ClosedShell, CylindricalSurface, FaceBound, Plane
+from ada.geom.surfaces import (
+    AdvancedFace,
+    ClosedShell,
+    ConicalSurface,
+    CylindricalSurface,
+    FaceBound,
+    Plane,
+    ToroidalSurface,
+)
 
 __all__ = ["stream_read_step", "StepStreamUnsupported"]
 
@@ -270,6 +278,20 @@ def _b_circle(r: _Resolver, a: list) -> Circle:
     return Circle(position=r.deref(a[1]), radius=float(a[2]))
 
 
+def _b_ellipse(r: _Resolver, a: list) -> Ellipse:
+    # ELLIPSE('', #position, semi_axis_1, semi_axis_2)
+    return Ellipse(position=r.deref(a[1]), semi_axis1=float(a[2]), semi_axis2=float(a[3]))
+
+
+def _b_surface_curve(r: _Resolver, a: list):
+    # SURFACE_CURVE / SEAM_CURVE('', #curve_3d, (#associated_geometry...), master)
+    # The first arg is the 3D curve (LINE/CIRCLE/ELLIPSE/B-spline) — the edge geometry
+    # we need; the associated p-curves only trim it on the face and aren't required to
+    # build/tessellate via the backend. Unwrapping keeps OCCT-written STEP (any flavor)
+    # readable without falling back to the kernel reader.
+    return r.deref(a[1])
+
+
 def _b_edge_curve(r: _Resolver, a: list) -> EdgeCurve:
     # EDGE_CURVE('', #start_vertex, #end_vertex, #edge_geometry, same_sense)
     start = r.deref(a[1])
@@ -292,6 +314,20 @@ def _b_edge_loop(r: _Resolver, a: list) -> EdgeLoop:
     return EdgeLoop(edge_list=[r.deref(x) for x in a[1]])
 
 
+class _DegenerateLoop:
+    """A VERTEX_LOOP — a single-vertex 'loop' at a pole/apex of a closed surface
+    (sphere/cone). Not a real boundary wire; dropped from a face's bounds."""
+
+    __slots__ = ()
+
+
+_DEGENERATE_LOOP = _DegenerateLoop()
+
+
+def _b_vertex_loop(r: _Resolver, a: list) -> _DegenerateLoop:
+    return _DEGENERATE_LOOP
+
+
 def _b_face_bound(r: _Resolver, a: list) -> FaceBound:
     # FACE_BOUND / FACE_OUTER_BOUND('', #bound, orientation)
     return FaceBound(bound=r.deref(a[1]), orientation=_enum_true(a[2]))
@@ -305,9 +341,29 @@ def _b_cylindrical_surface(r: _Resolver, a: list) -> CylindricalSurface:
     return CylindricalSurface(position=r.deref(a[1]), radius=float(a[2]))
 
 
+def _b_conical_surface(r: _Resolver, a: list) -> ConicalSurface:
+    # CONICAL_SURFACE('', #position, radius, semi_angle)
+    return ConicalSurface(position=r.deref(a[1]), radius=float(a[2]), semi_angle=float(a[3]))
+
+
+def _b_spherical_surface(r: _Resolver, a: list):
+    # A sphere face is closed in BOTH u and v; the kernel-free seam reconstruction
+    # yields a degenerate face that aborts OCC's mesher (uncatchable). Until periodic
+    # double-seam handling lands, signal unsupported so reader="auto" falls back to
+    # the OCC reader for sphere-containing files rather than crashing downstream.
+    raise StepStreamUnsupported("SPHERICAL_SURFACE not yet supported by the streaming reader (closed u+v)")
+
+
+def _b_toroidal_surface(r: _Resolver, a: list) -> ToroidalSurface:
+    # TOROIDAL_SURFACE('', #position, major_radius, minor_radius)
+    return ToroidalSurface(position=r.deref(a[1]), major_radius=float(a[2]), minor_radius=float(a[3]))
+
+
 def _b_advanced_face(r: _Resolver, a: list) -> AdvancedFace:
     # ADVANCED_FACE('', (#bounds), #face_surface, same_sense)
-    bounds = [r.deref(x) for x in a[1]]
+    # Drop degenerate vertex-loop bounds (pole/apex of a closed surface) — they
+    # carry no boundary wire; the surface trims to its real edge-loop bounds.
+    bounds = [fb for fb in (r.deref(x) for x in a[1]) if not isinstance(fb.bound, _DegenerateLoop)]
     return AdvancedFace(bounds=bounds, face_surface=r.deref(a[2]), same_sense=_enum_true(a[3]))
 
 
@@ -323,13 +379,20 @@ _BUILDERS = {
     "AXIS2_PLACEMENT_3D": _b_axis2_placement_3d,
     "LINE": _b_line,
     "CIRCLE": _b_circle,
+    "ELLIPSE": _b_ellipse,
+    "SURFACE_CURVE": _b_surface_curve,
+    "SEAM_CURVE": _b_surface_curve,
     "EDGE_CURVE": _b_edge_curve,
     "ORIENTED_EDGE": _b_oriented_edge,
     "EDGE_LOOP": _b_edge_loop,
+    "VERTEX_LOOP": _b_vertex_loop,
     "FACE_BOUND": _b_face_bound,
     "FACE_OUTER_BOUND": _b_face_bound,
     "PLANE": _b_plane,
     "CYLINDRICAL_SURFACE": _b_cylindrical_surface,
+    "CONICAL_SURFACE": _b_conical_surface,
+    "SPHERICAL_SURFACE": _b_spherical_surface,
+    "TOROIDAL_SURFACE": _b_toroidal_surface,
     "ADVANCED_FACE": _b_advanced_face,
     "CLOSED_SHELL": _b_closed_shell,
 }

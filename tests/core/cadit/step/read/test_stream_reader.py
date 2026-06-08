@@ -144,3 +144,55 @@ def test_stream_reader_two_pass_handles_forward_references(tmp_path):
     for g in geos:
         assert isinstance(g.geometry, ClosedShell)
         assert len(g.geometry.cfs_faces) > 0
+
+
+def test_stream_reader_analytic_surface_coverage(tmp_path):
+    # Beyond plane/cylinder: a cone (CONICAL_SURFACE) and a pipe elbow
+    # (TOROIDAL_SURFACE) must stream-read and tessellate. The OCC writer emits
+    # forward references, so use the two-pass reader.
+    from ada.cad import active_backend
+    from ada.geom.surfaces import ConicalSurface, ToroidalSurface
+
+    cone = ada.PrimCone("cone", (0, 0, 0), (0, 0, 1), 0.5)
+    pipe = ada.Pipe("pipe", [(2, 0, 0), (2, 0, 2), (4, 0, 2)], "PIPE200x10")  # elbow -> torus
+    a = ada.Assembly("m") / (ada.Part("p") / [cone, pipe])
+    out = tmp_path / "analytic.step"
+    a.to_stp(out)  # OCC writer
+
+    geos = list(stream_read_step(out, local_pool=False))
+    surfs = {type(f.face_surface).__name__ for g in geos for f in g.geometry.cfs_faces}
+    assert ConicalSurface.__name__ in surfs
+    assert ToroidalSurface.__name__ in surfs
+
+    be = active_backend()
+    for g in geos:
+        mesh = be.tessellate(be.build(g))
+        assert len(mesh.positions) > 0
+
+
+def test_stream_reader_flavor_agnostic(tmp_path):
+    # The geometry/topology entities are identical across AP203/AP214/AP242; the
+    # reader ignores the header FILE_SCHEMA. An AP214 file must read like AP242.
+    out = tmp_path / "ap214.step"
+    _model().to_stp(out, writer="stream", schema="AP214")
+    assert "AUTOMOTIVE_DESIGN" in out.read_text()  # AP214 header marker
+    assert len(list(stream_read_step(out))) == 4
+
+
+def test_stream_reader_sphere_falls_back_to_occ(tmp_path):
+    # A sphere is closed in u and v; the reader signals it unsupported so
+    # reader="auto" falls back to OCC (reads everything, no crash), while
+    # reader="stream" raises rather than producing a crashing degenerate face.
+    from ada.cadit.step.read.stream_reader import StepStreamUnsupported
+
+    sph = ada.PrimSphere("sph", (0, 0, 0), 0.5)
+    out = tmp_path / "sphere.step"
+    (ada.Assembly("m") / (ada.Part("p") / sph)).to_stp(out)
+
+    import pytest
+
+    with pytest.raises(StepStreamUnsupported):
+        list(stream_read_step(out, local_pool=False))
+
+    asm = ada.from_step(out, reader="auto")  # OCC fallback, must not crash
+    assert len(list(asm.get_all_physical_objects())) == 1
