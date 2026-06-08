@@ -2649,6 +2649,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         user_sub: str,
         pool,
         force_rebuild: bool = False,
+        validate_only: bool = False,
     ) -> None:
         """Enumerate the scope's files × the converter matrix and
         enqueue one regular convert job per cell. Cached cells
@@ -2692,8 +2693,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 continue
             ext = pathlib.PurePosixPath(f.key).suffix.lower()
             targets = ConverterRegistry.targets_for(ext)
-            for target_format in targets:
-                cells.append((f.key, target_format))
+            # validate_only runs skip the conversion grid and emit only parity cells.
+            if not validate_only:
+                for target_format in targets:
+                    cells.append((f.key, target_format))
             # Cross-format visual-parity validation cell — only when the source
             # can produce a structure-preserving format to compare against.
             # Appended before set_audit_run_total so the run total accounts for it.
@@ -2871,6 +2874,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         worker_pool = body.get("worker_pool") or None
         note = body.get("note") or None
         force_rebuild = bool(body.get("force_rebuild") or False)
+        # validate_only: a validation-phase run — enqueue only the per-source
+        # cross-format parity cells, skipping the conversion grid. The parity job
+        # re-derives from source, so it needs no prior conversion outputs.
+        validate_only = bool(body.get("validate_only") or False)
 
         s = _parse_scope(scope_str, user)
         s = await _resolve_project_scope(pool, s)
@@ -2894,6 +2901,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             user.sub,
             pool,
             force_rebuild,
+            validate_only,
         )
         return JSONResponse(run, status_code=202)
 

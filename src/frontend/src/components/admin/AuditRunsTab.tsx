@@ -14,10 +14,11 @@ import {viewerApi, AuditRun, AuditRunJob, Corpus} from "@/services/viewerApi";
 //     pass/fail/cached and a metric switcher that recolors the same
 //     grid by peak_rss / elapsed_s / mem_per_input_mb / write_bytes.
 
-type MetricKey = "status" | "peak_rss_kb" | "duration_ms" | "mem_per_mb" | "write_bytes";
+type MetricKey = "status" | "validation" | "peak_rss_kb" | "duration_ms" | "mem_per_mb" | "write_bytes";
 
 const METRIC_LABELS: Record<MetricKey, string> = {
     status: "Pass / fail",
+    validation: "Validation",
     peak_rss_kb: "Peak RSS",
     duration_ms: "Elapsed",
     mem_per_mb: "RSS / source MB",
@@ -109,7 +110,7 @@ function cellValue(metric: MetricKey, job: AuditRunJob | undefined): number | nu
 
 function cellLabel(metric: MetricKey, job: AuditRunJob | undefined): string {
     if (!job) return "";
-    if (metric === "status") return job.status ?? "";
+    if (metric === "status" || metric === "validation") return job.status ?? "";
     const v = cellValue(metric, job);
     if (v == null) return "—";
     if (metric === "peak_rss_kb") return fmtBytes(v * 1024);
@@ -151,6 +152,24 @@ const RunGrid: React.FC<{
 }> = ({jobs, metric}) => {
     const grid = useMemo(() => buildGrid(jobs), [jobs]);
 
+    // Per-source cross-format parity result (the dispatcher emits one
+    // ``parity`` cell per source). The "Validation" metric colours every cell
+    // in a source's row by this verdict — done = formats agree, error =
+    // element-count mismatch — so you spot diverging sources at a glance.
+    const parityBySource = useMemo(() => {
+        const m = new Map<string, AuditRunJob>();
+        for (const j of jobs) {
+            if (j.target_format === "parity" && j.key) m.set(j.key, j);
+        }
+        return m;
+    }, [jobs]);
+
+    const validationClass = (file: string): string => {
+        const p = parityBySource.get(file);
+        if (!p) return "bg-gray-900 border-gray-800 text-gray-500";  // source has no parity cell
+        return STATUS_COLOR[p.status ?? ""] || "bg-gray-800 border-gray-600 text-gray-300";
+    };
+
     // For value-based metrics, colour each cell by its *magnitude*
     // on a single scale spanning the whole grid's min→max, so the
     // colour tracks the absolute value rather than the cell's rank.
@@ -169,7 +188,7 @@ const RunGrid: React.FC<{
     // Only successful cells feed the scale; failed cells keep the
     // status palette so they stay visible regardless of metric.
     const scale = useMemo(() => {
-        if (metric === "status") return null;
+        if (metric === "status" || metric === "validation") return null;
         let min = Infinity;
         let max = -Infinity;
         for (const j of jobs) {
@@ -251,7 +270,7 @@ const RunGrid: React.FC<{
                             </td>
                             {grid.targets.map((target) => {
                                 const job = grid.cells.get(`${file}::${target}`);
-                                const cls = cellClass(job);
+                                const cls = metric === "validation" ? validationClass(file) : cellClass(job);
                                 const label = cellLabel(metric, job);
                                 return (
                                     <td
@@ -321,8 +340,7 @@ const TriggerForm: React.FC<{onCreated: () => void}> = ({onCreated}) => {
         return () => { cancelled = true; };
     }, []);
 
-    const onSubmit = useCallback(async (e: React.FormEvent) => {
-        e.preventDefault();
+    const createRun = useCallback(async (validateOnly: boolean) => {
         setBusy(true);
         setErr(null);
         try {
@@ -331,6 +349,7 @@ const TriggerForm: React.FC<{onCreated: () => void}> = ({onCreated}) => {
                 worker_pool: workerPool.trim() || null,
                 note: note.trim() || null,
                 force_rebuild: forceRebuild,
+                validate_only: validateOnly,
             });
             setNote("");
             onCreated();
@@ -340,6 +359,11 @@ const TriggerForm: React.FC<{onCreated: () => void}> = ({onCreated}) => {
             setBusy(false);
         }
     }, [scope, workerPool, note, forceRebuild, onCreated]);
+
+    const onSubmit = useCallback((e: React.FormEvent) => {
+        e.preventDefault();
+        void createRun(false);
+    }, [createRun]);
 
     return (
         <form onSubmit={onSubmit} className="flex flex-wrap items-end gap-2 px-3 py-2 border-b border-gray-800 bg-gray-900/40">
@@ -417,6 +441,15 @@ const TriggerForm: React.FC<{onCreated: () => void}> = ({onCreated}) => {
                 className="bg-blue-700 hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm px-3 py-1 rounded-sm h-[30px]"
             >
                 {busy ? "Starting…" : "Run audit"}
+            </button>
+            <button
+                type="button"
+                onClick={() => void createRun(true)}
+                disabled={busy}
+                title="Validation-only run: cross-format visual-parity per source, no conversions."
+                className="bg-teal-700 hover:bg-teal-600 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm px-3 py-1 rounded-sm h-[30px]"
+            >
+                {busy ? "Starting…" : "Run validation"}
             </button>
             {err && (
                 <div className="w-full text-xs text-red-400" role="alert">{err}</div>

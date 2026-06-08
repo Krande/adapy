@@ -1345,6 +1345,7 @@ export const viewerApi = {
             worker_pool?: string | null;
             note?: string | null;
             force_rebuild?: boolean;
+            validate_only?: boolean;
         },
     ): Promise<AuditRun> {
         const r = await authedFetch(`${runtime.apiBase()}/admin/audit/runs`, {
