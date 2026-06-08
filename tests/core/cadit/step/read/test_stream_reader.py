@@ -125,6 +125,26 @@ def test_stream_reader_local_pool_streams_all_solids(tmp_path):
     assert len(list(stream_read_step(out, local_pool=False))) == 4
 
 
+def test_stream_reader_lazy_offset_pool_matches_dict_pool(tmp_path):
+    # Large files resolve against an mmap + offset-index pool (parse each entity on
+    # demand) instead of a parsed-entity dict, to stay within a worker pod's memory
+    # budget (a 750 MB CAD assembly is 5+ GB as a dict pool, ~2 GB lazy). Force the
+    # lazy path on a small file and assert it yields exactly the same solids.
+    from ada.cadit.step.read import stream_reader as sr
+
+    out = _emit(tmp_path)
+
+    def sig(gen):
+        return sorted(
+            (g.id, type(g.geometry).__name__, len(g.geometry.cfs_faces)) for g in gen
+        )
+
+    eager = sig(sr._read_two_pass(out, low_memory=False))
+    lazy = sig(sr._read_two_pass(out, low_memory=True))
+    assert lazy == eager
+    assert len(lazy) == 4
+
+
 def test_stream_reader_two_pass_handles_forward_references(tmp_path):
     # OpenCASCADE and most writers emit forward references (a solid written before
     # its shell/faces/points) — the opposite of the streaming emitter's bottom-up

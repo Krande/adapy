@@ -669,11 +669,30 @@ def _log_skips(filepath: Path, skipped) -> None:
         )
 
 
-def _read_two_pass(filepath: Path, *, tolerant: bool = False, skipped=None):
-    """General STEP: load the full entity table, then resolve each solid — handles
-    forward references (solid written before its shell), unlike the streaming path."""
+# Files above this size resolve against an mmap + offset-index pool (parse each
+# entity on demand) instead of materialising every entity as a parsed _Rec — the
+# dict pool is ~7x the file size in Python objects (5+ GB on a 750 MB CAD assembly),
+# which OOMs a worker pod. Small files keep the simpler/faster dict pool.
+_LAZY_POOL_THRESHOLD = 64 * 1024 * 1024
+_WS = frozenset(b" \t\r\n")
+
+
+def _read_two_pass(filepath: Path, *, tolerant: bool = False, skipped=None, low_memory: bool | None = None):
+    """General STEP (forward references): resolve each root against the full entity
+    table. Large files use a constant-memory mmap + offset-index pool so a worker pod
+    stays within budget; small files use a plain parsed-entity dict."""
     if skipped is None:
         skipped = Counter()
+    if low_memory is None:
+        try:
+            low_memory = filepath.stat().st_size > _LAZY_POOL_THRESHOLD
+        except OSError:
+            low_memory = False
+    gen = _read_two_pass_lazy if low_memory else _read_two_pass_dict
+    yield from gen(filepath, tolerant=tolerant, skipped=skipped)
+
+
+def _read_two_pass_dict(filepath: Path, *, tolerant: bool, skipped):
     pool: dict[int, _Rec] = {}
     root_ids: list[int] = []
     with filepath.open("r", encoding="utf-8", errors="replace") as fh:
@@ -696,3 +715,129 @@ def _read_two_pass(filepath: Path, *, tolerant: bool = False, skipped=None):
         if geom is not None:
             n_solids += 1
             yield Geometry(id=name, geometry=geom)
+
+
+def _stmt_end(mm, start: int, n: int) -> int:
+    """Byte index of the statement-terminating ';' at/after ``start`` (a ';' inside a
+    single-quoted string doesn't terminate). Returns ``n`` if there is none."""
+    end = mm.find(b";", start)
+    if end < 0:
+        return n
+    while mm[start:end].count(b"'") & 1:  # the ';' fell inside an open string
+        nxt = mm.find(b";", end + 1)
+        if nxt < 0:
+            return n
+        end = nxt
+    return end
+
+
+def _read_statement_at(mm, start: int, n: int) -> str:
+    return mm[start:_stmt_end(mm, start, n)].decode("utf-8", "replace")
+
+
+def _is_kw_byte(b: int) -> bool:
+    return (0x41 <= b <= 0x5A) or (0x61 <= b <= 0x7A) or (0x30 <= b <= 0x39) or b == 0x5F
+
+
+def _scan_offset_index(mm):
+    """One linear pass: record (id -> byte offset) for every ``#id=…`` entity plus the
+    ids of the geometry roots. Uses array.array (raw int64 — no per-int Python object
+    blow-up), so the index of an 11 M-entity file is ~170 MB, not gigabytes."""
+    import array
+
+    ids = array.array("q")
+    offs = array.array("q")
+    roots: list[int] = []
+    n = len(mm)
+    pos = 0
+    while pos < n:
+        end = _stmt_end(mm, pos, n)
+        if end >= n:
+            break
+        s = pos
+        while s < end and mm[s] in _WS:
+            s += 1
+        if s < end and mm[s] == 0x23:  # '#'
+            k = s + 1
+            while k < end and 0x30 <= mm[k] <= 0x39:
+                k += 1
+            if k > s + 1:
+                rid = int(mm[s + 1 : k])
+                ids.append(rid)
+                offs.append(s)
+                # locate the type keyword for root detection: skip ws, '=', ws (OCC
+                # writes "#33 = MANIFOLD_SOLID_BREP(...)" with spaces around '=').
+                eq = k
+                while eq < end and mm[eq] in _WS:
+                    eq += 1
+                if eq < end and mm[eq] == 0x3D:  # '='
+                    m = eq + 1
+                    while m < end and mm[m] in _WS:
+                        m += 1
+                    p = m
+                    while p < end and _is_kw_byte(mm[p]):
+                        p += 1
+                    if p > m and mm[m:p].decode("ascii", "replace") in _ROOT_BUILDERS:
+                        roots.append(rid)
+        pos = end + 1
+    return ids, offs, roots
+
+
+class _OffsetPool:
+    """Drop-in for the entity dict: ``get(id)`` seeks to the entity's offset in the
+    mmap and parses it on demand. The _Resolver caches the BUILT object per solid, so
+    each entity is parsed about once; the file pages stay mmap-resident (reclaimable
+    by the OS), never copied onto the Python heap."""
+
+    def __init__(self, mm, ids_sorted, offs_sorted):
+        self._mm = mm
+        self._ids = ids_sorted
+        self._offs = offs_sorted
+        self._n = len(mm)
+
+    def get(self, rid):
+        import numpy as np
+
+        i = int(np.searchsorted(self._ids, rid))
+        if i >= self._ids.shape[0] or self._ids[i] != rid:
+            return None
+        stmt = _read_statement_at(self._mm, int(self._offs[i]), self._n)
+        parsed = _parse_statement(stmt)
+        if parsed is None:
+            return None
+        return _Rec(parsed[1], parsed[2])
+
+
+def _read_two_pass_lazy(filepath: Path, *, tolerant: bool, skipped):
+    import mmap
+
+    import numpy as np
+
+    fh = open(filepath, "rb")  # noqa: SIM115 - kept open for the generator's lifetime
+    mm = mmap.mmap(fh.fileno(), 0, access=mmap.ACCESS_READ)
+    try:
+        ids_arr, offs_arr, roots = _scan_offset_index(mm)
+        ids_np = np.frombuffer(ids_arr, dtype=np.int64)
+        offs_np = np.frombuffer(offs_arr, dtype=np.int64)
+        order = np.argsort(ids_np, kind="stable")
+        ids_sorted = np.ascontiguousarray(ids_np[order])
+        offs_sorted = np.ascontiguousarray(offs_np[order])
+        del ids_np, offs_np, order, ids_arr, offs_arr
+        pool = _OffsetPool(mm, ids_sorted, offs_sorted)
+        resolver = _Resolver(pool)
+        n_solids = 0
+        for rid in roots:
+            rec = pool.get(rid)
+            if rec is None:
+                continue
+            name = _solid_name(rec.args, n_solids)
+            resolver.reset_cache()
+            geom = _try_resolve_root(
+                resolver, name, _ROOT_BUILDERS[rec.type], rec.args, tolerant=tolerant, skipped=skipped
+            )
+            if geom is not None:
+                n_solids += 1
+                yield Geometry(id=name, geometry=geom)
+    finally:
+        mm.close()
+        fh.close()
