@@ -1147,6 +1147,7 @@ const FileRow: React.FC<FileRowProps> = ({
                             <RowKebabMenu
                                 ariaLabel={`Actions for ${displayName}`}
                                 buttonClassName="h-7 w-7 text-gray-200 hover:bg-gray-300/30"
+                                header={<span className="font-mono" title={f.name}>{f.name}</span>}
                                 items={[
                                     ...(onDownload ? [{
                                         key: "download",
