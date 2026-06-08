@@ -630,10 +630,15 @@ class Part(BackendGeom):
         if scale is not None or transform is not None or rotate is not None:
             raise ValueError("reader='stream'/'auto' does not support scale/transform/rotate; use reader='occ'")
 
+        # strict ("stream"): constant-memory bottom-up parse (the adapy emitter's
+        # output — the large-file OOM case). auto: two-pass deferred resolution so
+        # forward-referenced solids (OpenCASCADE and most other writers) read too.
+        local_pool = strict
+
         ada_name = name if name is not None else "CAD" + str(len(self.shapes) + 1)
         new_shapes = []
         try:
-            for i, geometry in enumerate(stream_read_step(step_path)):
+            for i, geometry in enumerate(stream_read_step(step_path, local_pool=local_pool)):
                 shp_name = str(geometry.id) if geometry.id not in (None, "") else f"{ada_name}_{i}"
                 new_shapes.append(
                     Shape(shp_name, geom=geometry, color=colour or geometry.color, opacity=opacity, units=source_units)
@@ -642,6 +647,13 @@ class Part(BackendGeom):
             if strict:
                 raise
             logger.info("read_step_file: streaming reader hit an unsupported entity; falling back to OCC reader")
+            return False
+
+        # A zero-yield on a non-empty file means the streaming reader didn't
+        # recognise the structure — fall back to OCC rather than silently
+        # importing nothing (auto only; strict honours the empty result).
+        if not new_shapes and not strict:
+            logger.info("read_step_file: streaming reader produced no solids; falling back to OCC reader")
             return False
 
         for shp in new_shapes:

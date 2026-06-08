@@ -351,42 +351,96 @@ def stream_read_step(filepath: str | Path, *, local_pool: bool = True) -> Iterat
         Path to the ``.step`` / ``.stp`` file.
     local_pool:
         When ``True`` (default) the entity pool is cleared at every solid
-        boundary — constant memory, valid for files whose solids are written as
-        self-contained contiguous blocks (the adapy streaming emitter). Set
-        ``False`` for arbitrary STEP that shares entities across solids.
+        boundary — constant memory, valid only for files whose solids are
+        written as self-contained, bottom-up contiguous blocks (definitions
+        precede references), which is what the adapy streaming emitter produces.
+
+        When ``False`` the reader does a two-pass deferred resolution (load the
+        whole entity table, then resolve each solid). This holds the full pool
+        but correctly handles **forward references** — a ``MANIFOLD_SOLID_BREP``
+        written before its shell/faces/points, which is how OpenCASCADE and most
+        other writers emit STEP. Use ``False`` for arbitrary STEP.
     """
     filepath = Path(filepath)
+
+    if not local_pool:
+        yield from _read_two_pass(filepath)
+        return
+
     pool: dict[int, _Rec] = {}
     resolver = _Resolver(pool)
     n_solids = 0
 
     with filepath.open("r", encoding="utf-8", errors="replace") as fh:
         for stmt in _iter_statements(fh):
-            m = _HEADER_RE.match(stmt)
-            if m is None:
+            parsed = _parse_statement(stmt)
+            if parsed is None:
                 # header keywords (ISO-10303-21, HEADER, DATA, ENDSEC, ...) and
                 # complex/instance records starting with '(' — not geometry roots.
                 continue
-            inst_id = int(m.group(1))
-            etype = m.group(2)
-            body_open = m.end() - 1  # position of '('
-            args, _ = _parse_seq(stmt, body_open + 1, ")")
+            inst_id, etype, args = parsed
 
             if etype == "MANIFOLD_SOLID_BREP":
-                # MANIFOLD_SOLID_BREP('name', #shell)
-                name = args[0] if isinstance(args[0], str) and args[0] else f"solid_{n_solids + 1}"
-                try:
-                    shell = resolver.deref(args[1])
-                except StepStreamUnsupported:
-                    raise
-                except Exception as ex:  # noqa: BLE001 - report and skip a bad solid
-                    logger.warning(f"stream_read_step: skipping solid {name!r}: {ex}")
-                else:
+                name = _solid_name(args, n_solids)
+                shell = _try_resolve_solid(resolver, name, args)
+                if shell is not None:
                     n_solids += 1
                     yield Geometry(id=name, geometry=shell)
-                if local_pool:
-                    pool.clear()
-                    resolver.reset_cache()
+                pool.clear()  # per-solid clear: constant memory, bottom-up only
+                resolver.reset_cache()
                 continue
 
             pool[inst_id] = _Rec(etype, args)
+
+
+def _parse_statement(stmt: str) -> tuple[int, str, list] | None:
+    """Parse one Part-21 statement into (instance_id, type, args), or None for
+    header keywords / complex (parenthesised) records that aren't geometry roots."""
+    m = _HEADER_RE.match(stmt)
+    if m is None:
+        return None
+    args, _ = _parse_seq(stmt, m.end(), ")")  # m.end() is just past the '('
+    return int(m.group(1)), m.group(2), args
+
+
+def _solid_name(args: list, n_solids: int) -> str:
+    return args[0] if args and isinstance(args[0], str) and args[0] else f"solid_{n_solids + 1}"
+
+
+def _try_resolve_solid(resolver: "_Resolver", name: str, args: list):
+    """Resolve a MANIFOLD_SOLID_BREP's shell; return None (and log) on a bad solid.
+    Re-raises StepStreamUnsupported so the caller can fall back to the OCC reader."""
+    try:
+        return resolver.deref(args[1])
+    except StepStreamUnsupported:
+        raise
+    except Exception as ex:  # noqa: BLE001 - report and skip a bad solid
+        logger.warning(f"stream_read_step: skipping solid {name!r}: {ex}")
+        return None
+
+
+def _read_two_pass(filepath: Path):
+    """General STEP: load the full entity table, then resolve each solid — handles
+    forward references (solid written before its shell), unlike the streaming path."""
+    pool: dict[int, _Rec] = {}
+    manifold_ids: list[int] = []
+    with filepath.open("r", encoding="utf-8", errors="replace") as fh:
+        for stmt in _iter_statements(fh):
+            parsed = _parse_statement(stmt)
+            if parsed is None:
+                continue
+            inst_id, etype, args = parsed
+            pool[inst_id] = _Rec(etype, args)
+            if etype == "MANIFOLD_SOLID_BREP":
+                manifold_ids.append(inst_id)
+
+    resolver = _Resolver(pool)
+    n_solids = 0
+    for mid in manifold_ids:
+        rec = pool[mid]
+        name = _solid_name(rec.args, n_solids)
+        resolver.reset_cache()
+        shell = _try_resolve_solid(resolver, name, rec.args)
+        if shell is not None:
+            n_solids += 1
+            yield Geometry(id=name, geometry=shell)

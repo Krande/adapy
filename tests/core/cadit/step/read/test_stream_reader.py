@@ -110,3 +110,19 @@ def test_stream_reader_local_pool_streams_all_solids(tmp_path):
     out = _emit(tmp_path)
     assert len(list(stream_read_step(out, local_pool=True))) == 4
     assert len(list(stream_read_step(out, local_pool=False))) == 4
+
+
+def test_stream_reader_two_pass_handles_forward_references(tmp_path):
+    # The OCC writer emits forward references (MANIFOLD_SOLID_BREP before its
+    # shell/faces/points) — the opposite of the streaming emitter's bottom-up
+    # order. local_pool=True (single forward pass) can't resolve those and yields
+    # nothing; local_pool=False (two-pass deferred resolution) must read them all.
+    out = tmp_path / "occ.step"
+    _model().to_stp(out)  # default OCC XCAF writer
+
+    assert len(list(stream_read_step(out, local_pool=True))) == 0
+    geos = list(stream_read_step(out, local_pool=False))
+    assert len(geos) == 4
+    for g in geos:
+        assert isinstance(g.geometry, ClosedShell)
+        assert len(g.geometry.cfs_faces) > 0
