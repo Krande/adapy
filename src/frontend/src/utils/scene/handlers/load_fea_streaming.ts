@@ -665,6 +665,23 @@ export async function load_fea_streaming(args: {
                     scenarios: fc.scenarios ?? [],
                 });
             }
+            // FEM node/element sets -> Scene > FEM groups picker. The streaming mesh.glb has no
+            // ADA_EXT (where GroupsSection normally reads groups), so feed the manifest groups
+            // straight into the scene-info store it renders from. Members (EL{id}/P{id}) resolve
+            // against the AFEM element ranges.
+            {
+                const {useSceneInfoStore} = await import("@/state/sceneInfoStore");
+                const mg = manifest.groups ?? [];
+                useSceneInfoStore.getState().setAvailableGroups(
+                    mg.map((g) => ({
+                        name: g.name,
+                        members: g.members,
+                        type: "simulation" as const,
+                        parent_name: sourceName,
+                        fe_object_type: g.fe_object_type,
+                    })),
+                );
+            }
         } catch (err) {
             URL.revokeObjectURL(url);
             throw err;

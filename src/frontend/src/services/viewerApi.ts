@@ -339,6 +339,10 @@ export interface FeaManifest {
      *  FemConceptsController renders the same masses / BCs / load
      *  overlay it draws for a CAD/FEM GLB's embedded concepts. */
     fem_concepts?: FemConcepts;
+    /** FEM node/element sets (design-model meshes). The streaming mesh.glb carries no ADA_EXT,
+     *  so the frontend feeds these into useSceneInfoStore for the Scene > FEM groups picker.
+     *  Members are tagged EL{id} / P{id} to resolve against the AFEM element ranges. */
+    groups?: {name: string; members: string[]; fe_object_type?: "node" | "element"}[];
     legacy_glb?: {url_template: string};
 }
 

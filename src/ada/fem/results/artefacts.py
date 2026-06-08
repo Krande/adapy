@@ -704,6 +704,9 @@ class FEAResultStreamAdapter:
         # dict. SIF/SIN leave this None; the FEM reader (_make_fem_reader) scrapes it from the
         # deck so the Scene > FEM panel can draw the glyph overlay.
         self._fem_concepts: dict | None = None
+        # Optional FEM node/element sets as manifest group dicts ({name, members, fe_object_type}).
+        # Populated by the FEM reader so the Scene > FEM groups picker works for design models.
+        self._groups: list[dict] | None = None
 
         # Remap real node IDs → 0-based point indices. ElementBlock
         # stores arbitrary-id node references (1-based for RMED,
@@ -714,6 +717,9 @@ class FEAResultStreamAdapter:
 
     def try_fem_concepts(self) -> dict | None:
         return self._fem_concepts
+
+    def try_groups(self) -> list[dict] | None:
+        return self._groups
 
     # ----- protocol -------------------------------------------------------
 
@@ -1761,6 +1767,7 @@ def build_manifest(
     history: "HistoryRecords | None" = None,
     lineage: dict | None = None,
     fem_concepts: dict | None = None,
+    groups: list[dict] | None = None,
     legacy_glb_url_template: str | None = None,
 ) -> dict:
     """Compose the manifest dict from the bake outputs.
@@ -1997,6 +2004,10 @@ def build_manifest(
     # FemConceptsController overlay.
     if fem_concepts:
         manifest["fem_concepts"] = fem_concepts
+    # FEM node/element sets, for the Scene > FEM groups picker (the streaming mesh.glb carries
+    # no ADA_EXT, so the frontend feeds these into useSceneInfoStore directly).
+    if groups:
+        manifest["groups"] = groups
     if legacy_glb_url_template is not None:
         manifest["legacy_glb"] = {"url_template": legacy_glb_url_template}
     return manifest
@@ -2159,6 +2170,25 @@ def _make_fem_reader(path: pathlib.Path) -> "FEAStreamReader":
         from ada.config import get_logger
 
         get_logger().debug("FEM bake: fem_concepts scrape failed: %s", e)
+
+    # Scrape the FEM's node/element sets into manifest groups so the Scene > FEM groups picker
+    # works for design models (the streaming mesh.glb carries no ADA_EXT). Members are tagged
+    # EL{id} / P{id} to match the AFEM element ranges the selection layer resolves against.
+    try:
+        groups: list[dict] = []
+        for fset in part.fem.sets:
+            is_nset = fset.type == fset.TYPES.NSET
+            prefix = "P" if is_nset else "EL"
+            members = [f"{prefix}{m.id}" for m in fset.members if getattr(m, "id", None) is not None]
+            if members:
+                groups.append(
+                    {"name": fset.name, "members": members, "fe_object_type": "node" if is_nset else "element"}
+                )
+        reader._groups = groups or None
+    except Exception as e:  # noqa: BLE001 — groups are best-effort decoration
+        from ada.config import get_logger
+
+        get_logger().debug("FEM bake: groups scrape failed: %s", e)
     return reader
 
 
@@ -2389,6 +2419,13 @@ def bake_artefacts(
     except (AttributeError, NotImplementedError):
         fem_concepts = None
 
+    # FEM node/element sets -> manifest groups (Scene > FEM groups picker). Readers without the
+    # method (SIF/SIN/RMED) contribute nothing.
+    try:
+        groups = reader.try_groups()
+    except (AttributeError, NotImplementedError):
+        groups = None
+
     manifest = build_manifest(
         src=src,
         mesh_geom=geom,
@@ -2411,6 +2448,7 @@ def bake_artefacts(
         beam_solids_skip_reasons=(solid_beams.skip_reasons if solid_beams is not None else None),
         lineage=lineage,
         fem_concepts=fem_concepts,
+        groups=groups,
         legacy_glb_url_template=legacy_glb_url_template,
     )
     manifest_path = out_dir / "fea.manifest.json"
