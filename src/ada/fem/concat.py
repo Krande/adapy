@@ -17,6 +17,7 @@ which silently distorted or dropped merged-in instances.
 
 from __future__ import annotations
 
+import copy
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -176,13 +177,23 @@ def concatenate_fem_to_single_part(assembly: "Assembly") -> "Part | None":
         )
     store = MeshArrays(np.vstack(coords_list), np.concatenate(nid_list), blocks)
 
-    merged = FEM(name=base.name, parent=base)
+    # Build a STANDALONE merged part — never mutate the source assembly (the parts keep their
+    # FEMs in the tree, so writing to a single-part format doesn't collapse the model). Every
+    # dependent object that needs re-keying (sections / bcs / masses / materials) is shallow
+    # copied before its set/material refs are re-pointed, so the originals stay untouched.
+    from ada import Part
+
+    merged_part = Part(base.name)
+    merged_part.units = base.units
+    merged = FEM(name=base.name, parent=merged_part)
+    merged_part.fem = merged
     merged.nodes = ArrayNodes(store, parent=merged)
     merged.elements = ArrayElements(store, fem_obj=merged)
 
     # ── re-key dependent references by the same per-part offsets ──────────────────────────
     # Node/element sets: prefix names, offset member ids. Keep an identity map (old set -> new
-    # set) so section elsets and bc sets can be re-pointed to the merged copies.
+    # set) so section elsets and bc sets can be re-pointed to the merged copies. Read member ids
+    # without to_id_backed() so the source set is not mutated.
     set_map: dict[int, FemSet] = {}
     merged_sets: list[FemSet] = []
 
@@ -190,9 +201,11 @@ def concatenate_fem_to_single_part(assembly: "Assembly") -> "Part | None":
         existing = set_map.get(id(s))
         if existing is not None:
             return existing
-        s.to_id_backed()
         off = node_off_of[id(p)] if s.type == SetTypes.NSET else el_off_of[id(p)]
-        member_ids = [int(m) + off for m in (s._member_ids or [])]
+        mids = s._member_ids
+        if mids is None:
+            mids = [m.id for m in s.members]
+        member_ids = [int(m) + off for m in mids]
         ns = FemSet(f"{prefix_of[id(p)]}_{s.name}", member_ids, s.type, parent=merged)
         set_map[id(s)] = ns
         merged_sets.append(ns)
@@ -203,53 +216,53 @@ def concatenate_fem_to_single_part(assembly: "Assembly") -> "Part | None":
             _remap_set(p, s)
     merged.sets = FemSets(merged_sets, parent=merged)
 
-    # Sections: re-point each section's elset to the merged copy (creating it if the section
-    # carried a standalone elset not in fem.sets) and carry the material.
+    # Sections: shallow copy, re-point the copy's elset to the merged set + carry the material
+    # (copied once and re-pointed so the source sections stay intact).
+    mat_map: dict[int, object] = {}
     merged_sections: list = []
     for p in parts:
         for sec in p.fem.sections:
-            if sec.elset is not None:
-                sec.elset = _remap_set(p, sec.elset)
-            sec.parent = merged
-            merged_sections.append(sec)
+            ns = copy.copy(sec)
+            if ns.elset is not None:
+                ns.elset = _remap_set(p, ns.elset)
+            mat = getattr(ns, "material", None)
+            if mat is not None:
+                cm = mat_map.get(id(mat))
+                if cm is None:
+                    cm = copy.copy(mat)
+                    mat_map[id(mat)] = cm
+                    merged_part.add_material(cm)
+                ns.material = cm
+            ns.parent = merged
+            merged_sections.append(ns)
     merged.sections = FemSections(merged_sections, fem_obj=merged)
 
-    # Materials live on the owning Part; gather every part's into base's part.
-    if base.parent is not None:
-        for p in parts[1:]:
-            if p.parent is not None and p.parent is not base.parent:
-                base.parent.materials += p.parent.materials
-
-    # Boundary conditions: re-point each bc's set to the merged copy.
+    # Boundary conditions: shallow copy + re-point the copy's set.
     for p in parts:
         for bc in p.fem.bcs:
-            if getattr(bc, "fem_set", None) is not None:
-                bc.fem_set = _remap_set(p, bc.fem_set)
-            bc.parent = merged
-            merged.bcs.append(bc)
+            nb = copy.copy(bc)
+            if getattr(nb, "fem_set", None) is not None:
+                nb.fem_set = _remap_set(p, nb.fem_set)
+            nb.parent = merged
+            merged.bcs.append(nb)
 
-    # Masses, constraints, surfaces, local coordinate systems: carry across, re-pointing the
-    # set references that masses/constraints hold.
+    # Masses / constraints / surfaces / local coordinate systems: shallow copy across, re
+    # pointing the set references masses hold.
     for p in parts:
         for name, mass in p.fem.masses.items():
-            if getattr(mass, "elset", None) is not None:
-                mass.elset = _remap_set(p, mass.elset)
-            mass.parent = merged
-            merged.masses[name] = mass
+            nm = copy.copy(mass)
+            if getattr(nm, "elset", None) is not None:
+                nm.elset = _remap_set(p, nm.elset)
+            nm.parent = merged
+            merged.masses[name] = nm
         for name, con in p.fem.constraints.items():
-            con.parent = merged
-            merged.constraints[name] = con
+            nc = copy.copy(con)
+            nc.parent = merged
+            merged.constraints[name] = nc
         for name, csys in p.fem.lcsys.items():
-            csys.parent = merged
             merged.lcsys[name] = csys
         for name, surface in p.fem.surfaces.items():
-            surface.parent = merged
             merged.surfaces[name] = surface
 
-    base.fem = merged
-    base.fem.parent = base
-    for p in parts[1:]:
-        p.fem = FEM(name=f"{p.name}_merged_away", parent=p)
-
-    logger.info(f"Concatenated {len(parts)} FEM parts into '{base.name}' ({len(base.fem.nodes)} nodes)")
-    return base
+    logger.info(f"Concatenated {len(parts)} FEM parts into '{merged_part.name}' ({len(merged.nodes)} nodes)")
+    return merged_part
