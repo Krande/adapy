@@ -398,6 +398,23 @@ class AdacppBackend:
                     _axis(pos.ref_direction, (1, 0, 0)),
                     [self._encode_face_bound(fb) for fb in g.bounds],
                 )
+            elif (
+                isinstance(surf, su.CylindricalSurface)
+                and g.bounds
+                and hasattr(self._cad, "build_advanced_face_cylindrical")
+            ):
+                # Cylindrical AdvancedFace (tube/pipe walls). hasattr-guarded so an
+                # older ada-cpp without the builder falls through to NotImplementedError
+                # below (callers tessellating tubes use ADAPY_CAD_BACKEND=occ); it
+                # activates automatically once ada-cpp ships build_advanced_face_cylindrical.
+                pos = surf.position
+                shape = self._cad.build_advanced_face_cylindrical(
+                    self._xyz(pos.location),
+                    _axis(pos.axis, (0, 0, 1)),
+                    _axis(pos.ref_direction, (1, 0, 0)),
+                    float(surf.radius),
+                    [self._encode_face_bound(fb) for fb in g.bounds],
+                )
             elif not isinstance(surf, su.BSplineSurfaceWithKnots):
                 raise NotImplementedError(
                     f"AdacppBackend.build: AdvancedFace surface {type(surf).__name__!r} "
