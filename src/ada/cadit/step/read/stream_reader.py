@@ -38,17 +38,32 @@ from typing import Iterator
 
 from ada.config import logger
 from ada.geom import Geometry
-from ada.geom.curves import Circle, EdgeCurve, EdgeLoop, Ellipse, Line, OrientedEdge
+from ada.geom.curves import (
+    BSplineCurveFormEnum,
+    BSplineCurveWithKnots,
+    Circle,
+    EdgeCurve,
+    EdgeLoop,
+    Ellipse,
+    KnotType,
+    Line,
+    OrientedEdge,
+    RationalBSplineCurveWithKnots,
+)
 from ada.geom.direction import Direction
 from ada.geom.placement import Axis2Placement3D
 from ada.geom.points import Point
 from ada.geom.surfaces import (
     AdvancedFace,
+    BSplineSurfaceForm,
+    BSplineSurfaceWithKnots,
     ClosedShell,
     ConicalSurface,
     CylindricalSurface,
     FaceBound,
+    OpenShell,
     Plane,
+    ShellBasedSurfaceModel,
     ToroidalSurface,
 )
 
@@ -92,6 +107,8 @@ _STAR = object()  # '*' — derived/redundant value
 _DOLLAR = object()  # '$' — unset optional value
 
 _HEADER_RE = re.compile(r"^\s*#(\d+)\s*=\s*([A-Z0-9_]+)\s*\(", re.S)
+_COMPLEX_RE = re.compile(r"^\s*#(\d+)\s*=\s*\(", re.S)  # #id=(NAME(..)NAME(..)..) complex record
+_COMPLEX = "__COMPLEX__"
 
 
 def _iter_statements(fh, chunk_size: int = 1 << 20) -> Iterator[str]:
@@ -229,6 +246,8 @@ class _Resolver:
         return obj
 
     def _build(self, rec: _Rec):
+        if rec.type == _COMPLEX:
+            return _build_complex(self, rec.args)  # rec.args is a {SUBTYPE: subargs} dict
         builder = _BUILDERS.get(rec.type)
         if builder is None:
             raise StepStreamUnsupported(f"entity type {rec.type} not supported by the streaming reader")
@@ -371,6 +390,98 @@ def _b_closed_shell(r: _Resolver, a: list) -> ClosedShell:
     return ClosedShell(cfs_faces=[r.deref(x) for x in a[1]])
 
 
+def _b_open_shell(r: _Resolver, a: list) -> OpenShell:
+    # OPEN_SHELL('', (#faces)) — a pure (thickness-less) surface shell.
+    return OpenShell(cfs_faces=[r.deref(x) for x in a[1]])
+
+
+def _b_shell_based_surface_model(r: _Resolver, a: list) -> ShellBasedSurfaceModel:
+    # SHELL_BASED_SURFACE_MODEL('', (#shells)) — how a surface (no-thickness) shape
+    # is wrapped, e.g. a curved B-spline plate exported as an open shell.
+    return ShellBasedSurfaceModel(sbsm_boundary=[r.deref(x) for x in a[1]])
+
+
+# -- B-splines -------------------------------------------------------------- #
+def _enum_name(v) -> str:
+    return v.name if isinstance(v, _Enum) else str(v)
+
+
+def _make_bspline_curve(r, degree, cp_refs, curve_form, closed, si, mults, knots, knot_spec, weights=None):
+    cps = [r.deref(ref) for ref in cp_refs]
+    common = dict(
+        degree=int(degree),
+        control_points_list=cps,
+        curve_form=BSplineCurveFormEnum(_enum_name(curve_form)),
+        closed_curve=_enum_true(closed),
+        self_intersect=_enum_true(si),
+        knot_multiplicities=[int(x) for x in mults],
+        knots=[float(x) for x in knots],
+        knot_spec=KnotType.from_str(_enum_name(knot_spec)),
+    )
+    if weights is not None:
+        return RationalBSplineCurveWithKnots(**common, weights_data=[float(w) for w in weights])
+    return BSplineCurveWithKnots(**common)
+
+
+def _make_bspline_surface(
+    r, u_deg, v_deg, cp_grid, surf_form, u_closed, v_closed, si, u_mults, v_mults, u_knots, v_knots, knot_spec, weights=None
+):
+    if weights is not None:
+        # A rational B-spline face's boundary edges only trim correctly when their
+        # 2D p-curves are supplied; kernel-free 3D->UV reprojection collapses the
+        # face to zero area (empty mesh). Signal unsupported so reader="auto" falls
+        # back to OCC (renders correctly). Non-rational surfaces reproject fine.
+        # Follow-up: parse SURFACE_CURVE/PCURVE p-curves and attach them per edge.
+        raise StepStreamUnsupported("rational B-spline surface needs p-curve trimming (not yet); OCC reader handles it")
+    cps = [[r.deref(ref) for ref in row] for row in cp_grid]
+    common = dict(
+        u_degree=int(u_deg),
+        v_degree=int(v_deg),
+        control_points_list=cps,
+        surface_form=BSplineSurfaceForm.from_str(_enum_name(surf_form)),
+        u_closed=_enum_true(u_closed),
+        v_closed=_enum_true(v_closed),
+        self_intersect=_enum_true(si),
+        u_multiplicities=[int(x) for x in u_mults],
+        v_multiplicities=[int(x) for x in v_mults],
+        u_knots=[float(x) for x in u_knots],
+        v_knots=[float(x) for x in v_knots],
+        knot_spec=KnotType.from_str(_enum_name(knot_spec)),
+    )
+    return BSplineSurfaceWithKnots(**common)
+
+
+def _b_bspline_curve_with_knots(r: _Resolver, a: list):
+    # B_SPLINE_CURVE_WITH_KNOTS('', degree, (cps), form, .closed., .si., (mults), (knots), spec)
+    return _make_bspline_curve(r, a[1], a[2], a[3], a[4], a[5], a[6], a[7], a[8])
+
+
+def _b_bspline_surface_with_knots(r: _Resolver, a: list):
+    # B_SPLINE_SURFACE_WITH_KNOTS('', u_deg, v_deg, (cp grid), form, .uc., .vc., .si.,
+    #                             (u_mults), (v_mults), (u_knots), (v_knots), spec)
+    return _make_bspline_surface(r, a[1], a[2], a[3], a[4], a[5], a[6], a[7], a[8], a[9], a[10], a[11], a[12])
+
+
+def _build_complex(r: _Resolver, subs: dict):
+    """Build a rational/non-rational B-spline from a complex record's sub-entities.
+    Note: complex sub-entity args have NO leading '' name, so they are 0-indexed."""
+    if "B_SPLINE_SURFACE" in subs and "B_SPLINE_SURFACE_WITH_KNOTS" in subs:
+        s = subs["B_SPLINE_SURFACE"]  # [u_deg, v_deg, cp_grid, form, u_closed, v_closed, si]
+        k = subs["B_SPLINE_SURFACE_WITH_KNOTS"]  # [u_mults, v_mults, u_knots, v_knots, spec]
+        rat = subs.get("RATIONAL_B_SPLINE_SURFACE")  # [weight_grid] or None
+        weights = rat[0] if rat else None
+        return _make_bspline_surface(
+            r, s[0], s[1], s[2], s[3], s[4], s[5], s[6], k[0], k[1], k[2], k[3], k[4], weights
+        )
+    if "B_SPLINE_CURVE" in subs and "B_SPLINE_CURVE_WITH_KNOTS" in subs:
+        c = subs["B_SPLINE_CURVE"]  # [degree, cps, form, closed, si]
+        k = subs["B_SPLINE_CURVE_WITH_KNOTS"]  # [mults, knots, spec]
+        rat = subs.get("RATIONAL_B_SPLINE_CURVE")  # [weights] or None
+        weights = rat[0] if rat else None
+        return _make_bspline_curve(r, c[0], c[1], c[2], c[3], c[4], k[0], k[1], k[2], weights)
+    raise StepStreamUnsupported(f"complex entity {sorted(subs)} not supported by the streaming reader")
+
+
 _BUILDERS = {
     "CARTESIAN_POINT": _b_cartesian_point,
     "DIRECTION": _b_direction,
@@ -380,6 +491,8 @@ _BUILDERS = {
     "LINE": _b_line,
     "CIRCLE": _b_circle,
     "ELLIPSE": _b_ellipse,
+    "B_SPLINE_CURVE_WITH_KNOTS": _b_bspline_curve_with_knots,
+    "B_SPLINE_SURFACE_WITH_KNOTS": _b_bspline_surface_with_knots,
     "SURFACE_CURVE": _b_surface_curve,
     "SEAM_CURVE": _b_surface_curve,
     "EDGE_CURVE": _b_edge_curve,
@@ -395,6 +508,18 @@ _BUILDERS = {
     "TOROIDAL_SURFACE": _b_toroidal_surface,
     "ADVANCED_FACE": _b_advanced_face,
     "CLOSED_SHELL": _b_closed_shell,
+    "OPEN_SHELL": _b_open_shell,
+    "SHELL_BASED_SURFACE_MODEL": _b_shell_based_surface_model,
+}
+
+
+# Top-level renderable geometry roots — one yielded Geometry per record. A solid
+# (MANIFOLD_SOLID_BREP -> its ClosedShell) and a pure surface shell
+# (SHELL_BASED_SURFACE_MODEL -> ShellBasedSurfaceModel). Shells nested inside
+# these are reached by reference, never yielded on their own, so no double-count.
+_ROOT_BUILDERS = {
+    "MANIFOLD_SOLID_BREP": lambda r, a: r.deref(a[1]),
+    "SHELL_BASED_SURFACE_MODEL": _b_shell_based_surface_model,
 }
 
 
@@ -443,42 +568,66 @@ def stream_read_step(filepath: str | Path, *, local_pool: bool = True) -> Iterat
                 continue
             inst_id, etype, args = parsed
 
-            if etype == "MANIFOLD_SOLID_BREP":
+            root = _ROOT_BUILDERS.get(etype)
+            if root is not None:
                 name = _solid_name(args, n_solids)
-                shell = _try_resolve_solid(resolver, name, args)
-                if shell is not None:
+                geom = _try_resolve_root(resolver, name, root, args)
+                if geom is not None:
                     n_solids += 1
-                    yield Geometry(id=name, geometry=shell)
-                pool.clear()  # per-solid clear: constant memory, bottom-up only
+                    yield Geometry(id=name, geometry=geom)
+                pool.clear()  # per-root clear: constant memory, bottom-up only
                 resolver.reset_cache()
                 continue
 
             pool[inst_id] = _Rec(etype, args)
 
 
-def _parse_statement(stmt: str) -> tuple[int, str, list] | None:
+def _parse_statement(stmt: str):
     """Parse one Part-21 statement into (instance_id, type, args), or None for
-    header keywords / complex (parenthesised) records that aren't geometry roots."""
+    header keywords. A *complex* record ``#id=(NAME(..)NAME(..)..)`` (how STEP
+    encodes rational B-splines) returns type ``_COMPLEX`` with args a dict
+    ``{NAME: subargs}``."""
     m = _HEADER_RE.match(stmt)
-    if m is None:
+    if m is not None:
+        args, _ = _parse_seq(stmt, m.end(), ")")  # m.end() is just past the '('
+        return int(m.group(1)), m.group(2), args
+    cm = _COMPLEX_RE.match(stmt)
+    if cm is None:
         return None
-    args, _ = _parse_seq(stmt, m.end(), ")")  # m.end() is just past the '('
-    return int(m.group(1)), m.group(2), args
+    return int(cm.group(1)), _COMPLEX, _parse_complex(stmt, cm.end())  # cm.end() just past the outer '('
+
+
+def _parse_complex(s: str, i: int) -> dict:
+    """Parse a complex record body ``NAME(args)NAME(args)...)`` into {NAME: args}."""
+    subs: dict[str, list] = {}
+    n = len(s)
+    while i < n:
+        while i < n and s[i] in " \t\r\n":
+            i += 1
+        if i >= n or s[i] == ")":
+            break
+        j = i
+        while j < n and (s[j].isalnum() or s[j] == "_"):
+            j += 1
+        name = s[i:j]
+        args, i = _parse_seq(s, j + 1, ")")  # s[j] == '('
+        subs[name] = args
+    return subs
 
 
 def _solid_name(args: list, n_solids: int) -> str:
     return args[0] if args and isinstance(args[0], str) and args[0] else f"solid_{n_solids + 1}"
 
 
-def _try_resolve_solid(resolver: "_Resolver", name: str, args: list):
-    """Resolve a MANIFOLD_SOLID_BREP's shell; return None (and log) on a bad solid.
-    Re-raises StepStreamUnsupported so the caller can fall back to the OCC reader."""
+def _try_resolve_root(resolver: "_Resolver", name: str, root_builder, args: list):
+    """Build one root geometry (solid shell / surface model); return None (and log)
+    on a bad root. Re-raises StepStreamUnsupported so the caller can fall back to OCC."""
     try:
-        return resolver.deref(args[1])
+        return root_builder(resolver, args)
     except StepStreamUnsupported:
         raise
-    except Exception as ex:  # noqa: BLE001 - report and skip a bad solid
-        logger.warning(f"stream_read_step: skipping solid {name!r}: {ex}")
+    except Exception as ex:  # noqa: BLE001 - report and skip a bad root
+        logger.warning(f"stream_read_step: skipping {name!r}: {ex}")
         return None
 
 
@@ -486,7 +635,7 @@ def _read_two_pass(filepath: Path):
     """General STEP: load the full entity table, then resolve each solid — handles
     forward references (solid written before its shell), unlike the streaming path."""
     pool: dict[int, _Rec] = {}
-    manifold_ids: list[int] = []
+    root_ids: list[int] = []
     with filepath.open("r", encoding="utf-8", errors="replace") as fh:
         for stmt in _iter_statements(fh):
             parsed = _parse_statement(stmt)
@@ -494,16 +643,16 @@ def _read_two_pass(filepath: Path):
                 continue
             inst_id, etype, args = parsed
             pool[inst_id] = _Rec(etype, args)
-            if etype == "MANIFOLD_SOLID_BREP":
-                manifold_ids.append(inst_id)
+            if etype in _ROOT_BUILDERS:
+                root_ids.append(inst_id)
 
     resolver = _Resolver(pool)
     n_solids = 0
-    for mid in manifold_ids:
-        rec = pool[mid]
+    for rid in root_ids:
+        rec = pool[rid]
         name = _solid_name(rec.args, n_solids)
         resolver.reset_cache()
-        shell = _try_resolve_solid(resolver, name, rec.args)
-        if shell is not None:
+        geom = _try_resolve_root(resolver, name, _ROOT_BUILDERS[rec.type], rec.args)
+        if geom is not None:
             n_solids += 1
-            yield Geometry(id=name, geometry=shell)
+            yield Geometry(id=name, geometry=geom)

@@ -6,6 +6,10 @@ adapy Geometry instances -> tessellate each via the CAD backend abstraction
 touches no kernel.
 """
 
+import pathlib
+
+import pytest
+
 import ada
 from ada import Beam, Plate, Section
 from ada.cadit.step.read.stream_reader import stream_read_step
@@ -196,3 +200,80 @@ def test_stream_reader_sphere_falls_back_to_occ(tmp_path):
 
     asm = ada.from_step(out, reader="auto")  # OCC fallback, must not crash
     assert len(list(asm.get_all_physical_objects())) == 1
+
+
+def test_stream_reader_complex_rational_bspline_curve():
+    # The STEP complex-instance form of a rational B-spline curve must parse into a
+    # RationalBSplineCurveWithKnots (self-contained; no writer/backend involved).
+    from ada.cadit.step.read.stream_reader import _Rec, _Resolver, _parse_statement
+    from ada.geom.curves import RationalBSplineCurveWithKnots
+
+    stmts = [
+        "#1=CARTESIAN_POINT('',(0.,0.,0.))",
+        "#2=CARTESIAN_POINT('',(1.,0.,0.))",
+        "#3=CARTESIAN_POINT('',(2.,1.,0.))",
+        "#4=(B_SPLINE_CURVE(2,(#1,#2,#3),.UNSPECIFIED.,.F.,.F.)"
+        "B_SPLINE_CURVE_WITH_KNOTS((3,3),(0.,1.),.UNSPECIFIED.)"
+        "RATIONAL_B_SPLINE_CURVE((1.,0.8,1.))BOUNDED_CURVE()"
+        "REPRESENTATION_ITEM('')GEOMETRIC_REPRESENTATION_ITEM()CURVE())",
+    ]
+    pool = {}
+    for s in stmts:
+        pid, etype, args = _parse_statement(s)
+        pool[pid] = _Rec(etype, args)
+
+    curve = _Resolver(pool).resolve(4)
+    assert isinstance(curve, RationalBSplineCurveWithKnots)
+    assert curve.degree == 2
+    assert [tuple(p) for p in curve.control_points_list] == [(0, 0, 0), (1, 0, 0), (2, 1, 0)]
+    assert curve.knot_multiplicities == [3, 3]
+    assert curve.weights_data == [1.0, 0.8, 1.0]
+
+
+def test_stream_reader_bspline_surface_and_pure_shell(example_files):
+    # A non-rational B-spline surface, re-exported as a pure (thickness-less) shell,
+    # must stream-read: the root is a shell/surface-model and the face carries a
+    # BSplineSurfaceWithKnots. (Imports via the active doc backend, so runs under
+    # OCC and adacpp.)
+    import tempfile
+
+    from ada.geom.surfaces import (
+        BSplineSurfaceWithKnots,
+        ClosedShell,
+        OpenShell,
+        ShellBasedSurfaceModel,
+    )
+
+    a = ada.from_step(example_files / "step_files/bsplinesurfacewithknots.stp", reader="occ")
+    out = pathlib.Path(tempfile.mkdtemp()) / "re.step"
+    a.to_stp(out)
+
+    geos = list(stream_read_step(out, local_pool=False))
+    assert len(geos) >= 1
+    assert all(isinstance(g.geometry, (ShellBasedSurfaceModel, OpenShell, ClosedShell)) for g in geos)
+
+    def _faces(geo):
+        if isinstance(geo, ShellBasedSurfaceModel):
+            return [f for sh in geo.sbsm_boundary for f in sh.cfs_faces]
+        return geo.cfs_faces
+
+    surf_types = {type(f.face_surface).__name__ for g in geos for f in _faces(g.geometry)}
+    assert BSplineSurfaceWithKnots.__name__ in surf_types
+
+
+def test_stream_reader_rational_bspline_falls_back(example_files):
+    # Rational B-spline faces need p-curve trimming; the reader signals unsupported
+    # (reader="stream" raises) so reader="auto" falls back to OCC and still renders.
+    import tempfile
+
+    from ada.cadit.step.read.stream_reader import StepStreamUnsupported
+
+    a = ada.from_step(example_files / "step_files/curved_plate.stp", reader="occ")
+    out = pathlib.Path(tempfile.mkdtemp()) / "rat.step"
+    a.to_stp(out)
+
+    with pytest.raises(StepStreamUnsupported):
+        list(stream_read_step(out, local_pool=False))
+
+    asm = ada.from_step(out, reader="auto")  # OCC fallback, no crash/empty
+    assert len(list(asm.get_all_physical_objects())) >= 1
