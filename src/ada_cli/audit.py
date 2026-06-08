@@ -362,6 +362,36 @@ def cmd_repro(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_parity(args: argparse.Namespace) -> int:
+    # Local-first, like cmd_repro: run the cross-format parity check in-process.
+    # No admin API needed for a local PATH; --audit-id reuses fetch() to pull the
+    # source blob first (the parity analogue of `ada audit repro`).
+    from dataclasses import asdict
+
+    from ada.cadit.visual_parity import parity_for_source_file
+
+    formats = tuple(f.strip() for f in args.formats.split(",") if f.strip())
+
+    if args.audit_id is not None:
+        base, token = _config(args)
+        path, _meta = fetch(base, token, args.audit_id, pathlib.Path(args.out))
+    elif args.path:
+        path = pathlib.Path(args.path)
+    else:
+        sys.stderr.write("error: provide a local PATH or --audit-id\n")
+        return 2
+
+    result = parity_for_source_file(path, formats)
+    if args.json:
+        print(json.dumps(asdict(result), indent=2))
+    else:
+        print(result.summary())
+        for fmt, msg in result.errors.items():
+            print(f"  ERROR {fmt}: {msg}")
+    # exit non-zero on any divergence so the command is CI/script usable
+    return 0 if result.consistent else 1
+
+
 # ── parser wiring ────────────────────────────────────────────────────────
 
 
@@ -439,3 +469,19 @@ def add_parser(sub: argparse._SubParsersAction) -> None:
     repro.add_argument("--out", default=DEFAULT_OUT, help=f"Download root (default: {DEFAULT_OUT}).")
     repro.add_argument("--target", default=None, help="Override the audit's target_format.")
     repro.set_defaults(func=cmd_repro, needs_ada_logging=True)
+
+    parity = asub.add_parser(
+        "parity",
+        help="Cross-format visual-parity check on a local model "
+        "(exports to ifc/xml/step, reloads, compares visualized element counts).",
+    )
+    _remote(parity)  # --url/--token/--json (url/token only used with --audit-id)
+    parity.add_argument("path", nargs="?", help="Local source model file.")
+    parity.add_argument(
+        "--audit-id", type=int, default=None, help="Instead of PATH: fetch this audit's source blob first."
+    )
+    parity.add_argument(
+        "--formats", default="ifc,xml,step", help="Comma-separated structure-preserving formats (default: ifc,xml,step)."
+    )
+    parity.add_argument("--out", default=DEFAULT_OUT, help=f"Download root for --audit-id (default: {DEFAULT_OUT}).")
+    parity.set_defaults(func=cmd_parity, needs_ada_logging=True)
