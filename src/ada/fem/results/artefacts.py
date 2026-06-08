@@ -2139,17 +2139,22 @@ def _make_fem_reader(path: pathlib.Path) -> "FEAStreamReader":
     tessellation needs.
     """
     import ada
-    from ada.fem.formats.utils import get_fem_model_from_assembly
+    from ada.fem.concat import concatenate_fem_meshes
     from ada.fem.results.common import ElementBlock, FEAResult
 
     assembly = ada.from_fem(path)
-    # Multipart decks are folded into one consistent FEM by concatenate_fem_to_single_part
-    # (a direct store-level merge — see ada.fem.concat). FEM.to_mesh() then supplies the
-    # section/material tables the beam-solid tessellation needs.
-    part = get_fem_model_from_assembly(assembly)
-    if part is None or len(part.fem.nodes) == 0:
+    parts = [
+        p
+        for p in assembly.get_all_parts_in_assembly(include_self=True)
+        if p.fem is not None and len(p.fem.nodes) > 0
+    ]
+    if not parts:
         raise ValueError(f"no FEM mesh found in {path}")
-    mesh = part.fem.to_mesh()
+
+    # Non-destructive merge: keep each part's FEM in the assembly tree (concepts are scraped
+    # from the un-merged assembly below) while producing one merged Mesh for the viewer.
+    # FEM.to_mesh() per part supplies the section/material tables the beam-solid path needs.
+    mesh, part_offsets = concatenate_fem_meshes(parts)
     # to_elem_blocks() emits row-index node_refs (array-substrate convention); the adapter +
     # geometry/field readers expect node IDs (they remap id->index). Convert once here.
     ids = mesh.nodes.identifiers
@@ -2161,10 +2166,10 @@ def _make_fem_reader(path: pathlib.Path) -> "FEAStreamReader":
         else:
             rebuilt.append(b)
     mesh.elements = rebuilt
-    result = FEAResult(name=part.fem.name or path.stem, software="adapy", results=[], mesh=mesh)
+    result = FEAResult(name=parts[0].fem.name or path.stem, software="adapy", results=[], mesh=mesh)
     reader = FEAResultStreamAdapter(result)
     # Scrape FEA input concepts (masses / BCs / load scenarios) so the Scene > FEM panel can
-    # draw the glyph overlay. Built from the (now-merged) assembly — positions are coordinates.
+    # draw the glyph overlay. Built from the (intact) assembly — positions are coordinates.
     try:
         from ada.extension.fem_concepts_builder import build_combined_fem_concepts
 
@@ -2176,23 +2181,27 @@ def _make_fem_reader(path: pathlib.Path) -> "FEAStreamReader":
 
         get_logger().debug("FEM bake: fem_concepts scrape failed: %s", e)
 
-    # Scrape the merged FEM's node/element sets into manifest groups for the Scene > FEM groups
-    # picker (the streaming mesh.glb carries no ADA_EXT). concatenate already globalised the
-    # member ids + prefixed multi-part set names, so EL{id}/P{id} resolve against the AFEM
-    # element ranges directly.
+    # Scrape each part's node/element sets into manifest groups for the Scene > FEM groups picker
+    # (the streaming mesh.glb carries no ADA_EXT). Member ids carry the same per-part offset as
+    # the merged mesh so EL{id}/P{id} resolve against the AFEM element ranges. Multi-part set
+    # names are prefixed with the part name to disambiguate.
     try:
         groups: list[dict] = []
-        for fset in part.fem.sets:
-            is_nset = fset.type == fset.TYPES.NSET
-            prefix = "P" if is_nset else "EL"
-            mids = getattr(fset, "_member_ids", None)
-            if mids is None:
-                mids = [m.id for m in fset.members if getattr(m, "id", None) is not None]
-            members = [f"{prefix}{int(i)}" for i in mids]
-            if members:
-                groups.append(
-                    {"name": fset.name, "members": members, "fe_object_type": "node" if is_nset else "element"}
-                )
+        multipart = len(parts) > 1
+        for p, (nid_off, elid_off) in zip(parts, part_offsets):
+            for fset in p.fem.sets:
+                is_nset = fset.type == fset.TYPES.NSET
+                off = nid_off if is_nset else elid_off
+                prefix = "P" if is_nset else "EL"
+                mids = getattr(fset, "_member_ids", None)
+                if mids is None:
+                    mids = [m.id for m in fset.members if getattr(m, "id", None) is not None]
+                members = [f"{prefix}{int(i) + off}" for i in mids]
+                if members:
+                    name = f"{p.name}_{fset.name}" if multipart else fset.name
+                    groups.append(
+                        {"name": name, "members": members, "fe_object_type": "node" if is_nset else "element"}
+                    )
         reader._groups = groups or None
     except Exception as e:  # noqa: BLE001 — groups are best-effort decoration
         from ada.config import get_logger
