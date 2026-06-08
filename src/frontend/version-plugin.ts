@@ -21,7 +21,15 @@ export function versionInjectPlugin(): Plugin {
                         .trim().length > 0;
                 if (dirty) sha += "-dirty";
             } catch {
-                // not a git tree (e.g. building from a tarball) — leave sha empty
+                // No git tree (docker/CI building from a copied source). Fall back to the commit
+                // the CI runner exposes via env so the hosted bundle still carries a sha.
+                const env =
+                    process.env.GITHUB_SHA ||
+                    process.env.CI_COMMIT_SHA ||
+                    process.env.FORGEJO_SHA ||
+                    process.env.GIT_SHA ||
+                    "";
+                sha = env ? env.slice(0, 8) : "";
             }
             const ts = Date.now();
             return html.replace(

@@ -4403,16 +4403,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         conversion_matrix = await _worker_advertised_conversions()
 
         try:
-            from importlib.metadata import version as _pkg_version
+            import ada as _ada
 
-            adapy_version = _pkg_version("ada-py-core")
+            adapy_version = getattr(_ada, "__version__", "") or ""
         except Exception:  # noqa: BLE001 — version is display-only
-            try:
-                import ada as _ada
-
-                adapy_version = getattr(_ada, "__version__", "") or ""
-            except Exception:  # noqa: BLE001
-                adapy_version = ""
+            adapy_version = ""
 
         a = settings.auth
         body = (

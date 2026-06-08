@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 # lazy `ada.cad` subpackage. Keep the two in sync where it matters
 # (e.g. the jupyter extension hooks at the bottom).
 from ada import fem
+from ada._version import __version__  # noqa: F401 — re-exported as ada.__version__
 from ada.api.beams import (
     Beam,
     BeamHinge,
