@@ -2,6 +2,15 @@
 
 
 
+## v0.16.0 (2026-06-08)
+
+### Feature
+
+* feat: FEM streaming-viewer unification, robust non-destructive multipart merge, and adacpp 0.6.0 (#207)
+
+Co-authored-by: Claude Opus 4.8 (1M context) &lt;noreply@anthropic.com&gt; ([`399a943`](https://github.com/Krande/adapy/commit/399a9432f0742077508e633c6ad6c3ba8f9172d6))
+
+
 ## v0.15.0 (2026-06-06)
 
 ### Feature
