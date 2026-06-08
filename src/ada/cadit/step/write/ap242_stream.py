@@ -582,8 +582,13 @@ class Ap242StreamWriter:
                 a, b = pts[i], pts[(i + 1) % n]
                 va, vb = self._vfor(a), self._vfor(b)
                 pa, pb = self._tp(a), self._tp(b)
+                # PolyLoop has no EdgeCurve objects to key on; a straight line between
+                # two vertices is unique, so a geometric vertex-pair key shares it
+                # safely with an adjacent face (no arc-collision concern for lines).
+                key = ("L", min(va, vb), max(va, vb))
                 oriented.append(
-                    self._shared_oriented(va, vb, va, pa, vb, pb, "L", lambda v0, p0, v1, p1: self._line_edge(v0, p0, v1, p1))
+                    self._shared_oriented(key, va, vb, va, pa, vb, pb,
+                                          lambda v0, p0, v1, p1: self._line_edge(v0, p0, v1, p1))
                 )
             return self._edge_loop(oriented)
         return None
@@ -602,12 +607,10 @@ class Ap242StreamWriter:
         # The EDGE_CURVE is emitted once in ec.start->ec.end direction; the per-face
         # ORIENTED_EDGE flag is computed from the loop's traversal (oe.start->oe.end).
         if isinstance(g, cu.Line):
-            tag = "L"
 
             def emit(v0, p0, v1, p1):
                 return self._line_edge(v0, p0, v1, p1)
         elif isinstance(g, cu.Circle):
-            tag = ("C", round(float(g.radius), 6))
             pos = g.position
 
             def emit(v0, p0, v1, p1):
@@ -615,7 +618,6 @@ class Ap242StreamWriter:
                                       _axis_or(pos.ref_direction, (1, 0, 0)), g.radius, ec.same_sense,
                                       _axis_or(pos.axis, (0, 0, 1)))
         elif isinstance(g, cu.Ellipse):
-            tag = ("E", round(float(g.semi_axis1), 6), round(float(g.semi_axis2), 6))
             pos = g.position
 
             def emit(v0, p0, v1, p1):
@@ -624,18 +626,22 @@ class Ap242StreamWriter:
         else:
             return None  # B-spline edge -> unsupported
 
+        # Key by the EdgeCurve OBJECT identity: a truly-shared edge resolves to the
+        # same ec object in both adjacent faces (reader memoisation), while the two
+        # semicircle arcs of one circle are distinct objects — so they are NOT merged
+        # (a geometric vertex-pair key collides them and corrupts the topology).
         return self._shared_oriented(
+            id(ec),
             self._vfor(oe.start), self._vfor(oe.end),  # loop traversal direction
             self._vfor(ec.start), self._tp(ec.start), self._vfor(ec.end), self._tp(ec.end),  # EDGE_CURVE emit dir
-            tag, emit,
+            emit,
         )
 
-    def _shared_oriented(self, t0, t1, e0, pe0, e1, pe1, tag, emit):
-        """Reuse (or emit once) the EDGE_CURVE for the e0->e1 edge and wrap it in an
+    def _shared_oriented(self, key, t0, t1, e0, pe0, e1, pe1, emit):
+        """Reuse (or emit once) the EDGE_CURVE identified by ``key`` and wrap it in an
         ORIENTED_EDGE. ``(t0, t1)`` is how THIS loop walks the edge; the flag is .T.
         iff that matches the EDGE_CURVE's emitted direction. ``emit(v0,p0,v1,p1)``
         writes a fresh EDGE_CURVE in e0->e1 direction."""
-        key = (min(e0, e1), max(e0, e1), tag)
         cached = self._ecache.get(key)
         if cached is None:
             edge_id = emit(e0, pe0, e1, pe1)

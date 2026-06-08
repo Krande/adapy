@@ -95,14 +95,13 @@ def test_stream_writer_emits_brep_shapes(tmp_path):
     # streams back as the same number of geometry roots
     assert len(list(stream_read_step(second, local_pool=False))) == 4
 
-    # OCC reads every re-emitted solid as a WATERTIGHT solid (edges are shared
-    # across adjacent faces — no invalid free shells). The count can exceed the
-    # source's: a hollow *circular* section's inner wall currently re-reads as a
-    # nested solid rather than a void (orientation follow-up), so assert >=.
+    # OCC reads every re-emitted solid as a WATERTIGHT solid: edges are shared by
+    # EdgeCurve identity, so a circle's two arcs stay distinct (no over-share) and a
+    # hollow section keeps its void — same solid count as the source, none invalid.
     n_first, _ = _roundtrip_solids(first)
     n_second, n_invalid = _roundtrip_solids(second)
     assert n_invalid == 0
-    assert n_second >= n_first
+    assert n_second == n_first
 
 
 def test_stream_writer_box_and_cylinder_primitives(tmp_path):
