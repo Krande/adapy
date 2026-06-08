@@ -2139,27 +2139,93 @@ def _make_fem_reader(path: pathlib.Path) -> "FEAStreamReader":
     tessellation needs.
     """
     import ada
-    from ada.fem.formats.utils import get_fem_model_from_assembly
-    from ada.fem.results.common import ElementBlock, FEAResult
+    from ada.fem.results.common import ElementBlock, FEAResult, FemNodes, Mesh
 
     assembly = ada.from_fem(path)
-    part = get_fem_model_from_assembly(assembly)
-    mesh = part.fem.to_mesh()
-    # to_elem_blocks() emits row-index node_refs (array-substrate convention); the adapter +
-    # geometry/field readers expect node IDs (they remap id->index). Convert once here.
-    ids = mesh.nodes.identifiers
+    parts = [
+        p
+        for p in assembly.get_all_parts_in_assembly(include_self=True)
+        if p.fem is not None and len(p.fem.nodes) > 0
+    ]
+    if not parts:
+        raise ValueError(f"no FEM mesh found in {path}")
+
+    # Concatenate each part's (individually correct) to_mesh() rather than going through
+    # FEM.__add__: the array-substrate merge mis-renumbers nodes vs. element refs and drops
+    # _overflow elements, which distorted/lost merged-in instances. Connectivity is row-index
+    # based, so a per-part row offset is all the geometry needs; node/element/section/material/
+    # vector ids are offset by the running max only to stay globally unique. Per-part node/elem
+    # id offsets are kept (part_offsets) so group member ids can be remapped to match.
+    coords_parts: list[np.ndarray] = []
+    id_parts: list[np.ndarray] = []
+    blocks: list[ElementBlock] = []
+    sections: dict = {}
+    materials: dict = {}
+    vectors: dict = {}
+    elem_data_parts: list[np.ndarray] = []
+    part_offsets: list[tuple[int, int]] = []  # (node_id_offset, el_id_offset) per part
+    row_off = node_max = el_max = sec_max = mat_max = vec_max = 0
+    for p in parts:
+        m = p.fem.to_mesh()
+        nid_off, elid_off = node_max, el_max
+        part_offsets.append((nid_off, elid_off))
+        coords = np.asarray(m.nodes.coords)
+        pids = np.asarray(m.nodes.identifiers, dtype=np.int64) + nid_off
+        coords_parts.append(coords)
+        id_parts.append(pids)
+        for b in m.elements:
+            conn = np.asarray(b.node_refs)
+            conn = conn + row_off if b.node_refs_are_indices else conn + nid_off
+            elids = np.asarray(b.identifiers, dtype=np.int64) + elid_off
+            blocks.append(ElementBlock(b.elem_info, conn, elids, node_refs_are_indices=b.node_refs_are_indices))
+        if m.sections:
+            for sid, s in m.sections.items():
+                sections[int(sid) + sec_max] = s
+        if m.materials:
+            for mid, mat in m.materials.items():
+                materials[int(mid) + mat_max] = mat
+        if m.vectors:
+            for vid, v in m.vectors.items():
+                vectors[int(vid) + vec_max] = v
+        if m.elem_data is not None and len(m.elem_data):
+            ed = np.asarray(m.elem_data, dtype=np.int64).copy()
+            ed[:, 0] += elid_off
+            ed[:, 1] += mat_max
+            ed[:, 2] += sec_max
+            ed[:, 3] += vec_max
+            elem_data_parts.append(ed)
+        # advance running maxes for the next part
+        row_off += len(coords)
+        node_max = int(pids.max()) + 1
+        el_max = max((int(np.asarray(b.identifiers).max()) + 1 + elid_off for b in m.elements if len(b.identifiers)), default=el_max)
+        sec_max = (max(sections) + 1) if sections else sec_max
+        mat_max = (max(materials) + 1) if materials else mat_max
+        vec_max = (max(vectors) + 1) if vectors else vec_max
+
+    merged_ids = np.concatenate(id_parts)
+    merged_coords = np.vstack(coords_parts)
+    # to_elem_blocks() emits row-index node_refs; the adapter + geometry/field readers expect
+    # node IDs (they remap id->index). Convert once here against the merged id table.
     rebuilt: list[ElementBlock] = []
-    for b in mesh.elements:
+    for b in blocks:
         if b.node_refs_are_indices:
-            nref = ids[np.asarray(b.node_refs)]
+            nref = merged_ids[np.asarray(b.node_refs)]
             rebuilt.append(ElementBlock(b.elem_info, nref, b.identifiers, node_refs_are_indices=False))
         else:
             rebuilt.append(b)
-    mesh.elements = rebuilt
-    result = FEAResult(name=part.fem.name or path.stem, software="adapy", results=[], mesh=mesh)
+    mesh = Mesh(
+        elements=rebuilt,
+        nodes=FemNodes(merged_coords, merged_ids),
+        sections=sections or None,
+        materials=materials or None,
+        vectors=vectors or None,
+        elem_data=(np.vstack(elem_data_parts) if elem_data_parts else None),
+    )
+    result = FEAResult(name=parts[0].fem.name or path.stem, software="adapy", results=[], mesh=mesh)
     reader = FEAResultStreamAdapter(result)
     # Scrape FEA input concepts (masses / BCs / load scenarios) off the deck so the viewer's
-    # Scene > FEM panel can draw the glyph overlay — same manifest shape solver results carry.
+    # Scene > FEM panel can draw the glyph overlay — positions are node coordinates, so this
+    # works over the un-merged assembly (no id remap needed).
     try:
         from ada.extension.fem_concepts_builder import build_combined_fem_concepts
 
@@ -2171,19 +2237,24 @@ def _make_fem_reader(path: pathlib.Path) -> "FEAStreamReader":
 
         get_logger().debug("FEM bake: fem_concepts scrape failed: %s", e)
 
-    # Scrape the FEM's node/element sets into manifest groups so the Scene > FEM groups picker
-    # works for design models (the streaming mesh.glb carries no ADA_EXT). Members are tagged
-    # EL{id} / P{id} to match the AFEM element ranges the selection layer resolves against.
+    # Scrape each part's node/element sets into manifest groups for the Scene > FEM groups picker
+    # (the streaming mesh.glb carries no ADA_EXT). Member ids carry the same per-part offset as
+    # the merged mesh so EL{id}/P{id} resolve against the AFEM element ranges. Multi-part set
+    # names are prefixed with the part name to disambiguate.
     try:
         groups: list[dict] = []
-        for fset in part.fem.sets:
-            is_nset = fset.type == fset.TYPES.NSET
-            prefix = "P" if is_nset else "EL"
-            members = [f"{prefix}{m.id}" for m in fset.members if getattr(m, "id", None) is not None]
-            if members:
-                groups.append(
-                    {"name": fset.name, "members": members, "fe_object_type": "node" if is_nset else "element"}
-                )
+        multipart = len(parts) > 1
+        for p, (nid_off, elid_off) in zip(parts, part_offsets):
+            for fset in p.fem.sets:
+                is_nset = fset.type == fset.TYPES.NSET
+                off = nid_off if is_nset else elid_off
+                prefix = "P" if is_nset else "EL"
+                members = [f"{prefix}{m.id + off}" for m in fset.members if getattr(m, "id", None) is not None]
+                if members:
+                    name = f"{p.name}_{fset.name}" if multipart else fset.name
+                    groups.append(
+                        {"name": name, "members": members, "fe_object_type": "node" if is_nset else "element"}
+                    )
         reader._groups = groups or None
     except Exception as e:  # noqa: BLE001 — groups are best-effort decoration
         from ada.config import get_logger
