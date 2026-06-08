@@ -8,7 +8,7 @@ purely in-process (no audit stack) on a known-good 4-object assembly.
 import trimesh
 
 import ada
-from ada import Beam, Plate, Section
+from ada import Plate
 from ada.cadit import visual_parity
 from ada.cadit.visual_parity import (
     ParityResult,
@@ -18,12 +18,15 @@ from ada.cadit.visual_parity import (
 
 
 def _model():
-    # Mirrors tests/core/cadit/step/write/test_write_step_stream.py::_model
-    tub = Beam("tub", (0, 0, 0), (0, 0, 3), Section("tub", from_str="TUB300x20"))
-    box = Beam("box", (1, 0, 0), (1, 0, 3), Section("box", from_str="BOX400x400x20x20"))
-    ipe = Beam("ipe", (2, 0, 0), (6, 0, 0), Section("ipe", from_str="IPE300"))
-    pl = Plate("pl", [(0, 0), (2, 0), (2, 1), (0, 1)], 0.02)
-    return ada.Assembly("m") / (ada.Part("pp") / [tub, box, ipe, pl])
+    # 4 planar plates: all-planar so the STEP round-trip builds under every CAD
+    # backend (released adacpp only ports planar/B-spline AdvancedFaces, not the
+    # analytic curved surfaces a beam/tube would reconstruct to). Parity is about
+    # element counts across formats, not shape variety.
+    plates = [
+        Plate(f"pl{i}", [(0, 0), (2, 0), (2, 1), (0, 1)], 0.02, origin=(0, 0, float(i)))
+        for i in range(4)
+    ]
+    return ada.Assembly("m") / (ada.Part("pp") / plates)
 
 
 def test_parity_consistent_on_good_model():
@@ -46,8 +49,8 @@ def test_parity_flags_dropped_element(monkeypatch):
         a = reader(path)
         part = next(iter(a.parts.values()))
         # remove one physical object from the loaded model
-        victim = next(iter(part.beams))
-        part.beams.remove(victim)
+        victim = next(iter(part.plates))
+        part.plates.remove(victim)
         return a
 
     monkeypatch.setitem(visual_parity._FORMAT_IO, "ifc", (writer, _lossy_reader, suffix))
