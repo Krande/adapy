@@ -261,6 +261,27 @@ class Ap242StreamWriter:
         a2p = self._w(f"AXIS2_PLACEMENT_3D('',#{loc_id},#{axis_id},#{ref_id})")
         return self._w(f"CYLINDRICAL_SURFACE('',#{a2p},{self._r(radius)})")
 
+    def _axis2(self, center, axis, ref):
+        return self._w(f"AXIS2_PLACEMENT_3D('',#{self._pt(center)},#{self._dir(axis)},#{self._dir(ref)})")
+
+    def _conical(self, center, axis, ref, radius, semi_angle):
+        a2p = self._axis2(center, axis, ref)
+        return self._w(f"CONICAL_SURFACE('',#{a2p},{self._r(radius)},{self._r(semi_angle)})")
+
+    def _spherical(self, center, axis, ref, radius):
+        a2p = self._axis2(center, axis, ref)
+        return self._w(f"SPHERICAL_SURFACE('',#{a2p},{self._r(radius)})")
+
+    def _toroidal(self, center, axis, ref, major_radius, minor_radius):
+        a2p = self._axis2(center, axis, ref)
+        return self._w(f"TOROIDAL_SURFACE('',#{a2p},{self._r(major_radius)},{self._r(minor_radius)})")
+
+    def _ellipse_edge(self, v0, v1, center3, ref3, axis3, semi1, semi2, same_sense):
+        a2p = self._axis2(center3, axis3, ref3)
+        ell = self._w(f"ELLIPSE('',#{a2p},{self._r(semi1)},{self._r(semi2)})")
+        flag = ".T." if same_sense else ".F."
+        return self._w(f"EDGE_CURVE('',#{v0},#{v1},#{ell},{flag})")
+
     # -- lifecycle ---------------------------------------------------------- #
     def __enter__(self):
         self.begin()
@@ -436,6 +457,170 @@ class Ap242StreamWriter:
             x = self._dir((1.0, 0.0, 0.0))
             self._ident_axis = self._w(f"AXIS2_PLACEMENT_3D('',#{o},#{z},#{x})")
         return self._ident_axis
+
+    # -- direct B-rep emission (imported shapes / pure shells / reader output) --- #
+    def add_brep(self, g, *, name="shape", color=None, translate=(0.0, 0.0, 0.0)):
+        """Emit an arbitrary adapy B-rep geometry — ClosedShell / OpenShell /
+        ShellBasedSurfaceModel / AdvancedFace — as STEP. The inverse of the streaming
+        reader; covers imported shapes and thickness-less shells. Returns the top item
+        id, or None if any face uses a surface/curve not yet emitted kernel-free (the
+        shape is skipped wholesale, never partially emitted)."""
+        import ada.geom.surfaces as su
+
+        self._t = (float(translate[0]), float(translate[1]), float(translate[2]))
+        vcache: dict = {}
+        nm = (name or "shape").replace("'", "''")
+
+        if isinstance(g, su.ClosedShell):
+            faces = self._brep_faces(g.cfs_faces, vcache)
+            if faces is None:
+                return None
+            shell = self._w(f"CLOSED_SHELL('',{self._refs(faces)})")
+            item = self._w(f"MANIFOLD_SOLID_BREP('{nm}',#{shell})")
+        elif isinstance(g, su.OpenShell):
+            faces = self._brep_faces(g.cfs_faces, vcache)
+            if faces is None:
+                return None
+            shell = self._w(f"OPEN_SHELL('',{self._refs(faces)})")
+            item = self._w(f"SHELL_BASED_SURFACE_MODEL('{nm}',(#{shell}))")
+        elif isinstance(g, su.ShellBasedSurfaceModel):
+            shell_ids = []
+            for sh in g.sbsm_boundary:
+                faces = self._brep_faces(sh.cfs_faces, vcache)
+                if faces is None:
+                    return None
+                kw = "CLOSED_SHELL" if isinstance(sh, su.ClosedShell) else "OPEN_SHELL"
+                shell_ids.append(self._w(f"{kw}('',{self._refs(faces)})"))
+            if not shell_ids:
+                return None
+            item = self._w(f"SHELL_BASED_SURFACE_MODEL('{nm}',{self._refs(shell_ids)})")
+        elif isinstance(g, su.AdvancedFace):
+            faces = self._brep_faces([g], vcache)
+            if faces is None:
+                return None
+            shell = self._w(f"OPEN_SHELL('',{self._refs(faces)})")
+            item = self._w(f"SHELL_BASED_SURFACE_MODEL('{nm}',(#{shell}))")
+        else:
+            return None
+
+        if color is not None:
+            self._emit_color(item, color)
+        if self.assembly:
+            self._emit_component(item, nm)
+        else:
+            self._solids.append(item)
+        return item
+
+    def _brep_faces(self, faces, vcache):
+        out = []
+        for f in faces:
+            fid = self._brep_face(f, vcache)
+            if fid is None:
+                return None  # unsupported face -> abort the whole shape
+            out.append(fid)
+        return out or None
+
+    def _brep_face(self, face, vcache):
+        import ada.geom.surfaces as su
+
+        if not isinstance(face, su.AdvancedFace):
+            return None
+        surf = self._brep_surface(face.face_surface)
+        if surf is None:
+            return None
+        bounds = []
+        for i, fb in enumerate(face.bounds):
+            loop = self._brep_loop(fb.bound, vcache)
+            if loop is None:
+                return None
+            kw = "FACE_OUTER_BOUND" if i == 0 else "FACE_BOUND"
+            bounds.append(self._w(f"{kw}('',#{loop},{'.T.' if fb.orientation else '.F.'})"))
+        if not bounds:
+            return None
+        return self._w(f"ADVANCED_FACE('',{self._refs(bounds)},#{surf},{'.T.' if face.same_sense else '.F.'})")
+
+    def _brep_surface(self, s):
+        import ada.geom.surfaces as su
+
+        p = getattr(s, "position", None)
+        if p is None:
+            return None
+        loc = self._tp(p.location)
+        axis = _axis_or(p.axis, (0, 0, 1))
+        ref = _axis_or(p.ref_direction, (1, 0, 0))
+        if isinstance(s, su.Plane):
+            return self._plane(loc, axis, ref)
+        if isinstance(s, su.CylindricalSurface):
+            return self._cylinder(loc, axis, ref, s.radius)
+        if isinstance(s, su.ConicalSurface):
+            return self._conical(loc, axis, ref, s.radius, s.semi_angle)
+        if isinstance(s, su.SphericalSurface):
+            return self._spherical(loc, axis, ref, s.radius)
+        if isinstance(s, su.ToroidalSurface):
+            return self._toroidal(loc, axis, ref, s.major_radius, s.minor_radius)
+        return None  # B-spline / profile surfaces not yet emitted kernel-free
+
+    def _brep_loop(self, loop, vcache):
+        import ada.geom.curves as cu
+
+        if isinstance(loop, cu.EdgeLoop):
+            oriented = []
+            for oe in loop.edge_list:
+                eid = self._brep_edge(oe, vcache)
+                if eid is None:
+                    return None
+                oriented.append(self._oriented(eid, getattr(oe, "orientation", True)))
+            return self._edge_loop(oriented) if oriented else None
+        if isinstance(loop, cu.PolyLoop):
+            pts = loop.polygon
+            if len(pts) < 2:
+                return None
+            oriented = []
+            n = len(pts)
+            for i in range(n):
+                p0, p1 = pts[i], pts[(i + 1) % n]
+                e = self._line_edge(self._vfor(p0, vcache), self._tp(p0), self._vfor(p1, vcache), self._tp(p1))
+                oriented.append(self._oriented(e, True))
+            return self._edge_loop(oriented)
+        return None
+
+    def _brep_edge(self, oe, vcache):
+        import ada.geom.curves as cu
+
+        ec = getattr(oe, "edge_element", oe)
+        if not isinstance(ec, cu.EdgeCurve):
+            return None
+        g = ec.edge_geometry
+        v0, p0 = self._vfor(ec.start, vcache), self._tp(ec.start)
+        v1, p1 = self._vfor(ec.end, vcache), self._tp(ec.end)
+        if isinstance(g, cu.Line):
+            return self._line_edge(v0, p0, v1, p1)
+        if isinstance(g, cu.Circle):
+            pos = g.position
+            return self._arc_edge(
+                v0, p0, v1, p1, self._tp(pos.location), _axis_or(pos.ref_direction, (1, 0, 0)),
+                g.radius, ec.same_sense, _axis_or(pos.axis, (0, 0, 1)),
+            )
+        if isinstance(g, cu.Ellipse):
+            pos = g.position
+            return self._ellipse_edge(
+                v0, v1, self._tp(pos.location), _axis_or(pos.ref_direction, (1, 0, 0)),
+                _axis_or(pos.axis, (0, 0, 1)), g.semi_axis1, g.semi_axis2, ec.same_sense,
+            )
+        return None  # B-spline edge -> unsupported
+
+    def _vfor(self, p, vcache):
+        tp = self._tp(p)
+        key = (round(tp[0], 9), round(tp[1], 9), round(tp[2], 9))
+        vid = vcache.get(key)
+        if vid is None:
+            vid = self._vertex(self._pt(tp))
+            vcache[key] = vid
+        return vid
+
+    def _tp(self, p):
+        t = getattr(self, "_t", (0.0, 0.0, 0.0))
+        return (float(p[0]) + t[0], float(p[1]) + t[1], float(p[2]) + t[2])
 
     # -- loop / face construction ------------------------------------------- #
     def _build_loop(self, segs, is_outer, to3d_base, to3d_top, normal, xdir):
@@ -687,12 +872,18 @@ def write_step_stream(
         )
         writer.begin()
         for i, obj in enumerate(objects, start=1):
-            ext = _extrusion_from_object(obj)
-            if ext is None:
-                skipped += 1
-            else:
-                writer.add_extrusion(ext)
-                emitted += 1
+            geom, name, color, translate = _object_geom_meta(obj)
+            done = False
+            if geom is not None:
+                ext = extrusion_from_geometry(geom, name=name, color=color, translate=translate)
+                if ext is not None:
+                    writer.add_extrusion(ext)
+                    done = True
+                elif writer.add_brep(geom.geometry, name=name, color=color, translate=translate) is not None:
+                    # B-rep fallback: imported shapes, pure shells, analytic faces
+                    done = True
+            emitted += 1 if done else 0
+            skipped += 0 if done else 1
             if progress_callback is not None:
                 progress_callback(i, total)
         writer.end()
@@ -701,16 +892,23 @@ def write_step_stream(
     return {"emitted": emitted, "skipped": skipped}
 
 
-def _extrusion_from_object(obj):
-    """Best-effort Extrusion for a single physical object, or None."""
+def _axis_or(d, default):
+    """A direction as a 3-list, or ``default`` when the optional axis is unset."""
+    return list(d) if d is not None else list(default)
+
+
+def _object_geom_meta(obj):
+    """(geom, name, color, translate) for a physical object, or (None, ...) if it
+    has no usable solid geometry. Shared by the extrusion and B-rep emit paths."""
+    none = (None, None, None, (0.0, 0.0, 0.0))
     solid_geom = getattr(obj, "solid_geom", None)
     if solid_geom is None:
-        return None
+        return none
     try:
         geom = solid_geom()
     except Exception as exc:  # degenerate geometry, unsupported type, etc.
         logger.warning("solid_geom() failed for %s (%s); skipping", getattr(obj, "name", "?"), exc)
-        return None
+        return none
 
     translate = (0.0, 0.0, 0.0)
     parent = getattr(obj, "parent", None)
@@ -729,4 +927,12 @@ def _extrusion_from_object(obj):
         except Exception:
             color = None
 
-    return extrusion_from_geometry(geom, name=getattr(obj, "name", "obj"), color=color, translate=translate)
+    return geom, getattr(obj, "name", "obj"), color, translate
+
+
+def _extrusion_from_object(obj):
+    """Best-effort Extrusion for a single physical object, or None."""
+    geom, name, color, translate = _object_geom_meta(obj)
+    if geom is None:
+        return None
+    return extrusion_from_geometry(geom, name=name, color=color, translate=translate)

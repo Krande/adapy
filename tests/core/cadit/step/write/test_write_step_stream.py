@@ -72,3 +72,34 @@ def test_stream_writer_rejects_unknown(tmp_path):
 
     with pytest.raises(ValueError):
         a.to_stp(tmp_path / "x.stp", writer="bogus")
+
+
+def test_stream_writer_emits_brep_shapes(tmp_path):
+    # Beyond extrusions: the writer also emits arbitrary B-rep shapes
+    # (ClosedShell / ShellBasedSurfaceModel with analytic faces) via add_brep.
+    # Read a stream-emitted model back as B-rep Shapes, re-emit them, and confirm
+    # every shape round-trips through the streaming reader and renders. (Faces are
+    # emitted per-face; cross-face edge sharing for watertight OCC solids is a
+    # follow-up — the faces still tessellate/render.)
+    from ada.cad import active_backend
+    from ada.cadit.step.read.stream_reader import stream_read_step
+
+    a = _model()
+    first = tmp_path / "first.stp"
+    a.to_stp(first, writer="stream")
+
+    shapes = ada.from_step(first, reader="auto")  # Shapes carrying ClosedShell/SBSM geom
+    second = tmp_path / "second.stp"
+    stats = shapes.to_stp(second, writer="stream")  # exercises add_brep
+
+    assert stats == {"emitted": 4, "skipped": 0}
+
+    geos = list(stream_read_step(second, local_pool=False))
+    assert len(geos) == 4
+    be = active_backend()
+    for g in geos:
+        try:
+            mesh = be.tessellate(be.build(g))
+        except NotImplementedError:
+            continue  # analytic face not ported to this backend yet (e.g. adacpp cyl)
+        assert len(mesh.positions) > 0
