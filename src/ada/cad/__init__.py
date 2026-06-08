@@ -415,6 +415,36 @@ class AdacppBackend:
                     float(surf.radius),
                     [self._encode_face_bound(fb) for fb in g.bounds],
                 )
+            elif (
+                isinstance(surf, su.ConicalSurface)
+                and g.bounds
+                and hasattr(self._cad, "build_advanced_face_conical")
+            ):
+                # Cone AdvancedFace (e.g. PrimCone). hasattr-guarded like the cylinder path.
+                pos = surf.position
+                shape = self._cad.build_advanced_face_conical(
+                    self._xyz(pos.location),
+                    _axis(pos.axis, (0, 0, 1)),
+                    _axis(pos.ref_direction, (1, 0, 0)),
+                    float(surf.radius),
+                    float(surf.semi_angle),
+                    [self._encode_face_bound(fb) for fb in g.bounds],
+                )
+            elif (
+                isinstance(surf, su.ToroidalSurface)
+                and g.bounds
+                and hasattr(self._cad, "build_advanced_face_toroidal")
+            ):
+                # Torus AdvancedFace (pipe elbows). hasattr-guarded like the cylinder path.
+                pos = surf.position
+                shape = self._cad.build_advanced_face_toroidal(
+                    self._xyz(pos.location),
+                    _axis(pos.axis, (0, 0, 1)),
+                    _axis(pos.ref_direction, (1, 0, 0)),
+                    float(surf.major_radius),
+                    float(surf.minor_radius),
+                    [self._encode_face_bound(fb) for fb in g.bounds],
+                )
             elif not isinstance(surf, su.BSplineSurfaceWithKnots):
                 raise NotImplementedError(
                     f"AdacppBackend.build: AdvancedFace surface {type(surf).__name__!r} "
