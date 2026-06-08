@@ -870,6 +870,47 @@ def extrusion_from_geometry(geom, *, name="obj", color=None, translate=(0.0, 0.0
     )
 
 
+def _primitive_to_extrusion(geom, *, name="obj", color=None, translate=(0.0, 0.0, 0.0)):
+    """Box / Cylinder primitives ARE extrusions (a rectangle / circle swept along
+    the local axis by z_length / height); route them through the proven extrusion
+    path so they emit as watertight solids. Returns None for other primitives
+    (Cone is tapered, Sphere periodic — handled elsewhere / not yet)."""
+    from ada.geom.solids import Box, Cylinder
+
+    solid = getattr(geom, "geometry", None)
+    if isinstance(solid, Box):
+        x, y = float(solid.x_length), float(solid.y_length)
+        outer = [
+            Seg("line", (0.0, 0.0), (x, 0.0)),
+            Seg("line", (x, 0.0), (x, y)),
+            Seg("line", (x, y), (0.0, y)),
+            Seg("line", (0.0, y), (0.0, 0.0)),
+        ]
+        depth = float(solid.z_length)
+    elif isinstance(solid, Cylinder):
+        outer = circle_loop((0.0, 0.0), float(solid.radius), ccw=True)
+        depth = float(solid.height)
+    else:
+        return None
+
+    pos = solid.position
+    origin = (
+        float(pos.location[0]) + translate[0],
+        float(pos.location[1]) + translate[1],
+        float(pos.location[2]) + translate[2],
+    )
+    return Extrusion(
+        origin=origin,
+        xdir=tuple(float(v) for v in (pos.ref_direction if pos.ref_direction is not None else (1.0, 0.0, 0.0))),
+        normal=tuple(float(v) for v in (pos.axis if pos.axis is not None else (0.0, 0.0, 1.0))),
+        depth=depth,
+        outer=outer,
+        inners=[],
+        name=name or "obj",
+        color=color,
+    )
+
+
 def _units_to_step(part):
     units = str(getattr(part, "units", "m")).lower()
     if units in ("mm", "millimetre", "millimeter") or units.endswith("mm"):
@@ -911,7 +952,9 @@ def write_step_stream(
             geom, name, color, translate = _object_geom_meta(obj)
             done = False
             if geom is not None:
-                ext = extrusion_from_geometry(geom, name=name, color=color, translate=translate)
+                ext = extrusion_from_geometry(geom, name=name, color=color, translate=translate) or _primitive_to_extrusion(
+                    geom, name=name, color=color, translate=translate
+                )
                 if ext is not None:
                     writer.add_extrusion(ext)
                     done = True

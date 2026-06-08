@@ -103,3 +103,26 @@ def test_stream_writer_emits_brep_shapes(tmp_path):
     n_second, n_invalid = _roundtrip_solids(second)
     assert n_invalid == 0
     assert n_second >= n_first
+
+
+def test_stream_writer_box_and_cylinder_primitives(tmp_path):
+    # Box and Cylinder primitives are extrusions (rectangle / circle swept by a
+    # length) and emit as watertight solids; Cone (tapered) and Sphere (periodic)
+    # are not yet supported and are skipped.
+    a = ada.Assembly("m") / (
+        ada.Part("p")
+        / [
+            ada.PrimBox("bx", (0, 0, 0), (0.5, 0.6, 0.7)),
+            ada.PrimCyl("cy", (2, 0, 0), (2, 0, 1), 0.4),
+            ada.PrimCone("cn", (4, 0, 0), (4, 0, 1), 0.5),
+            ada.PrimSphere("sp", (6, 0, 0), 0.5),
+        ]
+    )
+    out = tmp_path / "prims.stp"
+    stats = a.to_stp(out, writer="stream")
+
+    assert stats == {"emitted": 2, "skipped": 2}  # box + cylinder; cone + sphere skipped
+
+    n_solids, n_invalid = _roundtrip_solids(out)
+    assert n_solids == 2
+    assert n_invalid == 0
