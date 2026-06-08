@@ -88,20 +88,29 @@ def test_stream_reader_vertices_match_plate_corners(tmp_path):
 
 
 def test_stream_reader_geometries_tessellate(tmp_path):
-    # Each yielded Geometry feeds straight into the backend for tessellation.
+    # Each yielded Geometry feeds straight into the active CAD backend. Runs under
+    # OCC and adacpp, so it stays on the backend-neutral Mesh contract (.positions;
+    # OCC's TriangleMesh.faces is not portable). A geom type a backend hasn't ported
+    # yet (e.g. adacpp's cylindrical AdvancedFace -> NotImplementedError) is skipped;
+    # the planar solids must tessellate on every backend.
     from ada.cad import active_backend
 
     out = _emit(tmp_path)
     be = active_backend()
 
-    n_tris = {}
+    built = set()
     for g in stream_read_step(out):
-        occ = be.build(g)
-        mesh = be.tessellate(occ)
-        n_tris[g.id] = len(mesh.faces) // 3
+        try:
+            shp = be.build(g)
+            mesh = be.tessellate(shp)
+        except NotImplementedError:
+            continue  # geom not ported to this backend yet
+        assert len(mesh.positions) > 0
+        built.add(g.id)
 
-    assert set(n_tris) == {"tub", "box", "ipe", "pl"}
-    assert all(t > 0 for t in n_tris.values())
+    # planar solids tessellate everywhere; the cylindrical tube also on OCC
+    assert {"pl", "box", "ipe"}.issubset(built)
+    assert "tub" in built or getattr(be, "name", "") == "adacpp"
 
 
 def test_stream_reader_local_pool_streams_all_solids(tmp_path):
@@ -113,15 +122,24 @@ def test_stream_reader_local_pool_streams_all_solids(tmp_path):
 
 
 def test_stream_reader_two_pass_handles_forward_references(tmp_path):
-    # The OCC writer emits forward references (MANIFOLD_SOLID_BREP before its
-    # shell/faces/points) — the opposite of the streaming emitter's bottom-up
-    # order. local_pool=True (single forward pass) can't resolve those and yields
-    # nothing; local_pool=False (two-pass deferred resolution) must read them all.
-    out = tmp_path / "occ.step"
-    _model().to_stp(out)  # default OCC XCAF writer
+    # OpenCASCADE and most writers emit forward references (a solid written before
+    # its shell/faces/points) — the opposite of the streaming emitter's bottom-up
+    # order. Build a forward-reference file deterministically by reversing the
+    # emitter's (bottom-up) DATA statements, so it stays in the reader's analytic
+    # vocabulary and doesn't depend on which writer/CAD backend is active.
+    out = _emit(tmp_path)
+    lines = out.read_text().splitlines()
+    di = lines.index("DATA;")
+    ei = lines.index("ENDSEC;", di)
+    entities = [ln for ln in lines[di + 1 : ei] if ln.strip()]
+    forward = lines[: di + 1] + list(reversed(entities)) + lines[ei:]
+    fwd = tmp_path / "forward.step"
+    fwd.write_text("\n".join(forward) + "\n")
 
-    assert len(list(stream_read_step(out, local_pool=True))) == 0
-    geos = list(stream_read_step(out, local_pool=False))
+    # single forward pass can't resolve forward references -> nothing
+    assert len(list(stream_read_step(fwd, local_pool=True))) == 0
+    # two-pass loads the full table first -> reads every solid
+    geos = list(stream_read_step(fwd, local_pool=False))
     assert len(geos) == 4
     for g in geos:
         assert isinstance(g.geometry, ClosedShell)
