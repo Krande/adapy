@@ -59,17 +59,17 @@ function OptionsComponent() {
     const worker_image_tag = runtime.workerImageTag();
     const show_image_tags = runtime.isRestMode() && (viewer_image_tag || worker_image_tag);
 
-    // adapy package version (server) + frontend bundle sha (build-time), with the build id as
-    // a fallback line so there's always something to identify the build.
+    // Build line: adapy package version (from config.js) + frontend git sha, e.g.
+    // "0.15.0 (43ae2883)". Falls back to the sha, then the numeric build id, when the package
+    // version isn't available (e.g. the offline/embedded viewer without a config.js backend).
+    const build_label = adapy_version
+        ? frontend_sha
+            ? `${adapy_version} (${frontend_sha})`
+            : adapy_version
+        : frontend_sha || String(unique_version_id);
     const versionInfo = (
-        <div className="text-xs text-gray-300 space-y-0.5">
-            {adapy_version && (
-                <div>adapy: <span className="font-mono">{adapy_version}</span></div>
-            )}
-            {frontend_sha && (
-                <div>frontend: <span className="font-mono">{frontend_sha}</span></div>
-            )}
-            <div>Build: <span className="font-mono">{unique_version_id}</span></div>
+        <div className="text-xs text-gray-300">
+            Build: <span className="font-mono">{build_label}</span>
         </div>
     );
 
