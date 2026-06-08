@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react';
 
 // @ts-ignore
 import path from 'path';
+import {versionInjectPlugin} from './version-plugin';
 
 // Serve config — split-chunk build for the cloud viewer image. Distinct
 // from vite.config.ts (whose `manualChunks: undefined` is a contract with
@@ -17,7 +18,7 @@ export default defineConfig({
     root: path.resolve(__dirname, 'src'),
     publicDir: path.resolve(__dirname, 'public'),
     base: '/',
-    plugins: [react()],
+    plugins: [react(), versionInjectPlugin()],
     resolve: {
         alias: {
             "@": path.resolve(__dirname, 'src'),

@@ -21,28 +21,10 @@ const outputDir = '../ada/visit/rendering/resources';
 const SCRIPT_TAG_REGEX = /<script type="module" crossorigin src="(\.?\/assets\/(index-[^"]+\.js))"><\/script>/;
 const LINK_TAG_REGEX = /<link rel="stylesheet" crossorigin href="(\.?\/assets\/(index-[^"]+\.css))">/;
 
-function frontendSha() {
-    // Short git sha of the frontend at build time, shown in the viewer Options panel so a
-    // deployed bundle is traceable to a commit. Best-effort: empty string outside a git tree.
-    try {
-        const sha = require('child_process')
-            .execSync('git rev-parse --short HEAD', {cwd: __dirname, stdio: ['ignore', 'pipe', 'ignore']})
-            .toString().trim();
-        const dirty = require('child_process')
-            .execSync('git status --porcelain', {cwd: __dirname, stdio: ['ignore', 'pipe', 'ignore']})
-            .toString().trim().length > 0;
-        return dirty ? `${sha}-dirty` : sha;
-    } catch (_e) {
-        return '';
-    }
-}
-
-function replacePlaceholderWithTimestamp(content) {
-    const timestamp = Date.now();
-    const sha = frontendSha();
-    return content.replace(/<!--UNIQUE_VERSION_PLACEHOLDER-->/g,
-        `<script>window.UNIQUE_VERSION_ID = ${timestamp}; window.FRONTEND_SHA = ${JSON.stringify(sha)};</script>`);
-}
+// NOTE: the <!--UNIQUE_VERSION_PLACEHOLDER--> (build id + frontend sha) is replaced by the
+// shared `versionInjectPlugin` during `vite build` (version-plugin.ts), so it's injected for
+// every config — including the cloud `build:serve` path that never runs this script. By the
+// time we read dist/index.html here it's already substituted; nothing to do for versioning.
 
 let htmlContent = fs.readFileSync(htmlFilePath, 'utf8');
 
@@ -72,7 +54,6 @@ function escapeScriptClosers(content) {
     return content.replace(/<\/(script|style)/gi, '<\\/$1');
 }
 
-htmlContent = replacePlaceholderWithTimestamp(htmlContent);
 // Use the function form of replace so `$1`, `$2`, `$&` in the inlined
 // JS / CSS aren't interpreted as backreferences to the matched script
 // or link tag's capture groups. Minified user code (regex helpers,
