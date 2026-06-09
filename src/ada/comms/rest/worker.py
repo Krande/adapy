@@ -1008,6 +1008,16 @@ async def _process_one(
                     continue  # tri-state "clear"; nothing to forward
                 convert_options[k] = v
 
+        # Poll the audit_log (cancel endpoint's source of truth) so a user
+        # cancellation actually reaps the running conversion subprocess.
+        async def _cancel_check() -> bool:
+            if db_pool is None:
+                return False
+            try:
+                return await db_module.audit_is_cancelled(db_pool, job_id)
+            except Exception:
+                return False
+
         # Run convert() in a forked child. Crash isolation + rusage on
         # exit + per-/proc heartbeat sampling all in one. See
         # subprocess_convert.run_isolated_convert for the rationale.
@@ -1027,6 +1037,7 @@ async def _process_one(
                 profile_in_child=profile_enabled,
                 env_overrides=env_overrides or None,
                 timeout_s=timeout_s,
+                cancel_check=_cancel_check,
             )
         except Exception as exc:
             # Failure in the parent-side machinery (fork, /proc reads,
@@ -1036,6 +1047,16 @@ async def _process_one(
             trace = tb_module.format_exc()
             await queue.update(job_id, status=JOB_STATUS_ERROR, stage="convert", error=str(exc))
             await _audit_done(db_pool, job_id, "error", str(exc), started_at, traceback=trace)
+            return
+
+        # User cancellation: the watchdog reaped the child. The audit_log row is
+        # already 'cancelled' (set by the cancel endpoint) — don't flip it to error.
+        if iresult.signal_name == "CANCELLED":
+            logger.info("worker: conversion for %s cancelled by user; child reaped", job.source_key)
+            try:
+                await queue.update(job_id, status="cancelled", stage="convert", error="cancelled by user")
+            except Exception:
+                pass
             return
 
         # Map the isolated result back to the existing audit/error flow.

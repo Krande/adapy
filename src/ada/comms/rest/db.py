@@ -310,6 +310,18 @@ async def cancel_audit_by_job(
     return result.endswith(" 1")
 
 
+async def audit_is_cancelled(pool: asyncpg.Pool, job_id: str) -> bool:
+    """True once the job's audit row has been flipped to ``cancelled`` (the cancel
+    endpoint's source of truth — the KV status is overwritten by worker progress
+    writes, so it can't be trusted). Polled by the conversion watchdog so an
+    actively-running conversion is actually reaped instead of running to completion."""
+    row = await pool.fetchrow(
+        "SELECT 1 FROM audit_log WHERE job_id = $1 AND status = 'cancelled' LIMIT 1",
+        job_id,
+    )
+    return row is not None
+
+
 async def mark_audit_running(
     pool: asyncpg.Pool,
     *,
