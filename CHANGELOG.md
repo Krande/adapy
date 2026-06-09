@@ -2,6 +2,15 @@
 
 
 
+## v0.17.3 (2026-06-09)
+
+### Fix
+
+* fix: orphaned last-deployed SHA must not brick the detect job (#212)
+
+Co-authored-by: Claude Opus 4.8 (1M context) &lt;noreply@anthropic.com&gt; ([`d78b30a`](https://github.com/Krande/adapy/commit/d78b30a6c03c007c11a8fb95c8d2768149bca186))
+
+
 ## v0.17.2 (2026-06-09)
 
 ### Fix

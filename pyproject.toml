@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ada-py"
-version = "0.17.2"
+version = "0.17.3"
 license = "GPL-3.0-or-later"
 authors = [
     { name = "Kristoffer H. Andersen", email = "kristoffer_andersen@outlook.com" },
@@ -46,6 +46,7 @@ fea_artefact_bundle = "ada.fem.results.docs:register_paradoc_block_sugar"
 [project.urls]
 "Homepage" = "https://github.com/Krande/adapy"
 "Bug Tracker" = "https://github.com/Krande/adapy/issues"
+
 
 
 
