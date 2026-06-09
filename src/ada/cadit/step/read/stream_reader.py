@@ -107,6 +107,89 @@ class _Enum:
 _STAR = object()  # '*' — derived/redundant value
 _DOLLAR = object()  # '$' — unset optional value
 
+# STEP presentation-style colour resolution: a STYLED_ITEM points at a geometric
+# item (the solid root) and a style tree that bottoms out in COLOUR_RGB or a named
+# DRAUGHTING_PRE_DEFINED_COLOUR. We walk the style references generically rather than
+# hard-coding the SURFACE_STYLE_USAGE→…→FILL_AREA_STYLE_COLOUR chain (writers vary).
+_PREDEFINED_COLOURS = {
+    "red": (1.0, 0.0, 0.0),
+    "green": (0.0, 1.0, 0.0),
+    "blue": (0.0, 0.0, 1.0),
+    "yellow": (1.0, 1.0, 0.0),
+    "magenta": (1.0, 0.0, 1.0),
+    "cyan": (0.0, 1.0, 1.0),
+    "black": (0.0, 0.0, 0.0),
+    "white": (1.0, 1.0, 1.0),
+}
+
+
+def _iter_refs(args):
+    """Yield referenced instance ids from a (possibly nested) parsed arg list."""
+    for v in args:
+        if isinstance(v, _Ref):
+            yield v.id
+        elif isinstance(v, (list, tuple)):
+            yield from _iter_refs(v)
+
+
+def _find_colour(pool_get, ref_id: int, depth: int = 0, seen: set | None = None):
+    """Walk an entity's reference tree until a COLOUR_RGB / pre-defined colour is hit;
+    return (r, g, b) in 0..1, or None."""
+    if depth > 12:
+        return None
+    if seen is None:
+        seen = set()
+    if ref_id in seen:
+        return None
+    seen.add(ref_id)
+    rec = pool_get(ref_id)
+    if rec is None:
+        return None
+    if rec.type == "COLOUR_RGB":
+        a = rec.args
+        try:
+            return (float(a[1]), float(a[2]), float(a[3]))
+        except Exception:  # noqa: BLE001
+            return None
+    if rec.type == "DRAUGHTING_PRE_DEFINED_COLOUR":
+        name = rec.args[0] if rec.args and isinstance(rec.args[0], str) else ""
+        return _PREDEFINED_COLOURS.get(name.strip().lower())
+    for rid in _iter_refs(rec.args):
+        c = _find_colour(pool_get, rid, depth + 1, seen)
+        if c is not None:
+            return c
+    return None
+
+
+def _build_colour_map(pool_get, styled_ids: list[int]) -> dict[int, tuple]:
+    """Map ``geometric_item_id -> (r, g, b)`` from every STYLED_ITEM. Only the style
+    references are searched (not the item itself) so we don't walk the huge geometry
+    tree looking for a colour."""
+    cmap: dict[int, tuple] = {}
+    for sid in styled_ids:
+        rec = pool_get(sid)
+        if rec is None or rec.type != "STYLED_ITEM" or len(rec.args) < 3:
+            continue
+        item = rec.args[2]
+        if not isinstance(item, _Ref) or item.id in cmap:
+            continue
+        styles = rec.args[1]
+        for rid in _iter_refs(styles if isinstance(styles, (list, tuple)) else [styles]):
+            col = _find_colour(pool_get, rid)
+            if col is not None:
+                cmap[item.id] = col
+                break
+    return cmap
+
+
+def _as_color(rgb):
+    if rgb is None:
+        return None
+    from ada.visit.colors import Color
+
+    return Color(*rgb)
+
+
 _HEADER_RE = re.compile(r"^\s*#(\d+)\s*=\s*([A-Z0-9_]+)\s*\(", re.S)
 _COMPLEX_RE = re.compile(r"^\s*#(\d+)\s*=\s*\(", re.S)  # #id=(NAME(..)NAME(..)..) complex record
 _COMPLEX = "__COMPLEX__"
@@ -695,6 +778,7 @@ def _read_two_pass(filepath: Path, *, tolerant: bool = False, skipped=None, low_
 def _read_two_pass_dict(filepath: Path, *, tolerant: bool, skipped):
     pool: dict[int, _Rec] = {}
     root_ids: list[int] = []
+    styled_ids: list[int] = []
     with filepath.open("r", encoding="utf-8", errors="replace") as fh:
         for stmt in _iter_statements(fh):
             parsed = _parse_statement(stmt)
@@ -704,7 +788,10 @@ def _read_two_pass_dict(filepath: Path, *, tolerant: bool, skipped):
             pool[inst_id] = _Rec(etype, args)
             if etype in _ROOT_BUILDERS:
                 root_ids.append(inst_id)
+            elif etype == "STYLED_ITEM":
+                styled_ids.append(inst_id)
 
+    colour_map = _build_colour_map(pool.get, styled_ids)
     resolver = _Resolver(pool)
     n_solids = 0
     for rid in root_ids:
@@ -714,7 +801,7 @@ def _read_two_pass_dict(filepath: Path, *, tolerant: bool, skipped):
         geom = _try_resolve_root(resolver, name, _ROOT_BUILDERS[rec.type], rec.args, tolerant=tolerant, skipped=skipped)
         if geom is not None:
             n_solids += 1
-            yield Geometry(id=name, geometry=geom)
+            yield Geometry(id=name, geometry=geom, color=_as_color(colour_map.get(rid)))
 
 
 def _stmt_end(mm, start: int, n: int) -> int:
@@ -748,6 +835,7 @@ def _scan_offset_index(mm):
     ids = array.array("q")
     offs = array.array("q")
     roots: list[int] = []
+    styled: list[int] = []  # STYLED_ITEM ids — resolved to per-solid colours later
     n = len(mm)
     pos = 0
     while pos < n:
@@ -765,8 +853,8 @@ def _scan_offset_index(mm):
                 rid = int(mm[s + 1 : k])
                 ids.append(rid)
                 offs.append(s)
-                # locate the type keyword for root detection: skip ws, '=', ws (OCC
-                # writes "#33 = MANIFOLD_SOLID_BREP(...)" with spaces around '=').
+                # locate the type keyword for root/styled detection: skip ws, '=', ws
+                # (OCC writes "#33 = MANIFOLD_SOLID_BREP(...)" with spaces around '=').
                 eq = k
                 while eq < end and mm[eq] in _WS:
                     eq += 1
@@ -777,10 +865,14 @@ def _scan_offset_index(mm):
                     p = m
                     while p < end and _is_kw_byte(mm[p]):
                         p += 1
-                    if p > m and mm[m:p].decode("ascii", "replace") in _ROOT_BUILDERS:
-                        roots.append(rid)
+                    if p > m:
+                        kw = mm[m:p].decode("ascii", "replace")
+                        if kw in _ROOT_BUILDERS:
+                            roots.append(rid)
+                        elif kw == "STYLED_ITEM":
+                            styled.append(rid)
         pos = end + 1
-    return ids, offs, roots
+    return ids, offs, roots, styled
 
 
 class _OffsetPool:
@@ -816,7 +908,7 @@ def _read_two_pass_lazy(filepath: Path, *, tolerant: bool, skipped):
     fh = open(filepath, "rb")  # noqa: SIM115 - kept open for the generator's lifetime
     mm = mmap.mmap(fh.fileno(), 0, access=mmap.ACCESS_READ)
     try:
-        ids_arr, offs_arr, roots = _scan_offset_index(mm)
+        ids_arr, offs_arr, roots, styled = _scan_offset_index(mm)
         ids_np = np.frombuffer(ids_arr, dtype=np.int64)
         offs_np = np.frombuffer(offs_arr, dtype=np.int64)
         order = np.argsort(ids_np, kind="stable")
@@ -824,6 +916,7 @@ def _read_two_pass_lazy(filepath: Path, *, tolerant: bool, skipped):
         offs_sorted = np.ascontiguousarray(offs_np[order])
         del ids_np, offs_np, order, ids_arr, offs_arr
         pool = _OffsetPool(mm, ids_sorted, offs_sorted)
+        colour_map = _build_colour_map(pool.get, styled)
         resolver = _Resolver(pool)
         n_solids = 0
         for rid in roots:
@@ -837,7 +930,7 @@ def _read_two_pass_lazy(filepath: Path, *, tolerant: bool, skipped):
             )
             if geom is not None:
                 n_solids += 1
-                yield Geometry(id=name, geometry=geom)
+                yield Geometry(id=name, geometry=geom, color=_as_color(colour_map.get(rid)))
     finally:
         mm.close()
         fh.close()
