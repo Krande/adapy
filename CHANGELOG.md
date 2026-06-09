@@ -2,6 +2,15 @@
 
 
 
+## v0.18.0 (2026-06-09)
+
+### Feature
+
+* feat: apply STEP assembly-instance transforms in the streaming reader (#213)
+
+Co-authored-by: Claude Opus 4.8 (1M context) &lt;noreply@anthropic.com&gt; ([`7165e64`](https://github.com/Krande/adapy/commit/7165e6442cfbd4ed8c8ab7314cad559ad54e59f0))
+
+
 ## v0.17.3 (2026-06-09)
 
 ### Fix
