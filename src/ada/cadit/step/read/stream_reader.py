@@ -949,19 +949,17 @@ def _solid_name(args: list, n_solids: int) -> str:
 
 
 def _yield_instances(name: str, geom, color, mats):
-    """Yield one Geometry per placed instance. ``mats`` is a list of 4x4 world
-    matrices (or None/empty for the single, no-transform case). The shell ``geom`` is
-    shared across instances; only the per-instance transform differs. The k==0 instance
-    keeps the original id + transform=None when the matrix is identity, so flat files
-    and single-instance solids are byte-for-byte unchanged."""
+    """Yield ONE Geometry for this (single) solid, carrying its list of world-placement
+    matrices. ``mats`` is a list of 4x4 matrices (one per placed instance) or None/empty
+    for the single, no-transform case. The downstream tessellator meshes the local shell
+    ONCE and applies each matrix to that mesh, so a part instanced N times meshes once.
+    A lone identity matrix collapses to ``transforms=None`` so flat files and
+    single-instance solids are byte-for-byte unchanged."""
     import numpy as np
 
-    if not mats:
-        mats = [None]
-    for k, m in enumerate(mats):
-        transform = None if (m is None or np.allclose(m, np.eye(4), atol=1e-12)) else m
-        gid = name if k == 0 else f"{name}/{k + 1}"
-        yield Geometry(id=gid, geometry=geom, color=color, transform=transform)
+    if mats and len(mats) == 1 and np.allclose(mats[0], np.eye(4), atol=1e-12):
+        mats = None
+    yield Geometry(id=name, geometry=geom, color=color, transforms=(mats or None))
 
 
 def _short_reason(ex: Exception) -> str:

@@ -266,18 +266,27 @@ def _axis2_to_matrix(loc, axis, ref) -> np.ndarray:
     return m
 
 
-def _shell_world_pts(geom) -> np.ndarray:
+def _shell_local_pts(geom) -> np.ndarray:
     pts = []
     for f in geom.geometry.cfs_faces:
         for fb in f.bounds:
             for oe in fb.bound.edge_list:
                 for p in (oe.start, oe.end):
                     pts.append([float(p[0]), float(p[1]), float(p[2])])
-    pts = np.asarray(pts, float)
-    if geom.transform is not None:
-        r, t = geom.transform[:3, :3], geom.transform[:3, 3]
-        pts = pts @ r.T + t
-    return pts
+    return np.asarray(pts, float)
+
+
+def _apply(pts: np.ndarray, m) -> np.ndarray:
+    if m is None:
+        return pts
+    m = np.asarray(m)
+    return pts @ m[:3, :3].T + m[:3, 3]
+
+
+def _shell_world_pts(geom, k: int = 0) -> np.ndarray:
+    """World points of instance ``k`` (geom carries a list of placement matrices)."""
+    m = geom.transforms[k] if geom.transforms else None
+    return _apply(_shell_local_pts(geom), m)
 
 
 def test_stream_reader_applies_known_assembly_transform(tmp_path):
@@ -292,10 +301,10 @@ def test_stream_reader_applies_known_assembly_transform(tmp_path):
     path.write_text(step)
 
     (geom,) = list(stream_read_step(path, local_pool=False))
-    assert geom.transform is not None
+    assert geom.transforms is not None and len(geom.transforms) == 1  # single instance
 
     expected = np.linalg.inv(_axis2_to_matrix(*child)) @ _axis2_to_matrix(*parent)
-    assert np.allclose(geom.transform, expected, atol=1e-9)
+    assert np.allclose(geom.transforms[0], expected, atol=1e-9)
 
     # The cube's world corners must be exactly the local [0,1]^3 corners pushed through
     # the resolved transform (independent cross-check of the applied placement).
@@ -366,15 +375,31 @@ def test_stream_reader_multi_instance_two_placements(tmp_path):
     path.write_text(step)
 
     geos = list(stream_read_step(path, local_pool=False))
-    assert len(geos) == 2
-    ids = [g.id for g in geos]
-    assert ids[0] == "box" and ids[1] == "box/2"
+    # One unique solid -> one Geometry carrying BOTH placement matrices (meshed once,
+    # placed twice). The /2 instance id is materialised downstream in the tessellator.
+    assert len(geos) == 1
+    (g,) = geos
+    assert g.id == "box"
+    assert g.transforms is not None and len(g.transforms) == 2
 
-    centroids = [_shell_world_pts(g).mean(0) for g in geos]
+    centroids = [_shell_world_pts(g, k).mean(0) for k in range(2)]
     # The two instances sit 10 units apart in x (one at origin, one at +10x).
     assert abs((centroids[1] - centroids[0])[0]) == pytest.approx(10.0, abs=1e-9)
     # Distinct world positions.
     assert not np.allclose(centroids[0], centroids[1])
+
+    # End-to-end (tessellate-once): the streamed GLB meshes the solid ONCE yet contains
+    # BOTH placements — the merged mesh spans the 10-unit gap between the instances.
+    import trimesh
+
+    from ada.cadit.step.stream_to_glb import stream_step_to_glb
+
+    glb = tmp_path / "multi.glb"
+    stats = stream_step_to_glb(path, glb, tolerant=True)
+    assert stats["meshed"] == 1  # ONE unique solid tessellated, despite two placements
+    scene = trimesh.load(glb)
+    span = scene.bounds[1] - scene.bounds[0]
+    assert max(span) >= 10.0  # both instances present (single box is ~1 unit wide)
 
 
 def test_stream_reader_flat_emitter_no_transform(tmp_path):
@@ -390,8 +415,8 @@ def test_stream_reader_flat_emitter_no_transform(tmp_path):
         geos = list(stream_read_step(out, local_pool=False))
         assert len(geos) == 1
         (g,) = geos
-        # The whole point: no assembly tree / identity IDTs -> transform stays None.
-        assert g.transform is None
+        # The whole point: no assembly tree / identity IDTs -> transforms stays None.
+        assert g.transforms is None
         # And the authored geometry is unmoved: the unit box's min corner sits at
         # (1,2,3) and max at (2,3,4) in the file's length unit (adapy writes metres, so
         # the emitter scales mm->m; assert the shape is intact regardless of that scale).

@@ -38,9 +38,10 @@ def _tessellate_geom_worker(geom):
     """Pool subprocess entry: build + tessellate ONE solid and return raw mesh arrays
     plus the solid's colour — the parent assigns a consistent material id (each
     subprocess has its own material store). Returns
-    ``(status, gid, color, positions, indices, normals)`` where ``status`` is "ok",
-    "degenerate", "empty" or "error:<Type>". OCC isn't thread-safe, so the unit of
-    parallelism is a process."""
+    ``(status, gid, color, positions, indices, normals, transforms)`` where ``status``
+    is "ok", "degenerate", "empty" or "error:<Type>"; ``transforms`` is the solid's list
+    of world-placement matrices (or None) — the parent meshes once and places per matrix.
+    OCC isn't thread-safe, so the unit of parallelism is a process."""
     import numpy as np
 
     gid = None
@@ -65,32 +66,24 @@ def _tessellate_geom_worker(geom):
         except Exception:
             diag = 0.0
         if diag < 1e-7:
-            return ("degenerate", gid, geom.color, None, None, None)
+            return ("degenerate", gid, geom.color, None, None, None, None)
         mesh = be.tessellate(occ)
         idx = getattr(mesh, "indices", None)
         if idx is None:
             idx = getattr(mesh, "faces", None)
         pos = getattr(mesh, "positions", None)
         if pos is None or idx is None or len(idx) == 0:
-            return ("empty", gid, geom.color, None, None, None)
+            return ("empty", gid, geom.color, None, None, None, None)
         nrm = getattr(mesh, "normals", None)
         pos = np.ascontiguousarray(pos, dtype=np.float32)
         idx = np.ascontiguousarray(idx, dtype=np.uint32)
         nrm = np.ascontiguousarray(nrm, dtype=np.float32) if nrm is not None else None
-        # STEP assembly-instance placement: the shell was tessellated in its local frame;
-        # apply the instance's world 4x4 transform to the mesh (rotation+translation on
-        # positions, rotation on normals). None = identity (flat/single-instance solids).
-        # pos/nrm stay FLAT (N*3,) — the downstream MeshStore/concatenate path requires
-        # flat buffers — so reshape to (N,3) only for the matmul, then flatten back.
-        if geom.transform is not None:
-            t = np.asarray(geom.transform, dtype=np.float32)
-            r = t[:3, :3]
-            pos = np.ascontiguousarray((pos.reshape(-1, 3) @ r.T + t[:3, 3]).ravel(), dtype=np.float32)
-            if nrm is not None:
-                nrm = np.ascontiguousarray((nrm.reshape(-1, 3) @ r.T).ravel(), dtype=np.float32)
-        return ("ok", gid, geom.color, pos, idx, nrm)
+        # The shell is tessellated ONCE in its local frame. The world-placement matrices
+        # (one per STEP assembly instance) ride back to the parent, which applies each to
+        # this single local mesh — so a part instanced N times still meshes once.
+        return ("ok", gid, geom.color, pos, idx, nrm, geom.transforms)
     except Exception as exc:  # noqa: BLE001 - report and skip; one bad solid mustn't abort
-        return (f"error:{type(exc).__name__}", gid, None, None, None, None)
+        return (f"error:{type(exc).__name__}", gid, None, None, None, None, None)
 
 
 def _pool_worker_loop(worker_id, task_q, result_q) -> None:
@@ -223,7 +216,18 @@ def scene_from_step_stream(source: StepStreamSource, converter: SceneConverter) 
     # The parent owns the material store (so colours map to consistent ids across
     # worker processes) and builds the MeshStore + graph node from each worker's raw
     # mesh arrays. Workers (subprocesses) only build + tessellate.
-    def _build_mesh_store(gid, color, pos, idx, nrm) -> None:
+    def _build_mesh_store(gid, color, pos, idx, nrm, transform=None) -> None:
+        # Apply this instance's world placement to the local mesh (rigid: rotation +
+        # translation on positions, rotation on normals). pos/nrm stay FLAT (N*3,) — the
+        # MeshStore/concatenate path needs flat buffers — so reshape only for the matmul.
+        if transform is not None:
+            import numpy as np
+
+            t = np.asarray(transform, dtype=np.float32)
+            r = t[:3, :3]
+            pos = np.ascontiguousarray((pos.reshape(-1, 3) @ r.T + t[:3, 3]).ravel(), dtype=np.float32)
+            if nrm is not None:
+                nrm = np.ascontiguousarray((nrm.reshape(-1, 3) @ r.T).ravel(), dtype=np.float32)
         node = graph.add_node(GraphNode(gid, graph.next_node_id(), hash=create_guid(), parent=root))
         mat_id = bt.material_store.get(color, None)
         if mat_id is None:
@@ -233,12 +237,15 @@ def scene_from_step_stream(source: StepStreamSource, converter: SceneConverter) 
 
     def _handle(result) -> None:
         nonlocal n_total
-        status, gid, color, pos, idx, nrm = result
+        status, gid, color, pos, idx, nrm, transforms = result
         i = n_total
         n_total += 1
         gid = gid or f"solid_{i}"
         if status == "ok":
-            _build_mesh_store(gid, color, pos, idx, nrm)
+            # One mesh, N instances: tessellated once, placed per assembly matrix.
+            for k, tf in enumerate(transforms if transforms else [None]):
+                inst_gid = gid if k == 0 else f"{gid}/{k + 1}"
+                _build_mesh_store(inst_gid, color, pos, idx, nrm, tf)
         elif status == "degenerate":
             _skip(gid, "degenerate (zero-extent solid)")
         elif status == "empty":
@@ -339,7 +346,7 @@ def scene_from_step_stream(source: StepStreamSource, converter: SceneConverter) 
                             slot["proc"].join(timeout=2)
                             busy -= 1
                             slots[i] = _spawn(i, result_q)
-                            _handle((f"timeout (>{timeout_s:.0f}s; OCC hang, killed)", gid, None, None, None, None))
+                            _handle((f"timeout (>{timeout_s:.0f}s; OCC hang, killed)", gid, None, None, None, None, None))
             finally:
                 for slot in slots:
                     try:

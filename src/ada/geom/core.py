@@ -23,6 +23,8 @@ class Geometry(Generic[T]):
     geometry: T
     color: Color | None = None
     bool_operations: list[BooleanOperation] = field(default_factory=list)
-    # Optional 4x4 world-placement transform for this geometry instance (from a STEP
-    # assembly tree). None = identity. Applied to the tessellated mesh, not the B-rep.
-    transform: np.ndarray | None = None
+    # Optional list of 4x4 world-placement transforms (from a STEP assembly tree) — one
+    # per placed instance of this (single) solid. None = a single identity instance.
+    # The solid is tessellated ONCE in its local frame; each transform is applied to the
+    # resulting mesh (not the B-rep), so a part instanced N times meshes once.
+    transforms: list[np.ndarray] | None = None
