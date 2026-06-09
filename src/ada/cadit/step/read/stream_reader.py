@@ -509,7 +509,20 @@ def _make_bspline_curve(r, degree, cp_refs, curve_form, closed, si, mults, knots
 
 
 def _make_bspline_surface(
-    r, u_deg, v_deg, cp_grid, surf_form, u_closed, v_closed, si, u_mults, v_mults, u_knots, v_knots, knot_spec, weights=None
+    r,
+    u_deg,
+    v_deg,
+    cp_grid,
+    surf_form,
+    u_closed,
+    v_closed,
+    si,
+    u_mults,
+    v_mults,
+    u_knots,
+    v_knots,
+    knot_spec,
+    weights=None,
 ):
     if weights is not None:
         # A rational B-spline face's boundary edges only trim correctly when their
@@ -555,9 +568,7 @@ def _build_complex(r: _Resolver, subs: dict):
         k = subs["B_SPLINE_SURFACE_WITH_KNOTS"]  # [u_mults, v_mults, u_knots, v_knots, spec]
         rat = subs.get("RATIONAL_B_SPLINE_SURFACE")  # [weight_grid] or None
         weights = rat[0] if rat else None
-        return _make_bspline_surface(
-            r, s[0], s[1], s[2], s[3], s[4], s[5], s[6], k[0], k[1], k[2], k[3], k[4], weights
-        )
+        return _make_bspline_surface(r, s[0], s[1], s[2], s[3], s[4], s[5], s[6], k[0], k[1], k[2], k[3], k[4], weights)
     if "B_SPLINE_CURVE" in subs and "B_SPLINE_CURVE_WITH_KNOTS" in subs:
         c = subs["B_SPLINE_CURVE"]  # [degree, cps, form, closed, si]
         k = subs["B_SPLINE_CURVE_WITH_KNOTS"]  # [mults, knots, spec]
@@ -754,9 +765,7 @@ def _try_resolve_root(resolver: "_Resolver", name: str, root_builder, args: list
 def _log_skips(filepath: Path, skipped) -> None:
     if skipped:
         total = sum(skipped.values())
-        logger.info(
-            "stream_read_step: %s: skipped %d unsupported solid(s) — %s", filepath.name, total, dict(skipped)
-        )
+        logger.info("stream_read_step: %s: skipped %d unsupported solid(s) — %s", filepath.name, total, dict(skipped))
 
 
 # Files above this size resolve against an mmap + offset-index pool (parse each
@@ -767,7 +776,9 @@ _LAZY_POOL_THRESHOLD = 64 * 1024 * 1024
 _WS = frozenset(b" \t\r\n")
 
 
-def _read_two_pass(filepath: Path, *, tolerant: bool = False, skipped=None, low_memory: bool | None = None, on_total=None):
+def _read_two_pass(
+    filepath: Path, *, tolerant: bool = False, skipped=None, low_memory: bool | None = None, on_total=None
+):
     """General STEP (forward references): resolve each root against the full entity
     table. Large files use a constant-memory mmap + offset-index pool so a worker pod
     stays within budget; small files use a plain parsed-entity dict."""
@@ -828,7 +839,7 @@ def _stmt_end(mm, start: int, n: int) -> int:
 
 
 def _read_statement_at(mm, start: int, n: int) -> str:
-    return mm[start:_stmt_end(mm, start, n)].decode("utf-8", "replace")
+    return mm[start : _stmt_end(mm, start, n)].decode("utf-8", "replace")
 
 
 def _is_kw_byte(b: int) -> bool:

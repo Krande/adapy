@@ -71,7 +71,9 @@ class ParityResult:
     expected: int  # the baseline (source) count
     consistent: bool  # True iff every format matches the baseline
     mismatches: dict[str, int] = field(default_factory=dict)  # format -> count, for the ones that differ
-    errors: dict[str, str] = field(default_factory=dict)  # format -> error message when that format failed to round-trip
+    errors: dict[str, str] = field(
+        default_factory=dict
+    )  # format -> error message when that format failed to round-trip
 
     def summary(self) -> str:
         status = "OK" if self.consistent and not self.errors else "MISMATCH"
@@ -158,6 +160,4 @@ def cross_format_parity(
 
     mismatches = {k: v for k, v in counts.items() if k != "source" and v != baseline}
     consistent = not mismatches and not errors
-    return ParityResult(
-        counts=counts, expected=baseline, consistent=consistent, mismatches=mismatches, errors=errors
-    )
+    return ParityResult(counts=counts, expected=baseline, consistent=consistent, mismatches=mismatches, errors=errors)

@@ -627,7 +627,10 @@ class Part(BackendGeom):
         materialisation that makes ``STEPControl_Reader`` OOM on large files; the
         per-object OCC body is built lazily only when an object is tessellated.
         """
-        from ada.cadit.step.read.stream_reader import StepStreamUnsupported, stream_read_step
+        from ada.cadit.step.read.stream_reader import (
+            StepStreamUnsupported,
+            stream_read_step,
+        )
 
         if scale is not None or transform is not None or rotate is not None:
             raise ValueError("reader='stream'/'auto'/'tolerant' does not support scale/transform/rotate; use 'occ'")

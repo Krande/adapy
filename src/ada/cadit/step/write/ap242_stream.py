@@ -587,8 +587,9 @@ class Ap242StreamWriter:
                 # safely with an adjacent face (no arc-collision concern for lines).
                 key = ("L", min(va, vb), max(va, vb))
                 oriented.append(
-                    self._shared_oriented(key, va, vb, va, pa, vb, pb,
-                                          lambda v0, p0, v1, p1: self._line_edge(v0, p0, v1, p1))
+                    self._shared_oriented(
+                        key, va, vb, va, pa, vb, pb, lambda v0, p0, v1, p1: self._line_edge(v0, p0, v1, p1)
+                    )
                 )
             return self._edge_loop(oriented)
         return None
@@ -610,19 +611,38 @@ class Ap242StreamWriter:
 
             def emit(v0, p0, v1, p1):
                 return self._line_edge(v0, p0, v1, p1)
+
         elif isinstance(g, cu.Circle):
             pos = g.position
 
             def emit(v0, p0, v1, p1):
-                return self._arc_edge(v0, p0, v1, p1, self._tp(pos.location),
-                                      _axis_or(pos.ref_direction, (1, 0, 0)), g.radius, ec.same_sense,
-                                      _axis_or(pos.axis, (0, 0, 1)))
+                return self._arc_edge(
+                    v0,
+                    p0,
+                    v1,
+                    p1,
+                    self._tp(pos.location),
+                    _axis_or(pos.ref_direction, (1, 0, 0)),
+                    g.radius,
+                    ec.same_sense,
+                    _axis_or(pos.axis, (0, 0, 1)),
+                )
+
         elif isinstance(g, cu.Ellipse):
             pos = g.position
 
             def emit(v0, p0, v1, p1):
-                return self._ellipse_edge(v0, v1, self._tp(pos.location), _axis_or(pos.ref_direction, (1, 0, 0)),
-                                          _axis_or(pos.axis, (0, 0, 1)), g.semi_axis1, g.semi_axis2, ec.same_sense)
+                return self._ellipse_edge(
+                    v0,
+                    v1,
+                    self._tp(pos.location),
+                    _axis_or(pos.ref_direction, (1, 0, 0)),
+                    _axis_or(pos.axis, (0, 0, 1)),
+                    g.semi_axis1,
+                    g.semi_axis2,
+                    ec.same_sense,
+                )
+
         else:
             return None  # B-spline edge -> unsupported
 
@@ -632,8 +652,12 @@ class Ap242StreamWriter:
         # (a geometric vertex-pair key collides them and corrupts the topology).
         return self._shared_oriented(
             id(ec),
-            self._vfor(oe.start), self._vfor(oe.end),  # loop traversal direction
-            self._vfor(ec.start), self._tp(ec.start), self._vfor(ec.end), self._tp(ec.end),  # EDGE_CURVE emit dir
+            self._vfor(oe.start),
+            self._vfor(oe.end),  # loop traversal direction
+            self._vfor(ec.start),
+            self._tp(ec.start),
+            self._vfor(ec.end),
+            self._tp(ec.end),  # EDGE_CURVE emit dir
             emit,
         )
 
@@ -958,9 +982,9 @@ def write_step_stream(
             geom, name, color, translate = _object_geom_meta(obj)
             done = False
             if geom is not None:
-                ext = extrusion_from_geometry(geom, name=name, color=color, translate=translate) or _primitive_to_extrusion(
+                ext = extrusion_from_geometry(
                     geom, name=name, color=color, translate=translate
-                )
+                ) or _primitive_to_extrusion(geom, name=name, color=color, translate=translate)
                 if ext is not None:
                     writer.add_extrusion(ext)
                     done = True

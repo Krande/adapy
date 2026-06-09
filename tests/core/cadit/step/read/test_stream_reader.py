@@ -14,7 +14,13 @@ import ada
 from ada import Beam, Plate, Section
 from ada.cadit.step.read.stream_reader import stream_read_step
 from ada.geom.curves import EdgeCurve, EdgeLoop, Line, OrientedEdge
-from ada.geom.surfaces import AdvancedFace, ClosedShell, CylindricalSurface, FaceBound, Plane
+from ada.geom.surfaces import (
+    AdvancedFace,
+    ClosedShell,
+    CylindricalSurface,
+    FaceBound,
+    Plane,
+)
 
 
 def _model():
@@ -135,9 +141,7 @@ def test_stream_reader_lazy_offset_pool_matches_dict_pool(tmp_path):
     out = _emit(tmp_path)
 
     def sig(gen):
-        return sorted(
-            (g.id, type(g.geometry).__name__, len(g.geometry.cfs_faces)) for g in gen
-        )
+        return sorted((g.id, type(g.geometry).__name__, len(g.geometry.cfs_faces)) for g in gen)
 
     eager = sig(sr._read_two_pass(out, low_memory=False))
     lazy = sig(sr._read_two_pass(out, low_memory=True))
@@ -245,7 +249,7 @@ def test_stream_reader_sphere_builds_full_face(tmp_path):
 def test_stream_reader_complex_rational_bspline_curve():
     # The STEP complex-instance form of a rational B-spline curve must parse into a
     # RationalBSplineCurveWithKnots (self-contained; no writer/backend involved).
-    from ada.cadit.step.read.stream_reader import _Rec, _Resolver, _parse_statement
+    from ada.cadit.step.read.stream_reader import _parse_statement, _Rec, _Resolver
     from ada.geom.curves import RationalBSplineCurveWithKnots
 
     stmts = [

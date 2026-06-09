@@ -9,7 +9,10 @@ from ada.visit.scene_handling.scene_from_fea_results import scene_from_fem_resul
 from ada.visit.scene_handling.scene_from_fem import scene_from_fem
 from ada.visit.scene_handling.scene_from_object import scene_from_object
 from ada.visit.scene_handling.scene_from_part import scene_from_part_or_assembly
-from ada.visit.scene_handling.scene_from_step_stream import StepStreamSource, scene_from_step_stream
+from ada.visit.scene_handling.scene_from_step_stream import (
+    StepStreamSource,
+    scene_from_step_stream,
+)
 from ada.visit.scene_handling.scene_utils import from_z_to_y_is_up
 
 if TYPE_CHECKING:

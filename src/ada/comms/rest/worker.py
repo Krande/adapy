@@ -396,9 +396,7 @@ async def _run_parity_validation(
     await _on_progress("parity", 0.20)
     loop = asyncio.get_running_loop()
     try:
-        result = await loop.run_in_executor(
-            None, functools.partial(parity_for_source_file, src_path, formats)
-        )
+        result = await loop.run_in_executor(None, functools.partial(parity_for_source_file, src_path, formats))
     except Exception as exc:
         logger.exception("worker: parity validation failed for %s", job.source_key)
         trace = tb_module.format_exc()

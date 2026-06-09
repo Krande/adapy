@@ -263,11 +263,19 @@ def scene_from_step_stream(source: StepStreamSource, converter: SceneConverter) 
         more = f" (+{n_skipped - len(skipped_ids)} more)" if n_skipped > len(skipped_ids) else ""
         logger.warning(
             "scene_from_step_stream: %s — skipped %d/%d solids by reason %s; ids: %s%s",
-            source.path, n_skipped, n_total, dict(reasons), ", ".join(skipped_ids), more,
+            source.path,
+            n_skipped,
+            n_total,
+            dict(reasons),
+            ", ".join(skipped_ids),
+            more,
         )
     logger.info(
         "scene_from_step_stream: %s — meshed %d/%d solids into %d material group(s)",
-        source.path, n_total - n_skipped, n_total, len(by_material),
+        source.path,
+        n_total - n_skipped,
+        n_total,
+        len(by_material),
     )
     scene.metadata["ada_stream_stats"] = {
         "meshed": n_total - n_skipped,

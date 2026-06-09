@@ -498,11 +498,11 @@ def add_parser(sub: argparse._SubParsersAction) -> None:
     parity.add_argument(
         "--audit-id", type=int, default=None, help="Instead of PATH: fetch this audit's source blob first."
     )
+    parity.add_argument("--run", default=None, help="Remote: print persisted parity results for this audit run id.")
     parity.add_argument(
-        "--run", default=None, help="Remote: print persisted parity results for this audit run id."
-    )
-    parity.add_argument(
-        "--formats", default="ifc,xml,step", help="Comma-separated structure-preserving formats (default: ifc,xml,step)."
+        "--formats",
+        default="ifc,xml,step",
+        help="Comma-separated structure-preserving formats (default: ifc,xml,step).",
     )
     parity.add_argument("--out", default=DEFAULT_OUT, help=f"Download root for --audit-id (default: {DEFAULT_OUT}).")
     parity.set_defaults(func=cmd_parity, needs_ada_logging=True)

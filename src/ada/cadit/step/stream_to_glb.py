@@ -49,6 +49,10 @@ def stream_step_to_glb(step_path: str | Path, glb_path: str | Path, *, tolerant:
     Path(glb_path).write_bytes(data)
     logger.info(
         "stream_step_to_glb: %s -> %s — meshed %d/%d solids, %d material group(s)",
-        step_path, glb_path, stats.get("meshed", 0), stats.get("total", 0), stats.get("materials", 0),
+        step_path,
+        glb_path,
+        stats.get("meshed", 0),
+        stats.get("total", 0),
+        stats.get("materials", 0),
     )
     return stats

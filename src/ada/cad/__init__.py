@@ -415,11 +415,7 @@ class AdacppBackend:
                     float(surf.radius),
                     [self._encode_face_bound(fb) for fb in g.bounds],
                 )
-            elif (
-                isinstance(surf, su.ConicalSurface)
-                and g.bounds
-                and hasattr(self._cad, "build_advanced_face_conical")
-            ):
+            elif isinstance(surf, su.ConicalSurface) and g.bounds and hasattr(self._cad, "build_advanced_face_conical"):
                 # Cone AdvancedFace (e.g. PrimCone). hasattr-guarded like the cylinder path.
                 pos = surf.position
                 shape = self._cad.build_advanced_face_conical(
@@ -431,9 +427,7 @@ class AdacppBackend:
                     [self._encode_face_bound(fb) for fb in g.bounds],
                 )
             elif (
-                isinstance(surf, su.ToroidalSurface)
-                and g.bounds
-                and hasattr(self._cad, "build_advanced_face_toroidal")
+                isinstance(surf, su.ToroidalSurface) and g.bounds and hasattr(self._cad, "build_advanced_face_toroidal")
             ):
                 # Torus AdvancedFace (pipe elbows). hasattr-guarded like the cylinder path.
                 pos = surf.position

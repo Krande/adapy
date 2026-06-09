@@ -1257,9 +1257,7 @@ def _add_cfs_faces_to_shell(builder: BRep_Builder, occ_shell: TopoDS_Shell, cfs_
                 builder.Add(occ_shell, face)
             except Exception as ex:
                 n_dropped += 1
-                logger.warning(
-                    "Skipping AdvancedFace (%s surface): %s", type(cfs_face.face_surface).__name__, ex
-                )
+                logger.warning("Skipping AdvancedFace (%s surface): %s", type(cfs_face.face_surface).__name__, ex)
                 continue
 
         # Handle FaceSurface (legacy support)
