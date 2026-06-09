@@ -2,6 +2,15 @@
 
 
 
+## v0.17.0 (2026-06-09)
+
+### Feature
+
+* feat: kernel-free streaming STEP reader and memory-bounded STEP to GLB conversion (#209)
+
+Co-authored-by: Claude Opus 4.8 (1M context) &lt;noreply@anthropic.com&gt; ([`1f219f1`](https://github.com/Krande/adapy/commit/1f219f1237699313ec1957a13df491c7b2d7bde1))
+
+
 ## v0.16.0 (2026-06-08)
 
 ### Feature
