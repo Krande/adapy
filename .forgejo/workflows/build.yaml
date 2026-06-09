@@ -186,12 +186,20 @@ jobs:
             BEFORE_GHE=""
           fi
 
-          # Resolves a sha-prefix to a full SHA; empty string when
-          # the prefix isn't in the local history.
+          # Resolves a sha-prefix to a full SHA; empty string when the prefix isn't in
+          # the local history. MUST always exit 0: under `set -e`, a failing
+          # `VAR=$(resolve ...)` aborts the whole step, and `git cat-file -e
+          # "<sha>^{commit}"` exits 128 (fatal, not a clean miss) when the sha is absent
+          # — which happens whenever a last-deployed SHA was orphaned (history rewrite /
+          # force-push / GC) and is no longer reachable from this branch. That would
+          # brick `detect` and skip every build. Swallow it and fall back to `before`.
           resolve() {
             sha="$1"
-            [ -z "$sha" ] && return
-            git cat-file -e "${sha}^{commit}" 2>/dev/null && git rev-parse "${sha}"
+            [ -z "$sha" ] && return 0
+            if git cat-file -e "${sha}^{commit}" 2>/dev/null; then
+              git rev-parse "${sha}" 2>/dev/null || true
+            fi
+            return 0
           }
 
           VIEWER_BEFORE=$(resolve "$VIEWER_LAST_SHA")
