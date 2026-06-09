@@ -250,8 +250,19 @@ def make_edge_from_edge(edge: geo_cu.Edge) -> TopoDS_Edge:
 
     # Check if edge creation was successful
     if not edge_maker.IsDone():
-        # If edge creation failed, it might be because start and end are too close
-        # Try to skip degenerate edges
+        # Curve-edge construction failed — most often a near-degenerate arc: a sub-mm
+        # arc on a huge-radius cylinder, where OCC can't recover the parametric arc
+        # from two nearly-coincident points (common on real-CAD cylindrical slivers).
+        # Fall back to a straight chord between the endpoints: visually identical at
+        # that scale, and it lets the face wire close instead of dropping the face.
+        p1 = point3d(edge.start)
+        p2 = point3d(edge.end)
+        chord = BRepBuilderAPI_MakeEdge(p1, p2)
+        if chord.IsDone():
+            occ_edge = chord.Edge()
+            occ_edge.Orientation(TopAbs_FORWARD)
+            return occ_edge
+        # Truly degenerate (start == end): let the wire builder skip it.
         error_msg = f"Failed to create edge from {type(edge).__name__}: start={edge.start}, end={edge.end}"
         if isinstance(edge, geo_cu.OrientedEdge) and hasattr(edge, "edge_element"):
             if isinstance(edge.edge_element, geo_cu.EdgeCurve):

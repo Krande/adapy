@@ -332,3 +332,35 @@ def test_stream_reader_tolerant_skips_unsupported(tmp_path):
     # from_step(reader="tolerant"): no OCC fallback, sphere dropped, rest imported
     a = ada.from_step(out, reader="tolerant")
     assert len(list(a.get_all_physical_objects())) == 2
+
+
+def test_stream_reader_curved_faces_full_coverage(tmp_path):
+    # Closed cylinder/cone/torus faces (full circle + seam) and near-degenerate arc
+    # slivers must ALL build into OCC faces, not drop — 100% face coverage on curved
+    # CAD. Exercises _try_make_closed_revolution_face (parametric-bounds seam faces)
+    # and the chord fallback for sub-mm arcs. OCC-only (make_face_from_geom).
+    pytest.importorskip("OCC.Core.BRepBuilderAPI")
+    from ada.occ.geom.surfaces import make_face_from_geom
+
+    a = ada.Assembly("m") / (
+        ada.Part("p")
+        / [
+            ada.PrimCyl("cy", (0, 0, 0), (0, 0, 1), 0.4),
+            ada.PrimCone("cn", (2, 0, 0), (2, 0, 1), 0.5),
+            ada.Pipe("pi", [(4, 0, 0), (4, 0, 2), (6, 0, 2)], "PIPE200x10"),  # cyl + torus elbow
+        ]
+    )
+    out = tmp_path / "curved.step"
+    a.to_stp(out)  # OCC writer
+
+    built = dropped = 0
+    for g in stream_read_step(out, local_pool=False, tolerant=True):
+        for face in g.geometry.cfs_faces:
+            try:
+                occ_face = make_face_from_geom(face)
+                built += 1 if occ_face is not None and not occ_face.IsNull() else 0
+                dropped += 0 if occ_face is not None and not occ_face.IsNull() else 1
+            except Exception:
+                dropped += 1
+    assert built > 0
+    assert dropped == 0
