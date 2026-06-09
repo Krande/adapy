@@ -67,3 +67,24 @@ def test_stream_step_to_glb_extracts_colour_merges_and_emits_ada_ext(tmp_path):
     # red box colour survives the STEP round-trip into a material baseColorFactor
     base_colors = [m.get("pbrMetallicRoughness", {}).get("baseColorFactor") for m in tree["materials"]]
     assert [1.0, 0.0, 0.0, 1.0] in base_colors
+
+
+def test_stream_workers_reserves_a_core_for_the_event_loop(monkeypatch):
+    # The tessellation pool must leave one CPU free: when this runs inside the
+    # conversion worker, the parent asyncio loop has to refresh the JetStream
+    # in_progress lease (every 30s, within a 180s ack_wait). A pool that pins every
+    # core starves that loop -> lease expires -> the still-running job is redelivered
+    # -> another conversion + pool spawns -> redelivery cascade. So workers == cpus-1.
+    from ada.visit.scene_handling import scene_from_step_stream as sfss
+
+    monkeypatch.delenv("ADA_STEP_STREAM_WORKERS", raising=False)
+    monkeypatch.setattr(sfss, "_cgroup_cpu_quota", lambda: 4)
+    assert sfss._stream_workers() == 3  # 4-core pod -> 3 workers, 1 core for the loop
+    monkeypatch.setattr(sfss, "_cgroup_cpu_quota", lambda: 2)
+    assert sfss._stream_workers() == 1
+    monkeypatch.setattr(sfss, "_cgroup_cpu_quota", lambda: 1)
+    assert sfss._stream_workers() == 1  # never below 1
+
+    # An explicit override is honoured verbatim (operator owns the trade-off).
+    monkeypatch.setenv("ADA_STEP_STREAM_WORKERS", "6")
+    assert sfss._stream_workers() == 6

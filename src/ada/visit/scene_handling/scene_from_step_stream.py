@@ -98,9 +98,17 @@ def _cgroup_cpu_quota() -> int | None:
 
 
 def _stream_workers() -> int:
-    """Number of tessellation worker processes. ``ADA_STEP_STREAM_WORKERS`` overrides;
-    otherwise the pod's cgroup CPU limit (falling back to schedulable CPUs), capped at
-    8 — each worker holds one solid's OCC shape, so this also bounds memory."""
+    """Number of tessellation worker processes. ``ADA_STEP_STREAM_WORKERS`` overrides
+    (verbatim); otherwise the pod's cgroup CPU limit (falling back to schedulable CPUs)
+    MINUS one, capped at 8.
+
+    The ``- 1`` is load-bearing, not just polite: when this runs inside the conversion
+    worker, the parent process must keep its asyncio event loop responsive to refresh
+    the JetStream ``in_progress`` lease (every 30 s, within a 180 s ``ack_wait``). A pool
+    that pins every core starves that loop, the lease expires, JetStream redelivers the
+    still-running job, the worker spawns ANOTHER conversion + pool, and it cascades into
+    a redelivery storm. Reserving a core keeps the heartbeat alive. (Each worker also
+    holds one solid's OCC shape, so the cap bounds memory too.)"""
     import os
 
     env = os.environ.get("ADA_STEP_STREAM_WORKERS")
@@ -115,7 +123,7 @@ def _stream_workers() -> int:
             n = len(os.sched_getaffinity(0))
         except (AttributeError, OSError):
             n = os.cpu_count() or 1
-    return max(1, min(n, 8))
+    return max(1, min(n - 1, 8))
 
 
 def scene_from_step_stream(source: StepStreamSource, converter: SceneConverter) -> trimesh.Scene:
