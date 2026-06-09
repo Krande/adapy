@@ -2,6 +2,15 @@
 
 
 
+## v0.17.2 (2026-06-09)
+
+### Fix
+
+* fix: per-solid tessellation timeout so one hung solid cannot freeze the STEP conversion (#211)
+
+Co-authored-by: Claude Opus 4.8 (1M context) &lt;noreply@anthropic.com&gt; ([`f7e04da`](https://github.com/Krande/adapy/commit/f7e04da2e4ccda6b61e36f7e9239fbf4ff2e1a88))
+
+
 ## v0.17.1 (2026-06-09)
 
 ### Fix
