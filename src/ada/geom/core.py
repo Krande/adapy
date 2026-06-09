@@ -8,6 +8,8 @@ from ada.geom.solids import SOLID_GEOM_TYPES
 from ada.geom.surfaces import SURFACE_GEOM_TYPES
 
 if TYPE_CHECKING:
+    import numpy as np
+
     from ada.geom.booleans import BooleanOperation
     from ada.visit.colors import Color
 
@@ -21,3 +23,6 @@ class Geometry(Generic[T]):
     geometry: T
     color: Color | None = None
     bool_operations: list[BooleanOperation] = field(default_factory=list)
+    # Optional 4x4 world-placement transform for this geometry instance (from a STEP
+    # assembly tree). None = identity. Applied to the tessellated mesh, not the B-rep.
+    transform: np.ndarray | None = None

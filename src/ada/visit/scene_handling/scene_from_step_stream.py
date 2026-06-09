@@ -77,6 +77,17 @@ def _tessellate_geom_worker(geom):
         pos = np.ascontiguousarray(pos, dtype=np.float32)
         idx = np.ascontiguousarray(idx, dtype=np.uint32)
         nrm = np.ascontiguousarray(nrm, dtype=np.float32) if nrm is not None else None
+        # STEP assembly-instance placement: the shell was tessellated in its local frame;
+        # apply the instance's world 4x4 transform to the mesh (rotation+translation on
+        # positions, rotation on normals). None = identity (flat/single-instance solids).
+        # pos/nrm stay FLAT (N*3,) — the downstream MeshStore/concatenate path requires
+        # flat buffers — so reshape to (N,3) only for the matmul, then flatten back.
+        if geom.transform is not None:
+            t = np.asarray(geom.transform, dtype=np.float32)
+            r = t[:3, :3]
+            pos = np.ascontiguousarray((pos.reshape(-1, 3) @ r.T + t[:3, 3]).ravel(), dtype=np.float32)
+            if nrm is not None:
+                nrm = np.ascontiguousarray((nrm.reshape(-1, 3) @ r.T).ravel(), dtype=np.float32)
         return ("ok", gid, geom.color, pos, idx, nrm)
     except Exception as exc:  # noqa: BLE001 - report and skip; one bad solid mustn't abort
         return (f"error:{type(exc).__name__}", gid, None, None, None, None)
