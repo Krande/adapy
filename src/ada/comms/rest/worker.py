@@ -824,6 +824,9 @@ async def _process_one(
                 "pcurve_drive_edge": "ADA_PCURVE_DRIVE_EDGE",
                 "skip_shapefix": "ADA_SKIP_SHAPEFIX",
                 "merge_meshes": "ADA_GLB_MERGE_MESHES",
+                # STEP→GLB streaming defaults (large-file OOM guard).
+                "step_streamer_auto": "ADA_STEP_STREAMER_AUTO",
+                "step_streamer_threshold_mb": "ADA_STEP_STREAMER_THRESHOLD_MB",
             }
             for skey, env_name in _env_map.items():
                 raw = await _read_bool_setting(skey)
@@ -840,6 +843,7 @@ async def _process_one(
                 "pcurve_drive_edge": "ADA_PCURVE_DRIVE_EDGE",
                 "skip_shapefix": "ADA_SKIP_SHAPEFIX",
                 "merge_meshes": "ADA_GLB_MERGE_MESHES",
+                "step_streamer": "ADA_STEP_STREAMER",
             }
             for k, v in per_job.items():
                 env_name = _env_map_full.get(k)

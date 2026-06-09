@@ -632,15 +632,39 @@ def _export_with_ada(
 # A STEP file on disk above this size loads into one OCC compound that OOM-kills
 # the worker (the 778 MB CAD assembly is fatal). Above it, STEP→GLB auto-routes
 # through the memory-bounded streaming converter; below, the OCC path keeps full
-# fidelity. The per-job ``step_streamer`` option overrides the auto decision.
-_STEP_STREAM_AUTO_BYTES = 200 * 1024 * 1024
+# fidelity. Admin-tunable via the conversion settings (env rail below).
+_STEP_STREAM_DEFAULT_THRESHOLD_MB = 200.0
+
+_TRUE = {"1", "true", "yes", "on"}
+_FALSE = {"0", "false", "no", "off"}
 
 
 def _should_stream_step(src_path: pathlib.Path, step_streamer: bool | None) -> bool:
-    if step_streamer is not None:
+    """Decide whether STEP→GLB goes through the streaming converter.
+
+    Precedence: explicit per-job choice (``step_streamer`` kwarg or the
+    ``ADA_STEP_STREAMER`` env the worker sets from the job option) wins; otherwise
+    auto-select by file size, gated by the global ``ADA_STEP_STREAMER_AUTO`` toggle
+    and ``ADA_STEP_STREAMER_THRESHOLD_MB`` (both admin settings)."""
+    import os
+
+    if step_streamer is None:
+        raw = os.environ.get("ADA_STEP_STREAMER", "").strip().lower()
+        if raw in _TRUE:
+            return True
+        if raw in _FALSE:
+            return False
+    else:
         return bool(step_streamer)
+
+    if os.environ.get("ADA_STEP_STREAMER_AUTO", "").strip().lower() in _FALSE:
+        return False  # auto-streaming disabled globally
     try:
-        return src_path.stat().st_size > _STEP_STREAM_AUTO_BYTES
+        threshold_mb = float(os.environ.get("ADA_STEP_STREAMER_THRESHOLD_MB", "") or _STEP_STREAM_DEFAULT_THRESHOLD_MB)
+    except ValueError:
+        threshold_mb = _STEP_STREAM_DEFAULT_THRESHOLD_MB
+    try:
+        return src_path.stat().st_size > threshold_mb * 1024 * 1024
     except OSError:
         return False
 
