@@ -49,7 +49,8 @@ export async function ensureConverted(
         step?: number;
         field?: string;
         conversionOptions?: Partial<Record<
-            "use_sat_pcurves" | "pcurve_drive_edge" | "skip_shapefix" | "merge_meshes" | "profile_conversions",
+            "use_sat_pcurves" | "pcurve_drive_edge" | "skip_shapefix" | "merge_meshes"
+            | "profile_conversions" | "step_streamer",
             boolean | null
         >>;
     },
@@ -64,9 +65,20 @@ export async function ensureConverted(
     return convertViaServer(scope, sourceKey, targetFormat, opts);
 }
 
-// Backwards-compatible wrapper for the GLB-for-viewing flow.
-export async function ensureConvertedGlb(scope: ScopeUrl, sourceKey: string): Promise<void> {
-    await ensureConverted(scope, sourceKey, "glb");
+// Backwards-compatible wrapper for the GLB-for-viewing flow. ``opts.streamer``
+// forces the memory-bounded streaming STEP->GLB converter (for large assemblies
+// that OOM the normal OCC path).
+export async function ensureConvertedGlb(
+    scope: ScopeUrl,
+    sourceKey: string,
+    opts?: {streamer?: boolean},
+): Promise<void> {
+    await ensureConverted(
+        scope,
+        sourceKey,
+        "glb",
+        opts?.streamer ? {conversionOptions: {step_streamer: true}} : undefined,
+    );
 }
 
 /**

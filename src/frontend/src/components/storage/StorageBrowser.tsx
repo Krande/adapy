@@ -455,6 +455,21 @@ const StorageBrowser: React.FC = () => {
         }
     };
 
+    // Load a STEP file via the memory-bounded streaming converter (one solid at a
+    // time) — for large assemblies whose normal OCC->GLB conversion OOM-kills the
+    // worker. Same overlay flow as onToggle, with the streamer flag set.
+    const onLoadStreamer = async (name: string) => {
+        if (viewingName) return;
+        setViewingName(name);
+        try {
+            await overlay_file_in_scene(name, undefined, {streamer: true});
+        } catch (err) {
+            console.error("streamer load failed", err);
+        } finally {
+            setViewingName(null);
+        }
+    };
+
     // Bulk "show all" — overlay every file currently absent from the
     // scene. Sequential (not parallel) because overlay_file_in_scene
     // shares loader state and races corrupt the scene; the per-row
@@ -707,6 +722,7 @@ const StorageBrowser: React.FC = () => {
                                                 onSelectToggle={toggleSelection}
                                                 onMoveToFolder={isAdmin ? onMoveSingleToFolder : undefined}
                                                 onDownload={runtime.isRestMode() ? onDownloadFile : undefined}
+                                                onLoadStreamer={runtime.isRestMode() && runtime.convertEnabled() ? onLoadStreamer : undefined}
                                             />
                                         );
                                     }
@@ -757,6 +773,7 @@ const StorageBrowser: React.FC = () => {
                                     onLongPress={toggleSelection}
                                     onSelectToggle={toggleSelection}
                                     onDownload={runtime.isRestMode() ? onDownloadFile : undefined}
+                                    onLoadStreamer={runtime.isRestMode() && runtime.convertEnabled() ? onLoadStreamer : undefined}
                                 />
                             )}
                         </div>
@@ -956,6 +973,9 @@ interface FileRowProps {
     /** When present (REST mode), the kebab offers a "Download" item that
      * fetches the stored blob with auth and saves it. Available to any user. */
     onDownload?: (key: string) => void;
+    /** When present (REST + convert), STEP rows get a "Load using streamer" item
+     * that converts via the memory-bounded streaming reader (large-file OOM path). */
+    onLoadStreamer?: (key: string) => void;
 }
 
 const FileRow: React.FC<FileRowProps> = ({
@@ -975,6 +995,7 @@ const FileRow: React.FC<FileRowProps> = ({
     onSelectToggle,
     onMoveToFolder,
     onDownload,
+    onLoadStreamer,
 }) => {
     const isViewing = viewingName === f.name;
     const otherViewing = viewingName !== null && !isViewing;
@@ -1150,13 +1171,20 @@ const FileRow: React.FC<FileRowProps> = ({
                         toggle checkbox now opens the streaming session
                         with defaults, and field / reduction / step
                         live in SimulationControls. */}
-                    {!selectionMode && (onMoveToFolder || onDownload) && (
+                    {!selectionMode && (onMoveToFolder || onDownload || onLoadStreamer) && (
                         <span onClick={(e) => e.stopPropagation()}>
                             <RowKebabMenu
                                 ariaLabel={`Actions for ${displayName}`}
                                 buttonClassName="h-7 w-7 text-gray-200 hover:bg-gray-300/30"
                                 header={<span className="font-mono" title={f.name}>{f.name}</span>}
                                 items={[
+                                    ...(onLoadStreamer && /\.(step|stp)$/i.test(f.name) ? [{
+                                        key: "load-streamer",
+                                        label: "Load using streamer",
+                                        title: "Memory-bounded streaming STEP→GLB — for large assemblies that fail the normal load.",
+                                        disabled: otherViewing || isViewing,
+                                        onClick: () => onLoadStreamer(f.name),
+                                    }] : []),
                                     ...(onDownload ? [{
                                         key: "download",
                                         label: "Download",
@@ -1222,6 +1250,7 @@ interface VersionsTreeProps {
     onLongPress: (name: string) => void;
     onSelectToggle: (name: string) => void;
     onDownload?: (key: string) => void;
+    onLoadStreamer?: (key: string) => void;
 }
 
 const VersionsTree: React.FC<VersionsTreeProps> = (props) => {
@@ -1375,6 +1404,7 @@ const VersionsTree: React.FC<VersionsTreeProps> = (props) => {
                                                                 onLongPress={props.onLongPress}
                                                                 onSelectToggle={props.onSelectToggle}
                                                                 onDownload={props.onDownload}
+                                                                onLoadStreamer={props.onLoadStreamer}
                                                             />
                                                         ))}
                                                     </ul>
