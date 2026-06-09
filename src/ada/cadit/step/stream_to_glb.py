@@ -42,8 +42,15 @@ def stream_step_to_glb(step_path: str | Path, glb_path: str | Path, *, tolerant:
     the next is read. With ``tolerant`` (default) a solid using an unsupported surface
     (spherical / rational B-spline) is skipped rather than aborting the file.
 
-    Returns ``{"meshed": int, "skipped": int}``.
+    Every solid that is skipped (degenerate, empty mesh, or a build/tessellate error)
+    is logged — each one at debug, a per-reason summary at warning — so a conversion
+    never silently drops geometry. The streaming reader's own per-solid skips
+    (unsupported surfaces) are logged by ``stream_read_step``.
+
+    Returns ``{"meshed", "total", "skipped", "reasons"}``.
     """
+    import collections
+
     import trimesh
 
     from ada.cad import active_backend
@@ -52,10 +59,19 @@ def stream_step_to_glb(step_path: str | Path, glb_path: str | Path, *, tolerant:
 
     be = active_backend()
     scene = trimesh.Scene()
-    n_ok = n_fail = 0
+    n_ok = n_total = 0
+    reasons: collections.Counter = collections.Counter()
+    skipped_ids: list[str] = []
 
-    n_degenerate = 0
+    def _skip(gid: str, reason: str) -> None:
+        reasons[reason] += 1
+        if len(skipped_ids) < 50:  # capped sample for the summary log
+            skipped_ids.append(gid)
+        logger.debug("stream_step_to_glb: skipped %s — %s", gid, reason)
+
     for i, geom in enumerate(stream_read_step(step_path, local_pool=False, tolerant=tolerant)):
+        n_total += 1
+        gid = str(geom.id) if geom.id not in (None, "") else f"solid_{i}"
         try:
             shape = be.build(geom)
             # A zero-extent (collapsed) solid makes OCC's relative mesher throw
@@ -67,29 +83,33 @@ def stream_step_to_glb(step_path: str | Path, glb_path: str | Path, *, tolerant:
             except Exception:
                 diag = 0.0
             if diag < 1e-7:
-                n_fail += 1
-                n_degenerate += 1
+                _skip(gid, "degenerate (zero-extent solid)")
                 continue
             mesh = be.tessellate(shape)
             pos, faces = _mesh_arrays(mesh)
             if pos is not None and len(pos) and len(faces):
-                scene.add_geometry(
-                    trimesh.Trimesh(vertices=pos, faces=faces, process=False),
-                    node_name=str(geom.id) if geom.id not in (None, "") else f"solid_{i}",
-                )
+                scene.add_geometry(trimesh.Trimesh(vertices=pos, faces=faces, process=False), node_name=gid)
                 n_ok += 1
             else:
-                n_fail += 1
+                _skip(gid, "empty mesh (no triangles)")
         except Exception as exc:  # noqa: BLE001 - one bad solid must not abort the file
-            logger.debug("stream_step_to_glb: skipping %s: %s", geom.id, exc)
-            n_fail += 1
+            _skip(gid, f"{type(exc).__name__}: {str(exc)[:100]}")
         # geom / mesh become unreferenced here and are freed before the next solid.
 
+    n_skipped = sum(reasons.values())
+    if n_skipped:
+        sample = ", ".join(skipped_ids)
+        more = f" (+{n_skipped - len(skipped_ids)} more)" if n_skipped > len(skipped_ids) else ""
+        logger.warning(
+            "stream_step_to_glb: %s — skipped %d/%d solids by reason %s; ids: %s%s",
+            step_path, n_skipped, n_total, dict(reasons), sample, more,
+        )
+
     if n_ok == 0:
-        raise ValueError(f"stream_step_to_glb: no solids tessellated from {step_path}")
+        raise ValueError(f"stream_step_to_glb: no solids tessellated from {step_path} ({n_total} read, all skipped)")
     scene.export(str(glb_path))
     logger.info(
-        "stream_step_to_glb: %s -> %s (meshed %d, skipped %d incl. %d degenerate)",
-        step_path, glb_path, n_ok, n_fail, n_degenerate,
+        "stream_step_to_glb: %s -> %s — meshed %d/%d solids (skipped %d)",
+        step_path, glb_path, n_ok, n_total, n_skipped,
     )
-    return {"meshed": n_ok, "skipped": n_fail, "degenerate": n_degenerate}
+    return {"meshed": n_ok, "total": n_total, "skipped": n_skipped, "reasons": dict(reasons)}

@@ -1215,29 +1215,23 @@ def _add_cfs_faces_to_shell(builder: BRep_Builder, occ_shell: TopoDS_Shell, cfs_
     """Build each connected-face-set face (AdvancedFace / FaceSurface) and add it to
     ``occ_shell``. Shared by the closed-shell, open-shell and shell-based-surface-model
     builders — a face that can't be built is logged and skipped rather than aborting."""
+    n_faces = 0
+    n_dropped = 0
     for cfs_face in cfs_faces:
         # Handle AdvancedFace
         if type(cfs_face) is geo_su.AdvancedFace:
+            n_faces += 1
             try:
-                # Create the surface from the face_surface
-                occ_face_surface = make_surface_from_geom(cfs_face.face_surface)
+                if not cfs_face.bounds:
+                    raise UnableToCreateTesselationFromSolidOCCGeom("AdvancedFace without bounds")
 
-                # Create wire from the face bounds (use first bound as outer)
-                if len(cfs_face.bounds) > 0:
-                    wire = make_wire_from_edge_loop(cfs_face.bounds[0].bound)
-                else:
-                    logger.warning("AdvancedFace without bounds encountered; skipping face")
-                    continue
-
-                # Create the face
-                face_maker = BRepBuilderAPI_MakeFace(occ_face_surface, wire)
-                if not face_maker.IsDone():
-                    logger.warning(
-                        f"Failed to create face from surface type {type(cfs_face.face_surface)}; skipping face"
-                    )
-                    continue
-
-                face = face_maker.Face()
+                # Route through make_face_from_geom so closed (seam) cylinder/cone/torus
+                # faces, B-spline faces and inner-bound holes build here exactly as on
+                # the single-face path — not just the simple wire + MakeFace this builder
+                # used to do, which dropped those faces (holes in the solid).
+                face = make_face_from_geom(cfs_face)
+                if face is None or face.IsNull():
+                    raise UnableToCreateTesselationFromSolidOCCGeom("make_face_from_geom produced no face")
 
                 # A trimmed surface can collapse to zero area even when MakeFace reports
                 # "done" — e.g. a planar SAT plate whose boundary mixes a b-spline edge that
@@ -1259,11 +1253,15 @@ def _add_cfs_faces_to_shell(builder: BRep_Builder, occ_shell: TopoDS_Shell, cfs_
                 # Add the face to the shell
                 builder.Add(occ_shell, face)
             except Exception as ex:
-                logger.warning(f"Skipping AdvancedFace due to error during wire/face creation: {ex}")
+                n_dropped += 1
+                logger.warning(
+                    "Skipping AdvancedFace (%s surface): %s", type(cfs_face.face_surface).__name__, ex
+                )
                 continue
 
         # Handle FaceSurface (legacy support)
         elif type(cfs_face) is geo_su.FaceSurface:
+            n_faces += 1
             face_surface = cfs_face.face_surface
             if type(face_surface) is geo_su.Plane:
                 occ_face_surface = make_plane_from_geom(face_surface)
@@ -1286,12 +1284,18 @@ def _add_cfs_faces_to_shell(builder: BRep_Builder, occ_shell: TopoDS_Shell, cfs_
                 # Add the face to the shell
                 builder.Add(occ_shell, face)
             except Exception as ex:
+                n_dropped += 1
                 logger.warning(f"Skipping FaceSurface due to error during wire/face creation: {ex}")
                 continue
         else:
             raise NotImplementedError(
                 f"Face type {type(cfs_face)} is not implemented (supported: AdvancedFace, FaceSurface)"
             )
+
+    if n_dropped:
+        # A dropped face is a hole in the solid — surface it so conversions never
+        # silently lose geometry.
+        logger.warning("shell build dropped %d/%d faces (holes in the solid)", n_dropped, n_faces)
 
 
 def make_closed_shell_from_geom(shell: geo_su.ClosedShell) -> TopoDS_Shell:
