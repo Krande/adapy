@@ -332,6 +332,12 @@ const StorageBrowser: React.FC = () => {
         title: string;
         onPick: (folder: string) => Promise<void> | void;
     } | null>(null);
+    // Download a stored blob with auth (REST mode). The suggested filename is the
+    // key's basename so nested keys don't save as "a/b/c.ifc".
+    const onDownloadFile = (key: string) => {
+        void viewerApi.downloadBlob(scopeKey, key, key.split("/").pop() ?? key);
+    };
+
     const onMoveSingleToFolder = (key: string) => {
         setPicker({
             title: `Move "${key}" to folder`,
@@ -449,6 +455,21 @@ const StorageBrowser: React.FC = () => {
         }
     };
 
+    // Load a STEP file via the memory-bounded streaming converter (one solid at a
+    // time) — for large assemblies whose normal OCC->GLB conversion OOM-kills the
+    // worker. Same overlay flow as onToggle, with the streamer flag set.
+    const onLoadStreamer = async (name: string) => {
+        if (viewingName) return;
+        setViewingName(name);
+        try {
+            await overlay_file_in_scene(name, undefined, {streamer: true});
+        } catch (err) {
+            console.error("streamer load failed", err);
+        } finally {
+            setViewingName(null);
+        }
+    };
+
     // Bulk "show all" — overlay every file currently absent from the
     // scene. Sequential (not parallel) because overlay_file_in_scene
     // shares loader state and races corrupt the scene; the per-row
@@ -518,28 +539,35 @@ const StorageBrowser: React.FC = () => {
     };
 
     const onFilePicked = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
+        const files = Array.from(e.target.files ?? []);
         e.target.value = "";
-        if (!file) return;
+        if (files.length === 0) return;
         setUploading(true);
-        setUploadName(file.name);
-        setUploadLoaded(0);
-        setUploadTotal(file.size);
-        try {
-            await uploadFile(file, {
-                onProgress: (loaded, total) => {
-                    setUploadLoaded(loaded);
-                    if (total) setUploadTotal(total);
-                },
-            });
-        } catch (err) {
-            console.error("upload failed", err);
-        } finally {
-            setUploading(false);
-            setUploadName(null);
+        // Upload sequentially (presigned PUT is per-file); a failed file is
+        // collected and reported at the end rather than aborting the batch.
+        const failures: string[] = [];
+        for (let i = 0; i < files.length; i++) {
+            const file = files[i];
+            setUploadName(files.length > 1 ? `${file.name} (${i + 1}/${files.length})` : file.name);
             setUploadLoaded(0);
-            setUploadTotal(0);
+            setUploadTotal(file.size);
+            try {
+                await uploadFile(file, {
+                    onProgress: (loaded, total) => {
+                        setUploadLoaded(loaded);
+                        if (total) setUploadTotal(total);
+                    },
+                });
+            } catch (err) {
+                console.error("upload failed", file.name, err);
+                failures.push(file.name);
+            }
         }
+        setUploading(false);
+        setUploadName(null);
+        setUploadLoaded(0);
+        setUploadTotal(0);
+        if (failures.length) window.alert(`Upload failed for: ${failures.join(", ")}`);
     };
 
     return (
@@ -570,6 +598,7 @@ const StorageBrowser: React.FC = () => {
                     <input
                         ref={fileInputRef}
                         type="file"
+                        multiple
                         accept={uploadAcceptAttr()}
                         style={{display: "none"}}
                         onChange={onFilePicked}
@@ -692,6 +721,8 @@ const StorageBrowser: React.FC = () => {
                                                 onLongPress={toggleSelection}
                                                 onSelectToggle={toggleSelection}
                                                 onMoveToFolder={isAdmin ? onMoveSingleToFolder : undefined}
+                                                onDownload={runtime.isRestMode() ? onDownloadFile : undefined}
+                                                onLoadStreamer={runtime.isRestMode() && runtime.convertEnabled() ? onLoadStreamer : undefined}
                                             />
                                         );
                                     }
@@ -741,6 +772,8 @@ const StorageBrowser: React.FC = () => {
                                     selection={selection}
                                     onLongPress={toggleSelection}
                                     onSelectToggle={toggleSelection}
+                                    onDownload={runtime.isRestMode() ? onDownloadFile : undefined}
+                                    onLoadStreamer={runtime.isRestMode() && runtime.convertEnabled() ? onLoadStreamer : undefined}
                                 />
                             )}
                         </div>
@@ -867,13 +900,12 @@ const FolderRow: React.FC<FolderRowProps> = ({
             aria-label={`${expanded ? "Collapse" : "Expand"} folder ${folder.name}`}
         >
             {/* Chevron — single right-pointing icon rotated 90° on
-                expand. text-blue-300 picks up the same accent the
-                row's loaded-state and progress bar use, so the
-                affordance reads as part of the toolbar palette
-                rather than a stray gray triangle. */}
+                expand. text-blue-600 matches the progress bar accent
+                AND stays legible on the panel's light (bg-gray-400/50)
+                background, where the lighter blue-300 washed out. */}
             <ChevronRightIcon
                 className={
-                    "shrink-0 text-blue-300 transition-transform duration-150 " +
+                    "shrink-0 text-blue-600 transition-transform duration-150 " +
                     (expanded ? "rotate-90" : "")
                 }
             />
@@ -881,9 +913,9 @@ const FolderRow: React.FC<FolderRowProps> = ({
                 Same blue tone so eye + chevron read as one
                 composite control. */}
             {expanded ? (
-                <FolderOpenIcon className="shrink-0 text-blue-300"/>
+                <FolderOpenIcon className="shrink-0 text-blue-600"/>
             ) : (
-                <FolderClosedIcon className="shrink-0 text-blue-300"/>
+                <FolderClosedIcon className="shrink-0 text-blue-600"/>
             )}
             <span className="text-xs flex-1 min-w-0 truncate font-semibold">
                 {folder.name}/
@@ -936,8 +968,14 @@ interface FileRowProps {
     onLongPress: (name: string) => void;
     onSelectToggle: (name: string) => void;
     /** Admin-only: when present, the kebab on this row offers a
-     * "Move to folder…" item. Non-admins get no kebab. */
+     * "Move to folder…" item. */
     onMoveToFolder?: (key: string) => void;
+    /** When present (REST mode), the kebab offers a "Download" item that
+     * fetches the stored blob with auth and saves it. Available to any user. */
+    onDownload?: (key: string) => void;
+    /** When present (REST + convert), STEP rows get a "Load using streamer" item
+     * that converts via the memory-bounded streaming reader (large-file OOM path). */
+    onLoadStreamer?: (key: string) => void;
 }
 
 const FileRow: React.FC<FileRowProps> = ({
@@ -956,6 +994,8 @@ const FileRow: React.FC<FileRowProps> = ({
     onLongPress,
     onSelectToggle,
     onMoveToFolder,
+    onDownload,
+    onLoadStreamer,
 }) => {
     const isViewing = viewingName === f.name;
     const otherViewing = viewingName !== null && !isViewing;
@@ -1131,17 +1171,30 @@ const FileRow: React.FC<FileRowProps> = ({
                         toggle checkbox now opens the streaming session
                         with defaults, and field / reduction / step
                         live in SimulationControls. */}
-                    {!selectionMode && onMoveToFolder && (
+                    {!selectionMode && (onMoveToFolder || onDownload || onLoadStreamer) && (
                         <span onClick={(e) => e.stopPropagation()}>
                             <RowKebabMenu
-                                ariaLabel={`Organize ${displayName}`}
+                                ariaLabel={`Actions for ${displayName}`}
                                 buttonClassName="h-7 w-7 text-gray-200 hover:bg-gray-300/30"
+                                header={<span className="font-mono" title={f.name}>{f.name}</span>}
                                 items={[
-                                    {
+                                    ...(onLoadStreamer && /\.(step|stp)$/i.test(f.name) ? [{
+                                        key: "load-streamer",
+                                        label: "Load using streamer",
+                                        title: "Memory-bounded streaming STEP→GLB — for large assemblies that fail the normal load.",
+                                        disabled: otherViewing || isViewing,
+                                        onClick: () => onLoadStreamer(f.name),
+                                    }] : []),
+                                    ...(onDownload ? [{
+                                        key: "download",
+                                        label: "Download",
+                                        onClick: () => onDownload(f.name),
+                                    }] : []),
+                                    ...(onMoveToFolder ? [{
                                         key: "move-to-folder",
                                         label: "Move to folder…",
                                         onClick: () => onMoveToFolder(f.name),
-                                    },
+                                    }] : []),
                                 ]}
                             />
                         </span>
@@ -1196,6 +1249,8 @@ interface VersionsTreeProps {
     selection: Set<string>;
     onLongPress: (name: string) => void;
     onSelectToggle: (name: string) => void;
+    onDownload?: (key: string) => void;
+    onLoadStreamer?: (key: string) => void;
 }
 
 const VersionsTree: React.FC<VersionsTreeProps> = (props) => {
@@ -1348,6 +1403,8 @@ const VersionsTree: React.FC<VersionsTreeProps> = (props) => {
                                                                 isSelected={props.selection.has(leaf.file.name)}
                                                                 onLongPress={props.onLongPress}
                                                                 onSelectToggle={props.onSelectToggle}
+                                                                onDownload={props.onDownload}
+                                                                onLoadStreamer={props.onLoadStreamer}
                                                             />
                                                         ))}
                                                     </ul>

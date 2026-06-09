@@ -1345,6 +1345,7 @@ export const viewerApi = {
             worker_pool?: string | null;
             note?: string | null;
             force_rebuild?: boolean;
+            validate_only?: boolean;
         },
     ): Promise<AuditRun> {
         const r = await authedFetch(`${runtime.apiBase()}/admin/audit/runs`, {
@@ -1910,6 +1911,28 @@ export const viewerApi = {
             },
         );
         return jsonOrThrow(r, "adminMoveKeysToFolder");
+    },
+
+    /** Server-side copy keys from another scope into ``dstScope`` (e.g. pulling
+     * files from a project/user scope into a corpus). Garage/S3 CopyObject —
+     * no download/reupload. Per-key ``{copied, failed}``. */
+    async adminCopyKeysFromScope(
+        dstScope: ScopeUrl,
+        srcScope: ScopeUrl,
+        keys: string[],
+    ): Promise<{
+        copied: Array<{key: string}>;
+        failed: Array<{key: string; reason: string}>;
+    }> {
+        const r = await authedFetch(
+            `${runtime.apiBase()}/admin/scopes/${encodeURIComponent(dstScope)}/keys/copy-from`,
+            {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({src_scope: srcScope, keys}),
+            },
+        );
+        return jsonOrThrow(r, "adminCopyKeysFromScope");
     },
 
     /** Rename or relocate a folder prefix in place. Walks ``allKeys``

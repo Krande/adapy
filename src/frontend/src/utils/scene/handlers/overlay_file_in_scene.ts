@@ -33,7 +33,7 @@ function derivedKeyForGlb(sourceKey: string): string {
 export async function overlay_file_in_scene(
     sourceName: string,
     explicitDerivedKey?: string,
-    opts?: {scope?: string},
+    opts?: {scope?: string; streamer?: boolean},
 ): Promise<void> {
     if (!runtime.isRestMode()) {
         // Overlay path is REST-only — desktop mode opens external apps,
@@ -80,7 +80,7 @@ export async function overlay_file_in_scene(
                 console.warn("overlay_file_in_scene: non-GLB source but conversion disabled");
                 return;
             }
-            await ensureConvertedGlb(scope, sourceName);
+            await ensureConvertedGlb(scope, sourceName, {streamer: opts?.streamer});
         }
         glbKey = derivedKeyForGlb(sourceName);
     }

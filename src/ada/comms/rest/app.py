@@ -2649,6 +2649,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         user_sub: str,
         pool,
         force_rebuild: bool = False,
+        validate_only: bool = False,
     ) -> None:
         """Enumerate the scope's files × the converter matrix and
         enqueue one regular convert job per cell. Cached cells
@@ -2691,14 +2692,63 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if not is_supported_source(f.key):
                 continue
             ext = pathlib.PurePosixPath(f.key).suffix.lower()
-            for target_format in ConverterRegistry.targets_for(ext):
-                cells.append((f.key, target_format))
+            targets = ConverterRegistry.targets_for(ext)
+            # validate_only runs skip the conversion grid and emit only parity cells.
+            if not validate_only:
+                for target_format in targets:
+                    cells.append((f.key, target_format))
+            # Cross-format visual-parity validation cell — only when the source
+            # can produce a structure-preserving format to compare against.
+            # Appended before set_audit_run_total so the run total accounts for it.
+            if any(t in ("ifc", "xml", "step") for t in targets):
+                cells.append((f.key, "parity"))
 
         await db_module.set_audit_run_total(pool, run_id, len(cells))
         if not cells:
             return
 
         for source_key, target_format in cells:
+            # Parity cells produce no derived blob, so there is nothing to cache
+            # against — always enqueue, and audit under action="validate".
+            if target_format == "parity":
+                try:
+                    job = await queue.enqueue(
+                        source_key,
+                        "parity",
+                        scope_kind=scope_obj.kind,
+                        scope_id=scope_obj.id,
+                        target_capability=worker_pool,
+                        force_rebuild=force_rebuild,
+                    )
+                except Exception as exc:
+                    logger.exception("audit run %s: parity enqueue failed for %s", run_id, source_key)
+                    await _audit(
+                        None,
+                        synthetic_user,
+                        scope_obj,
+                        "validate",
+                        key=source_key,
+                        target_format="parity",
+                        status="error",
+                        error=str(exc),
+                        audit_run_id=run_id,
+                        pool=pool,
+                    )
+                    continue
+                await _audit(
+                    None,
+                    synthetic_user,
+                    scope_obj,
+                    "validate",
+                    key=source_key,
+                    target_format="parity",
+                    status="queued",
+                    job_id=job.job_id,
+                    audit_run_id=run_id,
+                    pool=pool,
+                )
+                continue
+
             try:
                 derived_key = derived_key_for(source_key, target_format)
             except Exception as exc:
@@ -2824,6 +2874,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         worker_pool = body.get("worker_pool") or None
         note = body.get("note") or None
         force_rebuild = bool(body.get("force_rebuild") or False)
+        # validate_only: a validation-phase run — enqueue only the per-source
+        # cross-format parity cells, skipping the conversion grid. The parity job
+        # re-derives from source, so it needs no prior conversion outputs.
+        validate_only = bool(body.get("validate_only") or False)
 
         s = _parse_scope(scope_str, user)
         s = await _resolve_project_scope(pool, s)
@@ -2847,6 +2901,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             user.sub,
             pool,
             force_rebuild,
+            validate_only,
         )
         return JSONResponse(run, status_code=202)
 
@@ -2886,6 +2941,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=404, detail="audit run not found")
         jobs = await db_module.list_audit_run_jobs(pool, run_id)
         return JSONResponse({"run": run, "jobs": jobs})
+
+    @admin.get("/audit/runs/{run_id}/parity")
+    async def admin_audit_run_parity(
+        run_id: str,
+        request: Request,
+    ) -> JSONResponse:
+        pool = _require_pool(request)
+        rows = await db_module.list_audit_run_parity(pool, run_id)
+        return JSONResponse({"run_id": run_id, "parity": rows})
 
     @admin.post("/audit/runs/{run_id}/cancel")
     async def admin_audit_run_cancel(
@@ -4423,6 +4487,75 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             )
 
         return JSONResponse({"moved": moved, "failed": failed})
+
+    @admin.post("/scopes/{scope}/keys/copy-from")
+    async def admin_keys_copy_from(
+        request: Request,
+        scope_obj: Scope = Depends(_scope_from_path),  # destination scope (e.g. a corpus)
+        user: User = Depends(auth_module.current_user),
+    ) -> JSONResponse:
+        """Server-side copy source keys from another scope into this one.
+
+        Body: ``{"src_scope": "user:me", "keys": [...]}``. Each key is copied
+        (Garage / S3 CopyObject — no download/reupload) from ``src_scope`` to the
+        same key in the path scope. The caller must be able to read ``src_scope``.
+        Per-key reporting: ``{copied, failed}`` — a collision (target exists),
+        missing source, or backend error doesn't abort the batch.
+        """
+        from .converter import is_derived_key
+
+        pool = getattr(request.app.state, "db_pool", None)
+        body = await request.json()
+        src_raw = body.get("src_scope")
+        raw_keys = body.get("keys")
+        if not isinstance(src_raw, str) or not src_raw.strip():
+            raise HTTPException(status_code=400, detail="src_scope required")
+        if not isinstance(raw_keys, list) or not raw_keys:
+            raise HTTPException(status_code=400, detail="keys must be a non-empty list")
+        if any(not isinstance(k, str) or not k.strip() for k in raw_keys):
+            raise HTTPException(status_code=400, detail="every key must be a non-empty string")
+
+        src_scope = await _resolve_project_scope(pool, _parse_scope(src_raw.strip(), user))
+        if not await scope_can_access(user, src_scope, pool):
+            raise HTTPException(status_code=403, detail="forbidden: source scope")
+        if src_scope.prefix() == scope_obj.prefix():
+            raise HTTPException(status_code=400, detail="source and destination scope are the same")
+
+        # Dedup while preserving order.
+        seen: set[str] = set()
+        keys: list[str] = []
+        for raw in raw_keys:
+            cleaned = raw.strip().lstrip("/")
+            if cleaned and cleaned not in seen:
+                seen.add(cleaned)
+                keys.append(cleaned)
+
+        # Snapshot destination keys so we can skip collisions without a HEAD per file.
+        dst_keys = {f.key for f in await storage.list(scope_obj)}
+
+        copied: list[dict] = []
+        failed: list[dict] = []
+        for key in keys:
+            if is_derived_key(key):
+                failed.append({"key": key, "reason": "cannot copy derived blobs"})
+                continue
+            if key in dst_keys:
+                failed.append({"key": key, "reason": "target already exists"})
+                continue
+            try:
+                # overwrite=True for the same S3 reason as rename above (the safe
+                # default raises ``copy-if-not-exists not supported``); the
+                # application-layer dst_keys pre-check is the real collision guard.
+                await storage.copy(src_scope, key, scope_obj, key, overwrite=True)
+            except Exception as exc:
+                logger.exception("admin: copy failed for %s (%s -> %s)", key, src_raw, scope_obj.prefix())
+                failed.append({"key": key, "reason": str(exc)})
+                continue
+            dst_keys.add(key)
+            copied.append({"key": key})
+            await _audit(request, user, scope_obj, "copy", key=key, status="ok")
+
+        return JSONResponse({"copied": copied, "failed": failed})
 
     app.include_router(admin)
 

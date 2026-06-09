@@ -181,6 +181,23 @@ def _set_nonblocking(fd: int) -> None:
     fcntl.fcntl(fd, fcntl.F_SETFL, fl | os.O_NONBLOCK)
 
 
+def _signal_child(pid: int, sig: int) -> None:
+    """Send ``sig`` to the child. If it is its own process-group leader (it called
+    ``setsid``), signal the whole group so any tessellation worker pool dies with it;
+    otherwise fall back to signalling just the child. The pgid==pid guard makes the
+    group-kill safe — we never accidentally signal the parent worker's group."""
+    try:
+        if os.getpgid(pid) == pid:
+            os.killpg(pid, sig)
+            return
+    except (ProcessLookupError, PermissionError, OSError):
+        pass
+    try:
+        os.kill(pid, sig)
+    except (ProcessLookupError, PermissionError):
+        pass
+
+
 async def run_isolated_convert(
     convert_fn: Callable[..., bytes],
     src_path: pathlib.Path,
@@ -193,6 +210,7 @@ async def run_isolated_convert(
     profile_in_child: bool = False,
     env_overrides: Optional[dict[str, str]] = None,
     timeout_s: Optional[float] = None,
+    cancel_check: Optional[Callable[[], Awaitable[bool]]] = None,
 ) -> IsolatedConvertResult:
     """Fork, run ``convert_fn`` in the child, sample resource usage in
     the parent, and join with full rusage on exit.
@@ -242,6 +260,14 @@ async def run_isolated_convert(
                     signal.signal(sig, signal.SIG_DFL)
                 except (OSError, ValueError):
                     pass
+
+            # Become a process-group leader so the watchdog can reap the whole
+            # group on timeout / cancel — including any tessellation worker pool the
+            # conversion spawns, which a bare kill(child_pid) would orphan.
+            try:
+                os.setsid()
+            except OSError:
+                pass
 
             # Per-job env overrides scoped to the child only — the
             # parent (and sibling jobs) keep their pristine env. Used
@@ -359,9 +385,14 @@ async def run_isolated_convert(
     # signal_name regardless of which signal actually reaped the child.
     deadline: Optional[float] = started_at + timeout_s if (timeout_s and timeout_s > 0) else None
     GRACE_S = 30.0
+    CANCEL_GRACE_S = 5.0  # cancellation should stop ASAP; OCC ignores SIGTERM so KILL soon
+    CANCEL_POLL_S = 3.0
     sigterm_sent_at: Optional[float] = None
     sigkill_sent = False
     timed_out = False
+    cancelled = False
+    kill_grace = GRACE_S
+    last_cancel_check = started_at
     # RSS ceiling for the child (None = disabled). When it breaches we SIGKILL
     # immediately — unlike the timeout's graceful TERM-then-KILL — because the
     # alternative is the kernel OOM-killing the whole pod a moment later.
@@ -379,34 +410,39 @@ async def run_isolated_convert(
             break
 
         now = time.monotonic()
-        # Watchdog escalation. Two-step (TERM then KILL) so a
-        # well-behaved converter that registered a SIGTERM cleanup
-        # path can ship partial output / flush logs; an OCCT-bound
-        # tessellation that ignores SIGTERM still gets reaped within
-        # GRACE_S.
-        if deadline is not None and now >= deadline:
+
+        # User cancellation — poll the source-of-truth (audit_log) every few seconds
+        # and reap the child (group) when the job is cancelled, so an actively-running
+        # conversion actually stops instead of completing into an orphaned blob.
+        if cancel_check is not None and not cancelled and (now - last_cancel_check) >= CANCEL_POLL_S:
+            last_cancel_check = now
+            try:
+                if await cancel_check():
+                    cancelled = True
+                    kill_grace = CANCEL_GRACE_S
+                    logger.info("convert: %s cancelled by user; reaping child", source_key)
+            except Exception:
+                logger.debug("convert: cancel_check raised; ignoring this tick", exc_info=True)
+
+        # Watchdog escalation (shared by timeout + cancel). Two-step (TERM then KILL)
+        # so a converter with a SIGTERM cleanup path can flush; an OCCT-bound
+        # tessellation that ignores SIGTERM still gets reaped within the grace window.
+        timed_out_now = deadline is not None and now >= deadline
+        if timed_out_now:
             timed_out = True
+        if timed_out_now or cancelled:
             if sigterm_sent_at is None:
-                try:
-                    os.kill(pid, signal.SIGTERM)
-                except (ProcessLookupError, PermissionError):
-                    pass
+                _signal_child(pid, signal.SIGTERM)
                 sigterm_sent_at = now
                 logger.warning(
-                    "convert: timeout %.0fs exceeded for %s; sent SIGTERM",
-                    timeout_s,
+                    "convert: %s for %s; sent SIGTERM",
+                    "cancelled" if cancelled else f"timeout {timeout_s:.0f}s exceeded",
                     source_key,
                 )
-            elif not sigkill_sent and (now - sigterm_sent_at) >= GRACE_S:
-                try:
-                    os.kill(pid, signal.SIGKILL)
-                except (ProcessLookupError, PermissionError):
-                    pass
+            elif not sigkill_sent and (now - sigterm_sent_at) >= kill_grace:
+                _signal_child(pid, signal.SIGKILL)
                 sigkill_sent = True
-                logger.warning(
-                    "convert: SIGTERM ignored for %s; sent SIGKILL",
-                    source_key,
-                )
+                logger.warning("convert: SIGTERM not honoured for %s; sent SIGKILL", source_key)
 
         # Memory watchdog: reap the child before it can OOM-kill the whole pod.
         if mem_limit_bytes is not None and not sigkill_sent and not oomed:
@@ -414,10 +450,7 @@ async def run_isolated_convert(
             if rss_kb is not None and rss_kb * 1024 > mem_limit_bytes:
                 oomed = True
                 sigkill_sent = True
-                try:
-                    os.kill(pid, signal.SIGKILL)
-                except (ProcessLookupError, PermissionError):
-                    pass
+                _signal_child(pid, signal.SIGKILL)
                 logger.warning(
                     "convert: RSS %.0f MB exceeded limit %.0f MB for %s; sent SIGKILL "
                     "(out of memory — failing the job in isolation rather than OOM-killing the pod)",
@@ -474,7 +507,13 @@ async def run_isolated_convert(
     # was killed by the timeout watchdog, not that something else
     # crashed it. ``signal_name="TIMEOUT"`` is the contract the worker
     # checks against to write a specific error message.
-    if oomed:
+    if cancelled:
+        # We reaped it on user cancellation — surface a specific reason so the worker
+        # records the job as cancelled rather than a crash.
+        sig_name = "CANCELLED"
+        if exit_code == 0:
+            exit_code = -signal.SIGTERM
+    elif oomed:
         # Our memory watchdog reaped it — surface a specific reason rather than
         # the native SIGKILL, so the operator sees "out of memory", not a crash.
         sig_name = "OOM"

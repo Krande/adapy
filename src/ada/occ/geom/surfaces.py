@@ -746,6 +746,127 @@ def create_wire_from_bounds(bounds, face_surface, builder: BRep_Builder):
     return wire_maker.Wire()
 
 
+def _points_close(a, b, tol: float = 1e-6) -> bool:
+    try:
+        return all(abs(float(x) - float(y)) <= tol for x, y in zip(a, b))
+    except Exception:
+        return False
+
+
+def _has_full_circle_edge(advanced_face: geo_su.AdvancedFace) -> bool:
+    """True if any boundary edge is a full circle/ellipse (start == end) — the
+    signature of a face that is *closed* in a parametric direction (a full cylinder /
+    cone / torus tube), which OCC represents with a seam, not a simple wire."""
+    for fb in advanced_face.bounds:
+        for oe in getattr(getattr(fb, "bound", None), "edge_list", []):
+            ec = getattr(oe, "edge_element", None)
+            geom = getattr(ec, "edge_geometry", None)
+            if isinstance(geom, (geo_cu.Circle, geo_cu.Ellipse)) and _points_close(oe.start, oe.end):
+                return True
+    return False
+
+
+def _sample_edge_points(oe):
+    """World-space sample points along one oriented edge. A full circle (start==end)
+    is sampled all the way round so the projected parameter range captures the full
+    closed direction; other edges contribute their endpoints."""
+    import math
+
+    pts = [
+        (float(oe.start[0]), float(oe.start[1]), float(oe.start[2])),
+        (float(oe.end[0]), float(oe.end[1]), float(oe.end[2])),
+    ]
+    ec = getattr(oe, "edge_element", oe)
+    g = getattr(ec, "edge_geometry", None)
+    if isinstance(g, geo_cu.Circle) and _points_close(oe.start, oe.end):
+        pos = g.position
+        c = [float(x) for x in pos.location]
+        z = [float(x) for x in pos.axis]
+        xd = [float(x) for x in pos.ref_direction]
+        yd = (z[1] * xd[2] - z[2] * xd[1], z[2] * xd[0] - z[0] * xd[2], z[0] * xd[1] - z[1] * xd[0])
+        r = float(g.radius)
+        for k in range(12):
+            a = 2.0 * math.pi * k / 12.0
+            ca, sa = math.cos(a), math.sin(a)
+            pts.append(
+                (
+                    c[0] + r * (ca * xd[0] + sa * yd[0]),
+                    c[1] + r * (ca * xd[1] + sa * yd[1]),
+                    c[2] + r * (ca * xd[2] + sa * yd[2]),
+                )
+            )
+    return pts
+
+
+def _param_extent(vals: list[float], periodic: bool, period: float) -> tuple[float, float]:
+    """Bounding parameter interval for ``vals``. For a periodic direction: if the
+    samples cover (nearly) the whole period the face is closed → return [0, period];
+    otherwise the face spans the arc on the far side of the largest gap (handling the
+    seam wraparound)."""
+    lo, hi = min(vals), max(vals)
+    if not periodic or (hi - lo) < 1e-9:
+        return lo, hi
+    s = sorted(vals)
+    best_gap = (s[0] + period) - s[-1]  # the wraparound gap
+    best_i = -1  # -1 == the gap is at the seam
+    for i in range(len(s) - 1):
+        gap = s[i + 1] - s[i]
+        if gap > best_gap:
+            best_gap, best_i = gap, i
+    if best_gap < 0.15 * period:
+        return 0.0, period  # samples cover the whole period → closed in this direction
+    if best_i == -1:
+        return s[0], s[-1]
+    return s[best_i + 1], s[best_i] + period
+
+
+def _try_make_closed_revolution_face(advanced_face: geo_su.AdvancedFace, face_surface):
+    """Build a face that is *closed* in a parametric direction (full cylinder / cone /
+    torus tube — signalled by a full-circle boundary edge) directly from the surface's
+    parametric bounds, so OCC generates the seam itself. ``make_wire_from_face_bound``
+    can't build a wire out of full-circle edges plus a doubled seam, which is why these
+    faces (~5% of real-CAD curved faces — pipe walls, elbows) otherwise drop. Returns a
+    face or None."""
+    import math
+
+    from OCC.Core.Geom import (
+        Geom_ConicalSurface,
+        Geom_CylindricalSurface,
+        Geom_ToroidalSurface,
+    )
+
+    if not isinstance(face_surface, (Geom_CylindricalSurface, Geom_ConicalSurface, Geom_ToroidalSurface)):
+        return None
+    if not _has_full_circle_edge(advanced_face):
+        return None
+
+    # Recover (u, v) parameter ranges by projecting the boundary samples onto the
+    # surface; the closed direction(s) snap to the full period via _param_extent.
+    us: list[float] = []
+    vs: list[float] = []
+    for fb in advanced_face.bounds:
+        for oe in getattr(getattr(fb, "bound", None), "edge_list", []):
+            for p in _sample_edge_points(oe):
+                proj = GeomAPI_ProjectPointOnSurf(gp_Pnt(*p), face_surface)
+                if proj.NbPoints() > 0:
+                    u, v = proj.LowerDistanceParameters()
+                    us.append(u)
+                    vs.append(v)
+    if len(us) < 3:
+        return None
+
+    two_pi = 2.0 * math.pi
+    umin, umax = _param_extent(us, bool(face_surface.IsUPeriodic()), two_pi)
+    vmin, vmax = _param_extent(vs, bool(face_surface.IsVPeriodic()), two_pi)
+    if (umax - umin) < 1e-9 or (vmax - vmin) < 1e-9:
+        return None
+
+    mk = BRepBuilderAPI_MakeFace(face_surface, umin, umax, vmin, vmax, 1e-6)
+    if not mk.IsDone():
+        return None
+    return mk.Face()
+
+
 def make_face_from_geom(advanced_face: geo_su.AdvancedFace) -> TopoDS_Face:
     """Create an OCC face from an AdvancedFace with arbitrary supported surface types and bounds.
 
@@ -755,9 +876,15 @@ def make_face_from_geom(advanced_face: geo_su.AdvancedFace) -> TopoDS_Face:
     # Build the OCC surface from the adapy face surface
     face_surface = make_surface_from_geom(advanced_face.face_surface)
 
-    # Build outer and (optional) inner wires from the face bounds
+    # A fully-closed periodic face (a complete sphere — closed in u AND v) is bound
+    # only by a degenerate VERTEX_LOOP, which the reader filters out, leaving no edge
+    # bounds. Build the natural full face straight from the surface; OCC generates the
+    # seam(s) and poles itself (the only robust way — there is no wire to reconstruct).
     if not advanced_face.bounds:
-        raise ValueError("AdvancedFace must have at least one bound")
+        mk = BRepBuilderAPI_MakeFace(face_surface, 1e-6)
+        if mk.IsDone():
+            return mk.Face()
+        raise ValueError("AdvancedFace has no bounds and the surface has no natural face")
 
     is_bspline_surface = isinstance(face_surface, Geom_BSplineSurface)
 
@@ -879,6 +1006,12 @@ def make_face_from_geom(advanced_face: geo_su.AdvancedFace) -> TopoDS_Face:
             logger.info("Reversing CW wire to CCW for B-Spline surface")
             outer_wire = outer_wire.Reversed()
     else:
+        # A closed cylinder/cone face (full circle in u) can't be built from a wire
+        # of full-circle edges + a doubled seam — build it from the surface's
+        # parametric bounds instead, letting OCC generate the seam.
+        closed_face = _try_make_closed_revolution_face(advanced_face, face_surface)
+        if closed_face is not None:
+            return closed_face
         outer_wire = make_wire_from_face_bound(advanced_face.bounds[0])
 
     face_maker = BRepBuilderAPI_MakeFace(face_surface, outer_wire)
@@ -1088,29 +1221,20 @@ def _add_cfs_faces_to_shell(builder: BRep_Builder, occ_shell: TopoDS_Shell, cfs_
     """Build each connected-face-set face (AdvancedFace / FaceSurface) and add it to
     ``occ_shell``. Shared by the closed-shell, open-shell and shell-based-surface-model
     builders — a face that can't be built is logged and skipped rather than aborting."""
+    n_faces = 0
+    n_dropped = 0
     for cfs_face in cfs_faces:
         # Handle AdvancedFace
         if type(cfs_face) is geo_su.AdvancedFace:
+            n_faces += 1
             try:
-                # Create the surface from the face_surface
-                occ_face_surface = make_surface_from_geom(cfs_face.face_surface)
-
-                # Create wire from the face bounds (use first bound as outer)
-                if len(cfs_face.bounds) > 0:
-                    wire = make_wire_from_edge_loop(cfs_face.bounds[0].bound)
-                else:
-                    logger.warning("AdvancedFace without bounds encountered; skipping face")
-                    continue
-
-                # Create the face
-                face_maker = BRepBuilderAPI_MakeFace(occ_face_surface, wire)
-                if not face_maker.IsDone():
-                    logger.warning(
-                        f"Failed to create face from surface type {type(cfs_face.face_surface)}; skipping face"
-                    )
-                    continue
-
-                face = face_maker.Face()
+                # Route through make_face_from_geom so closed (seam) cylinder/cone/torus
+                # faces, B-spline faces and inner-bound holes build here exactly as on
+                # the single-face path — not just the simple wire + MakeFace this builder
+                # used to do, which dropped those faces (holes in the solid).
+                face = make_face_from_geom(cfs_face)
+                if face is None or face.IsNull():
+                    raise UnableToCreateTesselationFromSolidOCCGeom("make_face_from_geom produced no face")
 
                 # A trimmed surface can collapse to zero area even when MakeFace reports
                 # "done" — e.g. a planar SAT plate whose boundary mixes a b-spline edge that
@@ -1132,11 +1256,13 @@ def _add_cfs_faces_to_shell(builder: BRep_Builder, occ_shell: TopoDS_Shell, cfs_
                 # Add the face to the shell
                 builder.Add(occ_shell, face)
             except Exception as ex:
-                logger.warning(f"Skipping AdvancedFace due to error during wire/face creation: {ex}")
+                n_dropped += 1
+                logger.warning("Skipping AdvancedFace (%s surface): %s", type(cfs_face.face_surface).__name__, ex)
                 continue
 
         # Handle FaceSurface (legacy support)
         elif type(cfs_face) is geo_su.FaceSurface:
+            n_faces += 1
             face_surface = cfs_face.face_surface
             if type(face_surface) is geo_su.Plane:
                 occ_face_surface = make_plane_from_geom(face_surface)
@@ -1159,12 +1285,18 @@ def _add_cfs_faces_to_shell(builder: BRep_Builder, occ_shell: TopoDS_Shell, cfs_
                 # Add the face to the shell
                 builder.Add(occ_shell, face)
             except Exception as ex:
+                n_dropped += 1
                 logger.warning(f"Skipping FaceSurface due to error during wire/face creation: {ex}")
                 continue
         else:
             raise NotImplementedError(
                 f"Face type {type(cfs_face)} is not implemented (supported: AdvancedFace, FaceSurface)"
             )
+
+    if n_dropped:
+        # A dropped face is a hole in the solid — surface it so conversions never
+        # silently lose geometry.
+        logger.warning("shell build dropped %d/%d faces (holes in the solid)", n_dropped, n_faces)
 
 
 def make_closed_shell_from_geom(shell: geo_su.ClosedShell) -> TopoDS_Shell:

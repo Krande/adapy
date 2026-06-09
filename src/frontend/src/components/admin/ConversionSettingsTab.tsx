@@ -55,6 +55,17 @@ const ROWS: SettingRow[] = [
         codeDefault: true,
     },
     {
+        key: "step_streamer_auto",
+        label: "Auto-stream large STEP",
+        description:
+            "Convert large STEP→GLB with the memory-bounded streaming reader (one solid " +
+            "at a time) instead of OpenCASCADE, so huge assemblies don't OOM-kill the " +
+            "worker. The size threshold is set below. Skips solids using unsupported " +
+            "(spherical / rational B-spline) surfaces. The per-file “Load using " +
+            "streamer” action overrides this per job.",
+        codeDefault: true,
+    },
+    {
         key: "profile_conversions",
         label: "Profile conversions",
         description:
@@ -64,6 +75,8 @@ const ROWS: SettingRow[] = [
         codeDefault: false,
     },
 ];
+
+const STREAMER_THRESHOLD_KEY = "step_streamer_threshold_mb";
 
 function parseTri(raw: string | null): TriState {
     const v = (raw || "").trim().toLowerCase();
@@ -88,6 +101,9 @@ const ConversionSettingsTab: React.FC = () => {
     const [timeoutMinutes, setTimeoutMinutes] = useState("");
     const [timeoutSaving, setTimeoutSaving] = useState(false);
     const [timeoutSavedAt, setTimeoutSavedAt] = useState<number | null>(null);
+    const [streamerThreshold, setStreamerThreshold] = useState("");
+    const [streamerSaving, setStreamerSaving] = useState(false);
+    const [streamerSavedAt, setStreamerSavedAt] = useState<number | null>(null);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState<Record<string, boolean>>({});
     const [error, setError] = useState<string | null>(null);
@@ -104,6 +120,8 @@ const ConversionSettingsTab: React.FC = () => {
                 }
                 const t = await viewerApi.adminGetSetting(TIMEOUT_KEY);
                 if (!cancelled) setTimeoutMinutes((t || "").trim());
+                const thr = await viewerApi.adminGetSetting(STREAMER_THRESHOLD_KEY);
+                if (!cancelled) setStreamerThreshold((thr || "").trim());
                 if (!cancelled) setValues(next);
             } catch (e) {
                 if (!cancelled) setError(e instanceof ApiError ? e.detail || e.message : String(e));
@@ -150,6 +168,27 @@ const ConversionSettingsTab: React.FC = () => {
             setError(e instanceof ApiError ? e.detail || e.message : String(e));
         } finally {
             setTimeoutSaving(false);
+        }
+    };
+
+    const onStreamerThresholdSave = async () => {
+        const raw = streamerThreshold.trim();
+        if (raw !== "") {
+            const n = Number(raw);
+            if (Number.isNaN(n) || n < 0) {
+                setError(`threshold must be a non-negative number (got "${raw}")`);
+                return;
+            }
+        }
+        setStreamerSaving(true);
+        setError(null);
+        try {
+            await viewerApi.adminSetSetting(STREAMER_THRESHOLD_KEY, raw);
+            setStreamerSavedAt(Date.now());
+        } catch (e) {
+            setError(e instanceof ApiError ? e.detail || e.message : String(e));
+        } finally {
+            setStreamerSaving(false);
         }
     };
 
@@ -210,6 +249,50 @@ const ConversionSettingsTab: React.FC = () => {
                             timeout of N minutes`` as its error — feeds straight into
                             the issue-bot dedup so the same converter hitting the same
                             wall doesn't spam new issues.
+                        </div>
+                    </div>
+                )}
+                {!loading && (
+                    <div className="px-3 sm:px-4 py-3 border-b border-gray-800 space-y-2">
+                        <div>
+                            <div className="font-medium text-sm">STEP streamer threshold</div>
+                            <div className="text-[11px] text-gray-400 font-mono">
+                                {STREAMER_THRESHOLD_KEY}
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                            <input
+                                type="number"
+                                min="0"
+                                step="1"
+                                value={streamerThreshold}
+                                onChange={(e) => setStreamerThreshold(e.target.value)}
+                                placeholder="200"
+                                className="bg-gray-900 border border-gray-700 rounded-sm px-2 py-1 text-sm w-32 text-gray-100"
+                            />
+                            <span className="text-xs text-gray-400">MB</span>
+                            <button
+                                type="button"
+                                onClick={onStreamerThresholdSave}
+                                disabled={streamerSaving}
+                                className="bg-blue-700 hover:bg-blue-600 text-white text-xs px-3 py-1 rounded-sm disabled:opacity-50"
+                            >
+                                {streamerSaving ? "Saving…" : "Save"}
+                            </button>
+                            {streamerSavedAt && (
+                                <span className="text-[11px] text-emerald-400">
+                                    saved {Math.floor((Date.now() - streamerSavedAt) / 1000)}s ago
+                                </span>
+                            )}
+                        </div>
+                        <div className="text-xs text-gray-400 max-w-2xl">
+                            On-disk STEP size above which STEP→GLB auto-routes through the
+                            memory-bounded streaming reader (only when “Auto-stream large
+                            STEP” is on / unset). Empty uses the code default (200 MB).
+                            The OpenCASCADE loader needs several× the file size in RAM, so
+                            assemblies past this point risk OOM-killing the worker pod;
+                            streaming trades a small fidelity loss (skipped spherical /
+                            rational-B-spline solids) for bounded memory.
                         </div>
                     </div>
                 )}

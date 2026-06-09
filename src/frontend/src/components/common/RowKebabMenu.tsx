@@ -52,11 +52,15 @@ interface RowKebabMenuProps {
      *  square hit area that fits inside table rows; mobile callers
      *  can pass ``p-2`` to bump the tap target. */
     buttonClassName?: string;
+    /** Optional non-interactive heading rendered at the top of the menu,
+     *  above the items (e.g. the row's full storage path). */
+    header?: React.ReactNode;
 }
 
 export const RowKebabMenu: React.FC<RowKebabMenuProps> = ({
     ariaLabel,
     items,
+    header,
     disabled,
     buttonClassName,
 }) => {
@@ -139,6 +143,11 @@ export const RowKebabMenu: React.FC<RowKebabMenuProps> = ({
                     style={{top: pos.top, right: pos.right}}
                     onClick={(e) => e.stopPropagation()}
                 >
+                    {header && (
+                        <div className="px-3 py-1.5 text-[11px] text-gray-400 border-b border-gray-700 break-all">
+                            {header}
+                        </div>
+                    )}
                     {items.map((item) => (
                         <React.Fragment key={item.key}>
                             {item.separatorBefore && (

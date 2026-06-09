@@ -108,10 +108,13 @@ function OptionsComponent() {
             <hr className="border-gray-600"/>
             {/* The Pyodide in-browser IFC converter only makes sense for the
                 hosted REST viewer; the websocket/desktop and embed bundles
-                don't expose it. */}
+                don't expose it. Tucked behind an "Other" disclosure (like
+                Scene config / Performance) so it doesn't crowd the menu. */}
             {runtime.isRestMode() && (
                 <>
-                    <ExperimentalOptions/>
+                    <CollapsibleSection title="Other">
+                        <ExperimentalOptions/>
+                    </CollapsibleSection>
                     <hr className="border-gray-600"/>
                 </>
             )}

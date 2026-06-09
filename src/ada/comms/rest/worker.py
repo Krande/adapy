@@ -363,6 +363,71 @@ async def _run_fea_meta_compute(
     await _audit_done(db_pool, job_id, "done", None, started_at)
 
 
+async def _run_parity_validation(
+    *,
+    job: Job,
+    src_path: pathlib.Path,
+    scope,
+    queue: "JobQueue",
+    db_pool: "asyncpg.Pool | None",
+    started_at: float,
+    _on_progress: Callable[[str, float], Awaitable[None]],
+) -> None:
+    """Cross-format visual-parity validation for one source (target_format=='parity').
+
+    Re-derives the source to each structure-preserving format, reloads, and
+    compares the visualized-element count (ada.cadit.visual_parity). Produces no
+    derived blob: the structured per-format result goes to the ``audit_parity``
+    table and the cell is audited done/error (a mismatch maps to ``error`` so it
+    surfaces in the run's failed cells). Never raises.
+
+    Re-deriving (rather than reading the stored GLB) is deliberate: the stored GLB
+    is mesh-merged, so its scene-entry count is not the object count — the parity
+    check must reload with merging off, which ``parity_for_source_file`` does.
+    """
+    job_id = job.job_id
+    suffix = pathlib.PurePosixPath(job.source_key).suffix.lower()
+    formats = tuple(t for t in ("ifc", "xml", "step") if t in ConverterRegistry.targets_for(suffix))
+
+    # Lazy import keeps the FEM/CAD stack out of the worker import path until
+    # a parity job actually runs (same pattern as _run_fea_meta_compute).
+    from ada.cadit.visual_parity import parity_for_source_file
+
+    await _on_progress("parity", 0.20)
+    loop = asyncio.get_running_loop()
+    try:
+        result = await loop.run_in_executor(None, functools.partial(parity_for_source_file, src_path, formats))
+    except Exception as exc:
+        logger.exception("worker: parity validation failed for %s", job.source_key)
+        trace = tb_module.format_exc()
+        await queue.update(job_id, status=JOB_STATUS_ERROR, stage="parity", error=str(exc))
+        await _audit_done(db_pool, job_id, "error", str(exc), started_at, traceback=trace)
+        return
+
+    if db_pool is not None:
+        try:
+            await db_module.insert_audit_parity(
+                db_pool,
+                job_id=job_id,
+                source_key=job.source_key,
+                baseline=result.expected,
+                counts=result.counts,
+                consistent=result.consistent,
+                mismatches=result.mismatches,
+                errors=result.errors,
+            )
+        except Exception:
+            logger.exception("worker: insert_audit_parity failed for %s", job.source_key)
+
+    if result.consistent:
+        await queue.update(job_id, status=JOB_STATUS_DONE, stage="ready", progress=1.0, error=None)
+        await _audit_done(db_pool, job_id, "done", None, started_at)
+    else:
+        msg = result.summary()
+        await queue.update(job_id, status=JOB_STATUS_ERROR, stage="ready", progress=1.0, error=msg)
+        await _audit_done(db_pool, job_id, "error", msg, started_at)
+
+
 async def _run_component_build(
     *,
     job: Job,
@@ -757,6 +822,9 @@ async def _process_one(
                 "pcurve_drive_edge": "ADA_PCURVE_DRIVE_EDGE",
                 "skip_shapefix": "ADA_SKIP_SHAPEFIX",
                 "merge_meshes": "ADA_GLB_MERGE_MESHES",
+                # STEP→GLB streaming defaults (large-file OOM guard).
+                "step_streamer_auto": "ADA_STEP_STREAMER_AUTO",
+                "step_streamer_threshold_mb": "ADA_STEP_STREAMER_THRESHOLD_MB",
             }
             for skey, env_name in _env_map.items():
                 raw = await _read_bool_setting(skey)
@@ -773,6 +841,7 @@ async def _process_one(
                 "pcurve_drive_edge": "ADA_PCURVE_DRIVE_EDGE",
                 "skip_shapefix": "ADA_SKIP_SHAPEFIX",
                 "merge_meshes": "ADA_GLB_MERGE_MESHES",
+                "step_streamer": "ADA_STEP_STREAMER",
             }
             for k, v in per_job.items():
                 env_name = _env_map_full.get(k)
@@ -895,6 +964,22 @@ async def _process_one(
             )
             return
 
+        # Cross-format visual-parity validation — re-derives the source to the
+        # structure-preserving formats and compares visualized-element counts.
+        # Produces no derived blob; writes a row to audit_parity and audits the
+        # cell done/error (mismatch -> error, so it shows in the run's failures).
+        if job.target_format == "parity":
+            await _run_parity_validation(
+                job=job,
+                src_path=src_path,
+                scope=scope,
+                queue=queue,
+                db_pool=db_pool,
+                started_at=started_at,
+                _on_progress=_on_progress,
+            )
+            return
+
         # Build the kwargs convert() receives in the child process.
         # ``step`` / ``field`` are SIF/SIN-specific; ``options`` is
         # the registry-driven per-job knob dict (e.g.
@@ -921,6 +1006,16 @@ async def _process_one(
                     continue  # tri-state "clear"; nothing to forward
                 convert_options[k] = v
 
+        # Poll the audit_log (cancel endpoint's source of truth) so a user
+        # cancellation actually reaps the running conversion subprocess.
+        async def _cancel_check() -> bool:
+            if db_pool is None:
+                return False
+            try:
+                return await db_module.audit_is_cancelled(db_pool, job_id)
+            except Exception:
+                return False
+
         # Run convert() in a forked child. Crash isolation + rusage on
         # exit + per-/proc heartbeat sampling all in one. See
         # subprocess_convert.run_isolated_convert for the rationale.
@@ -940,6 +1035,7 @@ async def _process_one(
                 profile_in_child=profile_enabled,
                 env_overrides=env_overrides or None,
                 timeout_s=timeout_s,
+                cancel_check=_cancel_check,
             )
         except Exception as exc:
             # Failure in the parent-side machinery (fork, /proc reads,
@@ -949,6 +1045,16 @@ async def _process_one(
             trace = tb_module.format_exc()
             await queue.update(job_id, status=JOB_STATUS_ERROR, stage="convert", error=str(exc))
             await _audit_done(db_pool, job_id, "error", str(exc), started_at, traceback=trace)
+            return
+
+        # User cancellation: the watchdog reaped the child. The audit_log row is
+        # already 'cancelled' (set by the cancel endpoint) — don't flip it to error.
+        if iresult.signal_name == "CANCELLED":
+            logger.info("worker: conversion for %s cancelled by user; child reaped", job.source_key)
+            try:
+                await queue.update(job_id, status="cancelled", stage="convert", error="cancelled by user")
+            except Exception:
+                pass
             return
 
         # Map the isolated result back to the existing audit/error flow.

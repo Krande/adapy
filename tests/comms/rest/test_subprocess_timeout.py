@@ -75,6 +75,37 @@ async def test_watchdog_kills_long_running_convert(tmp_path: pathlib.Path):
     assert elapsed < 10.0, f"watchdog reap too slow: {elapsed:.1f}s"
 
 
+@pytest.mark.asyncio
+async def test_watchdog_cancels_running_convert(tmp_path: pathlib.Path):
+    """A user cancellation (``cancel_check`` returns True) reaps the running child —
+    so an actively-running conversion actually stops instead of completing into an
+    orphaned blob. The result carries ``signal_name == 'CANCELLED'`` so the worker
+    leaves the audit row 'cancelled' rather than flipping it to error."""
+    src = tmp_path / "x.bin"
+    src.write_bytes(b"")
+
+    polls = {"n": 0}
+
+    async def cancel_check() -> bool:
+        polls["n"] += 1
+        return polls["n"] >= 1  # cancel on the first poll
+
+    started = time.monotonic()
+    result = await run_isolated_convert(
+        _sleep_forever_convert,
+        src_path=src,
+        source_key="x.bin",
+        target_format="glb",
+        cancel_check=cancel_check,
+    )
+    elapsed = time.monotonic() - started
+
+    assert result.signal_name == "CANCELLED", f"got {result.signal_name!r} (exit_code={result.exit_code})"
+    assert result.out_bytes is None
+    # First poll fires ~3 s in; SIGTERM reaps the sleeper immediately (5 s grace cap).
+    assert elapsed < 12.0, f"cancellation reap too slow: {elapsed:.1f}s"
+
+
 def _hog_memory_convert(src, source_key, target_format, on_progress, **_kw):
     """Synthetic convert_fn that allocates well past the RSS limit and holds it,
     so the memory watchdog has time to sample and reap it."""

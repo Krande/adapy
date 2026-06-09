@@ -310,6 +310,18 @@ async def cancel_audit_by_job(
     return result.endswith(" 1")
 
 
+async def audit_is_cancelled(pool: asyncpg.Pool, job_id: str) -> bool:
+    """True once the job's audit row has been flipped to ``cancelled`` (the cancel
+    endpoint's source of truth — the KV status is overwritten by worker progress
+    writes, so it can't be trusted). Polled by the conversion watchdog so an
+    actively-running conversion is actually reaped instead of running to completion."""
+    row = await pool.fetchrow(
+        "SELECT 1 FROM audit_log WHERE job_id = $1 AND status = 'cancelled' LIMIT 1",
+        job_id,
+    )
+    return row is not None
+
+
 async def mark_audit_running(
     pool: asyncpg.Pool,
     *,
@@ -1263,6 +1275,65 @@ async def list_audit_run_jobs(
             "write_bytes": r["write_bytes"],
             "job_id": r["job_id"],
             "worker_image_tag": r["worker_image_tag"],
+        }
+        for r in rows
+    ]
+
+
+async def insert_audit_parity(
+    pool: asyncpg.Pool,
+    *,
+    job_id: str | None,
+    source_key: str,
+    baseline: int,
+    counts: dict[str, int],
+    consistent: bool,
+    mismatches: dict[str, int],
+    errors: dict[str, str],
+) -> None:
+    """Record one cross-format parity result. The owning ``audit_run_id`` is
+    resolved from the parity job's audit_log row (the worker doesn't carry it)."""
+    await pool.execute(
+        """
+        INSERT INTO audit_parity
+            (audit_run_id, job_id, source_key, baseline, counts, consistent, mismatches, errors)
+        VALUES (
+            (SELECT audit_run_id FROM audit_log WHERE job_id = $1 ORDER BY id DESC LIMIT 1),
+            $1, $2, $3, $4::jsonb, $5, $6::jsonb, $7::jsonb
+        )
+        """,
+        job_id,
+        source_key,
+        baseline,
+        json.dumps(counts),
+        consistent,
+        json.dumps(mismatches),
+        json.dumps(errors),
+    )
+
+
+async def list_audit_run_parity(pool: asyncpg.Pool, run_id: str) -> list[dict]:
+    """Every parity result for one audit_run, newest first."""
+    rows = await pool.fetch(
+        """
+        SELECT id, ts, job_id, source_key, baseline, counts, consistent, mismatches, errors
+        FROM audit_parity
+        WHERE audit_run_id = $1
+        ORDER BY id DESC
+        """,
+        run_id,
+    )
+    return [
+        {
+            "id": r["id"],
+            "ts": r["ts"].isoformat() if r["ts"] else None,
+            "job_id": r["job_id"],
+            "source_key": r["source_key"],
+            "baseline": r["baseline"],
+            "counts": json.loads(r["counts"]) if isinstance(r["counts"], str) else r["counts"],
+            "consistent": r["consistent"],
+            "mismatches": json.loads(r["mismatches"]) if isinstance(r["mismatches"], str) else r["mismatches"],
+            "errors": json.loads(r["errors"]) if isinstance(r["errors"], str) else r["errors"],
         }
         for r in rows
     ]

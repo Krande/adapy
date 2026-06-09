@@ -1,0 +1,287 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+from typing import TYPE_CHECKING, Callable
+
+if TYPE_CHECKING:
+    import trimesh
+
+    from ada.visit.scene_converter import SceneConverter
+
+
+@dataclass
+class StepStreamSource:
+    """Marks a :class:`SceneConverter` source as a STEP file to convert by *streaming*
+    — one solid at a time, bounded memory — instead of loading the whole Assembly.
+
+    The reader yields one geometry per solid (with its STEP colour); each is
+    tessellated and its light mesh buffers are accumulated per material, while the
+    heavy B-rep geometry is dropped before the next solid. The result is the same
+    merged-by-colour scene + design-graph the normal ``to_gltf`` path produces.
+
+    ``on_progress(stage, frac)`` is called periodically through the (slow) per-solid
+    tessellation so a worker can report real progress instead of sitting at one stage.
+    """
+
+    path: str | Path
+    tolerant: bool = True
+    on_progress: Callable[[str, float], None] | None = None
+
+
+# Below this solid count the ~1 s process-pool spawn overhead outweighs the
+# parallelism, so the conversion runs sequentially.
+_POOL_MIN_SOLIDS = 500
+
+
+def _tessellate_geom_worker(geom):
+    """Pool subprocess entry: build + tessellate ONE solid and return raw mesh arrays
+    plus the solid's colour — the parent assigns a consistent material id (each
+    subprocess has its own material store). Returns
+    ``(status, gid, color, positions, indices, normals)`` where ``status`` is "ok",
+    "degenerate", "empty" or "error:<Type>". OCC isn't thread-safe, so the unit of
+    parallelism is a process."""
+    import numpy as np
+
+    gid = None
+    try:
+        from ada.cad import active_backend
+
+        be = active_backend()
+        gid = str(geom.id) if geom.id not in (None, "") else None
+        occ = be.build(geom)
+        # Zero-extent solid -> OCC's relative mesher throws an uncatchable terminate.
+        try:
+            bb = be.bbox(occ)
+            diag = ((bb[3] - bb[0]) ** 2 + (bb[4] - bb[1]) ** 2 + (bb[5] - bb[2]) ** 2) ** 0.5
+        except Exception:
+            diag = 0.0
+        if diag < 1e-7:
+            return ("degenerate", gid, geom.color, None, None, None)
+        mesh = be.tessellate(occ)
+        idx = getattr(mesh, "indices", None)
+        if idx is None:
+            idx = getattr(mesh, "faces", None)
+        pos = getattr(mesh, "positions", None)
+        if pos is None or idx is None or len(idx) == 0:
+            return ("empty", gid, geom.color, None, None, None)
+        nrm = getattr(mesh, "normals", None)
+        pos = np.ascontiguousarray(pos, dtype=np.float32)
+        idx = np.ascontiguousarray(idx, dtype=np.uint32)
+        nrm = np.ascontiguousarray(nrm, dtype=np.float32) if nrm is not None else None
+        return ("ok", gid, geom.color, pos, idx, nrm)
+    except Exception as exc:  # noqa: BLE001 - report and skip; one bad solid mustn't abort
+        return (f"error:{type(exc).__name__}", gid, None, None, None, None)
+
+
+def _cgroup_cpu_quota() -> int | None:
+    """The pod's CPU limit from its cgroup (CFS quota), or None. k8s CPU *limits* are
+    CFS quota, not cpuset, so ``sched_getaffinity`` would report the whole node — using
+    that to size a process pool would oversubscribe the pod. Handles cgroup v2 and v1."""
+    try:  # cgroup v2
+        with open("/sys/fs/cgroup/cpu.max") as f:
+            quota, period = f.read().split()
+        if quota != "max" and int(period) > 0:
+            return max(1, round(int(quota) / int(period)))
+    except (OSError, ValueError):
+        pass
+    try:  # cgroup v1
+        with open("/sys/fs/cgroup/cpu/cpu.cfs_quota_us") as f:
+            quota = int(f.read())
+        with open("/sys/fs/cgroup/cpu/cpu.cfs_period_us") as f:
+            period = int(f.read())
+        if quota > 0 and period > 0:
+            return max(1, round(quota / period))
+    except (OSError, ValueError):
+        pass
+    return None
+
+
+def _stream_workers() -> int:
+    """Number of tessellation worker processes. ``ADA_STEP_STREAM_WORKERS`` overrides;
+    otherwise the pod's cgroup CPU limit (falling back to schedulable CPUs), capped at
+    8 — each worker holds one solid's OCC shape, so this also bounds memory."""
+    import os
+
+    env = os.environ.get("ADA_STEP_STREAM_WORKERS")
+    if env:
+        try:
+            return max(1, int(env))
+        except ValueError:
+            pass
+    n = _cgroup_cpu_quota()
+    if n is None:
+        try:
+            n = len(os.sched_getaffinity(0))
+        except (AttributeError, OSError):
+            n = os.cpu_count() or 1
+    return max(1, min(n, 8))
+
+
+def scene_from_step_stream(source: StepStreamSource, converter: SceneConverter) -> trimesh.Scene:
+    import collections
+
+    import trimesh
+
+    from ada.cadit.step.read.stream_reader import stream_read_step
+    from ada.config import logger
+    from ada.core.guid import create_guid
+    from ada.occ.tessellating import BatchTessellator
+    from ada.visit.gltf.graph import GraphNode
+    from ada.visit.gltf.meshes import MeshStore, MeshType
+    from ada.visit.gltf.optimize import concatenate_stores
+    from ada.visit.gltf.store import merged_mesh_to_trimesh_scene
+
+    bt = BatchTessellator()  # parent-side material store + material lookup for the merge
+    params = converter.params
+    graph = converter.graph
+    root = graph.top_level
+    scene = trimesh.Scene(base_frame=root.name)
+
+    # mat_id -> [MeshStore]. Mesh buffers are flat float/int arrays (a few tens of MB
+    # for a 100k-triangle model), so accumulating them per material — then merging once
+    # at the end — keeps memory bounded; the B-rep geometry is freed each iteration.
+    by_material: dict[int, list] = collections.defaultdict(list)
+    reasons: collections.Counter = collections.Counter()
+    skipped_ids: list[str] = []
+    n_total = 0
+
+    def _skip(gid: str, reason: str) -> None:
+        reasons[reason] += 1
+        if len(skipped_ids) < 50:
+            skipped_ids.append(gid)
+        logger.debug("scene_from_step_stream: skipped %s — %s", gid, reason)
+
+    # Per-solid tessellation is the slow phase (minutes on a big assembly). Report
+    # progress against the total solid count so the worker's bar advances; the
+    # tessellation loop is mapped onto 0.2..0.9 of the job.
+    on_progress = source.on_progress
+    n_roots = {"total": 0}
+    if on_progress is not None:
+        on_progress("tessellating", 0.2)
+
+    def _on_total(n: int) -> None:
+        n_roots["total"] = n
+
+    # The parent owns the material store (so colours map to consistent ids across
+    # worker processes) and builds the MeshStore + graph node from each worker's raw
+    # mesh arrays. Workers (subprocesses) only build + tessellate.
+    def _build_mesh_store(gid, color, pos, idx, nrm) -> None:
+        node = graph.add_node(GraphNode(gid, graph.next_node_id(), hash=create_guid(), parent=root))
+        mat_id = bt.material_store.get(color, None)
+        if mat_id is None:
+            mat_id = len(bt.material_store)
+            bt.material_store[color] = mat_id
+        by_material[mat_id].append(MeshStore(node.hash, None, pos, idx, nrm, mat_id, MeshType.TRIANGLES, node.hash))
+
+    def _handle(result) -> None:
+        nonlocal n_total
+        status, gid, color, pos, idx, nrm = result
+        i = n_total
+        n_total += 1
+        gid = gid or f"solid_{i}"
+        if status == "ok":
+            _build_mesh_store(gid, color, pos, idx, nrm)
+        elif status == "degenerate":
+            _skip(gid, "degenerate (zero-extent solid)")
+        elif status == "empty":
+            _skip(gid, "empty mesh (no triangles)")
+        else:
+            _skip(gid, status)
+        if on_progress is not None and n_roots["total"] and (i % 10 == 0):
+            on_progress("tessellating", 0.2 + 0.7 * min(i / n_roots["total"], 1.0))
+
+    geom_iter = stream_read_step(source.path, local_pool=False, tolerant=source.tolerant, on_total=_on_total)
+
+    # Peek the first solid so the reader's scan runs and fires on_total with the solid
+    # count — we only spin up the worker pool when there's enough work to amortise the
+    # ~1 s process-spawn overhead (it makes small conversions SLOWER otherwise).
+    import itertools
+
+    try:
+        _first = next(geom_iter)
+        geom_iter = itertools.chain((_first,), geom_iter)
+    except StopIteration:
+        geom_iter = iter(())
+    n_workers = _stream_workers()
+    use_pool = n_workers > 1 and n_roots["total"] >= _POOL_MIN_SOLIDS
+
+    if not use_pool:
+        for geom in geom_iter:
+            _handle(_tessellate_geom_worker(geom))
+    else:
+        import concurrent.futures as _cf
+        import multiprocessing as _mp
+
+        try:
+            executor = _cf.ProcessPoolExecutor(max_workers=n_workers, mp_context=_mp.get_context("spawn"))
+        except Exception:  # noqa: BLE001 - any pool-start failure falls back to sequential
+            executor = None
+
+        if executor is None:
+            for geom in geom_iter:
+                _handle(_tessellate_geom_worker(geom))
+        else:
+            logger.info("scene_from_step_stream: tessellating with %d worker process(es)", n_workers)
+            with executor:
+                inflight: set = set()
+
+                def _submit_next() -> bool:
+                    try:
+                        inflight.add(executor.submit(_tessellate_geom_worker, next(geom_iter)))
+                        return True
+                    except StopIteration:
+                        return False
+
+                for _ in range(n_workers * 2):  # prime the pool — bounded backpressure window
+                    if not _submit_next():
+                        break
+                while inflight:
+                    done, _pending = _cf.wait(inflight, return_when=_cf.FIRST_COMPLETED)
+                    for fut in done:
+                        inflight.discard(fut)
+                        try:
+                            _handle(fut.result())
+                        except Exception as exc:  # noqa: BLE001 - a crashed worker mustn't abort
+                            _skip(f"solid_{n_total}", f"pool worker died: {type(exc).__name__}")
+                            n_total += 1
+                        _submit_next()
+
+    # One merged mesh (glTF node) per material/colour — the default GLB shape.
+    if on_progress is not None:
+        on_progress("merging", 0.92)
+    for mat_id, stores in by_material.items():
+        merged = concatenate_stores(stores, graph)
+        if merged is None:
+            continue
+        merged_mesh_to_trimesh_scene(
+            scene, merged, bt.get_mat_by_id(mat_id), mat_id, graph, apply_transform=params.apply_transform
+        )
+
+    n_skipped = sum(reasons.values())
+    if n_skipped:
+        more = f" (+{n_skipped - len(skipped_ids)} more)" if n_skipped > len(skipped_ids) else ""
+        logger.warning(
+            "scene_from_step_stream: %s — skipped %d/%d solids by reason %s; ids: %s%s",
+            source.path,
+            n_skipped,
+            n_total,
+            dict(reasons),
+            ", ".join(skipped_ids),
+            more,
+        )
+    logger.info(
+        "scene_from_step_stream: %s — meshed %d/%d solids into %d material group(s)",
+        source.path,
+        n_total - n_skipped,
+        n_total,
+        len(by_material),
+    )
+    scene.metadata["ada_stream_stats"] = {
+        "meshed": n_total - n_skipped,
+        "total": n_total,
+        "skipped": n_skipped,
+        "materials": len(by_material),
+        "reasons": dict(reasons),
+    }
+    return scene

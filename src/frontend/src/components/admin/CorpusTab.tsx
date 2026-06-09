@@ -103,12 +103,202 @@ const NewCorpusForm: React.FC<{onCreated: () => void}> = ({onCreated}) => {
     );
 };
 
+// Pick files from one of the caller's other scopes (user / shared / project)
+// and server-side copy the selection into the corpus. Garage CopyObject — no
+// download/reupload — so even large STEP files copy instantly.
+const CopyFromScopeModal: React.FC<{
+    dstScope: string;
+    dstSlug: string;
+    onClose: () => void;
+    onCopied: () => void;
+}> = ({dstScope, dstSlug, onClose, onCopied}) => {
+    const [scopes, setScopes] = useState<Array<{name: string; url: string}>>([]);
+    const [srcScope, setSrcScope] = useState("");
+    const [files, setFiles] = useState<FileEntry[]>([]);
+    const [loadingFiles, setLoadingFiles] = useState(false);
+    const [selected, setSelected] = useState<Set<string>>(new Set());
+    const [filter, setFilter] = useState("");
+    const [busy, setBusy] = useState(false);
+    const [err, setErr] = useState<string | null>(null);
+    const [result, setResult] = useState<{copied: number; failed: {key: string; reason: string}[]} | null>(null);
+
+    useEffect(() => {
+        void (async () => {
+            try {
+                const me = await viewerApi.me();
+                setScopes(
+                    me.scopes
+                        .map((s) => ({
+                            name: s.name,
+                            url: s.kind === "user" ? "user:me" : s.kind === "shared" ? "shared" : `project:${s.id}`,
+                        }))
+                        .filter((s) => s.url !== dstScope),
+                );
+            } catch (e) {
+                setErr((e as Error).message || "failed to load scopes");
+            }
+        })();
+    }, [dstScope]);
+
+    useEffect(() => {
+        setSelected(new Set());
+        setResult(null);
+        if (!srcScope) {
+            setFiles([]);
+            return;
+        }
+        setLoadingFiles(true);
+        void (async () => {
+            try {
+                setFiles(await viewerApi.listFiles(srcScope));
+                setErr(null);
+            } catch (e) {
+                setErr((e as Error).message || "listing failed");
+                setFiles([]);
+            } finally {
+                setLoadingFiles(false);
+            }
+        })();
+    }, [srcScope]);
+
+    const shown = useMemo(
+        () => files.filter((f) => f.key.toLowerCase().includes(filter.toLowerCase())),
+        [files, filter],
+    );
+    const toggle = (key: string) => setSelected((prev) => {
+        const next = new Set(prev);
+        if (next.has(key)) next.delete(key); else next.add(key);
+        return next;
+    });
+    const allShownSelected = shown.length > 0 && shown.every((f) => selected.has(f.key));
+    const toggleAll = () => setSelected((prev) => {
+        const next = new Set(prev);
+        if (allShownSelected) shown.forEach((f) => next.delete(f.key));
+        else shown.forEach((f) => next.add(f.key));
+        return next;
+    });
+
+    const onCopy = useCallback(async () => {
+        if (selected.size === 0) return;
+        setBusy(true);
+        setErr(null);
+        try {
+            const r = await viewerApi.adminCopyKeysFromScope(dstScope, srcScope, Array.from(selected));
+            setResult({copied: r.copied.length, failed: r.failed});
+            onCopied();
+            if (r.failed.length === 0) setSelected(new Set());
+        } catch (e) {
+            setErr((e as Error).message || "copy failed");
+        } finally {
+            setBusy(false);
+        }
+    }, [dstScope, srcScope, selected, onCopied]);
+
+    return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
+            <div
+                className="bg-gray-900 border border-gray-700 rounded-md w-full max-w-2xl max-h-[85vh] flex flex-col"
+                onClick={(e) => e.stopPropagation()}
+            >
+                <div className="px-4 py-3 border-b border-gray-700 flex items-center justify-between">
+                    <h3 className="text-sm font-semibold text-gray-100">
+                        Copy files into <span className="font-mono">{dstSlug}</span>
+                    </h3>
+                    <button type="button" onClick={onClose} className="text-gray-400 hover:text-white text-lg leading-none px-1">×</button>
+                </div>
+                <div className="px-4 py-3 border-b border-gray-700 flex items-center gap-2 flex-wrap">
+                    <span className="text-xs text-gray-300">From scope</span>
+                    <select
+                        value={srcScope}
+                        onChange={(e) => setSrcScope(e.target.value)}
+                        className="bg-gray-900 border border-gray-600 rounded-sm px-2 py-1 text-sm text-gray-100"
+                    >
+                        <option value="">Select a scope…</option>
+                        {scopes.map((s) => (
+                            <option key={s.url} value={s.url}>{s.name} ({s.url})</option>
+                        ))}
+                    </select>
+                    {files.length > 0 && (
+                        <input
+                            type="text"
+                            value={filter}
+                            onChange={(e) => setFilter(e.target.value)}
+                            placeholder="filter…"
+                            className="bg-gray-900 border border-gray-600 rounded-sm px-2 py-1 text-sm text-gray-100 flex-1 min-w-[120px]"
+                        />
+                    )}
+                </div>
+                <div className="flex-1 min-h-0 overflow-auto">
+                    {loadingFiles && <div className="text-xs text-gray-500 px-4 py-4">Loading…</div>}
+                    {!loadingFiles && srcScope && shown.length === 0 && (
+                        <div className="text-xs text-gray-500 italic px-4 py-4">
+                            No files{filter ? " match the filter" : " in this scope"}.
+                        </div>
+                    )}
+                    {shown.length > 0 && (
+                        <table className="w-full text-xs">
+                            <thead className="sticky top-0 bg-gray-900">
+                                <tr>
+                                    <th className="px-3 py-1 border-b border-gray-800 w-8">
+                                        <input type="checkbox" checked={allShownSelected} onChange={toggleAll}/>
+                                    </th>
+                                    <th className="text-left px-3 py-1 border-b border-gray-800 font-medium text-gray-300">Key</th>
+                                    <th className="text-right px-3 py-1 border-b border-gray-800 font-medium text-gray-300">Size</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {shown.map((f) => (
+                                    <tr key={f.key} className="hover:bg-gray-800/40 cursor-pointer" onClick={() => toggle(f.key)}>
+                                        <td className="px-3 py-1 border-b border-gray-800 text-center">
+                                            <input
+                                                type="checkbox"
+                                                checked={selected.has(f.key)}
+                                                onChange={() => toggle(f.key)}
+                                                onClick={(e) => e.stopPropagation()}
+                                            />
+                                        </td>
+                                        <td className="font-mono text-gray-200 px-3 py-1 border-b border-gray-800 truncate max-w-md">{f.key}</td>
+                                        <td className="text-right text-gray-400 px-3 py-1 border-b border-gray-800 font-mono">{fmtBytes(f.size)}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    )}
+                </div>
+                {err && <div className="text-xs text-red-400 px-4 py-2">{err}</div>}
+                {result && (
+                    <div className="text-xs px-4 py-2 border-t border-gray-700">
+                        <span className="text-emerald-400">Copied {result.copied}</span>
+                        {result.failed.length > 0 && (
+                            <span className="text-amber-400" title={result.failed.map((f) => `${f.key}: ${f.reason}`).join("\n")}>
+                                {" "}· {result.failed.length} skipped
+                            </span>
+                        )}
+                    </div>
+                )}
+                <div className="px-4 py-3 border-t border-gray-700 flex justify-end gap-2">
+                    <button type="button" onClick={onClose} className="text-sm px-3 py-1 rounded-sm text-gray-300 hover:bg-gray-800">Close</button>
+                    <button
+                        type="button"
+                        onClick={() => void onCopy()}
+                        disabled={busy || selected.size === 0}
+                        className="bg-blue-700 hover:bg-blue-600 disabled:opacity-50 text-white text-sm px-3 py-1 rounded-sm"
+                    >
+                        {busy ? "Copying…" : `Copy ${selected.size || ""} file${selected.size === 1 ? "" : "s"}`.trim()}
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 const CorpusFiles: React.FC<{corpus: Corpus}> = ({corpus}) => {
     const scope = `corpus:${corpus.slug}`;
     const [files, setFiles] = useState<FileEntry[]>([]);
     const [err, setErr] = useState<string | null>(null);
     const [uploading, setUploading] = useState<string | null>(null);
     const [progress, setProgress] = useState(0);
+    const [copyOpen, setCopyOpen] = useState(false);
     const inputRef = useRef<HTMLInputElement>(null);
 
     const reload = useCallback(async () => {
@@ -124,32 +314,34 @@ const CorpusFiles: React.FC<{corpus: Corpus}> = ({corpus}) => {
     useEffect(() => { void reload(); }, [reload]);
 
     const onPick = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (!file) return;
+        const files = Array.from(e.target.files ?? []);
+        if (files.length === 0) return;
         setErr(null);
-        setUploading(file.name);
-        setProgress(0);
-        try {
-            // Reuse the existing per-scope upload path. Pin
-            // autoConvert:false so we don't auto-generate derived
-            // blobs for corpus uploads — the audit dispatcher does
-            // that on demand when the sweep fires.
-            const {uploadFile} = await import("@/utils/scene/handlers/upload_source_file");
-            await uploadFile(file, {
-                autoConvert: false,
-                scope,
-                onProgress: (loaded, total) => {
-                    setProgress(total > 0 ? loaded / total : 0);
-                },
-            });
-            await reload();
-        } catch (e) {
-            setErr((e as Error).message || "upload failed");
-        } finally {
-            setUploading(null);
+        // Reuse the existing per-scope upload path. Pin autoConvert:false so we
+        // don't auto-generate derived blobs for corpus uploads — the audit
+        // dispatcher does that on demand when the sweep fires. Sequential; a
+        // failed file is reported without aborting the batch.
+        const {uploadFile} = await import("@/utils/scene/handlers/upload_source_file");
+        const failures: string[] = [];
+        for (let i = 0; i < files.length; i++) {
+            const file = files[i];
+            setUploading(files.length > 1 ? `${file.name} (${i + 1}/${files.length})` : file.name);
             setProgress(0);
-            if (inputRef.current) inputRef.current.value = "";
+            try {
+                await uploadFile(file, {
+                    autoConvert: false,
+                    scope,
+                    onProgress: (loaded, total) => setProgress(total > 0 ? loaded / total : 0),
+                });
+            } catch (e) {
+                failures.push(`${file.name}: ${(e as Error).message || "upload failed"}`);
+            }
         }
+        setUploading(null);
+        setProgress(0);
+        if (inputRef.current) inputRef.current.value = "";
+        if (failures.length) setErr(failures.join("; "));
+        await reload();
     }, [scope, reload]);
 
     const onDelete = useCallback(async (key: string) => {
@@ -175,10 +367,19 @@ const CorpusFiles: React.FC<{corpus: Corpus}> = ({corpus}) => {
                     <input
                         ref={inputRef}
                         type="file"
+                        multiple
                         onChange={onPick}
                         className="hidden"
                         disabled={!!uploading}
                     />
+                    <button
+                        type="button"
+                        onClick={() => setCopyOpen(true)}
+                        disabled={!!uploading}
+                        className="bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-white text-sm px-3 py-1 rounded-sm"
+                    >
+                        Copy from scope…
+                    </button>
                     <button
                         type="button"
                         onClick={() => inputRef.current?.click()}
@@ -191,6 +392,14 @@ const CorpusFiles: React.FC<{corpus: Corpus}> = ({corpus}) => {
                     </button>
                 </div>
             </div>
+            {copyOpen && (
+                <CopyFromScopeModal
+                    dstScope={scope}
+                    dstSlug={corpus.slug}
+                    onClose={() => setCopyOpen(false)}
+                    onCopied={() => void reload()}
+                />
+            )}
             {err && (
                 <div className="text-xs text-red-400 px-3 py-2">{err}</div>
             )}

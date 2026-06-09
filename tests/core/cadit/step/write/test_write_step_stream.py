@@ -72,3 +72,56 @@ def test_stream_writer_rejects_unknown(tmp_path):
 
     with pytest.raises(ValueError):
         a.to_stp(tmp_path / "x.stp", writer="bogus")
+
+
+def test_stream_writer_emits_brep_shapes(tmp_path):
+    # Beyond extrusions: the writer also emits arbitrary B-rep shapes (ClosedShell /
+    # ShellBasedSurfaceModel with analytic faces) via add_brep. Read a stream-emitted
+    # model back as B-rep Shapes, re-emit them, and confirm a clean round-trip:
+    # every shape streams back AND the re-emitted solids are watertight (edges are
+    # shared across adjacent faces, so OCC reads valid solids — no free shells).
+    from ada.cadit.step.read.stream_reader import stream_read_step
+
+    a = _model()
+    first = tmp_path / "first.stp"
+    a.to_stp(first, writer="stream")
+
+    shapes = ada.from_step(first, reader="auto")  # Shapes carrying ClosedShell/SBSM geom
+    second = tmp_path / "second.stp"
+    stats = shapes.to_stp(second, writer="stream")  # exercises add_brep
+
+    assert stats == {"emitted": 4, "skipped": 0}
+
+    # streams back as the same number of geometry roots
+    assert len(list(stream_read_step(second, local_pool=False))) == 4
+
+    # OCC reads every re-emitted solid as a WATERTIGHT solid: edges are shared by
+    # EdgeCurve identity, so a circle's two arcs stay distinct (no over-share) and a
+    # hollow section keeps its void — same solid count as the source, none invalid.
+    n_first, _ = _roundtrip_solids(first)
+    n_second, n_invalid = _roundtrip_solids(second)
+    assert n_invalid == 0
+    assert n_second == n_first
+
+
+def test_stream_writer_box_and_cylinder_primitives(tmp_path):
+    # Box and Cylinder primitives are extrusions (rectangle / circle swept by a
+    # length) and emit as watertight solids; Cone (tapered) and Sphere (periodic)
+    # are not yet supported and are skipped.
+    a = ada.Assembly("m") / (
+        ada.Part("p")
+        / [
+            ada.PrimBox("bx", (0, 0, 0), (0.5, 0.6, 0.7)),
+            ada.PrimCyl("cy", (2, 0, 0), (2, 0, 1), 0.4),
+            ada.PrimCone("cn", (4, 0, 0), (4, 0, 1), 0.5),
+            ada.PrimSphere("sp", (6, 0, 0), 0.5),
+        ]
+    )
+    out = tmp_path / "prims.stp"
+    stats = a.to_stp(out, writer="stream")
+
+    assert stats == {"emitted": 2, "skipped": 2}  # box + cylinder; cone + sphere skipped
+
+    n_solids, n_invalid = _roundtrip_solids(out)
+    assert n_solids == 2
+    assert n_invalid == 0

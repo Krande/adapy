@@ -5,9 +5,6 @@ const ExperimentalOptions: React.FC = () => {
     const {pyodideConverter, setPyodideConverter} = useExperimentalStore();
     return (
         <div className="space-y-1">
-            <div className="font-semibold text-xs uppercase tracking-wide text-gray-400">
-                Experimental
-            </div>
             <label className="flex items-start space-x-2">
                 <input
                     type="checkbox"

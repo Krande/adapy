@@ -1,0 +1,69 @@
+"""Memory-bounded streaming STEP -> GLB (ada.cadit.step.stream_to_glb).
+
+Streams the reader one solid at a time, tessellates via the active CAD backend, and
+appends each mesh to the GLB — never holding the whole model. Runs under OCC and
+adacpp (backend-neutral mesh contract).
+"""
+
+import json
+import struct
+
+import ada
+from ada import Beam, Plate, Section
+from ada.cadit.step.stream_to_glb import stream_step_to_glb
+
+
+def _glb_tree(glb_bytes: bytes) -> dict:
+    jlen = struct.unpack("<I", glb_bytes[12:16])[0]
+    return json.loads(glb_bytes[20 : 20 + jlen])
+
+
+def test_stream_step_to_glb_round_trip(tmp_path):
+    a = ada.Assembly("m") / (
+        ada.Part("p")
+        / [
+            Beam("ipe", (0, 0, 0), (3, 0, 0), Section("ipe", from_str="IPE300")),
+            Plate("pl", [(0, 0), (2, 0), (2, 1), (0, 1)], 0.02),
+        ]
+    )
+    src = tmp_path / "m.step"
+    a.to_stp(src)  # OCC writer (forward references -> two-pass reader path)
+
+    glb = tmp_path / "m.glb"
+    stats = stream_step_to_glb(src, glb, tolerant=True)
+
+    assert stats["meshed"] >= 2
+    assert glb.exists() and glb.stat().st_size > 0
+
+    # the GLB loads back as a scene with the meshed geometry
+    import trimesh
+
+    scene = trimesh.load(glb)
+    assert sum(len(g.faces) for g in scene.geometry.values()) > 0
+
+
+def test_stream_step_to_glb_extracts_colour_merges_and_emits_ada_ext(tmp_path):
+    # The streamed GLB must match the normal to_gltf shape: per-solid STEP colours are
+    # extracted, meshes are merged by colour (one material per colour), and the ADA
+    # design-extension is emitted for picking.
+    from ada.visit.colors import Color
+
+    box = ada.PrimBox("bx", (0, 0, 0), (1, 1, 1))
+    box.color = Color(1.0, 0.0, 0.0)
+    cyl = ada.PrimCyl("cy", (2, 0, 0), (2, 0, 1), 0.4)
+    cyl.color = Color(0.0, 0.0, 1.0)
+    src = tmp_path / "colored.step"
+    (ada.Assembly("m") / (ada.Part("p") / [box, cyl])).to_stp(src)
+
+    glb = tmp_path / "colored.glb"
+    stats = stream_step_to_glb(src, glb)
+
+    assert stats["meshed"] == 2
+    assert stats["materials"] == 2  # two distinct colours -> two merged material groups
+
+    tree = _glb_tree(glb.read_bytes())
+    assert len(tree["materials"]) == 2  # merged by colour, not one node per solid
+    assert "ADA_EXT_data" in tree.get("extensionsUsed", [])  # design tree for picking
+    # red box colour survives the STEP round-trip into a material baseColorFactor
+    base_colors = [m.get("pbrMetallicRoughness", {}).get("baseColorFactor") for m in tree["materials"]]
+    assert [1.0, 0.0, 0.0, 1.0] in base_colors
