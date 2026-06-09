@@ -629,6 +629,22 @@ def _export_with_ada(
     return out_path.read_bytes()
 
 
+# A STEP file on disk above this size loads into one OCC compound that OOM-kills
+# the worker (the 778 MB CAD assembly is fatal). Above it, STEP→GLB auto-routes
+# through the memory-bounded streaming converter; below, the OCC path keeps full
+# fidelity. The per-job ``step_streamer`` option overrides the auto decision.
+_STEP_STREAM_AUTO_BYTES = 200 * 1024 * 1024
+
+
+def _should_stream_step(src_path: pathlib.Path, step_streamer: bool | None) -> bool:
+    if step_streamer is not None:
+        return bool(step_streamer)
+    try:
+        return src_path.stat().st_size > _STEP_STREAM_AUTO_BYTES
+    except OSError:
+        return False
+
+
 def _via_ada(
     src_path: pathlib.Path,
     source_ext: str,
@@ -639,6 +655,7 @@ def _via_ada(
     fem_to_objects: bool | None = None,
     merge_fem_objects: bool | None = None,
     reconstruct_surfaces: bool | None = None,
+    step_streamer: bool | None = None,
 ) -> bytes:
     """Heavy path: load with ada, export to target format. Used for any
     non-trivial source/target combination that needs the full ada-py
@@ -647,11 +664,24 @@ def _via_ada(
     ``merge_meshes`` is forwarded to :func:`_export_with_ada` so the
     per-job kwarg path established by the convert() options dispatch
     reaches the actual GLB writer call. Other targets ignore it.
+
+    ``step_streamer`` (STEP→GLB only) forces the memory-bounded streaming
+    converter; ``None`` auto-selects it for STEP files too large for the OCC
+    loader to hold without OOM-killing the worker.
     """
-    on_progress("parsing", 0.15)
     suffix = ".glb" if target_format == "glb" else f".{target_format}"
     out_path = pathlib.Path(tempfile.mkstemp(suffix=suffix)[1])
     try:
+        if source_ext in {".step", ".stp"} and target_format == "glb" and _should_stream_step(src_path, step_streamer):
+            # Stream solid-by-solid: bounded memory, no whole-model OCC load.
+            from ada.cadit.step.stream_to_glb import stream_step_to_glb
+
+            on_progress("streaming-step", 0.2)
+            stream_step_to_glb(src_path, out_path, tolerant=True)
+            on_progress("ready", 1.0)
+            return out_path.read_bytes()
+
+        on_progress("parsing", 0.15)
         model = _load_with_ada(src_path, source_ext)
         _apply_fem_to_objects(model, source_ext, target_format, fem_to_objects, merge_fem_objects, reconstruct_surfaces)
         return _export_with_ada(
@@ -1351,6 +1381,20 @@ def _register_ada_loadable() -> None:
         },
     ]
 
+    # STEP→GLB only: route the conversion through the memory-bounded streaming
+    # reader (one solid at a time) instead of loading the whole model via OCC.
+    step_streamer_option = {
+        "name": "step_streamer",
+        "type": "bool",
+        "default": False,
+        "description": (
+            "Load STEP with the memory-bounded streaming reader (one solid at a "
+            "time) instead of OpenCASCADE. Use for very large assemblies that "
+            "OOM the normal path; skips solids using unsupported (spherical / "
+            "rational B-spline) surfaces. Auto-enabled above 200 MB."
+        ),
+    }
+
     # Schema for FEM-source → CAD-target pairs. ``fem_to_objects`` rebuilds
     # concept Beam/Plate objects from the mesh before export — without it a
     # FEM → IFC/XML conversion is near-empty (the writers only emit concept
@@ -1405,6 +1449,7 @@ def _register_ada_loadable() -> None:
                 fem_to_objects=None,
                 merge_fem_objects=None,
                 reconstruct_surfaces=None,
+                step_streamer=None,
                 **_kw,
             ):
                 return _via_ada(
@@ -1416,10 +1461,12 @@ def _register_ada_loadable() -> None:
                     fem_to_objects=fem_to_objects,
                     merge_fem_objects=merge_fem_objects,
                     reconstruct_surfaces=reconstruct_surfaces,
+                    step_streamer=step_streamer,
                 )
 
             if tgt == "glb":
-                row_options = glb_options
+                # The streaming toggle only applies to STEP sources.
+                row_options = glb_options + [step_streamer_option] if ext in {".step", ".stp"} else glb_options
             elif tgt in ("ifc", "xml") and ext in _FEM_SOURCE_EXTS:
                 row_options = fem_to_objects_options
             else:
