@@ -74,6 +74,15 @@ class AuthConfig:
     # disables the mint endpoint so deployments without it don't
     # accidentally hand out 30-day bearers signed with a default key.
     cli_token_secret: str
+    # Extra OIDC scope(s) to request on top of the always-sent
+    # ``openid profile email offline_access`` base. Empty for IdPs that
+    # mint an API-audienced token from the base scopes alone (e.g.
+    # Authentik). Set to a resource scope (e.g. Azure AD's
+    # ``api://<client-id>/access_as_user``) when the provider otherwise
+    # issues an access token audienced at something other than this app,
+    # so the ``aud`` claim matches ``audience`` above. Space-separated.
+    # Defaulted last so existing constructors stay valid.
+    scope: str = ""
 
 
 @dataclass(frozen=True)
@@ -128,6 +137,7 @@ def load_settings() -> Settings:
         issuer=auth_issuer,
         client_id=auth_client_id,
         audience=auth_audience,
+        scope=os.environ.get("ADA_VIEWER_AUTH_SCOPE", "").strip(),
         admin_group=os.environ.get("ADA_VIEWER_AUTH_ADMIN_GROUP", "").strip(),
         cli_token_secret=os.environ.get("ADA_VIEWER_CLI_TOKEN_SECRET", "").strip(),
     )

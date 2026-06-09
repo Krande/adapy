@@ -156,14 +156,20 @@ export async function signIn(returnUrl?: string): Promise<void> {
         STORAGE_RETURN,
         returnUrl || window.location.pathname + window.location.search,
     );
+    // offline_access asks the IdP to issue a refresh_token. Both
+    // Authentik and Azure honor it; without it reload-in-tab forces a
+    // re-authorize round-trip. An optional configured scope is appended
+    // for providers (e.g. Azure AD) that otherwise mint an access token
+    // audienced at something other than this API — requesting the API's
+    // own scope (api://<client-id>/access_as_user) makes the issued
+    // token's `aud` match the API. Empty (Authentik) → base scope only.
+    const baseScope = "openid profile email offline_access";
+    const extraScope = runtime.authScope();
     const params = new URLSearchParams({
         response_type: "code",
         client_id: runtime.authClientId(),
         redirect_uri: redirectUri(),
-        // offline_access asks the IdP to issue a refresh_token. Both
-        // Authentik and Azure honor it; without it reload-in-tab
-        // forces a re-authorize round-trip.
-        scope: "openid profile email offline_access",
+        scope: extraScope ? `${baseScope} ${extraScope}` : baseScope,
         code_challenge: challenge,
         code_challenge_method: "S256",
         state,

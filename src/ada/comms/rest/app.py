@@ -4590,6 +4590,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             f"window.AUTH_ISSUER = {_json.dumps(a.issuer)};\n"
             f"window.AUTH_CLIENT_ID = {_json.dumps(a.client_id)};\n"
             f"window.AUTH_AUDIENCE = {_json.dumps(a.audience)};\n"
+            f"window.AUTH_SCOPE = {_json.dumps(a.scope)};\n"
             f"window.VIEWER_IMAGE_TAG = {_json.dumps(viewer_tag)};\n"
             f"window.WORKER_IMAGE_TAG = {_json.dumps(worker_tag)};\n"
             f"window.ADAPY_VERSION = {_json.dumps(adapy_version)};\n"
