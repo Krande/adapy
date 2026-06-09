@@ -191,6 +191,224 @@ def _as_color(rgb):
     return Color(*rgb)
 
 
+# --------------------------------------------------------------------------- #
+# STEP assembly-instance transforms (kernel-free).
+#
+# A MANIFOLD_SOLID_BREP authored in a sub-assembly's *local* frame is positioned
+# in the world by a chain of placement relationships:
+#
+#   solid  --(item of)-->  ADVANCED_BREP_SHAPE_REPRESENTATION (geom rep)
+#   geom rep  <--SHAPE_REPRESENTATION_RELATIONSHIP-->  placement SHAPE_REPRESENTATION
+#   placement rep == rep_1 of a CONTEXT_DEPENDENT_SHAPE_REPRESENTATION's complex
+#       rep_rel = ( REPRESENTATION_RELATIONSHIP($,$,rep_1,rep_2)
+#                   REPRESENTATION_RELATIONSHIP_WITH_TRANSFORMATION(#IDT)
+#                   SHAPE_REPRESENTATION_RELATIONSHIP() )
+#   IDT = ITEM_DEFINED_TRANSFORMATION($,$,item_1,item_2)   item_1 in rep_1 (child),
+#       item_2 in rep_2 (parent), both AXIS2_PLACEMENT_3D.
+#   T_edge = inv(M(item_1)) @ M(item_2)   maps child(rep_1) coords -> parent(rep_2).
+#   recurse rep_2 (it is rep_1 of its own CDSR edge) up to a root rep; accumulate
+#   T_world = T_parent @ T_edge (root-most leftmost). A rep that is rep_1 of N edges
+#   yields N world matrices -> N placed instances of the solid.
+#
+# The algorithm is validated against OpenCascade's STEPControl_Reader to 1e-9.
+# A flat/baked file (e.g. adapy's own emitter) has no standalone SRR and identity
+# IDTs, so place_rep falls back to the geom rep, there are no edges, and every solid
+# yields a single identity (None) transform — a no-op for existing flat reads.
+# --------------------------------------------------------------------------- #
+def _axis2_args(pool_get, rid: int):
+    """Return (location, axis|None, ref|None) raw 3-tuples from an AXIS2_PLACEMENT_3D id."""
+    import numpy as np
+
+    rec = pool_get(rid)
+    if rec is None or rec.type != "AXIS2_PLACEMENT_3D":
+        return None
+
+    def _coords(arg):
+        if not isinstance(arg, _Ref):
+            return None
+        sub = pool_get(arg.id)
+        if sub is None or not sub.args:
+            return None
+        c = sub.args[1] if len(sub.args) > 1 else None  # ('', (x,y,z))
+        if not isinstance(c, (list, tuple)):
+            return None
+        try:
+            return np.asarray([float(x) for x in c], dtype=float)
+        except (TypeError, ValueError):
+            return None
+
+    a = rec.args
+    loc = _coords(a[1]) if len(a) > 1 else None
+    if loc is None:
+        return None
+    axis = _coords(a[2]) if len(a) > 2 else None
+    ref = _coords(a[3]) if len(a) > 3 else None
+    return loc, axis, ref
+
+
+def _axis2_to_matrix(loc, axis, ref):
+    """Build a 4x4 placement matrix from an AXIS2_PLACEMENT_3D (STEP defaults for
+    unset axis/ref). Validated vs OCC to 1e-9."""
+    import numpy as np
+
+    def _norm(v):
+        n = float(np.linalg.norm(v))
+        return v / n if n > 1e-12 else v
+
+    z = _norm(axis if axis is not None else np.asarray([0.0, 0.0, 1.0]))
+    x = ref if ref is not None else np.asarray([1.0, 0.0, 0.0])
+    x = _norm(x - float(np.dot(x, z)) * z)
+    y = np.cross(z, x)
+    m = np.eye(4)
+    m[:3, 0] = x
+    m[:3, 1] = y
+    m[:3, 2] = z
+    m[:3, 3] = loc
+    return m
+
+
+def _placement_matrix(pool_get, rid: int):
+    """4x4 matrix for an AXIS2_PLACEMENT_3D id, or identity if unresolvable."""
+    import numpy as np
+
+    parts = _axis2_args(pool_get, rid)
+    if parts is None:
+        return np.eye(4)
+    return _axis2_to_matrix(*parts)
+
+
+def _cdsr_rep_rel(pool_get, cdsr_rec):
+    """For a CONTEXT_DEPENDENT_SHAPE_REPRESENTATION, return its complex rep_rel record
+    (the one carrying REPRESENTATION_RELATIONSHIP + ..._WITH_TRANSFORMATION), or None."""
+    if not cdsr_rec.args or not isinstance(cdsr_rec.args[0], _Ref):
+        return None
+    rec = pool_get(cdsr_rec.args[0].id)
+    if rec is None or rec.type != _COMPLEX or not isinstance(rec.args, dict):
+        return None
+    return rec
+
+
+def _rep_rel_edge(pool_get, rep_rel_rec):
+    """Extract (rep_1_id, rep_2_id, idt_id) from a complex rep_rel record, or None."""
+    subs = rep_rel_rec.args
+    rr = subs.get("REPRESENTATION_RELATIONSHIP")
+    rrt = subs.get("REPRESENTATION_RELATIONSHIP_WITH_TRANSFORMATION")
+    if not rr or not rrt:
+        return None
+    # REPRESENTATION_RELATIONSHIP(name, desc, rep_1, rep_2) — complex sub-args are
+    # 0-indexed (no leading '' name slot is stripped here; name/desc are present).
+    refs = [v for v in rr if isinstance(v, _Ref)]
+    if len(refs) < 2:
+        return None
+    rep_1, rep_2 = refs[0].id, refs[1].id
+    idt = rrt[0] if rrt and isinstance(rrt[0], _Ref) else None
+    if idt is None:
+        return None
+    return rep_1, rep_2, idt.id
+
+
+def _build_transform_map(pool_get, root_ids, cdsr_ids, srr_ids, absr_ids):
+    """Map each root solid id -> list of world 4x4 matrices (one per placed instance).
+
+    Resilient: any unresolved entity simply leaves a solid with the identity ([None]
+    handled by the caller); never raises.
+    """
+    import numpy as np
+
+    # geom_rep id -> solid id (from each ABSR's item list)
+    geomrep_of_solid: dict[int, int] = {}
+    root_set = set(root_ids)
+    for aid in absr_ids:
+        rec = pool_get(aid)
+        if rec is None or len(rec.args) < 2:
+            continue
+        items = rec.args[1]
+        if not isinstance(items, (list, tuple)):
+            continue
+        for it in items:
+            if isinstance(it, _Ref) and it.id in root_set:
+                geomrep_of_solid[it.id] = aid
+
+    # geom_rep id -> placement rep id (the non-ABSR side of a standalone SRR).
+    place_rep_of_geom: dict[int, int] = {}
+    absr_set = set(absr_ids)
+    for sid in srr_ids:
+        rec = pool_get(sid)
+        if rec is None or len(rec.args) < 4:
+            continue
+        ra, rb = rec.args[2], rec.args[3]
+        if not (isinstance(ra, _Ref) and isinstance(rb, _Ref)):
+            continue
+        # The geom rep is whichever side is the ABSR; the other side is the placement rep.
+        if ra.id in absr_set:
+            place_rep_of_geom.setdefault(ra.id, rb.id)
+        elif rb.id in absr_set:
+            place_rep_of_geom.setdefault(rb.id, ra.id)
+
+    # rep_1 id -> list of (rep_2 id, item_1 id, item_2 id) edges (from CDSR/rep_rel/IDT).
+    edges: dict[int, list] = {}
+    for cid in cdsr_ids:
+        cdsr = pool_get(cid)
+        if cdsr is None:
+            continue
+        rr_rec = _cdsr_rep_rel(pool_get, cdsr)
+        if rr_rec is None:
+            continue
+        edge = _rep_rel_edge(pool_get, rr_rec)
+        if edge is None:
+            continue
+        rep_1, rep_2, idt_id = edge
+        idt = pool_get(idt_id)
+        if idt is None or idt.type != "ITEM_DEFINED_TRANSFORMATION" or len(idt.args) < 4:
+            continue
+        i1, i2 = idt.args[2], idt.args[3]
+        if not (isinstance(i1, _Ref) and isinstance(i2, _Ref)):
+            continue
+        edges.setdefault(rep_1, []).append((rep_2, i1.id, i2.id))
+
+    def _world_matrices(rep_id: int, _seen: frozenset) -> list:
+        """All world matrices reaching ``rep_id`` (a rep that is rep_1 of edges).
+        Each edge T_edge maps this rep's coords -> its parent rep; recurse to root."""
+        out_edges = edges.get(rep_id)
+        if not out_edges:
+            return [np.eye(4)]  # root rep: identity (its own coords ARE world)
+        if rep_id in _seen:
+            return [np.eye(4)]  # cycle guard
+        seen2 = _seen | {rep_id}
+        mats: list = []
+        for rep_2, i1, i2 in out_edges:
+            m_child = _placement_matrix(pool_get, i1)
+            m_parent = _placement_matrix(pool_get, i2)
+            try:
+                t_edge = np.linalg.inv(m_child) @ m_parent
+            except np.linalg.LinAlgError:
+                t_edge = np.eye(4)
+            for t_parent in _world_matrices(rep_2, seen2):
+                mats.append(t_parent @ t_edge)
+        return mats
+
+    tmap: dict[int, list] = {}
+    for sid in root_ids:
+        geom_rep = geomrep_of_solid.get(sid)
+        # Flat/baked file: no ABSR item linkage at all -> identity, yield once.
+        if geom_rep is None:
+            continue
+        # The placement rep is the SRR's non-ABSR side; when there's no standalone SRR
+        # (box_comp-style: the ABSR itself is rep_1 of the CDSR edge) fall back to the
+        # geom rep so its outgoing edges are found directly.
+        place_rep = place_rep_of_geom.get(geom_rep, geom_rep)
+        try:
+            mats = _world_matrices(place_rep, frozenset())
+        except Exception:  # noqa: BLE001 - never crash a read over a placement chain
+            mats = [np.eye(4)]
+        # Drop pure-identity lists to a no-op (single instance, transform=None).
+        nontrivial = [m for m in mats if not np.allclose(m, np.eye(4), atol=1e-12)]
+        if not nontrivial and len(mats) <= 1:
+            continue
+        tmap[sid] = mats
+    return tmap
+
+
 _HEADER_RE = re.compile(r"^\s*#(\d+)\s*=\s*([A-Z0-9_]+)\s*\(", re.S)
 _COMPLEX_RE = re.compile(r"^\s*#(\d+)\s*=\s*\(", re.S)  # #id=(NAME(..)NAME(..)..) complex record
 _COMPLEX = "__COMPLEX__"
@@ -730,6 +948,20 @@ def _solid_name(args: list, n_solids: int) -> str:
     return args[0] if args and isinstance(args[0], str) and args[0] else f"solid_{n_solids + 1}"
 
 
+def _yield_instances(name: str, geom, color, mats):
+    """Yield ONE Geometry for this (single) solid, carrying its list of world-placement
+    matrices. ``mats`` is a list of 4x4 matrices (one per placed instance) or None/empty
+    for the single, no-transform case. The downstream tessellator meshes the local shell
+    ONCE and applies each matrix to that mesh, so a part instanced N times meshes once.
+    A lone identity matrix collapses to ``transforms=None`` so flat files and
+    single-instance solids are byte-for-byte unchanged."""
+    import numpy as np
+
+    if mats and len(mats) == 1 and np.allclose(mats[0], np.eye(4), atol=1e-12):
+        mats = None
+    yield Geometry(id=name, geometry=geom, color=color, transforms=(mats or None))
+
+
 def _short_reason(ex: Exception) -> str:
     """A compact, groupable label for a skipped-solid summary."""
     s = str(ex)
@@ -797,6 +1029,9 @@ def _read_two_pass_dict(filepath: Path, *, tolerant: bool, skipped, on_total=Non
     pool: dict[int, _Rec] = {}
     root_ids: list[int] = []
     styled_ids: list[int] = []
+    cdsr_ids: list[int] = []
+    srr_ids: list[int] = []
+    absr_ids: list[int] = []
     with filepath.open("r", encoding="utf-8", errors="replace") as fh:
         for stmt in _iter_statements(fh):
             parsed = _parse_statement(stmt)
@@ -808,8 +1043,15 @@ def _read_two_pass_dict(filepath: Path, *, tolerant: bool, skipped, on_total=Non
                 root_ids.append(inst_id)
             elif etype == "STYLED_ITEM":
                 styled_ids.append(inst_id)
+            elif etype == "CONTEXT_DEPENDENT_SHAPE_REPRESENTATION":
+                cdsr_ids.append(inst_id)
+            elif etype == "SHAPE_REPRESENTATION_RELATIONSHIP":
+                srr_ids.append(inst_id)
+            elif etype == "ADVANCED_BREP_SHAPE_REPRESENTATION":
+                absr_ids.append(inst_id)
 
     colour_map = _build_colour_map(pool.get, styled_ids)
+    tmap = _build_transform_map(pool.get, root_ids, cdsr_ids, srr_ids, absr_ids)
     if on_total is not None:
         on_total(len(root_ids))
     resolver = _Resolver(pool)
@@ -819,9 +1061,11 @@ def _read_two_pass_dict(filepath: Path, *, tolerant: bool, skipped, on_total=Non
         name = _solid_name(rec.args, n_solids)
         resolver.reset_cache()
         geom = _try_resolve_root(resolver, name, _ROOT_BUILDERS[rec.type], rec.args, tolerant=tolerant, skipped=skipped)
-        if geom is not None:
-            n_solids += 1
-            yield Geometry(id=name, geometry=geom, color=_as_color(colour_map.get(rid)))
+        if geom is None:
+            continue
+        n_solids += 1
+        color = _as_color(colour_map.get(rid))
+        yield from _yield_instances(name, geom, color, tmap.get(rid))
 
 
 def _stmt_end(mm, start: int, n: int) -> int:
@@ -856,6 +1100,9 @@ def _scan_offset_index(mm):
     offs = array.array("q")
     roots: list[int] = []
     styled: list[int] = []  # STYLED_ITEM ids — resolved to per-solid colours later
+    cdsr: list[int] = []  # CONTEXT_DEPENDENT_SHAPE_REPRESENTATION ids — assembly transforms
+    srr: list[int] = []  # standalone SHAPE_REPRESENTATION_RELATIONSHIP ids
+    absr: list[int] = []  # ADVANCED_BREP_SHAPE_REPRESENTATION ids (solid -> geom rep)
     n = len(mm)
     pos = 0
     while pos < n:
@@ -891,8 +1138,14 @@ def _scan_offset_index(mm):
                             roots.append(rid)
                         elif kw == "STYLED_ITEM":
                             styled.append(rid)
+                        elif kw == "CONTEXT_DEPENDENT_SHAPE_REPRESENTATION":
+                            cdsr.append(rid)
+                        elif kw == "SHAPE_REPRESENTATION_RELATIONSHIP":
+                            srr.append(rid)
+                        elif kw == "ADVANCED_BREP_SHAPE_REPRESENTATION":
+                            absr.append(rid)
         pos = end + 1
-    return ids, offs, roots, styled
+    return ids, offs, roots, styled, cdsr, srr, absr
 
 
 class _OffsetPool:
@@ -928,7 +1181,7 @@ def _read_two_pass_lazy(filepath: Path, *, tolerant: bool, skipped, on_total=Non
     fh = open(filepath, "rb")  # noqa: SIM115 - kept open for the generator's lifetime
     mm = mmap.mmap(fh.fileno(), 0, access=mmap.ACCESS_READ)
     try:
-        ids_arr, offs_arr, roots, styled = _scan_offset_index(mm)
+        ids_arr, offs_arr, roots, styled, cdsr, srr, absr = _scan_offset_index(mm)
         ids_np = np.frombuffer(ids_arr, dtype=np.int64)
         offs_np = np.frombuffer(offs_arr, dtype=np.int64)
         order = np.argsort(ids_np, kind="stable")
@@ -937,6 +1190,7 @@ def _read_two_pass_lazy(filepath: Path, *, tolerant: bool, skipped, on_total=Non
         del ids_np, offs_np, order, ids_arr, offs_arr
         pool = _OffsetPool(mm, ids_sorted, offs_sorted)
         colour_map = _build_colour_map(pool.get, styled)
+        tmap = _build_transform_map(pool.get, roots, cdsr, srr, absr)
         if on_total is not None:
             on_total(len(roots))
         resolver = _Resolver(pool)
@@ -950,9 +1204,11 @@ def _read_two_pass_lazy(filepath: Path, *, tolerant: bool, skipped, on_total=Non
             geom = _try_resolve_root(
                 resolver, name, _ROOT_BUILDERS[rec.type], rec.args, tolerant=tolerant, skipped=skipped
             )
-            if geom is not None:
-                n_solids += 1
-                yield Geometry(id=name, geometry=geom, color=_as_color(colour_map.get(rid)))
+            if geom is None:
+                continue
+            n_solids += 1
+            color = _as_color(colour_map.get(rid))
+            yield from _yield_instances(name, geom, color, tmap.get(rid))
     finally:
         mm.close()
         fh.close()
