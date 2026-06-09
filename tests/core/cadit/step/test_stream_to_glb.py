@@ -88,3 +88,49 @@ def test_stream_workers_reserves_a_core_for_the_event_loop(monkeypatch):
     # An explicit override is honoured verbatim (operator owns the trade-off).
     monkeypatch.setenv("ADA_STEP_STREAM_WORKERS", "6")
     assert sfss._stream_workers() == 6
+
+
+def _total_tris(glb_bytes: bytes) -> int:
+    tree = _glb_tree(glb_bytes)
+    return sum(tree["accessors"][p["indices"]]["count"] // 3 for m in tree.get("meshes", []) for p in m["primitives"])
+
+
+def test_stream_pool_matches_sequential(monkeypatch, tmp_path):
+    # The self-managed timeout pool must produce byte-for-byte the same meshes as the
+    # sequential path — same solids, same triangle count.
+    from ada.visit.scene_handling import scene_from_step_stream as sfss
+
+    monkeypatch.setattr(sfss, "_POOL_MIN_SOLIDS", 4)  # force the pool on a small model
+    parts = [Beam(f"b{i}", (i, 0, 0), (i, 0, 3), Section("t", from_str="TUB300x20")) for i in range(8)]
+    src = tmp_path / "m.step"
+    (ada.Assembly("m") / (ada.Part("p") / parts)).to_stp(src)
+
+    monkeypatch.setenv("ADA_STEP_STREAM_WORKERS", "1")  # sequential (n_workers=1 -> no pool)
+    seq = stream_step_to_glb(src, tmp_path / "seq.glb")
+    monkeypatch.setenv("ADA_STEP_STREAM_WORKERS", "3")  # parallel pool
+    par = stream_step_to_glb(src, tmp_path / "par.glb")
+
+    assert seq["meshed"] == par["meshed"] == 8
+    assert _total_tris((tmp_path / "seq.glb").read_bytes()) == _total_tris((tmp_path / "par.glb").read_bytes())
+
+
+def test_stream_pool_per_solid_timeout_skips_hung_solid(monkeypatch, tmp_path):
+    # A solid that hangs OCC tessellation must be killed at the per-solid budget and
+    # skipped, so the conversion COMPLETES instead of freezing the whole job forever.
+    from ada.visit.scene_converter import SceneConverter
+    from ada.visit.scene_handling import scene_from_step_stream as sfss
+    from ada.visit.scene_handling.scene_from_step_stream import StepStreamSource
+
+    monkeypatch.setattr(sfss, "_POOL_MIN_SOLIDS", 2)
+    parts = [Beam(f"b{i}", (i, 0, 0), (i, 0, 3), Section("t", from_str="TUB300x20")) for i in range(6)]
+    src = tmp_path / "m.step"
+    (ada.Assembly("m") / (ada.Part("p") / parts)).to_stp(src)
+
+    monkeypatch.setenv("ADA_STEP_STREAM_WORKERS", "2")
+    monkeypatch.setenv("ADA_STEP_STREAM_TEST_HANG_S", "3")  # every solid hangs 3s
+    monkeypatch.setenv("ADA_STEP_STREAM_SOLID_TIMEOUT_S", "0.5")  # killed at 0.5s
+
+    scene = SceneConverter(source=StepStreamSource(src, tolerant=True)).build_scene()
+    stats = scene.metadata["ada_stream_stats"]
+    assert stats["meshed"] == 0  # every solid hung -> all killed + skipped
+    assert any("timeout" in r for r in stats["reasons"])  # reaped by the per-solid timeout

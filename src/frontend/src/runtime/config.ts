@@ -33,6 +33,12 @@ declare global {
         AUTH_ISSUER?: string;
         AUTH_CLIENT_ID?: string;
         AUTH_AUDIENCE?: string;
+        // Extra scope(s) appended to the base OIDC request. Empty for
+        // providers that issue an API-audienced token from the base
+        // scopes (Authentik); set to a resource scope (e.g. Azure AD's
+        // `api://<client-id>/access_as_user`) so the access token's
+        // `aud` matches the API. Space-separated.
+        AUTH_SCOPE?: string;
         // Image tags reported by the viewer pod (env-baked at image
         // build) and the worker pod (published to NATS KV on
         // startup, surfaced here via /config.js). Either may be null
@@ -141,6 +147,10 @@ export const runtime = {
     authIssuer: (): string => (w().AUTH_ISSUER || "").replace(/\/+$/, ""),
     authClientId: (): string => w().AUTH_CLIENT_ID || "",
     authAudience: (): string => w().AUTH_AUDIENCE || w().AUTH_CLIENT_ID || "",
+    // Extra scope(s) to append to the base OIDC scope request. Empty
+    // unless the provider needs a resource scope to issue an
+    // API-audienced access token (see oidc.signIn).
+    authScope: (): string => (w().AUTH_SCOPE || "").trim(),
 
     // WebSocket / desktop bundle
     websocketPort: (): number => Number(w().WEBSOCKET_PORT ?? 8765),

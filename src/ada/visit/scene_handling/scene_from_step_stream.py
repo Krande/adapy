@@ -45,6 +45,14 @@ def _tessellate_geom_worker(geom):
 
     gid = None
     try:
+        import os
+
+        _hang = os.environ.get("ADA_STEP_STREAM_TEST_HANG_S")  # test hook: simulate an OCC hang
+        if _hang:
+            import time
+
+            time.sleep(float(_hang))
+
         from ada.cad import active_backend
 
         be = active_backend()
@@ -72,6 +80,36 @@ def _tessellate_geom_worker(geom):
         return ("ok", gid, geom.color, pos, idx, nrm)
     except Exception as exc:  # noqa: BLE001 - report and skip; one bad solid mustn't abort
         return (f"error:{type(exc).__name__}", gid, None, None, None, None)
+
+
+def _pool_worker_loop(worker_id, task_q, result_q) -> None:
+    """Long-lived pool worker: pull one geom at a time, tessellate it, and put
+    ``(worker_id, result)`` back. The worker_id lets the parent free the right slot and
+    — crucially — terminate THIS worker if it overruns the per-solid timeout (an OCC
+    tessellation can hang in an uninterruptible C call; only killing the process stops
+    it). ``None`` is the shutdown sentinel."""
+    while True:
+        geom = task_q.get()
+        if geom is None:
+            return
+        result_q.put((worker_id, _tessellate_geom_worker(geom)))
+
+
+def _per_solid_timeout_s() -> float:
+    """Wall-clock budget for tessellating a single solid before its worker is killed and
+    the solid skipped. ``ADA_STEP_STREAM_SOLID_TIMEOUT_S`` overrides; default 120 s is
+    far above any healthy solid (sub-second to a few seconds) but bounds a hang."""
+    import os
+
+    raw = os.environ.get("ADA_STEP_STREAM_SOLID_TIMEOUT_S")
+    if raw:
+        try:
+            v = float(raw)
+            if v > 0:
+                return v
+        except ValueError:
+            pass
+    return 120.0
 
 
 def _cgroup_cpu_quota() -> int | None:
@@ -218,42 +256,89 @@ def scene_from_step_stream(source: StepStreamSource, converter: SceneConverter) 
         for geom in geom_iter:
             _handle(_tessellate_geom_worker(geom))
     else:
-        import concurrent.futures as _cf
+        # Self-managed spawn pool (not ProcessPoolExecutor, which can't kill an
+        # individual worker): one solid per worker at a time, so a worker that overruns
+        # the per-solid timeout — an OCC tessellation hung in an uninterruptible C call —
+        # is killed, its solid skipped, and a fresh worker spawned in its place. Without
+        # this a single bad solid hangs the whole conversion forever.
         import multiprocessing as _mp
+        import queue as _queue
+        import time as _time
+
+        ctx = _mp.get_context("spawn")
+        timeout_s = _per_solid_timeout_s()
+
+        def _spawn(wid, result_q):
+            task_q = ctx.Queue(maxsize=1)
+            proc = ctx.Process(target=_pool_worker_loop, args=(wid, task_q, result_q), daemon=True)
+            proc.start()
+            return {"proc": proc, "task_q": task_q, "busy": False, "gid": None, "since": None}
 
         try:
-            executor = _cf.ProcessPoolExecutor(max_workers=n_workers, mp_context=_mp.get_context("spawn"))
-        except Exception:  # noqa: BLE001 - any pool-start failure falls back to sequential
-            executor = None
+            result_q = ctx.Queue()
+            slots = [_spawn(i, result_q) for i in range(n_workers)]
+        except Exception:  # noqa: BLE001 - pool start failure -> sequential fallback
+            slots = None
 
-        if executor is None:
+        if slots is None:
             for geom in geom_iter:
                 _handle(_tessellate_geom_worker(geom))
         else:
-            logger.info("scene_from_step_stream: tessellating with %d worker process(es)", n_workers)
-            with executor:
-                inflight: set = set()
-
-                def _submit_next() -> bool:
-                    try:
-                        inflight.add(executor.submit(_tessellate_geom_worker, next(geom_iter)))
-                        return True
-                    except StopIteration:
-                        return False
-
-                for _ in range(n_workers * 2):  # prime the pool — bounded backpressure window
-                    if not _submit_next():
-                        break
-                while inflight:
-                    done, _pending = _cf.wait(inflight, return_when=_cf.FIRST_COMPLETED)
-                    for fut in done:
-                        inflight.discard(fut)
+            logger.info(
+                "scene_from_step_stream: tessellating with %d worker process(es), %.0fs/solid timeout",
+                n_workers,
+                timeout_s,
+            )
+            exhausted = False
+            busy = 0
+            try:
+                while True:
+                    for slot in slots:  # feed every idle worker
+                        if slot["busy"] or exhausted:
+                            continue
                         try:
-                            _handle(fut.result())
-                        except Exception as exc:  # noqa: BLE001 - a crashed worker mustn't abort
-                            _skip(f"solid_{n_total}", f"pool worker died: {type(exc).__name__}")
-                            n_total += 1
-                        _submit_next()
+                            geom = next(geom_iter)
+                        except StopIteration:
+                            exhausted = True
+                            break
+                        slot["busy"] = True
+                        slot["gid"] = str(geom.id) if geom.id not in (None, "") else None
+                        slot["since"] = _time.monotonic()
+                        busy += 1
+                        slot["task_q"].put(geom)
+                    if exhausted and busy == 0:
+                        break
+                    # Collect one result; the 1 s poll bounds how often we re-check timeouts.
+                    try:
+                        wid, result = result_q.get(timeout=1.0)
+                        slot = slots[wid]
+                        if slot["busy"]:
+                            slot["busy"] = False
+                            slot["gid"] = None
+                            slot["since"] = None
+                            busy -= 1
+                            _handle(result)
+                    except _queue.Empty:
+                        pass
+                    now = _time.monotonic()
+                    for i, slot in enumerate(slots):  # kill + replace any over-budget worker
+                        if slot["busy"] and slot["since"] and (now - slot["since"]) > timeout_s:
+                            gid = slot["gid"]
+                            slot["proc"].kill()
+                            slot["proc"].join(timeout=2)
+                            busy -= 1
+                            slots[i] = _spawn(i, result_q)
+                            _handle((f"timeout (>{timeout_s:.0f}s; OCC hang, killed)", gid, None, None, None, None))
+            finally:
+                for slot in slots:
+                    try:
+                        slot["task_q"].put_nowait(None)
+                    except Exception:  # noqa: BLE001
+                        pass
+                    try:
+                        slot["proc"].kill()
+                    except Exception:  # noqa: BLE001
+                        pass
 
     # One merged mesh (glTF node) per material/colour — the default GLB shape.
     if on_progress is not None:
