@@ -2,6 +2,15 @@
 
 
 
+## v0.17.1 (2026-06-09)
+
+### Fix
+
+* fix: reserve a CPU for the STEP tessellation pool to stop the redelivery cascade (#210)
+
+Co-authored-by: Claude Opus 4.8 (1M context) &lt;noreply@anthropic.com&gt; ([`df58505`](https://github.com/Krande/adapy/commit/df58505ee4db608c8ac2ddab3b91e52a05c06cd6))
+
+
 ## v0.17.0 (2026-06-09)
 
 ### Feature
