@@ -77,6 +77,7 @@ const ROWS: SettingRow[] = [
 ];
 
 const STREAMER_THRESHOLD_KEY = "step_streamer_threshold_mb";
+const SOLID_TIMEOUT_KEY = "step_stream_solid_timeout_s";
 
 function parseTri(raw: string | null): TriState {
     const v = (raw || "").trim().toLowerCase();
@@ -104,6 +105,9 @@ const ConversionSettingsTab: React.FC = () => {
     const [streamerThreshold, setStreamerThreshold] = useState("");
     const [streamerSaving, setStreamerSaving] = useState(false);
     const [streamerSavedAt, setStreamerSavedAt] = useState<number | null>(null);
+    const [solidTimeout, setSolidTimeout] = useState("");
+    const [solidTimeoutSaving, setSolidTimeoutSaving] = useState(false);
+    const [solidTimeoutSavedAt, setSolidTimeoutSavedAt] = useState<number | null>(null);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState<Record<string, boolean>>({});
     const [error, setError] = useState<string | null>(null);
@@ -122,6 +126,8 @@ const ConversionSettingsTab: React.FC = () => {
                 if (!cancelled) setTimeoutMinutes((t || "").trim());
                 const thr = await viewerApi.adminGetSetting(STREAMER_THRESHOLD_KEY);
                 if (!cancelled) setStreamerThreshold((thr || "").trim());
+                const sto = await viewerApi.adminGetSetting(SOLID_TIMEOUT_KEY);
+                if (!cancelled) setSolidTimeout((sto || "").trim());
                 if (!cancelled) setValues(next);
             } catch (e) {
                 if (!cancelled) setError(e instanceof ApiError ? e.detail || e.message : String(e));
@@ -189,6 +195,27 @@ const ConversionSettingsTab: React.FC = () => {
             setError(e instanceof ApiError ? e.detail || e.message : String(e));
         } finally {
             setStreamerSaving(false);
+        }
+    };
+
+    const onSolidTimeoutSave = async () => {
+        const raw = solidTimeout.trim();
+        if (raw !== "") {
+            const n = Number(raw);
+            if (Number.isNaN(n) || n <= 0) {
+                setError(`solid timeout must be a positive number of seconds (got "${raw}")`);
+                return;
+            }
+        }
+        setSolidTimeoutSaving(true);
+        setError(null);
+        try {
+            await viewerApi.adminSetSetting(SOLID_TIMEOUT_KEY, raw);
+            setSolidTimeoutSavedAt(Date.now());
+        } catch (e) {
+            setError(e instanceof ApiError ? e.detail || e.message : String(e));
+        } finally {
+            setSolidTimeoutSaving(false);
         }
     };
 
@@ -293,6 +320,48 @@ const ConversionSettingsTab: React.FC = () => {
                             assemblies past this point risk OOM-killing the worker pod;
                             streaming trades a small fidelity loss (skipped spherical /
                             rational-B-spline solids) for bounded memory.
+                        </div>
+                    </div>
+                )}
+                {!loading && (
+                    <div className="px-3 sm:px-4 py-3 border-b border-gray-800 space-y-2">
+                        <div>
+                            <div className="font-medium text-sm">STEP streamer per-solid timeout</div>
+                            <div className="text-[11px] text-gray-400 font-mono">
+                                {SOLID_TIMEOUT_KEY}
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                            <input
+                                type="number"
+                                min="1"
+                                step="1"
+                                value={solidTimeout}
+                                onChange={(e) => setSolidTimeout(e.target.value)}
+                                placeholder="120"
+                                className="bg-gray-900 border border-gray-700 rounded-sm px-2 py-1 text-sm w-32 text-gray-100"
+                            />
+                            <span className="text-xs text-gray-400">seconds</span>
+                            <button
+                                type="button"
+                                onClick={onSolidTimeoutSave}
+                                disabled={solidTimeoutSaving}
+                                className="bg-blue-700 hover:bg-blue-600 text-white text-xs px-3 py-1 rounded-sm disabled:opacity-50"
+                            >
+                                {solidTimeoutSaving ? "Saving…" : "Save"}
+                            </button>
+                            {solidTimeoutSavedAt && (
+                                <span className="text-[11px] text-emerald-400">
+                                    saved {Math.floor((Date.now() - solidTimeoutSavedAt) / 1000)}s ago
+                                </span>
+                            )}
+                        </div>
+                        <div className="text-xs text-gray-400 max-w-2xl">
+                            Wall-clock budget for tessellating a single solid in the streaming
+                            STEP→GLB pool. A solid that overruns it (an OpenCASCADE hang in an
+                            uninterruptible C call) has its worker killed and the solid skipped,
+                            so one bad solid can’t freeze the whole conversion. Empty uses the
+                            code default (120 s).
                         </div>
                     </div>
                 )}

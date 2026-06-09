@@ -825,6 +825,9 @@ async def _process_one(
                 # STEP→GLB streaming defaults (large-file OOM guard).
                 "step_streamer_auto": "ADA_STEP_STREAMER_AUTO",
                 "step_streamer_threshold_mb": "ADA_STEP_STREAMER_THRESHOLD_MB",
+                # Per-solid tessellation budget; a solid that overruns it (OCC hang) is
+                # killed and skipped so one bad solid can't freeze the whole conversion.
+                "step_stream_solid_timeout_s": "ADA_STEP_STREAM_SOLID_TIMEOUT_S",
             }
             for skey, env_name in _env_map.items():
                 raw = await _read_bool_setting(skey)
