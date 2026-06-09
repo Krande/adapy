@@ -363,9 +363,7 @@ def test_stream_reader_multi_instance_two_placements(tmp_path):
     child2 = _axis2_lines(300, *child)
     parent2 = _axis2_lines(310, *parent_b)
     block += (
-        child2
-        + parent2
-        + "#388=ITEM_DEFINED_TRANSFORMATION('','',#300,#310);\n"
+        child2 + parent2 + "#388=ITEM_DEFINED_TRANSFORMATION('','',#300,#310);\n"
         "#389=(REPRESENTATION_RELATIONSHIP('','',#172,#179)"
         "REPRESENTATION_RELATIONSHIP_WITH_TRANSFORMATION(#388)SHAPE_REPRESENTATION_RELATIONSHIP());\n"
         "#390=CONTEXT_DEPENDENT_SHAPE_REPRESENTATION(#389,#187);\n"

@@ -346,7 +346,9 @@ def scene_from_step_stream(source: StepStreamSource, converter: SceneConverter) 
                             slot["proc"].join(timeout=2)
                             busy -= 1
                             slots[i] = _spawn(i, result_q)
-                            _handle((f"timeout (>{timeout_s:.0f}s; OCC hang, killed)", gid, None, None, None, None, None))
+                            _handle(
+                                (f"timeout (>{timeout_s:.0f}s; OCC hang, killed)", gid, None, None, None, None, None)
+                            )
             finally:
                 for slot in slots:
                     try:
