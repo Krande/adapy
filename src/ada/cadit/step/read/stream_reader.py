@@ -65,6 +65,7 @@ from ada.geom.surfaces import (
     OpenShell,
     Plane,
     ShellBasedSurfaceModel,
+    SphericalSurface,
     ToroidalSurface,
 )
 
@@ -449,12 +450,12 @@ def _b_conical_surface(r: _Resolver, a: list) -> ConicalSurface:
     return ConicalSurface(position=r.deref(a[1]), radius=float(a[2]), semi_angle=float(a[3]))
 
 
-def _b_spherical_surface(r: _Resolver, a: list):
-    # A sphere face is closed in BOTH u and v; the kernel-free seam reconstruction
-    # yields a degenerate face that aborts OCC's mesher (uncatchable). Until periodic
-    # double-seam handling lands, signal unsupported so reader="auto" falls back to
-    # the OCC reader for sphere-containing files rather than crashing downstream.
-    raise StepStreamUnsupported("SPHERICAL_SURFACE not yet supported by the streaming reader (closed u+v)")
+def _b_spherical_surface(r: _Resolver, a: list) -> SphericalSurface:
+    # SPHERICAL_SURFACE('', #position, radius). A complete sphere face is closed in
+    # both u and v, so OCCT bounds it with a single degenerate VERTEX_LOOP (no edges) —
+    # which the reader filters out, leaving an empty-bounds AdvancedFace. The OCC face
+    # builder makes the natural full sphere from the surface in that case.
+    return SphericalSurface(position=r.deref(a[1]), radius=float(a[2]))
 
 
 def _b_toroidal_surface(r: _Resolver, a: list) -> ToroidalSurface:

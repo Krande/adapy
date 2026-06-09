@@ -876,9 +876,15 @@ def make_face_from_geom(advanced_face: geo_su.AdvancedFace) -> TopoDS_Face:
     # Build the OCC surface from the adapy face surface
     face_surface = make_surface_from_geom(advanced_face.face_surface)
 
-    # Build outer and (optional) inner wires from the face bounds
+    # A fully-closed periodic face (a complete sphere — closed in u AND v) is bound
+    # only by a degenerate VERTEX_LOOP, which the reader filters out, leaving no edge
+    # bounds. Build the natural full face straight from the surface; OCC generates the
+    # seam(s) and poles itself (the only robust way — there is no wire to reconstruct).
     if not advanced_face.bounds:
-        raise ValueError("AdvancedFace must have at least one bound")
+        mk = BRepBuilderAPI_MakeFace(face_surface, 1e-6)
+        if mk.IsDone():
+            return mk.Face()
+        raise ValueError("AdvancedFace has no bounds and the surface has no natural face")
 
     is_bspline_surface = isinstance(face_surface, Geom_BSplineSurface)
 
@@ -1222,9 +1228,6 @@ def _add_cfs_faces_to_shell(builder: BRep_Builder, occ_shell: TopoDS_Shell, cfs_
         if type(cfs_face) is geo_su.AdvancedFace:
             n_faces += 1
             try:
-                if not cfs_face.bounds:
-                    raise UnableToCreateTesselationFromSolidOCCGeom("AdvancedFace without bounds")
-
                 # Route through make_face_from_geom so closed (seam) cylinder/cone/torus
                 # faces, B-spline faces and inner-bound holes build here exactly as on
                 # the single-face path — not just the simple wire + MakeFace this builder

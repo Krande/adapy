@@ -214,23 +214,32 @@ def test_stream_reader_flavor_agnostic(tmp_path):
     assert len(list(stream_read_step(out))) == 4
 
 
-def test_stream_reader_sphere_falls_back_to_occ(tmp_path):
-    # A sphere is closed in u and v; the reader signals it unsupported so
-    # reader="auto" falls back to OCC (reads everything, no crash), while
-    # reader="stream" raises rather than producing a crashing degenerate face.
-    from ada.cadit.step.read.stream_reader import StepStreamUnsupported
+def test_stream_reader_sphere_builds_full_face(tmp_path):
+    # A complete sphere is closed in u AND v, so OCCT bounds it with a single
+    # degenerate VERTEX_LOOP (no edges) -> an empty-bounds AdvancedFace. The reader
+    # reconstructs the SphericalSurface and the OCC face builder makes the natural full
+    # sphere from the surface (OCC adds the seam + poles), so it streams AND tessellates
+    # instead of crashing the mesher on a reconstructed seam.
+    from ada.cad import active_backend
+    from ada.geom.surfaces import SphericalSurface
 
     sph = ada.PrimSphere("sph", (0, 0, 0), 0.5)
     out = tmp_path / "sphere.step"
     (ada.Assembly("m") / (ada.Part("p") / sph)).to_stp(out)
 
-    import pytest
+    (geom,) = list(stream_read_step(out, local_pool=False))
+    surfs = {type(f.face_surface).__name__ for f in geom.geometry.cfs_faces}
+    assert surfs == {SphericalSurface.__name__}
 
-    with pytest.raises(StepStreamUnsupported):
-        list(stream_read_step(out, local_pool=False))
+    be = active_backend()
+    try:
+        mesh = be.tessellate(be.build(geom))
+    except NotImplementedError:
+        return  # analytic sphere face not ported to this backend yet (e.g. adacpp)
+    import numpy as np
 
-    asm = ada.from_step(out, reader="auto")  # OCC fallback, must not crash
-    assert len(list(asm.get_all_physical_objects())) == 1
+    pos = np.asarray(mesh.positions).reshape(-1, 3)
+    assert len(pos) > 0  # a real triangulated sphere, not a degenerate/empty face
 
 
 def test_stream_reader_complex_rational_bspline_curve():
@@ -310,28 +319,30 @@ def test_stream_reader_rational_bspline_falls_back(example_files):
     assert len(list(asm.get_all_physical_objects())) >= 1
 
 
-def test_stream_reader_tolerant_skips_unsupported(tmp_path):
-    # tolerant mode reads every supported solid and SKIPS the unsupported ones
-    # (a sphere here) instead of raising — so a big mixed CAD file reads its
-    # supported solids kernel-free rather than dropping the whole file to OCC.
+def test_stream_reader_tolerant_skips_unsupported(example_files, tmp_path):
+    # tolerant mode reads every supported solid and SKIPS the unsupported ones (a
+    # rational-B-spline curved plate here — still needs p-curve trimming) instead of
+    # raising, so a big mixed CAD file reads its supported solids kernel-free rather
+    # than dropping the whole file to OCC.
     from ada.cadit.step.read.stream_reader import StepStreamUnsupported
 
-    pl = Plate("pl", [(0, 0), (2, 0), (2, 1), (0, 1)], 0.02)
-    box = Beam("box", (1, 0, 0), (1, 0, 3), Section("box", from_str="BOX400x400x20x20"))
-    sph = ada.PrimSphere("sph", (5, 0, 0), 0.5)
+    a = ada.from_step(example_files / "step_files/curved_plate.stp", reader="occ")  # rational B-spline
+    a / (ada.Part("extra") / Beam("box", (10, 0, 0), (10, 0, 3), Section("box", from_str="BOX400x400x20x20")))
     out = tmp_path / "mix.step"
-    (ada.Assembly("m") / (ada.Part("p") / [pl, box, sph])).to_stp(out)  # OCC writer; sphere present
+    a.to_stp(out)  # OCC writer; rational-B-spline plate + analytic box
 
-    # non-tolerant two-pass raises on the unsupported sphere
+    # non-tolerant two-pass raises on the unsupported rational-B-spline plate
     with pytest.raises(StepStreamUnsupported):
         list(stream_read_step(out, local_pool=False))
 
-    # tolerant skips the sphere and reads the two analytic solids
-    assert len(list(stream_read_step(out, local_pool=False, tolerant=True))) == 2
+    # tolerant skips the rational plate and reads the analytic box (no raise, no OCC)
+    tol = list(stream_read_step(out, local_pool=False, tolerant=True))
+    assert len(tol) >= 1
+    assert all(isinstance(g.geometry, ClosedShell) for g in tol)
 
-    # from_step(reader="tolerant"): no OCC fallback, sphere dropped, rest imported
-    a = ada.from_step(out, reader="tolerant")
-    assert len(list(a.get_all_physical_objects())) == 2
+    # from_step(reader="tolerant"): no OCC fallback; the box is imported
+    asm = ada.from_step(out, reader="tolerant")
+    assert len(list(asm.get_all_physical_objects())) >= 1
 
 
 def test_stream_reader_curved_faces_full_coverage(tmp_path):
