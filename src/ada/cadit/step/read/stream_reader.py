@@ -610,7 +610,9 @@ _ROOT_BUILDERS = {
 # --------------------------------------------------------------------------- #
 # Public entry point
 # --------------------------------------------------------------------------- #
-def stream_read_step(filepath: str | Path, *, local_pool: bool = True, tolerant: bool = False) -> Iterator[Geometry]:
+def stream_read_step(
+    filepath: str | Path, *, local_pool: bool = True, tolerant: bool = False, on_total=None
+) -> Iterator[Geometry]:
     """Lazily stream a STEP file, yielding one :class:`Geometry` per solid.
 
     Each yielded ``Geometry`` wraps a :class:`~ada.geom.surfaces.ClosedShell`
@@ -638,12 +640,16 @@ def stream_read_step(filepath: str | Path, *, local_pool: bool = True, tolerant:
         of raising ``StepStreamUnsupported``. Lets a large mixed CAD file read its
         supported solids kernel-free rather than dropping the whole file to OCC (and
         OOM-ing); a one-line summary of what was skipped is logged at the end.
+    on_total:
+        Optional callback ``on_total(n_roots)`` fired once (two-pass paths only) after
+        the index scan, before any solid is yielded — lets a caller show conversion
+        progress against the total solid count.
     """
     filepath = Path(filepath)
     skipped: Counter = Counter()
 
     if not local_pool:
-        yield from _read_two_pass(filepath, tolerant=tolerant, skipped=skipped)
+        yield from _read_two_pass(filepath, tolerant=tolerant, skipped=skipped, on_total=on_total)
         _log_skips(filepath, skipped)
         return
 
@@ -760,7 +766,7 @@ _LAZY_POOL_THRESHOLD = 64 * 1024 * 1024
 _WS = frozenset(b" \t\r\n")
 
 
-def _read_two_pass(filepath: Path, *, tolerant: bool = False, skipped=None, low_memory: bool | None = None):
+def _read_two_pass(filepath: Path, *, tolerant: bool = False, skipped=None, low_memory: bool | None = None, on_total=None):
     """General STEP (forward references): resolve each root against the full entity
     table. Large files use a constant-memory mmap + offset-index pool so a worker pod
     stays within budget; small files use a plain parsed-entity dict."""
@@ -772,10 +778,10 @@ def _read_two_pass(filepath: Path, *, tolerant: bool = False, skipped=None, low_
         except OSError:
             low_memory = False
     gen = _read_two_pass_lazy if low_memory else _read_two_pass_dict
-    yield from gen(filepath, tolerant=tolerant, skipped=skipped)
+    yield from gen(filepath, tolerant=tolerant, skipped=skipped, on_total=on_total)
 
 
-def _read_two_pass_dict(filepath: Path, *, tolerant: bool, skipped):
+def _read_two_pass_dict(filepath: Path, *, tolerant: bool, skipped, on_total=None):
     pool: dict[int, _Rec] = {}
     root_ids: list[int] = []
     styled_ids: list[int] = []
@@ -792,6 +798,8 @@ def _read_two_pass_dict(filepath: Path, *, tolerant: bool, skipped):
                 styled_ids.append(inst_id)
 
     colour_map = _build_colour_map(pool.get, styled_ids)
+    if on_total is not None:
+        on_total(len(root_ids))
     resolver = _Resolver(pool)
     n_solids = 0
     for rid in root_ids:
@@ -900,7 +908,7 @@ class _OffsetPool:
         return _Rec(parsed[1], parsed[2])
 
 
-def _read_two_pass_lazy(filepath: Path, *, tolerant: bool, skipped):
+def _read_two_pass_lazy(filepath: Path, *, tolerant: bool, skipped, on_total=None):
     import mmap
 
     import numpy as np
@@ -917,6 +925,8 @@ def _read_two_pass_lazy(filepath: Path, *, tolerant: bool, skipped):
         del ids_np, offs_np, order, ids_arr, offs_arr
         pool = _OffsetPool(mm, ids_sorted, offs_sorted)
         colour_map = _build_colour_map(pool.get, styled)
+        if on_total is not None:
+            on_total(len(roots))
         resolver = _Resolver(pool)
         n_solids = 0
         for rid in roots:

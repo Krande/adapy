@@ -23,7 +23,7 @@ from pathlib import Path
 from ada.config import logger
 
 
-def stream_step_to_glb(step_path: str | Path, glb_path: str | Path, *, tolerant: bool = True) -> dict:
+def stream_step_to_glb(step_path: str | Path, glb_path: str | Path, *, tolerant: bool = True, on_progress=None) -> dict:
     """Stream-convert a STEP file to a GLB without holding the whole model in memory.
 
     With ``tolerant`` (default) a solid using an unsupported surface (spherical /
@@ -31,12 +31,15 @@ def stream_step_to_glb(step_path: str | Path, glb_path: str | Path, *, tolerant:
     and build/tessellate failures are skipped and logged (per-reason summary at
     warning) so a conversion never silently drops geometry.
 
+    ``on_progress(stage, frac)`` is reported through the per-solid tessellation phase
+    (the slow part) so a caller can show real progress.
+
     Returns ``{"meshed", "total", "skipped", "materials", "reasons"}``.
     """
     from ada.visit.scene_converter import SceneConverter
     from ada.visit.scene_handling.scene_from_step_stream import StepStreamSource
 
-    converter = SceneConverter(source=StepStreamSource(step_path, tolerant=tolerant))
+    converter = SceneConverter(source=StepStreamSource(step_path, tolerant=tolerant, on_progress=on_progress))
     data = converter.build_glb()  # colour-merged + ADA-ext, built by streaming
     stats = dict((converter.build_scene().metadata or {}).get("ada_stream_stats", {}))
 

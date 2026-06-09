@@ -700,8 +700,8 @@ def _via_ada(
             # Stream solid-by-solid: bounded memory, no whole-model OCC load.
             from ada.cadit.step.stream_to_glb import stream_step_to_glb
 
-            on_progress("streaming-step", 0.2)
-            stream_step_to_glb(src_path, out_path, tolerant=True)
+            on_progress("streaming-step", 0.1)
+            stream_step_to_glb(src_path, out_path, tolerant=True, on_progress=on_progress)
             on_progress("ready", 1.0)
             return out_path.read_bytes()
 

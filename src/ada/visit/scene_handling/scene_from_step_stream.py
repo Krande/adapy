@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Callable
 
 if TYPE_CHECKING:
     import trimesh
@@ -19,10 +19,14 @@ class StepStreamSource:
     tessellated and its light mesh buffers are accumulated per material, while the
     heavy B-rep geometry is dropped before the next solid. The result is the same
     merged-by-colour scene + design-graph the normal ``to_gltf`` path produces.
+
+    ``on_progress(stage, frac)`` is called periodically through the (slow) per-solid
+    tessellation so a worker can report real progress instead of sitting at one stage.
     """
 
     path: str | Path
     tolerant: bool = True
+    on_progress: Callable[[str, float], None] | None = None
 
 
 def scene_from_step_stream(source: StepStreamSource, converter: SceneConverter) -> trimesh.Scene:
@@ -61,8 +65,21 @@ def scene_from_step_stream(source: StepStreamSource, converter: SceneConverter) 
             skipped_ids.append(gid)
         logger.debug("scene_from_step_stream: skipped %s — %s", gid, reason)
 
-    for i, geom in enumerate(stream_read_step(source.path, local_pool=False, tolerant=source.tolerant)):
+    # Per-solid tessellation is the slow phase (minutes on a big assembly). Report
+    # progress against the total solid count so the worker's bar advances; the
+    # tessellation loop is mapped onto 0.2..0.9 of the job.
+    on_progress = source.on_progress
+    n_roots = {"total": 0}
+    if on_progress is not None:
+        on_progress("tessellating", 0.2)
+
+    def _on_total(n: int) -> None:
+        n_roots["total"] = n
+
+    for i, geom in enumerate(stream_read_step(source.path, local_pool=False, tolerant=source.tolerant, on_total=_on_total)):
         n_total += 1
+        if on_progress is not None and n_roots["total"] and (i % 10 == 0):
+            on_progress("tessellating", 0.2 + 0.7 * min(i / n_roots["total"], 1.0))
         gid = str(geom.id) if geom.id not in (None, "") else f"solid_{i}"
         try:
             occ = be.build(geom)
@@ -87,6 +104,8 @@ def scene_from_step_stream(source: StepStreamSource, converter: SceneConverter) 
         # occ / geom become unreferenced here and are freed before the next solid.
 
     # One merged mesh (glTF node) per material/colour — the default GLB shape.
+    if on_progress is not None:
+        on_progress("merging", 0.92)
     for mat_id, stores in by_material.items():
         merged = concatenate_stores(stores, graph)
         if merged is None:
