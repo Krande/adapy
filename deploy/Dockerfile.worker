@@ -26,11 +26,25 @@ RUN pixi install --environment viewer-api --locked
 # Source last so iterating on Python doesn't re-solve.
 COPY src/ ./src/
 
+# The deployment runs this container as a non-root uid (10001, via the chart's
+# securityContext, matching the viewer/API). /app and the pixi env are root-owned but
+# world-readable, so they run fine as non-root; the only thing the conversion stack
+# (OCC / ifcopenshell / numba / matplotlib) needs writable is a cache HOME — the
+# default /root is not writable by a non-root uid, so point HOME and the cache dirs at
+# a directory uid 10001 owns. /tmp (world-writable) is the per-conversion scratch dir.
+# No image-level USER directive: it would break the FROM-base fast-overlay build
+# (Dockerfile.worker-fast COPYs src as root); the runtime uid comes from the chart.
+RUN mkdir -p /home/app/.cache && chown -R 10001:10001 /home/app
+
 ENV PYTHONUNBUFFERED=1 \
     PYTHONPATH=/app/src \
     ADA_VIEWER_STORAGE_KIND=local \
     ADA_VIEWER_LOCAL_PATH=/data \
-    ADA_IMAGE_TAG=${IMAGE_TAG}
+    ADA_IMAGE_TAG=${IMAGE_TAG} \
+    HOME=/home/app \
+    XDG_CACHE_HOME=/home/app/.cache \
+    NUMBA_CACHE_DIR=/home/app/.cache \
+    MPLCONFIGDIR=/home/app/.cache/matplotlib
 
 # `pixi run` activates the env and exec's the task. Python's asyncio
 # signal handlers in the worker handle SIGTERM/SIGINT cleanly as PID 1.

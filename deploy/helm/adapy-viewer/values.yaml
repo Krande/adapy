@@ -61,10 +61,15 @@ worker:
       cpu: 250m
       memory: 1Gi
   podAnnotations: {}
-  ## The conversion stack (occt, ifcopenshell) often needs a writable
-  ## tmpdir; allow root by default but make it overrideable.
+  ## Non-root, matching the viewer/API container. The conversion stack only needs a
+  ## writable tmpdir (/tmp, world-writable) and a cache HOME — the worker image points
+  ## HOME at a uid-10001-owned dir, so root is not required. (No fsGroup: the S3 storage
+  ## backend mounts no volume; add a podSecurityContext.fsGroup if a deploy switches to
+  ## a local PVC, and render it in the workerDeployment helper.)
   securityContext:
-    runAsNonRoot: false
+    runAsNonRoot: true
+    runAsUser: 10001
+    runAsGroup: 10001
     allowPrivilegeEscalation: false
     capabilities:
       drop: ["ALL"]
