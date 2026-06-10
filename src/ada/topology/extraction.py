@@ -26,6 +26,26 @@ from ada.topology.graph import (
 )
 
 
+def _newell_normal(points) -> "ada.Direction | None":
+    """Unit polygon normal via Newell's method (robust for slightly
+    non-planar / arbitrarily ordered loops). Returns ``None`` for a
+    degenerate loop. Used as a fallback when the kernel cannot fit a
+    plane to a face (e.g. a ruled ThruSections loft side, where
+    ``face_plane`` returns ``None``)."""
+    p = np.asarray(points, dtype=float)
+    if len(p) < 3:
+        return None
+    nxt = np.roll(p, -1, axis=0)
+    nx = float(np.sum((p[:, 1] - nxt[:, 1]) * (p[:, 2] + nxt[:, 2])))
+    ny = float(np.sum((p[:, 2] - nxt[:, 2]) * (p[:, 0] + nxt[:, 0])))
+    nz = float(np.sum((p[:, 0] - nxt[:, 0]) * (p[:, 1] + nxt[:, 1])))
+    n = np.array([nx, ny, nz])
+    mag = float(np.linalg.norm(n))
+    if mag == 0.0:
+        return None
+    return ada.Direction(*(n / mag))
+
+
 @dataclass
 class GraphCellExtractor:
     cells_in: list[GraphCell]
@@ -60,7 +80,19 @@ class GraphCellExtractor:
             cell_centroid = np.asarray(be.center_of_mass(cell.handle), dtype=float)
             for i, fh in enumerate(be.faces(cell.handle)):
                 plane = be.face_plane(fh)
-                normal = plane[1] if plane is not None else ada.Direction(0, 0, 1)
+                if plane is not None:
+                    normal = plane[1]
+                else:
+                    # The kernel returns no plane for ruled/lofted faces
+                    # (ThruSections sides). Defaulting to +Z collapses every
+                    # such face onto the same side, so get_side() yields the
+                    # same bucket for all of them and stable_face_id is
+                    # assigned by raw centroid order — scrambling FACE_IDX
+                    # targeting (e.g. jacket loft walls). Derive the normal
+                    # from the wire geometry instead.
+                    normal = _newell_normal(be.wire_points(fh))
+                    if normal is None:
+                        normal = ada.Direction(0, 0, 1)
                 centroid = be.center_of_mass(fh)
                 # Orient outward: the face normal points away from the cell centre
                 # (the kernel's geometric plane normal carries no consistent side).
