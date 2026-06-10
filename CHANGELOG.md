@@ -2,6 +2,15 @@
 
 
 
+## v0.18.2 (2026-06-10)
+
+### Fix
+
+* fix: derive loft-face normal from wire geometry when face_plane is None (#216)
+
+Co-authored-by: Claude Opus 4.8 &lt;noreply@anthropic.com&gt; ([`beb4339`](https://github.com/Krande/adapy/commit/beb4339c4cb535b1a368f3f34f0ce2e9305c13df))
+
+
 ## v0.18.1 (2026-06-10)
 
 ### Fix
