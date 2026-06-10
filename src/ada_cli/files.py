@@ -1,15 +1,16 @@
-"""``ada files`` — list and download blobs in a scope.
+"""``ada files`` — list, download, and upload blobs in a scope.
 
-Both commands talk to adapy-viewer via the same ``ADAPY_VIEWER_URL`` /
+All commands talk to adapy-viewer via the same ``ADAPY_VIEWER_URL`` /
 ``ADAPY_VIEWER_TOKEN`` env pair the existing ``ada build upload`` uses;
 the scope is supplied per invocation (``--scope project:<slug>`` or
 ``ADAPY_VIEWER_SCOPE``) since cli/bot tokens can address multiple
 scopes.
 
-``download`` tries the presigned-URL flow first so large files go
-S3-direct without pinning an API worker for the duration of the
-transfer. Local-storage deployments respond 503 to the presign request,
-in which case we fall back to streaming through ``GET /blobs/{key}``.
+``download`` and ``upload`` try the presigned-URL flow first so large
+files go S3-direct without pinning an API worker for the duration of
+the transfer. Local-storage deployments respond 503 to the presign
+request, in which case we fall back to streaming through the
+``/blobs/{key}`` API route (subject to its direct-upload size cap).
 """
 
 from __future__ import annotations
@@ -154,6 +155,72 @@ def _download_via_api(
         _write_stream(resp, dest)
     _print_done(dest, None)
     return 0
+
+
+def cmd_upload(args: argparse.Namespace) -> int:
+    import httpx
+
+    base_url, token, scope = _config(args)
+    src = pathlib.Path(args.src)
+    if not src.is_file():
+        print(f"not a file: {src}", file=sys.stderr)
+        return 2
+    key = (args.key or src.name).strip().lstrip("/")
+    size = src.stat().st_size
+
+    with httpx.Client(timeout=_TRANSFER_TIMEOUT_SECONDS) as client:
+        if not args.via_api:
+            url_resp = client.post(
+                f"{base_url}/api/scopes/{scope}/upload-url",
+                json={"key": key},
+                headers={**_auth(token), "Content-Type": "application/json"},
+            )
+            if url_resp.status_code != 503:  # 503 = local backend can't presign; fall through
+                if url_resp.status_code >= 400:
+                    print(
+                        f"upload-url failed: {url_resp.status_code} {url_resp.text}",
+                        file=sys.stderr,
+                    )
+                    return 1
+                # No Authorization on the signed URL (same SigV4 constraint as download).
+                with src.open("rb") as fh:
+                    put = client.put(
+                        url_resp.json()["url"],
+                        content=fh,
+                        headers={"Content-Length": str(size)},
+                    )
+                if put.status_code >= 400:
+                    print(
+                        f"presigned PUT failed: {put.status_code} {put.text[:200]}",
+                        file=sys.stderr,
+                    )
+                    return 1
+                # Finalise: audit row + auto-conversion enqueue happen server-side here.
+                done = client.post(
+                    f"{base_url}/api/scopes/{scope}/upload-complete",
+                    json={"key": key},
+                    headers={**_auth(token), "Content-Type": "application/json"},
+                )
+                if done.status_code >= 400:
+                    print(
+                        f"upload-complete failed: {done.status_code} {done.text}",
+                        file=sys.stderr,
+                    )
+                    return 1
+                print(f"  uploaded {src} -> {scope}/{key} ({done.json().get('size', size)} bytes)")
+                return 0
+
+        with src.open("rb") as fh:
+            resp = client.put(
+                f"{base_url}/api/scopes/{scope}/blobs/{key}",
+                content=fh,
+                headers={**_auth(token), "Content-Length": str(size)},
+            )
+        if resp.status_code >= 400:
+            print(f"upload failed: {resp.status_code} {resp.text[:200]}", file=sys.stderr)
+            return 1
+        print(f"  uploaded {src} -> {scope}/{key} ({size} bytes)")
+        return 0
 
 
 def _write_stream(resp, dest: pathlib.Path) -> None:
