@@ -43,7 +43,7 @@ def build_mass_glyphs(part_or_assembly):
             # Match where PrimSphere.solid_geom actually renders the mass sphere: the cog shifted
             # by the placement's absolute origin (translation only). Using the raw cog left the
             # amber overlay offset from the geometry whenever the mass carried a non-identity
-            # placement (e.g. parametric_models positions equipment via placement).
+            # placement (e.g. a model pipeline positions equipment via placement).
             cog = m.cog.copy()
             placement = getattr(m, "placement", None)
             if placement is not None and placement.is_identity() is False:

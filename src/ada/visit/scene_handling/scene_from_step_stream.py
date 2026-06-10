@@ -33,6 +33,41 @@ class StepStreamSource:
 # parallelism, so the conversion runs sequentially.
 _POOL_MIN_SOLIDS = 500
 
+# Every this many solids a tessellation worker (and the sequential loop) runs an
+# explicit gc + glibc ``malloc_trim`` so the native OCC heap freed per solid is returned
+# to the OS instead of fragmenting upward across the worker's lifetime (a TopoDS_Shape's
+# C++ memory is reclaimed on refcount-0, but glibc keeps the arena — see _maybe_trim).
+_TRIM_EVERY = 256
+
+
+def _malloc_trim_fn():
+    """Resolve glibc's ``malloc_trim`` once, or None off Linux/glibc."""
+    try:
+        import ctypes
+
+        libc = ctypes.CDLL("libc.so.6", use_errno=False)
+        return libc.malloc_trim
+    except Exception:  # noqa: BLE001 - not glibc / not available
+        return None
+
+
+_MALLOC_TRIM = _malloc_trim_fn()
+
+
+def _maybe_trim() -> None:
+    """Force-release per-solid garbage: a Python ``gc`` pass (breaks any OCP refcycles)
+    then ``malloc_trim(0)`` to hand the freed native arena back to the OS. Without the
+    trim a long-lived tessellation worker's RSS climbs monotonically even though every
+    solid's OCC shape is dropped — glibc retains the freed heap."""
+    import gc
+
+    gc.collect()
+    if _MALLOC_TRIM is not None:
+        try:
+            _MALLOC_TRIM(0)
+        except Exception:  # noqa: BLE001
+            pass
+
 
 def _tessellate_geom_worker(geom):
     """Pool subprocess entry: build + tessellate ONE solid and return raw mesh arrays
@@ -45,6 +80,8 @@ def _tessellate_geom_worker(geom):
     import numpy as np
 
     gid = None
+    occ = None
+    mesh = None
     try:
         import os
 
@@ -75,6 +112,8 @@ def _tessellate_geom_worker(geom):
         if pos is None or idx is None or len(idx) == 0:
             return ("empty", gid, geom.color, None, None, None, None)
         nrm = getattr(mesh, "normals", None)
+        # ascontiguousarray(+dtype) COPIES, so pos/idx/nrm no longer reference any OCC
+        # buffer — the shape + its triangulation can be dropped immediately below.
         pos = np.ascontiguousarray(pos, dtype=np.float32)
         idx = np.ascontiguousarray(idx, dtype=np.uint32)
         nrm = np.ascontiguousarray(nrm, dtype=np.float32) if nrm is not None else None
@@ -84,6 +123,11 @@ def _tessellate_geom_worker(geom):
         return ("ok", gid, geom.color, pos, idx, nrm, geom.transforms)
     except Exception as exc:  # noqa: BLE001 - report and skip; one bad solid mustn't abort
         return (f"error:{type(exc).__name__}", gid, None, None, None, None, None)
+    finally:
+        # Purge this task's OCC instances now (refcount-0 frees the native shape +
+        # triangulation) rather than relying on end-of-call scope cleanup — keeps a
+        # long-lived worker from carrying a solid's geometry into the next iteration.
+        del occ, mesh
 
 
 def _pool_worker_loop(worker_id, task_q, result_q) -> None:
@@ -92,11 +136,15 @@ def _pool_worker_loop(worker_id, task_q, result_q) -> None:
     — crucially — terminate THIS worker if it overruns the per-solid timeout (an OCC
     tessellation can hang in an uninterruptible C call; only killing the process stops
     it). ``None`` is the shutdown sentinel."""
+    n = 0
     while True:
         geom = task_q.get()
         if geom is None:
             return
         result_q.put((worker_id, _tessellate_geom_worker(geom)))
+        n += 1
+        if n % _TRIM_EVERY == 0:  # return the per-solid OCC heap to the OS periodically
+            _maybe_trim()
 
 
 def _per_solid_timeout_s() -> float:
@@ -168,33 +216,38 @@ def _stream_workers() -> int:
     return max(1, min(n - 1, 8))
 
 
-def scene_from_step_stream(source: StepStreamSource, converter: SceneConverter) -> trimesh.Scene:
-    import collections
+def _tessellate_stream(source: StepStreamSource, graph, bt, sink) -> dict:
+    """Shared streaming tessellation loop used by both the trimesh-scene path
+    (:func:`scene_from_step_stream`) and the disk-spilled GLB path
+    (:func:`convert_step_stream_to_glb`).
 
-    import trimesh
+    Reads the STEP one solid at a time (pooled or sequential), applies each assembly
+    instance's world placement, creates a graph node per instance, resolves its material
+    id, and hands ``(mat_id, node_ref, pos, idx, nrm)`` to ``sink``. Returns the stats
+    dict ``{"meshed", "total", "skipped", "materials", "reasons"}``."""
+    import collections
+    import itertools
+
+    import numpy as np
 
     from ada.cadit.step.read.stream_reader import stream_read_step
     from ada.config import logger
     from ada.core.guid import create_guid
-    from ada.occ.tessellating import BatchTessellator
+    from ada.occ.geom.cache import clear_all
     from ada.visit.gltf.graph import GraphNode
-    from ada.visit.gltf.meshes import MeshStore, MeshType
-    from ada.visit.gltf.optimize import concatenate_stores
-    from ada.visit.gltf.store import merged_mesh_to_trimesh_scene
 
-    bt = BatchTessellator()  # parent-side material store + material lookup for the merge
-    params = converter.params
-    graph = converter.graph
+    # No sibling code path should have left OCC shapes pinned in the process-global
+    # caches for this conversion (the streaming build path never populates them, but be
+    # explicit so a prior in-process conversion can't leak into this one).
+    clear_all()
+
     root = graph.top_level
-    scene = trimesh.Scene(base_frame=root.name)
+    on_progress = source.on_progress
 
-    # mat_id -> [MeshStore]. Mesh buffers are flat float/int arrays (a few tens of MB
-    # for a 100k-triangle model), so accumulating them per material — then merging once
-    # at the end — keeps memory bounded; the B-rep geometry is freed each iteration.
-    by_material: dict[int, list] = collections.defaultdict(list)
     reasons: collections.Counter = collections.Counter()
     skipped_ids: list[str] = []
     n_total = 0
+    n_roots = {"total": 0}
 
     def _skip(gid: str, reason: str) -> None:
         reasons[reason] += 1
@@ -202,27 +255,17 @@ def scene_from_step_stream(source: StepStreamSource, converter: SceneConverter) 
             skipped_ids.append(gid)
         logger.debug("scene_from_step_stream: skipped %s — %s", gid, reason)
 
-    # Per-solid tessellation is the slow phase (minutes on a big assembly). Report
-    # progress against the total solid count so the worker's bar advances; the
-    # tessellation loop is mapped onto 0.2..0.9 of the job.
-    on_progress = source.on_progress
-    n_roots = {"total": 0}
-    if on_progress is not None:
-        on_progress("tessellating", 0.2)
-
     def _on_total(n: int) -> None:
         n_roots["total"] = n
 
-    # The parent owns the material store (so colours map to consistent ids across
-    # worker processes) and builds the MeshStore + graph node from each worker's raw
-    # mesh arrays. Workers (subprocesses) only build + tessellate.
-    def _build_mesh_store(gid, color, pos, idx, nrm, transform=None) -> None:
+    # The parent owns the material store (so colours map to consistent ids across worker
+    # processes), creates the graph node from each worker's raw mesh arrays, and hands
+    # the result to the caller's sink. Workers (subprocesses) only build + tessellate.
+    def _build(gid, color, pos, idx, nrm, transform=None) -> None:
         # Apply this instance's world placement to the local mesh (rigid: rotation +
         # translation on positions, rotation on normals). pos/nrm stay FLAT (N*3,) — the
-        # MeshStore/concatenate path needs flat buffers — so reshape only for the matmul.
+        # MeshStore/spill path needs flat buffers — so reshape only for the matmul.
         if transform is not None:
-            import numpy as np
-
             t = np.asarray(transform, dtype=np.float32)
             r = t[:3, :3]
             pos = np.ascontiguousarray((pos.reshape(-1, 3) @ r.T + t[:3, 3]).ravel(), dtype=np.float32)
@@ -233,7 +276,7 @@ def scene_from_step_stream(source: StepStreamSource, converter: SceneConverter) 
         if mat_id is None:
             mat_id = len(bt.material_store)
             bt.material_store[color] = mat_id
-        by_material[mat_id].append(MeshStore(node.hash, None, pos, idx, nrm, mat_id, MeshType.TRIANGLES, node.hash))
+        sink(mat_id, node.hash, pos, idx, nrm)
 
     def _handle(result) -> None:
         nonlocal n_total
@@ -245,7 +288,7 @@ def scene_from_step_stream(source: StepStreamSource, converter: SceneConverter) 
             # One mesh, N instances: tessellated once, placed per assembly matrix.
             for k, tf in enumerate(transforms if transforms else [None]):
                 inst_gid = gid if k == 0 else f"{gid}/{k + 1}"
-                _build_mesh_store(inst_gid, color, pos, idx, nrm, tf)
+                _build(inst_gid, color, pos, idx, nrm, tf)
         elif status == "degenerate":
             _skip(gid, "degenerate (zero-extent solid)")
         elif status == "empty":
@@ -255,13 +298,17 @@ def scene_from_step_stream(source: StepStreamSource, converter: SceneConverter) 
         if on_progress is not None and n_roots["total"] and (i % 10 == 0):
             on_progress("tessellating", 0.2 + 0.7 * min(i / n_roots["total"], 1.0))
 
+    # Per-solid tessellation is the slow phase (minutes on a big assembly). Report
+    # progress against the total solid count so the worker's bar advances; the
+    # tessellation loop is mapped onto 0.2..0.9 of the job.
+    if on_progress is not None:
+        on_progress("tessellating", 0.2)
+
     geom_iter = stream_read_step(source.path, local_pool=False, tolerant=source.tolerant, on_total=_on_total)
 
     # Peek the first solid so the reader's scan runs and fires on_total with the solid
     # count — we only spin up the worker pool when there's enough work to amortise the
     # ~1 s process-spawn overhead (it makes small conversions SLOWER otherwise).
-    import itertools
-
     try:
         _first = next(geom_iter)
         geom_iter = itertools.chain((_first,), geom_iter)
@@ -271,8 +318,12 @@ def scene_from_step_stream(source: StepStreamSource, converter: SceneConverter) 
     use_pool = n_workers > 1 and n_roots["total"] >= _POOL_MIN_SOLIDS
 
     if not use_pool:
+        _seq = 0
         for geom in geom_iter:
             _handle(_tessellate_geom_worker(geom))
+            _seq += 1
+            if _seq % _TRIM_EVERY == 0:  # sequential path tessellates in-process — trim here too
+                _maybe_trim()
     else:
         # Self-managed spawn pool (not ProcessPoolExecutor, which can't kill an
         # individual worker): one solid per worker at a time, so a worker that overruns
@@ -299,8 +350,12 @@ def scene_from_step_stream(source: StepStreamSource, converter: SceneConverter) 
             slots = None
 
         if slots is None:
+            _seq = 0
             for geom in geom_iter:
                 _handle(_tessellate_geom_worker(geom))
+                _seq += 1
+                if _seq % _TRIM_EVERY == 0:
+                    _maybe_trim()
         else:
             logger.info(
                 "scene_from_step_stream: tessellating with %d worker process(es), %.0fs/solid timeout",
@@ -360,17 +415,6 @@ def scene_from_step_stream(source: StepStreamSource, converter: SceneConverter) 
                     except Exception:  # noqa: BLE001
                         pass
 
-    # One merged mesh (glTF node) per material/colour — the default GLB shape.
-    if on_progress is not None:
-        on_progress("merging", 0.92)
-    for mat_id, stores in by_material.items():
-        merged = concatenate_stores(stores, graph)
-        if merged is None:
-            continue
-        merged_mesh_to_trimesh_scene(
-            scene, merged, bt.get_mat_by_id(mat_id), mat_id, graph, apply_transform=params.apply_transform
-        )
-
     n_skipped = sum(reasons.values())
     if n_skipped:
         more = f" (+{n_skipped - len(skipped_ids)} more)" if n_skipped > len(skipped_ids) else ""
@@ -388,13 +432,121 @@ def scene_from_step_stream(source: StepStreamSource, converter: SceneConverter) 
         source.path,
         n_total - n_skipped,
         n_total,
-        len(by_material),
+        len(bt.material_store),
     )
-    scene.metadata["ada_stream_stats"] = {
+    return {
         "meshed": n_total - n_skipped,
         "total": n_total,
         "skipped": n_skipped,
-        "materials": len(by_material),
+        "materials": len(bt.material_store),
         "reasons": dict(reasons),
     }
+
+
+def scene_from_step_stream(source: StepStreamSource, converter: SceneConverter) -> trimesh.Scene:
+    """Build a merged-by-colour ``trimesh.Scene`` by streaming a STEP file solid-by-solid
+    (used by ``SceneConverter.build_scene`` / interactive rendering). For the worker's
+    GLB conversion use :func:`convert_step_stream_to_glb`, which spills the merge to disk
+    and never materialises the whole scene."""
+    import collections
+
+    import trimesh
+
+    from ada.occ.tessellating import BatchTessellator
+    from ada.visit.gltf.meshes import MeshStore, MeshType
+    from ada.visit.gltf.optimize import concatenate_stores
+    from ada.visit.gltf.store import merged_mesh_to_trimesh_scene
+
+    bt = BatchTessellator()  # parent-side material store + material lookup for the merge
+    params = converter.params
+    graph = converter.graph
+    root = graph.top_level
+    scene = trimesh.Scene(base_frame=root.name)
+
+    # mat_id -> [MeshStore]. Mesh buffers are flat float/int arrays (a few tens of MB
+    # for a 100k-triangle model), so accumulating them per material — then merging once
+    # at the end — keeps memory bounded; the B-rep geometry is freed each iteration.
+    by_material: dict[int, list] = collections.defaultdict(list)
+
+    def _sink(mat_id, node_ref, pos, idx, nrm) -> None:
+        by_material[mat_id].append(MeshStore(node_ref, None, pos, idx, nrm, mat_id, MeshType.TRIANGLES, node_ref))
+
+    stats = _tessellate_stream(source, graph, bt, _sink)
+
+    # One merged mesh (glTF node) per material/colour — the default GLB shape.
+    if source.on_progress is not None:
+        source.on_progress("merging", 0.92)
+    for mat_id, stores in by_material.items():
+        merged = concatenate_stores(stores, graph)
+        if merged is None:
+            continue
+        merged_mesh_to_trimesh_scene(
+            scene, merged, bt.get_mat_by_id(mat_id), mat_id, graph, apply_transform=params.apply_transform
+        )
+
+    scene.metadata["ada_stream_stats"] = stats
     return scene
+
+
+def convert_step_stream_to_glb(source: StepStreamSource, glb_path: str | Path) -> dict:
+    """Stream-convert a STEP file straight to a GLB on disk with bounded memory.
+
+    Replaces the trimesh-scene merge + ``scene.export`` of the default path: each solid's
+    mesh is spilled to a per-material temp file as it streams in (the incremental
+    concatenate), then the GLB is assembled by streaming those files into the BIN chunk —
+    so peak RAM is ~one solid's buffers + a light manifest, not the whole model ×2-3.
+
+    Produces the same merge-by-colour materials + ``ADA_EXT_data`` extension + picking
+    metadata (``scenes[0].extras``) as :func:`scene_from_step_stream` + trimesh export.
+    Returns ``{"meshed", "total", "skipped", "materials", "reasons"}``."""
+    import numpy as np
+
+    from ada.cadit.step.glb_spill import GlbSpillStore, write_glb_from_spill
+    from ada.core.guid import create_guid
+    from ada.extension.design_and_analysis_extension_schema import (
+        AdaDesignAndAnalysisExtension,
+    )
+    from ada.occ.tessellating import BatchTessellator
+    from ada.visit.gltf.graph import GraphNode, GraphStore
+    from ada.visit.gltf.meshes import MergedMesh, MeshType
+
+    bt = BatchTessellator()
+    root = GraphNode("root", 0, hash=create_guid())
+    graph = GraphStore(root, {0: root})
+    ada_ext = AdaDesignAndAnalysisExtension()
+    spill = GlbSpillStore()
+    try:
+        stats = _tessellate_stream(source, graph, bt, spill.add)
+
+        if source.on_progress is not None:
+            source.on_progress("merging", 0.92)
+
+        # Register each material's picking ranges so ``to_json_hierarchy`` emits the
+        # ``draw_ranges_node{mat_id}`` sequences. ``create_id_sequence`` only reads
+        # ``.groups``, so a groups-only MergedMesh (empty buffers) is enough — the heavy
+        # vertex/index data already lives in the spill files.
+        empty_pos = np.empty(0, dtype=np.float32)
+        empty_idx = np.empty(0, dtype=np.uint32)
+        color_by_mat: dict[int, object] = {}
+        for m in spill.materials():
+            color = bt.get_mat_by_id(m.mat_id)
+            color_by_mat[m.mat_id] = color
+            if m.index_count > 0:
+                graph.add_merged_mesh(
+                    m.mat_id, MergedMesh(empty_idx, empty_pos, None, color, MeshType.TRIANGLES, m.groups)
+                )
+
+        scene_metadata = dict(graph.to_json_hierarchy())
+        scene_metadata["ada_stream_stats"] = stats
+
+        write_glb_from_spill(
+            glb_path,
+            spill,
+            color_by_mat,
+            ada_ext.model_dump(mode="json"),
+            scene_metadata,
+            base_frame=root.name,
+        )
+        return stats
+    finally:
+        spill.cleanup()

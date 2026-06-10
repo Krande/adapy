@@ -36,17 +36,19 @@ def stream_step_to_glb(step_path: str | Path, glb_path: str | Path, *, tolerant:
 
     Returns ``{"meshed", "total", "skipped", "materials", "reasons"}``.
     """
-    from ada.visit.scene_converter import SceneConverter
-    from ada.visit.scene_handling.scene_from_step_stream import StepStreamSource
+    from ada.visit.scene_handling.scene_from_step_stream import (
+        StepStreamSource,
+        convert_step_stream_to_glb,
+    )
 
-    converter = SceneConverter(source=StepStreamSource(step_path, tolerant=tolerant, on_progress=on_progress))
-    data = converter.build_glb()  # colour-merged + ADA-ext, built by streaming
-    stats = dict((converter.build_scene().metadata or {}).get("ada_stream_stats", {}))
+    source = StepStreamSource(step_path, tolerant=tolerant, on_progress=on_progress)
+    # Spills the per-material merge to disk and streams the GLB straight to ``glb_path``
+    # (no in-RAM scene / GLB bytes), so peak memory stays a few hundred MB on assemblies
+    # that OOM'd the 2-3x in-memory ``scene.export`` path.
+    stats = convert_step_stream_to_glb(source, glb_path)
 
     if stats.get("meshed", 0) == 0:
         raise ValueError(f"stream_step_to_glb: no solids tessellated from {step_path} (all skipped)")
-
-    Path(glb_path).write_bytes(data)
     logger.info(
         "stream_step_to_glb: %s -> %s — meshed %d/%d solids, %d material group(s)",
         step_path,
