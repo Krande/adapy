@@ -216,6 +216,13 @@ jobs:
           changed_for() {
             b="$1"
             [ -z "$b" ] && { echo ""; return; }
+            # A force-push / history-rewrite / GC can orphan the diff base — most often
+            # ``github.event.before`` when this very branch was force-pushed (the prior
+            # tip is gone), or a last-deployed SHA. ``git diff <missing-object> HEAD`` is
+            # fatal (exit 128) and, under ``set -e``, bricks detect and skips every build.
+            # Validate the base resolves to a real commit first; an unreachable base means
+            # "no usable info" -> "" -> build it by convention (same as the empty case).
+            git cat-file -e "${b}^{commit}" 2>/dev/null || { echo ""; return; }
             git diff --name-only "$b" "$GITHUB_SHA"
           }
 
