@@ -2,6 +2,15 @@
 
 
 
+## v0.18.1 (2026-06-10)
+
+### Fix
+
+* fix: bound memory of streaming STEP-&gt;GLB conversion (#214)
+
+Co-authored-by: Claude Opus 4.8 (1M context) &lt;noreply@anthropic.com&gt; ([`a1684d8`](https://github.com/Krande/adapy/commit/a1684d870c7b18fb2b451561827a7bbd04ff7c8b))
+
+
 ## v0.18.0 (2026-06-09)
 
 ### Feature
