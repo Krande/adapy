@@ -1175,11 +1175,14 @@ class _OffsetPool:
 
 def _read_two_pass_lazy(filepath: Path, *, tolerant: bool, skipped, on_total=None):
     import mmap
+    import os
+    import tempfile
 
     import numpy as np
 
     fh = open(filepath, "rb")  # noqa: SIM115 - kept open for the generator's lifetime
     mm = mmap.mmap(fh.fileno(), 0, access=mmap.ACCESS_READ)
+    idx_tmp: list[str] = []  # sorted-index temp files, unlinked in finally
     try:
         ids_arr, offs_arr, roots, styled, cdsr, srr, absr = _scan_offset_index(mm)
         ids_np = np.frombuffer(ids_arr, dtype=np.int64)
@@ -1188,7 +1191,24 @@ def _read_two_pass_lazy(filepath: Path, *, tolerant: bool, skipped, on_total=Non
         ids_sorted = np.ascontiguousarray(ids_np[order])
         offs_sorted = np.ascontiguousarray(offs_np[order])
         del ids_np, offs_np, order, ids_arr, offs_arr
-        pool = _OffsetPool(mm, ids_sorted, offs_sorted)
+        # Spill the sorted id/offset arrays to disk and memmap them so the index (~170 MB
+        # on an 11 M-entity assembly, much larger on 100k-solid files) is OS-paged and
+        # reclaimable instead of pinned on the Python heap for the generator's lifetime.
+        # ``_OffsetPool.get`` does ``np.searchsorted`` + index — identical on a memmap.
+        if ids_sorted.size:
+            fd_i, p_i = tempfile.mkstemp(suffix=".ada_idx_ids")
+            fd_o, p_o = tempfile.mkstemp(suffix=".ada_idx_offs")
+            os.close(fd_i)
+            os.close(fd_o)
+            ids_sorted.tofile(p_i)
+            offs_sorted.tofile(p_o)
+            del ids_sorted, offs_sorted
+            idx_tmp = [p_i, p_o]
+            ids_mm = np.memmap(p_i, dtype=np.int64, mode="r")
+            offs_mm = np.memmap(p_o, dtype=np.int64, mode="r")
+        else:  # empty file -> np.memmap can't map 0 bytes; keep the empty arrays in RAM
+            ids_mm, offs_mm = ids_sorted, offs_sorted
+        pool = _OffsetPool(mm, ids_mm, offs_mm)
         colour_map = _build_colour_map(pool.get, styled)
         tmap = _build_transform_map(pool.get, roots, cdsr, srr, absr)
         if on_total is not None:
@@ -1210,5 +1230,14 @@ def _read_two_pass_lazy(filepath: Path, *, tolerant: bool, skipped, on_total=Non
             color = _as_color(colour_map.get(rid))
             yield from _yield_instances(name, geom, color, tmap.get(rid))
     finally:
+        # Unlink the memmap-backed index temp files. On Linux the inode (and its disk
+        # space) lives until the memmaps are GC'd with the generator's locals, so this is
+        # the standard unlink-while-open pattern — no leak, and the data stays valid for
+        # the loop above.
+        for _p in idx_tmp:
+            try:
+                os.unlink(_p)
+            except OSError:
+                pass
         mm.close()
         fh.close()
