@@ -463,10 +463,8 @@ def test_stream_glb_groups_instances_under_assembly_tree(tmp_path):
     assert "box/2" in by_name, f"missing second instance: {meta}"
     # 'box' appears twice: the product group node and the first instance.
     assert len(by_name["box"]) == 2, f"expected group + instance named 'box': {meta}"
-    (a_id, a_parent) = by_name["a"][0]
-    group_id = {pid for _nid, pid in (by_name["box"] + by_name["box/2"])} - {a_id}
+    (a_id, _a_parent) = by_name["a"][0]
     # Both instances hang under the SAME 'box' group node, which hangs under 'a'.
-    inst_parents = [pid for name in ("box", "box/2") for nid, pid in by_name[name] if pid != a_parent]
     box_group = [nid for nid, pid in by_name["box"] if str(pid) == str(a_id)]
     assert box_group, f"'box' group not parented under 'a': {meta}"
     leaf_parents = {str(pid) for nid, pid in by_name["box"] + by_name["box/2"] if str(nid) not in box_group}
