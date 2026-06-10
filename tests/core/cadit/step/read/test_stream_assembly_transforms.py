@@ -424,3 +424,50 @@ def test_stream_reader_flat_emitter_no_transform(tmp_path):
         assert scale > 0
         assert np.allclose(lo / scale, [1.0, 2.0, 3.0], atol=1e-6)
         assert np.allclose(hi / scale, [2.0, 3.0, 4.0], atol=1e-6)
+
+
+def test_stream_glb_groups_instances_under_assembly_tree(tmp_path):
+    """The GLB's id_hierarchy must mirror the STEP product tree — group nodes named
+    from the PRODUCTs along each instance's placement chain ('a' -> 'box' here), with
+    the mesh instances parented under the deepest group — so a viewer can fold whole
+    sub-assemblies instead of scrolling a flat list."""
+    import json
+    import struct
+
+    from ada.cadit.step.stream_to_glb import stream_step_to_glb
+
+    child = ((0.0, 0.0, 0.0), (0.0, 0.0, 1.0), (1.0, 0.0, 0.0))
+    parent_a = ((0.0, 0.0, 0.0), (0.0, 0.0, 1.0), (1.0, 0.0, 0.0))
+    parent_b = ((10.0, 0.0, 0.0), (0.0, 0.0, 1.0), (1.0, 0.0, 0.0))
+    block = _idt_block(child, parent_a)
+    block += (
+        _axis2_lines(300, *child)
+        + _axis2_lines(310, *parent_b)
+        + "#388=ITEM_DEFINED_TRANSFORMATION('','',#300,#310);\n"
+        "#389=(REPRESENTATION_RELATIONSHIP('','',#172,#179)"
+        "REPRESENTATION_RELATIONSHIP_WITH_TRANSFORMATION(#388)SHAPE_REPRESENTATION_RELATIONSHIP());\n"
+        "#390=CONTEXT_DEPENDENT_SHAPE_REPRESENTATION(#389,#187);\n"
+    )
+    path = tmp_path / "multi.step"
+    path.write_text(_render(block))
+    glb = tmp_path / "multi.glb"
+    stream_step_to_glb(path, glb, tolerant=True)
+
+    raw = glb.read_bytes()
+    jlen = struct.unpack("<I", raw[12:16])[0]
+    meta = json.loads(raw[20 : 20 + jlen])["scenes"][0]["extras"]["id_hierarchy"]
+    by_name = {}
+    for nid, (name, pid) in meta.items():
+        by_name.setdefault(name, []).append((nid, pid))
+
+    assert "box/2" in by_name, f"missing second instance: {meta}"
+    # 'box' appears twice: the product group node and the first instance.
+    assert len(by_name["box"]) == 2, f"expected group + instance named 'box': {meta}"
+    (a_id, a_parent) = by_name["a"][0]
+    group_id = {pid for _nid, pid in (by_name["box"] + by_name["box/2"])} - {a_id}
+    # Both instances hang under the SAME 'box' group node, which hangs under 'a'.
+    inst_parents = [pid for name in ("box", "box/2") for nid, pid in by_name[name] if pid != a_parent]
+    box_group = [nid for nid, pid in by_name["box"] if str(pid) == str(a_id)]
+    assert box_group, f"'box' group not parented under 'a': {meta}"
+    leaf_parents = {str(pid) for nid, pid in by_name["box"] + by_name["box/2"] if str(nid) not in box_group}
+    assert leaf_parents == {str(box_group[0])}, f"instances not grouped under 'box': {meta}"
