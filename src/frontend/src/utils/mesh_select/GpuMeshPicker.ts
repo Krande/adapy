@@ -448,17 +448,21 @@ class GpuMeshPicker {
         // morph texture amplifies both layouts by ~2×). Auto-pick the
         // cheaper layout so a user enabling the toggle on the
         // Performance panel never gets a regression.
+        // Always auto-pick the cheaper layout — the cost model above is exact, so
+        // there is no reason to pay ~81 B/tri for a merged CAD mesh (α≈1) when the
+        // flat layout costs ~66 B/tri: on a 30M-tri model that's ~0.5 GB saved. The
+        // perf-store toggle is kept as a manual override to FORCE flat for
+        // experiments; it can no longer make picking more expensive.
         const wantFlat = usePerfStore.getState().useFlatPicker;
-        const flat = wantFlat && this.flatIsCheaper(
-            posAttr.count, nTris, morphTargetCount,
-        );
+        const cheaper = this.flatIsCheaper(posAttr.count, nTris, morphTargetCount);
+        const flat = wantFlat || cheaper;
 
-        if (wantFlat && !flat) {
+        if (wantFlat && !cheaper) {
             const alpha = posAttr.count / nTris;
             console.info(
-                `[GpuMeshPicker] flat-picker disabled for "${mesh.name}": ` +
+                `[GpuMeshPicker] flat-picker forced for "${mesh.name}" despite ` +
                 `vertex-sharing α=${alpha.toFixed(2)} ≥ 1.556 — ` +
-                `non-indexed picker is cheaper for this mesh`,
+                `non-indexed picker would be cheaper for this mesh`,
             );
         }
 
