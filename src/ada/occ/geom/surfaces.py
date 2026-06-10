@@ -1,13 +1,15 @@
 import math
 
+from OCC.Core.Bnd import Bnd_Box
 from OCC.Core.BRep import BRep_Builder, BRep_Tool
 from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Cut, BRepAlgoAPI_Fuse
+from OCC.Core.BRepBndLib import brepbndlib
 from OCC.Core.BRepBuilderAPI import (
     BRepBuilderAPI_MakeEdge,
     BRepBuilderAPI_MakeFace,
     BRepBuilderAPI_MakeWire,
 )
-from OCC.Core.BRepTools import BRepTools_WireExplorer
+from OCC.Core.BRepTools import BRepTools_WireExplorer, breptools
 from OCC.Core.Geom import (
     Geom_BSplineSurface,
     Geom_ConicalSurface,
@@ -767,9 +769,9 @@ def _has_full_circle_edge(advanced_face: geo_su.AdvancedFace) -> bool:
 
 
 def _sample_edge_points(oe):
-    """World-space sample points along one oriented edge. A full circle (start==end)
-    is sampled all the way round so the projected parameter range captures the full
-    closed direction; other edges contribute their endpoints."""
+    """World-space sample points along one oriented edge. A circular edge is sampled
+    along its arc (the full period for a closed circle) so the projected parameter
+    range captures the swept direction; other edges contribute their endpoints."""
     import math
 
     pts = [
@@ -778,15 +780,31 @@ def _sample_edge_points(oe):
     ]
     ec = getattr(oe, "edge_element", oe)
     g = getattr(ec, "edge_geometry", None)
-    if isinstance(g, geo_cu.Circle) and _points_close(oe.start, oe.end):
+    if isinstance(g, geo_cu.Circle):
         pos = g.position
         c = [float(x) for x in pos.location]
         z = [float(x) for x in pos.axis]
         xd = [float(x) for x in pos.ref_direction]
         yd = (z[1] * xd[2] - z[2] * xd[1], z[2] * xd[0] - z[0] * xd[2], z[0] * xd[1] - z[1] * xd[0])
         r = float(g.radius)
-        for k in range(12):
-            a = 2.0 * math.pi * k / 12.0
+        if _points_close(oe.start, oe.end):
+            a0, a1 = 0.0, 2.0 * math.pi
+        else:
+            # Partial arc: sample between the endpoint angles. The traversal sense
+            # isn't recovered here, so the complement arc may be sampled instead —
+            # harmless for parameter-extent estimation (it can only widen coverage).
+            def _ang(p):
+                d = (p[0] - c[0], p[1] - c[1], p[2] - c[2])
+                return math.atan2(
+                    d[0] * yd[0] + d[1] * yd[1] + d[2] * yd[2],
+                    d[0] * xd[0] + d[1] * xd[1] + d[2] * xd[2],
+                )
+
+            a0, a1 = _ang(pts[0]), _ang(pts[1])
+            if a1 <= a0:
+                a1 += 2.0 * math.pi
+        for k in range(13):
+            a = a0 + (a1 - a0) * k / 12.0
             ca, sa = math.cos(a), math.sin(a)
             pts.append(
                 (
@@ -820,28 +838,13 @@ def _param_extent(vals: list[float], periodic: bool, period: float) -> tuple[flo
     return s[best_i + 1], s[best_i] + period
 
 
-def _try_make_closed_revolution_face(advanced_face: geo_su.AdvancedFace, face_surface):
-    """Build a face that is *closed* in a parametric direction (full cylinder / cone /
-    torus tube — signalled by a full-circle boundary edge) directly from the surface's
-    parametric bounds, so OCC generates the seam itself. ``make_wire_from_face_bound``
-    can't build a wire out of full-circle edges plus a doubled seam, which is why these
-    faces (~5% of real-CAD curved faces — pipe walls, elbows) otherwise drop. Returns a
-    face or None."""
-    import math
-
-    from OCC.Core.Geom import (
-        Geom_ConicalSurface,
-        Geom_CylindricalSurface,
-        Geom_ToroidalSurface,
-    )
-
-    if not isinstance(face_surface, (Geom_CylindricalSurface, Geom_ConicalSurface, Geom_ToroidalSurface)):
-        return None
-    if not _has_full_circle_edge(advanced_face):
-        return None
-
+def _make_face_from_param_extent(advanced_face: geo_su.AdvancedFace, face_surface):
+    """Build a face directly from the projected parameter extent of its boundary
+    samples — for faces whose boundary wire cannot trim the surface (closed
+    revolution faces, seam-crossing arc wires). Inner bounds are filled (the face
+    over-covers slightly). Returns a face or None."""
     # Recover (u, v) parameter ranges by projecting the boundary samples onto the
-    # surface; the closed direction(s) snap to the full period via _param_extent.
+    # surface; a closed direction snaps to the full period via _param_extent.
     us: list[float] = []
     vs: list[float] = []
     for fb in advanced_face.bounds:
@@ -865,6 +868,59 @@ def _try_make_closed_revolution_face(advanced_face: geo_su.AdvancedFace, face_su
     if not mk.IsDone():
         return None
     return mk.Face()
+
+
+def _try_make_closed_revolution_face(advanced_face: geo_su.AdvancedFace, face_surface):
+    """Build a face that is *closed* in a parametric direction (full cylinder / cone /
+    torus tube — signalled by a full-circle boundary edge) directly from the surface's
+    parametric bounds, so OCC generates the seam itself. ``make_wire_from_face_bound``
+    can't build a wire out of full-circle edges plus a doubled seam, which is why these
+    faces (~5% of real-CAD curved faces — pipe walls, elbows) otherwise drop. Returns a
+    face or None."""
+    if not isinstance(face_surface, (Geom_CylindricalSurface, Geom_ConicalSurface, Geom_ToroidalSurface)):
+        return None
+    if not _has_full_circle_edge(advanced_face):
+        return None
+    return _make_face_from_param_extent(advanced_face, face_surface)
+
+
+_UV_FINITE_LIM = 1.0e50  # OCC marks an untrimmed natural bound as ±Precision::Infinite (~1e100)
+
+
+def _face_uv_unbounded(face) -> bool:
+    """True when the face still carries the surface's natural (infinite) parameter
+    bounds — i.e. its boundary wire failed to trim the surface."""
+    try:
+        umin, umax, vmin, vmax = breptools.UVBounds(face)
+    except Exception:  # noqa: BLE001 - treat an unqueryable face as unbounded
+        return True
+    return any((not math.isfinite(x)) or abs(x) > _UV_FINITE_LIM for x in (umin, umax, vmin, vmax))
+
+
+def _shape_diag(shape) -> float:
+    """Geometric bounding-box diagonal of any shape (no triangulation required)."""
+    box = Bnd_Box()
+    try:
+        brepbndlib.Add(shape, box, False)
+    except Exception:  # noqa: BLE001
+        return math.inf
+    if box.IsVoid():
+        return 0.0
+    xmin, ymin, zmin, xmax, ymax, zmax = box.Get()
+    return math.dist((xmin, ymin, zmin), (xmax, ymax, zmax))
+
+
+# A trimmed face cannot legitimately extend far beyond its own outer boundary wire.
+# 10x leaves generous slack for curvature bulge (a half-cylinder face's bbox is at
+# most ~2x its wire's) while catching runaway trims that are orders of magnitude off.
+_FACE_OVERRUN_FACTOR = 10.0
+
+
+def _face_overruns_wire(face, wire_diag: float) -> bool:
+    fd = _shape_diag(face)
+    if not math.isfinite(fd):
+        return True
+    return fd > _FACE_OVERRUN_FACTOR * max(wire_diag, 1e-6)
 
 
 def make_face_from_geom(advanced_face: geo_su.AdvancedFace) -> TopoDS_Face:
@@ -1040,6 +1096,29 @@ def make_face_from_geom(advanced_face: geo_su.AdvancedFace) -> TopoDS_Face:
         raise Exception(f"Failed to create face from surface type {type(advanced_face.face_surface)}")
 
     face = face_maker.Face()
+
+    # A wire that fails to close in UV on an infinite revolution surface — e.g. a
+    # cylinder/cone face whose boundary circles are split into arcs and the wire
+    # crosses the parametric seam — leaves the face with the surface's NATURAL bounds:
+    # infinite (or absurdly large) along the axis. BRepMesh then emits vertices
+    # millions of units out, so a single such face explodes the whole model's bounding
+    # box in the viewer. Detect it by comparing the face's geometric extent against
+    # its own boundary wire (a trimmed face cannot legitimately overrun its boundary
+    # by 10x) and rebuild from the boundary's projected parameter extent; if that
+    # fails too, drop the face — a hole beats a kilometres-long sliver. The check is
+    # gated to cylinder/cone: those are the only surfaces here with an infinite
+    # direction (gp_Pln UV-projects exactly; sphere/torus/B-spline are bounded), and
+    # the gate keeps the cost off the hot path. NOTE: ShapeFix_Face must NOT be used
+    # to repair these — it segfaults on many real-world unbounded cone faces.
+    if isinstance(face_surface, (Geom_CylindricalSurface, Geom_ConicalSurface)):
+        wire_diag = _shape_diag(outer_wire)
+        if _face_overruns_wire(face, wire_diag):
+            rebuilt = _make_face_from_param_extent(advanced_face, face_surface)
+            if rebuilt is None or _face_overruns_wire(rebuilt, wire_diag):
+                raise UnableToCreateTesselationFromSolidOCCGeom(
+                    f"unbounded face after wire trim on {type(advanced_face.face_surface).__name__}; skipping"
+                )
+            face = rebuilt
 
     # ShapeFix runs only on the regenerative-pcurve path — the
     # SAT-pcurve path produces clean topology and ShapeFix would

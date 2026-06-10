@@ -112,6 +112,71 @@ def tessellate_advanced_face(face: TopoDS_Shape, linear_deflection=0.1, angular_
     mesh.Perform()
 
 
+def _edge_hull_box(shape):
+    """Union bbox of the shape's edge curves plus its bounded closed surfaces
+    (sphere/torus). Face interiors are excluded on purpose: a face whose wire
+    failed to trim an infinite surface (cylinder/cone) poisons any face-inclusive
+    bbox, while its boundary edges remain finite. Returns (xmin..zmax) or None."""
+    from OCC.Core.Bnd import Bnd_Box
+    from OCC.Core.BRepAdaptor import BRepAdaptor_Surface
+    from OCC.Core.BRepBndLib import brepbndlib
+    from OCC.Core.GeomAbs import GeomAbs_Sphere, GeomAbs_Torus
+    from OCC.Core.TopAbs import TopAbs_EDGE, TopAbs_FACE
+    from OCC.Core.TopExp import TopExp_Explorer
+
+    box = Bnd_Box()
+    exp = TopExp_Explorer(shape, TopAbs_EDGE)
+    while exp.More():
+        try:
+            brepbndlib.Add(exp.Current(), box, False)
+        except Exception:  # noqa: BLE001 - one bad edge must not void the hull
+            pass
+        exp.Next()
+    fexp = TopExp_Explorer(shape, TopAbs_FACE)
+    while fexp.More():
+        try:
+            ad = BRepAdaptor_Surface(fexp.Current())
+            t = ad.GetType()
+            if t in (GeomAbs_Sphere, GeomAbs_Torus):
+                if t == GeomAbs_Sphere:
+                    s = ad.Sphere()
+                    c, r = s.Location(), s.Radius()
+                else:
+                    s = ad.Torus()
+                    c, r = s.Location(), s.MajorRadius() + s.MinorRadius()
+                box.Update(c.X() - r, c.Y() - r, c.Z() - r, c.X() + r, c.Y() + r, c.Z() + r)
+        except Exception:  # noqa: BLE001
+            pass
+        fexp.Next()
+    if box.IsVoid():
+        return None
+    return box.Get()
+
+
+def _drop_runaway_triangles(shape, np_vertices, np_normals):
+    """ShapeTesselator output is an unindexed triangle soup. A face whose wire
+    failed to trim an infinite surface can mesh with interior vertices flying
+    kilometres out (worst on sewn solids, where ShapeFix/sewing rebuilds pcurves) —
+    a single such face explodes the converted model's bounding box. Drop every
+    triangle with a vertex outside the shape's edge hull inflated by 10x its
+    diagonal; legitimate surface bulge between edges is well under 1x."""
+    hull = _edge_hull_box(shape)
+    if hull is None:
+        return np_vertices, np_normals
+    xmin, ymin, zmin, xmax, ymax, zmax = hull
+    lo = np.array([xmin, ymin, zmin], dtype="float64")
+    hi = np.array([xmax, ymax, zmax], dtype="float64")
+    pad = 10.0 * max(float(np.linalg.norm(hi - lo)), 1e-6)
+    tri = np_vertices.reshape(-1, 3, 3)
+    ok = ((tri >= (lo - pad)) & (tri <= (hi + pad))).all(axis=(1, 2))
+    if bool(ok.all()):
+        return np_vertices, np_normals
+    np_vertices = np.ascontiguousarray(tri[ok].reshape(-1))
+    if np_normals is not None and np_normals.size:
+        np_normals = np.ascontiguousarray(np_normals.reshape(-1, 3, 3)[ok].reshape(-1))
+    return np_vertices, np_normals
+
+
 def tessellate_shape(shape: TopoDS_Shape, quality=1.0, render_edges=False, parallel=True) -> TriangleMesh:
     # Backend dispatch: a pythonocc TopoDS uses the rich ShapeTesselator
     # (normals + edges). Any other handle (e.g. an adacpp ShapeHandle) is
@@ -147,8 +212,9 @@ def tessellate_shape(shape: TopoDS_Shape, quality=1.0, render_edges=False, paral
 
     # then we build the vertex and faces collections as numpy ndarrays
     np_vertices = np.array(vertices_position, dtype="float32")
-    np_faces = np.arange(number_of_triangles * 3, dtype="uint32")
     np_normals = np.array(tess.GetNormalsAsTuple(), dtype="float32")
+    np_vertices, np_normals = _drop_runaway_triangles(shape, np_vertices, np_normals)
+    np_faces = np.arange(np_vertices.size // 3, dtype="uint32")
     edges = np.array(
         map(
             lambda i_edge: [tess.GetEdgeVertex(i_edge, i_vert) for i_vert in range(tess.ObjEdgeGetVertexCount(i_edge))],

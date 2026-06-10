@@ -394,8 +394,21 @@ def _tessellate_stream(source: StepStreamSource, graph, bt, sink) -> dict:
                     except _queue.Empty:
                         pass
                     now = _time.monotonic()
-                    for i, slot in enumerate(slots):  # kill + replace any over-budget worker
-                        if slot["busy"] and slot["since"] and (now - slot["since"]) > timeout_s:
+                    for i, slot in enumerate(slots):  # replace dead or over-budget workers
+                        if not slot["busy"]:
+                            continue
+                        # A worker that died mid-solid (OCC segfault/terminate — uncatchable
+                        # in-process) will never produce a result; without this liveness
+                        # check its slot would sit blocked for the full per-solid timeout,
+                        # and a model with many such solids burns hours of wall clock.
+                        if not slot["proc"].is_alive():
+                            gid = slot["gid"]
+                            slot["proc"].join(timeout=2)
+                            busy -= 1
+                            slots[i] = _spawn(i, result_q)
+                            _handle(("error:WorkerCrashed (native crash in OCC)", gid, None, None, None, None, None))
+                            continue
+                        if slot["since"] and (now - slot["since"]) > timeout_s:
                             gid = slot["gid"]
                             slot["proc"].kill()
                             slot["proc"].join(timeout=2)
