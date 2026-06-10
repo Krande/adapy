@@ -25,13 +25,13 @@ async function get_mesh_and_draw_ranges(nodes: NodeApi[]) {
             console.warn("No scene found for node:", node);
             continue;
         }
-        let mesh = scene.getObjectByName(node_name) as CustomBatchedMesh;
+        // node_name (the merged-mesh name from the worker's elementToMesh map) is
+        // authoritative; null means this row is a pure group node with no draw
+        // range. The old display-name fallback could only ever bind a WRONG
+        // same-named mesh — display names repeat thousands of times in real models.
+        const mesh = node_name ? (scene.getObjectByName(node_name) as CustomBatchedMesh) : undefined;
         if (!mesh) {
-            mesh = scene.getObjectByName(node.data.name.replace("/", "")) as CustomBatchedMesh;
-            if (!mesh) {
-                // console.warn("No mesh found for node:", node_name, "in scene:", scene);
-                continue;
-            }
+            continue;
         }
         meshes_and_ranges.push([mesh, rangeId]);
     }

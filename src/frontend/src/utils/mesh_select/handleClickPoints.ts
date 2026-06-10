@@ -9,7 +9,6 @@ import {gpuPointPicker} from "./GpuPointPicker";
 import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
 import {queryNameFromRangeId, queryPointDrawRange, queryPointRangeByRangeId} from "./queryMeshDrawRange";
 import {useTreeViewStore} from "@/state/treeViewStore";
-import {findNodeById} from "../tree_view/findNodeById";
 import {perform_selection} from "./perform_selection";
 
 export async function handleClickPoints(
@@ -143,14 +142,13 @@ export async function handleClickPoints(
             const lookupKey: string | undefined = (o as any).unique_key ?? (o.userData ? o.userData['unique_hash'] : undefined);
             if (!lookupKey) continue;
             for (const rid of selectedRanges) {
-                const nodeName = await queryNameFromRangeId(lookupKey, rid);
-                if (!nodeName) continue;
-                const node = findNodeById(treeViewStore.treeData, nodeName);
+                // Unique (model_key, rangeId) lookup — see handleClickMesh.
+                const node = treeViewStore.findNodeByRangeId(lookupKey, rid);
                 if (node) node_ids.push(node.id);
             }
         }
 
-        const lastNode = findNodeById(treeViewStore.treeData, selected);
+        const lastNode = treeViewStore.findNodeByRangeId(hash, rangeId);
         treeViewStore.tree.setSelection({
             ids: node_ids,
             mostRecent: lastNode,
