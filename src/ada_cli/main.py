@@ -12,7 +12,7 @@ Subcommand layout:
     ada view IN [--renderer ...]      local web viewer
     ada build run|upload|run-and-upload
                                       build artefacts and push to viewer
-    ada files list|download           list / download blobs from a scope
+    ada files list|download|upload    list / transfer blobs in a scope
     ada serve api|worker              run the REST API / worker process
 """
 
@@ -58,6 +58,12 @@ def _cmd_files_list(args: argparse.Namespace) -> int:
     from ada_cli.files import cmd_list
 
     return cmd_list(args)
+
+
+def _cmd_files_upload(args: argparse.Namespace) -> int:
+    from ada_cli.files import cmd_upload
+
+    return cmd_upload(args)
 
 
 def _cmd_files_download(args: argparse.Namespace) -> int:
@@ -142,7 +148,7 @@ def _add_build(sub: argparse._SubParsersAction) -> None:
 def _add_files(sub: argparse._SubParsersAction) -> None:
     files = sub.add_parser(
         "files",
-        help="List or download blobs in a scope (needs ADAPY_VIEWER_URL + ADAPY_VIEWER_TOKEN).",
+        help="List, download, or upload blobs in a scope (needs ADAPY_VIEWER_URL + ADAPY_VIEWER_TOKEN).",
     )
     files_sub = files.add_subparsers(dest="files_command", required=True)
 
@@ -174,6 +180,20 @@ def _add_files(sub: argparse._SubParsersAction) -> None:
         help="Force the API-tunneled GET path (skip presigned URL).",
     )
     dl.set_defaults(func=_cmd_files_download)
+
+    up = files_sub.add_parser(
+        "upload",
+        help="Upload a file. Goes S3-direct via a presigned URL when the backend supports it.",
+    )
+    _add_remote_opts(up)
+    up.add_argument("src", help="Local file to upload.")
+    up.add_argument("key", nargs="?", default=None, help="Destination blob key (default: basename of src).")
+    up.add_argument(
+        "--via-api",
+        action="store_true",
+        help="Force the API-tunneled PUT path (skip presigned URL; subject to the direct-upload size cap).",
+    )
+    up.set_defaults(func=_cmd_files_upload)
 
 
 def _add_audit(sub: argparse._SubParsersAction) -> None:

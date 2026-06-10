@@ -71,7 +71,11 @@ export class CustomBatchedMesh extends THREE.Mesh {
         is_design: boolean,
         ada_ext_data: SimulationDataExtensionMetadata | DesignDataExtension | null
     ) {
-        super(geometry.clone(), material.clone());
+        // Share the source geometry instead of clone()-ing it: the caller discards
+        // the original mesh right after this constructor, so the clone only doubled
+        // the model's buffers (~+0.8 GB on a big CAD GLB). Group/colour mutations on
+        // this.geometry are safe — nothing else renders the source geometry.
+        super(geometry, material.clone());
         this.originalGeometry = geometry;
         this.originalMaterial = material.clone();
         this.drawRanges = drawRanges;

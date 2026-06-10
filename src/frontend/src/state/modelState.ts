@@ -99,7 +99,18 @@ export const useModelState = create<ModelState>((set) => ({
         if (ext && gltf) {
             void import('@/utils/lineage/registerLineageFromExtension').then(({registerLineageFromExtension}) =>
                 registerLineageFromExtension({gltf, extension: ext, fileName: name, root: group}),
-            ).catch((err) => console.warn('lineage: register failed for', name, err));
+            ).catch((err) => console.warn('lineage: register failed for', name, err))
+                .finally(() => {
+                    // Lineage was the last consumer of the GLTFLoader parser. Dropping
+                    // the stashed reference releases the parser's caches INCLUDING the
+                    // raw GLB body ArrayBuffer (the geometry attributes own their own
+                    // copies) — on a multi-hundred-MB model this is the difference
+                    // between the binary staying resident forever and being GC'd.
+                    const holders = [(group as any)?.children?.[0]?.userData, (group as any)?.userData];
+                    for (const ud of holders) {
+                        if (ud && '__adaGltf' in ud) delete ud.__adaGltf;
+                    }
+                });
             // Build the reverse member→connection index so the
             // selection inspector can show "Connections (N)" for a
             // clicked beam/plate without re-reading the GLB.

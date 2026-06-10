@@ -28,3 +28,7 @@ class Geometry(Generic[T]):
     # The solid is tessellated ONCE in its local frame; each transform is applied to the
     # resulting mesh (not the B-rep), so a part instanced N times meshes once.
     transforms: list[np.ndarray] | None = None
+    # Aligned 1:1 with ``transforms``: each instance's assembly path, a root-first tuple
+    # of (rep_id, product_name) levels, so a scene builder can group instances the way
+    # the source assembly tree does. None = no hierarchy information.
+    instance_paths: list[tuple] | None = None

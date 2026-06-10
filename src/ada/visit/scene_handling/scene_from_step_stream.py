@@ -73,9 +73,10 @@ def _tessellate_geom_worker(geom):
     """Pool subprocess entry: build + tessellate ONE solid and return raw mesh arrays
     plus the solid's colour — the parent assigns a consistent material id (each
     subprocess has its own material store). Returns
-    ``(status, gid, color, positions, indices, normals, transforms)`` where ``status``
-    is "ok", "degenerate", "empty" or "error:<Type>"; ``transforms`` is the solid's list
-    of world-placement matrices (or None) — the parent meshes once and places per matrix.
+    ``(status, gid, color, positions, indices, normals, transforms, paths)`` where
+    ``status`` is "ok", "degenerate", "empty" or "error:<Type>"; ``transforms`` is the
+    solid's list of world-placement matrices (or None) — the parent meshes once and
+    places per matrix — and ``paths`` the matching per-instance assembly paths.
     OCC isn't thread-safe, so the unit of parallelism is a process."""
     import numpy as np
 
@@ -103,14 +104,14 @@ def _tessellate_geom_worker(geom):
         except Exception:
             diag = 0.0
         if diag < 1e-7:
-            return ("degenerate", gid, geom.color, None, None, None, None)
+            return ("degenerate", gid, geom.color, None, None, None, None, None)
         mesh = be.tessellate(occ)
         idx = getattr(mesh, "indices", None)
         if idx is None:
             idx = getattr(mesh, "faces", None)
         pos = getattr(mesh, "positions", None)
         if pos is None or idx is None or len(idx) == 0:
-            return ("empty", gid, geom.color, None, None, None, None)
+            return ("empty", gid, geom.color, None, None, None, None, None)
         nrm = getattr(mesh, "normals", None)
         # ascontiguousarray(+dtype) COPIES, so pos/idx/nrm no longer reference any OCC
         # buffer — the shape + its triangulation can be dropped immediately below.
@@ -120,9 +121,9 @@ def _tessellate_geom_worker(geom):
         # The shell is tessellated ONCE in its local frame. The world-placement matrices
         # (one per STEP assembly instance) ride back to the parent, which applies each to
         # this single local mesh — so a part instanced N times still meshes once.
-        return ("ok", gid, geom.color, pos, idx, nrm, geom.transforms)
+        return ("ok", gid, geom.color, pos, idx, nrm, geom.transforms, geom.instance_paths)
     except Exception as exc:  # noqa: BLE001 - report and skip; one bad solid mustn't abort
-        return (f"error:{type(exc).__name__}", gid, None, None, None, None, None)
+        return (f"error:{type(exc).__name__}", gid, None, None, None, None, None, None)
     finally:
         # Purge this task's OCC instances now (refcount-0 frees the native shape +
         # triangulation) rather than relying on end-of-call scope cleanup — keeps a
@@ -241,6 +242,15 @@ def _tessellate_stream(source: StepStreamSource, graph, bt, sink) -> dict:
     # explicit so a prior in-process conversion can't leak into this one).
     clear_all()
 
+    # glTF mandates metres; STEP files are very often authored in millimetres. The OCC
+    # reader converts via xstep.cascade.unit — mirror that here or a mm model renders
+    # 1000x too big, kilometres off-centre, and the viewer's depth precision collapses.
+    from ada.cadit.step.read.stream_reader import detect_step_length_unit_scale
+
+    unit_scale = detect_step_length_unit_scale(source.path)
+    if unit_scale != 1.0:
+        logger.info("scene_from_step_stream: scaling length unit to metres (factor %g)", unit_scale)
+
     root = graph.top_level
     on_progress = source.on_progress
 
@@ -258,10 +268,30 @@ def _tessellate_stream(source: StepStreamSource, graph, bt, sink) -> dict:
     def _on_total(n: int) -> None:
         n_roots["total"] = n
 
+    # Assembly-tree group nodes, keyed by the path's rep-id prefix (names alone can
+    # repeat across branches). Created lazily as instances arrive, so the GLB's
+    # id_hierarchy mirrors the STEP product tree and the viewer can fold whole
+    # sub-assemblies instead of scrolling a flat list of thousands of solids.
+    asm_nodes: dict[tuple, object] = {}
+
+    def _group_parent(path) -> object:
+        parent = root
+        if not path:
+            return parent
+        prefix = ()
+        for rep_id, name in path:
+            prefix += (rep_id,)
+            node_g = asm_nodes.get(prefix)
+            if node_g is None:
+                node_g = graph.add_node(GraphNode(name, graph.next_node_id(), hash=create_guid(), parent=parent))
+                asm_nodes[prefix] = node_g
+            parent = node_g
+        return parent
+
     # The parent owns the material store (so colours map to consistent ids across worker
     # processes), creates the graph node from each worker's raw mesh arrays, and hands
     # the result to the caller's sink. Workers (subprocesses) only build + tessellate.
-    def _build(gid, color, pos, idx, nrm, transform=None) -> None:
+    def _build(gid, color, pos, idx, nrm, transform=None, path=None) -> None:
         # Apply this instance's world placement to the local mesh (rigid: rotation +
         # translation on positions, rotation on normals). pos/nrm stay FLAT (N*3,) — the
         # MeshStore/spill path needs flat buffers — so reshape only for the matmul.
@@ -271,7 +301,16 @@ def _tessellate_stream(source: StepStreamSource, graph, bt, sink) -> dict:
             pos = np.ascontiguousarray((pos.reshape(-1, 3) @ r.T + t[:3, 3]).ravel(), dtype=np.float32)
             if nrm is not None:
                 nrm = np.ascontiguousarray((nrm.reshape(-1, 3) @ r.T).ravel(), dtype=np.float32)
-        node = graph.add_node(GraphNode(gid, graph.next_node_id(), hash=create_guid(), parent=root))
+        if unit_scale != 1.0:
+            # Placement translations and positions are both in file units, so scaling
+            # once AFTER the transform keeps them consistent. Normals are unaffected
+            # by a uniform scale.
+            pos = np.ascontiguousarray(pos * np.float32(unit_scale), dtype=np.float32)
+        # Resolve (and lazily create) the group chain BEFORE asking for the next node
+        # id — next_node_id() is len(nodes), so the reverse order would hand the leaf
+        # an id that the first new group node then claims, silently evicting it.
+        parent = _group_parent(path)
+        node = graph.add_node(GraphNode(gid, graph.next_node_id(), hash=create_guid(), parent=parent))
         mat_id = bt.material_store.get(color, None)
         if mat_id is None:
             mat_id = len(bt.material_store)
@@ -280,15 +319,17 @@ def _tessellate_stream(source: StepStreamSource, graph, bt, sink) -> dict:
 
     def _handle(result) -> None:
         nonlocal n_total
-        status, gid, color, pos, idx, nrm, transforms = result
+        status, gid, color, pos, idx, nrm, transforms, paths = result
         i = n_total
         n_total += 1
         gid = gid or f"solid_{i}"
         if status == "ok":
             # One mesh, N instances: tessellated once, placed per assembly matrix.
-            for k, tf in enumerate(transforms if transforms else [None]):
+            tfs = transforms if transforms else [None]
+            paths = paths if paths and len(paths) == len(tfs) else [None] * len(tfs)
+            for k, (tf, path) in enumerate(zip(tfs, paths)):
                 inst_gid = gid if k == 0 else f"{gid}/{k + 1}"
-                _build(inst_gid, color, pos, idx, nrm, tf)
+                _build(inst_gid, color, pos, idx, nrm, tf, path)
         elif status == "degenerate":
             _skip(gid, "degenerate (zero-extent solid)")
         elif status == "empty":
@@ -394,15 +435,39 @@ def _tessellate_stream(source: StepStreamSource, graph, bt, sink) -> dict:
                     except _queue.Empty:
                         pass
                     now = _time.monotonic()
-                    for i, slot in enumerate(slots):  # kill + replace any over-budget worker
-                        if slot["busy"] and slot["since"] and (now - slot["since"]) > timeout_s:
+                    for i, slot in enumerate(slots):  # replace dead or over-budget workers
+                        if not slot["busy"]:
+                            continue
+                        # A worker that died mid-solid (OCC segfault/terminate — uncatchable
+                        # in-process) will never produce a result; without this liveness
+                        # check its slot would sit blocked for the full per-solid timeout,
+                        # and a model with many such solids burns hours of wall clock.
+                        if not slot["proc"].is_alive():
+                            gid = slot["gid"]
+                            slot["proc"].join(timeout=2)
+                            busy -= 1
+                            slots[i] = _spawn(i, result_q)
+                            _handle(
+                                ("error:WorkerCrashed (native crash in OCC)", gid, None, None, None, None, None, None)
+                            )
+                            continue
+                        if slot["since"] and (now - slot["since"]) > timeout_s:
                             gid = slot["gid"]
                             slot["proc"].kill()
                             slot["proc"].join(timeout=2)
                             busy -= 1
                             slots[i] = _spawn(i, result_q)
                             _handle(
-                                (f"timeout (>{timeout_s:.0f}s; OCC hang, killed)", gid, None, None, None, None, None)
+                                (
+                                    f"timeout (>{timeout_s:.0f}s; OCC hang, killed)",
+                                    gid,
+                                    None,
+                                    None,
+                                    None,
+                                    None,
+                                    None,
+                                    None,
+                                )
                             )
             finally:
                 for slot in slots:

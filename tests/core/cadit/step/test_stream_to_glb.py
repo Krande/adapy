@@ -134,3 +134,38 @@ def test_stream_pool_per_solid_timeout_skips_hung_solid(monkeypatch, tmp_path):
     stats = scene.metadata["ada_stream_stats"]
     assert stats["meshed"] == 0  # every solid hung -> all killed + skipped
     assert any("timeout" in r for r in stats["reasons"])  # reaped by the per-solid timeout
+
+
+def test_detect_step_length_unit_scale(example_files):
+    from ada.cadit.step.read.stream_reader import detect_step_length_unit_scale
+
+    sf = example_files / "step_files"
+    assert detect_step_length_unit_scale(sf / "as1-oc-214.stp") == 0.001  # SI_UNIT(.MILLI.,.METRE.)
+    assert detect_step_length_unit_scale(sf / "flat_plate_abaqus_10x10_m.stp") == 1.0  # SI_UNIT(.METRE.)
+    # Abaqus expresses mm as CONVERSION_BASED_UNIT('MILLIMETRE', ...)
+    assert detect_step_length_unit_scale(sf / "flat_plate_abaqus_10x10_mm.stp") == 0.001
+
+
+def test_stream_glb_scales_millimetre_files_to_metres(tmp_path):
+    """glTF mandates metres. A mm-declared STEP must come out scaled 0.001 — unscaled
+    it renders 1000x too big, kilometres off-centre, and the viewer's depth precision
+    collapses into z-fighting artifacts."""
+    import trimesh
+
+    import ada
+
+    a = ada.Assembly("m") / (ada.Part("p") / Beam("bm", (0, 0, 0), (3, 0, 0), Section("s", from_str="IPE300")))
+    src = tmp_path / "m.step"
+    a.to_stp(src)
+
+    from ada.cadit.step.read.stream_reader import detect_step_length_unit_scale
+
+    scale = detect_step_length_unit_scale(src)
+    glb = tmp_path / "m.glb"
+    stats = stream_step_to_glb(src, glb, tolerant=True)
+    assert stats["meshed"] >= 1
+
+    scene = trimesh.load(glb)
+    span_x = float(scene.bounds[1][0] - scene.bounds[0][0])
+    # The 3 m beam must span ~3 in the GLB regardless of the units the writer declared.
+    assert abs(span_x - 3.0) < 0.1, f"beam spans {span_x} (file unit scale {scale})"
