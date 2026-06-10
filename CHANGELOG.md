@@ -2,6 +2,15 @@
 
 
 
+## v0.18.3 (2026-06-10)
+
+### Fix
+
+* fix: bound runaway faces in streaming STEP tessellation (#217)
+
+Co-authored-by: Claude Opus 4.8 &lt;noreply@anthropic.com&gt; ([`3028d45`](https://github.com/Krande/adapy/commit/3028d45861f8bd566f6e29328b626b01e13c5237))
+
+
 ## v0.18.2 (2026-06-10)
 
 ### Fix
