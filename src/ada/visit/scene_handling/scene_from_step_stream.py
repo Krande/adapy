@@ -69,14 +69,28 @@ def _maybe_trim() -> None:
             pass
 
 
+def _rebuild_stats():
+    """This solid's face-repair counters from the OCC backend (param-extent rebuilds,
+    re-added/dropped holes, area-gate drops), or None on backends without the module
+    (adacpp-only installs have no ada.occ)."""
+    try:
+        from ada.occ.geom.surfaces import consume_param_rebuild_stats
+    except ImportError:
+        return None
+    stats = consume_param_rebuild_stats()
+    return stats or None
+
+
 def _tessellate_geom_worker(geom):
     """Pool subprocess entry: build + tessellate ONE solid and return raw mesh arrays
     plus the solid's colour — the parent assigns a consistent material id (each
     subprocess has its own material store). Returns
-    ``(status, gid, color, positions, indices, normals, transforms, paths)`` where
-    ``status`` is "ok", "degenerate", "empty" or "error:<Type>"; ``transforms`` is the
-    solid's list of world-placement matrices (or None) — the parent meshes once and
-    places per matrix — and ``paths`` the matching per-instance assembly paths.
+    ``(status, gid, color, positions, indices, normals, transforms, paths, rebuilds)``
+    where ``status`` is "ok", "degenerate", "empty" or "error:<Type>"; ``transforms`` is
+    the solid's list of world-placement matrices (or None) — the parent meshes once and
+    places per matrix — ``paths`` the matching per-instance assembly paths, and
+    ``rebuilds`` the per-solid face-repair counters (param-extent rebuilds, dropped
+    holes, area-gate drops) so the conversion summary can quantify fidelity loss.
     OCC isn't thread-safe, so the unit of parallelism is a process."""
     import numpy as np
 
@@ -104,14 +118,14 @@ def _tessellate_geom_worker(geom):
         except Exception:
             diag = 0.0
         if diag < 1e-7:
-            return ("degenerate", gid, geom.color, None, None, None, None, None)
+            return ("degenerate", gid, geom.color, None, None, None, None, None, _rebuild_stats())
         mesh = be.tessellate(occ)
         idx = getattr(mesh, "indices", None)
         if idx is None:
             idx = getattr(mesh, "faces", None)
         pos = getattr(mesh, "positions", None)
         if pos is None or idx is None or len(idx) == 0:
-            return ("empty", gid, geom.color, None, None, None, None, None)
+            return ("empty", gid, geom.color, None, None, None, None, None, _rebuild_stats())
         nrm = getattr(mesh, "normals", None)
         # ascontiguousarray(+dtype) COPIES, so pos/idx/nrm no longer reference any OCC
         # buffer — the shape + its triangulation can be dropped immediately below.
@@ -121,9 +135,9 @@ def _tessellate_geom_worker(geom):
         # The shell is tessellated ONCE in its local frame. The world-placement matrices
         # (one per STEP assembly instance) ride back to the parent, which applies each to
         # this single local mesh — so a part instanced N times still meshes once.
-        return ("ok", gid, geom.color, pos, idx, nrm, geom.transforms, geom.instance_paths)
+        return ("ok", gid, geom.color, pos, idx, nrm, geom.transforms, geom.instance_paths, _rebuild_stats())
     except Exception as exc:  # noqa: BLE001 - report and skip; one bad solid mustn't abort
-        return (f"error:{type(exc).__name__}", gid, None, None, None, None, None, None)
+        return (f"error:{type(exc).__name__}", gid, None, None, None, None, None, None, _rebuild_stats())
     finally:
         # Purge this task's OCC instances now (refcount-0 frees the native shape +
         # triangulation) rather than relying on end-of-call scope cleanup — keeps a
@@ -255,6 +269,7 @@ def _tessellate_stream(source: StepStreamSource, graph, bt, sink) -> dict:
     on_progress = source.on_progress
 
     reasons: collections.Counter = collections.Counter()
+    rebuild_totals: collections.Counter = collections.Counter()
     skipped_ids: list[str] = []
     n_total = 0
     n_roots = {"total": 0}
@@ -319,7 +334,9 @@ def _tessellate_stream(source: StepStreamSource, graph, bt, sink) -> dict:
 
     def _handle(result) -> None:
         nonlocal n_total
-        status, gid, color, pos, idx, nrm, transforms, paths = result
+        status, gid, color, pos, idx, nrm, transforms, paths, rebuilds = result
+        if rebuilds:
+            rebuild_totals.update(rebuilds)
         i = n_total
         n_total += 1
         gid = gid or f"solid_{i}"
@@ -448,7 +465,17 @@ def _tessellate_stream(source: StepStreamSource, graph, bt, sink) -> dict:
                             busy -= 1
                             slots[i] = _spawn(i, result_q)
                             _handle(
-                                ("error:WorkerCrashed (native crash in OCC)", gid, None, None, None, None, None, None)
+                                (
+                                    "error:WorkerCrashed (native crash in OCC)",
+                                    gid,
+                                    None,
+                                    None,
+                                    None,
+                                    None,
+                                    None,
+                                    None,
+                                    None,
+                                )
                             )
                             continue
                         if slot["since"] and (now - slot["since"]) > timeout_s:
@@ -461,6 +488,7 @@ def _tessellate_stream(source: StepStreamSource, graph, bt, sink) -> dict:
                                 (
                                     f"timeout (>{timeout_s:.0f}s; OCC hang, killed)",
                                     gid,
+                                    None,
                                     None,
                                     None,
                                     None,
@@ -492,6 +520,8 @@ def _tessellate_stream(source: StepStreamSource, graph, bt, sink) -> dict:
             ", ".join(skipped_ids),
             more,
         )
+    if rebuild_totals:
+        logger.info("scene_from_step_stream: %s — face repairs %s", source.path, dict(rebuild_totals))
     logger.info(
         "scene_from_step_stream: %s — meshed %d/%d solids into %d material group(s)",
         source.path,
@@ -505,6 +535,7 @@ def _tessellate_stream(source: StepStreamSource, graph, bt, sink) -> dict:
         "skipped": n_skipped,
         "materials": len(bt.material_store),
         "reasons": dict(reasons),
+        "rebuilds": dict(rebuild_totals),
     }
 
 
