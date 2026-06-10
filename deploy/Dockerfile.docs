@@ -26,8 +26,8 @@ FROM ghcr.io/prefix-dev/pixi:${PIXI_VERSION} AS docs-env
 
 # The Forgejo runner's build sandbox blocks plain-HTTP egress, so
 # rewrite the deb822 mirror URLs to https before fetching the
-# headless-browser GUI closure (matches the parametric_models
-# Dockerfile.build pattern).
+# headless-browser GUI closure (matches our other build
+# Dockerfiles' pattern).
 #
 # BuildKit cache mounts on /var/cache/apt + /var/lib/apt persist the
 # downloaded .debs (140 s of installs for the headless-browser GUI

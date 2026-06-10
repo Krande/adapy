@@ -1192,8 +1192,8 @@ async def _run() -> None:
     from ada.fem.results.artefacts import fea_artefact_extensions
 
     registered_exts = {e.lower() for e in fea_artefact_extensions()}
-    # Optional per-pod allowlist. Capability workers (e.g. asa-abacpp)
-    # FROM the base image and so inherit its full stream-reader
+    # Optional per-pod allowlist. Capability (extension-specific) workers
+    # build FROM the base image and so inherit its full stream-reader
     # registry — without this gate they'd race the base pool for
     # extensions they don't actually need to handle (e.g. ``.rmed``)
     # and, when running stale code, fail those jobs. The allowlist

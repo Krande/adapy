@@ -1,7 +1,7 @@
 """Regression: the FEM-concepts mass *overlay* glyph must sit exactly where the mass *geometry*
 is rendered. build_mass_glyphs used the raw MassPoint cog while PrimSphere.solid_geom renders the
 sphere at cog + placement.get_absolute_placement(include_rotations=False).origin, so any mass with
-a non-identity placement (e.g. parametric_models positions equipment via placement) drew the amber
+a non-identity placement (e.g. a model pipeline positions equipment via placement) drew the amber
 overlay offset from the actual mass point.
 """
 
