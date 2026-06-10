@@ -3,18 +3,28 @@ wire crosses the parametric seam kept the surface's NATURAL (infinite) bounds af
 ``BRepBuilderAPI_MakeFace(surface, wire)`` — BRepMesh then emitted vertices millions
 of units out, so a single such face exploded the converted model's bounding box in
 the viewer (seen on assembly-placed STEP files read via the streaming reader).
-``make_face_from_geom`` must hand back a *bounded* face (ShapeFix_Face re-trim, then
-parameter-extent rebuild, else skip)."""
+
+The end-to-end assertion goes through ``active_backend()`` so BOTH CAD backends are
+held to the same contract: tessellating this face must stay inside the cylinder's
+true extent. Only the bug-trigger precondition and the triangle-soup filter unit
+test are pythonocc-specific."""
 
 import math
 
+import numpy as np
 import pytest
 
 from ada.geom.curves import Circle, EdgeCurve, EdgeLoop, Line, OrientedEdge
 from ada.geom.direction import Direction
 from ada.geom.placement import Axis2Placement3D
 from ada.geom.points import Point
-from ada.geom.surfaces import AdvancedFace, CylindricalSurface, FaceBound
+from ada.geom.surfaces import (
+    AdvancedFace,
+    CylindricalSurface,
+    FaceBound,
+    OpenShell,
+    ShellBasedSurfaceModel,
+)
 
 R = 10.0
 H = 20.0
@@ -52,46 +62,46 @@ def _seam_crossing_face() -> AdvancedFace:
 
 
 def test_seam_crossing_arc_wire_yields_bounded_face():
-    from OCC.Core.Bnd import Bnd_Box
-    from OCC.Core.BRepBndLib import brepbndlib
-    from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_MakeFace
-    from OCC.Core.BRepMesh import BRepMesh_IncrementalMesh
-
-    from ada.occ.geom.curves import make_wire_from_face_bound
-    from ada.occ.geom.surfaces import (
-        _face_uv_unbounded,
-        make_face_from_geom,
-        make_surface_from_geom,
-    )
+    from ada.cad import active_backend
+    from ada.geom import Geometry
 
     af = _seam_crossing_face()
 
-    # Precondition: the naive wire trim leaves the face unbounded (the bug trigger).
-    surf = make_surface_from_geom(af.face_surface)
-    wire = make_wire_from_face_bound(af.bounds[0])
-    naive = BRepBuilderAPI_MakeFace(surf, wire).Face()
-    if not _face_uv_unbounded(naive):
-        pytest.skip("OCC trims this wire on its own; the regression precondition is gone")
+    # Bug-trigger precondition, pythonocc only: the naive wire trim leaves the face
+    # unbounded. If a future OCC trims this on its own the regression is moot there;
+    # the backend-agnostic assertion below still runs on adacpp.
+    try:
+        from OCC.Core.BRepBuilderAPI import BRepBuilderAPI_MakeFace
 
-    face = make_face_from_geom(af)
-    assert not _face_uv_unbounded(face)
+        from ada.occ.geom.curves import make_wire_from_face_bound
+        from ada.occ.geom.surfaces import _face_uv_unbounded, make_surface_from_geom
+    except ImportError:
+        pass
+    else:
+        surf = make_surface_from_geom(af.face_surface)
+        wire = make_wire_from_face_bound(af.bounds[0])
+        naive = BRepBuilderAPI_MakeFace(surf, wire).Face()
+        assert _face_uv_unbounded(naive), "OCC now trims this wire on its own — precondition gone, simplify the fix?"
+
+    shell = ShellBasedSurfaceModel(sbsm_boundary=[OpenShell(cfs_faces=[af])])
+    be = active_backend()
+    handle = be.build(Geometry(id="seam-face", geometry=shell, color=None, transforms=None))
+    mesh = be.tessellate(handle)
+    pos = np.asarray(mesh.positions, dtype=float).reshape(-1, 3)
+    assert pos.size, "tessellation produced no vertices"
 
     # The meshed face must stay inside the cylinder's true extent.
-    BRepMesh_IncrementalMesh(face, 0.5, False, 0.5, True)
-    box = Bnd_Box()
-    brepbndlib.Add(face, box, False)
-    xmin, ymin, zmin, xmax, ymax, zmax = box.Get()
     pad = 1.0
-    assert -R - pad <= xmin and xmax <= R + pad
-    assert -R - pad <= ymin and ymax <= R + pad
-    assert -pad <= zmin and zmax <= H + pad
+    assert pos[:, 0].min() >= -R - pad and pos[:, 0].max() <= R + pad
+    assert pos[:, 1].min() >= -R - pad and pos[:, 1].max() <= R + pad
+    assert pos[:, 2].min() >= -pad and pos[:, 2].max() <= H + pad
 
 
 def test_runaway_triangles_dropped_from_tessellation():
     """The tessellation-level safety net: a triangle soup with vertices far outside
     the shape's edge hull (the signature of a face whose trim failed only after
     sewing rebuilt its pcurves) must lose exactly those triangles."""
-    import numpy as np
+    pytest.importorskip("OCC", reason="unit test of the pythonocc tessellation filter internals")
     from OCC.Core.BRepPrimAPI import BRepPrimAPI_MakeBox
 
     from ada.occ.tessellating import _drop_runaway_triangles
