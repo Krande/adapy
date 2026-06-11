@@ -37,15 +37,16 @@ function readTabFromHash(): AdminTab {
 }
 
 interface AdminPanelProps {
-    /** Two-way bind the active tab to ``window.location.hash``. On by
-     * default for the full-page ``/admin`` route (refresh + deep links
-     * stay on the tab). The in-viewer floating panel passes false —
-     * scribbling ``#audit`` etc. onto the viewer URL from a draggable
-     * overlay is just noise. */
-    syncHash?: boolean;
+    /** Mounted inside the viewer's floating panel host rather than the
+     * full-page ``/admin`` route. Embedded mode keeps the URL alone
+     * (no ``#audit`` hash scribbling from a draggable overlay) and
+     * hides the "← viewer" link — the host's close button already
+     * covers leaving the panel. */
+    embedded?: boolean;
 }
 
-const AdminPanel: React.FC<AdminPanelProps> = ({syncHash = true}) => {
+const AdminPanel: React.FC<AdminPanelProps> = ({embedded = false}) => {
+    const syncHash = !embedded;
     const isAdmin = useMeStore((s) => s.isAdmin);
     const [tab, setTab] = useState<AdminTab>(() => (syncHash ? readTabFromHash() : "audit"));
 
@@ -136,13 +137,15 @@ const AdminPanel: React.FC<AdminPanelProps> = ({syncHash = true}) => {
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                     <CliTokenButton/>
-                    <a
-                        href="/"
-                        className="text-sm text-blue-400 hover:text-blue-300 px-2 py-1"
-                        title="Back to viewer"
-                    >
-                        ← viewer
-                    </a>
+                    {!embedded && (
+                        <a
+                            href="/"
+                            className="text-sm text-blue-400 hover:text-blue-300 px-2 py-1"
+                            title="Back to viewer"
+                        >
+                            ← viewer
+                        </a>
+                    )}
                 </div>
             </header>
             <main className="flex-1 min-h-0 overflow-hidden">
