@@ -140,7 +140,7 @@ const InViewerPanelHost: React.FC = () => {
                 <Suspense fallback={
                     <div className="p-4 text-sm text-gray-400">Loading…</div>
                 }>
-                    {open === "admin" && <AdminPanel/>}
+                    {open === "admin" && <AdminPanel syncHash={false}/>}
                     {open === "convert" && <ConvertPage/>}
                 </Suspense>
             </div>

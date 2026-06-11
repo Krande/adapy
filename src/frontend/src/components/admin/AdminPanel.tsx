@@ -36,27 +36,38 @@ function readTabFromHash(): AdminTab {
     return VALID_TABS.has(raw) ? raw : "audit";
 }
 
-const AdminPanel: React.FC = () => {
+interface AdminPanelProps {
+    /** Two-way bind the active tab to ``window.location.hash``. On by
+     * default for the full-page ``/admin`` route (refresh + deep links
+     * stay on the tab). The in-viewer floating panel passes false —
+     * scribbling ``#audit`` etc. onto the viewer URL from a draggable
+     * overlay is just noise. */
+    syncHash?: boolean;
+}
+
+const AdminPanel: React.FC<AdminPanelProps> = ({syncHash = true}) => {
     const isAdmin = useMeStore((s) => s.isAdmin);
-    const [tab, setTab] = useState<AdminTab>(() => readTabFromHash());
+    const [tab, setTab] = useState<AdminTab>(() => (syncHash ? readTabFromHash() : "audit"));
 
     // Two-way bind ``tab`` to ``window.location.hash`` so reloads stay
     // on the selected tab AND back/forward navigation works inside
     // the page. setTab writes; popstate / hashchange reads back.
     useEffect(() => {
+        if (!syncHash) return;
         const onChange = () => setTab(readTabFromHash());
         window.addEventListener("hashchange", onChange);
         return () => window.removeEventListener("hashchange", onChange);
-    }, []);
+    }, [syncHash]);
 
     useEffect(() => {
+        if (!syncHash) return;
         const desired = `#${tab}`;
         if (window.location.hash !== desired) {
             // ``replaceState`` so each tab switch doesn't pollute the
             // back-button history with a long chain of admin tabs.
             window.history.replaceState(null, "", desired);
         }
-    }, [tab]);
+    }, [syncHash, tab]);
 
     if (!isAdmin) {
         // Non-admin landed on /admin directly (or auth dropped them
