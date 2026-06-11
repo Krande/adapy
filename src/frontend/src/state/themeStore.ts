@@ -22,15 +22,15 @@ export interface PanelTheme {
 }
 
 export const THEME_PRESETS: Record<string, {name: string; hint: string; theme: PanelTheme}> = {
-    dark: {
-        name: "Dark",
-        hint: "High contrast, easiest to read",
-        theme: {bg: "rgba(17, 24, 39, 0.95)", border: "rgba(55, 65, 81, 1)", text: "#f3f4f6"},
-    },
     slate: {
         name: "Slate glass",
         hint: "Dark but translucent — the scene shows through",
         theme: {bg: "rgba(30, 41, 59, 0.62)", border: "rgba(148, 163, 184, 0.35)", text: "#f1f5f9"},
+    },
+    dark: {
+        name: "Dark",
+        hint: "High contrast, easiest to read",
+        theme: {bg: "rgba(17, 24, 39, 0.95)", border: "rgba(55, 65, 81, 1)", text: "#f3f4f6"},
     },
     mist: {
         name: "Mist",
@@ -74,7 +74,7 @@ function hexToRgba(hex: string, alpha: number): string {
 }
 
 export function effectivePanelTheme(s: Pick<ThemeState, "preset" | "customBg" | "customText" | "bgOpacity">): PanelTheme {
-    const base = (THEME_PRESETS[s.preset] ?? THEME_PRESETS.dark).theme;
+    const base = (THEME_PRESETS[s.preset] ?? THEME_PRESETS.slate).theme;
     return {
         bg: s.customBg ? hexToRgba(s.customBg, s.bgOpacity) : base.bg,
         border: base.border,
@@ -92,7 +92,7 @@ function applyPanelThemeVars(theme: PanelTheme): void {
 export const useThemeStore = create<ThemeState>()(
     persist(
         (set) => ({
-            preset: "dark",
+            preset: "slate",
             customBg: null,
             customText: null,
             bgOpacity: 0.9,

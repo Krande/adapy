@@ -903,8 +903,11 @@ const StorageBrowser: React.FC = () => {
             className={
                 PANEL_CHROME + " " +
                 (maximized
-                    ? "fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[61] " +
-                      "w-[calc(100vw-3rem)] h-[calc(100vh-3rem)] flex flex-col"
+                    ? "fixed left-1/2 top-6 -translate-x-1/2 z-[61] " +
+                      // dvh not vh: on mobile 100vh includes the area
+                      // behind the browser chrome, so a vh-sized panel
+                      // ran past the visible viewport bottom.
+                      "w-[calc(100vw-3rem)] h-[calc(100dvh-3rem)] flex flex-col"
                     : "w-full min-w-0 max-w-[calc(100vw-1rem)] md:max-w-md")
             }
         >

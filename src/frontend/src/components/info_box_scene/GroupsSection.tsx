@@ -61,6 +61,15 @@ const GroupsSection = () => {
     // of element / node sets into ADA_EXT_data — building the array
     // is cheap; the combobox below virtualizes the render.
     useEffect(() => {
+        // Scene emptied → drop everything, selection included. The
+        // active-extension ref still holds the LAST model's data at
+        // this point, so it must not be consulted.
+        if (loadedSourceNames.size === 0) {
+            setAvailableGroups([]);
+            setSelectedGroup(null);
+            return;
+        }
+
         const groups: GroupInfo[] = [];
         for (const name of loadedSourceNames) {
             const sceneGroup = loadedSourceGroups.get(name);
@@ -78,13 +87,18 @@ const GroupsSection = () => {
         // Only overwrite when collection actually yielded groups.
         // Streaming FEM/FEA models carry no ADA_EXT — their groups are
         // pushed straight into this store by load_fea_streaming — so an
-        // empty collection must NOT clobber them. Exception: every
-        // model unloaded → clear, so stale groups don't outlive their
-        // model.
-        if (groups.length > 0 || loadedSourceNames.size === 0) {
-            setAvailableGroups(groups);
+        // empty collection must NOT clobber them.
+        if (groups.length > 0) setAvailableGroups(groups);
+
+        // A selected group whose model just unloaded is gone — clear it
+        // so the details table doesn't describe a ghost.
+        const sel = useSceneInfoStore.getState?.()
+            ? useSceneInfoStore.getState().selectedGroup
+            : null;
+        if (sel?.source && !loadedSourceNames.has(sel.source)) {
+            setSelectedGroup(null);
         }
-    }, [setAvailableGroups, loadedSourceNames, adaExtensionRef]);
+    }, [setAvailableGroups, setSelectedGroup, useSceneInfoStore, loadedSourceNames, adaExtensionRef]);
 
     const applyGroupSelection = async (group: GroupInfo | null) => {
         if (!group) {

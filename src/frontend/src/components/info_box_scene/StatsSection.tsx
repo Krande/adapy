@@ -94,7 +94,11 @@ const StatsSection = () => {
         const models = statsFromExtension(ext);
         if (models.length > 0) sources.push({source: name, models});
     }
-    if (sources.length === 0 && adaExtensionRef.current) {
+    // The single active-extension ref keeps the LAST model's data even
+    // after everything is unloaded — only consult it while something is
+    // actually loaded (the streaming/replace path), never for an empty
+    // scene.
+    if (sources.length === 0 && loadedSourceNames.size > 0 && adaExtensionRef.current) {
         const models = statsFromExtension(adaExtensionRef.current);
         if (models.length > 0) {
             sources.push({
