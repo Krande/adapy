@@ -98,6 +98,14 @@ const AuthGate: React.FC<{children: React.ReactNode}> = ({children}) => {
                 >
                     Sign in
                 </button>
+                <button
+                    className="text-xs text-gray-400 hover:text-gray-200 underline w-full"
+                    onClick={() => {
+                        void signIn(undefined, {forceLogin: true});
+                    }}
+                >
+                    Sign in with a different account
+                </button>
             </div>
         </div>
     );

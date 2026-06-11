@@ -145,7 +145,10 @@ export function getUser(): {sub?: string; email?: string; name?: string} {
 }
 
 /** Kick off the authorize redirect. Caller is the AuthGate UI. */
-export async function signIn(returnUrl?: string): Promise<void> {
+export async function signIn(
+    returnUrl?: string,
+    opts?: {forceLogin?: boolean},
+): Promise<void> {
     const d = await loadDiscovery();
     const verifier = randomUrl(32);
     const challenge = base64url(await sha256Bytes(verifier));
@@ -174,6 +177,13 @@ export async function signIn(returnUrl?: string): Promise<void> {
         code_challenge_method: "S256",
         state,
     });
+    if (opts?.forceLogin) {
+        // Standard OIDC prompt param — both Authentik and Azure AD honor
+        // it by re-showing the login form even when an IdP session
+        // exists, letting the user pick a different account. Only sent
+        // on explicit request so the normal silent-SSO path is unchanged.
+        params.set("prompt", "login");
+    }
     const aud = runtime.authAudience();
     if (aud && aud !== runtime.authClientId()) {
         // Auth0 / some Azure AD configurations need this so the issued
