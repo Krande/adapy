@@ -1252,6 +1252,7 @@ const StorageBrowser: React.FC = () => {
                                                 conversionJobs={conversionJobs}
                                                 expandedName={expandedName}
                                                 setExpandedName={setExpandedName}
+                                                onToggle={onToggle}
                                                 setPickerName={setPickerName}
                                                 selectionMode={inSelectionMode}
                                                 isSelected={selection.has(node.file.name)}
@@ -1341,6 +1342,7 @@ const StorageBrowser: React.FC = () => {
                                     conversionJobs={conversionJobs}
                                     expandedName={expandedName}
                                     setExpandedName={setExpandedName}
+                                    onToggle={onToggle}
                                     setPickerName={setPickerName}
                                     onOpenGitHistory={() => setGitHistoryOpen(true)}
                                     selectionMode={inSelectionMode}
@@ -1547,6 +1549,7 @@ interface FileRowProps {
     conversionJobs: Record<string, {progress: number; status?: string}>;
     expandedName: string | null;
     setExpandedName: (n: string | null) => void;
+    onToggle: (entry: ServerFileEntry, nextChecked: boolean) => Promise<void>;
     setPickerName: (n: string | null) => void;
     selectionMode: boolean;
     isSelected: boolean;
@@ -1580,6 +1583,7 @@ const FileRow: React.FC<FileRowProps> = ({
     conversionJobs,
     expandedName,
     setExpandedName,
+    onToggle,
     setPickerName,
     selectionMode,
     isSelected,
@@ -1681,22 +1685,56 @@ const FileRow: React.FC<FileRowProps> = ({
                 }
                 if (selectionMode) {
                     onSelectToggle(f.name);
+                    return;
                 }
+                // Tap/click anywhere on the row (outside the toggle and
+                // row buttons) opens the same menu as right-click — the
+                // primary mobile path to rename/move/delete/download.
+                onOpenContextMenu?.(e);
             }}
         >
             <div className="flex items-center justify-between gap-2">
-                {/* Selection checkbox — feeds the bulk-action toolbar
-                    under the header. Loading into the scene is an
-                    explicit action (toolbar Load / row menu), never a
-                    checkbox side effect. */}
-                <input
-                    type="checkbox"
-                    className="h-5 w-5 shrink-0 cursor-pointer"
-                    checked={isSelected}
-                    onChange={() => onSelectToggle(f.name)}
-                    onClick={(e) => e.stopPropagation()}
-                    title="Select for bulk actions (load / move / delete)"
-                />
+                {/* Normal mode: the checkbox IS the load toggle —
+                    checked (+ the eye marker) while the model is in the
+                    scene; clicking it loads/unloads directly. Long-press
+                    swaps the rows into selection mode, where the amber
+                    circle marks bulk-toolbar membership instead. */}
+                {selectionMode ? (
+                    <span
+                        className={
+                            "h-5 w-5 shrink-0 rounded-full border-2 inline-flex items-center justify-center " +
+                            (isSelected
+                                ? "bg-amber-600 border-amber-400"
+                                : "border-gray-400")
+                        }
+                        aria-checked={isSelected}
+                        role="checkbox"
+                    >
+                        {isSelected && (
+                            <svg viewBox="0 0 16 16" className="w-3 h-3 fill-white" aria-hidden>
+                                <path d="M6 11.2 2.4 7.6l1.4-1.4L6 8.4l6.2-6.2 1.4 1.4z"/>
+                            </svg>
+                        )}
+                    </span>
+                ) : (
+                    <input
+                        type="checkbox"
+                        className="h-5 w-5 shrink-0 cursor-pointer disabled:cursor-not-allowed"
+                        checked={isLoaded}
+                        onChange={() => void onToggle(f, !isLoaded)}
+                        onClick={(e) => e.stopPropagation()}
+                        disabled={
+                            isViewing || otherViewing ||
+                            (!isStreamingFEAResult(f.name) && !canLoadIntoSceneLegacy(f.name))
+                        }
+                        aria-busy={isViewing || undefined}
+                        title={isLoaded
+                            ? "Unload from scene"
+                            : isStreamingFEAResult(f.name)
+                                ? "Open in streaming FEA viewer"
+                                : "Load into scene"}
+                    />
+                )}
                 <FileTypeIcon name={f.name}/>
                 {renaming && onRenameCommit && onRenameCancel ? (
                     <InlineNameInput
@@ -1709,15 +1747,15 @@ const FileRow: React.FC<FileRowProps> = ({
                     <button
                         type="button"
                         onClick={(e) => {
+                            e.stopPropagation();
                             if (selectionMode) {
-                                // Selection mode: row click already handles
-                                // it; the inner button is just here for
-                                // truncation toggling normally. Bail.
-                                e.stopPropagation();
                                 onSelectToggle(f.name);
                                 return;
                             }
-                            setExpandedName(expandedName === f.name ? null : f.name);
+                            // Same menu as right-click — full path shows
+                            // in the menu header, so no separate
+                            // truncation toggle is needed.
+                            onOpenContextMenu?.(e);
                         }}
                         className={`flex-1 min-w-0 text-left ${expandedName === f.name ? 'whitespace-normal break-all' : 'truncate'} ${isLoaded ? 'text-blue-200 font-medium' : ''}`}
                         title={f.name}
@@ -1829,6 +1867,7 @@ interface VersionsTreeProps {
     conversionJobs: Record<string, {progress: number; status?: string}>;
     expandedName: string | null;
     setExpandedName: (n: string | null) => void;
+    onToggle: (entry: ServerFileEntry, nextChecked: boolean) => Promise<void>;
     setPickerName: (n: string | null) => void;
     onOpenGitHistory: () => void;
     selectionMode: boolean;
@@ -1987,6 +2026,7 @@ const VersionsTree: React.FC<VersionsTreeProps> = (props) => {
                                                                     conversionJobs={props.conversionJobs}
                                                                     expandedName={props.expandedName}
                                                                     setExpandedName={props.setExpandedName}
+                                                                    onToggle={props.onToggle}
                                                                     setPickerName={props.setPickerName}
                                                                     selectionMode={props.selectionMode}
                                                                     isSelected={props.selection.has(leaf.file.name)}
