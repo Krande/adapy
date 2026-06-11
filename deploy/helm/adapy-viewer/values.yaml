@@ -61,6 +61,12 @@ worker:
       cpu: 250m
       memory: 1Gi
   podAnnotations: {}
+  ## Free-form env for this pool's container (name -> value, rendered verbatim).
+  ## The main use is the streaming-tessellation knobs without a chart release:
+  ##   ADA_STEP_STREAM_WORKERS              pool size override (default: cpu quota - 1, max 8)
+  ##   ADA_STEP_STREAM_WORKER_SOFT_MEM_MB   idle-recycle threshold (0 disables)
+  ##   ADA_STEP_STREAM_WORKER_HARD_MEM_MB   mid-solid kill + requeue-once threshold (0 disables)
+  extraEnv: {}
   ## Non-root, matching the viewer/API container. The conversion stack only needs a
   ## writable tmpdir (/tmp, world-writable) and a cache HOME — the worker image points
   ## HOME at a uid-10001-owned dir, so root is not required. (No fsGroup: the S3 storage
