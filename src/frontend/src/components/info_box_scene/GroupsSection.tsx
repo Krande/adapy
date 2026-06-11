@@ -4,13 +4,46 @@ import {useVirtualizer} from "@tanstack/react-virtual";
 
 import type {GroupInfo} from '@/state/sceneInfoStore';
 import {useViewerStores, useViewerRefs} from '@/state/AdaViewerContext';
+import {useModelState, loadedSourceGroups} from '@/state/modelState';
 import {selectGroupMembers} from "@/utils/selectGroupMembers";
 import {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
 
+// Pull every group out of one model's ADA extension, tagged with the
+// storage key it came from.
+function groupsFromExtension(ext: any, source: string | undefined): GroupInfo[] {
+    const groups: GroupInfo[] = [];
+    for (const designObj of ext?.design_objects ?? []) {
+        for (const group of designObj.groups ?? []) {
+            groups.push({
+                name: group.name || 'Unnamed Group',
+                description: group.description,
+                members: group.members,
+                type: 'design' as const,
+                parent_name: designObj.name || 'Unnamed Object',
+                source,
+            });
+        }
+    }
+    for (const simObj of ext?.simulation_objects ?? []) {
+        for (const group of simObj.groups ?? []) {
+            groups.push({
+                name: group.name || 'Unnamed Group',
+                description: group.description,
+                members: group.members,
+                type: 'simulation' as const,
+                parent_name: simObj.name || 'Unnamed Object',
+                fe_object_type: group.fe_object_type,
+                source,
+            });
+        }
+    }
+    return groups;
+}
 
 const GroupsSection = () => {
     const {useSceneInfoStore, useObjectInfoStore} = useViewerStores();
     const {adaExtension: adaExtensionRef, scene: sceneRef} = useViewerRefs();
+    const loadedSourceNames = useModelState((s) => s.loadedSourceNames);
     const {
         selectedGroup,
         availableGroups,
@@ -18,62 +51,40 @@ const GroupsSection = () => {
         setAvailableGroups,
     } = useSceneInfoStore();
 
-    // Collect groups from ADA extension on component mount. Some
-    // fixtures (e.g. ship1t1.fem via the legacy convert path) bake
-    // thousands of element / node sets into ADA_EXT_data — building
-    // the array is cheap, but the previous render path expanded the
-    // whole list as <option> children of a native <select>, which
-    // froze the main thread on mount. The combobox below virtualizes
-    // the list so the render stays bounded.
+    // Collect groups from EVERY loaded model's ADA extension — each
+    // scene group keeps its own copy in userData.__adaExt, so multi-
+    // model overlays contribute one batch per source file (the old
+    // single adaExtensionRef only ever held the LAST loaded model).
+    // Subscribing to loadedSourceNames keeps the list live across
+    // load/unload instead of snapshotting on mount. Some fixtures
+    // (e.g. ship1t1.fem via the legacy convert path) bake thousands
+    // of element / node sets into ADA_EXT_data — building the array
+    // is cheap; the combobox below virtualizes the render.
     useEffect(() => {
-        const collectGroups = () => {
-            const groups: GroupInfo[] = [];
-            const adaExtension = adaExtensionRef.current;
+        const groups: GroupInfo[] = [];
+        for (const name of loadedSourceNames) {
+            const sceneGroup = loadedSourceGroups.get(name);
+            if (!sceneGroup) continue;
+            const ext = (sceneGroup.children?.[0] as any)?.userData?.__adaExt
+                ?? (sceneGroup as any)?.userData?.__adaExt;
+            if (ext) groups.push(...groupsFromExtension(ext, name));
+        }
+        // Fallback for the streaming/replace path (no per-source scene
+        // groups registered): the single active-extension ref.
+        if (groups.length === 0 && adaExtensionRef.current) {
+            groups.push(...groupsFromExtension(adaExtensionRef.current, undefined));
+        }
 
-            if (adaExtension) {
-                if (adaExtension.design_objects) {
-                    adaExtension.design_objects.forEach(designObj => {
-                        if (designObj.groups) {
-                            designObj.groups.forEach(group => {
-                                groups.push({
-                                    name: group.name || 'Unnamed Group',
-                                    description: group.description,
-                                    members: group.members,
-                                    type: 'design' as const,
-                                    parent_name: designObj.name || 'Unnamed Object'
-                                });
-                            });
-                        }
-                    });
-                }
-
-                if (adaExtension.simulation_objects) {
-                    adaExtension.simulation_objects.forEach(simObj => {
-                        if (simObj.groups) {
-                            simObj.groups.forEach(group => {
-                                groups.push({
-                                    name: group.name || 'Unnamed Group',
-                                    description: group.description,
-                                    members: group.members,
-                                    type: 'simulation' as const,
-                                    parent_name: simObj.name || 'Unnamed Object',
-                                    fe_object_type: group.fe_object_type
-                                });
-                            });
-                        }
-                    });
-                }
-            }
-
-            // Only overwrite when the ADA extension actually yielded groups. Streaming FEM/FEA
-            // models carry no ADA_EXT — their groups are pushed straight into this store by
-            // load_fea_streaming — so an empty collection here must NOT clobber them (the panel
-            // can mount after the model loads). Unload clears the store explicitly.
-            if (groups.length > 0) setAvailableGroups(groups);
-        };
-
-        collectGroups();
-    }, [setAvailableGroups]);
+        // Only overwrite when collection actually yielded groups.
+        // Streaming FEM/FEA models carry no ADA_EXT — their groups are
+        // pushed straight into this store by load_fea_streaming — so an
+        // empty collection must NOT clobber them. Exception: every
+        // model unloaded → clear, so stale groups don't outlive their
+        // model.
+        if (groups.length > 0 || loadedSourceNames.size === 0) {
+            setAvailableGroups(groups);
+        }
+    }, [setAvailableGroups, loadedSourceNames, adaExtensionRef]);
 
     const applyGroupSelection = async (group: GroupInfo | null) => {
         if (!group) {
@@ -88,8 +99,14 @@ const GroupsSection = () => {
         if (group.members && group.members.length > 0) {
             useObjectInfoStore.getState().setName(`Group: ${group.name}`);
 
+            // Resolve parent_name → mesh inside the owning model's scene
+            // group when we know the source; two loaded files with
+            // same-named objects would otherwise race on whichever the
+            // whole-scene traversal finds first.
+            const searchRoot = (group.source && loadedSourceGroups.get(group.source))
+                || sceneRef.current;
             const customBatchedMeshes: CustomBatchedMesh[] = [];
-            sceneRef.current?.traverse(obj => {
+            searchRoot?.traverse(obj => {
                 if (obj instanceof CustomBatchedMesh) {
                     customBatchedMeshes.push(obj);
                 }
@@ -125,6 +142,14 @@ const GroupsSection = () => {
 
             {selectedGroup && (
                 <>
+                    {selectedGroup.source && (
+                        <div className="table-row">
+                            <div className="table-cell w-24">Model:</div>
+                            <div className="table-cell w-48 truncate" title={selectedGroup.source}>
+                                {selectedGroup.source.split("/").pop()}
+                            </div>
+                        </div>
+                    )}
                     <div className="table-row">
                         <div className="table-cell w-24">Type:</div>
                         <div className="table-cell w-48 capitalize">
@@ -179,6 +204,10 @@ interface GroupComboboxProps {
 
 const GroupCombobox: React.FC<GroupComboboxProps> = ({groups, selected, onSelect}) => {
     const [open, setOpen] = useState(false);
+    const multiSource = useMemo(
+        () => new Set(groups.map((g) => g.source ?? "")).size > 1,
+        [groups],
+    );
     const [query, setQuery] = useState("");
     const triggerRef = useRef<HTMLButtonElement | null>(null);
     const popoverRef = useRef<HTMLDivElement | null>(null);
@@ -188,7 +217,9 @@ const GroupCombobox: React.FC<GroupComboboxProps> = ({groups, selected, onSelect
     const filteredGroups = useMemo(() => {
         if (!query) return groups;
         const q = query.toLowerCase();
-        return groups.filter((g) => g.name.toLowerCase().includes(q));
+        return groups.filter((g) =>
+            g.name.toLowerCase().includes(q) ||
+            (g.source ?? "").toLowerCase().includes(q));
     }, [groups, query]);
 
     const rowVirtualizer = useVirtualizer({
@@ -321,7 +352,7 @@ const GroupCombobox: React.FC<GroupComboboxProps> = ({groups, selected, onSelect
                             >
                                 {rowVirtualizer.getVirtualItems().map((vRow) => {
                                     const g = filteredGroups[vRow.index];
-                                    const isSelected = selected?.name === g.name;
+                                    const isSelected = selected?.name === g.name && selected?.source === g.source;
                                     return (
                                         <button
                                             key={`${g.name}-${vRow.index}`}
@@ -342,10 +373,13 @@ const GroupCombobox: React.FC<GroupComboboxProps> = ({groups, selected, onSelect
                                                 height: vRow.size,
                                                 lineHeight: `${vRow.size}px`,
                                             }}
-                                            title={`${g.name} (${g.type})`}
+                                            title={g.source ? `${g.name} (${g.type}) — ${g.source}` : `${g.name} (${g.type})`}
                                         >
                                             {g.name}{" "}
                                             <span className="text-gray-400">({g.type})</span>
+                                            {multiSource && g.source && (
+                                                <span className="text-gray-400"> · {g.source.split("/").pop()}</span>
+                                            )}
                                         </button>
                                     );
                                 })}
