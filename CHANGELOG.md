@@ -2,6 +2,15 @@
 
 
 
+## v0.19.0 (2026-06-11)
+
+### Feature
+
+* feat: per-worker memory caps and crash-proof job consumption (#219)
+
+Co-authored-by: Claude Opus 4.8 &lt;noreply@anthropic.com&gt; ([`a1839cc`](https://github.com/Krande/adapy/commit/a1839cc1c0c8c78db61ff67414544c414b545fd5))
+
+
 ## v0.18.4 (2026-06-11)
 
 ### Fix
