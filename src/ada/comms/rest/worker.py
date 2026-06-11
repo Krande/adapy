@@ -1445,6 +1445,7 @@ async def _run() -> None:
                             return
 
                 ka_task = asyncio.create_task(_keep_alive())
+                job_started_at = time.monotonic()
                 try:
                     await _process_one(
                         job_id,
@@ -1454,6 +1455,19 @@ async def _run() -> None:
                         db_pool,
                         delivery_count=delivery_count,
                     )
+                except Exception as exc:  # noqa: BLE001 - one job must never kill the consumer
+                    # Anything _process_one didn't handle itself (e.g. a transient
+                    # S3 body timeout while streaming the source) used to escape
+                    # here and CRASH THE WORKER PROCESS: the message was acked in
+                    # the finally, so the job sat "running" forever in the UI,
+                    # and every queued job showed "waiting for worker" until the
+                    # pod restarted. Fail the JOB instead and keep consuming.
+                    logger.exception("worker: job %s failed outside the handled paths", job_id)
+                    try:
+                        await queue.update(job_id, status=JOB_STATUS_ERROR, stage="worker", error=str(exc))
+                    except Exception:  # noqa: BLE001
+                        logger.warning("worker: could not record job error for %s", job_id)
+                    await _audit_done(db_pool, job_id, "error", str(exc), job_started_at)
                 finally:
                     ka_stop.set()
                     try:
