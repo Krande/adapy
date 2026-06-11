@@ -168,9 +168,13 @@ export async function uploadFile(
         /** Override the scope for this upload. Defaults to whatever
          * the user has selected in the scope picker. */
         scope?: ScopeUrl;
+        /** Destination folder prefix within the scope; the file lands
+         * at `<folder>/<file.name>`. */
+        folder?: string;
     },
 ): Promise<void> {
-    const key = file.name;
+    const folder = opts?.folder?.replace(/^\/+|\/+$/g, "");
+    const key = folder ? `${folder}/${file.name}` : file.name;
     const ext = extOf(key);
     if (!acceptedSourceExts().includes(ext)) {
         throw new Error(`unsupported file type: ${ext || "(no extension)"}`);

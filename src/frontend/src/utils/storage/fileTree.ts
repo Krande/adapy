@@ -30,6 +30,11 @@ export type FileTreeNode<T> = FolderNode<T> | FileNode<T>;
 export function buildFileTree<T>(
     files: T[],
     getPath: (file: T) => string,
+    /** Folder paths to materialise even when no file lives under them.
+     * Used for client-side "pending" folders — storage is prefix-based
+     * so an empty folder has no server representation until a file
+     * lands in it. */
+    extraFolders?: Iterable<string>,
 ): FileTreeNode<T>[] {
     const root: FolderNode<T> = {
         kind: "folder",
@@ -41,10 +46,7 @@ export function buildFileTree<T>(
     const folderIndex = new Map<string, FolderNode<T>>();
     folderIndex.set("", root);
 
-    for (const f of files) {
-        const trimmed = getPath(f).replace(/^\/+/, "");
-        const parts = trimmed.split("/");
-        const filename = parts.pop() ?? trimmed;
+    const ensureFolder = (parts: string[]): FolderNode<T> => {
         let parent = root;
         let acc = "";
         for (const seg of parts) {
@@ -57,11 +59,24 @@ export function buildFileTree<T>(
             }
             parent = next;
         }
+        return parent;
+    };
+
+    for (const f of files) {
+        const trimmed = getPath(f).replace(/^\/+/, "");
+        const parts = trimmed.split("/");
+        const filename = parts.pop() ?? trimmed;
+        const parent = ensureFolder(parts);
         parent.children.push({
             kind: "file",
             file: f,
             displayName: filename,
         });
+    }
+
+    for (const folder of extraFolders ?? []) {
+        const trimmed = folder.replace(/^\/+|\/+$/g, "");
+        if (trimmed) ensureFolder(trimmed.split("/"));
     }
 
     // Folders first (alpha), then files (alpha by display name). Stable
@@ -144,6 +159,46 @@ export function saveExpandedFolders(
         window.localStorage.setItem(
             expandedFoldersKey(namespace, scope),
             JSON.stringify(Array.from(expanded)),
+        );
+    } catch {
+        // localStorage full / disabled — silently lose the state.
+    }
+}
+
+// Client-side "pending" empty folders, persisted per-scope like the
+// expand state. Folders are pure key prefixes on the server, so a
+// just-created empty folder only exists here until a file lands in it
+// (the caller prunes entries that have become real). Device-local by
+// design — an empty folder only matters as an upload/move target on
+// the device that created it.
+
+function pendingFoldersKey(namespace: string, scope: string): string {
+    return `ada.${namespace}.pendingFolders.${scope}`;
+}
+
+export function loadPendingFolders(namespace: string, scope: string): string[] {
+    try {
+        const raw = window.localStorage.getItem(pendingFoldersKey(namespace, scope));
+        if (!raw) return [];
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+            return parsed.filter((x) => typeof x === "string");
+        }
+    } catch {
+        // corrupt entry — no pending folders.
+    }
+    return [];
+}
+
+export function savePendingFolders(
+    namespace: string,
+    scope: string,
+    folders: readonly string[],
+): void {
+    try {
+        window.localStorage.setItem(
+            pendingFoldersKey(namespace, scope),
+            JSON.stringify(folders),
         );
     } catch {
         // localStorage full / disabled — silently lose the state.
