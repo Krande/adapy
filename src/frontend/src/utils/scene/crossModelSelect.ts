@@ -1,4 +1,4 @@
-import {getDrawRangeByName} from '@/utils/mesh_select/getDrawRangeByName';
+import {modelStore} from '@/state/model_worker/modelStore';
 import {useModelState} from '@/state/modelState';
 import {useSelectedObjectStore} from '@/state/useSelectedObjectStore';
 import {useObjectInfoStore} from '@/state/objectInfoStore';
@@ -22,11 +22,9 @@ type Args = {
  * cross-model select work correctly when multiple files are overlaid.
  *
  * Limitation: the target file must already be loaded (overlay or
- * single-active). If it isn't, ``getDrawRangeByName`` will fail
- * because the active model's userdata is queried for the lookup. We
- * surface a console warning rather than auto-loading — auto-load is a
- * follow-up feature once the storage browser exposes the necessary
- * hook.
+ * single-active); we surface a console warning rather than auto-loading
+ * — auto-load is a follow-up feature once the storage browser exposes
+ * the necessary hook.
  */
 export async function selectInOtherModel({file, nodeNames}: Args): Promise<void> {
     const loadedSourceName = useModelState.getState().loadedSourceName;
@@ -60,34 +58,43 @@ export async function selectInOtherModel({file, nodeNames}: Args): Promise<void>
     }
 
     // Build a local name→mesh index for this root only, so overlays of
-    // different files don't poison the lookup.
+    // different files don't poison the lookup — and recover the TARGET model's
+    // cache key from its meshes (the old code queried the ACTIVE model's
+    // userdata, which mis-resolved whenever the link target wasn't active).
     const meshByName = new Map<string, CustomBatchedMesh>();
+    let modelKey: string | null = null;
     root.traverse((obj: THREE.Object3D) => {
         if ((obj as any).isMesh) {
             meshByName.set(obj.name, obj as unknown as CustomBatchedMesh);
+            modelKey ??= (obj as any).unique_key ?? obj.userData?.['unique_hash'] ?? null;
         }
     });
+    if (!modelKey) {
+        console.warn(`crossModelSelect: no model key recoverable from root of "${file}"`);
+        return;
+    }
 
-    let firstSelected: string | null = null;
-    for (const nodeName of nodeNames) {
-        const lookup = getDrawRangeByName(nodeName);
-        if (!lookup) {
-            console.warn(`crossModelSelect: no draw range for "${nodeName}" in active model`);
-            continue;
-        }
-        const [bufferKey, rangeId] = lookup;
-        const meshName = bufferKey.replace(/^draw_ranges_/, '');
+    // One batched worker query resolves every member name to (meshName, rangeId)
+    // against the TARGET model's hierarchy — all matches, not first-match-wins,
+    // and the O(hierarchy) scan runs off the main thread.
+    const pairs = await modelStore.getDrawRangesByMemberNames(modelKey, nodeNames);
+    if (pairs.length === 0) {
+        console.warn(`crossModelSelect: no draw ranges for ${nodeNames.length} member name(s) in "${file}"`);
+        return;
+    }
+    let selected = 0;
+    for (const [meshName, rangeId] of pairs) {
         const mesh = meshByName.get(meshName);
         if (!mesh) {
             console.warn(`crossModelSelect: mesh "${meshName}" not found in target root`);
             continue;
         }
         selectionStore.addSelectedObject(mesh, String(rangeId));
-        if (firstSelected === null) firstSelected = nodeName;
+        selected++;
     }
 
-    if (firstSelected !== null) {
-        useObjectInfoStore.getState().setName(firstSelected);
+    if (selected > 0) {
+        useObjectInfoStore.getState().setName(nodeNames[0]);
         useObjectInfoStore.getState().setFileName(file);
     }
 }

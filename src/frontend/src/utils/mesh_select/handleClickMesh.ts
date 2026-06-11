@@ -8,7 +8,6 @@ import {perform_selection} from "./perform_selection";
 import {query_ws_server_mesh_info} from "./handlers/send_mesh_selected_info_callback";
 import {useTreeViewStore} from "@/state/treeViewStore";
 import {useSelectedObjectStore} from "@/state/useSelectedObjectStore";
-import {findNodeById} from "../tree_view/findNodeById";
 import {simulationDataRef} from "@/state/refs";
 import {SimulationDataExtensionMetadata} from "@/extensions/design_and_analysis_extension";
 
@@ -88,14 +87,15 @@ export async function handleClickMesh(
             const lookupKey: string | undefined = (m as any).unique_key ?? (m.userData ? m.userData['unique_hash'] : undefined);
             if (!lookupKey) continue;
             for (const rid of selectedRanges) {
-                const nodeName = await queryNameFromRangeId(lookupKey, rid);
-                if (!nodeName) continue;
-                const node = findNodeById(treeViewStore.treeData, nodeName);
+                // Resolve by (model_key, rangeId) — the unique numeric node id —
+                // never by display name, which repeats thousands of times in
+                // real CAD models and made the tree highlight the wrong row.
+                const node = treeViewStore.findNodeByRangeId(lookupKey, rid);
                 if (node) node_ids.push(node.id);
             }
         }
 
-        const lastNode = findNodeById(treeViewStore.treeData, last_selected_name);
+        const lastNode = treeViewStore.findNodeByRangeId(mesh.unique_key, rangeId);
         treeViewStore.tree.setSelection({
             ids: node_ids,
             mostRecent: lastNode,

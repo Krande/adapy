@@ -67,13 +67,27 @@ def make_edge_from_edge(edge: geo_cu.Edge) -> TopoDS_Edge:
                 p2 = point3d(edge.end)
                 edge_maker = BRepBuilderAPI_MakeEdge(p1, p2)
             elif isinstance(curve_geom, geo_cu.Circle):
-                # Use circle geometry
-                circle_origin = gp_Ax2(gp_Pnt(*curve_geom.position.location), gp_Dir(*curve_geom.position.axis))
+                # Use circle geometry. The OCC point-trim overload always walks the
+                # circle's POSITIVE parametric direction from P1 to P2, so the
+                # occupied arc must be expressed in that form: the EdgeCurve's own
+                # endpoints traversed positively iff ``same_sense``; for a
+                # reversed-sense arc, reversing the circle's axis flips its
+                # parametric direction so the same overload picks the correct
+                # (complementary) arc. Using the OrientedEdge's endpoints here was
+                # wrong twice over — readers differ on whether they pre-swap them,
+                # and the arc point-set never depends on traversal orientation.
+                axis_dir = gp_Dir(*curve_geom.position.axis)
+                ec_same_sense = bool(getattr(edge_element, "same_sense", True))
+                if not ec_same_sense:
+                    axis_dir = axis_dir.Reversed()
+                circle_origin = gp_Ax2(gp_Pnt(*curve_geom.position.location), axis_dir)
                 circle = gp_Circ(circle_origin, curve_geom.radius)
+                arc_start = getattr(edge_element, "start", edge.start)
+                arc_end = getattr(edge_element, "end", edge.end)
 
                 # If start and end are equal (full circle), create a full circle edge.
                 # Otherwise create an arc between start and end.
-                if _points_equal(edge.start, edge.end):
+                if _points_equal(arc_start, arc_end):
                     edge_maker = BRepBuilderAPI_MakeEdge(circle)
                 else:
                     # Prefer the SAT-recorded parametric trim values
@@ -87,9 +101,14 @@ def make_edge_from_edge(edge: geo_cu.Edge) -> TopoDS_Edge:
                     t_start = getattr(edge, "t_start", None)
                     t_end = getattr(edge, "t_end", None)
                     if t_start is not None and t_end is not None:
-                        edge_maker = BRepBuilderAPI_MakeEdge(circle, float(t_start), float(t_end))
+                        # SAT params are canonical w.r.t. the UNREVERSED curve.
+                        circle_fwd = gp_Circ(
+                            gp_Ax2(gp_Pnt(*curve_geom.position.location), gp_Dir(*curve_geom.position.axis)),
+                            curve_geom.radius,
+                        )
+                        edge_maker = BRepBuilderAPI_MakeEdge(circle_fwd, float(t_start), float(t_end))
                     else:
-                        edge_maker = BRepBuilderAPI_MakeEdge(circle, point3d(edge.start), point3d(edge.end))
+                        edge_maker = BRepBuilderAPI_MakeEdge(circle, point3d(arc_start), point3d(arc_end))
             elif isinstance(curve_geom, (geo_cu.BSplineCurveWithKnots, geo_cu.RationalBSplineCurveWithKnots)):
                 # Build an OCC BSpline curve from the adapy representation
                 try:

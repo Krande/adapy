@@ -47,6 +47,10 @@ export class AnimationController {
             for (const node_name of node_names) {
                 const searchName = node_name.replace('.', '');
 
+                // TODO: name-based lookup mis-resolves on duplicate display names —
+                // key by the GLB node index instead (channel.target.node is available
+                // in mapAnimationTargets but currently discarded). FEA animation
+                // meshes have unique names in practice, so this is not yet load-bearing.
                 const mesh = scene.getObjectByName(searchName) as THREE.Mesh;
 
                 if (mesh) {

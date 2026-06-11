@@ -1,4 +1,5 @@
 import math
+from collections import Counter
 
 from OCC.Core.Bnd import Bnd_Box
 from OCC.Core.BRep import BRep_Builder, BRep_Tool
@@ -790,9 +791,16 @@ def _sample_edge_points(oe):
         if _points_close(oe.start, oe.end):
             a0, a1 = 0.0, 2.0 * math.pi
         else:
-            # Partial arc: sample between the endpoint angles. The traversal sense
-            # isn't recovered here, so the complement arc may be sampled instead —
-            # harmless for parameter-extent estimation (it can only widen coverage).
+            # Partial arc: sample between the endpoint angles ALONG THE OCCUPIED ARC.
+            # The arc's point-set is fully determined by the EdgeCurve alone: from
+            # start to end going in the circle's positive parametric direction when
+            # ``same_sense``, negative otherwise. Crucially this ignores
+            # ``OrientedEdge.orientation`` — readers differ on whether they pre-swap
+            # the oriented edge's endpoints (the STEP stream reader does, the SAT
+            # converter doesn't), but every producer authors EdgeCurve(start, end,
+            # same_sense) with the same semantics. Sampling the complement arc here
+            # widened the parameter extent to the full period, so a small wedge face
+            # rebuilt as a spurious full cylinder/cone band.
             def _ang(p):
                 d = (p[0] - c[0], p[1] - c[1], p[2] - c[2])
                 return math.atan2(
@@ -800,9 +808,16 @@ def _sample_edge_points(oe):
                     d[0] * xd[0] + d[1] * xd[1] + d[2] * xd[2],
                 )
 
-            a0, a1 = _ang(pts[0]), _ang(pts[1])
-            if a1 <= a0:
-                a1 += 2.0 * math.pi
+            same_sense = bool(getattr(ec, "same_sense", True))
+            ec_start = getattr(ec, "start", oe.start)
+            ec_end = getattr(ec, "end", oe.end)
+            a0, a1 = _ang(ec_start), _ang(ec_end)
+            if same_sense:
+                if a1 <= a0:
+                    a1 += 2.0 * math.pi
+            else:
+                if a1 >= a0:
+                    a1 -= 2.0 * math.pi
         for k in range(13):
             a = a0 + (a1 - a0) * k / 12.0
             ca, sa = math.cos(a), math.sin(a)
@@ -838,15 +853,77 @@ def _param_extent(vals: list[float], periodic: bool, period: float) -> tuple[flo
     return s[best_i + 1], s[best_i] + period
 
 
+# Fidelity accounting for the param-extent repair paths. Consumed (return-and-reset)
+# by the streaming conversion so its summary can quantify how much geometry was
+# rebuilt/approximated/dropped — see consume_param_rebuild_stats().
+PARAM_REBUILD_STATS: Counter = Counter()
+
+
+def consume_param_rebuild_stats() -> dict[str, int]:
+    """Return and reset the per-process rebuild counters (picked up after each solid
+    by the streaming tessellation worker)."""
+    out = dict(PARAM_REBUILD_STATS)
+    PARAM_REBUILD_STATS.clear()
+    return out
+
+
+# A rebuilt face whose area exceeds this multiple of (boundary-sample bbox diagonal)^2
+# is over-covering its own boundary evidence and gets dropped instead. Legitimate
+# closed revolution faces stay far below: a full cylinder's worst area/diag^2 ratio is
+# ~1.11 (at h = 2*sqrt(2)*r), a torus tube ~1.23 — 4.0 leaves >3x margin, while the
+# failure mode (full-period band rebuilt from a small wedge's evidence) overshoots by
+# ~period/arc_span.
+_REBUILD_AREA_GATE = 4.0
+
+
+def _is_closure_bound(fb, face_surface) -> bool:
+    """True when every edge of the bound is a full circle concentric with the
+    revolution surface's axis — the bound that *defines* a closed face's extent
+    (e.g. a full cylinder's top/bottom rims, which often arrive as two separate
+    bounds). Such a bound is no hole and must never be re-added as an inner wire."""
+    pos = getattr(face_surface, "Position", None)
+    if pos is None:
+        return False
+    ax = pos().Axis()
+    a_loc, a_dir = ax.Location(), ax.Direction()
+    edges = getattr(getattr(fb, "bound", None), "edge_list", None) or []
+    if not edges:
+        return False
+    for oe in edges:
+        ec = getattr(oe, "edge_element", oe)
+        g = getattr(ec, "edge_geometry", None)
+        if not isinstance(g, geo_cu.Circle) or not _points_close(oe.start, oe.end):
+            return False
+        c = [float(x) for x in g.position.location]
+        z = [float(x) for x in g.position.axis]
+        r = float(g.radius)
+        # circle axis parallel to the surface axis
+        dot = abs(z[0] * a_dir.X() + z[1] * a_dir.Y() + z[2] * a_dir.Z())
+        zlen = math.sqrt(z[0] ** 2 + z[1] ** 2 + z[2] ** 2) or 1.0
+        if dot / zlen < 1.0 - 1e-6:
+            return False
+        # circle centre on the surface axis (within tol*r)
+        dx = c[0] - a_loc.X()
+        dy = c[1] - a_loc.Y()
+        dz = c[2] - a_loc.Z()
+        along = dx * a_dir.X() + dy * a_dir.Y() + dz * a_dir.Z()
+        off2 = dx * dx + dy * dy + dz * dz - along * along
+        if off2 > (1e-4 * max(r, 1.0)) ** 2:
+            return False
+    return True
+
+
 def _make_face_from_param_extent(advanced_face: geo_su.AdvancedFace, face_surface):
     """Build a face directly from the projected parameter extent of its boundary
     samples — for faces whose boundary wire cannot trim the surface (closed
-    revolution faces, seam-crossing arc wires). Inner bounds are filled (the face
-    over-covers slightly). Returns a face or None."""
+    revolution faces, seam-crossing arc wires). Hole bounds are re-added when their
+    wires build; a rebuild whose area overruns its own boundary evidence is rejected
+    (None) — a dropped face beats a spurious full cone. Returns a face or None."""
     # Recover (u, v) parameter ranges by projecting the boundary samples onto the
     # surface; a closed direction snaps to the full period via _param_extent.
     us: list[float] = []
     vs: list[float] = []
+    sample_pts: list[tuple] = []
     for fb in advanced_face.bounds:
         for oe in getattr(getattr(fb, "bound", None), "edge_list", []):
             for p in _sample_edge_points(oe):
@@ -855,6 +932,7 @@ def _make_face_from_param_extent(advanced_face: geo_su.AdvancedFace, face_surfac
                     u, v = proj.LowerDistanceParameters()
                     us.append(u)
                     vs.append(v)
+                    sample_pts.append(p)
     if len(us) < 3:
         return None
 
@@ -867,7 +945,69 @@ def _make_face_from_param_extent(advanced_face: geo_su.AdvancedFace, face_surfac
     mk = BRepBuilderAPI_MakeFace(face_surface, umin, umax, vmin, vmax, 1e-6)
     if not mk.IsDone():
         return None
-    return mk.Face()
+    face = mk.Face()
+
+    # Area sanity gate: the boundary samples are world points ON the face's rim, so
+    # the face cannot legitimately dwarf their bounding box. Catching it here (rather
+    # than emitting) is what turns "spurious giant cone obfuscating the model" into a
+    # small hole.
+    lo = [min(p[i] for p in sample_pts) for i in range(3)]
+    hi = [max(p[i] for p in sample_pts) for i in range(3)]
+    diag2 = (hi[0] - lo[0]) ** 2 + (hi[1] - lo[1]) ** 2 + (hi[2] - lo[2]) ** 2
+    area = _face_area(face)
+    if area > _REBUILD_AREA_GATE * max(diag2, 1e-12):
+        PARAM_REBUILD_STATS["area_gate_dropped"] += 1
+        logger.debug(
+            "param-extent rebuild over-covers boundary evidence (area %.3g > %.0fx diag^2 %.3g); dropping face",
+            area,
+            _REBUILD_AREA_GATE,
+            diag2,
+        )
+        return None
+
+    # Re-add hole bounds. ``bounds[0]`` is the outer boundary (the same assumption
+    # the normal wire path makes) and is already represented by the parameter
+    # extent — punching it as a hole would consume the face. Of the rest, a closure
+    # bound (full concentric circles — e.g. a closed cylinder's second rim) defines
+    # the extent and is NOT a hole; anything else is a cutout the plain param-range
+    # face would otherwise fill. Each hole must shrink the area — a wire that
+    # doesn't (wrong orientation / off-surface) is skipped rather than risked.
+    holes = [fb for fb in advanced_face.bounds[1:] if not _is_closure_bound(fb, face_surface)]
+    for fb in holes:
+        try:
+            wire = make_wire_from_face_bound(fb)
+        except Exception as ex:  # noqa: BLE001 - holes are best-effort fidelity
+            logger.debug("param-extent rebuild: inner bound wire failed (%s)", ex)
+            PARAM_REBUILD_STATS["inner_bound_dropped"] += 1
+            continue
+        # A hole wire must wind opposite to the outer boundary; source files (and
+        # make_wire_from_face_bound) don't guarantee which sense arrives, so try
+        # both and keep whichever SHRINKS the area without zeroing it. The added
+        # wire has no pcurves on this parametric face, so ShapeFix_Face computes
+        # them (safe here: the face is BOUNDED — the known ShapeFix segfaults are
+        # on faces still carrying infinite natural bounds).
+        added = False
+        for candidate in (wire, wire.Reversed()):
+            try:
+                mk2 = BRepBuilderAPI_MakeFace(face)
+                mk2.Add(candidate)
+                if not mk2.IsDone():
+                    continue
+                fixer = ShapeFix_Face(mk2.Face())
+                fixer.Perform()
+                fixed = fixer.Face()
+                if 1e-12 < _face_area(fixed) < area:
+                    face = fixed
+                    area = _face_area(face)
+                    PARAM_REBUILD_STATS["inner_bound_readded"] += 1
+                    added = True
+                    break
+            except Exception as ex:  # noqa: BLE001
+                logger.debug("param-extent rebuild: inner bound add failed (%s)", ex)
+        if not added:
+            PARAM_REBUILD_STATS["inner_bound_dropped"] += 1
+
+    return face
 
 
 def _try_make_closed_revolution_face(advanced_face: geo_su.AdvancedFace, face_surface):
@@ -881,7 +1021,10 @@ def _try_make_closed_revolution_face(advanced_face: geo_su.AdvancedFace, face_su
         return None
     if not _has_full_circle_edge(advanced_face):
         return None
-    return _make_face_from_param_extent(advanced_face, face_surface)
+    face = _make_face_from_param_extent(advanced_face, face_surface)
+    if face is not None:
+        PARAM_REBUILD_STATS["closed_revolution_rebuilt"] += 1
+    return face
 
 
 _UV_FINITE_LIM = 1.0e50  # OCC marks an untrimmed natural bound as ±Precision::Infinite (~1e100)
@@ -1118,6 +1261,7 @@ def make_face_from_geom(advanced_face: geo_su.AdvancedFace) -> TopoDS_Face:
                 raise UnableToCreateTesselationFromSolidOCCGeom(
                     f"unbounded face after wire trim on {type(advanced_face.face_surface).__name__}; skipping"
                 )
+            PARAM_REBUILD_STATS["unbounded_rebuilt"] += 1
             face = rebuilt
 
     # ShapeFix runs only on the regenerative-pcurve path — the
