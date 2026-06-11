@@ -236,7 +236,7 @@ const GroupCombobox: React.FC<GroupComboboxProps> = ({groups, selected, onSelect
                     ref={triggerRef}
                     type="button"
                     onClick={() => setOpen((v) => !v)}
-                    className="flex-1 p-1 rounded-sm bg-white border text-left text-xs truncate"
+                    className="flex-1 p-1 rounded-sm bg-gray-700 border border-gray-600 text-gray-100 text-left text-xs truncate"
                     disabled={groups.length === 0}
                     title={triggerLabel}
                 >
@@ -246,7 +246,7 @@ const GroupCombobox: React.FC<GroupComboboxProps> = ({groups, selected, onSelect
                     <button
                         type="button"
                         onClick={() => onSelect(null)}
-                        className="ml-1 px-1.5 bg-white border rounded-sm text-xs text-gray-700 hover:bg-gray-100"
+                        className="ml-1 px-1.5 bg-gray-700 border border-gray-600 rounded-sm text-xs text-gray-300 hover:bg-gray-600"
                         title="Clear selection"
                         aria-label="Clear selection"
                     >
@@ -257,12 +257,12 @@ const GroupCombobox: React.FC<GroupComboboxProps> = ({groups, selected, onSelect
             {open && (
                 <div
                     ref={popoverRef}
-                    className="absolute z-50 mt-1 w-full bg-white border rounded-sm shadow-lg"
+                    className="absolute z-50 mt-1 w-full bg-gray-800 border border-gray-600 text-gray-100 rounded-sm shadow-lg"
                 >
                     <input
                         ref={searchRef}
                         type="text"
-                        className="w-full p-1 border-b text-xs"
+                        className="w-full p-1 bg-gray-800 text-gray-100 placeholder-gray-400 border-b border-gray-600 text-xs"
                         placeholder={`Filter ${groups.length} group${groups.length === 1 ? "" : "s"}…`}
                         value={query}
                         onChange={(e) => setQuery(e.target.value)}
@@ -273,7 +273,7 @@ const GroupCombobox: React.FC<GroupComboboxProps> = ({groups, selected, onSelect
                         style={{maxHeight: 240}}
                     >
                         {filteredGroups.length === 0 ? (
-                            <div className="px-2 py-2 text-xs text-gray-500 italic">
+                            <div className="px-2 py-2 text-xs text-gray-400 italic">
                                 No matches
                             </div>
                         ) : (
@@ -299,8 +299,8 @@ const GroupCombobox: React.FC<GroupComboboxProps> = ({groups, selected, onSelect
                                             className={
                                                 "absolute left-0 right-0 px-2 text-left text-xs truncate " +
                                                 (isSelected
-                                                    ? "bg-blue-100"
-                                                    : "hover:bg-gray-100")
+                                                    ? "bg-blue-900/60"
+                                                    : "hover:bg-gray-700")
                                             }
                                             style={{
                                                 top: vRow.start,
@@ -310,7 +310,7 @@ const GroupCombobox: React.FC<GroupComboboxProps> = ({groups, selected, onSelect
                                             title={`${g.name} (${g.type})`}
                                         >
                                             {g.name}{" "}
-                                            <span className="text-gray-500">({g.type})</span>
+                                            <span className="text-gray-400">({g.type})</span>
                                         </button>
                                     );
                                 })}

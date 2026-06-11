@@ -73,7 +73,7 @@ const FemConceptsPanel = () => {
                         ‹
                     </button>
                     <select
-                        className="flex-1 text-sm rounded-sm px-1 py-0.5 bg-white text-black disabled:opacity-50"
+                        className="flex-1 text-sm rounded-sm px-1 py-0.5 bg-gray-700 text-gray-100 border border-gray-600 disabled:opacity-50"
                         disabled={nScen < 1}
                         value={selectedScenario}
                         onChange={(e) => setSelectedScenario(parseInt(e.target.value, 10))}

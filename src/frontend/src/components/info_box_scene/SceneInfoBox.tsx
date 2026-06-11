@@ -23,7 +23,7 @@ const SceneInfoBox = () => {
             <div className="flex items-center justify-between mb-1">
                 <h2 className="font-bold">Scene</h2>
                 <select
-                    className="text-sm rounded-sm px-1 py-0.5 bg-white text-black"
+                    className="text-sm rounded-sm px-1 py-0.5 bg-gray-700 text-gray-100 border border-gray-600"
                     value={mode}
                     onChange={(e) => setMode(e.target.value as "info" | "utilities" | "section" | "fem")}
                 >
