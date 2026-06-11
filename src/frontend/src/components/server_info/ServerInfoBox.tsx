@@ -1,3 +1,4 @@
+import {PANEL_CHROME} from "@/state/themeStore";
 import React from 'react';
 import {useServerInfoStore} from "@/state/serverInfoStore";
 import ReloadIcon from "../icons/ReloadIcon";
@@ -6,7 +7,7 @@ import {request_list_of_files_from_server} from "@/utils/server_info/handlers/re
 const ServerInfoBox = () => {
     const {} = useServerInfoStore();
     return (
-        <div className="bg-gray-900/95 border border-gray-700 text-gray-100 shadow-lg rounded-md p-2 w-full min-w-0 max-w-[calc(100vw-1rem)] md:max-w-md">
+        <div className={`${PANEL_CHROME} w-full min-w-0 max-w-[calc(100vw-1rem)] md:max-w-md`}>
             <h2 className="font-bold">Server Info</h2>
             <div className={"flex flex-row"}>
                 <div className={"pr-1 "}>Files:</div>

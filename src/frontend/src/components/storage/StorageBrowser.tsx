@@ -1,3 +1,4 @@
+import {PANEL_CHROME} from "@/state/themeStore";
 import React, {useEffect, useRef, useState} from "react";
 import {createPortal} from "react-dom";
 import {useServerInfoStore, ServerFileEntry} from "@/state/serverInfoStore";
@@ -981,7 +982,7 @@ const StorageBrowser: React.FC = () => {
             // toggle. The host column has no transform ancestors, so
             // position:fixed escapes it cleanly.
             className={
-                "bg-gray-900/95 border border-gray-700 text-gray-100 shadow-lg rounded-md p-2 " +
+                PANEL_CHROME + " " +
                 (maximized
                     ? "fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[61] " +
                       "w-[calc(100vw-3rem)] h-[calc(100vh-3rem)] flex flex-col"

@@ -1,3 +1,4 @@
+import {PANEL_CHROME} from "@/state/themeStore";
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {useWebsocketStatusStore} from '../state/websocketStatusStore';
 import {comms} from '../utils/comms';
@@ -100,7 +101,7 @@ export function WebsocketStatusBox() {
     }, [saveEdit, cancelEdit]);
 
     return (
-        <div className="bg-gray-900/95 border border-gray-700 text-gray-100 shadow-lg rounded-md p-2 min-w-80">
+        <div className={`${PANEL_CHROME} min-w-80`}>
             <h2 className="font-bold">WebSocket Status</h2>
             <div className="text-xs text-gray-300 space-y-2 mb-2">
                 <div className="border-b border-gray-300 pb-2">
