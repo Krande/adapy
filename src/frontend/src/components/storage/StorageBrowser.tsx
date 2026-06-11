@@ -38,6 +38,7 @@ import PositionedMenu, {KebabMenuItem} from "@/components/common/PositionedMenu"
 import FolderPickerModal from "@/components/common/FolderPickerModal";
 import {viewerApi} from "@/services/viewerApi";
 import {useStorageMutations} from "./useStorageMutations";
+import {useLoadQueueStore} from "@/state/loadQueueStore";
 import {buildFileMenuItems, buildFolderMenuItems} from "./storageMenuItems";
 import {canLoadIntoSceneLegacy, isFEAResult, isStreamingFEAResult} from "@/utils/scene/fileKinds";
 import {unload_any_source} from "@/utils/scene/handlers/unload_any_source";
@@ -291,7 +292,14 @@ const StorageBrowser: React.FC = () => {
     const [uploadLoaded, setUploadLoaded] = useState(0);
     const [uploadTotal, setUploadTotal] = useState(0);
     const [expandedName, setExpandedName] = useState<string | null>(null);
-    const [viewingName, setViewingName] = useState<string | null>(null);
+    // Scene loads run through the sequential load queue; the row
+    // spinner tracks whichever model the queue is currently loading.
+    const loadCurrent = useLoadQueueStore((s) => s.current);
+    const loadQueued = useLoadQueueStore((s) => s.queued);
+    const enqueueLoad = useLoadQueueStore((s) => s.enqueue);
+    const removeQueuedLoad = useLoadQueueStore((s) => s.removeQueued);
+    const viewingName = loadCurrent?.name ?? null;
+    const queuedLoadNames = new Set(loadQueued.map((t) => t.name));
     // Sticky 600ms spin window for the Refresh button so a tap is
     // visually acknowledged even though the underlying list-files
     // request is fire-and-forget over websocket. Without this the
@@ -606,52 +614,30 @@ const StorageBrowser: React.FC = () => {
     // bbox); subsequent files reuse that translation so they
     // overlay correctly.
     const onToggle = async (entry: ServerFileEntry, nextChecked: boolean) => {
-        if (viewingName) return; // already busy with another file
-        setViewingName(entry.name);
+        if (nextChecked) {
+            // Queue the load — more can be queued while one is in
+            // flight; the queue drains sequentially (shared loader
+            // state can't take concurrent loads).
+            enqueueLoad({name: entry.name});
+            return;
+        }
+        if (queuedLoadNames.has(entry.name)) {
+            removeQueuedLoad(entry.name);
+            return;
+        }
+        if (viewingName === entry.name) return; // mid-load; can't cancel
         try {
-            if (nextChecked) {
-                if (isStreamingFEAResult(entry.name)) {
-                    // Streaming-FEA toggle: fetch manifest, load with
-                    // defaults (first field, default reduction, step 0),
-                    // and let SimulationControls take it from there.
-                    // No more picker modal in the way.
-                    await load_fea_with_defaults(entry.name);
-                } else {
-                    await overlay_file_in_scene(entry.name);
-                }
-            } else {
-                if (isStreamingFEAResult(entry.name)) {
-                    // FEA streaming meshes were loaded via replace_model
-                    // (scene-wide replace, no per-source group registered).
-                    // unload_source_from_scene would no-op because there's
-                    // no group ref to look up. Clear the whole scene
-                    // instead — that also tears down the FEA session
-                    // store + animation driver.
-                    await clear_loaded_model();
-                } else {
-                    unload_source_from_scene(entry.name);
-                }
-            }
+            await unload_any_source(entry.name);
         } catch (err) {
             console.error("storage toggle failed", err);
-        } finally {
-            setViewingName(null);
         }
     };
 
     // Load a STEP file via the memory-bounded streaming converter (one solid at a
     // time) — for large assemblies whose normal OCC->GLB conversion OOM-kills the
     // worker. Same overlay flow as onToggle, with the streamer flag set.
-    const onLoadStreamer = async (name: string) => {
-        if (viewingName) return;
-        setViewingName(name);
-        try {
-            await overlay_file_in_scene(name, undefined, {streamer: true});
-        } catch (err) {
-            console.error("streamer load failed", err);
-        } finally {
-            setViewingName(null);
-        }
+    const onLoadStreamer = (name: string) => {
+        enqueueLoad({name, streamer: true});
     };
 
     // Bulk "show all" — overlay every file currently absent from the
@@ -664,30 +650,12 @@ const StorageBrowser: React.FC = () => {
     // already-loaded items (no-op overlay) and unload already-hidden
     // items (no-op unload) so the user gets a predictable result
     // regardless of the per-row state mix.
-    const onLoadSelected = async () => {
-        if (bulkBusy !== null) return;
+    const onLoadSelected = () => {
         const targets = files.filter((f) =>
             selection.has(f.name) && !loadedSourceNames.has(f.name) &&
             (isStreamingFEAResult(f.name) || canLoadIntoSceneLegacy(f.name)));
-        if (targets.length === 0) {
-            clearSelection();
-            return;
-        }
-        setBulkBusy("load");
-        try {
-            for (const f of targets) {
-                setViewingName(f.name);
-                try {
-                    await overlay_file_in_scene(f.name);
-                } catch (err) {
-                    console.error("load-selected overlay failed", f.name, err);
-                }
-            }
-        } finally {
-            setViewingName(null);
-            setBulkBusy(null);
-            clearSelection();
-        }
+        for (const f of targets) enqueueLoad({name: f.name});
+        clearSelection();
     };
     const onUnloadSelected = () => {
         if (bulkBusy !== null) return;
@@ -866,7 +834,7 @@ const StorageBrowser: React.FC = () => {
 
     // ── Menu item builders (kebab + context menu share these) ───────
     const fileMenuItems = (f: ServerFileEntry, displayName: string): KebabMenuItem[] => {
-        const busy = viewingName !== null;
+        const busy = viewingName === f.name;
         return buildFileMenuItems(f, {
             isLoaded: loadedSourceNames.has(f.name),
             busy,
@@ -875,7 +843,7 @@ const StorageBrowser: React.FC = () => {
             onToggle: (next) => void onToggle(f, next),
             onLoadStreamer:
                 runtime.isRestMode() && runtime.convertEnabled()
-                    ? () => void onLoadStreamer(f.name)
+                    ? () => onLoadStreamer(f.name)
                     : undefined,
             onDownload: runtime.isRestMode() ? () => onDownloadFile(f.name) : undefined,
             onRename: () => setRenaming({kind: "file", path: f.name}),
@@ -885,7 +853,7 @@ const StorageBrowser: React.FC = () => {
     };
     // CI version blobs stay read-only: load/streamer/download only.
     const versionFileMenuItems = (f: ServerFileEntry): KebabMenuItem[] => {
-        const busy = viewingName !== null;
+        const busy = viewingName === f.name;
         return buildFileMenuItems(f, {
             isLoaded: loadedSourceNames.has(f.name),
             busy,
@@ -894,7 +862,7 @@ const StorageBrowser: React.FC = () => {
             onToggle: (next) => void onToggle(f, next),
             onLoadStreamer:
                 runtime.isRestMode() && runtime.convertEnabled()
-                    ? () => void onLoadStreamer(f.name)
+                    ? () => onLoadStreamer(f.name)
                     : undefined,
             onDownload: runtime.isRestMode() ? () => onDownloadFile(f.name) : undefined,
         });
@@ -1096,11 +1064,11 @@ const StorageBrowser: React.FC = () => {
                         </span>
                         <button
                             type="button"
-                            onClick={() => void onLoadSelected()}
+                            onClick={onLoadSelected}
                             disabled={bulkBusy !== null}
                             className={`bg-blue-700 hover:bg-blue-600 active:bg-blue-800 ${btn}`}
                         >
-                            {bulkBusy === "load" ? "Loading…" : "Load"}
+                            Load
                         </button>
                         <button
                             type="button"
@@ -1256,6 +1224,7 @@ const StorageBrowser: React.FC = () => {
                                                 setPickerName={setPickerName}
                                                 selectionMode={inSelectionMode}
                                                 isSelected={selection.has(node.file.name)}
+                                                isQueued={queuedLoadNames.has(node.file.name)}
                                                 onLongPress={toggleSelection}
                                                 onSelectToggle={toggleSelection}
                                                 menuItems={items}
@@ -1553,6 +1522,8 @@ interface FileRowProps {
     setPickerName: (n: string | null) => void;
     selectionMode: boolean;
     isSelected: boolean;
+    /** Waiting in the scene-load queue (untick to remove). */
+    isQueued?: boolean;
     onLongPress: (name: string) => void;
     onSelectToggle: (name: string) => void;
     /** Row actions — shared between the kebab and the right-click
@@ -1587,6 +1558,7 @@ const FileRow: React.FC<FileRowProps> = ({
     setPickerName,
     selectionMode,
     isSelected,
+    isQueued,
     onLongPress,
     onSelectToggle,
     menuItems,
@@ -1720,19 +1692,21 @@ const FileRow: React.FC<FileRowProps> = ({
                     <input
                         type="checkbox"
                         className="h-5 w-5 shrink-0 cursor-pointer disabled:cursor-not-allowed"
-                        checked={isLoaded}
-                        onChange={() => void onToggle(f, !isLoaded)}
+                        checked={isLoaded || isQueued || isViewing}
+                        onChange={() => void onToggle(f, !(isLoaded || isQueued))}
                         onClick={(e) => e.stopPropagation()}
                         disabled={
-                            isViewing || otherViewing ||
+                            isViewing ||
                             (!isStreamingFEAResult(f.name) && !canLoadIntoSceneLegacy(f.name))
                         }
                         aria-busy={isViewing || undefined}
                         title={isLoaded
                             ? "Unload from scene"
-                            : isStreamingFEAResult(f.name)
-                                ? "Open in streaming FEA viewer"
-                                : "Load into scene"}
+                            : isQueued
+                                ? "Queued to load — untick to remove from the queue"
+                                : isStreamingFEAResult(f.name)
+                                    ? "Open in streaming FEA viewer (queues if another model is loading)"
+                                    : "Load into scene (queues if another model is loading)"}
                     />
                 )}
                 <FileTypeIcon name={f.name}/>
@@ -1776,6 +1750,11 @@ const FileRow: React.FC<FileRowProps> = ({
                         selection control (bulk actions), so loaded
                         state needs its own signal — the blue filename
                         tint alone is easy to miss on mobile. */}
+                    {isQueued && (
+                        <span className="text-[10px] text-amber-400 uppercase tracking-wide shrink-0">
+                            queued
+                        </span>
+                    )}
                     {isLoaded && !isViewing && (
                         <ViewIcon
                             width="16px"
