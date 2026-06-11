@@ -15,6 +15,9 @@ export interface FileMenuContext {
     isLoaded: boolean;
     /** This row (or another) is busy loading into the scene. */
     busy: boolean;
+    /** No usable view target (legacy convert can't produce a GLB and
+     * the format isn't a streaming source) — Load is disabled. */
+    loadDisabled?: boolean;
     canMutate: boolean;
     onToggle: (nextChecked: boolean) => void;
     /** REST + convert mode only: streaming STEP load for big assemblies. */
@@ -34,7 +37,10 @@ export function buildFileMenuItems(
     items.push({
         key: "toggle-load",
         label: ctx.isLoaded ? "Unload from scene" : "Load into scene",
-        disabled: ctx.busy,
+        disabled: ctx.busy || (!ctx.isLoaded && ctx.loadDisabled),
+        title: !ctx.isLoaded && ctx.loadDisabled
+            ? "No viewable target for this format"
+            : undefined,
         onClick: () => ctx.onToggle(!ctx.isLoaded),
     });
     if (ctx.onLoadStreamer && /\.(step|stp)$/i.test(file.name)) {

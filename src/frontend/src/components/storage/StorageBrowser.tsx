@@ -309,13 +309,13 @@ const StorageBrowser: React.FC = () => {
     // Active "Show all" run — disables the per-row toggles while we're
     // overlaying every file in sequence, so the user can't kick off a
     // second batch on top of the first.
-    const [bulkBusy, setBulkBusy] = useState<"load" | "unload" | "clear" | null>(null);
+    const [bulkBusy, setBulkBusy] = useState<"load" | "unload" | "clear" | "delete" | null>(null);
     const [gitHistoryOpen, setGitHistoryOpen] = useState(false);
-    // Multi-select mode: a Set of file names. Empty set = mode off.
-    // Entered by long-press on any FileRow (or via the "Select" button
-    // in the header on desktop where long-press is unergonomic). Tap
-    // toggles set membership while in mode; the existing per-row
-    // checkbox is hidden so the row itself is the tap target.
+    // Selection: a Set of file names driving the bulk-action toolbar
+    // under the header (load / unload / move / delete). The per-row
+    // checkbox toggles membership — loading into the scene is an
+    // explicit action (toolbar or row menu), never a checkbox side
+    // effect. Long-press still selects (mobile ergonomics).
     const [selection, setSelection] = useState<Set<string>>(() => new Set());
     const inSelectionMode = selection.size > 0;
     const toggleSelection = (name: string) => {
@@ -713,7 +713,9 @@ const StorageBrowser: React.FC = () => {
     // regardless of the per-row state mix.
     const onLoadSelected = async () => {
         if (bulkBusy !== null) return;
-        const targets = files.filter((f) => selection.has(f.name) && !loadedSourceNames.has(f.name));
+        const targets = files.filter((f) =>
+            selection.has(f.name) && !loadedSourceNames.has(f.name) &&
+            (isStreamingFEAResult(f.name) || canLoadIntoSceneLegacy(f.name)));
         if (targets.length === 0) {
             clearSelection();
             return;
@@ -750,6 +752,53 @@ const StorageBrowser: React.FC = () => {
             setBulkBusy(null);
             clearSelection();
         }
+    };
+
+    // Bulk delete / move over the selection set. Version blobs are
+    // server-protected (400), so the toolbar disables these when the
+    // selection includes any — no silent skipping.
+    const onDeleteSelected = async () => {
+        if (bulkBusy !== null) return;
+        const keys = Array.from(selection);
+        if (keys.length === 0) return;
+        if (!window.confirm(
+            `Delete ${keys.length} file${keys.length === 1 ? "" : "s"}?\n` +
+            "Converted view caches are removed too.",
+        )) return;
+        setBulkBusy("delete");
+        try {
+            // Sequential: deletes cascade derived blobs server-side and
+            // parallel calls would race on the storage listing.
+            for (const k of keys) {
+                await unloadIfLoaded(k);
+                await mutations.deleteKey(k);
+            }
+            void request_list_of_files_from_server();
+        } catch (e) {
+            alertError(e);
+        } finally {
+            setBulkBusy(null);
+            clearSelection();
+        }
+    };
+    const onMoveSelected = () => {
+        const keys = Array.from(selection);
+        if (keys.length === 0) return;
+        setPicker({
+            title: `Move ${keys.length} file${keys.length === 1 ? "" : "s"} to folder`,
+            onPick: async (folder) => {
+                try {
+                    const r = await mutations.moveKeys(keys, folder);
+                    if (r.failed.length > 0) {
+                        window.alert(r.failed.map((f) => `${f.key}: ${f.reason}`).join("\n"));
+                    }
+                    clearSelection();
+                    void request_list_of_files_from_server();
+                } catch (e) {
+                    alertError(e);
+                }
+            },
+        });
     };
 
     // Drop every loaded source via the canonical teardown.
@@ -868,6 +917,7 @@ const StorageBrowser: React.FC = () => {
         return buildFileMenuItems(f, {
             isLoaded: loadedSourceNames.has(f.name),
             busy,
+            loadDisabled: !isStreamingFEAResult(f.name) && !canLoadIntoSceneLegacy(f.name),
             canMutate,
             onToggle: (next) => void onToggle(f, next),
             onLoadStreamer:
@@ -886,6 +936,7 @@ const StorageBrowser: React.FC = () => {
         return buildFileMenuItems(f, {
             isLoaded: loadedSourceNames.has(f.name),
             busy,
+            loadDisabled: !isStreamingFEAResult(f.name) && !canLoadIntoSceneLegacy(f.name),
             canMutate: false,
             onToggle: (next) => void onToggle(f, next),
             onLoadStreamer:
@@ -932,7 +983,7 @@ const StorageBrowser: React.FC = () => {
                 "bg-gray-900/95 border border-gray-700 text-gray-100 shadow-lg rounded-md p-2 " +
                 (maximized
                     ? "fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[61] " +
-                      "w-[min(56rem,calc(100vw-2rem))] max-h-[85vh] flex flex-col"
+                      "w-[calc(100vw-3rem)] h-[calc(100vh-3rem)] flex flex-col"
                     : "w-full min-w-0 max-w-[calc(100vw-1rem)] md:max-w-md")
             }
         >
@@ -973,7 +1024,7 @@ const StorageBrowser: React.FC = () => {
                         ref={plusBtnRef}
                         type="button"
                         className={
-                            "bg-blue-700 hover:bg-blue-600 active:bg-blue-800 text-white rounded-sm " +
+                            "bg-blue-700 hover:bg-blue-600 active:bg-blue-800 text-white rounded-sm cursor-pointer " +
                             "flex items-center justify-center disabled:opacity-60 " +
                             "p-2 sm:p-1 min-h-[40px] min-w-[40px] sm:min-h-0 sm:min-w-0 " +
                             "focus:outline-hidden focus:ring-2 focus:ring-blue-400"
@@ -1017,7 +1068,7 @@ const StorageBrowser: React.FC = () => {
                     <button
                         type="button"
                         className={
-                            "bg-blue-700 hover:bg-blue-600 active:bg-blue-800 text-white rounded-sm " +
+                            "bg-blue-700 hover:bg-blue-600 active:bg-blue-800 text-white rounded-sm cursor-pointer " +
                             "flex items-center justify-center " +
                             // 40px+ tap target on mobile per WCAG; tighter
                             // on desktop where the cursor is precise.
@@ -1045,7 +1096,7 @@ const StorageBrowser: React.FC = () => {
                         <button
                             type="button"
                             className={
-                                "bg-gray-700 hover:bg-gray-600 active:bg-gray-800 disabled:opacity-60 " +
+                                "bg-gray-700 hover:bg-gray-600 active:bg-gray-800 disabled:opacity-60 cursor-pointer " +
                                 "text-white rounded-sm text-xs whitespace-nowrap " +
                                 "px-2 sm:px-2 py-1 min-h-[40px] sm:min-h-0"
                             }
@@ -1061,7 +1112,7 @@ const StorageBrowser: React.FC = () => {
                     <button
                         type="button"
                         className={
-                            "bg-gray-700 hover:bg-gray-600 active:bg-gray-800 text-white rounded-sm " +
+                            "bg-gray-700 hover:bg-gray-600 active:bg-gray-800 text-white rounded-sm cursor-pointer " +
                             "flex items-center justify-center " +
                             "p-2 sm:p-1 min-h-[40px] min-w-[40px] sm:min-h-0 sm:min-w-0 " +
                             "focus:outline-hidden focus:ring-2 focus:ring-blue-400"
@@ -1076,6 +1127,65 @@ const StorageBrowser: React.FC = () => {
                     </button>
                 </div>
             </div>
+            {inSelectionMode && (() => {
+                const selectionHasVersions = Array.from(selection).some((k) =>
+                    k.replace(/^\/+/, "").startsWith("versions/"),
+                );
+                const btn = "text-white text-xs px-2 py-1 rounded-sm min-h-[36px] sm:min-h-0 cursor-pointer disabled:opacity-60 disabled:cursor-default";
+                return (
+                    <div className="mb-2 px-2 py-1.5 rounded-sm border border-gray-700 bg-gray-800/95 flex items-center gap-2 flex-wrap">
+                        <span className="text-xs text-white whitespace-nowrap">
+                            {selection.size} selected
+                        </span>
+                        <button
+                            type="button"
+                            onClick={() => void onLoadSelected()}
+                            disabled={bulkBusy !== null}
+                            className={`bg-blue-700 hover:bg-blue-600 active:bg-blue-800 ${btn}`}
+                        >
+                            {bulkBusy === "load" ? "Loading…" : "Load"}
+                        </button>
+                        <button
+                            type="button"
+                            onClick={onUnloadSelected}
+                            disabled={bulkBusy !== null}
+                            className={`bg-gray-700 hover:bg-gray-600 active:bg-gray-800 ${btn}`}
+                        >
+                            {bulkBusy === "unload" ? "Unloading…" : "Unload"}
+                        </button>
+                        {canMutate && (
+                            <button
+                                type="button"
+                                onClick={onMoveSelected}
+                                disabled={bulkBusy !== null || selectionHasVersions}
+                                title={selectionHasVersions ? "CI version files can't be moved" : "Move selected files to a folder"}
+                                className={`bg-gray-700 hover:bg-gray-600 active:bg-gray-800 ${btn}`}
+                            >
+                                Move…
+                            </button>
+                        )}
+                        {canMutate && (
+                            <button
+                                type="button"
+                                onClick={() => void onDeleteSelected()}
+                                disabled={bulkBusy !== null || selectionHasVersions}
+                                title={selectionHasVersions ? "CI version files can't be deleted" : "Delete selected files (incl. converted caches)"}
+                                className={`bg-red-800 hover:bg-red-700 active:bg-red-900 ${btn}`}
+                            >
+                                {bulkBusy === "delete" ? "Deleting…" : "Delete"}
+                            </button>
+                        )}
+                        <button
+                            type="button"
+                            onClick={clearSelection}
+                            disabled={bulkBusy !== null}
+                            className={`ml-auto bg-gray-600 hover:bg-gray-500 ${btn}`}
+                        >
+                            Cancel
+                        </button>
+                    </div>
+                );
+            })()}
             {uploadName && (
                 <div className="mb-2 text-xs">
                     <div className="flex items-center justify-between gap-2">
@@ -1185,7 +1295,6 @@ const StorageBrowser: React.FC = () => {
                                                 conversionJobs={conversionJobs}
                                                 expandedName={expandedName}
                                                 setExpandedName={setExpandedName}
-                                                onToggle={onToggle}
                                                 setPickerName={setPickerName}
                                                 selectionMode={inSelectionMode}
                                                 isSelected={selection.has(node.file.name)}
@@ -1272,7 +1381,6 @@ const StorageBrowser: React.FC = () => {
                                     conversionJobs={conversionJobs}
                                     expandedName={expandedName}
                                     setExpandedName={setExpandedName}
-                                    onToggle={onToggle}
                                     setPickerName={setPickerName}
                                     onOpenGitHistory={() => setGitHistoryOpen(true)}
                                     selectionMode={inSelectionMode}
@@ -1324,54 +1432,6 @@ const StorageBrowser: React.FC = () => {
                     if (action) void action(folder);
                 }}
             />
-            {inSelectionMode && (
-                <div
-                    className={
-                        // Sticky inside the panel rather than fixed to
-                        // viewport — keeps the action bar bound to the
-                        // storage panel's footprint on desktop while
-                        // still pinning to the bottom on mobile where
-                        // the panel takes the full screen anyway.
-                        "mt-2 -mx-2 -mb-2 px-2 py-2 border-t border-gray-700 bg-gray-800/95 " +
-                        "rounded-b flex items-center gap-2 sticky bottom-0"
-                    }
-                >
-                    <span className="text-xs text-white whitespace-nowrap">
-                        {selection.size} selected
-                    </span>
-                    {/* Load is the primary action in this bar
-                        (affirmative — adds models to the scene), so
-                        it gets the same blue as Upload / Refresh.
-                        Unload + Cancel are neutral gray; the
-                        amber row highlight already conveys "these
-                        rows are armed for an action", no need for
-                        red to scream "destructive". */}
-                    <button
-                        type="button"
-                        onClick={() => void onLoadSelected()}
-                        disabled={bulkBusy !== null}
-                        className="bg-blue-700 hover:bg-blue-600 active:bg-blue-800 disabled:opacity-60 text-white text-xs px-2 py-1 rounded-sm min-h-[36px]"
-                    >
-                        {bulkBusy === "load" ? "Loading…" : "Load"}
-                    </button>
-                    <button
-                        type="button"
-                        onClick={onUnloadSelected}
-                        disabled={bulkBusy !== null}
-                        className="bg-gray-700 hover:bg-gray-600 active:bg-gray-800 disabled:opacity-60 text-white text-xs px-2 py-1 rounded-sm min-h-[36px]"
-                    >
-                        {bulkBusy === "unload" ? "Unloading…" : "Unload"}
-                    </button>
-                    <button
-                        type="button"
-                        onClick={clearSelection}
-                        disabled={bulkBusy !== null}
-                        className="ml-auto bg-gray-600 hover:bg-gray-500 disabled:opacity-60 text-white text-xs px-2 py-1 rounded-sm min-h-[36px]"
-                    >
-                        Cancel
-                    </button>
-                </div>
-            )}
         </div>
     );
 };
@@ -1511,7 +1571,6 @@ interface FileRowProps {
     conversionJobs: Record<string, {progress: number; status?: string}>;
     expandedName: string | null;
     setExpandedName: (n: string | null) => void;
-    onToggle: (entry: ServerFileEntry, nextChecked: boolean) => Promise<void>;
     setPickerName: (n: string | null) => void;
     selectionMode: boolean;
     isSelected: boolean;
@@ -1545,7 +1604,6 @@ const FileRow: React.FC<FileRowProps> = ({
     conversionJobs,
     expandedName,
     setExpandedName,
-    onToggle,
     setPickerName,
     selectionMode,
     isSelected,
@@ -1610,13 +1668,12 @@ const FileRow: React.FC<FileRowProps> = ({
     return (
         <li
             className={
-                "flex flex-col px-1 py-1 text-xs rounded " +
+                "flex flex-col pr-1 py-1 text-xs rounded " +
                 (dimmed ? "opacity-40 " : "") +
-                (selectionMode
-                    ? "cursor-pointer " + (isSelected ? "bg-amber-700/30" : "hover:bg-amber-700/10")
-                    : "hover:bg-gray-800/60")
+                (isSelected ? "bg-amber-700/30 " : "hover:bg-gray-800/60 ") +
+                (selectionMode ? "cursor-pointer" : "")
             }
-            style={indentPx ? {paddingLeft: `${4 + indentPx}px`} : undefined}
+            style={{paddingLeft: `${8 + indentPx}px`}}
             draggable={draggable || undefined}
             onDragStart={draggable && onDragStartRow ? (e) => {
                 cancelLongPress();
@@ -1652,56 +1709,18 @@ const FileRow: React.FC<FileRowProps> = ({
             }}
         >
             <div className="flex items-center justify-between gap-2">
-                {selectionMode ? (
-                    <span
-                        className={
-                            "h-5 w-5 shrink-0 rounded-full border-2 inline-flex items-center justify-center " +
-                            (isSelected
-                                ? "bg-amber-600 border-amber-400"
-                                : "border-gray-400")
-                        }
-                        aria-checked={isSelected}
-                        role="checkbox"
-                    >
-                        {isSelected && (
-                            <svg viewBox="0 0 16 16" className="w-3 h-3 fill-white" aria-hidden>
-                                <path d="M6 11.2 2.4 7.6l1.4-1.4L6 8.4l6.2-6.2 1.4 1.4z"/>
-                            </svg>
-                        )}
-                    </span>
-                ) : (
-                    <label
-                        className={
-                            "flex items-center gap-2 cursor-pointer select-none px-1 py-1 -mx-1 -my-1 " +
-                            (isLoaded ? "text-blue-200 font-medium" : "")
-                        }
-                        title={
-                            isViewing
-                                ? "Loading…"
-                                : otherViewing
-                                    ? "Another file is loading"
-                                    : isLoaded
-                                        ? "Loaded in scene — uncheck to remove"
-                                        : isStreamingFEAResult(f.name)
-                                            ? "Open in streaming FEA viewer (default field, configure in Simulation controls)"
-                                            : "Add to scene (overlays alongside any other loaded files)"
-                        }
-                    >
-                        <input
-                            type="checkbox"
-                            className="h-5 w-5 shrink-0 cursor-pointer disabled:cursor-not-allowed"
-                            checked={isLoaded}
-                            onChange={(e) => onToggle(f, e.target.checked)}
-                            disabled={
-                                isViewing || otherViewing ||
-                                // The legacy GLB toggle still gates non-streaming
-                                // sources without a usable convert target.
-                                (!isStreamingFEAResult(f.name) && !canLoadIntoSceneLegacy(f.name))
-                            }
-                            aria-busy={isViewing || undefined}
-                        />
-                    </label>
-                )}
+                {/* Selection checkbox — feeds the bulk-action toolbar
+                    under the header. Loading into the scene is an
+                    explicit action (toolbar Load / row menu), never a
+                    checkbox side effect. */}
+                <input
+                    type="checkbox"
+                    className="h-5 w-5 shrink-0 cursor-pointer"
+                    checked={isSelected}
+                    onChange={() => onSelectToggle(f.name)}
+                    onClick={(e) => e.stopPropagation()}
+                    title="Select for bulk actions (load / move / delete)"
+                />
                 <FileTypeIcon name={f.name}/>
                 {renaming && onRenameCommit && onRenameCancel ? (
                     <InlineNameInput
@@ -1751,7 +1770,7 @@ const FileRow: React.FC<FileRowProps> = ({
                         the moment a new isFEAResult format that is
                         NOT in the streaming set ships, the picker
                         re-appears for it without code changes here. */}
-                    {!selectionMode && isFEAResult(f.name) && !isStreamingFEAResult(f.name) && runtime.isRestMode() && runtime.convertEnabled() && (
+                    {isFEAResult(f.name) && !isStreamingFEAResult(f.name) && runtime.isRestMode() && runtime.convertEnabled() && (
                         <button
                             className="p-1 rounded-sm text-white hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
                             onClick={(e) => {
@@ -1765,7 +1784,7 @@ const FileRow: React.FC<FileRowProps> = ({
                             <span className="leading-none text-sm font-mono">⇅</span>
                         </button>
                     )}
-                    {!selectionMode && menuItems.length > 0 && (
+                    {menuItems.length > 0 && (
                         <span onClick={(e) => e.stopPropagation()}>
                             <RowKebabMenu
                                 ariaLabel={`Actions for ${displayName}`}
@@ -1822,7 +1841,6 @@ interface VersionsTreeProps {
     conversionJobs: Record<string, {progress: number; status?: string}>;
     expandedName: string | null;
     setExpandedName: (n: string | null) => void;
-    onToggle: (entry: ServerFileEntry, nextChecked: boolean) => Promise<void>;
     setPickerName: (n: string | null) => void;
     onOpenGitHistory: () => void;
     selectionMode: boolean;
@@ -1981,7 +1999,6 @@ const VersionsTree: React.FC<VersionsTreeProps> = (props) => {
                                                                     conversionJobs={props.conversionJobs}
                                                                     expandedName={props.expandedName}
                                                                     setExpandedName={props.setExpandedName}
-                                                                    onToggle={props.onToggle}
                                                                     setPickerName={props.setPickerName}
                                                                     selectionMode={props.selectionMode}
                                                                     isSelected={props.selection.has(leaf.file.name)}
