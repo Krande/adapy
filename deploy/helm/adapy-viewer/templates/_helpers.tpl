@@ -176,6 +176,12 @@ spec:
             - name: ADA_CONVERT_MEM_LIMIT_MB
               value: {{ . | quote }}
             {{- end }}
+            {{- /* Free-form per-pool env (e.g. the ADA_STEP_STREAM_* tessellation-pool
+                 sizing/memory-cap knobs) so ops can tune without a chart release. */}}
+            {{- range $name, $value := $w.extraEnv }}
+            - name: {{ $name }}
+              value: {{ $value | quote }}
+            {{- end }}
             {{- include "adapy-viewer.databaseEnv" $ctx | nindent 12 }}
           {{- if eq $ctx.Values.storage.kind "local" }}
           volumeMounts:

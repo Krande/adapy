@@ -164,6 +164,15 @@ class StepWriter:
         SetCVal = OCCInterface.Interface_Static.SetCVal
         SetIVal = OCCInterface.Interface_Static.SetIVal
 
+        # ``xstep.cascade.unit`` tells OCC what unit the IN-MEMORY model is in;
+        # ``write.step.unit`` what the file declares (values are converted between
+        # them). The cascade unit is a process-global that defaults to MM and is
+        # also mutated by every STEPStore READ — without pinning it here, a fresh
+        # process exporting a metre-based model wrote every coordinate 1000x off
+        # (3.0 m -> "0.003"), while a prior read with store_units=M leaked M into
+        # the global and accidentally produced correct files. adapy models are in
+        # ``self.units`` and the file declares the same, so no conversion happens.
+        SetCVal("xstep.cascade.unit", self.units.value.upper())
         SetCVal("write.step.unit", self.units.value.upper())
         SetCVal("write.step.schema", self.schema.value.upper())
 

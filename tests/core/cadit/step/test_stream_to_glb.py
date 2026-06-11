@@ -7,6 +7,9 @@ adacpp (backend-neutral mesh contract).
 
 import json
 import struct
+import sys
+
+import pytest
 
 import ada
 from ada import Beam, Plate, Section
@@ -105,7 +108,7 @@ def test_stream_pool_matches_sequential(monkeypatch, tmp_path):
     src = tmp_path / "m.step"
     (ada.Assembly("m") / (ada.Part("p") / parts)).to_stp(src)
 
-    monkeypatch.setenv("ADA_STEP_STREAM_WORKERS", "1")  # sequential (n_workers=1 -> no pool)
+    monkeypatch.setenv("ADA_STEP_STREAM_WORKERS", "2")  # sequential (n_workers=1 -> no pool)
     seq = stream_step_to_glb(src, tmp_path / "seq.glb")
     monkeypatch.setenv("ADA_STEP_STREAM_WORKERS", "3")  # parallel pool
     par = stream_step_to_glb(src, tmp_path / "par.glb")
@@ -169,3 +172,85 @@ def test_stream_glb_scales_millimetre_files_to_metres(tmp_path):
     span_x = float(scene.bounds[1][0] - scene.bounds[0][0])
     # The 3 m beam must span ~3 in the GLB regardless of the units the writer declared.
     assert abs(span_x - 3.0) < 0.1, f"beam spans {span_x} (file unit scale {scale})"
+
+
+def _mem_cap_fixture(tmp_path, n: int = 2):
+    parts = [Beam(f"b{i}", (i, 0, 0), (i, 0, 3), Section("t", from_str="TUB300x20")) for i in range(n)]
+    src = tmp_path / "m.step"
+    (ada.Assembly("m") / (ada.Part("p") / parts)).to_stp(src)
+    return src
+
+
+_caps_need_linux = pytest.mark.skipif(
+    sys.platform != "linux",
+    reason="the worker memory caps read /proc and are documented as inert off Linux",
+)
+
+
+@_caps_need_linux
+def test_stream_pool_soft_mem_cap_recycles_worker(monkeypatch, tmp_path):
+    """A worker whose RSS stays above the soft cap BETWEEN solids exits cleanly and
+    is respawned; no geometry is lost and the recycle count surfaces in stats."""
+    from ada.visit.scene_converter import SceneConverter
+    from ada.visit.scene_handling import scene_from_step_stream as sfss
+    from ada.visit.scene_handling.scene_from_step_stream import StepStreamSource
+
+    monkeypatch.setattr(sfss, "_POOL_MIN_SOLIDS", 2)
+    src = _mem_cap_fixture(tmp_path, n=4)
+
+    monkeypatch.setenv("ADA_STEP_STREAM_WORKERS", "2")
+    monkeypatch.setenv("ADA_STEP_STREAM_TEST_ALLOC_MB", "400")  # retained per solid
+    monkeypatch.setenv("ADA_STEP_STREAM_WORKER_SOFT_MEM_MB", "350")  # < one allocation
+    monkeypatch.setenv("ADA_STEP_STREAM_WORKER_HARD_MEM_MB", "0")  # isolate the soft path
+
+    scene = SceneConverter(source=StepStreamSource(src, tolerant=True)).build_scene()
+    stats = scene.metadata["ada_stream_stats"]
+    assert stats["meshed"] == 4, stats  # recycling must lose nothing
+    assert stats["pool"]["worker_recycles"] >= 2, stats
+
+
+@_caps_need_linux
+def test_stream_pool_hard_mem_cap_requeues_then_skips(monkeypatch, tmp_path):
+    """A worker ballooning MID-solid is killed; the solid retries once on a fresh
+    worker, and a second strike skips it with a ``memory`` reason."""
+    from ada.visit.scene_converter import SceneConverter
+    from ada.visit.scene_handling import scene_from_step_stream as sfss
+    from ada.visit.scene_handling.scene_from_step_stream import StepStreamSource
+
+    monkeypatch.setattr(sfss, "_POOL_MIN_SOLIDS", 2)
+    src = _mem_cap_fixture(tmp_path, n=2)
+
+    monkeypatch.setenv("ADA_STEP_STREAM_WORKERS", "2")
+    # The allocation ALONE exceeds the cap so the test is independent of the
+    # backend's import footprint (pythonocc workers idle at ~350 MB, adacpp far less).
+    monkeypatch.setenv("ADA_STEP_STREAM_TEST_ALLOC_MB", "900")  # bloats DURING the task...
+    monkeypatch.setenv("ADA_STEP_STREAM_TEST_HANG_S", "4")  # ...long enough for the 1 s poll
+    monkeypatch.setenv("ADA_STEP_STREAM_WORKER_SOFT_MEM_MB", "0")
+    monkeypatch.setenv("ADA_STEP_STREAM_WORKER_HARD_MEM_MB", "700")
+
+    scene = SceneConverter(source=StepStreamSource(src, tolerant=True)).build_scene()
+    stats = scene.metadata["ada_stream_stats"]
+    assert stats["meshed"] == 0, stats  # every attempt balloons -> all skipped after retry
+    assert any(r.startswith("memory") for r in stats["reasons"]), stats
+    assert stats["pool"]["mem_kills"] >= 2, stats  # first strike + retry strike (per solid)
+
+
+def test_stream_pool_mem_caps_disabled_at_zero(monkeypatch, tmp_path):
+    """Both caps set to 0 = exactly the legacy behavior: bloated workers are left
+    alone, nothing is recycled or killed."""
+    from ada.visit.scene_converter import SceneConverter
+    from ada.visit.scene_handling import scene_from_step_stream as sfss
+    from ada.visit.scene_handling.scene_from_step_stream import StepStreamSource
+
+    monkeypatch.setattr(sfss, "_POOL_MIN_SOLIDS", 2)
+    src = _mem_cap_fixture(tmp_path, n=2)
+
+    monkeypatch.setenv("ADA_STEP_STREAM_WORKERS", "2")
+    monkeypatch.setenv("ADA_STEP_STREAM_TEST_ALLOC_MB", "400")
+    monkeypatch.setenv("ADA_STEP_STREAM_WORKER_SOFT_MEM_MB", "0")
+    monkeypatch.setenv("ADA_STEP_STREAM_WORKER_HARD_MEM_MB", "0")
+
+    scene = SceneConverter(source=StepStreamSource(src, tolerant=True)).build_scene()
+    stats = scene.metadata["ada_stream_stats"]
+    assert stats["meshed"] == 2, stats
+    assert stats["pool"] == {"worker_recycles": 0, "mem_kills": 0}, stats
