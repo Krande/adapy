@@ -2,7 +2,7 @@ import React from 'react';
 
 const ReloadIcon = (props: React.SVGProps<SVGSVGElement>) => (
     <svg width="24px" height="24px" viewBox="0 0 15 15" fill="none"
-         xmlns="http://www.w3.org/2000/svg">
+         xmlns="http://www.w3.org/2000/svg" {...props}>
         <path
             fillRule="evenodd"
             clipRule="evenodd"

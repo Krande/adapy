@@ -937,8 +937,11 @@ const StorageBrowser: React.FC = () => {
             }
         >
             {maximized && createPortal(
+                // Light scrim — just enough to signal modality and give
+                // the panel edge contrast without blacking out the 3D
+                // scene behind it.
                 <div
-                    className="fixed inset-0 z-[60] bg-black/70"
+                    className="fixed inset-0 z-[60] bg-black/25"
                     onClick={() => setMaximized(false)}
                     aria-hidden="true"
                 />,
@@ -982,7 +985,12 @@ const StorageBrowser: React.FC = () => {
                         aria-haspopup="menu"
                         aria-expanded={plusOpen}
                     >
-                        {uploading ? <Spinner/> : <PlusIcon/>}
+                        {/* Fixed 24px icon slot — keeps this button the
+                            same size as Refresh/Maximize whether it
+                            shows the plus or the busy spinner. */}
+                        <span className="inline-flex h-6 w-6 items-center justify-center">
+                            {uploading ? <Spinner/> : <PlusIcon width="24px" height="24px"/>}
+                        </span>
                     </button>
                     {plusOpen && (
                         <PositionedMenu
@@ -1021,7 +1029,7 @@ const StorageBrowser: React.FC = () => {
                         aria-label="Refresh list"
                         aria-busy={refreshing}
                     >
-                        <span className={refreshing ? "animate-spin" : ""}>
+                        <span className={"inline-flex h-6 w-6 items-center justify-center " + (refreshing ? "animate-spin" : "")}>
                             <ReloadIcon/>
                         </span>
                     </button>
@@ -1062,7 +1070,9 @@ const StorageBrowser: React.FC = () => {
                         title={maximized ? "Restore compact panel" : "Maximize"}
                         aria-label={maximized ? "Restore compact panel" : "Maximize"}
                     >
-                        <ExpandIcon expanded={maximized}/>
+                        <span className="inline-flex h-6 w-6 items-center justify-center">
+                            <ExpandIcon expanded={maximized} width="24px" height="24px"/>
+                        </span>
                     </button>
                 </div>
             </div>
