@@ -39,58 +39,13 @@ import FolderPickerModal from "@/components/common/FolderPickerModal";
 import {viewerApi} from "@/services/viewerApi";
 import {useStorageMutations} from "./useStorageMutations";
 import {buildFileMenuItems, buildFolderMenuItems} from "./storageMenuItems";
+import {canLoadIntoSceneLegacy, isFEAResult, isStreamingFEAResult} from "@/utils/scene/fileKinds";
+import {unload_any_source} from "@/utils/scene/handlers/unload_any_source";
 
 // Custom drag MIME for in-panel file moves. OS-file drops arrive as
 // ``dataTransfer.files`` instead; checking for this type tells the two
 // apart (types are readable during dragover, the payload only on drop).
 const KEYS_MIME = "application/x-adapy-keys";
-
-// Files that carry per-(step, field) result data and benefit from the
-// picker UI. .sif (Sesam text) and .sin (Sesam Norsam binary) both
-// carry the same record schema and converter; new formats land
-// here when their converter learns to honor (step, field).
-function isFEAResult(name: string): boolean {
-    const lower = name.toLowerCase();
-    return lower.endsWith(".sif") || lower.endsWith(".sin");
-}
-
-// Files that flow through the streaming-viewer artefact bake (mesh
-// GLB + per-field blobs + manifest). Static set: .sif, .sin, and
-// .rmed are adapy-native streaming sources. Capability workers (e.g.
-// abaqus .odb / .sqlite) advertise additional extensions through
-// /api/config → window.STREAMING_ONLY_EXTS; honoring that here is
-// what keeps a plug-in's stream-readable formats from accidentally
-// hitting the legacy /convert pipeline (415) on click.
-function isStreamingFEAResult(name: string): boolean {
-    const lower = name.toLowerCase();
-    if (lower.endsWith(".sif") || lower.endsWith(".sin") || lower.endsWith(".rmed")) return true;
-    // Design-model FEM meshes now load through the same streaming bake (mesh + beam-solids,
-    // clickable + tree), so FE-mesh viewing is one path. They stay legacy-convertible on the
-    // /convert page (like .sif).
-    if (lower.endsWith(".inp") || lower.endsWith(".fem") || lower.endsWith(".med")) return true;
-    for (const e of runtime.streamingOnlyExts()) {
-        const norm = e.startsWith(".") ? e.toLowerCase() : `.${e.toLowerCase()}`;
-        if (lower.endsWith(norm)) return true;
-    }
-    return false;
-}
-
-// Files the legacy "load into scene" checkbox can handle — those
-// that have a usable GLB target via the legacy convert pipeline.
-// Mirror of ada.comms.rest.converter.supported_targets_for: anything
-// in _STREAMING_FEA_EXTS (or a worker-advertised streaming-only
-// extension) has no legacy GLB target, only the streaming bake. The
-// toggle path routes those through ``load_fea_with_defaults``
-// instead of disabling the checkbox.
-function canLoadIntoSceneLegacy(name: string): boolean {
-    const lower = name.toLowerCase();
-    if (lower.endsWith(".rmed")) return false;
-    for (const e of runtime.streamingOnlyExts()) {
-        const norm = e.startsWith(".") ? e.toLowerCase() : `.${e.toLowerCase()}`;
-        if (lower.endsWith(norm)) return false;
-    }
-    return true;
-}
 
 // Small inline CSS spinner. Uses border tricks rather than an SVG so
 // it scales with text size and stays crisp at 16px tall icons.
@@ -554,10 +509,7 @@ const StorageBrowser: React.FC = () => {
         try {
             // Unload first — the scene's source registry is keyed by
             // name, and a renamed source would leave a stale entry.
-            if (loadedSourceNames.has(f.name)) {
-                if (isStreamingFEAResult(f.name)) await clear_loaded_model();
-                else unload_source_from_scene(f.name);
-            }
+            if (loadedSourceNames.has(f.name)) await unload_any_source(f.name);
             await mutations.renameKey(f.name, newKey);
             void request_list_of_files_from_server();
         } catch (e) {
@@ -567,8 +519,7 @@ const StorageBrowser: React.FC = () => {
 
     const unloadIfLoaded = async (name: string) => {
         if (!loadedSourceNames.has(name)) return;
-        if (isStreamingFEAResult(name)) await clear_loaded_model();
-        else unload_source_from_scene(name);
+        await unload_any_source(name);
     };
 
     const onDeleteFile = async (f: ServerFileEntry) => {
@@ -1335,6 +1286,8 @@ const StorageBrowser: React.FC = () => {
                                     const total = countFiles(node);
                                     const isPending = total === 0;
                                     const items = folderMenuItems(node.path, total, isPending);
+                                    const loadedCount = Array.from(loadedSourceNames)
+                                        .filter((n) => n.startsWith(node.path + "/")).length;
                                     return (
                                         <React.Fragment key={`folder:${node.path}`}>
                                             <FolderRow
@@ -1343,6 +1296,7 @@ const StorageBrowser: React.FC = () => {
                                                 expanded={expanded}
                                                 fileCount={total}
                                                 isPending={isPending}
+                                                loadedCount={loadedCount}
                                                 onToggle={() => toggleFolder(node.path)}
                                                 menuItems={items}
                                                 onOpenContextMenu={(e) => openCtxMenu(e, items)}
@@ -1456,6 +1410,10 @@ interface FolderRowProps {
     fileCount: number;
     /** Client-side pending folder (no server keys under it yet). */
     isPending?: boolean;
+    /** Loaded-in-scene models anywhere under this folder — propagates
+     * the row-level eye marker up the tree so collapsed folders still
+     * show where the loaded models live. */
+    loadedCount?: number;
     onToggle: () => void;
     /** Shared with the right-click context menu — built once by the
      * parent so kebab and context menu never diverge. Empty array
@@ -1476,6 +1434,7 @@ const FolderRow: React.FC<FolderRowProps> = ({
     expanded,
     fileCount,
     isPending,
+    loadedCount,
     onToggle,
     menuItems,
     onOpenContextMenu,
@@ -1546,6 +1505,17 @@ const FolderRow: React.FC<FolderRowProps> = ({
             ) : (
                 <span className="text-xs flex-1 min-w-0 truncate font-semibold">
                     {folder.name}/
+                </span>
+            )}
+            {(loadedCount ?? 0) > 0 && (
+                <span
+                    className="shrink-0 inline-flex items-center gap-0.5 text-blue-400"
+                    title={`${loadedCount} loaded model${loadedCount === 1 ? "" : "s"} inside`}
+                >
+                    <ViewIcon width="14px" height="14px"/>
+                    {(loadedCount ?? 0) > 1 && (
+                        <span className="text-[10px] tabular-nums">{loadedCount}</span>
+                    )}
                 </span>
             )}
             <span className="text-[10px] text-gray-400 shrink-0">

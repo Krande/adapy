@@ -2,6 +2,7 @@ import {PANEL_CHROME} from "@/state/themeStore";
 import React from "react";
 
 import CollapsibleSection from "@/components/common/CollapsibleSection";
+import LoadedModelsSection from "./LoadedModelsSection";
 import StatsSection from "./StatsSection";
 import GroupsSection from "./GroupsSection";
 import UtilitiesSection from "./UtilitiesSection";
@@ -33,6 +34,12 @@ const SceneInfoBox = () => {
                     <option value="fem">FEM</option>
                 </select>
             </div>
+            {/* Flat list of every loaded model, whatever storage folder
+                depth it came from — visible in every mode so toggling /
+                unloading never requires digging through prefix trees. */}
+            <CollapsibleSection title="Loaded models" defaultOpen>
+                <LoadedModelsSection/>
+            </CollapsibleSection>
             {mode === "info" ? (
                 <>
                     <CollapsibleSection title="Stats" defaultOpen>
