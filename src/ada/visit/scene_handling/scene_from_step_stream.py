@@ -69,6 +69,11 @@ def _maybe_trim() -> None:
             pass
 
 
+# Test-hook sink for ADA_STEP_STREAM_TEST_ALLOC_MB allocations (kept referenced
+# so worker RSS genuinely grows; never populated outside tests).
+_TEST_ALLOCS: list = []
+
+
 def _rebuild_stats():
     """This solid's face-repair counters from the OCC backend (param-extent rebuilds,
     re-added/dropped holes, area-gate drops), or None on backends without the module
@@ -101,6 +106,12 @@ def _tessellate_geom_worker(geom):
         import os
 
         _hang = os.environ.get("ADA_STEP_STREAM_TEST_HANG_S")  # test hook: simulate an OCC hang
+        _alloc = os.environ.get("ADA_STEP_STREAM_TEST_ALLOC_MB")  # test hook: simulate native bloat
+        if _alloc:
+            # Retained on purpose (module-level) so the worker's RSS stays high
+            # AFTER the solid completes — exercises the soft-cap recycle — and
+            # DURING the (optionally extended) task for the hard-cap watchdog.
+            _TEST_ALLOCS.append(bytearray(int(float(_alloc)) * 1024 * 1024))
         if _hang:
             import time
 
@@ -160,6 +171,58 @@ def _pool_worker_loop(worker_id, task_q, result_q) -> None:
         n += 1
         if n % _TRIM_EVERY == 0:  # return the per-solid OCC heap to the OS periodically
             _maybe_trim()
+
+
+def _rss_mb(pid: int | None = None) -> float:
+    """Current RSS of ``pid`` (or this process) in MB via /proc; 0.0 where /proc
+    is unavailable (non-Linux) — which renders the memory caps inert there."""
+    try:
+        with open(f"/proc/{pid or 'self'}/status") as f:
+            for line in f:
+                if line.startswith("VmRSS:"):
+                    return int(line.split()[1]) / 1024.0
+    except (OSError, ValueError, IndexError):
+        pass
+    return 0.0
+
+
+def _env_mb(name: str, default: float) -> float:
+    """A memory threshold in MB from the environment. 0 (or any non-positive /
+    unparsable value) DISABLES the mechanism — the pool then behaves exactly as
+    it did before memory caps existed."""
+    import os
+
+    raw = os.environ.get(name)
+    if raw is None or raw.strip() == "":
+        return default
+    try:
+        v = float(raw)
+    except ValueError:
+        return 0.0
+    return v if v > 0 else 0.0
+
+
+def _worker_mem_caps() -> tuple[float, float]:
+    """(soft_mb, hard_mb) for the tessellation workers.
+
+    Soft cap (``ADA_STEP_STREAM_WORKER_SOFT_MEM_MB``, default 800): a worker that
+    still exceeds this BETWEEN solids (after gc + malloc_trim) exits cleanly and
+    is respawned fresh on the next dispatch — nothing is lost, the pending solids
+    live with the parent and simply go to the next available worker. This bounds
+    the native-heap fragmentation that trim alone can't fully return.
+
+    Hard cap (``ADA_STEP_STREAM_WORKER_HARD_MEM_MB``, default 1600): a worker that
+    crosses this MID-solid is killed and the in-flight solid is requeued ONCE on a
+    fresh worker (fragmentation-driven overruns succeed on retry); if the retry
+    crosses the cap again the solid itself needs that memory and is skipped with a
+    ``memory`` reason. Keeps one runaway solid from blowing a memory-tight pod's
+    whole per-job budget.
+
+    Setting either env to 0 disables that mechanism entirely."""
+    return (
+        _env_mb("ADA_STEP_STREAM_WORKER_SOFT_MEM_MB", 800.0),
+        _env_mb("ADA_STEP_STREAM_WORKER_HARD_MEM_MB", 1600.0),
+    )
 
 
 def _per_solid_timeout_s() -> float:
@@ -270,6 +333,7 @@ def _tessellate_stream(source: StepStreamSource, graph, bt, sink) -> dict:
 
     reasons: collections.Counter = collections.Counter()
     rebuild_totals: collections.Counter = collections.Counter()
+    pool_events = {"worker_recycles": 0, "mem_kills": 0}
     skipped_ids: list[str] = []
     n_total = 0
     n_roots = {"total": 0}
@@ -394,12 +458,21 @@ def _tessellate_stream(source: StepStreamSource, graph, bt, sink) -> dict:
 
         ctx = _mp.get_context("spawn")
         timeout_s = _per_solid_timeout_s()
+        soft_mb, hard_mb = _worker_mem_caps()
 
         def _spawn(wid, result_q):
             task_q = ctx.Queue(maxsize=1)
             proc = ctx.Process(target=_pool_worker_loop, args=(wid, task_q, result_q), daemon=True)
             proc.start()
-            return {"proc": proc, "task_q": task_q, "busy": False, "gid": None, "since": None}
+            return {
+                "proc": proc,
+                "task_q": task_q,
+                "busy": False,
+                "gid": None,
+                "since": None,
+                "geom": None,
+                "mem_retried": False,
+            }
 
         try:
             result_q = ctx.Queue()
@@ -422,22 +495,35 @@ def _tessellate_stream(source: StepStreamSource, graph, bt, sink) -> dict:
             )
             exhausted = False
             busy = 0
+            # Solids requeued by the hard memory cap: (geom, is_retry). Consumed
+            # before the main stream so a fresh worker retries them promptly.
+            requeue: list = []
             try:
                 while True:
-                    for slot in slots:  # feed every idle worker
-                        if slot["busy"] or exhausted:
+                    for i, slot in enumerate(slots):  # feed every idle worker
+                        if slot["busy"] or (exhausted and not requeue):
                             continue
-                        try:
-                            geom = next(geom_iter)
-                        except StopIteration:
-                            exhausted = True
-                            break
+                        if requeue:
+                            geom, is_retry = requeue.pop()
+                        else:
+                            try:
+                                geom = next(geom_iter)
+                            except StopIteration:
+                                exhausted = True
+                                break
+                            is_retry = False
+                        # Replace a worker that died while idle (crash between
+                        # dispatches) before handing it work.
+                        if not slot["proc"].is_alive():
+                            slots[i] = slot = _spawn(i, result_q)
                         slot["busy"] = True
                         slot["gid"] = str(geom.id) if geom.id not in (None, "") else None
                         slot["since"] = _time.monotonic()
+                        slot["geom"] = geom
+                        slot["mem_retried"] = is_retry
                         busy += 1
                         slot["task_q"].put(geom)
-                    if exhausted and busy == 0:
+                    if exhausted and busy == 0 and not requeue:
                         break
                     # Collect one result; the 1 s poll bounds how often we re-check timeouts.
                     try:
@@ -447,8 +533,20 @@ def _tessellate_stream(source: StepStreamSource, graph, bt, sink) -> dict:
                             slot["busy"] = False
                             slot["gid"] = None
                             slot["since"] = None
+                            slot["geom"] = None
+                            slot["mem_retried"] = False
                             busy -= 1
                             _handle(result)
+                            # Soft memory cap: the worker just went idle (its result is
+                            # delivered, nothing in flight), so recycling it here is
+                            # race-free and loses nothing. Bounds the native-heap
+                            # fragmentation that per-solid trims can't fully return;
+                            # pending solids simply go to the fresh worker.
+                            if soft_mb and _rss_mb(slot["proc"].pid) > soft_mb:
+                                slot["proc"].kill()
+                                slot["proc"].join(timeout=2)
+                                slots[wid] = _spawn(wid, result_q)
+                                pool_events["worker_recycles"] += 1
                     except _queue.Empty:
                         pass
                     now = _time.monotonic()
@@ -461,22 +559,68 @@ def _tessellate_stream(source: StepStreamSource, graph, bt, sink) -> dict:
                         # and a model with many such solids burns hours of wall clock.
                         if not slot["proc"].is_alive():
                             gid = slot["gid"]
+                            geom_inflight = slot["geom"]
+                            was_retry = slot["mem_retried"]
                             slot["proc"].join(timeout=2)
                             busy -= 1
                             slots[i] = _spawn(i, result_q)
-                            _handle(
-                                (
-                                    "error:WorkerCrashed (native crash in OCC)",
-                                    gid,
-                                    None,
-                                    None,
-                                    None,
-                                    None,
-                                    None,
-                                    None,
-                                    None,
+                            # One retry on a fresh worker: covers both the soft-cap
+                            # recycle race (worker exited between delivering its result
+                            # and the parent's next dispatch — the solid is perfectly
+                            # healthy) and one-off native crashes. A second death on the
+                            # same solid is the solid's own doing -> skip it.
+                            if geom_inflight is not None and not was_retry:
+                                requeue.append((geom_inflight, True))
+                            else:
+                                _handle(
+                                    (
+                                        "error:WorkerCrashed (native crash in OCC)",
+                                        gid,
+                                        None,
+                                        None,
+                                        None,
+                                        None,
+                                        None,
+                                        None,
+                                        None,
+                                    )
                                 )
-                            )
+                            continue
+                        # Hard memory cap: a worker ballooning MID-solid is killed
+                        # before it can blow a memory-tight pod's per-job budget. The
+                        # in-flight solid is retried ONCE on a fresh worker (heap-
+                        # fragmentation overruns succeed there); a second strike means
+                        # the solid itself needs that memory -> skip it, like a timeout.
+                        if hard_mb and _rss_mb(slot["proc"].pid) > hard_mb:
+                            gid = slot["gid"]
+                            geom_inflight = slot["geom"]
+                            was_retry = slot["mem_retried"]
+                            slot["proc"].kill()
+                            slot["proc"].join(timeout=2)
+                            busy -= 1
+                            slots[i] = _spawn(i, result_q)
+                            pool_events["mem_kills"] += 1
+                            if was_retry or geom_inflight is None:
+                                _handle(
+                                    (
+                                        f"memory (>{hard_mb:.0f}MB; worker killed twice)",
+                                        gid,
+                                        None,
+                                        None,
+                                        None,
+                                        None,
+                                        None,
+                                        None,
+                                        None,
+                                    )
+                                )
+                            else:
+                                logger.info(
+                                    "scene_from_step_stream: worker exceeded %.0fMB on %s — requeueing once",
+                                    hard_mb,
+                                    gid,
+                                )
+                                requeue.append((geom_inflight, True))
                             continue
                         if slot["since"] and (now - slot["since"]) > timeout_s:
                             gid = slot["gid"]
@@ -536,6 +680,7 @@ def _tessellate_stream(source: StepStreamSource, graph, bt, sink) -> dict:
         "materials": len(bt.material_store),
         "reasons": dict(reasons),
         "rebuilds": dict(rebuild_totals),
+        "pool": dict(pool_events),
     }
 
 
