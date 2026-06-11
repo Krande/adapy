@@ -50,6 +50,12 @@ from .queue import JobQueue
 from .scope import Scope
 from .scope import can_access as scope_can_access
 from .storage import Storage
+from .storage_ops import (
+    delete_blob_cascade,
+    derived_source_of,
+    move_keys_to_folder,
+    rename_key_cascade,
+)
 
 # Text-heavy CAD/FEM formats compress 5–10× with gzip; binary mesh
 # formats already pack their geometry tightly so we skip them. The
@@ -70,6 +76,45 @@ _GZIP_UPLOAD_EXTS: frozenset[str] = frozenset(
 # for typical IFC/Genie XML/STEP work and low enough that buffering it
 # in Python doesn't blow the worker's RAM budget.
 _DIRECT_UPLOAD_THRESHOLD_BYTES: int = 200 * 1024 * 1024
+
+
+async def _parse_move_body(request: Request) -> tuple[list[str], str]:
+    """Validate the ``{"keys": [...], "folder": "..."}`` move payload."""
+    body = await request.json()
+    raw_keys = body.get("keys")
+    folder_raw = body.get("folder")
+
+    if not isinstance(raw_keys, list) or not raw_keys:
+        raise HTTPException(status_code=400, detail="keys must be a non-empty list")
+    if any(not isinstance(k, str) or not k.strip() for k in raw_keys):
+        raise HTTPException(status_code=400, detail="every key must be a non-empty string")
+    if not isinstance(folder_raw, str) or not folder_raw.strip():
+        raise HTTPException(status_code=400, detail="folder required")
+    folder = folder_raw.strip().strip("/")
+    if not folder:
+        raise HTTPException(status_code=400, detail="folder required")
+    return raw_keys, folder
+
+
+async def _parse_rename_body(request: Request) -> tuple[str, str]:
+    """Validate the ``{"old_key": str, "new_key": str}`` rename payload."""
+    body = await request.json()
+    old_raw = body.get("old_key")
+    new_raw = body.get("new_key")
+
+    if not isinstance(old_raw, str) or not old_raw.strip():
+        raise HTTPException(status_code=400, detail="old_key required")
+    if not isinstance(new_raw, str) or not new_raw.strip():
+        raise HTTPException(status_code=400, detail="new_key required")
+    old_key = old_raw.strip().lstrip("/")
+    new_key = new_raw.strip().lstrip("/")
+    if not old_key or not new_key:
+        raise HTTPException(status_code=400, detail="old_key and new_key required")
+    if new_key.endswith("/"):
+        raise HTTPException(status_code=400, detail="new_key must not end with /")
+    if new_key == old_key:
+        raise HTTPException(status_code=400, detail="new_key matches old_key")
+    return old_key, new_key
 
 
 def _content_encoding_for(key: str) -> str | None:
@@ -643,7 +688,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # Convert-page mode — group every derived blob under its
         # source so the page can list pre-existing conversions next
         # to fresh upload rows. Same grouping the admin storage list
-        # builds; same helpers reused (``_derived_source_of`` parses
+        # builds; same helpers reused (``derived_source_of`` parses
         # the full derived-key zoo including the streaming-FEA tree
         # and SIF step/field picks). Orphans (derived without a
         # source in this scope) are dropped here — the admin tab is
@@ -652,7 +697,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         derived_index: dict[str, list[dict]] = {}
         for f in files:
             if is_derived_key(f.key):
-                parsed = _derived_source_of(f.key)
+                parsed = derived_source_of(f.key)
                 if parsed is None:
                     continue
                 src_key, target = parsed
@@ -771,6 +816,105 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=500, detail=str(exc)) from exc
         await _audit(request, user, scope_obj, "upload", key=clean, status="ok")
         return JSONResponse({"key": clean, "size": len(data)}, status_code=201)
+
+    # ── User-level file management (personal scope only) ────────────
+    # Regular users manage their own files; shared/project scopes stay
+    # admin-managed (project scopes mix the CI versions/ tree with
+    # regular files and get their own treatment later). CI version
+    # blobs and the bake cache are protected even inside the personal
+    # scope — deleting a source still cascades its derived blobs via
+    # the shared storage_ops helpers.
+
+    def _require_personal(scope_obj: Scope) -> None:
+        if scope_obj.kind != "user":
+            raise HTTPException(
+                status_code=403,
+                detail="file management is personal-scope only",
+            )
+
+    def _reject_protected_key(key: str) -> None:
+        from .converter import is_derived_key, is_versions_artefact_key
+
+        if is_derived_key(key) or is_versions_artefact_key(key):
+            raise HTTPException(
+                status_code=400,
+                detail="versions/ and _derived/ keys are admin-managed",
+            )
+
+    @api.delete("/scopes/{scope}/blobs/{key:path}")
+    async def api_scope_blob_delete(
+        key: str,
+        request: Request,
+        scope_obj: Scope = Depends(_scope_from_path),
+        user: User = Depends(auth_module.current_user),
+    ) -> JSONResponse:
+        _require_personal(scope_obj)
+        clean = key.lstrip("/")
+        if not clean:
+            raise HTTPException(status_code=400, detail="empty key")
+        _reject_protected_key(clean)
+        result = await delete_blob_cascade(storage, scope_obj, clean)
+        await _audit(
+            request,
+            user,
+            scope_obj,
+            "delete",
+            key=clean,
+            status="ok",
+            error="; ".join(result["errors"]) or None,
+        )
+        return JSONResponse(result)
+
+    @api.post("/scopes/{scope}/keys/move-to-folder")
+    async def api_scope_keys_move_to_folder(
+        request: Request,
+        scope_obj: Scope = Depends(_scope_from_path),
+        user: User = Depends(auth_module.current_user),
+    ) -> JSONResponse:
+        _require_personal(scope_obj)
+        keys, folder = await _parse_move_body(request)
+        _reject_protected_key(folder + "/")
+        for k in keys:
+            _reject_protected_key(k.strip().lstrip("/"))
+        result = await move_keys_to_folder(storage, scope_obj, keys, folder)
+        for entry in result["moved"]:
+            await _audit(
+                request,
+                user,
+                scope_obj,
+                "move",
+                key=entry["old"],
+                status="ok",
+                error="; ".join(entry["siblings_failed"]) or None,
+            )
+        return JSONResponse(result)
+
+    @api.post("/scopes/{scope}/keys/rename")
+    async def api_scope_keys_rename(
+        request: Request,
+        scope_obj: Scope = Depends(_scope_from_path),
+        user: User = Depends(auth_module.current_user),
+    ) -> JSONResponse:
+        _require_personal(scope_obj)
+        old_key, new_key = await _parse_rename_body(request)
+        _reject_protected_key(old_key)
+        _reject_protected_key(new_key)
+        result = await _rename_with_status(scope_obj, old_key, new_key)
+        await _audit(request, user, scope_obj, "rename", key=old_key, status="ok")
+        return JSONResponse(result)
+
+    async def _rename_with_status(scope_obj: Scope, old_key: str, new_key: str) -> dict:
+        """Run a single cascade rename, mapping helper failures to HTTP errors."""
+        live_keys = {f.key for f in await storage.list(scope_obj)}
+        result = await rename_key_cascade(storage, scope_obj, old_key, new_key, live_keys)
+        if "reason" in result:
+            reason = result["reason"]
+            if reason == "source not found":
+                raise HTTPException(status_code=404, detail=reason)
+            if reason.startswith("target already exists"):
+                raise HTTPException(status_code=409, detail=reason)
+            raise HTTPException(status_code=400, detail=reason)
+        return result
 
     @api.put("/scopes/{scope}/derived")
     async def api_scope_derived_put(
@@ -4075,69 +4219,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         ext = pathlib.PurePosixPath(key).suffix.lower()
         return _SOURCE_FORMAT_NAMES.get(ext, ext.lstrip(".").upper() or "—")
 
-    def _derived_source_of(derived_key: str) -> tuple[str, str] | None:
-        """Recover (source_key, target_label) from a derived key.
-
-        Handles the full derived-key zoo so the admin storage list
-        attributes every derived artefact to its real source instead
-        of dropping it (silently) or surfacing a fake source as an
-        orphan:
-
-        * ``<src>.fea/<file>`` — streaming-viewer artefact tree
-          (mesh GLB, manifest, mesh-edges sidecar, per-field blobs).
-        * ``<src>.meta.json`` — legacy result-meta cache.
-        * ``<src>.<job_id>.prof`` — per-job cProfile dump.
-        * ``<src>.s<N>.<field>.<fmt>`` — legacy SIF step/field pick.
-        * ``<src>.<fmt>`` — plain legacy convert output.
-        """
-
-        import re as _re
-
-        from .converter import TARGET_FORMATS, is_derived_key
-
-        if not is_derived_key(derived_key):
-            return None
-        stripped = derived_key[len("_derived/") :]
-
-        # Streaming-FEA artefact tree: `<src>.fea/<filename>`. The
-        # ".fea/" infix is anchored to the source's extension; finding
-        # it splits the key cleanly into source + artefact filename.
-        fea_idx = stripped.find(".fea/")
-        if fea_idx >= 0:
-            src_key = stripped[:fea_idx]
-            filename = stripped[fea_idx + len(".fea/") :]
-            return src_key, f"fea/{filename}"
-
-        # Legacy result-meta cache.
-        if stripped.endswith(".meta.json"):
-            return stripped[: -len(".meta.json")], "meta.json"
-
-        # Per-job profile blob: `<src>.<job_id>.prof`. job_id is
-        # uuid-hex (no dots) so the last dot before .prof bounds it.
-        if stripped.endswith(".prof"):
-            without_prof = stripped[: -len(".prof")]
-            last_dot = without_prof.rfind(".")
-            if last_dot > 0:
-                return without_prof[:last_dot], "prof"
-
-        # Legacy SIF step/field pick OR bare `<src>.<fmt>`. Try the
-        # step/field shape first when the candidate source ends in
-        # `.sif`; fall back to the bare match otherwise (avoids
-        # mis-attributing a non-SIF source whose name happens to
-        # contain `.s<digits>.`).
-        for tgt in TARGET_FORMATS:
-            suffix = "." + tgt
-            if stripped.endswith(suffix):
-                without_tgt = stripped[: -len(suffix)]
-                m = _re.search(r"\.s\d+\.", without_tgt)
-                if m:
-                    candidate_src = without_tgt[: m.start()]
-                    if candidate_src.lower().endswith(".sif"):
-                        return candidate_src, tgt
-                return without_tgt, tgt
-
-        return None
-
     @admin.get("/scopes/{scope}/files")
     async def admin_storage_list(
         request: Request,
@@ -4151,7 +4232,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         for f in files:
             if is_derived_key(f.key):
-                parsed = _derived_source_of(f.key)
+                parsed = derived_source_of(f.key)
                 if parsed is None:
                     continue  # malformed derived key — ignore quietly
                 src_key, target = parsed
@@ -4204,116 +4285,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         scope_obj: Scope = Depends(_scope_from_path),
         user: User = Depends(auth_module.current_user),
     ) -> JSONResponse:
-        from .converter import is_derived_key
-
-        clean = key.lstrip("/")
-        if not clean:
-            raise HTTPException(status_code=400, detail="empty key")
-
-        # If the admin pointed at a derived blob, only that blob goes;
-        # don't fan out and delete the source under their feet.
-        if is_derived_key(clean):
-            # Streaming-FEA artefacts (mesh GLB + manifest +
-            # mesh-edges sidecar + per-field blobs) form an
-            # interlocking tree: the manifest references every other
-            # file by name, so deleting just one blob leaves the
-            # picker rendering against a stale manifest pointing at
-            # missing data. Reap the whole `<src>.fea/` tree as a
-            # unit instead.
-            parsed = _derived_source_of(clean)
-            if parsed is not None and parsed[1].startswith("fea/"):
-                prefix = f"_derived/{parsed[0]}.fea/"
-                scope_keys = [f.key for f in await storage.list(scope_obj)]
-                tree_keys = [k for k in scope_keys if k.startswith(prefix)]
-                deleted_tree: list[str] = []
-                tree_errors: list[str] = []
-                for k in tree_keys:
-                    try:
-                        await storage.delete(scope_obj, k)
-                        deleted_tree.append(k)
-                    except FileNotFoundError:
-                        continue
-                    except Exception as exc:
-                        msg = str(exc).lower()
-                        if "not found" in msg or "no such" in msg:
-                            continue
-                        logger.warning(
-                            "admin: failed to delete %s in fea-tree reap: %s",
-                            k,
-                            exc,
-                        )
-                        tree_errors.append(f"{k}: {exc}")
-                await _audit(
-                    request,
-                    user,
-                    scope_obj,
-                    "delete",
-                    key=clean,
-                    status="ok",
-                    error="; ".join(tree_errors) or None,
-                )
-                return JSONResponse({"deleted": deleted_tree, "errors": tree_errors})
-
-            # Plain single-blob derived (legacy GLB, meta cache,
-            # profile, etc.) — drop just the one file.
-            try:
-                await storage.delete(scope_obj, clean)
-            except Exception as exc:
-                logger.exception("admin: delete failed for %s", clean)
-                raise HTTPException(status_code=500, detail=str(exc)) from exc
-            await _audit(request, user, scope_obj, "delete", key=clean, status="ok")
-            return JSONResponse({"deleted": [clean]})
-
-        # Source delete: also reap every derived blob keyed off this
-        # source. List the scope and filter via _derived_source_of so
-        # the full derived zoo (FEA artefact tree, result-meta cache,
-        # SIF step/field picks, profile blobs, plain converts) lands
-        # in the candidate set — the previous hardcoded enumeration
-        # only covered ``<src>.<fmt>`` and silently left the new
-        # streaming-bake artefacts behind.
-        candidates = [clean]
-        scope_keys = [f.key for f in await storage.list(scope_obj)]
-        for k in scope_keys:
-            if not is_derived_key(k):
-                continue
-            parsed = _derived_source_of(k)
-            if parsed is None:
-                continue
-            derived_src, _label = parsed
-            if derived_src == clean:
-                candidates.append(k)
-
-        deleted: list[str] = []
-        errors: list[str] = []
-        for k in candidates:
-            try:
-                await storage.delete(scope_obj, k)
-                deleted.append(k)
-            except FileNotFoundError:
-                # Derived blob just wasn't there — that's fine.
-                continue
-            except Exception as exc:
-                # Some backends raise a generic error for "not found";
-                # treat it as benign for derived siblings, but if the
-                # source itself can't be deleted, surface the failure.
-                msg = str(exc).lower()
-                if "not found" in msg or "no such" in msg:
-                    continue
-                if k == clean:
-                    logger.exception("admin: delete failed for source %s", clean)
-                    raise HTTPException(status_code=500, detail=str(exc)) from exc
-                errors.append(f"{k}: {exc}")
-
+        result = await delete_blob_cascade(storage, scope_obj, key)
         await _audit(
             request,
             user,
             scope_obj,
             "delete",
-            key=clean,
+            key=key.lstrip("/"),
             status="ok",
-            error="; ".join(errors) or None,
+            error="; ".join(result["errors"]) or None,
         )
-        return JSONResponse({"deleted": deleted, "errors": errors})
+        return JSONResponse(result)
 
     @admin.post("/scopes/{scope}/keys/move-to-folder")
     async def admin_keys_move_to_folder(
@@ -4325,168 +4307,36 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         Body: ``{"keys": [...], "folder": "..."}``. Each source key
         is renamed to ``<folder>/<basename(src_key)>`` within the
-        same scope. Derived siblings under ``_derived/<src_key>.*``
-        are renamed to follow so the bake cache survives the move
-        (re-baking a big SIF / RMED is expensive — losing the cache
-        on every reorganise would hurt).
-
-        Per-key outcome reporting: failures (target exists, rename
-        backend error, etc.) don't abort the batch — the caller
-        gets ``{moved, failed}`` and can re-attempt the failures.
+        same scope, with derived siblings cascading (see
+        storage_ops.move_keys_to_folder). Per-key failures don't
+        abort the batch — the caller gets ``{moved, failed}``.
         """
 
-        from .converter import is_derived_key
-
-        body = await request.json()
-        raw_keys = body.get("keys")
-        folder_raw = body.get("folder")
-
-        if not isinstance(raw_keys, list) or not raw_keys:
-            raise HTTPException(status_code=400, detail="keys must be a non-empty list")
-        if not isinstance(folder_raw, str) or not folder_raw.strip():
-            raise HTTPException(status_code=400, detail="folder required")
-        folder = folder_raw.strip().strip("/")
-        if not folder:
-            raise HTTPException(status_code=400, detail="folder required")
-        if any(not isinstance(k, str) or not k.strip() for k in raw_keys):
-            raise HTTPException(status_code=400, detail="every key must be a non-empty string")
-
-        # Dedup while preserving order.
-        seen: set[str] = set()
-        keys: list[str] = []
-        for raw in raw_keys:
-            cleaned = raw.strip().lstrip("/")
-            if cleaned and cleaned not in seen:
-                seen.add(cleaned)
-                keys.append(cleaned)
-
-        # Snapshot the scope's keyset so we can detect target collisions
-        # and find derived siblings without re-listing per file. We mutate
-        # the local set as renames happen so multiple moves into the same
-        # folder agree on what already exists.
-        live_keys = {f.key for f in await storage.list(scope_obj)}
-
-        # Source keys (non-derived) — used as the candidate set when
-        # disambiguating which source a derived blob belongs to. Refreshed
-        # implicitly via live_keys mutations during the loop.
-        def _source_keys() -> list[str]:
-            return [k for k in live_keys if not is_derived_key(k)]
-
-        def _owning_source(derived_key: str, candidates: list[str]) -> str | None:
-            """Return the longest source key whose derived prefix matches.
-
-            Derived blobs follow `_derived/<src>.<suffix>` (legacy GLB,
-            FEA artefacts, result-meta, etc.). When two source keys share
-            a string prefix (e.g. ``wall.rmed`` and ``wall.rmed.bak``),
-            naively matching the shorter prefix would steal the longer
-            source's derived blobs on rename. Pick the longest source-key
-            prefix followed by ``.`` or ``/`` and trust *that*.
-            """
-            if not derived_key.startswith("_derived/"):
-                return None
-            inner = derived_key[len("_derived/") :]
-            best: str | None = None
-            for src in candidates:
-                if inner.startswith(src + ".") or inner.startswith(src + "/"):
-                    if best is None or len(src) > len(best):
-                        best = src
-            return best
-
-        moved: list[dict] = []
-        failed: list[dict] = []
-        for old_src in keys:
-            if is_derived_key(old_src):
-                failed.append({"key": old_src, "reason": "cannot move derived blobs directly"})
-                continue
-            basename = old_src.rsplit("/", 1)[-1]
-            new_src = f"{folder}/{basename}"
-            if new_src == old_src:
-                failed.append({"key": old_src, "reason": "destination matches source"})
-                continue
-            if new_src in live_keys:
-                failed.append({"key": old_src, "reason": f"target already exists: {new_src}"})
-                continue
-            if old_src not in live_keys:
-                failed.append({"key": old_src, "reason": "source not found"})
-                continue
-
-            # We've already pre-checked `new_src in live_keys`, so the
-            # collision guard is at the application layer. Pass
-            # overwrite=True because S3-compatible backends raise
-            # ``copy-if-not-exists not supported`` for the safer
-            # default. The narrow remaining race (two admins moving
-            # to the same folder concurrently) would clobber, but
-            # this is an admin-only operation and the audit log
-            # records every move.
-            try:
-                await storage.rename(scope_obj, old_src, new_src, overwrite=True)
-            except Exception as exc:
-                logger.exception("admin: move failed for %s -> %s", old_src, new_src)
-                failed.append({"key": old_src, "reason": str(exc)})
-                continue
-
-            live_keys.discard(old_src)
-            live_keys.add(new_src)
-
-            # Derived siblings: keys under `_derived/<old_src>.*` get
-            # the prefix swapped to `_derived/<new_src>.*` so the
-            # convert / bake cache stays warm. Candidate set must
-            # include old_src — it was just removed from live_keys by
-            # the source rename above, but the derived blobs we're
-            # looking up still reference its name.
-            old_prefix = f"_derived/{old_src}"
-            new_prefix = f"_derived/{new_src}"
-            candidates = _source_keys() + [old_src]
-            sibling_pairs: list[tuple[str, str]] = []
-            for k in list(live_keys):
-                if not k.startswith(old_prefix):
-                    continue
-                # Pin each derived blob to its longest matching source
-                # key — without this, `wall.rmed.bak.glb` would be
-                # stolen as a sibling of `wall.rmed`.
-                if _owning_source(k, candidates) != old_src:
-                    continue
-                rest = k[len(old_prefix) :]
-                sibling_pairs.append((k, new_prefix + rest))
-
-            sibling_errors: list[str] = []
-            for sk_old, sk_new in sibling_pairs:
-                # overwrite=True for the same S3 reason as the source
-                # rename above. Sibling collisions are rare in practice
-                # because the destination derived prefix is always new
-                # (we just renamed the source to a new key).
-                try:
-                    await storage.rename(scope_obj, sk_old, sk_new, overwrite=True)
-                    live_keys.discard(sk_old)
-                    live_keys.add(sk_new)
-                except Exception as exc:
-                    logger.warning(
-                        "admin: sibling rename %s -> %s failed: %s",
-                        sk_old,
-                        sk_new,
-                        exc,
-                    )
-                    sibling_errors.append(f"{sk_old}: {exc}")
-
-            moved.append(
-                {
-                    "old": old_src,
-                    "new": new_src,
-                    "siblings_moved": len(sibling_pairs) - len(sibling_errors),
-                    "siblings_failed": sibling_errors,
-                }
-            )
+        keys, folder = await _parse_move_body(request)
+        result = await move_keys_to_folder(storage, scope_obj, keys, folder)
+        for entry in result["moved"]:
             await _audit(
                 request,
                 user,
                 scope_obj,
                 "move",
-                key=old_src,
+                key=entry["old"],
                 status="ok",
-                error="; ".join(sibling_errors) or None,
+                error="; ".join(entry["siblings_failed"]) or None,
             )
+        return JSONResponse(result)
 
-        return JSONResponse({"moved": moved, "failed": failed})
+    @admin.post("/scopes/{scope}/keys/rename")
+    async def admin_keys_rename(
+        request: Request,
+        scope_obj: Scope = Depends(_scope_from_path),
+        user: User = Depends(auth_module.current_user),
+    ) -> JSONResponse:
+        """Rename a single source key (derived siblings cascade)."""
+        old_key, new_key = await _parse_rename_body(request)
+        result = await _rename_with_status(scope_obj, old_key, new_key)
+        await _audit(request, user, scope_obj, "rename", key=old_key, status="ok")
+        return JSONResponse(result)
 
     @admin.post("/scopes/{scope}/keys/copy-from")
     async def admin_keys_copy_from(

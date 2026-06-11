@@ -1,3 +1,4 @@
+import {PANEL_CHROME} from "@/state/themeStore";
 import React, {useState} from 'react';
 import {useViewerStores} from '@/state/AdaViewerContext';
 import {copySelectionNames, writeToClipboard} from '@/utils/clipboard/copySelectionNames';
@@ -86,7 +87,7 @@ const ObjectInfoBox = () => {
     };
 
     return (
-        <div className="bg-gray-400 bg-opacity-50 rounded-sm p-2 min-w-80">
+        <div className={`${PANEL_CHROME} min-w-80`}>
             <h2 className="font-bold">Selected Object Info</h2>
             {/* Name. Two layouts because mobile and desktop have very
                 different real-estate constraints:

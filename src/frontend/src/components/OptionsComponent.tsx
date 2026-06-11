@@ -1,3 +1,4 @@
+import {PANEL_CHROME} from "@/state/themeStore";
 import React, {Suspense, useEffect, useState} from "react";
 import {runtime} from "@/runtime/config";
 import {useOptionsStore} from "@/state/optionsStore";
@@ -6,6 +7,7 @@ import DisplayOptions from "./options/DisplayOptions";
 import ExperimentalOptions from "./options/ExperimentalOptions";
 import PerformanceOptions from "./options/PerformanceOptions";
 import ShortcutsModal from "./options/ShortcutsModal";
+import ThemeOptions from "./options/ThemeOptions";
 
 // REST-only controls (scope picker, signed-in row, admin button) live
 // here so they're reachable on phones and don't crowd the top bar.
@@ -102,6 +104,10 @@ function OptionsComponent() {
                 </div>
             </CollapsibleSection>
             <hr className="border-gray-600"/>
+            <CollapsibleSection title="Theme">
+                <ThemeOptions/>
+            </CollapsibleSection>
+            <hr className="border-gray-600"/>
             <CollapsibleSection title="Performance">
                 <PerformanceOptions/>
             </CollapsibleSection>
@@ -162,7 +168,7 @@ function OptionsComponent() {
     // page; scroll inside instead.
     return (
         <div
-            className="bg-gray-400 bg-opacity-50 rounded-sm p-2 min-w-80 max-w-sm text-white text-sm space-y-3 max-h-[70vh] overflow-y-auto"
+            className={`${PANEL_CHROME} min-w-80 max-w-sm text-sm space-y-3 max-h-[70vh] overflow-y-auto`}
         >
             <h2 className="font-bold">Options</h2>
             {versionInfo}

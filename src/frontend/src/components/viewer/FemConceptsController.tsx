@@ -4,7 +4,7 @@ import * as THREE from "three";
 import {sceneRef, cameraRef, rendererRef, adaExtensionRef} from "@/state/refs";
 import {requestRender} from "@/state/perfStore";
 import {useFemConceptsStore} from "@/state/femConceptsStore";
-import {useModelState} from "@/state/modelState";
+import {useModelState, loadedSourceGroups} from "@/state/modelState";
 import type {MassGlyph, BcGlyph, LoadScenario} from "@/extensions/design_and_analysis_extension";
 
 // Headless: reconciles the FEM-concepts store with three.js, drawing a glyph
@@ -37,14 +37,19 @@ const FemConceptsController: React.FC = () => {
     return null;
 };
 
-// Merge the fem_concepts blocks across every design + simulation object in the
-// loaded model's ADA_EXT extension into flat masses/bcs/scenarios arrays.
+// Merge the fem_concepts blocks across every design + simulation object of
+// every LOADED model into flat masses/bcs/scenarios arrays. Each loaded
+// scene group keeps its own ADA extension (userData.__adaExt); the single
+// adaExtensionRef is only consulted while something is loaded (the
+// streaming/replace path) — it still holds the LAST model's data after an
+// unload, which used to leave dead masses/BCs/loads in the overlay.
 function parseExtension(): {masses: MassGlyph[]; bcs: BcGlyph[]; scenarios: LoadScenario[]} {
-    const ext = adaExtensionRef.current as any;
     const masses: MassGlyph[] = [];
     const bcs: BcGlyph[] = [];
     const scenarios: LoadScenario[] = [];
-    if (ext) {
+
+    const ingest = (ext: any) => {
+        if (!ext) return;
         const objs = [...(ext.design_objects ?? []), ...(ext.simulation_objects ?? [])];
         for (const o of objs) {
             const fc = o?.fem_concepts;
@@ -53,6 +58,22 @@ function parseExtension(): {masses: MassGlyph[]; bcs: BcGlyph[]; scenarios: Load
             if (fc.bcs) bcs.push(...fc.bcs);
             if (fc.scenarios) scenarios.push(...fc.scenarios);
         }
+    };
+
+    const loadedNames = useModelState.getState().loadedSourceNames;
+    let foundPerSource = false;
+    for (const name of loadedNames) {
+        const group = loadedSourceGroups.get(name);
+        if (!group) continue;
+        const ext = (group.children?.[0] as any)?.userData?.__adaExt
+            ?? (group as any)?.userData?.__adaExt;
+        if (ext) {
+            ingest(ext);
+            foundPerSource = true;
+        }
+    }
+    if (!foundPerSource && loadedNames.size > 0) {
+        ingest(adaExtensionRef.current as any);
     }
     return {masses, bcs, scenarios};
 }

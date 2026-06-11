@@ -22,6 +22,45 @@ export type ConvertStatus = "queued" | "running" | "done" | "error" | "cancelled
  *  sub so URLs are user-agnostic. */
 export type ScopeUrl = string;
 
+/** One successfully renamed/moved source key with its derived-sibling tally. */
+export interface MovedKeyEntry {
+    old: string;
+    new: string;
+    siblings_moved: number;
+    siblings_failed: string[];
+}
+
+export interface MoveKeysResult {
+    moved: MovedKeyEntry[];
+    failed: Array<{key: string; reason: string}>;
+}
+
+/** Group keys under ``oldFolder`` by their parent path relative to it,
+ * mapping each group to its ``<newFolder>/<relative_parent>`` move
+ * destination. Shared by the user and admin folder rename/move flows —
+ * the move endpoint flattens inputs into one target folder, so a single
+ * batch call would lose the folder's internal structure. */
+function groupKeysByRelativeParent(
+    oldFolder: string,
+    newFolder: string,
+    allKeys: string[],
+): Map<string, string[]> {
+    const oldTrimmed = oldFolder.replace(/^\/+|\/+$/g, "");
+    const newTrimmed = newFolder.replace(/^\/+|\/+$/g, "");
+    const prefix = oldTrimmed + "/";
+    const groups = new Map<string, string[]>();
+    for (const k of allKeys) {
+        if (!k.startsWith(prefix)) continue;
+        const rest = k.slice(prefix.length);
+        const lastSlash = rest.lastIndexOf("/");
+        const relParent = lastSlash >= 0 ? rest.slice(0, lastSlash) : "";
+        const dest = relParent ? `${newTrimmed}/${relParent}` : newTrimmed;
+        if (!groups.has(dest)) groups.set(dest, []);
+        groups.get(dest)!.push(k);
+    }
+    return groups;
+}
+
 export interface MeResponse {
     sub: string;
     email: string;
@@ -861,6 +900,76 @@ export const viewerApi = {
         } finally {
             URL.revokeObjectURL(url);
         }
+    },
+
+    /** Delete an own file (derived blobs cascade server-side).
+     * Personal scope only — shared/project scopes return 403; admins
+     * use adminDeleteBlob there. */
+    async deleteBlob(
+        scope: ScopeUrl,
+        key: string,
+    ): Promise<{deleted: string[]; errors?: string[]}> {
+        const r = await authedFetch(this.blobUrl(scope, key), {method: "DELETE"});
+        return jsonOrThrow(r, "deleteBlob");
+    },
+
+    /** Batch-move own source keys into a destination folder. Personal
+     * scope only; mirrors adminMoveKeysToFolder. */
+    async moveKeysToFolder(
+        scope: ScopeUrl,
+        keys: string[],
+        folder: string,
+    ): Promise<MoveKeysResult> {
+        const r = await authedFetch(
+            `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/keys/move-to-folder`,
+            {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({keys, folder}),
+            },
+        );
+        return jsonOrThrow(r, "moveKeysToFolder");
+    },
+
+    /** Rename a single own source key (derived blobs follow). Personal
+     * scope only. 409 → target exists, 404 → source missing. */
+    async renameKey(
+        scope: ScopeUrl,
+        oldKey: string,
+        newKey: string,
+    ): Promise<MovedKeyEntry> {
+        const r = await authedFetch(
+            `${runtime.apiBase()}/scopes/${encodeURIComponent(scope)}/keys/rename`,
+            {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({old_key: oldKey, new_key: newKey}),
+            },
+        );
+        return jsonOrThrow(r, "renameKey");
+    },
+
+    /** Rename or relocate a folder prefix in the personal scope —
+     * user-level twin of adminRenameOrMoveFolder (same grouped-move
+     * strategy, see that method's docstring). */
+    async renameOrMoveFolder(
+        scope: ScopeUrl,
+        oldFolder: string,
+        newFolder: string,
+        allKeys: string[],
+    ): Promise<MoveKeysResult> {
+        const groups = groupKeysByRelativeParent(oldFolder, newFolder, allKeys);
+        const movedAll: MovedKeyEntry[] = [];
+        const failedAll: Array<{key: string; reason: string}> = [];
+        // Sequential not parallel: each call mutates the scope's keyset
+        // on the server; concurrent calls would race on collision
+        // detection.
+        for (const [dest, keys] of groups) {
+            const r = await this.moveKeysToFolder(scope, keys, dest);
+            movedAll.push(...r.moved);
+            failedAll.push(...r.failed);
+        }
+        return {moved: movedAll, failed: failedAll};
     },
 
     /** Fetch raw bytes for a key. Used by the in-browser Pyodide
@@ -1893,15 +2002,7 @@ export const viewerApi = {
         scope: ScopeUrl,
         keys: string[],
         folder: string,
-    ): Promise<{
-        moved: Array<{
-            old: string;
-            new: string;
-            siblings_moved: number;
-            siblings_failed: string[];
-        }>;
-        failed: Array<{key: string; reason: string}>;
-    }> {
+    ): Promise<MoveKeysResult> {
         const r = await authedFetch(
             `${runtime.apiBase()}/admin/scopes/${encodeURIComponent(scope)}/keys/move-to-folder`,
             {
@@ -1911,6 +2012,24 @@ export const viewerApi = {
             },
         );
         return jsonOrThrow(r, "adminMoveKeysToFolder");
+    },
+
+    /** Admin: rename a single source key in any scope (derived blobs
+     * follow). Twin of the user-level renameKey. */
+    async adminRenameKey(
+        scope: ScopeUrl,
+        oldKey: string,
+        newKey: string,
+    ): Promise<MovedKeyEntry> {
+        const r = await authedFetch(
+            `${runtime.apiBase()}/admin/scopes/${encodeURIComponent(scope)}/keys/rename`,
+            {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({old_key: oldKey, new_key: newKey}),
+            },
+        );
+        return jsonOrThrow(r, "adminRenameKey");
     },
 
     /** Server-side copy keys from another scope into ``dstScope`` (e.g. pulling
@@ -1953,30 +2072,9 @@ export const viewerApi = {
         oldFolder: string,
         newFolder: string,
         allKeys: string[],
-    ): Promise<{
-        moved: Array<{
-            old: string;
-            new: string;
-            siblings_moved: number;
-            siblings_failed: string[];
-        }>;
-        failed: Array<{key: string; reason: string}>;
-    }> {
-        const oldTrimmed = oldFolder.replace(/^\/+|\/+$/g, "");
-        const newTrimmed = newFolder.replace(/^\/+|\/+$/g, "");
-        const prefix = oldTrimmed + "/";
-        // dest folder → keys to send.
-        const groups = new Map<string, string[]>();
-        for (const k of allKeys) {
-            if (!k.startsWith(prefix)) continue;
-            const rest = k.slice(prefix.length);
-            const lastSlash = rest.lastIndexOf("/");
-            const relParent = lastSlash >= 0 ? rest.slice(0, lastSlash) : "";
-            const dest = relParent ? `${newTrimmed}/${relParent}` : newTrimmed;
-            if (!groups.has(dest)) groups.set(dest, []);
-            groups.get(dest)!.push(k);
-        }
-        const movedAll: Array<{old: string; new: string; siblings_moved: number; siblings_failed: string[]}> = [];
+    ): Promise<MoveKeysResult> {
+        const groups = groupKeysByRelativeParent(oldFolder, newFolder, allKeys);
+        const movedAll: MovedKeyEntry[] = [];
         const failedAll: Array<{key: string; reason: string}> = [];
         // Sequential not parallel: each call mutates the scope's keyset
         // on the server; concurrent calls would race on collision

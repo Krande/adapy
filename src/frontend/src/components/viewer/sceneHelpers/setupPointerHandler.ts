@@ -170,24 +170,46 @@ export function setupPointerHandler(
     };
 }
 
-/** Raycast at screen coords and return the nearest world-space hit on
- *  any mesh (points hits also count). Returns null on a clean miss. */
+/** World-space surface point under the cursor, for the double-tap
+ *  "set rotation pivot" gesture. Returns null on a clean miss.
+ *
+ *  GPU mesh pick first: depth-buffer accurate and the same picker the
+ *  selection path trusts. The CPU raycast fallback must NOT use the
+ *  Raycaster defaults — ``Points.threshold`` / ``Line.threshold``
+ *  default to 1 *world unit*, so on FEM models (node points + edge
+ *  lines everywhere) the "nearest" hit was often a vertex passing
+ *  within a unit of the ray right next to the camera. The pivot then
+ *  landed essentially at the camera position and rotation degenerated
+ *  into spinning in place — easiest to trigger on mobile, where you
+ *  pinch in close before double-tapping. */
 function pickWorldPoint(
     e: MouseEvent,
     camera: THREE.PerspectiveCamera,
     scene: THREE.Scene,
     renderer: THREE.WebGLRenderer,
 ): THREE.Vector3 | null {
+    try {
+        const meshPick = gpuMeshPicker.pickAt(e.clientX, e.clientY);
+        if (meshPick) return meshPick.worldPosition.clone();
+    } catch {
+        // GPU pick unavailable — CPU raycast below still works.
+    }
     const rect = renderer.domElement.getBoundingClientRect();
     const nx = ((e.clientX - rect.left) / rect.width) * 2 - 1;
     const ny = -((e.clientY - rect.top) / rect.height) * 2 + 1;
     const pointer = new THREE.Vector2(nx, ny);
     const ray = new THREE.Raycaster();
+    ray.params.Points = {...ray.params.Points, threshold: 0.02};
+    ray.params.Line = {...ray.params.Line, threshold: 0.02};
     ray.layers.set(0);
     ray.layers.disable(1);
     ray.setFromCamera(pointer, camera);
+    // Never pivot onto something hugging the near plane — a hit that
+    // close is a threshold artifact, not a tapped surface.
+    const minDist = camera.near * 2;
     const hits = ray.intersectObjects(scene.children, true);
-    return hits.length > 0 ? hits[0].point.clone() : null;
+    const hit = hits.find((h) => h.distance > minDist);
+    return hit ? hit.point.clone() : null;
 }
 
 /** Set the camera's rotation pivot without moving the camera. */

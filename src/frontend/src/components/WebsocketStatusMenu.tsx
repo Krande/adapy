@@ -1,3 +1,4 @@
+import {PANEL_CHROME} from "@/state/themeStore";
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {useWebsocketStatusStore} from '../state/websocketStatusStore';
 import {comms} from '../utils/comms';
@@ -100,9 +101,9 @@ export function WebsocketStatusBox() {
     }, [saveEdit, cancelEdit]);
 
     return (
-        <div className="bg-gray-400 bg-opacity-50 rounded-sm p-2 min-w-80">
+        <div className={`${PANEL_CHROME} min-w-80`}>
             <h2 className="font-bold">WebSocket Status</h2>
-            <div className="text-xs text-gray-800 space-y-2 mb-2">
+            <div className="text-xs text-gray-300 space-y-2 mb-2">
                 <div className="border-b border-gray-300 pb-2">
                     <div className="font-medium mb-1">Frontend Instance</div>
                     <div className="flex items-center justify-between gap-2">
@@ -137,7 +138,7 @@ export function WebsocketStatusBox() {
                                     Save
                                 </button>
                                 <button
-                                    className="cursor-pointer text-gray-700 hover:text-gray-900 text-xs px-2 py-1 border border-gray-300 rounded-sm"
+                                    className="cursor-pointer text-gray-300 hover:text-gray-100 text-xs px-2 py-1 border border-gray-600 rounded-sm"
                                     onClick={cancelEdit}
                                     title="Cancel"
                                 >
@@ -160,7 +161,7 @@ export function WebsocketStatusBox() {
                         <div className="flex justify-between items-center mt-1">
                             <span className="font-medium">Connected Clients:</span>
                             <button
-                                className="cursor-pointer text-blue-700 hover:text-blue-900 font-medium"
+                                className="cursor-pointer text-blue-400 hover:text-blue-300 font-medium"
                                 onClick={() => setShowClientsList(!showClientsList)}
                                 title="Click to show/hide client list"
                             >
@@ -173,14 +174,14 @@ export function WebsocketStatusBox() {
                     )}
                     {showClientsList && connectedClients.length > 0 && (
                         <div className="mt-2 pl-2 border-l-2 border-blue-300">
-                            <div className="text-xs text-gray-700 mb-1">Client Instances:</div>
+                            <div className="text-xs text-gray-400 mb-1">Client Instances:</div>
                             {connectedClients.map((client) => (
                                 <div
                                     key={client.instanceId}
                                     className={`text-xs font-mono px-2 py-1 rounded mb-1 ${
                                         client.instanceId === comms.getInstanceId()
                                             ? 'bg-blue-200 text-blue-900 font-semibold'
-                                            : 'bg-gray-200 text-gray-800'
+                                            : 'bg-gray-700 text-gray-300'
                                     }`}
                                     title={String(client.instanceId)}
                                 >

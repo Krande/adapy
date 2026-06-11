@@ -173,7 +173,7 @@ const ComponentControls: React.FC = () => {
             <div className="flex items-center gap-2">
                 <span className="text-gray-300 shrink-0">Spec</span>
                 <select
-                    className="text-black bg-white rounded-sm px-1 py-0.5 min-w-0 flex-1 truncate"
+                    className="text-gray-100 bg-gray-700 border border-gray-600 rounded-sm px-1 py-0.5 min-w-0 flex-1 truncate"
                     value={selectedSpecName ?? ""}
                     onChange={(e) => handleSpecChange(e.target.value)}
                     disabled={specs === null}
@@ -250,7 +250,7 @@ const RoleRow: React.FC<{
                 <span className="text-gray-400 w-12 shrink-0">section</span>
                 <input
                     type="text"
-                    className="text-black bg-white rounded-sm px-1 py-0.5 flex-1 min-w-0"
+                    className="text-gray-100 bg-gray-700 border border-gray-600 rounded-sm px-1 py-0.5 flex-1 min-w-0"
                     value={(value.section as string) ?? ""}
                     placeholder={allowed}
                     onChange={(e) => onField("section", e.target.value)}
@@ -270,7 +270,7 @@ const RoleRow: React.FC<{
                     />
                     <input
                         type="number"
-                        className="text-black bg-white rounded-sm px-1 py-0.5 w-16"
+                        className="text-gray-100 bg-gray-700 border border-gray-600 rounded-sm px-1 py-0.5 w-16"
                         min={angleRange.min_deg}
                         max={angleRange.max_deg}
                         value={typeof value.angle_deg === "number" ? value.angle_deg : ""}

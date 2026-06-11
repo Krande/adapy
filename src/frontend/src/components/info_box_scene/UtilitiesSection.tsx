@@ -86,7 +86,7 @@ function RefField({
     value: string | number | boolean | null;
     onChange: (v: string) => void;
 }) {
-    const common = "text-sm rounded-sm px-1 py-0.5 bg-white text-black w-full";
+    const common = "text-sm rounded-sm px-1 py-0.5 bg-gray-700 text-gray-100 border border-gray-600 w-full";
     const ownerOf = (key: string) => builds.find((b) => b.artefacts.some((a) => a.key === key));
     const [commit, setCommit] = React.useState<string>(
         () => ownerOf(String(value ?? ""))?.commit ?? builds[0]?.commit ?? "",
@@ -134,7 +134,7 @@ function KwargField({
     builds: VersionBuild[];
     loadedArtefact: string | null;
 }) {
-    const common = "text-sm rounded-sm px-1 py-0.5 bg-white text-black w-full";
+    const common = "text-sm rounded-sm px-1 py-0.5 bg-gray-700 text-gray-100 border border-gray-600 w-full";
     let input: React.ReactNode;
     if (kwarg.type === "ref") {
         input = <RefField builds={builds} loadedArtefact={loadedArtefact} value={value} onChange={onChange}/>;
@@ -322,7 +322,7 @@ const UtilitiesSection = () => {
             <label className="block mb-2">
                 <span className="text-xs font-medium">Utility</span>
                 <select
-                    className="text-sm rounded-sm px-1 py-0.5 bg-white text-black w-full"
+                    className="text-sm rounded-sm px-1 py-0.5 bg-gray-700 text-gray-100 border border-gray-600 w-full"
                     value={selectedUtility ?? ""}
                     onChange={(e) => onSelectUtility(e.target.value)}
                 >

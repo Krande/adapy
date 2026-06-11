@@ -4,6 +4,8 @@ import {useCompressionStore} from "@/state/compressionStore";
 import {useMeStore} from "@/state/meStore";
 import {useScopeStore, scopeUrlPart} from "@/state/scopeStore";
 import {viewerApi} from "@/services/viewerApi";
+import {useLoadQueueStore} from "@/state/loadQueueStore";
+import LoadQueueToast from "./LoadQueueToast";
 
 // Shared dismiss button. Hit area is 28×28 (Apple HIG min is 44 but
 // the toast is dense; 28 still beats the 24 we shipped with and stays
@@ -537,16 +539,22 @@ const ConversionProgress = () => {
     const clearJob = useConversionStore((s) => s.clearJob);
     const sweeps = useCompressionStore((s) => s.sweeps);
     const clearSweep = useCompressionStore((s) => s.clearSweep);
+    const loadCurrentName = useLoadQueueStore((s) => s.current?.name ?? null);
+    const loadQueueActive = useLoadQueueStore(
+        (s) => s.current !== null || s.queued.length > 0 || s.errors.length > 0,
+    );
 
-    const allVisible = Object.values(jobs).filter(
-        (j) => j.status === "queued" || j.status === "running" || j.status === "error"
-    );
     // In-progress jobs collapse into one toast; errors stay split so
-    // each one's traceback + copy button is reachable.
-    const inProgress = allVisible.filter(
-        (j) => j.status === "queued" || j.status === "running",
-    );
-    const errored = allVisible.filter((j) => j.status === "error");
+    // each one's traceback + copy button is reachable. The job driving
+    // the current scene load is hidden here — LoadQueueToast already
+    // shows its progress, and two bars for one model reads as two jobs.
+    const inProgress = Object.entries(jobs)
+        .filter(([k, j]) =>
+            (j.status === "queued" || j.status === "running") &&
+            !(loadCurrentName && k.startsWith(loadCurrentName + "::")))
+        .map(([, j]) => j);
+    const errored = Object.values(jobs).filter((j) => j.status === "error");
+    const allVisible = [...inProgress, ...errored];
     const visibleSweeps = Object.entries(sweeps);
 
     // We always render the outer slot so the admin-only
@@ -555,7 +563,7 @@ const ConversionProgress = () => {
     // so an empty container is invisible. The toast + sweeps only
     // render when there's actually something to show.
     const isAdmin = useMeStore.getState().isAdmin;
-    if (allVisible.length === 0 && visibleSweeps.length === 0 && !isAdmin) {
+    if (allVisible.length === 0 && visibleSweeps.length === 0 && !loadQueueActive && !isAdmin) {
         return null;
     }
 
@@ -572,6 +580,7 @@ const ConversionProgress = () => {
         // ``max-w-sm`` (24rem).
         <div className="absolute bottom-4 left-4 right-4 sm:left-auto sm:max-w-sm z-50 flex flex-col gap-2 pointer-events-auto">
             <AuditActivityBadge/>
+            <LoadQueueToast/>
             {visibleSweeps.map(([scopeLabel, state]) => (
                 <CompressionToast
                     key={`compress:${scopeLabel}`}

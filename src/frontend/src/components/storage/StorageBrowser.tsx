@@ -1,4 +1,6 @@
+import {PANEL_CHROME} from "@/state/themeStore";
 import React, {useEffect, useRef, useState} from "react";
+import {createPortal} from "react-dom";
 import {useServerInfoStore, ServerFileEntry} from "@/state/serverInfoStore";
 import {useConversionStore} from "@/state/conversionStore";
 import {useModelState} from "@/state/modelState";
@@ -11,7 +13,10 @@ import {unload_source_from_scene} from "@/utils/scene/handlers/unload_source_fro
 import {clear_loaded_model} from "@/utils/scene/handlers/clear_loaded_model";
 import {uploadAcceptAttr, uploadFile} from "@/utils/scene/handlers/upload_source_file";
 import ReloadIcon from "../icons/ReloadIcon";
-import UploadIcon from "../icons/UploadIcon";
+import PlusIcon from "../icons/PlusIcon";
+import ExpandIcon from "../icons/ExpandIcon";
+import FileTypeIcon from "../icons/FileTypeIcon";
+import ViewIcon from "../icons/ViewIcon";
 import FolderClosedIcon from "../icons/FolderClosedIcon";
 import FolderOpenIcon from "../icons/FolderOpenIcon";
 import ChevronRightIcon from "../icons/ChevronRightIcon";
@@ -24,59 +29,27 @@ import {
     FileTreeNode,
     FolderNode,
     loadExpandedFolders,
+    loadPendingFolders,
     saveExpandedFolders,
+    savePendingFolders,
 } from "@/utils/storage/fileTree";
 import {RowKebabMenu} from "@/components/common/RowKebabMenu";
+import PositionedMenu, {KebabMenuItem} from "@/components/common/PositionedMenu";
 import FolderPickerModal from "@/components/common/FolderPickerModal";
 import {viewerApi} from "@/services/viewerApi";
-import {useMeStore} from "@/state/meStore";
+import {useStorageMutations} from "./useStorageMutations";
+import {useLoadQueueStore} from "@/state/loadQueueStore";
+import {buildFileMenuItems, buildFolderMenuItems} from "./storageMenuItems";
+import {canLoadIntoSceneLegacy, isFEAResult, isStreamingFEAResult} from "@/utils/scene/fileKinds";
+import {unload_any_source} from "@/utils/scene/handlers/unload_any_source";
 
-// Files that carry per-(step, field) result data and benefit from the
-// picker UI. .sif (Sesam text) and .sin (Sesam Norsam binary) both
-// carry the same record schema and converter; new formats land
-// here when their converter learns to honor (step, field).
-function isFEAResult(name: string): boolean {
-    const lower = name.toLowerCase();
-    return lower.endsWith(".sif") || lower.endsWith(".sin");
-}
-
-// Files that flow through the streaming-viewer artefact bake (mesh
-// GLB + per-field blobs + manifest). Static set: .sif, .sin, and
-// .rmed are adapy-native streaming sources. Capability workers (e.g.
-// abaqus .odb / .sqlite) advertise additional extensions through
-// /api/config → window.STREAMING_ONLY_EXTS; honoring that here is
-// what keeps a plug-in's stream-readable formats from accidentally
-// hitting the legacy /convert pipeline (415) on click.
-function isStreamingFEAResult(name: string): boolean {
-    const lower = name.toLowerCase();
-    if (lower.endsWith(".sif") || lower.endsWith(".sin") || lower.endsWith(".rmed")) return true;
-    // Design-model FEM meshes now load through the same streaming bake (mesh + beam-solids,
-    // clickable + tree), so FE-mesh viewing is one path. They stay legacy-convertible on the
-    // /convert page (like .sif).
-    if (lower.endsWith(".inp") || lower.endsWith(".fem") || lower.endsWith(".med")) return true;
-    for (const e of runtime.streamingOnlyExts()) {
-        const norm = e.startsWith(".") ? e.toLowerCase() : `.${e.toLowerCase()}`;
-        if (lower.endsWith(norm)) return true;
-    }
-    return false;
-}
-
-// Files the legacy "load into scene" checkbox can handle — those
-// that have a usable GLB target via the legacy convert pipeline.
-// Mirror of ada.comms.rest.converter.supported_targets_for: anything
-// in _STREAMING_FEA_EXTS (or a worker-advertised streaming-only
-// extension) has no legacy GLB target, only the streaming bake. The
-// toggle path routes those through ``load_fea_with_defaults``
-// instead of disabling the checkbox.
-function canLoadIntoSceneLegacy(name: string): boolean {
-    const lower = name.toLowerCase();
-    if (lower.endsWith(".rmed")) return false;
-    for (const e of runtime.streamingOnlyExts()) {
-        const norm = e.startsWith(".") ? e.toLowerCase() : `.${e.toLowerCase()}`;
-        if (lower.endsWith(norm)) return false;
-    }
-    return true;
-}
+// Custom drag MIME for in-panel file moves. OS-file drops arrive as
+// ``dataTransfer.files`` instead; checking for this type tells the two
+// apart (types are readable during dragover, the payload only on drop).
+const KEYS_MIME = "application/x-adapy-keys";
+// Folder drags carry the folder path instead — the drop handler moves
+// the whole prefix (subfolders preserved via the grouped-move helper).
+const FOLDER_MIME = "application/x-adapy-folder";
 
 // Small inline CSS spinner. Uses border tricks rather than an SVG so
 // it scales with text size and stays crisp at 16px tall icons.
@@ -92,6 +65,15 @@ function formatBytes(n: number): string {
     if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
     if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
     return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`;
+}
+
+function dirnameOf(key: string): string {
+    const i = key.lastIndexOf("/");
+    return i >= 0 ? key.slice(0, i) : "";
+}
+
+function basenameOf(key: string): string {
+    return key.split("/").pop() ?? key;
 }
 
 // CI uploads land at ``versions/<branch>/<commit>/<filename>``; the
@@ -229,6 +211,54 @@ function formatRelative(iso: string): string {
     return new Date(t).toISOString().slice(0, 10);
 }
 
+// Inline name editor used for file/folder rename and new-folder
+// creation. Enter commits, Escape (or blur) cancels. ``selectStem``
+// pre-selects the basename-without-extension so a quick type replaces
+// the name but keeps the extension.
+const InlineNameInput: React.FC<{
+    initial: string;
+    placeholder?: string;
+    selectStem?: boolean;
+    onCommit: (value: string) => void;
+    onCancel: () => void;
+}> = ({initial, placeholder, selectStem, onCommit, onCancel}) => {
+    const inputRef = useRef<HTMLInputElement>(null);
+    useEffect(() => {
+        const el = inputRef.current;
+        if (!el) return;
+        el.focus();
+        if (selectStem) {
+            const dot = initial.lastIndexOf(".");
+            el.setSelectionRange(0, dot > 0 ? dot : initial.length);
+        } else {
+            el.select();
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+    return (
+        <input
+            ref={inputRef}
+            type="text"
+            defaultValue={initial}
+            placeholder={placeholder}
+            className={
+                "flex-1 min-w-0 bg-gray-800 border border-blue-500 rounded-sm " +
+                "px-1 py-0.5 text-xs text-gray-100 focus:outline-hidden"
+            }
+            onClick={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
+            onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                    onCommit((e.target as HTMLInputElement).value);
+                } else if (e.key === "Escape") {
+                    onCancel();
+                }
+            }}
+            onBlur={onCancel}
+        />
+    );
+};
+
 const StorageBrowser: React.FC = () => {
     const files = useServerInfoStore((s) => s.serverFileObjects);
     const {sidecars} = useBuildSidecars(files);
@@ -240,13 +270,13 @@ const StorageBrowser: React.FC = () => {
     // Active "Show all" run — disables the per-row toggles while we're
     // overlaying every file in sequence, so the user can't kick off a
     // second batch on top of the first.
-    const [bulkBusy, setBulkBusy] = useState<"load" | "unload" | "clear" | null>(null);
+    const [bulkBusy, setBulkBusy] = useState<"load" | "unload" | "clear" | "delete" | null>(null);
     const [gitHistoryOpen, setGitHistoryOpen] = useState(false);
-    // Multi-select mode: a Set of file names. Empty set = mode off.
-    // Entered by long-press on any FileRow (or via the "Select" button
-    // in the header on desktop where long-press is unergonomic). Tap
-    // toggles set membership while in mode; the existing per-row
-    // checkbox is hidden so the row itself is the tap target.
+    // Selection: a Set of file names driving the bulk-action toolbar
+    // under the header (load / unload / move / delete). The per-row
+    // checkbox toggles membership — loading into the scene is an
+    // explicit action (toolbar or row menu), never a checkbox side
+    // effect. Long-press still selects (mobile ergonomics).
     const [selection, setSelection] = useState<Set<string>>(() => new Set());
     const inSelectionMode = selection.size > 0;
     const toggleSelection = (name: string) => {
@@ -258,6 +288,8 @@ const StorageBrowser: React.FC = () => {
         });
     };
     const clearSelection = () => setSelection(new Set());
+    // Anchor for shift-click range selection (the last row toggled).
+    const lastSelectedRef = useRef<string | null>(null);
     // Upload progress: name = current file (or null), loaded/total in
     // bytes. Total may stay 0 if the browser can't determine it (rare
     // for File uploads); we treat that as indeterminate.
@@ -265,7 +297,14 @@ const StorageBrowser: React.FC = () => {
     const [uploadLoaded, setUploadLoaded] = useState(0);
     const [uploadTotal, setUploadTotal] = useState(0);
     const [expandedName, setExpandedName] = useState<string | null>(null);
-    const [viewingName, setViewingName] = useState<string | null>(null);
+    // Scene loads run through the sequential load queue; the row
+    // spinner tracks whichever model the queue is currently loading.
+    const loadCurrent = useLoadQueueStore((s) => s.current);
+    const loadQueued = useLoadQueueStore((s) => s.queued);
+    const enqueueLoad = useLoadQueueStore((s) => s.enqueue);
+    const removeQueuedLoad = useLoadQueueStore((s) => s.removeQueued);
+    const viewingName = loadCurrent?.name ?? null;
+    const queuedLoadNames = new Set(loadQueued.map((t) => t.name));
     // Sticky 600ms spin window for the Refresh button so a tap is
     // visually acknowledged even though the underlying list-files
     // request is fire-and-forget over websocket. Without this the
@@ -318,14 +357,86 @@ const StorageBrowser: React.FC = () => {
             return next;
         });
     };
-    // Admin-only organize actions — the underlying move endpoint is
-    // gated server-side. Non-admin users see no kebab on rows so the
-    // menu can't open into items that would 403 on click. Errors are
-    // surfaced via window.alert: this panel has no inline error
-    // banner today and the operations are explicit user actions, so a
-    // modal alert is acceptable rather than building a toast affordance
-    // for the rare failure case.
-    const isAdmin = useMeStore((s) => s.isAdmin);
+
+    // Client-side "pending" empty folders — storage is prefix-based so
+    // they have no server representation until a file lands in them.
+    // Persisted per-scope; pruned once a real key appears underneath.
+    const [pendingFolders, setPendingFolders] = useState<string[]>(
+        () => loadPendingFolders("storage", scopeKey),
+    );
+    useEffect(() => {
+        setPendingFolders(loadPendingFolders("storage", scopeKey));
+    }, [scopeKey]);
+    useEffect(() => {
+        savePendingFolders("storage", scopeKey, pendingFolders);
+    }, [scopeKey, pendingFolders]);
+    useEffect(() => {
+        setPendingFolders((prev) => {
+            const next = prev.filter(
+                (p) => !files.some((f) => f.name.replace(/^\/+/, "").startsWith(p + "/")),
+            );
+            return next.length === prev.length ? prev : next;
+        });
+    }, [files]);
+    const removePendingFoldersUnder = (path: string) => {
+        setPendingFolders((prev) =>
+            prev.filter((p) => p !== path && !p.startsWith(path + "/")),
+        );
+    };
+
+    // Where the "new folder" inline input is showing: "" = top level,
+    // a folder path = subfolder of it, null = hidden.
+    const [newFolderAt, setNewFolderAt] = useState<string | null>(null);
+    // Inline rename target (replaces the old window.prompt flow).
+    const [renaming, setRenaming] = useState<{kind: "file" | "folder"; path: string} | null>(null);
+    // Right-click context menu: items are computed at open time by the
+    // same builders that feed the kebab, so the two stay in lockstep.
+    const [ctxMenu, setCtxMenu] = useState<{x: number; y: number; items: KebabMenuItem[]} | null>(null);
+    const openCtxMenu = (
+        e: {clientX: number; clientY: number; preventDefault?: () => void; stopPropagation?: () => void},
+        items: KebabMenuItem[],
+    ) => {
+        if (items.length === 0) return;
+        e.preventDefault?.();
+        e.stopPropagation?.();
+        setCtxMenu({x: e.clientX, y: e.clientY, items});
+    };
+    // In-panel drag state: keys being dragged (for row dimming + the
+    // move-to-root strip). Cleared on dragend/drop.
+    const [draggingKeys, setDraggingKeys] = useState<string[] | null>(null);
+    const [draggingFolder, setDraggingFolder] = useState<string | null>(null);
+    // Keyboard-navigation focus, keyed `folder:<path>` / `file:<name>`.
+    // Pointer interactions move it too, so arrows continue from the
+    // last clicked row.
+    const [focusedKey, setFocusedKey] = useState<string | null>(null);
+    const listScrollRef = useRef<HTMLDivElement>(null);
+    useEffect(() => {
+        if (!focusedKey) return;
+        const el = listScrollRef.current?.querySelector(
+            `[data-rowkey="${CSS.escape(focusedKey)}"]`,
+        ) as HTMLElement | null;
+        el?.scrollIntoView({block: "nearest"});
+    }, [focusedKey]);
+    // Maximize: same component, restyled as a centered fixed overlay
+    // with a backdrop. Styling-only so every bit of panel state
+    // (selection, expansion, menus) survives the toggle.
+    const [maximized, setMaximized] = useState(false);
+    useEffect(() => {
+        if (!maximized) return;
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key === "Escape") setMaximized(false);
+        };
+        window.addEventListener("keydown", onKey);
+        return () => window.removeEventListener("keydown", onKey);
+    }, [maximized]);
+
+    // Mutating actions (delete / rename / move): personal scope for
+    // everyone via the user endpoints, admins elsewhere via the admin
+    // endpoints. The backend enforces the same split; canMutate just
+    // keeps dead-end affordances out of the UI.
+    const mutations = useStorageMutations();
+    const canMutate = mutations.canMutate;
+
     // The picker modal drives both move flows; ``onPick`` is the
     // closure that knows what to do once a destination is chosen.
     const [picker, setPicker] = useState<{
@@ -335,7 +446,11 @@ const StorageBrowser: React.FC = () => {
     // Download a stored blob with auth (REST mode). The suggested filename is the
     // key's basename so nested keys don't save as "a/b/c.ifc".
     const onDownloadFile = (key: string) => {
-        void viewerApi.downloadBlob(scopeKey, key, key.split("/").pop() ?? key);
+        void viewerApi.downloadBlob(scopeKey, key, basenameOf(key));
+    };
+
+    const alertError = (e: unknown) => {
+        window.alert(e instanceof Error ? e.message : String(e));
     };
 
     const onMoveSingleToFolder = (key: string) => {
@@ -343,76 +458,174 @@ const StorageBrowser: React.FC = () => {
             title: `Move "${key}" to folder`,
             onPick: async (folder) => {
                 try {
-                    const r = await viewerApi.adminMoveKeysToFolder(scopeKey, [key], folder);
+                    const r = await mutations.moveKeys([key], folder);
                     if (r.failed.length > 0) {
                         window.alert(r.failed.map((f) => `${f.key}: ${f.reason}`).join("\n"));
                     }
                     void request_list_of_files_from_server();
                 } catch (e) {
-                    window.alert(e instanceof Error ? e.message : String(e));
+                    alertError(e);
                 }
             },
         });
     };
-    const onFolderRenameOrMove = (
-        folderPath: string,
-        mode: "rename" | "moveInto",
-    ) => {
-        const runMove = async (newPath: string) => {
-            if (newPath === folderPath) return;
-            try {
-                const allKeys = files.map((f) => f.name);
-                const r = await viewerApi.adminRenameOrMoveFolder(
-                    scopeKey, folderPath, newPath, allKeys,
-                );
-                if (r.failed.length > 0) {
-                    window.alert(r.failed.map((f) => `${f.key}: ${f.reason}`).join("\n"));
-                }
-                setExpandedFolders((prev) => {
-                    const next = new Set(prev);
-                    next.delete(folderPath);
-                    next.add(newPath);
-                    return next;
-                });
-                void request_list_of_files_from_server();
-            } catch (e) {
-                window.alert(e instanceof Error ? e.message : String(e));
+
+    const runFolderMove = async (folderPath: string, newPath: string) => {
+        if (newPath === folderPath) return;
+        try {
+            const allKeys = files.map((f) => f.name);
+            const r = await mutations.renameOrMoveFolder(folderPath, newPath, allKeys);
+            if (r.failed.length > 0) {
+                window.alert(r.failed.map((f) => `${f.key}: ${f.reason}`).join("\n"));
             }
-        };
-        if (mode === "rename") {
-            const input = window.prompt(
-                `Rename folder "${folderPath}" to (sibling name, no slashes):`,
-                "",
-            );
-            if (input === null) return;
-            const trimmedInput = input.trim().replace(/^\/+|\/+$/g, "");
-            if (!trimmedInput) {
-                window.alert("Destination required");
-                return;
-            }
-            if (trimmedInput.includes("/")) {
-                window.alert("Rename must be a single name; use Move folder into… for nested moves");
-                return;
-            }
-            const lastSlash = folderPath.lastIndexOf("/");
-            const parent = lastSlash >= 0 ? folderPath.slice(0, lastSlash) : "";
-            void runMove(parent ? `${parent}/${trimmedInput}` : trimmedInput);
-            return;
+            setExpandedFolders((prev) => {
+                const next = new Set(prev);
+                next.delete(folderPath);
+                next.add(newPath);
+                return next;
+            });
+            removePendingFoldersUnder(folderPath);
+            void request_list_of_files_from_server();
+        } catch (e) {
+            alertError(e);
         }
-        const basename = folderPath.split("/").pop() ?? folderPath;
+    };
+
+    const onMoveFolderInto = (folderPath: string) => {
+        const basename = basenameOf(folderPath);
         setPicker({
             title: `Move folder "${folderPath}" into`,
             onPick: async (dest) => {
-                await runMove(`${dest}/${basename}`);
+                await runFolderMove(folderPath, `${dest}/${basename}`);
             },
         });
     };
+
+    const onRenameFolderCommit = (folderPath: string, rawName: string, isPending: boolean) => {
+        setRenaming(null);
+        const name = rawName.trim().replace(/^\/+|\/+$/g, "");
+        if (!name || name === basenameOf(folderPath)) return;
+        if (name.includes("/")) {
+            window.alert("Rename must be a single name; use Move folder into… for nested moves");
+            return;
+        }
+        const parent = dirnameOf(folderPath);
+        const newPath = parent ? `${parent}/${name}` : name;
+        if (isPending) {
+            // No server keys yet — rename is pure client state.
+            setPendingFolders((prev) => prev.map((p) => (p === folderPath ? newPath : p)));
+            setExpandedFolders((prev) => {
+                const next = new Set(prev);
+                next.delete(folderPath);
+                next.add(newPath);
+                return next;
+            });
+            return;
+        }
+        void runFolderMove(folderPath, newPath);
+    };
+
+    const onRenameFileCommit = async (f: ServerFileEntry, rawName: string) => {
+        setRenaming(null);
+        const name = rawName.trim();
+        if (!name || name === basenameOf(f.name)) return;
+        if (name.includes("/")) {
+            window.alert("Name must not contain '/' — use Move to folder… instead");
+            return;
+        }
+        const dir = dirnameOf(f.name);
+        const newKey = dir ? `${dir}/${name}` : name;
+        try {
+            // Unload first — the scene's source registry is keyed by
+            // name, and a renamed source would leave a stale entry.
+            if (loadedSourceNames.has(f.name)) await unload_any_source(f.name);
+            await mutations.renameKey(f.name, newKey);
+            void request_list_of_files_from_server();
+        } catch (e) {
+            alertError(e);
+        }
+    };
+
+    const unloadIfLoaded = async (name: string) => {
+        if (!loadedSourceNames.has(name)) return;
+        await unload_any_source(name);
+    };
+
+    const onDeleteFile = async (f: ServerFileEntry) => {
+        if (!window.confirm(`Delete "${f.name}"?\nConverted view caches are removed too.`)) return;
+        try {
+            await unloadIfLoaded(f.name);
+            await mutations.deleteKey(f.name);
+            void request_list_of_files_from_server();
+        } catch (e) {
+            alertError(e);
+        }
+    };
+
+    const onDeleteFolder = async (path: string, fileCount: number, isPending: boolean) => {
+        if (isPending && fileCount === 0) {
+            removePendingFoldersUnder(path);
+            return;
+        }
+        if (!window.confirm(
+            `Delete folder "${path}" and its ${fileCount} file${fileCount === 1 ? "" : "s"}?\n` +
+            "Converted view caches are removed too.",
+        )) return;
+        const prefix = path + "/";
+        const targets = files.filter((x) => x.name.replace(/^\/+/, "").startsWith(prefix));
+        try {
+            // Sequential: each delete cascades derived blobs server-side
+            // and parallel calls would race on the storage listing.
+            for (const t of targets) {
+                await unloadIfLoaded(t.name);
+                await mutations.deleteKey(t.name);
+            }
+            removePendingFoldersUnder(path);
+            setExpandedFolders((prev) => {
+                const next = new Set(prev);
+                next.delete(path);
+                return next;
+            });
+            void request_list_of_files_from_server();
+        } catch (e) {
+            alertError(e);
+        }
+    };
+
+    const onCreateFolder = (parent: string, rawName: string) => {
+        setNewFolderAt(null);
+        const name = rawName.trim().replace(/^\/+|\/+$/g, "");
+        if (!name) return;
+        if (name.includes("/")) {
+            window.alert("Folder name must not contain '/'");
+            return;
+        }
+        const path = parent ? `${parent}/${name}` : name;
+        if (!parent && (name === "versions" || name === "_derived")) {
+            window.alert(`"${name}" is a reserved name`);
+            return;
+        }
+        setPendingFolders((prev) => (prev.includes(path) ? prev : [...prev, path]));
+        setExpandedFolders((prev) => {
+            const next = new Set(prev);
+            if (parent) next.add(parent);
+            next.add(path);
+            return next;
+        });
+    };
+
     // Owned input — clicking it must happen synchronously inside the
     // button's onClick to preserve the user-activation gesture (iOS Safari
     // refuses the file picker otherwise). The previous implementation
     // dispatched a CustomEvent that UploadContextMenu listened for, which
     // broke the gesture chain on mobile.
     const fileInputRef = useRef<HTMLInputElement>(null);
+    // Folder destination for the next picker-initiated upload
+    // ("Upload here…" on a folder). Consumed once by onFilePicked.
+    const uploadTargetRef = useRef<string | null>(null);
+    // "+" menu (upload files / new folder).
+    const [plusOpen, setPlusOpen] = useState(false);
+    const plusBtnRef = useRef<HTMLButtonElement>(null);
 
     // Toggle a file in/out of the scene. All adds go through the
     // overlay path so multiple models can coexist; ``Clear`` in
@@ -422,52 +635,30 @@ const StorageBrowser: React.FC = () => {
     // bbox); subsequent files reuse that translation so they
     // overlay correctly.
     const onToggle = async (entry: ServerFileEntry, nextChecked: boolean) => {
-        if (viewingName) return; // already busy with another file
-        setViewingName(entry.name);
+        if (nextChecked) {
+            // Queue the load — more can be queued while one is in
+            // flight; the queue drains sequentially (shared loader
+            // state can't take concurrent loads).
+            enqueueLoad({name: entry.name});
+            return;
+        }
+        if (queuedLoadNames.has(entry.name)) {
+            removeQueuedLoad(entry.name);
+            return;
+        }
+        if (viewingName === entry.name) return; // mid-load; can't cancel
         try {
-            if (nextChecked) {
-                if (isStreamingFEAResult(entry.name)) {
-                    // Streaming-FEA toggle: fetch manifest, load with
-                    // defaults (first field, default reduction, step 0),
-                    // and let SimulationControls take it from there.
-                    // No more picker modal in the way.
-                    await load_fea_with_defaults(entry.name);
-                } else {
-                    await overlay_file_in_scene(entry.name);
-                }
-            } else {
-                if (isStreamingFEAResult(entry.name)) {
-                    // FEA streaming meshes were loaded via replace_model
-                    // (scene-wide replace, no per-source group registered).
-                    // unload_source_from_scene would no-op because there's
-                    // no group ref to look up. Clear the whole scene
-                    // instead — that also tears down the FEA session
-                    // store + animation driver.
-                    await clear_loaded_model();
-                } else {
-                    unload_source_from_scene(entry.name);
-                }
-            }
+            await unload_any_source(entry.name);
         } catch (err) {
             console.error("storage toggle failed", err);
-        } finally {
-            setViewingName(null);
         }
     };
 
     // Load a STEP file via the memory-bounded streaming converter (one solid at a
     // time) — for large assemblies whose normal OCC->GLB conversion OOM-kills the
     // worker. Same overlay flow as onToggle, with the streamer flag set.
-    const onLoadStreamer = async (name: string) => {
-        if (viewingName) return;
-        setViewingName(name);
-        try {
-            await overlay_file_in_scene(name, undefined, {streamer: true});
-        } catch (err) {
-            console.error("streamer load failed", err);
-        } finally {
-            setViewingName(null);
-        }
+    const onLoadStreamer = (name: string) => {
+        enqueueLoad({name, streamer: true});
     };
 
     // Bulk "show all" — overlay every file currently absent from the
@@ -480,28 +671,12 @@ const StorageBrowser: React.FC = () => {
     // already-loaded items (no-op overlay) and unload already-hidden
     // items (no-op unload) so the user gets a predictable result
     // regardless of the per-row state mix.
-    const onLoadSelected = async () => {
-        if (bulkBusy !== null) return;
-        const targets = files.filter((f) => selection.has(f.name) && !loadedSourceNames.has(f.name));
-        if (targets.length === 0) {
-            clearSelection();
-            return;
-        }
-        setBulkBusy("load");
-        try {
-            for (const f of targets) {
-                setViewingName(f.name);
-                try {
-                    await overlay_file_in_scene(f.name);
-                } catch (err) {
-                    console.error("load-selected overlay failed", f.name, err);
-                }
-            }
-        } finally {
-            setViewingName(null);
-            setBulkBusy(null);
-            clearSelection();
-        }
+    const onLoadSelected = () => {
+        const targets = files.filter((f) =>
+            selection.has(f.name) && !loadedSourceNames.has(f.name) &&
+            (isStreamingFEAResult(f.name) || canLoadIntoSceneLegacy(f.name)));
+        for (const f of targets) enqueueLoad({name: f.name});
+        clearSelection();
     };
     const onUnloadSelected = () => {
         if (bulkBusy !== null) return;
@@ -521,6 +696,53 @@ const StorageBrowser: React.FC = () => {
         }
     };
 
+    // Bulk delete / move over the selection set. Version blobs are
+    // server-protected (400), so the toolbar disables these when the
+    // selection includes any — no silent skipping.
+    const onDeleteSelected = async () => {
+        if (bulkBusy !== null) return;
+        const keys = Array.from(selection);
+        if (keys.length === 0) return;
+        if (!window.confirm(
+            `Delete ${keys.length} file${keys.length === 1 ? "" : "s"}?\n` +
+            "Converted view caches are removed too.",
+        )) return;
+        setBulkBusy("delete");
+        try {
+            // Sequential: deletes cascade derived blobs server-side and
+            // parallel calls would race on the storage listing.
+            for (const k of keys) {
+                await unloadIfLoaded(k);
+                await mutations.deleteKey(k);
+            }
+            void request_list_of_files_from_server();
+        } catch (e) {
+            alertError(e);
+        } finally {
+            setBulkBusy(null);
+            clearSelection();
+        }
+    };
+    const onMoveSelected = () => {
+        const keys = Array.from(selection);
+        if (keys.length === 0) return;
+        setPicker({
+            title: `Move ${keys.length} file${keys.length === 1 ? "" : "s"} to folder`,
+            onPick: async (folder) => {
+                try {
+                    const r = await mutations.moveKeys(keys, folder);
+                    if (r.failed.length > 0) {
+                        window.alert(r.failed.map((f) => `${f.key}: ${f.reason}`).join("\n"));
+                    }
+                    clearSelection();
+                    void request_list_of_files_from_server();
+                } catch (e) {
+                    alertError(e);
+                }
+            },
+        });
+    };
+
     // Drop every loaded source via the canonical teardown.
     // clear_loaded_model resets animation state, tree-view,
     // model-key map, scene groups, and selection in one shot;
@@ -538,21 +760,22 @@ const StorageBrowser: React.FC = () => {
         }
     };
 
-    const onFilePicked = async (e: React.ChangeEvent<HTMLInputElement>) => {
-        const files = Array.from(e.target.files ?? []);
-        e.target.value = "";
-        if (files.length === 0) return;
+    // Upload a batch sequentially (presigned PUT is per-file); a failed
+    // file is collected and reported at the end rather than aborting
+    // the batch. ``folder`` prefixes every file's key — used by
+    // "Upload here…" and OS-file drops onto a folder row.
+    const uploadFilesTo = async (list: File[], folder?: string) => {
+        if (list.length === 0) return;
         setUploading(true);
-        // Upload sequentially (presigned PUT is per-file); a failed file is
-        // collected and reported at the end rather than aborting the batch.
         const failures: string[] = [];
-        for (let i = 0; i < files.length; i++) {
-            const file = files[i];
-            setUploadName(files.length > 1 ? `${file.name} (${i + 1}/${files.length})` : file.name);
+        for (let i = 0; i < list.length; i++) {
+            const file = list[i];
+            setUploadName(list.length > 1 ? `${file.name} (${i + 1}/${list.length})` : file.name);
             setUploadLoaded(0);
             setUploadTotal(file.size);
             try {
                 await uploadFile(file, {
+                    folder,
                     onProgress: (loaded, total) => {
                         setUploadLoaded(loaded);
                         if (total) setUploadTotal(total);
@@ -570,17 +793,248 @@ const StorageBrowser: React.FC = () => {
         if (failures.length) window.alert(`Upload failed for: ${failures.join(", ")}`);
     };
 
+    const onFilePicked = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const picked = Array.from(e.target.files ?? []);
+        e.target.value = "";
+        const folder = uploadTargetRef.current ?? undefined;
+        uploadTargetRef.current = null;
+        void uploadFilesTo(picked, folder);
+    };
+
+    // ── Drag & drop ─────────────────────────────────────────────────
+    const onDragStartFile = (f: ServerFileEntry) => (e: React.DragEvent) => {
+        // Dragging a selected row drags the whole selection; dragging
+        // an unselected row drags just that file.
+        const keys = selection.has(f.name) ? Array.from(selection) : [f.name];
+        e.dataTransfer.setData(KEYS_MIME, JSON.stringify(keys));
+        e.dataTransfer.effectAllowed = "move";
+        setDraggingKeys(keys);
+    };
+    const onDragEndFile = () => setDraggingKeys(null);
+
+    // Drop onto a folder path ("" = root). Internal drags move keys;
+    // OS-file drops upload into the folder.
+    const handleDropOnFolder = async (target: string, e: React.DragEvent) => {
+        setDraggingKeys(null);
+        setDraggingFolder(null);
+        const folderPath = e.dataTransfer.getData(FOLDER_MIME);
+        if (folderPath) {
+            if (!canMutate) return;
+            // No-ops: into itself, into its own subtree, or where it
+            // already lives.
+            if (target === folderPath || target.startsWith(folderPath + "/")) return;
+            if (dirnameOf(folderPath) === target) return;
+            const base = basenameOf(folderPath);
+            await runFolderMove(folderPath, target ? `${target}/${base}` : base);
+            return;
+        }
+        const txt = e.dataTransfer.getData(KEYS_MIME);
+        if (txt) {
+            if (!canMutate) return;
+            let keys: string[] = [];
+            try {
+                keys = JSON.parse(txt);
+            } catch {
+                return;
+            }
+            keys = keys.filter((k) => typeof k === "string" && dirnameOf(k) !== target);
+            if (keys.length === 0) return;
+            try {
+                if (target === "") {
+                    // Move-to-root: the move endpoint requires a non-empty
+                    // folder, so root moves are per-key renames to the
+                    // basename.
+                    for (const k of keys) {
+                        await mutations.renameKey(k, basenameOf(k));
+                    }
+                } else {
+                    const r = await mutations.moveKeys(keys, target);
+                    if (r.failed.length > 0) {
+                        window.alert(r.failed.map((f) => `${f.key}: ${f.reason}`).join("\n"));
+                    }
+                }
+                clearSelection();
+                void request_list_of_files_from_server();
+            } catch (err) {
+                alertError(err);
+            }
+            return;
+        }
+        if (e.dataTransfer.files?.length) {
+            void uploadFilesTo(Array.from(e.dataTransfer.files), target || undefined);
+        }
+    };
+
+    // ── Menu item builders (kebab + context menu share these) ───────
+    const fileMenuItems = (f: ServerFileEntry, displayName: string): KebabMenuItem[] => {
+        const busy = viewingName === f.name;
+        return buildFileMenuItems(f, {
+            isLoaded: loadedSourceNames.has(f.name),
+            busy,
+            loadDisabled: !isStreamingFEAResult(f.name) && !canLoadIntoSceneLegacy(f.name),
+            canMutate,
+            onToggle: (next) => void onToggle(f, next),
+            onLoadStreamer:
+                runtime.isRestMode() && runtime.convertEnabled()
+                    ? () => onLoadStreamer(f.name)
+                    : undefined,
+            onDownload: runtime.isRestMode() ? () => onDownloadFile(f.name) : undefined,
+            onRename: () => setRenaming({kind: "file", path: f.name}),
+            onMoveToFolder: () => onMoveSingleToFolder(f.name),
+            onDelete: () => void onDeleteFile(f),
+        });
+    };
+    // CI version blobs stay read-only: load/streamer/download only.
+    const versionFileMenuItems = (f: ServerFileEntry): KebabMenuItem[] => {
+        const busy = viewingName === f.name;
+        return buildFileMenuItems(f, {
+            isLoaded: loadedSourceNames.has(f.name),
+            busy,
+            loadDisabled: !isStreamingFEAResult(f.name) && !canLoadIntoSceneLegacy(f.name),
+            canMutate: false,
+            onToggle: (next) => void onToggle(f, next),
+            onLoadStreamer:
+                runtime.isRestMode() && runtime.convertEnabled()
+                    ? () => onLoadStreamer(f.name)
+                    : undefined,
+            onDownload: runtime.isRestMode() ? () => onDownloadFile(f.name) : undefined,
+        });
+    };
+    const folderMenuItems = (path: string, fileCount: number, isPending: boolean): KebabMenuItem[] =>
+        buildFolderMenuItems(path, {
+            canMutate,
+            fileCount,
+            onUploadHere: () => {
+                uploadTargetRef.current = path;
+                fileInputRef.current?.click();
+            },
+            onNewSubfolder: () => {
+                setNewFolderAt(path);
+                setExpandedFolders((prev) => new Set(prev).add(path));
+            },
+            onRename: () => setRenaming({kind: "folder", path}),
+            onMoveInto: () => onMoveFolderInto(path),
+            onDelete: () => void onDeleteFolder(path, fileCount, isPending),
+        });
+
+    const existingFolderPaths = Array.from(
+        new Set([...collectFolderPaths(files, (f) => f.name), ...pendingFolders]),
+    ).sort((a, b) => a.localeCompare(b));
+
+    // ── Keyboard navigation over the visible (regular) tree ────────
+    // Flattened render order of the rows currently on screen; versions
+    // subtree is excluded (its own collapsing structure).
+    const {regular: regularFiles, branches: versionBranches} = classifyFiles(files, sidecars);
+    const visibleTree = buildFileTree(regularFiles, (f) => f.name, pendingFolders);
+    type FlatRow =
+        | {kind: "folder"; path: string; depth: number; parent: string}
+        | {kind: "file"; name: string; file: ServerFileEntry; depth: number; parent: string};
+    const flatRows: FlatRow[] = [];
+    {
+        const walk = (nodes: ServerFileTreeNode[], depth: number, parent: string) => {
+            for (const n of nodes) {
+                if (n.kind === "folder") {
+                    flatRows.push({kind: "folder", path: n.path, depth, parent});
+                    if (expandedFolders.has(n.path)) walk(n.children, depth + 1, n.path);
+                } else {
+                    flatRows.push({kind: "file", name: n.file.name, file: n.file, depth, parent});
+                }
+            }
+        };
+        walk(visibleTree, 0, "");
+    }
+    const rowKeyOf = (r: FlatRow) => (r.kind === "folder" ? `folder:${r.path}` : `file:${r.name}`);
+
+    const onListKeyDown = (e: React.KeyboardEvent) => {
+        if (flatRows.length === 0) return;
+        if (!["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Enter", " "].includes(e.key)) return;
+        // Don't steal keys from the inline rename/new-folder inputs.
+        if ((e.target as HTMLElement).tagName === "INPUT") return;
+        e.preventDefault();
+        e.stopPropagation();
+        const idx = focusedKey ? flatRows.findIndex((r) => rowKeyOf(r) === focusedKey) : -1;
+        const row = idx >= 0 ? flatRows[idx] : null;
+        const focusAt = (i: number) => {
+            const clamped = Math.max(0, Math.min(flatRows.length - 1, i));
+            setFocusedKey(rowKeyOf(flatRows[clamped]));
+        };
+        switch (e.key) {
+            case "ArrowDown":
+                focusAt(idx < 0 ? 0 : idx + 1);
+                break;
+            case "ArrowUp":
+                focusAt(idx < 0 ? flatRows.length - 1 : idx - 1);
+                break;
+            case "ArrowRight":
+                if (!row) {
+                    focusAt(0);
+                } else if (row.kind === "folder") {
+                    if (!expandedFolders.has(row.path)) toggleFolder(row.path);
+                    else if (idx + 1 < flatRows.length && flatRows[idx + 1].parent === row.path) focusAt(idx + 1);
+                }
+                break;
+            case "ArrowLeft":
+                if (!row) {
+                    focusAt(0);
+                } else if (row.kind === "folder" && expandedFolders.has(row.path)) {
+                    toggleFolder(row.path);
+                } else if (row.parent) {
+                    const pIdx = flatRows.findIndex((r) => r.kind === "folder" && r.path === row.parent);
+                    if (pIdx >= 0) focusAt(pIdx);
+                }
+                break;
+            case "Enter":
+                if (!row) break;
+                if (row.kind === "folder") toggleFolder(row.path);
+                else void onToggle(row.file, !(loadedSourceNames.has(row.name) || queuedLoadNames.has(row.name)));
+                break;
+            case " ":
+                if (row?.kind === "file") toggleSelection(row.name);
+                break;
+        }
+    };
+
+    const showRootDropStrip =
+        (draggingKeys !== null && draggingKeys.some((k) => dirnameOf(k) !== "")) ||
+        (draggingFolder !== null && dirnameOf(draggingFolder) !== "");
+
     return (
         <div
             data-no-upload-menu
-            // Match ObjectInfoBox styling. The viewport-clamped max-width
-            // makes the panel self-contain regardless of what the panel-row
-            // does — on mobile it stays inside the viewport even if the
-            // parent's width hasn't resolved. min-w-0 lets it actually
-            // shrink below intrinsic content width so the header buttons
-            // don't push past the right edge.
-            className="bg-gray-400 bg-opacity-50 rounded-sm p-2 w-full min-w-0 max-w-[calc(100vw-1rem)] md:max-w-md"
+            // Compact: match ObjectInfoBox footprint (viewport-clamped
+            // max-width so the panel self-contains on mobile).
+            // Maximized: same element restyled as a centered fixed
+            // overlay — styling-only so panel state survives the
+            // toggle. The host column has no transform ancestors, so
+            // position:fixed escapes it cleanly.
+            className={
+                PANEL_CHROME + " " +
+                (maximized
+                    ? "fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 z-[61] " +
+                      // Same footprint as the floating admin panel
+                      // (InViewerPanelHost Rnd: 1100×720 capped to the
+                      // viewport). dvh not vh: on mobile 100vh includes
+                      // the area behind the browser chrome, so a
+                      // vh-sized panel ran past the visible bottom.
+                      "w-[min(1100px,calc(100vw-2rem))] h-[min(720px,calc(100dvh-5rem))] flex flex-col"
+                    : "w-full min-w-0 max-w-[calc(100vw-1rem)] md:max-w-md")
+            }
         >
+            {maximized && createPortal(
+                // Light scrim — just enough to signal modality without
+                // blacking out the 3D scene. z-[5]: the panel lives in
+                // the menu overlay's `z-10` stacking context, so its
+                // own z-index can never exceed 10 at the root level —
+                // a body-portaled scrim above 10 paints OVER the panel
+                // and darkens it too (visibly so on mobile). Below 10
+                // it dims only the canvas underneath.
+                <div
+                    className="fixed inset-0 z-[5] bg-black/25"
+                    onClick={() => setMaximized(false)}
+                    aria-hidden="true"
+                />,
+                document.body,
+            )}
             <div className="flex justify-between items-center gap-2 mb-2">
                 <div className="min-w-0 flex-1">
                     <h2 className="font-bold truncate">Storage</h2>
@@ -589,7 +1043,7 @@ const StorageBrowser: React.FC = () => {
                         scope are invisible to a list query under another
                         — surfacing the name avoids the "I uploaded but
                         nothing shows" confusion when scope drifts. */}
-                    <div className="text-[10px] uppercase tracking-wide text-gray-200/80 truncate"
+                    <div className="text-[10px] uppercase tracking-wide text-gray-400 truncate"
                          title={currentScope?.kind ? `${currentScope.kind}${currentScope.id ? ":" + currentScope.id : ""}` : "shared"}>
                         scope: {currentScope?.name ?? "Shared"}
                     </div>
@@ -604,18 +1058,54 @@ const StorageBrowser: React.FC = () => {
                         onChange={onFilePicked}
                     />
                     <button
-                        className="bg-blue-700 hover:bg-blue-600 text-white p-1 rounded-sm disabled:opacity-60 flex items-center justify-center"
-                        onClick={() => fileInputRef.current?.click()}
+                        ref={plusBtnRef}
+                        type="button"
+                        className={
+                            "bg-blue-700 hover:bg-blue-600 active:bg-blue-800 text-white rounded-sm cursor-pointer " +
+                            "flex items-center justify-center disabled:opacity-60 " +
+                            "p-2 sm:p-1 min-h-[40px] min-w-[40px] sm:min-h-0 sm:min-w-0 " +
+                            "focus:outline-hidden focus:ring-2 focus:ring-blue-400"
+                        }
+                        onClick={() => setPlusOpen((v) => !v)}
                         disabled={uploading}
-                        title="Upload a file to this scope"
-                        aria-label="Upload file"
+                        title="Add — upload files or create a folder"
+                        aria-label="Add"
+                        aria-haspopup="menu"
+                        aria-expanded={plusOpen}
                     >
-                        {uploading ? <Spinner/> : <UploadIcon/>}
+                        {/* Fixed 24px icon slot — keeps this button the
+                            same size as Refresh/Maximize whether it
+                            shows the plus or the busy spinner. */}
+                        <span className="inline-flex h-6 w-6 items-center justify-center">
+                            {uploading ? <Spinner/> : <PlusIcon width="24px" height="24px"/>}
+                        </span>
                     </button>
+                    {plusOpen && (
+                        <PositionedMenu
+                            items={[
+                                {
+                                    key: "upload",
+                                    label: "Upload files…",
+                                    onClick: () => fileInputRef.current?.click(),
+                                },
+                                {
+                                    key: "new-folder",
+                                    label: "New folder…",
+                                    onClick: () => setNewFolderAt(""),
+                                },
+                            ]}
+                            onClose={() => setPlusOpen(false)}
+                            ignoreOutsideRef={plusBtnRef}
+                            anchor={{
+                                kind: "rect",
+                                getRect: () => plusBtnRef.current?.getBoundingClientRect(),
+                            }}
+                        />
+                    )}
                     <button
                         type="button"
                         className={
-                            "bg-blue-700 hover:bg-blue-600 active:bg-blue-800 text-white rounded-sm " +
+                            "bg-blue-700 hover:bg-blue-600 active:bg-blue-800 text-white rounded-sm cursor-pointer " +
                             "flex items-center justify-center " +
                             // 40px+ tap target on mobile per WCAG; tighter
                             // on desktop where the cursor is precise.
@@ -627,7 +1117,7 @@ const StorageBrowser: React.FC = () => {
                         aria-label="Refresh list"
                         aria-busy={refreshing}
                     >
-                        <span className={refreshing ? "animate-spin" : ""}>
+                        <span className={"inline-flex h-6 w-6 items-center justify-center " + (refreshing ? "animate-spin" : "")}>
                             <ReloadIcon/>
                         </span>
                     </button>
@@ -643,7 +1133,7 @@ const StorageBrowser: React.FC = () => {
                         <button
                             type="button"
                             className={
-                                "bg-gray-700 hover:bg-gray-600 active:bg-gray-800 disabled:opacity-60 " +
+                                "bg-gray-700 hover:bg-gray-600 active:bg-gray-800 disabled:opacity-60 cursor-pointer " +
                                 "text-white rounded-sm text-xs whitespace-nowrap " +
                                 "px-2 sm:px-2 py-1 min-h-[40px] sm:min-h-0"
                             }
@@ -656,8 +1146,83 @@ const StorageBrowser: React.FC = () => {
                             {bulkBusy === "clear" ? "Clearing…" : "Clear"}
                         </button>
                     )}
+                    <button
+                        type="button"
+                        className={
+                            "bg-gray-700 hover:bg-gray-600 active:bg-gray-800 text-white rounded-sm cursor-pointer " +
+                            "flex items-center justify-center " +
+                            "p-2 sm:p-1 min-h-[40px] min-w-[40px] sm:min-h-0 sm:min-w-0 " +
+                            "focus:outline-hidden focus:ring-2 focus:ring-blue-400"
+                        }
+                        onClick={() => setMaximized((v) => !v)}
+                        title={maximized ? "Restore compact panel" : "Maximize"}
+                        aria-label={maximized ? "Restore compact panel" : "Maximize"}
+                    >
+                        <span className="inline-flex h-6 w-6 items-center justify-center">
+                            <ExpandIcon expanded={maximized} width="24px" height="24px"/>
+                        </span>
+                    </button>
                 </div>
             </div>
+            {inSelectionMode && (() => {
+                const selectionHasVersions = Array.from(selection).some((k) =>
+                    k.replace(/^\/+/, "").startsWith("versions/"),
+                );
+                const btn = "text-white text-xs px-2 py-1 rounded-sm min-h-[36px] sm:min-h-0 cursor-pointer disabled:opacity-60 disabled:cursor-default";
+                return (
+                    <div className="mb-2 px-2 py-1.5 rounded-sm border border-gray-700 bg-gray-800/95 flex items-center gap-2 flex-wrap">
+                        <span className="text-xs text-white whitespace-nowrap">
+                            {selection.size} selected
+                        </span>
+                        <button
+                            type="button"
+                            onClick={onLoadSelected}
+                            disabled={bulkBusy !== null}
+                            className={`bg-blue-700 hover:bg-blue-600 active:bg-blue-800 ${btn}`}
+                        >
+                            Load
+                        </button>
+                        <button
+                            type="button"
+                            onClick={onUnloadSelected}
+                            disabled={bulkBusy !== null}
+                            className={`bg-gray-700 hover:bg-gray-600 active:bg-gray-800 ${btn}`}
+                        >
+                            {bulkBusy === "unload" ? "Unloading…" : "Unload"}
+                        </button>
+                        {canMutate && (
+                            <button
+                                type="button"
+                                onClick={onMoveSelected}
+                                disabled={bulkBusy !== null || selectionHasVersions}
+                                title={selectionHasVersions ? "CI version files can't be moved" : "Move selected files to a folder"}
+                                className={`bg-gray-700 hover:bg-gray-600 active:bg-gray-800 ${btn}`}
+                            >
+                                Move…
+                            </button>
+                        )}
+                        {canMutate && (
+                            <button
+                                type="button"
+                                onClick={() => void onDeleteSelected()}
+                                disabled={bulkBusy !== null || selectionHasVersions}
+                                title={selectionHasVersions ? "CI version files can't be deleted" : "Delete selected files (incl. converted caches)"}
+                                className={`bg-red-800 hover:bg-red-700 active:bg-red-900 ${btn}`}
+                            >
+                                {bulkBusy === "delete" ? "Deleting…" : "Delete"}
+                            </button>
+                        )}
+                        <button
+                            type="button"
+                            onClick={clearSelection}
+                            disabled={bulkBusy !== null}
+                            className={`ml-auto bg-gray-600 hover:bg-gray-500 ${btn}`}
+                        >
+                            Cancel
+                        </button>
+                    </div>
+                );
+            })()}
             {uploadName && (
                 <div className="mb-2 text-xs">
                     <div className="flex items-center justify-between gap-2">
@@ -670,7 +1235,7 @@ const StorageBrowser: React.FC = () => {
                                 : formatBytes(uploadLoaded)}
                         </span>
                     </div>
-                    <div className="mt-1 h-1 w-full bg-gray-300/50 rounded-sm overflow-hidden">
+                    <div className="mt-1 h-1 w-full bg-gray-700 rounded-sm overflow-hidden">
                         {uploadTotal > 0 ? (
                             <div
                                 className="h-full bg-blue-600 transition-[width] duration-200"
@@ -687,22 +1252,80 @@ const StorageBrowser: React.FC = () => {
                     </div>
                 </div>
             )}
-            {files.length === 0 ? (
-                <div className="text-xs italic">
-                    No files yet. Use the Upload button to add one.
+            {files.length === 0 && pendingFolders.length === 0 && newFolderAt === null ? (
+                <div
+                    className="text-xs italic text-gray-300 rounded-sm border border-dashed border-gray-600 p-3"
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={(e) => {
+                        e.preventDefault();
+                        void handleDropOnFolder("", e);
+                    }}
+                >
+                    No files yet. Use + to upload, or drop files here.
                 </div>
             ) : (
                 (() => {
-                    const {regular, branches} = classifyFiles(files, sidecars);
+                    const regular = regularFiles;
+                    const branches = versionBranches;
                     return (
-                        <div className="flex flex-col max-h-80 overflow-auto">
-                            {regular.length > 0 && (() => {
-                                const tree = buildFileTree(regular, (f) => f.name);
+                        <div
+                            ref={listScrollRef}
+                            tabIndex={0}
+                            onKeyDown={onListKeyDown}
+                            className={
+                                "flex flex-col overflow-auto focus:outline-hidden " +
+                                "focus-visible:ring-1 focus-visible:ring-blue-500/40 rounded-sm " +
+                                (maximized ? "flex-1 min-h-0" : "max-h-80")
+                            }
+                            // Background (non-row) drops land at root:
+                            // internal drags move to root, OS files
+                            // upload at top level. Rows stopPropagation
+                            // when they handle a drop themselves.
+                            onDragOver={(e) => e.preventDefault()}
+                            onDrop={(e) => {
+                                e.preventDefault();
+                                void handleDropOnFolder("", e);
+                            }}
+                        >
+                            {showRootDropStrip && (
+                                <div
+                                    className={
+                                        "mb-1 px-2 py-1 text-[11px] text-gray-300 rounded-sm " +
+                                        "border border-dashed border-blue-500/60 bg-blue-900/20"
+                                    }
+                                    onDragOver={(e) => {
+                                        e.preventDefault();
+                                        e.dataTransfer.dropEffect = "move";
+                                    }}
+                                    onDrop={(e) => {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        void handleDropOnFolder("", e);
+                                    }}
+                                >
+                                    Drop here to move to root /
+                                </div>
+                            )}
+                            {newFolderAt === "" && (
+                                <div className="flex items-center gap-1.5 px-2 py-1">
+                                    <FolderClosedIcon className="shrink-0 text-blue-400"/>
+                                    <InlineNameInput
+                                        initial=""
+                                        placeholder="New folder name"
+                                        onCommit={(v) => onCreateFolder("", v)}
+                                        onCancel={() => setNewFolderAt(null)}
+                                    />
+                                </div>
+                            )}
+                            {(regular.length > 0 || pendingFolders.length > 0) && (() => {
+                                const tree = visibleTree;
                                 const renderNode = (
                                     node: ServerFileTreeNode,
                                     depth: number,
                                 ): React.ReactNode => {
                                     if (node.kind === "file") {
+                                        const items = fileMenuItems(node.file, node.displayName);
+                                        const fileDir = dirnameOf(node.file.name);
                                         return (
                                             <FileRow
                                                 key={node.file.name}
@@ -716,18 +1339,65 @@ const StorageBrowser: React.FC = () => {
                                                 setExpandedName={setExpandedName}
                                                 onToggle={onToggle}
                                                 setPickerName={setPickerName}
-                                                selectionMode={inSelectionMode}
                                                 isSelected={selection.has(node.file.name)}
-                                                onLongPress={toggleSelection}
-                                                onSelectToggle={toggleSelection}
-                                                onMoveToFolder={isAdmin ? onMoveSingleToFolder : undefined}
-                                                onDownload={runtime.isRestMode() ? onDownloadFile : undefined}
-                                                onLoadStreamer={runtime.isRestMode() && runtime.convertEnabled() ? onLoadStreamer : undefined}
+                                                isQueued={queuedLoadNames.has(node.file.name)}
+                                                onSelectToggle={(name, shiftKey) => {
+                                                    setFocusedKey(`file:${name}`);
+                                                    if (shiftKey && lastSelectedRef.current && lastSelectedRef.current !== name) {
+                                                        // Range-select between the anchor and this
+                                                        // row, in visible order.
+                                                        const fileNames = flatRows
+                                                            .filter((r) => r.kind === "file")
+                                                            .map((r) => (r as {name: string}).name);
+                                                        const a = fileNames.indexOf(lastSelectedRef.current);
+                                                        const b = fileNames.indexOf(name);
+                                                        if (a >= 0 && b >= 0) {
+                                                            const [lo, hi] = a < b ? [a, b] : [b, a];
+                                                            setSelection((prev) => {
+                                                                const next = new Set(prev);
+                                                                for (let i = lo; i <= hi; i++) next.add(fileNames[i]);
+                                                                return next;
+                                                            });
+                                                            lastSelectedRef.current = name;
+                                                            return;
+                                                        }
+                                                    }
+                                                    lastSelectedRef.current = name;
+                                                    toggleSelection(name);
+                                                }}
+                                                rowKey={`file:${node.file.name}`}
+                                                focused={focusedKey === `file:${node.file.name}`}
+                                                menuItems={items}
+                                                onOpenContextMenu={(e) => openCtxMenu(e, items)}
+                                                draggable={canMutate}
+                                                onDragStartRow={onDragStartFile(node.file)}
+                                                onDragEndRow={onDragEndFile}
+                                                onDropAt={(e) => {
+                                                    // OS files dropped on a file row land in
+                                                    // that row's folder; internal drags are a
+                                                    // no-op here (folders are the targets).
+                                                    if (e.dataTransfer.getData(KEYS_MIME)) return;
+                                                    if (e.dataTransfer.files?.length) {
+                                                        void uploadFilesTo(
+                                                            Array.from(e.dataTransfer.files),
+                                                            fileDir || undefined,
+                                                        );
+                                                    }
+                                                }}
+                                                dimmed={draggingKeys?.includes(node.file.name) ?? false}
+                                                renaming={renaming?.kind === "file" && renaming.path === node.file.name}
+                                                onRenameCommit={(v) => void onRenameFileCommit(node.file, v)}
+                                                onRenameCancel={() => setRenaming(null)}
+                                                showModified={maximized}
                                             />
                                         );
                                     }
                                     const expanded = expandedFolders.has(node.path);
                                     const total = countFiles(node);
+                                    const isPending = total === 0;
+                                    const items = folderMenuItems(node.path, total, isPending);
+                                    const loadedCount = Array.from(loadedSourceNames)
+                                        .filter((n) => n.startsWith(node.path + "/")).length;
                                     return (
                                         <React.Fragment key={`folder:${node.path}`}>
                                             <FolderRow
@@ -735,14 +1405,42 @@ const StorageBrowser: React.FC = () => {
                                                 depth={depth}
                                                 expanded={expanded}
                                                 fileCount={total}
-                                                onToggle={() => toggleFolder(node.path)}
-                                                onRename={isAdmin
-                                                    ? () => onFolderRenameOrMove(node.path, "rename")
-                                                    : undefined}
-                                                onMoveInto={isAdmin
-                                                    ? () => onFolderRenameOrMove(node.path, "moveInto")
-                                                    : undefined}
+                                                isPending={isPending}
+                                                loadedCount={loadedCount}
+                                                onToggle={() => {
+                                                    setFocusedKey(`folder:${node.path}`);
+                                                    toggleFolder(node.path);
+                                                }}
+                                                rowKey={`folder:${node.path}`}
+                                                focused={focusedKey === `folder:${node.path}`}
+                                                menuItems={items}
+                                                onOpenContextMenu={(e) => openCtxMenu(e, items)}
+                                                onDropInto={(e) => void handleDropOnFolder(node.path, e)}
+                                                draggable={canMutate && !isPending}
+                                                onDragStartRow={(e) => {
+                                                    e.dataTransfer.setData(FOLDER_MIME, node.path);
+                                                    e.dataTransfer.effectAllowed = "move";
+                                                    setDraggingFolder(node.path);
+                                                }}
+                                                onDragEndRow={() => setDraggingFolder(null)}
+                                                renaming={renaming?.kind === "folder" && renaming.path === node.path}
+                                                onRenameCommit={(v) => onRenameFolderCommit(node.path, v, isPending)}
+                                                onRenameCancel={() => setRenaming(null)}
                                             />
+                                            {expanded && newFolderAt === node.path && (
+                                                <li
+                                                    className="flex items-center gap-1.5 px-2 py-1"
+                                                    style={{paddingLeft: 8 + (depth + 1) * 12}}
+                                                >
+                                                    <FolderClosedIcon className="shrink-0 text-blue-400"/>
+                                                    <InlineNameInput
+                                                        initial=""
+                                                        placeholder="New folder name"
+                                                        onCommit={(v) => onCreateFolder(node.path, v)}
+                                                        onCancel={() => setNewFolderAt(null)}
+                                                    />
+                                                </li>
+                                            )}
                                             {expanded &&
                                                 node.children.map((c) =>
                                                     renderNode(c, depth + 1),
@@ -751,7 +1449,7 @@ const StorageBrowser: React.FC = () => {
                                     );
                                 };
                                 return (
-                                    <ul className="flex flex-col divide-y divide-gray-500/40">
+                                    <ul className="flex flex-col divide-y divide-gray-700/60">
                                         {tree.map((n) => renderNode(n, 0))}
                                     </ul>
                                 );
@@ -768,17 +1466,23 @@ const StorageBrowser: React.FC = () => {
                                     onToggle={onToggle}
                                     setPickerName={setPickerName}
                                     onOpenGitHistory={() => setGitHistoryOpen(true)}
-                                    selectionMode={inSelectionMode}
                                     selection={selection}
-                                    onLongPress={toggleSelection}
                                     onSelectToggle={toggleSelection}
-                                    onDownload={runtime.isRestMode() ? onDownloadFile : undefined}
-                                    onLoadStreamer={runtime.isRestMode() && runtime.convertEnabled() ? onLoadStreamer : undefined}
+                                    fileMenuItemsFor={versionFileMenuItems}
+                                    onOpenContextMenu={openCtxMenu}
+                                    showModified={maximized}
                                 />
                             )}
                         </div>
                     );
                 })()
+            )}
+            {ctxMenu && (
+                <PositionedMenu
+                    items={ctxMenu.items}
+                    onClose={() => setCtxMenu(null)}
+                    anchor={{kind: "point", x: ctxMenu.x, y: ctxMenu.y}}
+                />
             )}
             {pickerName && (
                 <FieldPickerModal
@@ -801,7 +1505,7 @@ const StorageBrowser: React.FC = () => {
             <FolderPickerModal
                 open={picker !== null}
                 title={picker?.title ?? ""}
-                existingFolders={collectFolderPaths(files, (f) => f.name)}
+                existingFolders={existingFolderPaths}
                 onCancel={() => setPicker(null)}
                 onPick={(folder) => {
                     const action = picker?.onPick;
@@ -809,54 +1513,6 @@ const StorageBrowser: React.FC = () => {
                     if (action) void action(folder);
                 }}
             />
-            {inSelectionMode && (
-                <div
-                    className={
-                        // Sticky inside the panel rather than fixed to
-                        // viewport — keeps the action bar bound to the
-                        // storage panel's footprint on desktop while
-                        // still pinning to the bottom on mobile where
-                        // the panel takes the full screen anyway.
-                        "mt-2 -mx-2 -mb-2 px-2 py-2 border-t border-gray-500/40 bg-gray-700/95 " +
-                        "rounded-b flex items-center gap-2 sticky bottom-0"
-                    }
-                >
-                    <span className="text-xs text-white whitespace-nowrap">
-                        {selection.size} selected
-                    </span>
-                    {/* Load is the primary action in this bar
-                        (affirmative — adds models to the scene), so
-                        it gets the same blue as Upload / Refresh.
-                        Unload + Cancel are neutral gray; the
-                        amber row highlight already conveys "these
-                        rows are armed for an action", no need for
-                        red to scream "destructive". */}
-                    <button
-                        type="button"
-                        onClick={() => void onLoadSelected()}
-                        disabled={bulkBusy !== null}
-                        className="bg-blue-700 hover:bg-blue-600 active:bg-blue-800 disabled:opacity-60 text-white text-xs px-2 py-1 rounded-sm min-h-[36px]"
-                    >
-                        {bulkBusy === "load" ? "Loading…" : "Load"}
-                    </button>
-                    <button
-                        type="button"
-                        onClick={onUnloadSelected}
-                        disabled={bulkBusy !== null}
-                        className="bg-gray-700 hover:bg-gray-600 active:bg-gray-800 disabled:opacity-60 text-white text-xs px-2 py-1 rounded-sm min-h-[36px]"
-                    >
-                        {bulkBusy === "unload" ? "Unloading…" : "Unload"}
-                    </button>
-                    <button
-                        type="button"
-                        onClick={clearSelection}
-                        disabled={bulkBusy !== null}
-                        className="ml-auto bg-gray-600 hover:bg-gray-500 disabled:opacity-60 text-white text-xs px-2 py-1 rounded-sm min-h-[36px]"
-                    >
-                        Cancel
-                    </button>
-                </div>
-            )}
         </div>
     );
 };
@@ -873,11 +1529,31 @@ interface FolderRowProps {
     depth: number;
     expanded: boolean;
     fileCount: number;
+    /** Client-side pending folder (no server keys under it yet). */
+    isPending?: boolean;
+    /** Loaded-in-scene models anywhere under this folder — propagates
+     * the row-level eye marker up the tree so collapsed folders still
+     * show where the loaded models live. */
+    loadedCount?: number;
     onToggle: () => void;
-    /** Admin-only: when present, a kebab appears with rename + move-
-     * into. Non-admins get a plain folder row without the menu. */
-    onRename?: () => void;
-    onMoveInto?: () => void;
+    /** Shared with the right-click context menu — built once by the
+     * parent so kebab and context menu never diverge. Empty array
+     * hides the kebab. */
+    menuItems: KebabMenuItem[];
+    onOpenContextMenu?: (e: React.MouseEvent) => void;
+    /** Drop handler for in-panel moves + OS-file uploads into this
+     * folder. Hover highlight is local state. */
+    onDropInto?: (e: React.DragEvent) => void;
+    /** In-panel drag source (move the whole folder). */
+    draggable?: boolean;
+    onDragStartRow?: (e: React.DragEvent) => void;
+    onDragEndRow?: () => void;
+    renaming?: boolean;
+    onRenameCommit?: (newName: string) => void;
+    onRenameCancel?: () => void;
+    /** Keyboard-navigation identity + highlight. */
+    rowKey?: string;
+    focused?: boolean;
 }
 
 const FolderRow: React.FC<FolderRowProps> = ({
@@ -885,27 +1561,70 @@ const FolderRow: React.FC<FolderRowProps> = ({
     depth,
     expanded,
     fileCount,
+    isPending,
+    loadedCount,
     onToggle,
-    onRename,
-    onMoveInto,
+    menuItems,
+    onOpenContextMenu,
+    onDropInto,
+    draggable,
+    onDragStartRow,
+    onDragEndRow,
+    renaming,
+    onRenameCommit,
+    onRenameCancel,
+    rowKey,
+    focused,
 }) => {
     const indentPx = depth * 12;
+    // dragenter/dragleave fire per child element; a counter survives
+    // the churn where a plain boolean would flicker.
+    const [dragHover, setDragHover] = useState(0);
+    const acceptsDrop = (e: React.DragEvent) =>
+        e.dataTransfer.types.includes(KEYS_MIME) ||
+        e.dataTransfer.types.includes(FOLDER_MIME) ||
+        e.dataTransfer.types.includes("Files");
     return (
         <li
-            className="flex items-center gap-1.5 px-2 py-1 cursor-pointer hover:bg-gray-300/10 select-none"
+            data-rowkey={rowKey}
+            className={
+                "flex items-center gap-1.5 px-2 py-1 rounded cursor-pointer select-none " +
+                "hover:bg-gray-800/80 " +
+                (dragHover > 0 ? "ring-1 ring-blue-400 bg-blue-900/30 " : "") +
+                (focused && dragHover === 0 ? "ring-1 ring-blue-400/70 " : "") +
+                (isPending ? "opacity-80 " : "")
+            }
             style={{paddingLeft: 8 + indentPx}}
+            draggable={draggable || undefined}
+            onDragStart={draggable && onDragStartRow ? onDragStartRow : undefined}
+            onDragEnd={onDragEndRow}
             onClick={onToggle}
+            onContextMenu={onOpenContextMenu}
             role="button"
             aria-expanded={expanded}
             aria-label={`${expanded ? "Collapse" : "Expand"} folder ${folder.name}`}
+            onDragEnter={onDropInto ? (e) => {
+                if (acceptsDrop(e)) setDragHover((c) => c + 1);
+            } : undefined}
+            onDragLeave={onDropInto ? () => setDragHover((c) => Math.max(0, c - 1)) : undefined}
+            onDragOver={onDropInto ? (e) => {
+                if (!acceptsDrop(e)) return;
+                e.preventDefault();
+                e.stopPropagation();
+                e.dataTransfer.dropEffect = "move";
+            } : undefined}
+            onDrop={onDropInto ? (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                setDragHover(0);
+                onDropInto(e);
+            } : undefined}
         >
             {/* Chevron — single right-pointing icon rotated 90° on
-                expand. text-blue-600 matches the progress bar accent
-                AND stays legible on the panel's light (bg-gray-400/50)
-                background, where the lighter blue-300 washed out. */}
+                expand. */}
             <ChevronRightIcon
                 className={
-                    "shrink-0 text-blue-600 transition-transform duration-150 " +
+                    "shrink-0 text-blue-400 transition-transform duration-150 " +
                     (expanded ? "rotate-90" : "")
                 }
             />
@@ -913,38 +1632,45 @@ const FolderRow: React.FC<FolderRowProps> = ({
                 Same blue tone so eye + chevron read as one
                 composite control. */}
             {expanded ? (
-                <FolderOpenIcon className="shrink-0 text-blue-600"/>
+                <FolderOpenIcon className="shrink-0 text-blue-400"/>
             ) : (
-                <FolderClosedIcon className="shrink-0 text-blue-600"/>
+                <FolderClosedIcon className="shrink-0 text-blue-400"/>
             )}
-            <span className="text-xs flex-1 min-w-0 truncate font-semibold">
-                {folder.name}/
-            </span>
+            {renaming && onRenameCommit && onRenameCancel ? (
+                <InlineNameInput
+                    initial={folder.name}
+                    onCommit={onRenameCommit}
+                    onCancel={onRenameCancel}
+                />
+            ) : (
+                <span className="text-xs flex-1 min-w-0 truncate font-semibold">
+                    {folder.name}/
+                </span>
+            )}
+            {(loadedCount ?? 0) > 0 && (
+                <span
+                    className="shrink-0 inline-flex items-center gap-0.5 text-blue-400"
+                    title={`${loadedCount} loaded model${loadedCount === 1 ? "" : "s"} inside`}
+                >
+                    <ViewIcon width="14px" height="14px"/>
+                    {(loadedCount ?? 0) > 1 && (
+                        <span className="text-[10px] tabular-nums">{loadedCount}</span>
+                    )}
+                </span>
+            )}
             <span className="text-[10px] text-gray-400 shrink-0">
-                {fileCount}
+                {isPending ? "empty" : fileCount}
             </span>
-            {onRename && onMoveInto && (
+            {menuItems.length > 0 && (
                 <span
                     className="shrink-0"
                     onClick={(e) => e.stopPropagation()}
                 >
                     <RowKebabMenu
                         ariaLabel={`Organize folder ${folder.path}`}
-                        buttonClassName="h-6 w-6 text-gray-300 hover:bg-gray-500/30"
-                        items={[
-                            {
-                                key: "rename",
-                                label: "Rename folder…",
-                                title: "Sibling-name rename. Subfolders preserved.",
-                                onClick: onRename,
-                            },
-                            {
-                                key: "move-into",
-                                label: "Move folder into…",
-                                title: "Move under a destination prefix. Subfolders preserved.",
-                                onClick: onMoveInto,
-                            },
-                        ]}
+                        buttonClassName="h-6 w-6 text-gray-300 hover:bg-gray-700"
+                        header={<span className="font-mono">{folder.path}/</span>}
+                        items={menuItems}
                     />
                 </span>
             )}
@@ -963,19 +1689,31 @@ interface FileRowProps {
     setExpandedName: (n: string | null) => void;
     onToggle: (entry: ServerFileEntry, nextChecked: boolean) => Promise<void>;
     setPickerName: (n: string | null) => void;
-    selectionMode: boolean;
     isSelected: boolean;
-    onLongPress: (name: string) => void;
-    onSelectToggle: (name: string) => void;
-    /** Admin-only: when present, the kebab on this row offers a
-     * "Move to folder…" item. */
-    onMoveToFolder?: (key: string) => void;
-    /** When present (REST mode), the kebab offers a "Download" item that
-     * fetches the stored blob with auth and saves it. Available to any user. */
-    onDownload?: (key: string) => void;
-    /** When present (REST + convert), STEP rows get a "Load using streamer" item
-     * that converts via the memory-bounded streaming reader (large-file OOM path). */
-    onLoadStreamer?: (key: string) => void;
+    /** Waiting in the scene-load queue (untick to remove). */
+    isQueued?: boolean;
+    onSelectToggle: (name: string, shiftKey?: boolean) => void;
+    /** Row actions — shared between the kebab and the right-click
+     * context menu (parent builds both from one list). */
+    menuItems: KebabMenuItem[];
+    /** Desktop right-click AND touch long-press both land here. */
+    onOpenContextMenu?: (e: {clientX: number; clientY: number; preventDefault?: () => void; stopPropagation?: () => void}) => void;
+    /** Keyboard-navigation identity + highlight. */
+    rowKey?: string;
+    focused?: boolean;
+    /** In-panel drag source (move to folder). */
+    draggable?: boolean;
+    onDragStartRow?: (e: React.DragEvent) => void;
+    onDragEndRow?: () => void;
+    /** OS-file drops on this row (upload into the row's folder). */
+    onDropAt?: (e: React.DragEvent) => void;
+    /** Row is part of the in-flight drag payload. */
+    dimmed?: boolean;
+    renaming?: boolean;
+    onRenameCommit?: (newBasename: string) => void;
+    onRenameCancel?: () => void;
+    /** Maximized view: show the last-modified column. */
+    showModified?: boolean;
 }
 
 const FileRow: React.FC<FileRowProps> = ({
@@ -989,13 +1727,22 @@ const FileRow: React.FC<FileRowProps> = ({
     setExpandedName,
     onToggle,
     setPickerName,
-    selectionMode,
     isSelected,
-    onLongPress,
+    isQueued,
     onSelectToggle,
-    onMoveToFolder,
-    onDownload,
-    onLoadStreamer,
+    menuItems,
+    onOpenContextMenu,
+    rowKey,
+    focused,
+    draggable,
+    onDragStartRow,
+    onDragEndRow,
+    onDropAt,
+    dimmed,
+    renaming,
+    onRenameCommit,
+    onRenameCancel,
+    showModified,
 }) => {
     const isViewing = viewingName === f.name;
     const otherViewing = viewingName !== null && !isViewing;
@@ -1006,10 +1753,9 @@ const FileRow: React.FC<FileRowProps> = ({
         : 0;
     const indentPx = indentLevel * 12;
 
-    // Long-press to enter selection mode. 500 ms hold, cancelled by
-    // pointer move > 8 px (treats it as a scroll, not a hold). Once
-    // we're in selection mode, taps toggle membership instead — see
-    // the row's onClick below.
+    // Long-press = the touch path to the context menu (desktop has
+    // right-click). 500 ms hold, cancelled by pointer move > 8 px
+    // (treats it as a scroll, not a hold) or by a drag starting.
     const longPressTimer = useRef<number | null>(null);
     const longPressStart = useRef<{x: number; y: number} | null>(null);
     const longPressFired = useRef(false);
@@ -1020,13 +1766,17 @@ const FileRow: React.FC<FileRowProps> = ({
         }
     };
     const onPointerDown: React.PointerEventHandler = (e) => {
-        if (selectionMode) return; // already in mode; rely on click
-        longPressStart.current = {x: e.clientX, y: e.clientY};
+        // Touch only — on mouse/pen the menu lives on right-click, and a
+        // held left button must stay free to start an HTML5 drag (which
+        // begins on movement; a timer firing mid-hold stole the gesture).
+        if (e.pointerType !== "touch") return;
+        const {clientX, clientY} = e;
+        longPressStart.current = {x: clientX, y: clientY};
         longPressFired.current = false;
         cancelLongPress();
         longPressTimer.current = window.setTimeout(() => {
             longPressFired.current = true;
-            onLongPress(f.name);
+            onOpenContextMenu?.({clientX, clientY});
         }, 500);
     };
     const onPointerMove: React.PointerEventHandler = (e) => {
@@ -1043,13 +1793,27 @@ const FileRow: React.FC<FileRowProps> = ({
 
     return (
         <li
+            data-rowkey={rowKey}
             className={
-                "flex flex-col px-1 py-1 text-xs " +
-                (selectionMode
-                    ? "cursor-pointer " + (isSelected ? "bg-amber-700/30" : "hover:bg-amber-700/10")
-                    : "")
+                "flex flex-col pr-1 py-1 text-xs rounded cursor-pointer select-none " +
+                (dimmed ? "opacity-40 " : "") +
+                (focused ? "ring-1 ring-blue-400/70 " : "") +
+                (isSelected ? "bg-amber-700/30 " : "hover:bg-gray-800/60 ")
             }
-            style={indentPx ? {paddingLeft: `${4 + indentPx}px`} : undefined}
+            style={{paddingLeft: `${8 + indentPx}px`}}
+            draggable={draggable || undefined}
+            onDragStart={draggable && onDragStartRow ? (e) => {
+                cancelLongPress();
+                onDragStartRow(e);
+            } : undefined}
+            onDragEnd={onDragEndRow}
+            onDragOver={onDropAt ? (e) => e.preventDefault() : undefined}
+            onDrop={onDropAt ? (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onDropAt(e);
+            } : undefined}
+            onContextMenu={onOpenContextMenu}
             onPointerDown={onPointerDown}
             onPointerMove={onPointerMove}
             onPointerUp={onPointerUp}
@@ -1059,88 +1823,93 @@ const FileRow: React.FC<FileRowProps> = ({
             }}
             onClick={(e) => {
                 if (longPressFired.current) {
-                    // The long-press already toggled selection on; the
-                    // synthetic click fires after pointerup and would
-                    // double-toggle if we let it through.
+                    // The long-press already opened the context menu;
+                    // the synthetic click fires after pointerup and
+                    // would also toggle selection if let through.
                     longPressFired.current = false;
                     e.stopPropagation();
                     return;
                 }
-                if (selectionMode) {
-                    onSelectToggle(f.name);
-                }
+                // Single click/tap = selection toggle (feeds the bulk
+                // toolbar); shift-click selects the visible range from
+                // the last toggled row. Context menu is right-click /
+                // long-press.
+                onSelectToggle(f.name, e.shiftKey);
             }}
         >
             <div className="flex items-center justify-between gap-2">
-                {selectionMode ? (
-                    <span
-                        className={
-                            "h-5 w-5 shrink-0 rounded-full border-2 inline-flex items-center justify-center " +
-                            (isSelected
-                                ? "bg-amber-600 border-amber-400"
-                                : "border-gray-400")
+                {/* The checkbox IS the load toggle — checked (+ the
+                    eye marker) while the model is in the scene; clicking
+                    it loads/unloads directly. Row click = selection
+                    (amber highlight feeds the bulk toolbar). */}
+                {(
+                    <input
+                        type="checkbox"
+                        className="h-5 w-5 shrink-0 cursor-pointer disabled:cursor-not-allowed"
+                        checked={isLoaded || isQueued || isViewing}
+                        onChange={() => void onToggle(f, !(isLoaded || isQueued))}
+                        onClick={(e) => e.stopPropagation()}
+                        disabled={
+                            isViewing ||
+                            (!isStreamingFEAResult(f.name) && !canLoadIntoSceneLegacy(f.name))
                         }
-                        aria-checked={isSelected}
-                        role="checkbox"
-                    >
-                        {isSelected && (
-                            <svg viewBox="0 0 16 16" className="w-3 h-3 fill-white" aria-hidden>
-                                <path d="M6 11.2 2.4 7.6l1.4-1.4L6 8.4l6.2-6.2 1.4 1.4z"/>
-                            </svg>
-                        )}
-                    </span>
-                ) : (
-                    <label
-                        className={
-                            "flex items-center gap-2 cursor-pointer select-none px-1 py-1 -mx-1 -my-1 " +
-                            (isLoaded ? "text-blue-200 font-medium" : "")
-                        }
-                        title={
-                            isViewing
-                                ? "Loading…"
-                                : otherViewing
-                                    ? "Another file is loading"
-                                    : isLoaded
-                                        ? "Loaded in scene — uncheck to remove"
-                                        : isStreamingFEAResult(f.name)
-                                            ? "Open in streaming FEA viewer (default field, configure in Simulation controls)"
-                                            : "Add to scene (overlays alongside any other loaded files)"
-                        }
-                    >
-                        <input
-                            type="checkbox"
-                            className="h-5 w-5 shrink-0 cursor-pointer disabled:cursor-not-allowed"
-                            checked={isLoaded}
-                            onChange={(e) => onToggle(f, e.target.checked)}
-                            disabled={
-                                isViewing || otherViewing ||
-                                // The legacy GLB toggle still gates non-streaming
-                                // sources without a usable convert target.
-                                (!isStreamingFEAResult(f.name) && !canLoadIntoSceneLegacy(f.name))
-                            }
-                            aria-busy={isViewing || undefined}
-                        />
-                    </label>
+                        aria-busy={isViewing || undefined}
+                        title={isLoaded
+                            ? "Unload from scene"
+                            : isQueued
+                                ? "Queued to load — untick to remove from the queue"
+                                : isStreamingFEAResult(f.name)
+                                    ? "Open in streaming FEA viewer (queues if another model is loading)"
+                                    : "Load into scene (queues if another model is loading)"}
+                    />
                 )}
-                <button
-                    type="button"
-                    onClick={(e) => {
-                        if (selectionMode) {
-                            // Selection mode: row click already handles
-                            // it; the inner button is just here for
-                            // truncation toggling normally. Bail.
+                <FileTypeIcon name={f.name}/>
+                {renaming && onRenameCommit && onRenameCancel ? (
+                    <InlineNameInput
+                        initial={displayName}
+                        selectStem
+                        onCommit={onRenameCommit}
+                        onCancel={onRenameCancel}
+                    />
+                ) : (
+                    <button
+                        type="button"
+                        onClick={(e) => {
                             e.stopPropagation();
-                            onSelectToggle(f.name);
-                            return;
-                        }
-                        setExpandedName(expandedName === f.name ? null : f.name);
-                    }}
-                    className={`flex-1 min-w-0 text-left ${expandedName === f.name ? 'whitespace-normal break-all' : 'truncate'} ${isLoaded ? 'text-blue-200 font-medium' : ''}`}
-                    title={f.name}
-                >
-                    {displayName}
-                </button>
+                            onSelectToggle(f.name, e.shiftKey);
+                        }}
+                        className={`flex-1 min-w-0 text-left ${expandedName === f.name ? 'whitespace-normal break-all' : 'truncate'} ${isLoaded ? 'text-blue-200 font-medium' : ''}`}
+                        title={f.name}
+                    >
+                        {displayName}
+                    </button>
+                )}
                 <div className="flex items-center gap-1 shrink-0">
+                    {showModified && (
+                        <span
+                            className="text-[10px] text-gray-400 tabular-nums whitespace-nowrap"
+                            title={f.lastModified}
+                        >
+                            {formatRelative(f.lastModified)}
+                        </span>
+                    )}
+                    {/* Explicit "in scene" marker. The checkbox is a
+                        selection control (bulk actions), so loaded
+                        state needs its own signal — the blue filename
+                        tint alone is easy to miss on mobile. */}
+                    {isQueued && (
+                        <span className="text-[10px] text-amber-400 uppercase tracking-wide shrink-0">
+                            queued
+                        </span>
+                    )}
+                    {isLoaded && !isViewing && (
+                        <ViewIcon
+                            width="16px"
+                            height="16px"
+                            className="text-blue-400"
+                            aria-label="Loaded in scene"
+                        />
+                    )}
                     {isViewing && <Spinner/>}
                     {/* Legacy single-shot (step, field) picker — kept
                         only for hypothetical future non-streaming FEA
@@ -1153,9 +1922,9 @@ const FileRow: React.FC<FileRowProps> = ({
                         the moment a new isFEAResult format that is
                         NOT in the streaming set ships, the picker
                         re-appears for it without code changes here. */}
-                    {!selectionMode && isFEAResult(f.name) && !isStreamingFEAResult(f.name) && runtime.isRestMode() && runtime.convertEnabled() && (
+                    {isFEAResult(f.name) && !isStreamingFEAResult(f.name) && runtime.isRestMode() && runtime.convertEnabled() && (
                         <button
-                            className="p-1 rounded-sm text-white hover:bg-gray-300/40 disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="p-1 rounded-sm text-white hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
                             onClick={(e) => {
                                 e.stopPropagation();
                                 setPickerName(f.name);
@@ -1167,42 +1936,20 @@ const FileRow: React.FC<FileRowProps> = ({
                             <span className="leading-none text-sm font-mono">⇅</span>
                         </button>
                     )}
-                    {/* Streaming-FEA picker button removed — the
-                        toggle checkbox now opens the streaming session
-                        with defaults, and field / reduction / step
-                        live in SimulationControls. */}
-                    {!selectionMode && (onMoveToFolder || onDownload || onLoadStreamer) && (
+                    {menuItems.length > 0 && (
                         <span onClick={(e) => e.stopPropagation()}>
                             <RowKebabMenu
                                 ariaLabel={`Actions for ${displayName}`}
-                                buttonClassName="h-7 w-7 text-gray-200 hover:bg-gray-300/30"
+                                buttonClassName="h-7 w-7 text-gray-200 hover:bg-gray-700"
                                 header={<span className="font-mono" title={f.name}>{f.name}</span>}
-                                items={[
-                                    ...(onLoadStreamer && /\.(step|stp)$/i.test(f.name) ? [{
-                                        key: "load-streamer",
-                                        label: "Load using streamer",
-                                        title: "Memory-bounded streaming STEP→GLB — for large assemblies that fail the normal load.",
-                                        disabled: otherViewing || isViewing,
-                                        onClick: () => onLoadStreamer(f.name),
-                                    }] : []),
-                                    ...(onDownload ? [{
-                                        key: "download",
-                                        label: "Download",
-                                        onClick: () => onDownload(f.name),
-                                    }] : []),
-                                    ...(onMoveToFolder ? [{
-                                        key: "move-to-folder",
-                                        label: "Move to folder…",
-                                        onClick: () => onMoveToFolder(f.name),
-                                    }] : []),
-                                ]}
+                                items={menuItems}
                             />
                         </span>
                     )}
                 </div>
             </div>
             {isViewing && (
-                <div className="mt-1 h-1 w-full bg-gray-300/50 rounded-sm overflow-hidden">
+                <div className="mt-1 h-1 w-full bg-gray-700 rounded-sm overflow-hidden">
                     {viewJob && viewJob.status !== 'queued' ? (
                         <div
                             className="h-full bg-blue-600 transition-[width] duration-200"
@@ -1232,6 +1979,10 @@ const FileRow: React.FC<FileRowProps> = ({
 // All branches collapse-by-default except the most recently active
 // one, whose latest commit is also auto-expanded. State is local to
 // the panel; refresh resets it.
+//
+// Version blobs are CI build outputs — read-only by design. Their
+// rows get load/download menus only: no rename/move/delete, no drag,
+// no drop targets.
 // ──────────────────────────────────────────────────────────────────
 
 interface VersionsTreeProps {
@@ -1245,12 +1996,15 @@ interface VersionsTreeProps {
     onToggle: (entry: ServerFileEntry, nextChecked: boolean) => Promise<void>;
     setPickerName: (n: string | null) => void;
     onOpenGitHistory: () => void;
-    selectionMode: boolean;
     selection: Set<string>;
-    onLongPress: (name: string) => void;
     onSelectToggle: (name: string) => void;
-    onDownload?: (key: string) => void;
-    onLoadStreamer?: (key: string) => void;
+    /** Read-only menu builder from the parent (load/streamer/download). */
+    fileMenuItemsFor: (file: ServerFileEntry) => KebabMenuItem[];
+    onOpenContextMenu: (
+        e: {clientX: number; clientY: number; preventDefault?: () => void; stopPropagation?: () => void},
+        items: KebabMenuItem[],
+    ) => void;
+    showModified?: boolean;
 }
 
 const VersionsTree: React.FC<VersionsTreeProps> = (props) => {
@@ -1307,9 +2061,9 @@ const VersionsTree: React.FC<VersionsTreeProps> = (props) => {
     };
 
     return (
-        <div className="border-t border-gray-500/40 pt-1 mt-1">
+        <div className="border-t border-gray-700/60 pt-1 mt-1">
             <div className="flex items-center justify-between px-1 pb-1">
-                <div className="text-[10px] uppercase tracking-wide text-gray-200/70">
+                <div className="text-[10px] uppercase tracking-wide text-gray-400">
                     Versions
                 </div>
                 <button
@@ -1321,7 +2075,7 @@ const VersionsTree: React.FC<VersionsTreeProps> = (props) => {
                     Git history
                 </button>
             </div>
-            <ul className="flex flex-col divide-y divide-gray-500/30">
+            <ul className="flex flex-col divide-y divide-gray-700/40">
                 {branches.map((b, bIdx) => {
                     const branchOpen = openBranches.has(b.encodedBranch);
                     return (
@@ -1329,7 +2083,7 @@ const VersionsTree: React.FC<VersionsTreeProps> = (props) => {
                             <button
                                 type="button"
                                 onClick={() => toggleBranch(b.encodedBranch)}
-                                className="flex items-center gap-1 px-1 py-1 text-xs text-left w-full hover:bg-gray-300/10"
+                                className="flex items-center gap-1 px-1 py-1 text-xs text-left w-full hover:bg-gray-800/80"
                                 aria-expanded={branchOpen}
                                 title={b.displayBranch}
                             >
@@ -1339,7 +2093,7 @@ const VersionsTree: React.FC<VersionsTreeProps> = (props) => {
                                 <span className="font-mono text-[11px] truncate flex-1 min-w-0">
                                     {b.displayBranch}
                                 </span>
-                                <span className="text-[10px] text-gray-300/80 shrink-0">
+                                <span className="text-[10px] text-gray-400 shrink-0">
                                     {b.commits.length} commit{b.commits.length === 1 ? "" : "s"}
                                 </span>
                             </button>
@@ -1354,7 +2108,7 @@ const VersionsTree: React.FC<VersionsTreeProps> = (props) => {
                                                 <button
                                                     type="button"
                                                     onClick={() => toggleCommit(commitKey)}
-                                                    className="flex items-center gap-1 px-1 py-1 text-xs text-left w-full hover:bg-gray-300/10"
+                                                    className="flex items-center gap-1 px-1 py-1 text-xs text-left w-full hover:bg-gray-800/80"
                                                     style={{paddingLeft: "16px"}}
                                                     aria-expanded={commitOpen}
                                                 >
@@ -1372,7 +2126,7 @@ const VersionsTree: React.FC<VersionsTreeProps> = (props) => {
                                                             latest
                                                         </span>
                                                     )}
-                                                    <span className="ml-auto text-[10px] text-gray-300/80 shrink-0">
+                                                    <span className="ml-auto text-[10px] text-gray-400 shrink-0">
                                                         {formatRelative(
                                                             // Prefer git timestamp from the sidecar
                                                             // (commit time); fall back to the blob
@@ -1385,28 +2139,30 @@ const VersionsTree: React.FC<VersionsTreeProps> = (props) => {
                                                     </span>
                                                 </button>
                                                 {commitOpen && (
-                                                    <ul className="flex flex-col divide-y divide-gray-500/20">
-                                                        {c.leaves.map((leaf) => (
-                                                            <FileRow
-                                                                key={leaf.file.name}
-                                                                file={leaf.file}
-                                                                displayName={leaf.artefactName}
-                                                                indentLevel={2}
-                                                                viewingName={props.viewingName}
-                                                                loadedSourceNames={props.loadedSourceNames}
-                                                                conversionJobs={props.conversionJobs}
-                                                                expandedName={props.expandedName}
-                                                                setExpandedName={props.setExpandedName}
-                                                                onToggle={props.onToggle}
-                                                                setPickerName={props.setPickerName}
-                                                                selectionMode={props.selectionMode}
-                                                                isSelected={props.selection.has(leaf.file.name)}
-                                                                onLongPress={props.onLongPress}
-                                                                onSelectToggle={props.onSelectToggle}
-                                                                onDownload={props.onDownload}
-                                                                onLoadStreamer={props.onLoadStreamer}
-                                                            />
-                                                        ))}
+                                                    <ul className="flex flex-col divide-y divide-gray-700/30">
+                                                        {c.leaves.map((leaf) => {
+                                                            const items = props.fileMenuItemsFor(leaf.file);
+                                                            return (
+                                                                <FileRow
+                                                                    key={leaf.file.name}
+                                                                    file={leaf.file}
+                                                                    displayName={leaf.artefactName}
+                                                                    indentLevel={2}
+                                                                    viewingName={props.viewingName}
+                                                                    loadedSourceNames={props.loadedSourceNames}
+                                                                    conversionJobs={props.conversionJobs}
+                                                                    expandedName={props.expandedName}
+                                                                    setExpandedName={props.setExpandedName}
+                                                                    onToggle={props.onToggle}
+                                                                    setPickerName={props.setPickerName}
+                                                                    isSelected={props.selection.has(leaf.file.name)}
+                                                                    onSelectToggle={props.onSelectToggle}
+                                                                    menuItems={items}
+                                                                    onOpenContextMenu={(e) => props.onOpenContextMenu(e, items)}
+                                                                    showModified={props.showModified}
+                                                                />
+                                                            );
+                                                        })}
                                                     </ul>
                                                 )}
                                             </li>

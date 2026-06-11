@@ -36,27 +36,39 @@ function readTabFromHash(): AdminTab {
     return VALID_TABS.has(raw) ? raw : "audit";
 }
 
-const AdminPanel: React.FC = () => {
+interface AdminPanelProps {
+    /** Mounted inside the viewer's floating panel host rather than the
+     * full-page ``/admin`` route. Embedded mode keeps the URL alone
+     * (no ``#audit`` hash scribbling from a draggable overlay) and
+     * hides the "← viewer" link — the host's close button already
+     * covers leaving the panel. */
+    embedded?: boolean;
+}
+
+const AdminPanel: React.FC<AdminPanelProps> = ({embedded = false}) => {
+    const syncHash = !embedded;
     const isAdmin = useMeStore((s) => s.isAdmin);
-    const [tab, setTab] = useState<AdminTab>(() => readTabFromHash());
+    const [tab, setTab] = useState<AdminTab>(() => (syncHash ? readTabFromHash() : "audit"));
 
     // Two-way bind ``tab`` to ``window.location.hash`` so reloads stay
     // on the selected tab AND back/forward navigation works inside
     // the page. setTab writes; popstate / hashchange reads back.
     useEffect(() => {
+        if (!syncHash) return;
         const onChange = () => setTab(readTabFromHash());
         window.addEventListener("hashchange", onChange);
         return () => window.removeEventListener("hashchange", onChange);
-    }, []);
+    }, [syncHash]);
 
     useEffect(() => {
+        if (!syncHash) return;
         const desired = `#${tab}`;
         if (window.location.hash !== desired) {
             // ``replaceState`` so each tab switch doesn't pollute the
             // back-button history with a long chain of admin tabs.
             window.history.replaceState(null, "", desired);
         }
-    }, [tab]);
+    }, [syncHash, tab]);
 
     if (!isAdmin) {
         // Non-admin landed on /admin directly (or auth dropped them
@@ -125,13 +137,15 @@ const AdminPanel: React.FC = () => {
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                     <CliTokenButton/>
-                    <a
-                        href="/"
-                        className="text-sm text-blue-400 hover:text-blue-300 px-2 py-1"
-                        title="Back to viewer"
-                    >
-                        ← viewer
-                    </a>
+                    {!embedded && (
+                        <a
+                            href="/"
+                            className="text-sm text-blue-400 hover:text-blue-300 px-2 py-1"
+                            title="Back to viewer"
+                        >
+                            ← viewer
+                        </a>
+                    )}
                 </div>
             </header>
             <main className="flex-1 min-h-0 overflow-hidden">

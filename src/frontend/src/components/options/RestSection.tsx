@@ -72,10 +72,9 @@ const SignedInRow: React.FC = () => {
                 <div className="text-gray-400">Signed in as</div>
                 <div className="truncate" title={label}>{label}</div>
                 {sub && (
-                    // Lighter than the rest of the row so the ID stays legible on
-                    // the desktop panel's light (bg-gray-400/50) background, where
-                    // gray-400 text washes out. The ID itself is the copy control —
-                    // click it to copy the OIDC sub (no separate button).
+                    // Lighter than the rest of the row so the ID stays legible.
+                    // The ID itself is the copy control — click it to copy the
+                    // OIDC sub (no separate button).
                     <div className="flex items-center gap-1 mt-0.5 text-gray-200">
                         <span className="shrink-0">ID:</span>
                         <button

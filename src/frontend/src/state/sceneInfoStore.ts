@@ -11,6 +11,12 @@ export interface GroupInfo {
   type: 'design' | 'simulation';
   fe_object_type?: 'node' | 'element';
   parent_name: string;
+  /** Storage key of the loaded file this group came from. Disambiguates
+   * groups across multi-model overlays (shown in the picker, and scopes
+   * the member-mesh lookup to the owning model's scene group). Absent
+   * for streaming-FEA groups pushed by load_fea_streaming — there's
+   * only ever one streaming model in the scene. */
+  source?: string;
 }
 
 // One kwarg in a utility's input form (mirrors the worker @utility spec).

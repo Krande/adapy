@@ -1,15 +1,49 @@
-import React, {useEffect, useMemo, useRef, useState} from 'react';
+import React, {useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
+import {createPortal} from "react-dom";
 import {useVirtualizer} from "@tanstack/react-virtual";
 
 import type {GroupInfo} from '@/state/sceneInfoStore';
 import {useViewerStores, useViewerRefs} from '@/state/AdaViewerContext';
+import {useModelState, loadedSourceGroups} from '@/state/modelState';
 import {selectGroupMembers} from "@/utils/selectGroupMembers";
 import {CustomBatchedMesh} from "@/utils/mesh_select/CustomBatchedMesh";
 
+// Pull every group out of one model's ADA extension, tagged with the
+// storage key it came from.
+function groupsFromExtension(ext: any, source: string | undefined): GroupInfo[] {
+    const groups: GroupInfo[] = [];
+    for (const designObj of ext?.design_objects ?? []) {
+        for (const group of designObj.groups ?? []) {
+            groups.push({
+                name: group.name || 'Unnamed Group',
+                description: group.description,
+                members: group.members,
+                type: 'design' as const,
+                parent_name: designObj.name || 'Unnamed Object',
+                source,
+            });
+        }
+    }
+    for (const simObj of ext?.simulation_objects ?? []) {
+        for (const group of simObj.groups ?? []) {
+            groups.push({
+                name: group.name || 'Unnamed Group',
+                description: group.description,
+                members: group.members,
+                type: 'simulation' as const,
+                parent_name: simObj.name || 'Unnamed Object',
+                fe_object_type: group.fe_object_type,
+                source,
+            });
+        }
+    }
+    return groups;
+}
 
 const GroupsSection = () => {
     const {useSceneInfoStore, useObjectInfoStore} = useViewerStores();
     const {adaExtension: adaExtensionRef, scene: sceneRef} = useViewerRefs();
+    const loadedSourceNames = useModelState((s) => s.loadedSourceNames);
     const {
         selectedGroup,
         availableGroups,
@@ -17,62 +51,54 @@ const GroupsSection = () => {
         setAvailableGroups,
     } = useSceneInfoStore();
 
-    // Collect groups from ADA extension on component mount. Some
-    // fixtures (e.g. ship1t1.fem via the legacy convert path) bake
-    // thousands of element / node sets into ADA_EXT_data — building
-    // the array is cheap, but the previous render path expanded the
-    // whole list as <option> children of a native <select>, which
-    // froze the main thread on mount. The combobox below virtualizes
-    // the list so the render stays bounded.
+    // Collect groups from EVERY loaded model's ADA extension — each
+    // scene group keeps its own copy in userData.__adaExt, so multi-
+    // model overlays contribute one batch per source file (the old
+    // single adaExtensionRef only ever held the LAST loaded model).
+    // Subscribing to loadedSourceNames keeps the list live across
+    // load/unload instead of snapshotting on mount. Some fixtures
+    // (e.g. ship1t1.fem via the legacy convert path) bake thousands
+    // of element / node sets into ADA_EXT_data — building the array
+    // is cheap; the combobox below virtualizes the render.
     useEffect(() => {
-        const collectGroups = () => {
-            const groups: GroupInfo[] = [];
-            const adaExtension = adaExtensionRef.current;
+        // Scene emptied → drop everything, selection included. The
+        // active-extension ref still holds the LAST model's data at
+        // this point, so it must not be consulted.
+        if (loadedSourceNames.size === 0) {
+            setAvailableGroups([]);
+            setSelectedGroup(null);
+            return;
+        }
 
-            if (adaExtension) {
-                if (adaExtension.design_objects) {
-                    adaExtension.design_objects.forEach(designObj => {
-                        if (designObj.groups) {
-                            designObj.groups.forEach(group => {
-                                groups.push({
-                                    name: group.name || 'Unnamed Group',
-                                    description: group.description,
-                                    members: group.members,
-                                    type: 'design' as const,
-                                    parent_name: designObj.name || 'Unnamed Object'
-                                });
-                            });
-                        }
-                    });
-                }
+        const groups: GroupInfo[] = [];
+        for (const name of loadedSourceNames) {
+            const sceneGroup = loadedSourceGroups.get(name);
+            if (!sceneGroup) continue;
+            const ext = (sceneGroup.children?.[0] as any)?.userData?.__adaExt
+                ?? (sceneGroup as any)?.userData?.__adaExt;
+            if (ext) groups.push(...groupsFromExtension(ext, name));
+        }
+        // Fallback for the streaming/replace path (no per-source scene
+        // groups registered): the single active-extension ref.
+        if (groups.length === 0 && adaExtensionRef.current) {
+            groups.push(...groupsFromExtension(adaExtensionRef.current, undefined));
+        }
 
-                if (adaExtension.simulation_objects) {
-                    adaExtension.simulation_objects.forEach(simObj => {
-                        if (simObj.groups) {
-                            simObj.groups.forEach(group => {
-                                groups.push({
-                                    name: group.name || 'Unnamed Group',
-                                    description: group.description,
-                                    members: group.members,
-                                    type: 'simulation' as const,
-                                    parent_name: simObj.name || 'Unnamed Object',
-                                    fe_object_type: group.fe_object_type
-                                });
-                            });
-                        }
-                    });
-                }
-            }
+        // Only overwrite when collection actually yielded groups.
+        // Streaming FEM/FEA models carry no ADA_EXT — their groups are
+        // pushed straight into this store by load_fea_streaming — so an
+        // empty collection must NOT clobber them.
+        if (groups.length > 0) setAvailableGroups(groups);
 
-            // Only overwrite when the ADA extension actually yielded groups. Streaming FEM/FEA
-            // models carry no ADA_EXT — their groups are pushed straight into this store by
-            // load_fea_streaming — so an empty collection here must NOT clobber them (the panel
-            // can mount after the model loads). Unload clears the store explicitly.
-            if (groups.length > 0) setAvailableGroups(groups);
-        };
-
-        collectGroups();
-    }, [setAvailableGroups]);
+        // A selected group whose model just unloaded is gone — clear it
+        // so the details table doesn't describe a ghost.
+        const sel = useSceneInfoStore.getState?.()
+            ? useSceneInfoStore.getState().selectedGroup
+            : null;
+        if (sel?.source && !loadedSourceNames.has(sel.source)) {
+            setSelectedGroup(null);
+        }
+    }, [setAvailableGroups, setSelectedGroup, useSceneInfoStore, loadedSourceNames, adaExtensionRef]);
 
     const applyGroupSelection = async (group: GroupInfo | null) => {
         if (!group) {
@@ -87,8 +113,14 @@ const GroupsSection = () => {
         if (group.members && group.members.length > 0) {
             useObjectInfoStore.getState().setName(`Group: ${group.name}`);
 
+            // Resolve parent_name → mesh inside the owning model's scene
+            // group when we know the source; two loaded files with
+            // same-named objects would otherwise race on whichever the
+            // whole-scene traversal finds first.
+            const searchRoot = (group.source && loadedSourceGroups.get(group.source))
+                || sceneRef.current;
             const customBatchedMeshes: CustomBatchedMesh[] = [];
-            sceneRef.current?.traverse(obj => {
+            searchRoot?.traverse(obj => {
                 if (obj instanceof CustomBatchedMesh) {
                     customBatchedMeshes.push(obj);
                 }
@@ -124,6 +156,14 @@ const GroupsSection = () => {
 
             {selectedGroup && (
                 <>
+                    {selectedGroup.source && (
+                        <div className="table-row">
+                            <div className="table-cell w-24">Model:</div>
+                            <div className="table-cell w-48 truncate" title={selectedGroup.source}>
+                                {selectedGroup.source.split("/").pop()}
+                            </div>
+                        </div>
+                    )}
                     <div className="table-row">
                         <div className="table-cell w-24">Type:</div>
                         <div className="table-cell w-48 capitalize">
@@ -178,6 +218,10 @@ interface GroupComboboxProps {
 
 const GroupCombobox: React.FC<GroupComboboxProps> = ({groups, selected, onSelect}) => {
     const [open, setOpen] = useState(false);
+    const multiSource = useMemo(
+        () => new Set(groups.map((g) => g.source ?? "")).size > 1,
+        [groups],
+    );
     const [query, setQuery] = useState("");
     const triggerRef = useRef<HTMLButtonElement | null>(null);
     const popoverRef = useRef<HTMLDivElement | null>(null);
@@ -187,7 +231,9 @@ const GroupCombobox: React.FC<GroupComboboxProps> = ({groups, selected, onSelect
     const filteredGroups = useMemo(() => {
         if (!query) return groups;
         const q = query.toLowerCase();
-        return groups.filter((g) => g.name.toLowerCase().includes(q));
+        return groups.filter((g) =>
+            g.name.toLowerCase().includes(q) ||
+            (g.source ?? "").toLowerCase().includes(q));
     }, [groups, query]);
 
     const rowVirtualizer = useVirtualizer({
@@ -223,6 +269,36 @@ const GroupCombobox: React.FC<GroupComboboxProps> = ({groups, selected, onSelect
         if (open) searchRef.current?.focus();
     }, [open]);
 
+    // Portal placement: fixed, anchored under the trigger, floating
+    // over the 3D view. Rendering the popover inline made it part of
+    // the Scene panel's overflow-y-auto scroll area — opening it grew
+    // the panel and on mobile shifted the whole page. The list height
+    // clamps to the space below the trigger so it never runs off the
+    // bottom edge.
+    const [pos, setPos] = useState<{top: number; left: number; width: number; maxH: number} | null>(null);
+    useLayoutEffect(() => {
+        if (!open) {
+            setPos(null);
+            return;
+        }
+        const place = () => {
+            const rect = triggerRef.current?.getBoundingClientRect();
+            if (!rect) return;
+            const width = Math.max(rect.width, 220);
+            const left = Math.min(rect.left, window.innerWidth - width - 8);
+            const maxH = Math.max(120, Math.min(240, window.innerHeight - rect.bottom - 48));
+            setPos({top: rect.bottom + 4, left: Math.max(8, left), width, maxH});
+        };
+        place();
+        window.addEventListener("resize", place);
+        // capture:true so the popover tracks the panel scrolling under it.
+        window.addEventListener("scroll", place, true);
+        return () => {
+            window.removeEventListener("resize", place);
+            window.removeEventListener("scroll", place, true);
+        };
+    }, [open]);
+
     const triggerLabel = selected
         ? `${selected.name} (${selected.type})`
         : groups.length === 0
@@ -236,7 +312,7 @@ const GroupCombobox: React.FC<GroupComboboxProps> = ({groups, selected, onSelect
                     ref={triggerRef}
                     type="button"
                     onClick={() => setOpen((v) => !v)}
-                    className="flex-1 p-1 rounded-sm bg-white border text-left text-xs truncate"
+                    className="flex-1 p-1 rounded-sm bg-gray-700 border border-gray-600 text-gray-100 text-left text-xs truncate"
                     disabled={groups.length === 0}
                     title={triggerLabel}
                 >
@@ -246,7 +322,7 @@ const GroupCombobox: React.FC<GroupComboboxProps> = ({groups, selected, onSelect
                     <button
                         type="button"
                         onClick={() => onSelect(null)}
-                        className="ml-1 px-1.5 bg-white border rounded-sm text-xs text-gray-700 hover:bg-gray-100"
+                        className="ml-1 px-1.5 bg-gray-700 border border-gray-600 rounded-sm text-xs text-gray-300 hover:bg-gray-600"
                         title="Clear selection"
                         aria-label="Clear selection"
                     >
@@ -254,15 +330,19 @@ const GroupCombobox: React.FC<GroupComboboxProps> = ({groups, selected, onSelect
                     </button>
                 )}
             </div>
-            {open && (
+            {open && pos && createPortal(
                 <div
                     ref={popoverRef}
-                    className="absolute z-50 mt-1 w-full bg-white border rounded-sm shadow-lg"
+                    className="fixed z-50 bg-gray-800 border border-gray-600 text-gray-100 rounded-sm shadow-lg"
+                    style={{top: pos.top, left: pos.left, width: pos.width}}
                 >
                     <input
                         ref={searchRef}
                         type="text"
-                        className="w-full p-1 border-b text-xs"
+                        // text-base on touch: iOS zooms the page when a
+                        // focused input's font-size is under 16px, which
+                        // is the "whole page shifts" effect on mobile.
+                        className="w-full p-1 bg-gray-800 text-gray-100 placeholder-gray-400 border-b border-gray-600 text-base sm:text-xs"
                         placeholder={`Filter ${groups.length} group${groups.length === 1 ? "" : "s"}…`}
                         value={query}
                         onChange={(e) => setQuery(e.target.value)}
@@ -270,10 +350,10 @@ const GroupCombobox: React.FC<GroupComboboxProps> = ({groups, selected, onSelect
                     <div
                         ref={listRef}
                         className="overflow-auto"
-                        style={{maxHeight: 240}}
+                        style={{maxHeight: pos.maxH}}
                     >
                         {filteredGroups.length === 0 ? (
-                            <div className="px-2 py-2 text-xs text-gray-500 italic">
+                            <div className="px-2 py-2 text-xs text-gray-400 italic">
                                 No matches
                             </div>
                         ) : (
@@ -286,7 +366,7 @@ const GroupCombobox: React.FC<GroupComboboxProps> = ({groups, selected, onSelect
                             >
                                 {rowVirtualizer.getVirtualItems().map((vRow) => {
                                     const g = filteredGroups[vRow.index];
-                                    const isSelected = selected?.name === g.name;
+                                    const isSelected = selected?.name === g.name && selected?.source === g.source;
                                     return (
                                         <button
                                             key={`${g.name}-${vRow.index}`}
@@ -299,25 +379,29 @@ const GroupCombobox: React.FC<GroupComboboxProps> = ({groups, selected, onSelect
                                             className={
                                                 "absolute left-0 right-0 px-2 text-left text-xs truncate " +
                                                 (isSelected
-                                                    ? "bg-blue-100"
-                                                    : "hover:bg-gray-100")
+                                                    ? "bg-blue-900/60"
+                                                    : "hover:bg-gray-700")
                                             }
                                             style={{
                                                 top: vRow.start,
                                                 height: vRow.size,
                                                 lineHeight: `${vRow.size}px`,
                                             }}
-                                            title={`${g.name} (${g.type})`}
+                                            title={g.source ? `${g.name} (${g.type}) — ${g.source}` : `${g.name} (${g.type})`}
                                         >
                                             {g.name}{" "}
-                                            <span className="text-gray-500">({g.type})</span>
+                                            <span className="text-gray-400">({g.type})</span>
+                                            {multiSource && g.source && (
+                                                <span className="text-gray-400"> · {g.source.split("/").pop()}</span>
+                                            )}
                                         </button>
                                     );
                                 })}
                             </div>
                         )}
                     </div>
-                </div>
+                </div>,
+                document.body,
             )}
         </div>
     );
