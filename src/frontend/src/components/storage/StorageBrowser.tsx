@@ -47,6 +47,9 @@ import {unload_any_source} from "@/utils/scene/handlers/unload_any_source";
 // ``dataTransfer.files`` instead; checking for this type tells the two
 // apart (types are readable during dragover, the payload only on drop).
 const KEYS_MIME = "application/x-adapy-keys";
+// Folder drags carry the folder path instead — the drop handler moves
+// the whole prefix (subfolders preserved via the grouped-move helper).
+const FOLDER_MIME = "application/x-adapy-folder";
 
 // Small inline CSS spinner. Uses border tricks rather than an SVG so
 // it scales with text size and stays crisp at 16px tall icons.
@@ -285,6 +288,8 @@ const StorageBrowser: React.FC = () => {
         });
     };
     const clearSelection = () => setSelection(new Set());
+    // Anchor for shift-click range selection (the last row toggled).
+    const lastSelectedRef = useRef<string | null>(null);
     // Upload progress: name = current file (or null), loaded/total in
     // bytes. Total may stay 0 if the browser can't determine it (rare
     // for File uploads); we treat that as indeterminate.
@@ -399,6 +404,7 @@ const StorageBrowser: React.FC = () => {
     // In-panel drag state: keys being dragged (for row dimming + the
     // move-to-root strip). Cleared on dragend/drop.
     const [draggingKeys, setDraggingKeys] = useState<string[] | null>(null);
+    const [draggingFolder, setDraggingFolder] = useState<string | null>(null);
     // Keyboard-navigation focus, keyed `folder:<path>` / `file:<name>`.
     // Pointer interactions move it too, so arrows continue from the
     // last clicked row.
@@ -810,6 +816,18 @@ const StorageBrowser: React.FC = () => {
     // OS-file drops upload into the folder.
     const handleDropOnFolder = async (target: string, e: React.DragEvent) => {
         setDraggingKeys(null);
+        setDraggingFolder(null);
+        const folderPath = e.dataTransfer.getData(FOLDER_MIME);
+        if (folderPath) {
+            if (!canMutate) return;
+            // No-ops: into itself, into its own subtree, or where it
+            // already lives.
+            if (target === folderPath || target.startsWith(folderPath + "/")) return;
+            if (dirnameOf(folderPath) === target) return;
+            const base = basenameOf(folderPath);
+            await runFolderMove(folderPath, target ? `${target}/${base}` : base);
+            return;
+        }
         const txt = e.dataTransfer.getData(KEYS_MIME);
         if (txt) {
             if (!canMutate) return;
@@ -977,7 +995,8 @@ const StorageBrowser: React.FC = () => {
     };
 
     const showRootDropStrip =
-        draggingKeys !== null && draggingKeys.some((k) => dirnameOf(k) !== "");
+        (draggingKeys !== null && draggingKeys.some((k) => dirnameOf(k) !== "")) ||
+        (draggingFolder !== null && dirnameOf(draggingFolder) !== "");
 
     return (
         <div
@@ -1322,8 +1341,28 @@ const StorageBrowser: React.FC = () => {
                                                 setPickerName={setPickerName}
                                                 isSelected={selection.has(node.file.name)}
                                                 isQueued={queuedLoadNames.has(node.file.name)}
-                                                onSelectToggle={(name) => {
+                                                onSelectToggle={(name, shiftKey) => {
                                                     setFocusedKey(`file:${name}`);
+                                                    if (shiftKey && lastSelectedRef.current && lastSelectedRef.current !== name) {
+                                                        // Range-select between the anchor and this
+                                                        // row, in visible order.
+                                                        const fileNames = flatRows
+                                                            .filter((r) => r.kind === "file")
+                                                            .map((r) => (r as {name: string}).name);
+                                                        const a = fileNames.indexOf(lastSelectedRef.current);
+                                                        const b = fileNames.indexOf(name);
+                                                        if (a >= 0 && b >= 0) {
+                                                            const [lo, hi] = a < b ? [a, b] : [b, a];
+                                                            setSelection((prev) => {
+                                                                const next = new Set(prev);
+                                                                for (let i = lo; i <= hi; i++) next.add(fileNames[i]);
+                                                                return next;
+                                                            });
+                                                            lastSelectedRef.current = name;
+                                                            return;
+                                                        }
+                                                    }
+                                                    lastSelectedRef.current = name;
                                                     toggleSelection(name);
                                                 }}
                                                 rowKey={`file:${node.file.name}`}
@@ -1377,6 +1416,13 @@ const StorageBrowser: React.FC = () => {
                                                 menuItems={items}
                                                 onOpenContextMenu={(e) => openCtxMenu(e, items)}
                                                 onDropInto={(e) => void handleDropOnFolder(node.path, e)}
+                                                draggable={canMutate && !isPending}
+                                                onDragStartRow={(e) => {
+                                                    e.dataTransfer.setData(FOLDER_MIME, node.path);
+                                                    e.dataTransfer.effectAllowed = "move";
+                                                    setDraggingFolder(node.path);
+                                                }}
+                                                onDragEndRow={() => setDraggingFolder(null)}
                                                 renaming={renaming?.kind === "folder" && renaming.path === node.path}
                                                 onRenameCommit={(v) => onRenameFolderCommit(node.path, v, isPending)}
                                                 onRenameCancel={() => setRenaming(null)}
@@ -1498,6 +1544,10 @@ interface FolderRowProps {
     /** Drop handler for in-panel moves + OS-file uploads into this
      * folder. Hover highlight is local state. */
     onDropInto?: (e: React.DragEvent) => void;
+    /** In-panel drag source (move the whole folder). */
+    draggable?: boolean;
+    onDragStartRow?: (e: React.DragEvent) => void;
+    onDragEndRow?: () => void;
     renaming?: boolean;
     onRenameCommit?: (newName: string) => void;
     onRenameCancel?: () => void;
@@ -1517,6 +1567,9 @@ const FolderRow: React.FC<FolderRowProps> = ({
     menuItems,
     onOpenContextMenu,
     onDropInto,
+    draggable,
+    onDragStartRow,
+    onDragEndRow,
     renaming,
     onRenameCommit,
     onRenameCancel,
@@ -1528,7 +1581,9 @@ const FolderRow: React.FC<FolderRowProps> = ({
     // the churn where a plain boolean would flicker.
     const [dragHover, setDragHover] = useState(0);
     const acceptsDrop = (e: React.DragEvent) =>
-        e.dataTransfer.types.includes(KEYS_MIME) || e.dataTransfer.types.includes("Files");
+        e.dataTransfer.types.includes(KEYS_MIME) ||
+        e.dataTransfer.types.includes(FOLDER_MIME) ||
+        e.dataTransfer.types.includes("Files");
     return (
         <li
             data-rowkey={rowKey}
@@ -1540,6 +1595,9 @@ const FolderRow: React.FC<FolderRowProps> = ({
                 (isPending ? "opacity-80 " : "")
             }
             style={{paddingLeft: 8 + indentPx}}
+            draggable={draggable || undefined}
+            onDragStart={draggable && onDragStartRow ? onDragStartRow : undefined}
+            onDragEnd={onDragEndRow}
             onClick={onToggle}
             onContextMenu={onOpenContextMenu}
             role="button"
@@ -1634,7 +1692,7 @@ interface FileRowProps {
     isSelected: boolean;
     /** Waiting in the scene-load queue (untick to remove). */
     isQueued?: boolean;
-    onSelectToggle: (name: string) => void;
+    onSelectToggle: (name: string, shiftKey?: boolean) => void;
     /** Row actions — shared between the kebab and the right-click
      * context menu (parent builds both from one list). */
     menuItems: KebabMenuItem[];
@@ -1708,6 +1766,10 @@ const FileRow: React.FC<FileRowProps> = ({
         }
     };
     const onPointerDown: React.PointerEventHandler = (e) => {
+        // Touch only — on mouse/pen the menu lives on right-click, and a
+        // held left button must stay free to start an HTML5 drag (which
+        // begins on movement; a timer firing mid-hold stole the gesture).
+        if (e.pointerType !== "touch") return;
         const {clientX, clientY} = e;
         longPressStart.current = {x: clientX, y: clientY};
         longPressFired.current = false;
@@ -1769,8 +1831,10 @@ const FileRow: React.FC<FileRowProps> = ({
                     return;
                 }
                 // Single click/tap = selection toggle (feeds the bulk
-                // toolbar). Context menu is right-click / long-press.
-                onSelectToggle(f.name);
+                // toolbar); shift-click selects the visible range from
+                // the last toggled row. Context menu is right-click /
+                // long-press.
+                onSelectToggle(f.name, e.shiftKey);
             }}
         >
             <div className="flex items-center justify-between gap-2">
@@ -1812,7 +1876,7 @@ const FileRow: React.FC<FileRowProps> = ({
                         type="button"
                         onClick={(e) => {
                             e.stopPropagation();
-                            onSelectToggle(f.name);
+                            onSelectToggle(f.name, e.shiftKey);
                         }}
                         className={`flex-1 min-w-0 text-left ${expandedName === f.name ? 'whitespace-normal break-all' : 'truncate'} ${isLoaded ? 'text-blue-200 font-medium' : ''}`}
                         title={f.name}
