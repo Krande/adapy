@@ -1,4 +1,5 @@
-import React, {useEffect, useMemo, useRef, useState} from 'react';
+import React, {useEffect, useLayoutEffect, useMemo, useRef, useState} from 'react';
+import {createPortal} from "react-dom";
 import {useVirtualizer} from "@tanstack/react-virtual";
 
 import type {GroupInfo} from '@/state/sceneInfoStore';
@@ -223,6 +224,36 @@ const GroupCombobox: React.FC<GroupComboboxProps> = ({groups, selected, onSelect
         if (open) searchRef.current?.focus();
     }, [open]);
 
+    // Portal placement: fixed, anchored under the trigger, floating
+    // over the 3D view. Rendering the popover inline made it part of
+    // the Scene panel's overflow-y-auto scroll area — opening it grew
+    // the panel and on mobile shifted the whole page. The list height
+    // clamps to the space below the trigger so it never runs off the
+    // bottom edge.
+    const [pos, setPos] = useState<{top: number; left: number; width: number; maxH: number} | null>(null);
+    useLayoutEffect(() => {
+        if (!open) {
+            setPos(null);
+            return;
+        }
+        const place = () => {
+            const rect = triggerRef.current?.getBoundingClientRect();
+            if (!rect) return;
+            const width = Math.max(rect.width, 220);
+            const left = Math.min(rect.left, window.innerWidth - width - 8);
+            const maxH = Math.max(120, Math.min(240, window.innerHeight - rect.bottom - 48));
+            setPos({top: rect.bottom + 4, left: Math.max(8, left), width, maxH});
+        };
+        place();
+        window.addEventListener("resize", place);
+        // capture:true so the popover tracks the panel scrolling under it.
+        window.addEventListener("scroll", place, true);
+        return () => {
+            window.removeEventListener("resize", place);
+            window.removeEventListener("scroll", place, true);
+        };
+    }, [open]);
+
     const triggerLabel = selected
         ? `${selected.name} (${selected.type})`
         : groups.length === 0
@@ -254,15 +285,19 @@ const GroupCombobox: React.FC<GroupComboboxProps> = ({groups, selected, onSelect
                     </button>
                 )}
             </div>
-            {open && (
+            {open && pos && createPortal(
                 <div
                     ref={popoverRef}
-                    className="absolute z-50 mt-1 w-full bg-gray-800 border border-gray-600 text-gray-100 rounded-sm shadow-lg"
+                    className="fixed z-50 bg-gray-800 border border-gray-600 text-gray-100 rounded-sm shadow-lg"
+                    style={{top: pos.top, left: pos.left, width: pos.width}}
                 >
                     <input
                         ref={searchRef}
                         type="text"
-                        className="w-full p-1 bg-gray-800 text-gray-100 placeholder-gray-400 border-b border-gray-600 text-xs"
+                        // text-base on touch: iOS zooms the page when a
+                        // focused input's font-size is under 16px, which
+                        // is the "whole page shifts" effect on mobile.
+                        className="w-full p-1 bg-gray-800 text-gray-100 placeholder-gray-400 border-b border-gray-600 text-base sm:text-xs"
                         placeholder={`Filter ${groups.length} group${groups.length === 1 ? "" : "s"}…`}
                         value={query}
                         onChange={(e) => setQuery(e.target.value)}
@@ -270,7 +305,7 @@ const GroupCombobox: React.FC<GroupComboboxProps> = ({groups, selected, onSelect
                     <div
                         ref={listRef}
                         className="overflow-auto"
-                        style={{maxHeight: 240}}
+                        style={{maxHeight: pos.maxH}}
                     >
                         {filteredGroups.length === 0 ? (
                             <div className="px-2 py-2 text-xs text-gray-400 italic">
@@ -317,7 +352,8 @@ const GroupCombobox: React.FC<GroupComboboxProps> = ({groups, selected, onSelect
                             </div>
                         )}
                     </div>
-                </div>
+                </div>,
+                document.body,
             )}
         </div>
     );
