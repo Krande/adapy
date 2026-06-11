@@ -988,11 +988,15 @@ const StorageBrowser: React.FC = () => {
             }
         >
             {maximized && createPortal(
-                // Light scrim — just enough to signal modality and give
-                // the panel edge contrast without blacking out the 3D
-                // scene behind it.
+                // Light scrim — just enough to signal modality without
+                // blacking out the 3D scene. z-[5]: the panel lives in
+                // the menu overlay's `z-10` stacking context, so its
+                // own z-index can never exceed 10 at the root level —
+                // a body-portaled scrim above 10 paints OVER the panel
+                // and darkens it too (visibly so on mobile). Below 10
+                // it dims only the canvas underneath.
                 <div
-                    className="fixed inset-0 z-[60] bg-black/25"
+                    className="fixed inset-0 z-[5] bg-black/25"
                     onClick={() => setMaximized(false)}
                     aria-hidden="true"
                 />,
