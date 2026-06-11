@@ -15,6 +15,7 @@ import ReloadIcon from "../icons/ReloadIcon";
 import PlusIcon from "../icons/PlusIcon";
 import ExpandIcon from "../icons/ExpandIcon";
 import FileTypeIcon from "../icons/FileTypeIcon";
+import ViewIcon from "../icons/ViewIcon";
 import FolderClosedIcon from "../icons/FolderClosedIcon";
 import FolderOpenIcon from "../icons/FolderOpenIcon";
 import ChevronRightIcon from "../icons/ChevronRightIcon";
@@ -1761,6 +1762,18 @@ const FileRow: React.FC<FileRowProps> = ({
                         >
                             {formatRelative(f.lastModified)}
                         </span>
+                    )}
+                    {/* Explicit "in scene" marker. The checkbox is a
+                        selection control (bulk actions), so loaded
+                        state needs its own signal — the blue filename
+                        tint alone is easy to miss on mobile. */}
+                    {isLoaded && !isViewing && (
+                        <ViewIcon
+                            width="16px"
+                            height="16px"
+                            className="text-blue-400"
+                            aria-label="Loaded in scene"
+                        />
                     )}
                     {isViewing && <Spinner/>}
                     {/* Legacy single-shot (step, field) picker — kept
