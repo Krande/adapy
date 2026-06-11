@@ -7,6 +7,9 @@ adacpp (backend-neutral mesh contract).
 
 import json
 import struct
+import sys
+
+import pytest
 
 import ada
 from ada import Beam, Plate, Section
@@ -178,6 +181,13 @@ def _mem_cap_fixture(tmp_path, n: int = 2):
     return src
 
 
+_caps_need_linux = pytest.mark.skipif(
+    sys.platform != "linux",
+    reason="the worker memory caps read /proc and are documented as inert off Linux",
+)
+
+
+@_caps_need_linux
 def test_stream_pool_soft_mem_cap_recycles_worker(monkeypatch, tmp_path):
     """A worker whose RSS stays above the soft cap BETWEEN solids exits cleanly and
     is respawned; no geometry is lost and the recycle count surfaces in stats."""
@@ -199,6 +209,7 @@ def test_stream_pool_soft_mem_cap_recycles_worker(monkeypatch, tmp_path):
     assert stats["pool"]["worker_recycles"] >= 2, stats
 
 
+@_caps_need_linux
 def test_stream_pool_hard_mem_cap_requeues_then_skips(monkeypatch, tmp_path):
     """A worker ballooning MID-solid is killed; the solid retries once on a fresh
     worker, and a second strike skips it with a ``memory`` reason."""
