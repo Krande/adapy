@@ -2,6 +2,15 @@
 
 
 
+## v0.20.0 (2026-06-11)
+
+### Feature
+
+* feat: storage panel revamp with user file management and viewer UX fixes (#220)
+
+Co-authored-by: Claude Fable 5 &lt;noreply@anthropic.com&gt; ([`72d9a3d`](https://github.com/Krande/adapy/commit/72d9a3d231af48846bba12b84b5b7029a7ec4df4))
+
+
 ## v0.19.0 (2026-06-11)
 
 ### Feature
