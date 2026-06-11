@@ -2,6 +2,15 @@
 
 
 
+## v0.18.4 (2026-06-11)
+
+### Fix
+
+* fix: arc-sense face rebuilds and id-keyed viewer selection (#218)
+
+Co-authored-by: Claude Opus 4.8 &lt;noreply@anthropic.com&gt; ([`ccab2d8`](https://github.com/Krande/adapy/commit/ccab2d81c6a0aa5cb37b997e77308a3be7949f7c))
+
+
 ## v0.18.3 (2026-06-10)
 
 ### Fix
