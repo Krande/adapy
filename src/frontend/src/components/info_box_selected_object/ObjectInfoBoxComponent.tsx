@@ -86,7 +86,7 @@ const ObjectInfoBox = () => {
     };
 
     return (
-        <div className="bg-gray-400 bg-opacity-50 rounded-sm p-2 min-w-80">
+        <div className="bg-gray-900/95 border border-gray-700 text-gray-100 shadow-lg rounded-md p-2 min-w-80">
             <h2 className="font-bold">Selected Object Info</h2>
             {/* Name. Two layouts because mobile and desktop have very
                 different real-estate constraints:
