@@ -50,7 +50,12 @@ from .queue import JobQueue
 from .scope import Scope
 from .scope import can_access as scope_can_access
 from .storage import Storage
-from .storage_ops import delete_blob_cascade, derived_source_of, move_keys_to_folder, rename_key_cascade
+from .storage_ops import (
+    delete_blob_cascade,
+    derived_source_of,
+    move_keys_to_folder,
+    rename_key_cascade,
+)
 
 # Text-heavy CAD/FEM formats compress 5–10× with gzip; binary mesh
 # formats already pack their geometry tightly so we skip them. The
