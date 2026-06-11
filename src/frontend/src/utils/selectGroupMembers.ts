@@ -122,12 +122,39 @@ export async function selectGroupMembers(
             return;
         }
 
-        // Default: element/mesh selection path
+        // Default: element/mesh selection path. Resolve the actual
+        // CustomBatchedMesh instances under the model root — the store
+        // keys (and everything downstream: highlight repaint, the
+        // "Go to object" bounding-box walk) need real meshes with
+        // geometry + drawRanges. The previous force-cast of the model
+        // GROUP to a mesh put a geometry-less object in the store, so
+        // centerViewOnSelection skipped every entry and framing a
+        // selected set silently did nothing.
+        const meshesByName = new Map<string, CustomBatchedMesh[]>();
+        const allMeshes: CustomBatchedMesh[] = [];
+        root.traverse((obj: THREE.Object3D) => {
+            if (obj instanceof CustomBatchedMesh) {
+                allMeshes.push(obj);
+                const arr = meshesByName.get(obj.name) ?? [];
+                arr.push(obj);
+                meshesByName.set(obj.name, arr);
+            }
+        });
+        if (allMeshes.length === 0 && root instanceof CustomBatchedMesh) {
+            // Some load paths register the mesh itself as the model root.
+            allMeshes.push(root);
+        }
+
         const batchData: Array<[CustomBatchedMesh, string]> = [];
-        // We currently select the entire model_key's CustomBatchedMesh (as in original code)
-        const mesh = root as unknown as CustomBatchedMesh;
-        for (const [, rangeId] of meshRangePairs) {
-            batchData.push([mesh, rangeId]);
+        for (const [meshName, rangeId] of meshRangePairs) {
+            const named = meshesByName.get(meshName);
+            // Prefer the mesh that actually owns the range — GLB node
+            // names can repeat across primitive splits.
+            const target =
+                named?.find((m) => m.drawRanges?.has(rangeId)) ??
+                named?.[0] ??
+                allMeshes.find((m) => m.drawRanges?.has(rangeId));
+            if (target) batchData.push([target, rangeId]);
         }
 
         // Clear current selection and add batch of meshes
@@ -135,6 +162,8 @@ export async function selectGroupMembers(
         if (batchData.length > 0) {
             selectedObjectStore.addBatchofMeshes(batchData);
             console.log(`Selected ${batchData.length} mesh ranges for group members`);
+        } else {
+            console.warn('No meshes resolved for group member ranges:', meshRangePairs.length);
         }
 
     } catch (error) {
